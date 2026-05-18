@@ -177,7 +177,6 @@ class TerminalController {
         "surface.focus",
         "pane.focus",
         "pane.last",
-        "file.open",
         "browser.focus_webview",
         "browser.focus",
         "browser.tab.switch",
@@ -363,11 +362,11 @@ class TerminalController {
         let parsed = RightSidebarRemoteRequest.parse(tokens: Self.tokenizeArgs(args))
         guard case .success(let request) = parsed else { return false }
         switch request.command {
-        case .toggle, .show, .focus:
+        case .focus:
             return true
         case .setMode(_, let focus):
             return focus
-        case .hide, .getState:
+        case .toggle, .show, .hide, .getState:
             return false
         }
     }
@@ -13307,7 +13306,7 @@ class TerminalController {
           report_pr_action <merge|close|reopen|create|checkout|ready|edit|view> [--target=X] [--tab=X] [--panel=Y] - Hint that a PR-affecting command completed in the panel
           report_pwd <path> [--tab=X] [--panel=Y] - Report current working directory
           clear_ports [--tab=X] [--panel=Y] - Clear listening ports
-          right_sidebar <toggle|show|hide|focus|set|mode> [mode] [--tab=X] [--window=Y] [--no-focus] - Control right sidebar visibility, mode, and focus
+          right_sidebar <toggle|show|hide|focus|set|mode> [mode] [--tab=X] [--window=Y] [--focus] [--no-focus] - Control right sidebar visibility, mode, and focus
           sidebar_state [--tab=X] - Dump sidebar metadata
           reset_sidebar [--tab=X] - Clear sidebar metadata
 

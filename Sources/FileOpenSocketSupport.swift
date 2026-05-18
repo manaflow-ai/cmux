@@ -91,7 +91,7 @@ extension TerminalController {
             }
         }
 
-        let shouldFocus = v2FocusAllowed(requested: v2Bool(params, "focus") ?? true)
+        let shouldFocus = v2FocusAllowed(requested: v2Bool(params, "focus") ?? false)
         var result: V2CallResult = .err(code: "internal_error", message: "Failed to open file", data: nil)
         v2MainSync {
             guard let ws = v2ResolveWorkspace(params: params, tabManager: tabManager) else {

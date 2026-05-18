@@ -39,7 +39,7 @@ extension CMUXCLI {
             }
             focus = parsed
         } else {
-            focus = true
+            focus = false
         }
 
         let targets = try parsedArgs.targets.map(resolveOpenTarget)
@@ -85,7 +85,7 @@ extension CMUXCLI {
                 pendingFiles.append(path)
             case .directory(let directory):
                 try flushPendingFiles()
-                var params: [String: Any] = ["cwd": directory]
+                var params: [String: Any] = ["cwd": directory, "focus": focus]
                 if let windowHandle { params["window_id"] = windowHandle }
                 let payload = try client.sendV2(method: "workspace.create", params: params)
                 payloads.append(["kind": "workspace", "payload": payload, "path": directory])
@@ -209,7 +209,7 @@ extension CMUXCLI {
           --surface <id|ref|index>     Target surface whose pane should receive file tabs (default: $CMUX_SURFACE_ID)
           --pane <id|ref|index>        Target pane for file tabs
           --window <id|ref|index>      Target window
-          --focus <true|false>         Focus opened file previews (default: true)
+          --focus <true|false>         Focus opened targets (default: false)
           --no-focus                   Do not focus opened file previews
 
         Examples:
