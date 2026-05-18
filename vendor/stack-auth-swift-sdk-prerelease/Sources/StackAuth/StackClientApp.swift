@@ -284,13 +284,11 @@ public actor StackClientApp {
             throw OAuthError(code: "parse_error", message: "Failed to parse OAuth authorization response")
         }
 
-        guard let providerUrl = URL(string: decoded.location) else {
-            throw OAuthError(code: "invalid_url", message: "OAuth authorization response contained an invalid provider URL")
-        }
+        let providerUrl = try Self.validatedOAuthProviderAuthorizationUrl(from: decoded.location)
 
         return providerUrl
     }
-    
+
     /// Native Apple Sign In using ASAuthorizationController
     @MainActor
     private func signInWithAppleNative(
@@ -375,6 +373,23 @@ public actor StackClientApp {
         await client.setTokens(accessToken: accessToken, refreshToken: refreshToken)
     }
     #endif
+
+    static func validatedOAuthProviderAuthorizationUrl(from location: String) throws -> URL {
+        let invalidHostCharacters = CharacterSet.whitespacesAndNewlines
+            .union(.controlCharacters)
+            .union(CharacterSet(charactersIn: "/\\?#@%"))
+        guard let components = URLComponents(string: location),
+              components.scheme?.lowercased() == "https",
+              components.user == nil,
+              components.password == nil,
+              let host = components.host,
+              !host.isEmpty,
+              host.rangeOfCharacter(from: invalidHostCharacters) == nil,
+              let providerUrl = components.url else {
+            throw OAuthError(code: "invalid_url", message: "OAuth authorization response contained an invalid provider URL")
+        }
+        return providerUrl
+    }
     
     /// Complete the OAuth flow with the callback URL
     /// - Parameters:
