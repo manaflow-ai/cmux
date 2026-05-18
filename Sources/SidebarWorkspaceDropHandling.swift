@@ -212,7 +212,15 @@ struct SidebarTabDropDelegate: DropDelegate {
 #if DEBUG
         cmuxDebugLog("sidebar.drop.commit tab=\(draggedTabId.uuidString.prefix(5)) from=\(fromIndex) to=\(targetIndex)")
 #endif
-        _ = reorderVisibleWorkspace(draggedTabId, targetIndex, dropState.workspaceIds)
+        guard reorderVisibleWorkspace(draggedTabId, targetIndex, dropState.workspaceIds) else {
+#if DEBUG
+            cmuxDebugLog(
+                "sidebar.drop.abort reason=reorderFailed tab=\(draggedTabId.uuidString.prefix(5)) " +
+                "from=\(fromIndex) to=\(targetIndex)"
+            )
+#endif
+            return false
+        }
         if let selectedId = selectedWorkspaceId() {
             selectedTabIds = [selectedId]
             syncSidebarSelection(selectedId)

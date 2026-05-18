@@ -4686,7 +4686,17 @@ class TerminalController {
                 return
             }
 
-            _ = tabManager.setWorkspaceHidden(workspace, hidden: hidden)
+            guard tabManager.setWorkspaceHidden(workspace, hidden: hidden) else {
+                result = .err(
+                    code: hidden ? "last_visible_workspace" : "not_found",
+                    message: hidden ? workspaceLastVisibleHideMessage() : "Workspace not found",
+                    data: [
+                        "workspace_id": workspaceId.uuidString,
+                        "workspace_ref": v2Ref(kind: .workspace, uuid: workspaceId)
+                    ]
+                )
+                return
+            }
             let windowId = v2ResolveWindowId(tabManager: tabManager)
             let index = workspace.isHidden ? nil : tabManager.visibleWorkspaceTabs.firstIndex { $0.id == workspaceId }
             result = .ok([
@@ -15484,8 +15494,8 @@ class TerminalController {
                 }
             }
             // Try as index
-            else if let index = Int(arg), index >= 0, index < tabManager.tabs.count {
-                tabManager.selectTab(at: index)
+            else if let index = Int(arg), index >= 0, index < tabManager.visibleWorkspaceTabs.count {
+                tabManager.selectVisibleWorkspace(at: index)
                 success = true
             }
         }

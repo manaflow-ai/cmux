@@ -3997,16 +3997,61 @@ class TabManager: ObservableObject {
         toVisibleIndex targetIndex: Int,
         visibleWorkspaceIds providedVisibleWorkspaceIds: [UUID]? = nil
     ) -> Bool {
-        let visibleIds = providedVisibleWorkspaceIds ?? visibleWorkspaceTabs.map(\.id)
-        guard visibleIds.contains(tabId) else { return false }
+        let currentVisibleIds = visibleWorkspaceTabs.map(\.id)
+        let visibleIds = providedVisibleWorkspaceIds ?? currentVisibleIds
+        guard visibleIds == currentVisibleIds else { return false }
+        guard let currentVisibleIndex = visibleIds.firstIndex(of: tabId) else { return false }
         guard targetIndex >= 0, targetIndex < visibleIds.count else { return false }
+        guard let workspace = tabs.first(where: { $0.id == tabId }) else { return false }
 
-        let visibleIdsAfterRemoval = visibleIds.filter { $0 != tabId }
-        guard !visibleIdsAfterRemoval.isEmpty else { return true }
-        if targetIndex >= visibleIdsAfterRemoval.count {
-            return reorderWorkspace(tabId: tabId, after: visibleIdsAfterRemoval.last)
+        let clampedTargetIndex = clampedVisibleReorderIndex(
+            for: workspace,
+            targetIndex: targetIndex,
+            visibleWorkspaceIds: visibleIds
+        )
+        guard currentVisibleIndex != clampedTargetIndex else { return true }
+
+        var reorderedVisibleIds = visibleIds
+        reorderedVisibleIds.remove(at: currentVisibleIndex)
+        reorderedVisibleIds.insert(tabId, at: clampedTargetIndex)
+
+        // Hidden workspaces keep their full-array slots; only visible slots receive the new order.
+        var visibleWorkspacesById: [UUID: Workspace] = [:]
+        for workspace in tabs where !workspace.isHidden {
+            visibleWorkspacesById[workspace.id] = workspace
         }
-        return reorderWorkspace(tabId: tabId, before: visibleIdsAfterRemoval[targetIndex])
+
+        var visibleCursor = 0
+        var reorderedTabs = tabs
+        for index in reorderedTabs.indices where !reorderedTabs[index].isHidden {
+            guard visibleCursor < reorderedVisibleIds.count,
+                  let replacement = visibleWorkspacesById[reorderedVisibleIds[visibleCursor]] else {
+                return false
+            }
+            reorderedTabs[index] = replacement
+            visibleCursor += 1
+        }
+        guard visibleCursor == reorderedVisibleIds.count else { return false }
+        tabs = reorderedTabs
+        postWorkspaceOrderDidChange(movedWorkspaceIds: [tabId])
+        return true
+    }
+
+    private func clampedVisibleReorderIndex(
+        for workspace: Workspace,
+        targetIndex: Int,
+        visibleWorkspaceIds: [UUID]
+    ) -> Int {
+        let clamped = max(0, min(targetIndex, visibleWorkspaceIds.count - 1))
+        let pinnedVisibleCount = visibleWorkspaceIds.reduce(into: 0) { count, workspaceId in
+            if tabs.first(where: { $0.id == workspaceId })?.isPinned == true {
+                count += 1
+            }
+        }
+        if workspace.isPinned {
+            return min(clamped, max(0, pinnedVisibleCount - 1))
+        }
+        return max(clamped, pinnedVisibleCount)
     }
 
     func setCustomTitle(tabId: UUID, title: String?) {
@@ -5602,13 +5647,17 @@ class TabManager: ObservableObject {
     }
 #endif
 
-    func selectTab(at index: Int) {
+    func selectVisibleWorkspace(at index: Int) {
         let visibleTabs = visibleWorkspaceTabs
         guard index >= 0 && index < visibleTabs.count else { return }
 #if DEBUG
         debugPrimeWorkspaceSwitchTrigger("select_index", to: visibleTabs[index].id)
 #endif
         selectedTabId = visibleTabs[index].id
+    }
+
+    func selectTab(at index: Int) {
+        selectVisibleWorkspace(at: index)
     }
 
     func selectLastTab() {

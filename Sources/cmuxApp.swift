@@ -779,7 +779,7 @@ struct cmuxApp: App {
                             forDigit: number,
                             workspaceCount: manager.visibleWorkspaceTabs.count
                         ) {
-                            manager.selectTab(at: targetIndex)
+                            manager.selectVisibleWorkspace(at: targetIndex)
                         }
                     }
                 } else {
@@ -789,7 +789,7 @@ struct cmuxApp: App {
                             forDigit: number,
                             workspaceCount: manager.visibleWorkspaceTabs.count
                         ) {
-                            manager.selectTab(at: targetIndex)
+                            manager.selectVisibleWorkspace(at: targetIndex)
                         }
                     }
                     .keyboardShortcut(

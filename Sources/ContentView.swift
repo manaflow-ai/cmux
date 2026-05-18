@@ -10044,6 +10044,8 @@ struct VerticalTabsSidebar: View {
                 contributesDropTargets: true
             )
 
+            hiddenWorkspacesAccordion(renderContext: renderContext, actions: actions)
+
             SidebarEmptyArea(
                 rowSpacing: tabRowSpacing,
                 dropTargetWorkspaceIds: renderContext.workspaceIds,
@@ -10056,8 +10058,6 @@ struct VerticalTabsSidebar: View {
                 actions: actions
             )
             .frame(maxWidth: .infinity, maxHeight: .infinity)
-
-            hiddenWorkspacesAccordion(renderContext: renderContext, actions: actions)
         }
         .frame(minHeight: minHeight, alignment: .top)
     }
@@ -12621,6 +12621,33 @@ private extension View {
     }
 
     @ViewBuilder
+    func sidebarWorkspaceReorderDropTarget(
+        enabled: Bool,
+        tabId: UUID,
+        draggedTabId: Binding<UUID?>,
+        selectedTabIds: Binding<Set<UUID>>,
+        lastSidebarSelectionIndex: Binding<Int?>,
+        rowHeight: CGFloat,
+        dragAutoScrollController: SidebarDragAutoScrollController,
+        dropIndicator: Binding<SidebarDropIndicator?>,
+        actions: VerticalTabsSidebar.SidebarWorkspaceActionBundle
+    ) -> some View {
+        if enabled {
+            onDrop(of: SidebarTabDragPayload.dropContentTypes, delegate: actions.makeSidebarTabDropDelegate(
+                tabId,
+                draggedTabId,
+                selectedTabIds,
+                lastSidebarSelectionIndex,
+                rowHeight,
+                dragAutoScrollController,
+                dropIndicator
+            ))
+        } else {
+            self
+        }
+    }
+
+    @ViewBuilder
     func sidebarBonsplitWorkspaceDropTarget(
         enabled: Bool,
         tabId: UUID,
@@ -13391,15 +13418,17 @@ private struct TabItemView: View, Equatable {
             draggedTabId: $draggedTabId,
             dropIndicator: $dropIndicator
         )
-        .onDrop(of: SidebarTabDragPayload.dropContentTypes, delegate: actions.makeSidebarTabDropDelegate(
-            tab.id,
-            $draggedTabId,
-            $selectedTabIds,
-            $lastSidebarSelectionIndex,
-            rowHeight,
-            dragAutoScrollController,
-            $dropIndicator
-        ))
+        .sidebarWorkspaceReorderDropTarget(
+            enabled: !isHiddenWorkspace,
+            tabId: tab.id,
+            draggedTabId: $draggedTabId,
+            selectedTabIds: $selectedTabIds,
+            lastSidebarSelectionIndex: $lastSidebarSelectionIndex,
+            rowHeight: rowHeight,
+            dragAutoScrollController: dragAutoScrollController,
+            dropIndicator: $dropIndicator,
+            actions: actions
+        )
         .sidebarBonsplitWorkspaceDropTarget(
             enabled: !isHiddenWorkspace,
             tabId: tab.id,
