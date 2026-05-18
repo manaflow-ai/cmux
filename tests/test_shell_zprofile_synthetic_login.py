@@ -15,6 +15,7 @@ from __future__ import annotations
 import os
 import shutil
 import subprocess
+import tempfile
 from pathlib import Path
 
 
@@ -85,11 +86,8 @@ def main() -> int:
         print(f"SKIP: missing wrapper .zshenv at {wrapper_dir}")
         return 0
 
-    base = Path("/tmp") / f"cmux_zprofile_synthetic_login_{os.getpid()}"
+    base = Path(tempfile.mkdtemp(prefix="cmux_zprofile_synthetic_login_"))
     try:
-        shutil.rmtree(base, ignore_errors=True)
-        base.mkdir(parents=True, exist_ok=True)
-
         cases = [
             ("synthetic", False),
             ("native-login", True),
