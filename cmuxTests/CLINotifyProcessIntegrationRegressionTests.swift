@@ -963,6 +963,88 @@ final class CLINotifyProcessIntegrationRegressionTests: XCTestCase {
         )
     }
 
+    func testMemoryTrimRecoversSurfaceUUIDWhenOwnedTagOnlyHasSurfaceRef() throws {
+        let cliPath = try bundledCLIPath()
+        let socketPath = makeSocketPath("mem-trim-surface-ref")
+        let listenerFD = try bindUnixSocket(at: socketPath)
+        let state = MockSocketServerState()
+        let workspaceId = "15151515-1515-1515-1515-151515151515"
+        let surfaceId = "25252525-2525-2525-2525-252525252525"
+
+        defer {
+            Darwin.close(listenerFD)
+            unlink(socketPath)
+        }
+
+        let serverHandled = startMockServer(listenerFD: listenerFD, state: state) { line in
+            guard let payload = self.jsonObject(line),
+                  let id = payload["id"] as? String,
+                  let method = payload["method"] as? String else {
+                return self.malformedRequestResponse(raw: line)
+            }
+            switch method {
+            case "system.top":
+                return self.v2Response(
+                    id: id,
+                    ok: true,
+                    result: self.memorySystemTopFixture(
+                        workspaceId: workspaceId,
+                        workspaceRef: "workspace:8",
+                        surfaceId: surfaceId,
+                        agentKey: "claude_code",
+                        agentPID: 626_264,
+                        secretCommandLine: "/opt/homebrew/bin/claude --dangerous-secret ignored",
+                        includeAgentTagSurfaceId: false
+                    )
+                )
+            case "surface.send_text":
+                let params = payload["params"] as? [String: Any] ?? [:]
+                XCTAssertEqual(params["workspace_id"] as? String, workspaceId)
+                XCTAssertEqual(params["surface_id"] as? String, surfaceId)
+                XCTAssertEqual(params["text"] as? String, "/exit\r")
+                return self.v2Response(id: id, ok: true, result: [:])
+            default:
+                return self.v2Response(
+                    id: id,
+                    ok: false,
+                    error: ["code": "unexpected_method", "message": "Unexpected method \(method)"]
+                )
+            }
+        }
+
+        var environment = ProcessInfo.processInfo.environment
+        environment["CMUX_SOCKET_PATH"] = socketPath
+        environment["CMUX_CLI_SENTRY_DISABLED"] = "1"
+
+        let result = runProcess(
+            executablePath: cliPath,
+            arguments: [
+                "memory",
+                "trim",
+                "--workspace",
+                "workspace:8",
+                "--agent",
+                "claude",
+                "--grace-seconds",
+                "0",
+                "--json",
+                "--id-format",
+                "uuids",
+            ],
+            environment: environment,
+            timeout: 5
+        )
+
+        wait(for: [serverHandled], timeout: 5)
+        XCTAssertFalse(result.timedOut, result.stderr)
+        XCTAssertEqual(result.status, 0, result.stderr)
+        XCTAssertTrue(result.stderr.isEmpty, result.stderr)
+        XCTAssertEqual(
+            state.commands.compactMap { self.jsonObject($0)?["method"] as? String },
+            ["system.top", "surface.send_text"]
+        )
+    }
+
     func testMemoryTrimAutoRejectsProcessNameFallbackWithoutOwnedTag() throws {
         let cliPath = try bundledCLIPath()
         let socketPath = makeSocketPath("mem-trim-auto")
@@ -2240,19 +2322,24 @@ final class CLINotifyProcessIntegrationRegressionTests: XCTestCase {
         agentKey: String,
         agentPID: Int,
         secretCommandLine: String,
-        includeAgentTag: Bool = true
+        includeAgentTag: Bool = true,
+        includeAgentTagSurfaceId: Bool = true
     ) -> [String: Any] {
-        let tags: [[String: Any]] = includeAgentTag ? [
-            [
+        var tags: [[String: Any]] = []
+        if includeAgentTag {
+            var tag: [String: Any] = [
                 "kind": "tag",
                 "key": agentKey,
                 "pid": agentPID,
-                "surface_id": surfaceId,
                 "surface_ref": "surface:3",
                 "resources": ["resident_bytes": 268_435_456],
                 "command_line": secretCommandLine,
-            ],
-        ] : []
+            ]
+            if includeAgentTagSurfaceId {
+                tag["surface_id"] = surfaceId
+            }
+            tags = [tag]
+        }
         return [
             "sample": ["sampled_at": "2026-05-13T12:00:00Z"],
             "windows": [

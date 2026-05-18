@@ -136,7 +136,7 @@ extension CMUXCLI {
 
         func gracefulExitAction(for candidate: MemoryAgentCandidate) -> MemoryGracefulExitAction? {
             guard let graceful = memoryGracefulExit(for: candidate),
-                  let surfaceId = candidate.surfaceId else {
+                  let surfaceId = normalizedUUIDString(candidate.surfaceId) else {
                 return nil
             }
             return MemoryGracefulExitAction(
@@ -243,21 +243,56 @@ extension CMUXCLI {
         ) -> MemoryAgentCandidate {
             guard let existing else { return candidate }
             if existing.owned != candidate.owned {
-                return candidate.owned ? candidate : existing
+                return candidate.owned
+                    ? memoryCandidate(candidate, mergingSupplementalFieldsFrom: existing)
+                    : memoryCandidate(existing, mergingSupplementalFieldsFrom: candidate)
             }
             if existing.surfaceId == nil && candidate.surfaceId != nil {
-                return candidate
+                return memoryCandidate(candidate, mergingSupplementalFieldsFrom: existing)
             }
             if existing.identity == nil && candidate.identity != nil {
-                return candidate
+                return memoryCandidate(candidate, mergingSupplementalFieldsFrom: existing)
             }
             if existing.residentBytesKnown != candidate.residentBytesKnown {
-                return candidate.residentBytesKnown ? candidate : existing
+                return candidate.residentBytesKnown
+                    ? memoryCandidate(candidate, mergingSupplementalFieldsFrom: existing)
+                    : memoryCandidate(existing, mergingSupplementalFieldsFrom: candidate)
             }
             if candidate.residentBytes > existing.residentBytes {
-                return candidate
+                return memoryCandidate(candidate, mergingSupplementalFieldsFrom: existing)
             }
-            return existing
+            return memoryCandidate(existing, mergingSupplementalFieldsFrom: candidate)
+        }
+
+        private func memoryCandidate(
+            _ base: MemoryAgentCandidate,
+            mergingSupplementalFieldsFrom supplemental: MemoryAgentCandidate
+        ) -> MemoryAgentCandidate {
+            guard base.pid == supplemental.pid, base.key == supplemental.key else {
+                return base
+            }
+            let mergedResidentBytesKnown = base.residentBytesKnown || supplemental.residentBytesKnown
+            let mergedResidentBytes = base.residentBytesKnown ? base.residentBytes : supplemental.residentBytes
+            return MemoryAgentCandidate(
+                key: base.key,
+                pid: base.pid,
+                surfaceId: base.surfaceId ?? supplemental.surfaceId,
+                surfaceRef: base.surfaceRef ?? supplemental.surfaceRef,
+                processName: base.processName ?? supplemental.processName,
+                residentBytes: mergedResidentBytes,
+                residentBytesKnown: mergedResidentBytesKnown,
+                source: base.source,
+                identity: base.identity ?? supplemental.identity
+            )
+        }
+
+        private func normalizedUUIDString(_ raw: String?) -> String? {
+            guard let trimmed = raw?.trimmingCharacters(in: .whitespacesAndNewlines),
+                  !trimmed.isEmpty,
+                  let uuid = UUID(uuidString: trimmed) else {
+                return nil
+            }
+            return uuid.uuidString
         }
 
         private func memoryResidentBytes(from raw: Any?) -> (value: Int64, known: Bool) {
@@ -276,7 +311,7 @@ extension CMUXCLI {
                     return (0, false)
                 }
                 if CFNumberIsFloatType(number) {
-                    guard let converted = Int64(exactly: value.doubleValue) else {
+                    guard let converted = memoryTruncatedInt64Value(value.doubleValue) else {
                         return (0, false)
                     }
                     return (converted, true)
@@ -288,13 +323,13 @@ extension CMUXCLI {
                 return (converted, true)
             }
             if let value = raw as? Double {
-                guard let converted = Int64(exactly: value) else {
+                guard let converted = memoryTruncatedInt64Value(value) else {
                     return (0, false)
                 }
                 return (converted, true)
             }
             if let value = raw as? Float {
-                guard let converted = Int64(exactly: Double(value)) else {
+                guard let converted = memoryTruncatedInt64Value(Double(value)) else {
                     return (0, false)
                 }
                 return (converted, true)
@@ -307,6 +342,16 @@ extension CMUXCLI {
                 return (converted, true)
             }
             return (0, false)
+        }
+
+        private func memoryTruncatedInt64Value(_ value: Double) -> Int64? {
+            guard value.isFinite else { return nil }
+            let truncated = value.rounded(.towardZero)
+            guard truncated >= Double(Int64.min),
+                  truncated < Double(Int64.max) else {
+                return nil
+            }
+            return Int64(truncated)
         }
 
         private func memoryAgentKey(for raw: String) -> String? {
@@ -338,4 +383,5 @@ extension CMUXCLI {
             }
         }
     }
+
 }

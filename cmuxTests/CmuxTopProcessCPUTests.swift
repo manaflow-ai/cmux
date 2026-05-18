@@ -1,4 +1,5 @@
 import Darwin
+import Foundation
 import XCTest
 
 #if canImport(cmux_DEV)
@@ -8,6 +9,11 @@ import XCTest
 #endif
 
 final class CmuxTopProcessCPUTests: XCTestCase {
+    func testTopInt64ValueTruncatesFloatBackedNumbers() {
+        XCTAssertEqual(CMUXCLI.topInt64Value(NSNumber(value: 1_024.75)), 1_024)
+        XCTAssertEqual(CMUXCLI.topInt64Value(2_048.5), 2_048)
+    }
+
     func testOverflowSentinelReportsZeroCPUPercent() {
         let previous = CmuxTopProcessCPUSample(
             totalTimeTicks: 100,

@@ -12440,10 +12440,10 @@ struct CMUXCLI {
             return topInt64NumberValue(value) ?? 0
         }
         if let value = raw as? Double {
-            return Int64(exactly: value) ?? 0
+            return topTruncatedInt64Value(value) ?? 0
         }
         if let value = raw as? Float {
-            return Int64(exactly: Double(value)) ?? 0
+            return topTruncatedInt64Value(Double(value)) ?? 0
         }
         if let value = raw as? String,
            let parsed = Int64(value.trimmingCharacters(in: .whitespacesAndNewlines)) {
@@ -12458,13 +12458,23 @@ struct CMUXCLI {
             return value.boolValue ? 1 : 0
         }
         if CFNumberIsFloatType(number) {
-            return Int64(exactly: value.doubleValue)
+            return topTruncatedInt64Value(value.doubleValue)
         }
         var integer: Int64 = 0
         guard CFNumberGetValue(number, .sInt64Type, &integer) else {
             return nil
         }
         return integer
+    }
+
+    private static func topTruncatedInt64Value(_ value: Double) -> Int64? {
+        guard value.isFinite else { return nil }
+        let truncated = value.rounded(.towardZero)
+        guard truncated >= Double(Int64.min),
+              truncated < Double(Int64.max) else {
+            return nil
+        }
+        return Int64(truncated)
     }
 
     func topDouble(_ raw: Any?) -> Double {

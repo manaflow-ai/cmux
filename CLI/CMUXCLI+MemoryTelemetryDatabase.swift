@@ -206,17 +206,17 @@ extension CMUXCLI {
 
         private func columnExists(_ table: String, column: String) throws -> Bool {
             var stmt: OpaquePointer?
-            let sql = "PRAGMA table_info(\(table))"
+            let sql = "SELECT 1 FROM pragma_table_info(?) WHERE name = ? LIMIT 1"
             guard sqlite3_prepare_v2(db, sql, -1, &stmt, nil) == SQLITE_OK, let stmt else {
                 throw CLIError(message: telemetryAccessErrorMessage)
             }
             defer { sqlite3_finalize(stmt) }
-            var stepResult = sqlite3_step(stmt)
-            while stepResult == SQLITE_ROW {
-                if sqliteText(stmt, 1) == column {
-                    return true
-                }
-                stepResult = sqlite3_step(stmt)
+            let transient = unsafeBitCast(OpaquePointer(bitPattern: -1)!, to: sqlite3_destructor_type.self)
+            bindText(stmt, 1, table, transient: transient)
+            bindText(stmt, 2, column, transient: transient)
+            let stepResult = sqlite3_step(stmt)
+            if stepResult == SQLITE_ROW {
+                return true
             }
             guard stepResult == SQLITE_DONE else {
                 throw CLIError(message: telemetryAccessErrorMessage)
