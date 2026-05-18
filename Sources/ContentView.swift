@@ -6058,6 +6058,29 @@ struct ContentView: View {
         return now - completedAt < maximumAge
     }
 
+    static func commandPaletteForkableAgentUnsupportedProbeCacheIsFresh(
+        panelKey: String,
+        unsupportedSnapshotFingerprintsByPanelKey: [String: String],
+        cachedRemoteContextsByPanelKey: [String: Bool],
+        cachedTTYNamesByPanelKey: [String: String],
+        cachedTTYFreshByPanelKey: [String: Bool],
+        probeCompletedAtByPanelKey: [String: TimeInterval],
+        isRemoteTerminal: Bool,
+        ttyName: String?,
+        ttyWasReportedInCurrentSession: Bool,
+        now: TimeInterval,
+        maximumAge: TimeInterval = commandPaletteForkableAgentProbeCacheLifetime
+    ) -> Bool {
+        guard unsupportedSnapshotFingerprintsByPanelKey[panelKey] != nil,
+              cachedRemoteContextsByPanelKey[panelKey] == isRemoteTerminal,
+              cachedTTYNamesByPanelKey[panelKey] == commandPaletteTTYCacheValue(ttyName),
+              cachedTTYFreshByPanelKey[panelKey] == ttyWasReportedInCurrentSession,
+              let completedAt = probeCompletedAtByPanelKey[panelKey] else {
+            return false
+        }
+        return now - completedAt < maximumAge
+    }
+
     private func refreshCommandPaletteForkableAgentAvailabilityIfNeeded(scope: CommandPaletteListScope) {
         guard scope == .commands,
               let panelContext = focusedPanelContext,
@@ -6164,6 +6187,22 @@ struct ContentView: View {
             supportedRemoteContextsByPanelKey: commandPaletteForkableAgentRemoteContextsByPanelKey,
             supportedTTYNamesByPanelKey: commandPaletteForkableAgentTTYNamesByPanelKey,
             supportedTTYFreshByPanelKey: commandPaletteForkableAgentTTYFreshByPanelKey,
+            probeCompletedAtByPanelKey: commandPaletteForkableAgentProbeCompletedAtByPanelKey,
+            isRemoteTerminal: isRemoteTerminal,
+            ttyName: ttyName,
+            ttyWasReportedInCurrentSession: ttyWasReportedInCurrentSession,
+            now: CACurrentMediaTime()
+        ),
+           !panelChanged {
+            return
+        }
+
+        if Self.commandPaletteForkableAgentUnsupportedProbeCacheIsFresh(
+            panelKey: panelKey,
+            unsupportedSnapshotFingerprintsByPanelKey: commandPaletteForkableAgentUnsupportedSnapshotFingerprintsByPanelKey,
+            cachedRemoteContextsByPanelKey: commandPaletteForkableAgentRemoteContextsByPanelKey,
+            cachedTTYNamesByPanelKey: commandPaletteForkableAgentTTYNamesByPanelKey,
+            cachedTTYFreshByPanelKey: commandPaletteForkableAgentTTYFreshByPanelKey,
             probeCompletedAtByPanelKey: commandPaletteForkableAgentProbeCompletedAtByPanelKey,
             isRemoteTerminal: isRemoteTerminal,
             ttyName: ttyName,
@@ -6302,13 +6341,16 @@ struct ContentView: View {
                             fallbackFingerprint: fallbackFingerprint
                         )
                     }
-                    shouldRefreshResults = wasSupported || hadCachedSnapshot || unsupportedFingerprint != nil
+                    shouldRefreshResults = wasSupported ||
+                        hadCachedSnapshot ||
+                        (fallbackFingerprint != nil && unsupportedFingerprint != nil)
                     clearCommandPaletteForkableAgentCache(for: panelKey)
                     if let unsupportedFingerprint {
                         commandPaletteForkableAgentUnsupportedSnapshotFingerprintsByPanelKey[panelKey] = unsupportedFingerprint
                         commandPaletteForkableAgentRemoteContextsByPanelKey[panelKey] = isRemoteTerminal
                         commandPaletteForkableAgentTTYNamesByPanelKey[panelKey] = ttyState.cacheValue
                         commandPaletteForkableAgentTTYFreshByPanelKey[panelKey] = ttyState.wasReportedInCurrentSession
+                        commandPaletteForkableAgentProbeCompletedAtByPanelKey[panelKey] = CACurrentMediaTime()
                     }
                 }
                 commandPaletteForkableAgentProbeIDsByPanelKey.removeValue(forKey: panelKey)

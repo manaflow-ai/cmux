@@ -796,6 +796,110 @@ final class CommandPaletteSearchEngineTests: XCTestCase {
         )
     }
 
+    func testForkableAgentUnsupportedProbeCacheRequiresFreshMatchingContext() {
+        let panelKey = ContentView.commandPaletteForkableAgentPanelKey(
+            workspaceId: UUID(),
+            panelId: UUID()
+        )
+        let completedAt: TimeInterval = 10
+        let unsupportedSnapshotFingerprintsByPanelKey = [panelKey: "unsupported-fingerprint"]
+        let cachedRemoteContextsByPanelKey = [panelKey: false]
+        let cachedTTYNamesByPanelKey = [panelKey: "ttys001"]
+        let cachedTTYFreshByPanelKey = [panelKey: true]
+        let probeCompletedAtByPanelKey = [panelKey: completedAt]
+
+        XCTAssertTrue(
+            ContentView.commandPaletteForkableAgentUnsupportedProbeCacheIsFresh(
+                panelKey: panelKey,
+                unsupportedSnapshotFingerprintsByPanelKey: unsupportedSnapshotFingerprintsByPanelKey,
+                cachedRemoteContextsByPanelKey: cachedRemoteContextsByPanelKey,
+                cachedTTYNamesByPanelKey: cachedTTYNamesByPanelKey,
+                cachedTTYFreshByPanelKey: cachedTTYFreshByPanelKey,
+                probeCompletedAtByPanelKey: probeCompletedAtByPanelKey,
+                isRemoteTerminal: false,
+                ttyName: "ttys001",
+                ttyWasReportedInCurrentSession: true,
+                now: completedAt + 1,
+                maximumAge: 2
+            )
+        )
+        XCTAssertFalse(
+            ContentView.commandPaletteForkableAgentUnsupportedProbeCacheIsFresh(
+                panelKey: panelKey,
+                unsupportedSnapshotFingerprintsByPanelKey: unsupportedSnapshotFingerprintsByPanelKey,
+                cachedRemoteContextsByPanelKey: cachedRemoteContextsByPanelKey,
+                cachedTTYNamesByPanelKey: cachedTTYNamesByPanelKey,
+                cachedTTYFreshByPanelKey: cachedTTYFreshByPanelKey,
+                probeCompletedAtByPanelKey: probeCompletedAtByPanelKey,
+                isRemoteTerminal: false,
+                ttyName: "ttys001",
+                ttyWasReportedInCurrentSession: true,
+                now: completedAt + 2,
+                maximumAge: 2
+            )
+        )
+        XCTAssertFalse(
+            ContentView.commandPaletteForkableAgentUnsupportedProbeCacheIsFresh(
+                panelKey: panelKey,
+                unsupportedSnapshotFingerprintsByPanelKey: [:],
+                cachedRemoteContextsByPanelKey: cachedRemoteContextsByPanelKey,
+                cachedTTYNamesByPanelKey: cachedTTYNamesByPanelKey,
+                cachedTTYFreshByPanelKey: cachedTTYFreshByPanelKey,
+                probeCompletedAtByPanelKey: probeCompletedAtByPanelKey,
+                isRemoteTerminal: false,
+                ttyName: "ttys001",
+                ttyWasReportedInCurrentSession: true,
+                now: completedAt + 1,
+                maximumAge: 2
+            )
+        )
+        XCTAssertFalse(
+            ContentView.commandPaletteForkableAgentUnsupportedProbeCacheIsFresh(
+                panelKey: panelKey,
+                unsupportedSnapshotFingerprintsByPanelKey: unsupportedSnapshotFingerprintsByPanelKey,
+                cachedRemoteContextsByPanelKey: cachedRemoteContextsByPanelKey,
+                cachedTTYNamesByPanelKey: cachedTTYNamesByPanelKey,
+                cachedTTYFreshByPanelKey: cachedTTYFreshByPanelKey,
+                probeCompletedAtByPanelKey: probeCompletedAtByPanelKey,
+                isRemoteTerminal: true,
+                ttyName: "ttys001",
+                ttyWasReportedInCurrentSession: true,
+                now: completedAt + 1,
+                maximumAge: 2
+            )
+        )
+        XCTAssertFalse(
+            ContentView.commandPaletteForkableAgentUnsupportedProbeCacheIsFresh(
+                panelKey: panelKey,
+                unsupportedSnapshotFingerprintsByPanelKey: unsupportedSnapshotFingerprintsByPanelKey,
+                cachedRemoteContextsByPanelKey: cachedRemoteContextsByPanelKey,
+                cachedTTYNamesByPanelKey: cachedTTYNamesByPanelKey,
+                cachedTTYFreshByPanelKey: cachedTTYFreshByPanelKey,
+                probeCompletedAtByPanelKey: probeCompletedAtByPanelKey,
+                isRemoteTerminal: false,
+                ttyName: "ttys002",
+                ttyWasReportedInCurrentSession: true,
+                now: completedAt + 1,
+                maximumAge: 2
+            )
+        )
+        XCTAssertFalse(
+            ContentView.commandPaletteForkableAgentUnsupportedProbeCacheIsFresh(
+                panelKey: panelKey,
+                unsupportedSnapshotFingerprintsByPanelKey: unsupportedSnapshotFingerprintsByPanelKey,
+                cachedRemoteContextsByPanelKey: cachedRemoteContextsByPanelKey,
+                cachedTTYNamesByPanelKey: cachedTTYNamesByPanelKey,
+                cachedTTYFreshByPanelKey: [:],
+                probeCompletedAtByPanelKey: probeCompletedAtByPanelKey,
+                isRemoteTerminal: false,
+                ttyName: "ttys001",
+                ttyWasReportedInCurrentSession: true,
+                now: completedAt + 1,
+                maximumAge: 2
+            )
+        )
+    }
+
     func testProcessDetectionFallbackScopeUsesFocusedLocalTTY() throws {
         let workspaceId = UUID()
         let panelId = UUID()

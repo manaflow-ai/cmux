@@ -141,6 +141,25 @@ struct AgentLaunchSanitizerTests {
         )
     }
 
+    @Test("Does not preserve Codex startup images for direct fork replay")
+    func doesNotPreserveCodexStartupImagesForDirectForkReplay() {
+        #expect(
+            AgentLaunchSanitizer.preservedCodexForkArguments(
+                args: [
+                    "--image",
+                    "/tmp/screenshot.png",
+                    "--model",
+                    "gpt-5.4",
+                    "prompt should not replay",
+                ],
+                preserveImageOptions: true
+            ) == [
+                "--model",
+                "gpt-5.4",
+            ]
+        )
+    }
+
     @Test("Drops Codex startup images and keeps following flags")
     func dropsCodexStartupImagesAndKeepsFollowingFlags() {
         #expect(

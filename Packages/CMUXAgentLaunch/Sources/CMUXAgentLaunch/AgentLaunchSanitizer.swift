@@ -144,11 +144,12 @@ public enum AgentLaunchSanitizer {
         preserveImageOptions: Bool = false
     ) -> [String]? {
         var tail = args
-        if let forkCommand = codexForkCommand(in: tail) {
+        let forkCommand = codexForkCommand(in: tail)
+        if let forkCommand {
             tail = dropCodexForkPositionals(tail, forkCommand: forkCommand)
         }
         var policy = codexPolicy
-        if preserveImageOptions {
+        if preserveImageOptions, forkCommand != nil {
             policy.droppedOptions.remove("--image")
             policy.droppedOptions.remove("-i")
         }
