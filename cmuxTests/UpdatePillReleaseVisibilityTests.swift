@@ -206,6 +206,40 @@ final class TitlebarControlsSizingPolicyTests: XCTestCase {
         )
     }
 
+    func testTitlebarControlsUseDeterministicContentSize() {
+        let classic = TitlebarControlsLayoutMetrics.contentSize(config: TitlebarControlsStyle.classic.config)
+        XCTAssertEqual(classic.width, 150, accuracy: 0.001)
+        XCTAssertEqual(classic.height, WindowChromeMetrics.appTitlebarHeight, accuracy: 0.001)
+
+        let compact = TitlebarControlsLayoutMetrics.contentSize(config: TitlebarControlsStyle.compact.config)
+        XCTAssertEqual(compact.width, 136, accuracy: 0.001)
+        XCTAssertEqual(compact.height, WindowChromeMetrics.appTitlebarHeight, accuracy: 0.001)
+    }
+
+    func testTitlebarControlsVerticalOffsetAlignsToTrafficLightsWhenAvailable() {
+        let snapshot = MinimalModeTitlebarDebugSettings.snapshot()
+        let yOffset = TitlebarControlsLayoutMetrics.yOffset(
+            contentHeight: WindowChromeMetrics.appTitlebarHeight,
+            containerHeight: 32,
+            trafficLightFrame: NSRect(x: 20, y: 7, width: 14, height: 14),
+            debugSnapshot: snapshot
+        )
+
+        XCTAssertEqual(yOffset, TitlebarControlsVisualMetrics.verticalLift, accuracy: 0.001)
+    }
+
+    func testTitlebarControlsVerticalOffsetFallsBackToTitlebarCenter() {
+        let snapshot = MinimalModeTitlebarDebugSettings.snapshot()
+        let yOffset = TitlebarControlsLayoutMetrics.yOffset(
+            contentHeight: WindowChromeMetrics.appTitlebarHeight,
+            containerHeight: 32,
+            trafficLightFrame: nil,
+            debugSnapshot: snapshot
+        )
+
+        XCTAssertEqual(yOffset, 4, accuracy: 0.001)
+    }
+
     func testNotificationBadgeIsSmallAndShiftedUpRight() {
         for style in TitlebarControlsStyle.allCases {
             let config = style.config

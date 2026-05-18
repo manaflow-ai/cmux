@@ -398,6 +398,64 @@ enum TitlebarShortcutHintActionSlot: Int, CaseIterable {
     }
 }
 
+enum TitlebarControlsLayoutMetrics {
+    static let outerLeadingPadding: CGFloat = TitlebarControlsHitRegions.outerLeadingPadding
+    static let hintRightSafetyShift: CGFloat = 10
+    static let hintTrailingBaseInset: CGFloat = 8
+
+    static func hintTrailingInset(titlebarShortcutHintXOffset: Double = ShortcutHintDebugSettings.defaultTitlebarHintX) -> CGFloat {
+        max(0, ShortcutHintDebugSettings.clamped(titlebarShortcutHintXOffset))
+            + hintRightSafetyShift
+            + hintTrailingBaseInset
+    }
+
+    static func buttonRowWidth(config: TitlebarControlsStyleConfig) -> CGFloat {
+        let buttonCount = CGFloat(TitlebarShortcutHintActionSlot.allCases.count)
+        let gapCount = max(0, buttonCount - 1)
+        return (buttonCount * config.buttonSize) + (gapCount * config.spacing)
+    }
+
+    static func contentSize(
+        config: TitlebarControlsStyleConfig,
+        titlebarShortcutHintXOffset: Double = ShortcutHintDebugSettings.defaultTitlebarHintX
+    ) -> NSSize {
+        NSSize(
+            width: outerLeadingPadding
+                + config.groupPadding.leading
+                + buttonRowWidth(config: config)
+                + config.groupPadding.trailing
+                + hintTrailingInset(titlebarShortcutHintXOffset: titlebarShortcutHintXOffset),
+            height: max(
+                WindowChromeMetrics.appTitlebarHeight,
+                config.groupPadding.top + config.buttonSize + config.groupPadding.bottom
+            )
+        )
+    }
+
+    static func containerHeight(contentHeight: CGFloat, titlebarHeight: CGFloat) -> CGFloat {
+        max(contentHeight, titlebarHeight)
+    }
+
+    static func yOffset(
+        contentHeight: CGFloat,
+        containerHeight: CGFloat,
+        trafficLightFrame: NSRect?,
+        debugSnapshot: MinimalModeTitlebarDebugSnapshot
+    ) -> CGFloat {
+        let baseYOffset: CGFloat
+        if let trafficLightFrame, !trafficLightFrame.isEmpty {
+            baseYOffset = max(0, trafficLightFrame.midY - (contentHeight / 2.0))
+        } else {
+            baseYOffset = max(0, (containerHeight - contentHeight) / 2.0)
+        }
+        let debugYOffset = CGFloat(
+            MinimalModeTitlebarDebugSettings.defaultLeftControlsTopInset
+                - debugSnapshot.leftControlsTopInset
+        )
+        return TitlebarControlsVisualMetrics.liftedYOffset(baseYOffset + debugYOffset)
+    }
+}
+
 private enum TitlebarControlIconStyle {
     static let opacity = 0.86
     static let hoveredOpacity = 0.96
@@ -645,7 +703,6 @@ struct TitlebarControlsView: View {
     private let titlebarShortcutHintXOffset = ShortcutHintDebugSettings.defaultTitlebarHintX
     private let titlebarShortcutHintYOffset = ShortcutHintDebugSettings.defaultTitlebarHintY
     private let alwaysShowShortcutHints = ShortcutHintDebugSettings.alwaysShowHints()
-    private let titlebarHintRightSafetyShift: CGFloat = 10
     private let titlebarHintBaseXShift: CGFloat = -10
 
     private struct TitlebarHintLayoutItem: Identifiable {
@@ -676,9 +733,15 @@ struct TitlebarControlsView: View {
         let _ = shortcutRefreshTick
         let style = TitlebarControlsStyle(rawValue: styleRawValue) ?? .classic
         let config = style.config
+        let contentSize = TitlebarControlsLayoutMetrics.contentSize(
+            config: config,
+            titlebarShortcutHintXOffset: titlebarShortcutHintXOffset
+        )
         controlsGroup(config: config)
             .padding(.leading, 4)
             .padding(.trailing, titlebarHintTrailingInset)
+            .frame(width: contentSize.width, height: contentSize.height, alignment: .leading)
+            .fixedSize()
             .contentShape(Rectangle())
             .opacity(shouldShowControls ? 1 : 0)
             .allowsHitTesting(shouldShowControls)
@@ -721,7 +784,7 @@ struct TitlebarControlsView: View {
 
     private var titlebarHintTrailingInset: CGFloat {
         // Keep room for blur + shadow so the rightmost hint never clips.
-        max(0, ShortcutHintDebugSettings.clamped(titlebarShortcutHintXOffset)) + titlebarHintRightSafetyShift + 8
+        TitlebarControlsLayoutMetrics.hintTrailingInset(titlebarShortcutHintXOffset: titlebarShortcutHintXOffset)
     }
 
     private func titlebarHintVerticalBaseOffset(for config: TitlebarControlsStyleConfig) -> CGFloat {
@@ -908,7 +971,7 @@ struct TitlebarControlsView: View {
             let rightEdge = config.groupPadding.leading
                 + titlebarButtonRightEdge(for: slot, config: config)
                 + xOffset
-                + titlebarHintRightSafetyShift
+                + TitlebarControlsLayoutMetrics.hintRightSafetyShift
                 + titlebarHintBaseXShift
             return (slot.action, shortcut, width, (rightEdge - width)...rightEdge)
         }
@@ -1740,40 +1803,38 @@ final class TitlebarControlsAccessoryViewController: NSTitlebarAccessoryViewCont
     private func updateSize() {
         applyWorkspaceTitlebarVisibility()
         guard showsWorkspaceTitlebar else { return }
-        let contentSize: NSSize
-        if fittingSizeNeedsRefresh || cachedFittingSize == nil {
+        let styleRawValue = UserDefaults.standard.integer(forKey: "titlebarControlsStyle")
+        let style = TitlebarControlsStyle(rawValue: styleRawValue) ?? .classic
+        let contentSize = TitlebarControlsLayoutMetrics.contentSize(config: style.config)
+        if fittingSizeNeedsRefresh {
             hostingView.invalidateIntrinsicContentSize()
-            hostingView.layoutSubtreeIfNeeded()
-            cachedFittingSize = hostingView.fittingSize
             fittingSizeNeedsRefresh = false
         }
-        contentSize = cachedFittingSize ?? .zero
+        cachedFittingSize = contentSize
 
         guard contentSize.width > 0, contentSize.height > 0 else { return }
-        // Use the traffic-light close button's superview height as the true
-        // titlebar height. This excludes the tab bar so the icons align with
-        // the traffic-light buttons (like Slack does) instead of centering in
-        // the full non-content area which includes the tab strip.
-        let titlebarHeight: CGFloat = {
-            if let window = view.window,
-               let closeButton = window.standardWindowButton(.closeButton),
-               let titlebarView = closeButton.superview,
-               titlebarView.frame.height > 0 {
-                return titlebarView.frame.height
-            }
-            // Fallback: derive from the window geometry.
-            return view.window.map { window in
+        let closeButton = view.window?.standardWindowButton(.closeButton)
+        let titlebarView = closeButton?.superview
+        let trafficLightFrame = closeButton?.frame
+        let titlebarHeight = (titlebarView?.frame.height ?? 0) > 0
+            ? titlebarView?.frame.height ?? contentSize.height
+            : view.window.map { window in
                 window.frame.height - window.contentLayoutRect.height
             } ?? contentSize.height
-        }()
-        let containerHeight = max(contentSize.height, titlebarHeight)
+        let containerHeight = TitlebarControlsLayoutMetrics.containerHeight(
+            contentHeight: contentSize.height,
+            titlebarHeight: titlebarHeight
+        )
         let debugSnapshot = MinimalModeTitlebarDebugSettings.snapshot()
         let xOffset = MinimalModeTitlebarDebugSettings.leftControlsXOffset(
             leadingInset: debugSnapshot.leftControlsLeadingInset
         )
-        let baseYOffset = max(0, (containerHeight - contentSize.height) / 2.0)
-            + CGFloat(MinimalModeTitlebarDebugSettings.defaultLeftControlsTopInset - debugSnapshot.leftControlsTopInset)
-        let yOffset = TitlebarControlsVisualMetrics.liftedYOffset(baseYOffset)
+        let yOffset = TitlebarControlsLayoutMetrics.yOffset(
+            contentHeight: contentSize.height,
+            containerHeight: containerHeight,
+            trafficLightFrame: trafficLightFrame,
+            debugSnapshot: debugSnapshot
+        )
         let nextLayoutSnapshot = TitlebarControlsLayoutSnapshot(
             contentSize: contentSize,
             containerHeight: containerHeight,
