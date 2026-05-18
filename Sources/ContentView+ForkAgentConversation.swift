@@ -34,14 +34,13 @@ extension ContentView {
         let isInitialRemoteContext = initialContext.workspace.isRemoteTerminalSurface(panelId)
         let ttyName = Self.commandPaletteNormalizedTTYName(initialContext.workspace.surfaceTTYNames[panelId])
         let ttyWasReportedInCurrentSession = initialContext.workspace.hasCurrentSessionReportedTTY(forPanelId: panelId)
-        let ttyCacheValue = Self.commandPaletteTTYCacheValue(ttyName)
         let panelKey = Self.commandPaletteForkableAgentPanelKey(
             workspaceId: workspaceId,
             panelId: panelId
         )
 
         Task { @MainActor in
-            let index = await RestorableAgentSessionIndex.loadIncludingProcessDetectedSnapshots(
+            var index = await RestorableAgentSessionIndex.loadIncludingProcessDetectedSnapshots(
                 fallbackScope: Self.commandPaletteProcessDetectionFallbackScope(
                     workspaceId: workspaceId,
                     panelId: panelId,
@@ -50,16 +49,42 @@ extension ContentView {
                     ttyName: ttyName
                 )
             )
-            guard let currentContext = focusedPanelContext,
+            guard var currentContext = focusedPanelContext,
                   currentContext.workspace.id == workspaceId,
                   currentContext.panelId == panelId,
                   currentContext.panel.panelType == .terminal,
-                  currentContext.workspace.isRemoteTerminalSurface(panelId) == isInitialRemoteContext,
-                  currentContext.workspace.hasCurrentSessionReportedTTY(forPanelId: panelId) == ttyWasReportedInCurrentSession,
-                  Self.commandPaletteNormalizedTTYName(currentContext.workspace.surfaceTTYNames[panelId]) == ttyName else {
+                  currentContext.workspace.isRemoteTerminalSurface(panelId) == isInitialRemoteContext else {
                 NSSound.beep()
                 return
             }
+
+            var effectiveTTYName = Self.commandPaletteNormalizedTTYName(currentContext.workspace.surfaceTTYNames[panelId])
+            var effectiveTTYWasReportedInCurrentSession = currentContext.workspace.hasCurrentSessionReportedTTY(forPanelId: panelId)
+            if effectiveTTYName != ttyName ||
+                effectiveTTYWasReportedInCurrentSession != ttyWasReportedInCurrentSession {
+                index = await RestorableAgentSessionIndex.loadIncludingProcessDetectedSnapshots(
+                    fallbackScope: Self.commandPaletteProcessDetectionFallbackScope(
+                        workspaceId: workspaceId,
+                        panelId: panelId,
+                        isRemoteTerminal: isInitialRemoteContext,
+                        ttyWasReportedInCurrentSession: effectiveTTYWasReportedInCurrentSession,
+                        ttyName: effectiveTTYName
+                    )
+                )
+                guard let refreshedContext = focusedPanelContext,
+                      refreshedContext.workspace.id == workspaceId,
+                      refreshedContext.panelId == panelId,
+                      refreshedContext.panel.panelType == .terminal,
+                      refreshedContext.workspace.isRemoteTerminalSurface(panelId) == isInitialRemoteContext else {
+                    NSSound.beep()
+                    return
+                }
+                currentContext = refreshedContext
+                effectiveTTYName = Self.commandPaletteNormalizedTTYName(refreshedContext.workspace.surfaceTTYNames[panelId])
+                effectiveTTYWasReportedInCurrentSession = refreshedContext.workspace.hasCurrentSessionReportedTTY(forPanelId: panelId)
+            }
+
+            let ttyCacheValue = Self.commandPaletteTTYCacheValue(effectiveTTYName)
             let snapshot = Self.commandPaletteForkExecutionSnapshot(
                 indexSnapshot: index.snapshot(workspaceId: workspaceId, panelId: panelId),
                 fallbackSnapshot: currentContext.workspace.restoredAgentSnapshotsByPanelId[panelId],
@@ -80,12 +105,12 @@ extension ContentView {
                 return
             }
             guard let postProbeContext = focusedPanelContext,
-                  postProbeContext.workspace.hasCurrentSessionReportedTTY(forPanelId: panelId) == ttyWasReportedInCurrentSession,
+                  postProbeContext.workspace.hasCurrentSessionReportedTTY(forPanelId: panelId) == effectiveTTYWasReportedInCurrentSession,
                   Self.commandPaletteForkPostProbeContextStillMatches(
                     expectedWorkspaceId: workspaceId,
                     expectedPanelId: panelId,
                     expectedIsRemoteContext: isRemoteContext,
-                    expectedTTYName: ttyName,
+                    expectedTTYName: effectiveTTYName,
                     currentWorkspaceId: postProbeContext.workspace.id,
                     currentPanelId: postProbeContext.panelId,
                     currentPanelIsTerminal: postProbeContext.panel.panelType == .terminal,
@@ -101,9 +126,10 @@ extension ContentView {
             )
             commandPaletteForkableAgentSnapshotsByPanelKey[panelKey] = snapshot
             commandPaletteForkableAgentSnapshotFingerprintsByPanelKey[panelKey] = Self.commandPaletteForkSnapshotFingerprint(snapshot)
+            commandPaletteForkableAgentUnsupportedSnapshotFingerprintsByPanelKey.removeValue(forKey: panelKey)
             commandPaletteForkableAgentRemoteContextsByPanelKey[panelKey] = isRemoteContext
             commandPaletteForkableAgentTTYNamesByPanelKey[panelKey] = ttyCacheValue
-            commandPaletteForkableAgentTTYFreshByPanelKey[panelKey] = ttyWasReportedInCurrentSession
+            commandPaletteForkableAgentTTYFreshByPanelKey[panelKey] = effectiveTTYWasReportedInCurrentSession
             commandPaletteForkableAgentProbeCompletedAtByPanelKey[panelKey] = CACurrentMediaTime()
 
             let didFork: Bool

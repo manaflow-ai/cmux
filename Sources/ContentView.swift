@@ -6175,13 +6175,13 @@ struct ContentView: View {
                         )
                     }
                 } else {
-                    shouldRefreshResults = wasSupported || hadCachedSnapshot
                     let unsupportedFingerprint = snapshot.map {
                         Self.commandPaletteForkCacheFingerprint(
                             snapshot: $0,
                             fallbackFingerprint: fallbackFingerprint
                         )
                     }
+                    shouldRefreshResults = wasSupported || hadCachedSnapshot || unsupportedFingerprint != nil
                     clearCommandPaletteForkableAgentCache(for: panelKey)
                     if let unsupportedFingerprint {
                         commandPaletteForkableAgentUnsupportedSnapshotFingerprintsByPanelKey[panelKey] = unsupportedFingerprint
