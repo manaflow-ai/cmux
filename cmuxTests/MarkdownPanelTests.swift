@@ -83,6 +83,64 @@ final class MarkdownPanelTests: XCTestCase {
         XCTAssertEqual(payload["display_mode"] as? String, MarkdownPanelDisplayMode.preview.rawValue)
     }
 
+    func testExternalFileOpenRoutesMarkdownFilesToPreviewMarkdownPanel() throws {
+        let fileManager = FileManager.default
+        let directoryURL = fileManager.temporaryDirectory
+            .appendingPathComponent("cmux-markdown-external-open-\(UUID().uuidString)", isDirectory: true)
+        try fileManager.createDirectory(at: directoryURL, withIntermediateDirectories: true)
+        defer {
+            try? fileManager.removeItem(at: directoryURL)
+        }
+
+        let fileURL = directoryURL.appendingPathComponent("README.md")
+        try "# Title\n\nBody.\n".write(to: fileURL, atomically: true, encoding: .utf8)
+
+        let previousShared = AppDelegate.shared
+        let appDelegate = AppDelegate()
+        defer {
+            AppDelegate.shared = previousShared
+        }
+
+        let manager = TabManager()
+        let workspace = manager.addWorkspace(
+            workingDirectory: directoryURL.path,
+            select: true,
+            eagerLoadTerminal: false
+        )
+        defer {
+            for panel in workspace.panels.values {
+                panel.close()
+            }
+        }
+
+#if DEBUG
+        appDelegate.registerMainWindowContextForTesting(tabManager: manager)
+#else
+        XCTFail("registerMainWindowContextForTesting is only available in DEBUG")
+#endif
+
+        XCTAssertTrue(
+            appDelegate.openFilePreviewInPreferredMainWindow(
+                filePath: fileURL.path,
+                debugSource: "unit-test"
+            )
+        )
+
+        let markdownPanels = workspace.panels.values.compactMap { $0 as? MarkdownPanel }
+        XCTAssertEqual(markdownPanels.count, 1)
+        XCTAssertEqual(markdownPanels.first?.filePath, fileURL.path)
+        XCTAssertEqual(markdownPanels.first?.displayMode, .preview)
+        XCTAssertTrue(workspace.panels.values.compactMap { $0 as? FilePreviewPanel }.isEmpty)
+
+        XCTAssertTrue(
+            appDelegate.openFilePreviewInPreferredMainWindow(
+                filePath: fileURL.path,
+                debugSource: "unit-test-reopen"
+            )
+        )
+        XCTAssertEqual(workspace.panels.values.compactMap { $0 as? MarkdownPanel }.count, 1)
+    }
+
     func testOpenMarkdownPanelReloadsWhenFileChangesOnDisk() async throws {
         let fileManager = FileManager.default
         let directoryURL = fileManager.temporaryDirectory
