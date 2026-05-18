@@ -840,6 +840,19 @@ final class CommandPaletteSelectionScrollBehaviorTests: XCTestCase {
 
 
 final class ShortcutHintModifierPolicyTests: XCTestCase {
+    func testTitlebarShortcutHintActionSlotsIncludeFocusHistoryNavigation() {
+        XCTAssertEqual(
+            TitlebarShortcutHintActionSlot.allCases.map(\.action),
+            [
+                .toggleSidebar,
+                .showNotifications,
+                .newTab,
+                .focusHistoryBack,
+                .focusHistoryForward,
+            ]
+        )
+    }
+
     func testTitlebarShortcutHintAlwaysShowAllowsBoundNonCommandShortcut() {
         let controlShortcut = StoredShortcut(key: "R", command: false, shift: false, option: false, control: true)
         let commandShortcut = StoredShortcut(key: "R", command: true, shift: false, option: false, control: false)

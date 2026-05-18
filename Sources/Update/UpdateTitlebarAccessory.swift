@@ -375,6 +375,29 @@ func titlebarShortcutHintVerticalOffset(for config: TitlebarControlsStyleConfig)
     max(0, floor(config.buttonSize - titlebarShortcutHintHeight(for: config)))
 }
 
+enum TitlebarShortcutHintActionSlot: Int, CaseIterable {
+    case toggleSidebar
+    case showNotifications
+    case newTab
+    case focusHistoryBack
+    case focusHistoryForward
+
+    var action: KeyboardShortcutSettings.Action {
+        switch self {
+        case .toggleSidebar:
+            return .toggleSidebar
+        case .showNotifications:
+            return .showNotifications
+        case .newTab:
+            return .newTab
+        case .focusHistoryBack:
+            return .focusHistoryBack
+        case .focusHistoryForward:
+            return .focusHistoryForward
+        }
+    }
+}
+
 private enum TitlebarControlIconStyle {
     static let opacity = 0.86
     static let hoveredOpacity = 0.96
@@ -625,23 +648,6 @@ struct TitlebarControlsView: View {
     private let titlebarHintRightSafetyShift: CGFloat = 10
     private let titlebarHintBaseXShift: CGFloat = -10
 
-    private enum HintSlot: Int, CaseIterable {
-        case toggleSidebar
-        case showNotifications
-        case newTab
-
-        var action: KeyboardShortcutSettings.Action {
-            switch self {
-            case .toggleSidebar:
-                return .toggleSidebar
-            case .showNotifications:
-                return .showNotifications
-            case .newTab:
-                return .newTab
-            }
-        }
-    }
-
     private struct TitlebarHintLayoutItem: Identifiable {
         let action: KeyboardShortcutSettings.Action
         let shortcut: StoredShortcut
@@ -890,9 +896,13 @@ struct TitlebarControlsView: View {
     ) -> [(action: KeyboardShortcutSettings.Action, shortcut: StoredShortcut, width: CGFloat, interval: ClosedRange<CGFloat>)] {
         guard shouldShowTitlebarShortcutHints else { return [] }
 
-        return HintSlot.allCases.compactMap { slot in
+        return TitlebarShortcutHintActionSlot.allCases.compactMap { slot in
             let shortcut = KeyboardShortcutSettings.shortcut(for: slot.action)
-            guard shortcut.command else { return nil }
+            guard titlebarShortcutHintShouldShow(
+                shortcut: shortcut,
+                alwaysShowShortcutHints: alwaysShowShortcutHints,
+                modifierPressed: modifierKeyMonitor.isModifierPressed
+            ) else { return nil }
 
             let width = titlebarHintWidth(for: shortcut, config: config)
             let rightEdge = config.groupPadding.leading
@@ -910,7 +920,7 @@ struct TitlebarControlsView: View {
         return ceil(textWidth) + 12
     }
 
-    private func titlebarButtonRightEdge(for slot: HintSlot, config: TitlebarControlsStyleConfig) -> CGFloat {
+    private func titlebarButtonRightEdge(for slot: TitlebarShortcutHintActionSlot, config: TitlebarControlsStyleConfig) -> CGFloat {
         let index = CGFloat(slot.rawValue)
         return (index + 1) * config.buttonSize + index * config.spacing
     }
