@@ -413,7 +413,7 @@ final class CLINotifyProcessIntegrationRegressionTests: XCTestCase {
             return payload["params"] as? [String: Any]
         }
         let request = try XCTUnwrap(clearRequests.first)
-        XCTAssertEqual(request["workspace_id"] as? String, context.workspaceId)
+        XCTAssertNil(request["workspace_id"])
         XCTAssertEqual(request["surface_id"] as? String, context.surfaceId)
         XCTAssertEqual(request["checkpoint_id"] as? String, sessionId)
         XCTAssertEqual(request["source"] as? String, "agent-hook")
@@ -1316,7 +1316,7 @@ final class CLINotifyProcessIntegrationRegressionTests: XCTestCase {
             return payload["params"] as? [String: Any]
         }
         let request = try XCTUnwrap(clearRequests.first)
-        XCTAssertEqual(request["workspace_id"] as? String, workspaceId)
+        XCTAssertNil(request["workspace_id"])
         XCTAssertEqual(request["surface_id"] as? String, surfaceId)
         XCTAssertEqual(request["source"] as? String, "agent-hook")
         XCTAssertEqual(request["checkpoint_id"] as? String, sessionId)
@@ -1399,7 +1399,7 @@ final class CLINotifyProcessIntegrationRegressionTests: XCTestCase {
             return payload["params"] as? [String: Any]
         }
         let request = try XCTUnwrap(clearRequests.first)
-        XCTAssertEqual(request["workspace_id"] as? String, workspaceId)
+        XCTAssertNil(request["workspace_id"])
         XCTAssertEqual(request["surface_id"] as? String, surfaceId)
         XCTAssertEqual(request["checkpoint_id"] as? String, sessionId)
         XCTAssertEqual(request["source"] as? String, "agent-hook")

@@ -4549,7 +4549,10 @@ struct CMUXCLI {
         let (workspaceOpt, rem1) = parseOption(args, name: "--workspace")
         let (surfaceOpt, remaining) = parseOption(rem1, name: "--surface")
         let env = ProcessInfo.processInfo.environment
-        let workspaceRaw = workspaceOpt ?? (windowOverride == nil ? env["CMUX_WORKSPACE_ID"] : nil)
+        let usesImplicitSurface = surfaceOpt == nil
+            && windowOverride == nil
+            && env["CMUX_SURFACE_ID"]?.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty == false
+        let workspaceRaw = workspaceOpt ?? (usesImplicitSurface ? nil : (windowOverride == nil ? env["CMUX_WORKSPACE_ID"] : nil))
         let surfaceRaw = surfaceOpt ?? (workspaceOpt == nil && windowOverride == nil ? env["CMUX_SURFACE_ID"] : nil)
         var params: [String: Any] = [:]
         let windowHandle = try normalizeWindowHandle(windowOverride, client: client)
@@ -19128,7 +19131,6 @@ struct CMUXCLI {
             return
         }
         var params: [String: Any] = [
-            "workspace_id": workspaceId,
             "surface_id": surfaceId,
             "name": displayName,
             "kind": kind,
@@ -19154,7 +19156,6 @@ struct CMUXCLI {
     ) {
         let normalizedSessionId = normalizedHookValue(sessionId)
         var params: [String: Any] = [
-            "workspace_id": workspaceId,
             "surface_id": surfaceId,
             "source": "agent-hook"
         ]

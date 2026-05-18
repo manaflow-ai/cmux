@@ -496,6 +496,37 @@ final class SessionPersistenceTests: XCTestCase {
         XCTAssertFalse(AppDelegate.shouldPersistSnapshotOnWindowUnregister(isTerminatingApp: true))
     }
 
+    func testMainWindowRegistrationSnapshotSavePolicySkipsStartupRestore() {
+        XCTAssertTrue(
+            AppDelegate.shouldSaveSessionSnapshotAfterMainWindowRegistration(
+                isTerminatingApp: false,
+                didApplyStartupSessionRestore: false,
+                isApplyingSessionRestore: false
+            )
+        )
+        XCTAssertFalse(
+            AppDelegate.shouldSaveSessionSnapshotAfterMainWindowRegistration(
+                isTerminatingApp: true,
+                didApplyStartupSessionRestore: false,
+                isApplyingSessionRestore: false
+            )
+        )
+        XCTAssertFalse(
+            AppDelegate.shouldSaveSessionSnapshotAfterMainWindowRegistration(
+                isTerminatingApp: false,
+                didApplyStartupSessionRestore: true,
+                isApplyingSessionRestore: false
+            )
+        )
+        XCTAssertFalse(
+            AppDelegate.shouldSaveSessionSnapshotAfterMainWindowRegistration(
+                isTerminatingApp: false,
+                didApplyStartupSessionRestore: false,
+                isApplyingSessionRestore: true
+            )
+        )
+    }
+
     func testShouldSkipSessionSaveDuringRestorePolicy() {
         XCTAssertTrue(
             AppDelegate.shouldSkipSessionSaveDuringRestore(
