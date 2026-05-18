@@ -294,6 +294,10 @@ extension CLINotifyProcessIntegrationRegressionTests {
         XCTAssertFalse(start.timedOut, start.stderr)
         XCTAssertEqual(start.status, 0, start.stderr)
         XCTAssertEqual(start.stdout, "{}\n")
+        XCTAssertFalse(
+            state.commands.contains { $0.contains("set_status grok") || $0.hasPrefix("notify_target_async ") },
+            "Grok SessionStart should only establish routing state, saw \(state.commands)"
+        )
 
         let stopCommandStart = state.commands.count
         let stop = runGrokHook(
@@ -705,6 +709,89 @@ extension CLINotifyProcessIntegrationRegressionTests {
         XCTAssertFalse(
             FileManager.default.fileExists(atPath: legacyHookURL.path),
             "Expected setup to remove legacy cmux-owned Grok hook file"
+        )
+    }
+
+    func testCodexHookInstallPrefersLaunchingAppBundledCLI() throws {
+        let cliPath = try bundledCLIPath()
+        let root = FileManager.default.temporaryDirectory
+            .appendingPathComponent("cmux-codex-hook-install-\(UUID().uuidString)", isDirectory: true)
+        let codexHome = root.appendingPathComponent(".codex", isDirectory: true)
+        try FileManager.default.createDirectory(at: codexHome, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: root) }
+
+        let previousBundledHookCommand = "cmux_cli=\"${CMUX_BUNDLED_CLI_PATH:-}\"; if [ -z \"$cmux_cli\" ] || [ ! -x \"$cmux_cli\" ]; then cmux_cli=\"$(command -v cmux 2>/dev/null || true)\"; fi; [ -n \"$CMUX_SURFACE_ID\" ] && [ \"$CMUX_CODEX_HOOKS_DISABLED\" != \"1\" ] && [ -n \"$cmux_cli\" ] && \"$cmux_cli\" hooks codex prompt-submit || echo '{}'"
+        let legacyHookJSON: [String: Any] = [
+            "hooks": [
+                "UserPromptSubmit": [
+                    [
+                        "hooks": [
+                            [
+                                "command": previousBundledHookCommand,
+                                "timeout": 5000,
+                                "type": "command",
+                            ],
+                        ],
+                    ],
+                    [
+                        "hooks": [
+                            [
+                                "command": previousBundledHookCommand,
+                                "timeout": 5000,
+                                "type": "command",
+                            ],
+                        ],
+                    ],
+                ],
+            ],
+        ]
+        try JSONSerialization.data(withJSONObject: legacyHookJSON, options: [.prettyPrinted, .sortedKeys])
+            .write(to: codexHome.appendingPathComponent("hooks.json", isDirectory: false), options: .atomic)
+
+        let result = runProcess(
+            executablePath: cliPath,
+            arguments: ["hooks", "codex", "install", "--yes"],
+            environment: [
+                "HOME": root.path,
+                "CODEX_HOME": codexHome.path,
+                "PATH": "/usr/bin:/bin:/usr/sbin:/sbin",
+                "CMUX_CLI_SENTRY_DISABLED": "1",
+            ],
+            timeout: 5
+        )
+
+        XCTAssertFalse(result.timedOut, result.stderr)
+        XCTAssertEqual(result.status, 0, result.stderr)
+
+        let hookURL = codexHome.appendingPathComponent("hooks.json", isDirectory: false)
+        let json = try XCTUnwrap(JSONSerialization.jsonObject(with: Data(contentsOf: hookURL)) as? [String: Any])
+        let hooks = try XCTUnwrap(json["hooks"] as? [String: Any])
+        let allCommands = hooks.values
+            .compactMap { $0 as? [[String: Any]] }
+            .flatMap { $0 }
+            .compactMap { $0["hooks"] as? [[String: Any]] }
+            .flatMap { $0 }
+            .compactMap { $0["command"] as? String }
+
+        XCTAssertTrue(
+            allCommands.contains {
+                $0.contains("CMUX_BUNDLED_CLI_PATH")
+                    && $0.contains("\"$cmux_cli\" --socket \"$CMUX_SOCKET_PATH\" hooks codex prompt-submit")
+            },
+            "Codex hooks should route through the launching app's bundled CLI, saw \(allCommands)"
+        )
+        XCTAssertFalse(
+            allCommands.contains { $0.contains("command -v cmux >/dev/null 2>&1 && cmux hooks codex") },
+            "Codex hooks must not use the reload-global cmux shim directly, saw \(allCommands)"
+        )
+        XCTAssertFalse(
+            allCommands.contains { $0 == previousBundledHookCommand },
+            "Codex setup should replace bundled-CLI hooks that did not pin CMUX_SOCKET_PATH, saw \(allCommands)"
+        )
+        XCTAssertEqual(
+            allCommands.filter { $0.contains("hooks codex prompt-submit") }.count,
+            1,
+            "Codex setup should collapse duplicate cmux-owned prompt hooks to one entry, saw \(allCommands)"
         )
     }
 
