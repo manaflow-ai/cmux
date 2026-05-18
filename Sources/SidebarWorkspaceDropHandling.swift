@@ -108,6 +108,7 @@ struct SidebarBonsplitTabDropDelegate: DropDelegate {
 
         selectedTabIds = [targetWorkspaceId]
         syncSidebarSelection(targetWorkspaceId)
+        lastSidebarSelectionIndex = nil
         return true
     }
 }
@@ -138,6 +139,10 @@ struct SidebarTabDropDelegate: DropDelegate {
 #if DEBUG
         cmuxDebugLog("sidebar.dropEntered target=\(targetTabId?.uuidString.prefix(5) ?? "end")")
 #endif
+        guard validateDrop(info: info) else {
+            dropIndicator = nil
+            return
+        }
         dragAutoScrollController.updateFromDragLocation()
         updateDropIndicator(for: info)
     }
@@ -152,6 +157,10 @@ struct SidebarTabDropDelegate: DropDelegate {
     }
 
     func dropUpdated(info: DropInfo) -> DropProposal? {
+        guard validateDrop(info: info) else {
+            dropIndicator = nil
+            return nil
+        }
         dragAutoScrollController.updateFromDragLocation()
         updateDropIndicator(for: info)
 #if DEBUG
@@ -206,6 +215,7 @@ struct SidebarTabDropDelegate: DropDelegate {
             cmuxDebugLog("sidebar.drop.noop from=\(fromIndex) to=\(targetIndex)")
 #endif
             syncSidebarSelection(nil)
+            lastSidebarSelectionIndex = nil
             return true
         }
 
@@ -228,6 +238,7 @@ struct SidebarTabDropDelegate: DropDelegate {
             selectedTabIds = []
             syncSidebarSelection(nil)
         }
+        lastSidebarSelectionIndex = nil
         return true
     }
 

@@ -4332,18 +4332,26 @@ class TerminalController {
         }
         var workspaces: [[String: Any]] = []
         v2MainSync {
-            let sourceTabs: [Workspace]
+            let sourceTabs = tabManager.workspaceTabs(includeHidden: includeHidden)
             if let workspaceFilter {
-                sourceTabs = tabManager.tabs.filter { $0.id == workspaceFilter }
+                if let workspace = tabManager.tabs.first(where: { $0.id == workspaceFilter }) {
+                    let index = sourceTabs.firstIndex { $0.id == workspace.id }
+                    workspaces = [
+                        v2WorkspaceSummaryPayload(
+                            workspace: workspace,
+                            index: index,
+                            selected: workspace.id == tabManager.selectedTabId
+                        )
+                    ]
+                }
             } else {
-                sourceTabs = tabManager.workspaceTabs(includeHidden: includeHidden)
-            }
-            workspaces = sourceTabs.enumerated().map { index, ws in
-                v2WorkspaceSummaryPayload(
-                    workspace: ws,
-                    index: index,
-                    selected: ws.id == tabManager.selectedTabId
-                )
+                workspaces = sourceTabs.enumerated().map { index, ws in
+                    v2WorkspaceSummaryPayload(
+                        workspace: ws,
+                        index: index,
+                        selected: ws.id == tabManager.selectedTabId
+                    )
+                }
             }
         }
 
@@ -4557,7 +4565,7 @@ class TerminalController {
     private func workspaceLastVisibleHideMessage() -> String {
         String(
             localized: "workspace.hideLastVisible.message",
-            defaultValue: "Cannot hide the last visible workspace"
+            defaultValue: "Cannot hide the last visible workspace. Wake or create another workspace first."
         )
     }
 

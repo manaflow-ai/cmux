@@ -101079,13 +101079,13 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Cannot hide the last visible workspace"
+            "value": "Cannot hide the last visible workspace. Wake or create another workspace first."
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "最後の表示中ワークスペースは非表示にできません"
+            "value": "最後の表示中ワークスペースは非表示にできません。別のワークスペースを表示するか作成してください。"
           }
         }
       }
