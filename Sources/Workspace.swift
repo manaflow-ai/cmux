@@ -265,9 +265,12 @@ extension Workspace {
         if !normalizedCurrentDirectory.isEmpty {
             currentDirectory = normalizedCurrentDirectory
         }
-        let normalizedSessionRootDirectory = snapshot.workspaceSessionRootDirectory?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
-        if !normalizedSessionRootDirectory.isEmpty {
+        let normalizedSessionRootDirectory = snapshot.workspaceSessionRootDirectory?
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+        if let normalizedSessionRootDirectory, !normalizedSessionRootDirectory.isEmpty {
             workspaceSessionRootDirectory = normalizedSessionRootDirectory
+        } else {
+            workspaceSessionRootDirectory = nil
         }
 
         let panelSnapshotsById = Dictionary(uniqueKeysWithValues: snapshot.panels.map { ($0.id, $0) })

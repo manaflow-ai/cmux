@@ -2304,6 +2304,9 @@ class TabManager: ObservableObject {
                 if let explicitTitle {
                     workspace.setCustomTitle(explicitTitle)
                 }
+                if selectedTabId == workspace.id {
+                    updateWindowTitle(for: workspace)
+                }
                 return
             }
             guard autoWelcomeIfNeeded,

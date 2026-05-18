@@ -190,8 +190,12 @@ final class TabManagerSessionSnapshotTests: XCTestCase {
         let workspace = try XCTUnwrap(manager.selectedWorkspace)
         workspace.setCustomTitle("User Change")
 
-        RunLoop.current.run(mode: .default, before: Date().addingTimeInterval(0.2))
-
+        XCTAssertFalse(
+            waitForWorkspaceSessionRestore(manager, timeout: 1.0) { restored in
+                restored.customTitle == "Persisted Workspace"
+                    || restored.customDescription == "Restored Description"
+            }
+        )
         XCTAssertEqual(workspace.customTitle, "User Change")
         XCTAssertNil(workspace.customDescription)
         XCTAssertEqual(workspace.currentDirectory, workspaceDirectory.path)
@@ -231,8 +235,28 @@ final class TabManagerSessionSnapshotTests: XCTestCase {
         )
 
         XCTAssertEqual(manager.tabs.count, 1)
+        XCTAssertFalse(
+            waitForWorkspaceSessionRestore(
+                manager,
+                expectedCustomTitle: "Persisted Workspace",
+                timeout: 1.0
+            )
+        )
         XCTAssertNotEqual(manager.selectedWorkspace?.customTitle, "Persisted Workspace")
         XCTAssertEqual(manager.selectedWorkspace?.currentDirectory, workspaceDirectory.path)
+    }
+
+    func testWorkspaceRestoreClearsMissingSessionRootDirectory() throws {
+        let manager = TabManager(initialWorkingDirectory: "/tmp/cmux-root")
+        let workspace = try XCTUnwrap(manager.selectedWorkspace)
+        XCTAssertEqual(workspace.workspaceSessionRootDirectory, "/tmp/cmux-root")
+
+        var snapshot = workspace.sessionSnapshot(includeScrollback: false)
+        snapshot.workspaceSessionRootDirectory = nil
+
+        workspace.restoreSessionSnapshot(snapshot)
+
+        XCTAssertNil(workspace.workspaceSessionRootDirectory)
     }
 
     func testSessionSnapshotIncludesRemoteWorkspacesForRestore() throws {
