@@ -747,12 +747,40 @@ extension SurfaceResumeBindingIndex {
 
     private static func tmuxShortFlagCluster(_ argument: String, contains short: Character) -> Bool {
         guard argument.hasPrefix("-"), !argument.hasPrefix("--") else { return false }
-        let valueOptions: Set<Character> = ["c", "e", "F", "f", "n", "s", "t", "x", "y"]
         for option in argument.dropFirst() {
             if option == short { return true }
-            if valueOptions.contains(option) { return false }
+            if tmuxValueOptionCharacters.contains(option) { return false }
         }
         return false
+    }
+
+    private static var tmuxValueOptionCharacters: Set<Character> {
+        ["c", "e", "F", "f", "n", "s", "t", "x", "y"]
+    }
+
+    private enum TmuxClusterValueMatch {
+        case inline(String)
+        case nextArgument
+    }
+
+    private static func tmuxClusterValue(_ argument: String, short: Character) -> TmuxClusterValueMatch? {
+        guard argument.hasPrefix("-"), !argument.hasPrefix("--") else { return nil }
+        var index = argument.index(after: argument.startIndex)
+        while index < argument.endIndex {
+            let option = argument[index]
+            let nextIndex = argument.index(after: index)
+            if option == short {
+                if nextIndex < argument.endIndex {
+                    return .inline(String(argument[nextIndex...]))
+                }
+                return .nextArgument
+            }
+            if tmuxValueOptionCharacters.contains(option) {
+                return nil
+            }
+            index = nextIndex
+        }
+        return nil
     }
 
     private static func tmuxOptionValue(_ arguments: [String], short: Character, long: String) -> String? {
@@ -770,12 +798,9 @@ extension SurfaceResumeBindingIndex {
             if argument.hasPrefix(shortPrefix), argument.count > shortPrefix.count {
                 return normalized(String(argument.dropFirst(shortPrefix.count)))
             }
-            if argument.hasPrefix("-"),
-               !argument.hasPrefix("--"),
-               let shortIndex = argument.firstIndex(of: short) {
-                let afterShort = argument.index(after: shortIndex)
-                if afterShort < argument.endIndex {
-                    return normalized(String(argument[afterShort...]))
+            if let clusterValue = tmuxClusterValue(argument, short: short) {
+                if case .inline(let value) = clusterValue {
+                    return normalized(value)
                 }
                 return valueAfter(arguments, index: index)
             }

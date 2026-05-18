@@ -1273,7 +1273,8 @@ final class SessionPersistenceTests: XCTestCase {
                 includeScrollback: false,
                 restorableAgentIndex: staleIndex
             )
-            XCTAssertEqual(initialSnapshot.panels.first?.terminal?.agent?.kind, scenario.kind)
+            let expectedKind: RestorableAgentKind = scenario.kind == .pi ? .custom("pi") : scenario.kind
+            XCTAssertEqual(initialSnapshot.panels.first?.terminal?.agent?.kind, expectedKind)
 
             workspace.updatePanelShellActivityState(panelId: panelId, state: .promptIdle)
             workspace.updatePanelShellActivityState(panelId: panelId, state: .commandRunning)
@@ -1282,7 +1283,7 @@ final class SessionPersistenceTests: XCTestCase {
                 includeScrollback: false,
                 restorableAgentIndex: staleIndex
             )
-            XCTAssertNil(staleSnapshot.panels.first?.terminal?.agent, scenario.kind.rawValue)
+            XCTAssertNil(staleSnapshot.panels.first?.terminal?.agent, expectedKind.rawValue)
         }
     }
 
@@ -1443,6 +1444,12 @@ final class SessionPersistenceTests: XCTestCase {
                 "source": "process",
             ],
         ]
+        if kind == .claude {
+            let transcriptURL = home.appendingPathComponent("\(sessionId).jsonl", isDirectory: false)
+            try #"{"type":"assistant","message":{"content":[{"type":"text","text":"ok"}]}}"#
+                .write(to: transcriptURL, atomically: true, encoding: .utf8)
+            sessionRecord["transcriptPath"] = transcriptURL.path
+        }
         if let pid {
             sessionRecord["pid"] = pid
         }
@@ -4059,6 +4066,34 @@ extension SessionPersistenceTests {
         )
 
         XCTAssertNil(binding)
+    }
+
+    func testTmuxOptionValueDoesNotReadTargetFromConfigValue() throws {
+        let binding = try XCTUnwrap(
+            SurfaceResumeBindingIndex.tmuxResumeBindingForTesting(
+                processName: "tmux",
+                processPath: nil,
+                arguments: ["tmux", "attach", "-factive-pane"],
+                environment: [:]
+            )
+        )
+
+        XCTAssertNil(binding.checkpointId)
+        XCTAssertEqual(binding.command, "'tmux' 'attach'")
+    }
+
+    func testTmuxOptionValueStopsAtValueTakingClusterOption() throws {
+        let binding = try XCTUnwrap(
+            SurfaceResumeBindingIndex.tmuxResumeBindingForTesting(
+                processName: "tmux",
+                processPath: nil,
+                arguments: ["tmux", "new", "-Ans"],
+                environment: [:]
+            )
+        )
+
+        XCTAssertNil(binding.checkpointId)
+        XCTAssertEqual(binding.command, "'tmux' 'attach'")
     }
 
     func testTmuxProcessDetectedResumeBindingParsesNewAttachSession() throws {

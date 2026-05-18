@@ -167,6 +167,9 @@ extension Workspace {
     ) -> SessionWorkspaceSnapshot {
         let tree = bonsplitController.treeSnapshot()
         let layout = sessionLayoutSnapshot(from: tree)
+        if let surfaceResumeBindingIndex {
+            reconcileSurfaceResumeBindings(using: surfaceResumeBindingIndex)
+        }
 
         let orderedPanelIds = sidebarOrderedPanelIds()
         var seen: Set<UUID> = []
@@ -789,6 +792,33 @@ extension Workspace {
         }
     }
 
+    func reconcileSurfaceResumeBindings(using surfaceResumeBindingIndex: SurfaceResumeBindingIndex) {
+        for panelId in panels.keys {
+            let storedBinding = surfaceResumeBindingsByPanelId[panelId]
+            let detectedBinding = surfaceResumeBindingIndex.binding(workspaceId: id, panelId: panelId)
+
+            guard let storedBinding else {
+                if let detectedBinding, detectedBinding.isProcessDetected {
+                    surfaceResumeBindingsByPanelId[panelId] = detectedBinding
+                }
+                continue
+            }
+            guard let detectedBinding else {
+                if storedBinding.isProcessDetected {
+                    surfaceResumeBindingsByPanelId.removeValue(forKey: panelId)
+                }
+                continue
+            }
+            if storedBinding.isProcessDetected {
+                if detectedBinding.isProcessDetected {
+                    surfaceResumeBindingsByPanelId[panelId] = detectedBinding
+                } else {
+                    surfaceResumeBindingsByPanelId.removeValue(forKey: panelId)
+                }
+            }
+        }
+    }
+
     func effectiveSurfaceResumeBinding(
         panelId: UUID,
         surfaceResumeBindingIndex: SurfaceResumeBindingIndex?
@@ -799,27 +829,9 @@ extension Workspace {
         }
 
         let detectedBinding = surfaceResumeBindingIndex.binding(workspaceId: id, panelId: panelId)
-        guard let storedBinding else {
-            if let detectedBinding, detectedBinding.isProcessDetected {
-                surfaceResumeBindingsByPanelId[panelId] = detectedBinding
-            }
-            return detectedBinding
-        }
-        guard let detectedBinding else {
-            if storedBinding.isProcessDetected {
-                surfaceResumeBindingsByPanelId.removeValue(forKey: panelId)
-                return nil
-            }
-            return storedBinding
-        }
-        if storedBinding.isProcessDetected {
-            if detectedBinding.isProcessDetected {
-                surfaceResumeBindingsByPanelId[panelId] = detectedBinding
-            } else {
-                surfaceResumeBindingsByPanelId.removeValue(forKey: panelId)
-            }
-            return detectedBinding
-        }
+        guard let storedBinding else { return detectedBinding }
+        guard let detectedBinding else { return storedBinding.isProcessDetected ? nil : storedBinding }
+        if storedBinding.isProcessDetected { return detectedBinding }
         return storedBinding
     }
 
