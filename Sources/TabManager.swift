@@ -1104,13 +1104,19 @@ class TabManager: ObservableObject {
         initialWorkspaceTitle: String? = nil,
         initialWorkingDirectory: String? = nil,
         initialTerminalInput: String? = nil,
-        autoWelcomeIfNeeded: Bool = true
+        autoWelcomeIfNeeded: Bool = true,
+        workspaceSessionAppSupportDirectory: URL? = nil,
+        workspaceSessionBundleIdentifier: String? = Bundle.main.bundleIdentifier,
+        restoreWorkspaceSession: Bool = true
     ) {
         addWorkspace(
             title: initialWorkspaceTitle,
             workingDirectory: initialWorkingDirectory,
             initialTerminalInput: initialTerminalInput,
-            autoWelcomeIfNeeded: autoWelcomeIfNeeded
+            autoWelcomeIfNeeded: autoWelcomeIfNeeded,
+            workspaceSessionAppSupportDirectory: workspaceSessionAppSupportDirectory,
+            workspaceSessionBundleIdentifier: workspaceSessionBundleIdentifier,
+            restoreWorkspaceSession: restoreWorkspaceSession
         )
         observers.append(NotificationCenter.default.addObserver(
             forName: .ghosttyDidSetTitle,
@@ -2126,7 +2132,10 @@ class TabManager: ObservableObject {
         select: Bool = true,
         eagerLoadTerminal: Bool = false,
         placementOverride: NewWorkspacePlacement? = nil,
-        autoWelcomeIfNeeded: Bool = true
+        autoWelcomeIfNeeded: Bool = true,
+        workspaceSessionAppSupportDirectory: URL? = nil,
+        workspaceSessionBundleIdentifier: String? = Bundle.main.bundleIdentifier,
+        restoreWorkspaceSession: Bool = true
     ) -> Workspace {
         let sourceWorkspace = selectedWorkspace
         let capturedTabs = tabs
@@ -2156,6 +2165,20 @@ class TabManager: ObservableObject {
             sentryBreadcrumb("workspace.create", data: ["tabCount": nextTabCount])
             let explicitWorkingDirectory = normalizedWorkingDirectory(overrideWorkingDirectory)
             let workingDirectory = explicitWorkingDirectory ?? snapshot.preferredWorkingDirectory
+            let restoredWorkspaceSnapshot: SessionWorkspaceSnapshot?
+            if restoreWorkspaceSession,
+               let explicitWorkingDirectory,
+               initialTerminalCommand == nil,
+               initialTerminalInput == nil,
+               initialTerminalEnvironment.isEmpty {
+                restoredWorkspaceSnapshot = SessionPersistenceStore.loadWorkspaceSnapshot(
+                    workingDirectory: explicitWorkingDirectory,
+                    bundleIdentifier: workspaceSessionBundleIdentifier,
+                    appSupportDirectory: workspaceSessionAppSupportDirectory
+                )
+            } else {
+                restoredWorkspaceSnapshot = nil
+            }
             let inheritedConfig = workspaceCreationConfigTemplate(
                 inheritedTerminalFontPoints: snapshot.inheritedTerminalFontPoints
             )
@@ -2174,6 +2197,9 @@ class TabManager: ObservableObject {
                 initialTerminalInput: initialTerminalInput,
                 initialTerminalEnvironment: initialTerminalEnvironment
             )
+            if let restoredWorkspaceSnapshot {
+                newWorkspace.restoreSessionSnapshot(restoredWorkspaceSnapshot)
+            }
             applyCreationChromeInheritance(
                 to: newWorkspace,
                 from: sourceWorkspace ?? capturedTabs.first
@@ -2226,7 +2252,7 @@ class TabManager: ObservableObject {
                 "selectedTabId": select ? newWorkspace.id.uuidString : (snapshot.selectedTabId?.uuidString ?? "")
             ])
 #endif
-            if autoWelcomeIfNeeded && select && !UserDefaults.standard.bool(forKey: WelcomeSettings.shownKey) {
+            if autoWelcomeIfNeeded && restoredWorkspaceSnapshot == nil && select && !UserDefaults.standard.bool(forKey: WelcomeSettings.shownKey) {
                 if let appDelegate = AppDelegate.shared {
                     appDelegate.sendWelcomeCommandWhenReady(to: newWorkspace, markShownOnSend: true)
                 } else {

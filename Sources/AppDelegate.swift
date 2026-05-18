@@ -3734,6 +3734,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             }
             if let snapshot {
                 _ = SessionPersistenceStore.save(snapshot)
+                SessionPersistenceStore.saveWorkspaceSnapshots(from: snapshot)
             } else if removeWhenEmpty {
                 SessionPersistenceStore.removeSnapshot()
             }

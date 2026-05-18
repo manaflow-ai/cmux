@@ -4390,7 +4390,8 @@ class TerminalController {
                 initialTerminalCommand: layoutNode == nil ? initialCommand : nil,
                 initialTerminalEnvironment: layoutNode == nil ? initialEnv : [:],
                 select: shouldFocus,
-                eagerLoadTerminal: !shouldFocus
+                eagerLoadTerminal: !shouldFocus,
+                restoreWorkspaceSession: layoutNode == nil
             )
             ws.setCustomDescription(description)
             if let layoutNode {

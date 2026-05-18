@@ -47,6 +47,81 @@ final class TabManagerSessionSnapshotTests: XCTestCase {
         XCTAssertNotNil(manager.selectedTabId)
     }
 
+    func testInitialWorkspaceRestoresWorkspaceSessionForWorkingDirectory() throws {
+        let appSupport = FileManager.default.temporaryDirectory
+            .appendingPathComponent("cmux-workspace-session-support-\(UUID().uuidString)", isDirectory: true)
+        let workspaceDirectory = FileManager.default.temporaryDirectory
+            .appendingPathComponent("cmux-workspace-session-repo-\(UUID().uuidString)", isDirectory: true)
+        try FileManager.default.createDirectory(at: appSupport, withIntermediateDirectories: true)
+        try FileManager.default.createDirectory(at: workspaceDirectory, withIntermediateDirectories: true)
+        defer {
+            try? FileManager.default.removeItem(at: appSupport)
+            try? FileManager.default.removeItem(at: workspaceDirectory)
+        }
+
+        var workspaceSnapshot = try XCTUnwrap(TabManager().selectedWorkspace)
+            .sessionSnapshot(includeScrollback: false)
+        workspaceSnapshot.currentDirectory = workspaceDirectory.path
+        workspaceSnapshot.customTitle = "Persisted Workspace"
+        XCTAssertTrue(
+            SessionPersistenceStore.saveWorkspaceSnapshot(
+                workspaceSnapshot,
+                workingDirectory: workspaceDirectory.path,
+                bundleIdentifier: "dev.cmux.tests",
+                appSupportDirectory: appSupport
+            )
+        )
+
+        let manager = TabManager(
+            initialWorkingDirectory: workspaceDirectory.path,
+            autoWelcomeIfNeeded: false,
+            workspaceSessionAppSupportDirectory: appSupport,
+            workspaceSessionBundleIdentifier: "dev.cmux.tests"
+        )
+
+        XCTAssertEqual(manager.tabs.count, 1)
+        XCTAssertEqual(manager.selectedWorkspace?.customTitle, "Persisted Workspace")
+        XCTAssertEqual(manager.selectedWorkspace?.currentDirectory, workspaceDirectory.path)
+    }
+
+    func testInitialWorkspaceRestoreCanBeDisabledForExplicitLayouts() throws {
+        let appSupport = FileManager.default.temporaryDirectory
+            .appendingPathComponent("cmux-workspace-session-support-\(UUID().uuidString)", isDirectory: true)
+        let workspaceDirectory = FileManager.default.temporaryDirectory
+            .appendingPathComponent("cmux-workspace-session-repo-\(UUID().uuidString)", isDirectory: true)
+        try FileManager.default.createDirectory(at: appSupport, withIntermediateDirectories: true)
+        try FileManager.default.createDirectory(at: workspaceDirectory, withIntermediateDirectories: true)
+        defer {
+            try? FileManager.default.removeItem(at: appSupport)
+            try? FileManager.default.removeItem(at: workspaceDirectory)
+        }
+
+        var workspaceSnapshot = try XCTUnwrap(TabManager().selectedWorkspace)
+            .sessionSnapshot(includeScrollback: false)
+        workspaceSnapshot.currentDirectory = workspaceDirectory.path
+        workspaceSnapshot.customTitle = "Persisted Workspace"
+        XCTAssertTrue(
+            SessionPersistenceStore.saveWorkspaceSnapshot(
+                workspaceSnapshot,
+                workingDirectory: workspaceDirectory.path,
+                bundleIdentifier: "dev.cmux.tests",
+                appSupportDirectory: appSupport
+            )
+        )
+
+        let manager = TabManager(
+            initialWorkingDirectory: workspaceDirectory.path,
+            autoWelcomeIfNeeded: false,
+            workspaceSessionAppSupportDirectory: appSupport,
+            workspaceSessionBundleIdentifier: "dev.cmux.tests",
+            restoreWorkspaceSession: false
+        )
+
+        XCTAssertEqual(manager.tabs.count, 1)
+        XCTAssertNotEqual(manager.selectedWorkspace?.customTitle, "Persisted Workspace")
+        XCTAssertEqual(manager.selectedWorkspace?.currentDirectory, workspaceDirectory.path)
+    }
+
     func testSessionSnapshotIncludesRemoteWorkspacesForRestore() throws {
         let manager = TabManager()
         let remoteWorkspace = manager.addWorkspace(select: true)
