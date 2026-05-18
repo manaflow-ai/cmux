@@ -48,6 +48,7 @@ enum CmuxSystemShortcutMatcher {
                 continue
             }
 
+            guard modifierRaw >= 0 else { continue }
             let shortcutFlags = ShortcutStroke.normalizedModifierFlags(
                 from: NSEvent.ModifierFlags(rawValue: UInt(modifierRaw))
             )
