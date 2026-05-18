@@ -86,6 +86,39 @@ describe("cloud action recipes", () => {
     }
   });
 
+  test("devcontainer lifecycle reader rejects malformed JSONC block comments", () => {
+    const recipe = actionRecipe("hexclave/stack-auth:fresh-env");
+    if (!recipe) throw new Error("missing recipe");
+
+    const helper = extractDevcontainerReader(recipe.setupScript({ ref: "dev", mode: "full" }));
+    const dir = mkdtempSync(join(tmpdir(), "cmux-actions-devcontainer-"));
+    try {
+      mkdirSync(join(dir, ".devcontainer"));
+      writeFileSync(
+        join(dir, ".devcontainer", "devcontainer.json"),
+        [
+          "{",
+          "  \"postCreateCommand\": \"echo preparing\",",
+          "  /* unterminated comment",
+          "}",
+        ].join("\n"),
+      );
+      const helperPath = join(dir, "read-devcontainer-command.mjs");
+      const outputPath = join(dir, "postCreateCommand.sh");
+      writeFileSync(helperPath, helper);
+
+      const result = spawnSync(process.execPath, [helperPath, "postCreateCommand", outputPath], {
+        cwd: dir,
+        encoding: "utf8",
+      });
+
+      expect(result.status).not.toBe(0);
+      expect(result.stderr).toContain("unterminated block comment");
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
+  });
+
   test("start script checks out the requested ref and waits for expected ports", () => {
     const recipe = actionRecipe("hexclave/stack-auth:fresh-env");
     if (!recipe) throw new Error("missing recipe");

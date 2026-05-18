@@ -246,6 +246,8 @@ function devcontainerCommandSupport(): string[] {
       "    if (ch === '/' && next === '*') {",
       "      i += 2;",
       "      while (i < source.length && !(source[i] === '*' && source[i + 1] === '/')) i++;",
+      "      if (i >= source.length - 1) throw new Error('unterminated block comment');",
+      "      output += ' ';",
       "      i++;",
       "      continue;",
       "    }",
