@@ -503,6 +503,40 @@ final class MobileHostAuthorizationTests: XCTestCase {
         XCTAssertEqual(finalRecordedIDs, [connectionID])
     }
 
+    func testMobileHostConnectionClosesWhenIdleAfterFirstFrame() async throws {
+        let connectionID = UUID()
+        let recorder = MobileHostConnectionCloseRecorder()
+        let connection = NWConnection(
+            host: NWEndpoint.Host("127.0.0.1"),
+            port: NWEndpoint.Port(rawValue: 9)!,
+            using: .tcp
+        )
+        let session = MobileHostConnection(
+            id: connectionID,
+            connection: connection,
+            idleTimeoutNanoseconds: 1_000_000,
+            authorizeRequest: { _ in nil },
+            onAuthorizedRequest: { _ in },
+            handleRequest: { _ in .ok([:]) },
+            onClose: { id in
+                await recorder.record(id)
+            }
+        )
+
+        await session.debugStartIdleTimeoutAfterFrameForTesting()
+
+        for _ in 0..<100 {
+            let recordedIDs = await recorder.recordedIDs()
+            if !recordedIDs.isEmpty {
+                break
+            }
+            try await Task.sleep(nanoseconds: 1_000_000)
+        }
+
+        let finalRecordedIDs = await recorder.recordedIDs()
+        XCTAssertEqual(finalRecordedIDs, [connectionID])
+    }
+
     func testMobileHostConnectionStopsBatchedFrameProcessingAfterClose() async throws {
         let connectionID = UUID()
         let requestRecorder = MobileHostConnectionRequestRecorder()

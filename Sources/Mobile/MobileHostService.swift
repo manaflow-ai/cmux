@@ -544,17 +544,20 @@ private actor MobileHostAccessTokenStore: TokenStoreProtocol {
 actor MobileHostConnection {
     private static let maximumReceiveBufferByteCount = MobileSyncFrameCodec.defaultMaximumFrameByteCount + MobileSyncFrameCodec.headerByteCount
     private static let defaultFirstFrameTimeoutNanoseconds: UInt64 = 15 * 1_000_000_000
+    private static let defaultIdleTimeoutNanoseconds: UInt64 = 30 * 1_000_000_000
 
     private let id: UUID
     private let connection: NWConnection
     private let callbackQueue: DispatchQueue
     private let firstFrameTimeoutNanoseconds: UInt64
+    private let idleTimeoutNanoseconds: UInt64
     private let authorizeRequest: @Sendable (MobileHostRPCRequest) async -> MobileHostRPCResult?
     private let onAuthorizedRequest: @Sendable (MobileHostRPCRequest) async -> Void
     private let handleRequest: @Sendable (MobileHostRPCRequest) async -> MobileHostRPCResult
     private let onClose: @Sendable (UUID) async -> Void
     private var receiveBuffer = Data()
     private var firstFrameTimeoutTask: Task<Void, Never>?
+    private var idleTimeoutTimer: DispatchSourceTimer?
     private var didDecodeFirstFrame = false
     private var isClosed = false
 
@@ -562,6 +565,7 @@ actor MobileHostConnection {
         id: UUID,
         connection: NWConnection,
         firstFrameTimeoutNanoseconds: UInt64 = MobileHostConnection.defaultFirstFrameTimeoutNanoseconds,
+        idleTimeoutNanoseconds: UInt64 = MobileHostConnection.defaultIdleTimeoutNanoseconds,
         authorizeRequest: @escaping @Sendable (MobileHostRPCRequest) async -> MobileHostRPCResult?,
         onAuthorizedRequest: @escaping @Sendable (MobileHostRPCRequest) async -> Void,
         handleRequest: @escaping @Sendable (MobileHostRPCRequest) async -> MobileHostRPCResult,
@@ -571,6 +575,7 @@ actor MobileHostConnection {
         self.connection = connection
         self.callbackQueue = DispatchQueue(label: "dev.cmux.mobile.host-connection.\(id.uuidString)")
         self.firstFrameTimeoutNanoseconds = firstFrameTimeoutNanoseconds
+        self.idleTimeoutNanoseconds = idleTimeoutNanoseconds
         self.authorizeRequest = authorizeRequest
         self.onAuthorizedRequest = onAuthorizedRequest
         self.handleRequest = handleRequest
@@ -594,6 +599,8 @@ actor MobileHostConnection {
         isClosed = true
         firstFrameTimeoutTask?.cancel()
         firstFrameTimeoutTask = nil
+        idleTimeoutTimer?.cancel()
+        idleTimeoutTimer = nil
         mobileHostLog.info("mobile host connection closed \(self.id.uuidString, privacy: .public): \(reason, privacy: .public)")
         connection.stateUpdateHandler = nil
         connection.cancel()
@@ -631,6 +638,8 @@ actor MobileHostConnection {
         }
 
         if let data, !data.isEmpty {
+            idleTimeoutTimer?.cancel()
+            idleTimeoutTimer = nil
             guard receiveBuffer.count + data.count <= Self.maximumReceiveBufferByteCount else {
                 _ = await sendResponse(
                     MobileHostRPCEnvelope.error(
@@ -659,6 +668,7 @@ actor MobileHostConnection {
                 guard !isClosed else {
                     return
                 }
+                startIdleTimeout()
             } catch {
                 _ = await sendResponse(
                     MobileHostRPCEnvelope.error(
@@ -698,6 +708,29 @@ actor MobileHostConnection {
             return
         }
         close(reason: "first frame timed out")
+    }
+
+    private func startIdleTimeout() {
+        guard idleTimeoutNanoseconds > 0, didDecodeFirstFrame, !isClosed else {
+            return
+        }
+        idleTimeoutTimer?.cancel()
+        let timeoutNanoseconds = min(idleTimeoutNanoseconds, UInt64(Int.max))
+        let timer = DispatchSource.makeTimerSource(queue: callbackQueue)
+        timer.schedule(deadline: .now() + .nanoseconds(Int(timeoutNanoseconds)))
+        timer.setEventHandler { [weak self] in
+            guard let self else { return }
+            Task { await self.closeIfIdleAfterFrame() }
+        }
+        idleTimeoutTimer = timer
+        timer.resume()
+    }
+
+    private func closeIfIdleAfterFrame() {
+        guard didDecodeFirstFrame else {
+            return
+        }
+        close(reason: "idle after frame timed out")
     }
 
     private func respond(to frame: Data) async {
@@ -769,6 +802,11 @@ actor MobileHostConnection {
 extension MobileHostConnection {
     func debugStartFirstFrameTimeoutForTesting() {
         startFirstFrameTimeout()
+    }
+
+    func debugStartIdleTimeoutAfterFrameForTesting() {
+        didDecodeFirstFrame = true
+        startIdleTimeout()
     }
 
     func debugHandleReceiveDataForTesting(_ data: Data) async {
