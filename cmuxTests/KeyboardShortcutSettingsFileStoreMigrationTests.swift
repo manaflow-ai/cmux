@@ -769,6 +769,52 @@ final class KeyboardShortcutSettingsFileStoreMigrationTests: XCTestCase {
         XCTAssertEqual(try String(contentsOf: primaryURL, encoding: .utf8), originalContents)
     }
 
+    func testSocketPasswordReadFailureDoesNotBlockUnrelatedWriteBack() async throws {
+        let directoryURL = try makeTemporaryDirectory()
+        defer { try? FileManager.default.removeItem(at: directoryURL) }
+
+        let primaryURL = directoryURL.appendingPathComponent("cmux.json", isDirectory: false)
+        try writeSettingsFile(
+            """
+            {
+              "automation": {
+                "socketPassword": "from-config"
+              },
+              "sidebarAppearance": {
+                "matchTerminalBackground": true
+              }
+            }
+            """,
+            to: primaryURL
+        )
+
+        let plan = ManagedSettingsWriteBackPlan(
+            changesBySourcePath: [
+                primaryURL.path: [
+                    "sidebarAppearance.matchTerminalBackground": false
+                ]
+            ],
+            customSocketPasswordSources: [
+                (
+                    sourcePath: primaryURL.path,
+                    jsonPath: "automation.socketPassword",
+                    managedValue: .set("from-config")
+                )
+            ]
+        )
+
+        let outcome = try await plan.write(fileManager: .default) {
+            throw SocketPasswordReadFailure.unavailable
+        }
+
+        XCTAssertEqual(outcome, .wroteChanges)
+        XCTAssertEqual(
+            try boolSetting(in: primaryURL, section: "sidebarAppearance", key: "matchTerminalBackground"),
+            false
+        )
+        XCTAssertEqual(try stringSetting(in: primaryURL, section: "automation", key: "socketPassword"), "from-config")
+    }
+
     func testNullableStringClearWritesNullBackToCmuxJSON() async throws {
         let defaultsKey = "sidebarSelectionColorHex"
         let defaults = UserDefaults.standard
@@ -820,6 +866,24 @@ final class KeyboardShortcutSettingsFileStoreMigrationTests: XCTestCase {
 
         XCTAssertTrue(edited.contains("\n    \"sidebarAppearance\":"))
         XCTAssertFalse(edited.contains("\n  \"sidebarAppearance\":"))
+    }
+
+    func testJSONCValueEditorInsertsIntoCompactEmptyObjectAsValidJSONC() throws {
+        let edited = try JSONCValueEditor.settingValues(
+            [(jsonPath: "sidebarAppearance.matchTerminalBackground", literal: "true")],
+            in: "{ }"
+        )
+
+        XCTAssertEqual(try insertedSidebarMatchTerminalBackground(in: edited), true)
+    }
+
+    func testJSONCValueEditorInsertsAfterEmptyObjectLineCommentAsValidJSONC() throws {
+        let edited = try JSONCValueEditor.settingValues(
+            [(jsonPath: "sidebarAppearance.matchTerminalBackground", literal: "true")],
+            in: "{ // comment-only object\n }"
+        )
+
+        XCTAssertEqual(try insertedSidebarMatchTerminalBackground(in: edited), true)
     }
 
     private func makeTemporaryDirectory() throws -> URL {
@@ -908,5 +972,12 @@ final class KeyboardShortcutSettingsFileStoreMigrationTests: XCTestCase {
         let object = try JSONSerialization.jsonObject(with: sanitized, options: []) as? [String: Any]
         let settingsSection = object?[section] as? [String: Any]
         return settingsSection?[key] is NSNull
+    }
+
+    private func insertedSidebarMatchTerminalBackground(in text: String) throws -> Bool? {
+        let sanitized = try JSONCParser.preprocess(data: Data(text.utf8))
+        let object = try JSONSerialization.jsonObject(with: sanitized, options: []) as? [String: Any]
+        let settingsSection = object?["sidebarAppearance"] as? [String: Any]
+        return settingsSection?["matchTerminalBackground"] as? Bool
     }
 }

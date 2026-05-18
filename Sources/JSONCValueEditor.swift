@@ -200,13 +200,8 @@ private struct JSONCValueRangeFinder {
         }
 
         let insertionIndex = trailingWhitespaceStart(before: closingBrace)
-        let hasClosingWhitespace = insertionIndex < closingBrace
-        let trailing = hasClosingWhitespace ? "" : "\n\(closeIndent)"
-        let inserted = "\n\(childIndent)\(quotedKey): \(valueLiteral)\(trailing)"
-
-        var output = text
-        output.insert(contentsOf: inserted, at: insertionIndex)
-        return output
+        let inserted = "\n\(childIndent)\(quotedKey): \(valueLiteral)\n\(closeIndent)"
+        return String(text[..<insertionIndex]) + inserted + String(text[closingBrace...])
     }
 
     private func childIndentation(
