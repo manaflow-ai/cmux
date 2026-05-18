@@ -14830,8 +14830,7 @@ private extension NSWindow {
             cmuxFirstResponderGuardContextWindowNumber = previousContextWindowNumber
         }
 
-        guard shouldSuppressWindowMoveForFolderDrag(window: self, event: event),
-              let contentView = self.contentView else {
+        guard let suppressionReason = windowMoveSuppressionReason(window: self, event: event) else {
 #if DEBUG
             if event.type == .keyDown {
                 folderGuardMs = (ProcessInfo.processInfo.systemUptime - folderGuardStart) * 1000.0
@@ -14851,20 +14850,23 @@ private extension NSWindow {
         let originalDispatchStart = event.type == .keyDown ? ProcessInfo.processInfo.systemUptime : 0
 #endif
 
-        let contentPoint = contentView.convert(event.locationInWindow, from: nil)
-        let hitView = contentView.hitTest(contentPoint)
+        let hitView: NSView? = {
+            guard let contentView = self.contentView else { return nil }
+            let contentPoint = contentView.convert(event.locationInWindow, from: nil)
+            return contentView.hitTest(contentPoint)
+        }()
         let previousMovableState = temporarilyDisableWindowDragging(window: self)
         defer {
             restoreWindowDragging(window: self, previousMovableState: previousMovableState)
             #if DEBUG
-            cmuxDebugLog("window.sendEvent.folderDown restore nowMovable=\(isMovable)")
+            cmuxDebugLog("window.sendEvent.\(suppressionReason.rawValue) restore nowMovable=\(isMovable)")
             #endif
         }
 
         #if DEBUG
         let hitDesc = hitView.map { String(describing: type(of: $0)) } ?? "nil"
         let previousMovableDescription = previousMovableState.map { String($0) } ?? "nil"
-        cmuxDebugLog("window.sendEvent.folderDown suppress=1 hit=\(hitDesc) wasMovable=\(previousMovableDescription)")
+        cmuxDebugLog("window.sendEvent.\(suppressionReason.rawValue) suppress=1 hit=\(hitDesc) wasMovable=\(previousMovableDescription)")
         #endif
 
         cmux_sendEvent(event)

@@ -1,4 +1,5 @@
 import AppKit
+import Bonsplit
 import Foundation
 
 func browserOmnibarSelectionDeltaForControlNavigation(
@@ -738,4 +739,28 @@ func shouldSuppressWindowMoveForFolderDrag(window: NSWindow, event: NSEvent) -> 
     let contentPoint = contentView.convert(event.locationInWindow, from: nil)
     let hitView = contentView.hitTest(contentPoint)
     return shouldSuppressWindowMoveForFolderDrag(hitView: hitView)
+}
+
+enum WindowMoveSuppressionReason: String {
+    case folderDrag
+    case bonsplitPaneTabDrag
+}
+
+func shouldSuppressWindowMoveForBonsplitPaneTabDrag(window: NSWindow, event: NSEvent) -> Bool {
+    guard event.type == .leftMouseDown,
+          window.isMovable else {
+        return false
+    }
+
+    return BonsplitTabItemHitRegionRegistry.containsWindowPoint(event.locationInWindow, in: window)
+}
+
+func windowMoveSuppressionReason(window: NSWindow, event: NSEvent) -> WindowMoveSuppressionReason? {
+    if shouldSuppressWindowMoveForFolderDrag(window: window, event: event) {
+        return .folderDrag
+    }
+    if shouldSuppressWindowMoveForBonsplitPaneTabDrag(window: window, event: event) {
+        return .bonsplitPaneTabDrag
+    }
+    return nil
 }
