@@ -644,7 +644,7 @@ final class AuthManager: ObservableObject {
                 accessToken: accessToken,
                 refreshToken: refreshToken
             ) else {
-                return
+                throw CancellationError()
             }
             lastKnownAccessToken = accessToken
 
@@ -689,7 +689,7 @@ final class AuthManager: ObservableObject {
                 accessToken: accessToken,
                 refreshToken: refreshToken
             ) else {
-                return
+                throw CancellationError()
             }
             currentUser = user
             settingsStore.saveCachedUser(user)
