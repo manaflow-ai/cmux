@@ -2001,10 +2001,12 @@ class GhosttyApp {
         runtimeConfig.userdata = Unmanaged.passUnretained(self).toOpaque()
         runtimeConfig.supports_selection_clipboard = true
         runtimeConfig.wakeup_cb = { userdata in
-            GhosttyApp.shared.scheduleTick()
+            guard let runtime = GhosttyApp.runtime(fromUserdata: userdata) else { return }
+            runtime.scheduleTick()
         }
         runtimeConfig.action_cb = { app, target, action in
-            return GhosttyApp.shared.handleAction(target: target, action: action)
+            guard let runtime = GhosttyApp.runtime(from: app) else { return false }
+            return runtime.handleAction(target: target, action: action)
         }
         // Some GhosttyKit builds import this callback as returning `Void` in Swift even
         // though the C ABI returns `bool`. Store the C-compatible shim explicitly so the
@@ -3629,8 +3631,8 @@ class GhosttyApp {
                 source: source,
                 scope: .app
             )
-            DispatchQueue.main.async {
-                GhosttyApp.shared.applyBackgroundToKeyWindow()
+            DispatchQueue.main.async { [weak self] in
+                self?.applyBackgroundToKeyWindow()
             }
         case GHOSTTY_ACTION_COLOR_KIND_FOREGROUND:
             applyDefaultBackground(
@@ -3771,6 +3773,16 @@ class GhosttyApp {
         return Unmanaged<GhosttySurfaceCallbackContext>.fromOpaque(userdata).takeUnretainedValue()
     }
 
+    private static func runtime(fromUserdata userdata: UnsafeMutableRawPointer?) -> GhosttyApp? {
+        guard let userdata else { return nil }
+        return Unmanaged<GhosttyApp>.fromOpaque(userdata).takeUnretainedValue()
+    }
+
+    private static func runtime(from app: ghostty_app_t?) -> GhosttyApp? {
+        guard let app, let userdata = ghostty_app_userdata(app) else { return nil }
+        return runtime(fromUserdata: userdata)
+    }
+
     private func handleAction(target: ghostty_target_s, action: ghostty_action_s) -> Bool {
         if target.tag != GHOSTTY_TARGET_SURFACE {
             if action.tag == GHOSTTY_ACTION_RELOAD_CONFIG ||
@@ -3823,7 +3835,7 @@ class GhosttyApp {
                 let soft = action.action.reload_config.soft
                 logThemeAction("reload request target=app soft=\(soft)")
                 performOnMain {
-                    GhosttyApp.shared.reloadConfiguration(soft: soft, source: "action.reload_config.app")
+                    self.reloadConfiguration(soft: soft, source: "action.reload_config.app")
                 }
                 return true
             }
@@ -3841,8 +3853,8 @@ class GhosttyApp {
                     source: "action.config_change.app",
                     scope: .app
                 )
-                DispatchQueue.main.async {
-                    GhosttyApp.shared.applyBackgroundToKeyWindow()
+                DispatchQueue.main.async { [weak self] in
+                    self?.applyBackgroundToKeyWindow()
                 }
                 return true
             }
@@ -4126,7 +4138,7 @@ class GhosttyApp {
                 "reload request target=surface tab=\(surfaceView.tabId?.uuidString ?? "nil") surface=\(surfaceView.terminalSurface?.id.uuidString ?? "nil") soft=\(soft)"
             )
             return performOnMain {
-                GhosttyApp.shared.reloadSurfaceConfiguration(target.target.surface, soft: soft, source: "action.reload_config.surface tab=\(surfaceView.tabId?.uuidString ?? "nil") surface=\(surfaceView.terminalSurface?.id.uuidString ?? "nil")")
+                self.reloadSurfaceConfiguration(target.target.surface, soft: soft, source: "action.reload_config.surface tab=\(surfaceView.tabId?.uuidString ?? "nil") surface=\(surfaceView.terminalSurface?.id.uuidString ?? "nil")")
                 surfaceView.terminalSurface?.hostedView.refreshHostBackgroundAfterGhosttyConfigReload()
                 surfaceView.terminalSurface?.forceRefresh(reason: "surface.reloadConfig")
                 return true

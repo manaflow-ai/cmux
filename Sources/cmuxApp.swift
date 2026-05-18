@@ -6,8 +6,8 @@ import UniformTypeIdentifiers
 @main
 struct cmuxApp: App {
     @StateObject private var tabManager: TabManager
-    @StateObject private var notificationStore = TerminalNotificationStore.shared
-    @StateObject private var sidebarState = SidebarState()
+    @StateObject private var notificationStore: TerminalNotificationStore
+    @StateObject private var sidebarState: SidebarState
     @StateObject private var keyboardShortcutSettingsObserver = KeyboardShortcutSettingsObserver.shared
     @AppStorage(AppearanceSettings.appearanceModeKey) private var appearanceMode = AppearanceSettings.defaultMode.rawValue
     @AppStorage("titlebarControlsStyle") private var titlebarControlsStyle = TitlebarControlsStyle.classic.rawValue
@@ -37,7 +37,12 @@ struct cmuxApp: App {
 
         let startupAppearance = AppearanceSettings.resolvedMode()
         Self.applyAppearance(startupAppearance, duringLaunch: true)
-        _tabManager = StateObject(wrappedValue: TabManager())
+        let startupTabManager = TabManager()
+        let startupNotificationStore = TerminalNotificationStore.shared
+        let startupSidebarState = SidebarState()
+        _tabManager = StateObject(wrappedValue: startupTabManager)
+        _notificationStore = StateObject(wrappedValue: startupNotificationStore)
+        _sidebarState = StateObject(wrappedValue: startupSidebarState)
         // Migrate legacy and old-format socket mode values to the new enum.
         let defaults = UserDefaults.standard
         if let stored = defaults.string(forKey: SocketControlSettings.appStorageKey) {
@@ -62,7 +67,11 @@ struct cmuxApp: App {
 
         // UI tests depend on AppDelegate wiring happening even if SwiftUI view appearance
         // callbacks (e.g. `.onAppear`) are delayed or skipped.
-        appDelegate.configure(tabManager: tabManager, notificationStore: notificationStore, sidebarState: sidebarState)
+        appDelegate.configure(
+            tabManager: startupTabManager,
+            notificationStore: startupNotificationStore,
+            sidebarState: startupSidebarState
+        )
     }
 
     private static func terminateForMissingLaunchTag() -> Never {
