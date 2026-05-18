@@ -4514,7 +4514,13 @@ struct CMUXCLI {
             }
 
         case "clear":
-            let params = try surfaceResumeTarget(rest, client: client, windowOverride: windowOverride).params
+            let target = try surfaceResumeTarget(rest, client: client, windowOverride: windowOverride)
+            var params = target.params
+            let (checkpoint, rem1) = parseOption(target.remaining, name: "--checkpoint")
+            let (checkpointID, rem2) = parseOption(rem1, name: "--checkpoint-id")
+            let (source, _) = parseOption(rem2, name: "--source")
+            if let checkpoint = checkpointID ?? checkpoint { params["checkpoint_id"] = checkpoint }
+            if let source { params["source"] = source }
             let payload = try client.sendV2(method: "surface.resume.clear", params: params)
             printV2Payload(payload, jsonOutput: jsonOutput, idFormat: idFormat, fallbackText: "OK")
 
@@ -4539,10 +4545,9 @@ struct CMUXCLI {
         let workspaceRaw = workspaceOpt ?? (windowOverride == nil ? env["CMUX_WORKSPACE_ID"] : nil)
         let surfaceRaw = surfaceOpt ?? (workspaceOpt == nil && windowOverride == nil ? env["CMUX_SURFACE_ID"] : nil)
         var params: [String: Any] = [:]
-        if let windowOverride {
-            params["window_id"] = windowOverride
-        }
-        let workspaceId = try normalizeWorkspaceHandle(workspaceRaw, client: client)
+        let windowHandle = try normalizeWindowHandle(windowOverride, client: client)
+        if let windowHandle { params["window_id"] = windowHandle }
+        let workspaceId = try normalizeWorkspaceHandle(workspaceRaw, client: client, windowHandle: windowHandle)
         if let workspaceId { params["workspace_id"] = workspaceId }
         let surfaceId = try normalizeSurfaceHandle(surfaceRaw, client: client, workspaceHandle: workspaceId)
         if let surfaceId { params["surface_id"] = surfaceId }

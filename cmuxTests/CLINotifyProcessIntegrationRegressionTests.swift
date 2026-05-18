@@ -1238,6 +1238,128 @@ final class CLINotifyProcessIntegrationRegressionTests: XCTestCase {
         XCTAssertEqual(request["source"] as? String, "agent-hook")
     }
 
+    func testSurfaceResumeClearCLIForwardsCheckpointAndSourceGuards() throws {
+        let cliPath = try bundledCLIPath()
+        let socketPath = makeSocketPath("resume-clear-guards")
+        let listenerFD = try bindUnixSocket(at: socketPath)
+        let state = MockSocketServerState()
+        defer {
+            Darwin.close(listenerFD)
+            unlink(socketPath)
+        }
+
+        let workspaceId = "11111111-1111-1111-1111-111111111111"
+        let surfaceId = "22222222-2222-2222-2222-222222222222"
+        let serverHandled = startMockServer(listenerFD: listenerFD, state: state) { line in
+            guard let payload = self.jsonObject(line),
+                  let id = payload["id"] as? String,
+                  let method = payload["method"] as? String else {
+                return self.malformedRequestResponse(raw: line)
+            }
+            XCTAssertEqual(method, "surface.resume.clear")
+            return self.v2Response(id: id, ok: true, result: ["cleared": false])
+        }
+
+        var environment = ProcessInfo.processInfo.environment
+        environment["CMUX_SOCKET_PATH"] = socketPath
+        environment["CMUX_CLI_SENTRY_DISABLED"] = "1"
+
+        let result = runProcess(
+            executablePath: cliPath,
+            arguments: [
+                "surface", "resume", "clear",
+                "--workspace", workspaceId,
+                "--surface", surfaceId,
+                "--checkpoint", "old-session",
+                "--checkpoint-id", "new-session",
+                "--source", "agent-hook",
+            ],
+            environment: environment,
+            timeout: 5
+        )
+
+        wait(for: [serverHandled], timeout: 5)
+        XCTAssertFalse(result.timedOut, result.stderr)
+        XCTAssertEqual(result.status, 0, result.stderr)
+        XCTAssertEqual(result.stdout, "OK\n")
+
+        let clearRequests = state.commands.compactMap { command -> [String: Any]? in
+            guard let payload = jsonObject(command),
+                  payload["method"] as? String == "surface.resume.clear" else {
+                return nil
+            }
+            return payload["params"] as? [String: Any]
+        }
+        let request = try XCTUnwrap(clearRequests.first)
+        XCTAssertEqual(request["workspace_id"] as? String, workspaceId)
+        XCTAssertEqual(request["surface_id"] as? String, surfaceId)
+        XCTAssertEqual(request["checkpoint_id"] as? String, "new-session")
+        XCTAssertEqual(request["source"] as? String, "agent-hook")
+    }
+
+    func testSurfaceResumeClearCLINormalizesWindowIndex() throws {
+        let cliPath = try bundledCLIPath()
+        let socketPath = makeSocketPath("resume-clear-window")
+        let listenerFD = try bindUnixSocket(at: socketPath)
+        let state = MockSocketServerState()
+        defer {
+            Darwin.close(listenerFD)
+            unlink(socketPath)
+        }
+
+        let windowId = "aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa"
+        let surfaceId = "22222222-2222-2222-2222-222222222222"
+        let serverHandled = startMockServer(listenerFD: listenerFD, state: state) { line in
+            guard let payload = self.jsonObject(line),
+                  let id = payload["id"] as? String,
+                  let method = payload["method"] as? String else {
+                return self.malformedRequestResponse(raw: line)
+            }
+            switch method {
+            case "window.list":
+                return self.v2Response(
+                    id: id,
+                    ok: true,
+                    result: ["windows": [["id": windowId, "ref": "window:1", "index": 0]]]
+                )
+            case "window.focus":
+                return self.v2Response(id: id, ok: true, result: ["window_id": windowId])
+            case "surface.resume.clear":
+                return self.v2Response(id: id, ok: true, result: ["cleared": true])
+            default:
+                return self.v2Response(id: id, ok: false, error: ["code": "unrecognized_method", "message": "unexpected method: \(method)"])
+            }
+        }
+
+        var environment = ProcessInfo.processInfo.environment
+        environment["CMUX_SOCKET_PATH"] = socketPath
+        environment["CMUX_CLI_SENTRY_DISABLED"] = "1"
+
+        let result = runProcess(
+            executablePath: cliPath,
+            arguments: ["--window", "0", "surface", "resume", "clear", "--surface", surfaceId],
+            environment: environment,
+            timeout: 5
+        )
+
+        wait(for: [serverHandled], timeout: 5)
+        XCTAssertFalse(result.timedOut, result.stderr)
+        XCTAssertEqual(result.status, 0, result.stderr)
+        XCTAssertEqual(result.stdout, "OK\n")
+
+        let clearRequests = state.commands.compactMap { command -> [String: Any]? in
+            guard let payload = jsonObject(command),
+                  payload["method"] as? String == "surface.resume.clear" else {
+                return nil
+            }
+            return payload["params"] as? [String: Any]
+        }
+        let request = try XCTUnwrap(clearRequests.first)
+        XCTAssertEqual(request["window_id"] as? String, "window:1")
+        XCTAssertNotEqual(request["window_id"] as? String, "0")
+        XCTAssertEqual(request["surface_id"] as? String, surfaceId)
+    }
+
     private struct ClaudeHookContext {
         let cliPath: String
         let socketPath: String
