@@ -20309,11 +20309,15 @@ export default function cmuxPiSessionExtension(pi: ExtensionAPI) {
 
         guard removed > 0 else { return }
         if hooks.isEmpty {
-            try FileManager.default.removeItem(at: legacyURL)
-            print("Removed legacy \(def.displayName) hooks at \(legacyURL.path)")
-            return
+            json.removeValue(forKey: "hooks")
+            if json.isEmpty {
+                try FileManager.default.removeItem(at: legacyURL)
+                print("Removed legacy \(def.displayName) hooks at \(legacyURL.path)")
+                return
+            }
+        } else {
+            json["hooks"] = hooks
         }
-        json["hooks"] = hooks
         let newData = try JSONSerialization.data(withJSONObject: json, options: [.prettyPrinted, .sortedKeys])
         try newData.write(to: legacyURL, options: .atomic)
         print("Removed \(removed) legacy \(def.displayName) cmux hook(s) from \(legacyURL.path)")

@@ -873,6 +873,57 @@ extension CLINotifyProcessIntegrationRegressionTests {
         )
     }
 
+    func testGrokHookInstallPreservesLegacyFileMetadataWhenPruningOwnedHooks() throws {
+        let cliPath = try bundledCLIPath()
+        let root = FileManager.default.temporaryDirectory
+            .appendingPathComponent("cmux-grok-hook-metadata-\(UUID().uuidString)", isDirectory: true)
+        try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: root) }
+
+        let legacyHookURL = root
+            .appendingPathComponent(".grok", isDirectory: true)
+            .appendingPathComponent("hooks", isDirectory: true)
+            .appendingPathComponent("cmux.json", isDirectory: false)
+        try FileManager.default.createDirectory(at: legacyHookURL.deletingLastPathComponent(), withIntermediateDirectories: true)
+
+        let legacyHookJSON: [String: Any] = [
+            "version": 1,
+            "hooks": [
+                "Notification": [
+                    [
+                        "hooks": [
+                            [
+                                "command": "[ \"$CMUX_GROK_HOOKS_DISABLED\" != \"1\" ] && command -v cmux >/dev/null 2>&1 && cmux hooks grok notification || echo '{}'",
+                                "timeout": 10,
+                                "type": "command",
+                            ],
+                        ],
+                    ],
+                ],
+            ],
+        ]
+        try JSONSerialization.data(withJSONObject: legacyHookJSON, options: [.prettyPrinted, .sortedKeys])
+            .write(to: legacyHookURL, options: .atomic)
+
+        let result = runProcess(
+            executablePath: cliPath,
+            arguments: ["hooks", "grok", "install", "--yes"],
+            environment: [
+                "HOME": root.path,
+                "PATH": "/usr/bin:/bin:/usr/sbin:/sbin",
+                "CMUX_CLI_SENTRY_DISABLED": "1",
+            ],
+            timeout: 5
+        )
+
+        XCTAssertFalse(result.timedOut, result.stderr)
+        XCTAssertEqual(result.status, 0, result.stderr)
+
+        let legacyJSON = try XCTUnwrap(JSONSerialization.jsonObject(with: Data(contentsOf: legacyHookURL)) as? [String: Any])
+        XCTAssertEqual(legacyJSON["version"] as? Int, 1)
+        XCTAssertNil(legacyJSON["hooks"])
+    }
+
     func testCodexHookInstallPrefersLaunchingAppBundledCLI() throws {
         let cliPath = try bundledCLIPath()
         let root = FileManager.default.temporaryDirectory
