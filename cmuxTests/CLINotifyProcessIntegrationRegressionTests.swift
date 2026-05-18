@@ -122,6 +122,15 @@ final class CLINotifyProcessIntegrationRegressionTests: XCTestCase {
             },
             "Expected stale Stop from old session not to clobber the clear session, saw \(context.state.commands)"
         )
+        let resumeBindingRequests = context.state.commands.compactMap { command -> [String: Any]? in
+            guard let payload = jsonObject(command),
+                  payload["method"] as? String == "surface.resume.set" else {
+                return nil
+            }
+            return payload["params"] as? [String: Any]
+        }
+        XCTAssertEqual(resumeBindingRequests.count, 1, context.state.commands.joined(separator: "\n"))
+        XCTAssertEqual(resumeBindingRequests.first?["checkpoint_id"] as? String, "clear-session")
     }
 
     func testClaudePromptSubmitFromNewSessionCanReplaceStoppedSession() throws {

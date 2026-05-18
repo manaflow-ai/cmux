@@ -185,8 +185,10 @@ extension Workspace {
                     panelId: panelId,
                     includeScrollback: includeScrollback,
                     restorableAgent: restorableAgentIndex?.snapshot(workspaceId: id, panelId: panelId),
-                    resumeBinding: surfaceResumeBindingsByPanelId[panelId]
-                        ?? surfaceResumeBindingIndex?.binding(workspaceId: id, panelId: panelId)
+                    resumeBinding: effectiveSurfaceResumeBinding(
+                        panelId: panelId,
+                        surfaceResumeBindingIndex: surfaceResumeBindingIndex
+                    )
                 )
             }
 
@@ -770,6 +772,24 @@ extension Workspace {
         }
     }
 
+    private func effectiveSurfaceResumeBinding(
+        panelId: UUID,
+        surfaceResumeBindingIndex: SurfaceResumeBindingIndex?
+    ) -> SurfaceResumeBindingSnapshot? {
+        let storedBinding = surfaceResumeBindingsByPanelId[panelId]
+        let detectedBinding = surfaceResumeBindingIndex?.binding(workspaceId: id, panelId: panelId)
+        guard let storedBinding, let detectedBinding else {
+            return storedBinding ?? detectedBinding
+        }
+        if storedBinding.source == "process-detected", detectedBinding.source == "process-detected" {
+            return detectedBinding
+        }
+        if detectedBinding.updatedAt > storedBinding.updatedAt {
+            return detectedBinding
+        }
+        return storedBinding
+    }
+
     private func createPanel(from snapshot: SessionPanelSnapshot, inPane paneId: PaneID) -> UUID? {
         switch snapshot.type {
         case .terminal:
@@ -805,6 +825,7 @@ extension Workspace {
                 ? (restoredBindingInput == nil ? restorableAgent?.resumeStartupInput() : nil)
                 : nil
             let restoredStartupInput = restoredBindingInput ?? restoredAgentResumeInput
+            let restoredAgentWillRunStartupInput = restorableAgent != nil && restoredStartupInput != nil
 #if DEBUG
             if let restorableAgent {
                 let sessionPreview = String(restorableAgent.sessionId.prefix(8))
@@ -856,7 +877,7 @@ extension Workspace {
             }
             if let restorableAgent {
                 restoredAgentSnapshotsByPanelId[terminalPanel.id] = restorableAgent
-                if restoredAgentResumeInput != nil {
+                if restoredAgentWillRunStartupInput {
                     restoredAgentResumeStatesByPanelId[terminalPanel.id] = .awaitingAutoResumeCommand
                 } else {
                     restoredAgentResumeStatesByPanelId[terminalPanel.id] = .manualResumeAvailable

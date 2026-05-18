@@ -7457,7 +7457,6 @@ extension TabManager {
         hashOptionalString(snapshot.cwd, into: &hasher)
         hashOptionalString(snapshot.checkpointId, into: &hasher)
         hashOptionalString(snapshot.source, into: &hasher)
-        hashOptionalDouble(snapshot.updatedAt, into: &hasher)
     }
 
     nonisolated private static func hashOptionalString(_ value: String?, into hasher: inout Hasher) {

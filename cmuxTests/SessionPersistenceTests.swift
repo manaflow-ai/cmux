@@ -3301,6 +3301,80 @@ extension SessionPersistenceTests {
         XCTAssertEqual(binding.startupInput, "opencode --session ses_123\n")
     }
 
+    @MainActor
+    func testSnapshotPrefersFreshProcessDetectedSurfaceResumeBinding() throws {
+        let workspace = Workspace()
+        let panelId = try XCTUnwrap(workspace.focusedPanelId)
+        XCTAssertTrue(
+            workspace.setSurfaceResumeBinding(
+                SurfaceResumeBindingSnapshot(
+                    name: "tmux",
+                    kind: "tmux",
+                    command: "tmux attach -t stale",
+                    cwd: "/tmp/old",
+                    checkpointId: "stale",
+                    source: "process-detected",
+                    updatedAt: 10
+                ),
+                panelId: panelId
+            )
+        )
+
+        let bindingIndex = SurfaceResumeBindingIndex(bindingsByPanel: [
+            SurfaceResumeBindingIndex.PanelKey(workspaceId: workspace.id, panelId: panelId): SurfaceResumeBindingSnapshot(
+                name: "tmux",
+                kind: "tmux",
+                command: "tmux attach -t fresh",
+                cwd: "/tmp/new",
+                checkpointId: "fresh",
+                source: "process-detected",
+                updatedAt: 20
+            ),
+        ])
+        let snapshot = workspace.sessionSnapshot(
+            includeScrollback: false,
+            surfaceResumeBindingIndex: bindingIndex
+        )
+
+        XCTAssertEqual(snapshot.panels.first?.terminal?.resumeBinding?.checkpointId, "fresh")
+        XCTAssertEqual(snapshot.panels.first?.terminal?.resumeBinding?.command, "tmux attach -t fresh")
+    }
+
+    @MainActor
+    func testAutosaveFingerprintIgnoresSurfaceResumeBindingUpdatedAt() throws {
+        let manager = TabManager()
+        let workspace = try XCTUnwrap(manager.selectedWorkspace)
+        let panelId = try XCTUnwrap(workspace.focusedPanelId)
+        let key = SurfaceResumeBindingIndex.PanelKey(workspaceId: workspace.id, panelId: panelId)
+        let firstIndex = SurfaceResumeBindingIndex(bindingsByPanel: [
+            key: SurfaceResumeBindingSnapshot(
+                name: "tmux",
+                kind: "tmux",
+                command: "tmux attach -t work",
+                cwd: "/tmp/project",
+                checkpointId: "work",
+                source: "process-detected",
+                updatedAt: 10
+            ),
+        ])
+        let secondIndex = SurfaceResumeBindingIndex(bindingsByPanel: [
+            key: SurfaceResumeBindingSnapshot(
+                name: "tmux",
+                kind: "tmux",
+                command: "tmux attach -t work",
+                cwd: "/tmp/project",
+                checkpointId: "work",
+                source: "process-detected",
+                updatedAt: 20
+            ),
+        ])
+
+        XCTAssertEqual(
+            manager.sessionAutosaveFingerprint(surfaceResumeBindingIndex: firstIndex),
+            manager.sessionAutosaveFingerprint(surfaceResumeBindingIndex: secondIndex)
+        )
+    }
+
     func testTmuxProcessDetectedResumeBindingPreservesSocketFlags() throws {
         let binding = try XCTUnwrap(
             SurfaceResumeBindingIndex.tmuxResumeBindingForTesting(
