@@ -8136,10 +8136,10 @@ final class Workspace: Identifiable, ObservableObject {
         .receive(on: DispatchQueue.main)
         .sink { [weak self, weak browserPanel] _, _, isLoading, favicon in
             guard let self = self,
-                  let browserPanel = browserPanel,
-                  let tabId = self.surfaceIdFromPanelId(browserPanel.id) else { return }
+                  let browserPanel = browserPanel else { return }
             self.publishBrowserOpenTabSuggestion(for: browserPanel)
-            guard let existing = self.bonsplitController.tab(tabId) else { return }
+            guard let tabId = self.surfaceIdFromPanelId(browserPanel.id),
+                  let existing = self.bonsplitController.tab(tabId) else { return }
             let nextTitle = browserPanel.displayTitle
             if self.panelTitles[browserPanel.id] != nextTitle {
                 self.panelTitles[browserPanel.id] = nextTitle
@@ -8157,9 +8157,24 @@ final class Workspace: Identifiable, ObservableObject {
                 isLoading: loadingUpdate
             )
         }
+        panelSubscriptions.removeValue(forKey: browserPanel.id)?.cancel()
         panelSubscriptions[browserPanel.id] = subscription
         publishBrowserOpenTabSuggestion(for: browserPanel)
         setPreferredBrowserProfileID(browserPanel.profileID)
+    }
+
+    func adoptDockBrowserPanel(_ browserPanel: BrowserPanel) {
+        configureBrowserPanel(browserPanel)
+        installBrowserPanelSubscription(browserPanel)
+        browserPanel.setRemoteWorkspaceStatus(browserRemoteWorkspaceStatusSnapshot())
+    }
+
+    func releaseDockBrowserPanel(_ browserPanel: BrowserPanel, closePanel: Bool = true) {
+        panelSubscriptions.removeValue(forKey: browserPanel.id)?.cancel()
+        removeBrowserOpenTabSuggestion(panelId: browserPanel.id)
+        if closePanel {
+            browserPanel.close()
+        }
     }
 
     func setPreferredBrowserProfileID(_ profileID: UUID?) {
@@ -10601,8 +10616,7 @@ final class Workspace: Identifiable, ObservableObject {
             isRemoteWorkspace: isRemoteWorkspace,
             remoteWebsiteDataStoreIdentifier: isRemoteWorkspace ? id : nil
         )
-        setPreferredBrowserProfileID(browserPanel.profileID)
-        browserPanel.setRemoteWorkspaceStatus(browserRemoteWorkspaceStatusSnapshot())
+        adoptDockBrowserPanel(browserPanel)
         return browserPanel
     }
 

@@ -315,6 +315,11 @@ final class DockControlRuntime: Identifiable {
     }
 
     func close() {
+        if let browserPanel = panel as? BrowserPanel,
+           let workspace = Self.workspace(for: workspaceId) {
+            workspace.releaseDockBrowserPanel(browserPanel)
+            return
+        }
         panel.close()
     }
 
@@ -390,6 +395,12 @@ final class DockControlRuntime: Identifiable {
         }
     }
 
+    private static func workspace(for workspaceId: UUID) -> Workspace? {
+        AppDelegate.shared?.tabManagerFor(tabId: workspaceId)?
+            .tabs
+            .first(where: { $0.id == workspaceId })
+    }
+
     private static func makePanel(
         definition: DockControlDefinition,
         baseDirectory: String,
@@ -414,9 +425,7 @@ final class DockControlRuntime: Identifiable {
                 focusPlacement: .rightSidebarDock
             )
         case .browser(let url, let profile):
-            guard let workspace = AppDelegate.shared?.tabManagerFor(tabId: workspaceId)?
-                .tabs
-                .first(where: { $0.id == workspaceId }) else {
+            guard let workspace = workspace(for: workspaceId) else {
 #if DEBUG
                 cmuxDebugLog("dock.browser.create.blocked id=\(definition.id) reason=missing_workspace")
 #endif
@@ -444,6 +453,7 @@ final class DockControlRuntime: Identifiable {
         } else if let browserPanel = panel as? BrowserPanel {
             browserPanel.updateWorkspaceId(workspaceId)
             browserPanel.unfocus()
+            Self.workspace(for: workspaceId)?.adoptDockBrowserPanel(browserPanel)
             BrowserWindowPortalRegistry.updateEntryVisibility(
                 for: browserPanel.webView,
                 visibleInUI: false,
