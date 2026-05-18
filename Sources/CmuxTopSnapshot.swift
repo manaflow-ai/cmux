@@ -12,6 +12,7 @@ nonisolated struct CmuxTopResourceSummary: Sendable {
     var pids: [Int] = []
     var missingPIDs: [Int] = []
     var memorySourceFallbackPIDs: [Int] = []
+    var residentMemorySourceFallbackPIDs: [Int] = []
 
     func payload() -> [String: Any] {
         [
@@ -23,7 +24,9 @@ nonisolated struct CmuxTopResourceSummary: Sendable {
             "pids": pids,
             "missing_pids": missingPIDs,
             "memory_source_fallback_pids": memorySourceFallbackPIDs,
-            "memory_source_fallback_count": memorySourceFallbackPIDs.count
+            "memory_source_fallback_count": memorySourceFallbackPIDs.count,
+            "resident_memory_source_fallback_pids": residentMemorySourceFallbackPIDs,
+            "resident_memory_source_fallback_count": residentMemorySourceFallbackPIDs.count
         ]
     }
 
@@ -41,6 +44,8 @@ nonisolated struct CmuxTopResourceSummary: Sendable {
 nonisolated enum CmuxTopProcessMemorySource: String, Sendable {
     case physicalFootprint = "proc_pid_rusage.RUSAGE_INFO_V2.ri_phys_footprint"
     case residentSize = "proc_pidinfo.PROC_PIDTASKINFO.pti_resident_size"
+    case rusageResidentSize = "proc_pid_rusage.RUSAGE_INFO_V2.ri_resident_size"
+    case mixed
     case unavailable
 }
 
@@ -59,8 +64,48 @@ nonisolated struct CmuxTopProcessInfo: Sendable {
     let memoryBytes: Int64
     let memorySource: CmuxTopProcessMemorySource
     let residentBytes: Int64
+    let residentMemorySource: CmuxTopProcessMemorySource
     let virtualBytes: Int64
     let threadCount: Int
+
+    init(
+        pid: Int,
+        parentPID: Int,
+        name: String,
+        path: String?,
+        ttyDevice: Int64?,
+        cmuxWorkspaceID: UUID?,
+        cmuxSurfaceID: UUID?,
+        cmuxAttributionReason: String?,
+        processGroupID: Int?,
+        terminalProcessGroupID: Int?,
+        cpuPercent: Double,
+        memoryBytes: Int64? = nil,
+        memorySource: CmuxTopProcessMemorySource? = nil,
+        residentBytes: Int64,
+        residentMemorySource: CmuxTopProcessMemorySource = .residentSize,
+        virtualBytes: Int64,
+        threadCount: Int
+    ) {
+        self.pid = pid
+        self.parentPID = parentPID
+        self.name = name
+        self.path = path
+        self.ttyDevice = ttyDevice
+        self.cmuxWorkspaceID = cmuxWorkspaceID
+        self.cmuxSurfaceID = cmuxSurfaceID
+        self.cmuxAttributionReason = cmuxAttributionReason
+        self.processGroupID = processGroupID
+        self.terminalProcessGroupID = terminalProcessGroupID
+        self.cpuPercent = cpuPercent
+        self.memoryBytes = memoryBytes ?? residentBytes
+        self.memorySource = memorySource
+            ?? (memoryBytes == nil ? .residentSize : .physicalFootprint)
+        self.residentBytes = residentBytes
+        self.residentMemorySource = residentMemorySource
+        self.virtualBytes = virtualBytes
+        self.threadCount = threadCount
+    }
 }
 
 nonisolated struct CmuxTopProcessScope: Sendable {
@@ -82,6 +127,7 @@ nonisolated final class CmuxTopProcessSnapshot: @unchecked Sendable {
     private let childrenByParentPID: [Int: [Int]]
     private let pidsByTTYDevice: [Int64: [Int]]
     private let pidsByCMUXSurfaceID: [UUID: [Int]]
+    private let residentMemorySources: [CmuxTopProcessMemorySource]
 
     static func capture(includeProcessDetails: Bool = false) -> CmuxTopProcessSnapshot {
         CmuxTopProcessSnapshot(
@@ -104,6 +150,9 @@ nonisolated final class CmuxTopProcessSnapshot: @unchecked Sendable {
             processMap[process.pid] = process
         }
         self.processesByPID = processMap
+        self.residentMemorySources = Self.sortedMemorySources(
+            in: processMap.values.map(\.residentMemorySource)
+        )
 
         var children: [Int: [Int]] = [:]
         var ttyMap: [Int64: [Int]] = [:]
@@ -125,15 +174,42 @@ nonisolated final class CmuxTopProcessSnapshot: @unchecked Sendable {
     }
 
     func samplePayload() -> [String: Any] {
+        let residentMemorySourceNames = residentMemorySources.map(\.rawValue)
         [
             "sampled_at": ISO8601DateFormatter().string(from: sampledAt),
             "source": "sysctl+proc_pidinfo",
             "cpu_source": "proc_pidinfo.PROC_PIDTASKINFO.pti_total_user+pti_total_system",
             "memory_source": CmuxTopProcessMemorySource.physicalFootprint.rawValue,
             "memory_fallback_source": CmuxTopProcessMemorySource.residentSize.rawValue,
-            "resident_memory_source": CmuxTopProcessMemorySource.residentSize.rawValue,
+            "resident_memory_source": Self.summaryMemorySource(residentMemorySources).rawValue,
+            "resident_memory_sources": residentMemorySourceNames,
+            "resident_memory_fallback_source": CmuxTopProcessMemorySource.rusageResidentSize.rawValue,
             "process_details": includesProcessDetails
         ]
+    }
+
+    private static func sortedMemorySources(
+        in sources: [CmuxTopProcessMemorySource]
+    ) -> [CmuxTopProcessMemorySource] {
+        [
+            .physicalFootprint,
+            .residentSize,
+            .rusageResidentSize,
+            .unavailable
+        ].filter { source in
+            sources.contains(source)
+        }
+    }
+
+    private static func summaryMemorySource(
+        _ sources: [CmuxTopProcessMemorySource]
+    ) -> CmuxTopProcessMemorySource {
+        let concreteSources = sources.filter { $0 != .unavailable }
+        guard !concreteSources.isEmpty else { return .unavailable }
+        guard concreteSources.count == 1, let source = concreteSources.first else {
+            return .mixed
+        }
+        return source
     }
 
     func pids(forTTYName ttyName: String) -> Set<Int> {
@@ -186,6 +262,9 @@ nonisolated final class CmuxTopProcessSnapshot: @unchecked Sendable {
             summary.processCount += 1
             if process.memorySource == .residentSize {
                 summary.memorySourceFallbackPIDs.append(pid)
+            }
+            if process.residentMemorySource == .rusageResidentSize {
+                summary.residentMemorySourceFallbackPIDs.append(pid)
             }
         }
 
@@ -307,6 +386,7 @@ nonisolated final class CmuxTopProcessSnapshot: @unchecked Sendable {
         var processIds: [Int] = []
         var seenProcessIds: Set<Int> = []
         var memorySourceFallbackPIDs: [Int] = []
+        var residentMemorySourceFallbackPIDs: [Int] = []
 
         mutating func append(_ process: CmuxTopProcessInfo) {
             guard seenProcessIds.insert(process.pid).inserted else { return }
@@ -316,6 +396,9 @@ nonisolated final class CmuxTopProcessSnapshot: @unchecked Sendable {
             processIds.append(process.pid)
             if process.memorySource == .residentSize {
                 memorySourceFallbackPIDs.append(process.pid)
+            }
+            if process.residentMemorySource == .rusageResidentSize {
+                residentMemorySourceFallbackPIDs.append(process.pid)
             }
         }
 
@@ -330,7 +413,8 @@ nonisolated final class CmuxTopProcessSnapshot: @unchecked Sendable {
                     residentBytes: residentBytes,
                     processCount: sortedProcessIds.count,
                     pids: sortedProcessIds,
-                    memorySourceFallbackPIDs: memorySourceFallbackPIDs.sorted()
+                    memorySourceFallbackPIDs: memorySourceFallbackPIDs.sorted(),
+                    residentMemorySourceFallbackPIDs: residentMemorySourceFallbackPIDs.sorted()
                 ).payload()
             ]
         }
@@ -344,6 +428,7 @@ nonisolated final class CmuxTopProcessSnapshot: @unchecked Sendable {
         var processIds: [Int] = []
         var seenProcessIds: Set<Int> = []
         var memorySourceFallbackPIDs: [Int] = []
+        var residentMemorySourceFallbackPIDs: [Int] = []
 
         mutating func append(_ process: CmuxTopProcessInfo) {
             guard seenProcessIds.insert(process.pid).inserted else { return }
@@ -353,6 +438,9 @@ nonisolated final class CmuxTopProcessSnapshot: @unchecked Sendable {
             processIds.append(process.pid)
             if process.memorySource == .residentSize {
                 memorySourceFallbackPIDs.append(process.pid)
+            }
+            if process.residentMemorySource == .rusageResidentSize {
+                residentMemorySourceFallbackPIDs.append(process.pid)
             }
         }
 
@@ -368,7 +456,8 @@ nonisolated final class CmuxTopProcessSnapshot: @unchecked Sendable {
                     residentBytes: residentBytes,
                     processCount: sortedProcessIds.count,
                     pids: sortedProcessIds,
-                    memorySourceFallbackPIDs: memorySourceFallbackPIDs.sorted()
+                    memorySourceFallbackPIDs: memorySourceFallbackPIDs.sorted(),
+                    residentMemorySourceFallbackPIDs: residentMemorySourceFallbackPIDs.sorted()
                 ).payload()
             ]
         }
@@ -406,6 +495,7 @@ nonisolated final class CmuxTopProcessSnapshot: @unchecked Sendable {
             "attribution_reason": attributionReason(for: process, allowedPIDs: allowedPIDs, rootPIDs: rootPIDs),
             "thread_count": process.threadCount,
             "memory_source": process.memorySource.rawValue,
+            "resident_memory_source": process.residentMemorySource.rawValue,
             "resources": summary(for: [pid]).payload(),
             "children": childNodes
         ]
@@ -572,12 +662,16 @@ nonisolated final class CmuxTopProcessSnapshot: @unchecked Sendable {
             memorySource = .unavailable
         }
         let residentBytes: Int64
+        let residentMemorySource: CmuxTopProcessMemorySource
         if let taskInfo {
             residentBytes = int64Clamped(taskInfo.pti_resident_size)
+            residentMemorySource = .residentSize
         } else if let resourceUsage {
             residentBytes = int64Clamped(resourceUsage.ri_resident_size)
+            residentMemorySource = .rusageResidentSize
         } else {
             residentBytes = 0
+            residentMemorySource = .unavailable
         }
         let cpuSampleKey: CmuxTopProcessScopeCacheKey?
         if let taskInfo {
@@ -603,6 +697,7 @@ nonisolated final class CmuxTopProcessSnapshot: @unchecked Sendable {
             memoryBytes: memoryBytes,
             memorySource: memorySource,
             residentBytes: residentBytes,
+            residentMemorySource: residentMemorySource,
             virtualBytes: int64Clamped(taskInfo?.pti_virtual_size ?? 0),
             threadCount: Int(taskInfo?.pti_threadnum ?? 0)
         ), cpuSampleKey)

@@ -274,6 +274,43 @@ final class CmuxTopSnapshotScopeTests: XCTestCase {
             sample["memory_fallback_source"] as? String,
             CmuxTopProcessMemorySource.residentSize.rawValue
         )
+        XCTAssertEqual(
+            sample["resident_memory_fallback_source"] as? String,
+            CmuxTopProcessMemorySource.rusageResidentSize.rawValue
+        )
+
+        let fallbackSnapshot = CmuxTopProcessSnapshot(
+            processes: [
+                CmuxTopProcessInfo(
+                    pid: 1,
+                    parentPID: 0,
+                    name: "resident-fallback",
+                    path: nil,
+                    ttyDevice: nil,
+                    cmuxWorkspaceID: nil,
+                    cmuxSurfaceID: nil,
+                    cmuxAttributionReason: nil,
+                    processGroupID: nil,
+                    terminalProcessGroupID: nil,
+                    cpuPercent: 0,
+                    residentBytes: 1024,
+                    residentMemorySource: .rusageResidentSize,
+                    virtualBytes: 0,
+                    threadCount: 1
+                )
+            ],
+            sampledAt: Date(timeIntervalSince1970: 0),
+            includesProcessDetails: false
+        )
+        let fallbackSample = fallbackSnapshot.samplePayload()
+        XCTAssertEqual(
+            fallbackSample["resident_memory_source"] as? String,
+            CmuxTopProcessMemorySource.rusageResidentSize.rawValue
+        )
+        XCTAssertEqual(
+            fallbackSample["resident_memory_sources"] as? [String],
+            [CmuxTopProcessMemorySource.rusageResidentSize.rawValue]
+        )
     }
 
     func testKernProcArgsWorkspaceID() {
