@@ -16875,10 +16875,11 @@ struct CMUXCLI {
         case "notification", "notify":
             telemetry.breadcrumb("claude-hook.notification")
             let notificationTypes = Self.claudeNotificationTypes(parsedInput: parsedInput)
-            if Self.shouldSuppressClaudeNotification(types: notificationTypes) {
+            let suppressedNotificationTypes = Self.suppressedClaudeNotificationTypes(for: notificationTypes)
+            if !suppressedNotificationTypes.isEmpty {
                 telemetry.breadcrumb(
                     "claude-hook.notification.suppressed",
-                    data: ["types": notificationTypes.sorted().joined(separator: ",")]
+                    data: ["types": suppressedNotificationTypes.sorted().joined(separator: ",")]
                 )
                 print("OK")
                 return
@@ -18914,12 +18915,12 @@ struct CMUXCLI {
     private static let claudeIgnoredNotificationTypesEnvKey =
         ClaudeNotificationTypeNormalization.ignoredTypesEnvironmentKey
 
-    private static func shouldSuppressClaudeNotification(types: Set<String>) -> Bool {
+    private static func suppressedClaudeNotificationTypes(for types: Set<String>) -> Set<String> {
         let ignoredTypes = ignoredClaudeNotificationTypes()
         guard !ignoredTypes.isEmpty, !types.isEmpty else {
-            return false
+            return []
         }
-        return !ignoredTypes.isDisjoint(with: types)
+        return ignoredTypes.intersection(types)
     }
 
     private static func ignoredClaudeNotificationTypes() -> Set<String> {
