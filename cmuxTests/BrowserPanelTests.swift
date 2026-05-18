@@ -3030,6 +3030,10 @@ final class BrowserWindowPortalLifecycleTests: XCTestCase {
         portal.bind(webView: webView, to: anchor, visibleInUI: true)
         portal.synchronizeWebViewForAnchor(anchor)
         advanceAnimations()
+        guard let slot = webView.superview as? WindowBrowserSlotView else {
+            XCTFail("Expected browser slot")
+            return
+        }
         let initialDisplayCount = webView.displayIfNeededCount
         let initialReattachCount = webView.reattachRenderingStateCount
         let initialHiddenCount = webView.hiddenRenderingStateCount
@@ -3037,6 +3041,7 @@ final class BrowserWindowPortalLifecycleTests: XCTestCase {
         portal.updateEntryVisibility(forWebViewId: ObjectIdentifier(webView), visibleInUI: false, zPriority: 0)
         portal.synchronizeWebViewForAnchor(anchor)
         advanceAnimations()
+        XCTAssertTrue(slot.isPortalHidden, "Hide sync should transition the portal before reveal assertions run")
         let hiddenDisplayCount = webView.displayIfNeededCount
         let hiddenReattachCount = webView.reattachRenderingStateCount
         let hiddenHiddenCount = webView.hiddenRenderingStateCount
@@ -3122,6 +3127,7 @@ final class BrowserWindowPortalLifecycleTests: XCTestCase {
         portal.updateEntryVisibility(forWebViewId: ObjectIdentifier(webView), visibleInUI: false, zPriority: 0)
         portal.synchronizeWebViewForAnchor(anchor)
         advanceAnimations()
+        XCTAssertTrue(slot.isPortalHidden, "Hide sync should transition the portal before reveal assertions run")
 
         let hiddenDisplayCount = webView.displayIfNeededCount
         let hiddenReattachCount = webView.reattachRenderingStateCount
