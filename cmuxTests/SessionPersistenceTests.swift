@@ -4117,6 +4117,20 @@ extension SessionPersistenceTests {
         XCTAssertEqual(binding.command, "'/opt/homebrew/bin/tmux' '-L' 'dev' 'attach' '-t' 'work'")
     }
 
+    func testTmuxProcessDetectedResumeBindingParsesAttachAlias() throws {
+        let binding = try XCTUnwrap(
+            SurfaceResumeBindingIndex.tmuxResumeBindingForTesting(
+                processName: "tmux: client",
+                processPath: "/opt/homebrew/bin/tmux",
+                arguments: ["/opt/homebrew/bin/tmux", "a", "-t", "work"],
+                environment: [:]
+            )
+        )
+
+        XCTAssertEqual(binding.checkpointId, "work")
+        XCTAssertEqual(binding.command, "'/opt/homebrew/bin/tmux' 'attach' '-t' 'work'")
+    }
+
     func testTmuxProcessDetectedResumeBindingDoesNotUseProcessTitleAsExecutable() throws {
         let binding = try XCTUnwrap(
             SurfaceResumeBindingIndex.tmuxResumeBindingForTesting(

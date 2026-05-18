@@ -1464,6 +1464,115 @@ final class CLINotifyProcessIntegrationRegressionTests: XCTestCase {
         XCTAssertEqual(request["source"] as? String, "agent-hook")
     }
 
+    func testSurfaceResumeSetCLIPreservesQuotedShellCommand() throws {
+        let cliPath = try bundledCLIPath()
+        let socketPath = makeSocketPath("resume-set-shell")
+        let listenerFD = try bindUnixSocket(at: socketPath)
+        let state = MockSocketServerState()
+        defer {
+            Darwin.close(listenerFD)
+            unlink(socketPath)
+        }
+
+        let workspaceId = "11111111-1111-1111-1111-111111111111"
+        let surfaceId = "22222222-2222-2222-2222-222222222222"
+        let serverHandled = startMockServer(listenerFD: listenerFD, state: state) { line in
+            guard let payload = self.jsonObject(line),
+                  let id = payload["id"] as? String,
+                  let method = payload["method"] as? String else {
+                return self.malformedRequestResponse(raw: line)
+            }
+            XCTAssertEqual(method, "surface.resume.set")
+            return self.v2Response(id: id, ok: true, result: ["resume_binding": [:]])
+        }
+
+        var environment = ProcessInfo.processInfo.environment
+        environment["CMUX_SOCKET_PATH"] = socketPath
+        environment["CMUX_CLI_SENTRY_DISABLED"] = "1"
+
+        let result = runProcess(
+            executablePath: cliPath,
+            arguments: [
+                "surface", "resume", "set",
+                "--workspace", workspaceId,
+                "--surface", surfaceId,
+                "--kind", "tmux",
+                "--shell", "tmux attach -t work",
+            ],
+            environment: environment,
+            timeout: 5
+        )
+
+        wait(for: [serverHandled], timeout: 5)
+        XCTAssertFalse(result.timedOut, result.stderr)
+        XCTAssertEqual(result.status, 0, result.stderr)
+        XCTAssertEqual(result.stdout, "OK\n")
+
+        let setRequests = state.commands.compactMap { command -> [String: Any]? in
+            guard let payload = jsonObject(command),
+                  payload["method"] as? String == "surface.resume.set" else {
+                return nil
+            }
+            return payload["params"] as? [String: Any]
+        }
+        let request = try XCTUnwrap(setRequests.first)
+        XCTAssertEqual(request["workspace_id"] as? String, workspaceId)
+        XCTAssertEqual(request["surface_id"] as? String, surfaceId)
+        XCTAssertEqual(request["kind"] as? String, "tmux")
+        XCTAssertEqual(request["command"] as? String, "tmux attach -t work")
+    }
+
+    func testSurfaceResumeSetCLIRejectsTrailingShellTokens() throws {
+        let cliPath = try bundledCLIPath()
+        let socketPath = makeSocketPath("resume-set-shell-bad")
+        let listenerFD = try bindUnixSocket(at: socketPath)
+        let state = MockSocketServerState()
+        defer {
+            Darwin.close(listenerFD)
+            unlink(socketPath)
+        }
+
+        let serverHandled = startMockServer(listenerFD: listenerFD, state: state) { line in
+            guard let payload = self.jsonObject(line),
+                  let id = payload["id"] as? String,
+                  let method = payload["method"] as? String else {
+                return self.malformedRequestResponse(raw: line)
+            }
+            XCTFail("Malformed --shell args should fail before socket request, saw \(method)")
+            return self.v2Response(id: id, ok: true, result: ["cleared": true])
+        }
+
+        var environment = ProcessInfo.processInfo.environment
+        environment["CMUX_SOCKET_PATH"] = socketPath
+        environment["CMUX_CLI_SENTRY_DISABLED"] = "1"
+
+        let result = runProcess(
+            executablePath: cliPath,
+            arguments: [
+                "surface", "resume", "set",
+                "--workspace", "11111111-1111-1111-1111-111111111111",
+                "--surface", "22222222-2222-2222-2222-222222222222",
+                "--shell", "tmux",
+                "attach",
+                "-t",
+                "work",
+            ],
+            environment: environment,
+            timeout: 5
+        )
+
+        XCTAssertFalse(result.timedOut, result.stderr)
+        XCTAssertNotEqual(result.status, 0, result.stderr)
+        XCTAssertTrue(result.stderr.contains("surface resume set: unexpected argument 'attach' after --shell"))
+        wait(for: [serverHandled], timeout: 2)
+        XCTAssertFalse(
+            state.commands.contains { command in
+                self.jsonObject(command)?["method"] as? String == "surface.resume.set"
+            },
+            "Malformed --shell args should not send a set request, saw \(state.commands)"
+        )
+    }
+
     func testSurfaceResumeClearCLIRejectsMalformedGuardsBeforeClearing() throws {
         let cliPath = try bundledCLIPath()
         let socketPath = makeSocketPath("resume-clear-malformed")

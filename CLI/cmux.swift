@@ -4488,6 +4488,9 @@ struct CMUXCLI {
 
             let commandText: String
             if let shellCommand {
+                if let unexpected = rem7.first {
+                    throw CLIError(message: "surface resume set: unexpected argument '\(unexpected)' after --shell. Quote the full shell command or use -- <argv...>")
+                }
                 commandText = shellCommand.trimmingCharacters(in: .whitespacesAndNewlines)
             } else {
                 let argv = rem7.first == "--" ? Array(rem7.dropFirst()) : rem7
