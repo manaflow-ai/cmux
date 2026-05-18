@@ -83,8 +83,12 @@ enum SessionAgent: Identifiable, Codable, Sendable, Hashable {
            container.contains(.id) {
             let id = try container.decode(String.self, forKey: .id)
                 .trimmingCharacters(in: .whitespacesAndNewlines)
+            let name = try container.decodeIfPresent(String.self, forKey: .name)
+            let iconAssetName = try container.decodeIfPresent(String.self, forKey: .iconAssetName)
+            let hasRegisteredMetadata = name != nil || iconAssetName != nil
             if let builtIn = SessionAgent(rawValue: id),
-               !CmuxVaultAgentRegistration.isValidID(id) || SessionAgent.builtInCases.contains(builtIn) {
+               (!CmuxVaultAgentRegistration.isValidID(id) || SessionAgent.builtInCases.contains(builtIn)),
+               !hasRegisteredMetadata {
                 self = builtIn
                 return
             }
@@ -97,8 +101,8 @@ enum SessionAgent: Identifiable, Codable, Sendable, Hashable {
             }
             self = .registered(RegisteredSessionAgent(
                 id: id,
-                name: try container.decodeIfPresent(String.self, forKey: .name),
-                iconAssetName: try container.decodeIfPresent(String.self, forKey: .iconAssetName)
+                name: name,
+                iconAssetName: iconAssetName
             ))
             return
         }

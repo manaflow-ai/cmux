@@ -20035,9 +20035,19 @@ export default function cmuxPiSessionExtension(pi: ExtensionAPI) {
         let skipConfirm = ProcessInfo.processInfo.arguments.contains("--yes")
             || ProcessInfo.processInfo.arguments.contains("-y")
 
+        let configDirectoryFileError = String.localizedStringWithFormat(
+            String(
+                localized: "cli.hooks.error.configDirectoryIsFile",
+                defaultValue: "cmux could not create the hooks directory: a file exists at %@; remove or rename the conflicting file and re-run `cmux hooks setup`"
+            ),
+            def.configDir
+        )
         var isConfigDirectory: ObjCBool = false
         let configPathExists = fm.fileExists(atPath: configDir, isDirectory: &isConfigDirectory)
         if configPathExists, !isConfigDirectory.boolValue {
+            if def.createConfigDirIfMissing {
+                throw CLIError(message: configDirectoryFileError)
+            }
             print("Required agent configuration is missing. Run `cmux hooks setup` after installing your agent CLI.")
             return
         }
@@ -20046,8 +20056,7 @@ export default function cmuxPiSessionExtension(pi: ExtensionAPI) {
                 do {
                     try fm.createDirectory(atPath: configDir, withIntermediateDirectories: true)
                 } catch {
-                    print("Required agent configuration is missing. Run `cmux hooks setup` after installing your agent CLI.")
-                    return
+                    throw CLIError(message: configDirectoryFileError)
                 }
             } else {
                 print("Required agent configuration is missing. Run `cmux hooks setup` after installing your agent CLI.")
@@ -21273,12 +21282,6 @@ export default function cmuxPiSessionExtension(pi: ExtensionAPI) {
                 workspaceId: workspaceId ?? workspaceArg
             )
         }
-        func shouldSkipUnboundAgentHook(mapped: ClaudeHookSessionRecord?) -> Bool {
-            if hasUnusableDirectBinding {
-                return true
-            }
-            return resolveAgentHookTarget(mapped: mapped) == nil
-        }
         func resolveAgentHookTarget(mapped: ClaudeHookSessionRecord?) -> (workspaceId: String, surfaceId: String)? {
             guard !hasUnusableDirectBinding else {
                 return nil
@@ -21320,12 +21323,11 @@ export default function cmuxPiSessionExtension(pi: ExtensionAPI) {
         switch action {
         case .sessionStart:
             let mapped = sessionId.isEmpty ? nil : (try? store.lookup(sessionId: sessionId))
-            if shouldSkipUnboundAgentHook(mapped: mapped) {
+            guard let target = resolveAgentHookTarget(mapped: mapped) else {
                 didSendFeedTelemetry = true
                 print("{}")
                 return
             }
-            let target = resolveAgentHookTarget(mapped: mapped)!
             let workspaceId = target.workspaceId
             let surfaceId = target.surfaceId
             sendAgentFeedTelemetry(workspaceId: workspaceId)
@@ -21355,12 +21357,11 @@ export default function cmuxPiSessionExtension(pi: ExtensionAPI) {
 
         case .promptSubmit:
             let mapped = sessionId.isEmpty ? nil : (try? store.lookup(sessionId: sessionId))
-            if shouldSkipUnboundAgentHook(mapped: mapped) {
+            guard let target = resolveAgentHookTarget(mapped: mapped) else {
                 didSendFeedTelemetry = true
                 print("{}")
                 return
             }
-            let target = resolveAgentHookTarget(mapped: mapped)!
             let workspaceId = target.workspaceId
             let surfaceId = target.surfaceId
             sendAgentFeedTelemetry(workspaceId: workspaceId)
@@ -21434,12 +21435,11 @@ export default function cmuxPiSessionExtension(pi: ExtensionAPI) {
                 }
             }
             let mapped = sessionId.isEmpty ? nil : (try? store.lookup(sessionId: sessionId))
-            if shouldSkipUnboundAgentHook(mapped: mapped) {
+            guard let target = resolveAgentHookTarget(mapped: mapped) else {
                 didSendFeedTelemetry = true
                 print("{}")
                 return
             }
-            let target = resolveAgentHookTarget(mapped: mapped)!
             let workspaceId = target.workspaceId
             let surfaceId = target.surfaceId
             sendAgentFeedTelemetry(workspaceId: workspaceId)
@@ -21528,12 +21528,11 @@ export default function cmuxPiSessionExtension(pi: ExtensionAPI) {
 
         case .notification:
             let mapped = sessionId.isEmpty ? nil : (try? store.lookup(sessionId: sessionId))
-            if shouldSkipUnboundAgentHook(mapped: mapped) {
+            guard let target = resolveAgentHookTarget(mapped: mapped) else {
                 didSendFeedTelemetry = true
                 print("{}")
                 return
             }
-            let target = resolveAgentHookTarget(mapped: mapped)!
             let workspaceId = target.workspaceId
             let surfaceId = target.surfaceId
 

@@ -807,6 +807,72 @@ extension CLINotifyProcessIntegrationRegressionTests {
         )
     }
 
+    func testGrokHookInstallPreservesUserWrappedLegacyCommands() throws {
+        let cliPath = try bundledCLIPath()
+        let root = FileManager.default.temporaryDirectory
+            .appendingPathComponent("cmux-grok-hook-preserve-\(UUID().uuidString)", isDirectory: true)
+        try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: root) }
+
+        let legacyHookURL = root
+            .appendingPathComponent(".grok", isDirectory: true)
+            .appendingPathComponent("hooks", isDirectory: true)
+            .appendingPathComponent("cmux.json", isDirectory: false)
+        try FileManager.default.createDirectory(at: legacyHookURL.deletingLastPathComponent(), withIntermediateDirectories: true)
+
+        let preservedCommand = "bash -lc 'cmux hooks grok notification && ~/bin/after-grok'"
+        let legacyHookJSON: [String: Any] = [
+            "hooks": [
+                "Notification": [
+                    [
+                        "hooks": [
+                            [
+                                "command": preservedCommand,
+                                "timeout": 10,
+                                "type": "command",
+                            ],
+                            [
+                                "command": "[ \"$CMUX_GROK_HOOKS_DISABLED\" != \"1\" ] && command -v cmux >/dev/null 2>&1 && cmux hooks grok notification || echo '{}'",
+                                "timeout": 10,
+                                "type": "command",
+                            ],
+                        ],
+                    ],
+                ],
+            ],
+        ]
+        try JSONSerialization.data(withJSONObject: legacyHookJSON, options: [.prettyPrinted, .sortedKeys])
+            .write(to: legacyHookURL, options: .atomic)
+
+        let result = runProcess(
+            executablePath: cliPath,
+            arguments: ["hooks", "grok", "install", "--yes"],
+            environment: [
+                "HOME": root.path,
+                "PATH": "/usr/bin:/bin:/usr/sbin:/sbin",
+                "CMUX_CLI_SENTRY_DISABLED": "1",
+            ],
+            timeout: 5
+        )
+
+        XCTAssertFalse(result.timedOut, result.stderr)
+        XCTAssertEqual(result.status, 0, result.stderr)
+
+        let legacyJSON = try XCTUnwrap(JSONSerialization.jsonObject(with: Data(contentsOf: legacyHookURL)) as? [String: Any])
+        let hooks = try XCTUnwrap(legacyJSON["hooks"] as? [String: Any])
+        let notificationGroups = try XCTUnwrap(hooks["Notification"] as? [[String: Any]])
+        let commands = notificationGroups
+            .compactMap { $0["hooks"] as? [[String: Any]] }
+            .flatMap { $0 }
+            .compactMap { $0["command"] as? String }
+
+        XCTAssertEqual(commands, [preservedCommand])
+        XCTAssertFalse(
+            commands.contains { $0.hasPrefix("[ \"$CMUX_GROK_HOOKS_DISABLED\"") },
+            "Expected setup to remove only exact cmux-owned legacy commands, saw \(commands)"
+        )
+    }
+
     func testCodexHookInstallPrefersLaunchingAppBundledCLI() throws {
         let cliPath = try bundledCLIPath()
         let root = FileManager.default.temporaryDirectory
@@ -912,9 +978,13 @@ extension CLINotifyProcessIntegrationRegressionTests {
         )
 
         XCTAssertFalse(result.timedOut, result.stderr)
-        XCTAssertEqual(result.status, 0, result.stderr)
+        XCTAssertNotEqual(result.status, 0, result.stdout)
         XCTAssertTrue(
-            result.stdout.contains("Required agent configuration is missing. Run `cmux hooks setup` after installing your agent CLI."),
+            result.stderr.contains("cmux could not create the hooks directory: a file exists at .grok/hooks; remove or rename the conflicting file and re-run `cmux hooks setup`"),
+            result.stderr
+        )
+        XCTAssertFalse(
+            result.stdout.contains("Required agent configuration is missing."),
             result.stdout
         )
         var isDirectory: ObjCBool = true

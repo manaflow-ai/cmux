@@ -39,7 +39,7 @@ write_dev_cli_shim() {
 set -euo pipefail
 
 CLI_PATH_FILE="/tmp/cmux-last-cli-path"
-if [[ -n "\${CMUX_BUNDLED_CLI_PATH:-}" ]] && [[ -x "\$CMUX_BUNDLED_CLI_PATH" ]] && [[ "\$CMUX_BUNDLED_CLI_PATH" != "\$0" ]]; then
+if [[ -n "\${CMUX_BUNDLED_CLI_PATH:-}" ]] && [[ -f "\$CMUX_BUNDLED_CLI_PATH" ]] && [[ -x "\$CMUX_BUNDLED_CLI_PATH" ]] && [[ "\$CMUX_BUNDLED_CLI_PATH" != "\$0" ]]; then
   exec "\$CMUX_BUNDLED_CLI_PATH" "\$@"
 fi
 

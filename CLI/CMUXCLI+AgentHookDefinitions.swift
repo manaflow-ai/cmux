@@ -312,10 +312,6 @@ extension CMUXCLI {
         // Codex also had older top-level codex-hook/feed-hook commands.
         // Other generic agents can have stale `cmux hooks ...` files from
         // earlier integration attempts, and setup should be able to prune them.
-        if command.contains("hooks \(def.name) ")
-            || command.contains("hooks feed --source \(def.name) ") {
-            return true
-        }
         let tokens = legacyCmuxCommandTokens(from: command, for: def)
         guard !tokens.isEmpty,
               URL(fileURLWithPath: String(tokens[0])).lastPathComponent == "cmux"
@@ -353,6 +349,18 @@ extension CMUXCLI {
         ]
         let fallbackSuffix = " || echo '{}'"
         var body = command
+        if def.name == "grok" {
+            let grokPrefix = "printenv \(def.disableEnvVar) | grep -qx 1 && echo '{}' || { command -v cmux >/dev/null 2>&1 && "
+            let grokSuffix = " || echo '{}'; }"
+            if body.hasPrefix(grokPrefix), body.hasSuffix(grokSuffix) {
+                body.removeFirst(grokPrefix.count)
+                body.removeLast(grokSuffix.count)
+                guard !body.contains(";"), !body.contains("|"), !body.contains("&"), !body.contains("`") else {
+                    return []
+                }
+                return body.split(whereSeparator: { $0 == " " || $0 == "\t" })
+            }
+        }
         for guardedPrefix in guardedPrefixes where body.hasPrefix(guardedPrefix) {
             body.removeFirst(guardedPrefix.count)
             break
