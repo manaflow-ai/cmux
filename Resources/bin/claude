@@ -35,7 +35,7 @@ find_real_claude() {
         return 0
     fi
     local self_dir
-    self_dir="$(cd "$(dirname "$0")" && pwd)"
+    self_dir="$(claude_wrapper_dir)"
     local IFS=:
     local d candidate
     for d in $PATH; do
