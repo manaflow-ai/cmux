@@ -69,7 +69,12 @@ extension RestorableAgentSessionIndex {
     ) -> [PanelKey: (snapshot: SessionRestorableAgentSnapshot, updatedAt: TimeInterval)] {
         var resolved: [PanelKey: (snapshot: SessionRestorableAgentSnapshot, updatedAt: TimeInterval)] = [:]
         var selectedCandidateByPanelKey: [
-            PanelKey: (source: RestorableAgentProcessDetectionCandidateSource, isForeground: Bool, matchesFallbackScope: Bool)
+            PanelKey: (
+                source: RestorableAgentProcessDetectionCandidateSource,
+                isForeground: Bool,
+                matchesFallbackScope: Bool,
+                isForkParentFallback: Bool
+            )
         ] = [:]
 
         for candidate in candidates {
@@ -114,16 +119,33 @@ extension RestorableAgentSessionIndex {
                 )
                 continue
             }
-            let isForeground = process.isForegroundProcess
+            let isForkParentFallback = claudeSessionIdIsForkParentFallback(
+                sessionId: sessionId,
+                tail: launchTail,
+                environment: processArguments.environment,
+                processID: process.pid,
+                fileManager: fileManager
+            )
+            let candidatePriority = (
+                source: candidate.source,
+                isForeground: process.isForegroundProcess,
+                matchesFallbackScope: candidate.matchesFallbackScope
+            )
             if let existing = selectedCandidateByPanelKey[candidate.panelKey] {
-                if !processDetectionShouldReplaceCandidate(
-                    existing: existing,
-                    candidate: (
-                        source: candidate.source,
-                        isForeground: isForeground,
-                        matchesFallbackScope: candidate.matchesFallbackScope
-                    )
-                ) {
+                let existingPriority = (
+                    source: existing.source,
+                    isForeground: existing.isForeground,
+                    matchesFallbackScope: existing.matchesFallbackScope
+                )
+                let shouldReplace = processDetectionShouldReplaceCandidate(
+                    existing: existingPriority,
+                    candidate: candidatePriority
+                ) || (
+                    processDetectionCandidatePriorityMatches(existingPriority, candidatePriority)
+                        && existing.isForkParentFallback
+                        && !isForkParentFallback
+                )
+                if !shouldReplace {
                     continue
                 }
             }
@@ -135,18 +157,13 @@ extension RestorableAgentSessionIndex {
             )
             resolved[candidate.panelKey] = (
                 snapshot: snapshot,
-                updatedAt: claudeSessionIdIsForkParentFallback(
-                    sessionId: sessionId,
-                    tail: launchTail,
-                    environment: processArguments.environment,
-                    processID: process.pid,
-                    fileManager: fileManager
-                ) ? 0 : capturedAt
+                updatedAt: isForkParentFallback ? 0 : capturedAt
             )
             selectedCandidateByPanelKey[candidate.panelKey] = (
                 source: candidate.source,
-                isForeground: isForeground,
-                matchesFallbackScope: candidate.matchesFallbackScope
+                isForeground: candidatePriority.isForeground,
+                matchesFallbackScope: candidate.matchesFallbackScope,
+                isForkParentFallback: isForkParentFallback
             )
         }
 

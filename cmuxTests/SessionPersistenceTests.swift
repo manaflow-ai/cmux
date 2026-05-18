@@ -3393,6 +3393,180 @@ final class SocketListenerAcceptPolicyTests: XCTestCase {
         XCTAssertEqual(snapshot.workingDirectory, "/tmp/single opencode panel")
     }
 
+    func testProcessDetectionCodexForkMetadataCountsLogicalPanelsNotHelperPIDs() throws {
+        let workspaceId = UUID()
+        let panelId = UUID()
+        let ttyDevice: Int64 = 44_035
+        let fileManager = FileManager.default
+        let codexHome = fileManager.temporaryDirectory
+            .appendingPathComponent("codex-wrapper-fork-child-\(UUID().uuidString)", isDirectory: true)
+        let parentSessionId = "019dad34-d218-7943-b81a-eddac5c87951"
+        let childSessionId = "019e7777-7777-7777-8777-777777777777"
+        let workingDirectory = "/tmp/single codex panel"
+        try writeCodexSessionMeta(
+            codexHome: codexHome,
+            sessionId: childSessionId,
+            forkedFromId: parentSessionId,
+            cwd: workingDirectory,
+            createdAt: Date(timeIntervalSince1970: 300),
+            modifiedAt: Date(timeIntervalSince1970: 300)
+        )
+        defer {
+            try? fileManager.removeItem(at: codexHome)
+        }
+
+        let nativeCodex = makeTopProcess(
+            pid: 10_036,
+            name: "codex",
+            path: "/Users/lawrence/.bun/bin/codex",
+            ttyDevice: ttyDevice,
+            workspaceId: workspaceId,
+            panelId: panelId
+        )
+        let nodeWrapperCodex = makeTopProcess(
+            pid: 10_037,
+            name: "node",
+            path: "/opt/homebrew/bin/node",
+            ttyDevice: ttyDevice,
+            workspaceId: workspaceId,
+            panelId: panelId
+        )
+        let detected = RestorableAgentSessionIndex.processDetectedSnapshots(
+            registry: CmuxVaultAgentRegistry(registrations: []),
+            fileManager: fileManager,
+            processSnapshot: CmuxTopProcessSnapshot(
+                processes: [nativeCodex, nodeWrapperCodex],
+                sampledAt: Date(timeIntervalSince1970: 123),
+                includesProcessDetails: false
+            ),
+            processArguments: { pid in
+                switch pid {
+                case nativeCodex.pid:
+                    return CmuxTopProcessArguments(
+                        arguments: [
+                            "/Users/lawrence/.bun/bin/codex",
+                            "fork",
+                            parentSessionId,
+                            "--model",
+                            "gpt-5.4"
+                        ],
+                        environment: [
+                            "CODEX_HOME": codexHome.path,
+                            "CODEX_THREAD_ID": parentSessionId,
+                            "PWD": workingDirectory
+                        ]
+                    )
+                case nodeWrapperCodex.pid:
+                    return CmuxTopProcessArguments(
+                        arguments: [
+                            "node",
+                            "/opt/homebrew/lib/node_modules/@openai/codex/bin/codex.js",
+                            "fork",
+                            parentSessionId,
+                            "--model",
+                            "gpt-5.4"
+                        ],
+                        environment: [
+                            "CODEX_HOME": codexHome.path,
+                            "CODEX_THREAD_ID": parentSessionId,
+                            "PWD": workingDirectory
+                        ]
+                    )
+                default:
+                    return nil
+                }
+            }
+        )
+
+        let snapshot = try XCTUnwrap(
+            detected[RestorableAgentSessionIndex.PanelKey(workspaceId: workspaceId, panelId: panelId)]?.snapshot
+        )
+        XCTAssertEqual(snapshot.kind, .codex)
+        XCTAssertEqual(snapshot.sessionId, childSessionId)
+        XCTAssertEqual(snapshot.workingDirectory, workingDirectory)
+    }
+
+    func testProcessDetectionCodexTiePrefersLiveChildOverMetadataFallback() throws {
+        let workspaceId = UUID()
+        let panelId = UUID()
+        let ttyDevice: Int64 = 44_036
+        let parentSessionId = "019dad34-d218-7943-b81a-eddac5c87951"
+        let staleMetadataSessionId = "019e1111-1111-7111-8111-111111111111"
+        let liveChildSessionId = "019e2222-2222-7222-8222-222222222222"
+        let workingDirectory = "/tmp/codex wrapper live child"
+        let nodeWrapperCodex = makeTopProcess(
+            pid: 10_036,
+            name: "node",
+            path: "/opt/homebrew/bin/node",
+            ttyDevice: ttyDevice,
+            workspaceId: workspaceId,
+            panelId: panelId
+        )
+        let nativeCodex = makeTopProcess(
+            pid: 10_037,
+            name: "codex",
+            path: "/Users/lawrence/.bun/bin/codex",
+            ttyDevice: ttyDevice,
+            workspaceId: workspaceId,
+            panelId: panelId
+        )
+        var latestLookups: [(workingDirectory: String?, parentSessionId: String)] = []
+        let detected = RestorableAgentSessionIndex.processDetectedSnapshots(
+            registry: CmuxVaultAgentRegistry(registrations: []),
+            fileManager: .default,
+            processSnapshot: CmuxTopProcessSnapshot(
+                processes: [nodeWrapperCodex, nativeCodex],
+                sampledAt: Date(timeIntervalSince1970: 123),
+                includesProcessDetails: false
+            ),
+            processArguments: { pid in
+                switch pid {
+                case nodeWrapperCodex.pid:
+                    return CmuxTopProcessArguments(
+                        arguments: [
+                            "node",
+                            "/opt/homebrew/lib/node_modules/@openai/codex/bin/codex.js",
+                            "fork",
+                            parentSessionId
+                        ],
+                        environment: [
+                            "CODEX_THREAD_ID": parentSessionId,
+                            "PWD": workingDirectory
+                        ]
+                    )
+                case nativeCodex.pid:
+                    return CmuxTopProcessArguments(
+                        arguments: [
+                            "/Users/lawrence/.bun/bin/codex",
+                            "fork",
+                            parentSessionId
+                        ],
+                        environment: [
+                            "CODEX_THREAD_ID": liveChildSessionId,
+                            "PWD": workingDirectory
+                        ]
+                    )
+                default:
+                    return nil
+                }
+            },
+            latestCodexForkSessionId: { workingDirectory, parentSessionId, _, _, _ in
+                latestLookups.append((workingDirectory, parentSessionId))
+                return staleMetadataSessionId
+            }
+        )
+
+        let snapshot = try XCTUnwrap(
+            detected[RestorableAgentSessionIndex.PanelKey(workspaceId: workspaceId, panelId: panelId)]?.snapshot
+        )
+        XCTAssertEqual(latestLookups.count, 1)
+        XCTAssertEqual(latestLookups.first?.workingDirectory, workingDirectory)
+        XCTAssertEqual(latestLookups.first?.parentSessionId, parentSessionId)
+        XCTAssertEqual(snapshot.kind, .codex)
+        XCTAssertEqual(snapshot.sessionId, liveChildSessionId)
+        XCTAssertEqual(snapshot.workingDirectory, workingDirectory)
+    }
+
     func testProcessDetectionUsesFocusedTTYFallbackForClaudeWithoutCMUXEnvironment() throws {
         let workspaceId = UUID()
         let panelId = UUID()
@@ -3505,6 +3679,105 @@ final class SocketListenerAcceptPolicyTests: XCTestCase {
         XCTAssertEqual(snapshot.sessionId, childSessionId)
         XCTAssertEqual(snapshot.workingDirectory, workingDirectory)
         XCTAssertEqual(snapshot.launchCommand?.source, "process")
+        XCTAssertTrue(snapshot.forkCommand?.contains(childSessionId) == true)
+        XCTAssertFalse(snapshot.forkCommand?.contains(parentSessionId) == true)
+    }
+
+    func testProcessDetectionClaudeTiePrefersForkChildOverParentFallback() throws {
+        let workspaceId = UUID()
+        let panelId = UUID()
+        let ttyDevice: Int64 = 44_042
+        let wrapper = makeTopProcess(
+            pid: 10_042,
+            name: "node",
+            path: "/opt/homebrew/bin/node",
+            ttyDevice: ttyDevice,
+            workspaceId: workspaceId,
+            panelId: panelId
+        )
+        let child = makeTopProcess(
+            pid: 10_043,
+            name: "claude",
+            path: "/Users/lawrence/.local/bin/claude",
+            ttyDevice: ttyDevice,
+            workspaceId: workspaceId,
+            panelId: panelId
+        )
+        let fileManager = FileManager.default
+        let configDir = fileManager.temporaryDirectory
+            .appendingPathComponent("claude-wrapper-fork-child-\(UUID().uuidString)", isDirectory: true)
+        let workingDirectory = "/tmp/claude wrapper fork repo"
+        let parentSessionId = "18f6c8c3-115b-40ff-8f6a-f8b0cc6352bf"
+        let childSessionId = "5f854a42-a167-45aa-b7d7-ab9fc32758c3"
+        try writeClaudeProcessSession(
+            configDir: configDir,
+            pid: child.pid,
+            sessionId: childSessionId,
+            cwd: workingDirectory
+        )
+        try writeClaudeTranscript(
+            configDir: configDir,
+            sessionId: childSessionId,
+            cwd: workingDirectory
+        )
+        defer {
+            try? fileManager.removeItem(at: configDir)
+        }
+
+        let detected = RestorableAgentSessionIndex.processDetectedSnapshots(
+            registry: CmuxVaultAgentRegistry(registrations: []),
+            fileManager: fileManager,
+            processSnapshot: CmuxTopProcessSnapshot(
+                processes: [wrapper, child],
+                sampledAt: Date(timeIntervalSince1970: 123),
+                includesProcessDetails: false
+            ),
+            processArguments: { pid in
+                switch pid {
+                case wrapper.pid:
+                    return CmuxTopProcessArguments(
+                        arguments: [
+                            "node",
+                            "/opt/homebrew/lib/node_modules/@anthropic-ai/claude-code/cli.js",
+                            "--resume",
+                            parentSessionId,
+                            "--fork-session",
+                            "--dangerously-skip-permissions"
+                        ],
+                        environment: [
+                            "CLAUDE_CONFIG_DIR": configDir.path,
+                            "CLAUDE_SESSION_ID": parentSessionId,
+                            "PWD": workingDirectory
+                        ]
+                    )
+                case child.pid:
+                    return CmuxTopProcessArguments(
+                        arguments: [
+                            "/Users/lawrence/.local/bin/claude",
+                            "--resume",
+                            parentSessionId,
+                            "--fork-session",
+                            "--dangerously-skip-permissions"
+                        ],
+                        environment: [
+                            "CLAUDE_CONFIG_DIR": configDir.path,
+                            "CLAUDE_SESSION_ID": parentSessionId,
+                            "PWD": workingDirectory
+                        ]
+                    )
+                default:
+                    return nil
+                }
+            }
+        )
+
+        let panelKey = RestorableAgentSessionIndex.PanelKey(workspaceId: workspaceId, panelId: panelId)
+        let detectedEntry = try XCTUnwrap(detected[panelKey])
+        let snapshot = detectedEntry.snapshot
+        XCTAssertEqual(snapshot.kind, .claude)
+        XCTAssertEqual(snapshot.sessionId, childSessionId)
+        XCTAssertEqual(snapshot.workingDirectory, workingDirectory)
+        XCTAssertGreaterThan(detectedEntry.updatedAt, 0)
         XCTAssertTrue(snapshot.forkCommand?.contains(childSessionId) == true)
         XCTAssertFalse(snapshot.forkCommand?.contains(parentSessionId) == true)
     }
@@ -4224,7 +4497,7 @@ final class SocketListenerAcceptPolicyTests: XCTestCase {
         )
     }
 
-    func testProcessDetectionSkipsRemappedCMUXScopedCodexForForkMetadata() throws {
+    func testProcessDetectionAddsMovedCMUXScopedCodexFallbackByFocusedTTY() throws {
         let staleWorkspaceId = UUID()
         let stalePanelId = UUID()
         let focusedWorkspaceId = UUID()
@@ -4288,14 +4561,17 @@ final class SocketListenerAcceptPolicyTests: XCTestCase {
             }
         )
 
-        XCTAssertNil(
+        let scopedSnapshot = try XCTUnwrap(
             detected[RestorableAgentSessionIndex.PanelKey(workspaceId: staleWorkspaceId, panelId: stalePanelId)]?.snapshot
         )
         let focusedSnapshot = try XCTUnwrap(
             detected[RestorableAgentSessionIndex.PanelKey(workspaceId: focusedWorkspaceId, panelId: focusedPanelId)]?.snapshot
         )
+        XCTAssertEqual(scopedSnapshot.kind, .codex)
+        XCTAssertEqual(scopedSnapshot.sessionId, childSessionId)
         XCTAssertEqual(focusedSnapshot.kind, .codex)
         XCTAssertEqual(focusedSnapshot.sessionId, childSessionId)
+        XCTAssertEqual(focusedSnapshot.forkCommand, scopedSnapshot.forkCommand)
     }
 
     func testProcessDetectionResolvesCodexForkChildFromSessionMetadataWhenThreadEnvironmentMissing() throws {
@@ -5417,6 +5693,15 @@ final class SocketListenerAcceptPolicyTests: XCTestCase {
         XCTAssertEqual(originalSnapshot.kind, .opencode)
         XCTAssertEqual(originalSnapshot.sessionId, snapshot.sessionId)
         XCTAssertEqual(originalSnapshot.workingDirectory, snapshot.workingDirectory)
+    }
+
+    func testProcessDetectionCandidateTieKeepsExistingCandidate() throws {
+        XCTAssertFalse(
+            RestorableAgentSessionIndex.processDetectionShouldReplaceCandidate(
+                existing: (source: .cmuxScoped, isForeground: true, matchesFallbackScope: true),
+                candidate: (source: .cmuxScoped, isForeground: true, matchesFallbackScope: true)
+            )
+        )
     }
 
     func testProcessDetectionSkipsInheritedClaudeHelperWithMismatchedWrapperPID() throws {

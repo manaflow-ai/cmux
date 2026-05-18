@@ -137,6 +137,8 @@ extension CmuxTopProcessSnapshot {
         do {
             try process.run()
         } catch {
+            stdout.fileHandleForReading.readabilityHandler = nil
+            stdout.fileHandleForReading.closeFile()
             process.terminationHandler = nil
             return nil
         }

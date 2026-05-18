@@ -221,21 +221,24 @@ extension RestorableAgentSessionIndex {
                 ),
                 registration: registration
             )
-            if let existing = selectedRegisteredCandidateByPanelKey[candidate.panelKey],
-               !processDetectionShouldReplaceCandidate(
-                   existing: existing,
-                   candidate: (
-                       source: candidate.source,
-                       isForeground: process.isForegroundProcess,
-                       matchesFallbackScope: candidate.matchesFallbackScope
-                   )
-               ) {
-                continue
+            let candidatePriority = (
+                source: candidate.source,
+                isForeground: process.isForegroundProcess,
+                matchesFallbackScope: candidate.matchesFallbackScope
+            )
+            if let existing = selectedRegisteredCandidateByPanelKey[candidate.panelKey] {
+                let shouldReplace = processDetectionShouldReplaceCandidate(
+                    existing: existing,
+                    candidate: candidatePriority
+                ) || processDetectionCandidatePriorityMatches(existing, candidatePriority)
+                if !shouldReplace {
+                    continue
+                }
             }
             resolved[candidate.panelKey] = (snapshot: snapshot, updatedAt: capturedAt)
             selectedRegisteredCandidateByPanelKey[candidate.panelKey] = (
                 source: candidate.source,
-                isForeground: process.isForegroundProcess,
+                isForeground: candidatePriority.isForeground,
                 matchesFallbackScope: candidate.matchesFallbackScope
             )
         }
@@ -271,7 +274,7 @@ extension RestorableAgentSessionIndex {
            candidate.isForeground {
             return true
         }
-        return true
+        return false
     }
 
     private static func processDetectionShouldPreferBuiltin(
@@ -335,6 +338,15 @@ extension RestorableAgentSessionIndex {
             }
         }
         return selected
+    }
+
+    static func processDetectionCandidatePriorityMatches(
+        _ existing: (source: RestorableAgentProcessDetectionCandidateSource, isForeground: Bool, matchesFallbackScope: Bool),
+        _ candidate: (source: RestorableAgentProcessDetectionCandidateSource, isForeground: Bool, matchesFallbackScope: Bool)
+    ) -> Bool {
+        existing.source == candidate.source
+            && existing.isForeground == candidate.isForeground
+            && existing.matchesFallbackScope == candidate.matchesFallbackScope
     }
 
     private static func processDetectionBuiltinKind(
@@ -584,6 +596,43 @@ extension RestorableAgentSessionIndex {
         return codexLaunchArguments(observed: observed, executablePath: executablePath)
     }
 
+    private static func codexForkMetadataScopesAreSingleLogicalProcess(
+        _ scopes: [(panelKey: PanelKey, pid: Int)]?
+    ) -> Bool {
+        guard let scopes, !scopes.isEmpty else { return false }
+
+        var panelKeysByPID: [Int: Set<PanelKey>] = [:]
+        var pidsByPanelKey: [PanelKey: Set<Int>] = [:]
+        for scope in scopes {
+            panelKeysByPID[scope.pid, default: []].insert(scope.panelKey)
+            pidsByPanelKey[scope.panelKey, default: []].insert(scope.pid)
+        }
+
+        var remainingPIDs = Set(panelKeysByPID.keys)
+        var remainingPanelKeys = Set(pidsByPanelKey.keys)
+        var componentCount = 0
+
+        while let startPID = remainingPIDs.first {
+            componentCount += 1
+            if componentCount > 1 { return false }
+
+            var pendingPIDs = [startPID]
+            var pendingPanelKeys: [PanelKey] = []
+            while !pendingPIDs.isEmpty || !pendingPanelKeys.isEmpty {
+                if let pid = pendingPIDs.popLast() {
+                    guard remainingPIDs.remove(pid) != nil else { continue }
+                    pendingPanelKeys.append(contentsOf: panelKeysByPID[pid] ?? [])
+                    continue
+                }
+                guard let panelKey = pendingPanelKeys.popLast() else { continue }
+                guard remainingPanelKeys.remove(panelKey) != nil else { continue }
+                pendingPIDs.append(contentsOf: pidsByPanelKey[panelKey] ?? [])
+            }
+        }
+
+        return true
+    }
+
     private static func processDetectedCodexSnapshots(
         candidates: [RestorableAgentProcessDetectionCandidate],
         capturedAt: TimeInterval,
@@ -593,17 +642,17 @@ extension RestorableAgentSessionIndex {
     ) -> [PanelKey: (snapshot: SessionRestorableAgentSnapshot, updatedAt: TimeInterval)] {
         var resolved: [PanelKey: (snapshot: SessionRestorableAgentSnapshot, updatedAt: TimeInterval)] = [:]
         var selectedCandidateByPanelKey: [
-            PanelKey: (source: RestorableAgentProcessDetectionCandidateSource, isForeground: Bool, matchesFallbackScope: Bool)
+            PanelKey: (
+                source: RestorableAgentProcessDetectionCandidateSource,
+                isForeground: Bool,
+                matchesFallbackScope: Bool,
+                sessionSource: CodexSessionResolutionSource
+            )
         ] = [:]
-        var forkMetadataPanelKeysByKey: [String: Set<PanelKey>] = [:]
-        var forkMetadataPanelKeysByParentSessionId: [String: Set<PanelKey>] = [:]
-        let fallbackRemappedPIDs = Set(candidates.filter { $0.source == .fallbackScope }.map(\.process.pid))
+        var forkMetadataScopesByKey: [String: [(panelKey: PanelKey, pid: Int)]] = [:]
+        var forkMetadataScopesByParentSessionId: [String: [(panelKey: PanelKey, pid: Int)]] = [:]
 
-        func shouldSkipRemappedCMUXScopedCandidate(_ candidate: RestorableAgentProcessDetectionCandidate) -> Bool {
-            candidate.source == .cmuxScoped && fallbackRemappedPIDs.contains(candidate.process.pid)
-        }
-
-        for candidate in candidates where !shouldSkipRemappedCMUXScopedCandidate(candidate) {
+        for candidate in candidates {
             let process = candidate.process
             let processArguments = candidate.arguments
             guard process.canBeActiveAgentProcess else { continue }
@@ -623,7 +672,10 @@ extension RestorableAgentSessionIndex {
                 observed.environment["CMUX_AGENT_LAUNCH_CWD"] ?? observed.environment["PWD"]
             )
             if let parentSessionId = normalized(command.sessionId) {
-                forkMetadataPanelKeysByParentSessionId[parentSessionId, default: []].insert(candidate.panelKey)
+                forkMetadataScopesByParentSessionId[parentSessionId, default: []].append((
+                    candidate.panelKey,
+                    process.pid
+                ))
             }
             guard let key = codexForkMetadataFallbackKey(
                 workingDirectory: workingDirectory,
@@ -631,10 +683,10 @@ extension RestorableAgentSessionIndex {
             ) else {
                 continue
             }
-            forkMetadataPanelKeysByKey[key, default: []].insert(candidate.panelKey)
+            forkMetadataScopesByKey[key, default: []].append((candidate.panelKey, process.pid))
         }
 
-        for candidate in candidates where !shouldSkipRemappedCMUXScopedCandidate(candidate) {
+        for candidate in candidates {
             let process = candidate.process
             let processArguments = candidate.arguments
             guard process.canBeActiveAgentProcess else { continue }
@@ -661,8 +713,10 @@ extension RestorableAgentSessionIndex {
                 && codexForkMetadataFallbackKey(
                     workingDirectory: workingDirectory,
                     parentSessionId: command?.sessionId
-                ).map { forkMetadataPanelKeysByKey[$0]?.count == 1 } == true
-                && parentForkSessionId.map { forkMetadataPanelKeysByParentSessionId[$0]?.count == 1 } == true
+                ).map { codexForkMetadataScopesAreSingleLogicalProcess(forkMetadataScopesByKey[$0]) } == true
+                && parentForkSessionId.map {
+                    codexForkMetadataScopesAreSingleLogicalProcess(forkMetadataScopesByParentSessionId[$0])
+                } == true
             guard let sessionResolution = codexSessionResolution(
                 tail: tail,
                 environment: processArguments.environment,
@@ -688,16 +742,25 @@ extension RestorableAgentSessionIndex {
                 )
                 continue
             }
-            let isForeground = process.isForegroundProcess
+            let candidatePriority = (
+                source: candidate.source,
+                isForeground: process.isForegroundProcess,
+                matchesFallbackScope: candidate.matchesFallbackScope
+            )
             if let existing = selectedCandidateByPanelKey[candidate.panelKey] {
-                if !processDetectionShouldReplaceCandidate(
-                    existing: existing,
-                    candidate: (
-                        source: candidate.source,
-                        isForeground: isForeground,
-                        matchesFallbackScope: candidate.matchesFallbackScope
-                    )
-                ) {
+                let existingPriority = (
+                    source: existing.source,
+                    isForeground: existing.isForeground,
+                    matchesFallbackScope: existing.matchesFallbackScope
+                )
+                let shouldReplace = processDetectionShouldReplaceCandidate(
+                    existing: existingPriority,
+                    candidate: candidatePriority
+                ) || (
+                    processDetectionCandidatePriorityMatches(existingPriority, candidatePriority)
+                        && sessionResolution.source.shouldReplaceCodexTie(over: existing.sessionSource)
+                )
+                if !shouldReplace {
                     continue
                 }
             }
@@ -713,8 +776,9 @@ extension RestorableAgentSessionIndex {
             )
             selectedCandidateByPanelKey[candidate.panelKey] = (
                 source: candidate.source,
-                isForeground: isForeground,
-                matchesFallbackScope: candidate.matchesFallbackScope
+                isForeground: candidatePriority.isForeground,
+                matchesFallbackScope: candidate.matchesFallbackScope,
+                sessionSource: sessionResolution.source
             )
         }
 
@@ -734,9 +798,20 @@ extension RestorableAgentSessionIndex {
         )
     }
 
+    private enum CodexSessionResolutionSource: Int {
+        case forkParentFallback = 0
+        case metadataFallback = 1
+        case liveProcess = 2
+
+        func shouldReplaceCodexTie(over existing: CodexSessionResolutionSource) -> Bool {
+            rawValue > existing.rawValue
+        }
+    }
+
     private struct CodexSessionResolution {
         let sessionId: String
         let isForkParentFallback: Bool
+        let source: CodexSessionResolutionSource
     }
 
     private static func codexSessionId(
@@ -782,15 +857,27 @@ extension RestorableAgentSessionIndex {
                     environment: environment,
                     fileManager: fileManager
                 ) {
-                    return CodexSessionResolution(sessionId: openSessionId, isForkParentFallback: false)
+                    return CodexSessionResolution(
+                        sessionId: openSessionId,
+                        isForkParentFallback: false,
+                        source: .liveProcess
+                    )
                 }
                 if let threadId = normalized(environment["CODEX_THREAD_ID"]),
                    threadId != commandSessionId {
-                    return CodexSessionResolution(sessionId: threadId, isForkParentFallback: false)
+                    return CodexSessionResolution(
+                        sessionId: threadId,
+                        isForkParentFallback: false,
+                        source: .liveProcess
+                    )
                 }
                 if let sessionId = normalized(environment["CODEX_SESSION_ID"]),
                    sessionId != commandSessionId {
-                    return CodexSessionResolution(sessionId: sessionId, isForkParentFallback: false)
+                    return CodexSessionResolution(
+                        sessionId: sessionId,
+                        isForkParentFallback: false,
+                        source: .liveProcess
+                    )
                 }
                 // Codex fork processes can inherit the parent CODEX_THREAD_ID.
                 // Fall back to rollout metadata only when the live process does
@@ -803,14 +890,23 @@ extension RestorableAgentSessionIndex {
                        processStartedAt,
                        fileManager
                 ) {
-                    return CodexSessionResolution(sessionId: forkSessionId, isForkParentFallback: false)
+                    return CodexSessionResolution(
+                        sessionId: forkSessionId,
+                        isForkParentFallback: false,
+                        source: .metadataFallback
+                    )
                 }
                 return CodexSessionResolution(
                     sessionId: commandSessionId,
-                    isForkParentFallback: true
+                    isForkParentFallback: true,
+                    source: .forkParentFallback
                 )
             }
-            return CodexSessionResolution(sessionId: commandSessionId, isForkParentFallback: false)
+            return CodexSessionResolution(
+                sessionId: commandSessionId,
+                isForkParentFallback: false,
+                source: .liveProcess
+            )
         }
         if let openSessionId = codexSessionIdFromOpenSessionFiles(
             openFilePaths,
@@ -818,13 +914,25 @@ extension RestorableAgentSessionIndex {
             environment: environment,
             fileManager: fileManager
         ) {
-            return CodexSessionResolution(sessionId: openSessionId, isForkParentFallback: false)
+            return CodexSessionResolution(
+                sessionId: openSessionId,
+                isForkParentFallback: false,
+                source: .liveProcess
+            )
         }
         if let threadId = normalized(environment["CODEX_THREAD_ID"]) {
-            return CodexSessionResolution(sessionId: threadId, isForkParentFallback: false)
+            return CodexSessionResolution(
+                sessionId: threadId,
+                isForkParentFallback: false,
+                source: .liveProcess
+            )
         }
         if let sessionId = normalized(environment["CODEX_SESSION_ID"]) {
-            return CodexSessionResolution(sessionId: sessionId, isForkParentFallback: false)
+            return CodexSessionResolution(
+                sessionId: sessionId,
+                isForkParentFallback: false,
+                source: .liveProcess
+            )
         }
         return nil
     }
@@ -1421,15 +1529,17 @@ extension RestorableAgentSessionIndex {
                     environment: process.observed.environment
                 )
             )
+            let candidatePriority = (
+                source: process.source,
+                isForeground: process.isForeground,
+                matchesFallbackScope: process.matchesFallbackScope
+            )
             if let existing = selectedCandidateByPanelKey[process.panelKey] {
-                if !processDetectionShouldReplaceCandidate(
+                let shouldReplace = processDetectionShouldReplaceCandidate(
                     existing: existing,
-                    candidate: (
-                        source: process.source,
-                        isForeground: process.isForeground,
-                        matchesFallbackScope: process.matchesFallbackScope
-                    )
-                ) {
+                    candidate: candidatePriority
+                ) || processDetectionCandidatePriorityMatches(existing, candidatePriority)
+                if !shouldReplace {
                     continue
                 }
             }
@@ -1439,7 +1549,7 @@ extension RestorableAgentSessionIndex {
             )
             selectedCandidateByPanelKey[process.panelKey] = (
                 source: process.source,
-                isForeground: process.isForeground,
+                isForeground: candidatePriority.isForeground,
                 matchesFallbackScope: process.matchesFallbackScope
             )
         }
