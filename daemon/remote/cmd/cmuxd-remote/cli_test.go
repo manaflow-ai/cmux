@@ -1056,6 +1056,29 @@ func TestCLIBrowserWaitRejectsNegativeTimeout(t *testing.T) {
 	}
 }
 
+func TestCLIBrowserRejectsMissingNonBooleanFlagValue(t *testing.T) {
+	t.Setenv("CMUX_SOCKET_PATH", "")
+	t.Setenv("HOME", t.TempDir())
+
+	var code int
+	output := captureStderr(t, func() {
+		code = runCLI([]string{
+			"browser", "snapshot",
+			"--max-depth",
+			"--selector", "main",
+		})
+	})
+	if code != 2 {
+		t.Fatalf("browser missing non-boolean flag value should return 2, got %d", code)
+	}
+	if !strings.Contains(output, "cmux browser: flag --max-depth requires a value") {
+		t.Fatalf("expected missing flag value error, got %q", output)
+	}
+	if strings.Contains(output, "CMUX_SOCKET_PATH") {
+		t.Fatalf("parse error should not be replaced by socket lookup error, got %q", output)
+	}
+}
+
 func TestCLIBrowserAutomationPositionals(t *testing.T) {
 	sockPath, requests := startMockV2SocketWithRequestCapture(t)
 	t.Setenv("CMUX_SURFACE_ID", "env-sf")
