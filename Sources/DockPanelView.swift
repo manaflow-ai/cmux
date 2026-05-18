@@ -799,6 +799,7 @@ final class DockControlsStore: ObservableObject {
             controls[index] = newControl
             newControl.setVisibleInUI(controlsVisibleInUI)
             oldControl.close()
+            errorMessage = nil
         } catch {
             errorMessage = error.localizedDescription
         }
