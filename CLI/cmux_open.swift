@@ -22,7 +22,8 @@ extension CMUXCLI {
         socketPath: String,
         explicitPassword: String?,
         jsonOutput: Bool,
-        idFormat: CLIIDFormat
+        idFormat: CLIIDFormat,
+        windowOverride: String? = nil
     ) throws {
         let parsedArgs = try parseOpenArguments(commandArgs)
 
@@ -54,12 +55,13 @@ extension CMUXCLI {
         )
         defer { client.close() }
 
-        let windowHandle = try normalizeWindowHandle(parsedArgs.window, client: client)
-        let workspaceRaw = parsedArgs.workspace ?? (parsedArgs.window == nil ? ProcessInfo.processInfo.environment["CMUX_WORKSPACE_ID"] : nil)
+        let effectiveWindowRaw = parsedArgs.window ?? windowOverride
+        let windowHandle = try normalizeWindowHandle(effectiveWindowRaw, client: client)
+        let workspaceRaw = parsedArgs.workspace ?? (effectiveWindowRaw == nil ? ProcessInfo.processInfo.environment["CMUX_WORKSPACE_ID"] : nil)
         let workspaceHandle = try normalizeWorkspaceHandle(workspaceRaw, client: client, windowHandle: windowHandle)
-        let surfaceRaw = parsedArgs.surface ?? (parsedArgs.window == nil ? ProcessInfo.processInfo.environment["CMUX_SURFACE_ID"] : nil)
-        let surfaceHandle = try normalizeSurfaceHandle(surfaceRaw, client: client, workspaceHandle: workspaceHandle)
-        let paneHandle = try normalizePaneHandle(parsedArgs.pane, client: client, workspaceHandle: workspaceHandle)
+        let surfaceRaw = parsedArgs.surface ?? (effectiveWindowRaw == nil ? ProcessInfo.processInfo.environment["CMUX_SURFACE_ID"] : nil)
+        let surfaceHandle = try normalizeSurfaceHandle(surfaceRaw, client: client, workspaceHandle: workspaceHandle, windowHandle: windowHandle)
+        let paneHandle = try normalizePaneHandle(parsedArgs.pane, client: client, workspaceHandle: workspaceHandle, windowHandle: windowHandle)
 
         var payloads: [[String: Any]] = []
 

@@ -65,6 +65,14 @@ final class GhosttyConfigPathResolverTests: XCTestCase {
                 environment: ["XCTestSessionIdentifier": UUID().uuidString]
             )
         )
+        XCTAssertTrue(
+            GhosttyApp.shouldLoadUserGhosttyConfig(
+                environment: [
+                    "XCTestSessionIdentifier": UUID().uuidString,
+                    "CFFIXED_USER_HOME": "/tmp/cmux-ghostty-fixture",
+                ]
+            )
+        )
     }
 
     func testCmuxAppSupportConfigURLsPreferConfigGhosttyOverLegacyConfigWhenBothExist() throws {

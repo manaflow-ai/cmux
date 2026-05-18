@@ -3008,7 +3008,10 @@ class GhosttyApp {
     static func shouldLoadUserGhosttyConfig(
         environment: [String: String] = ProcessInfo.processInfo.environment
     ) -> Bool {
-        !SessionRestorePolicy.isRunningUnderAppHostedXCTest(environment: environment)
+        if environment["CFFIXED_USER_HOME"]?.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty == false {
+            return true
+        }
+        return !SessionRestorePolicy.isRunningUnderAppHostedXCTest(environment: environment)
     }
 
     static func cmuxAppSupportConfigURLsForRuntimeLoad(
