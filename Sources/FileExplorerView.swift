@@ -795,6 +795,7 @@ struct FileExplorerPanelView: NSViewRepresentable {
         ) {
             guard let provider = store.provider as? SSHFileExplorerProvider else { return }
             let localDirectory = directoryURL.standardizedFileURL.path
+            store.setDefaultLocalDownloadDirectory(localDirectory)
             let workspaceId = workspaceId
             let downloadID = UUID()
 
