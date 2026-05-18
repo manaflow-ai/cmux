@@ -5,6 +5,7 @@ This is an internal planning note for cmux skills and customization surfaces. Ke
 ## Current Public Skills
 
 - `cmux`: core CLI control for windows, workspaces, panes, surfaces, focus, and routing.
+- `cmux-automate`: CLI-first workflow audit, automation suggestions, and project-local commands, plus-button launchers, Dock controls, browser/markdown helpers, sidebar signals, hooks, and small scripts.
 - `cmux-workspace`: current-workspace automation, sidebar metadata, input, and helper surfaces.
 - `cmux-settings`: safe reads, writes, validation, and editor open for `~/.config/cmux/cmux.json`.
 - `cmux-customization`: user-facing config across actions, plus button, tab bar buttons, workspace layouts, Dock controls, settings, notifications, browser routing, and Ghostty config boundaries.
@@ -63,7 +64,7 @@ Keep the examples library focused on reusable end-user workflows:
 - SSH devbox: remote terminal plus local browser or notes surface.
 - Review PR: GitHub terminal, PR browser, and notes or markdown panel.
 - Docs workspace: docs dev server, browser preview, and markdown viewer.
-- CI watch: GitHub Actions, CircleCI, Feed TUI, and release monitors.
+- CI watch: GitHub Actions, CircleCI, Feed TUI, and deployment monitors.
 - Quick agent buttons: Codex and Claude tab bar buttons with Command Palette entries.
 
 Use the Promotion Rule when an example starts to exceed
