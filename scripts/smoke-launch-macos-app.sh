@@ -20,6 +20,7 @@ STARTUP_TIMEOUT_SECONDS="${CMUX_SMOKE_STARTUP_TIMEOUT_SECONDS:-10}"
 STABLE_SECONDS="${CMUX_SMOKE_STABLE_SECONDS:-5}"
 OPEN_LOG="$(mktemp /tmp/cmux-smoke-open.XXXXXX.log)"
 APP_PID=""
+PREEXISTING_PIDS="$(pgrep -f "$EXECUTABLE_PATH" 2>/dev/null || true)"
 
 cleanup() {
   if [[ -n "$APP_PID" ]] && kill -0 "$APP_PID" 2>/dev/null; then
@@ -29,17 +30,27 @@ cleanup() {
 }
 trap cleanup EXIT
 
-find_app_pid() {
-  pgrep -f "$EXECUTABLE_PATH" 2>/dev/null | head -n 1 || true
+find_new_app_pid() {
+  local pid
+  while IFS= read -r pid; do
+    [[ -n "$pid" ]] || continue
+    if ! printf '%s\n' "$PREEXISTING_PIDS" | grep -Fxq "$pid"; then
+      printf '%s\n' "$pid"
+      return 0
+    fi
+  done < <(pgrep -f "$EXECUTABLE_PATH" 2>/dev/null || true)
+  return 1
 }
 
 echo "==> smoke launching $APP_PATH"
 /usr/bin/open -n -g "$APP_PATH" --args -ApplePersistenceIgnoreState YES >"$OPEN_LOG" 2>&1 &
 OPEN_PID=$!
 
+# CI-only LaunchServices smoke: open returns before the app process is visible.
+# Use bounded polling to wait for registration, then a bounded liveness window.
 deadline=$((SECONDS + STARTUP_TIMEOUT_SECONDS))
 while (( SECONDS < deadline )); do
-  APP_PID="$(find_app_pid)"
+  APP_PID="$(find_new_app_pid || true)"
   if [[ -n "$APP_PID" ]]; then
     break
   fi

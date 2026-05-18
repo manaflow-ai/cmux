@@ -1669,6 +1669,8 @@ class GhosttyApp {
     static let shared = GhosttyApp()
     private static let releaseBundleIdentifier = "com.cmuxterm.app"
     private static let fallbackAppearanceConfig = GhosttyConfig()
+    // Ghostty C callbacks can run while GhosttyApp.shared is still initializing.
+    // The registry resolves the process-lifetime app instance without re-entering the singleton.
     private static let appRegistryLock = NSLock()
     private static var appRegistry: [UInt: GhosttyApp] = [:]
     private static let backgroundLogTimestampFormatter: ISO8601DateFormatter = {

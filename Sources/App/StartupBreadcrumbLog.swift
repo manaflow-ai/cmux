@@ -1,14 +1,19 @@
+import Darwin
 import Foundation
 
 enum StartupBreadcrumbLog {
-    private static let lock = NSLock()
     private static let maxFieldLength = 240
+    private static let reservedFieldKeys: Set<String> = [
+        "timestamp",
+        "event",
+        "pid",
+        "bundleIdentifier",
+        "appVersion",
+        "build"
+    ]
 
     static func append(_ event: String, fields: [String: String] = [:]) {
         guard isEnabled else { return }
-
-        lock.lock()
-        defer { lock.unlock() }
 
         var payload: [String: Any] = [
             "timestamp": ISO8601DateFormatter().string(from: Date()),
@@ -20,7 +25,8 @@ enum StartupBreadcrumbLog {
         ]
 
         for (key, value) in fields {
-            payload[key] = sanitized(value)
+            let payloadKey = reservedFieldKeys.contains(key) ? "custom_\(key)" : key
+            payload[payloadKey] = sanitized(value)
         }
 
         do {
@@ -35,6 +41,12 @@ enum StartupBreadcrumbLog {
             let line = try JSONSerialization.data(withJSONObject: payload, options: [.sortedKeys])
             let handle = try FileHandle(forWritingTo: url)
             defer { try? handle.close() }
+            guard flock(handle.fileDescriptor, LOCK_EX) == 0 else {
+                let code = POSIXErrorCode(rawValue: errno) ?? .EIO
+                throw POSIXError(code)
+            }
+            defer { flock(handle.fileDescriptor, LOCK_UN) }
+            // Startup breadcrumbs are synchronous so the last edge survives immediate launch aborts.
             try handle.seekToEnd()
             try handle.write(contentsOf: line)
             try handle.write(contentsOf: Data([0x0A]))
@@ -54,7 +66,8 @@ enum StartupBreadcrumbLog {
         let bundleIdentifier = Bundle.main.bundleIdentifier ?? ""
         return bundleIdentifier == "com.cmuxterm.app.nightly"
             || bundleIdentifier.hasPrefix("com.cmuxterm.app.nightly.")
-            || bundleIdentifier.hasPrefix("com.cmuxterm.app.dev.")
+            || bundleIdentifier == "com.cmuxterm.app.debug"
+            || bundleIdentifier.hasPrefix("com.cmuxterm.app.debug.")
     }
 
     private static var logURL: URL {
