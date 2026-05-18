@@ -295,7 +295,8 @@ extension CMUXCLI {
         if def.name == "grok" {
             return "printenv \(def.disableEnvVar) | grep -qx 1 && echo '{}' || { command -v cmux >/dev/null 2>&1 && \(command) || echo '{}'; }"
         }
-        return "[ -n \"$CMUX_SURFACE_ID\" ] && [ \"$\(def.disableEnvVar)\" != \"1\" ] && command -v cmux >/dev/null 2>&1 && \(command) || echo '{}'"
+        let routedArguments = command.hasPrefix("cmux ") ? String(command.dropFirst("cmux ".count)) : command
+        return "cmux_cli=\"${CMUX_BUNDLED_CLI_PATH:-}\"; if [ -z \"$cmux_cli\" ] || [ ! -x \"$cmux_cli\" ]; then cmux_cli=\"$(command -v cmux 2>/dev/null || true)\"; fi; if [ -n \"$CMUX_SURFACE_ID\" ] && [ \"$\(def.disableEnvVar)\" != \"1\" ] && [ -n \"$cmux_cli\" ]; then { if [ -n \"${CMUX_SOCKET_PATH:-}\" ]; then \"$cmux_cli\" --socket \"$CMUX_SOCKET_PATH\" \(routedArguments); else \"$cmux_cli\" \(routedArguments); fi; } || echo '{}'; else echo '{}'; fi"
     }
 
     static func isCmuxOwnedHookCommand(_ command: String, for def: AgentHookDef, includeLegacy: Bool = true) -> Bool {
@@ -311,8 +312,8 @@ extension CMUXCLI {
         // Codex also had older top-level codex-hook/feed-hook commands.
         // Other generic agents can have stale `cmux hooks ...` files from
         // earlier integration attempts, and setup should be able to prune them.
-        if command.contains("cmux hooks \(def.name) ")
-            || command.contains("cmux hooks feed --source \(def.name) ") {
+        if command.contains("hooks \(def.name) ")
+            || command.contains("hooks feed --source \(def.name) ") {
             return true
         }
         let tokens = legacyCmuxCommandTokens(from: command, for: def)

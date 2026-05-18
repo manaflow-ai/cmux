@@ -20428,7 +20428,7 @@ export default function cmuxPiSessionExtension(pi: ExtensionAPI) {
         for event: String,
         to indexes: inout [String: [Int]]
     ) {
-        if indexes[event]?.last == index { return }
+        if indexes[event]?.isEmpty == false { return }
         indexes[event, default: []].append(index)
     }
 
@@ -21203,13 +21203,48 @@ export default function cmuxPiSessionExtension(pi: ExtensionAPI) {
         let directWorkspaceArg = hookWsFlag ?? normalizedHookValue(env["CMUX_WORKSPACE_ID"])
         let directSurfaceArg = optionValue(hookArgs, name: "--surface")
             ?? (hookWsFlag == nil ? normalizedHookValue(env["CMUX_SURFACE_ID"]) : nil)
+        func resolveAccessibleWorkspaceId(_ raw: String?) -> String? {
+            guard let raw = nonEmptyClaudeHookIdentifier(raw) else {
+                return nil
+            }
+            guard let candidate = try? resolveWorkspaceId(raw, client: client),
+                  (try? client.sendV2(method: "surface.list", params: ["workspace_id": candidate])) != nil else {
+                return nil
+            }
+            return candidate
+        }
+        func resolveAccessibleSurfaceId(_ raw: String?, workspaceId: String) -> String? {
+            guard let raw = nonEmptyClaudeHookIdentifier(raw),
+                  let candidate = try? resolveSurfaceId(raw, workspaceId: workspaceId, client: client),
+                  let listed = try? client.sendV2(method: "surface.list", params: ["workspace_id": workspaceId]) else {
+                return nil
+            }
+            let items = listed["surfaces"] as? [[String: Any]] ?? []
+            return items.contains(where: {
+                ($0["id"] as? String) == candidate || ($0["ref"] as? String) == candidate
+            }) ? candidate : nil
+        }
+        func resolveDefaultSurfaceId(workspaceId: String) -> String? {
+            try? resolveSurfaceId(nil, workspaceId: workspaceId, client: client)
+        }
+        let resolvedDirectWorkspaceArg = resolveAccessibleWorkspaceId(directWorkspaceArg)
+        let hasInvalidDirectWorkspaceArg = directWorkspaceArg != nil && resolvedDirectWorkspaceArg == nil
         let processBinding: CallerTerminalBinding? = {
             guard directWorkspaceArg == nil || directSurfaceArg == nil else { return nil }
             return resolveCallerTerminalBindingByTTY(client: client)
                 ?? resolveAgentProcessTerminalBinding(pid: inferredPID, client: client)
         }()
-        let workspaceArg = directWorkspaceArg ?? processBinding?.workspaceId
-        let surfaceArg = directSurfaceArg ?? (hookWsFlag == nil ? processBinding?.surfaceId : nil)
+        let resolvedDirectSurfaceArg: String? = {
+            guard let directSurfaceArg else { return nil }
+            guard let workspaceId = resolvedDirectWorkspaceArg ?? processBinding?.workspaceId else { return nil }
+            return resolveAccessibleSurfaceId(directSurfaceArg, workspaceId: workspaceId)
+        }()
+        let hasInvalidDirectSurfaceArg = directSurfaceArg != nil && resolvedDirectSurfaceArg == nil
+        let hasUnusableDirectBinding = hasInvalidDirectWorkspaceArg || hasInvalidDirectSurfaceArg
+        let workspaceArg = resolvedDirectWorkspaceArg ?? processBinding?.workspaceId
+        let surfaceArg = hasUnusableDirectBinding
+            ? nil
+            : (resolvedDirectSurfaceArg ?? (hookWsFlag == nil ? processBinding?.surfaceId : nil))
 
         let rawInput = String(data: FileHandle.standardInput.readDataToEndOfFile(), encoding: .utf8) ?? ""
         let input = parseClaudeHookInput(rawInput: rawInput)
@@ -21238,11 +21273,43 @@ export default function cmuxPiSessionExtension(pi: ExtensionAPI) {
                 workspaceId: workspaceId ?? workspaceArg
             )
         }
-        func shouldSkipUnboundGrokHook(mapped: ClaudeHookSessionRecord?) -> Bool {
-            def.name == "grok"
-                && workspaceArg == nil
-                && surfaceArg == nil
-                && mapped?.workspaceId.isEmpty != false
+        func shouldSkipUnboundAgentHook(mapped: ClaudeHookSessionRecord?) -> Bool {
+            if hasUnusableDirectBinding {
+                return true
+            }
+            return resolveAgentHookTarget(mapped: mapped) == nil
+        }
+        func resolveAgentHookTarget(mapped: ClaudeHookSessionRecord?) -> (workspaceId: String, surfaceId: String)? {
+            guard !hasUnusableDirectBinding else {
+                return nil
+            }
+            let workspaceId: String
+            if let resolved = resolveAccessibleWorkspaceId(workspaceArg) {
+                workspaceId = resolved
+            } else if let resolved = resolveAccessibleWorkspaceId(mapped?.workspaceId) {
+                workspaceId = resolved
+            } else {
+                return nil
+            }
+
+            if let surfaceArg {
+                guard let surfaceId = resolveAccessibleSurfaceId(surfaceArg, workspaceId: workspaceId) else {
+                    return nil
+                }
+                return (workspaceId, surfaceId)
+            }
+
+            if let mappedSurface = nonEmptyClaudeHookIdentifier(mapped?.surfaceId) {
+                guard let surfaceId = resolveAccessibleSurfaceId(mappedSurface, workspaceId: workspaceId) else {
+                    return nil
+                }
+                return (workspaceId, surfaceId)
+            }
+
+            guard let surfaceId = resolveDefaultSurfaceId(workspaceId: workspaceId) else {
+                return nil
+            }
+            return (workspaceId, surfaceId)
         }
         defer {
             if !didSendFeedTelemetry {
@@ -21253,13 +21320,14 @@ export default function cmuxPiSessionExtension(pi: ExtensionAPI) {
         switch action {
         case .sessionStart:
             let mapped = sessionId.isEmpty ? nil : (try? store.lookup(sessionId: sessionId))
-            if shouldSkipUnboundGrokHook(mapped: mapped) {
+            if shouldSkipUnboundAgentHook(mapped: mapped) {
                 didSendFeedTelemetry = true
                 print("{}")
                 return
             }
-            let workspaceId = try resolvePreferredWorkspaceIdForClaudeHook(preferred: nil, fallback: workspaceArg, client: client)
-            let surfaceId = try resolvePreferredSurfaceIdForClaudeHook(preferred: nil, fallback: surfaceArg, workspaceId: workspaceId, client: client)
+            let target = resolveAgentHookTarget(mapped: mapped)!
+            let workspaceId = target.workspaceId
+            let surfaceId = target.surfaceId
             sendAgentFeedTelemetry(workspaceId: workspaceId)
             let pid = inferredPID
             let launchCommand = agentLaunchCommandFromEnvironment(
@@ -21287,18 +21355,14 @@ export default function cmuxPiSessionExtension(pi: ExtensionAPI) {
 
         case .promptSubmit:
             let mapped = sessionId.isEmpty ? nil : (try? store.lookup(sessionId: sessionId))
-            if shouldSkipUnboundGrokHook(mapped: mapped) {
+            if shouldSkipUnboundAgentHook(mapped: mapped) {
                 didSendFeedTelemetry = true
                 print("{}")
                 return
             }
-            let workspaceId = try resolvePreferredWorkspaceIdForClaudeHook(preferred: workspaceArg, fallback: mapped?.workspaceId, client: client)
-            let surfaceId = try resolvePreferredSurfaceIdForClaudeHook(
-                preferred: surfaceArg,
-                fallback: mapped?.surfaceId,
-                workspaceId: workspaceId,
-                client: client
-            )
+            let target = resolveAgentHookTarget(mapped: mapped)!
+            let workspaceId = target.workspaceId
+            let surfaceId = target.surfaceId
             sendAgentFeedTelemetry(workspaceId: workspaceId)
             let pid = mapped?.pid ?? inferredPID
             let launchCommand = agentLaunchCommandFromEnvironment(
@@ -21369,201 +21433,187 @@ export default function cmuxPiSessionExtension(pi: ExtensionAPI) {
                     retireCodexMonitorLeases(sessionId: sessionId, turnId: stopTurnId, env: env)
                 }
             }
-            do {
-                let mapped = sessionId.isEmpty ? nil : (try? store.lookup(sessionId: sessionId))
-                if shouldSkipUnboundGrokHook(mapped: mapped) {
-                    didSendFeedTelemetry = true
-                    print("{}")
-                    return
-                }
-                let workspaceId = try resolvePreferredWorkspaceIdForClaudeHook(preferred: workspaceArg, fallback: mapped?.workspaceId, client: client)
-                let surfaceId = try resolvePreferredSurfaceIdForClaudeHook(preferred: surfaceArg, fallback: mapped?.surfaceId, workspaceId: workspaceId, client: client)
-                sendAgentFeedTelemetry(workspaceId: workspaceId)
-                let pid = mapped?.pid ?? inferredPID
-                let codexFailure: CodexHookFailureSummary?
-                if def.name == "codex" {
-                    codexFailure = summarizeCodexHookFailure(parsedInput: input, sessionId: sessionId, env: env)
-                } else {
-                    codexFailure = nil
-                }
+            let mapped = sessionId.isEmpty ? nil : (try? store.lookup(sessionId: sessionId))
+            if shouldSkipUnboundAgentHook(mapped: mapped) {
+                didSendFeedTelemetry = true
+                print("{}")
+                return
+            }
+            let target = resolveAgentHookTarget(mapped: mapped)!
+            let workspaceId = target.workspaceId
+            let surfaceId = target.surfaceId
+            sendAgentFeedTelemetry(workspaceId: workspaceId)
+            let pid = mapped?.pid ?? inferredPID
+            let codexFailure: CodexHookFailureSummary?
+            if def.name == "codex" {
+                codexFailure = summarizeCodexHookFailure(parsedInput: input, sessionId: sessionId, env: env)
+            } else {
+                codexFailure = nil
+            }
 
-                let lastMsg = input.object?["last_assistant_message"] as? String
-                    ?? input.object?["lastAssistantMessage"] as? String
-                let cwd = hookCwd ?? mapped?.cwd
-                let grokStopMessage = def.name == "grok"
-                    ? latestGrokAssistantMessage(cwd: cwd, sessionId: input.sessionId ?? sessionId, env: env)
-                    : nil
-                let projectName: String? = {
-                    guard let cwd, !cwd.isEmpty else { return nil }
-                    return URL(fileURLWithPath: NSString(string: cwd).expandingTildeInPath).lastPathComponent
-                }()
-                var subtitle = codexFailure?.subtitle ?? String(
-                    localized: "agent.codex.completion.subtitle.completed",
-                    defaultValue: "Completed"
+            let lastMsg = input.object?["last_assistant_message"] as? String
+                ?? input.object?["lastAssistantMessage"] as? String
+            let cwd = hookCwd ?? mapped?.cwd
+            let grokStopMessage = def.name == "grok"
+                ? latestGrokAssistantMessage(cwd: cwd, sessionId: input.sessionId ?? sessionId, env: env)
+                : nil
+            let projectName: String? = {
+                guard let cwd, !cwd.isEmpty else { return nil }
+                return URL(fileURLWithPath: NSString(string: cwd).expandingTildeInPath).lastPathComponent
+            }()
+            var subtitle = codexFailure?.subtitle ?? String(
+                localized: "agent.codex.completion.subtitle.completed",
+                defaultValue: "Completed"
+            )
+            if codexFailure == nil, let projectName, !projectName.isEmpty {
+                subtitle = String.localizedStringWithFormat(
+                    String(
+                        localized: "agent.codex.completion.subtitle.completedInProject",
+                        defaultValue: "Completed in %@"
+                    ),
+                    projectName
                 )
-                if codexFailure == nil, let projectName, !projectName.isEmpty {
-                    subtitle = String.localizedStringWithFormat(
-                        String(
-                            localized: "agent.codex.completion.subtitle.completedInProject",
-                            defaultValue: "Completed in %@"
-                        ),
-                        projectName
-                    )
-                }
-                let body = codexFailure?.body
-                    ?? lastMsg.map { truncate(normalizedSingleLine($0), maxLength: 200) }
-                    ?? grokStopMessage.map { truncate(normalizedSingleLine($0), maxLength: 200) }
-                    ?? String.localizedStringWithFormat(
-                        String(
-                            localized: "agent.codex.completion.body.sessionCompleted",
-                            defaultValue: "%@ session completed"
-                        ),
-                        def.displayName
-                    )
+            }
+            let body = codexFailure?.body
+                ?? lastMsg.map { truncate(normalizedSingleLine($0), maxLength: 200) }
+                ?? grokStopMessage.map { truncate(normalizedSingleLine($0), maxLength: 200) }
+                ?? String.localizedStringWithFormat(
+                    String(
+                        localized: "agent.codex.completion.body.sessionCompleted",
+                        defaultValue: "%@ session completed"
+                    ),
+                    def.displayName
+                )
 
-                if !sessionId.isEmpty {
-                    let launchCommand = agentLaunchCommandFromEnvironment(
-                        env,
-                        fallbackPID: pid,
-                        fallbackKind: def.name,
-                        cwd: cwd
-                    )
-                    let stopNotificationStatus: AgentHookNotificationStatus = codexFailure == nil ? .idle : .error
-                    try? store.upsert(sessionId: sessionId, workspaceId: workspaceId, surfaceId: surfaceId, cwd: cwd, pid: pid,
-                                      launchCommand: launchCommand,
-                                      lastSubtitle: subtitle,
-                                      lastBody: body,
-                                      lastNotificationStatus: stopNotificationStatus,
-                                      updateLastNotificationStatus: true)
-                }
-                if let pid {
-                    _ = try? sendV1Command(
-                        "set_agent_pid \(pidKey) \(pid) --tab=\(workspaceId)\(socketPanelOption(surfaceId))",
-                        client: client
-                    )
-                }
+            if !sessionId.isEmpty {
+                let launchCommand = agentLaunchCommandFromEnvironment(
+                    env,
+                    fallbackPID: pid,
+                    fallbackKind: def.name,
+                    cwd: cwd
+                )
+                let stopNotificationStatus: AgentHookNotificationStatus = codexFailure == nil ? .idle : .error
+                try? store.upsert(sessionId: sessionId, workspaceId: workspaceId, surfaceId: surfaceId, cwd: cwd, pid: pid,
+                                  launchCommand: launchCommand,
+                                  lastSubtitle: subtitle,
+                                  lastBody: body,
+                                  lastNotificationStatus: stopNotificationStatus,
+                                  updateLastNotificationStatus: true)
+            }
+            if let pid {
+                _ = try? sendV1Command(
+                    "set_agent_pid \(pidKey) \(pid) --tab=\(workspaceId)\(socketPanelOption(surfaceId))",
+                    client: client
+                )
+            }
 
-                let shouldPublishStopNotification = def.publishesStopNotification
-                    || (def.name == "grok" && grokStopMessage != nil)
-                if shouldPublishStopNotification {
-                    let payload = notificationPayload(title: def.displayName, subtitle: subtitle, body: body)
-                    _ = try? sendV1Command("notify_target_async \(workspaceId) \(surfaceId) \(payload)", client: client)
-                }
-                if let codexFailure {
-                    _ = try? sendV1Command(
-                        "set_status \(def.statusKey) \(codexFailure.statusValue) --icon=exclamationmark.triangle.fill --color=#FF453A --priority=100 --tab=\(workspaceId)\(socketPanelOption(surfaceId))",
-                        client: client
-                    )
-                } else {
-                    let idleStatus = String(localized: "agent.codex.status.idle", defaultValue: "Idle")
-                    _ = try? sendV1Command(
-                        "set_status \(def.statusKey) \(idleStatus) --icon=pause.circle.fill --color=#8E8E93 --tab=\(workspaceId)\(socketPanelOption(surfaceId))",
-                        client: client
-                    )
-                }
-            } catch {
-                if shouldIgnoreClaudeHookTeardownError(error) {
-                    telemetry.breadcrumb("\(def.name)-hook.stop.ignored", data: ["error": String(describing: error)])
-                } else {
-                    throw error
-                }
+            let shouldPublishStopNotification = def.publishesStopNotification
+                || (def.name == "grok" && grokStopMessage != nil)
+            if shouldPublishStopNotification {
+                let payload = notificationPayload(title: def.displayName, subtitle: subtitle, body: body)
+                _ = try? sendV1Command("notify_target_async \(workspaceId) \(surfaceId) \(payload)", client: client)
+            }
+            if let codexFailure {
+                _ = try? sendV1Command(
+                    "set_status \(def.statusKey) \(codexFailure.statusValue) --icon=exclamationmark.triangle.fill --color=#FF453A --priority=100 --tab=\(workspaceId)\(socketPanelOption(surfaceId))",
+                    client: client
+                )
+            } else {
+                let idleStatus = String(localized: "agent.codex.status.idle", defaultValue: "Idle")
+                _ = try? sendV1Command(
+                    "set_status \(def.statusKey) \(idleStatus) --icon=pause.circle.fill --color=#8E8E93 --tab=\(workspaceId)\(socketPanelOption(surfaceId))",
+                    client: client
+                )
             }
 
         case .notification:
-            do {
-                let mapped = sessionId.isEmpty ? nil : (try? store.lookup(sessionId: sessionId))
-                if shouldSkipUnboundGrokHook(mapped: mapped) {
-                    didSendFeedTelemetry = true
-                    print("{}")
-                    return
-                }
-                let workspaceId = try resolvePreferredWorkspaceIdForClaudeHook(preferred: workspaceArg, fallback: mapped?.workspaceId, client: client)
-                let surfaceId = try resolvePreferredSurfaceIdForClaudeHook(preferred: surfaceArg, fallback: mapped?.surfaceId, workspaceId: workspaceId, client: client)
-                sendAgentFeedTelemetry(workspaceId: workspaceId)
+            let mapped = sessionId.isEmpty ? nil : (try? store.lookup(sessionId: sessionId))
+            if shouldSkipUnboundAgentHook(mapped: mapped) {
+                didSendFeedTelemetry = true
+                print("{}")
+                return
+            }
+            let target = resolveAgentHookTarget(mapped: mapped)!
+            let workspaceId = target.workspaceId
+            let surfaceId = target.surfaceId
+            sendAgentFeedTelemetry(workspaceId: workspaceId)
 
-                let notificationCwd = hookCwd ?? mapped?.cwd
-                if def.name == "grok",
-                   let notificationMessage = normalizedAgentHookNotificationMessage(parsedInput: input),
-                   isGrokInternalSessionNotification(notificationMessage),
-                   latestGrokAssistantMessage(cwd: notificationCwd, sessionId: input.sessionId ?? sessionId, env: env) == nil {
-                    print("{}")
-                    return
-                }
+            let notificationCwd = hookCwd ?? mapped?.cwd
+            if def.name == "grok",
+               let notificationMessage = normalizedAgentHookNotificationMessage(parsedInput: input),
+               isGrokInternalSessionNotification(notificationMessage),
+               latestGrokAssistantMessage(cwd: notificationCwd, sessionId: input.sessionId ?? sessionId, env: env) == nil {
+                print("{}")
+                return
+            }
 
-                var summary = summarizeAgentHookNotification(
-                    def: def,
-                    parsedInput: input,
-                    cwd: notificationCwd,
-                    env: env
+            var summary = summarizeAgentHookNotification(
+                def: def,
+                parsedInput: input,
+                cwd: notificationCwd,
+                env: env
+            )
+            if summary.isFallback, let savedBody = mapped?.lastBody, !savedBody.isEmpty {
+                summary = AgentHookNotificationSummary(
+                    subtitle: mapped?.lastSubtitle ?? summary.subtitle,
+                    body: savedBody,
+                    status: mapped?.lastNotificationStatus,
+                    isFallback: false
                 )
-                if summary.isFallback, let savedBody = mapped?.lastBody, !savedBody.isEmpty {
-                    summary = AgentHookNotificationSummary(
-                        subtitle: mapped?.lastSubtitle ?? summary.subtitle,
-                        body: savedBody,
-                        status: mapped?.lastNotificationStatus,
-                        isFallback: false
-                    )
-                }
+            }
 
-                if !sessionId.isEmpty {
-                    let pid = mapped?.pid ?? inferredPID
-                    let launchCommand = agentLaunchCommandFromEnvironment(
-                        env,
-                        fallbackPID: pid,
-                        fallbackKind: def.name,
-                        cwd: hookCwd ?? mapped?.cwd
-                    )
-                    try? store.upsert(
-                        sessionId: sessionId,
-                        workspaceId: workspaceId,
-                        surfaceId: surfaceId,
-                        cwd: notificationCwd,
-                        pid: pid,
-                        launchCommand: launchCommand,
-                        lastSubtitle: summary.subtitle,
-                        lastBody: summary.body,
-                        lastNotificationStatus: summary.status,
-                        updateLastNotificationStatus: true
-                    )
-                }
+            if !sessionId.isEmpty {
+                let pid = mapped?.pid ?? inferredPID
+                let launchCommand = agentLaunchCommandFromEnvironment(
+                    env,
+                    fallbackPID: pid,
+                    fallbackKind: def.name,
+                    cwd: hookCwd ?? mapped?.cwd
+                )
+                try? store.upsert(
+                    sessionId: sessionId,
+                    workspaceId: workspaceId,
+                    surfaceId: surfaceId,
+                    cwd: notificationCwd,
+                    pid: pid,
+                    launchCommand: launchCommand,
+                    lastSubtitle: summary.subtitle,
+                    lastBody: summary.body,
+                    lastNotificationStatus: summary.status,
+                    updateLastNotificationStatus: true
+                )
+            }
 
-                let payload = notificationPayload(title: def.displayName, subtitle: summary.subtitle, body: summary.body)
-                _ = try? sendV1Command("notify_target_async \(workspaceId) \(surfaceId) \(payload)", client: client)
+            let payload = notificationPayload(title: def.displayName, subtitle: summary.subtitle, body: summary.body)
+            _ = try? sendV1Command("notify_target_async \(workspaceId) \(surfaceId) \(payload)", client: client)
 
-                switch summary.status {
-                case .needsInput?:
-                    let statusValue = String.localizedStringWithFormat(
-                        String(localized: "agent.generic.notification.status.needsInput", defaultValue: "%@ needs input"),
-                        def.displayName
-                    )
-                    _ = try? sendV1Command(
-                        "set_status \(def.statusKey) \(statusValue) --icon=bell.fill --color=#4C8DFF --priority=100 --tab=\(workspaceId)\(socketPanelOption(surfaceId))",
-                        client: client
-                    )
-                case .error?:
-                    let statusValue = String.localizedStringWithFormat(
-                        String(localized: "agent.generic.notification.status.error", defaultValue: "%@ error"),
-                        def.displayName
-                    )
-                    _ = try? sendV1Command(
-                        "set_status \(def.statusKey) \(statusValue) --icon=exclamationmark.triangle.fill --color=#FF453A --priority=100 --tab=\(workspaceId)\(socketPanelOption(surfaceId))",
-                        client: client
-                    )
-                case .idle?:
-                    let idleStatus = String(localized: "agent.generic.notification.status.idle", defaultValue: "Idle")
-                    _ = try? sendV1Command(
-                        "set_status \(def.statusKey) \(idleStatus) --icon=pause.circle.fill --color=#8E8E93 --tab=\(workspaceId)\(socketPanelOption(surfaceId))",
-                        client: client
-                    )
-                case nil:
-                    break
-                }
-            } catch {
-                if shouldIgnoreClaudeHookTeardownError(error) {
-                    telemetry.breadcrumb("\(def.name)-hook.notification.ignored", data: ["error": String(describing: error)])
-                } else {
-                    throw error
-                }
+            switch summary.status {
+            case .needsInput?:
+                let statusValue = String.localizedStringWithFormat(
+                    String(localized: "agent.generic.notification.status.needsInput", defaultValue: "%@ needs input"),
+                    def.displayName
+                )
+                _ = try? sendV1Command(
+                    "set_status \(def.statusKey) \(statusValue) --icon=bell.fill --color=#4C8DFF --priority=100 --tab=\(workspaceId)\(socketPanelOption(surfaceId))",
+                    client: client
+                )
+            case .error?:
+                let statusValue = String.localizedStringWithFormat(
+                    String(localized: "agent.generic.notification.status.error", defaultValue: "%@ error"),
+                    def.displayName
+                )
+                _ = try? sendV1Command(
+                    "set_status \(def.statusKey) \(statusValue) --icon=exclamationmark.triangle.fill --color=#FF453A --priority=100 --tab=\(workspaceId)\(socketPanelOption(surfaceId))",
+                    client: client
+                )
+            case .idle?:
+                let idleStatus = String(localized: "agent.generic.notification.status.idle", defaultValue: "Idle")
+                _ = try? sendV1Command(
+                    "set_status \(def.statusKey) \(idleStatus) --icon=pause.circle.fill --color=#8E8E93 --tab=\(workspaceId)\(socketPanelOption(surfaceId))",
+                    client: client
+                )
+            case nil:
+                break
             }
 
         case .sessionEnd:
