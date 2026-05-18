@@ -5956,13 +5956,7 @@ struct ContentView: View {
                commandPaletteForkableAgentTTYFreshByPanelKey[panelKey] != ttyWasReportedInCurrentSession
            ) {
             cancelCommandPaletteForkableAgentAvailabilityProbe(for: panelKey)
-            commandPaletteForkableAgentSupportedPanelKeys.remove(panelKey)
-            commandPaletteForkableAgentSnapshotsByPanelKey.removeValue(forKey: panelKey)
-            commandPaletteForkableAgentSnapshotFingerprintsByPanelKey.removeValue(forKey: panelKey)
-            commandPaletteForkableAgentRemoteContextsByPanelKey.removeValue(forKey: panelKey)
-            commandPaletteForkableAgentTTYNamesByPanelKey.removeValue(forKey: panelKey)
-            commandPaletteForkableAgentTTYFreshByPanelKey.removeValue(forKey: panelKey)
-            commandPaletteForkableAgentProbeCompletedAtByPanelKey.removeValue(forKey: panelKey)
+            clearCommandPaletteForkableAgentCache(for: panelKey)
         }
 
         if let fallbackSnapshot {
@@ -5970,13 +5964,7 @@ struct ContentView: View {
             if let cachedFingerprint = commandPaletteForkableAgentSnapshotFingerprintsByPanelKey[panelKey],
                cachedFingerprint != fallbackFingerprint {
                 cancelCommandPaletteForkableAgentAvailabilityProbe(for: panelKey)
-                commandPaletteForkableAgentSupportedPanelKeys.remove(panelKey)
-                commandPaletteForkableAgentSnapshotsByPanelKey.removeValue(forKey: panelKey)
-                commandPaletteForkableAgentSnapshotFingerprintsByPanelKey.removeValue(forKey: panelKey)
-                commandPaletteForkableAgentRemoteContextsByPanelKey.removeValue(forKey: panelKey)
-                commandPaletteForkableAgentTTYNamesByPanelKey.removeValue(forKey: panelKey)
-                commandPaletteForkableAgentTTYFreshByPanelKey.removeValue(forKey: panelKey)
-                commandPaletteForkableAgentProbeCompletedAtByPanelKey.removeValue(forKey: panelKey)
+                clearCommandPaletteForkableAgentCache(for: panelKey)
             }
             switch Self.commandPaletteSnapshotForkAvailability(
                 fallbackSnapshot,
@@ -5994,13 +5982,7 @@ struct ContentView: View {
                 return
             case .unsupported:
                 cancelCommandPaletteForkableAgentAvailabilityProbe(for: panelKey)
-                commandPaletteForkableAgentSupportedPanelKeys.remove(panelKey)
-                commandPaletteForkableAgentSnapshotsByPanelKey.removeValue(forKey: panelKey)
-                commandPaletteForkableAgentSnapshotFingerprintsByPanelKey.removeValue(forKey: panelKey)
-                commandPaletteForkableAgentRemoteContextsByPanelKey.removeValue(forKey: panelKey)
-                commandPaletteForkableAgentTTYNamesByPanelKey.removeValue(forKey: panelKey)
-                commandPaletteForkableAgentTTYFreshByPanelKey.removeValue(forKey: panelKey)
-                commandPaletteForkableAgentProbeCompletedAtByPanelKey.removeValue(forKey: panelKey)
+                clearCommandPaletteForkableAgentCache(for: panelKey)
                 return
             case .requiresProbe:
                 if commandPaletteForkableAgentSupportedPanelKeys.contains(panelKey),
@@ -6144,13 +6126,7 @@ struct ContentView: View {
                     }
                 } else {
                     shouldRefreshResults = wasSupported || hadCachedSnapshot
-                    commandPaletteForkableAgentSupportedPanelKeys.remove(panelKey)
-                    commandPaletteForkableAgentSnapshotsByPanelKey.removeValue(forKey: panelKey)
-                    commandPaletteForkableAgentSnapshotFingerprintsByPanelKey.removeValue(forKey: panelKey)
-                    commandPaletteForkableAgentRemoteContextsByPanelKey.removeValue(forKey: panelKey)
-                    commandPaletteForkableAgentTTYNamesByPanelKey.removeValue(forKey: panelKey)
-                    commandPaletteForkableAgentTTYFreshByPanelKey.removeValue(forKey: panelKey)
-                    commandPaletteForkableAgentProbeCompletedAtByPanelKey.removeValue(forKey: panelKey)
+                    clearCommandPaletteForkableAgentCache(for: panelKey)
                 }
                 commandPaletteForkableAgentProbeIDsByPanelKey.removeValue(forKey: panelKey)
                 commandPaletteForkableAgentProbeFingerprintsByPanelKey.removeValue(forKey: panelKey)
@@ -6192,6 +6168,16 @@ struct ContentView: View {
         commandPaletteForkableAgentAvailabilityTasksByPanelKey.removeValue(forKey: panelKey)?.cancel()
         commandPaletteForkableAgentProbeIDsByPanelKey.removeValue(forKey: panelKey)
         commandPaletteForkableAgentProbeFingerprintsByPanelKey.removeValue(forKey: panelKey)
+    }
+
+    func clearCommandPaletteForkableAgentCache(for panelKey: String) {
+        commandPaletteForkableAgentSupportedPanelKeys.remove(panelKey)
+        commandPaletteForkableAgentSnapshotsByPanelKey.removeValue(forKey: panelKey)
+        commandPaletteForkableAgentSnapshotFingerprintsByPanelKey.removeValue(forKey: panelKey)
+        commandPaletteForkableAgentRemoteContextsByPanelKey.removeValue(forKey: panelKey)
+        commandPaletteForkableAgentTTYNamesByPanelKey.removeValue(forKey: panelKey)
+        commandPaletteForkableAgentTTYFreshByPanelKey.removeValue(forKey: panelKey)
+        commandPaletteForkableAgentProbeCompletedAtByPanelKey.removeValue(forKey: panelKey)
     }
 
     private func commandPaletteCommandsContext(

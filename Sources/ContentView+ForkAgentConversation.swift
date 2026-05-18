@@ -65,13 +65,7 @@ extension ContentView {
                 fallbackSnapshot: currentContext.workspace.restoredAgentSnapshotsByPanelId[panelId]
             )
             guard let snapshot else {
-                commandPaletteForkableAgentSupportedPanelKeys.remove(panelKey)
-                commandPaletteForkableAgentSnapshotsByPanelKey.removeValue(forKey: panelKey)
-                commandPaletteForkableAgentSnapshotFingerprintsByPanelKey.removeValue(forKey: panelKey)
-                commandPaletteForkableAgentRemoteContextsByPanelKey.removeValue(forKey: panelKey)
-                commandPaletteForkableAgentTTYNamesByPanelKey.removeValue(forKey: panelKey)
-                commandPaletteForkableAgentTTYFreshByPanelKey.removeValue(forKey: panelKey)
-                commandPaletteForkableAgentProbeCompletedAtByPanelKey.removeValue(forKey: panelKey)
+                clearCommandPaletteForkableAgentCache(for: panelKey)
                 NSSound.beep()
                 return
             }
@@ -80,13 +74,7 @@ extension ContentView {
                 snapshot: snapshot,
                 isRemoteContext: isRemoteContext
             ) else {
-                commandPaletteForkableAgentSupportedPanelKeys.remove(panelKey)
-                commandPaletteForkableAgentSnapshotsByPanelKey.removeValue(forKey: panelKey)
-                commandPaletteForkableAgentSnapshotFingerprintsByPanelKey.removeValue(forKey: panelKey)
-                commandPaletteForkableAgentRemoteContextsByPanelKey.removeValue(forKey: panelKey)
-                commandPaletteForkableAgentTTYNamesByPanelKey.removeValue(forKey: panelKey)
-                commandPaletteForkableAgentTTYFreshByPanelKey.removeValue(forKey: panelKey)
-                commandPaletteForkableAgentProbeCompletedAtByPanelKey.removeValue(forKey: panelKey)
+                clearCommandPaletteForkableAgentCache(for: panelKey)
                 NSSound.beep()
                 return
             }
@@ -103,13 +91,7 @@ extension ContentView {
                     currentIsRemoteContext: postProbeContext.workspace.isRemoteTerminalSurface(panelId),
                     currentTTYName: postProbeContext.workspace.surfaceTTYNames[panelId]
                   ) else {
-                commandPaletteForkableAgentSupportedPanelKeys.remove(panelKey)
-                commandPaletteForkableAgentSnapshotsByPanelKey.removeValue(forKey: panelKey)
-                commandPaletteForkableAgentSnapshotFingerprintsByPanelKey.removeValue(forKey: panelKey)
-                commandPaletteForkableAgentRemoteContextsByPanelKey.removeValue(forKey: panelKey)
-                commandPaletteForkableAgentTTYNamesByPanelKey.removeValue(forKey: panelKey)
-                commandPaletteForkableAgentTTYFreshByPanelKey.removeValue(forKey: panelKey)
-                commandPaletteForkableAgentProbeCompletedAtByPanelKey.removeValue(forKey: panelKey)
+                clearCommandPaletteForkableAgentCache(for: panelKey)
                 NSSound.beep()
                 return
             }

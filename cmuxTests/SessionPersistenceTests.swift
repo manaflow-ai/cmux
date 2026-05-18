@@ -4304,7 +4304,7 @@ final class SocketListenerAcceptPolicyTests: XCTestCase {
         XCTAssertEqual(snapshot.workingDirectory, "/tmp/stale tty scoped claude repo")
     }
 
-    func testProcessDetectionRemapsMovedCMUXScopedClaudeByFocusedTTYFallback() throws {
+    func testProcessDetectionAddsMovedCMUXScopedClaudeFallbackByFocusedTTY() throws {
         let oldWorkspaceId = UUID()
         let oldPanelId = UUID()
         let newWorkspaceId = UUID()
@@ -4347,15 +4347,18 @@ final class SocketListenerAcceptPolicyTests: XCTestCase {
         let snapshot = try XCTUnwrap(
             detected[RestorableAgentSessionIndex.PanelKey(workspaceId: newWorkspaceId, panelId: newPanelId)]?.snapshot
         )
-        XCTAssertNil(
+        let originalSnapshot = try XCTUnwrap(
             detected[RestorableAgentSessionIndex.PanelKey(workspaceId: oldWorkspaceId, panelId: oldPanelId)]?.snapshot
         )
         XCTAssertEqual(snapshot.kind, .claude)
         XCTAssertEqual(snapshot.sessionId, "6a4f9b09-7144-48b5-b5b6-76a3d9c4b490")
         XCTAssertEqual(snapshot.workingDirectory, "/tmp/moved claude repo")
+        XCTAssertEqual(originalSnapshot.kind, .claude)
+        XCTAssertEqual(originalSnapshot.sessionId, snapshot.sessionId)
+        XCTAssertEqual(originalSnapshot.workingDirectory, snapshot.workingDirectory)
     }
 
-    func testProcessDetectionRemapsMovedCMUXScopedOpenCodeByFocusedTTYFallback() throws {
+    func testProcessDetectionAddsMovedCMUXScopedOpenCodeFallbackByFocusedTTY() throws {
         let oldWorkspaceId = UUID()
         let oldPanelId = UUID()
         let newWorkspaceId = UUID()
@@ -4398,15 +4401,18 @@ final class SocketListenerAcceptPolicyTests: XCTestCase {
         let snapshot = try XCTUnwrap(
             detected[RestorableAgentSessionIndex.PanelKey(workspaceId: newWorkspaceId, panelId: newPanelId)]?.snapshot
         )
-        XCTAssertNil(
+        let originalSnapshot = try XCTUnwrap(
             detected[RestorableAgentSessionIndex.PanelKey(workspaceId: oldWorkspaceId, panelId: oldPanelId)]?.snapshot
         )
         XCTAssertEqual(snapshot.kind, .opencode)
         XCTAssertEqual(snapshot.sessionId, "opencode-moved-session")
         XCTAssertEqual(snapshot.workingDirectory, "/tmp/moved opencode repo")
+        XCTAssertEqual(originalSnapshot.kind, .opencode)
+        XCTAssertEqual(originalSnapshot.sessionId, snapshot.sessionId)
+        XCTAssertEqual(originalSnapshot.workingDirectory, snapshot.workingDirectory)
     }
 
-    func testProcessDetectionRemapsMovedCMUXScopedOpenCodeForkByFocusedTTYFallback() throws {
+    func testProcessDetectionAddsMovedCMUXScopedOpenCodeForkFallbackByFocusedTTY() throws {
         let oldWorkspaceId = UUID()
         let oldPanelId = UUID()
         let newWorkspaceId = UUID()
@@ -4455,7 +4461,7 @@ final class SocketListenerAcceptPolicyTests: XCTestCase {
         let snapshot = try XCTUnwrap(
             detected[RestorableAgentSessionIndex.PanelKey(workspaceId: newWorkspaceId, panelId: newPanelId)]?.snapshot
         )
-        XCTAssertNil(
+        let originalSnapshot = try XCTUnwrap(
             detected[RestorableAgentSessionIndex.PanelKey(workspaceId: oldWorkspaceId, panelId: oldPanelId)]?.snapshot
         )
         XCTAssertEqual(latestLookups.count, 1)
@@ -4464,6 +4470,9 @@ final class SocketListenerAcceptPolicyTests: XCTestCase {
         XCTAssertEqual(snapshot.kind, .opencode)
         XCTAssertEqual(snapshot.sessionId, "opencode-child-session")
         XCTAssertEqual(snapshot.workingDirectory, "/tmp/moved opencode fork repo")
+        XCTAssertEqual(originalSnapshot.kind, .opencode)
+        XCTAssertEqual(originalSnapshot.sessionId, snapshot.sessionId)
+        XCTAssertEqual(originalSnapshot.workingDirectory, snapshot.workingDirectory)
     }
 
     func testProcessDetectionSkipsInheritedClaudeHelperWithMismatchedWrapperPID() throws {

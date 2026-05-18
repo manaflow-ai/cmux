@@ -417,11 +417,6 @@ extension RestorableAgentSessionIndex {
                   let arguments = processArguments(process.pid) else {
                 continue
             }
-            if scopedPanelKey != nil {
-                candidates.removeAll {
-                    $0.process.pid == process.pid && $0.source == .cmuxScoped
-                }
-            }
             seenPIDs.insert(process.pid)
             candidates.append(
                 RestorableAgentProcessDetectionCandidate(
