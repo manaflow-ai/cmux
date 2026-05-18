@@ -545,6 +545,50 @@ final class GhosttyConfigTests: XCTestCase {
         XCTAssertFalse(GhosttyApp.shouldReloadConfigurationForAppearanceChange(previousColorScheme: .dark, currentColorScheme: .dark))
     }
 
+    func testAppearanceSynchronizationPlanSkipsRuntimeUpdateWhenColorSchemeIsUnchanged() {
+        let plan = GhosttyApp.appearanceSynchronizationPlan(
+            previousColorScheme: .light,
+            currentColorScheme: .light
+        )
+
+        switch plan {
+        case .unchanged:
+            XCTAssertFalse(plan.shouldReloadConfiguration)
+        case .reload:
+            XCTFail("Unchanged appearance should not produce a reload plan")
+        }
+    }
+
+    func testAppearanceSynchronizationPlanUpdatesGhosttyRuntimeWhenReloading() {
+        let cases: [
+            (
+                previous: GhosttyConfig.ColorSchemePreference?,
+                current: GhosttyConfig.ColorSchemePreference,
+                runtime: ghostty_color_scheme_e
+            )
+        ] = [
+            (nil, .dark, GHOSTTY_COLOR_SCHEME_DARK),
+            (.dark, .light, GHOSTTY_COLOR_SCHEME_LIGHT),
+            (.light, .dark, GHOSTTY_COLOR_SCHEME_DARK),
+        ]
+
+        for testCase in cases {
+            let plan = GhosttyApp.appearanceSynchronizationPlan(
+                previousColorScheme: testCase.previous,
+                currentColorScheme: testCase.current
+            )
+
+            switch plan {
+            case .unchanged:
+                XCTFail("Changed appearance should produce a reload plan")
+            case let .reload(colorScheme, runtimeColorScheme):
+                XCTAssertEqual(colorScheme, testCase.current)
+                XCTAssertEqual(runtimeColorScheme, testCase.runtime)
+                XCTAssertTrue(plan.shouldReloadConfiguration)
+            }
+        }
+    }
+
     func testScrollLagCaptureRequiresSustainedLag() {
         let cases: [(samples: Int, averageMs: Double, maxMs: Double, expected: Bool)] = [
             (4, 18, 85, false),
