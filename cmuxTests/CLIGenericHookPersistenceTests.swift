@@ -390,6 +390,56 @@ extension CLINotifyProcessIntegrationRegressionTests {
         XCTAssertEqual(session["lastSubtitle"] as? String, "Waiting")
         XCTAssertEqual(session["lastBody"] as? String, waitingMessage)
         XCTAssertEqual(session["lastNotificationStatus"] as? String, "needsInput")
+
+        let progressMessage = "Working through more changes"
+        let progressCommandStart = state.commands.count
+        let progress = runGrokHook(
+            "notification",
+            input: #"{"sessionId":"\#(sessionId)","cwd":"\#(root.path)","hookEventName":"Notification","message":"\#(progressMessage)"}"#
+        )
+        XCTAssertFalse(progress.timedOut, progress.stderr)
+        XCTAssertEqual(progress.status, 0, progress.stderr)
+        XCTAssertEqual(progress.stdout, "{}\n")
+
+        let progressCommands = Array(state.commands.dropFirst(progressCommandStart))
+        XCTAssertTrue(
+            progressCommands.contains {
+                $0.contains("notify_target_async \(workspaceId) \(surfaceId) Grok|Attention|\(progressMessage)")
+            },
+            "Expected unclassified notification to notify without changing status, saw \(progressCommands)"
+        )
+        XCTAssertFalse(
+            progressCommands.contains { $0.contains("set_status grok ") },
+            "Unclassified Grok notifications should not clear or replace active status, saw \(progressCommands)"
+        )
+
+        json = try XCTUnwrap(JSONSerialization.jsonObject(with: Data(contentsOf: storeURL)) as? [String: Any])
+        sessions = try XCTUnwrap(json["sessions"] as? [String: Any])
+        session = try XCTUnwrap(sessions[sessionId] as? [String: Any])
+        XCTAssertEqual(session["lastSubtitle"] as? String, "Attention")
+        XCTAssertEqual(session["lastBody"] as? String, progressMessage)
+        XCTAssertNil(session["lastNotificationStatus"])
+
+        let neutralFallbackCommandStart = state.commands.count
+        let neutralFallback = runGrokHook(
+            "notification",
+            input: #"{"sessionId":"\#(sessionId)","cwd":"\#(root.path)","hookEventName":"Notification"}"#
+        )
+        XCTAssertFalse(neutralFallback.timedOut, neutralFallback.stderr)
+        XCTAssertEqual(neutralFallback.status, 0, neutralFallback.stderr)
+        XCTAssertEqual(neutralFallback.stdout, "{}\n")
+
+        let neutralFallbackCommands = Array(state.commands.dropFirst(neutralFallbackCommandStart))
+        XCTAssertTrue(
+            neutralFallbackCommands.contains {
+                $0.contains("notify_target_async \(workspaceId) \(surfaceId) Grok|Attention|\(progressMessage)")
+            },
+            "Expected empty payload to reuse the neutral saved notification, saw \(neutralFallbackCommands)"
+        )
+        XCTAssertFalse(
+            neutralFallbackCommands.contains { $0.contains("set_status grok ") },
+            "Neutral fallback notifications should not publish an Idle status, saw \(neutralFallbackCommands)"
+        )
     }
 
     func testGrokHookInstallRoutesNotificationEventToNotificationSubcommand() throws {
@@ -433,6 +483,38 @@ extension CLINotifyProcessIntegrationRegressionTests {
             notificationCommands.contains { $0.contains("cmux hooks grok stop") },
             "Grok Notification should not use the generic stop handler, saw \(notificationCommands)"
         )
+    }
+
+    func testGrokHookInstallRejectsFileAtHooksDirectory() throws {
+        let cliPath = try bundledCLIPath()
+        let root = FileManager.default.temporaryDirectory
+            .appendingPathComponent("cmux-grok-hook-file-dir-\(UUID().uuidString)", isDirectory: true)
+        let grokRoot = root.appendingPathComponent(".grok", isDirectory: true)
+        let hooksPath = grokRoot.appendingPathComponent("hooks", isDirectory: false)
+        try FileManager.default.createDirectory(at: grokRoot, withIntermediateDirectories: true)
+        try Data("not a directory".utf8).write(to: hooksPath)
+        defer { try? FileManager.default.removeItem(at: root) }
+
+        let result = runProcess(
+            executablePath: cliPath,
+            arguments: ["hooks", "grok", "install", "--yes"],
+            environment: [
+                "HOME": root.path,
+                "PATH": "/usr/bin:/bin:/usr/sbin:/sbin",
+                "CMUX_CLI_SENTRY_DISABLED": "1",
+            ],
+            timeout: 5
+        )
+
+        XCTAssertFalse(result.timedOut, result.stderr)
+        XCTAssertEqual(result.status, 0, result.stderr)
+        XCTAssertTrue(
+            result.stdout.contains("Required agent configuration is missing. Run `cmux hooks setup` after installing your agent CLI."),
+            result.stdout
+        )
+        var isDirectory: ObjCBool = true
+        XCTAssertTrue(FileManager.default.fileExists(atPath: hooksPath.path, isDirectory: &isDirectory))
+        XCTAssertFalse(isDirectory.boolValue)
     }
 
     func runGenericHookPersistenceScenario(_ scenario: GenericHookPersistenceScenario) throws {

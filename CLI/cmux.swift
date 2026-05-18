@@ -386,7 +386,7 @@ private enum AgentHookNotificationStatus: String, Codable {
 private struct AgentHookNotificationSummary {
     let subtitle: String
     let body: String
-    let status: AgentHookNotificationStatus
+    let status: AgentHookNotificationStatus?
     let isFallback: Bool
 }
 
@@ -505,6 +505,7 @@ private final class ClaudeHookSessionStore {
         lastSubtitle: String? = nil,
         lastBody: String? = nil,
         lastNotificationStatus: AgentHookNotificationStatus? = nil,
+        updateLastNotificationStatus: Bool = false,
         markActive: Bool = false,
         turnId: String? = nil,
         allowsNewSessionReplacement: Bool = false
@@ -555,7 +556,7 @@ private final class ClaudeHookSessionStore {
             if let body = normalizeOptional(lastBody) {
                 record.lastBody = body
             }
-            if let lastNotificationStatus {
+            if updateLastNotificationStatus {
                 record.lastNotificationStatus = lastNotificationStatus
             }
             record.updatedAt = now
@@ -18996,7 +18997,7 @@ struct CMUXCLI {
             return AgentHookNotificationSummary(
                 subtitle: String(localized: "agent.generic.notification.subtitle.attention", defaultValue: "Attention"),
                 body: truncate(message, maxLength: 180),
-                status: .idle,
+                status: nil,
                 isFallback: isFallback
             )
         }
@@ -20042,9 +20043,20 @@ export default function cmuxPiSessionExtension(pi: ExtensionAPI) {
         let skipConfirm = ProcessInfo.processInfo.arguments.contains("--yes")
             || ProcessInfo.processInfo.arguments.contains("-y")
 
-        if !fm.fileExists(atPath: configDir) {
+        var isConfigDirectory: ObjCBool = false
+        let configPathExists = fm.fileExists(atPath: configDir, isDirectory: &isConfigDirectory)
+        if configPathExists, !isConfigDirectory.boolValue {
+            print("Required agent configuration is missing. Run `cmux hooks setup` after installing your agent CLI.")
+            return
+        }
+        if !configPathExists {
             if def.createConfigDirIfMissing {
-                try fm.createDirectory(atPath: configDir, withIntermediateDirectories: true)
+                do {
+                    try fm.createDirectory(atPath: configDir, withIntermediateDirectories: true)
+                } catch {
+                    print("Required agent configuration is missing. Run `cmux hooks setup` after installing your agent CLI.")
+                    return
+                }
             } else {
                 print("Required agent configuration is missing. Run `cmux hooks setup` after installing your agent CLI.")
                 return
@@ -21382,7 +21394,7 @@ export default function cmuxPiSessionExtension(pi: ExtensionAPI) {
                     summary = AgentHookNotificationSummary(
                         subtitle: mapped?.lastSubtitle ?? restored.subtitle,
                         body: savedBody,
-                        status: mapped?.lastNotificationStatus ?? restored.status,
+                        status: restored.status,
                         isFallback: false
                     )
                 }
@@ -21404,7 +21416,8 @@ export default function cmuxPiSessionExtension(pi: ExtensionAPI) {
                         launchCommand: launchCommand,
                         lastSubtitle: summary.subtitle,
                         lastBody: summary.body,
-                        lastNotificationStatus: summary.status
+                        lastNotificationStatus: summary.status,
+                        updateLastNotificationStatus: true
                     )
                 }
 
@@ -21412,7 +21425,7 @@ export default function cmuxPiSessionExtension(pi: ExtensionAPI) {
                 _ = try? sendV1Command("notify_target_async \(workspaceId) \(surfaceId) \(payload)", client: client)
 
                 switch summary.status {
-                case .needsInput:
+                case .needsInput?:
                     let statusValue = String.localizedStringWithFormat(
                         String(localized: "agent.generic.notification.status.needsInput", defaultValue: "%@ needs input"),
                         def.displayName
@@ -21421,7 +21434,7 @@ export default function cmuxPiSessionExtension(pi: ExtensionAPI) {
                         "set_status \(def.statusKey) \(statusValue) --icon=bell.fill --color=#4C8DFF --priority=100 --tab=\(workspaceId)\(socketPanelOption(surfaceId))",
                         client: client
                     )
-                case .error:
+                case .error?:
                     let statusValue = String.localizedStringWithFormat(
                         String(localized: "agent.generic.notification.status.error", defaultValue: "%@ error"),
                         def.displayName
@@ -21430,12 +21443,14 @@ export default function cmuxPiSessionExtension(pi: ExtensionAPI) {
                         "set_status \(def.statusKey) \(statusValue) --icon=exclamationmark.triangle.fill --color=#FF453A --priority=100 --tab=\(workspaceId)\(socketPanelOption(surfaceId))",
                         client: client
                     )
-                case .idle:
+                case .idle?:
                     let idleStatus = String(localized: "agent.generic.notification.status.idle", defaultValue: "Idle")
                     _ = try? sendV1Command(
                         "set_status \(def.statusKey) \(idleStatus) --icon=pause.circle.fill --color=#8E8E93 --tab=\(workspaceId)\(socketPanelOption(surfaceId))",
                         client: client
                     )
+                case nil:
+                    break
                 }
             } catch {
                 if shouldIgnoreClaudeHookTeardownError(error) {
