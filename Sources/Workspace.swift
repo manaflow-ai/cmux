@@ -1334,7 +1334,8 @@ extension Workspace {
                 inPane: paneId,
                 slug: slug,
                 createIfMissing: true,
-                focus: false
+                focus: false,
+                reuseExisting: false
             ) {
                 _ = closePanel(panelId, force: true)
                 if let name = surface.name { setPanelCustomTitle(panelId: panel.id, title: name) }
@@ -1382,7 +1383,8 @@ extension Workspace {
                 inPane: paneId,
                 slug: slug,
                 createIfMissing: true,
-                focus: false
+                focus: false,
+                reuseExisting: false
             ) {
                 if let name = surface.name { setPanelCustomTitle(panelId: panel.id, title: name) }
                 if surface.focus == true { focusPanelId = panel.id }
@@ -11153,7 +11155,8 @@ final class Workspace: Identifiable, ObservableObject {
         inPane paneId: PaneID,
         slug: String,
         createIfMissing: Bool = true,
-        focus: Bool? = nil
+        focus: Bool? = nil,
+        reuseExisting: Bool = true
     ) -> MarkdownPanel? {
         let validatedSlug: String
         do {
@@ -11190,7 +11193,10 @@ final class Workspace: Identifiable, ObservableObject {
             }
             filePath = candidate
         }
-        return openOrFocusMarkdownSurface(inPane: paneId, filePath: filePath, focus: focus ?? false)
+        if reuseExisting {
+            return openOrFocusMarkdownSurface(inPane: paneId, filePath: filePath, focus: focus ?? false)
+        }
+        return newMarkdownSurface(inPane: paneId, filePath: filePath, focus: focus)
     }
 
     @discardableResult

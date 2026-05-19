@@ -4160,11 +4160,10 @@ struct CMUXCLI {
             if slugArg.hasPrefix("-") {
                 throw CLIError(message: unknownFlagMessage(verb: verb, flag: slugArg))
             }
-            let rest = Array(trailingArgs.dropFirst())
-            if let unknownFlag = rest.first(where: { $0.hasPrefix("-") }) {
-                throw CLIError(message: unknownFlagMessage(verb: verb, flag: unknownFlag))
-            }
-            if let extraArg = rest.first {
+            if let extraArg = trailingArgs.dropFirst().first {
+                if extraArg.hasPrefix("-") {
+                    throw CLIError(message: unknownFlagMessage(verb: verb, flag: extraArg))
+                }
                 throw CLIError(message: unexpectedArgumentMessage(verb: verb, argument: extraArg))
             }
             return slugArg
@@ -4176,10 +4175,10 @@ struct CMUXCLI {
             if let slugOpt, slugOpt.hasPrefix("-") {
                 throw CLIError(message: unknownFlagMessage(verb: "new", flag: slugOpt))
             }
-            if let unknownFlag = argsAfterSlug.first(where: { $0.hasPrefix("-") }) {
-                throw CLIError(message: unknownFlagMessage(verb: "new", flag: unknownFlag))
-            }
             if let extraArg = argsAfterSlug.first {
+                if extraArg.hasPrefix("-") {
+                    throw CLIError(message: unknownFlagMessage(verb: "new", flag: extraArg))
+                }
                 throw CLIError(message: unexpectedArgumentMessage(verb: "new", argument: extraArg))
             }
             var params = try buildRoutingParams()
@@ -4228,10 +4227,10 @@ struct CMUXCLI {
             }
 
         case "list", "ls":
-            if let unknownFlag = trailingArgs.first(where: { $0.hasPrefix("-") }) {
-                throw CLIError(message: unknownFlagMessage(verb: "list", flag: unknownFlag))
-            }
             if let extraArg = trailingArgs.first {
+                if extraArg.hasPrefix("-") {
+                    throw CLIError(message: unknownFlagMessage(verb: "list", flag: extraArg))
+                }
                 throw CLIError(message: unexpectedArgumentMessage(verb: "list", argument: extraArg))
             }
             let params = try buildRoutingParams()
