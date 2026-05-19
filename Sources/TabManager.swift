@@ -5109,6 +5109,8 @@ class TabManager: ObservableObject {
             self == .terminalInteraction
         }
 
+        // All current contexts clear restored unread. Keep this exhaustive so any
+        // future context must make an explicit restored-unread policy decision.
         var canDismissRestoredUnreadIndicator: Bool {
             switch self {
             case .activeFocus, .directInteraction, .terminalInteraction:
@@ -5198,7 +5200,7 @@ class TabManager: ObservableObject {
             if hasUnreadNotification || hasFocusedIndicator {
                 workspace.triggerNotificationDismissFlash(panelId: panelId)
             } else if didDismissUnreadIndicator {
-                workspace.triggerManualUnreadDismissFlash(panelId: panelId)
+                workspace.triggerUnreadIndicatorDismissFlash(panelId: panelId)
             }
         }
         return true

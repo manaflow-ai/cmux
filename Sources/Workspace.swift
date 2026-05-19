@@ -12350,7 +12350,7 @@ final class Workspace: Identifiable, ObservableObject {
         requestAttentionFlash(panelId: panelId, reason: .notificationDismiss)
     }
 
-    func triggerManualUnreadDismissFlash(panelId: UUID) {
+    func triggerUnreadIndicatorDismissFlash(panelId: UUID) {
         guard terminalPanel(for: panelId) != nil else { return }
         requestAttentionFlash(panelId: panelId, reason: .manualUnreadDismiss)
     }
