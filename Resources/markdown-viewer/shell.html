@@ -338,7 +338,9 @@ html { scroll-behavior: smooth; }
     }
     return hash;
   }
-  var lastRenderedHash = 0;
+  // Sentinel must not collide with any valid fnv1aHash() output. fnv1aHash
+  // ends with `>>> 0`, which produces 0..2^32-1; null sits outside that range.
+  var lastRenderedHash = null;
 
   function escapeHtml(s) {
     // Let WebKit's HTML serializer do escaping rather than trying
@@ -899,7 +901,18 @@ html { scroll-behavior: smooth; }
   // Fast pre-check: most markdown files produce HTML with no dangerous
   // elements or attributes. This regex tests for patterns the full
   // TreeWalker sanitizer would act on — if none match, skip the walk.
-  var sanitizationPattern = /<(?:script|iframe|object|embed|link(?:\s)|meta|base|form|button|textarea|select|option|svg|math)\b|<input\b(?![^>]*type\s*=\s*["']?checkbox)|(?:\son[a-z]+=|\bstyle\s*=|\bsrcdoc\s*=|\bautofocus\b|\bformaction\s*=|\bxlink:href\s*=)|(?:href|src)\s*=\s*["']?\s*(?:javascript|vbscript|data):/i;
+  //
+  // Notes on each alternation:
+  //   <link\b ...                  word-boundary, not <link(?:\s) — catches
+  //                                <link> with no following whitespace.
+  //   \son[a-z]+\s*=               whitespace before `=` is tolerated by
+  //                                browsers, so `onload =` must still match.
+  //   (?:href|src) ... &           any character reference inside an href/src
+  //                                value (e.g. `&#106;avascript:`) forces the
+  //                                full sanitizer; entity decoding happens at
+  //                                attribute-parse time, so the slow path
+  //                                gets the resolved value via attr.value.
+  var sanitizationPattern = /<(?:script|iframe|object|embed|link\b|meta|base|form|button|textarea|select|option|svg|math)\b|<input\b(?![^>]*type\s*=\s*["']?checkbox)|(?:\son[a-z]+\s*=|\bstyle\s*=|\bsrcdoc\s*=|\bautofocus\b|\bformaction\s*=|\bxlink:href\s*=)|(?:href|src)\s*=\s*["']?\s*(?:javascript|vbscript|data):|(?:href|src)\s*=\s*["'][^"']*&/i;
   function needsSanitization(html) {
     return sanitizationPattern.test(html || '');
   }
@@ -1064,7 +1077,11 @@ html { scroll-behavior: smooth; }
           highlighted = escapeHtml(raw);
         }
         var langClass = langName ? ' language-' + langName : '';
-        var lineCount = (raw.match(/\n/g) || []).length + 1;
+        // Strip exactly one trailing newline before counting lines so code
+        // blocks that end in "\n" (the common case from marked) don't render
+        // a phantom empty line number in the gutter.
+        var rawForLineCount = raw.replace(/\r?\n$/, '');
+        var lineCount = (rawForLineCount.match(/\n/g) || []).length + 1;
         var gutter = '';
         for (var ln = 1; ln <= lineCount; ln++) {
           gutter += '<span class="cmux-line-num">' + ln + '</span>';
@@ -1082,16 +1099,14 @@ html { scroll-behavior: smooth; }
         }
         var type = calloutMatch[1].toLowerCase();
         var body = quote.replace(calloutMatch[0], '<p>').replace(/^<p>\s*(?:<br\s*\/?>)?\s*/, '<p>');
-        var icons = {
-          note: '<svg viewBox="0 0 16 16" fill="currentColor"><path d="M0 8a8 8 0 1 1 16 0A8 8 0 0 1 0 8Zm8-6.5a6.5 6.5 0 1 0 0 13 6.5 6.5 0 0 0 0-13ZM6.5 7.75A.75.75 0 0 1 7.25 7h1a.75.75 0 0 1 .75.75v2.75h.25a.75.75 0 0 1 0 1.5h-2a.75.75 0 0 1 0-1.5h.25v-2h-.25a.75.75 0 0 1-.75-.75ZM8 6a1 1 0 1 1 0-2 1 1 0 0 1 0 2Z"/></svg>',
-          tip: '<svg viewBox="0 0 16 16" fill="currentColor"><path d="M8 1.5c-2.363 0-4 1.69-4 3.75 0 .984.424 1.625.984 2.304l.214.253c.223.264.47.556.673.848.284.411.537.896.621 1.49a.75.75 0 0 1-1.484.211c-.04-.282-.163-.547-.37-.847a8.456 8.456 0 0 0-.542-.68c-.084-.1-.173-.205-.268-.32C3.201 7.75 2.5 6.766 2.5 5.25 2.5 2.31 4.863.5 8 .5s5.5 1.81 5.5 4.75c0 1.516-.701 2.5-1.328 3.259a10.8 10.8 0 0 0-.268.32c-.207.245-.383.453-.542.68-.207.3-.33.565-.37.847a.751.751 0 0 1-1.485-.212c.084-.593.337-1.078.621-1.489.203-.292.45-.584.673-.848.075-.088.147-.173.213-.253.561-.679.985-1.32.985-2.304 0-2.06-1.637-3.75-4-3.75ZM5.75 12h4.5a.75.75 0 0 1 0 1.5h-4.5a.75.75 0 0 1 0-1.5ZM6 15.25a.75.75 0 0 1 .75-.75h2.5a.75.75 0 0 1 0 1.5h-2.5a.75.75 0 0 1-.75-.75Z"/></svg>',
-          important: '<svg viewBox="0 0 16 16" fill="currentColor"><path d="M0 1.75C0 .784.784 0 1.75 0h12.5C15.216 0 16 .784 16 1.75v9.5A1.75 1.75 0 0 1 14.25 13H8.06l-2.573 2.573A1.458 1.458 0 0 1 3 14.543V13H1.75A1.75 1.75 0 0 1 0 11.25Zm1.75-.25a.25.25 0 0 0-.25.25v9.5c0 .138.112.25.25.25h2a.75.75 0 0 1 .75.75v2.19l2.72-2.72a.749.749 0 0 1 .53-.22h6.5a.25.25 0 0 0 .25-.25v-9.5a.25.25 0 0 0-.25-.25Zm7 2.25v2.5a.75.75 0 0 1-1.5 0v-2.5a.75.75 0 0 1 1.5 0ZM9 9a1 1 0 1 1-2 0 1 1 0 0 1 2 0Z"/></svg>',
-          warning: '<svg viewBox="0 0 16 16" fill="currentColor"><path d="M6.457 1.047c.659-1.234 2.427-1.234 3.086 0l6.082 11.378A1.75 1.75 0 0 1 14.082 15H1.918a1.75 1.75 0 0 1-1.543-2.575Zm1.763.707a.25.25 0 0 0-.44 0L1.698 13.132a.25.25 0 0 0 .22.368h12.164a.25.25 0 0 0 .22-.368Zm.53 3.996v2.5a.75.75 0 0 1-1.5 0v-2.5a.75.75 0 0 1 1.5 0ZM9 11a1 1 0 1 1-2 0 1 1 0 0 1 2 0Z"/></svg>',
-          caution: '<svg viewBox="0 0 16 16" fill="currentColor"><path d="M4.47.22A.749.749 0 0 1 5 0h6c.199 0 .389.079.53.22l4.25 4.25c.141.14.22.331.22.53v6a.749.749 0 0 1-.22.53l-4.25 4.25A.749.749 0 0 1 11 16H5a.749.749 0 0 1-.53-.22L.22 11.53A.749.749 0 0 1 0 11V5c0-.199.079-.389.22-.53Zm.84 1.28L1.5 5.31v5.38l3.81 3.81h5.38l3.81-3.81V5.31L10.69 1.5ZM8 4a.75.75 0 0 1 .75.75v3.5a.75.75 0 0 1-1.5 0v-3.5A.75.75 0 0 1 8 4Zm0 8a1 1 0 1 1 0-2 1 1 0 0 1 0 2Z"/></svg>'
-        };
         var title = type.charAt(0).toUpperCase() + type.slice(1);
+        // Emit a data-attribute placeholder; the icon <svg> is injected
+        // after sanitization by injectCalloutIcons() so the sanitizer
+        // (which strips all <svg> elements as a hardening measure) cannot
+        // remove our own trusted icons. `type` comes from the allow-listed
+        // capture group above, so the attribute value is safe.
         return '<div class="cmux-callout cmux-callout-' + type + '">'
-          + '<div class="cmux-callout-title">' + (icons[type] || '') + ' ' + title + '</div>'
+          + '<div class="cmux-callout-title" data-cmux-callout-type="' + type + '">' + title + '</div>'
           + '<div class="cmux-callout-body">' + body + '</div>'
           + '</div>\n';
       }
@@ -1359,7 +1374,31 @@ html { scroll-behavior: smooth; }
     });
   }
 
+  // Octicon SVGs for GitHub-style callouts. Kept out of the rendered HTML
+  // pipeline and injected post-sanitization so the sanitizer's blanket
+  // <svg> strip does not remove our own trusted icons. Markup is constant
+  // and never blended with user-supplied content.
+  var calloutIcons = {
+    note: '<svg viewBox="0 0 16 16" fill="currentColor"><path d="M0 8a8 8 0 1 1 16 0A8 8 0 0 1 0 8Zm8-6.5a6.5 6.5 0 1 0 0 13 6.5 6.5 0 0 0 0-13ZM6.5 7.75A.75.75 0 0 1 7.25 7h1a.75.75 0 0 1 .75.75v2.75h.25a.75.75 0 0 1 0 1.5h-2a.75.75 0 0 1 0-1.5h.25v-2h-.25a.75.75 0 0 1-.75-.75ZM8 6a1 1 0 1 1 0-2 1 1 0 0 1 0 2Z"/></svg>',
+    tip: '<svg viewBox="0 0 16 16" fill="currentColor"><path d="M8 1.5c-2.363 0-4 1.69-4 3.75 0 .984.424 1.625.984 2.304l.214.253c.223.264.47.556.673.848.284.411.537.896.621 1.49a.75.75 0 0 1-1.484.211c-.04-.282-.163-.547-.37-.847a8.456 8.456 0 0 0-.542-.68c-.084-.1-.173-.205-.268-.32C3.201 7.75 2.5 6.766 2.5 5.25 2.5 2.31 4.863.5 8 .5s5.5 1.81 5.5 4.75c0 1.516-.701 2.5-1.328 3.259a10.8 10.8 0 0 0-.268.32c-.207.245-.383.453-.542.68-.207.3-.33.565-.37.847a.751.751 0 0 1-1.485-.212c.084-.593.337-1.078.621-1.489.203-.292.45-.584.673-.848.075-.088.147-.173.213-.253.561-.679.985-1.32.985-2.304 0-2.06-1.637-3.75-4-3.75ZM5.75 12h4.5a.75.75 0 0 1 0 1.5h-4.5a.75.75 0 0 1 0-1.5ZM6 15.25a.75.75 0 0 1 .75-.75h2.5a.75.75 0 0 1 0 1.5h-2.5a.75.75 0 0 1-.75-.75Z"/></svg>',
+    important: '<svg viewBox="0 0 16 16" fill="currentColor"><path d="M0 1.75C0 .784.784 0 1.75 0h12.5C15.216 0 16 .784 16 1.75v9.5A1.75 1.75 0 0 1 14.25 13H8.06l-2.573 2.573A1.458 1.458 0 0 1 3 14.543V13H1.75A1.75 1.75 0 0 1 0 11.25Zm1.75-.25a.25.25 0 0 0-.25.25v9.5c0 .138.112.25.25.25h2a.75.75 0 0 1 .75.75v2.19l2.72-2.72a.749.749 0 0 1 .53-.22h6.5a.25.25 0 0 0 .25-.25v-9.5a.25.25 0 0 0-.25-.25Zm7 2.25v2.5a.75.75 0 0 1-1.5 0v-2.5a.75.75 0 0 1 1.5 0ZM9 9a1 1 0 1 1-2 0 1 1 0 0 1 2 0Z"/></svg>',
+    warning: '<svg viewBox="0 0 16 16" fill="currentColor"><path d="M6.457 1.047c.659-1.234 2.427-1.234 3.086 0l6.082 11.378A1.75 1.75 0 0 1 14.082 15H1.918a1.75 1.75 0 0 1-1.543-2.575Zm1.763.707a.25.25 0 0 0-.44 0L1.698 13.132a.25.25 0 0 0 .22.368h12.164a.25.25 0 0 0 .22-.368Zm.53 3.996v2.5a.75.75 0 0 1-1.5 0v-2.5a.75.75 0 0 1 1.5 0ZM9 11a1 1 0 1 1-2 0 1 1 0 0 1 2 0Z"/></svg>',
+    caution: '<svg viewBox="0 0 16 16" fill="currentColor"><path d="M4.47.22A.749.749 0 0 1 5 0h6c.199 0 .389.079.53.22l4.25 4.25c.141.14.22.331.22.53v6a.749.749 0 0 1-.22.53l-4.25 4.25A.749.749 0 0 1 11 16H5a.749.749 0 0 1-.53-.22L.22 11.53A.749.749 0 0 1 0 11V5c0-.199.079-.389.22-.53Zm.84 1.28L1.5 5.31v5.38l3.81 3.81h5.38l3.81-3.81V5.31L10.69 1.5ZM8 4a.75.75 0 0 1 .75.75v3.5a.75.75 0 0 1-1.5 0v-3.5A.75.75 0 0 1 8 4Zm0 8a1 1 0 1 1 0-2 1 1 0 0 1 0 2Z"/></svg>'
+  };
+
+  function injectCalloutIcons() {
+    contentEl.querySelectorAll('.cmux-callout-title[data-cmux-callout-type]').forEach(function(titleEl) {
+      if (titleEl.querySelector('svg')) { return; }
+      var type = String(titleEl.getAttribute('data-cmux-callout-type') || '').toLowerCase();
+      var icon = calloutIcons[type];
+      if (icon) {
+        titleEl.insertAdjacentHTML('afterbegin', icon + ' ');
+      }
+    });
+  }
+
   function postProcessSpecialBlocks() {
+    injectCalloutIcons();
     if (contentEl.querySelector('.cmux-mermaid:not([data-rendered])')) {
       loadLib('mermaid', renderMermaidBlocks);
     }
@@ -1556,7 +1595,7 @@ html { scroll-behavior: smooth; }
   }
   window.__cmuxRenderMarkdown = function(md) {
     if (renderTimer) { clearTimeout(renderTimer); }
-    if (lastRenderedHash === 0) {
+    if (lastRenderedHash === null) {
       doRender(md);
       return;
     }
@@ -1662,8 +1701,12 @@ html { scroll-behavior: smooth; }
 
   // Fix Cmd+A / Ctrl+A to select the entire document content rather
   // than just the focused paragraph (WebKit default behavior).
+  //
+  // Match on ev.code === 'KeyA' (physical key position) rather than
+  // ev.key === 'a' so the shortcut works regardless of keyboard layout
+  // and modifier-induced case changes.
   document.addEventListener('keydown', function(ev) {
-    if ((ev.metaKey || ev.ctrlKey) && !ev.shiftKey && !ev.altKey && ev.key === 'a') {
+    if ((ev.metaKey || ev.ctrlKey) && !ev.shiftKey && !ev.altKey && ev.code === 'KeyA') {
       ev.preventDefault();
       var range = document.createRange();
       range.selectNodeContents(contentEl);
