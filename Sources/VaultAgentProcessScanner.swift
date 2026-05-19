@@ -789,6 +789,18 @@ private extension CmuxVaultAgentSessionIDSource {
                 ) ?? session
             }
             return PiSessionLocator.latestSessionPath(for: process, registration: registration, fileManager: fileManager)
+        case .grokSessionDirectory:
+            if let session = process.arguments.value(afterOption: "-r")
+                ?? process.arguments.value(afterOption: "--resume") {
+                return session
+            }
+            let cwd = process.environment["CMUX_AGENT_LAUNCH_CWD"] ?? process.environment["PWD"]
+            return GrokSessionLocator.latestSessionId(
+                cwd: cwd,
+                registration: registration,
+                environment: process.environment,
+                fileManager: fileManager
+            )
         }
     }
 }

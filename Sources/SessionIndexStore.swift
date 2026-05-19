@@ -1093,6 +1093,9 @@ final class SessionIndexStore: ObservableObject {
                 let scopedCwd = currentDirectory?.trimmingCharacters(in: .whitespacesAndNewlines)
                 cwdFilter = scopedCwd?.isEmpty == false ? scopedCwd : nil
                 registry = await Self.vaultAgentRegistry(workingDirectory: cwdFilter)
+            } else if a == .grok {
+                cwdFilter = nil
+                registry = await Self.vaultAgentRegistry(workingDirectory: nil)
             } else {
                 cwdFilter = nil
                 registry = CmuxVaultAgentRegistry(registrations: [])
@@ -1197,8 +1200,14 @@ final class SessionIndexStore: ObservableObject {
         switch agent {
         case .claude: return await loadClaudeEntries(needle: needle, cwdFilter: cwdFilter, offset: offset, limit: limit)
         case .codex: return await loadCodexEntries(needle: needle, cwdFilter: cwdFilter, offset: offset, limit: limit, errorBag: errorBag)
-        // Grok sessions are restored from hook persistence, so searchAgent has no filesystem loader for this case.
-        case .grok: return []
+        case .grok:
+            return await loadGrokEntries(
+                registration: registry.registration(id: "grok") ?? .builtInGrok,
+                needle: needle,
+                cwdFilter: cwdFilter,
+                offset: offset,
+                limit: limit
+            )
         case .opencode: return loadOpenCodeEntries(needle: needle, cwdFilter: cwdFilter, offset: offset, limit: limit, errorBag: errorBag)
         case .rovodev: return loadRovoDevEntries(needle: needle, cwdFilter: cwdFilter, offset: offset, limit: limit, errorBag: errorBag)
         case .hermesAgent: return loadHermesAgentEntries(needle: needle, cwdFilter: cwdFilter, offset: offset, limit: limit, errorBag: errorBag)

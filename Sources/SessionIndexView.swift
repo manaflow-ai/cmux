@@ -1064,6 +1064,14 @@ private enum SessionTranscriptLoader {
         Data(#""role":"#.utf8),
         Data(#""role": "#.utf8)
     ]
+    private static let grokRoleNeedles = [
+        Data(#""role":"#.utf8),
+        Data(#""role": "#.utf8),
+        Data(#""type":"user""#.utf8),
+        Data(#""type": "user""#.utf8),
+        Data(#""type":"assistant""#.utf8),
+        Data(#""type": "assistant""#.utf8)
+    ]
 
     static func load(entry: SessionEntry) async throws -> [SessionTranscriptTurn] {
         if entry.agent == .opencode {
@@ -1400,7 +1408,10 @@ private enum SessionTranscriptLoader {
         id: Int
     ) -> SessionTranscriptTurn? {
         let fallbackRole: SessionTranscriptRole? = { if case .registered = agent { return .event }; return nil }()
-        guard let role = transcriptRole(from: object["role"] as? String) ?? fallbackRole else {
+        let grokTypeRole: SessionTranscriptRole? = agent == .grok
+            ? transcriptRole(from: object["type"] as? String)
+            : nil
+        guard let role = transcriptRole(from: object["role"] as? String) ?? grokTypeRole ?? fallbackRole else {
             return nil
         }
         let content = object["content"] ?? object["text"] ?? object["message"]
@@ -1611,7 +1622,9 @@ private enum SessionTranscriptLoader {
         case .codex:
             return containsAny(data, needles: codexResponseItemNeedles)
                 && containsAny(data, needles: codexPreviewNeedles)
-        case .grok, .opencode, .rovodev:
+        case .grok:
+            return containsAny(data, needles: grokRoleNeedles)
+        case .opencode, .rovodev:
             return containsAny(data, needles: genericRoleNeedles)
         case .registered:
             return true
@@ -1629,7 +1642,7 @@ private enum SessionTranscriptLoader {
             if containsAny(data, needles: [Data(#""type":"user""#.utf8), Data(#""type": "user""#.utf8)]) {
                 return .user
             }
-        case .codex, .grok, .opencode, .rovodev, .registered:
+        case .codex, .opencode, .rovodev, .registered:
             if containsAny(data, needles: [Data(#""role":"assistant""#.utf8), Data(#""role": "assistant""#.utf8)]) {
                 return .assistant
             }
@@ -1638,6 +1651,23 @@ private enum SessionTranscriptLoader {
             }
             if containsAny(data, needles: [Data(#""type":"function_call""#.utf8), Data(#""type": "function_call""#.utf8)]) {
                 return .tool
+            }
+        case .grok:
+            if containsAny(data, needles: [
+                Data(#""role":"assistant""#.utf8),
+                Data(#""role": "assistant""#.utf8),
+                Data(#""type":"assistant""#.utf8),
+                Data(#""type": "assistant""#.utf8),
+            ]) {
+                return .assistant
+            }
+            if containsAny(data, needles: [
+                Data(#""role":"user""#.utf8),
+                Data(#""role": "user""#.utf8),
+                Data(#""type":"user""#.utf8),
+                Data(#""type": "user""#.utf8),
+            ]) {
+                return .user
             }
         case .hermesAgent:
             return nil

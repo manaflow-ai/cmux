@@ -1521,6 +1521,98 @@ final class CLINotifyProcessIntegrationRegressionTests: XCTestCase {
         )
     }
 
+    func testGrokHookPublishesResumeBindingWithNativeResumeFlag() throws {
+        let cliPath = try bundledCLIPath()
+        let socketPath = makeSocketPath("grok-resume")
+        let listenerFD = try bindUnixSocket(at: socketPath)
+        let state = MockSocketServerState()
+        let root = FileManager.default.temporaryDirectory
+            .appendingPathComponent("cmux-grok-resume-\(UUID().uuidString)", isDirectory: true)
+        let workspaceId = "11111111-1111-1111-1111-111111111111"
+        let surfaceId = "22222222-2222-2222-2222-222222222222"
+        let sessionId = "grok-session-123"
+        let grokHome = root.appendingPathComponent("grok-home", isDirectory: true)
+
+        try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
+        defer {
+            Darwin.close(listenerFD)
+            unlink(socketPath)
+            try? FileManager.default.removeItem(at: root)
+        }
+
+        let serverHandled = startMockServer(listenerFD: listenerFD, state: state) { line in
+            guard let payload = self.jsonObject(line) else {
+                return "OK"
+            }
+            guard let id = payload["id"] as? String, let method = payload["method"] as? String else {
+                return self.malformedRequestResponse(id: payload["id"] as? String, raw: line)
+            }
+            switch method {
+            case "surface.list":
+                return self.surfaceListResponse(id: id, surfaceId: surfaceId)
+            case "feed.push":
+                return self.v2Response(id: id, ok: true, result: [:])
+            case "surface.resume.set":
+                return self.v2Response(id: id, ok: true, result: ["ok": true])
+            default:
+                return self.v2Response(id: id, ok: false, error: ["code": "unrecognized_method", "message": "unexpected method: \(method)"])
+            }
+        }
+
+        var environment = ProcessInfo.processInfo.environment
+        environment["CMUX_SOCKET_PATH"] = socketPath
+        environment["CMUX_WORKSPACE_ID"] = workspaceId
+        environment["CMUX_SURFACE_ID"] = surfaceId
+        environment["CMUX_AGENT_HOOK_STATE_DIR"] = root.path
+        environment["CMUX_CLI_SENTRY_DISABLED"] = "1"
+        environment["CMUX_AGENT_LAUNCH_KIND"] = "grok"
+        environment["CMUX_AGENT_LAUNCH_EXECUTABLE"] = "/Users/example/.grok/bin/grok"
+        environment["CMUX_AGENT_LAUNCH_CWD"] = root.path
+        environment["CMUX_AGENT_LAUNCH_ARGV_B64"] = base64NULSeparated([
+            "/Users/example/.grok/bin/grok",
+            "--model",
+            "grok-4",
+            "--resume",
+            "old-session",
+            "--permission-mode",
+            "auto",
+            "--cwd",
+            root.path,
+            "initial prompt should not replay"
+        ])
+        environment["GROK_HOME"] = grokHome.path
+
+        let result = runProcess(
+            executablePath: cliPath,
+            arguments: ["hooks", "grok", "prompt-submit"],
+            environment: environment,
+            standardInput: #"{"sessionId":"\#(sessionId)","cwd":"\#(root.path)","hookEventName":"UserPromptSubmit","prompt":"continue"}"#,
+            timeout: 5
+        )
+
+        wait(for: [serverHandled], timeout: 5)
+        XCTAssertFalse(result.timedOut, result.stderr)
+        XCTAssertEqual(result.status, 0, result.stderr)
+
+        let resumeBindingRequests = state.commands.compactMap { command -> [String: Any]? in
+            guard let payload = jsonObject(command),
+                  payload["method"] as? String == "surface.resume.set" else {
+                return nil
+            }
+            return payload["params"] as? [String: Any]
+        }
+        XCTAssertEqual(resumeBindingRequests.count, 1, state.commands.joined(separator: "\n"))
+        let request = try XCTUnwrap(resumeBindingRequests.first)
+        XCTAssertEqual(request["checkpoint_id"] as? String, sessionId)
+        XCTAssertEqual(request["auto_resume"] as? Bool, true)
+        XCTAssertEqual(request["kind"] as? String, "grok")
+        XCTAssertEqual(request["environment"] as? [String: String], ["GROK_HOME": grokHome.path])
+        XCTAssertEqual(
+            request["command"] as? String,
+            "cd '\(root.path)' && '/Users/example/.grok/bin/grok' '-r' '\(sessionId)' '--model' 'grok-4' '--permission-mode' 'auto' '--cwd' '\(root.path)'"
+        )
+    }
+
     func testAgentPromptClearsSurfaceResumeBindingWhenResumeCommandUnavailable() throws {
         let cliPath = try bundledCLIPath()
         let socketPath = makeSocketPath("agent-resume-unavailable")

@@ -1,11 +1,244 @@
 import Foundation
 
+struct GrokSessionRoot: Sendable, Hashable {
+    let sessionsRoot: String
+    let grokHomeForResume: String?
+}
+
+enum GrokSessionLocator {
+    static func defaultSessionsRoot(homeDirectory: String = NSHomeDirectory()) -> String {
+        let standardizedHome = (homeDirectory as NSString).standardizingPath
+        return ((standardizedHome as NSString).appendingPathComponent(".grok") as NSString)
+            .appendingPathComponent("sessions")
+    }
+
+    static func encodedSessionCWD(_ cwd: String) -> String {
+        var encoded = ""
+        for byte in cwd.utf8 {
+            let isUnreserved = (byte >= 0x41 && byte <= 0x5A)
+                || (byte >= 0x61 && byte <= 0x7A)
+                || (byte >= 0x30 && byte <= 0x39)
+                || byte == 0x2D
+                || byte == 0x2E
+                || byte == 0x5F
+                || byte == 0x7E
+            if isUnreserved {
+                encoded.append(Character(UnicodeScalar(byte)))
+            } else {
+                encoded.append(String(format: "%%%02X", byte))
+            }
+        }
+        return encoded
+    }
+
+    static func workingDirectory(fromProjectDirectoryName name: String) -> String? {
+        let decoded = name.removingPercentEncoding ?? name
+        let trimmed = decoded.trimmingCharacters(in: .whitespacesAndNewlines)
+        return trimmed.isEmpty ? nil : trimmed
+    }
+
+    static func sessionRoot(
+        registration: CmuxVaultAgentRegistration,
+        environment: [String: String] = ProcessInfo.processInfo.environment,
+        homeDirectory: String = NSHomeDirectory()
+    ) -> GrokSessionRoot {
+        let rawRoot: String
+        let configuredRoot = normalized(registration.sessionDirectory)
+        let configuredIsDefault = configuredRoot.map {
+            (($0 as NSString).expandingTildeInPath as NSString).standardizingPath
+                == (defaultSessionsRoot(homeDirectory: homeDirectory) as NSString).standardizingPath
+        } ?? false
+        if let grokHome = normalized(environment["GROK_HOME"]),
+           configuredRoot == nil || configuredIsDefault {
+            rawRoot = (grokHome as NSString).appendingPathComponent("sessions")
+        } else if let configured = configuredRoot {
+            rawRoot = configured
+        } else {
+            rawRoot = defaultSessionsRoot(homeDirectory: homeDirectory)
+        }
+        let sessionsRoot = (rawRoot as NSString).expandingTildeInPath
+        let grokHome = grokHomeForResume(
+            sessionsRoot: sessionsRoot,
+            defaultSessionsRoot: defaultSessionsRoot(homeDirectory: homeDirectory)
+        )
+        return GrokSessionRoot(sessionsRoot: sessionsRoot, grokHomeForResume: grokHome)
+    }
+
+    static func sessionRoots(
+        registration: CmuxVaultAgentRegistration,
+        cwdFilter: String?,
+        environment: [String: String] = ProcessInfo.processInfo.environment,
+        homeDirectory: String = NSHomeDirectory()
+    ) -> [GrokSessionRoot] {
+        let root = sessionRoot(
+            registration: registration,
+            environment: environment,
+            homeDirectory: homeDirectory
+        )
+        guard let cwdFilter = normalized(cwdFilter) else {
+            return [root]
+        }
+        let scopedRoot = (root.sessionsRoot as NSString).appendingPathComponent(encodedSessionCWD(cwdFilter))
+        return [GrokSessionRoot(sessionsRoot: scopedRoot, grokHomeForResume: root.grokHomeForResume)]
+    }
+
+    static func latestSessionId(
+        cwd: String?,
+        registration: CmuxVaultAgentRegistration,
+        environment: [String: String],
+        fileManager: FileManager = .default
+    ) -> String? {
+        guard let cwd = normalized(cwd) else { return nil }
+        let root = sessionRoot(registration: registration, environment: environment)
+        let projectDirectory = (root.sessionsRoot as NSString).appendingPathComponent(encodedSessionCWD(cwd))
+        var isDirectory: ObjCBool = false
+        guard fileManager.fileExists(atPath: projectDirectory, isDirectory: &isDirectory),
+              isDirectory.boolValue,
+              let sessionURLs = try? fileManager.contentsOfDirectory(
+                  at: URL(fileURLWithPath: projectDirectory, isDirectory: true),
+                  includingPropertiesForKeys: [.contentModificationDateKey, .isDirectoryKey],
+                  options: [.skipsHiddenFiles]
+              ) else {
+            return nil
+        }
+        return newestSessionDirectory(in: sessionURLs, fileManager: fileManager)?.lastPathComponent
+    }
+
+    private static func newestSessionDirectory(in urls: [URL], fileManager: FileManager) -> URL? {
+        urls
+            .filter { url in
+                let values = try? url.resourceValues(forKeys: [.isDirectoryKey])
+                guard values?.isDirectory == true else { return false }
+                return fileManager.fileExists(atPath: url.appendingPathComponent("chat_history.jsonl").path)
+            }
+            .max { lhs, rhs in
+                let leftDate = historyModifiedDate(for: lhs) ?? .distantPast
+                let rightDate = historyModifiedDate(for: rhs) ?? .distantPast
+                return leftDate < rightDate
+            }
+    }
+
+    private static func historyModifiedDate(for sessionDirectory: URL) -> Date? {
+        try? sessionDirectory
+            .appendingPathComponent("chat_history.jsonl", isDirectory: false)
+            .resourceValues(forKeys: [.contentModificationDateKey])
+            .contentModificationDate
+    }
+
+    private static func grokHomeForResume(sessionsRoot: String, defaultSessionsRoot: String) -> String? {
+        let standardizedRoot = (sessionsRoot as NSString).standardizingPath
+        let standardizedDefault = (defaultSessionsRoot as NSString).standardizingPath
+        guard standardizedRoot != standardizedDefault else { return nil }
+        guard (standardizedRoot as NSString).lastPathComponent == "sessions" else { return nil }
+        return (standardizedRoot as NSString).deletingLastPathComponent
+    }
+
+    private static func normalized(_ value: String?) -> String? {
+        let trimmed = value?.trimmingCharacters(in: .whitespacesAndNewlines)
+        return trimmed?.isEmpty == false ? trimmed : nil
+    }
+}
+
 extension SessionIndexStore {
     private struct RegisteredAgentJSONLMetadata {
         var title: String = ""
         var cwd: String?
         var branch: String?
         var sessionId: String?
+    }
+
+    private struct GrokSessionMetadata {
+        var title: String = ""
+        var model: String?
+        var permissionMode: String?
+        var sandboxMode: String?
+        var branch: String?
+    }
+
+    nonisolated static func loadGrokEntries(
+        registration: CmuxVaultAgentRegistration,
+        needle: String,
+        cwdFilter: String?,
+        offset: Int,
+        limit: Int
+    ) async -> [SessionEntry] {
+        let roots = GrokSessionLocator.sessionRoots(registration: registration, cwdFilter: cwdFilter)
+        guard !roots.isEmpty else { return [] }
+        let fm = FileManager.default
+
+        var candidates: [(url: URL, modified: Date, prefilteredByRipgrep: Bool, root: GrokSessionRoot)] = []
+        if !needle.isEmpty {
+            for root in roots {
+                guard let rgPaths = await ripgrepMatchingPaths(
+                    needle: needle,
+                    root: root.sessionsRoot,
+                    fileGlob: "chat_history.jsonl"
+                ) else {
+                    candidates.append(
+                        contentsOf: enumerateGrokHistoryCandidates(root: root).map {
+                            (url: $0.0, modified: $0.1, prefilteredByRipgrep: false, root: root)
+                        }
+                    )
+                    continue
+                }
+                for url in rgPaths where url.lastPathComponent == "chat_history.jsonl" {
+                    guard let attrs = try? fm.attributesOfItem(atPath: url.path),
+                          let modified = attrs[.modificationDate] as? Date else {
+                        continue
+                    }
+                    candidates.append((url, modified, true, root))
+                }
+            }
+        } else {
+            for root in roots {
+                candidates.append(
+                    contentsOf: enumerateGrokHistoryCandidates(root: root).map {
+                        (url: $0.0, modified: $0.1, prefilteredByRipgrep: false, root: root)
+                    }
+                )
+            }
+        }
+
+        candidates.sort { $0.modified > $1.modified }
+        let target = offset + limit
+        var matches: [SessionEntry] = []
+        var scanned = 0
+        for candidate in candidates {
+            if Task.isCancelled { break }
+            if matches.count >= target { break }
+            if scanned >= searchMaxFiles { break }
+            scanned += 1
+
+            if !needle.isEmpty && !candidate.prefilteredByRipgrep {
+                guard fileContains(candidate.url, needle: needle) else { continue }
+            }
+
+            let sessionDirectory = candidate.url.deletingLastPathComponent()
+            let projectDirectory = sessionDirectory.deletingLastPathComponent().lastPathComponent
+            let cwd = GrokSessionLocator.workingDirectory(fromProjectDirectoryName: projectDirectory)
+            if let cwdFilter, cwd != cwdFilter { continue }
+
+            let metadata = extractGrokSessionMetadata(url: candidate.url)
+            let sessionId = sessionDirectory.lastPathComponent
+            matches.append(SessionEntry(
+                id: "grok:\(sessionId)",
+                agent: .grok,
+                sessionId: sessionId,
+                title: metadata.title,
+                cwd: cwd,
+                gitBranch: metadata.branch,
+                pullRequest: nil,
+                modified: candidate.modified,
+                fileURL: candidate.url,
+                specifics: .grok(
+                    model: metadata.model,
+                    permissionMode: metadata.permissionMode,
+                    sandboxMode: metadata.sandboxMode,
+                    grokHome: candidate.root.grokHomeForResume
+                )
+            ))
+        }
+        return Array(matches.dropFirst(offset).prefix(limit))
     }
 
     nonisolated static func loadRegisteredAgentEntries(
@@ -89,6 +322,10 @@ extension SessionIndexStore {
         registration: CmuxVaultAgentRegistration,
         cwdFilter: String?
     ) -> [String] {
+        if case .grokSessionDirectory = registration.sessionIdSource {
+            return GrokSessionLocator.sessionRoots(registration: registration, cwdFilter: cwdFilter)
+                .map(\.sessionsRoot)
+        }
         guard let root = registration.sessionDirectory.map({ ($0 as NSString).expandingTildeInPath }) else {
             return []
         }
@@ -98,6 +335,27 @@ extension SessionIndexStore {
             return [(root as NSString).appendingPathComponent(projectDirectory)]
         }
         return [root]
+    }
+
+    nonisolated private static func enumerateGrokHistoryCandidates(root: GrokSessionRoot) -> [(URL, Date)] {
+        let fm = FileManager.default
+        var isDirectory: ObjCBool = false
+        guard fm.fileExists(atPath: root.sessionsRoot, isDirectory: &isDirectory),
+              isDirectory.boolValue,
+              let enumerator = fm.enumerator(
+                  at: URL(fileURLWithPath: root.sessionsRoot, isDirectory: true),
+                  includingPropertiesForKeys: [.contentModificationDateKey, .isRegularFileKey],
+                  options: [.skipsHiddenFiles]
+              ) else {
+            return []
+        }
+        var candidates: [(URL, Date)] = []
+        for case let url as URL in enumerator where url.lastPathComponent == "chat_history.jsonl" {
+            let values = try? url.resourceValues(forKeys: [.contentModificationDateKey, .isRegularFileKey])
+            guard values?.isRegularFile == true, let modified = values?.contentModificationDate else { continue }
+            candidates.append((url, modified))
+        }
+        return candidates
     }
 
     nonisolated private static func enumerateRegisteredJSONLCandidates(root: String) -> [(URL, Date)] {
@@ -121,6 +379,46 @@ extension SessionIndexStore {
         return candidates
     }
 
+    nonisolated private static func extractGrokSessionMetadata(url: URL) -> GrokSessionMetadata {
+        var metadata = GrokSessionMetadata()
+        forEachJSONLine(url: url, maxBytes: 512 * 1024) { object in
+            if metadata.title.isEmpty {
+                metadata.title = grokTitle(in: object) ?? ""
+            }
+            if metadata.model == nil {
+                metadata.model = firstString(in: object, keys: ["model", "modelId", "modelID", "model_id"])
+                    ?? firstString(
+                        in: object["message"] as? [String: Any] ?? [:],
+                        keys: ["model", "modelId", "modelID", "model_id"]
+                    )
+            }
+            if metadata.permissionMode == nil {
+                metadata.permissionMode = firstString(
+                    in: object,
+                    keys: ["permissionMode", "permission_mode", "approvalPolicy", "approval_policy"]
+                )
+            }
+            if metadata.sandboxMode == nil {
+                metadata.sandboxMode = firstString(
+                    in: object,
+                    keys: ["sandboxMode", "sandbox_mode", "sandbox"]
+                )
+            }
+            if metadata.branch == nil, let git = object["git"] as? [String: Any] {
+                metadata.branch = firstString(in: git, keys: ["branch", "gitBranch"])
+            }
+            if metadata.branch == nil {
+                metadata.branch = firstString(in: object, keys: ["gitBranch", "branch"])
+            }
+            return !metadata.title.isEmpty
+                && metadata.model != nil
+                && metadata.permissionMode != nil
+                && metadata.sandboxMode != nil
+                && metadata.branch != nil
+        }
+        return metadata
+    }
+
     nonisolated private static func extractRegisteredJSONLMetadata(
         url: URL,
         registration: CmuxVaultAgentRegistration,
@@ -131,7 +429,7 @@ extension SessionIndexStore {
         switch registration.sessionIdSource {
         case .argvOption:
             needsNativeSessionID = true
-        case .piSessionFile:
+        case .piSessionFile, .grokSessionDirectory:
             needsNativeSessionID = false
         }
         forEachJSONLine(url: url, maxBytes: 512 * 1024) { object in
@@ -224,6 +522,34 @@ extension SessionIndexStore {
         }
         guard shouldUseMessageAsTitle(object) else { return nil }
         return firstText(in: object, keys: ["text", "content"])
+    }
+
+    nonisolated private static func grokTitle(in object: [String: Any]) -> String? {
+        if shouldUseGrokObjectAsTitle(object) {
+            if let title = firstText(in: object, keys: ["content", "text"]) {
+                return title
+            }
+            if let message = firstString(in: object, keys: ["message"]) {
+                return message
+            }
+        }
+        if let message = object["message"] as? [String: Any],
+           shouldUseGrokObjectAsTitle(message) {
+            return firstText(in: message, keys: ["content", "text"])
+        }
+        if let messages = object["messages"] as? [[String: Any]] {
+            return messages.compactMap { message in
+                shouldUseGrokObjectAsTitle(message)
+                    ? firstText(in: message, keys: ["content", "text"])
+                    : nil
+            }.first
+        }
+        return nil
+    }
+
+    nonisolated private static func shouldUseGrokObjectAsTitle(_ object: [String: Any]) -> Bool {
+        let role = firstString(in: object, keys: ["role", "type"])
+        return role == nil || isUserRole(role)
     }
 
     nonisolated private static func firstTextValue(_ value: Any?) -> String? {

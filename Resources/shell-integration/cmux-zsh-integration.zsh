@@ -174,6 +174,22 @@ _cmux_install_claude_wrapper() {
 }
 _cmux_install_claude_wrapper
 
+typeset -g _CMUX_GROK_WRAPPER=""
+_cmux_install_grok_wrapper() {
+    local integration_dir="${CMUX_SHELL_INTEGRATION_DIR:-}"
+    [[ -n "$integration_dir" ]] || return 0
+
+    integration_dir="${integration_dir%/}"
+    local bundle_dir="${integration_dir%/shell-integration}"
+    local wrapper_path="$bundle_dir/bin/grok"
+    [[ -x "$wrapper_path" ]] || return 0
+
+    _CMUX_GROK_WRAPPER="$wrapper_path"
+    builtin unalias grok >/dev/null 2>&1 || true
+    eval 'grok() { "$_CMUX_GROK_WRAPPER" "$@"; }'
+}
+_cmux_install_grok_wrapper
+
 _cmux_normalize_claude_config_dir() {
     [[ -n "${CLAUDE_CONFIG_DIR:-}" && -n "${HOME:-}" ]] || return 0
 

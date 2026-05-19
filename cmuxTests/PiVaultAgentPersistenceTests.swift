@@ -68,6 +68,14 @@ final class PiVaultAgentPersistenceTests: XCTestCase {
         XCTAssertEqual(SessionAgent.registered(agent).assetName, "AgentIcons/Pi")
     }
 
+    func testBuiltInGrokRegistrationUsesNativeSessionDirectory() {
+        let registration = CmuxVaultAgentRegistration.builtInGrok
+
+        XCTAssertEqual(registration.id, "grok")
+        XCTAssertEqual(registration.sessionIdSource, .grokSessionDirectory)
+        XCTAssertEqual(registration.sessionDirectory, "~/.grok/sessions")
+    }
+
     func testRegisteredAgentTemplateFailsClosedWhenPlaceholderIsUnavailable() {
         let registration = CmuxVaultAgentRegistration(
             id: "acme-agent",
@@ -404,6 +412,90 @@ final class PiVaultAgentPersistenceTests: XCTestCase {
         let entry = try XCTUnwrap(entries.first)
         XCTAssertEqual(entry.title, "typed text title")
         XCTAssertEqual(entry.cwd, cwd)
+    }
+
+    func testGrokVaultLoadsNativeChatHistoryFromEncodedDirectory() async throws {
+        let tempDir = FileManager.default.temporaryDirectory
+            .appendingPathComponent("cmux-grok-vault-\(UUID().uuidString)", isDirectory: true)
+        try FileManager.default.createDirectory(at: tempDir, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: tempDir) }
+
+        let cwd = "/tmp/grok repo"
+        let sessionId = "grok-session-123"
+        let grokHome = tempDir.appendingPathComponent("grok-home", isDirectory: true)
+        let sessionsRoot = grokHome.appendingPathComponent("sessions", isDirectory: true)
+        let historyURL = sessionsRoot
+            .appendingPathComponent(GrokSessionLocator.encodedSessionCWD(cwd), isDirectory: true)
+            .appendingPathComponent(sessionId, isDirectory: true)
+            .appendingPathComponent("chat_history.jsonl", isDirectory: false)
+        try FileManager.default.createDirectory(
+            at: historyURL.deletingLastPathComponent(),
+            withIntermediateDirectories: true
+        )
+        try """
+        {"type":"assistant","content":"assistant preface"}
+        {"type":"user","content":"Implement Grok Vault","model":"grok-4","permissionMode":"auto","sandboxMode":"danger-full-access","git":{"branch":"issue-4394-grok-vault-resume"}}
+        {"type":"assistant","content":"done"}
+        """.write(to: historyURL, atomically: true, encoding: .utf8)
+
+        var registration = CmuxVaultAgentRegistration.builtInGrok
+        registration.sessionDirectory = sessionsRoot.path
+        let entries = await SessionIndexStore.loadGrokEntries(
+            registration: registration,
+            needle: "",
+            cwdFilter: nil,
+            offset: 0,
+            limit: 10
+        )
+
+        let entry = try XCTUnwrap(entries.first)
+        XCTAssertEqual(entry.agent, .grok)
+        XCTAssertEqual(entry.sessionId, sessionId)
+        XCTAssertEqual(entry.title, "Implement Grok Vault")
+        XCTAssertEqual(entry.cwd, cwd)
+        XCTAssertEqual(entry.gitBranch, "issue-4394-grok-vault-resume")
+        XCTAssertEqual(entry.fileURL, historyURL)
+        XCTAssertEqual(
+            entry.resumeCommand,
+            "cd '/tmp/grok repo' && env GROK_HOME=\(SessionEntry.shellQuote(grokHome.path)) grok -r grok-session-123 -m grok-4 --permission-mode auto --sandbox danger-full-access"
+        )
+    }
+
+    func testGrokVaultCWDFilterUsesEncodedProjectDirectory() async throws {
+        let tempDir = FileManager.default.temporaryDirectory
+            .appendingPathComponent("cmux-grok-vault-filter-\(UUID().uuidString)", isDirectory: true)
+        try FileManager.default.createDirectory(at: tempDir, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: tempDir) }
+
+        let sessionsRoot = tempDir.appendingPathComponent("sessions", isDirectory: true)
+        func writeHistory(cwd: String, sessionId: String, prompt: String) throws {
+            let historyURL = sessionsRoot
+                .appendingPathComponent(GrokSessionLocator.encodedSessionCWD(cwd), isDirectory: true)
+                .appendingPathComponent(sessionId, isDirectory: true)
+                .appendingPathComponent("chat_history.jsonl", isDirectory: false)
+            try FileManager.default.createDirectory(
+                at: historyURL.deletingLastPathComponent(),
+                withIntermediateDirectories: true
+            )
+            try #"{"type":"user","content":"\#(prompt)"}"#
+                .write(to: historyURL, atomically: true, encoding: .utf8)
+        }
+
+        try writeHistory(cwd: "/tmp/current grok repo", sessionId: "current-session", prompt: "current")
+        try writeHistory(cwd: "/tmp/other grok repo", sessionId: "other-session", prompt: "other")
+
+        var registration = CmuxVaultAgentRegistration.builtInGrok
+        registration.sessionDirectory = sessionsRoot.path
+        let entries = await SessionIndexStore.loadGrokEntries(
+            registration: registration,
+            needle: "",
+            cwdFilter: "/tmp/current grok repo",
+            offset: 0,
+            limit: 10
+        )
+
+        XCTAssertEqual(entries.map(\.sessionId), ["current-session"])
+        XCTAssertEqual(entries.first?.cwd, "/tmp/current grok repo")
     }
 
     func testPiVaultAgentSnapshotRoundTripBuildsTargetedSessionCommand() throws {

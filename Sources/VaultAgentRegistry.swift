@@ -121,6 +121,18 @@ struct CmuxVaultAgentRegistration: Codable, Hashable, Sendable {
             sessionDirectory: "~/.pi/agent/sessions"
         )
     }
+
+    static var builtInGrok: CmuxVaultAgentRegistration {
+        CmuxVaultAgentRegistration(
+            id: "grok",
+            name: "Grok",
+            detect: CmuxVaultAgentDetectRule(argvContains: ["grok"]),
+            sessionIdSource: .grokSessionDirectory,
+            resumeCommand: "{{executable}} -r {{sessionId}}",
+            cwd: .preserve,
+            sessionDirectory: "~/.grok/sessions"
+        )
+    }
 }
 
 struct CmuxVaultAgentDetectRule: Codable, Hashable, Sendable {
@@ -165,6 +177,7 @@ struct CmuxVaultAgentDetectRule: Codable, Hashable, Sendable {
 enum CmuxVaultAgentSessionIDSource: Codable, Hashable, Sendable {
     case argvOption(String)
     case piSessionFile
+    case grokSessionDirectory
 
     private enum CodingKeys: String, CodingKey {
         case type, argvOption
@@ -177,6 +190,8 @@ enum CmuxVaultAgentSessionIDSource: Codable, Hashable, Sendable {
             switch trimmed {
             case "piSessionFile", "pi-session-file":
                 self = .piSessionFile
+            case "grokSessionDirectory", "grok-session-directory":
+                self = .grokSessionDirectory
             default:
                 guard !trimmed.isEmpty else {
                     throw DecodingError.dataCorrupted(
@@ -202,6 +217,17 @@ enum CmuxVaultAgentSessionIDSource: Codable, Hashable, Sendable {
                 )
             }
             self = .piSessionFile
+        case "grokSessionDirectory", "grok-session-directory":
+            if let option = try container.decodeIfPresent(String.self, forKey: .argvOption)?
+                .trimmingCharacters(in: .whitespacesAndNewlines),
+               !option.isEmpty {
+                throw DecodingError.dataCorruptedError(
+                    forKey: .argvOption,
+                    in: container,
+                    debugDescription: "grokSessionDirectory must not include argvOption"
+                )
+            }
+            self = .grokSessionDirectory
         case "argvOption", "argv-option":
             let option = try container.decodeIfPresent(String.self, forKey: .argvOption)?
                 .trimmingCharacters(in: .whitespacesAndNewlines)
@@ -230,6 +256,8 @@ enum CmuxVaultAgentSessionIDSource: Codable, Hashable, Sendable {
             try container.encode(option, forKey: .argvOption)
         case .piSessionFile:
             try container.encode("piSessionFile", forKey: .type)
+        case .grokSessionDirectory:
+            try container.encode("grokSessionDirectory", forKey: .type)
         }
     }
 }
@@ -301,7 +329,10 @@ struct CmuxVaultAgentRegistry: Sendable {
         environment: [String: String] = ProcessInfo.processInfo.environment,
         fileManager: FileManager = .default
     ) -> CmuxVaultAgentRegistry {
-        var registrations = [CmuxVaultAgentRegistration.builtInPi]
+        var registrations = [
+            CmuxVaultAgentRegistration.builtInPi,
+            CmuxVaultAgentRegistration.builtInGrok,
+        ]
         for path in configPaths(homeDirectory: homeDirectory, workingDirectory: workingDirectory, environment: environment, fileManager: fileManager) {
             guard let config = decodeConfig(at: path, fileManager: fileManager) else { continue }
             registrations.append(contentsOf: config.vault?.agents ?? [])

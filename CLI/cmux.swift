@@ -20134,6 +20134,8 @@ struct CMUXCLI {
             }
         case "pi":
             return agentSurfaceResumeWithOption(kind: kind, launchCommand: launchCommand, fallbackExecutable: "pi", option: "--session", sessionId: sessionId)
+        case "grok":
+            return agentSurfaceResumeWithOption(kind: kind, launchCommand: launchCommand, fallbackExecutable: "grok", option: "-r", sessionId: sessionId)
         case "amp":
             let original = agentSurfaceResumeCommandParts(launchCommand: launchCommand, fallbackExecutable: "amp")
             return AgentLaunchSanitizer.preservedArguments(kind: kind, args: original.tail).map {
