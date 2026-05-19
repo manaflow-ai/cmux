@@ -4542,6 +4542,7 @@ class TerminalController {
                 result = .err(code: "not_found", message: "Window not found", data: ["window_id": windowId.uuidString])
                 return
             }
+            let sourceWindowId = AppDelegate.shared?.windowId(for: srcTM)
             guard let ws = srcTM.detachWorkspace(tabId: wsId) else {
                 result = .err(code: "not_found", message: "Workspace not found", data: ["workspace_id": wsId.uuidString])
                 return
@@ -4553,6 +4554,12 @@ class TerminalController {
                 setActiveTabManager(dstTM)
             }
             result = .ok([
+                "source_window_id": v2OrNull(sourceWindowId?.uuidString),
+                "source_window_ref": v2Ref(kind: .window, uuid: sourceWindowId),
+                "source_workspace_id": wsId.uuidString,
+                "source_workspace_ref": v2Ref(kind: .workspace, uuid: wsId),
+                "destination_window_id": windowId.uuidString,
+                "destination_window_ref": v2Ref(kind: .window, uuid: windowId),
                 "workspace_id": wsId.uuidString,
                 "workspace_ref": v2Ref(kind: .workspace, uuid: wsId),
                 "window_id": windowId.uuidString,
