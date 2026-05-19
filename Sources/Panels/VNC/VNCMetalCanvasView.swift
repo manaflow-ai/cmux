@@ -16,6 +16,9 @@ struct VNCMetalCanvasRepresentable: NSViewRepresentable {
         view.onText = { [weak panel] text in
             panel?.sendText(text)
         }
+        view.onKey = { [weak panel] keyCode, isDown in
+            panel?.sendKey(keyCode: keyCode, isDown: isDown)
+        }
         view.onPointer = { [weak panel] x, y, button, isDown in
             panel?.sendPointer(x: x, y: y, button: button, isDown: isDown)
         }
@@ -26,6 +29,9 @@ struct VNCMetalCanvasRepresentable: NSViewRepresentable {
     func updateNSView(_ view: VNCMetalCanvasView, context: Context) {
         view.onText = { [weak panel] text in
             panel?.sendText(text)
+        }
+        view.onKey = { [weak panel] keyCode, isDown in
+            panel?.sendKey(keyCode: keyCode, isDown: isDown)
         }
         view.onPointer = { [weak panel] x, y, button, isDown in
             panel?.sendPointer(x: x, y: y, button: button, isDown: isDown)
@@ -51,6 +57,7 @@ struct VNCMetalCanvasRepresentable: NSViewRepresentable {
 
 final class VNCMetalCanvasView: NSView {
     var onText: ((String) -> Void)?
+    var onKey: ((UInt16, Bool) -> Void)?
     var onPointer: ((Int, Int, Int, Bool) -> Void)?
 
     private static let maxFramebufferDimension = 16_384
@@ -98,6 +105,7 @@ final class VNCMetalCanvasView: NSView {
 
     func close() {
         onText = nil
+        onKey = nil
         onPointer = nil
         framebuffer.removeAll(keepingCapacity: false)
     }
@@ -114,11 +122,31 @@ final class VNCMetalCanvasView: NSView {
     }
 
     override func keyDown(with event: NSEvent) {
-        if let text = event.characters, !text.isEmpty {
+        if isDirectKeyEvent(event) {
+            onKey?(event.keyCode, true)
+            return
+        }
+        if let text = remoteText(for: event) {
             onText?(text)
             return
         }
         super.keyDown(with: event)
+    }
+
+    override func keyUp(with event: NSEvent) {
+        if isDirectKeyEvent(event) {
+            onKey?(event.keyCode, false)
+            return
+        }
+        super.keyUp(with: event)
+    }
+
+    override func flagsChanged(with event: NSEvent) {
+        guard isModifierKeyCode(event.keyCode) else {
+            super.flagsChanged(with: event)
+            return
+        }
+        onKey?(event.keyCode, modifierIsDown(for: event))
     }
 
     override func mouseDown(with event: NSEvent) {
@@ -211,6 +239,53 @@ final class VNCMetalCanvasView: NSView {
     private func sendPointer(_ event: NSEvent, button: Int, isDown: Bool) {
         guard let remotePoint = remotePointerPoint(for: event) else { return }
         onPointer?(remotePoint.x, remotePoint.y, button, isDown)
+    }
+
+    private func isDirectKeyEvent(_ event: NSEvent) -> Bool {
+        isSpecialKeyCode(event.keyCode)
+    }
+
+    private func remoteText(for event: NSEvent) -> String? {
+        if !event.modifierFlags.intersection([.command, .control, .option]).isEmpty,
+           let text = event.charactersIgnoringModifiers,
+           !text.isEmpty {
+            return text
+        }
+        guard let text = event.characters, !text.isEmpty else { return nil }
+        return text
+    }
+
+    private func isSpecialKeyCode(_ keyCode: UInt16) -> Bool {
+        switch keyCode {
+        case 36, 48, 51, 53, 71, 76, 96...111, 114...126:
+            return true
+        default:
+            return false
+        }
+    }
+
+    private func isModifierKeyCode(_ keyCode: UInt16) -> Bool {
+        switch keyCode {
+        case 54, 55, 56, 58, 59, 60, 61, 62:
+            return true
+        default:
+            return false
+        }
+    }
+
+    private func modifierIsDown(for event: NSEvent) -> Bool {
+        switch event.keyCode {
+        case 54, 55:
+            return event.modifierFlags.contains(.command)
+        case 56, 60:
+            return event.modifierFlags.contains(.shift)
+        case 58, 61:
+            return event.modifierFlags.contains(.option)
+        case 59, 62:
+            return event.modifierFlags.contains(.control)
+        default:
+            return false
+        }
     }
 
     private func remotePointerPoint(for event: NSEvent) -> (x: Int, y: Int)? {

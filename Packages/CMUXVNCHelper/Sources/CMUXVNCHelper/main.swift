@@ -1,4 +1,5 @@
 import CMUXVNC
+import CoreGraphics
 import Darwin
 import Foundation
 import RoyalVNCKit
@@ -122,6 +123,20 @@ private final class VNCSessionController: NSObject, VNCConnectionDelegate, @unch
                 for key in keys {
                     connection.keyDown(key)
                     connection.keyUp(key)
+                }
+            }
+        case "key":
+            guard let keyCodeValue = message.keyCode,
+                  let isDown = message.isDown,
+                  let keyCode = UInt16(exactly: keyCodeValue),
+                  let remoteKey = VNCKeyCode.from(cgKeyCode: CGKeyCode(keyCode)) else {
+                return
+            }
+            withConnection { connection in
+                if isDown {
+                    connection.keyDown(remoteKey)
+                } else {
+                    connection.keyUp(remoteKey)
                 }
             }
         case "pointer":

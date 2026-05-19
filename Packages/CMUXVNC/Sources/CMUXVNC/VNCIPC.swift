@@ -36,6 +36,7 @@ public struct VNCControlMessage: Codable, Equatable, Sendable {
     public var y: Int?
     public var button: Int?
     public var isDown: Bool?
+    public var keyCode: Int?
     public var width: Int?
     public var height: Int?
 
@@ -54,6 +55,7 @@ public struct VNCControlMessage: Codable, Equatable, Sendable {
         y: Int? = nil,
         button: Int? = nil,
         isDown: Bool? = nil,
+        keyCode: Int? = nil,
         width: Int? = nil,
         height: Int? = nil
     ) {
@@ -71,6 +73,7 @@ public struct VNCControlMessage: Codable, Equatable, Sendable {
         self.y = y
         self.button = button
         self.isDown = isDown
+        self.keyCode = keyCode
         self.width = width
         self.height = height
     }

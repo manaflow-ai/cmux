@@ -5,7 +5,7 @@ import Foundation
 final class VNCPanelConnection {
     typealias ControlHandler = @MainActor (VNCControlMessage) -> Void
     typealias FrameHandler = @MainActor (VNCFrameHeader, Data) -> Void
-    typealias ExitHandler = @MainActor (String) -> Void
+    typealias ExitHandler = @MainActor (String, Bool) -> Void
 
     private let session: MacfleetVNCSession
     private let credential: VNCResolvedCredential
@@ -55,7 +55,7 @@ final class VNCPanelConnection {
             }
         } catch {
             close()
-            notifyMainExit(VNCPanelText.helperLaunchFailed(error.localizedDescription))
+            notifyMainExit(VNCPanelText.helperLaunchFailed(error.localizedDescription), shouldRestart: false)
         }
     }
 
@@ -68,7 +68,7 @@ final class VNCPanelConnection {
                 Self.write(message, to: fileDescriptor)
             }
         } catch {
-            notifyMainExit(VNCPanelText.helperProtocolFailed(error.localizedDescription))
+            notifyMainExit(VNCPanelText.helperProtocolFailed(error.localizedDescription), shouldRestart: false)
         }
     }
 
@@ -115,7 +115,7 @@ final class VNCPanelConnection {
                 guard let self, !self.isCurrentlyClosed() else { return }
                 let status = process.terminationStatus
                 self.close()
-                self.onExit(VNCPanelText.helperExited(Int(status)))
+                self.onExit(VNCPanelText.helperExited(Int(status)), status != 0)
             }
         }
         try process.run()
@@ -134,7 +134,7 @@ final class VNCPanelConnection {
         let accepted = Darwin.accept(listener, nil, nil)
         guard accepted >= 0 else {
             if isCurrentlyClosed() { return }
-            notifyExit(VNCPanelText.socketAcceptFailed(errno))
+            notifyExit(VNCPanelText.socketAcceptFailed(errno), shouldRestart: true)
             return
         }
 
@@ -160,7 +160,7 @@ final class VNCPanelConnection {
             Self.write(connectMessage, to: accepted)
             readMessages(from: accepted)
         } catch {
-            notifyExit(VNCPanelText.helperProtocolFailed(error.localizedDescription))
+            notifyExit(VNCPanelText.helperProtocolFailed(error.localizedDescription), shouldRestart: true)
         }
     }
 
@@ -177,19 +177,19 @@ final class VNCPanelConnection {
                         publish(message)
                     }
                 } catch {
-                    notifyExit(VNCPanelText.helperProtocolFailed(error.localizedDescription))
+                    notifyExit(VNCPanelText.helperProtocolFailed(error.localizedDescription), shouldRestart: true)
                     return
                 }
                 continue
             }
             if byteCount == 0 {
-                notifyExit(VNCPanelText.helperDisconnected)
+                notifyExit(VNCPanelText.helperDisconnected, shouldRestart: false)
                 return
             }
             if errno == EINTR {
                 continue
             }
-            notifyExit(VNCPanelText.socketReadFailed(errno))
+            notifyExit(VNCPanelText.socketReadFailed(errno), shouldRestart: true)
             return
         }
     }
@@ -206,17 +206,18 @@ final class VNCPanelConnection {
         }
     }
 
-    private func notifyExit(_ reason: String) {
+    private func notifyExit(_ reason: String, shouldRestart: Bool) {
         Task { @MainActor in
             guard !isCurrentlyClosed() else { return }
             close()
-            onExit(reason)
+            onExit(reason, shouldRestart)
         }
     }
 
-    private func notifyMainExit(_ reason: String) {
+    private func notifyMainExit(_ reason: String, shouldRestart: Bool) {
         Task { @MainActor in
-            onExit(reason)
+            close()
+            onExit(reason, shouldRestart)
         }
     }
 

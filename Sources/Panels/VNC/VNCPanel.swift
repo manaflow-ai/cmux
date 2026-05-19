@@ -32,6 +32,8 @@ final class VNCPanel: Panel, ObservableObject {
     private weak var focusView: NSView?
     private var connection: VNCPanelConnection?
     private var connectionID: UUID?
+    private var restartDates: [Date] = []
+    private let restartPolicy = VNCHelperRestartPolicy()
 
     init(
         workspaceId: UUID,
@@ -67,16 +69,19 @@ final class VNCPanel: Panel, ObservableObject {
                 guard self?.connectionID == nextConnectionID else { return }
                 self?.latestFrame = VNCDisplayFrame(header: header, payload: payload)
             },
-            onExit: { [weak self] reason in
+            onExit: { [weak self] reason, shouldRestart in
                 guard let self, self.connectionID == nextConnectionID else { return }
                 if case .disconnected = self.connectionState {
                     self.connection = nil
                     self.connectionID = nil
                     return
                 }
-                self.connectionState = .failed(reason)
                 self.connection = nil
                 self.connectionID = nil
+                if shouldRestart, self.restartAfterUnexpectedExit(reason: reason) {
+                    return
+                }
+                self.connectionState = .failed(reason)
             }
         )
         connection = nextConnection
@@ -87,6 +92,7 @@ final class VNCPanel: Panel, ObservableObject {
         connection?.close()
         connection = nil
         connectionID = nil
+        restartDates.removeAll()
         latestFrame = nil
         startIfNeeded()
     }
@@ -98,6 +104,10 @@ final class VNCPanel: Panel, ObservableObject {
     func sendText(_ text: String) {
         guard !text.isEmpty else { return }
         connection?.sendControl(VNCControlMessage(kind: "text", text: text))
+    }
+
+    func sendKey(keyCode: UInt16, isDown: Bool) {
+        connection?.sendControl(VNCControlMessage(kind: "key", isDown: isDown, keyCode: Int(keyCode)))
     }
 
     func sendPointer(x: Int, y: Int, button: Int, isDown: Bool) {
@@ -146,6 +156,19 @@ final class VNCPanel: Panel, ObservableObject {
         default:
             break
         }
+    }
+
+    private func restartAfterUnexpectedExit(reason: String) -> Bool {
+        let now = Date()
+        guard restartPolicy.canRestart(previousRestartDates: restartDates, now: now) else {
+            connectionState = .failed(reason)
+            return false
+        }
+        restartDates = restartPolicy.recordRestart(previousRestartDates: restartDates, now: now)
+        latestFrame = nil
+        connectionState = .connecting
+        startIfNeeded()
+        return true
     }
 }
 
