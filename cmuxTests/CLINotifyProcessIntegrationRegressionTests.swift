@@ -1949,6 +1949,28 @@ final class CLINotifyProcessIntegrationRegressionTests: XCTestCase {
         return try XCTUnwrap(sessions[sessionId] as? [String: Any])
     }
 
+    func testBrowserHelpMarksWKWebViewUnsupportedCommands() throws {
+        let cliPath = try bundledCLIPath()
+
+        var environment = ProcessInfo.processInfo.environment
+        environment["CMUX_CLI_SENTRY_DISABLED"] = "1"
+
+        let result = runProcess(
+            executablePath: cliPath,
+            arguments: ["browser", "--help"],
+            environment: environment,
+            timeout: 5
+        )
+
+        XCTAssertFalse(result.timedOut, result.stderr)
+        XCTAssertEqual(result.status, 0, result.stderr)
+        XCTAssertTrue(result.stderr.isEmpty, result.stderr)
+        XCTAssertTrue(result.stdout.contains("viewport <width> <height> (not supported on WKWebView)"), result.stdout)
+        XCTAssertTrue(result.stdout.contains("trace <start|stop> [path] (not supported on WKWebView)"), result.stdout)
+        XCTAssertTrue(result.stdout.contains("network <route|unroute|requests> ... (not supported on WKWebView)"), result.stdout)
+        XCTAssertTrue(result.stdout.contains("screencast <start|stop> (not supported on WKWebView)"), result.stdout)
+    }
+
     func testBrowserImportDefaultsNonInteractiveInCodingAgent() throws {
         let cliPath = try bundledCLIPath()
         let socketPath = makeSocketPath("browser-import-agent")
