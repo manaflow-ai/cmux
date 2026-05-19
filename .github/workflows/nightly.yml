@@ -477,6 +477,7 @@ jobs:
             xcrun stapler staple "$app_path"
             xcrun stapler validate "$app_path"
             spctl -a -vv --type execute "$app_path"
+            ./scripts/smoke-launch-macos-app.sh "$app_path"
             rm -f "$zip_submit"
 
             dmg_tmp_dir="$(mktemp -d)"

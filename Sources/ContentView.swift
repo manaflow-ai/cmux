@@ -2457,7 +2457,12 @@ struct ContentView: View {
         }
 
         sidebarSelectionState.selection = .tabs
-        _ = workspace.openOrFocusFilePreviewSurface(inPane: paneId, filePath: filePath)
+        _ = workspace.openFileSurfaces(
+            inPane: paneId,
+            filePaths: [filePath],
+            focus: true,
+            reuseExisting: true
+        )
     }
 
     private func syncFileExplorerDirectory() {
