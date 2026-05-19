@@ -1696,6 +1696,7 @@ class GhosttyApp {
     private(set) var defaultCursorTextColor: NSColor = GhosttyApp.fallbackAppearanceConfig.cursorTextColor
     private(set) var defaultSelectionBackground: NSColor = GhosttyApp.fallbackAppearanceConfig.selectionBackground
     private(set) var defaultSelectionForeground: NSColor = GhosttyApp.fallbackAppearanceConfig.selectionForeground
+    private(set) var effectiveTerminalColorSchemePreference: GhosttyConfig.ColorSchemePreference = .dark
     private(set) var usesHostLayerBackground = false
     private(set) var userGhosttyShellIntegrationMode: String = "detect"
     private static func resolveBackgroundLogURL(
@@ -2166,7 +2167,7 @@ class GhosttyApp {
         }
 
         // Notify observers that a usable config is available (initial load).
-        synchronizeGhosttyRuntimeColorScheme(initialColorScheme, source: "initialize")
+        synchronizeGhosttyRuntimeColorScheme(effectiveTerminalColorSchemePreference, source: "initialize")
         lastAppearanceColorScheme = initialColorScheme
         GhosttyConfig.invalidateLoadCache()
         NotificationCenter.default.post(name: .ghosttyConfigDidReload, object: nil)
@@ -3037,6 +3038,12 @@ class GhosttyApp {
         }
     }
 
+    static func terminalRuntimeColorSchemePreference(
+        forBackgroundColor backgroundColor: NSColor
+    ) -> GhosttyConfig.ColorSchemePreference {
+        cmuxReadableColorScheme(for: backgroundColor) == .light ? .light : .dark
+    }
+
     static func shouldCaptureScrollLagEvent(
         samples: Int,
         averageMs: Double,
@@ -3172,17 +3179,22 @@ class GhosttyApp {
             logThemeAction("reload skipped source=\(source) soft=\(soft) reason=no_app")
             return
         }
-        synchronizeGhosttyRuntimeColorScheme(reloadColorScheme, source: "reloadConfiguration:\(source)")
+        // Use the appearance preference only while loading config so Ghostty can resolve
+        // conditional theme pairs. After the config resolves, rendering follows the
+        // terminal background itself; single explicit light themes can be used in dark app mode.
+        synchronizeGhosttyRuntimeColorScheme(reloadColorScheme, source: "reloadConfiguration:\(source):load")
         logThemeAction("reload begin source=\(source) soft=\(soft)")
         resetDefaultBackgroundUpdateScope(source: "reloadConfiguration(source=\(source))")
         if soft, let config {
+            let effectiveReloadColorScheme = effectiveTerminalColorSchemePreference
+            synchronizeGhosttyRuntimeColorScheme(effectiveReloadColorScheme, source: "reloadConfiguration:\(source):resolved")
             ghostty_app_update_config(app, config)
             lastAppearanceColorScheme = reloadColorScheme
             GhosttyConfig.invalidateLoadCache()
             NotificationCenter.default.post(name: .ghosttyConfigDidReload, object: nil)
             scheduleSurfaceRefreshAfterConfigurationReload(
                 source: source,
-                preferredColorScheme: reloadColorScheme
+                preferredColorScheme: effectiveReloadColorScheme
             )
             logThemeAction("reload end source=\(source) soft=\(soft) mode=soft")
             return
@@ -3196,13 +3208,15 @@ class GhosttyApp {
             newConfig,
             preferredColorScheme: reloadColorScheme
         )
-        ghostty_app_update_config(app, newConfig)
         updateDefaultBackground(
             from: newConfig,
             source: "reloadConfiguration(source=\(source))",
             scope: .unscoped,
             forceNotify: renderingModeChanged
         )
+        let effectiveReloadColorScheme = effectiveTerminalColorSchemePreference
+        synchronizeGhosttyRuntimeColorScheme(effectiveReloadColorScheme, source: "reloadConfiguration:\(source):resolved")
+        ghostty_app_update_config(app, newConfig)
         DispatchQueue.main.async {
             self.applyBackgroundToKeyWindow()
         }
@@ -3215,7 +3229,7 @@ class GhosttyApp {
         NotificationCenter.default.post(name: .ghosttyConfigDidReload, object: nil)
         scheduleSurfaceRefreshAfterConfigurationReload(
             source: source,
-            preferredColorScheme: reloadColorScheme
+            preferredColorScheme: effectiveReloadColorScheme
         )
         logThemeAction("reload end source=\(source) soft=\(soft) mode=full")
     }
@@ -3508,9 +3522,13 @@ class GhosttyApp {
         let previousCursorTextHex = defaultCursorTextColor.hexString()
         let previousSelectionBackgroundHex = defaultSelectionBackground.hexString()
         let previousSelectionForegroundHex = defaultSelectionForeground.hexString()
+        let previousColorScheme = effectiveTerminalColorSchemePreference
         defaultBackgroundColor = color
         defaultBackgroundOpacity = opacity
         defaultBackgroundBlur = backgroundBlur
+        effectiveTerminalColorSchemePreference = Self.terminalRuntimeColorSchemePreference(
+            forBackgroundColor: color
+        )
         if let foregroundColor {
             defaultForegroundColor = foregroundColor
         }
@@ -3534,13 +3552,14 @@ class GhosttyApp {
             previousCursorHex != defaultCursorColor.hexString() ||
             previousCursorTextHex != defaultCursorTextColor.hexString() ||
             previousSelectionBackgroundHex != defaultSelectionBackground.hexString() ||
-            previousSelectionForegroundHex != defaultSelectionForeground.hexString()
+            previousSelectionForegroundHex != defaultSelectionForeground.hexString() ||
+            previousColorScheme != effectiveTerminalColorSchemePreference
         if hasChanged {
             notifyDefaultBackgroundDidChange(source: source)
         }
         if backgroundLogEnabled {
             logBackground(
-                "default appearance updated source=\(source) scope=\(scope.logLabel) previousScope=\(previousScope.logLabel) previousScopeSource=\(previousScopeSource) previousBg=\(previousHex) previousFg=\(previousForegroundHex) previousOpacity=\(String(format: "%.3f", previousOpacity)) previousBlur=\(previousBlur) bg=\(defaultBackgroundColor.hexString()) fg=\(defaultForegroundColor.hexString()) cursor=\(defaultCursorColor.hexString()) cursorText=\(defaultCursorTextColor.hexString()) selectionBg=\(defaultSelectionBackground.hexString()) selectionFg=\(defaultSelectionForeground.hexString()) opacity=\(String(format: "%.3f", defaultBackgroundOpacity)) blur=\(defaultBackgroundBlur) changed=\(hasChanged) forced=\(forceNotify)"
+                "default appearance updated source=\(source) scope=\(scope.logLabel) previousScope=\(previousScope.logLabel) previousScopeSource=\(previousScopeSource) previousBg=\(previousHex) previousFg=\(previousForegroundHex) previousOpacity=\(String(format: "%.3f", previousOpacity)) previousBlur=\(previousBlur) previousScheme=\(previousColorScheme) bg=\(defaultBackgroundColor.hexString()) fg=\(defaultForegroundColor.hexString()) cursor=\(defaultCursorColor.hexString()) cursorText=\(defaultCursorTextColor.hexString()) selectionBg=\(defaultSelectionBackground.hexString()) selectionFg=\(defaultSelectionForeground.hexString()) opacity=\(String(format: "%.3f", defaultBackgroundOpacity)) blur=\(defaultBackgroundBlur) scheme=\(effectiveTerminalColorSchemePreference) changed=\(hasChanged) forced=\(forceNotify)"
             )
         }
     }
@@ -3886,6 +3905,10 @@ class GhosttyApp {
                     source: "action.config_change.app",
                     scope: .app
                 )
+                synchronizeGhosttyRuntimeColorScheme(
+                    effectiveTerminalColorSchemePreference,
+                    source: "action.config_change.app:resolved"
+                )
                 DispatchQueue.main.async {
                     self.applyBackgroundToKeyWindow()
                 }
@@ -4159,6 +4182,17 @@ class GhosttyApp {
                 source: "action.config_change.surface tab=\(surfaceView.tabId?.uuidString ?? "nil") surface=\(surfaceView.terminalSurface?.id.uuidString ?? "nil")",
                 scope: .surface
             )
+            let effectiveConfigChangeColorScheme = effectiveTerminalColorSchemePreference
+            synchronizeGhosttyRuntimeColorScheme(
+                effectiveConfigChangeColorScheme,
+                source: "action.config_change.surface:resolved"
+            )
+            DispatchQueue.main.async {
+                surfaceView.applySurfaceColorScheme(
+                    force: true,
+                    preferredColorScheme: effectiveConfigChangeColorScheme
+                )
+            }
             if backgroundLogEnabled {
                 logBackground(
                     "surface config change deferred terminal bg apply tab=\(surfaceView.tabId?.uuidString ?? "nil") surface=\(surfaceView.terminalSurface?.id.uuidString ?? "nil") override=\(surfaceView.backgroundColor?.hexString() ?? "nil") default=\(defaultBackgroundColor.hexString())"
@@ -4171,7 +4205,7 @@ class GhosttyApp {
                 "reload request target=surface tab=\(surfaceView.tabId?.uuidString ?? "nil") surface=\(surfaceView.terminalSurface?.id.uuidString ?? "nil") soft=\(soft)"
             )
             return performOnMain {
-                let preferredColorScheme = GhosttyConfig.currentColorSchemePreference()
+                let preferredColorScheme = self.effectiveTerminalColorSchemePreference
                 surfaceView.terminalSurface?.hostedView.reapplySurfaceColorSchemeAfterGhosttyConfigReload(
                     preferredColorScheme: preferredColorScheme
                 )
@@ -6760,16 +6794,6 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
         return true
     }
 
-    static func surfaceColorSchemePreference(
-        appPreferredColorScheme: GhosttyConfig.ColorSchemePreference,
-        surfaceAppearanceBestMatch _: NSAppearance.Name?
-    ) -> GhosttyConfig.ColorSchemePreference {
-        // The terminal config loader already resolves light/dark theme pairs from cmux's
-        // appearance setting. AppKit effectiveAppearance can lag behind that after live
-        // theme changes, so using it here can put Ghostty surfaces on the opposite theme.
-        appPreferredColorScheme
-    }
-
     // Visibility is used for focus gating. Explicit portal visibility transitions
     // also drive Ghostty occlusion so hidden workspace/split surfaces pause and
     // queue a redraw when they become visible again.
@@ -7297,10 +7321,8 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
     ) {
         guard let surface else { return }
         let bestMatch = effectiveAppearance.bestMatch(from: [.darkAqua, .aqua])
-        let preferredColorScheme = Self.surfaceColorSchemePreference(
-            appPreferredColorScheme: preferredColorScheme ?? GhosttyConfig.currentColorSchemePreference(),
-            surfaceAppearanceBestMatch: bestMatch
-        )
+        let preferredColorScheme = preferredColorScheme
+            ?? GhosttyApp.shared.effectiveTerminalColorSchemePreference
         let scheme = GhosttyApp.ghosttyRuntimeColorScheme(for: preferredColorScheme)
         if !force, appliedColorScheme == scheme {
             if GhosttyApp.shared.backgroundLogEnabled {
