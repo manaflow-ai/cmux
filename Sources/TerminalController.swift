@@ -68,9 +68,6 @@ class TerminalController {
     private nonisolated static let acceptFailureMaxBackoffMs = 5_000
     private nonisolated static let acceptFailureMinimumRearmDelayMs = 100
     private nonisolated static let acceptFailureRearmThreshold = 50
-    private nonisolated static let socketProbePollTimeoutMs: Int32 = 100
-    private nonisolated static let socketProbePollAttempts = 3
-    private nonisolated static let socketProbePollRetryBackoffUs: useconds_t = 50_000
     private nonisolated static let socketClientWriteTimeout: TimeInterval = 5
     private nonisolated static let socketListenerFailureCaptureCooldown: TimeInterval = 60
     private nonisolated static let socketListenerFailureCaptureLock = NSLock()
@@ -969,44 +966,6 @@ class TerminalController {
         _ = fd
         return nil
 #endif
-    }
-
-    nonisolated static func socketPathHasLiveListener(_ path: String, timeout _: TimeInterval) -> Bool {
-        var st = stat()
-        guard lstat(path, &st) == 0,
-              (st.st_mode & mode_t(S_IFMT)) == mode_t(S_IFSOCK) else {
-            return false
-        }
-
-        let fd = socket(AF_UNIX, SOCK_STREAM, 0)
-        guard fd >= 0 else { return true }
-        defer { close(fd) }
-        _ = configureNoSigPipe(fd)
-
-        let originalFlags = fcntl(fd, F_GETFL, 0)
-        guard originalFlags >= 0 else { return true }
-        guard fcntl(fd, F_SETFL, originalFlags | O_NONBLOCK) >= 0 else { return true }
-        defer { _ = fcntl(fd, F_SETFL, originalFlags) }
-
-        guard var addr = unixSocketAddress(path: path) else { return true }
-        let connectResult = withUnsafePointer(to: &addr) { ptr in
-            ptr.withMemoryRebound(to: sockaddr.self, capacity: 1) { sockaddrPtr in
-                connect(fd, sockaddrPtr, socklen_t(MemoryLayout<sockaddr_un>.size))
-            }
-        }
-        if connectResult == 0 {
-            return true
-        }
-
-        let connectErrno = errno
-        if connectErrno == EINPROGRESS || connectErrno == EAGAIN || connectErrno == EWOULDBLOCK {
-            return true
-        }
-        return !socketProbeErrorMeansNoListener(connectErrno)
-    }
-
-    private nonisolated static func socketProbeErrorMeansNoListener(_ errnoCode: Int32) -> Bool {
-        errnoCode == ECONNREFUSED || errnoCode == ENOENT || errnoCode == ENOTSOCK
     }
 
     private nonisolated static func configureAcceptedClientSocket(_ fd: Int32) -> (stage: String, errnoCode: Int32)? {

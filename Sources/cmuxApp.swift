@@ -103,7 +103,7 @@ struct cmuxApp: App {
             return nil
         }
         let socketPath = SocketControlSettings.socketPath()
-        return TerminalController.socketPathHasLiveListener(socketPath, timeout: 0.2)
+        return socketPathHasLiveListener(socketPath, timeout: 0.2)
             ? socketPath
             : nil
     }

@@ -65,7 +65,6 @@ _cmux_sanitize_socket_slug() {
 }
 
 _cmux_refresh_socket_path_from_marker() {
-    [[ -n "${CMUX_BUNDLE_ID:-}${CMUX_TAG:-}" ]] || return 0
     local bundle="${CMUX_BUNDLE_ID:-com.cmuxterm.app}"
     local marker_name="last-socket-path"
     local tmp_marker="/tmp/cmux-last-socket-path"

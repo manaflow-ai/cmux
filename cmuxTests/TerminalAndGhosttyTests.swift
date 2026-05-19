@@ -4947,7 +4947,7 @@ final class TerminalControllerSocketListenerHealthTests: XCTestCase {
             unlink(path)
         }
 
-        XCTAssertTrue(TerminalController.socketPathHasLiveListener(path, timeout: 0.2))
+        XCTAssertTrue(socketPathHasLiveListener(path, timeout: 0.2))
     }
 
     func testSocketPathHasLiveListenerRejectsStaleSocketFile() throws {
@@ -4956,7 +4956,7 @@ final class TerminalControllerSocketListenerHealthTests: XCTestCase {
         Darwin.close(fd)
         defer { unlink(path) }
 
-        XCTAssertFalse(TerminalController.socketPathHasLiveListener(path, timeout: 0.2))
+        XCTAssertFalse(socketPathHasLiveListener(path, timeout: 0.2))
     }
 
     @MainActor
