@@ -2309,19 +2309,20 @@ final class AppDelegateShortcutRoutingTests: XCTestCase {
         XCTAssertEqual(WindowChromeMetrics.clampedTitlebarHeight(96), 72)
     }
 
-    func testRightSidebarHeaderChromeMatchesTitlebarIconButtons() {
+    func testRightSidebarHeaderChromeUsesSharedButtonsWithCompactIcons() {
         let titlebarConfig = TitlebarControlsStyle.classic.config
 
         XCTAssertEqual(HeaderChromeControlMetrics.buttonSize, titlebarConfig.buttonSize, accuracy: 0.001)
         XCTAssertEqual(HeaderChromeControlMetrics.iconSize, titlebarConfig.iconSize, accuracy: 0.001)
         XCTAssertEqual(HeaderChromeControlMetrics.cornerRadius, titlebarConfig.buttonCornerRadius, accuracy: 0.001)
         XCTAssertEqual(RightSidebarChromeMetrics.headerControlSize, titlebarConfig.buttonSize, accuracy: 0.001)
-        XCTAssertEqual(RightSidebarChromeMetrics.headerIconSize, titlebarConfig.iconSize, accuracy: 0.001)
+        XCTAssertEqual(RightSidebarChromeMetrics.headerIconSize, 10, accuracy: 0.001)
         XCTAssertEqual(
             RightSidebarChromeMetrics.headerIconFrameSize,
-            HeaderChromeControlMetrics.iconSize,
+            RightSidebarChromeMetrics.headerIconSize,
             accuracy: 0.001
         )
+        XCTAssertLessThan(RightSidebarChromeMetrics.headerIconSize, titlebarConfig.iconSize)
         XCTAssertLessThan(
             RightSidebarChromeMetrics.headerIconFrameSize,
             HeaderChromeIconStyle.iconFrameSize(forIconSize: titlebarConfig.iconSize)
