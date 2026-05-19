@@ -1105,6 +1105,53 @@ def test_cli_uses_env_bundle_id_for_tagged_default_discovery(cli_path: str) -> b
     return True
 
 
+def test_tagged_debug_cli_ignores_untagged_dev_app_support_socket(cli_path: str) -> bool:
+    tag = f"cli-untagged-dev-{os.getpid()}"
+
+    with temporary_socket_home("cmux-cli-untagged-dev-") as home, \
+            tempfile.TemporaryDirectory(prefix="cmux-cli-untagged-dev-app-") as apps:
+        app_support = app_support_dir(home)
+        app_support.mkdir(parents=True, exist_ok=True)
+        untagged_dev_socket = socket_path_for_home(home, "com.cmuxterm.app.dev.sock")
+
+        untagged_server = PingServer(untagged_dev_socket, max_ping_requests=2, accept_timeout=1.0)
+        untagged_server.start()
+
+        if not untagged_server.wait_ready(2.0):
+            print("FAIL: untagged DEV socket server did not become ready")
+            return False
+        if untagged_server.error is not None:
+            print(f"FAIL: untagged DEV socket server failed to start: {untagged_server.error}")
+            return False
+
+        debug_cli = bundled_cli_for_variant(
+            cli_path,
+            apps,
+            "cmux DEV issue3993",
+            "com.cmuxterm.app.debug",
+        )
+        proc = run_ping(
+            debug_cli,
+            home,
+            extra_env={"CMUX_TAG": tag},
+        )
+
+        untagged_server.join(timeout=2.0)
+        try:
+            os.remove(untagged_dev_socket)
+        except OSError:
+            pass
+
+        if untagged_server.error is None or (proc.returncode == 0 and proc.stdout.strip() == "PONG"):
+            print("FAIL: tagged debug CLI discovered the untagged DEV App Support socket")
+            print(f"stdout={proc.stdout!r}")
+            print(f"stderr={proc.stderr!r}")
+            return False
+
+    print("PASS: tagged debug CLI ignores untagged DEV App Support socket")
+    return True
+
+
 def test_cli_skips_non_cmux_default_socket(cli_path: str) -> bool:
     with temporary_socket_home("cmux-cli-squatter-") as home, \
             tempfile.TemporaryDirectory(prefix="cmux-cli-squatter-app-") as apps:
@@ -1280,6 +1327,9 @@ def main() -> int:
         return 1
 
     if not test_cli_uses_env_bundle_id_for_tagged_default_discovery(cli_path):
+        return 1
+
+    if not test_tagged_debug_cli_ignores_untagged_dev_app_support_socket(cli_path):
         return 1
 
     if not test_cli_skips_non_cmux_default_socket(cli_path):

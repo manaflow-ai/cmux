@@ -325,17 +325,26 @@ enum CLISocketPathResolver {
     }
 
     private static func isDiscoverableTaggedSocketName(_ name: String) -> Bool {
-        guard name.hasSuffix(".sock") else { return false }
-        if name.hasPrefix("cmux-debug-") || name.hasPrefix("com.cmuxterm.app.dev.") {
+        let socketSuffix = ".sock"
+        guard name.hasSuffix(socketSuffix) else { return false }
+        let stem = String(name.dropLast(socketSuffix.count))
+        let appSupportTaggedDevPrefix = "\(SocketPathMarkerFiles.releaseBundleIdentifier).dev."
+        if stem.hasPrefix(appSupportTaggedDevPrefix) {
+            return stem.count > appSupportTaggedDevPrefix.count
+        }
+        if stem.hasPrefix("cmux-debug-") {
             return true
         }
-        if name == "cmux-nightly.sock" || name.hasPrefix("cmux-nightly-") {
+        if stem == "cmux-debug" {
             return false
         }
-        if name == "cmux-staging.sock" || name.hasPrefix("cmux-staging-") {
+        if stem == "cmux-nightly" || stem.hasPrefix("cmux-nightly-") {
             return false
         }
-        return name.hasPrefix("cmux-")
+        if stem == "cmux-staging" || stem.hasPrefix("cmux-staging-") {
+            return false
+        }
+        return stem.hasPrefix("cmux-")
     }
 
     private static func isSocketFile(_ path: String) -> Bool {
