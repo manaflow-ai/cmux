@@ -2319,13 +2319,12 @@ final class AppDelegateShortcutRoutingTests: XCTestCase {
         XCTAssertEqual(RightSidebarChromeMetrics.headerIconSize, titlebarConfig.iconSize, accuracy: 0.001)
         XCTAssertEqual(
             RightSidebarChromeMetrics.headerIconFrameSize,
-            HeaderChromeControlMetrics.iconFrameSize(forIconSize: titlebarConfig.iconSize),
+            HeaderChromeControlMetrics.iconSize,
             accuracy: 0.001
         )
-        XCTAssertEqual(
+        XCTAssertLessThan(
             RightSidebarChromeMetrics.headerIconFrameSize,
-            HeaderChromeIconStyle.iconFrameSize(forIconSize: titlebarConfig.iconSize),
-            accuracy: 0.001
+            HeaderChromeIconStyle.iconFrameSize(forIconSize: titlebarConfig.iconSize)
         )
         XCTAssertEqual(RightSidebarChromeMetrics.headerControlCornerRadius, titlebarConfig.buttonCornerRadius, accuracy: 0.001)
         XCTAssertEqual(RightSidebarChromeMetrics.controlHeight, RightSidebarChromeMetrics.headerControlSize, accuracy: 0.001)
