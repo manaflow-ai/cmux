@@ -3403,7 +3403,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
     }
 
     private func restartSocketListenerIfEnabled(source: String) {
-        guard let tabManager,
+        guard let manager = tabManager ?? preferredRegisteredMainWindowContext()?.tabManager,
               let config = socketListenerConfigurationIfEnabled() else { return }
         let restartPath = TerminalController.shared.activeSocketPath(preferredPath: config.path)
         sentryBreadcrumb("socket.listener.restart", category: "socket", data: [
@@ -3412,7 +3412,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             "source": source
         ])
         TerminalController.shared.stop()
-        TerminalController.shared.start(tabManager: tabManager, socketPath: restartPath, accessMode: config.mode)
+        TerminalController.shared.start(tabManager: manager, socketPath: restartPath, accessMode: config.mode)
     }
 
     private func disableSuddenTerminationIfNeeded() {
@@ -6259,7 +6259,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
     @discardableResult
     func bootstrapInitialMainWindowIfNeeded(debugSource: String, shouldActivate: Bool = true) -> UUID {
         let windowId = ensureInitialMainWindowIfNeeded(shouldActivate: shouldActivate)
-        if let manager = tabManagerFor(windowId: windowId) {
+        if let manager = tabManagerFor(windowId: windowId)
+            ?? mainWindowContexts.values.first(where: { $0.windowId == windowId })?.tabManager
+            ?? preferredRegisteredMainWindowContext()?.tabManager {
             startSocketListenerIfEnabled(
                 tabManager: manager,
                 source: "bootstrapInitialMainWindow.\(debugSource)"
