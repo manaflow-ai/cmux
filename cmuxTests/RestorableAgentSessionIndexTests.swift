@@ -135,6 +135,70 @@ final class RestorableAgentSessionIndexTests: XCTestCase {
         )
     }
 
+    func testPanelFallbackUsesLatestHookRecord() throws {
+        let fm = FileManager.default
+        let root = fm.temporaryDirectory
+            .appendingPathComponent("cmux-claude-panel-fallback-\(UUID().uuidString)", isDirectory: true)
+        defer { try? fm.removeItem(at: root) }
+
+        let configDir = root.appendingPathComponent("claude-config", isDirectory: true)
+        let projectsDir = configDir.appendingPathComponent("projects", isDirectory: true)
+        let cwd = root.appendingPathComponent("repo", isDirectory: true)
+        try fm.createDirectory(at: cwd, withIntermediateDirectories: true)
+        try fm.createDirectory(
+            at: projectsDir.appendingPathComponent(
+                RestorableAgentSessionIndex.encodeClaudeProjectDir(cwd.path),
+                isDirectory: true
+            ),
+            withIntermediateDirectories: true
+        )
+
+        let panelId = UUID()
+        let oldWorkspaceId = UUID()
+        let latestWorkspaceId = UUID()
+        let movedWorkspaceId = UUID()
+        let oldSessionId = "11111111-1111-1111-1111-111111111111"
+        let latestSessionId = "22222222-2222-2222-2222-222222222222"
+        try writeClaudeTranscript(sessionId: oldSessionId, cwd: cwd, projectsDir: projectsDir)
+        try writeClaudeTranscript(sessionId: latestSessionId, cwd: cwd, projectsDir: projectsDir)
+
+        try writeClaudeHookStore(
+            root: root,
+            sessions: [
+                oldSessionId: hookRecord(
+                    sessionId: oldSessionId,
+                    workspaceId: oldWorkspaceId,
+                    panelId: panelId,
+                    cwd: cwd.path,
+                    configDir: configDir.path,
+                    updatedAt: 10
+                ),
+                latestSessionId: hookRecord(
+                    sessionId: latestSessionId,
+                    workspaceId: latestWorkspaceId,
+                    panelId: panelId,
+                    cwd: cwd.path,
+                    configDir: configDir.path,
+                    updatedAt: 20
+                ),
+            ]
+        )
+
+        let index = RestorableAgentSessionIndex.load(
+            homeDirectory: root.path,
+            fileManager: fm
+        )
+
+        XCTAssertEqual(
+            index.snapshot(workspaceId: oldWorkspaceId, panelId: panelId)?.sessionId,
+            oldSessionId
+        )
+        XCTAssertEqual(
+            index.snapshot(workspaceId: movedWorkspaceId, panelId: panelId)?.sessionId,
+            latestSessionId
+        )
+    }
+
     private func hookRecord(
         sessionId: String,
         workspaceId: UUID,

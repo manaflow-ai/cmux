@@ -5012,6 +5012,8 @@ struct SettingsView: View {
     private var claudeCodeHooksEnabled = ClaudeCodeIntegrationSettings.defaultHooksEnabled
     @AppStorage(ClaudeCodeIntegrationSettings.customClaudePathKey)
     private var customClaudePath = ""
+    @AppStorage(RipgrepIntegrationSettings.customRipgrepPathKey)
+    private var customRipgrepPath = ""
     @AppStorage(CursorIntegrationSettings.hooksEnabledKey)
     private var cursorHooksEnabled = CursorIntegrationSettings.defaultHooksEnabled
     @AppStorage(GeminiIntegrationSettings.hooksEnabledKey)
@@ -6302,6 +6304,8 @@ struct SettingsView: View {
                         }
                     }
 
+                    SurfaceResumeApprovalSettingsCard()
+
                     SettingsSectionHeader(title: String(localized: "settings.section.sidebarAppearance", defaultValue: "Sidebar"))
                         .settingsSearchAnchor(SettingsSearchIndex.sectionID(for: .sidebarAppearance))
                     SettingsCard {
@@ -6585,6 +6589,21 @@ struct SettingsView: View {
                             TextField(
                                 String(localized: "settings.automation.claudeCode.customPath.placeholder", defaultValue: "e.g. /usr/local/bin/claude"),
                                 text: $customClaudePath
+                            )
+                            .textFieldStyle(.roundedBorder)
+                            .frame(width: 200)
+                        }
+                    }
+
+                    SettingsCard {
+                        SettingsCardRow(
+                            configurationReview: .json("automation.ripgrepBinaryPath"),
+                            String(localized: "settings.automation.ripgrep.customPath", defaultValue: "Ripgrep Binary Path"),
+                            subtitle: String(localized: "settings.automation.ripgrep.customPath.subtitle", defaultValue: "Custom path to the rg binary used by Find. Leave empty to use common install locations and PATH.")
+                        ) {
+                            TextField(
+                                String(localized: "settings.automation.ripgrep.customPath.placeholder", defaultValue: "e.g. /etc/profiles/per-user/you/bin/rg"),
+                                text: $customRipgrepPath
                             )
                             .textFieldStyle(.roundedBorder)
                             .frame(width: 200)
@@ -7401,6 +7420,7 @@ struct SettingsView: View {
         socketControlMode = SocketControlSettings.defaultMode.rawValue
         claudeCodeHooksEnabled = ClaudeCodeIntegrationSettings.defaultHooksEnabled
         customClaudePath = ""
+        customRipgrepPath = ""
         cursorHooksEnabled = CursorIntegrationSettings.defaultHooksEnabled
         geminiHooksEnabled = GeminiIntegrationSettings.defaultHooksEnabled
         sendAnonymousTelemetry = TelemetrySettings.defaultSendAnonymousTelemetry
@@ -7548,6 +7568,241 @@ struct SettingsView: View {
 
     private func refreshDetectedImportBrowsers() {
         detectedImportBrowsers = InstalledBrowserDetector.detectInstalledBrowsers()
+    }
+}
+
+private struct SurfaceResumeApprovalSettingsCard: View {
+    @State private var records: [SurfaceResumeApprovalRecord] = []
+    @State private var prefixDrafts: [String: String] = [:]
+    @State private var statusMessage: String?
+    @State private var statusIsError = false
+
+    var body: some View {
+        SettingsCard {
+            SettingsCardRow(
+                configurationReview: .settingsOnly,
+                String(localized: "settings.terminal.resumeCommands", defaultValue: "Resume Commands"),
+                subtitle: String(
+                    localized: "settings.terminal.resumeCommands.subtitle",
+                    defaultValue: "Review signed command prefixes that can restore non-agent terminal surfaces."
+                ),
+                controlWidth: 80,
+                searchAnchorID: SettingsSearchIndex.settingID(for: .terminal, idSuffix: "resume-commands")
+            ) {
+                Text(String(format: "%d", records.count))
+                    .font(.caption.monospacedDigit())
+                    .foregroundColor(.secondary)
+            }
+
+            if records.isEmpty {
+                SettingsCardDivider()
+                Text(String(localized: "settings.terminal.resumeCommands.empty", defaultValue: "No custom resume commands have been approved."))
+                    .font(.caption)
+                    .foregroundColor(.secondary)
+                    .padding(.horizontal, 14)
+                    .padding(.vertical, 10)
+            } else {
+                ForEach(records) { record in
+                    SettingsCardDivider()
+                    SurfaceResumeApprovalRecordRow(
+                        record: record,
+                        prefixDraft: Binding(
+                            get: { prefixDrafts[record.id] ?? record.commandPrefixText },
+                            set: { prefixDrafts[record.id] = $0 }
+                        ),
+                        isValid: SurfaceResumeApprovalStore.isValid(record),
+                        onPolicyChange: { policy in updatePolicy(record, policy: policy) },
+                        onSavePrefix: { savePrefix(record) },
+                        onDelete: { delete(record) }
+                    )
+                }
+            }
+
+            if let statusMessage {
+                SettingsCardDivider()
+                Text(statusMessage)
+                    .font(.caption)
+                    .foregroundColor(statusIsError ? .red : .secondary)
+                    .padding(.horizontal, 14)
+                    .padding(.vertical, 9)
+            }
+        }
+        .onAppear(perform: reload)
+        .onReceive(NotificationCenter.default.publisher(for: SurfaceResumeApprovalStore.didChangeNotification)) { _ in
+            reload()
+        }
+    }
+
+    private func reload() {
+        let loadedRecords = SurfaceResumeApprovalStore.loadRecords()
+            .sorted { lhs, rhs in lhs.updatedAt > rhs.updatedAt }
+        records = loadedRecords
+        let validIds = Set(loadedRecords.map(\.id))
+        prefixDrafts = prefixDrafts.filter { validIds.contains($0.key) }
+        for record in loadedRecords where prefixDrafts[record.id] == nil {
+            prefixDrafts[record.id] = record.commandPrefixText
+        }
+    }
+
+    private func updatePolicy(_ record: SurfaceResumeApprovalRecord, policy: SurfaceResumeApprovalPolicy) {
+        guard SurfaceResumeApprovalStore.update(recordId: record.id, policy: policy) else {
+            setStatus(
+                String(localized: "settings.terminal.resumeCommands.updateFailed", defaultValue: "Could not update the resume command approval."),
+                isError: true
+            )
+            return
+        }
+        setStatus(String(localized: "settings.terminal.resumeCommands.updated", defaultValue: "Resume command approval updated."))
+        reload()
+    }
+
+    private func savePrefix(_ record: SurfaceResumeApprovalRecord) {
+        let draft = prefixDrafts[record.id] ?? record.commandPrefixText
+        guard let tokens = SurfaceResumeCommandCanonicalizer.tokens(from: draft), !tokens.isEmpty else {
+            setStatus(
+                String(localized: "settings.terminal.resumeCommands.invalidPrefix", defaultValue: "Enter a valid shell-style command prefix."),
+                isError: true
+            )
+            return
+        }
+        guard SurfaceResumeApprovalStore.update(recordId: record.id, commandPrefix: tokens) else {
+            setStatus(
+                String(localized: "settings.terminal.resumeCommands.updateFailed", defaultValue: "Could not update the resume command approval."),
+                isError: true
+            )
+            return
+        }
+        setStatus(String(localized: "settings.terminal.resumeCommands.updated", defaultValue: "Resume command approval updated."))
+        reload()
+    }
+
+    private func delete(_ record: SurfaceResumeApprovalRecord) {
+        guard SurfaceResumeApprovalStore.delete(recordId: record.id) else {
+            setStatus(
+                String(localized: "settings.terminal.resumeCommands.deleteFailed", defaultValue: "Could not delete the resume command approval."),
+                isError: true
+            )
+            return
+        }
+        setStatus(String(localized: "settings.terminal.resumeCommands.deleted", defaultValue: "Resume command approval deleted."))
+        reload()
+    }
+
+    private func setStatus(_ message: String, isError: Bool = false) {
+        statusMessage = message
+        statusIsError = isError
+    }
+}
+
+private struct SurfaceResumeApprovalRecordRow: View {
+    let record: SurfaceResumeApprovalRecord
+    @Binding var prefixDraft: String
+    let isValid: Bool
+    let onPolicyChange: (SurfaceResumeApprovalPolicy) -> Void
+    let onSavePrefix: () -> Void
+    let onDelete: () -> Void
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 8) {
+            HStack(alignment: .top, spacing: 12) {
+                VStack(alignment: .leading, spacing: 3) {
+                    Text(record.name ?? record.commandPrefixText)
+                        .font(.system(size: 13, weight: .medium))
+                        .lineLimit(1)
+                    Text(summaryText)
+                        .font(.caption)
+                        .foregroundColor(.secondary)
+                        .lineLimit(2)
+                }
+                Spacer(minLength: 12)
+                Picker("", selection: policyBinding) {
+                    ForEach(SurfaceResumeApprovalPolicy.allCases, id: \.self) { policy in
+                        Text(policy.localizedSettingsTitle).tag(policy)
+                    }
+                }
+                .labelsHidden()
+                .pickerStyle(.menu)
+                .disabled(!isValid)
+                .frame(width: 136)
+            }
+
+            TextField(
+                String(localized: "settings.terminal.resumeCommands.prefixPlaceholder", defaultValue: "Command prefix"),
+                text: $prefixDraft
+            )
+            .textFieldStyle(.roundedBorder)
+            .font(.system(.caption, design: .monospaced))
+            .disabled(!isValid)
+            .onSubmit(onSavePrefix)
+
+            HStack(spacing: 8) {
+                if !isValid {
+                    Text(String(localized: "settings.terminal.resumeCommands.invalidSignature", defaultValue: "Signature does not match. Delete this approval and approve the command again."))
+                        .font(.caption)
+                        .foregroundColor(.red)
+                        .lineLimit(2)
+                } else {
+                    Text(record.source ?? String(localized: "settings.terminal.resumeCommands.sourceUnknown", defaultValue: "Unknown source"))
+                        .font(.caption)
+                        .foregroundColor(.secondary)
+                        .lineLimit(1)
+                }
+                Spacer()
+                Button(String(localized: "settings.terminal.resumeCommands.save", defaultValue: "Save")) {
+                    onSavePrefix()
+                }
+                .controlSize(.small)
+                .disabled(!isValid)
+                Button(String(localized: "settings.terminal.resumeCommands.delete", defaultValue: "Delete"), role: .destructive) {
+                    onDelete()
+                }
+                .controlSize(.small)
+            }
+        }
+        .padding(.horizontal, 14)
+        .padding(.vertical, 10)
+    }
+
+    private var policyBinding: Binding<SurfaceResumeApprovalPolicy> {
+        Binding(
+            get: { record.policy },
+            set: { onPolicyChange($0) }
+        )
+    }
+
+    private var summaryText: String {
+        var parts = [
+            String(
+                format: String(localized: "settings.terminal.resumeCommands.prefixSummary", defaultValue: "Prefix: %@"),
+                record.commandPrefixText
+            )
+        ]
+        if let cwd = record.cwd {
+            parts.append(String(
+                format: String(localized: "settings.terminal.resumeCommands.cwdOnlySummary", defaultValue: "cwd: %@"),
+                cwd
+            ))
+        }
+        if !record.environmentKeys.isEmpty {
+            parts.append(String(
+                format: String(localized: "settings.terminal.resumeCommands.envSummary", defaultValue: "env: %@"),
+                record.environmentKeys.joined(separator: ", ")
+            ))
+        }
+        return parts.joined(separator: ", ")
+    }
+}
+
+private extension SurfaceResumeApprovalPolicy {
+    var localizedSettingsTitle: String {
+        switch self {
+        case .manual:
+            return String(localized: "settings.terminal.resumeCommands.policy.manual", defaultValue: "Manual")
+        case .prompt:
+            return String(localized: "settings.terminal.resumeCommands.policy.prompt", defaultValue: "Ask")
+        case .auto:
+            return String(localized: "settings.terminal.resumeCommands.policy.auto", defaultValue: "Auto")
+        }
     }
 }
 

@@ -21,6 +21,7 @@ final class KeyboardShortcutSettingsFileStoreStartupTests: XCTestCase {
     override func tearDown() {
         KeyboardShortcutSettings.settingsFileStore = originalSettingsFileStore
         AppIconSettings.resetLiveEnvironmentProviderForTesting()
+        AppearanceSettings.resetLiveEnvironmentProviderForTesting()
         KeyboardShortcutSettings.resetAll()
         super.tearDown()
     }
@@ -345,6 +346,79 @@ final class KeyboardShortcutSettingsFileStoreStartupTests: XCTestCase {
         }
     }
 
+    func testSettingsFileStoreInitialAppearanceReplayDoesNotSynchronizeTerminalTheme() throws {
+        let defaults = UserDefaults.standard
+        let key = AppearanceSettings.appearanceModeKey
+
+        try preservingDefaults(keys: [key, settingsFileBackupsDefaultsKey, importedManagedDefaultsKey]) {
+            defaults.removeObject(forKey: key)
+            defaults.removeObject(forKey: settingsFileBackupsDefaultsKey)
+            defaults.removeObject(forKey: importedManagedDefaultsKey)
+
+            let directoryURL = try makeTemporaryDirectory()
+            defer { try? FileManager.default.removeItem(at: directoryURL) }
+
+            let settingsFileURL = directoryURL.appendingPathComponent("cmux.json", isDirectory: false)
+            try writeSettingsFile(
+                """
+                {
+                  "app": {
+                    "appearance": "dark"
+                  }
+                }
+                """,
+                to: settingsFileURL
+            )
+
+            var appliedAppearanceName: NSAppearance.Name?
+            var synchronizedAppearanceName: NSAppearance.Name?
+            var synchronizedSources: [String] = []
+            AppearanceSettings.setLiveEnvironmentProviderForTesting {
+                AppearanceSettings.LiveApplyEnvironment(
+                    setApplicationAppearance: { appearance in
+                        appliedAppearanceName = appearance?.bestMatch(from: [.darkAqua, .aqua])
+                    },
+                    synchronizeTerminalThemeWithAppearance: { appearance, source in
+                        synchronizedAppearanceName = appearance?.bestMatch(from: [.darkAqua, .aqua])
+                        synchronizedSources.append(source)
+                    },
+                    systemAppearance: {
+                        NSAppearance(named: .aqua)
+                    }
+                )
+            }
+
+            let store = KeyboardShortcutSettingsFileStore(
+                primaryPath: settingsFileURL.path,
+                fallbackPath: nil,
+                additionalFallbackPaths: [],
+                startWatching: false
+            )
+
+            XCTAssertEqual(defaults.string(forKey: key), AppearanceMode.dark.rawValue)
+            XCTAssertEqual(appliedAppearanceName, .darkAqua)
+            XCTAssertNil(synchronizedAppearanceName)
+            XCTAssertTrue(synchronizedSources.isEmpty)
+
+            try writeSettingsFile(
+                """
+                {
+                  "app": {
+                    "appearance": "light"
+                  }
+                }
+                """,
+                to: settingsFileURL
+            )
+            store.reload()
+
+            XCTAssertEqual(defaults.string(forKey: key), AppearanceMode.light.rawValue)
+            XCTAssertEqual(appliedAppearanceName, .aqua)
+            XCTAssertEqual(synchronizedAppearanceName, .aqua)
+            XCTAssertEqual(synchronizedSources, ["cmuxConfig.applyManagedDefault"])
+        }
+    }
+
     func testManagedBoolUserDefaultSurvivesSettingsFileReapplyUntilFileChanges() throws {
         let defaults = UserDefaults.standard
         let key = QuitWarningSettings.warnBeforeQuitKey
@@ -459,6 +533,41 @@ final class KeyboardShortcutSettingsFileStoreStartupTests: XCTestCase {
         )
 
         XCTAssertEqual(defaults.object(forKey: key) as? Bool, false)
+    }
+
+    func testSettingsFileStoreAppliesAutomationRipgrepBinaryPath() throws {
+        let defaults = UserDefaults.standard
+        let key = "ripgrepCustomBinaryPath"
+
+        try preservingDefaults(keys: [key, settingsFileBackupsDefaultsKey, importedManagedDefaultsKey]) {
+            defaults.removeObject(forKey: key)
+            defaults.removeObject(forKey: settingsFileBackupsDefaultsKey)
+            defaults.removeObject(forKey: importedManagedDefaultsKey)
+
+            let directoryURL = try makeTemporaryDirectory()
+            defer { try? FileManager.default.removeItem(at: directoryURL) }
+
+            let settingsFileURL = directoryURL.appendingPathComponent("cmux.json", isDirectory: false)
+            try writeSettingsFile(
+                """
+                {
+                  "automation": {
+                    "ripgrepBinaryPath": "/etc/profiles/per-user/nixuser/bin/rg"
+                  }
+                }
+                """,
+                to: settingsFileURL
+            )
+
+            _ = KeyboardShortcutSettingsFileStore(
+                primaryPath: settingsFileURL.path,
+                fallbackPath: nil,
+                additionalFallbackPaths: [],
+                startWatching: false
+            )
+
+            XCTAssertEqual(defaults.string(forKey: key), "/etc/profiles/per-user/nixuser/bin/rg")
+        }
     }
 
     private func makeTemporaryDirectory() throws -> URL {
