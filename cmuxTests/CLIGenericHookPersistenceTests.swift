@@ -1257,7 +1257,7 @@ extension CLINotifyProcessIntegrationRegressionTests {
             notificationCommands.contains { $0.contains("cmux hooks grok stop") },
             "Grok Notification should not use the generic stop handler, saw \(notificationCommands)"
         )
-        XCTAssertEqual(notificationTimeouts, [10])
+        XCTAssertEqual(notificationTimeouts, [5])
         XCTAssertEqual(preToolUseTimeouts, [120])
         XCTAssertFalse(
             allCommands.contains { $0.contains("[ -n \"$CMUX_SURFACE_ID\" ]") },

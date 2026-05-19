@@ -20256,7 +20256,8 @@ struct CMUXCLI {
 
     private func nestedHookTimeout(_ timeoutMs: Int, for def: AgentHookDef) -> Int {
         guard def.name == "grok" else { return timeoutMs }
-        return max(10, timeoutMs / 1000)
+        let positiveTimeoutMs = max(timeoutMs, 1)
+        return ((positiveTimeoutMs - 1) / 1000) + 1
     }
 
     private static let openCodeSessionPluginMarker = "cmux-opencode-session-plugin-marker"
