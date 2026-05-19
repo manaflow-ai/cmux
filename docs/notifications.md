@@ -117,7 +117,7 @@ See the [Claude Code documentation](https://docs.anthropic.com/en/docs/claude-co
 
 ### GitHub Copilot CLI
 
-Copilot CLI supports [hooks](https://docs.github.com/en/copilot/how-tos/use-copilot-agents/coding-agent/use-hooks) that run shell commands at key lifecycle events. Add to `~/.copilot/config.json`:
+Copilot CLI supports [hooks](https://docs.github.com/en/copilot/how-tos/copilot-cli/customize-copilot/use-hooks) that run shell commands at key lifecycle events. Add a user-level hook file such as `~/.copilot/hooks/cmux-notifications.json`:
 
 ```json
 {

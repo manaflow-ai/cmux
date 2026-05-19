@@ -32,6 +32,7 @@ extension CMUXCLI {
         enum HookFormat {
             case flat       // Cursor: {"hooks": {"event": [{"command": "..."}]}, "version": 1}
             case nested(timeoutMs: Int)  // Codex/Gemini: nested with type/command/timeout
+            case copilot(timeoutSeconds: Int) // Copilot user hook file: flat command entries with timeoutSec
             case rovoDevYAML
             case hermesAgentYAML
         }
@@ -227,12 +228,14 @@ extension CMUXCLI {
         ),
         AgentHookDef(
             name: "copilot", displayName: "Copilot", statusKey: "copilot",
-            configDir: ".copilot", configFile: "config.json", configDirEnvOverride: "COPILOT_HOME",
+            configDir: ".copilot/hooks", configFile: "cmux.json",
+            configDirEnvOverride: "COPILOT_HOME", configDirEnvOverrideSubpath: "hooks",
+            createConfigDirIfMissing: true,
             sessionStoreSuffix: "copilot", disableEnvVar: "CMUX_COPILOT_HOOKS_DISABLED",
-            hookMarker: "cmux hooks copilot", format: .nested(timeoutMs: 5000),
+            hookMarker: "cmux hooks copilot", format: .copilot(timeoutSeconds: 5),
             events: [
                 .init(agentEvent: "SessionStart", cmuxSubcommand: "session-start"),
-                .init(agentEvent: "Stop", cmuxSubcommand: "stop"),
+                .init(agentEvent: "AgentStop", cmuxSubcommand: "stop"),
                 .init(agentEvent: "Notification", cmuxSubcommand: "stop"),
                 .init(agentEvent: "SessionEnd", cmuxSubcommand: "session-end"),
             ],

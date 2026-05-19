@@ -1826,7 +1826,20 @@ extension CLINotifyProcessIntegrationRegressionTests {
         try """
         // Copilot CLI 1.0.49 writes comments at the top of config.json.
         {
-          "editor": "vim"
+          "editor": "vim",
+          "hooks": {
+            "SessionStart": [
+              {
+                "hooks": [
+                  {
+                    "type": "command",
+                    "command": "cmux hooks copilot session-start",
+                    "timeout": 5000
+                  }
+                ]
+              }
+            ]
+          }
         }
         """.write(to: configURL, atomically: true, encoding: .utf8)
         defer { try? FileManager.default.removeItem(at: root) }
