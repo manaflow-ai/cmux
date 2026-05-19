@@ -312,10 +312,13 @@ final class AuthManager: ObservableObject {
         beginSignIn()
         if !isLoading { return isAuthenticated }
         let signedIn = await waitForSignInSettled(timeout: timeout)
-        if !signedIn && isLoading && !isAuthenticated {
+        if signedIn || isAuthenticated {
+            return true
+        }
+        if isLoading {
             timeOutBrowserSignInAttempt()
         }
-        return signedIn
+        return isAuthenticated
     }
 
     /// Signs out and awaits the state to flip. signOut() is already async and
