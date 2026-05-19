@@ -1397,7 +1397,14 @@ final class CmuxSettingsFileStore {
             }
             let normalized = ((trimmedPath as NSString).expandingTildeInPath as NSString).standardizingPath
             guard seen.insert(normalized).inserted else { continue }
-            homes.append(parsed)
+            let cleanedDisplayName = parsed.displayName?
+                .trimmingCharacters(in: .whitespacesAndNewlines)
+            homes.append(
+                CodexSessionHomeSetting(
+                    path: normalized,
+                    displayName: (cleanedDisplayName?.isEmpty == false) ? cleanedDisplayName : nil
+                )
+            )
         }
         return homes
     }
