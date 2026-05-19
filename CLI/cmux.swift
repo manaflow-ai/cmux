@@ -22823,28 +22823,35 @@ export default function cmuxPiSessionExtension(pi: ExtensionAPI) {
                 guard let cwd, !cwd.isEmpty else { return nil }
                 return URL(fileURLWithPath: NSString(string: cwd).expandingTildeInPath).lastPathComponent
             }()
-            let completedSubtitleKey = def.name == "grok"
-                ? "agent.grok.completion.subtitle.completed"
-                : "agent.codex.completion.subtitle.completed"
-            let completedInProjectSubtitleKey = def.name == "grok"
-                ? "agent.grok.completion.subtitle.completedInProject"
-                : "agent.codex.completion.subtitle.completedInProject"
+            let defaultCompletedSubtitle: String = {
+                if def.name == "grok" {
+                    return String(localized: "agent.grok.completion.subtitle.completed", defaultValue: "Completed")
+                }
+                return String(localized: "agent.codex.completion.subtitle.completed", defaultValue: "Completed")
+            }()
             var subtitle = codexFailure?.subtitle
                 ?? completionSummary?.subtitle
-                ?? String(
-                    localized: completedSubtitleKey,
-                    defaultValue: "Completed"
-                )
+                ?? defaultCompletedSubtitle
             if codexFailure == nil,
                completionSummary == nil,
                let projectName, !projectName.isEmpty {
-                subtitle = String.localizedStringWithFormat(
-                    String(
-                        localized: completedInProjectSubtitleKey,
-                        defaultValue: "Completed in %@"
-                    ),
-                    projectName
-                )
+                if def.name == "grok" {
+                    subtitle = String.localizedStringWithFormat(
+                        String(
+                            localized: "agent.grok.completion.subtitle.completedInProject",
+                            defaultValue: "Completed in %@"
+                        ),
+                        projectName
+                    )
+                } else {
+                    subtitle = String.localizedStringWithFormat(
+                        String(
+                            localized: "agent.codex.completion.subtitle.completedInProject",
+                            defaultValue: "Completed in %@"
+                        ),
+                        projectName
+                    )
+                }
             }
             let body = codexFailure?.body
                 ?? completionSummary?.body
