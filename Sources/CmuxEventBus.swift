@@ -50,7 +50,13 @@ struct CmuxEventScope {
         case .window:
             guard let windowId else { return false }
             if Self.stringValue(event["window_id"]) == windowId { return true }
-            if Self.payloadString(event, key: "window_id") == windowId { return true }
+            if Self.payloadString(event, key: "window_id") == windowId ||
+                Self.payloadString(event, key: "source_window_id") == windowId ||
+                Self.payloadString(event, key: "destination_window_id") == windowId ||
+                Self.payloadString(event, key: "target_window_id") == windowId ||
+                Self.payloadString(event, key: "previous_window_id") == windowId {
+                return true
+            }
             let eventWorkspaceIds = Self.workspaceIds(event)
             let scopedWorkspaceIds: Set<String>
             if allowDynamicWindowWorkspaceIds, let currentWindowWorkspaceIdsProvider {
@@ -65,14 +71,20 @@ struct CmuxEventScope {
                 Self.payloadString(event, key: "workspace_id") == workspaceId ||
                 Self.payloadString(event, key: "previous_workspace_id") == workspaceId ||
                 Self.payloadString(event, key: "source_workspace_id") == workspaceId ||
+                Self.payloadString(event, key: "target_workspace_id") == workspaceId ||
                 Self.payloadString(event, key: "destination_workspace_id") == workspaceId ||
                 Self.payloadString(event, key: "created_workspace_id") == workspaceId
         case .surface:
             guard let surfaceId else { return false }
             return Self.stringValue(event["surface_id"]) == surfaceId ||
                 Self.payloadString(event, key: "surface_id") == surfaceId ||
+                Self.payloadString(event, key: "tab_id") == surfaceId ||
                 Self.payloadString(event, key: "selected_surface_id") == surfaceId ||
                 Self.payloadString(event, key: "previous_surface_id") == surfaceId ||
+                Self.payloadString(event, key: "source_surface_id") == surfaceId ||
+                Self.payloadString(event, key: "target_surface_id") == surfaceId ||
+                Self.payloadString(event, key: "created_surface_id") == surfaceId ||
+                Self.payloadString(event, key: "created_tab_id") == surfaceId ||
                 Self.payloadStringArray(event, key: "closed_surface_ids").contains(surfaceId)
         case .pane:
             guard let paneId else { return false }
@@ -99,6 +111,9 @@ struct CmuxEventScope {
         guard let trimmed = value?.trimmingCharacters(in: .whitespacesAndNewlines),
               !trimmed.isEmpty else {
             return nil
+        }
+        if let uuid = UUID(uuidString: trimmed) {
+            return uuid.uuidString
         }
         return trimmed
     }
@@ -147,7 +162,7 @@ struct CmuxEventScope {
         if let workspaceId = stringValue(event["workspace_id"]) {
             ids.append(workspaceId)
         }
-        for key in ["workspace_id", "previous_workspace_id", "source_workspace_id", "destination_workspace_id", "created_workspace_id"] {
+        for key in ["workspace_id", "previous_workspace_id", "source_workspace_id", "target_workspace_id", "destination_workspace_id", "created_workspace_id"] {
             if let workspaceId = payloadString(event, key: key) {
                 ids.append(workspaceId)
             }

@@ -221,6 +221,43 @@ final class CmuxEventBusTests: XCTestCase {
         XCTAssertNil(snapshot.subscription.next(timeout: 0.05))
     }
 
+    func testWindowScopeMatchesSourceWindowPayloadWhenWorkspaceLeavesWindow() {
+        let bus = CmuxEventBus(retainedEventLimit: 8)
+        let workspaceIds = EventScopeWorkspaceIds(["workspace-c"])
+        let snapshot = bus.subscribe(
+            afterSequence: nil,
+            names: [],
+            categories: [],
+            scope: CmuxEventScope(
+                kind: .window,
+                windowId: "window-a",
+                windowWorkspaceIds: ["workspace-a"],
+                currentWindowWorkspaceIdsProvider: { workspaceIds.snapshot() }
+            )
+        )
+        defer { bus.unsubscribe(snapshot.subscription) }
+
+        bus.publish(
+            name: "workspace.moved",
+            category: "workspace",
+            source: "socket.v2",
+            workspaceId: "workspace-b",
+            windowId: "window-b",
+            payload: [
+                "method": "workspace.move_to_window",
+                "result": [
+                    "source_window_id": "window-a",
+                    "source_workspace_id": "workspace-a",
+                    "window_id": "window-b",
+                    "workspace_id": "workspace-b"
+                ]
+            ]
+        )
+
+        XCTAssertEqual(snapshot.subscription.next(timeout: 0.2)?["name"] as? String, "workspace.moved")
+        XCTAssertNil(snapshot.subscription.next(timeout: 0.05))
+    }
+
     func testSubscriptionFiltersByWorkspaceSurfaceAndPaneScopes() {
         let bus = CmuxEventBus(retainedEventLimit: 8)
         bus.publish(
@@ -268,6 +305,30 @@ final class CmuxEventBusTests: XCTestCase {
         XCTAssertEqual(paneSnapshot.replay.compactMap { $0["pane_id"] as? String }, ["pane-a"])
     }
 
+    func testScopeFiltersCanonicalizeUUIDCase() {
+        let bus = CmuxEventBus(retainedEventLimit: 8)
+        let surfaceId = UUID()
+        bus.publish(
+            name: "surface.key_sent",
+            category: "surface",
+            source: "socket.v1",
+            surfaceId: surfaceId.uuidString.lowercased(),
+            payload: [
+                "surface_id": surfaceId.uuidString.lowercased()
+            ]
+        )
+
+        let snapshot = bus.subscribe(
+            afterSequence: 0,
+            names: [],
+            categories: [],
+            scope: CmuxEventScope(kind: .surface, surfaceId: surfaceId.uuidString)
+        )
+        defer { bus.unsubscribe(snapshot.subscription) }
+
+        XCTAssertEqual(snapshot.replay.compactMap { $0["name"] as? String }, ["surface.key_sent"])
+    }
+
     func testScopeFiltersMatchNestedV2PayloadIds() throws {
         let bus = CmuxEventBus(retainedEventLimit: 8)
         bus.publish(
@@ -295,6 +356,33 @@ final class CmuxEventBusTests: XCTestCase {
                 ]
             ]
         )
+        bus.publish(
+            name: "pane.swapped",
+            category: "pane",
+            source: "socket.v2",
+            payload: [
+                "method": "pane.swap",
+                "result": [
+                    "source_surface_id": "surface-a",
+                    "target_surface_id": "surface-c"
+                ]
+            ]
+        )
+        bus.publish(
+            name: "surface.action",
+            category: "surface",
+            source: "socket.v2",
+            payload: [
+                "method": "tab.action",
+                "params": [
+                    "tab_id": "surface-d"
+                ],
+                "result": [
+                    "created_surface_id": "surface-e",
+                    "created_tab_id": "surface-f"
+                ]
+            ]
+        )
 
         let paneSnapshot = bus.subscribe(
             afterSequence: 0,
@@ -313,6 +401,42 @@ final class CmuxEventBusTests: XCTestCase {
         )
         defer { bus.unsubscribe(surfaceSnapshot.subscription) }
         XCTAssertEqual(surfaceSnapshot.replay.compactMap { $0["name"] as? String }, ["surface.closed"])
+
+        let targetSurfaceSnapshot = bus.subscribe(
+            afterSequence: 0,
+            names: [],
+            categories: [],
+            scope: CmuxEventScope(kind: .surface, surfaceId: "surface-c")
+        )
+        defer { bus.unsubscribe(targetSurfaceSnapshot.subscription) }
+        XCTAssertEqual(targetSurfaceSnapshot.replay.compactMap { $0["name"] as? String }, ["pane.swapped"])
+
+        let tabAliasSnapshot = bus.subscribe(
+            afterSequence: 0,
+            names: [],
+            categories: [],
+            scope: CmuxEventScope(kind: .surface, surfaceId: "surface-d")
+        )
+        defer { bus.unsubscribe(tabAliasSnapshot.subscription) }
+        XCTAssertEqual(tabAliasSnapshot.replay.compactMap { $0["name"] as? String }, ["surface.action"])
+
+        let createdSurfaceSnapshot = bus.subscribe(
+            afterSequence: 0,
+            names: [],
+            categories: [],
+            scope: CmuxEventScope(kind: .surface, surfaceId: "surface-e")
+        )
+        defer { bus.unsubscribe(createdSurfaceSnapshot.subscription) }
+        XCTAssertEqual(createdSurfaceSnapshot.replay.compactMap { $0["name"] as? String }, ["surface.action"])
+
+        let createdTabSnapshot = bus.subscribe(
+            afterSequence: 0,
+            names: [],
+            categories: [],
+            scope: CmuxEventScope(kind: .surface, surfaceId: "surface-f")
+        )
+        defer { bus.unsubscribe(createdTabSnapshot.subscription) }
+        XCTAssertEqual(createdTabSnapshot.replay.compactMap { $0["name"] as? String }, ["surface.action"])
     }
 
     func testSlowSubscriptionClosesWhenPendingQueueIsFull() {
