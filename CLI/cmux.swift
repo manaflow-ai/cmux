@@ -4435,7 +4435,11 @@ struct CMUXCLI {
     ) throws -> String? {
         guard let raw else {
             if !allowCurrent { return nil }
-            let current = try client.sendV2(method: "workspace.current")
+            var params: [String: Any] = [:]
+            if let windowHandle {
+                params["window_id"] = windowHandle
+            }
+            let current = try client.sendV2(method: "workspace.current", params: params)
             return (current["workspace_ref"] as? String) ?? (current["workspace_id"] as? String)
         }
 
@@ -4464,6 +4468,7 @@ struct CMUXCLI {
         _ raw: String?,
         client: SocketClient,
         workspaceHandle: String? = nil,
+        windowHandle: String? = nil,
         allowFocused: Bool = false
     ) throws -> String? {
         guard let raw else {
@@ -4483,6 +4488,9 @@ struct CMUXCLI {
         }
 
         var params: [String: Any] = [:]
+        if let windowHandle {
+            params["window_id"] = windowHandle
+        }
         if let workspaceHandle {
             params["workspace_id"] = workspaceHandle
         }
@@ -9523,7 +9531,7 @@ struct CMUXCLI {
             Print server capabilities as JSON.
             """
         case "events":
-            return """
+            return String(localized: "cli.help.events", defaultValue: """
             Usage: cmux events [options]
 
             Stream cmux events as newline-delimited JSON.
@@ -9533,6 +9541,12 @@ struct CMUXCLI {
               --cursor-file <path>   Read the starting sequence from a file and update it after each event
               --name <event>         Filter by event name, repeatable
               --category <name>      Filter by category, repeatable
+              --scope <scope>        Scope events: global, window, workspace, surface, or pane (default: global)
+              --window <id|ref|idx>  Scope to a window
+              --workspace <id|ref|idx>
+                                      Scope to a workspace
+              --surface <id|ref|idx> Scope to a surface (aliases: --tab, --panel)
+              --pane <id|ref|idx>    Scope to a pane
               --reconnect            Reconnect forever and resume from the last received sequence
               --limit <n>            Exit after printing n event frames
               --no-ack               Do not print the subscription ack frame
@@ -9540,9 +9554,11 @@ struct CMUXCLI {
 
             Examples:
               cmux events --category notification
+              cmux events --scope window
+              cmux events --workspace workspace:1
               cmux events --cursor-file ~/.cache/cmux/events.seq --reconnect
               cmux events --after 42 --name feed.item.received
-            """
+            """)
         case "auth":
             return """
             Usage: cmux auth <status|login|logout>
@@ -26144,7 +26160,7 @@ export default function cmuxPiSessionExtension(pi: ExtensionAPI) {
           ping
           version
           capabilities
-          events [--after <seq>] [--cursor-file <path>] [--name <event>] [--category <category>] [--reconnect] [--limit <n>] [--no-ack] [--no-heartbeat]
+          events [--after <seq>] [--cursor-file <path>] [--name <event>] [--category <category>] [--scope <scope>] [--window <id|ref|idx>] [--workspace <id|ref|idx>] [--surface <id|ref|idx>] [--pane <id|ref|idx>] [--reconnect] [--limit <n>] [--no-ack] [--no-heartbeat]
           auth <status|login|logout>
           login | logout                                      (aliases for auth login/logout)
           vm <new|ls|rm|exec|shell|ssh> [args...]    (alias: cloud)

@@ -4483,7 +4483,7 @@ class TerminalController {
         return result
     }
 
-    private func v2RefreshKnownRefs() {
+    func v2RefreshKnownRefs() {
         guard let app = AppDelegate.shared else { return }
 
         let windows = app.listMainWindowSummaries()
@@ -4875,6 +4875,7 @@ class TerminalController {
                 result = .err(code: "not_found", message: "Window not found", data: ["window_id": windowId.uuidString])
                 return
             }
+            let sourceWindowId = AppDelegate.shared?.windowId(for: srcTM)
             guard let ws = srcTM.detachWorkspace(tabId: wsId) else {
                 result = .err(code: "not_found", message: "Workspace not found", data: ["workspace_id": wsId.uuidString])
                 return
@@ -4886,6 +4887,12 @@ class TerminalController {
                 setActiveTabManager(dstTM)
             }
             result = .ok([
+                "source_window_id": v2OrNull(sourceWindowId?.uuidString),
+                "source_window_ref": v2Ref(kind: .window, uuid: sourceWindowId),
+                "source_workspace_id": wsId.uuidString,
+                "source_workspace_ref": v2Ref(kind: .workspace, uuid: wsId),
+                "destination_window_id": windowId.uuidString,
+                "destination_window_ref": v2Ref(kind: .window, uuid: windowId),
                 "workspace_id": wsId.uuidString,
                 "workspace_ref": v2Ref(kind: .workspace, uuid: wsId),
                 "window_id": windowId.uuidString,
@@ -6959,6 +6966,9 @@ class TerminalController {
 
             let sourcePane = sourceWorkspace.paneId(forPanelId: surfaceId)
             let sourceIndex = sourceWorkspace.indexInPane(forPanelId: surfaceId)
+            let sourceWindowId = source.windowId
+            let sourceWorkspaceId = sourceWorkspace.id
+            let sourcePaneId = sourcePane?.id
 
             var targetWindowId = source.windowId
             var targetTabManager = source.tabManager
@@ -7029,6 +7039,12 @@ class TerminalController {
                     "window_ref": v2Ref(kind: .window, uuid: targetWindowId),
                     "workspace_id": targetWorkspace.id.uuidString,
                     "workspace_ref": v2Ref(kind: .workspace, uuid: targetWorkspace.id),
+                    "source_window_id": sourceWindowId.uuidString,
+                    "source_window_ref": v2Ref(kind: .window, uuid: sourceWindowId),
+                    "source_workspace_id": sourceWorkspaceId.uuidString,
+                    "source_workspace_ref": v2Ref(kind: .workspace, uuid: sourceWorkspaceId),
+                    "source_pane_id": v2OrNull(sourcePaneId?.uuidString),
+                    "source_pane_ref": v2Ref(kind: .pane, uuid: sourcePaneId),
                     "pane_id": destinationPane.id.uuidString,
                     "pane_ref": v2Ref(kind: .pane, uuid: destinationPane.id),
                     "surface_id": surfaceId.uuidString,
@@ -7065,6 +7081,12 @@ class TerminalController {
                 "window_ref": v2Ref(kind: .window, uuid: targetWindowId),
                 "workspace_id": targetWorkspace.id.uuidString,
                 "workspace_ref": v2Ref(kind: .workspace, uuid: targetWorkspace.id),
+                "source_window_id": sourceWindowId.uuidString,
+                "source_window_ref": v2Ref(kind: .window, uuid: sourceWindowId),
+                "source_workspace_id": sourceWorkspaceId.uuidString,
+                "source_workspace_ref": v2Ref(kind: .workspace, uuid: sourceWorkspaceId),
+                "source_pane_id": v2OrNull(sourcePaneId?.uuidString),
+                "source_pane_ref": v2Ref(kind: .pane, uuid: sourcePaneId),
                 "pane_id": destinationPane.id.uuidString,
                 "pane_ref": v2Ref(kind: .pane, uuid: destinationPane.id),
                 "surface_id": surfaceId.uuidString,
@@ -8480,6 +8502,7 @@ class TerminalController {
             }
             let sourceIndex = sourceWorkspace.indexInPane(forPanelId: surfaceId)
             let sourcePaneForRollback = sourceWorkspace.paneId(forPanelId: surfaceId)
+            let sourceWindowId = v2ResolveWindowId(tabManager: tabManager)
 
             guard let detached = sourceWorkspace.detachSurface(panelId: surfaceId) else {
                 result = .err(code: "internal_error", message: "Failed to detach source surface", data: nil)
@@ -8518,6 +8541,12 @@ class TerminalController {
                 "window_ref": v2Ref(kind: .window, uuid: windowId),
                 "workspace_id": destinationWorkspace.id.uuidString,
                 "workspace_ref": v2Ref(kind: .workspace, uuid: destinationWorkspace.id),
+                "source_window_id": v2OrNull(sourceWindowId?.uuidString),
+                "source_window_ref": v2Ref(kind: .window, uuid: sourceWindowId),
+                "source_workspace_id": sourceWorkspace.id.uuidString,
+                "source_workspace_ref": v2Ref(kind: .workspace, uuid: sourceWorkspace.id),
+                "source_pane_id": v2OrNull(sourcePaneForRollback?.id.uuidString),
+                "source_pane_ref": v2Ref(kind: .pane, uuid: sourcePaneForRollback?.id),
                 "pane_id": destinationPaneId.uuidString,
                 "pane_ref": v2Ref(kind: .pane, uuid: destinationPaneId),
                 "surface_id": surfaceId.uuidString,

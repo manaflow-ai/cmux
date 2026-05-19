@@ -649,6 +649,562 @@ final class CLINotifyProcessIntegrationRegressionTests: XCTestCase {
         )
     }
 
+    func testWorkspaceCurrentHandleResolutionPreservesWindowContext() throws {
+        let cliPath = try bundledCLIPath()
+        let socketPath = makeSocketPath("ws-cur")
+        let listenerFD = try bindUnixSocket(at: socketPath)
+        let state = MockSocketServerState()
+        let windowId = "11111111-1111-1111-1111-111111111111"
+        let workspaceId = "22222222-2222-2222-2222-222222222222"
+        let surfaceId = "33333333-3333-3333-3333-333333333333"
+
+        defer {
+            Darwin.close(listenerFD)
+            unlink(socketPath)
+        }
+
+        let serverHandled = startMultiConnectionMockServer(
+            listenerFD: listenerFD,
+            connectionCount: 2,
+            state: state
+        ) { line in
+            guard let payload = self.jsonObject(line),
+                  let id = payload["id"] as? String,
+                  let method = payload["method"] as? String else {
+                return self.malformedRequestResponse(raw: line)
+            }
+            switch method {
+            case "workspace.current":
+                let params = payload["params"] as? [String: Any] ?? [:]
+                XCTAssertEqual(params["window_id"] as? String, windowId)
+                return self.v2Response(
+                    id: id,
+                    ok: true,
+                    result: ["workspace_id": workspaceId]
+                )
+            case "surface.list":
+                let params = payload["params"] as? [String: Any] ?? [:]
+                XCTAssertEqual(params["window_id"] as? String, windowId)
+                XCTAssertEqual(params["workspace_id"] as? String, workspaceId)
+                return self.v2Response(
+                    id: id,
+                    ok: true,
+                    result: ["surfaces": [["id": surfaceId, "index": 1]]]
+                )
+            case "events.stream":
+                let params = payload["params"] as? [String: Any] ?? [:]
+                XCTAssertEqual(params["scope"] as? String, "surface")
+                XCTAssertEqual(params["window_id"] as? String, windowId)
+                XCTAssertEqual(params["workspace_id"] as? String, workspaceId)
+                XCTAssertEqual(params["surface_id"] as? String, surfaceId)
+                return #"{"type":"event","seq":1}"#
+            default:
+                return self.v2Response(
+                    id: id,
+                    ok: false,
+                    error: ["code": "unexpected_method", "message": "Unexpected method \(method)"]
+                )
+            }
+        }
+
+        var environment = ProcessInfo.processInfo.environment
+        environment["CMUX_SOCKET_PATH"] = socketPath
+        environment["CMUX_CLI_SENTRY_DISABLED"] = "1"
+
+        let result = runProcess(
+            executablePath: cliPath,
+            arguments: [
+                "events",
+                "--window", windowId,
+                "--surface", "1",
+                "--limit", "1",
+                "--no-ack",
+                "--no-heartbeat"
+            ],
+            environment: environment,
+            timeout: 5
+        )
+
+        wait(for: [serverHandled], timeout: 5)
+        XCTAssertFalse(result.timedOut, result.stderr)
+        XCTAssertEqual(result.status, 0, result.stderr)
+        XCTAssertTrue(result.stdout.contains(#""seq":1"#), result.stdout)
+        XCTAssertEqual(
+            state.commands.compactMap { self.jsonObject($0)?["method"] as? String },
+            ["workspace.current", "surface.list", "events.stream"]
+        )
+    }
+
+    func testEventPaneIndexResolutionPreservesWindowContext() throws {
+        let cliPath = try bundledCLIPath()
+        let socketPath = makeSocketPath("evt-pane-window")
+        let listenerFD = try bindUnixSocket(at: socketPath)
+        let state = MockSocketServerState()
+        let windowId = "11111111-1111-1111-1111-111111111111"
+        let workspaceId = "22222222-2222-2222-2222-222222222222"
+        let paneId = "33333333-3333-3333-3333-333333333333"
+
+        defer {
+            Darwin.close(listenerFD)
+            unlink(socketPath)
+        }
+
+        let serverHandled = startMultiConnectionMockServer(
+            listenerFD: listenerFD,
+            connectionCount: 2,
+            state: state
+        ) { line in
+            guard let payload = self.jsonObject(line),
+                  let id = payload["id"] as? String,
+                  let method = payload["method"] as? String else {
+                return self.malformedRequestResponse(raw: line)
+            }
+            switch method {
+            case "workspace.current":
+                let params = payload["params"] as? [String: Any] ?? [:]
+                XCTAssertEqual(params["window_id"] as? String, windowId)
+                return self.v2Response(
+                    id: id,
+                    ok: true,
+                    result: ["workspace_id": workspaceId]
+                )
+            case "pane.list":
+                let params = payload["params"] as? [String: Any] ?? [:]
+                XCTAssertEqual(params["window_id"] as? String, windowId)
+                XCTAssertEqual(params["workspace_id"] as? String, workspaceId)
+                return self.v2Response(
+                    id: id,
+                    ok: true,
+                    result: ["panes": [["id": paneId, "index": 1]]]
+                )
+            case "events.stream":
+                let params = payload["params"] as? [String: Any] ?? [:]
+                XCTAssertEqual(params["scope"] as? String, "pane")
+                XCTAssertEqual(params["window_id"] as? String, windowId)
+                XCTAssertEqual(params["workspace_id"] as? String, workspaceId)
+                XCTAssertEqual(params["pane_id"] as? String, paneId)
+                return #"{"type":"event","seq":1}"#
+            default:
+                return self.v2Response(
+                    id: id,
+                    ok: false,
+                    error: ["code": "unexpected_method", "message": "Unexpected method \(method)"]
+                )
+            }
+        }
+
+        var environment = ProcessInfo.processInfo.environment
+        environment["CMUX_SOCKET_PATH"] = socketPath
+        environment["CMUX_CLI_SENTRY_DISABLED"] = "1"
+
+        let result = runProcess(
+            executablePath: cliPath,
+            arguments: [
+                "events",
+                "--window", windowId,
+                "--pane", "1",
+                "--limit", "1",
+                "--no-ack",
+                "--no-heartbeat"
+            ],
+            environment: environment,
+            timeout: 5
+        )
+
+        wait(for: [serverHandled], timeout: 5)
+        XCTAssertFalse(result.timedOut, result.stderr)
+        XCTAssertEqual(result.status, 0, result.stderr)
+        XCTAssertTrue(result.stdout.contains(#""seq":1"#), result.stdout)
+        XCTAssertEqual(
+            state.commands.compactMap { self.jsonObject($0)?["method"] as? String },
+            ["workspace.current", "pane.list", "events.stream"]
+        )
+    }
+
+    func testEventsGlobalScopeRejectsSelectorsBeforeSocketConnect() throws {
+        let cliPath = try bundledCLIPath()
+        let missingSocketPath = "/tmp/cmux-test-missing-\(UUID().uuidString).sock"
+
+        var environment = ProcessInfo.processInfo.environment
+        environment["CMUX_SOCKET_PATH"] = missingSocketPath
+        environment["CMUX_CLI_SENTRY_DISABLED"] = "1"
+
+        let result = runProcess(
+            executablePath: cliPath,
+            arguments: [
+                "events",
+                "--scope", "global",
+                "--window", "1"
+            ],
+            environment: environment,
+            timeout: 5
+        )
+
+        XCTAssertFalse(result.timedOut, result.stderr)
+        XCTAssertEqual(result.status, 1, result.stderr)
+        XCTAssertTrue(result.stdout.isEmpty, result.stdout)
+        XCTAssertTrue(
+            result.stderr.contains("--scope global cannot be combined with --window, --workspace, --surface, or --pane."),
+            result.stderr
+        )
+        XCTAssertFalse(result.stderr.contains("Socket not found"), result.stderr)
+    }
+
+    func testIndexedEventSurfaceUsesCallerWorkspaceBeforeFocusedWorkspace() throws {
+        let cliPath = try bundledCLIPath()
+        let socketPath = makeSocketPath("evt-caller")
+        let listenerFD = try bindUnixSocket(at: socketPath)
+        let state = MockSocketServerState()
+        let workspaceId = "22222222-2222-2222-2222-222222222222"
+        let surfaceId = "33333333-3333-3333-3333-333333333333"
+
+        defer {
+            Darwin.close(listenerFD)
+            unlink(socketPath)
+        }
+
+        let serverHandled = startMultiConnectionMockServer(
+            listenerFD: listenerFD,
+            connectionCount: 2,
+            state: state
+        ) { line in
+            guard let payload = self.jsonObject(line),
+                  let id = payload["id"] as? String,
+                  let method = payload["method"] as? String else {
+                return self.malformedRequestResponse(raw: line)
+            }
+            switch method {
+            case "surface.list":
+                let params = payload["params"] as? [String: Any] ?? [:]
+                XCTAssertEqual(params["workspace_id"] as? String, workspaceId)
+                return self.v2Response(
+                    id: id,
+                    ok: true,
+                    result: ["surfaces": [["id": surfaceId, "index": 1]]]
+                )
+            case "events.stream":
+                let params = payload["params"] as? [String: Any] ?? [:]
+                let caller = params["caller"] as? [String: Any] ?? [:]
+                XCTAssertEqual(params["scope"] as? String, "surface")
+                XCTAssertEqual(params["workspace_id"] as? String, workspaceId)
+                XCTAssertEqual(params["surface_id"] as? String, surfaceId)
+                XCTAssertEqual(caller["workspace_id"] as? String, workspaceId)
+                return #"{"type":"event","seq":1}"#
+            default:
+                return self.v2Response(
+                    id: id,
+                    ok: false,
+                    error: ["code": "unexpected_method", "message": "Unexpected method \(method)"]
+                )
+            }
+        }
+
+        var environment = ProcessInfo.processInfo.environment
+        environment["CMUX_SOCKET_PATH"] = socketPath
+        environment["CMUX_CLI_SENTRY_DISABLED"] = "1"
+        environment["CMUX_WORKSPACE_ID"] = workspaceId
+
+        let result = runProcess(
+            executablePath: cliPath,
+            arguments: [
+                "events",
+                "--surface", "1",
+                "--limit", "1",
+                "--no-ack",
+                "--no-heartbeat"
+            ],
+            environment: environment,
+            timeout: 5
+        )
+
+        wait(for: [serverHandled], timeout: 5)
+        XCTAssertFalse(result.timedOut, result.stderr)
+        XCTAssertEqual(result.status, 0, result.stderr)
+        XCTAssertTrue(result.stdout.contains(#""seq":1"#), result.stdout)
+        XCTAssertEqual(
+            state.commands.compactMap { self.jsonObject($0)?["method"] as? String },
+            ["surface.list", "events.stream"]
+        )
+    }
+
+    func testIndexedEventSurfaceUsesCallerTabIdAsWorkspaceFallback() throws {
+        let cliPath = try bundledCLIPath()
+        let socketPath = makeSocketPath("evt-tab-caller")
+        let listenerFD = try bindUnixSocket(at: socketPath)
+        let state = MockSocketServerState()
+        let workspaceId = "22222222-2222-2222-2222-222222222222"
+        let surfaceId = "33333333-3333-3333-3333-333333333333"
+
+        defer {
+            Darwin.close(listenerFD)
+            unlink(socketPath)
+        }
+
+        let serverHandled = startMultiConnectionMockServer(
+            listenerFD: listenerFD,
+            connectionCount: 2,
+            state: state
+        ) { line in
+            guard let payload = self.jsonObject(line),
+                  let id = payload["id"] as? String,
+                  let method = payload["method"] as? String else {
+                return self.malformedRequestResponse(raw: line)
+            }
+            switch method {
+            case "surface.list":
+                let params = payload["params"] as? [String: Any] ?? [:]
+                XCTAssertEqual(params["workspace_id"] as? String, workspaceId)
+                return self.v2Response(
+                    id: id,
+                    ok: true,
+                    result: ["surfaces": [["id": surfaceId, "index": 1]]]
+                )
+            case "events.stream":
+                let params = payload["params"] as? [String: Any] ?? [:]
+                let caller = params["caller"] as? [String: Any] ?? [:]
+                XCTAssertEqual(params["scope"] as? String, "surface")
+                XCTAssertEqual(params["workspace_id"] as? String, workspaceId)
+                XCTAssertEqual(params["surface_id"] as? String, surfaceId)
+                XCTAssertEqual(caller["workspace_id"] as? String, workspaceId)
+                return #"{"type":"event","seq":1}"#
+            default:
+                return self.v2Response(
+                    id: id,
+                    ok: false,
+                    error: ["code": "unexpected_method", "message": "Unexpected method \(method)"]
+                )
+            }
+        }
+
+        var environment = ProcessInfo.processInfo.environment
+        environment["CMUX_SOCKET_PATH"] = socketPath
+        environment["CMUX_CLI_SENTRY_DISABLED"] = "1"
+        environment.removeValue(forKey: "CMUX_WORKSPACE_ID")
+        environment["CMUX_TAB_ID"] = workspaceId
+
+        let result = runProcess(
+            executablePath: cliPath,
+            arguments: [
+                "events",
+                "--surface", "1",
+                "--limit", "1",
+                "--no-ack",
+                "--no-heartbeat"
+            ],
+            environment: environment,
+            timeout: 5
+        )
+
+        wait(for: [serverHandled], timeout: 5)
+        XCTAssertFalse(result.timedOut, result.stderr)
+        XCTAssertEqual(result.status, 0, result.stderr)
+        XCTAssertTrue(result.stdout.contains(#""seq":1"#), result.stdout)
+        XCTAssertEqual(
+            state.commands.compactMap { self.jsonObject($0)?["method"] as? String },
+            ["surface.list", "events.stream"]
+        )
+    }
+
+    func testEventSurfaceScopeUsesCallerPanelIdAsSurfaceFallback() throws {
+        let cliPath = try bundledCLIPath()
+        let socketPath = makeSocketPath("evt-panel-caller")
+        let listenerFD = try bindUnixSocket(at: socketPath)
+        let state = MockSocketServerState()
+        let surfaceId = "33333333-3333-3333-3333-333333333333"
+
+        defer {
+            Darwin.close(listenerFD)
+            unlink(socketPath)
+        }
+
+        let serverHandled = startMockServer(listenerFD: listenerFD, state: state) { line in
+            guard let payload = self.jsonObject(line),
+                  let id = payload["id"] as? String,
+                  let method = payload["method"] as? String else {
+                return self.malformedRequestResponse(raw: line)
+            }
+            switch method {
+            case "events.stream":
+                let params = payload["params"] as? [String: Any] ?? [:]
+                let caller = params["caller"] as? [String: Any] ?? [:]
+                XCTAssertEqual(params["scope"] as? String, "surface")
+                XCTAssertNil(params["surface_id"])
+                XCTAssertEqual(caller["surface_id"] as? String, surfaceId)
+                XCTAssertEqual(caller["tab_id"] as? String, surfaceId)
+                return #"{"type":"event","seq":1}"#
+            default:
+                return self.v2Response(
+                    id: id,
+                    ok: false,
+                    error: ["code": "unexpected_method", "message": "Unexpected method \(method)"]
+                )
+            }
+        }
+
+        var environment = ProcessInfo.processInfo.environment
+        environment["CMUX_SOCKET_PATH"] = socketPath
+        environment["CMUX_CLI_SENTRY_DISABLED"] = "1"
+        environment.removeValue(forKey: "CMUX_WORKSPACE_ID")
+        environment.removeValue(forKey: "CMUX_TAB_ID")
+        environment.removeValue(forKey: "CMUX_SURFACE_ID")
+        environment["CMUX_PANEL_ID"] = surfaceId
+
+        let result = runProcess(
+            executablePath: cliPath,
+            arguments: [
+                "events",
+                "--scope", "surface",
+                "--limit", "1",
+                "--no-ack",
+                "--no-heartbeat"
+            ],
+            environment: environment,
+            timeout: 5
+        )
+
+        wait(for: [serverHandled], timeout: 5)
+        XCTAssertFalse(result.timedOut, result.stderr)
+        XCTAssertEqual(result.status, 0, result.stderr)
+        XCTAssertTrue(result.stdout.contains(#""seq":1"#), result.stdout)
+        XCTAssertEqual(
+            state.commands.compactMap { self.jsonObject($0)?["method"] as? String },
+            ["events.stream"]
+        )
+    }
+
+    func testWindowScopeWithSurfaceUUIDDoesNotAddCallerWorkspace() throws {
+        let cliPath = try bundledCLIPath()
+        let socketPath = makeSocketPath("evt-surf")
+        let listenerFD = try bindUnixSocket(at: socketPath)
+        let state = MockSocketServerState()
+        let callerWorkspaceId = "11111111-1111-1111-1111-111111111111"
+        let surfaceId = "33333333-3333-3333-3333-333333333333"
+
+        defer {
+            Darwin.close(listenerFD)
+            unlink(socketPath)
+        }
+
+        let serverHandled = startMultiConnectionMockServer(
+            listenerFD: listenerFD,
+            connectionCount: 2,
+            state: state
+        ) { line in
+            guard let payload = self.jsonObject(line),
+                  let id = payload["id"] as? String,
+                  let method = payload["method"] as? String else {
+                return self.malformedRequestResponse(raw: line)
+            }
+            switch method {
+            case "events.stream":
+                let params = payload["params"] as? [String: Any] ?? [:]
+                let caller = params["caller"] as? [String: Any] ?? [:]
+                XCTAssertEqual(params["scope"] as? String, "window")
+                XCTAssertNil(params["workspace_id"])
+                XCTAssertEqual(params["surface_id"] as? String, surfaceId)
+                XCTAssertEqual(caller["workspace_id"] as? String, callerWorkspaceId)
+                return #"{"type":"event","seq":1}"#
+            default:
+                return self.v2Response(
+                    id: id,
+                    ok: false,
+                    error: ["code": "unexpected_method", "message": "Unexpected method \(method)"]
+                )
+            }
+        }
+
+        var environment = ProcessInfo.processInfo.environment
+        environment["CMUX_SOCKET_PATH"] = socketPath
+        environment["CMUX_CLI_SENTRY_DISABLED"] = "1"
+        environment["CMUX_WORKSPACE_ID"] = callerWorkspaceId
+
+        let result = runProcess(
+            executablePath: cliPath,
+            arguments: [
+                "events",
+                "--scope", "window",
+                "--surface", surfaceId,
+                "--limit", "1",
+                "--no-ack",
+                "--no-heartbeat"
+            ],
+            environment: environment,
+            timeout: 5
+        )
+
+        wait(for: [serverHandled], timeout: 5)
+        XCTAssertFalse(result.timedOut, result.stderr)
+        XCTAssertEqual(result.status, 0, result.stderr)
+        XCTAssertTrue(result.stdout.contains(#""seq":1"#), result.stdout)
+        XCTAssertEqual(
+            state.commands.compactMap { self.jsonObject($0)?["method"] as? String },
+            ["events.stream"]
+        )
+    }
+
+    func testEventsTabRefSelectorCanonicalizesToSurfaceRef() throws {
+        let cliPath = try bundledCLIPath()
+        let socketPath = makeSocketPath("evt-tab")
+        let listenerFD = try bindUnixSocket(at: socketPath)
+        let state = MockSocketServerState()
+
+        defer {
+            Darwin.close(listenerFD)
+            unlink(socketPath)
+        }
+
+        let serverHandled = startMultiConnectionMockServer(
+            listenerFD: listenerFD,
+            connectionCount: 2,
+            state: state
+        ) { line in
+            guard let payload = self.jsonObject(line),
+                  let id = payload["id"] as? String,
+                  let method = payload["method"] as? String else {
+                return self.malformedRequestResponse(raw: line)
+            }
+            switch method {
+            case "events.stream":
+                let params = payload["params"] as? [String: Any] ?? [:]
+                XCTAssertEqual(params["scope"] as? String, "surface")
+                XCTAssertEqual(params["surface_id"] as? String, "surface:2")
+                return #"{"type":"event","seq":1}"#
+            default:
+                return self.v2Response(
+                    id: id,
+                    ok: false,
+                    error: ["code": "unexpected_method", "message": "Unexpected method \(method)"]
+                )
+            }
+        }
+
+        var environment = ProcessInfo.processInfo.environment
+        environment["CMUX_SOCKET_PATH"] = socketPath
+        environment["CMUX_CLI_SENTRY_DISABLED"] = "1"
+
+        let result = runProcess(
+            executablePath: cliPath,
+            arguments: [
+                "events",
+                "--tab", "tab:2",
+                "--limit", "1",
+                "--no-ack",
+                "--no-heartbeat"
+            ],
+            environment: environment,
+            timeout: 5
+        )
+
+        wait(for: [serverHandled], timeout: 5)
+        XCTAssertFalse(result.timedOut, result.stderr)
+        XCTAssertEqual(result.status, 0, result.stderr)
+        XCTAssertTrue(result.stdout.contains(#""seq":1"#), result.stdout)
+        XCTAssertEqual(
+            state.commands.compactMap { self.jsonObject($0)?["method"] as? String },
+            ["events.stream"]
+        )
+    }
+
     @MainActor
     func testNotifyWithUUIDSurfaceKeepsCallerWorkspaceFallback() throws {
         let cliPath = try bundledCLIPath()

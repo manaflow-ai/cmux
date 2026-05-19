@@ -6,11 +6,327 @@ struct CmuxEventSubscriptionSnapshot {
     let ack: [String: Any]
 }
 
+final class CmuxEventWindowWorkspaceIndex: @unchecked Sendable {
+    static let shared = CmuxEventWindowWorkspaceIndex()
+
+    struct SurfaceLocation {
+        let workspaceId: String?
+        let windowId: String?
+        let paneId: String?
+    }
+
+    private let lock = NSLock()
+    private var workspaceIdsByWindowId: [String: Set<String>] = [:]
+    private var windowIdByWorkspaceId: [String: String] = [:]
+    private var surfaceLocationBySurfaceId: [String: SurfaceLocation] = [:]
+
+    func replace(windowId: UUID?, workspaceIds: [UUID]) {
+        replace(
+            windowId: windowId?.uuidString,
+            workspaceIds: Set(workspaceIds.map(\.uuidString))
+        )
+    }
+
+    func replace(windowId: String?, workspaceIds: Set<String>) {
+        guard let windowId = Self.normalizedId(windowId) else { return }
+        let normalizedWorkspaceIds = Set(workspaceIds.compactMap(Self.normalizedId))
+        lock.lock()
+        let previousWorkspaceIds = workspaceIdsByWindowId[windowId] ?? []
+        for workspaceId in previousWorkspaceIds where windowIdByWorkspaceId[workspaceId] == windowId {
+            windowIdByWorkspaceId.removeValue(forKey: workspaceId)
+        }
+        workspaceIdsByWindowId[windowId] = normalizedWorkspaceIds
+        for workspaceId in normalizedWorkspaceIds {
+            for existingWindowId in Array(workspaceIdsByWindowId.keys) where existingWindowId != windowId {
+                workspaceIdsByWindowId[existingWindowId]?.remove(workspaceId)
+            }
+            windowIdByWorkspaceId[workspaceId] = windowId
+        }
+        lock.unlock()
+    }
+
+    func workspaceIds(windowId: String) -> Set<String> {
+        guard let windowId = Self.normalizedId(windowId) else { return [] }
+        lock.lock()
+        defer { lock.unlock() }
+        return workspaceIdsByWindowId[windowId] ?? []
+    }
+
+    func windowId(workspaceId: String?) -> String? {
+        guard let workspaceId = Self.normalizedId(workspaceId) else { return nil }
+        lock.lock()
+        defer { lock.unlock() }
+        return windowIdByWorkspaceId[workspaceId]
+    }
+
+    func rememberWorkspace(windowId: String?, workspaceId: String?) {
+        guard let windowId = Self.normalizedId(windowId),
+              let workspaceId = Self.normalizedId(workspaceId) else { return }
+        lock.lock()
+        if let oldWindowId = windowIdByWorkspaceId[workspaceId],
+           oldWindowId != windowId {
+            workspaceIdsByWindowId[oldWindowId]?.remove(workspaceId)
+        }
+        for existingWindowId in Array(workspaceIdsByWindowId.keys) where existingWindowId != windowId {
+            workspaceIdsByWindowId[existingWindowId]?.remove(workspaceId)
+        }
+        workspaceIdsByWindowId[windowId, default: []].insert(workspaceId)
+        windowIdByWorkspaceId[workspaceId] = windowId
+        lock.unlock()
+    }
+
+    func forgetWorkspace(workspaceId: String?) {
+        guard let workspaceId = Self.normalizedId(workspaceId) else { return }
+        lock.lock()
+        windowIdByWorkspaceId.removeValue(forKey: workspaceId)
+        for windowId in Array(workspaceIdsByWindowId.keys) {
+            workspaceIdsByWindowId[windowId]?.remove(workspaceId)
+        }
+        lock.unlock()
+    }
+
+    func rememberSurface(surfaceId: String?, workspaceId: String?, windowId: String?, paneId: String?) {
+        guard let surfaceId = Self.normalizedId(surfaceId) else { return }
+        lock.lock()
+        let existing = surfaceLocationBySurfaceId[surfaceId]
+        let normalizedWorkspaceId = Self.normalizedId(workspaceId) ?? existing?.workspaceId
+        let normalizedWindowId = Self.normalizedId(windowId) ??
+            normalizedWorkspaceId.flatMap { windowIdByWorkspaceId[$0] } ??
+            existing?.windowId
+        let normalizedPaneId = Self.normalizedId(paneId) ?? existing?.paneId
+        surfaceLocationBySurfaceId[surfaceId] = SurfaceLocation(
+            workspaceId: normalizedWorkspaceId,
+            windowId: normalizedWindowId,
+            paneId: normalizedPaneId
+        )
+        lock.unlock()
+    }
+
+    func forgetSurface(surfaceId: String?) {
+        guard let surfaceId = Self.normalizedId(surfaceId) else { return }
+        lock.lock()
+        surfaceLocationBySurfaceId.removeValue(forKey: surfaceId)
+        lock.unlock()
+    }
+
+    func surfaceLocation(surfaceId: String?) -> SurfaceLocation? {
+        guard let surfaceId = Self.normalizedId(surfaceId) else { return nil }
+        lock.lock()
+        defer { lock.unlock() }
+        return surfaceLocationBySurfaceId[surfaceId]
+    }
+
+    #if DEBUG
+    func resetForTesting() {
+        lock.lock()
+        workspaceIdsByWindowId.removeAll()
+        windowIdByWorkspaceId.removeAll()
+        surfaceLocationBySurfaceId.removeAll()
+        lock.unlock()
+    }
+    #endif
+
+    private static func normalizedId(_ value: String?) -> String? {
+        guard let trimmed = value?.trimmingCharacters(in: .whitespacesAndNewlines),
+              !trimmed.isEmpty else {
+            return nil
+        }
+        if let uuid = UUID(uuidString: trimmed) {
+            return uuid.uuidString
+        }
+        return trimmed
+    }
+}
+
+struct CmuxEventScope {
+    enum Kind: String {
+        case global
+        case window
+        case workspace
+        case surface
+        case pane
+    }
+
+    let kind: Kind
+    let windowId: String?
+    let workspaceId: String?
+    let surfaceId: String?
+    let paneId: String?
+    let windowWorkspaceIds: Set<String>
+    private let currentWindowWorkspaceIdsProvider: (@Sendable () -> Set<String>)?
+
+    static let global = CmuxEventScope(kind: .global)
+
+    init(
+        kind: Kind,
+        windowId: String? = nil,
+        workspaceId: String? = nil,
+        surfaceId: String? = nil,
+        paneId: String? = nil,
+        windowWorkspaceIds: Set<String> = [],
+        currentWindowWorkspaceIdsProvider: (@Sendable () -> Set<String>)? = nil
+    ) {
+        self.kind = kind
+        self.windowId = Self.normalizedId(windowId)
+        self.workspaceId = Self.normalizedId(workspaceId)
+        self.surfaceId = Self.normalizedId(surfaceId)
+        self.paneId = Self.normalizedId(paneId)
+        self.windowWorkspaceIds = Set(windowWorkspaceIds.compactMap(Self.normalizedId))
+        self.currentWindowWorkspaceIdsProvider = currentWindowWorkspaceIdsProvider
+    }
+
+    func accepts(_ event: [String: Any], allowDynamicWindowWorkspaceIds: Bool = true) -> Bool {
+        switch kind {
+        case .global:
+            return true
+        case .window:
+            guard let windowId else { return false }
+            let explicitWindowIds = Self.windowIds(event)
+            if !explicitWindowIds.isEmpty {
+                if explicitWindowIds.contains(windowId) {
+                    return true
+                }
+                if explicitWindowIds.contains(where: Self.isConcreteWindowId) {
+                    return false
+                }
+            }
+            let eventWorkspaceIds = Self.workspaceIds(event)
+            let scopedWorkspaceIds: Set<String>
+            if allowDynamicWindowWorkspaceIds, let currentWindowWorkspaceIdsProvider {
+                scopedWorkspaceIds = Set(currentWindowWorkspaceIdsProvider().compactMap(Self.normalizedId))
+            } else {
+                scopedWorkspaceIds = windowWorkspaceIds
+            }
+            return eventWorkspaceIds.contains(where: { scopedWorkspaceIds.contains($0) })
+        case .workspace:
+            guard let workspaceId else { return false }
+            return Self.stringValue(event["workspace_id"]) == workspaceId ||
+                Self.payloadContains(event, key: "workspace_id", id: workspaceId) ||
+                Self.payloadContains(event, key: "previous_workspace_id", id: workspaceId) ||
+                Self.payloadContains(event, key: "source_workspace_id", id: workspaceId) ||
+                Self.payloadContains(event, key: "target_workspace_id", id: workspaceId) ||
+                Self.payloadContains(event, key: "destination_workspace_id", id: workspaceId) ||
+                Self.payloadContains(event, key: "created_workspace_id", id: workspaceId)
+        case .surface:
+            guard let surfaceId else { return false }
+            return Self.stringValue(event["surface_id"]) == surfaceId ||
+                Self.payloadContains(event, key: "surface_id", id: surfaceId) ||
+                Self.payloadContains(event, key: "tab_id", id: surfaceId) ||
+                Self.payloadContains(event, key: "selected_surface_id", id: surfaceId) ||
+                Self.payloadContains(event, key: "previous_surface_id", id: surfaceId) ||
+                Self.payloadContains(event, key: "source_surface_id", id: surfaceId) ||
+                Self.payloadContains(event, key: "target_surface_id", id: surfaceId) ||
+                Self.payloadContains(event, key: "created_surface_id", id: surfaceId) ||
+                Self.payloadContains(event, key: "created_tab_id", id: surfaceId) ||
+                Self.payloadStringArray(event, key: "closed_surface_ids").contains(surfaceId)
+        case .pane:
+            guard let paneId else { return false }
+            return Self.stringValue(event["pane_id"]) == paneId ||
+                Self.payloadContains(event, key: "pane_id", id: paneId) ||
+                Self.payloadContains(event, key: "source_pane_id", id: paneId) ||
+                Self.payloadContains(event, key: "target_pane_id", id: paneId)
+        }
+    }
+
+    var ackPayload: [String: Any] {
+        var payload: [String: Any] = ["kind": kind.rawValue]
+        if let windowId { payload["window_id"] = windowId }
+        if let workspaceId { payload["workspace_id"] = workspaceId }
+        if let surfaceId { payload["surface_id"] = surfaceId }
+        if let paneId { payload["pane_id"] = paneId }
+        if kind == .window {
+            payload["workspace_ids"] = Array(windowWorkspaceIds).sorted()
+        }
+        return payload
+    }
+
+    private static func normalizedId(_ value: String?) -> String? {
+        guard let trimmed = value?.trimmingCharacters(in: .whitespacesAndNewlines),
+              !trimmed.isEmpty else {
+            return nil
+        }
+        if let uuid = UUID(uuidString: trimmed) {
+            return uuid.uuidString
+        }
+        return trimmed
+    }
+
+    private static func stringValue(_ value: Any?) -> String? {
+        if let string = value as? String {
+            return normalizedId(string)
+        }
+        return nil
+    }
+
+    private static func isConcreteWindowId(_ value: String) -> Bool {
+        !value.trimmingCharacters(in: .whitespacesAndNewlines)
+            .lowercased()
+            .hasPrefix("window:")
+    }
+
+    private static func payloadContains(_ event: [String: Any], key: String, id: String) -> Bool {
+        payloadStrings(event, key: key).contains(id)
+    }
+
+    private static func payloadStrings(_ event: [String: Any], key: String) -> [String] {
+        guard let payload = event["payload"] as? [String: Any] else { return [] }
+        let containers: [[String: Any]] = [payload] + ["result", "params"].compactMap {
+            payload[$0] as? [String: Any]
+        }
+        var result: [String] = []
+        for container in containers {
+            if let value = stringValue(container[key]) {
+                result.append(value)
+            }
+        }
+        return result
+    }
+
+    private static func payloadStringArray(_ event: [String: Any], key: String) -> [String] {
+        guard let payload = event["payload"] as? [String: Any] else { return [] }
+        let containers: [[String: Any]] = [payload] + ["result", "params"].compactMap {
+            payload[$0] as? [String: Any]
+        }
+        var result: [String] = []
+        for container in containers {
+            if let values = container[key] as? [String] {
+                result.append(contentsOf: values.compactMap(normalizedId))
+            } else if let values = container[key] as? [Any] {
+                result.append(contentsOf: values.compactMap { stringValue($0) })
+            }
+        }
+        return result
+    }
+
+    private static func workspaceIds(_ event: [String: Any]) -> [String] {
+        var ids: [String] = []
+        if let workspaceId = stringValue(event["workspace_id"]) {
+            ids.append(workspaceId)
+        }
+        for key in ["workspace_id", "previous_workspace_id", "source_workspace_id", "target_workspace_id", "destination_workspace_id", "created_workspace_id"] {
+            ids.append(contentsOf: payloadStrings(event, key: key))
+        }
+        return ids
+    }
+
+    private static func windowIds(_ event: [String: Any]) -> Set<String> {
+        var ids: Set<String> = []
+        if let windowId = stringValue(event["window_id"]) {
+            ids.insert(windowId)
+        }
+        for key in ["window_id", "source_window_id", "destination_window_id", "target_window_id", "previous_window_id"] {
+            ids.formUnion(payloadStrings(event, key: key))
+        }
+        return ids
+    }
+}
+
 // Sendable safety: every mutable field is protected by `lock`; `semaphore` only wakes `next(timeout:)`.
 final class CmuxEventSubscription: @unchecked Sendable {
     let id: UUID
     let names: Set<String>
     let categories: Set<String>
+    let scope: CmuxEventScope
     let maxPendingEvents: Int
 
     private let lock = NSLock()
@@ -19,21 +335,28 @@ final class CmuxEventSubscription: @unchecked Sendable {
     private var closed = false
     private var closedReason: String?
 
-    init(id: UUID = UUID(), names: Set<String>, categories: Set<String>, maxPendingEvents: Int) {
+    init(
+        id: UUID = UUID(),
+        names: Set<String>,
+        categories: Set<String>,
+        scope: CmuxEventScope,
+        maxPendingEvents: Int
+    ) {
         self.id = id
         self.names = names
         self.categories = categories
+        self.scope = scope
         self.maxPendingEvents = max(1, maxPendingEvents)
     }
 
-    func accepts(_ event: [String: Any]) -> Bool {
+    func accepts(_ event: [String: Any], allowDynamicWindowWorkspaceIds: Bool = true) -> Bool {
         if !names.isEmpty {
             guard let name = event["name"] as? String, names.contains(name) else { return false }
         }
         if !categories.isEmpty {
             guard let category = event["category"] as? String, categories.contains(category) else { return false }
         }
-        return true
+        return scope.accepts(event, allowDynamicWindowWorkspaceIds: allowDynamicWindowWorkspaceIds)
     }
 
     var isClosed: Bool {
@@ -173,6 +496,35 @@ final class CmuxEventBus: @unchecked Sendable {
     ) {
         let occurredAt = Self.isoTimestamp(Date())
         let cleanPayload = Self.sanitizedJSONValue(payload)
+        let indexedSurfaceLocation = CmuxEventWindowWorkspaceIndex.shared.surfaceLocation(surfaceId: surfaceId)
+        let resolvedWorkspaceId = workspaceId ?? indexedSurfaceLocation?.workspaceId
+        let resolvedPaneId = paneId ?? indexedSurfaceLocation?.paneId
+        let resolvedWindowId = windowId ??
+            CmuxEventWindowWorkspaceIndex.shared.windowId(workspaceId: resolvedWorkspaceId) ??
+            indexedSurfaceLocation?.windowId
+        if name == "workspace.closed" {
+            CmuxEventWindowWorkspaceIndex.shared.forgetWorkspace(workspaceId: resolvedWorkspaceId)
+        } else if Self.isAuthoritativeWorkspaceMembership(workspaceId: resolvedWorkspaceId, windowId: windowId) {
+            CmuxEventWindowWorkspaceIndex.shared.rememberWorkspace(
+                windowId: resolvedWindowId,
+                workspaceId: resolvedWorkspaceId
+            )
+        }
+        if surfaceId != nil, resolvedWorkspaceId != nil || resolvedWindowId != nil || resolvedPaneId != nil {
+            CmuxEventWindowWorkspaceIndex.shared.rememberSurface(
+                surfaceId: surfaceId,
+                workspaceId: resolvedWorkspaceId,
+                windowId: resolvedWindowId,
+                paneId: resolvedPaneId
+            )
+        }
+        Self.rememberPayloadSurfaceLocations(
+            name: name,
+            payload: cleanPayload,
+            workspaceId: resolvedWorkspaceId,
+            windowId: resolvedWindowId,
+            paneId: resolvedPaneId
+        )
 
         lock.lock()
         let sequence = nextSequence
@@ -189,10 +541,10 @@ final class CmuxEventBus: @unchecked Sendable {
             "category": category,
             "source": source,
             "occurred_at": occurredAt,
-            "workspace_id": workspaceId ?? NSNull(),
+            "workspace_id": resolvedWorkspaceId ?? NSNull(),
             "surface_id": surfaceId ?? NSNull(),
-            "pane_id": paneId ?? NSNull(),
-            "window_id": windowId ?? NSNull(),
+            "pane_id": resolvedPaneId ?? NSNull(),
+            "window_id": resolvedWindowId ?? NSNull(),
             "payload": cleanPayload
         ]
 
@@ -212,16 +564,22 @@ final class CmuxEventBus: @unchecked Sendable {
                 removeSubscriptionIfStillActive(subscription)
             }
         }
+
+        for closedSurfaceId in Self.closedSurfaceIds(name: name, payload: cleanPayload) {
+            CmuxEventWindowWorkspaceIndex.shared.forgetSurface(surfaceId: closedSurfaceId)
+        }
     }
 
     func subscribe(
         afterSequence: Int64?,
         names: Set<String>,
-        categories: Set<String>
+        categories: Set<String>,
+        scope: CmuxEventScope = .global
     ) -> CmuxEventSubscriptionSnapshot {
         let subscription = CmuxEventSubscription(
             names: names,
             categories: categories,
+            scope: scope,
             maxPendingEvents: maxPendingEventsPerSubscription
         )
 
@@ -231,7 +589,7 @@ final class CmuxEventBus: @unchecked Sendable {
         let replay = retained.filter { event in
             let seq = Self.int64(event["seq"]) ?? 0
             let after = afterSequence ?? latestSequence
-            return seq > after && subscription.accepts(event)
+            return seq > after && subscription.accepts(event, allowDynamicWindowWorkspaceIds: false)
         }
         let requestedAfter = afterSequence ?? latestSequence
         let gapReason: String? = afterSequence.flatMap { after in
@@ -270,7 +628,8 @@ final class CmuxEventBus: @unchecked Sendable {
             "resume": resume,
             "filters": [
                 "names": Array(names).sorted(),
-                "categories": Array(categories).sorted()
+                "categories": Array(categories).sorted(),
+                "scope": scope.ackPayload
             ]
         ]
 
@@ -448,6 +807,88 @@ final class CmuxEventBus: @unchecked Sendable {
             "max_bytes": maxBytes
         ]
         return compact
+    }
+
+    private static func closedSurfaceIds(name: String, payload: Any) -> [String] {
+        if name == "surface.closed", let payload = payload as? [String: Any] {
+            return [payload["surface_id"]].compactMap { normalizedString($0) }
+        }
+        guard name == "pane.closed",
+              let payload = payload as? [String: Any] else {
+            return []
+        }
+        if let values = payload["closed_surface_ids"] as? [String] {
+            return values.compactMap(normalizedString)
+        }
+        if let values = payload["closed_surface_ids"] as? [Any] {
+            return values.compactMap(normalizedString)
+        }
+        return []
+    }
+
+    private static func rememberPayloadSurfaceLocations(
+        name: String,
+        payload: Any,
+        workspaceId: String?,
+        windowId: String?,
+        paneId: String?
+    ) {
+        guard name == "pane.swapped" else { return }
+        let sourcePaneId = payloadString(payload, key: "source_pane_id") ??
+            payloadString(payload, key: "pane_id") ??
+            paneId
+        let targetPaneId = payloadString(payload, key: "target_pane_id")
+        let sourceSurfaceId = payloadString(payload, key: "source_surface_id")
+        let targetSurfaceId = payloadString(payload, key: "target_surface_id")
+
+        if let sourceSurfaceId, let targetPaneId {
+            CmuxEventWindowWorkspaceIndex.shared.rememberSurface(
+                surfaceId: sourceSurfaceId,
+                workspaceId: workspaceId,
+                windowId: windowId,
+                paneId: targetPaneId
+            )
+        }
+        if let targetSurfaceId, let sourcePaneId {
+            CmuxEventWindowWorkspaceIndex.shared.rememberSurface(
+                surfaceId: targetSurfaceId,
+                workspaceId: workspaceId,
+                windowId: windowId,
+                paneId: sourcePaneId
+            )
+        }
+    }
+
+    private static func isAuthoritativeWorkspaceMembership(workspaceId: String?, windowId: String?) -> Bool {
+        guard let workspaceId, UUID(uuidString: workspaceId) != nil,
+              let windowId, UUID(uuidString: windowId) != nil else {
+            return false
+        }
+        return true
+    }
+
+    private static func payloadString(_ payload: Any, key: String) -> String? {
+        guard let payload = payload as? [String: Any] else { return nil }
+        let containers: [[String: Any]] = [payload] + ["result", "params"].compactMap {
+            payload[$0] as? [String: Any]
+        }
+        for container in containers {
+            if let value = normalizedString(container[key]) {
+                return value
+            }
+        }
+        return nil
+    }
+
+    private static func normalizedString(_ value: Any?) -> String? {
+        guard let trimmed = (value as? String)?.trimmingCharacters(in: .whitespacesAndNewlines),
+              !trimmed.isEmpty else {
+            return nil
+        }
+        if let uuid = UUID(uuidString: trimmed) {
+            return uuid.uuidString
+        }
+        return trimmed
     }
 
     private static func truncatedString(_ value: String, maxUTF8Bytes: Int) -> String {

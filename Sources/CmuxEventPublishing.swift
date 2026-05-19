@@ -4,6 +4,7 @@ import CMUXWorkstream
 extension CmuxEventBus {
     func publishWorkspaceCreated(
         workspaceId: UUID,
+        windowId: UUID?,
         title: String,
         customTitle: String?,
         currentDirectory: String,
@@ -16,6 +17,7 @@ extension CmuxEventBus {
             category: "workspace",
             source: "workspace.lifecycle",
             workspaceId: workspaceId.uuidString,
+            windowId: windowId?.uuidString,
             payload: workspacePayload(
                 workspaceId: workspaceId,
                 title: title,
@@ -30,6 +32,7 @@ extension CmuxEventBus {
 
     func publishWorkspaceClosed(
         workspaceId: UUID,
+        windowId: UUID?,
         title: String,
         customTitle: String?,
         currentDirectory: String,
@@ -40,6 +43,7 @@ extension CmuxEventBus {
             category: "workspace",
             source: "workspace.lifecycle",
             workspaceId: workspaceId.uuidString,
+            windowId: windowId?.uuidString,
             payload: workspacePayload(
                 workspaceId: workspaceId,
                 title: title,
@@ -54,6 +58,7 @@ extension CmuxEventBus {
 
     func publishWorkspaceSelected(
         workspaceId: UUID,
+        windowId: UUID?,
         title: String,
         customTitle: String?,
         currentDirectory: String,
@@ -66,6 +71,7 @@ extension CmuxEventBus {
             category: "workspace",
             source: "workspace.lifecycle",
             workspaceId: workspaceId.uuidString,
+            windowId: windowId?.uuidString,
             payload: workspacePayload(
                 workspaceId: workspaceId,
                 title: title,
@@ -109,6 +115,7 @@ extension CmuxEventBus {
 
     func publishPaneCreated(
         workspaceId: UUID,
+        windowId: UUID?,
         paneId: UUID,
         sourcePaneId: UUID?,
         orientation: String,
@@ -122,6 +129,7 @@ extension CmuxEventBus {
             workspaceId: workspaceId.uuidString,
             surfaceId: surfaceId?.uuidString,
             paneId: paneId.uuidString,
+            windowId: windowId?.uuidString,
             payload: [
                 "pane_id": paneId.uuidString,
                 "source_pane_id": sourcePaneId?.uuidString ?? NSNull(),
@@ -134,6 +142,7 @@ extension CmuxEventBus {
 
     func publishSurfaceCreated(
         workspaceId: UUID,
+        windowId: UUID?,
         surfaceId: UUID,
         paneId: UUID?,
         kind: String,
@@ -147,6 +156,7 @@ extension CmuxEventBus {
             workspaceId: workspaceId.uuidString,
             surfaceId: surfaceId.uuidString,
             paneId: paneId?.uuidString,
+            windowId: windowId?.uuidString,
             payload: [
                 "surface_id": surfaceId.uuidString,
                 "pane_id": paneId?.uuidString ?? NSNull(),
@@ -159,6 +169,7 @@ extension CmuxEventBus {
 
     func publishSurfaceSelected(
         workspaceId: UUID,
+        windowId: UUID?,
         surfaceId: UUID,
         paneId: UUID?,
         kind: String?,
@@ -173,6 +184,7 @@ extension CmuxEventBus {
             workspaceId: workspaceId.uuidString,
             surfaceId: surfaceId.uuidString,
             paneId: paneId?.uuidString,
+            windowId: windowId?.uuidString,
             payload: [
                 "surface_id": surfaceId.uuidString,
                 "pane_id": paneId?.uuidString ?? NSNull(),
@@ -184,7 +196,7 @@ extension CmuxEventBus {
         )
     }
 
-    func publishSurfaceFocused(workspaceId: UUID, surfaceId: UUID, paneId: UUID?, kind: String?, origin: String) {
+    func publishSurfaceFocused(workspaceId: UUID, windowId: UUID?, surfaceId: UUID, paneId: UUID?, kind: String?, origin: String) {
         publish(
             name: "surface.focused",
             category: "surface",
@@ -192,6 +204,7 @@ extension CmuxEventBus {
             workspaceId: workspaceId.uuidString,
             surfaceId: surfaceId.uuidString,
             paneId: paneId?.uuidString,
+            windowId: windowId?.uuidString,
             payload: [
                 "surface_id": surfaceId.uuidString,
                 "pane_id": paneId?.uuidString ?? NSNull(),
@@ -201,7 +214,7 @@ extension CmuxEventBus {
         )
     }
 
-    func publishSurfaceClosed(workspaceId: UUID, surfaceId: UUID, paneId: UUID?, kind: String?, origin: String) {
+    func publishSurfaceClosed(workspaceId: UUID, windowId: UUID?, surfaceId: UUID, paneId: UUID?, kind: String?, origin: String) {
         publish(
             name: "surface.closed",
             category: "surface",
@@ -209,6 +222,7 @@ extension CmuxEventBus {
             workspaceId: workspaceId.uuidString,
             surfaceId: surfaceId.uuidString,
             paneId: paneId?.uuidString,
+            windowId: windowId?.uuidString,
             payload: [
                 "surface_id": surfaceId.uuidString,
                 "pane_id": paneId?.uuidString ?? NSNull(),
@@ -218,13 +232,14 @@ extension CmuxEventBus {
         )
     }
 
-    func publishPaneClosed(workspaceId: UUID, paneId: UUID, closedSurfaceIds: [UUID], origin: String) {
+    func publishPaneClosed(workspaceId: UUID, windowId: UUID?, paneId: UUID, closedSurfaceIds: [UUID], origin: String) {
         publish(
             name: "pane.closed",
             category: "pane",
             source: "workspace.lifecycle",
             workspaceId: workspaceId.uuidString,
             paneId: paneId.uuidString,
+            windowId: windowId?.uuidString,
             payload: [
                 "pane_id": paneId.uuidString,
                 "closed_surface_ids": closedSurfaceIds.map(\.uuidString),
@@ -233,7 +248,7 @@ extension CmuxEventBus {
         )
     }
 
-    func publishPaneFocused(workspaceId: UUID, paneId: UUID, selectedSurfaceId: UUID?, origin: String) {
+    func publishPaneFocused(workspaceId: UUID, windowId: UUID?, paneId: UUID, selectedSurfaceId: UUID?, origin: String) {
         publish(
             name: "pane.focused",
             category: "pane",
@@ -241,6 +256,7 @@ extension CmuxEventBus {
             workspaceId: workspaceId.uuidString,
             surfaceId: selectedSurfaceId?.uuidString,
             paneId: paneId.uuidString,
+            windowId: windowId?.uuidString,
             payload: [
                 "pane_id": paneId.uuidString,
                 "selected_surface_id": selectedSurfaceId?.uuidString ?? NSNull(),
@@ -297,6 +313,7 @@ extension CmuxEventBus {
             source: "notification.store",
             workspaceId: workspaceId?.uuidString,
             surfaceId: surfaceId?.uuidString,
+            windowId: windowIdForWorkspace(workspaceId),
             payload: [
                 "notification_ids": ids,
                 "count": ids.count
@@ -319,6 +336,7 @@ extension CmuxEventBus {
             source: "notification.store",
             workspaceId: workspaceId?.uuidString,
             surfaceId: surfaceId?.uuidString,
+            windowId: windowIdForWorkspace(workspaceId),
             payload: [
                 "notification_ids": ids,
                 "count": ids.count
@@ -348,6 +366,7 @@ extension CmuxEventBus {
             source: "notification.store",
             workspaceId: notification.tabId.uuidString,
             surfaceId: notification.surfaceId?.uuidString,
+            windowId: windowIdForWorkspace(notification.tabId),
             payload: payload
         )
     }
@@ -365,6 +384,7 @@ extension CmuxEventBus {
             category: "agent",
             source: event.source,
             workspaceId: event.workspaceId,
+            windowId: windowIdForWorkspace(event.workspaceId),
             payload: payload
         )
 
@@ -373,6 +393,7 @@ extension CmuxEventBus {
             category: "feed",
             source: event.source,
             workspaceId: event.workspaceId,
+            windowId: windowIdForWorkspace(event.workspaceId),
             payload: payload
         )
     }
@@ -417,6 +438,24 @@ extension CmuxEventBus {
         let encoder = JSONEncoder()
         encoder.dateEncodingStrategy = .iso8601
         return try? encoder.encode(value).count
+    }
+
+    private func windowIdForWorkspace(_ workspaceId: UUID?) -> String? {
+        guard let workspaceId, Thread.isMainThread else {
+            return nil
+        }
+        return MainActor.assumeIsolated {
+            guard let tabManager = AppDelegate.shared?.tabManagerFor(tabId: workspaceId),
+                  let windowId = AppDelegate.shared?.windowId(for: tabManager) else {
+                return nil
+            }
+            return windowId.uuidString
+        }
+    }
+
+    private func windowIdForWorkspace(_ workspaceId: String?) -> String? {
+        guard let workspaceId, let uuid = UUID(uuidString: workspaceId) else { return nil }
+        return windowIdForWorkspace(uuid)
     }
 
     private func workspacePayload(

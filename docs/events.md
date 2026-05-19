@@ -12,6 +12,8 @@ from the same connection.
 
 ```bash
 cmux events --cursor-file ~/.cache/cmux/events.seq --reconnect
+cmux events --scope window
+cmux events --workspace workspace:1
 cmux events --category window --category workspace --category pane --category surface
 cmux events --category notification
 cmux events --category feed --category agent --no-heartbeat
@@ -49,6 +51,12 @@ Parameters:
 | `name` | string or array | Alias for `names`. |
 | `categories` | string array | Optional category filter. |
 | `category` | string or array | Alias for `categories`. |
+| `scope` | string | Optional scope filter. Supported values are `global`, `window`, `workspace`, `surface`, and `pane`. Defaults to `global`. |
+| `window_id` | string | Window UUID or ref for `scope: "window"`. If omitted, cmux uses caller context when available, then the focused window. |
+| `workspace_id` | string | Workspace UUID or ref for `scope: "workspace"`, or to resolve the owning window for `scope: "window"`. |
+| `surface_id` | string | Surface UUID or ref for `scope: "surface"`, or to resolve workspace/window context. `tab_id` is accepted as an alias. |
+| `pane_id` | string | Pane UUID or ref for `scope: "pane"`. |
+| `caller` | object | Optional caller context with `workspace_id`, `surface_id`, `tab_id`, or `pane_id`. The CLI sends this from `CMUX_*` environment variables. |
 | `include_heartbeats` | boolean | Defaults to `true`. Sends heartbeat frames when no event arrives. |
 
 The request line takes over the socket connection. Do not send additional
@@ -81,7 +89,11 @@ heartbeats.
   },
   "filters": {
     "names": [],
-    "categories": ["notification"]
+    "categories": ["notification"],
+    "scope": {
+      "kind": "workspace",
+      "workspace_id": "0F221057-0320-41B7-8CB3-083C8D927D95"
+    }
   }
 }
 ```
@@ -202,6 +214,11 @@ Options:
 | `--cursor-file <path>` | Read the starting sequence from a file and update it after each event. |
 | `--name <event>` | Filter by event name. Repeatable. |
 | `--category <name>` | Filter by category. Repeatable. |
+| `--scope <scope>` | Scope events to `global`, `window`, `workspace`, `surface`, or `pane`. Defaults to `global`. |
+| `--window <id\|ref\|index>` | Scope to a window. Implies `--scope window` unless `--scope` is set. |
+| `--workspace <id\|ref\|index>` | Scope to a workspace. Implies `--scope workspace` unless `--scope` is set. |
+| `--surface <id\|ref\|index>`, `--tab <id\|ref\|index>`, `--panel <id\|ref\|index>` | Scope to a surface. Implies `--scope surface` unless `--scope` is set. |
+| `--pane <id\|ref\|index>` | Scope to a pane. Implies `--scope pane` unless `--scope` is set. |
 | `--reconnect` | Reconnect forever and resume from the last received event. |
 | `--limit <n>` | Exit after printing `n` event frames. |
 | `--no-ack` | Hide the initial ack frame. |
