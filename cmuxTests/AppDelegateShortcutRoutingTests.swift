@@ -3200,9 +3200,7 @@ final class AppDelegateShortcutRoutingTests: XCTestCase {
         field.panelId = browserPanelId
         field.stringValue = "example"
         contentView.addSubview(field)
-        BrowserOmnibarNativeFieldRegistry.shared.register(field, panelId: browserPanelId)
         defer {
-            BrowserOmnibarNativeFieldRegistry.shared.unregister(field, panelId: browserPanelId)
             field.removeFromSuperview()
         }
 
@@ -3271,10 +3269,8 @@ final class AppDelegateShortcutRoutingTests: XCTestCase {
         field.panelId = browserPanelId
         field.stringValue = "ㄉㄚˋ"
         contentView.addSubview(field)
-        BrowserOmnibarNativeFieldRegistry.shared.register(field, panelId: browserPanelId)
 
         defer {
-            BrowserOmnibarNativeFieldRegistry.shared.unregister(field, panelId: browserPanelId)
             field.removeFromSuperview()
         }
 
@@ -3348,10 +3344,8 @@ final class AppDelegateShortcutRoutingTests: XCTestCase {
         field.panelId = browserPanelId
         field.stringValue = "example"
         contentView.addSubview(field)
-        BrowserOmnibarNativeFieldRegistry.shared.register(field, panelId: browserPanelId)
         defer {
             NotificationCenter.default.post(name: .browserDidBlurAddressBar, object: browserPanelId)
-            BrowserOmnibarNativeFieldRegistry.shared.unregister(field, panelId: browserPanelId)
             field.removeFromSuperview()
         }
 
