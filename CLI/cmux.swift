@@ -20117,7 +20117,7 @@ export default function cmuxPiSessionExtension(pi: ExtensionAPI) {
                 localized: "cli.hooks.error.configDirectoryIsFile",
                 defaultValue: "cmux could not create the hooks directory: a file exists at %@; remove or rename the conflicting file and re-run `cmux hooks setup`"
             ),
-            def.configDir
+            configDir
         )
         var isConfigDirectory: ObjCBool = false
         let configPathExists = fm.fileExists(atPath: configDir, isDirectory: &isConfigDirectory)
@@ -21368,7 +21368,9 @@ export default function cmuxPiSessionExtension(pi: ExtensionAPI) {
                 return nil
             }
             let workspaceId: String
-            if let resolved = resolveAccessibleWorkspaceId(workspaceArg) {
+            if let resolved = resolvedDirectWorkspaceArg {
+                workspaceId = resolved
+            } else if let resolved = resolveAccessibleWorkspaceId(processBinding?.workspaceId) {
                 workspaceId = resolved
             } else if let resolved = resolveAccessibleWorkspaceId(mapped?.workspaceId) {
                 workspaceId = resolved

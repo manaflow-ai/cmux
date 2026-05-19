@@ -1032,7 +1032,7 @@ extension CLINotifyProcessIntegrationRegressionTests {
         let cliPath = try bundledCLIPath()
         let root = FileManager.default.temporaryDirectory
             .appendingPathComponent("cmux-grok-hook-file-dir-\(UUID().uuidString)", isDirectory: true)
-        let grokRoot = root.appendingPathComponent(".grok", isDirectory: true)
+        let grokRoot = root.appendingPathComponent("custom-grok-home", isDirectory: true)
         let hooksPath = grokRoot.appendingPathComponent("hooks", isDirectory: false)
         try FileManager.default.createDirectory(at: grokRoot, withIntermediateDirectories: true)
         try Data("not a directory".utf8).write(to: hooksPath)
@@ -1043,6 +1043,7 @@ extension CLINotifyProcessIntegrationRegressionTests {
             arguments: ["hooks", "grok", "install", "--yes"],
             environment: [
                 "HOME": root.path,
+                "GROK_HOME": grokRoot.path,
                 "PATH": "/usr/bin:/bin:/usr/sbin:/sbin",
                 "CMUX_CLI_SENTRY_DISABLED": "1",
             ],
@@ -1052,7 +1053,7 @@ extension CLINotifyProcessIntegrationRegressionTests {
         XCTAssertFalse(result.timedOut, result.stderr)
         XCTAssertNotEqual(result.status, 0, result.stdout)
         XCTAssertTrue(
-            result.stderr.contains("cmux could not create the hooks directory: a file exists at .grok/hooks; remove or rename the conflicting file and re-run `cmux hooks setup`"),
+            result.stderr.contains("cmux could not create the hooks directory: a file exists at \(hooksPath.path); remove or rename the conflicting file and re-run `cmux hooks setup`"),
             result.stderr
         )
         XCTAssertFalse(
