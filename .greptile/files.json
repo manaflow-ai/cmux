@@ -23,7 +23,7 @@
     {
       "path": ".github/review-bot-rules/full-internationalization.md",
       "description": "Source-of-truth cmux review rule for complete localization across every supported app and web locale.",
-      "scope": ["**/*.swift", "Resources/*.xcstrings", "web/app/**/*.ts", "web/app/**/*.tsx", "web/i18n/**/*.ts", "web/messages/**/*.json"]
+      "scope": ["**/*.swift", "Resources/*.xcstrings", "web/app/*.ts", "web/app/*.tsx", "web/app/**/*.ts", "web/app/**/*.tsx", "web/data/*.ts", "web/data/*.json", "web/data/**/*.ts", "web/data/**/*.json", "web/i18n/*.ts", "web/i18n/**/*.ts", "web/messages/*.json", "web/messages/**/*.json"]
     },
     {
       "path": ".github/review-bot-rules/swift-concurrency-modernization.md",
