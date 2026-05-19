@@ -3302,7 +3302,6 @@ class GhosttyApp {
     }
 
     private func synchronizePendingInitialRuntimeColorSchemeIfNeeded() {
-        guard pendingInitialRuntimeColorSchemeSync != nil else { return }
         assert(Thread.isMainThread, "Initial Ghostty runtime color-scheme sync must flush from a main-thread lifecycle point")
         guard Thread.isMainThread else {
             return
