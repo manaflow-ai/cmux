@@ -103,30 +103,30 @@ struct CmuxEventScope {
         case .workspace:
             guard let workspaceId else { return false }
             return Self.stringValue(event["workspace_id"]) == workspaceId ||
-                Self.payloadString(event, key: "workspace_id") == workspaceId ||
-                Self.payloadString(event, key: "previous_workspace_id") == workspaceId ||
-                Self.payloadString(event, key: "source_workspace_id") == workspaceId ||
-                Self.payloadString(event, key: "target_workspace_id") == workspaceId ||
-                Self.payloadString(event, key: "destination_workspace_id") == workspaceId ||
-                Self.payloadString(event, key: "created_workspace_id") == workspaceId
+                Self.payloadContains(event, key: "workspace_id", id: workspaceId) ||
+                Self.payloadContains(event, key: "previous_workspace_id", id: workspaceId) ||
+                Self.payloadContains(event, key: "source_workspace_id", id: workspaceId) ||
+                Self.payloadContains(event, key: "target_workspace_id", id: workspaceId) ||
+                Self.payloadContains(event, key: "destination_workspace_id", id: workspaceId) ||
+                Self.payloadContains(event, key: "created_workspace_id", id: workspaceId)
         case .surface:
             guard let surfaceId else { return false }
             return Self.stringValue(event["surface_id"]) == surfaceId ||
-                Self.payloadString(event, key: "surface_id") == surfaceId ||
-                Self.payloadString(event, key: "tab_id") == surfaceId ||
-                Self.payloadString(event, key: "selected_surface_id") == surfaceId ||
-                Self.payloadString(event, key: "previous_surface_id") == surfaceId ||
-                Self.payloadString(event, key: "source_surface_id") == surfaceId ||
-                Self.payloadString(event, key: "target_surface_id") == surfaceId ||
-                Self.payloadString(event, key: "created_surface_id") == surfaceId ||
-                Self.payloadString(event, key: "created_tab_id") == surfaceId ||
+                Self.payloadContains(event, key: "surface_id", id: surfaceId) ||
+                Self.payloadContains(event, key: "tab_id", id: surfaceId) ||
+                Self.payloadContains(event, key: "selected_surface_id", id: surfaceId) ||
+                Self.payloadContains(event, key: "previous_surface_id", id: surfaceId) ||
+                Self.payloadContains(event, key: "source_surface_id", id: surfaceId) ||
+                Self.payloadContains(event, key: "target_surface_id", id: surfaceId) ||
+                Self.payloadContains(event, key: "created_surface_id", id: surfaceId) ||
+                Self.payloadContains(event, key: "created_tab_id", id: surfaceId) ||
                 Self.payloadStringArray(event, key: "closed_surface_ids").contains(surfaceId)
         case .pane:
             guard let paneId else { return false }
             return Self.stringValue(event["pane_id"]) == paneId ||
-                Self.payloadString(event, key: "pane_id") == paneId ||
-                Self.payloadString(event, key: "source_pane_id") == paneId ||
-                Self.payloadString(event, key: "target_pane_id") == paneId
+                Self.payloadContains(event, key: "pane_id", id: paneId) ||
+                Self.payloadContains(event, key: "source_pane_id", id: paneId) ||
+                Self.payloadContains(event, key: "target_pane_id", id: paneId)
         }
     }
 
@@ -160,19 +160,22 @@ struct CmuxEventScope {
         return nil
     }
 
-    private static func payloadString(_ event: [String: Any], key: String) -> String? {
-        guard let payload = event["payload"] as? [String: Any] else { return nil }
-        if let direct = stringValue(payload[key]) {
-            return direct
+    private static func payloadContains(_ event: [String: Any], key: String, id: String) -> Bool {
+        payloadStrings(event, key: key).contains(id)
+    }
+
+    private static func payloadStrings(_ event: [String: Any], key: String) -> [String] {
+        guard let payload = event["payload"] as? [String: Any] else { return [] }
+        let containers: [[String: Any]] = [payload] + ["result", "params"].compactMap {
+            payload[$0] as? [String: Any]
         }
-        for containerKey in ["result", "params"] {
-            guard let nested = payload[containerKey] as? [String: Any],
-                  let value = stringValue(nested[key]) else {
-                continue
+        var result: [String] = []
+        for container in containers {
+            if let value = stringValue(container[key]) {
+                result.append(value)
             }
-            return value
         }
-        return nil
+        return result
     }
 
     private static func payloadStringArray(_ event: [String: Any], key: String) -> [String] {
@@ -184,8 +187,7 @@ struct CmuxEventScope {
         for container in containers {
             if let values = container[key] as? [String] {
                 result.append(contentsOf: values.compactMap(normalizedId))
-            }
-            if let values = container[key] as? [Any] {
+            } else if let values = container[key] as? [Any] {
                 result.append(contentsOf: values.compactMap { stringValue($0) })
             }
         }
@@ -198,9 +200,7 @@ struct CmuxEventScope {
             ids.append(workspaceId)
         }
         for key in ["workspace_id", "previous_workspace_id", "source_workspace_id", "target_workspace_id", "destination_workspace_id", "created_workspace_id"] {
-            if let workspaceId = payloadString(event, key: key) {
-                ids.append(workspaceId)
-            }
+            ids.append(contentsOf: payloadStrings(event, key: key))
         }
         return ids
     }
@@ -211,9 +211,7 @@ struct CmuxEventScope {
             ids.insert(windowId)
         }
         for key in ["window_id", "source_window_id", "destination_window_id", "target_window_id", "previous_window_id"] {
-            if let windowId = payloadString(event, key: key) {
-                ids.insert(windowId)
-            }
+            ids.formUnion(payloadStrings(event, key: key))
         }
         return ids
     }

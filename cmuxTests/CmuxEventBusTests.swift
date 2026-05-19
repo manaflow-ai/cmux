@@ -538,6 +538,62 @@ final class CmuxEventBusTests: XCTestCase {
         XCTAssertEqual(createdTabSnapshot.replay.compactMap { $0["name"] as? String }, ["surface.action"])
     }
 
+    func testScopeFiltersMatchParamsAndResultIdsWithSameKey() throws {
+        let bus = CmuxEventBus(retainedEventLimit: 8)
+        bus.publish(
+            name: "pane.joined",
+            category: "pane",
+            source: "socket.v2",
+            payload: [
+                "method": "pane.join",
+                "params": [
+                    "pane_id": "pane-source",
+                    "workspace_id": "workspace-source"
+                ],
+                "result": [
+                    "pane_id": "pane-destination",
+                    "workspace_id": "workspace-destination"
+                ]
+            ]
+        )
+
+        let sourcePaneSnapshot = bus.subscribe(
+            afterSequence: 0,
+            names: [],
+            categories: [],
+            scope: CmuxEventScope(kind: .pane, paneId: "pane-source")
+        )
+        defer { bus.unsubscribe(sourcePaneSnapshot.subscription) }
+        XCTAssertEqual(sourcePaneSnapshot.replay.compactMap { $0["name"] as? String }, ["pane.joined"])
+
+        let destinationPaneSnapshot = bus.subscribe(
+            afterSequence: 0,
+            names: [],
+            categories: [],
+            scope: CmuxEventScope(kind: .pane, paneId: "pane-destination")
+        )
+        defer { bus.unsubscribe(destinationPaneSnapshot.subscription) }
+        XCTAssertEqual(destinationPaneSnapshot.replay.compactMap { $0["name"] as? String }, ["pane.joined"])
+
+        let sourceWorkspaceSnapshot = bus.subscribe(
+            afterSequence: 0,
+            names: [],
+            categories: [],
+            scope: CmuxEventScope(kind: .workspace, workspaceId: "workspace-source")
+        )
+        defer { bus.unsubscribe(sourceWorkspaceSnapshot.subscription) }
+        XCTAssertEqual(sourceWorkspaceSnapshot.replay.compactMap { $0["name"] as? String }, ["pane.joined"])
+
+        let destinationWorkspaceSnapshot = bus.subscribe(
+            afterSequence: 0,
+            names: [],
+            categories: [],
+            scope: CmuxEventScope(kind: .workspace, workspaceId: "workspace-destination")
+        )
+        defer { bus.unsubscribe(destinationWorkspaceSnapshot.subscription) }
+        XCTAssertEqual(destinationWorkspaceSnapshot.replay.compactMap { $0["name"] as? String }, ["pane.joined"])
+    }
+
     func testSlowSubscriptionClosesWhenPendingQueueIsFull() {
         let bus = CmuxEventBus(retainedEventLimit: 8, maxPendingEventsPerSubscription: 2)
         let snapshot = bus.subscribe(afterSequence: nil, names: [], categories: [])
