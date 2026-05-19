@@ -314,6 +314,11 @@ final class MarkdownPanelTests: XCTestCase {
 
         XCTAssertEqual(coordinator.webContentProcessRecoveryAttemptsForTesting, 2)
         XCTAssertFalse(coordinator.isShellLoadingForTesting)
+
+        coordinator.update(markdown: "# Existing\n", theme: theme)
+
+        XCTAssertEqual(coordinator.webContentProcessRecoveryAttemptsForTesting, 2)
+        XCTAssertFalse(coordinator.isShellLoadingForTesting)
     }
 
     func testMarkdownRendererNavigationFailureUnblocksFutureShellReload() {

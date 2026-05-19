@@ -250,7 +250,9 @@ struct MarkdownWebRenderer: NSViewRepresentable {
                     loadShell(theme: theme, initialMarkdown: markdown)
                 }
             } else if shellNeedsReload {
-                loadShell(theme: theme, initialMarkdown: markdown)
+                if webContentProcessRecoveryAttempts < maxWebContentProcessRecoveryAttempts {
+                    loadShell(theme: theme, initialMarkdown: markdown)
+                }
             }
         }
 
