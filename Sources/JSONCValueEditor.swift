@@ -130,8 +130,18 @@ private struct JSONCValueRangeFinder {
             )
         }
 
-        let nestedLiteral = try objectLiteral(for: Array(components.dropFirst()), leafLiteral: literal)
-        return try insertingMember(key: key, valueLiteral: nestedLiteral, inObjectAt: objectStart)
+        let insertionContext = try objectInsertionContext(inObjectAt: objectStart)
+        let nestedLiteral = try objectLiteral(
+            for: Array(components.dropFirst()),
+            leafLiteral: literal,
+            objectIndent: insertionContext.childIndent
+        )
+        return try insertingMember(
+            key: key,
+            valueLiteral: nestedLiteral,
+            inObjectAt: objectStart,
+            context: insertionContext
+        )
     }
 
     private func memberValueRange(inObjectAt objectStart: String.Index, key: String) throws -> Range<String.Index>? {
@@ -175,16 +185,18 @@ private struct JSONCValueRangeFinder {
     private func insertingMember(
         key: String,
         valueLiteral: String,
-        inObjectAt objectStart: String.Index
+        inObjectAt objectStart: String.Index,
+        context: ObjectInsertionContext? = nil
     ) throws -> String {
-        let objectEnd = try scanBalanced(from: objectStart, open: "{")
-        let closingBrace = text.index(before: objectEnd)
-        let closeIndent = indentation(containing: closingBrace)
-        let childIndent = try childIndentation(
-            inObjectAt: objectStart,
-            closingBrace: closingBrace,
-            closeIndent: closeIndent
-        )
+        let insertionContext: ObjectInsertionContext
+        if let context {
+            insertionContext = context
+        } else {
+            insertionContext = try objectInsertionContext(inObjectAt: objectStart)
+        }
+        let closingBrace = insertionContext.closingBrace
+        let closeIndent = insertionContext.closeIndent
+        let childIndent = insertionContext.childIndent
         let quotedKey = try JSONCValueEditor.literal(for: key)
 
         if let tail = try lastObjectMemberTail(objectStart: objectStart, closingBrace: closingBrace) {
@@ -202,6 +214,28 @@ private struct JSONCValueRangeFinder {
         let insertionIndex = trailingWhitespaceStart(before: closingBrace)
         let inserted = "\n\(childIndent)\(quotedKey): \(valueLiteral)\n\(closeIndent)"
         return String(text[..<insertionIndex]) + inserted + String(text[closingBrace...])
+    }
+
+    private struct ObjectInsertionContext {
+        var closingBrace: String.Index
+        var closeIndent: String
+        var childIndent: String
+    }
+
+    private func objectInsertionContext(inObjectAt objectStart: String.Index) throws -> ObjectInsertionContext {
+        let objectEnd = try scanBalanced(from: objectStart, open: "{")
+        let closingBrace = text.index(before: objectEnd)
+        let closeIndent = indentation(containing: closingBrace)
+        let childIndent = try childIndentation(
+            inObjectAt: objectStart,
+            closingBrace: closingBrace,
+            closeIndent: closeIndent
+        )
+        return ObjectInsertionContext(
+            closingBrace: closingBrace,
+            closeIndent: closeIndent,
+            childIndent: childIndent
+        )
     }
 
     private func childIndentation(
@@ -222,11 +256,20 @@ private struct JSONCValueRangeFinder {
         return closeIndent + "  "
     }
 
-    private func objectLiteral(for components: [String], leafLiteral: String) throws -> String {
+    private func objectLiteral(
+        for components: [String],
+        leafLiteral: String,
+        objectIndent: String
+    ) throws -> String {
         guard let key = components.first else { return leafLiteral }
-        let value = try objectLiteral(for: Array(components.dropFirst()), leafLiteral: leafLiteral)
+        let memberIndent = objectIndent + "  "
+        let value = try objectLiteral(
+            for: Array(components.dropFirst()),
+            leafLiteral: leafLiteral,
+            objectIndent: memberIndent
+        )
         let quotedKey = try JSONCValueEditor.literal(for: key)
-        return "{\(quotedKey): \(value)}"
+        return "{\n\(memberIndent)\(quotedKey): \(value)\n\(objectIndent)}"
     }
 
     private func objectHasMembers(

@@ -61,6 +61,46 @@ final class CmuxSettingsJSONWriterTests: XCTestCase {
         )
     }
 
+    func testWriteBackFormatsInsertedNestedObjectAcrossLines() async throws {
+        let directoryURL = try makeTemporaryDirectory()
+        defer { try? FileManager.default.removeItem(at: directoryURL) }
+
+        let primaryURL = directoryURL.appendingPathComponent("cmux.json", isDirectory: false)
+        try writeSettingsFile(
+            """
+            {
+              "schemaVersion": 1
+            }
+            """,
+            to: primaryURL
+        )
+        let plan = ManagedSettingsWriteBackPlan(
+            changesBySourcePath: [
+                primaryURL.path: [
+                    "sidebarAppearance.matchTerminalBackground": true
+                ]
+            ]
+        )
+
+        let outcome = try await plan.write(fileManager: FileManager.default)
+
+        let contents = try String(contentsOf: primaryURL, encoding: .utf8)
+        XCTAssertEqual(outcome, .wroteChanges)
+        XCTAssertTrue(
+            contents.contains(
+                """
+                  "sidebarAppearance": {
+                    "matchTerminalBackground": true
+                  }
+                """
+            )
+        )
+        XCTAssertEqual(
+            try boolSetting(in: primaryURL, section: "sidebarAppearance", key: "matchTerminalBackground"),
+            true
+        )
+    }
+
     private func makeTemporaryDirectory() throws -> URL {
         let url = FileManager.default.temporaryDirectory.appendingPathComponent(
             "cmux-settings-json-writer-\(UUID().uuidString)",
