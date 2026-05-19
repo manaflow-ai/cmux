@@ -261,6 +261,39 @@ final class TerminalNotificationClearAllTests: XCTestCase {
         XCTAssertFalse(workspace.suppressesRawTerminalNotification(panelId: secondPanel.id))
     }
 
+    func testSidebarStatusOnlyShowsStructuredAgentStatusBackedByLivePanelRuntime() throws {
+        let appDelegate = AppDelegate.shared ?? AppDelegate()
+        let manager = TabManager()
+        let originalTabManager = appDelegate.tabManager
+        appDelegate.tabManager = manager
+
+        let workspace = manager.addWorkspace(select: true)
+        defer {
+            if manager.tabs.contains(where: { $0.id == workspace.id }) {
+                manager.closeWorkspace(workspace)
+            }
+            appDelegate.tabManager = originalTabManager
+        }
+
+        let livePanelId = try XCTUnwrap(workspace.focusedPanelId)
+        let stalePanelId = UUID()
+
+        workspace.statusEntries["grok"] = SidebarStatusEntry(key: "grok", value: "Idle")
+        workspace.statusEntries["codex"] = SidebarStatusEntry(key: "codex", value: "Running")
+        workspace.statusEntries["amp"] = SidebarStatusEntry(key: "amp", value: "Idle")
+        workspace.statusEntries["build"] = SidebarStatusEntry(key: "build", value: "Compiling")
+
+        workspace.recordAgentPID(key: "grok.grok-session-live", pid: pid_t(12345), panelId: livePanelId)
+        workspace.recordAgentPID(key: "codex.codex-session-stale", pid: pid_t(12346), panelId: stalePanelId)
+
+        let displayedKeys = Set(workspace.sidebarStatusEntriesInDisplayOrder().map(\.key))
+
+        XCTAssertTrue(displayedKeys.contains("grok"))
+        XCTAssertTrue(displayedKeys.contains("build"))
+        XCTAssertFalse(displayedKeys.contains("codex"))
+        XCTAssertFalse(displayedKeys.contains("amp"))
+    }
+
     func testDetachingSurfaceRebindsNotificationContributionToDestinationWorkspace() throws {
         let store = TerminalNotificationStore.shared
         let appDelegate = AppDelegate.shared ?? AppDelegate()
