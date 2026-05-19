@@ -267,7 +267,9 @@ public enum NodeOptionsSupport {
             normalized.append(token)
             index += 1
         }
-        return joinedTokens(normalized)
+        let joined = joinedTokens(normalized)
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+        return joined.isEmpty ? nil : joined
     }
 
     public static func tokensRemovingCmuxRestoreEntries(_ tokens: [String]) -> [String] {
