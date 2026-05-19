@@ -5173,6 +5173,10 @@ class TabManager: ObservableObject {
     }
 
     private func enqueuePanelTitleUpdate(tabId: UUID, panelId: UUID, title: String) {
+        guard let workspace = tabs.first(where: { $0.id == tabId }),
+              workspace.panels[panelId] != nil else {
+            return
+        }
         let trimmed = title.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !trimmed.isEmpty else { return }
 #if DEBUG

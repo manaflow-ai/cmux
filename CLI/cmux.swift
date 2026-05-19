@@ -19276,7 +19276,7 @@ struct CMUXCLI {
         }
         let statusValue = String(localized: "agent.codex.input.status.needsInput", defaultValue: "Codex needs input")
         _ = try? sendV1Command(
-            "set_status codex \(statusValue) --icon=bell.fill --color=#4C8DFF --priority=100 --tab=\(workspaceId)\(socketPanelOption(surfaceId))",
+            "set_status codex \(socketQuote(statusValue)) --icon=bell.fill --color=#4C8DFF --priority=100 --protocol=needs_input --tab=\(workspaceId)\(socketPanelOption(surfaceId))",
             client: client
         )
     }
@@ -19293,7 +19293,7 @@ struct CMUXCLI {
             _ = try? sendV1Command("notify_target \(workspaceId) \(surfaceId) \(payload)", client: client)
         }
         _ = try? sendV1Command(
-            "set_status codex \(socketQuote(summary.statusValue)) --icon=exclamationmark.triangle.fill --color=#FF453A --priority=100 --tab=\(workspaceId)\(socketPanelOption(surfaceId))",
+            "set_status codex \(socketQuote(summary.statusValue)) --icon=exclamationmark.triangle.fill --color=#FF453A --priority=100 --protocol=error --tab=\(workspaceId)\(socketPanelOption(surfaceId))",
             client: client
         )
     }
@@ -22688,8 +22688,9 @@ export default function cmuxPiSessionExtension(pi: ExtensionAPI) {
                 "clear_notifications --tab=\(workspaceId)\(socketPanelOption(surfaceId))",
                 client: client
             )
+            let runningStatus = String(localized: "sidebar.agentStatus.running", defaultValue: "Running")
             _ = try sendV1Command(
-                "set_status \(def.statusKey) Running --icon=bolt.fill --color=#4C8DFF --tab=\(workspaceId)\(socketPanelOption(surfaceId))",
+                "set_status \(def.statusKey) \(socketQuote(runningStatus)) --icon=bolt.fill --color=#4C8DFF --protocol=running --tab=\(workspaceId)\(socketPanelOption(surfaceId))",
                 client: client
             )
             if def.name == "codex", !sessionId.isEmpty {
@@ -22867,7 +22868,7 @@ export default function cmuxPiSessionExtension(pi: ExtensionAPI) {
             }
             if let codexFailure {
                 _ = try? sendV1Command(
-                    "set_status \(def.statusKey) \(socketQuote(codexFailure.statusValue)) --icon=exclamationmark.triangle.fill --color=#FF453A --priority=100 --tab=\(workspaceId)\(socketPanelOption(surfaceId))",
+                    "set_status \(def.statusKey) \(socketQuote(codexFailure.statusValue)) --icon=exclamationmark.triangle.fill --color=#FF453A --priority=100 --protocol=error --tab=\(workspaceId)\(socketPanelOption(surfaceId))",
                     client: client
                 )
             } else {
@@ -23014,7 +23015,7 @@ export default function cmuxPiSessionExtension(pi: ExtensionAPI) {
                     def.displayName
                 )
                 _ = try? sendV1Command(
-                    "set_status \(def.statusKey) \(statusValue) --icon=bell.fill --color=#4C8DFF --priority=100 --tab=\(workspaceId)\(socketPanelOption(surfaceId))",
+                    "set_status \(def.statusKey) \(socketQuote(statusValue)) --icon=bell.fill --color=#4C8DFF --priority=100 --protocol=needs_input --tab=\(workspaceId)\(socketPanelOption(surfaceId))",
                     client: client
                 )
             case .error?:
@@ -23023,7 +23024,7 @@ export default function cmuxPiSessionExtension(pi: ExtensionAPI) {
                     def.displayName
                 )
                 _ = try? sendV1Command(
-                    "set_status \(def.statusKey) \(statusValue) --icon=exclamationmark.triangle.fill --color=#FF453A --priority=100 --tab=\(workspaceId)\(socketPanelOption(surfaceId))",
+                    "set_status \(def.statusKey) \(socketQuote(statusValue)) --icon=exclamationmark.triangle.fill --color=#FF453A --priority=100 --protocol=error --tab=\(workspaceId)\(socketPanelOption(surfaceId))",
                     client: client
                 )
             case .idle?:
