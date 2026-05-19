@@ -291,6 +291,8 @@
 		A50014F2 /* MarkdownPanelFileLinkResolver.swift in Sources */ = {isa = PBXBuildFile; fileRef = A50014F0 /* MarkdownPanelFileLinkResolver.swift */; };
 		A50014F3 /* MarkdownViewerAssets.swift in Sources */ = {isa = PBXBuildFile; fileRef = A50014F1 /* MarkdownViewerAssets.swift */; };
 		A50014F5 /* MarkdownWebRenderer.swift in Sources */ = {isa = PBXBuildFile; fileRef = A50014F4 /* MarkdownWebRenderer.swift */; };
+		A50014F7 /* MarkdownRemoteImageLoader.swift in Sources */ = {isa = PBXBuildFile; fileRef = A50014F6 /* MarkdownRemoteImageLoader.swift */; };
+		A50014F9 /* MarkdownWebSupport.swift in Sources */ = {isa = PBXBuildFile; fileRef = A50014F8 /* MarkdownWebSupport.swift */; };
 		A5001422 /* FilePreviewPanel.swift in Sources */ = {isa = PBXBuildFile; fileRef = A5001423 /* FilePreviewPanel.swift */; };
 		BB49DF25341706C2A892C27C /* PanelOwnedNativeViewSession.swift in Sources */ = {isa = PBXBuildFile; fileRef = CE314D9700F6F1C8D4A2FE11 /* PanelOwnedNativeViewSession.swift */; };
 		904D6350B3BB50DEDED3F410 /* FilePreviewNativeViewSessions.swift in Sources */ = {isa = PBXBuildFile; fileRef = 81E3615490F822CA0C8527C9 /* FilePreviewNativeViewSessions.swift */; };
@@ -846,6 +848,8 @@
 		A50014F0 /* MarkdownPanelFileLinkResolver.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Panels/MarkdownPanelFileLinkResolver.swift; sourceTree = "<group>"; };
 		A50014F1 /* MarkdownViewerAssets.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Panels/MarkdownViewerAssets.swift; sourceTree = "<group>"; };
 		A50014F4 /* MarkdownWebRenderer.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Panels/MarkdownWebRenderer.swift; sourceTree = "<group>"; };
+		A50014F6 /* MarkdownRemoteImageLoader.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Panels/MarkdownRemoteImageLoader.swift; sourceTree = "<group>"; };
+		A50014F8 /* MarkdownWebSupport.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Panels/MarkdownWebSupport.swift; sourceTree = "<group>"; };
 		A5001423 /* FilePreviewPanel.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Panels/FilePreviewPanel.swift; sourceTree = "<group>"; };
 		CE314D9700F6F1C8D4A2FE11 /* PanelOwnedNativeViewSession.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Panels/PanelOwnedNativeViewSession.swift; sourceTree = "<group>"; };
 		81E3615490F822CA0C8527C9 /* FilePreviewNativeViewSessions.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Panels/FilePreviewNativeViewSessions.swift; sourceTree = "<group>"; };
@@ -1385,12 +1389,14 @@
 				B0A500000000000000000002 /* BrowserOmnibarPerformanceSupport.swift */,
 				A5007421 /* BrowserPopupWindowController.swift */,
 				A5007423 /* BrowserWebAuthnSupport.swift */,
-				A5001418 /* MarkdownPanel.swift */,
-				A50014F0 /* MarkdownPanelFileLinkResolver.swift */,
-				A5001419 /* MarkdownPanelView.swift */,
-				A50014F4 /* MarkdownWebRenderer.swift */,
-				A50014F1 /* MarkdownViewerAssets.swift */,
-				A5001423 /* FilePreviewPanel.swift */,
+					A5001418 /* MarkdownPanel.swift */,
+					A50014F0 /* MarkdownPanelFileLinkResolver.swift */,
+					A5001419 /* MarkdownPanelView.swift */,
+					A50014F4 /* MarkdownWebRenderer.swift */,
+					A50014F6 /* MarkdownRemoteImageLoader.swift */,
+					A50014F8 /* MarkdownWebSupport.swift */,
+					A50014F1 /* MarkdownViewerAssets.swift */,
+					A5001423 /* FilePreviewPanel.swift */,
 				CE314D9700F6F1C8D4A2FE11 /* PanelOwnedNativeViewSession.swift */,
 				81E3615490F822CA0C8527C9 /* FilePreviewNativeViewSessions.swift */,
 				D5D8322021F224A1538F8988 /* FilePreviewPDFSession.swift */,
@@ -2123,13 +2129,15 @@
 				B0A501000000000000000001 /* BrowserOmnibarAppKitBridge.swift in Sources */,
 				B0A500000000000000000001 /* BrowserOmnibarPerformanceSupport.swift in Sources */,
 				A5007420 /* BrowserPopupWindowController.swift in Sources */,
-				A5007422 /* BrowserWebAuthnSupport.swift in Sources */,
-				A5001420 /* MarkdownPanel.swift in Sources */,
-				A50014F2 /* MarkdownPanelFileLinkResolver.swift in Sources */,
-				A5001421 /* MarkdownPanelView.swift in Sources */,
-				A50014F5 /* MarkdownWebRenderer.swift in Sources */,
-				A50014F3 /* MarkdownViewerAssets.swift in Sources */,
-				A5001422 /* FilePreviewPanel.swift in Sources */,
+					A5007422 /* BrowserWebAuthnSupport.swift in Sources */,
+					A5001420 /* MarkdownPanel.swift in Sources */,
+					A50014F2 /* MarkdownPanelFileLinkResolver.swift in Sources */,
+					A5001421 /* MarkdownPanelView.swift in Sources */,
+					A50014F5 /* MarkdownWebRenderer.swift in Sources */,
+					A50014F7 /* MarkdownRemoteImageLoader.swift in Sources */,
+					A50014F9 /* MarkdownWebSupport.swift in Sources */,
+					A50014F3 /* MarkdownViewerAssets.swift in Sources */,
+					A5001422 /* FilePreviewPanel.swift in Sources */,
 				BB49DF25341706C2A892C27C /* PanelOwnedNativeViewSession.swift in Sources */,
 				904D6350B3BB50DEDED3F410 /* FilePreviewNativeViewSessions.swift in Sources */,
 				C769A75E303493BCB5EC9CCC /* FilePreviewPDFSession.swift in Sources */,
