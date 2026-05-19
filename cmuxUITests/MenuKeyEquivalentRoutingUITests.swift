@@ -425,6 +425,12 @@ final class BrowserProfilePopoverContrastUITests: XCTestCase {
         app.launchEnvironment["CMUX_UI_TEST_GOTO_SPLIT_BROWSER_URL"] = makeLightPageDataURL()
         app.launch()
         XCTAssertTrue(ensureForegroundAfterLaunch(app, timeout: 12.0), "Expected app to launch in foreground")
+        XCTAssertTrue(
+            waitForSetupData(timeout: 10.0) { data in
+                data["browserPageTitle"] == "profile-popover-light-page"
+            },
+            "Expected synthetic light page to finish loading before opening the profile popover. data=\(loadSetupData() ?? [:])"
+        )
 
         let profileButton = app.descendants(matching: .any)
             .matching(identifier: "BrowserProfileButton")
@@ -516,26 +522,35 @@ final class BrowserProfilePopoverContrastUITests: XCTestCase {
 
         let width = image.width
         let height = image.height
-        var bytes = [UInt8](repeating: 0, count: width * height * 4)
+        let bytesPerPixel = 4
+        let bytesPerRow = width * bytesPerPixel
+        var bytes = [UInt8](repeating: 0, count: height * bytesPerRow)
         let colorSpace = CGColorSpaceCreateDeviceRGB()
         let bitmapInfo = CGBitmapInfo.byteOrder32Big.rawValue | CGImageAlphaInfo.premultipliedLast.rawValue
-        guard let context = CGContext(
-            data: &bytes,
-            width: width,
-            height: height,
-            bitsPerComponent: 8,
-            bytesPerRow: width * 4,
-            space: colorSpace,
-            bitmapInfo: bitmapInfo
-        ) else {
+        let didDraw = bytes.withUnsafeMutableBytes { raw -> Bool in
+            guard let baseAddress = raw.baseAddress,
+                  let context = CGContext(
+                      data: baseAddress,
+                      width: width,
+                      height: height,
+                      bitsPerComponent: 8,
+                      bytesPerRow: bytesPerRow,
+                      space: colorSpace,
+                      bitmapInfo: bitmapInfo
+                  ) else {
+                return false
+            }
+            context.draw(image, in: CGRect(x: 0, y: 0, width: width, height: height))
+            return true
+        }
+        guard didDraw else {
             throw XCTSkip("Could not create bitmap context for row screenshot")
         }
-        context.draw(image, in: CGRect(x: 0, y: 0, width: width, height: height))
 
         return points.map { point in
             let x = min(width - 1, max(0, Int(CGFloat(width - 1) * point.xFraction)))
             let y = min(height - 1, max(0, Int(CGFloat(height - 1) * point.yFraction)))
-            let offset = (y * width + x) * 4
+            let offset = y * bytesPerRow + x * bytesPerPixel
             return RGBA(
                 red: Double(bytes[offset]) / 255.0,
                 green: Double(bytes[offset + 1]) / 255.0,
@@ -571,6 +586,20 @@ final class BrowserProfilePopoverContrastUITests: XCTestCase {
             }
         }
         return try sampleRGBAs(fromPNG: pngData, points: points)
+    }
+
+    private func waitForSetupData(timeout: TimeInterval, predicate: @escaping ([String: String]) -> Bool) -> Bool {
+        waitForCondition(timeout: timeout) {
+            guard let data = self.loadSetupData() else { return false }
+            return predicate(data)
+        }
+    }
+
+    private func loadSetupData() -> [String: String]? {
+        guard let data = try? Data(contentsOf: URL(fileURLWithPath: setupPath)) else {
+            return nil
+        }
+        return (try? JSONSerialization.jsonObject(with: data)) as? [String: String]
     }
 
     private func attachPNG(_ data: Data, name: String) {
