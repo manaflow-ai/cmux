@@ -108,11 +108,13 @@ extension CMUXCLI {
 
         let windowHandle = try normalizeWindowHandle(windowRaw, client: client)
         let workspaceHandle = try normalizeWorkspaceHandle(workspaceRaw, client: client, windowHandle: windowHandle)
+        let trimmedSurfaceRaw = surfaceRaw.trimmingCharacters(in: .whitespacesAndNewlines)
+        let shouldScopeSourceSurface = UUID(uuidString: trimmedSurfaceRaw) == nil
         let surfaceHandle = try normalizeSurfaceHandle(
             surfaceRaw,
             client: client,
-            workspaceHandle: workspaceHandle,
-            windowHandle: windowHandle,
+            workspaceHandle: shouldScopeSourceSurface ? workspaceHandle : nil,
+            windowHandle: shouldScopeSourceSurface ? windowHandle : nil,
             allowFocused: false
         )
         let paneHandle = try normalizePaneHandle(paneRaw, client: client, workspaceHandle: workspaceHandle, windowHandle: windowHandle)
