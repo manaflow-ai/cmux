@@ -49,16 +49,17 @@ enum UIScaleSettings {
         if persistToSettingsFile {
             let requestIdentifier = UUID().uuidString
             let store = settingsFileStore ?? KeyboardShortcutSettings.settingsFileStore
-            let defaultsHandle = UIScaleSettingsDefaultsHandle(
-                defaults: defaults,
-                defaultsIdentity: defaultsIdentity(defaults)
+            let defaultsIdentityValue = defaultsIdentity(defaults)
+            recordPendingPersistence(
+                value: next,
+                identifier: requestIdentifier,
+                defaultsIdentity: defaultsIdentityValue
             )
-            recordPendingPersistence(value: next, identifier: requestIdentifier, defaults: defaults)
             Task {
                 await persistenceCoordinator.schedule(
                     value: next,
                     identifier: requestIdentifier,
-                    defaults: defaultsHandle,
+                    defaultsIdentity: defaultsIdentityValue,
                     settingsFileStore: store
                 )
             }
@@ -115,23 +116,29 @@ enum UIScaleSettings {
 
     fileprivate static func completePendingPersistence(
         identifier: String,
-        defaults: UserDefaults,
+        defaultsIdentity: UInt,
         settingsFileStore: CmuxSettingsFileStore
     ) {
-        guard isPendingPersistenceCurrent(identifier: identifier, defaults: defaults) else {
+        guard isPendingPersistenceCurrent(
+            identifier: identifier,
+            defaultsIdentity: defaultsIdentity
+        ) else {
             return
         }
-        clearPendingPersistence(defaults: defaults)
+        clearPendingPersistence(defaultsIdentity: defaultsIdentity)
         settingsFileStore.reload()
     }
 
     fileprivate static func failPendingPersistence(
         identifier: String,
-        defaults: UserDefaults,
+        defaultsIdentity: UInt,
         error: Error
     ) {
-        if isPendingPersistenceCurrent(identifier: identifier, defaults: defaults) {
-            clearPendingPersistence(defaults: defaults)
+        if isPendingPersistenceCurrent(
+            identifier: identifier,
+            defaultsIdentity: defaultsIdentity
+        ) {
+            clearPendingPersistence(defaultsIdentity: defaultsIdentity)
         }
         logger.error(
             "Failed to persist \(jsonPath, privacy: .public): \(String(describing: error), privacy: .public)"
@@ -158,13 +165,13 @@ enum UIScaleSettings {
     private static func recordPendingPersistence(
         value: Double,
         identifier: String,
-        defaults: UserDefaults
+        defaultsIdentity: UInt
     ) {
         uiScalePendingPersistence.withLock { pending in
             pending = UIScalePendingPersistence(
                 identifier: identifier,
                 value: roundedForPersistence(value),
-                defaultsIdentity: defaultsIdentity(defaults)
+                defaultsIdentity: defaultsIdentity
             )
         }
     }
@@ -179,9 +186,12 @@ enum UIScaleSettings {
     }
 
     private static func clearPendingPersistence(defaults: UserDefaults) {
-        let identity = defaultsIdentity(defaults)
+        clearPendingPersistence(defaultsIdentity: defaultsIdentity(defaults))
+    }
+
+    private static func clearPendingPersistence(defaultsIdentity: UInt) {
         uiScalePendingPersistence.withLock { pending in
-            guard pending?.defaultsIdentity == identity else { return }
+            guard pending?.defaultsIdentity == defaultsIdentity else { return }
             pending = nil
         }
     }
@@ -189,14 +199,6 @@ enum UIScaleSettings {
     private static func defaultsIdentity(_ defaults: UserDefaults) -> UInt {
         UInt(bitPattern: Unmanaged.passUnretained(defaults).toOpaque())
     }
-}
-
-// Sendable safety: UserDefaults is the existing synchronized storage boundary for
-// volatile pending-write state. The handle is only dereferenced from main-actor
-// coordination closures while the persistence actor owns debounce cancellation.
-private struct UIScaleSettingsDefaultsHandle: @unchecked Sendable {
-    let defaults: UserDefaults
-    let defaultsIdentity: UInt
 }
 
 private actor UIScaleSettingsPersistenceCoordinator {
@@ -207,10 +209,9 @@ private actor UIScaleSettingsPersistenceCoordinator {
     func schedule(
         value: Double,
         identifier: String,
-        defaults: UIScaleSettingsDefaultsHandle,
+        defaultsIdentity: UInt,
         settingsFileStore: CmuxSettingsFileStore
     ) async {
-        let defaultsIdentity = defaults.defaultsIdentity
         let isCurrent = await MainActor.run {
             UIScaleSettings.isPendingPersistenceCurrent(
                 identifier: identifier,
@@ -240,7 +241,7 @@ private actor UIScaleSettingsPersistenceCoordinator {
                 await MainActor.run {
                     UIScaleSettings.completePendingPersistence(
                         identifier: identifier,
-                        defaults: defaults.defaults,
+                        defaultsIdentity: defaultsIdentity,
                         settingsFileStore: settingsFileStore
                     )
                 }
@@ -249,7 +250,7 @@ private actor UIScaleSettingsPersistenceCoordinator {
                 await MainActor.run {
                     UIScaleSettings.failPendingPersistence(
                         identifier: identifier,
-                        defaults: defaults.defaults,
+                        defaultsIdentity: defaultsIdentity,
                         error: error
                     )
                 }
