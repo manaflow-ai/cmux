@@ -14907,12 +14907,18 @@ class TerminalController {
             return "ERROR: Usage: notify_target_async <workspace_uuid> <surface_uuid> <title>|<subtitle>|<body>"
         }
         let (title, subtitle, body) = parseNotificationPayload(payload)
+#if DEBUG
+        cmuxDebugLog(
+            "socket.notifyTargetAsync.enqueue workspace=\(tabId.uuidString.prefix(8)) surface=\(surfaceId.uuidString.prefix(8)) titleLen=\(title.count) subtitleLen=\(subtitle.count) bodyLen=\(body.count) coalesces=0"
+        )
+#endif
         TerminalMutationBus.shared.enqueueNotification(
             tabId: tabId,
             surfaceId: surfaceId,
             title: title,
             subtitle: subtitle,
-            body: body
+            body: body,
+            coalesces: false
         )
         return "OK"
     }
@@ -16894,7 +16900,18 @@ class TerminalController {
             if let panelId = panelResolution.panelId, !tab.panels.keys.contains(panelId) {
                 return
             }
-            tab.recordAgentPID(key: key, pid: pid, panelId: panelResolution.panelId)
+            let didReplaceAgentRuntime = tab.recordAgentPID(
+                key: key,
+                pid: pid,
+                panelId: panelResolution.panelId
+            )
+            if didReplaceAgentRuntime, let panelId = panelResolution.panelId {
+                TerminalNotificationStore.shared.clearNotifications(
+                    forTabId: tab.id,
+                    surfaceId: panelId,
+                    discardQueuedNotifications: false
+                )
+            }
         }
         return "OK"
     }

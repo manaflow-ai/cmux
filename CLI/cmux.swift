@@ -351,6 +351,68 @@ private struct AgentHookNotificationSummary {
     let isFallback: Bool
 }
 
+#if DEBUG
+private func agentHookDebugLog(
+    _ message: @autoclosure () -> String,
+    socketPath: String? = nil,
+    env: [String: String] = ProcessInfo.processInfo.environment
+) {
+    let logPath = agentHookDebugLogPath(socketPath: socketPath, env: env)
+    let timestamp = String(format: "%.3f", Date().timeIntervalSince1970)
+    let line = "\(timestamp) \(message())\n"
+    guard let data = line.data(using: .utf8) else { return }
+
+    if let handle = FileHandle(forWritingAtPath: logPath) {
+        defer { try? handle.close() }
+        guard (try? handle.seekToEnd()) != nil else { return }
+        try? handle.write(contentsOf: data)
+    } else {
+        FileManager.default.createFile(atPath: logPath, contents: data)
+    }
+}
+
+private func agentHookDebugLogPath(socketPath: String?, env: [String: String]) -> String {
+    if let explicit = agentHookDebugNonEmpty(env["CMUX_DEBUG_LOG"]) {
+        return NSString(string: explicit).expandingTildeInPath
+    }
+
+    if let socketPath {
+        let socketName = URL(fileURLWithPath: socketPath).lastPathComponent
+        if socketName.hasPrefix("cmux-debug-"), socketName.hasSuffix(".sock") {
+            let logName = String(socketName.dropLast(".sock".count)) + ".log"
+            return URL(fileURLWithPath: "/tmp", isDirectory: true)
+                .appendingPathComponent(logName, isDirectory: false)
+                .path
+        }
+    }
+
+    if let lastPath = try? String(contentsOfFile: "/tmp/cmux-last-debug-log-path", encoding: .utf8),
+       let normalized = agentHookDebugNonEmpty(lastPath) {
+        return NSString(string: normalized).expandingTildeInPath
+    }
+
+    return "/tmp/cmux-debug.log"
+}
+
+private func agentHookDebugNonEmpty(_ value: String?) -> String? {
+    guard let trimmed = value?.trimmingCharacters(in: .whitespacesAndNewlines),
+          !trimmed.isEmpty else {
+        return nil
+    }
+    return trimmed
+}
+
+private func agentHookDebugShort(_ value: String?) -> String {
+    guard let value = agentHookDebugNonEmpty(value) else { return "nil" }
+    return String(value.prefix(12))
+}
+
+private func agentHookDebugSocketName(_ socketPath: String?) -> String {
+    guard let socketPath = agentHookDebugNonEmpty(socketPath) else { return "nil" }
+    return URL(fileURLWithPath: socketPath).lastPathComponent
+}
+#endif
+
 private struct ClaudeHookSessionRecord: Codable {
     var sessionId: String
     var workspaceId: String
@@ -19266,7 +19328,11 @@ struct CMUXCLI {
     }
 
     private func isGrokInternalSessionNotification(_ message: String) -> Bool {
-        message.hasPrefix("SessionNotification {")
+        let lowercasedMessage = message.lowercased()
+        return lowercasedMessage.hasPrefix("sessionnotification {")
+            || lowercasedMessage.contains("hookexecution {")
+            || lowercasedMessage.contains("event_name: user_prompt_submit")
+            || lowercasedMessage.contains(#""event_name":"user_prompt_submit""#)
     }
 
     private func isGrokGenericTurnCompletion(_ message: String) -> Bool {
@@ -22007,6 +22073,13 @@ export default function cmuxPiSessionExtension(pi: ExtensionAPI) {
             ?? normalizedHookValue(env["PWD"])
         let sessionId = resolvedAgentHookSessionId(def: def, input: input, env: env, cwd: hookCwd)
         let action = Self.subcommandActions[subcommand] ?? .noop
+#if DEBUG
+        agentHookDebugLog(
+            "agentHook.start agent=\(def.name) subcommand=\(subcommand) session=\(agentHookDebugShort(sessionId)) inputSession=\(agentHookDebugShort(input.sessionId)) rawBytes=\(rawInput.utf8.count) hasCwd=\(hookCwd == nil ? 0 : 1) envWorkspace=\(env["CMUX_WORKSPACE_ID"] == nil ? 0 : 1) envSurface=\(env["CMUX_SURFACE_ID"] == nil ? 0 : 1) directWorkspace=\(directWorkspaceArg == nil ? 0 : 1) directSurface=\(directSurfaceArg == nil ? 0 : 1) invalidDirect=\(hasUnusableDirectBinding ? 1 : 0) processBinding=\(processBinding == nil ? 0 : 1) socketName=\(agentHookDebugSocketName(client.socketPath))",
+            socketPath: client.socketPath,
+            env: env
+        )
+#endif
         let pidKey = "\(def.statusKey).\(sessionId.isEmpty ? "default" : sessionId)"
         var didSendFeedTelemetry = false
         func sendAgentFeedTelemetry(workspaceId: String? = nil) {
@@ -22021,6 +22094,13 @@ export default function cmuxPiSessionExtension(pi: ExtensionAPI) {
         }
         func resolveAgentHookTarget(mapped: ClaudeHookSessionRecord?) -> (workspaceId: String, surfaceId: String)? {
             guard !hasUnusableDirectBinding else {
+#if DEBUG
+                agentHookDebugLog(
+                    "agentHook.target.nil agent=\(def.name) subcommand=\(subcommand) session=\(agentHookDebugShort(sessionId)) reason=invalidDirectBinding mapped=\(mapped == nil ? 0 : 1)",
+                    socketPath: client.socketPath,
+                    env: env
+                )
+#endif
                 return nil
             }
             func resolveTarget(
@@ -22047,7 +22127,15 @@ export default function cmuxPiSessionExtension(pi: ExtensionAPI) {
             if let workspaceId = resolvedDirectWorkspaceArg {
                 let preferredSurfaceId = resolvedDirectSurfaceArg
                     ?? (hookWsFlag == nil ? processBinding?.surfaceId : nil)
-                return resolveTarget(workspaceId: workspaceId, preferredSurfaceId: preferredSurfaceId, mapped: mapped)
+                let target = resolveTarget(workspaceId: workspaceId, preferredSurfaceId: preferredSurfaceId, mapped: mapped)
+#if DEBUG
+                agentHookDebugLog(
+                    "agentHook.target.\(target == nil ? "nil" : "resolved") agent=\(def.name) subcommand=\(subcommand) session=\(agentHookDebugShort(sessionId)) source=direct workspace=\(agentHookDebugShort(target?.workspaceId ?? workspaceId)) surface=\(agentHookDebugShort(target?.surfaceId)) mapped=\(mapped == nil ? 0 : 1)",
+                    socketPath: client.socketPath,
+                    env: env
+                )
+#endif
+                return target
             }
 
             if let workspaceId = resolveAccessibleWorkspaceId(processBinding?.workspaceId),
@@ -22056,13 +22144,35 @@ export default function cmuxPiSessionExtension(pi: ExtensionAPI) {
                    preferredSurfaceId: processBinding?.surfaceId,
                    mapped: mapped
                ) {
+#if DEBUG
+                agentHookDebugLog(
+                    "agentHook.target.resolved agent=\(def.name) subcommand=\(subcommand) session=\(agentHookDebugShort(sessionId)) source=process workspace=\(agentHookDebugShort(target.workspaceId)) surface=\(agentHookDebugShort(target.surfaceId)) mapped=\(mapped == nil ? 0 : 1)",
+                    socketPath: client.socketPath,
+                    env: env
+                )
+#endif
                 return target
             }
 
             guard let workspaceId = resolveAccessibleWorkspaceId(mapped?.workspaceId) else {
+#if DEBUG
+                agentHookDebugLog(
+                    "agentHook.target.nil agent=\(def.name) subcommand=\(subcommand) session=\(agentHookDebugShort(sessionId)) reason=noWorkspace mapped=\(mapped == nil ? 0 : 1)",
+                    socketPath: client.socketPath,
+                    env: env
+                )
+#endif
                 return nil
             }
-            return resolveTarget(workspaceId: workspaceId, preferredSurfaceId: nil, mapped: mapped)
+            let target = resolveTarget(workspaceId: workspaceId, preferredSurfaceId: nil, mapped: mapped)
+#if DEBUG
+            agentHookDebugLog(
+                "agentHook.target.\(target == nil ? "nil" : "resolved") agent=\(def.name) subcommand=\(subcommand) session=\(agentHookDebugShort(sessionId)) source=mapped workspace=\(agentHookDebugShort(target?.workspaceId ?? workspaceId)) surface=\(agentHookDebugShort(target?.surfaceId)) mapped=\(mapped == nil ? 0 : 1)",
+                socketPath: client.socketPath,
+                env: env
+            )
+#endif
+            return target
         }
         defer {
             if !didSendFeedTelemetry {
@@ -22221,12 +22331,17 @@ export default function cmuxPiSessionExtension(pi: ExtensionAPI) {
                 codexFailure = nil
             }
 
+            let cwd = hookCwd ?? mapped?.cwd
+            let grokAssistantMessage: String? = {
+                guard def.name == "grok" else { return nil }
+                return latestGrokAssistantMessage(
+                    cwd: cwd,
+                    sessionId: input.sessionId ?? sessionId,
+                    env: env
+                )
+            }()
             let lastMsg = input.object?["last_assistant_message"] as? String
                 ?? input.object?["lastAssistantMessage"] as? String
-            let cwd = hookCwd ?? mapped?.cwd
-            let grokStopMessage = def.name == "grok"
-                ? latestGrokAssistantMessage(cwd: cwd, sessionId: input.sessionId ?? sessionId, env: env)
-                : nil
             let projectName: String? = {
                 guard let cwd, !cwd.isEmpty else { return nil }
                 return URL(fileURLWithPath: NSString(string: cwd).expandingTildeInPath).lastPathComponent
@@ -22246,7 +22361,7 @@ export default function cmuxPiSessionExtension(pi: ExtensionAPI) {
             }
             let body = codexFailure?.body
                 ?? lastMsg.map { truncate(normalizedSingleLine($0), maxLength: 200) }
-                ?? grokStopMessage.map { truncate(normalizedSingleLine($0), maxLength: 200) }
+                ?? grokAssistantMessage.map { truncate(normalizedSingleLine($0), maxLength: 200) }
                 ?? String.localizedStringWithFormat(
                     String(
                         localized: "agent.codex.completion.body.sessionCompleted",
@@ -22288,10 +22403,35 @@ export default function cmuxPiSessionExtension(pi: ExtensionAPI) {
             }
 
             let shouldPublishStopNotification = def.publishesStopNotification
-                || (def.name == "grok" && grokStopMessage != nil)
+                || (def.name == "grok" && grokAssistantMessage != nil)
             if shouldPublishStopNotification {
                 let payload = notificationPayload(title: def.displayName, subtitle: subtitle, body: body)
-                _ = try? sendV1Command("notify_target_async \(workspaceId) \(surfaceId) \(payload)", client: client)
+                let notifyCommand = "notify_target_async \(workspaceId) \(surfaceId) \(payload)"
+#if DEBUG
+                agentHookDebugLog(
+                    "agentHook.stop.notify agent=\(def.name) session=\(agentHookDebugShort(sessionId)) workspace=\(agentHookDebugShort(workspaceId)) surface=\(agentHookDebugShort(surfaceId)) subtitleLen=\(subtitle.count) bodyLen=\(body.count)",
+                    socketPath: client.socketPath,
+                    env: env
+                )
+#endif
+                do {
+                    let response = try sendV1Command(notifyCommand, client: client)
+#if DEBUG
+                    agentHookDebugLog(
+                        "agentHook.stop.notify.sent agent=\(def.name) session=\(agentHookDebugShort(sessionId)) response=\(response)",
+                        socketPath: client.socketPath,
+                        env: env
+                    )
+#endif
+                } catch {
+#if DEBUG
+                    agentHookDebugLog(
+                        "agentHook.stop.notify.error agent=\(def.name) session=\(agentHookDebugShort(sessionId)) error=\(String(describing: error))",
+                        socketPath: client.socketPath,
+                        env: env
+                    )
+#endif
+                }
             }
             if let codexFailure {
                 _ = try? sendV1Command(
@@ -22317,10 +22457,23 @@ export default function cmuxPiSessionExtension(pi: ExtensionAPI) {
             let surfaceId = target.surfaceId
 
             let notificationCwd = hookCwd ?? mapped?.cwd
+#if DEBUG
+            agentHookDebugLog(
+                "agentHook.notification.target agent=\(def.name) session=\(agentHookDebugShort(sessionId)) workspace=\(agentHookDebugShort(workspaceId)) surface=\(agentHookDebugShort(surfaceId)) mapped=\(mapped == nil ? 0 : 1) hasCwd=\(notificationCwd == nil ? 0 : 1)",
+                socketPath: client.socketPath,
+                env: env
+            )
+#endif
             if def.name == "grok",
                let notificationMessage = normalizedAgentHookNotificationMessage(parsedInput: input) {
-                if isGrokInternalSessionNotification(notificationMessage),
-                   latestGrokAssistantMessage(cwd: notificationCwd, sessionId: input.sessionId ?? sessionId, env: env) == nil {
+                if isGrokInternalSessionNotification(notificationMessage) {
+#if DEBUG
+                    agentHookDebugLog(
+                        "agentHook.notification.skip agent=\(def.name) session=\(agentHookDebugShort(sessionId)) reason=internalSessionNotification messageLen=\(notificationMessage.count)",
+                        socketPath: client.socketPath,
+                        env: env
+                    )
+#endif
                     print("{}")
                     return
                 }
@@ -22340,6 +22493,26 @@ export default function cmuxPiSessionExtension(pi: ExtensionAPI) {
                     status: mapped?.lastNotificationStatus,
                     isFallback: false
                 )
+            }
+
+#if DEBUG
+            agentHookDebugLog(
+                "agentHook.notification.summary agent=\(def.name) session=\(agentHookDebugShort(sessionId)) status=\(summary.status?.rawValue ?? "nil") fallback=\(summary.isFallback ? 1 : 0) subtitleLen=\(summary.subtitle.count) bodyLen=\(summary.body.count)",
+                socketPath: client.socketPath,
+                env: env
+            )
+#endif
+
+            if def.name == "grok", summary.status == nil {
+#if DEBUG
+                agentHookDebugLog(
+                    "agentHook.notification.skip agent=\(def.name) session=\(agentHookDebugShort(sessionId)) reason=nonTerminalNotification subtitleLen=\(summary.subtitle.count) bodyLen=\(summary.body.count)",
+                    socketPath: client.socketPath,
+                    env: env
+                )
+#endif
+                print("{}")
+                return
             }
 
             if !sessionId.isEmpty {
@@ -22365,7 +22538,32 @@ export default function cmuxPiSessionExtension(pi: ExtensionAPI) {
             }
 
             let payload = notificationPayload(title: def.displayName, subtitle: summary.subtitle, body: summary.body)
-            _ = try? sendV1Command("notify_target_async \(workspaceId) \(surfaceId) \(payload)", client: client)
+            let notifyCommand = "notify_target_async \(workspaceId) \(surfaceId) \(payload)"
+#if DEBUG
+            agentHookDebugLog(
+                "agentHook.notification.notify agent=\(def.name) session=\(agentHookDebugShort(sessionId)) workspace=\(agentHookDebugShort(workspaceId)) surface=\(agentHookDebugShort(surfaceId))",
+                socketPath: client.socketPath,
+                env: env
+            )
+#endif
+            do {
+                let response = try sendV1Command(notifyCommand, client: client)
+#if DEBUG
+                agentHookDebugLog(
+                    "agentHook.notification.notify.sent agent=\(def.name) session=\(agentHookDebugShort(sessionId)) response=\(response)",
+                    socketPath: client.socketPath,
+                    env: env
+                )
+#endif
+            } catch {
+#if DEBUG
+                agentHookDebugLog(
+                    "agentHook.notification.notify.error agent=\(def.name) session=\(agentHookDebugShort(sessionId)) error=\(String(describing: error))",
+                    socketPath: client.socketPath,
+                    env: env
+                )
+#endif
+            }
 
             switch summary.status {
             case .needsInput?:
@@ -22400,6 +22598,19 @@ export default function cmuxPiSessionExtension(pi: ExtensionAPI) {
         case .sessionEnd:
             if def.name == "codex", !sessionId.isEmpty {
                 retireCodexMonitorLeases(sessionId: sessionId, turnId: nil, env: env)
+            }
+            if def.name == "grok" {
+                if let mapped = sessionId.isEmpty ? nil : (try? store.lookup(sessionId: sessionId)) {
+                    sendAgentFeedTelemetry(workspaceId: mapped.workspaceId)
+                }
+#if DEBUG
+                agentHookDebugLog(
+                    "agentHook.sessionEnd.keep agent=\(def.name) session=\(agentHookDebugShort(sessionId)) reason=turnBoundary",
+                    socketPath: client.socketPath,
+                    env: env
+                )
+#endif
+                break
             }
             if let mapped = try? store.consume(sessionId: sessionId, workspaceId: nil, surfaceId: nil) {
                 sendAgentFeedTelemetry(workspaceId: mapped.workspaceId)
@@ -24946,8 +25157,11 @@ export default function cmuxPiSessionExtension(pi: ExtensionAPI) {
     private static func hooksCommandNeedsCmuxTarget(_ commandArgs: [String]) -> Bool {
         guard let first = commandArgs.first?.lowercased() else { return false }
         if first == "feed" || first == "claude" { return true }
-        guard Self.agentDef(named: first) != nil else { return false }
+        guard let def = Self.agentDef(named: first) else { return false }
         let action = commandArgs.dropFirst().first?.lowercased()
+        if def.name == "grok" {
+            return false
+        }
         return action != "install" && action != "uninstall"
     }
 

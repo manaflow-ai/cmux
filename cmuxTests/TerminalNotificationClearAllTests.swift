@@ -294,6 +294,42 @@ final class TerminalNotificationClearAllTests: XCTestCase {
         XCTAssertFalse(displayedKeys.contains("amp"))
     }
 
+    func testNewStructuredAgentRuntimeOnPanelClearsPreviousAgentStatusForThatPanel() throws {
+        let appDelegate = AppDelegate.shared ?? AppDelegate()
+        let manager = TabManager()
+        let originalTabManager = appDelegate.tabManager
+        appDelegate.tabManager = manager
+
+        let workspace = manager.addWorkspace(select: true)
+        defer {
+            if manager.tabs.contains(where: { $0.id == workspace.id }) {
+                manager.closeWorkspace(workspace)
+            }
+            appDelegate.tabManager = originalTabManager
+        }
+
+        let panelId = try XCTUnwrap(workspace.focusedPanelId)
+        let oldPIDKey = "claude_code.old-session"
+        let newPIDKey = "grok.new-session"
+
+        workspace.statusEntries["claude_code"] = SidebarStatusEntry(
+            key: "claude_code",
+            value: "Needs input"
+        )
+        XCTAssertFalse(workspace.recordAgentPID(key: oldPIDKey, pid: pid_t(12345), panelId: panelId))
+        XCTAssertTrue(workspace.sidebarStatusEntriesInDisplayOrder().contains { $0.key == "claude_code" })
+
+        XCTAssertTrue(workspace.recordAgentPID(key: newPIDKey, pid: pid_t(12346), panelId: panelId))
+        workspace.statusEntries["grok"] = SidebarStatusEntry(key: "grok", value: "Running")
+
+        let displayedKeys = Set(workspace.sidebarStatusEntriesInDisplayOrder().map(\.key))
+        XCTAssertFalse(displayedKeys.contains("claude_code"))
+        XCTAssertTrue(displayedKeys.contains("grok"))
+        XCTAssertNil(workspace.agentPIDs[oldPIDKey])
+        XCTAssertNil(workspace.statusEntries["claude_code"])
+        XCTAssertEqual(workspace.agentPIDs[newPIDKey].map(Int.init), 12346)
+    }
+
     func testDetachingSurfaceRebindsNotificationContributionToDestinationWorkspace() throws {
         let store = TerminalNotificationStore.shared
         let appDelegate = AppDelegate.shared ?? AppDelegate()

@@ -81,7 +81,25 @@ extension Workspace {
         agentPIDKeysByPanelId[panelId, default: []].insert(key)
     }
 
-    func recordAgentPID(key: String, pid: pid_t, panelId: UUID?, refreshPorts: Bool = true) {
+    @discardableResult
+    private func clearOtherStructuredAgentRuntimes(onPanel panelId: UUID, keeping retainedKey: String) -> Bool {
+        guard isStructuredAgentHookPIDKey(retainedKey) else { return false }
+        let staleKeys = agentPIDKeysByPanelId[panelId] ?? []
+        var didChange = false
+        for staleKey in staleKeys where staleKey != retainedKey && isStructuredAgentHookPIDKey(staleKey) {
+            if clearAgentPID(key: staleKey, panelId: panelId, clearStatus: true, refreshPorts: false) {
+                didChange = true
+            }
+        }
+        return didChange
+    }
+
+    @discardableResult
+    func recordAgentPID(key: String, pid: pid_t, panelId: UUID?, refreshPorts: Bool = true) -> Bool {
+        var didClearOtherStructuredAgentRuntime = false
+        if let panelId {
+            didClearOtherStructuredAgentRuntime = clearOtherStructuredAgentRuntimes(onPanel: panelId, keeping: key)
+        }
         agentPIDs[key] = pid
         if let panelId {
             recordAgentPIDOwnership(key: key, panelId: panelId)
@@ -91,6 +109,7 @@ extension Workspace {
         if refreshPorts {
             refreshTrackedAgentPorts()
         }
+        return didClearOtherStructuredAgentRuntime
     }
 
     func suppressesRawTerminalNotification(panelId: UUID?) -> Bool {

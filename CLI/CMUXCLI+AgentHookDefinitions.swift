@@ -291,15 +291,146 @@ extension CMUXCLI {
         agentHookShellCommand("cmux hooks feed --source \(def.name) --event \(agentEvent)", for: def)
     }
 
+    private static let grokPinnedHookMarker = "cmux-grok-hook-v2"
+
     private static func agentHookShellCommand(_ command: String, for def: AgentHookDef) -> String {
         if def.name == "grok" {
-            return "printenv \(def.disableEnvVar) | grep -qx 1 && echo '{}' || { command -v cmux >/dev/null 2>&1 && \(command) || echo '{}'; }"
+            return grokAgentHookShellCommand(command, for: def)
         }
         let routedArguments = command.hasPrefix("cmux ") ? String(command.dropFirst("cmux ".count)) : command
         return "cmux_cli=\"${CMUX_BUNDLED_CLI_PATH:-}\"; if [ -z \"$cmux_cli\" ] || [ ! -x \"$cmux_cli\" ]; then cmux_cli=\"$(command -v cmux 2>/dev/null || true)\"; fi; if [ -n \"$CMUX_SURFACE_ID\" ] && [ \"$\(def.disableEnvVar)\" != \"1\" ] && [ -n \"$cmux_cli\" ]; then { if [ -n \"${CMUX_SOCKET_PATH:-}\" ]; then \"$cmux_cli\" --socket \"$CMUX_SOCKET_PATH\" \(routedArguments); else \"$cmux_cli\" \(routedArguments); fi; } || echo '{}'; else echo '{}'; fi"
     }
 
+    private static func grokAgentHookShellCommand(_ command: String, for def: AgentHookDef) -> String {
+        let routedArguments = command.hasPrefix("cmux ") ? String(command.dropFirst("cmux ".count)) : command
+        let socketPath = pinnedGrokHookSocketPath()
+        let shellTraceStart = grokHookShellTraceCommand(
+            phase: "start",
+            routedArguments: routedArguments,
+            socketPath: socketPath
+        )
+        let shellTraceDisabled = grokHookShellTraceCommand(
+            phase: "disabled",
+            routedArguments: routedArguments,
+            socketPath: socketPath
+        )
+        let shellTraceExit = grokHookShellTraceCommand(
+            phase: "exit",
+            routedArguments: routedArguments,
+            socketPath: socketPath,
+            statusExpression: "$cmux_hook_status"
+        )
+        let fallbackInvocation = grokHookInvocation(
+            executable: "cmux",
+            routedArguments: routedArguments,
+            socketPath: socketPath
+        )
+        let dispatch: String
+        if let cliPath = pinnedGrokHookCLIPath() {
+            let quotedCLIPath = shellSingleQuote(cliPath)
+            let primaryInvocation = grokHookInvocation(
+                executable: quotedCLIPath,
+                routedArguments: routedArguments,
+                socketPath: socketPath
+            )
+            dispatch = "if [ -x \(quotedCLIPath) ]; then \(primaryInvocation); elif command -v cmux >/dev/null 2>&1; then \(fallbackInvocation); else echo '{}'; fi"
+        } else {
+            dispatch = "command -v cmux >/dev/null 2>&1 && \(fallbackInvocation) || echo '{}'"
+        }
+        return ": \(grokPinnedHookMarker); \(shellTraceStart); printenv \(def.disableEnvVar) | grep -qx 1 && { \(shellTraceDisabled); echo '{}'; } || { \(dispatch); cmux_hook_status=$?; \(shellTraceExit); exit $cmux_hook_status; } || echo '{}'"
+    }
+
+    private static func grokHookInvocation(
+        executable: String,
+        routedArguments: String,
+        socketPath: String?
+    ) -> String {
+        if let socketPath {
+            return "\(executable) --socket \(shellSingleQuote(socketPath)) \(routedArguments)"
+        }
+        return "\(executable) \(routedArguments)"
+    }
+
+    private static func pinnedGrokHookCLIPath(
+        env: [String: String] = ProcessInfo.processInfo.environment,
+        arguments: [String] = ProcessInfo.processInfo.arguments
+    ) -> String? {
+        if let bundledPath = normalizedHookInstallValue(env["CMUX_BUNDLED_CLI_PATH"]) {
+            return NSString(string: bundledPath).expandingTildeInPath
+        }
+        if let arg0 = normalizedHookInstallValue(arguments.first) {
+            let expanded = NSString(string: arg0).expandingTildeInPath
+            if expanded.hasPrefix("/") {
+                return expanded
+            }
+        }
+        if let executablePath = Bundle.main.executableURL?.path,
+           !executablePath.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+            return executablePath
+        }
+        return nil
+    }
+
+    private static func pinnedGrokHookSocketPath(
+        env: [String: String] = ProcessInfo.processInfo.environment
+    ) -> String? {
+        if let socketPath = normalizedHookInstallValue(env["CMUX_SOCKET_PATH"]) {
+            return NSString(string: socketPath).expandingTildeInPath
+        }
+        guard let tag = normalizedHookInstallValue(env["CMUX_TAG"]) else {
+            return nil
+        }
+        let slug = tag
+            .lowercased()
+            .replacingOccurrences(of: "[^a-z0-9]+", with: "-", options: .regularExpression)
+            .trimmingCharacters(in: CharacterSet(charactersIn: "-"))
+        guard !slug.isEmpty else { return nil }
+        return "/tmp/cmux-debug-\(slug).sock"
+    }
+
+    private static func grokHookShellTraceCommand(
+        phase: String,
+        routedArguments: String,
+        socketPath: String?,
+        statusExpression: String? = nil
+    ) -> String {
+        let logPath = shellSingleQuote(grokHookShellTraceLogPath(socketPath: socketPath))
+        let event = shellSingleQuote(routedArguments)
+        let socket = shellSingleQuote(socketPath.map { URL(fileURLWithPath: $0).lastPathComponent } ?? "nil")
+        let statusField = statusExpression == nil ? "" : " status=%s"
+        let statusArgument = statusExpression.map { " \($0)" } ?? ""
+        return "printf '%s grokHook.shell phase=%s event=%s pid=%s ppid=%s socket=%s\(statusField)\\n' \"$(date +%s)\" \(shellSingleQuote(phase)) \(event) \"$$\" \"${PPID:-}\" \(socket)\(statusArgument) >> \(logPath) 2>/dev/null || true"
+    }
+
+    private static func grokHookShellTraceLogPath(socketPath: String?) -> String {
+        guard let socketPath else {
+            return "/tmp/cmux-debug.log"
+        }
+        let socketName = URL(fileURLWithPath: socketPath).lastPathComponent
+        if socketName.hasPrefix("cmux-debug-"), socketName.hasSuffix(".sock") {
+            return URL(fileURLWithPath: "/tmp", isDirectory: true)
+                .appendingPathComponent(String(socketName.dropLast(".sock".count)) + ".log")
+                .path
+        }
+        return "/tmp/cmux-debug.log"
+    }
+
+    private static func normalizedHookInstallValue(_ value: String?) -> String? {
+        guard let trimmed = value?.trimmingCharacters(in: .whitespacesAndNewlines),
+              !trimmed.isEmpty else {
+            return nil
+        }
+        return trimmed
+    }
+
+    private static func shellSingleQuote(_ value: String) -> String {
+        "'" + value.replacingOccurrences(of: "'", with: "'\\''") + "'"
+    }
+
     static func isCmuxOwnedHookCommand(_ command: String, for def: AgentHookDef, includeLegacy: Bool = true) -> Bool {
+        if def.name == "grok", command.contains(grokPinnedHookMarker) {
+            return true
+        }
         if def.events.contains(where: { hookCommandString(for: def, event: $0) == command })
             || def.feedHookEvents.contains(where: { feedHookCommandString(for: def, agentEvent: $0) == command })
         {
