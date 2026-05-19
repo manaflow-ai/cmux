@@ -30,6 +30,11 @@ struct PixelBounds: Codable {
     var height: Int { maxY - minY + 1 }
 }
 
+struct PixelSize {
+    var width: Int
+    var height: Int
+}
+
 struct SurfaceResult: Codable {
     var surface: String
     var beforeScreenshot: String
@@ -134,6 +139,14 @@ func screenshot(label: String) throws -> URL {
     return URL(fileURLWithPath: path)
 }
 
+func imageSize(_ url: URL) throws -> PixelSize {
+    let data = try Data(contentsOf: url)
+    guard let rep = NSBitmapImageRep(data: data) else {
+        throw ProbeError(message: "Failed to decode PNG at \(url.path)")
+    }
+    return PixelSize(width: rep.pixelsWide, height: rep.pixelsHigh)
+}
+
 func copyArtifact(_ source: URL, named name: String) throws -> URL {
     try fileManager.createDirectory(at: outDirectory, withIntermediateDirectories: true)
     let target = outDirectory.appendingPathComponent(name)
@@ -223,16 +236,26 @@ func currentSurfaceRef() throws -> String {
     return ref
 }
 
-func resetCanvas(scale: Double, workspace: String) throws -> [String: Any] {
+func viewportSize(for workspace: String) throws -> PixelSize {
     try focusWorkspace(workspace)
-    let params = """
-    {"workspace_id":"\(workspace)","start_scale":\(scale),"delta_y":0,"repeat":1,"viewport_width":1200,"viewport_height":800,"anchor_x":600,"anchor_y":300}
-    """
-    return try cliJSON(["rpc", "debug.canvas.wheel_zoom", params])
+    return try imageSize(screenshot(label: "viewport_probe"))
 }
 
-func resizeFocusedCanvasItem(workspace: String, width targetWidth: Double = 720, height targetHeight: Double = 520) throws {
-    _ = try resetCanvas(scale: 1, workspace: workspace)
+func setCanvasViewport(scale: Double, workspace: String, viewportSize: PixelSize) throws -> [String: Any] {
+    try focusWorkspace(workspace)
+    let params = """
+    {"workspace_id":"\(workspace)","x":0,"y":0,"width":\(viewportSize.width),"height":\(viewportSize.height),"scale":\(scale)}
+    """
+    return try cliJSON(["rpc", "debug.canvas.viewport", params])
+}
+
+func resizeFocusedCanvasItem(
+    workspace: String,
+    viewportSize: PixelSize,
+    width targetWidth: Double = 720,
+    height targetHeight: Double = 520
+) throws {
+    _ = try setCanvasViewport(scale: 1, workspace: workspace, viewportSize: viewportSize)
     let object = try cliJSON(["rpc", "debug.layout", "{}"])
     let layout = try okObject(object, key: "layout")
     guard let items = layout["canvasItems"] as? [[String: Any]],
@@ -248,13 +271,15 @@ func resizeFocusedCanvasItem(workspace: String, width targetWidth: Double = 720,
     {"workspace_id":"\(workspace)","handle":"bottomRight","dx":\(dx),"dy":\(dy)}
     """
     _ = try cliJSON(["rpc", "debug.canvas.resize", params])
-    _ = try resetCanvas(scale: 1, workspace: workspace)
+    _ = try setCanvasViewport(scale: 1, workspace: workspace, viewportSize: viewportSize)
 }
 
-func zoomOut(workspace: String) throws -> [String: Any] {
+func zoomOut(workspace: String, viewportSize: PixelSize) throws -> [String: Any] {
     try focusWorkspace(workspace)
+    let anchorX = max(1, viewportSize.width / 2)
+    let anchorY = max(1, viewportSize.height / 2)
     let params = """
-    {"workspace_id":"\(workspace)","start_scale":1,"delta_y":-12,"repeat":24,"viewport_width":1200,"viewport_height":800,"anchor_x":600,"anchor_y":300}
+    {"workspace_id":"\(workspace)","start_scale":1,"delta_y":-12,"repeat":24,"viewport_width":\(viewportSize.width),"viewport_height":\(viewportSize.height),"anchor_x":\(anchorX),"anchor_y":\(anchorY)}
     """
     return try cliJSON(["rpc", "debug.canvas.wheel_zoom", params])
 }
@@ -286,7 +311,8 @@ func terminalProbe() throws -> SurfaceResult {
     """
     _ = try cli(["send", "--workspace", workspace, terminalCommand + "\n"])
     Thread.sleep(forTimeInterval: 0.6)
-    try resizeFocusedCanvasItem(workspace: workspace)
+    let size = try viewportSize(for: workspace)
+    try resizeFocusedCanvasItem(workspace: workspace, viewportSize: size)
     Thread.sleep(forTimeInterval: 0.3)
 
     let beforeSource = try waitForColor(
@@ -300,7 +326,7 @@ func terminalProbe() throws -> SurfaceResult {
         threshold: terminalRedThreshold
     )
 
-    let zoom = try zoomOut(workspace: workspace)
+    let zoom = try zoomOut(workspace: workspace, viewportSize: size)
     guard let viewportScale = zoom["end_scale"] as? Double else {
         throw ProbeError(message: "debug.canvas.wheel_zoom returned no end_scale: \(zoom)")
     }
@@ -363,7 +389,8 @@ func browserProbe() throws -> SurfaceResult {
     let surface = try currentSurfaceRef()
     _ = try cli(["browser", "--surface", surface, "wait", "--selector", "#probe", "--timeout-ms", "5000"])
 
-    try resizeFocusedCanvasItem(workspace: workspace)
+    let size = try viewportSize(for: workspace)
+    try resizeFocusedCanvasItem(workspace: workspace, viewportSize: size)
     Thread.sleep(forTimeInterval: 0.5)
     let beforeSource = try waitForColor(
         label: "browser_before",
@@ -376,7 +403,7 @@ func browserProbe() throws -> SurfaceResult {
         threshold: { red, green, blue, _ in green > 0.82 && red < 0.22 && blue < 0.22 }
     )
 
-    let zoom = try zoomOut(workspace: workspace)
+    let zoom = try zoomOut(workspace: workspace, viewportSize: size)
     guard let viewportScale = zoom["end_scale"] as? Double else {
         throw ProbeError(message: "debug.canvas.wheel_zoom returned no end_scale: \(zoom)")
     }

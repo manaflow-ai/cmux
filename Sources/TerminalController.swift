@@ -2840,6 +2840,8 @@ class TerminalController {
             return v2Result(id: id, self.v2DebugCanvasDrag(params: params))
         case "debug.canvas.resize":
             return v2Result(id: id, self.v2DebugCanvasResize(params: params))
+        case "debug.canvas.viewport":
+            return v2Result(id: id, self.v2DebugCanvasViewport(params: params))
         case "debug.canvas.wheel_zoom":
             return v2Result(id: id, self.v2DebugCanvasWheelZoom(params: params))
         case "debug.app.activate":
@@ -3104,6 +3106,7 @@ class TerminalController {
             "debug.mouse.drag",
             "debug.canvas.drag",
             "debug.canvas.resize",
+            "debug.canvas.viewport",
             "debug.canvas.wheel_zoom",
             "debug.app.activate",
             "debug.command_palette.toggle",
@@ -12611,6 +12614,47 @@ class TerminalController {
             )
             controller.resizeCanvasItem(item.id, to: geometry.frame)
             return geometry
+        }
+    }
+
+    private func v2DebugCanvasViewport(params: [String: Any]) -> V2CallResult {
+        let x = v2Double(params, "x") ?? 0
+        let y = v2Double(params, "y") ?? 0
+        let width = max(1, v2Double(params, "width") ?? 1_200)
+        let height = max(1, v2Double(params, "height") ?? 800)
+        let scale = CanvasViewportZoom.clampedScale(v2Double(params, "scale") ?? 1)
+
+        guard let tabManager = v2ResolveTabManager(params: params) else {
+            return .err(code: "not_found", message: "Window not found", data: nil)
+        }
+
+        return v2MainSync {
+            guard let workspace = v2ResolveWorkspace(params: params, tabManager: tabManager) else {
+                return .err(code: "not_found", message: "Workspace not found", data: nil)
+            }
+
+            let controller = workspace.layoutController
+            controller.setCanvasLayoutPolicy(.freeform)
+            if !controller.isCanvasOverviewActive {
+                controller.enterCanvasOverview(policy: .freeform)
+            }
+            controller.setCanvasViewport(
+                CanvasViewport(
+                    visibleRect: PixelRect(
+                        x: x,
+                        y: y,
+                        width: width / max(0.0001, scale),
+                        height: height / max(0.0001, scale)
+                    ),
+                    scale: scale
+                )
+            )
+            let viewport = controller.canvasViewport
+            return .ok([
+                "presentation_scale": CanvasViewportZoom.presentationScale(for: viewport),
+                "scale": viewport.scale,
+                "visible_rect": v2DebugPixelRect(viewport.visibleRect)
+            ])
         }
     }
 
