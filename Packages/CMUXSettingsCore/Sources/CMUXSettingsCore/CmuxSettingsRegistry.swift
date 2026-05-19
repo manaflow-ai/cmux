@@ -191,6 +191,7 @@ public enum CmuxSettingsRegistry {
         SettingDefinition(key: "automation.socketPassword", kind: .string(allowEmpty: true), defaultValue: "", isSensitive: true),
         SettingDefinition(key: "automation.claudeCodeIntegration", kind: .bool, defaultValue: true),
         SettingDefinition(key: "automation.claudeBinaryPath", kind: .string(allowEmpty: true), defaultValue: ""),
+        SettingDefinition(key: "automation.ripgrepBinaryPath", kind: .string(allowEmpty: true), defaultValue: ""),
         SettingDefinition(key: "automation.cursorIntegration", kind: .bool, defaultValue: true),
         SettingDefinition(key: "automation.geminiIntegration", kind: .bool, defaultValue: true),
         SettingDefinition(key: "automation.portBase", kind: .int(min: 1), defaultValue: 9100),

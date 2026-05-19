@@ -34,6 +34,7 @@ SETTING_SAMPLE_VALUES: dict[str, tuple[str, Any]] = {
     "app.warnBeforeQuit": ("false", False),
     "app.workspaceInheritWorkingDirectory": ("false", False),
     "automation.claudeBinaryPath": ("/opt/cmux/bin/claude", "/opt/cmux/bin/claude"),
+    "automation.ripgrepBinaryPath": ("/opt/cmux/bin/rg", "/opt/cmux/bin/rg"),
     "automation.claudeCodeIntegration": ("false", False),
     "automation.cursorIntegration": ("false", False),
     "automation.geminiIntegration": ("false", False),
