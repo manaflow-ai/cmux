@@ -8621,25 +8621,25 @@ final class Workspace: Identifiable, ObservableObject {
 
     private var backgroundPrimeTerminalPanelsNeedingSurfaceStart: [TerminalPanel] {
         backgroundPrimeTerminalPanels.filter { panel in
-            panel.surface.surface == nil && hasBackgroundSurfaceStartWork(for: panel)
+            panel.surface.surface == nil
         }
     }
 
     func hasBackgroundPrimeTerminalSurfaceStartWork() -> Bool {
         backgroundPrimeTerminalPanels.contains {
-            hasBackgroundSurfaceStartWork(for: $0)
+            $0.surface.surface == nil || hasBackgroundSurfaceStartWork(for: $0)
         }
     }
 
     func requestBackgroundPrimeTerminalSurfaceStartIfNeeded() {
         backgroundPrimeTerminalPanelsNeedingSurfaceStart.forEach {
-            $0.surface.requestBackgroundSurfaceStartIfNeeded()
+            $0.surface.ensureRuntimeSurfaceStartedForAutomationIfNeeded(reason: "workspace.backgroundPrime")
         }
     }
 
     func hasLoadedBackgroundPrimeTerminalSurface() -> Bool {
         backgroundPrimeTerminalPanels.allSatisfy { panel in
-            panel.surface.surface != nil || !hasBackgroundSurfaceStartWork(for: panel)
+            panel.surface.surface != nil
         }
     }
 

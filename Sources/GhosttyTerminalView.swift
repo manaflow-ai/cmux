@@ -4549,6 +4549,20 @@ final class TerminalSurface: Identifiable, ObservableObject {
         }
     }
 
+    struct RuntimeReadinessSnapshot {
+        let runtimeSurfaceReady: Bool
+        let processExited: Bool?
+        let foregroundPID: Int?
+        let ttyName: String?
+
+        var terminalReady: Bool {
+            runtimeSurfaceReady &&
+                processExited == false &&
+                foregroundPID != nil &&
+                ttyName?.isEmpty == false
+        }
+    }
+
     private struct PendingKeyEvent {
         let keycode: UInt32
         let mods: ghostty_input_mods_e
@@ -5016,6 +5030,39 @@ final class TerminalSurface: Identifiable, ObservableObject {
             return nil
         }
         return surface
+    }
+
+    @MainActor
+    func runtimeReadinessSnapshot(reason: String) -> RuntimeReadinessSnapshot {
+        guard let liveSurface = liveSurfaceForGhosttyAccess(reason: reason) else {
+            return RuntimeReadinessSnapshot(
+                runtimeSurfaceReady: false,
+                processExited: nil,
+                foregroundPID: nil,
+                ttyName: nil
+            )
+        }
+
+        let processExited = ghostty_surface_process_exited(liveSurface)
+        let rawForegroundPID = ghostty_surface_foreground_pid(liveSurface)
+        let foregroundPID = rawForegroundPID == 0 ? nil : Int(exactly: rawForegroundPID)
+        let ttyName = Self.nonEmptyGhosttyString(ghostty_surface_tty_name(liveSurface))
+        return RuntimeReadinessSnapshot(
+            runtimeSurfaceReady: true,
+            processExited: processExited,
+            foregroundPID: foregroundPID,
+            ttyName: ttyName
+        )
+    }
+
+    private static func nonEmptyGhosttyString(_ value: ghostty_string_s) -> String? {
+        defer { ghostty_string_free(value) }
+        guard let ptr = value.ptr, value.len > 0 else { return nil }
+        let data = Data(bytes: ptr, count: Int(value.len))
+        let string = String(data: data, encoding: .utf8)?
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+        guard let string, !string.isEmpty else { return nil }
+        return string
     }
 
     private static let portalHostAreaThreshold: CGFloat = 4
@@ -6173,6 +6220,18 @@ final class TerminalSurface: Identifiable, ObservableObject {
                 )
             #endif
             }
+        }
+    }
+
+    @MainActor
+    func ensureRuntimeSurfaceStartedForAutomationIfNeeded(reason: String) {
+        guard allowsRuntimeSurfaceCreation() else { return }
+        guard surface == nil else { return }
+
+        if let view = attachedView, view.window != nil {
+            createSurface(for: view)
+        } else {
+            startRuntimeUsingHeadlessWindowIfNeeded(reason: reason)
         }
     }
 
