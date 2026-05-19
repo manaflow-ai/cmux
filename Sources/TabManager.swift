@@ -1010,6 +1010,8 @@ class TabManager: ObservableObject {
                 recordTabInHistory(selectedTabId)
             }
             publishCmuxWorkspaceSelectedChange(from: previousTabId)
+            let notificationDismissalContext = pendingSelectedTabNotificationDismissContext ?? .activeFocus
+            pendingSelectedTabNotificationDismissContext = nil
 #if DEBUG
             let switchId = debugWorkspaceSwitchId
             let switchDtMs = debugWorkspaceSwitchStartTime > 0
@@ -1027,7 +1029,10 @@ class TabManager: ObservableObject {
                 self.focusSelectedTabPanel(previousTabId: previousTabId)
                 self.updateWindowTitleForSelectedTab()
                 if let selectedTabId = self.selectedTabId {
-                    self.dismissFocusedPanelNotificationIfActive(tabId: selectedTabId)
+                    self.dismissFocusedPanelNotificationIfActive(
+                        tabId: selectedTabId,
+                        context: notificationDismissalContext
+                    )
                 }
 #if DEBUG
                 let dtMs = self.debugWorkspaceSwitchStartTime > 0
@@ -1043,6 +1048,7 @@ class TabManager: ObservableObject {
     }
     private var observers: [NSObjectProtocol] = []
     private var suppressFocusFlash = false
+    private var pendingSelectedTabNotificationDismissContext: NotificationDismissalContext?
     private var lastFocusedPanelByTab: [UUID: UUID] = [:]
     private struct PanelTitleUpdateKey: Hashable {
         let tabId: UUID
@@ -4405,7 +4411,7 @@ class TabManager: ObservableObject {
 #if DEBUG
         debugPrimeWorkspaceSwitchTrigger("select", to: workspace.id)
 #endif
-        selectedTabId = workspace.id
+        selectWorkspaceId(workspace.id, notificationDismissalContext: .explicitWorkspaceResume)
     }
 
     // Keep selectTab as convenience alias
@@ -5096,44 +5102,84 @@ class TabManager: ObservableObject {
         selectedTabId != pendingTabId
     }
 
-    private enum NotificationDismissalContext {
+    private enum NotificationDismissalContext: Sendable {
         case activeFocus
+        case explicitWorkspaceResume
         case directInteraction
         case terminalInteraction
 
         var requiresActiveApp: Bool {
-            self == .activeFocus
+            switch self {
+            case .activeFocus, .explicitWorkspaceResume:
+                return true
+            case .directInteraction, .terminalInteraction:
+                return false
+            }
         }
 
         var canDismissManualUnreadIndicator: Bool {
             self == .terminalInteraction
         }
 
-        // All current contexts clear restored unread. Keep this exhaustive so any
-        // future context must make an explicit restored-unread policy decision.
+        // Generic active focus can be produced by restore/programmatic selection.
+        // Keep this exhaustive so any future context must make an explicit
+        // restored-unread policy decision.
         var canDismissRestoredUnreadIndicator: Bool {
             switch self {
-            case .activeFocus, .directInteraction, .terminalInteraction:
+            case .activeFocus:
+                return false
+            case .explicitWorkspaceResume, .directInteraction, .terminalInteraction:
                 return true
             }
         }
     }
 
-    private func dismissFocusedPanelNotificationIfActive(tabId: UUID) {
+    private func selectWorkspaceId(
+        _ tabId: UUID,
+        notificationDismissalContext: NotificationDismissalContext?
+    ) {
+        guard selectedTabId != tabId else {
+            pendingSelectedTabNotificationDismissContext = nil
+            if let notificationDismissalContext {
+                dismissFocusedPanelNotificationIfActive(tabId: tabId, context: notificationDismissalContext)
+            }
+            return
+        }
+
+        pendingSelectedTabNotificationDismissContext = notificationDismissalContext
+        selectedTabId = tabId
+    }
+
+    private func dismissFocusedPanelNotificationIfActive(
+        tabId: UUID,
+        context: NotificationDismissalContext = .activeFocus
+    ) {
         let shouldSuppressFlash = suppressFocusFlash
         suppressFocusFlash = false
         guard !shouldSuppressFlash else { return }
         guard let panelId = focusedPanelId(for: tabId) else { return }
-        dismissPanelNotificationOnFocus(tabId: tabId, panelId: panelId, explicitFocusIntent: false)
+        dismissPanelNotificationOnFocus(tabId: tabId, panelId: panelId, context: context)
     }
 
     private func dismissPanelNotificationOnFocus(tabId: UUID, panelId: UUID, explicitFocusIntent: Bool) {
+        dismissPanelNotificationOnFocus(
+            tabId: tabId,
+            panelId: panelId,
+            context: explicitFocusIntent ? .directInteraction : .activeFocus
+        )
+    }
+
+    private func dismissPanelNotificationOnFocus(
+        tabId: UUID,
+        panelId: UUID,
+        context: NotificationDismissalContext
+    ) {
         guard selectedTabId == tabId else { return }
         guard !suppressFocusFlash else { return }
         _ = dismissNotification(
             tabId: tabId,
             surfaceId: panelId,
-            context: explicitFocusIntent ? .directInteraction : .activeFocus
+            context: context
         )
     }
 
@@ -5282,17 +5328,20 @@ class TabManager: ObservableObject {
         _ tabId: UUID,
         surfaceId: UUID? = nil,
         suppressFlash: Bool = false,
-        focusIntent: PanelFocusIntent? = nil
+        focusIntent: PanelFocusIntent? = nil,
+        dismissRestoredUnreadOnResume: Bool? = nil
     ) {
         guard let tab = tabs.first(where: { $0.id == tabId }) else { return }
         if let surfaceId, tab.panels[surfaceId] != nil {
             // Keep selected-surface intent stable across selectedTabId didSet async restore.
             lastFocusedPanelByTab[tabId] = surfaceId
         }
+        let shouldDismissRestoredUnread = dismissRestoredUnreadOnResume ?? !suppressFlash
+        let dismissalContext: NotificationDismissalContext? = shouldDismissRestoredUnread ? .explicitWorkspaceResume : nil
 #if DEBUG
         debugPrimeWorkspaceSwitchTrigger("focus", to: tabId)
 #endif
-        selectedTabId = tabId
+        selectWorkspaceId(tabId, notificationDismissalContext: dismissalContext)
         NotificationCenter.default.post(
             name: .ghosttyDidFocusTab,
             object: nil,
@@ -5304,6 +5353,9 @@ class TabManager: ObservableObject {
                 focusSurface(tabId: tabId, surfaceId: surfaceId)
             } else {
                 tab.focusPanel(surfaceId, focusIntent: focusIntent)
+            }
+            if let dismissalContext {
+                _ = dismissNotification(tabId: tabId, surfaceId: surfaceId, context: dismissalContext)
             }
         }
     }
@@ -5359,7 +5411,10 @@ class TabManager: ObservableObject {
         debugPrepareWorkspaceSwitch("next", from: currentId, to: nextId)
 #endif
         activateWorkspaceCycleHotWindow()
-        selectedTabId = tabs[nextIndex].id
+        selectWorkspaceId(
+            tabs[nextIndex].id,
+            notificationDismissalContext: .explicitWorkspaceResume
+        )
     }
 
     func selectPreviousTab() {
@@ -5371,7 +5426,10 @@ class TabManager: ObservableObject {
         debugPrepareWorkspaceSwitch("prev", from: currentId, to: prevId)
 #endif
         activateWorkspaceCycleHotWindow()
-        selectedTabId = tabs[prevIndex].id
+        selectWorkspaceId(
+            tabs[prevIndex].id,
+            notificationDismissalContext: .explicitWorkspaceResume
+        )
     }
 
     private func activateWorkspaceCycleHotWindow() {
@@ -5501,12 +5559,12 @@ class TabManager: ObservableObject {
 #if DEBUG
         debugPrimeWorkspaceSwitchTrigger("select_index", to: tabs[index].id)
 #endif
-        selectedTabId = tabs[index].id
+        selectWorkspaceId(tabs[index].id, notificationDismissalContext: .explicitWorkspaceResume)
     }
 
     func selectLastTab() {
         guard let lastTab = tabs.last else { return }
-        selectedTabId = lastTab.id
+        selectWorkspaceId(lastTab.id, notificationDismissalContext: .explicitWorkspaceResume)
     }
 
     // MARK: - Surface Navigation
@@ -5647,7 +5705,7 @@ class TabManager: ObservableObject {
             if tabs.contains(where: { $0.id == tabId }) {
                 isNavigatingHistory = true
                 historyIndex = targetIndex
-                selectedTabId = tabId
+                selectWorkspaceId(tabId, notificationDismissalContext: .explicitWorkspaceResume)
                 isNavigatingHistory = false
                 return
             }
@@ -5668,7 +5726,7 @@ class TabManager: ObservableObject {
             if tabs.contains(where: { $0.id == tabId }) {
                 isNavigatingHistory = true
                 historyIndex = targetIndex
-                selectedTabId = tabId
+                selectWorkspaceId(tabId, notificationDismissalContext: .explicitWorkspaceResume)
                 isNavigatingHistory = false
                 return
             }
@@ -5904,7 +5962,7 @@ class TabManager: ObservableObject {
         guard BrowserAvailabilitySettings.isEnabled() else { return nil }
         guard let workspace = tabs.first(where: { $0.id == tabId }) else { return nil }
         if selectedTabId != tabId {
-            selectedTabId = tabId
+            selectWorkspaceId(tabId, notificationDismissalContext: .explicitWorkspaceResume)
         }
 
         if preferSplitRight {
@@ -5995,7 +6053,10 @@ class TabManager: ObservableObject {
             let preReopenFocusedPanelId = focusedPanelId(for: targetWorkspace.id)
 
             if selectedTabId != targetWorkspace.id {
-                selectedTabId = targetWorkspace.id
+                selectWorkspaceId(
+                    targetWorkspace.id,
+                    notificationDismissalContext: .explicitWorkspaceResume
+                )
             }
 
             if let reopenedPanelId = reopenClosedBrowserPanel(snapshot, in: targetWorkspace) {

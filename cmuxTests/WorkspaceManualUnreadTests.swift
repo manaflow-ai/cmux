@@ -134,7 +134,7 @@ final class WorkspaceManualUnreadTests: XCTestCase {
         XCTAssertEqual(store.unreadCount(forTabId: workspace.id), 0)
     }
 
-    func testRestoredUnreadClearsWhenWorkspaceBecomesActiveFocus() throws {
+    func testRestoredUnreadClearsWhenWorkspaceIsExplicitlySelected() throws {
         let appDelegate = AppDelegate.shared ?? AppDelegate()
         let manager = TabManager()
         let store = TerminalNotificationStore.shared
@@ -172,6 +172,80 @@ final class WorkspaceManualUnreadTests: XCTestCase {
         XCTAssertEqual(manager.selectedTabId, restoredWorkspace.id)
         XCTAssertFalse(restoredWorkspace.hasRestoredUnreadIndicator(panelId: restoredPanelId))
         XCTAssertFalse(store.hasRestoredUnreadIndicator(forTabId: restoredWorkspace.id))
+    }
+
+    func testRestoredUnreadSurvivesProgrammaticActiveFocusSelection() throws {
+        let appDelegate = AppDelegate.shared ?? AppDelegate()
+        let manager = TabManager()
+        let store = TerminalNotificationStore.shared
+
+        let originalTabManager = appDelegate.tabManager
+        let originalNotificationStore = appDelegate.notificationStore
+        let originalAppFocusOverride = AppFocusState.overrideIsFocused
+
+        store.replaceNotificationsForTesting([])
+        appDelegate.tabManager = manager
+        appDelegate.notificationStore = store
+        AppFocusState.overrideIsFocused = true
+
+        defer {
+            store.replaceNotificationsForTesting([])
+            appDelegate.tabManager = originalTabManager
+            appDelegate.notificationStore = originalNotificationStore
+            AppFocusState.overrideIsFocused = originalAppFocusOverride
+        }
+
+        _ = try XCTUnwrap(manager.selectedWorkspace)
+        let restoredWorkspace = manager.addWorkspace(select: false, eagerLoadTerminal: false)
+        let restoredPanelId = try XCTUnwrap(restoredWorkspace.focusedPanelId)
+
+        restoredWorkspace.restorePanelUnreadIndicator(restoredPanelId)
+        store.restoreUnreadIndicator(forTabId: restoredWorkspace.id)
+
+        manager.selectedTabId = restoredWorkspace.id
+        drainMainQueue()
+        drainMainQueue()
+
+        XCTAssertEqual(manager.selectedTabId, restoredWorkspace.id)
+        XCTAssertTrue(restoredWorkspace.hasRestoredUnreadIndicator(panelId: restoredPanelId))
+        XCTAssertTrue(store.hasRestoredUnreadIndicator(forTabId: restoredWorkspace.id))
+    }
+
+    func testRestoredUnreadSurvivesSuppressedFocusFlashSelection() throws {
+        let appDelegate = AppDelegate.shared ?? AppDelegate()
+        let manager = TabManager()
+        let store = TerminalNotificationStore.shared
+
+        let originalTabManager = appDelegate.tabManager
+        let originalNotificationStore = appDelegate.notificationStore
+        let originalAppFocusOverride = AppFocusState.overrideIsFocused
+
+        store.replaceNotificationsForTesting([])
+        appDelegate.tabManager = manager
+        appDelegate.notificationStore = store
+        AppFocusState.overrideIsFocused = true
+
+        defer {
+            store.replaceNotificationsForTesting([])
+            appDelegate.tabManager = originalTabManager
+            appDelegate.notificationStore = originalNotificationStore
+            AppFocusState.overrideIsFocused = originalAppFocusOverride
+        }
+
+        _ = try XCTUnwrap(manager.selectedWorkspace)
+        let restoredWorkspace = manager.addWorkspace(select: false, eagerLoadTerminal: false)
+        let restoredPanelId = try XCTUnwrap(restoredWorkspace.focusedPanelId)
+
+        restoredWorkspace.restorePanelUnreadIndicator(restoredPanelId)
+        store.restoreUnreadIndicator(forTabId: restoredWorkspace.id)
+
+        manager.focusTab(restoredWorkspace.id, surfaceId: restoredPanelId, suppressFlash: true)
+        drainMainQueue()
+        drainMainQueue()
+
+        XCTAssertEqual(manager.selectedTabId, restoredWorkspace.id)
+        XCTAssertTrue(restoredWorkspace.hasRestoredUnreadIndicator(panelId: restoredPanelId))
+        XCTAssertTrue(store.hasRestoredUnreadIndicator(forTabId: restoredWorkspace.id))
     }
 
     func testRestoredUnreadClearsOnDirectInteractionWithoutClearingManualUnread() throws {

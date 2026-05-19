@@ -1172,7 +1172,9 @@ extension Workspace {
 
         case .split(let split):
             guard split.children.count == 2 else {
+                #if DEBUG
                 NSLog("[CmuxConfig] split node requires exactly 2 children, got %d", split.children.count)
+                #endif
                 leaves.append((paneId: paneId, surfaces: []))
                 return
             }
@@ -1384,7 +1386,9 @@ extension Workspace {
                 }
 
                 self.removePendingTerminalInputObserver(registration, forPanelId: panelId)
+                #if DEBUG
                 NSLog("[CmuxConfig] surface not ready after 3s, dropping command (%d chars)", text.count)
+                #endif
             }
         }
     }
