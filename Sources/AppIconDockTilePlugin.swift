@@ -4,6 +4,18 @@ import CoreServices
 private let cmuxAppIconDidChangeNotification = Notification.Name("com.cmuxterm.appIconDidChange")
 private let cmuxAppIconModeKey = "appIconMode"
 
+enum AppBundleIconPersistencePolicy {
+    static let disablePersistenceArgument = "--cmux-disable-bundle-icon-persistence"
+
+    static func shouldPersist(
+        bundleIdentifier _: String?,
+        appBundleLastPathComponent: String?,
+        launchArguments _: [String] = ProcessInfo.processInfo.arguments
+    ) -> Bool {
+        appBundleLastPathComponent != "cmux DEV.app"
+    }
+}
+
 private enum DockTileAppIconMode: String {
     case automatic
     case light
@@ -88,9 +100,10 @@ final class CmuxDockTilePlugin: NSObject, NSDockTilePlugIn {
 
     private var shouldPersistBundleIcon: Bool {
         guard let appBundleURL else { return false }
-        // The default untagged Debug app is rebuilt and re-signed in place during CI.
-        // Persisting a custom icon there leaves Finder metadata behind and breaks codesign.
-        return appBundleURL.lastPathComponent != "cmux DEV.app"
+        return AppBundleIconPersistencePolicy.shouldPersist(
+            bundleIdentifier: appBundle?.bundleIdentifier,
+            appBundleLastPathComponent: appBundleURL.lastPathComponent
+        )
     }
 
     private var appDefaults: UserDefaults? {

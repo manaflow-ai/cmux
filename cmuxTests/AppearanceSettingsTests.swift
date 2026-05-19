@@ -10,6 +10,60 @@ import SwiftUI
 
 @MainActor
 final class AppearanceSettingsTests: XCTestCase {
+    func testBundleIconPersistenceAllowsStableReleaseBundle() {
+        XCTAssertTrue(
+            AppBundleIconPersistencePolicy.shouldPersist(
+                bundleIdentifier: "com.cmuxterm.app",
+                appBundleLastPathComponent: "cmux.app",
+                launchArguments: []
+            )
+        )
+    }
+
+    func testBundleIconPersistenceSkipsNightlyBundles() {
+        XCTAssertFalse(
+            AppBundleIconPersistencePolicy.shouldPersist(
+                bundleIdentifier: "com.cmuxterm.app.nightly",
+                appBundleLastPathComponent: "cmux NIGHTLY.app",
+                launchArguments: []
+            )
+        )
+        XCTAssertFalse(
+            AppBundleIconPersistencePolicy.shouldPersist(
+                bundleIdentifier: "com.cmuxterm.app.nightly.issue-4350",
+                appBundleLastPathComponent: "cmux NIGHTLY issue-4350.app",
+                launchArguments: []
+            )
+        )
+    }
+
+    func testBundleIconPersistenceSkipsDebugBundles() {
+        XCTAssertFalse(
+            AppBundleIconPersistencePolicy.shouldPersist(
+                bundleIdentifier: "com.cmuxterm.app.debug",
+                appBundleLastPathComponent: "cmux DEV.app",
+                launchArguments: []
+            )
+        )
+        XCTAssertFalse(
+            AppBundleIconPersistencePolicy.shouldPersist(
+                bundleIdentifier: "com.cmuxterm.app.debug.issue-4350",
+                appBundleLastPathComponent: "cmux DEV issue-4350.app",
+                launchArguments: []
+            )
+        )
+    }
+
+    func testBundleIconPersistenceHonorsSmokeLaunchDisableArgument() {
+        XCTAssertFalse(
+            AppBundleIconPersistencePolicy.shouldPersist(
+                bundleIdentifier: "com.cmuxterm.app",
+                appBundleLastPathComponent: "cmux.app",
+                launchArguments: [AppBundleIconPersistencePolicy.disablePersistenceArgument]
+            )
+        )
+    }
+
     func testAppConfigReloadRefreshUpdatesSurfaceConfigBeforeRedraw() throws {
         let fakeSurface = try XCTUnwrap(UnsafeMutableRawPointer(bitPattern: 0x3851))
         var events: [String] = []
