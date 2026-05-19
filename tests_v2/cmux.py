@@ -184,15 +184,22 @@ def _variant_socket_candidates() -> List[str]:
 
 
 def _is_discoverable_tagged_debug_socket_name(name: str) -> bool:
-    if not name.endswith(".sock"):
+    suffix = ".sock"
+    if not name.endswith(suffix):
         return False
-    if name.startswith("cmux-debug-") or name.startswith("com.cmuxterm.app.dev."):
+    stem = name[: -len(suffix)]
+    app_support_dev_prefix = "com.cmuxterm.app.dev."
+    if stem.startswith(app_support_dev_prefix):
+        return len(stem) > len(app_support_dev_prefix)
+    if stem.startswith("cmux-debug-"):
         return True
-    if name == "cmux-nightly.sock" or name.startswith("cmux-nightly-"):
+    if stem == "cmux-debug":
         return False
-    if name == "cmux-staging.sock" or name.startswith("cmux-staging-"):
+    if stem == "cmux-nightly" or stem.startswith("cmux-nightly-"):
         return False
-    return name.startswith("cmux-")
+    if stem == "cmux-staging" or stem.startswith("cmux-staging-"):
+        return False
+    return stem.startswith("cmux-")
 
 
 def _read_last_socket_path() -> Optional[str]:
