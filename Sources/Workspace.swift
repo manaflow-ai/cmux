@@ -8613,12 +8613,36 @@ final class Workspace: Identifiable, ObservableObject {
             return panels[panelId] as? TerminalPanel
         }
     }
+
+    private func hasBackgroundSurfaceStartWork(for panel: TerminalPanel) -> Bool {
+        panel.surface.hasDeferredStartupWorkForBackgroundStart() ||
+            pendingTerminalInputObserversByPanelId[panel.id]?.isEmpty == false
+    }
+
+    private var backgroundPrimeTerminalPanelsNeedingSurfaceStart: [TerminalPanel] {
+        backgroundPrimeTerminalPanels.filter { panel in
+            panel.surface.surface == nil && hasBackgroundSurfaceStartWork(for: panel)
+        }
+    }
+
+    func hasBackgroundPrimeTerminalSurfaceStartWork() -> Bool {
+        backgroundPrimeTerminalPanels.contains {
+            hasBackgroundSurfaceStartWork(for: $0)
+        }
+    }
+
     func requestBackgroundPrimeTerminalSurfaceStartIfNeeded() {
-        backgroundPrimeTerminalPanels.forEach {
+        backgroundPrimeTerminalPanelsNeedingSurfaceStart.forEach {
             $0.surface.requestBackgroundSurfaceStartIfNeeded()
         }
     }
-    func hasLoadedBackgroundPrimeTerminalSurface() -> Bool { backgroundPrimeTerminalPanels.allSatisfy { $0.surface.surface != nil } }
+
+    func hasLoadedBackgroundPrimeTerminalSurface() -> Bool {
+        backgroundPrimeTerminalPanels.allSatisfy { panel in
+            panel.surface.surface != nil || !hasBackgroundSurfaceStartWork(for: panel)
+        }
+    }
+
     @discardableResult
     func preloadTerminalPanelForDebugStress(
         tabId: TabID,
