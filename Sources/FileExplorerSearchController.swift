@@ -506,20 +506,16 @@ final class FileSearchController: FileSearchControlling {
             emit(status: .idle, isSearching: false)
             return
         }
-        guard scope != .unsupported else {
-            emit(status: .unsupported, isSearching: false)
-            return
-        }
-        guard !rootPath.isEmpty else {
-            emit(status: .noMatches, isSearching: false)
-            return
-        }
         let command: SearchProcessCommand
         switch scope {
         case .unsupported:
             emit(status: .unsupported, isSearching: false)
             return
         case .local:
+            guard !rootPath.isEmpty else {
+                emit(status: .noMatches, isSearching: false)
+                return
+            }
             let resolution = RipgrepExecutableResolver.resolution()
             let executable: FileSearchRipgrepExecutable
             switch resolution {
@@ -543,6 +539,10 @@ final class FileSearchController: FileSearchControlling {
                 arguments: executable.prefixArguments + Self.ripgrepArguments(query: query, rootPath: rootPath)
             )
         case .remoteSSH(let connection):
+            guard !rootPath.isEmpty else {
+                emit(status: .noMatches, isSearching: false)
+                return
+            }
             let remoteCommand = (["rg"] + Self.ripgrepArguments(query: query, rootPath: rootPath))
                 .map(ShellCommandQuoting.singleQuoted)
                 .joined(separator: " ")
