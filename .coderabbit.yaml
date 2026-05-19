@@ -28,9 +28,18 @@ reviews:
     - path: "**/*.{swift,ts,tsx,js,jsx,mjs,cjs}"
       instructions: |
         Apply `.github/review-bot-rules/user-facing-errors.md` during review. For production user-facing errors, alerts, command output, API error bodies, and recovery copy, flag implementation leaks such as upstream vendor names, internal provider names, environment variables, database or migration details, raw upstream messages, internal billing ids, or unredacted payloads.
-    - path: "**/*.{swift,ts,tsx,js,jsx,json,xcstrings,plist,md,mdx}"
+    - path: "**/*.{swift,ts,tsx,js,jsx,xcstrings,plist}"
       instructions: |
         Apply `.github/review-bot-rules/full-internationalization.md` during review. For production user-facing text, fail partial localization: Swift text must use localized APIs with matching translated string-catalog entries, app string catalogs and Info.plist text must include every supported locale in the touched catalog, and web message, API response, rendered markdown, changelog, or user-facing data changes must update every locale in `web/i18n/routing.ts` and `web/messages/`.
+    - path: "web/messages/**/*.json"
+      instructions: |
+        Apply `.github/review-bot-rules/full-internationalization.md` during review. Verify message key changes update every locale listed in `web/i18n/routing.ts` with matching entries in `web/messages/`.
+    - path: "web/app/**/*.{md,mdx}"
+      instructions: |
+        Apply `.github/review-bot-rules/full-internationalization.md` during review. Verify rendered markdown copy has matching localized message coverage for every locale listed in `web/i18n/routing.ts`.
+    - path: "CHANGELOG.md"
+      instructions: |
+        Apply `.github/review-bot-rules/full-internationalization.md` during review. Verify changelog copy rendered on the docs site has matching localized message coverage for every locale listed in `web/i18n/routing.ts`.
 
   pre_merge_checks:
     custom_checks:
