@@ -33,6 +33,11 @@ extension CMUXCLI {
         let mode: String
     }
 
+    private struct CmuxUseLaunchScript {
+        let initialCommand: String
+        let url: URL
+    }
+
     private func parseUseOptions(_ commandArgs: [String]) throws -> CmuxUseOptions {
         var repositoryArg: String?
         var commandMode = CmuxUseCommandMode.automatic
@@ -143,7 +148,14 @@ extension CMUXCLI {
         case .none:
             detectedCommand = nil
         }
-        let initialCommand = try detectedCommand.map { try writeUseLaunchCommandScript($0.command) }
+        let launchScript = try detectedCommand.map { try writeUseLaunchCommandScript($0.command) }
+        var shouldRemoveLaunchScriptOnFailure = launchScript != nil
+        defer {
+            guard shouldRemoveLaunchScriptOnFailure, let launchScript else {
+                return
+            }
+            try? FileManager.default.removeItem(at: launchScript.url)
+        }
 
         try withUseSocketClient(socketPath: socketPath, explicitPassword: explicitPassword) { client, launched in
             var initialEnv: [String: String] = [
@@ -168,8 +180,8 @@ extension CMUXCLI {
                let normalizedWindow = try normalizeWindowHandle(windowOverride, client: client) {
                 params["window_id"] = normalizedWindow
             }
-            if let initialCommand {
-                params["initial_command"] = initialCommand
+            if let launchScript {
+                params["initial_command"] = launchScript.initialCommand
             }
 
             let response = try client.sendV2(method: "workspace.create", params: params)
@@ -181,6 +193,7 @@ extension CMUXCLI {
             guard let workspaceHandle, !workspaceHandle.isEmpty else {
                 throw CLIError(message: "workspace.create did not return workspace_id or workspace_ref")
             }
+            shouldRemoveLaunchScriptOnFailure = false
 
             if jsonOutput {
                 var payload: [String: Any] = formattedResponse
@@ -303,7 +316,7 @@ extension CMUXCLI {
         }
     }
 
-    private func writeUseLaunchCommandScript(_ command: String) throws -> String {
+    private func writeUseLaunchCommandScript(_ command: String) throws -> CmuxUseLaunchScript {
         let trimmedCommand = command.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !trimmedCommand.isEmpty else {
             throw CLIError(message: "cmux use launch command is empty")
@@ -330,7 +343,7 @@ extension CMUXCLI {
         """
         try script.appending("\n").write(to: scriptURL, atomically: true, encoding: .utf8)
         try FileManager.default.setAttributes([.posixPermissions: 0o700], ofItemAtPath: scriptURL.path)
-        return shellQuote(scriptURL.path)
+        return CmuxUseLaunchScript(initialCommand: shellQuote(scriptURL.path), url: scriptURL)
     }
 
     private func ensureUseCheckout(

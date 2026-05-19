@@ -22,7 +22,7 @@ extension CMUXCLI {
                     throw CLIError(message: "Authentication failed")
                 }
             } else if authResponse.hasPrefix("ERROR:") {
-                throw CLIError(message: authResponse)
+                throw CLIError(message: "Authentication failed")
             }
         }
     }
