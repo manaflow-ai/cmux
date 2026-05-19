@@ -417,6 +417,33 @@ struct AgentLaunchSanitizerTests {
         )
     }
 
+    @Test("Preserves Codex variadic add-dir literal resume value")
+    func preservesCodexVariadicAddDirLiteralResumeValue() {
+        #expect(
+            AgentLaunchSanitizer.sanitizedLaunchArguments(
+                [
+                    "codex",
+                    "--add-dir",
+                    "resume",
+                    "--model",
+                    "gpt-5.4",
+                    "--sandbox",
+                    "danger-full-access",
+                ],
+                launcher: "codex",
+                fallbackKind: "codex"
+            ) == [
+                "codex",
+                "--add-dir",
+                "resume",
+                "--model",
+                "gpt-5.4",
+                "--sandbox",
+                "danger-full-access",
+            ]
+        )
+    }
+
     @Test("Stops Codex variadic add-dir before fork session subcommand")
     func stopsCodexVariadicAddDirBeforeForkSessionSubcommand() {
         #expect(

@@ -239,7 +239,7 @@ public enum AgentLaunchSanitizer {
     ) -> Bool {
         let arg = args[index]
         if let resumeSubcommand = policy.resumeSubcommand, arg == resumeSubcommand {
-            return true
+            return index + 1 < args.count && !args[index + 1].hasPrefix("-")
         }
         guard policy.sessionSubcommands.contains(arg) else {
             return false
