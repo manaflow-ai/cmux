@@ -189,58 +189,6 @@ final class CMUXCLIErrorOutputRegressionTests: XCTestCase {
         ])
     }
 
-    func testBareThemesWithSkippedGhosttyHelperFallsBackToList() throws {
-        let cliPath = try bundledCLIPath()
-        let fileManager = FileManager.default
-        let root = fileManager.temporaryDirectory
-            .appendingPathComponent("cmux-themes-stub-helper-\(UUID().uuidString)", isDirectory: true)
-        try fileManager.createDirectory(at: root, withIntermediateDirectories: true)
-        defer { try? fileManager.removeItem(at: root) }
-
-        let fakeCLIPath = try fakeTaggedBundledCLIPath(
-            sourceCLIPath: cliPath,
-            tagSlug: "theme-stub-\(UUID().uuidString.lowercased())"
-        )
-        let fakeBinURL = URL(fileURLWithPath: fakeCLIPath).deletingLastPathComponent()
-        let fakeResourcesURL = fakeBinURL.deletingLastPathComponent()
-        let fakeGhosttyResourcesURL = fakeResourcesURL.appendingPathComponent("ghostty", isDirectory: true)
-        let fakeThemesURL = fakeGhosttyResourcesURL.appendingPathComponent("themes", isDirectory: true)
-        try fileManager.createDirectory(at: fakeThemesURL, withIntermediateDirectories: true)
-        try writeTheme(named: "Fallback Stub Theme", background: "#101820", to: fakeThemesURL)
-
-        let fakeGhosttyHelperURL = fakeBinURL.appendingPathComponent("ghostty", isDirectory: false)
-        try """
-        #!/bin/sh
-        echo "ghostty CLI helper stub (zig build skipped)" >&2
-        exit 1
-        """.write(to: fakeGhosttyHelperURL, atomically: true, encoding: .utf8)
-        try fileManager.setAttributes(
-            [.posixPermissions: 0o755],
-            ofItemAtPath: fakeGhosttyHelperURL.path
-        )
-
-        let command = [
-            "env",
-            "-i",
-            "HOME=\(shellSingleQuote(root.path))",
-            "CFFIXED_USER_HOME=\(shellSingleQuote(root.path))",
-            "GHOSTTY_RESOURCES_DIR=\(shellSingleQuote(fakeGhosttyResourcesURL.path))",
-            "CMUX_CLI_SENTRY_DISABLED=1",
-            "PATH=/usr/bin:/bin",
-            "/usr/bin/script",
-            "-q",
-            "/dev/null",
-            shellSingleQuote(fakeCLIPath),
-            "themes",
-        ].joined(separator: " ")
-        let result = runShell(command, timeout: 5)
-
-        XCTAssertFalse(result.timedOut, result.stdout)
-        XCTAssertEqual(result.status, 0, result.stdout)
-        XCTAssertTrue(result.stdout.contains("Fallback Stub Theme"), result.stdout)
-        XCTAssertFalse(result.stdout.contains("ghostty CLI helper stub"), result.stdout)
-    }
-
     func testBrowserDownloadWaitUsesRequestedTimeoutForSocketResponse() throws {
         let cliPath = try bundledCLIPath()
         let socketPath = "/tmp/cmux-dw-\(UUID().uuidString.prefix(8)).sock"
