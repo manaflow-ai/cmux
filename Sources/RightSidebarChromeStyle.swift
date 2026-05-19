@@ -200,4 +200,10 @@ extension View {
     func rightSidebarChromeBottomBorder() -> some View {
         modifier(RightSidebarChromeBottomBorderModifier())
     }
+
+    func rightSidebarHeaderControlAlignment() -> some View {
+        alignmentGuide(VerticalAlignment.center) { dimensions in
+            dimensions[VerticalAlignment.center] + RightSidebarChromeMetrics.headerControlCenterAlignmentLift
+        }
+    }
 }
