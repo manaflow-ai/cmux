@@ -496,6 +496,10 @@
           "type": "boolean",
           "default": true,
           "description": "Show custom metadata pills."
+        },
+        "rightMaxWidth": {
+          "type": "number",
+          "exclusiveMinimum": 0
         }
       }
     },

@@ -1056,6 +1056,7 @@ struct ContentView: View {
     @EnvironmentObject var fileExplorerState: FileExplorerState
     @Environment(\.colorScheme) private var colorScheme
     @AppStorage("titlebarControlsStyle") private var titlebarControlsStyleRawValue = TitlebarControlsStyle.classic.rawValue
+    @AppStorage(RightSidebarWidthSettings.maxWidthKey) private var rightSidebarMaxWidthSetting = RightSidebarWidthSettings.noOverrideValue
     @State private var sidebarWidth: CGFloat = 200
     @State private var hoveredResizerHandles: Set<SidebarResizerHandle> = []
     @State private var isResizerDragging = false
@@ -1608,7 +1609,8 @@ struct ContentView: View {
                     let startWidth = fileExplorerDragStartWidth ?? fileExplorerWidth
                     let nextWidth = Self.clampedRightSidebarWidth(
                         startWidth - translation,
-                        availableWidth: availableWidth
+                        availableWidth: availableWidth,
+                        configuredMaximumWidth: rightSidebarConfiguredMaximumWidth
                     )
                     withTransaction(Transaction(animation: nil)) {
                         fileExplorerWidth = nextWidth
@@ -1647,15 +1649,28 @@ struct ContentView: View {
         return max(minimumWidth, min(sanitizedMaximumWidth, candidate))
     }
 
-    static func clampedRightSidebarWidth(_ candidate: CGFloat, availableWidth: CGFloat) -> CGFloat {
+    static func clampedRightSidebarWidth(
+        _ candidate: CGFloat,
+        availableWidth: CGFloat,
+        configuredMaximumWidth: CGFloat? = nil
+    ) -> CGFloat {
         let minimumWidth = Self.minimumRightSidebarWidth
         let sanitizedCandidate = candidate.isFinite ? candidate : 220
         let sanitizedAvailableWidth = availableWidth.isFinite && availableWidth > 0 ? availableWidth : 1920
-        let availableWidthCap = sanitizedAvailableWidth - Self.minimumTerminalWidthWithRightSidebar
-        let maximumWidth = min(
-            Self.maximumRightSidebarWidth,
-            max(minimumWidth, availableWidthCap)
-        )
+        let maximumWidth: CGFloat
+        if let configuredMaximumWidth, configuredMaximumWidth.isFinite {
+            // An explicit cmux.json max width replaces the legacy terminal-reservation cap.
+            maximumWidth = min(
+                sanitizedAvailableWidth,
+                max(minimumWidth, configuredMaximumWidth)
+            )
+        } else {
+            let availableWidthCap = sanitizedAvailableWidth - Self.minimumTerminalWidthWithRightSidebar
+            maximumWidth = min(
+                Self.maximumRightSidebarWidth,
+                max(minimumWidth, availableWidthCap)
+            )
+        }
         return max(minimumWidth, min(maximumWidth, sanitizedCandidate))
     }
 
@@ -1699,10 +1714,15 @@ struct ContentView: View {
         return 1920
     }
 
+    private var rightSidebarConfiguredMaximumWidth: CGFloat? {
+        RightSidebarWidthSettings.configuredMaximumWidth(from: rightSidebarMaxWidthSetting)
+    }
+
     private func normalizedRightSidebarWidth(_ candidate: CGFloat, availableWidth: CGFloat? = nil) -> CGFloat {
         Self.clampedRightSidebarWidth(
             candidate,
-            availableWidth: resolvedRightSidebarAvailableWidth(availableWidth)
+            availableWidth: resolvedRightSidebarAvailableWidth(availableWidth),
+            configuredMaximumWidth: rightSidebarConfiguredMaximumWidth
         )
     }
 
@@ -3096,6 +3116,11 @@ struct ContentView: View {
             let availableWidth = window.contentView?.bounds.width ?? window.contentLayoutRect.width
             clampSidebarWidthIfNeeded(availableWidth: availableWidth)
             clampRightSidebarWidthIfNeeded(availableWidth: availableWidth)
+            updateSidebarResizerBandState()
+        })
+
+        view = AnyView(view.onChange(of: rightSidebarMaxWidthSetting) { _ in
+            clampRightSidebarWidthIfNeeded()
             updateSidebarResizerBandState()
         })
 

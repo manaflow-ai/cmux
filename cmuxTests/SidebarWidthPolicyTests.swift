@@ -9,6 +9,9 @@ import XCTest
 #endif
 
 final class SidebarWidthPolicyTests: XCTestCase {
+    private let settingsFileBackupsDefaultsKey = "cmux.settingsFile.backups.v1"
+    private let importedManagedDefaultsKey = "cmux.settingsFile.importedManagedDefaults.v1"
+
     func testContentViewClampAllowsNarrowSidebarBelowLegacyMinimum() {
         XCTAssertEqual(
             ContentView.clampedSidebarWidth(184, maximumWidth: 600),
@@ -25,10 +28,46 @@ final class SidebarWidthPolicyTests: XCTestCase {
         )
     }
 
-    func testRightSidebarClampLeavesTerminalWidth() {
+    func testRightSidebarClampLeavesTerminalWidthWhenMaxWidthSettingIsMissing() {
         XCTAssertEqual(
             ContentView.clampedRightSidebarWidth(10_000, availableWidth: 1000),
             640,
+            accuracy: 0.001
+        )
+    }
+
+    func testRightSidebarConfiguredMaxCanExceedDynamicTerminalReservation() {
+        XCTAssertEqual(
+            ContentView.clampedRightSidebarWidth(
+                10_000,
+                availableWidth: 1000,
+                configuredMaximumWidth: 900
+            ),
+            900,
+            accuracy: 0.001
+        )
+    }
+
+    func testRightSidebarConfiguredMaxStillClampsToAvailableWidth() {
+        XCTAssertEqual(
+            ContentView.clampedRightSidebarWidth(
+                10_000,
+                availableWidth: 1000,
+                configuredMaximumWidth: 1_400
+            ),
+            1000,
+            accuracy: 0.001
+        )
+    }
+
+    func testRightSidebarConfiguredMaxBelowMinimumClampsToMinimumWidth() {
+        XCTAssertEqual(
+            ContentView.clampedRightSidebarWidth(
+                10_000,
+                availableWidth: 1000,
+                configuredMaximumWidth: 120
+            ),
+            276,
             accuracy: 0.001
         )
     }
@@ -39,6 +78,60 @@ final class SidebarWidthPolicyTests: XCTestCase {
             276,
             accuracy: 0.001
         )
+    }
+
+    func testSettingsFileStoreAppliesRightSidebarMaxWidthSetting() throws {
+        let defaults = UserDefaults.standard
+        let managedKey = RightSidebarWidthSettings.maxWidthKey
+        let previousValues = [
+            managedKey,
+            settingsFileBackupsDefaultsKey,
+            importedManagedDefaultsKey,
+        ].reduce(into: [String: Any]()) { values, key in
+            values[key] = defaults.object(forKey: key)
+        }
+        defer {
+            for key in [managedKey, settingsFileBackupsDefaultsKey, importedManagedDefaultsKey] {
+                if let value = previousValues[key] {
+                    defaults.set(value, forKey: key)
+                } else {
+                    defaults.removeObject(forKey: key)
+                }
+            }
+        }
+
+        defaults.removeObject(forKey: managedKey)
+        defaults.removeObject(forKey: settingsFileBackupsDefaultsKey)
+        defaults.removeObject(forKey: importedManagedDefaultsKey)
+
+        let directoryURL = FileManager.default.temporaryDirectory.appendingPathComponent(
+            "right-sidebar-width-settings-\(UUID().uuidString)",
+            isDirectory: true
+        )
+        try FileManager.default.createDirectory(at: directoryURL, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: directoryURL) }
+
+        let settingsFileURL = directoryURL.appendingPathComponent("cmux.json", isDirectory: false)
+        try """
+        {
+          "sidebar": {
+            "rightMaxWidth": 900
+          }
+        }
+        """.write(to: settingsFileURL, atomically: true, encoding: .utf8)
+
+        _ = KeyboardShortcutSettingsFileStore(
+            primaryPath: settingsFileURL.path,
+            fallbackPath: nil,
+            additionalFallbackPaths: [],
+            startWatching: false
+        )
+
+        XCTAssertEqual(defaults.double(forKey: managedKey), 900, accuracy: 0.001)
+        let configuredMaximumWidth = try XCTUnwrap(
+            RightSidebarWidthSettings.configuredMaximumWidth(from: defaults.double(forKey: managedKey))
+        )
+        XCTAssertEqual(configuredMaximumWidth, 900, accuracy: 0.001)
     }
 
     func testLeadingSidebarResizeRangeFavorsSidebarSide() {
