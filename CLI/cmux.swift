@@ -18762,6 +18762,12 @@ struct CMUXCLI {
     }
 
     private static func ignoredClaudeNotificationTypes() -> Set<String> {
+        // Hook subprocess environments are immutable after terminal launch; read cmux.json first
+        // so existing terminals follow live settings changes.
+        if let settingsTypes = ignoredClaudeNotificationTypesFromSettingsFiles() {
+            return settingsTypes
+        }
+
         if let env = ProcessInfo.processInfo.environment[claudeIgnoredNotificationTypesEnvKey] {
             return normalizedClaudeNotificationTypes(
                 env.components(separatedBy: CharacterSet(charactersIn: ", \n\t"))
@@ -18777,6 +18783,125 @@ struct CMUXCLI {
             )
         }
         return []
+    }
+
+    private enum ClaudeIgnoredNotificationTypesFileLoadResult {
+        case missing
+        case invalid
+        case parsed([String]?)
+    }
+
+    private static func ignoredClaudeNotificationTypesFromSettingsFiles(
+        fileManager: FileManager = .default,
+        environment: [String: String] = ProcessInfo.processInfo.environment
+    ) -> Set<String>? {
+        let paths = claudeIgnoredNotificationTypesSettingsPaths(
+            fileManager: fileManager,
+            environment: environment
+        )
+        var foundSettingsFile = false
+
+        for (index, path) in paths.enumerated() {
+            switch loadIgnoredClaudeNotificationTypes(at: path, fileManager: fileManager) {
+            case .missing:
+                continue
+            case .invalid:
+                if index == 0 {
+                    return []
+                }
+            case .parsed(let values):
+                foundSettingsFile = true
+                if let values {
+                    return normalizedClaudeNotificationTypes(values)
+                }
+            }
+        }
+
+        return foundSettingsFile ? [] : nil
+    }
+
+    private static func claudeIgnoredNotificationTypesSettingsPaths(
+        fileManager: FileManager,
+        environment: [String: String]
+    ) -> [String] {
+        var paths: [String] = []
+        var seen = Set<String>()
+
+        func append(_ path: String) {
+            let standardized = URL(fileURLWithPath: path).standardizedFileURL.path
+            if seen.insert(standardized).inserted {
+                paths.append(standardized)
+            }
+        }
+
+        append(expandedSettingsPath(
+            primarySettingsDisplayPath,
+            fileManager: fileManager,
+            environment: environment
+        ))
+        append(expandedSettingsPath(
+            legacySettingsDisplayPath,
+            fileManager: fileManager,
+            environment: environment
+        ))
+
+        for appSupportURL in CmuxApplicationSupportDirectories.userDirectories(
+            environment: environment,
+            fileManager: fileManager
+        ) {
+            append(
+                appSupportURL
+                    .appendingPathComponent("com.cmuxterm.app", isDirectory: true)
+                    .appendingPathComponent("settings.json", isDirectory: false)
+                    .path
+            )
+        }
+
+        return paths
+    }
+
+    private static func expandedSettingsPath(
+        _ rawPath: String,
+        fileManager: FileManager,
+        environment: [String: String]
+    ) -> String {
+        let homePath = environment["HOME"] ?? fileManager.homeDirectoryForCurrentUser.path
+        let expanded: String
+        if rawPath == "~" {
+            expanded = homePath
+        } else if rawPath.hasPrefix("~/") {
+            expanded = (homePath as NSString).appendingPathComponent(String(rawPath.dropFirst(2)))
+        } else {
+            expanded = rawPath
+        }
+        return URL(fileURLWithPath: expanded).standardizedFileURL.path
+    }
+
+    private static func loadIgnoredClaudeNotificationTypes(
+        at path: String,
+        fileManager: FileManager
+    ) -> ClaudeIgnoredNotificationTypesFileLoadResult {
+        var isDirectory = ObjCBool(false)
+        guard fileManager.fileExists(atPath: path, isDirectory: &isDirectory) else {
+            return .missing
+        }
+        guard !isDirectory.boolValue,
+              let data = fileManager.contents(atPath: path),
+              !data.isEmpty,
+              let sanitized = try? JSONCParser.preprocess(data: data),
+              let rootObject = try? JSONSerialization.jsonObject(with: sanitized, options: []),
+              let root = rootObject as? [String: Any] else {
+            return .invalid
+        }
+
+        guard let notifications = root["notifications"] as? [String: Any],
+              let rawValues = notifications["ignoredClaudeNotificationTypes"] else {
+            return .parsed(nil)
+        }
+        guard let values = rawValues as? [String] else {
+            return .parsed(nil)
+        }
+        return .parsed(values)
     }
 
     private static func claudeNotificationTypes(parsedInput: ClaudeHookParsedInput) -> Set<String> {

@@ -132,6 +132,21 @@ def run_notification_hook(
     )
 
 
+def configure_isolated_home(server: CapturingSocketServer, env: dict[str, str]) -> str:
+    home = os.path.join(server.root.name, "home")
+    os.makedirs(home, exist_ok=True)
+    env["HOME"] = home
+    env["CFFIXED_USER_HOME"] = home
+    return home
+
+
+def write_cmux_config(home: str, notifications: dict[str, object]) -> None:
+    config_dir = os.path.join(home, ".config", "cmux")
+    os.makedirs(config_dir, exist_ok=True)
+    with open(os.path.join(config_dir, "cmux.json"), "w", encoding="utf-8") as handle:
+        json.dump({"notifications": notifications}, handle)
+
+
 def main() -> int:
     try:
         cli_path = resolve_cmux_cli()
@@ -151,6 +166,7 @@ def main() -> int:
         env["CMUX_CLAUDE_IGNORED_NOTIFICATION_TYPES"] = "idle_prompt"
         env["CMUX_CLI_SENTRY_DISABLED"] = "1"
         env["CMUX_CLAUDE_HOOK_SENTRY_DISABLED"] = "1"
+        home = configure_isolated_home(server, env)
 
         idle = run_notification_hook(
             cli_path,
@@ -374,6 +390,65 @@ def main() -> int:
         if not any(line.startswith("notify_target_async ") for line in hook_event_commands):
             print("FAIL: hook_event_name Notification was treated as a notification type")
             print(f"hook_event_commands={hook_event_commands!r}")
+            return 1
+
+        settings_env = env.copy()
+        settings_env["CMUX_CLAUDE_IGNORED_NOTIFICATION_TYPES"] = "permission_prompt"
+        write_cmux_config(home, {"ignoredClaudeNotificationTypes": ["idle_prompt"]})
+        before_settings_count = len(server.commands)
+        settings_idle = run_notification_hook(
+            cli_path,
+            server,
+            settings_env,
+            {
+                "session_id": f"sess-{uuid.uuid4().hex}",
+                "hook_event_name": "Notification",
+                "notification_type": "idle_prompt",
+                "message": "Current cmux.json should override stale hook env",
+            },
+        )
+        if settings_idle.returncode != 0 or settings_idle.stdout.strip() != "OK":
+            print("FAIL: cmux.json ignored type did not override stale hook env")
+            print(f"stdout={settings_idle.stdout!r}")
+            print(f"stderr={settings_idle.stderr!r}")
+            print(f"commands={server.commands!r}")
+            return 1
+
+        settings_idle_commands = server.commands[before_settings_count:]
+        if any(
+            line.startswith("notify_target_async ") or line.startswith("set_status claude_code Needs input ")
+            for line in settings_idle_commands
+        ):
+            print("FAIL: cmux.json ignored type rendered because stale env won")
+            print(f"settings_idle_commands={settings_idle_commands!r}")
+            return 1
+
+        stale_env = env.copy()
+        stale_env["CMUX_CLAUDE_IGNORED_NOTIFICATION_TYPES"] = "idle_prompt"
+        write_cmux_config(home, {})
+        before_removed_count = len(server.commands)
+        removed_idle = run_notification_hook(
+            cli_path,
+            server,
+            stale_env,
+            {
+                "session_id": f"sess-{uuid.uuid4().hex}",
+                "hook_event_name": "Notification",
+                "notification_type": "idle_prompt",
+                "message": "Removed cmux.json setting should not leave stale suppression active",
+            },
+        )
+        if removed_idle.returncode != 0:
+            print("FAIL: removed cmux.json ignored type hook failed")
+            print(f"stdout={removed_idle.stdout!r}")
+            print(f"stderr={removed_idle.stderr!r}")
+            print(f"commands={server.commands!r}")
+            return 1
+
+        removed_idle_commands = server.commands[before_removed_count:]
+        if not any(line.startswith("notify_target_async ") for line in removed_idle_commands):
+            print("FAIL: stale hook env suppressed after cmux.json ignored types were removed")
+            print(f"removed_idle_commands={removed_idle_commands!r}")
             return 1
 
     print("PASS: Claude ignored notification types suppress only matching hook notifications")
