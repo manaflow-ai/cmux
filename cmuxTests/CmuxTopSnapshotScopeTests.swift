@@ -213,6 +213,19 @@ final class CmuxTopSnapshotScopeTests: XCTestCase {
         XCTAssertEqual(intArray(windows[1]["app_process_pids"]), [])
     }
 
+    func testApplicationProcessIsNotAttachedForWorkspaceScope() {
+        var windows: [[String: Any]] = [
+            ["kind": "window", "id": "workspace-window", "key": true]
+        ]
+
+        TerminalController.shared.v2AttachTopApplicationProcess(
+            to: &windows,
+            workspaceFilter: UUID()
+        )
+
+        XCTAssertEqual(intArray(windows[0]["app_process_pids"]), [])
+    }
+
     @MainActor
     func testApplicationProcessTreeIsExposedAtWindowLevel() throws {
         let fixture = try SpawnedProcessTree.start()

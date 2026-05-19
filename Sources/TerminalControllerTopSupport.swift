@@ -285,7 +285,16 @@ extension TerminalController {
         return nil
     }
 
-    nonisolated func v2AttachTopApplicationProcess(to windows: inout [[String: Any]]) {
+    nonisolated func v2AttachTopApplicationProcess(
+        to windows: inout [[String: Any]],
+        workspaceFilter: UUID? = nil
+    ) {
+        guard workspaceFilter == nil else {
+            for index in windows.indices {
+                windows[index]["app_process_pids"] = []
+            }
+            return
+        }
         guard let firstIndex = windows.indices.first else { return }
 
         let appProcessID = Int(Darwin.getpid())
