@@ -358,6 +358,7 @@ extension TerminalController {
         if Self.hasNonNullParam(params, "tab_id") {
             return eventUUID(params: params, key: "tab_id")
         }
+        guard !Self.hasExplicitEventContext(params) else { return nil }
         return eventCallerUUID(params: params, key: "surface_id") ??
             eventCallerUUID(params: params, key: "tab_id")
     }
@@ -366,7 +367,16 @@ extension TerminalController {
         if Self.hasNonNullParam(params, "pane_id") {
             return eventUUID(params: params, key: "pane_id")
         }
+        guard !Self.hasExplicitEventContext(params) else { return nil }
         return eventCallerUUID(params: params, key: "pane_id")
+    }
+
+    private nonisolated static func hasExplicitEventContext(_ params: [String: Any]) -> Bool {
+        hasNonNullParam(params, "window_id") ||
+            hasNonNullParam(params, "workspace_id") ||
+            hasNonNullParam(params, "surface_id") ||
+            hasNonNullParam(params, "tab_id") ||
+            hasNonNullParam(params, "pane_id")
     }
 
     private nonisolated func eventTabManager(params: [String: Any]) -> TabManager? {
@@ -478,3 +488,11 @@ extension TerminalController {
         return errorCode != EAGAIN && errorCode != EWOULDBLOCK && errorCode != EINTR
     }
 }
+
+#if DEBUG
+extension TerminalController {
+    nonisolated func resolveEventsScopeForTesting(params: [String: Any]) throws -> CmuxEventScope {
+        try resolveEventsScope(params: params)
+    }
+}
+#endif

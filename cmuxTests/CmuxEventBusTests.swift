@@ -283,6 +283,80 @@ final class CmuxEventBusTests: XCTestCase {
         XCTAssertNil(snapshot.subscription.next(timeout: 0.05))
     }
 
+    @MainActor
+    func testEventScopeResolverPrefersExplicitWorkspaceOverCallerSurface() throws {
+        let previousAppDelegate = AppDelegate.shared
+        let app = AppDelegate()
+        defer { AppDelegate.shared = previousAppDelegate }
+
+        let callerWindowId = UUID()
+        let targetWindowId = UUID()
+        let callerManager = TabManager()
+        let targetManager = TabManager()
+        app.registerMainWindowContextForTesting(windowId: callerWindowId, tabManager: callerManager)
+        app.registerMainWindowContextForTesting(windowId: targetWindowId, tabManager: targetManager)
+        defer {
+            app.unregisterMainWindowContextForTesting(windowId: callerWindowId)
+            app.unregisterMainWindowContextForTesting(windowId: targetWindowId)
+        }
+
+        let callerWorkspace = try XCTUnwrap(callerManager.selectedWorkspace)
+        let callerSurfaceId = try XCTUnwrap(callerWorkspace.focusedPanelId)
+        let callerPaneId = try XCTUnwrap(callerWorkspace.paneId(forPanelId: callerSurfaceId)?.id)
+        let targetWorkspace = try XCTUnwrap(targetManager.selectedWorkspace)
+        let targetSurfaceId = try XCTUnwrap(targetWorkspace.focusedPanelId)
+
+        let scope = try TerminalController.shared.resolveEventsScopeForTesting(params: [
+            "scope": "surface",
+            "workspace_id": targetWorkspace.id.uuidString,
+            "caller": [
+                "workspace_id": callerWorkspace.id.uuidString,
+                "surface_id": callerSurfaceId.uuidString,
+                "pane_id": callerPaneId.uuidString
+            ]
+        ])
+
+        XCTAssertEqual(scope.kind, .surface)
+        XCTAssertEqual(scope.surfaceId, targetSurfaceId.uuidString)
+    }
+
+    @MainActor
+    func testEventScopeResolverPrefersExplicitPaneOverCallerSurface() throws {
+        let previousAppDelegate = AppDelegate.shared
+        let app = AppDelegate()
+        defer { AppDelegate.shared = previousAppDelegate }
+
+        let callerWindowId = UUID()
+        let targetWindowId = UUID()
+        let callerManager = TabManager()
+        let targetManager = TabManager()
+        app.registerMainWindowContextForTesting(windowId: callerWindowId, tabManager: callerManager)
+        app.registerMainWindowContextForTesting(windowId: targetWindowId, tabManager: targetManager)
+        defer {
+            app.unregisterMainWindowContextForTesting(windowId: callerWindowId)
+            app.unregisterMainWindowContextForTesting(windowId: targetWindowId)
+        }
+
+        let callerWorkspace = try XCTUnwrap(callerManager.selectedWorkspace)
+        let callerSurfaceId = try XCTUnwrap(callerWorkspace.focusedPanelId)
+        let callerPaneId = try XCTUnwrap(callerWorkspace.paneId(forPanelId: callerSurfaceId)?.id)
+        let targetWorkspace = try XCTUnwrap(targetManager.selectedWorkspace)
+        let targetPaneId = try XCTUnwrap(targetWorkspace.bonsplitController.allPaneIds.first?.id)
+
+        let scope = try TerminalController.shared.resolveEventsScopeForTesting(params: [
+            "scope": "window",
+            "pane_id": targetPaneId.uuidString,
+            "caller": [
+                "workspace_id": callerWorkspace.id.uuidString,
+                "surface_id": callerSurfaceId.uuidString,
+                "pane_id": callerPaneId.uuidString
+            ]
+        ])
+
+        XCTAssertEqual(scope.kind, .window)
+        XCTAssertEqual(scope.windowId, targetWindowId.uuidString)
+    }
+
     func testSubscriptionFiltersByWorkspaceSurfaceAndPaneScopes() {
         let bus = CmuxEventBus(retainedEventLimit: 8)
         bus.publish(
