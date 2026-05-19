@@ -380,8 +380,9 @@ class TerminalController {
         return true
     }
 
-    func v2TerminalAutomationReadinessFailure(surfaceId: UUID, reason: String) -> V2CallResult {
-        .err(code: "internal_error", message: "Failed to start terminal automation surface", data: [
+    func v2TerminalAutomationReadinessFailure(workspace: Workspace, surfaceId: UUID, reason: String) -> V2CallResult {
+        _ = workspace.closePanel(surfaceId, force: true)
+        return .err(code: "internal_error", message: "Failed to start terminal automation surface", data: [
             "surface_id": surfaceId.uuidString,
             "surface_ref": v2Ref(kind: .surface, uuid: surfaceId),
             "reason": reason
@@ -6198,7 +6199,11 @@ class TerminalController {
                     surfaceId: newPanel.id,
                     reason: readinessReason
                 ) else {
-                    result = v2TerminalAutomationReadinessFailure(surfaceId: newPanel.id, reason: readinessReason)
+                    result = v2TerminalAutomationReadinessFailure(
+                        workspace: workspace,
+                        surfaceId: newPanel.id,
+                        reason: readinessReason
+                    )
                     return
                 }
                 finish([
@@ -6833,7 +6838,11 @@ class TerminalController {
                         surfaceId: newId,
                         reason: readinessReason
                     ) else {
-                        result = v2TerminalAutomationReadinessFailure(surfaceId: newId, reason: readinessReason)
+                        result = v2TerminalAutomationReadinessFailure(
+                            workspace: ws,
+                            surfaceId: newId,
+                            reason: readinessReason
+                        )
                         return
                     }
                 }
@@ -6923,7 +6932,11 @@ class TerminalController {
                     surfaceId: newPanelId,
                     reason: readinessReason
                 ) else {
-                    result = v2TerminalAutomationReadinessFailure(surfaceId: newPanelId, reason: readinessReason)
+                    result = v2TerminalAutomationReadinessFailure(
+                        workspace: ws,
+                        surfaceId: newPanelId,
+                        reason: readinessReason
+                    )
                     return
                 }
             }
@@ -8292,7 +8305,11 @@ class TerminalController {
                     surfaceId: newPanelId,
                     reason: readinessReason
                 ) else {
-                    result = v2TerminalAutomationReadinessFailure(surfaceId: newPanelId, reason: readinessReason)
+                    result = v2TerminalAutomationReadinessFailure(
+                        workspace: ws,
+                        surfaceId: newPanelId,
+                        reason: readinessReason
+                    )
                     return
                 }
             }
