@@ -1136,6 +1136,7 @@ class TabManager: ObservableObject {
                 guard let surfaceId = notification.userInfo?[GhosttyNotificationKey.surfaceId] as? UUID else { return }
                 let explicitFocusIntent = notification.userInfo?[GhosttyNotificationKey.explicitFocusIntent] as? Bool ?? false
                 dismissPanelNotificationOnFocus(tabId: tabId, panelId: surfaceId, explicitFocusIntent: explicitFocusIntent)
+                focusedSurfaceTitleDidChange(tabId: tabId)
             }
         })
 
@@ -5187,6 +5188,12 @@ class TabManager: ObservableObject {
     private func enqueuePanelTitleUpdate(tabId: UUID, panelId: UUID, title: String) {
         let trimmed = title.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !trimmed.isEmpty else { return }
+#if DEBUG
+        cmuxDebugLog(
+            "workspace.title.enqueue workspace=\(Self.debugShortWorkspaceId(tabId)) " +
+            "panel=\(panelId.uuidString.prefix(5)) title=\"\(Self.debugTitlePreview(trimmed))\""
+        )
+#endif
         let key = PanelTitleUpdateKey(tabId: tabId, panelId: panelId)
         pendingPanelTitleUpdates[key] = trimmed
         panelTitleUpdateCoalescer.signal { [weak self] in
@@ -5205,12 +5212,13 @@ class TabManager: ObservableObject {
 
     private func updatePanelTitle(tabId: UUID, panelId: UUID, title: String) {
         guard let tab = tabs.first(where: { $0.id == tabId }) else { return }
-        let didChange = tab.updatePanelTitle(panelId: panelId, title: title)
-        guard didChange else { return }
+        _ = tab.updatePanelTitle(panelId: panelId, title: title)
 
-        // Update window title if this is the selected tab and focused panel
-        if selectedTabId == tabId && tab.focusedPanelId == panelId {
-            updateWindowTitle(for: tab)
+        if tab.focusedPanelId == panelId {
+            tab.applyProcessTitle(title)
+            if selectedTabId == tabId {
+                updateWindowTitle(for: tab)
+            }
         }
     }
 
@@ -5449,6 +5457,17 @@ class TabManager: ObservableObject {
     private static func debugShortWorkspaceId(_ id: UUID?) -> String {
         guard let id else { return "nil" }
         return String(id.uuidString.prefix(5))
+    }
+
+    private static func debugTitlePreview(_ title: String, limit: Int = 120) -> String {
+        let escaped = title
+            .replacingOccurrences(of: "\\", with: "\\\\")
+            .replacingOccurrences(of: "\n", with: "\\n")
+            .replacingOccurrences(of: "\r", with: "\\r")
+            .replacingOccurrences(of: "\t", with: "\\t")
+            .replacingOccurrences(of: "\"", with: "\\\"")
+        guard escaped.count > limit else { return escaped }
+        return "\(escaped.prefix(limit))..."
     }
 
     private static func debugMsText(_ ms: Double) -> String {
@@ -7316,7 +7335,8 @@ class TabManager: ObservableObject {
 
 extension TabManager {
     func sessionAutosaveFingerprint(
-        restorableAgentIndex: RestorableAgentSessionIndex = .empty
+        restorableAgentIndex: RestorableAgentSessionIndex = .empty,
+        surfaceResumeBindingIndex: SurfaceResumeBindingIndex = .empty
     ) -> Int {
         var hasher = Hasher()
         hasher.combine(selectedTabId)
@@ -7360,6 +7380,13 @@ extension TabManager {
                     restorableAgentIndex.snapshot(
                         workspaceId: workspace.id,
                         panelId: panelId
+                    ),
+                    into: &hasher
+                )
+                Self.hashSurfaceResumeBindingSnapshot(
+                    workspace.effectiveSurfaceResumeBinding(
+                        panelId: panelId,
+                        surfaceResumeBindingIndex: surfaceResumeBindingIndex
                     ),
                     into: &hasher
                 )
@@ -7436,6 +7463,31 @@ extension TabManager {
         hashOptionalString(launchCommand.source, into: &hasher)
     }
 
+    nonisolated private static func hashSurfaceResumeBindingSnapshot(
+        _ snapshot: SurfaceResumeBindingSnapshot?,
+        into hasher: inout Hasher
+    ) {
+        guard let snapshot else {
+            hasher.combine(false)
+            return
+        }
+
+        hasher.combine(true)
+        hashOptionalString(snapshot.name, into: &hasher)
+        hashOptionalString(snapshot.kind, into: &hasher)
+        hasher.combine(snapshot.command)
+        hashOptionalString(snapshot.cwd, into: &hasher)
+        hashOptionalString(snapshot.checkpointId, into: &hasher)
+        hashOptionalString(snapshot.source, into: &hasher)
+        hashStringMap(snapshot.environment, into: &hasher)
+        hasher.combine(snapshot.allowsAutomaticResume)
+        if snapshot.isProcessDetected {
+            hasher.combine(false)
+        } else {
+            hashOptionalDouble(snapshot.updatedAt, into: &hasher)
+        }
+    }
+
     nonisolated private static func hashOptionalString(_ value: String?, into hasher: inout Hasher) {
         if let value {
             hasher.combine(true)
@@ -7454,9 +7506,24 @@ extension TabManager {
         }
     }
 
+    nonisolated private static func hashStringMap(_ value: [String: String]?, into hasher: inout Hasher) {
+        guard let value, !value.isEmpty else {
+            hasher.combine(false)
+            return
+        }
+        hasher.combine(true)
+        let keys = value.keys.sorted()
+        hasher.combine(keys.count)
+        for key in keys {
+            hasher.combine(key)
+            hasher.combine(value[key] ?? "")
+        }
+    }
+
     func sessionSnapshot(
         includeScrollback: Bool,
-        restorableAgentIndex: RestorableAgentSessionIndex = .empty
+        restorableAgentIndex: RestorableAgentSessionIndex = .empty,
+        surfaceResumeBindingIndex: SurfaceResumeBindingIndex? = nil
     ) -> SessionTabManagerSnapshot {
         let restorableTabs = tabs
             .filter(\.isRestorableInSessionSnapshot)
@@ -7465,7 +7532,8 @@ extension TabManager {
             .map {
                 $0.sessionSnapshot(
                     includeScrollback: includeScrollback,
-                    restorableAgentIndex: restorableAgentIndex
+                    restorableAgentIndex: restorableAgentIndex,
+                    surfaceResumeBindingIndex: surfaceResumeBindingIndex
                 )
             }
         let selectedWorkspaceIndex = selectedTabId.flatMap { selectedTabId in
