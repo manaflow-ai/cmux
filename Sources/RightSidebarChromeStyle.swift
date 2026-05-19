@@ -9,6 +9,10 @@ enum HeaderChromeIconStyle {
     static let foregroundColor = Color(nsColor: .secondaryLabelColor)
     static let sidebarGlyphStrokeWidth: CGFloat = 1
 
+    static func iconFrameSize(forIconSize iconSize: CGFloat) -> CGFloat {
+        HeaderChromeControlMetrics.iconFrameSize(forIconSize: iconSize)
+    }
+
     static func foregroundOpacity(isHovering: Bool, isPressed: Bool, isEnabled: Bool = true) -> Double {
         guard isEnabled else { return disabledOpacity }
         if isPressed {
@@ -127,6 +131,10 @@ private struct RightSidebarHeaderIconButtonStyleBody: View {
         configuration.label
             .symbolRenderingMode(.monochrome)
             .font(.system(size: RightSidebarChromeMetrics.headerIconSize, weight: HeaderChromeIconStyle.weight))
+            .frame(
+                width: RightSidebarChromeMetrics.headerIconFrameSize,
+                height: RightSidebarChromeMetrics.headerIconFrameSize
+            )
             .frame(
                 width: RightSidebarChromeMetrics.headerControlSize,
                 height: RightSidebarChromeMetrics.headerControlSize
