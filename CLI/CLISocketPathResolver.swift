@@ -455,8 +455,10 @@ enum CLISocketPathResolver {
         bundleIdentifier: String?,
         environment: [String: String]
     ) -> [String] {
+        let variant = SocketPathMarkerFiles.variant(bundleIdentifier: bundleIdentifier, environment: environment)
         dedupe(
             [defaultSocketPath(bundleIdentifier: bundleIdentifier, environment: environment)]
+                + implicitFallbackCandidatePaths(for: variant)
                 + stableImplicitDefaultPaths()
         )
     }
@@ -492,6 +494,12 @@ enum CLISocketPathResolver {
     }
 
     static func currentAppBundleIdentifier() -> String? {
+        if let bundleIdentifier = ProcessInfo.processInfo.environment["CMUX_BUNDLE_ID"]?
+            .trimmingCharacters(in: .whitespacesAndNewlines),
+           !bundleIdentifier.isEmpty {
+            return bundleIdentifier
+        }
+
         if let bundleIdentifier = CLIExecutableLocator.enclosingAppBundle()?.bundleIdentifier?
             .trimmingCharacters(in: .whitespacesAndNewlines),
            !bundleIdentifier.isEmpty {

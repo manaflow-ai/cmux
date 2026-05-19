@@ -138,11 +138,13 @@ fs.writeFileSync(
             """#!/usr/bin/env bash
 set -euo pipefail
 printf '%s timeout=%s\\n' "$*" "${CMUXTERM_CLI_RESPONSE_TIMEOUT_SEC-__UNSET__}" >> "$FAKE_CMUX_LOG"
+ping_ok="${FAKE_CMUX_DEFAULT_PING_OK:-${FAKE_CMUX_PING_OK:-0}}"
 if [[ "${1:-}" == "--socket" ]]; then
   shift 2
+  ping_ok="${FAKE_CMUX_SOCKET_PING_OK:-${FAKE_CMUX_PING_OK:-0}}"
 fi
 if [[ "${1:-}" == "ping" ]]; then
-  if [[ "${FAKE_CMUX_PING_OK:-0}" == "1" ]]; then
+  if [[ "$ping_ok" == "1" ]]; then
     exit 0
   fi
   exit 1
@@ -159,14 +161,17 @@ exit 0
         )
 
         test_socket: socket.socket | None = None
-        if socket_state in {"live", "stale"}:
+        if socket_state in {"live", "stale", "stale-env-live-default"}:
             test_socket = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
             test_socket.bind(socket_path)
 
         env = os.environ.copy()
         env["PATH"] = f"{wrapper_dir}:{real_dir}:{env.get('PATH', '/usr/bin:/bin')}"
         env["CMUX_SURFACE_ID"] = "surface:test"
-        env["CMUX_SOCKET_PATH"] = socket_path
+        if socket_state != "missing-env-live-default":
+            env["CMUX_SOCKET_PATH"] = socket_path
+        else:
+            env.pop("CMUX_SOCKET_PATH", None)
         env["FAKE_REAL_ARGS_LOG"] = str(real_args_log)
         env["FAKE_REAL_CLAUDECODE_LOG"] = str(real_claudecode_log)
         env["FAKE_REAL_NODE_OPTIONS_LOG"] = str(real_node_options_log)
@@ -176,7 +181,11 @@ exit 0
         env["FAKE_REAL_NODE_SCRIPT"] = str(real_dir / "claude-real.js")
         env["FAKE_HOOK_CMUX_BIN_LOG"] = str(hook_cmux_bin_log)
         env["FAKE_CMUX_LOG"] = str(cmux_log)
-        env["FAKE_CMUX_PING_OK"] = "1" if socket_state == "live" else "0"
+        env["FAKE_CMUX_SOCKET_PING_OK"] = "1" if socket_state == "live" else "0"
+        env["FAKE_CMUX_DEFAULT_PING_OK"] = "1" if socket_state in {
+            "missing-env-live-default",
+            "stale-env-live-default",
+        } else "0"
         env["CMUX_BUNDLED_CLI_PATH"] = str(bundled_cli_path)
         env["CLAUDECODE"] = "nested-session-sentinel"
         if hooks_disabled:
@@ -558,6 +567,34 @@ def test_live_socket_injects_supported_hooks_without_unlocking_bypass(failures: 
         f"SessionEnd hook should have short timeout, got {session_end_hooks}",
         failures,
     )
+
+
+def test_missing_socket_env_uses_resolved_default_for_hook_injection(failures: list[str]) -> None:
+    code, real_argv, cmux_log, stderr, _, _, _, _, hook_cmux_bin, _ = run_wrapper(
+        socket_state="missing-env-live-default",
+        argv=["hello"],
+    )
+    expect(code == 0, f"missing env default socket: wrapper exited {code}: {stderr}", failures)
+    expect("--settings" in real_argv, f"missing env default socket: missing --settings in args: {real_argv}", failures)
+    expect(any(line.startswith("ping ") for line in cmux_log), f"missing env default socket: expected default ping, got {cmux_log}", failures)
+    expect(
+        not any(line.startswith("--socket ") for line in cmux_log),
+        f"missing env default socket: should not use an explicit socket, got {cmux_log}",
+        failures,
+    )
+    expect(hook_cmux_bin.endswith("/bundled cli/cmux"), f"missing env default socket: expected bundled cmux pin, got {hook_cmux_bin!r}", failures)
+
+
+def test_stale_socket_env_falls_back_to_resolved_default_for_hook_injection(failures: list[str]) -> None:
+    code, real_argv, cmux_log, stderr, _, _, _, _, hook_cmux_bin, _ = run_wrapper(
+        socket_state="stale-env-live-default",
+        argv=["hello"],
+    )
+    expect(code == 0, f"stale env default socket: wrapper exited {code}: {stderr}", failures)
+    expect("--settings" in real_argv, f"stale env default socket: missing --settings in args: {real_argv}", failures)
+    expect(any(line.startswith("--socket ") for line in cmux_log), f"stale env default socket: expected explicit stale probe, got {cmux_log}", failures)
+    expect(any(line.startswith("ping ") for line in cmux_log), f"stale env default socket: expected default fallback ping, got {cmux_log}", failures)
+    expect(hook_cmux_bin.endswith("/bundled cli/cmux"), f"stale env default socket: expected bundled cmux pin, got {hook_cmux_bin!r}", failures)
 
 
 def test_plain_claude_launch_argv_has_no_empty_argument(failures: list[str]) -> None:
@@ -1042,7 +1079,7 @@ def test_missing_socket_skips_hook_injection(failures: list[str]) -> None:
     )
     expect(code == 0, f"missing socket: wrapper exited {code}: {stderr}", failures)
     expect(real_argv == ["hello"], f"missing socket: expected passthrough args, got {real_argv}", failures)
-    expect(cmux_log == [], f"missing socket: expected no cmux calls, got {cmux_log}", failures)
+    expect(any(line.startswith("ping ") for line in cmux_log), f"missing socket: expected default ping probe, got {cmux_log}", failures)
     expect(claudecode == "__UNSET__", f"missing socket: expected CLAUDECODE unset, got {claudecode!r}", failures)
     expect(node_options == "__UNSET__", f"missing socket: expected NODE_OPTIONS passthrough, got {node_options!r}", failures)
     expect(runtime_node_options == "__UNSET__", f"missing socket: expected runtime NODE_OPTIONS passthrough, got {runtime_node_options!r}", failures)
@@ -1091,6 +1128,8 @@ def test_stale_socket_skips_hook_injection(failures: list[str]) -> None:
 def main() -> int:
     failures: list[str] = []
     test_live_socket_injects_supported_hooks_without_unlocking_bypass(failures)
+    test_missing_socket_env_uses_resolved_default_for_hook_injection(failures)
+    test_stale_socket_env_falls_back_to_resolved_default_for_hook_injection(failures)
     test_plain_claude_launch_argv_has_no_empty_argument(failures)
     test_command_like_invocations_bypass_hook_injection(failures)
     test_passthrough_flags_bypass_hook_injection(failures)

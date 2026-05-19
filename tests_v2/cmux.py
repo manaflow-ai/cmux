@@ -251,11 +251,12 @@ def _default_socket_path() -> str:
             _LEGACY_APP_SUPPORT_SOCKET_PATH,
             _LEGACY_STABLE_SOCKET_PATH,
         }
+        implicit_defaults = stable_defaults.union(_variant_socket_candidates())
         is_stale_stable_default = variant != "stable" and override in stable_defaults
         if not is_stale_stable_default:
             if os.path.exists(override) and _can_connect(override):
                 return override
-            if not os.path.exists(override) and override not in stable_defaults:
+            if not os.path.exists(override) and override not in implicit_defaults:
                 return override
 
     last_socket = _read_last_socket_path()

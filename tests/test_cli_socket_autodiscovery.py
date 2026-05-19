@@ -481,6 +481,29 @@ def test_python_client_treats_stable_override_as_implicit() -> bool:
     return True
 
 
+def test_python_client_treats_legacy_tagged_override_as_implicit() -> bool:
+    tag = f"python-stale-legacy-{os.getpid()}"
+
+    with temporary_socket_home("cmux-py-legacy-") as home:
+        expected_socket = socket_path_for_home(home, f"com.cmuxterm.app.dev.{tag}.sock")
+        legacy_socket = f"/tmp/cmux-debug-{tag}.sock"
+        actual = python_client_default_socket_path({
+            "HOME": home,
+            "CFFIXED_USER_HOME": home,
+            "CMUX_SOCKET_PATH": legacy_socket,
+            "CMUX_TAG": tag,
+        })
+
+    if actual != expected_socket:
+        print("FAIL: python client followed a stale legacy tagged CMUX_SOCKET_PATH")
+        print(f"expected={expected_socket!r}")
+        print(f"actual={actual!r}")
+        return False
+
+    print("PASS: python client treats legacy tagged socket overrides as implicit")
+    return True
+
+
 def test_python_v2_client_matches_empty_swift_tag_slug() -> bool:
     with temporary_socket_home("cmux-v2-empty-tag-") as home:
         expected_socket = socket_path_for_home(home, "com.cmuxterm.app.dev.sock")
@@ -520,6 +543,31 @@ def test_python_v2_client_treats_stable_override_as_implicit() -> bool:
         return False
 
     print("PASS: tests_v2 client treats stable socket overrides as implicit")
+    return True
+
+
+def test_python_v2_client_treats_legacy_tagged_override_as_implicit() -> bool:
+    tag = f"v2-stale-legacy-{os.getpid()}"
+
+    with temporary_socket_home("cmux-v2-legacy-") as home:
+        base_env = {
+            "HOME": home,
+            "CFFIXED_USER_HOME": home,
+            "CMUX_TAG": tag,
+        }
+        expected = python_v2_client_default_socket_path(base_env)
+        actual = python_v2_client_default_socket_path({
+            **base_env,
+            "CMUX_SOCKET_PATH": f"/tmp/cmux-debug-{tag}.sock",
+        })
+
+    if actual != expected:
+        print("FAIL: tests_v2 client followed a stale legacy tagged CMUX_SOCKET_PATH")
+        print(f"expected={expected!r}")
+        print(f"actual={actual!r}")
+        return False
+
+    print("PASS: tests_v2 client treats legacy tagged socket overrides as implicit")
     return True
 
 
@@ -843,6 +891,107 @@ def test_cli_prefers_tagged_app_support_socket_over_stale_stable_override(cli_pa
     return True
 
 
+def test_cli_prefers_tagged_app_support_socket_over_stale_legacy_override(cli_path: str) -> bool:
+    tag = f"cli-legacy-override-{os.getpid()}"
+
+    with temporary_socket_home("cmux-cli-legacy-override-") as home, \
+            tempfile.TemporaryDirectory(prefix="cmux-cli-legacy-override-app-") as apps:
+        app_support = app_support_dir(home)
+        app_support.mkdir(parents=True, exist_ok=True)
+        socket_path = socket_path_for_home(home, f"com.cmuxterm.app.dev.{tag}.sock")
+        legacy_socket = f"/tmp/cmux-debug-{tag}.sock"
+
+        tagged_server = PingServer(socket_path, max_ping_requests=2)
+        tagged_server.start()
+
+        if not tagged_server.wait_ready(2.0):
+            print("FAIL: tagged socket server did not become ready")
+            return False
+        if tagged_server.error is not None:
+            print(f"FAIL: tagged socket server failed to start: {tagged_server.error}")
+            return False
+
+        debug_cli = bundled_cli_for_variant(
+            cli_path,
+            apps,
+            "cmux DEV issue3993",
+            "com.cmuxterm.app.debug",
+        )
+        proc = run_ping(
+            debug_cli,
+            home,
+            extra_env={
+                "CMUX_TAG": tag,
+                "CMUX_SOCKET_PATH": legacy_socket,
+            },
+        )
+
+        tagged_server.join(timeout=2.0)
+        try:
+            os.remove(socket_path)
+        except OSError:
+            pass
+
+        if tagged_server.error is not None:
+            print(f"FAIL: tagged socket server error: {tagged_server.error}")
+            return False
+        if proc.returncode != 0 or proc.stdout.strip() != "PONG":
+            print("FAIL: cmux ping did not recover from stale legacy tagged socket env")
+            print(f"stdout={proc.stdout!r}")
+            print(f"stderr={proc.stderr!r}")
+            return False
+
+    print("PASS: tagged App Support socket wins over stale legacy override")
+    return True
+
+
+def test_cli_uses_env_bundle_id_for_tagged_default_discovery(cli_path: str) -> bool:
+    tag = f"cli-env-bundle-{os.getpid()}"
+
+    with temporary_socket_home("cmux-cli-env-bundle-") as home:
+        app_support = app_support_dir(home)
+        app_support.mkdir(parents=True, exist_ok=True)
+        socket_path = socket_path_for_home(home, f"com.cmuxterm.app.dev.{tag}.sock")
+        legacy_socket = f"/tmp/cmux-debug-{tag}.sock"
+
+        tagged_server = PingServer(socket_path, max_ping_requests=2)
+        tagged_server.start()
+
+        if not tagged_server.wait_ready(2.0):
+            print("FAIL: tagged env-bundle socket server did not become ready")
+            return False
+        if tagged_server.error is not None:
+            print(f"FAIL: tagged env-bundle socket server failed to start: {tagged_server.error}")
+            return False
+
+        proc = run_ping(
+            cli_path,
+            home,
+            extra_env={
+                "CMUX_BUNDLE_ID": f"com.cmuxterm.app.debug.{tag}",
+                "CMUX_SOCKET_PATH": legacy_socket,
+            },
+        )
+
+        tagged_server.join(timeout=2.0)
+        try:
+            os.remove(socket_path)
+        except OSError:
+            pass
+
+        if tagged_server.error is not None:
+            print(f"FAIL: tagged env-bundle socket server error: {tagged_server.error}")
+            return False
+        if proc.returncode != 0 or proc.stdout.strip() != "PONG":
+            print("FAIL: cmux ping did not use CMUX_BUNDLE_ID to recover tagged default")
+            print(f"stdout={proc.stdout!r}")
+            print(f"stderr={proc.stderr!r}")
+            return False
+
+    print("PASS: CMUX_BUNDLE_ID drives tagged default socket discovery")
+    return True
+
+
 def test_cli_skips_non_cmux_default_socket(cli_path: str) -> bool:
     with temporary_socket_home("cmux-cli-squatter-") as home, \
             tempfile.TemporaryDirectory(prefix="cmux-cli-squatter-app-") as apps:
@@ -960,6 +1109,12 @@ def main() -> int:
     if not test_cli_prefers_tagged_app_support_socket_over_stale_stable_override(cli_path):
         return 1
 
+    if not test_cli_prefers_tagged_app_support_socket_over_stale_legacy_override(cli_path):
+        return 1
+
+    if not test_cli_uses_env_bundle_id_for_tagged_default_discovery(cli_path):
+        return 1
+
     if not test_cli_skips_non_cmux_default_socket(cli_path):
         return 1
 
@@ -975,10 +1130,16 @@ def main() -> int:
     if not test_python_client_treats_stable_override_as_implicit():
         return 1
 
+    if not test_python_client_treats_legacy_tagged_override_as_implicit():
+        return 1
+
     if not test_python_v2_client_matches_empty_swift_tag_slug():
         return 1
 
     if not test_python_v2_client_treats_stable_override_as_implicit():
+        return 1
+
+    if not test_python_v2_client_treats_legacy_tagged_override_as_implicit():
         return 1
 
     if not test_python_v2_client_ignores_non_release_stable_marker():
