@@ -3465,20 +3465,25 @@ struct CMUXCLI {
             let explicitSurfaceArg = optionValue(commandArgs, name: "--surface"), env = ProcessInfo.processInfo.environment
             let hasExplicitHandle = [explicitWorkspaceArg, explicitSurfaceArg].compactMap { $0 }.contains { !isUUID($0) }
             if hasExplicitHandle && explicitSurfaceArg != nil {
-                let selectedWindowWorkspace: String?
-                if let windowHandle {
-                    selectedWindowWorkspace = try currentWorkspaceId(windowHandle: windowHandle, client: client)
+                let targetWorkspace: String
+                let targetSurface: String
+                if let windowHandle, explicitWorkspaceArg == nil, let explicitSurfaceArg {
+                    let target = try resolveSurfaceTargetInWindow(
+                        explicitSurfaceArg,
+                        windowHandle: windowHandle,
+                        client: client
+                    )
+                    targetWorkspace = target.workspaceId
+                    targetSurface = target.surfaceId
                 } else {
-                    selectedWindowWorkspace = nil
+                    let workspaceRaw = explicitWorkspaceArg
+                        ?? (windowRaw == nil ? env["CMUX_WORKSPACE_ID"] : nil)
+                    targetWorkspace = try (explicitWorkspaceArg == nil
+                        ? resolveWorkspaceIdAllowingFallback(workspaceRaw, client: client)
+                        : resolveWorkspaceId(workspaceRaw, client: client, windowHandle: windowHandle))
+                    targetSurface = try explicitSurfaceArg.map { try resolveSurfaceId($0, workspaceId: targetWorkspace, client: client) }
+                        ?? resolveSurfaceId(nil, workspaceId: targetWorkspace, client: client)
                 }
-                let workspaceRaw = explicitWorkspaceArg
-                    ?? selectedWindowWorkspace
-                    ?? (windowRaw == nil ? env["CMUX_WORKSPACE_ID"] : nil)
-                let targetWorkspace = try (explicitWorkspaceArg == nil
-                    ? resolveWorkspaceIdAllowingFallback(workspaceRaw, client: client)
-                    : resolveWorkspaceId(workspaceRaw, client: client, windowHandle: windowHandle))
-                let targetSurface = try explicitSurfaceArg.map { try resolveSurfaceId($0, workspaceId: targetWorkspace, client: client) }
-                    ?? resolveSurfaceId(nil, workspaceId: targetWorkspace, client: client)
                 let payload = notificationPayload(title: title, subtitle: subtitle, body: body)
                 let response = try sendV1Command("notify_target \(targetWorkspace) \(targetSurface) \(payload)", client: client)
                 print(response)
@@ -9431,6 +9436,47 @@ struct CMUXCLI {
         }
 
         throw CLIError(message: "Unable to resolve surface ID")
+    }
+
+    private func resolveSurfaceTargetInWindow(
+        _ raw: String,
+        windowHandle: String,
+        client: SocketClient
+    ) throws -> (workspaceId: String, surfaceId: String) {
+        let trimmed = raw.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmed.isEmpty else {
+            throw CLIError(message: "Invalid surface handle")
+        }
+        let wantedIndex = Int(trimmed)
+        if wantedIndex == nil, !isUUID(trimmed), !isHandleRef(trimmed) {
+            throw CLIError(message: "Invalid surface handle: \(trimmed) (expected UUID, ref like surface:1, or index)")
+        }
+
+        let workspacePayload = try client.sendV2(method: "workspace.list", params: ["window_id": windowHandle])
+        let workspaces = workspacePayload["workspaces"] as? [[String: Any]] ?? []
+        for workspace in workspaces {
+            guard let workspaceId = workspace["id"] as? String, !workspaceId.isEmpty else {
+                continue
+            }
+            let surfacePayload = try client.sendV2(
+                method: "surface.list",
+                params: [
+                    "workspace_id": workspaceId,
+                    "window_id": windowHandle,
+                ]
+            )
+            let surfaces = surfacePayload["surfaces"] as? [[String: Any]] ?? []
+            for surface in surfaces {
+                let matchesIndex = wantedIndex.map { intFromAny(surface["index"]) == $0 } ?? false
+                let matchesHandle = wantedIndex == nil && surfaceHandleMatches(trimmed, item: surface)
+                guard matchesIndex || matchesHandle else { continue }
+                if let surfaceId = surface["id"] as? String, !surfaceId.isEmpty {
+                    return (workspaceId, surfaceId)
+                }
+            }
+        }
+
+        throw CLIError(message: "Surface not found in window")
     }
 
     /// Return the help/usage text for a subcommand, or nil if the command is unknown.
