@@ -77119,6 +77119,108 @@
                     "state": "translated",
                     "value": "sidebar.rightMaxWidth dock right sidebar max width terminal reservation cap logs lazygit Dock 右サイドバー 最大幅 端末 予約幅 上限 ログ lazygit"
                 }
+            },
+            "ar": {
+                "stringUnit": {
+                    "state": "translated",
+                    "value": "sidebar.rightMaxWidth dock right sidebar max width terminal reservation cap logs lazygit أقصى عرض اللوحة الجانبية اليمنى الطرفية سجلات"
+                }
+            },
+            "bs": {
+                "stringUnit": {
+                    "state": "translated",
+                    "value": "sidebar.rightMaxWidth dock right sidebar max width terminal reservation cap logs lazygit maksimalna širina desna bočna traka terminal zapisnici"
+                }
+            },
+            "da": {
+                "stringUnit": {
+                    "state": "translated",
+                    "value": "sidebar.rightMaxWidth dock right sidebar max width terminal reservation cap logs lazygit maksimal bredde højre sidepanel terminal logge"
+                }
+            },
+            "de": {
+                "stringUnit": {
+                    "state": "translated",
+                    "value": "sidebar.rightMaxWidth dock right sidebar max width terminal reservation cap logs lazygit maximale breite rechte seitenleiste terminal protokolle"
+                }
+            },
+            "es": {
+                "stringUnit": {
+                    "state": "translated",
+                    "value": "sidebar.rightMaxWidth dock right sidebar max width terminal reservation cap logs lazygit ancho máximo barra lateral derecha terminal registros"
+                }
+            },
+            "fr": {
+                "stringUnit": {
+                    "state": "translated",
+                    "value": "sidebar.rightMaxWidth dock right sidebar max width terminal reservation cap logs lazygit largeur maximale barre latérale droite terminal journaux"
+                }
+            },
+            "it": {
+                "stringUnit": {
+                    "state": "translated",
+                    "value": "sidebar.rightMaxWidth dock right sidebar max width terminal reservation cap logs lazygit larghezza massima barra laterale destra terminale log"
+                }
+            },
+            "ko": {
+                "stringUnit": {
+                    "state": "translated",
+                    "value": "sidebar.rightMaxWidth dock right sidebar max width terminal reservation cap logs lazygit Dock 오른쪽 사이드바 최대 너비 터미널 로그"
+                }
+            },
+            "nb": {
+                "stringUnit": {
+                    "state": "translated",
+                    "value": "sidebar.rightMaxWidth dock right sidebar max width terminal reservation cap logs lazygit maks bredde høyre sidepanel terminal logger"
+                }
+            },
+            "pl": {
+                "stringUnit": {
+                    "state": "translated",
+                    "value": "sidebar.rightMaxWidth dock right sidebar max width terminal reservation cap logs lazygit maksymalna szerokość prawy pasek boczny terminal logi"
+                }
+            },
+            "pt-BR": {
+                "stringUnit": {
+                    "state": "translated",
+                    "value": "sidebar.rightMaxWidth dock right sidebar max width terminal reservation cap logs lazygit largura máxima barra lateral direita terminal logs"
+                }
+            },
+            "ru": {
+                "stringUnit": {
+                    "state": "translated",
+                    "value": "sidebar.rightMaxWidth dock right sidebar max width terminal reservation cap logs lazygit максимальная ширина правая боковая панель терминал журналы"
+                }
+            },
+            "th": {
+                "stringUnit": {
+                    "state": "translated",
+                    "value": "sidebar.rightMaxWidth dock right sidebar max width terminal reservation cap logs lazygit ความกว้างสูงสุด แถบด้านขวา เทอร์มินัล บันทึก"
+                }
+            },
+            "tr": {
+                "stringUnit": {
+                    "state": "translated",
+                    "value": "sidebar.rightMaxWidth dock right sidebar max width terminal reservation cap logs lazygit en fazla genişlik sağ kenar çubuğu terminal günlükler"
+                }
+            },
+            "uk": {
+                "stringUnit": {
+                    "state": "translated",
+                    "value": "sidebar.rightMaxWidth dock right sidebar max width terminal reservation cap logs lazygit максимальна ширина права бічна панель термінал журнали"
+                }
+            },
+            "zh-Hans": {
+                "stringUnit": {
+                    "state": "translated",
+                    "value": "sidebar.rightMaxWidth dock right sidebar max width terminal reservation cap logs lazygit Dock 右侧边栏 最大宽度 终端 日志"
+                }
+            },
+            "zh-Hant": {
+                "stringUnit": {
+                    "state": "translated",
+                    "value": "sidebar.rightMaxWidth dock right sidebar max width terminal reservation cap logs lazygit Dock 右側邊欄 最大寬度 終端 日誌"
+                }
             }
         }
     },
@@ -103128,6 +103230,108 @@
             "state": "translated",
             "value": "Dock の最大幅"
           }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "أقصى عرض للـ Dock"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Maksimalna širina Docka"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Maks. bredde for Dock"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Maximale Dock-Breite"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ancho máximo del Dock"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Largeur maximale du Dock"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Larghezza massima del Dock"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Dock 최대 너비"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Maks bredde for Dock"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Maksymalna szerokość Docka"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Largura máxima do Dock"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Максимальная ширина Dock"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ความกว้างสูงสุดของ Dock"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Dock en fazla genişliği"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Максимальна ширина Dock"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Dock 最大宽度"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Dock 最大寬度"
+          }
         }
       }
     },
@@ -103144,6 +103348,108 @@
           "stringUnit": {
             "state": "translated",
             "value": "端末用の余白を確保する組み込みの動的上限を使います。"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "استخدم الحد الديناميكي المضمن الذي يحافظ على مساحة إضافية للطرفية."
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Koristi ugrađeno dinamičko ograničenje koje zadržava dodatni prostor za terminal."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Brug den indbyggede dynamiske grænse, der reserverer ekstra plads til terminalen."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Die integrierte dynamische Begrenzung verwenden, die zusätzlichen Terminalplatz freihält."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Usa el límite dinámico integrado que reserva espacio adicional para la terminal."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Utiliser la limite dynamique intégrée qui réserve de l’espace supplémentaire au terminal."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Usa il limite dinamico integrato che riserva spazio extra al terminale."
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "터미널 공간을 추가로 남겨 두는 내장 동적 제한을 사용합니다."
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Bruk den innebygde dynamiske grensen som holder av ekstra plass til terminalen."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Użyj wbudowanego limitu dynamicznego, który rezerwuje dodatkowe miejsce dla terminala."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Use o limite dinâmico integrado que reserva espaço extra para o terminal."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Использовать встроенное динамическое ограничение, которое оставляет дополнительное место для терминала."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ใช้ขีดจำกัดแบบไดนามิกในตัวที่กันพื้นที่เพิ่มเติมไว้สำหรับเทอร์มินัล"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Terminal için ek alan ayıran yerleşik dinamik sınırı kullan."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Використовувати вбудоване динамічне обмеження, яке залишає додаткове місце для термінала."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "使用内置动态上限，为终端保留额外空间。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "使用內建動態上限，為終端保留額外空間。"
           }
         }
       }
@@ -103162,6 +103468,108 @@
             "state": "translated",
             "value": "Dock は組み込みの端末予約幅の上限を超えて、この幅まで広げられます。"
           }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "يمكن للـ Dock أن يتجاوز الحد المضمن لحجز مساحة الطرفية حتى هذا العرض."
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Dock se može proširiti preko ugrađenog ograničenja za rezervu terminala, do ove širine."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Docken kan vokse forbi den indbyggede terminalreservegrænse, op til denne bredde."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Das Dock kann über die integrierte Terminal-Reservegrenze hinaus bis zu dieser Breite wachsen."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "El Dock puede crecer más allá del límite integrado de reserva de terminal, hasta este ancho."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Le Dock peut dépasser la limite intégrée réservée au terminal, jusqu’à cette largeur."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Il Dock può superare il limite integrato di riserva del terminale fino a questa larghezza."
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Dock은 내장 터미널 예약 상한을 넘어 이 너비까지 커질 수 있습니다."
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Docken kan vokse forbi den innebygde terminalreservegrensen, opptil denne bredden."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Dock może przekroczyć wbudowany limit rezerwy terminala, aż do tej szerokości."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "O Dock pode crescer além do limite integrado de reserva do terminal, até esta largura."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Dock может расширяться сверх встроенного ограничения резерва терминала до этой ширины."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Dock สามารถขยายเกินขีดจำกัดการกันพื้นที่เทอร์มินัลในตัวได้จนถึงความกว้างนี้"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Dock, yerleşik terminal ayırma sınırını aşarak bu genişliğe kadar büyüyebilir."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Dock може розширюватися понад вбудоване обмеження резерву термінала до цієї ширини."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Dock 可以超过内置终端预留上限，扩展到此宽度。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Dock 可以超過內建終端預留上限，擴展到此寬度。"
+          }
         }
       }
     },
@@ -103179,6 +103587,108 @@
             "state": "translated",
             "value": "Dock の最大幅をカスタム設定"
           }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "استخدام عرض Dock أقصى مخصص"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Koristi prilagođenu maksimalnu širinu Docka"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Brug brugerdefineret maks. Dock-bredde"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Eigene maximale Dock-Breite verwenden"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Usar ancho máximo personalizado del Dock"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Utiliser une largeur maximale personnalisée du Dock"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Usa larghezza massima personalizzata del Dock"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "사용자 지정 Dock 최대 너비 사용"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Bruk egendefinert maks bredde for Dock"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Użyj niestandardowej maksymalnej szerokości Docka"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Usar largura máxima personalizada do Dock"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Использовать пользовательскую максимальную ширину Dock"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ใช้ความกว้างสูงสุดของ Dock แบบกำหนดเอง"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Özel Dock en fazla genişliğini kullan"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Використовувати власну максимальну ширину Dock"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "使用自定义 Dock 最大宽度"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "使用自訂 Dock 最大寬度"
+          }
         }
       }
     },
@@ -103192,6 +103702,108 @@
           }
         },
         "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "pt"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "pt"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "pt"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "pt"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "pt"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "pt"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "pt"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "pt"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "pt"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "pt"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "pt"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "pt"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "pt"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "pt"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "pt"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "pt"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "pt"
+          }
+        },
+        "zh-Hant": {
           "stringUnit": {
             "state": "translated",
             "value": "pt"
