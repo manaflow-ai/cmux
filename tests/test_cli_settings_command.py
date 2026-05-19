@@ -731,6 +731,22 @@ def main() -> int:
                 f"before={before_bad_basic_string} after={after_bad_basic_string}"
             )
 
+        bad_inner_quote_path = home / "bad-basic-string-inner-quote.toml"
+        bad_inner_quote_path.write_text('app.preferredEditor = "he"llo"\n', encoding="utf-8")
+        bad_inner_quote = run_cli(cli_path, ["settings", "import", str(bad_inner_quote_path)], home)
+        assert_fails(
+            failures,
+            "settings import rejects TOML basic string with unescaped quote",
+            bad_inner_quote,
+            "Invalid TOML basic string",
+        )
+        after_bad_inner_quote = read_config(home)
+        if after_bad_inner_quote != before_bad_basic_string:
+            failures.append(
+                "failed unescaped-quote TOML basic string import changed cmux.json: "
+                f"before={before_bad_basic_string} after={after_bad_inner_quote}"
+            )
+
         bad_multiline_basic_path = home / "bad-multiline-basic.toml"
         bad_multiline_basic_path.write_text('app.preferredEditor = """vim"""\n', encoding="utf-8")
         bad_multiline_basic = run_cli(cli_path, ["settings", "import", str(bad_multiline_basic_path)], home)

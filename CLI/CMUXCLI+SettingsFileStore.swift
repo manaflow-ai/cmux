@@ -703,6 +703,7 @@ extension CMUXCLI {
                     throw CLIError(message: "Invalid TOML basic string on line \(lineNumber)")
                 }
                 let inner = raw.dropFirst().dropLast()
+                try validateTomlBasicStringContent(inner, lineNumber: lineNumber)
                 return try unescapeTomlString(String(inner), lineNumber: lineNumber)
             }
             if raw.hasPrefix("'") {
@@ -719,6 +720,23 @@ extension CMUXCLI {
                 return String(inner)
             }
             return raw
+        }
+
+        private func validateTomlBasicStringContent(_ raw: Substring, lineNumber: Int) throws {
+            var escaped = false
+            for character in raw {
+                if escaped {
+                    escaped = false
+                    continue
+                }
+                if character == "\\" {
+                    escaped = true
+                    continue
+                }
+                if character == "\"" {
+                    throw CLIError(message: "Invalid TOML basic string on line \(lineNumber)")
+                }
+            }
         }
 
         private func unescapeTomlString(_ raw: String, lineNumber: Int? = nil) throws -> String {
