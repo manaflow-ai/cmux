@@ -3910,7 +3910,7 @@ final class WorkspaceTerminalFocusRecoveryTests: XCTestCase {
         leftPanel.hostedView.setActive(true)
         rightPanel.surface.setFocus(false)
         rightPanel.hostedView.setActive(false)
-        rightPanel.hostedView.suppressReparentFocus()
+        rightPanel.hostedView.beginSuppressingReparentFocus()
 
         guard let rightSurfaceView = surfaceView(in: rightPanel.hostedView) else {
             XCTFail("Expected right terminal surface view")
@@ -3972,7 +3972,7 @@ final class WorkspaceTerminalFocusRecoveryTests: XCTestCase {
 
         leftPanel.surface.setFocus(false)
         rightPanel.surface.setFocus(true)
-        leftPanel.hostedView.suppressReparentFocus()
+        leftPanel.hostedView.beginSuppressingReparentFocus()
 
         XCTAssertTrue(window.makeFirstResponder(leftSurfaceView))
         RunLoop.current.run(until: Date().addingTimeInterval(0.05))
@@ -3982,7 +3982,7 @@ final class WorkspaceTerminalFocusRecoveryTests: XCTestCase {
             "Suppressed reparent focus should not immediately flip the Ghostty focus bit"
         )
 
-        leftPanel.hostedView.clearSuppressReparentFocus()
+        leftPanel.hostedView.endSuppressingReparentFocus()
         let focusRecovered = XCTNSPredicateExpectation(
             predicate: NSPredicate { _, _ in
                 leftPanel.surface.debugDesiredFocusState()
