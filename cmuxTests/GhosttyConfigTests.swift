@@ -607,24 +607,12 @@ final class GhosttyConfigTests: XCTestCase {
     func testRuntimeColorSchemeSynchronizationDecisionOnlySkipsReentrantCalls() {
         XCTAssertEqual(
             GhosttyApp.runtimeColorSchemeSynchronizationDecision(
-                applied: nil,
-                requested: GHOSTTY_COLOR_SCHEME_DARK,
                 isSynchronizing: false
             ),
             .apply
         )
         XCTAssertEqual(
             GhosttyApp.runtimeColorSchemeSynchronizationDecision(
-                applied: GHOSTTY_COLOR_SCHEME_DARK,
-                requested: GHOSTTY_COLOR_SCHEME_DARK,
-                isSynchronizing: false
-            ),
-            .apply
-        )
-        XCTAssertEqual(
-            GhosttyApp.runtimeColorSchemeSynchronizationDecision(
-                applied: GHOSTTY_COLOR_SCHEME_LIGHT,
-                requested: GHOSTTY_COLOR_SCHEME_DARK,
                 isSynchronizing: true
             ),
             .skipReentrant
