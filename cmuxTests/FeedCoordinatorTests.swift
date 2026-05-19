@@ -150,7 +150,9 @@ final class FeedCoordinatorTests: XCTestCase {
             FeedCoordinator.shared.install(store: store)
             FeedCoordinatorTestHooks.afterBlockingEventIngested = { _, ingestedRequestId in
                 guard ingestedRequestId == requestId else { return }
-                FeedCoordinator.shared.debugExpirePendingItemsAndWaiters(forPpid: ppid)
+                MainActor.assumeIsolated {
+                    FeedCoordinator.shared.debugExpirePendingItemsAndWaiters(forPpid: ppid)
+                }
             }
             FeedCoordinatorTestHooks.isAppActiveOverride = { false }
             FeedCoordinatorTestHooks.notificationPostObserver = { _, postedRequestId in
