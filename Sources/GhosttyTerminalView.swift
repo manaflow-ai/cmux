@@ -6746,10 +6746,6 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
         return intent
     }
 
-    func consumeKeyboardInitiatedScrollAction() -> Bool {
-        consumeScrollbarActionIntent().contains(.keyboardInitiated)
-    }
-
     private func withScrollbarActionIntent<T>(
         _ intent: GhosttyScrollbarUpdateIntent,
         carryAcrossAction: Bool,
