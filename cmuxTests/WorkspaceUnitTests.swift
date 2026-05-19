@@ -2556,6 +2556,34 @@ final class WorkspaceCreationWorkingDirectoryInheritanceTests: XCTestCase {
         }
     }
 
+    func testDetachedWorkspaceDoesNotPersistProcessDetectedResumeBinding() throws {
+        let manager = TabManager(
+            initialWorkingDirectory: "/tmp/cmux-source-\(UUID().uuidString)",
+            autoWelcomeIfNeeded: false
+        )
+        let source = try XCTUnwrap(manager.selectedWorkspace)
+        let binding = SurfaceResumeBindingSnapshot(
+            name: "tmux work",
+            kind: "tmux",
+            command: "tmux attach -t work",
+            cwd: "/tmp/cmux-source",
+            checkpointId: "work",
+            source: "process-detected",
+            updatedAt: 1_777_777_777
+        )
+        let detached = makeDetachedWorkspaceTestTransfer(
+            sourceWorkspaceId: source.id,
+            resumeBinding: binding
+        )
+
+        let inserted = try XCTUnwrap(manager.addWorkspace(
+            fromDetachedSurface: detached,
+            select: false
+        ))
+
+        XCTAssertNil(inserted.surfaceResumeBinding(panelId: detached.panelId))
+    }
+
     private func withWorkspaceWorkingDirectoryInheritanceSetting(
         _ value: Bool?,
         _ body: () throws -> Void
@@ -2582,7 +2610,8 @@ final class WorkspaceCreationWorkingDirectoryInheritanceTests: XCTestCase {
 
     private func makeDetachedWorkspaceTestTransfer(
         sourceWorkspaceId: UUID,
-        directory: String? = nil
+        directory: String? = nil,
+        resumeBinding: SurfaceResumeBindingSnapshot? = nil
     ) -> Workspace.DetachedSurfaceTransfer {
         let panel = DetachedWorkspaceTestPanel()
         return Workspace.DetachedSurfaceTransfer(
@@ -2603,6 +2632,7 @@ final class WorkspaceCreationWorkingDirectoryInheritanceTests: XCTestCase {
             restoredUnread: false,
             restorableAgent: nil,
             restorableAgentResumeState: nil,
+            resumeBinding: resumeBinding,
             agentRuntime: nil,
             isRemoteTerminal: false,
             remoteRelayPort: nil,
