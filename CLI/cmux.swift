@@ -19575,7 +19575,7 @@ struct CMUXCLI {
                 isFallback: isFallback
             )
         }
-        if lower.contains("complet") || lower.contains("finish") || lower.contains("done") || lower.contains("success") {
+        if containsCompletionCue(lower) {
             let body = message.isEmpty
                 ? String(localized: "agent.generic.notification.body.taskCompleted", defaultValue: "Task completed")
                 : message
@@ -19627,7 +19627,7 @@ struct CMUXCLI {
             let body = message.isEmpty ? "Claude reported an error" : message
             return ("Error", body)
         }
-        if lower.contains("complet") || lower.contains("finish") || lower.contains("done") || lower.contains("success") {
+        if containsCompletionCue(lower) {
             let body = message.isEmpty ? "Task completed" : message
             return ("Completed", body)
         }
@@ -19640,6 +19640,17 @@ struct CMUXCLI {
             return ("Attention", message)
         }
         return ("Attention", "Claude needs your attention")
+    }
+
+    private func containsCompletionCue(_ lowercasedText: String) -> Bool {
+        lowercasedText.split { !$0.isLetter && !$0.isNumber }.contains { token in
+            token == "done"
+                || token == "succeed"
+                || token == "succeeded"
+                || token.hasPrefix("complet")
+                || token.hasPrefix("finish")
+                || token.hasPrefix("success")
+        }
     }
 
     private func firstString(in object: [String: Any], keys: [String]) -> String? {

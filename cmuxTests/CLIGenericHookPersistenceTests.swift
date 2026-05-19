@@ -406,12 +406,9 @@ extension CLINotifyProcessIntegrationRegressionTests {
         XCTAssertEqual(enrichedStop.stdout, "{}\n")
 
         let enrichedStopCommands = Array(state.commands.dropFirst(enrichedStopCommandStart))
-        XCTAssertTrue(
-            enrichedStopCommands.contains {
-                $0.contains("notify_target_async \(workspaceId) \(surfaceId) Grok|Completed in ")
-                    && $0.contains(assistantMessage)
-            },
-            "Expected Grok Stop to publish the cwd-scoped assistant response, saw \(enrichedStopCommands)"
+        XCTAssertFalse(
+            enrichedStopCommands.contains { $0.hasPrefix("notify_target_async ") },
+            "Grok Stop should not double-notify when the Notification event carries the completion message, saw \(enrichedStopCommands)"
         )
         XCTAssertTrue(
             enrichedStopCommands.contains { $0.contains("set_status grok Idle") },
@@ -606,6 +603,28 @@ extension CLINotifyProcessIntegrationRegressionTests {
         XCTAssertEqual(session["lastBody"] as? String, waitingMessage)
         XCTAssertEqual(session["lastNotificationStatus"] as? String, "needsInput")
 
+        let incompleteWaitingMessage = "Task incomplete and undone, waiting for input"
+        let incompleteWaitingCommandStart = state.commands.count
+        let incompleteWaiting = runGrokHook(
+            "notification",
+            input: #"{"sessionId":"\#(sessionId)","cwd":"\#(root.path)","hookEventName":"Notification","message":"\#(incompleteWaitingMessage)"}"#
+        )
+        XCTAssertFalse(incompleteWaiting.timedOut, incompleteWaiting.stderr)
+        XCTAssertEqual(incompleteWaiting.status, 0, incompleteWaiting.stderr)
+        XCTAssertEqual(incompleteWaiting.stdout, "{}\n")
+
+        let incompleteWaitingCommands = Array(state.commands.dropFirst(incompleteWaitingCommandStart))
+        XCTAssertTrue(
+            incompleteWaitingCommands.contains {
+                $0.contains("notify_target_async \(workspaceId) \(surfaceId) Grok|Waiting|\(incompleteWaitingMessage)")
+            },
+            "Incomplete/undone waiting text should not be classified as a completion, saw \(incompleteWaitingCommands)"
+        )
+        XCTAssertFalse(
+            incompleteWaitingCommands.contains { $0.contains("Grok|Completed|") },
+            "Incomplete/undone waiting text must not emit a completed notification, saw \(incompleteWaitingCommands)"
+        )
+
         let progressMessage = "Working through more changes"
         let progressCommandStart = state.commands.count
         let progress = runGrokHook(
@@ -630,7 +649,7 @@ extension CLINotifyProcessIntegrationRegressionTests {
         sessions = try XCTUnwrap(json["sessions"] as? [String: Any])
         session = try XCTUnwrap(sessions[sessionId] as? [String: Any])
         XCTAssertEqual(session["lastSubtitle"] as? String, "Waiting")
-        XCTAssertEqual(session["lastBody"] as? String, waitingMessage)
+        XCTAssertEqual(session["lastBody"] as? String, incompleteWaitingMessage)
         XCTAssertEqual(session["lastNotificationStatus"] as? String, "needsInput")
 
         let neutralFallbackCommandStart = state.commands.count
@@ -645,7 +664,7 @@ extension CLINotifyProcessIntegrationRegressionTests {
         let neutralFallbackCommands = Array(state.commands.dropFirst(neutralFallbackCommandStart))
         XCTAssertTrue(
             neutralFallbackCommands.contains {
-                $0.contains("notify_target_async \(workspaceId) \(surfaceId) Grok|Waiting|\(waitingMessage)")
+                $0.contains("notify_target_async \(workspaceId) \(surfaceId) Grok|Waiting|\(incompleteWaitingMessage)")
             },
             "Expected empty payload to reuse the last terminal saved notification, saw \(neutralFallbackCommands)"
         )
@@ -655,7 +674,7 @@ extension CLINotifyProcessIntegrationRegressionTests {
         )
     }
 
-    func testGrokStopNotificationsFireForTwoIndependentThreads() throws {
+    func testGrokNotificationCompletionsFireForTwoIndependentThreads() throws {
         let cliPath = try bundledCLIPath()
         let socketPath = makeSocketPath("grok-two-threads")
         let listenerFD = try bindUnixSocket(at: socketPath)
@@ -764,21 +783,35 @@ extension CLINotifyProcessIntegrationRegressionTests {
             XCTAssertEqual(stop.stdout, "{}\n")
 
             let stopCommands = Array(state.commands.dropFirst(stopCommandStart))
-            XCTAssertTrue(
-                stopCommands.contains {
-                    $0.contains("notify_target_async \(workspaceId) \(surfaceId) Grok|Completed in ")
-                        && $0.contains(assistantMessage)
-                },
-                "Expected Grok Stop to notify for thread \(index), saw \(stopCommands)"
+            XCTAssertFalse(
+                stopCommands.contains { $0.hasPrefix("notify_target_async ") },
+                "Grok Stop must not notify for thread \(index); Notification owns completion alerts. Saw \(stopCommands)"
             )
             XCTAssertTrue(
                 stopCommands.contains { $0.contains("set_status grok Idle") },
                 "Expected Grok Stop for thread \(index) to leave Grok idle, saw \(stopCommands)"
             )
+
+            let notificationCommandStart = state.commands.count
+            let notification = runGrokHook(
+                "notification",
+                input: #"{"sessionId":"\#(sessionId)","cwd":"\#(root.path)","hookEventName":"Notification","message":"Turn complete in \#(index).0s."}"#
+            )
+            XCTAssertFalse(notification.timedOut, notification.stderr)
+            XCTAssertEqual(notification.status, 0, notification.stderr)
+            XCTAssertEqual(notification.stdout, "{}\n")
+
+            let notificationCommands = Array(state.commands.dropFirst(notificationCommandStart))
+            XCTAssertTrue(
+                notificationCommands.contains {
+                    $0.contains("notify_target_async \(workspaceId) \(surfaceId) Grok|Completed|\(assistantMessage)")
+                },
+                "Expected Grok Notification to notify for thread \(index), saw \(notificationCommands)"
+            )
         }
     }
 
-    func testGrokStopNotificationFallsBackWhenTranscriptCwdIsUnavailable() throws {
+    func testGrokStopWithoutCwdDoesNotPublishNotification() throws {
         let cliPath = try bundledCLIPath()
         let socketPath = makeSocketPath("grok-stop-without-cwd")
         let listenerFD = try bindUnixSocket(at: socketPath)
@@ -852,11 +885,9 @@ extension CLINotifyProcessIntegrationRegressionTests {
         XCTAssertEqual(stop.stdout, "{}\n")
 
         let stopCommands = Array(state.commands.dropFirst(stopCommandStart))
-        XCTAssertTrue(
-            stopCommands.contains {
-                $0.contains("notify_target_async \(workspaceId) \(surfaceId) Grok|Completed|Grok session completed")
-            },
-            "Expected Grok Stop without cwd to notify with a generic completion body, saw \(stopCommands)"
+        XCTAssertFalse(
+            stopCommands.contains { $0.hasPrefix("notify_target_async ") },
+            "Grok Stop without cwd should persist status without publishing a duplicate completion notification, saw \(stopCommands)"
         )
         XCTAssertTrue(
             stopCommands.contains { $0.contains("set_status grok Idle") },
