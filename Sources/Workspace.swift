@@ -508,7 +508,10 @@ extension Workspace {
             guard let markdownPanel = panel as? MarkdownPanel else { return nil }
             terminalSnapshot = nil
             browserSnapshot = nil
-            markdownSnapshot = SessionMarkdownPanelSnapshot(filePath: markdownPanel.filePath)
+            markdownSnapshot = SessionMarkdownPanelSnapshot(
+                filePath: markdownPanel.filePath,
+                noteSlug: NoteSupport.slug(forNotePath: markdownPanel.filePath)
+            )
             filePreviewSnapshot = nil
             rightSidebarToolSnapshot = nil
         case .filePreview:
@@ -853,12 +856,28 @@ extension Workspace {
             applySessionPanelMetadata(snapshot, toPanelId: browserPanel.id)
             return browserPanel.id
         case .markdown:
-            guard let filePath = snapshot.markdown?.filePath,
-                  let markdownPanel = newMarkdownSurface(
-                    inPane: paneId,
-                    filePath: filePath,
-                    focus: false
-                  ) else {
+            guard let snapshotMarkdown = snapshot.markdown else { return nil }
+            // If this markdown panel was opened as a project-scoped note,
+            // re-resolve against the current workspace project root so the
+            // note survives the project moving directories. Falls back to the
+            // original absolute path if slug-resolution finds nothing.
+            let restorePath: String
+            if let slug = snapshotMarkdown.noteSlug {
+                let projectRootCandidate = noteProjectRoot()
+                let resolved = NoteSupport.notePath(forSlug: slug, projectRoot: projectRootCandidate)
+                if FileManager.default.fileExists(atPath: resolved) {
+                    restorePath = resolved
+                } else {
+                    restorePath = snapshotMarkdown.filePath
+                }
+            } else {
+                restorePath = snapshotMarkdown.filePath
+            }
+            guard let markdownPanel = newMarkdownSurface(
+                inPane: paneId,
+                filePath: restorePath,
+                focus: false
+            ) else {
                 return nil
             }
             applySessionPanelMetadata(snapshot, toPanelId: markdownPanel.id)
@@ -10782,6 +10801,41 @@ final class Workspace: Identifiable, ObservableObject {
         focusPanel(markdownPanel.id)
         installMarkdownPanelSubscription(markdownPanel)
         return markdownPanel
+    }
+
+    // MARK: - Notes
+
+    /// Resolve the `.cmux/notes/` project root for this workspace by walking
+    /// `currentDirectory` upward. Falls back to the cwd itself if no `.cmux/`
+    /// is found.
+    func noteProjectRoot() -> String {
+        NoteSupport.projectRoot(forCwd: currentDirectory)
+    }
+
+    /// Open (or focus) a project-scoped note as a surface in the given pane.
+    /// Creates `.cmux/notes/<slug>.md` if it doesn't exist. Internally this
+    /// is a `MarkdownPanel` — the "note" distinction lives at the storage
+    /// convention and at the `CmuxSurfaceType.note` public surface type.
+    @discardableResult
+    func newNoteSurface(
+        inPane paneId: PaneID,
+        slug: String,
+        createIfMissing: Bool = true,
+        focus: Bool? = nil
+    ) -> MarkdownPanel? {
+        let root = noteProjectRoot()
+        let filePath: String
+        if createIfMissing {
+            guard let ensured = try? NoteSupport.ensureNoteFile(slug: slug, projectRoot: root) else {
+                return nil
+            }
+            filePath = ensured
+        } else {
+            let candidate = NoteSupport.notePath(forSlug: slug, projectRoot: root)
+            guard FileManager.default.fileExists(atPath: candidate) else { return nil }
+            filePath = candidate
+        }
+        return openOrFocusMarkdownSurface(inPane: paneId, filePath: filePath, focus: focus ?? false)
     }
 
     @discardableResult

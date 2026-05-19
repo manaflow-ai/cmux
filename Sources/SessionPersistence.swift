@@ -238,6 +238,11 @@ struct SessionBrowserPanelSnapshot: Codable, Sendable {
 }
 struct SessionMarkdownPanelSnapshot: Codable, Sendable {
     var filePath: String
+    /// When present, this markdown panel was opened as a project-scoped note.
+    /// On restore the note is re-resolved against the workspace project root
+    /// (`.cmux/notes/<noteSlug>.md`) so the panel survives the project moving
+    /// to a different absolute path.
+    var noteSlug: String? = nil
 }
 
 struct SessionFilePreviewPanelSnapshot: Codable, Sendable {
