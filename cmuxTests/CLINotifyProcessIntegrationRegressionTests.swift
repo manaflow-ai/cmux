@@ -534,7 +534,7 @@ final class CLINotifyProcessIntegrationRegressionTests: XCTestCase {
     }
 
     @MainActor
-    func testNotifyWithUUIDSurfaceKeepsCallerWorkspaceFallback() throws {
+    func testNotifyWithUUIDSurfaceDoesNotRequireCallerWorkspaceOrWindow() throws {
         let cliPath = try bundledCLIPath()
         let socketPath = makeSocketPath("notify-uuid-surface")
         let listenerFD = try bindUnixSocket(at: socketPath)
@@ -561,9 +561,10 @@ final class CLINotifyProcessIntegrationRegressionTests: XCTestCase {
                 }
 
                 let params = payload["params"] as? [String: Any] ?? [:]
-                XCTAssertEqual(params["workspace_id"] as? String, callerWorkspace)
+                XCTAssertNil(params["workspace_id"], "surface UUIDs should not be constrained to the caller workspace")
+                XCTAssertNil(params["window_id"], "surface UUIDs should not require an explicit window")
                 XCTAssertEqual(params["surface_id"] as? String, callerSurface)
-                XCTAssertEqual(params["body"] as? String, "--json")
+                XCTAssertEqual(params["body"] as? String, "Body")
                 return self.v2Response(
                     id: id,
                     ok: true,
@@ -583,7 +584,7 @@ final class CLINotifyProcessIntegrationRegressionTests: XCTestCase {
 
         let result = runProcess(
             executablePath: cliPath,
-            arguments: ["notify", "--surface", callerSurface, "--title", "UUID", "--body", "--json"],
+            arguments: ["notify", "--surface", callerSurface, "--title", "UUID", "--body", "Body"],
             environment: environment,
             timeout: 5
         )

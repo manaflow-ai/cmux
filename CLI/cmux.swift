@@ -3496,8 +3496,6 @@ struct CMUXCLI {
                 if let windowHandle { params["window_id"] = windowHandle }
                 if let explicitWorkspaceArg {
                     params["workspace_id"] = try resolveWorkspaceId(explicitWorkspaceArg, client: client, windowHandle: windowHandle)
-                } else if windowRaw == nil, let workspaceArg = env["CMUX_WORKSPACE_ID"], isUUID(workspaceArg) {
-                    params["workspace_id"] = workspaceArg
                 }
                 if let explicitSurfaceArg { params["surface_id"] = explicitSurfaceArg }
             } else {
@@ -10764,13 +10762,14 @@ struct CMUXCLI {
               --title <text>         Notification title (default: "Notification")
               --subtitle <text>      Notification subtitle
               --body <text>          Notification body
-              --workspace <id|ref|index>   Target workspace (default: $CMUX_WORKSPACE_ID)
-              --surface <id|ref|index>     Target surface (default: $CMUX_SURFACE_ID)
+              --workspace <id|ref|index>   Target workspace, except explicit surface UUIDs resolve globally
+              --surface <id|ref|index>     Target surface (refs/indexes use workspace/window context)
               --window <id|ref|index>      Window context for workspace/surface refs and indexes
 
             Example:
               cmux notify --title "Build done" --body "All tests passed"
               cmux notify --title "Error" --subtitle "test.swift" --body "Line 42: syntax error"
+              cmux notify --surface <uuid> --title "Build done"
             """
         case "list-notifications":
             return """
