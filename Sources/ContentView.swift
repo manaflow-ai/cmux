@@ -12306,6 +12306,7 @@ private struct SidebarInlineRenameField: NSViewRepresentable {
     let fontWeight: NSFont.Weight
     let textColor: NSColor
     let height: CGFloat
+    let onTextChange: (String) -> Void
     let onCommit: (String) -> Void
     let onCancel: () -> Void
 
@@ -12422,6 +12423,20 @@ private struct SidebarInlineRenameField: NSViewRepresentable {
 
         func attach(to field: NSTextField) {
             installOutsideClickMonitor(for: field)
+            configureFieldEditor(for: field)
+        }
+
+        func configureFieldEditor(for field: NSTextField) {
+            guard let fieldEditor = field.currentEditor() as? NSTextView else { return }
+            fieldEditor.textContainerInset = .zero
+            fieldEditor.textContainer?.lineFragmentPadding = 0
+            fieldEditor.font = field.font
+            fieldEditor.textColor = .clear
+            fieldEditor.insertionPointColor = parent.textColor
+            fieldEditor.selectedTextAttributes = [
+                .foregroundColor: NSColor.clear,
+                .backgroundColor: NSColor.clear,
+            ]
         }
 
         func finishCommit(_ title: String) {
@@ -12441,6 +12456,12 @@ private struct SidebarInlineRenameField: NSViewRepresentable {
         func controlTextDidEndEditing(_ obj: Notification) {
             guard let field = obj.object as? NSTextField else { return }
             finishCommit(field.stringValue)
+        }
+
+        func controlTextDidChange(_ obj: Notification) {
+            guard let field = obj.object as? NSTextField else { return }
+            parent.onTextChange(field.stringValue)
+            configureFieldEditor(for: field)
         }
 
         func control(_ control: NSControl, textView: NSTextView, doCommandBy commandSelector: Selector) -> Bool {
@@ -12498,7 +12519,7 @@ private struct SidebarInlineRenameField: NSViewRepresentable {
         field.drawsBackground = false
         field.focusRingType = .none
         field.font = .systemFont(ofSize: fontSize, weight: fontWeight)
-        field.textColor = textColor
+        field.textColor = .clear
         field.lineBreakMode = .byTruncatingTail
         field.cell?.usesSingleLineMode = true
         field.cell?.wraps = false
@@ -12512,11 +12533,7 @@ private struct SidebarInlineRenameField: NSViewRepresentable {
             guard !coordinator.didFinish else { return }
             coordinator.attach(to: field)
             field.selectText(nil)
-            if let fieldEditor = field.currentEditor() as? NSTextView {
-                fieldEditor.textContainerInset = .zero
-                fieldEditor.textContainer?.lineFragmentPadding = 0
-                fieldEditor.font = field.font
-            }
+            coordinator.configureFieldEditor(for: field)
         }
 
         return host
@@ -12526,8 +12543,9 @@ private struct SidebarInlineRenameField: NSViewRepresentable {
         context.coordinator.parent = self
         let field = host.field
         field.font = .systemFont(ofSize: fontSize, weight: fontWeight)
-        field.textColor = textColor
+        field.textColor = .clear
         host.contentHeight = height
+        context.coordinator.configureFieldEditor(for: field)
         if field.currentEditor() == nil, field.stringValue != initialTitle {
             field.stringValue = initialTitle
         }
@@ -12600,6 +12618,7 @@ private struct TabItemView: View, Equatable {
     @State private var workspaceFinderDirectoryCache = WorkspaceFinderDirectoryCache()
     @State private var workspaceFinderDirectoryOpenRequest: WorkspaceFinderDirectoryOpenRequest?
     @State private var inlineRenameInitialTitle: String?
+    @State private var inlineRenameDraftTitle: String?
 
     var isMultiSelected: Bool {
         selectedTabIds.contains(tab.id)
@@ -12891,7 +12910,10 @@ private struct TabItemView: View, Equatable {
                         .safeHelp(protectedWorkspaceTooltip)
                 }
 
-                let titleLabel = Text(workspaceSnapshot.title)
+                let displayedTitle = inlineRenameInitialTitle == nil
+                    ? workspaceSnapshot.title
+                    : (inlineRenameDraftTitle ?? workspaceSnapshot.title)
+                let titleLabel = Text(displayedTitle)
                     .font(.system(size: 12.5, weight: titleFontWeight))
                     .foregroundColor(activePrimaryTextColor)
                     .lineLimit(1)
@@ -12900,7 +12922,6 @@ private struct TabItemView: View, Equatable {
 
                 if let inlineRenameInitialTitle {
                     titleLabel
-                        .hidden()
                         .overlay(alignment: .leading) {
                             SidebarInlineRenameField(
                                 initialTitle: inlineRenameInitialTitle,
@@ -12908,6 +12929,7 @@ private struct TabItemView: View, Equatable {
                                 fontWeight: .semibold,
                                 textColor: activePrimaryTextNSColor,
                                 height: sidebarTitleLineHeight,
+                                onTextChange: { inlineRenameDraftTitle = $0 },
                                 onCommit: commitInlineRename,
                                 onCancel: cancelInlineRename
                             )
@@ -13727,17 +13749,21 @@ private struct TabItemView: View, Equatable {
         lastSidebarSelectionIndex = index
         tabManager.selectTab(tab)
         setSelectionToTabs()
-        inlineRenameInitialTitle = tab.customTitle ?? tab.title
+        let title = tab.customTitle ?? tab.title
+        inlineRenameInitialTitle = title
+        inlineRenameDraftTitle = title
     }
 
     private func commitInlineRename(_ title: String) {
         inlineRenameInitialTitle = nil
+        inlineRenameDraftTitle = nil
         tabManager.setCustomTitle(tabId: tab.id, title: title)
         refreshWorkspaceSnapshot(force: true)
     }
 
     private func cancelInlineRename() {
         inlineRenameInitialTitle = nil
+        inlineRenameDraftTitle = nil
     }
 
     private func closeTabs(_ targetIds: [UUID], allowPinned: Bool) {
