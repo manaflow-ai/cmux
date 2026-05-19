@@ -22492,7 +22492,9 @@ export default function cmuxPiSessionExtension(pi: ExtensionAPI) {
                     surfaceId: surfaceId,
                     cwd: hookCwd ?? mapped?.cwd,
                     pid: pid,
-                    launchCommand: launchCommand
+                    launchCommand: launchCommand,
+                    runtimeStatus: .running,
+                    updateRuntimeStatus: true
                 )
                 publishAgentSurfaceResumeBinding(
                     client: client,

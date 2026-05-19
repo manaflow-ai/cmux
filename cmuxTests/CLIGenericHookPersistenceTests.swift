@@ -1233,6 +1233,13 @@ extension CLINotifyProcessIntegrationRegressionTests {
         XCTAssertFalse(completingStart.timedOut, completingStart.stderr)
         XCTAssertEqual(completingStart.status, 0, completingStart.stderr)
 
+        let runningStop = runGrokHook(
+            "stop",
+            input: #"{"sessionId":"\#(runningSessionId)","cwd":"\#(root.path)","hookEventName":"Stop"}"#
+        )
+        XCTAssertFalse(runningStop.timedOut, runningStop.stderr)
+        XCTAssertEqual(runningStop.status, 0, runningStop.stderr)
+
         let promptCommandStart = state.commands.count
         let runningPrompt = runGrokHook(
             "prompt-submit",
