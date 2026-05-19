@@ -63,3 +63,17 @@ import Testing
     #expect(path.hasSuffix(".sock"))
     #expect(path.utf8.count <= 103)
 }
+
+@Test func nilSlugSocketFileNamesAreShortenedWhenNeeded() {
+    let directoryPath = "/Users/austinwang/Library/Application Support/cmux"
+    let fileName = SocketPathMarkerFiles.socketFileName(
+        filePrefix: String(repeating: "very-long-prefix-", count: 5),
+        slug: nil,
+        directoryPath: directoryPath,
+        maxSocketPathLength: 103
+    )
+    let path = "\(directoryPath)/\(fileName)"
+
+    #expect(fileName.hasSuffix(".sock"))
+    #expect(path.utf8.count <= 103)
+}

@@ -221,7 +221,12 @@ public enum SocketPathMarkerFiles {
         }
 
         guard let slug else {
-            return baseName
+            return shortenedSocketFileName(
+                filePrefix: filePrefix,
+                hashSource: baseName,
+                directoryPath: directoryPath,
+                maxSocketPathLength: maxSocketPathLength
+            )
         }
 
         let hash = stableSlugHash(slug)
@@ -240,6 +245,20 @@ public enum SocketPathMarkerFiles {
             return "\(filePrefix).\(hash).sock"
         }
         return "\(filePrefix).\(prefix)-\(hash).sock"
+    }
+
+    private static func shortenedSocketFileName(
+        filePrefix: String,
+        hashSource: String,
+        directoryPath: String,
+        maxSocketPathLength: Int
+    ) -> String {
+        let hash = stableSlugHash(hashSource)
+        let prefixed = "\(filePrefix).\(hash).sock"
+        if socketPathLength(directoryPath: directoryPath, fileName: prefixed) <= maxSocketPathLength {
+            return prefixed
+        }
+        return "\(hash).sock"
     }
 
     public static func sanitizeSocketSlug(_ raw: String) -> String? {

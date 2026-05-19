@@ -270,6 +270,13 @@ tagged_derived_data_path() {
   echo "$HOME/Library/Developer/Xcode/DerivedData/cmux-${slug}"
 }
 
+print_marker_socket_cleanup_command() {
+  local tag="$1"
+  local app_marker="$HOME/Library/Application Support/cmux/dev-${tag}-last-socket-path"
+  local tmp_marker="/tmp/cmux-dev-${tag}-last-socket-path"
+  echo "  for marker in \"$app_marker\" \"$tmp_marker\"; do socket_path=\$(tr -d '\\r\\n' < \"\$marker\" 2>/dev/null || true); [[ -n \"\$socket_path\" ]] && rm -f \"\$socket_path\"; done"
+}
+
 print_tag_cleanup_reminder() {
   local current_slug="$1"
   local path=""
@@ -316,7 +323,7 @@ print_tag_cleanup_reminder() {
     echo "Cleanup stale tags only:"
     for tag in "${stale_tags[@]}"; do
       echo "  pkill -f \"cmux DEV ${tag}.app/Contents/MacOS/cmux DEV\""
-      echo "  socket_path=\$(cat \"$HOME/Library/Application Support/cmux/dev-${tag}-last-socket-path\" 2>/dev/null || true); [[ -n \"\$socket_path\" ]] && rm -f \"\$socket_path\""
+      print_marker_socket_cleanup_command "$tag"
       echo "  rm -rf \"$(tagged_derived_data_path "$tag")\" \"/tmp/cmux-${tag}\""
       echo "  rm -f \"$HOME/Library/Application Support/cmux/dev-${tag}-last-socket-path\" \"/tmp/cmux-dev-${tag}-last-socket-path\""
       echo "  rm -f \"/tmp/cmux-debug-${tag}.log\""
@@ -325,7 +332,7 @@ print_tag_cleanup_reminder() {
   fi
   echo "After you verify current tag, cleanup command:"
   echo "  pkill -f \"cmux DEV ${current_slug}.app/Contents/MacOS/cmux DEV\""
-  echo "  socket_path=\$(cat \"$HOME/Library/Application Support/cmux/dev-${current_slug}-last-socket-path\" 2>/dev/null || true); [[ -n \"\$socket_path\" ]] && rm -f \"\$socket_path\""
+  print_marker_socket_cleanup_command "$current_slug"
   echo "  rm -rf \"$(tagged_derived_data_path "$current_slug")\" \"/tmp/cmux-${current_slug}\""
   echo "  rm -f \"$HOME/Library/Application Support/cmux/dev-${current_slug}-last-socket-path\" \"/tmp/cmux-dev-${current_slug}-last-socket-path\""
   echo "  rm -f \"/tmp/cmux-debug-${current_slug}.log\""

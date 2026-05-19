@@ -979,16 +979,16 @@ class TerminalController {
         }
 
         let fd = socket(AF_UNIX, SOCK_STREAM, 0)
-        guard fd >= 0 else { return false }
+        guard fd >= 0 else { return true }
         defer { close(fd) }
         _ = configureNoSigPipe(fd)
 
         let originalFlags = fcntl(fd, F_GETFL, 0)
-        guard originalFlags >= 0 else { return false }
-        guard fcntl(fd, F_SETFL, originalFlags | O_NONBLOCK) >= 0 else { return false }
+        guard originalFlags >= 0 else { return true }
+        guard fcntl(fd, F_SETFL, originalFlags | O_NONBLOCK) >= 0 else { return true }
         defer { _ = fcntl(fd, F_SETFL, originalFlags) }
 
-        guard var addr = unixSocketAddress(path: path) else { return false }
+        guard var addr = unixSocketAddress(path: path) else { return true }
         let connectResult = withUnsafePointer(to: &addr) { ptr in
             ptr.withMemoryRebound(to: sockaddr.self, capacity: 1) { sockaddrPtr in
                 connect(fd, sockaddrPtr, socklen_t(MemoryLayout<sockaddr_un>.size))
@@ -1000,16 +1000,13 @@ class TerminalController {
 
         let connectErrno = errno
         guard connectErrno == EINPROGRESS || connectErrno == EAGAIN || connectErrno == EWOULDBLOCK else {
-            return false
+            return !socketProbeErrorMeansNoListener(connectErrno)
         }
 
         let timeoutMs = max(1, Int32((max(timeout, 0.001) * 1_000).rounded()))
         var pollFD = pollfd(fd: fd, events: Int16(POLLOUT), revents: 0)
         guard poll(&pollFD, 1, timeoutMs) > 0 else {
-            return false
-        }
-        guard (pollFD.revents & Int16(POLLOUT)) != 0 else {
-            return false
+            return true
         }
 
         var socketError: Int32 = 0
@@ -1019,7 +1016,17 @@ class TerminalController {
                 getsockopt(fd, SOL_SOCKET, SO_ERROR, errorPointer, lengthPointer)
             }
         }
-        return optionResult == 0 && socketError == 0
+        guard optionResult == 0 else {
+            return true
+        }
+        if socketError == 0 {
+            return true
+        }
+        return !socketProbeErrorMeansNoListener(socketError)
+    }
+
+    private nonisolated static func socketProbeErrorMeansNoListener(_ errnoCode: Int32) -> Bool {
+        errnoCode == ECONNREFUSED || errnoCode == ENOENT || errnoCode == ENOTSOCK
     }
 
     private nonisolated static func configureAcceptedClientSocket(_ fd: Int32) -> (stage: String, errnoCode: Int32)? {

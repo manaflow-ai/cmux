@@ -53,7 +53,7 @@ socket_path=""
 for marker in "$socket_marker" "$tmp_socket_marker"; do
   if [[ -r "$marker" ]]; then
     socket_path="$(tr -d '\r\n' < "$marker" 2>/dev/null || true)"
-    if [[ -n "$socket_path" ]]; then
+    if [[ -n "$socket_path" && -S "$socket_path" ]]; then
       break
     fi
   fi
