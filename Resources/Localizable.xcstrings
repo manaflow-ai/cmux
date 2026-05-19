@@ -87316,6 +87316,23 @@
     "fileExplorer.error.remoteCommandExited": {
       "extractionState": "manual",
       "localizations": {
+        "ar": { "stringUnit": { "state": "translated", "value": "خرج الأمر البعيد بالحالة %d." } },
+        "bs": { "stringUnit": { "state": "translated", "value": "Udaljena naredba je završila sa statusom %d." } },
+        "da": { "stringUnit": { "state": "translated", "value": "Fjernkommandoen afsluttede med status %d." } },
+        "de": { "stringUnit": { "state": "translated", "value": "Der Remote-Befehl wurde mit Status %d beendet." } },
+        "es": { "stringUnit": { "state": "translated", "value": "El comando remoto salió con el estado %d." } },
+        "fr": { "stringUnit": { "state": "translated", "value": "La commande distante s’est terminée avec l’état %d." } },
+        "it": { "stringUnit": { "state": "translated", "value": "Il comando remoto è terminato con stato %d." } },
+        "ko": { "stringUnit": { "state": "translated", "value": "원격 명령이 상태 %d로 종료되었습니다." } },
+        "nb": { "stringUnit": { "state": "translated", "value": "Fjernkommandoen avsluttet med status %d." } },
+        "pl": { "stringUnit": { "state": "translated", "value": "Polecenie zdalne zakończyło się ze stanem %d." } },
+        "pt-BR": { "stringUnit": { "state": "translated", "value": "O comando remoto saiu com status %d." } },
+        "ru": { "stringUnit": { "state": "translated", "value": "Удалённая команда завершилась со статусом %d." } },
+        "th": { "stringUnit": { "state": "translated", "value": "คำสั่งระยะไกลออกด้วยสถานะ %d" } },
+        "tr": { "stringUnit": { "state": "translated", "value": "Uzak komut %d durumuyla çıktı." } },
+        "uk": { "stringUnit": { "state": "translated", "value": "Віддалена команда завершилася зі статусом %d." } },
+        "zh-Hans": { "stringUnit": { "state": "translated", "value": "远程命令以状态 %d 退出。" } },
+        "zh-Hant": { "stringUnit": { "state": "translated", "value": "遠端命令以狀態 %d 結束。" } },
         "en": {
           "stringUnit": {
             "state": "translated",
@@ -87333,6 +87350,23 @@
     "fileExplorer.error.sshFailed": {
       "extractionState": "manual",
       "localizations": {
+        "ar": { "stringUnit": { "state": "translated", "value": "فشل أمر SSH: %@" } },
+        "bs": { "stringUnit": { "state": "translated", "value": "SSH naredba nije uspjela: %@" } },
+        "da": { "stringUnit": { "state": "translated", "value": "SSH-kommando mislykkedes: %@" } },
+        "de": { "stringUnit": { "state": "translated", "value": "SSH-Befehl fehlgeschlagen: %@" } },
+        "es": { "stringUnit": { "state": "translated", "value": "Error en el comando SSH: %@" } },
+        "fr": { "stringUnit": { "state": "translated", "value": "Échec de la commande SSH : %@" } },
+        "it": { "stringUnit": { "state": "translated", "value": "Comando SSH non riuscito: %@" } },
+        "ko": { "stringUnit": { "state": "translated", "value": "SSH 명령 실패: %@" } },
+        "nb": { "stringUnit": { "state": "translated", "value": "SSH-kommando mislyktes: %@" } },
+        "pl": { "stringUnit": { "state": "translated", "value": "Polecenie SSH nie powiodło się: %@" } },
+        "pt-BR": { "stringUnit": { "state": "translated", "value": "Falha no comando SSH: %@" } },
+        "ru": { "stringUnit": { "state": "translated", "value": "Сбой команды SSH: %@" } },
+        "th": { "stringUnit": { "state": "translated", "value": "คำสั่ง SSH ล้มเหลว: %@" } },
+        "tr": { "stringUnit": { "state": "translated", "value": "SSH komutu başarısız: %@" } },
+        "uk": { "stringUnit": { "state": "translated", "value": "Помилка команди SSH: %@" } },
+        "zh-Hans": { "stringUnit": { "state": "translated", "value": "SSH 命令失败：%@" } },
+        "zh-Hant": { "stringUnit": { "state": "translated", "value": "SSH 命令失敗：%@" } },
         "en": {
           "stringUnit": {
             "state": "translated",
