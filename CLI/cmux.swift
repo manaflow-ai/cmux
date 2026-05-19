@@ -6013,6 +6013,7 @@ struct CMUXCLI {
             "cmux_ssh_reconnect_delay=\"${CMUX_SSH_RECONNECT_DELAY_SECONDS:-2}\"",
             "case \"$cmux_ssh_reconnect_delay\" in ''|*[!0-9]*) cmux_ssh_reconnect_delay=2 ;; esac",
             "cmux_ssh_retry=0",
+            "cmux_ssh_lifecycle_sequence=0",
             "CMUX_SSH_CHILD_PID=",
             "CMUX_SSH_PENDING_SIGNAL=",
             "cmux_ssh_note() { if [ -t 2 ]; then printf \"$@\" >&2 || true; fi; }",
@@ -6029,6 +6030,11 @@ struct CMUXCLI {
         if let trimmedControlPathPreflight, !trimmedControlPathPreflight.isEmpty {
             scriptLines.append("  cmux_ssh_preflight_control_path")
         }
+        scriptLines += [
+            "  cmux_ssh_lifecycle_sequence=$((cmux_ssh_lifecycle_sequence + 1))",
+            "  CMUX_SSH_LIFECYCLE_SEQUENCE=\"$cmux_ssh_lifecycle_sequence\"",
+            "  export CMUX_SSH_LIFECYCLE_SEQUENCE",
+        ]
         // POSIX sh redirects stdin of an async command (`&`) to /dev/null when
         // job control is off (the default for `/bin/sh -c …`), so ssh would
         // never receive keystrokes from the surface PTY. Inheriting fd 0
@@ -6053,6 +6059,9 @@ struct CMUXCLI {
             "  if [ \"$cmux_ssh_status\" -ne 255 ]; then break; fi",
             "  if [ \"$cmux_ssh_retry\" -ge \"$cmux_ssh_reconnect_limit\" ]; then break; fi",
             "  cmux_ssh_retry=$((cmux_ssh_retry + 1))",
+            "  cmux_ssh_lifecycle_sequence=$((cmux_ssh_lifecycle_sequence + 1))",
+            "  CMUX_SSH_LIFECYCLE_SEQUENCE=\"$cmux_ssh_lifecycle_sequence\"",
+            "  export CMUX_SSH_LIFECYCLE_SEQUENCE",
             "  \(lifecycleReconnecting)",
             "  cmux_ssh_note '\\n\\033[33m[cmux] ssh exited with status %s; reconnecting (attempt %s/%s).\\033[0m\\n\\033[2m[cmux] close this pane or press Ctrl-C to stop reconnecting.\\033[0m\\n' \"$cmux_ssh_status\" \"$cmux_ssh_retry\" \"$cmux_ssh_reconnect_limit\"",
             "  if [ \"$cmux_ssh_reconnect_delay\" -gt 0 ]; then sleep \"$cmux_ssh_reconnect_delay\"; fi",
@@ -6123,6 +6132,7 @@ struct CMUXCLI {
                 "--attempt \"$cmux_ssh_retry\"",
                 "--limit \"$cmux_ssh_reconnect_limit\"",
                 "--exit-status \"$cmux_ssh_status\"",
+                "--sequence \"$cmux_ssh_lifecycle_sequence\"",
             ]
         )
     }
@@ -6130,7 +6140,10 @@ struct CMUXCLI {
     private func buildSSHSessionConnectedShellCommand(remoteRelayPort: Int) -> String {
         buildSSHSessionLifecycleShellCommand(
             subcommand: "ssh-session-connected",
-            remoteRelayPort: remoteRelayPort
+            remoteRelayPort: remoteRelayPort,
+            extraArguments: [
+                "--sequence \"${CMUX_SSH_LIFECYCLE_SEQUENCE:-0}\"",
+            ]
         )
     }
 
@@ -6930,6 +6943,9 @@ struct CMUXCLI {
         guard let exitStatus = nonNegativeIntOption(commandArgs, name: "--exit-status") else {
             throw CLIError(message: "ssh-session-reconnecting requires --exit-status <status>")
         }
+        guard let sequence = positiveIntOption(commandArgs, name: "--sequence") else {
+            throw CLIError(message: "ssh-session-reconnecting requires --sequence <n>")
+        }
         _ = try client.sendV2(method: "workspace.remote.terminal_reconnecting", params: [
             "workspace_id": identity.workspaceId,
             "surface_id": identity.surfaceId,
@@ -6937,6 +6953,7 @@ struct CMUXCLI {
             "attempt": attempt,
             "limit": limit,
             "exit_status": exitStatus,
+            "sequence": sequence,
         ])
     }
 
@@ -6946,10 +6963,14 @@ struct CMUXCLI {
             client: client,
             commandName: "ssh-session-connected"
         )
+        guard let sequence = positiveIntOption(commandArgs, name: "--sequence") else {
+            throw CLIError(message: "ssh-session-connected requires --sequence <n>")
+        }
         _ = try client.sendV2(method: "workspace.remote.terminal_connected", params: [
             "workspace_id": identity.workspaceId,
             "surface_id": identity.surfaceId,
             "relay_port": identity.relayPort,
+            "sequence": sequence,
         ])
     }
 

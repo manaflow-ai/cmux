@@ -163,8 +163,8 @@ Environment:
 | `vm-ssh-attach` | Hidden compatibility alias for older VM workspaces. |
 | `vm-pty-connect` | Internal helper that connects to a VM PTY from a config file. |
 | `ssh-session-end` | Internal helper that clears remote SSH session state. |
-| `ssh-session-reconnecting` | Internal helper that marks a remote SSH terminal as reconnecting. |
-| `ssh-session-connected` | Internal helper that marks a remote SSH terminal as connected after redial. |
+| `ssh-session-reconnecting` | Internal helper that marks a remote SSH terminal as reconnecting with a monotonic `--sequence`. |
+| `ssh-session-connected` | Internal helper that marks a remote SSH terminal as connected after redial with a monotonic `--sequence`. |
 | `__tmux-compat` | Internal tmux compatibility dispatcher. |
 
 ## Command Families

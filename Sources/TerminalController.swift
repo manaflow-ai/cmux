@@ -5160,6 +5160,10 @@ class TerminalController {
               exitStatus >= 0 else {
             return .err(code: "invalid_params", message: "Missing or invalid exit_status", data: nil)
         }
+        guard let sequence = v2StrictInt(params, "sequence"),
+              sequence > 0 else {
+            return .err(code: "invalid_params", message: "Missing or invalid sequence", data: nil)
+        }
 
         return v2ApplyWorkspaceRemoteTerminalLifecycle(identity: identity) { workspace in
             workspace.markRemoteTerminalSessionReconnecting(
@@ -5167,7 +5171,8 @@ class TerminalController {
                 relayPort: identity.relayPort,
                 attempt: attempt,
                 limit: limit,
-                exitStatus: exitStatus
+                exitStatus: exitStatus,
+                sequence: sequence
             )
         }
     }
@@ -5176,11 +5181,16 @@ class TerminalController {
         guard let identity = v2WorkspaceRemoteTerminalLifecycleIdentity(params: params) else {
             return .err(code: "invalid_params", message: "Missing or invalid workspace_id, surface_id, or relay_port", data: nil)
         }
+        guard let sequence = v2StrictInt(params, "sequence"),
+              sequence > 0 else {
+            return .err(code: "invalid_params", message: "Missing or invalid sequence", data: nil)
+        }
 
         return v2ApplyWorkspaceRemoteTerminalLifecycle(identity: identity) { workspace in
             workspace.markRemoteTerminalSessionConnected(
                 surfaceId: identity.surfaceId,
-                relayPort: identity.relayPort
+                relayPort: identity.relayPort,
+                sequence: sequence
             )
         }
     }

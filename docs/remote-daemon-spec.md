@@ -221,6 +221,6 @@ Use this smoke when validating Cloud VM SSH resilience against a real provider V
 1. Create or select a running Cloud VM and open it with `cmux vm ssh <vm-id>` from the tagged app build under test.
 2. In the remote terminal, start a durable sentinel command such as `while :; do date; sleep 2; done` and verify output is advancing.
 3. Interrupt the local client network path without destroying the VM: sleep the Mac, disable Wi-Fi, or block outbound network briefly.
-4. Verify the terminal pane and remote status payload enter `reconnecting`, with detail that includes the SSH retry attempt and exit status.
+4. Verify the terminal pane and remote status payload enter `reconnecting`, with detail that includes retry attempt context without exposing raw SSH exit status.
 5. Restore the network or wake the Mac. Verify the same pane returns to `connected`, the sentinel command continues or the shell remains usable, and browser panels in the same remote workspace keep using the remote proxy path.
 6. Repeat with the VM stopped or destroyed during reconnect. Verify retries exhaust into `disconnected` or `error`, the pane shows the final SSH status instead of falling back to a local prompt, and `workspace.remote.status` clearly reports that the remote session ended.

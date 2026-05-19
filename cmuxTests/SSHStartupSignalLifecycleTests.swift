@@ -294,6 +294,10 @@ extension CLINotifyProcessIntegrationRegressionTests {
         if let reconnectingIndex {
             XCTAssertTrue(recordedCalls[reconnectingIndex].contains("--attempt 1"), recordedCalls.joined(separator: "\n"))
             XCTAssertTrue(recordedCalls[reconnectingIndex].contains("--exit-status 255"), recordedCalls.joined(separator: "\n"))
+            XCTAssertTrue(recordedCalls[reconnectingIndex].contains("--sequence 2"), recordedCalls.joined(separator: "\n"))
+        }
+        if let connectedIndex {
+            XCTAssertTrue(recordedCalls[connectedIndex].contains("--sequence 3"), recordedCalls.joined(separator: "\n"))
         }
     }
 

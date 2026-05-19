@@ -7317,6 +7317,7 @@ final class Workspace: Identifiable, ObservableObject {
     private var remoteLastPortConflictFingerprint: String?
     private var remoteDetectedSurfaceIds: Set<UUID> = []
     private var activeRemoteTerminalSurfaceIds: Set<UUID> = []
+    private var remoteTerminalLifecycleSequencesBySurfaceId: [UUID: Int] = [:]
     var pendingRemoteTerminalChildExitSurfaceIds: Set<UUID> = []
     /// Display target of the remote workspace that just disconnected. Set right before
     /// `createReplacementTerminalPanel()` so the replacement shell can print a banner
@@ -9548,6 +9549,7 @@ final class Workspace: Identifiable, ObservableObject {
     private func trackRemoteTerminalSurface(_ panelId: UUID) {
         skipControlMasterCleanupAfterDetachedRemoteTransfer = false
         pendingRemoteTerminalChildExitSurfaceIds.remove(panelId)
+        remoteTerminalLifecycleSequencesBySurfaceId.removeValue(forKey: panelId)
         transferredRemoteCleanupConfigurationsByPanelId.removeValue(forKey: panelId)
         guard activeRemoteTerminalSurfaceIds.insert(panelId).inserted else { return }
         activeRemoteTerminalSessionCount = activeRemoteTerminalSurfaceIds.count
@@ -9557,6 +9559,7 @@ final class Workspace: Identifiable, ObservableObject {
 
     func untrackRemoteTerminalSurface(_ panelId: UUID) {
         guard activeRemoteTerminalSurfaceIds.remove(panelId) != nil else { return }
+        remoteTerminalLifecycleSequencesBySurfaceId.removeValue(forKey: panelId)
         activeRemoteTerminalSessionCount = activeRemoteTerminalSurfaceIds.count
         guard !isDetachingCloseTransaction else { return }
         maybeDemoteRemoteWorkspaceAfterSSHSessionEnded()
@@ -9590,7 +9593,7 @@ final class Workspace: Identifiable, ObservableObject {
             localized: "remote.state.targetFallback",
             defaultValue: "remote host"
         )
-        let vmNoProxyConnectionReady = remoteConnectionState != .reconnecting &&
+        let vmNoProxyConnectionReady = remoteConnectionState == .connected &&
             remoteConfiguration?.skipDaemonBootstrap == true &&
             remoteConfiguration?.daemonWebSocketEndpoint == nil
         if remoteProxyEndpoint != nil || remoteDaemonStatus.state == .ready || vmNoProxyConnectionReady {
@@ -9736,10 +9739,12 @@ final class Workspace: Identifiable, ObservableObject {
         relayPort: Int?,
         attempt: Int,
         limit: Int,
-        exitStatus _: Int
+        exitStatus _: Int,
+        sequence: Int
     ) {
         guard remoteTerminalLifecycleMatches(surfaceId: surfaceId, relayPort: relayPort) else { return }
         guard remoteConnectionState != .error else { return }
+        guard acceptRemoteTerminalLifecycleSequence(surfaceId: surfaceId, sequence: sequence) else { return }
         let target = remoteConfiguration?.displayTarget ?? String(
             localized: "remote.state.targetFallback",
             defaultValue: "remote host"
@@ -9753,9 +9758,10 @@ final class Workspace: Identifiable, ObservableObject {
     }
 
     @MainActor
-    func markRemoteTerminalSessionConnected(surfaceId: UUID, relayPort: Int?) {
+    func markRemoteTerminalSessionConnected(surfaceId: UUID, relayPort: Int?, sequence: Int) {
         guard remoteTerminalLifecycleMatches(surfaceId: surfaceId, relayPort: relayPort) else { return }
         guard remoteConnectionState == .connecting || remoteConnectionState == .reconnecting else { return }
+        guard acceptRemoteTerminalLifecycleSequence(surfaceId: surfaceId, sequence: sequence) else { return }
         let target = remoteConfiguration?.displayTarget ?? String(
             localized: "remote.state.targetFallback",
             defaultValue: "remote host"
@@ -9786,7 +9792,15 @@ final class Workspace: Identifiable, ObservableObject {
             return false
         }
         return activeRemoteTerminalSurfaceIds.contains(surfaceId)
-            || pendingRemoteTerminalChildExitSurfaceIds.contains(surfaceId)
+    }
+
+    @MainActor
+    private func acceptRemoteTerminalLifecycleSequence(surfaceId: UUID, sequence: Int) -> Bool {
+        guard sequence > 0 else { return false }
+        let lastSequence = remoteTerminalLifecycleSequencesBySurfaceId[surfaceId] ?? 0
+        guard sequence > lastSequence else { return false }
+        remoteTerminalLifecycleSequencesBySurfaceId[surfaceId] = sequence
+        return true
     }
 
     func teardownRemoteConnection() {
