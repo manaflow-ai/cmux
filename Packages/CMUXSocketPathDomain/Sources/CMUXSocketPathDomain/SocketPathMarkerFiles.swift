@@ -147,7 +147,7 @@ public enum SocketPathMarkerFiles {
             bundleIdentifier: bundleIdentifier,
             environment: environment,
             baseDebugBundleIdentifier: baseDebugBundleIdentifier
-        }
+        )
         return bundleScopedSocketPath(
             for: resolvedVariant,
             stableSocketPath: stableSocketPath,
