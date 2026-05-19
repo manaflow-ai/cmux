@@ -68,7 +68,16 @@ extension CMUXCLI {
             ref: result.workspaceRef,
             idFormat: idFormat
         )
-        let mode = result.dryRun ? "Would trim" : "Trimmed"
+        let mode: String
+        if result.dryRun {
+            mode = String(localized: "cli.memory.trim.mode.dryRun", defaultValue: "Would trim")
+        } else if !result.attemptedShutdown {
+            mode = String(localized: "cli.memory.trim.mode.noAction", defaultValue: "No trim action")
+        } else if result.stillRunning {
+            mode = String(localized: "cli.memory.trim.mode.attempted", defaultValue: "Trim attempted")
+        } else {
+            mode = String(localized: "cli.memory.trim.mode.trimmed", defaultValue: "Trimmed")
+        }
         var parts = [
             "\(mode) \(result.agent.displayName)",
             "pid=\(result.agent.pid)",
@@ -78,6 +87,7 @@ extension CMUXCLI {
         if let gracefulAction = result.gracefulAction {
             parts.append("graceful=\"\(gracefulAction)\"")
         }
+        parts.append("attempted=\(result.attemptedShutdown ? "yes" : "no")")
         parts.append("terminated=\(result.terminated ? "yes" : "no")")
         parts.append("killed=\(result.killed ? "yes" : "no")")
         parts.append("still_running=\(result.stillRunning ? "yes" : "no")")

@@ -1209,6 +1209,7 @@ final class CLINotifyProcessIntegrationRegressionTests: XCTestCase {
         XCTAssertTrue(result.stderr.isEmpty, result.stderr)
 
         let payload = try jsonPayload(from: result.stdout)
+        XCTAssertEqual(payload["attempted_shutdown"] as? Bool, false)
         XCTAssertEqual(payload["terminated"] as? Bool, false)
         XCTAssertEqual(payload["killed"] as? Bool, false)
         XCTAssertEqual(payload["still_running"] as? Bool, true)
@@ -1216,6 +1217,38 @@ final class CLINotifyProcessIntegrationRegressionTests: XCTestCase {
             state.commands.compactMap { self.jsonObject($0)?["method"] as? String },
             ["system.top"]
         )
+    }
+
+    func testMemoryTrimRenderingDistinguishesNoShutdownAction() throws {
+        let cli = CMUXCLI(args: [])
+        let result = CMUXCLI.MemoryTrimResult(
+            workspaceId: "33333333-3333-3333-3333-333333333333",
+            workspaceRef: "workspace:11",
+            agent: CMUXCLI.MemoryAgentCandidate(
+                key: "opencode",
+                pid: 4242,
+                surfaceId: nil,
+                surfaceRef: nil,
+                processName: "opencode",
+                residentBytes: 268_435_456,
+                residentBytesKnown: true,
+                source: .tag,
+                identity: nil
+            ),
+            gracefulAction: nil,
+            attemptedShutdown: false,
+            terminated: false,
+            killed: false,
+            stillRunning: true,
+            dryRun: false
+        )
+
+        let output = cli.renderMemoryTrimResult(result, idFormat: .refs)
+
+        XCTAssertTrue(output.hasPrefix("No trim action opencode"), output)
+        XCTAssertTrue(output.contains("attempted=no"), output)
+        XCTAssertTrue(output.contains("still_running=yes"), output)
+        XCTAssertFalse(output.hasPrefix("Trimmed "), output)
     }
 
     func testMemoryTrimAutoRejectsProcessNameFallbackWithoutOwnedTag() throws {

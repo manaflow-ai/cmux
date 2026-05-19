@@ -69,6 +69,7 @@ extension CMUXCLI {
         let workspaceRef: String?
         let agent: MemoryAgentCandidate
         let gracefulAction: String?
+        let attemptedShutdown: Bool
         let terminated: Bool
         let killed: Bool
         let stillRunning: Bool
@@ -80,6 +81,7 @@ extension CMUXCLI {
                 "workspace_ref": workspaceRef ?? NSNull(),
                 "agent": agent.payload,
                 "graceful_action": gracefulAction ?? NSNull(),
+                "attempted_shutdown": attemptedShutdown,
                 "terminated": terminated,
                 "killed": killed,
                 "still_running": stillRunning,
@@ -194,6 +196,7 @@ extension CMUXCLI {
                 workspaceRef: workspaceRef,
                 agent: candidate,
                 gracefulAction: gracefulAction,
+                attemptedShutdown: attemptedShutdown,
                 terminated: terminated,
                 killed: killed,
                 stillRunning: stillRunning,
