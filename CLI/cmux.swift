@@ -3872,13 +3872,14 @@ struct CMUXCLI {
         let (surfaceOpt, argsAfterSurface) = parseOption(argsAfterWindow, name: "--surface")
         let (directionOpt, argsAfterDirection) = parseOption(argsAfterSurface, name: "--direction")
         let (focusOpt, argsAfterFocus) = parseOption(argsAfterDirection, name: "--focus")
-        let (slugOpt, argsAfterSlug) = parseOption(argsAfterFocus, name: "--slug")
-        args = argsAfterSlug
+        args = argsAfterFocus
 
         guard let subcommand = args.first else {
             throw CLIError(
-                message:
-                    "cmux note: missing subcommand. Usage: cmux note <new|open|list|path|rm> [options]"
+                message: String(
+                    localized: "cli.note.error.missingSubcommand",
+                    defaultValue: "cmux note: missing subcommand. Usage: cmux note <new|open|list|path|rm> [options]"
+                )
             )
         }
         let trailingArgs = Array(args.dropFirst())
@@ -3906,30 +3907,55 @@ struct CMUXCLI {
             return params
         }
 
+        func missingSlugMessage(verb: String, usage: String) -> String {
+            String(
+                localized: "cli.note.error.missingSlug",
+                defaultValue: "cmux note \(verb): missing slug. Usage: \(usage)"
+            )
+        }
+
+        func unknownFlagMessage(verb: String, flag: String) -> String {
+            String(
+                localized: "cli.note.error.unknownFlag",
+                defaultValue: "cmux note \(verb): unknown flag '\(flag)'"
+            )
+        }
+
+        func unexpectedArgumentMessage(verb: String, argument: String) -> String {
+            String(
+                localized: "cli.note.error.unexpectedArgument",
+                defaultValue: "cmux note \(verb): unexpected argument '\(argument)'"
+            )
+        }
+
         func slugArgument(for verb: String, usage: String) throws -> String {
             guard let slugArg = trailingArgs.first, !slugArg.isEmpty else {
-                throw CLIError(message: "cmux note \(verb): missing slug. Usage: \(usage)")
+                throw CLIError(message: missingSlugMessage(verb: verb, usage: usage))
             }
             if slugArg.hasPrefix("-") {
-                throw CLIError(message: "cmux note \(verb): unknown flag '\(slugArg)'")
+                throw CLIError(message: unknownFlagMessage(verb: verb, flag: slugArg))
             }
             let rest = Array(trailingArgs.dropFirst())
             if let unknownFlag = rest.first(where: { $0.hasPrefix("-") }) {
-                throw CLIError(message: "cmux note \(verb): unknown flag '\(unknownFlag)'")
+                throw CLIError(message: unknownFlagMessage(verb: verb, flag: unknownFlag))
             }
             if let extraArg = rest.first {
-                throw CLIError(message: "cmux note \(verb): unexpected argument '\(extraArg)'")
+                throw CLIError(message: unexpectedArgumentMessage(verb: verb, argument: extraArg))
             }
             return slugArg
         }
 
         switch subcommand.lowercased() {
         case "new", "create":
-            if let unknownFlag = trailingArgs.first(where: { $0.hasPrefix("-") }) {
-                throw CLIError(message: "cmux note new: unknown flag '\(unknownFlag)'")
+            let (slugOpt, argsAfterSlug) = parseOption(trailingArgs, name: "--slug")
+            if let slugOpt, slugOpt.hasPrefix("-") {
+                throw CLIError(message: unknownFlagMessage(verb: "new", flag: slugOpt))
             }
-            if let extraArg = trailingArgs.first {
-                throw CLIError(message: "cmux note new: unexpected argument '\(extraArg)'")
+            if let unknownFlag = argsAfterSlug.first(where: { $0.hasPrefix("-") }) {
+                throw CLIError(message: unknownFlagMessage(verb: "new", flag: unknownFlag))
+            }
+            if let extraArg = argsAfterSlug.first {
+                throw CLIError(message: unexpectedArgumentMessage(verb: "new", argument: extraArg))
             }
             var params = try buildRoutingParams()
             if let slugOpt, !slugOpt.isEmpty {
@@ -3941,10 +3967,15 @@ struct CMUXCLI {
             if jsonOutput {
                 print(jsonString(formatIDs(payload, mode: idFormat)))
             } else {
-                let slug = (payload["slug"] as? String) ?? "(unknown)"
+                let slug = (payload["slug"] as? String)
+                    ?? String(localized: "cli.note.output.unknownParen", defaultValue: "(unknown)")
                 let path = (payload["path"] as? String) ?? ""
-                let surfaceText = formatHandle(payload, kind: "surface", idFormat: idFormat) ?? "unknown"
-                print("OK slug=\(slug) surface=\(surfaceText) path=\(path)")
+                let surfaceText = formatHandle(payload, kind: "surface", idFormat: idFormat)
+                    ?? String(localized: "cli.note.output.unknown", defaultValue: "unknown")
+                print(String(
+                    localized: "cli.note.output.created",
+                    defaultValue: "OK slug=\(slug) surface=\(surfaceText) path=\(path)"
+                ))
             }
 
         case "open":
@@ -3959,30 +3990,44 @@ struct CMUXCLI {
             } else {
                 let slug = (payload["slug"] as? String) ?? slugArg
                 let path = (payload["path"] as? String) ?? ""
-                let surfaceText = formatHandle(payload, kind: "surface", idFormat: idFormat) ?? "unknown"
+                let surfaceText = formatHandle(payload, kind: "surface", idFormat: idFormat)
+                    ?? String(localized: "cli.note.output.unknown", defaultValue: "unknown")
                 let reused = (payload["reused"] as? Bool) ?? false
-                print("OK slug=\(slug) surface=\(surfaceText) path=\(path)\(reused ? " (reused)" : "")")
+                let reusedSuffix = reused
+                    ? String(localized: "cli.note.output.reusedSuffix", defaultValue: " (reused)")
+                    : ""
+                print(String(
+                    localized: "cli.note.output.opened",
+                    defaultValue: "OK slug=\(slug) surface=\(surfaceText) path=\(path)\(reusedSuffix)"
+                ))
             }
 
         case "list", "ls":
             if let unknownFlag = trailingArgs.first(where: { $0.hasPrefix("-") }) {
-                throw CLIError(message: "cmux note list: unknown flag '\(unknownFlag)'")
+                throw CLIError(message: unknownFlagMessage(verb: "list", flag: unknownFlag))
             }
             if let extraArg = trailingArgs.first {
-                throw CLIError(message: "cmux note list: unexpected argument '\(extraArg)'")
+                throw CLIError(message: unexpectedArgumentMessage(verb: "list", argument: extraArg))
             }
             let params = try buildRoutingParams()
             let payload = try client.sendV2(method: "note.list", params: params)
             if jsonOutput {
                 print(jsonString(formatIDs(payload, mode: idFormat)))
             } else {
-                let root = (payload["project_root"] as? String) ?? "(unknown)"
+                let root = (payload["project_root"] as? String)
+                    ?? String(localized: "cli.note.output.unknownParen", defaultValue: "(unknown)")
                 let notes = (payload["notes"] as? [[String: Any]]) ?? []
                 if notes.isEmpty {
-                    print("No notes in \(root)/.cmux/notes/")
+                    print(String(
+                        localized: "cli.note.output.noNotes",
+                        defaultValue: "No notes in \(root)/.cmux/notes/"
+                    ))
                 } else {
-                    print("Project root: \(root)")
-                    print("Notes:")
+                    print(String(
+                        localized: "cli.note.output.projectRoot",
+                        defaultValue: "Project root: \(root)"
+                    ))
+                    print(String(localized: "cli.note.output.notesHeader", defaultValue: "Notes:"))
                     let formatter = DateFormatter()
                     formatter.dateFormat = "yyyy-MM-dd HH:mm"
                     for note in notes {
@@ -3991,7 +4036,10 @@ struct CMUXCLI {
                         let mtime = (note["mtime"] as? Double).map {
                             formatter.string(from: Date(timeIntervalSince1970: $0))
                         } ?? "?"
-                        print("  \(slug)\t\(size)B\t\(mtime)")
+                        print(String(
+                            localized: "cli.note.output.noteRow",
+                            defaultValue: "  \(slug)\t\(size)B\t\(mtime)"
+                        ))
                     }
                 }
             }
@@ -4018,13 +4066,21 @@ struct CMUXCLI {
             } else {
                 let deleted = (payload["deleted"] as? Bool) ?? false
                 let slug = (payload["slug"] as? String) ?? slugArg
-                print(deleted ? "OK deleted slug=\(slug)" : "OK already-absent slug=\(slug)")
+                let message = deleted
+                    ? String(localized: "cli.note.output.deleted", defaultValue: "OK deleted slug=\(slug)")
+                    : String(
+                        localized: "cli.note.output.alreadyAbsent",
+                        defaultValue: "OK already-absent slug=\(slug)"
+                    )
+                print(message)
             }
 
         default:
             throw CLIError(
-                message:
-                    "cmux note: unknown subcommand '\(subcommand)'. Verbs: new, open, list, path, rm"
+                message: String(
+                    localized: "cli.note.error.unknownSubcommand",
+                    defaultValue: "cmux note: unknown subcommand '\(subcommand)'. Verbs: new, open, list, path, rm"
+                )
             )
         }
     }
@@ -10797,41 +10853,41 @@ struct CMUXCLI {
               cmux markdown open plan.md --direction down
             """
         case "note":
-            return """
-            Usage: cmux note <verb> [options]
+            return String(localized: "cli.note.usage", defaultValue: """
+                Usage: cmux note <verb> [options]
 
-            Project-scoped markdown notes stored at .cmux/notes/<slug>.md
-            (resolved by walking up from the workspace cwd to the nearest
-            ancestor that already contains a .cmux/ directory; falling back
-            to the cwd itself). Renders in a markdown panel with live file
-            watching — edit the file from anywhere and the panel updates.
+                Project-scoped markdown notes stored at .cmux/notes/<slug>.md
+                (resolved by walking up from the workspace cwd to the nearest
+                ancestor that already contains a .cmux/ directory; falling back
+                to the cwd itself). Renders in a markdown panel with live file
+                watching — edit the file from anywhere and the panel updates.
 
-            Verbs:
-              new                Create (if missing) and open a note.
-              open <slug>        Open an existing note (errors if missing).
-              list               List notes in the project, newest first.
-              path <slug>        Print the absolute file path for a slug.
-              rm <slug>          Delete the note file (idempotent).
+                Verbs:
+                  new                Create (if missing) and open a note.
+                  open <slug>        Open an existing note (errors if missing).
+                  list               List notes in the project, newest first.
+                  path <slug>        Print the absolute file path for a slug.
+                  rm <slug>          Delete the note file (idempotent).
 
-            Options (shared across verbs):
-              --slug <name>      Slug to use for `new` (kebab-case, [a-z0-9-]+).
-                                 Auto-generated as `note-<6hex>` when omitted.
-              --workspace <id|ref|index>   Target workspace (default: $CMUX_WORKSPACE_ID)
-              --surface <id|ref|index>     Source surface to split from (default: focused)
-              --window <id|ref|index>      Target window
-              --direction <left|right|up|down>   Split direction (default: right)
-              --focus <true|false>         Focus the note panel (default: false)
-              --json                       Emit JSON instead of human-readable output
+                Options (shared across verbs):
+                  --slug <name>      Slug to use for `new` (kebab-case, [a-z0-9-]+).
+                                     Auto-generated as `note-<6hex>` when omitted.
+                  --workspace <id|ref|index>   Target workspace (default: $CMUX_WORKSPACE_ID)
+                  --surface <id|ref|index>     Source surface to split from (default: focused)
+                  --window <id|ref|index>      Target window
+                  --direction <left|right|up|down>   Split direction (default: right)
+                  --focus <true|false>         Focus the note panel (default: false)
+                  --json                       Emit JSON instead of human-readable output
 
-            Examples:
-              cmux note new
-              cmux note new --slug todo
-              cmux note open todo
-              cmux note open todo --direction down --focus true
-              cmux note list
-              $EDITOR "$(cmux note path todo)"
-              cmux note rm todo
-            """
+                Examples:
+                  cmux note new
+                  cmux note new --slug todo
+                  cmux note open todo
+                  cmux note open todo --direction down --focus true
+                  cmux note list
+                  $EDITOR "$(cmux note path todo)"
+                  cmux note rm todo
+                """)
         default:
             return nil
         }
@@ -24499,11 +24555,13 @@ export default function cmuxPiSessionExtension(pi: ExtensionAPI) {
 
           markdown [open] <path> [--focus <true|false>] (open markdown file in formatted viewer panel with live reload)
 
+          \(String(localized: "cli.note.globalUsage", defaultValue: """
           note new [--slug <name>] [--direction <dir>] [--focus <true|false>]   (create + open .cmux/notes/<slug>.md)
           note open <slug> [--direction <dir>] [--focus <true|false>]            (open existing project-scoped note)
           note list [--json]                                                     (list notes in the project)
           note path <slug>                                                       (print absolute path for a note slug)
           note rm <slug>                                                         (delete a note file)
+          """))
 
           browser [--surface <id|ref|index> | <surface>] <subcommand> ...
           browser disable | enable | status

@@ -7,6 +7,9 @@ import CryptoKit
 import Darwin
 import Network
 import CoreText
+import os
+
+nonisolated private let workspaceLogger = Logger(subsystem: "com.cmuxterm.app", category: "workspace")
 
 #if DEBUG
 private func debugWorkspaceDescriptionPreview(_ text: String?, limit: Int = 120) -> String {
@@ -10894,10 +10897,14 @@ final class Workspace: Identifiable, ObservableObject {
         let root = noteProjectRoot()
         let filePath: String
         if createIfMissing {
-            guard let ensured = try? NoteSupport.ensureNoteFile(slug: slug, projectRoot: root) else {
+            do {
+                filePath = try NoteSupport.ensureNoteFile(slug: slug, projectRoot: root)
+            } catch {
+                workspaceLogger.error(
+                    "Failed to create note file for config note slug=\(slug, privacy: .private) error=\(error.localizedDescription, privacy: .private)"
+                )
                 return nil
             }
-            filePath = ensured
         } else {
             let candidate = NoteSupport.notePath(forSlug: slug, projectRoot: root)
             guard FileManager.default.fileExists(atPath: candidate) else { return nil }
