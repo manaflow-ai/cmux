@@ -173,7 +173,6 @@ final class CmuxSettingsFileStore {
         shouldWrite: @escaping @Sendable () -> Bool = { true }
     ) async throws {
         let primaryPath = primaryPath
-        let fileManager = fileManager
         try await withCheckedThrowingContinuation { (continuation: CheckedContinuation<Void, Error>) in
             Self.appUIScaleWriteQueue.async {
                 do {
@@ -183,7 +182,7 @@ final class CmuxSettingsFileStore {
                     try Self.writeAppUIScale(
                         uiScale,
                         primaryPath: primaryPath,
-                        fileManager: fileManager,
+                        fileManager: .default,
                         shouldWrite: shouldWrite
                     )
                     continuation.resume(returning: ())

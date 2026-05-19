@@ -49,7 +49,10 @@ enum UIScaleSettings {
         if persistToSettingsFile {
             let requestIdentifier = UUID().uuidString
             let store = settingsFileStore ?? KeyboardShortcutSettings.settingsFileStore
-            let defaultsHandle = UIScaleSettingsDefaultsHandle(defaults: defaults)
+            let defaultsHandle = UIScaleSettingsDefaultsHandle(
+                defaults: defaults,
+                defaultsIdentity: defaultsIdentity(defaults)
+            )
             recordPendingPersistence(value: next, identifier: requestIdentifier, defaults: defaults)
             Task {
                 await persistenceCoordinator.schedule(
@@ -142,6 +145,16 @@ enum UIScaleSettings {
         pendingPersistence(defaults: defaults)?.identifier == identifier
     }
 
+    fileprivate static func isPendingPersistenceCurrent(
+        identifier: String,
+        defaultsIdentity: UInt
+    ) -> Bool {
+        guard let pending = uiScalePendingPersistence.withLock({ $0 }) else {
+            return false
+        }
+        return pending.identifier == identifier && pending.defaultsIdentity == defaultsIdentity
+    }
+
     private static func recordPendingPersistence(
         value: Double,
         identifier: String,
@@ -183,6 +196,7 @@ enum UIScaleSettings {
 // coordination closures while the persistence actor owns debounce cancellation.
 private struct UIScaleSettingsDefaultsHandle: @unchecked Sendable {
     let defaults: UserDefaults
+    let defaultsIdentity: UInt
 }
 
 private actor UIScaleSettingsPersistenceCoordinator {
@@ -196,10 +210,11 @@ private actor UIScaleSettingsPersistenceCoordinator {
         defaults: UIScaleSettingsDefaultsHandle,
         settingsFileStore: CmuxSettingsFileStore
     ) async {
+        let defaultsIdentity = defaults.defaultsIdentity
         let isCurrent = await MainActor.run {
             UIScaleSettings.isPendingPersistenceCurrent(
                 identifier: identifier,
-                defaults: defaults.defaults
+                defaultsIdentity: defaultsIdentity
             )
         }
         guard isCurrent else { return }
@@ -211,14 +226,14 @@ private actor UIScaleSettingsPersistenceCoordinator {
                 let shouldWrite = await MainActor.run {
                     UIScaleSettings.isPendingPersistenceCurrent(
                         identifier: identifier,
-                        defaults: defaults.defaults
+                        defaultsIdentity: defaultsIdentity
                     )
                 }
                 guard shouldWrite else { return }
                 try await settingsFileStore.writeAppUIScaleOffMain(value) {
                     UIScaleSettings.isPendingPersistenceCurrent(
                         identifier: identifier,
-                        defaults: defaults.defaults
+                        defaultsIdentity: defaultsIdentity
                     )
                 }
                 try Task.checkCancellation()
