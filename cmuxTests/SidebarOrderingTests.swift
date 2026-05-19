@@ -1,5 +1,6 @@
 import XCTest
 import AppKit
+import Combine
 import SwiftUI
 import UniformTypeIdentifiers
 import WebKit
@@ -747,6 +748,39 @@ final class TerminalOSC7LocationTests: XCTestCase {
             ]
         )
         XCTAssertEqual(workspace.surfaceTabBarDirectory, "devbox.example:/home/george/cmux")
+    }
+
+    @MainActor
+    func testRemoteOSC7GitStateChangeDoesNotRepublishTerminalLocation() throws {
+        let workspace = Workspace()
+        let panelId = try XCTUnwrap(workspace.focusedPanelId)
+        var locationUpdates = 0
+        let cancellable = workspace.$panelTerminalLocations
+            .dropFirst()
+            .sink { _ in locationUpdates += 1 }
+        defer { cancellable.cancel() }
+
+        workspace.updatePanelLocation(
+            panelId: panelId,
+            location: try XCTUnwrap(
+                TerminalLocation.parseReportedDirectory(
+                    "file://devbox.example/home/george/cmux?cmux_git_branch=main&cmux_git_dirty=0"
+                )
+            )
+        )
+        XCTAssertEqual(locationUpdates, 1)
+        XCTAssertNil(workspace.terminalLocation(for: panelId)?.gitBranch)
+
+        workspace.updatePanelLocation(
+            panelId: panelId,
+            location: try XCTUnwrap(
+                TerminalLocation.parseReportedDirectory(
+                    "file://devbox.example/home/george/cmux?cmux_git_branch=main&cmux_git_dirty=1"
+                )
+            )
+        )
+        XCTAssertEqual(locationUpdates, 1)
+        XCTAssertEqual(workspace.terminalLocation(for: panelId)?.displayDirectory, "devbox.example:/home/george/cmux")
     }
 
     @MainActor

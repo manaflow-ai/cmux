@@ -8798,10 +8798,11 @@ final class Workspace: Identifiable, ObservableObject {
     }
 
     func updatePanelLocation(panelId: UUID, location: TerminalLocation) {
+        let publishedLocation = location.publishedLocationState
         let path = location.path
         guard !path.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else { return }
-        if panelTerminalLocations[panelId] != location {
-            panelTerminalLocations[panelId] = location
+        if panelTerminalLocations[panelId] != publishedLocation {
+            panelTerminalLocations[panelId] = publishedLocation
         }
         if panelId == focusedPanelId {
             let displayDirectory = location.displayDirectory

@@ -39,6 +39,10 @@ nonisolated struct TerminalLocation: Equatable, Sendable {
         return "\(remoteHost):\(path)"
     }
 
+    var publishedLocationState: TerminalLocation {
+        TerminalLocation(host: remoteHost, path: path, source: source, gitBranchSignal: .unspecified)
+    }
+
     static func local(path: String, source: Source = .plainPath) -> TerminalLocation {
         TerminalLocation(host: nil, path: path, source: source, gitBranchSignal: .unspecified)
     }
