@@ -374,6 +374,7 @@
 		B900004AA1B2C3D4E5F60719 /* CLISocketPathResolver.swift in Sources */ = {isa = PBXBuildFile; fileRef = B900004BA1B2C3D4E5F60719 /* CLISocketPathResolver.swift */; };
 		C510C1E00000000000000002 /* SocketOperationTelemetry.swift in Sources */ = {isa = PBXBuildFile; fileRef = C510C1E00000000000000001 /* SocketOperationTelemetry.swift */; };
 		C510C1E10000000000000002 /* SocketClient.swift in Sources */ = {isa = PBXBuildFile; fileRef = C510C1E10000000000000001 /* SocketClient.swift */; };
+		C510C1E20000000000000002 /* CMUXCLI+Usage.swift in Sources */ = {isa = PBXBuildFile; fileRef = C510C1E20000000000000001 /* CMUXCLI+Usage.swift */; };
 		B9000034A1B2C3D4E5F60719 /* cmux_open.swift in Sources */ = {isa = PBXBuildFile; fileRef = B9000030A1B2C3D4E5F60719 /* cmux_open.swift */; };
 		B9000041A1B2C3D4E5F60719 /* CMUXCLI+SSHCommandSupport.swift in Sources */ = {isa = PBXBuildFile; fileRef = B9000040A1B2C3D4E5F60719 /* CMUXCLI+SSHCommandSupport.swift */; };
 		D7AB0000000000000000000D /* CMUXCLI+MoveTabToNewWorkspace.swift in Sources */ = {isa = PBXBuildFile; fileRef = D7AB0000000000000000000E /* CMUXCLI+MoveTabToNewWorkspace.swift */; };
@@ -914,6 +915,7 @@
 		B900004BA1B2C3D4E5F60719 /* CLISocketPathResolver.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CLISocketPathResolver.swift; sourceTree = "<group>"; };
 		C510C1E00000000000000001 /* SocketOperationTelemetry.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SocketOperationTelemetry.swift; sourceTree = "<group>"; };
 		C510C1E10000000000000001 /* SocketClient.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SocketClient.swift; sourceTree = "<group>"; };
+		C510C1E20000000000000001 /* CMUXCLI+Usage.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "CMUXCLI+Usage.swift"; sourceTree = "<group>"; };
 		B9000030A1B2C3D4E5F60719 /* cmux_open.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = cmux_open.swift; sourceTree = "<group>"; };
 		B9000040A1B2C3D4E5F60719 /* CMUXCLI+SSHCommandSupport.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "CMUXCLI+SSHCommandSupport.swift"; sourceTree = "<group>"; };
 		D7AB0000000000000000000E /* CMUXCLI+MoveTabToNewWorkspace.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "CMUXCLI+MoveTabToNewWorkspace.swift"; sourceTree = "<group>"; };
@@ -1486,6 +1488,7 @@
 				B900004BA1B2C3D4E5F60719 /* CLISocketPathResolver.swift */,
 				C510C1E00000000000000001 /* SocketOperationTelemetry.swift */,
 				C510C1E10000000000000001 /* SocketClient.swift */,
+				C510C1E20000000000000001 /* CMUXCLI+Usage.swift */,
 				B9000030A1B2C3D4E5F60719 /* cmux_open.swift */,
 						B9000040A1B2C3D4E5F60719 /* CMUXCLI+SSHCommandSupport.swift */,
 						D7AB0000000000000000000E /* CMUXCLI+MoveTabToNewWorkspace.swift */,
@@ -2237,10 +2240,11 @@
 			buildActionMask = 2147483647;
 			files = (
 					B9000002A1B2C3D4E5F60719 /* cmux.swift in Sources */,
-				B900004AA1B2C3D4E5F60719 /* CLISocketPathResolver.swift in Sources */,
-				C510C1E00000000000000002 /* SocketOperationTelemetry.swift in Sources */,
-				C510C1E10000000000000002 /* SocketClient.swift in Sources */,
-				B9000034A1B2C3D4E5F60719 /* cmux_open.swift in Sources */,
+					B900004AA1B2C3D4E5F60719 /* CLISocketPathResolver.swift in Sources */,
+					C510C1E00000000000000002 /* SocketOperationTelemetry.swift in Sources */,
+					C510C1E10000000000000002 /* SocketClient.swift in Sources */,
+					C510C1E20000000000000002 /* CMUXCLI+Usage.swift in Sources */,
+					B9000034A1B2C3D4E5F60719 /* cmux_open.swift in Sources */,
 					B9000041A1B2C3D4E5F60719 /* CMUXCLI+SSHCommandSupport.swift in Sources */,
 					D7AB0000000000000000000D /* CMUXCLI+MoveTabToNewWorkspace.swift in Sources */,
 					B9000044A1B2C3D4E5F60719 /* CMUXCLI+TmuxCompatSupport.swift in Sources */,

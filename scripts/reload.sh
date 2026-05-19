@@ -79,7 +79,7 @@ select_cmux_shim_target() {
       target="$candidate"
       break
     fi
-    if [[ -f "$candidate" ]] && grep -q "$marker" "$candidate" 2>/dev/null; then
+    if [[ -f "$candidate" && -w "$candidate" ]] && grep -q "$marker" "$candidate" 2>/dev/null; then
       target="$candidate"
       break
     fi
@@ -98,7 +98,7 @@ select_cmux_shim_target() {
       echo "$candidate"
       return 0
     fi
-    if [[ -f "$candidate" ]] && grep -q "$marker" "$candidate" 2>/dev/null; then
+    if [[ -f "$candidate" && -w "$candidate" ]] && grep -q "$marker" "$candidate" 2>/dev/null; then
       echo "$candidate"
       return 0
     fi
@@ -328,6 +328,19 @@ print_tag_cleanup_reminder() {
   echo "  rm -f \"$HOME/Library/Application Support/cmux/cmuxd-dev-${current_slug}.sock\""
 }
 
+cmuxd_needs_build() {
+  local output="$1"
+  [[ -x "$output" ]] || return 0
+
+  local newer_source=""
+  newer_source="$(
+    find "$PWD/cmuxd" \
+      \( -path "$PWD/cmuxd/.zig-cache" -o -path "$PWD/cmuxd/zig-out" \) -prune \
+      -o \( -name '*.zig' -o -name 'build.zig.zon' \) -newer "$output" -print -quit 2>/dev/null
+  )"
+  [[ -n "$newer_source" ]]
+}
+
 while [[ $# -gt 0 ]]; do
   case "$1" in
     --tag)
@@ -480,9 +493,14 @@ XCODEBUILD_ARGS=(
   -project cmux.xcodeproj
   -scheme cmux
   -configuration Debug
+  -parallelizeTargets
+  -skipPackagePluginValidation
+  -skipMacroValidation
   -destination 'platform=macOS'
   COMPILER_INDEX_STORE_ENABLE=NO
   INDEX_ENABLE_DATA_STORE=NO
+  ONLY_ACTIVE_ARCH=YES
+  SWIFT_COMPILATION_MODE=incremental
 )
 if [[ -n "$DERIVED_DATA" ]]; then
   XCODEBUILD_ARGS+=(-derivedDataPath "$DERIVED_DATA")
@@ -549,7 +567,6 @@ try:
 except OSError as exc:
     raise SystemExit(f"error: exec: {exc}")
 ' "$XCODEBUILD_LOCK" xcodebuild "${XCODEBUILD_ARGS[@]}"
-sleep 0.2
 
 FALLBACK_APP_NAME="$BASE_APP_NAME"
 SEARCH_APP_NAME="$APP_NAME"
@@ -601,8 +618,8 @@ fi
 
 if [[ -n "$TAG" && "$APP_NAME" != "$SEARCH_APP_NAME" ]]; then
   TAG_APP_PATH="$(dirname "$APP_PATH")/${APP_NAME}.app"
-  rm -rf "$TAG_APP_PATH"
-  cp -R "$APP_PATH" "$TAG_APP_PATH"
+  mkdir -p "$TAG_APP_PATH"
+  rsync -a --delete "$APP_PATH/" "$TAG_APP_PATH/"
   INFO_PLIST="$TAG_APP_PATH/Contents/Info.plist"
   if [[ -f "$INFO_PLIST" ]]; then
     /usr/libexec/PlistBuddy -c "Set :CFBundleName $APP_NAME" "$INFO_PLIST" 2>/dev/null \
@@ -674,7 +691,11 @@ fi
 # Build cmuxd and ensure helper binaries are present (needed for both launch and no-launch).
 CMUXD_SRC="$PWD/cmuxd/zig-out/bin/cmuxd"
 if [[ -d "$PWD/cmuxd" ]]; then
-  (cd "$PWD/cmuxd" && zig build -Doptimize=ReleaseFast)
+  if cmuxd_needs_build "$CMUXD_SRC"; then
+    (cd "$PWD/cmuxd" && zig build -Doptimize=ReleaseFast)
+  else
+    echo "Skipping cmuxd zig build (up to date)"
+  fi
 fi
 if [[ -d "$PWD/ghostty" ]]; then
   BIN_DIR="$APP_PATH/Contents/Resources/bin"
@@ -694,7 +715,7 @@ if [[ -x "$CMUXD_SRC" ]]; then
   cp "$CMUXD_SRC" "$BIN_DIR/cmuxd"
   chmod +x "$BIN_DIR/cmuxd"
 fi
-if command -v xattr >/dev/null 2>&1; then
+if [[ "${CMUX_RELOAD_CLEAR_XATTRS:-0}" == "1" ]] && command -v xattr >/dev/null 2>&1; then
   xattr -cr "$APP_PATH" || true
 fi
 if ! /usr/bin/codesign --force --sign - --timestamp=none --generate-entitlement-der "$APP_PATH" >/dev/null 2>&1; then
@@ -715,19 +736,13 @@ fi
 # keep running against freshly-overwritten resources, and macOS would foreground it
 # instead of launching the newly built binary when the user cmd-clicks the .app.
 if [[ -n "$TAG" ]]; then
-  /usr/bin/osascript -e "tell application id \"${BUNDLE_ID}\" to quit" >/dev/null 2>&1 || true
-  sleep 0.3
   pkill -f "${APP_NAME}.app/Contents/MacOS/${BASE_APP_NAME}" || true
-  sleep 0.3
 fi
 
 if [[ "$LAUNCH" -eq 1 ]]; then
   if [[ -z "$TAG" ]]; then
     # Non-tag mode: kill any running instance (across any DerivedData path) to avoid socket conflicts.
-    /usr/bin/osascript -e "tell application id \"${BUNDLE_ID}\" to quit" >/dev/null 2>&1 || true
-    sleep 0.3
     pkill -f "/${BASE_APP_NAME}.app/Contents/MacOS/${BASE_APP_NAME}" || true
-    sleep 0.3
   fi
 
   # Avoid inheriting cmux/ghostty environment variables from the terminal that

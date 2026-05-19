@@ -246,16 +246,24 @@ MACOS_ARCHIVE="$CACHE_XCFRAMEWORK/macos-arm64_x86_64/libghostty.a"
 if [[ -f "$MACOS_ARCHIVE" ]]; then
   # Xcode 26 can fail to resolve symbols from Ghostty's universal static archive
   # until its ranlib index is refreshed after reuse or copy.
-  echo "==> Refreshing libghostty archive index..."
-  if ! command -v xcrun >/dev/null 2>&1; then
-    echo "error: xcrun is required to refresh libghostty archive index." >&2
-    exit 1
+  RANLIB_STAMP="$CACHE_DIR/.libghostty-ranlib-state"
+  ARCHIVE_STATE="$(/usr/bin/stat -f '%m:%z' "$MACOS_ARCHIVE" 2>/dev/null || stat -c '%Y:%s' "$MACOS_ARCHIVE")"
+  if [[ -f "$RANLIB_STAMP" && "$(cat "$RANLIB_STAMP")" == "$ARCHIVE_STATE" ]]; then
+    echo "==> Reusing refreshed libghostty archive index"
+  else
+    echo "==> Refreshing libghostty archive index..."
+    if ! command -v xcrun >/dev/null 2>&1; then
+      echo "error: xcrun is required to refresh libghostty archive index." >&2
+      exit 1
+    fi
+    if ! XCODE_RANLIB="$(xcrun --find ranlib 2>/dev/null)"; then
+      echo "error: could not locate ranlib via xcrun." >&2
+      exit 1
+    fi
+    "$XCODE_RANLIB" "$MACOS_ARCHIVE"
+    ARCHIVE_STATE="$(/usr/bin/stat -f '%m:%z' "$MACOS_ARCHIVE" 2>/dev/null || stat -c '%Y:%s' "$MACOS_ARCHIVE")"
+    echo "$ARCHIVE_STATE" > "$RANLIB_STAMP"
   fi
-  if ! XCODE_RANLIB="$(xcrun --find ranlib 2>/dev/null)"; then
-    echo "error: could not locate ranlib via xcrun." >&2
-    exit 1
-  fi
-  "$XCODE_RANLIB" "$MACOS_ARCHIVE"
 fi
 
 echo "==> Creating symlink for GhosttyKit.xcframework..."
