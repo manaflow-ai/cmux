@@ -57,6 +57,27 @@ enum HeaderChromeIconStyle {
     }
 }
 
+enum RightSidebarChromeControlStyle {
+    static let modeIconSize: CGFloat = 11
+    static let secondaryIconSize: CGFloat = 10
+    static let labelSize: CGFloat = 11
+    static let iconWeight = HeaderChromeIconStyle.weight
+    static let labelWeight = HeaderChromeIconStyle.weight
+    static let foregroundColor = HeaderChromeIconStyle.foregroundColor
+
+    static func foregroundOpacity(isSelected: Bool, isHovered: Bool, isEnabled: Bool = true) -> Double {
+        guard isEnabled else { return HeaderChromeIconStyle.disabledOpacity }
+        if isSelected {
+            return HeaderChromeIconStyle.pressedOpacity
+        }
+        return HeaderChromeIconStyle.foregroundOpacity(
+            isHovering: isHovered,
+            isPressed: false,
+            isEnabled: isEnabled
+        )
+    }
+}
+
 struct RightSidebarChromeBarModifier: ViewModifier {
     var leadingPadding: CGFloat
     var trailingPadding: CGFloat
@@ -74,14 +95,14 @@ struct RightSidebarChromeBarModifier: ViewModifier {
 struct RightSidebarChromePillModifier: ViewModifier {
     var isSelected: Bool
     var isHovered: Bool
-    var selectedForeground: Color = .primary
-    var defaultForeground: Color = .secondary
     var horizontalPadding: CGFloat = RightSidebarChromeMetrics.controlHorizontalPadding
     var geometryKeyPrefix: String?
 
     func body(content: Content) -> some View {
         content
-            .foregroundColor(isSelected ? selectedForeground : defaultForeground)
+            .foregroundStyle(
+                RightSidebarChromeControlStyle.foregroundColor.opacity(foregroundOpacity)
+            )
             .padding(.horizontal, horizontalPadding)
             .frame(height: RightSidebarChromeMetrics.controlHeight)
             .reportRightSidebarChromeNamedGeometryForBonsplitUITest(
@@ -95,6 +116,13 @@ struct RightSidebarChromePillModifier: ViewModifier {
             .contentShape(
                 RoundedRectangle(cornerRadius: RightSidebarChromeMetrics.controlCornerRadius, style: .continuous)
             )
+    }
+
+    private var foregroundOpacity: Double {
+        RightSidebarChromeControlStyle.foregroundOpacity(
+            isSelected: isSelected,
+            isHovered: isHovered
+        )
     }
 
     private var backgroundColor: Color {
@@ -198,8 +226,6 @@ extension View {
     func rightSidebarChromePill(
         isSelected: Bool,
         isHovered: Bool,
-        selectedForeground: Color = .primary,
-        defaultForeground: Color = .secondary,
         horizontalPadding: CGFloat = RightSidebarChromeMetrics.controlHorizontalPadding,
         geometryKeyPrefix: String? = nil
     ) -> some View {
@@ -207,8 +233,6 @@ extension View {
             RightSidebarChromePillModifier(
                 isSelected: isSelected,
                 isHovered: isHovered,
-                selectedForeground: selectedForeground,
-                defaultForeground: defaultForeground,
                 horizontalPadding: horizontalPadding,
                 geometryKeyPrefix: geometryKeyPrefix
             )

@@ -2333,6 +2333,34 @@ final class AppDelegateShortcutRoutingTests: XCTestCase {
         XCTAssertEqual(RightSidebarChromeMetrics.headerControlCenterAlignmentAdjustment, 0, accuracy: 0.001)
     }
 
+    func testRightSidebarPillChromeUsesHeaderIconColorAndWeight() {
+        XCTAssertEqual(RightSidebarChromeControlStyle.iconWeight, HeaderChromeIconStyle.weight)
+        XCTAssertEqual(RightSidebarChromeControlStyle.labelWeight, HeaderChromeIconStyle.weight)
+        XCTAssertEqual(RightSidebarChromeControlStyle.modeIconSize, 11, accuracy: 0.001)
+        XCTAssertEqual(RightSidebarChromeControlStyle.secondaryIconSize, 10, accuracy: 0.001)
+        XCTAssertEqual(RightSidebarChromeControlStyle.labelSize, 11, accuracy: 0.001)
+        XCTAssertEqual(
+            RightSidebarChromeControlStyle.foregroundOpacity(isSelected: false, isHovered: false),
+            HeaderChromeIconStyle.foregroundOpacity(isHovering: false, isPressed: false),
+            accuracy: 0.001
+        )
+        XCTAssertEqual(
+            RightSidebarChromeControlStyle.foregroundOpacity(isSelected: false, isHovered: true),
+            HeaderChromeIconStyle.foregroundOpacity(isHovering: true, isPressed: false),
+            accuracy: 0.001
+        )
+        XCTAssertEqual(
+            RightSidebarChromeControlStyle.foregroundOpacity(isSelected: true, isHovered: false),
+            HeaderChromeIconStyle.pressedOpacity,
+            accuracy: 0.001
+        )
+        XCTAssertEqual(
+            RightSidebarChromeControlStyle.foregroundOpacity(isSelected: false, isHovered: true, isEnabled: false),
+            HeaderChromeIconStyle.disabledOpacity,
+            accuracy: 0.001
+        )
+    }
+
     func testMinimalModeCollapsedSidebarResyncsTrafficLightInsetAfterNewWorkspaceCreation() {
         guard let appDelegate = AppDelegate.shared else {
             XCTFail("Expected AppDelegate.shared")

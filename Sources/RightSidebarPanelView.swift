@@ -545,9 +545,20 @@ private struct ModeBarButton: View {
         Button(action: action) {
             HStack(spacing: 4) {
                 Image(systemName: mode.symbolName)
-                    .font(.system(size: 11, weight: .medium))
+                    .symbolRenderingMode(.monochrome)
+                    .font(
+                        .system(
+                            size: RightSidebarChromeControlStyle.modeIconSize,
+                            weight: RightSidebarChromeControlStyle.iconWeight
+                        )
+                    )
                 Text(mode.label)
-                    .font(.system(size: 11, weight: .medium))
+                    .font(
+                        .system(
+                            size: RightSidebarChromeControlStyle.labelSize,
+                            weight: RightSidebarChromeControlStyle.labelWeight
+                        )
+                    )
                     .lineLimit(1)
                     .truncationMode(.tail)
                 if badgeCount > 0 {

@@ -131,9 +131,20 @@ private struct FeedSecondaryFilterButton: View {
         Button(action: action) {
             HStack(spacing: 3) {
                 Image(systemName: filter.symbolName)
-                    .font(.system(size: 10, weight: .medium))
+                    .symbolRenderingMode(.monochrome)
+                    .font(
+                        .system(
+                            size: RightSidebarChromeControlStyle.secondaryIconSize,
+                            weight: RightSidebarChromeControlStyle.iconWeight
+                        )
+                    )
                 Text(filter.label)
-                    .font(.system(size: 11, weight: .medium))
+                    .font(
+                        .system(
+                            size: RightSidebarChromeControlStyle.labelSize,
+                            weight: RightSidebarChromeControlStyle.labelWeight
+                        )
+                    )
             }
             .rightSidebarChromePill(
                 isSelected: isSelected,
