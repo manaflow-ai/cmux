@@ -77105,6 +77105,23 @@
             }
         }
     },
+    "settings.search.alias.setting.sidebarAppearance.right-max-width": {
+        "extractionState": "manual",
+        "localizations": {
+            "en": {
+                "stringUnit": {
+                    "state": "translated",
+                    "value": "sidebar.rightMaxWidth dock right sidebar max width terminal reservation cap logs lazygit"
+                }
+            },
+            "ja": {
+                "stringUnit": {
+                    "state": "translated",
+                    "value": "sidebar.rightMaxWidth dock right sidebar max width terminal reservation cap logs lazygit Dock 右サイドバー 最大幅 端末 予約幅 上限 ログ lazygit"
+                }
+            }
+        }
+    },
     "settings.search.alias.setting.sidebarAppearance.match-terminal": {
         "extractionState": "manual",
         "localizations": {
@@ -103093,6 +103110,91 @@
           "stringUnit": {
             "state": "translated",
             "value": "Бічна панель"
+          }
+        }
+      }
+    },
+    "settings.sidebar.rightMaxWidth": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Dock Max Width"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Dock の最大幅"
+          }
+        }
+      }
+    },
+    "settings.sidebar.rightMaxWidth.subtitleOff": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Use the built-in dynamic cap that keeps extra terminal space reserved."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "端末用の余白を確保する組み込みの動的上限を使います。"
+          }
+        }
+      }
+    },
+    "settings.sidebar.rightMaxWidth.subtitleOn": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "The Dock can grow past the built-in terminal-reservation cap, up to this width."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Dock は組み込みの端末予約幅の上限を超えて、この幅まで広げられます。"
+          }
+        }
+      }
+    },
+    "settings.sidebar.rightMaxWidth.toggle": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Use custom Dock max width"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Dock の最大幅をカスタム設定"
+          }
+        }
+      }
+    },
+    "settings.sidebar.rightMaxWidth.unit": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "pt"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "pt"
           }
         }
       }

@@ -5118,6 +5118,8 @@ struct SettingsView: View {
     @AppStorage("sidebarMatchTerminalBackground") private var sidebarMatchTerminalBackground = false
     @AppStorage(RightSidebarBetaFeatureSettings.dockEnabledKey)
     private var rightSidebarDockEnabled = RightSidebarBetaFeatureSettings.defaultDockEnabled
+    @AppStorage(RightSidebarWidthSettings.maxWidthKey)
+    private var rightSidebarMaxWidthSetting = RightSidebarWidthSettings.noOverrideValue
 
     @ObservedObject private var notificationStore = TerminalNotificationStore.shared
     @ObservedObject private var authManager = AuthManager.shared
@@ -5256,6 +5258,47 @@ struct SettingsView: View {
             get: { selectedSidebarActiveTabIndicatorStyle.rawValue },
             set: { sidebarActiveTabIndicatorStyle = $0 }
         )
+    }
+
+    private var rightSidebarMaxWidthOverrideEnabled: Bool {
+        RightSidebarWidthSettings.configuredMaximumWidth(from: rightSidebarMaxWidthSetting) != nil
+    }
+
+    private var rightSidebarMaxWidthOverrideBinding: Binding<Bool> {
+        Binding(
+            get: { rightSidebarMaxWidthOverrideEnabled },
+            set: { enabled in
+                if enabled {
+                    if !rightSidebarMaxWidthOverrideEnabled {
+                        rightSidebarMaxWidthSetting = RightSidebarWidthSettings.defaultConfiguredMaximumWidth
+                    }
+                } else {
+                    rightSidebarMaxWidthSetting = RightSidebarWidthSettings.noOverrideValue
+                }
+            }
+        )
+    }
+
+    private var rightSidebarMaxWidthEditorBinding: Binding<Double> {
+        Binding(
+            get: {
+                RightSidebarWidthSettings.clampedSettingsEditorMaximumWidth(
+                    rightSidebarMaxWidthOverrideEnabled
+                        ? rightSidebarMaxWidthSetting
+                        : RightSidebarWidthSettings.defaultConfiguredMaximumWidth
+                )
+            },
+            set: { newValue in
+                rightSidebarMaxWidthSetting = RightSidebarWidthSettings.clampedSettingsEditorMaximumWidth(newValue)
+            }
+        )
+    }
+
+    private var rightSidebarMaxWidthSubtitle: String {
+        if rightSidebarMaxWidthOverrideEnabled {
+            return String(localized: "settings.sidebar.rightMaxWidth.subtitleOn", defaultValue: "The Dock can grow past the built-in terminal-reservation cap, up to this width.")
+        }
+        return String(localized: "settings.sidebar.rightMaxWidth.subtitleOff", defaultValue: "Use the built-in dynamic cap that keeps extra terminal space reserved.")
     }
 
     private var selectionColorBinding: Binding<Color> {
@@ -6502,6 +6545,39 @@ struct SettingsView: View {
                                 .controlSize(.small)
                         }
                         .disabled(sidebarHideAllDetails)
+
+                        SettingsCardDivider()
+
+                        SettingsCardRow(
+                            configurationReview: .json(RightSidebarWidthSettings.settingsPath),
+                            String(localized: "settings.sidebar.rightMaxWidth", defaultValue: "Dock Max Width"),
+                            subtitle: rightSidebarMaxWidthSubtitle,
+                            controlWidth: 196
+                        ) {
+                            HStack(spacing: 8) {
+                                Toggle("", isOn: rightSidebarMaxWidthOverrideBinding)
+                                    .labelsHidden()
+                                    .controlSize(.small)
+                                    .accessibilityIdentifier("SettingsRightSidebarMaxWidthToggle")
+                                    .accessibilityLabel(
+                                        String(localized: "settings.sidebar.rightMaxWidth.toggle", defaultValue: "Use custom Dock max width")
+                                    )
+
+                                TextField("", value: rightSidebarMaxWidthEditorBinding, format: .number)
+                                    .textFieldStyle(.roundedBorder)
+                                    .multilineTextAlignment(.trailing)
+                                    .frame(width: 78)
+                                    .disabled(!rightSidebarMaxWidthOverrideEnabled)
+                                    .accessibilityIdentifier("SettingsRightSidebarMaxWidthField")
+                                    .accessibilityLabel(
+                                        String(localized: "settings.sidebar.rightMaxWidth", defaultValue: "Dock Max Width")
+                                    )
+
+                                Text(String(localized: "settings.sidebar.rightMaxWidth.unit", defaultValue: "pt"))
+                                    .font(.caption)
+                                    .foregroundStyle(.secondary)
+                            }
+                        }
                     }
 
                     BetaFeaturesSettingsView(
@@ -7452,6 +7528,7 @@ struct SettingsView: View {
         showBrowserImportHintOnBlankTabs = BrowserImportHintSettings.defaultShowOnBlankTabs
         isBrowserImportHintDismissed = BrowserImportHintSettings.defaultDismissed
         rightSidebarDockEnabled = RightSidebarBetaFeatureSettings.defaultDockEnabled
+        rightSidebarMaxWidthSetting = RightSidebarWidthSettings.noOverrideValue
         openTerminalLinksInCmuxBrowser = BrowserLinkOpenSettings.defaultOpenTerminalLinksInCmuxBrowser
         interceptTerminalOpenCommandInCmuxBrowser = BrowserLinkOpenSettings.defaultInterceptTerminalOpenCommandInCmuxBrowser
         browserHostWhitelist = BrowserLinkOpenSettings.defaultBrowserHostWhitelist
