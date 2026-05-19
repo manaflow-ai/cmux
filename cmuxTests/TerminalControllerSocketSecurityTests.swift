@@ -233,6 +233,29 @@ final class TerminalControllerSocketSecurityTests: XCTestCase {
         XCTAssertTrue(TerminalController.shared.handleSocketLine("right_sidebar set unknown").hasPrefix("ERROR:"))
     }
 
+    func testSetStatusAcceptsCustomURLSchemes() throws {
+        let socketPath = makeSocketPath("status-url")
+        let tabManager = TabManager()
+        let workspace = tabManager.addWorkspace(select: true, eagerLoadTerminal: false)
+
+        TerminalController.shared.start(
+            tabManager: tabManager,
+            socketPath: socketPath,
+            accessMode: .allowAll
+        )
+
+        let rawURL = "obsidian://open?vault=Work&file=meeting.md"
+        let response = TerminalController.shared.handleSocketLine(
+            "set_status notes Meeting --tab=\(workspace.id.uuidString) --url=\(rawURL)"
+        )
+
+        XCTAssertEqual(response, "OK")
+#if DEBUG
+        TerminalMutationBus.shared.drainForTesting()
+#endif
+        XCTAssertEqual(workspace.statusEntries["notes"]?.url?.absoluteString, rawURL)
+    }
+
     func testRightSidebarV1ParserProducesRemoteCommands() throws {
 #if DEBUG
         let workspaceId = UUID(uuidString: "11111111-1111-1111-1111-111111111111")!
