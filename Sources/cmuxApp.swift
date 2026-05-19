@@ -44,11 +44,17 @@ struct cmuxApp: App {
         let startupAppearance = AppearanceSettings.resolvedMode()
         Self.applyAppearance(startupAppearance, duringLaunch: true)
         StartupBreadcrumbLog.append("app.init.appearance.applied", fields: ["mode": startupAppearance.rawValue])
+        let defaults = UserDefaults.standard
+        AppBundleIconPersistencePolicy.updateDisableDefault(
+            defaults: defaults,
+            launchArguments: ProcessInfo.processInfo.arguments
+        )
+        KeyboardShortcutSettings.settingsFileStore.applyDeferredManagedDefaultSideEffects()
+        StartupBreadcrumbLog.append("app.init.keyboardShortcuts.sideEffectsApplied")
         StartupBreadcrumbLog.append("app.init.tabManager.begin")
         _tabManager = StateObject(wrappedValue: TabManager())
         StartupBreadcrumbLog.append("app.init.tabManager.complete")
         // Migrate legacy and old-format socket mode values to the new enum.
-        let defaults = UserDefaults.standard
         if let stored = defaults.string(forKey: SocketControlSettings.appStorageKey) {
             let migrated = SocketControlSettings.migrateMode(stored)
             if migrated.rawValue != stored {
@@ -4590,6 +4596,13 @@ enum QuitWarningSettings {
             return defaultWarnBeforeQuit
         }
         return defaults.bool(forKey: warnBeforeQuitKey)
+    }
+
+    static func shouldShowConfirmation(
+        isQuitWarningConfirmed: Bool,
+        defaults: UserDefaults = .standard
+    ) -> Bool {
+        !isQuitWarningConfirmed && isEnabled(defaults: defaults)
     }
 
     static func setEnabled(_ isEnabled: Bool, defaults: UserDefaults = .standard) {
