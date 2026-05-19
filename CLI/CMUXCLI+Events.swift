@@ -356,7 +356,8 @@ extension CMUXCLI {
     private func eventCallerContextFromEnvironment() -> [String: Any]? {
         let environment = ProcessInfo.processInfo.environment
         var caller: [String: Any] = [:]
-        if let workspaceId = normalizedEventEnvironmentValue(environment["CMUX_WORKSPACE_ID"]) {
+        if let workspaceId = normalizedEventEnvironmentValue(environment["CMUX_WORKSPACE_ID"]) ??
+            normalizedEventEnvironmentValue(environment["CMUX_TAB_ID"]) {
             caller["workspace_id"] = workspaceId
         }
         if let surfaceId = normalizedEventEnvironmentValue(environment["CMUX_SURFACE_ID"]) {

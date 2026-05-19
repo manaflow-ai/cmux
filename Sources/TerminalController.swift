@@ -6328,6 +6328,9 @@ class TerminalController {
 
             let sourcePane = sourceWorkspace.paneId(forPanelId: surfaceId)
             let sourceIndex = sourceWorkspace.indexInPane(forPanelId: surfaceId)
+            let sourceWindowId = source.windowId
+            let sourceWorkspaceId = sourceWorkspace.id
+            let sourcePaneId = sourcePane?.id
 
             var targetWindowId = source.windowId
             var targetTabManager = source.tabManager
@@ -6398,6 +6401,12 @@ class TerminalController {
                     "window_ref": v2Ref(kind: .window, uuid: targetWindowId),
                     "workspace_id": targetWorkspace.id.uuidString,
                     "workspace_ref": v2Ref(kind: .workspace, uuid: targetWorkspace.id),
+                    "source_window_id": sourceWindowId.uuidString,
+                    "source_window_ref": v2Ref(kind: .window, uuid: sourceWindowId),
+                    "source_workspace_id": sourceWorkspaceId.uuidString,
+                    "source_workspace_ref": v2Ref(kind: .workspace, uuid: sourceWorkspaceId),
+                    "source_pane_id": v2OrNull(sourcePaneId?.uuidString),
+                    "source_pane_ref": v2Ref(kind: .pane, uuid: sourcePaneId),
                     "pane_id": destinationPane.id.uuidString,
                     "pane_ref": v2Ref(kind: .pane, uuid: destinationPane.id),
                     "surface_id": surfaceId.uuidString,
@@ -6434,6 +6443,12 @@ class TerminalController {
                 "window_ref": v2Ref(kind: .window, uuid: targetWindowId),
                 "workspace_id": targetWorkspace.id.uuidString,
                 "workspace_ref": v2Ref(kind: .workspace, uuid: targetWorkspace.id),
+                "source_window_id": sourceWindowId.uuidString,
+                "source_window_ref": v2Ref(kind: .window, uuid: sourceWindowId),
+                "source_workspace_id": sourceWorkspaceId.uuidString,
+                "source_workspace_ref": v2Ref(kind: .workspace, uuid: sourceWorkspaceId),
+                "source_pane_id": v2OrNull(sourcePaneId?.uuidString),
+                "source_pane_ref": v2Ref(kind: .pane, uuid: sourcePaneId),
                 "pane_id": destinationPane.id.uuidString,
                 "pane_ref": v2Ref(kind: .pane, uuid: destinationPane.id),
                 "surface_id": surfaceId.uuidString,

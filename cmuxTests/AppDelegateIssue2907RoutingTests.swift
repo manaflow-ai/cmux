@@ -217,6 +217,50 @@ final class AppDelegateIssue2907RoutingTests: XCTestCase {
         XCTAssertNotNil(split["surface_id"] as? String)
     }
 
+    func testSurfaceMoveResponseIncludesSourceScopeContext() throws {
+        _ = NSApplication.shared
+        let previousAppDelegate = AppDelegate.shared
+        let app = AppDelegate()
+        defer {
+            AppDelegate.shared = previousAppDelegate
+        }
+
+        let sourceWindowId = UUID()
+        let destinationWindowId = UUID()
+        let sourceManager = TabManager()
+        let destinationManager = TabManager()
+        defer {
+            TerminalController.shared.setActiveTabManager(nil)
+            app.unregisterMainWindowContextForTesting(windowId: sourceWindowId)
+            app.unregisterMainWindowContextForTesting(windowId: destinationWindowId)
+        }
+
+        app.registerMainWindowContextForTesting(windowId: sourceWindowId, tabManager: sourceManager)
+        app.registerMainWindowContextForTesting(windowId: destinationWindowId, tabManager: destinationManager)
+        TerminalController.shared.setActiveTabManager(sourceManager)
+
+        let sourceWorkspace = try XCTUnwrap(sourceManager.selectedWorkspace)
+        let sourcePaneId = try XCTUnwrap(sourceWorkspace.bonsplitController.allPaneIds.first)
+        let movedPanel = try XCTUnwrap(sourceWorkspace.newTerminalSurface(inPane: sourcePaneId, focus: false))
+        let destinationWorkspace = try XCTUnwrap(destinationManager.selectedWorkspace)
+
+        let result = try v2Result(
+            method: "surface.move",
+            params: [
+                "surface_id": movedPanel.id.uuidString,
+                "workspace_id": destinationWorkspace.id.uuidString,
+                "focus": false
+            ]
+        )
+
+        XCTAssertEqual(result["window_id"] as? String, destinationWindowId.uuidString)
+        XCTAssertEqual(result["workspace_id"] as? String, destinationWorkspace.id.uuidString)
+        XCTAssertEqual(result["source_window_id"] as? String, sourceWindowId.uuidString)
+        XCTAssertEqual(result["source_workspace_id"] as? String, sourceWorkspace.id.uuidString)
+        XCTAssertEqual(result["source_pane_id"] as? String, sourcePaneId.id.uuidString)
+        XCTAssertEqual(result["surface_id"] as? String, movedPanel.id.uuidString)
+    }
+
     func testIssue2907NoTargetCommandsPreferKeyRecoveredWindowOverRegisteredWindow() throws {
         _ = NSApplication.shared
         let previousAppDelegate = AppDelegate.shared

@@ -319,6 +319,48 @@ final class CmuxEventBusTests: XCTestCase {
         XCTAssertNil(snapshot.subscription.next(timeout: 0.05))
     }
 
+    func testWindowScopeMatchesSourceWindowPayloadWhenSurfaceLeavesWindow() {
+        let bus = CmuxEventBus(retainedEventLimit: 8)
+        let workspaceIds = EventScopeWorkspaceIds(["workspace-c"])
+        let snapshot = bus.subscribe(
+            afterSequence: nil,
+            names: [],
+            categories: [],
+            scope: CmuxEventScope(
+                kind: .window,
+                windowId: "window-a",
+                windowWorkspaceIds: ["workspace-a"],
+                currentWindowWorkspaceIdsProvider: { workspaceIds.snapshot() }
+            )
+        )
+        defer { bus.unsubscribe(snapshot.subscription) }
+
+        bus.publish(
+            name: "surface.moved",
+            category: "surface",
+            source: "socket.v2",
+            workspaceId: "workspace-b",
+            surfaceId: "surface-a",
+            paneId: "pane-b",
+            windowId: "window-b",
+            payload: [
+                "method": "surface.move",
+                "result": [
+                    "source_window_id": "window-a",
+                    "source_workspace_id": "workspace-a",
+                    "source_pane_id": "pane-a",
+                    "window_id": "window-b",
+                    "workspace_id": "workspace-b",
+                    "pane_id": "pane-b",
+                    "surface_id": "surface-a"
+                ]
+            ]
+        )
+
+        XCTAssertEqual(snapshot.subscription.next(timeout: 0.2)?["name"] as? String, "surface.moved")
+        XCTAssertNil(snapshot.subscription.next(timeout: 0.05))
+    }
+
     @MainActor
     func testEventScopeResolverPrefersExplicitWorkspaceOverCallerSurface() throws {
         let previousAppDelegate = AppDelegate.shared
