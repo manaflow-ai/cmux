@@ -2210,7 +2210,12 @@ struct CMUXCLI {
 
         // If the argument looks like a path (not a known command), open a workspace there.
         if looksLikePath(command) {
-            try openPath(command, socketPath: resolvedSocketPath, windowOverride: windowId)
+            try openPath(
+                command,
+                commandArgs: commandArgs,
+                socketPath: resolvedSocketPath,
+                windowOverride: windowId
+            )
             return
         }
 
@@ -4070,7 +4075,13 @@ struct CMUXCLI {
 
     /// Open a path in cmux by creating a new workspace with the given directory.
     /// Launches the app if it isn't already running.
-    private func openPath(_ path: String, socketPath: String, windowOverride: String? = nil) throws {
+    private func openPath(
+        _ path: String,
+        commandArgs: [String],
+        socketPath: String,
+        windowOverride: String? = nil
+    ) throws {
+        let focus = try parsePathOpenArguments(commandArgs)
         let resolved = resolvePath(path)
         var isDir: ObjCBool = false
         let exists = FileManager.default.fileExists(atPath: resolved, isDirectory: &isDir)
@@ -4093,7 +4104,7 @@ struct CMUXCLI {
             let launchedClient = try SocketClient.waitForConnectableSocket(path: socketPath, timeout: 10)
             defer { launchedClient.close() }
             let windowHandle = try normalizeWindowHandle(windowOverride, client: launchedClient)
-            var params: [String: Any] = ["cwd": directory, "focus": false]
+            var params: [String: Any] = ["cwd": directory, "focus": focus]
             if let windowHandle { params["window_id"] = windowHandle }
             let response = try launchedClient.sendV2(method: "workspace.create", params: params)
             let wsRef = (response["workspace_ref"] as? String) ?? (response["workspace_id"] as? String) ?? ""
@@ -4105,13 +4116,71 @@ struct CMUXCLI {
         defer { client.close() }
 
         let windowHandle = try normalizeWindowHandle(windowOverride, client: client)
-        var params: [String: Any] = ["cwd": directory, "focus": false]
+        var params: [String: Any] = ["cwd": directory, "focus": focus]
         if let windowHandle { params["window_id"] = windowHandle }
         let response = try client.sendV2(method: "workspace.create", params: params)
         let wsRef = (response["workspace_ref"] as? String) ?? (response["workspace_id"] as? String) ?? ""
         if !wsRef.isEmpty {
             print("OK \(wsRef)")
         }
+    }
+
+    private func parsePathOpenArguments(_ args: [String]) throws -> Bool {
+        var focus = false
+        var sawFocus = false
+        var sawNoFocus = false
+        var index = 0
+
+        while index < args.count {
+            let arg = args[index]
+            if arg == "--" {
+                if index + 1 < args.count {
+                    throw CLIError(message: "path open: unexpected argument '\(args[index + 1])'. Usage: cmux <path> [--focus [true|false]] [--no-focus]")
+                }
+                index += 1
+                continue
+            }
+            if arg == "--focus" {
+                sawFocus = true
+                if index + 1 < args.count, !args[index + 1].hasPrefix("-") {
+                    guard let parsed = parseBoolString(args[index + 1]) else {
+                        throw CLIError(message: "path open: --focus must be true or false")
+                    }
+                    focus = parsed
+                    index += 2
+                    continue
+                }
+                focus = true
+                index += 1
+                continue
+            }
+            if arg.hasPrefix("--focus=") {
+                sawFocus = true
+                let raw = String(arg.dropFirst("--focus=".count))
+                guard let parsed = parseBoolString(raw) else {
+                    throw CLIError(message: "path open: --focus must be true or false")
+                }
+                focus = parsed
+                index += 1
+                continue
+            }
+            if arg == "--no-focus" {
+                sawNoFocus = true
+                focus = false
+                index += 1
+                continue
+            }
+            if arg.hasPrefix("-") {
+                throw CLIError(message: "path open: unknown flag '\(arg)'. Usage: cmux <path> [--focus [true|false]] [--no-focus]")
+            }
+            throw CLIError(message: "path open: unexpected argument '\(arg)'. Usage: cmux <path> [--focus [true|false]] [--no-focus]")
+        }
+
+        if sawFocus && sawNoFocus {
+            throw CLIError(message: "path open: --focus and --no-focus cannot be used together")
+        }
+
+        return focus
     }
 
     private func runFeedback(

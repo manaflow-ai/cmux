@@ -55,7 +55,10 @@ extension CMUXCLI {
         )
         defer { client.close() }
 
-        let effectiveWindowRaw = parsedArgs.window ?? windowOverride
+        let shouldApplyWindowOverride = parsedArgs.workspace == nil
+            && parsedArgs.surface == nil
+            && parsedArgs.pane == nil
+        let effectiveWindowRaw = parsedArgs.window ?? (shouldApplyWindowOverride ? windowOverride : nil)
         let windowHandle = try normalizeWindowHandle(effectiveWindowRaw, client: client)
         let workspaceRaw = parsedArgs.workspace ?? (effectiveWindowRaw == nil ? ProcessInfo.processInfo.environment["CMUX_WORKSPACE_ID"] : nil)
         let workspaceHandle = try normalizeWorkspaceHandle(workspaceRaw, client: client, windowHandle: windowHandle)

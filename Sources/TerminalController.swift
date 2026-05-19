@@ -3279,7 +3279,7 @@ class TerminalController {
 
         var windowNodes: [[String: Any]] = []
         var workspaceFound = (workspaceFilter == nil)
-        var windowFound = (windowFilter == nil || includeAllWindows)
+        var windowFound = (windowFilter == nil)
 
         v2MainSync {
             guard let app = AppDelegate.shared else { return }
@@ -3533,7 +3533,7 @@ class TerminalController {
 
         var windowNodes: [[String: Any]] = []
         var workspaceFound = (workspaceFilter == nil)
-        var windowFound = (windowFilter == nil || includeAllWindows)
+        var windowFound = (windowFilter == nil)
 
         if let app = AppDelegate.shared {
             let summaries = app.listMainWindowSummaries()
