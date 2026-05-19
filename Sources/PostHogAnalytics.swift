@@ -4,6 +4,7 @@ import PostHog
 
 final class PostHogAnalytics {
     static let shared = PostHogAnalytics()
+    private static let terminationFlushTimeout: DispatchTimeInterval = .seconds(2)
 
     // The PostHog project API key is intentionally embedded in the app (it's a public key).
     private let apiKey = "phc_opOVu7oFzR9wD3I6ZahFGOV2h3mqGpl5EHyQvmHciDP"
@@ -74,10 +75,20 @@ final class PostHogAnalytics {
     }
 
     func flush() {
-        dispatchSyncOnWorkQueue {
+        if DispatchQueue.getSpecific(key: workQueueSpecificKey) != nil {
             guard didStart else { return }
             PostHogSDK.shared.flush()
+            return
         }
+
+        let group = DispatchGroup()
+        group.enter()
+        workQueue.async { [weak self] in
+            defer { group.leave() }
+            guard let self, self.didStart else { return }
+            PostHogSDK.shared.flush()
+        }
+        _ = group.wait(timeout: .now() + Self.terminationFlushTimeout)
     }
 
     private func startIfNeededOnWorkQueue() {
@@ -188,14 +199,6 @@ final class PostHogAnalytics {
             return
         }
         workQueue.async(execute: block)
-    }
-
-    private func dispatchSyncOnWorkQueue(_ block: () -> Void) {
-        if DispatchQueue.getSpecific(key: workQueueSpecificKey) != nil {
-            block()
-            return
-        }
-        workQueue.sync(execute: block)
     }
 
     private func utcHourString(_ date: Date) -> String {
