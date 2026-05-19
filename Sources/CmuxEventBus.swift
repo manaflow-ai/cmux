@@ -88,13 +88,9 @@ struct CmuxEventScope {
             return true
         case .window:
             guard let windowId else { return false }
-            if Self.stringValue(event["window_id"]) == windowId { return true }
-            if Self.payloadString(event, key: "window_id") == windowId ||
-                Self.payloadString(event, key: "source_window_id") == windowId ||
-                Self.payloadString(event, key: "destination_window_id") == windowId ||
-                Self.payloadString(event, key: "target_window_id") == windowId ||
-                Self.payloadString(event, key: "previous_window_id") == windowId {
-                return true
+            let explicitWindowIds = Self.windowIds(event)
+            if !explicitWindowIds.isEmpty {
+                return explicitWindowIds.contains(windowId)
             }
             let eventWorkspaceIds = Self.workspaceIds(event)
             let scopedWorkspaceIds: Set<String>
@@ -204,6 +200,19 @@ struct CmuxEventScope {
         for key in ["workspace_id", "previous_workspace_id", "source_workspace_id", "target_workspace_id", "destination_workspace_id", "created_workspace_id"] {
             if let workspaceId = payloadString(event, key: key) {
                 ids.append(workspaceId)
+            }
+        }
+        return ids
+    }
+
+    private static func windowIds(_ event: [String: Any]) -> Set<String> {
+        var ids: Set<String> = []
+        if let windowId = stringValue(event["window_id"]) {
+            ids.insert(windowId)
+        }
+        for key in ["window_id", "source_window_id", "destination_window_id", "target_window_id", "previous_window_id"] {
+            if let windowId = payloadString(event, key: key) {
+                ids.insert(windowId)
             }
         }
         return ids

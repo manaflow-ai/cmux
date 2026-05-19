@@ -23,8 +23,8 @@ private final class EventScopeWorkspaceIds: @unchecked Sendable {
 
     func update(_ ids: Set<String>) {
         lock.lock()
+        defer { lock.unlock() }
         self.ids = ids
-        lock.unlock()
     }
 }
 
@@ -219,6 +219,31 @@ final class CmuxEventBusTests: XCTestCase {
         XCTAssertEqual(snapshot.subscription.next(timeout: 0.2)?["workspace_id"] as? String, "workspace-a")
         XCTAssertEqual(snapshot.subscription.next(timeout: 0.2)?["workspace_id"] as? String, "workspace-c")
         XCTAssertNil(snapshot.subscription.next(timeout: 0.05))
+    }
+
+    func testWindowScopeDoesNotUseWorkspaceFallbackForExplicitMismatchedWindow() {
+        let bus = CmuxEventBus(retainedEventLimit: 8)
+        bus.publish(
+            name: "notification.created",
+            category: "notification",
+            source: "test",
+            workspaceId: "workspace-a",
+            windowId: "window-b"
+        )
+
+        let snapshot = bus.subscribe(
+            afterSequence: 0,
+            names: [],
+            categories: [],
+            scope: CmuxEventScope(
+                kind: .window,
+                windowId: "window-a",
+                windowWorkspaceIds: ["workspace-a"]
+            )
+        )
+        defer { bus.unsubscribe(snapshot.subscription) }
+
+        XCTAssertEqual(snapshot.replay.compactMap { $0["name"] as? String }, [])
     }
 
     func testWindowScopeMatchesSourceWindowPayloadWhenWorkspaceLeavesWindow() {

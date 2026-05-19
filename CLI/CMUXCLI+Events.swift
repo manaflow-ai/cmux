@@ -190,7 +190,7 @@ extension CMUXCLI {
             case "--workspace":
                 options.workspace = try requireValue()
             case "--surface", "--tab", "--panel":
-                options.surface = try requireValue()
+                options.surface = canonicalEventSurfaceHandle(try requireValue())
             case "--pane":
                 options.pane = try requireValue()
             case "--reconnect":
@@ -340,6 +340,17 @@ extension CMUXCLI {
         let kind = String(pieces[0]).lowercased()
         guard ["window", "workspace", "pane", "surface"].contains(kind) else { return false }
         return Int(String(pieces[1])) != nil
+    }
+
+    private func canonicalEventSurfaceHandle(_ value: String) -> String {
+        let trimmed = value.trimmingCharacters(in: .whitespacesAndNewlines)
+        let pieces = trimmed.split(separator: ":", omittingEmptySubsequences: false)
+        guard pieces.count == 2,
+              ["tab", "panel"].contains(String(pieces[0]).lowercased()),
+              let ordinal = Int(String(pieces[1])) else {
+            return trimmed
+        }
+        return "surface:\(ordinal)"
     }
 
     private func eventCallerContextFromEnvironment() -> [String: Any]? {
