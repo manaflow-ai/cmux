@@ -1151,6 +1151,7 @@ class TabManager: ObservableObject {
                 guard let surfaceId = notification.userInfo?[GhosttyNotificationKey.surfaceId] as? UUID else { return }
                 let explicitFocusIntent = notification.userInfo?[GhosttyNotificationKey.explicitFocusIntent] as? Bool ?? false
                 dismissPanelNotificationOnFocus(tabId: tabId, panelId: surfaceId, explicitFocusIntent: explicitFocusIntent)
+                focusedSurfaceTitleDidChange(tabId: tabId)
             }
         })
 
@@ -5174,6 +5175,12 @@ class TabManager: ObservableObject {
     private func enqueuePanelTitleUpdate(tabId: UUID, panelId: UUID, title: String) {
         let trimmed = title.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !trimmed.isEmpty else { return }
+#if DEBUG
+        cmuxDebugLog(
+            "workspace.title.enqueue workspace=\(Self.debugShortWorkspaceId(tabId)) " +
+            "panel=\(panelId.uuidString.prefix(5)) title=\"\(Self.debugTitlePreview(trimmed))\""
+        )
+#endif
         let key = PanelTitleUpdateKey(tabId: tabId, panelId: panelId)
         let priorSawAgentTitleRegistration = pendingPanelTitleUpdates[key]?.sawAgentTitleRegistration == true
         let now = Date()
@@ -5441,6 +5448,17 @@ class TabManager: ObservableObject {
     private static func debugShortWorkspaceId(_ id: UUID?) -> String {
         guard let id else { return "nil" }
         return String(id.uuidString.prefix(5))
+    }
+
+    private static func debugTitlePreview(_ title: String, limit: Int = 120) -> String {
+        let escaped = title
+            .replacingOccurrences(of: "\\", with: "\\\\")
+            .replacingOccurrences(of: "\n", with: "\\n")
+            .replacingOccurrences(of: "\r", with: "\\r")
+            .replacingOccurrences(of: "\t", with: "\\t")
+            .replacingOccurrences(of: "\"", with: "\\\"")
+        guard escaped.count > limit else { return escaped }
+        return "\(escaped.prefix(limit))..."
     }
 
     private static func debugMsText(_ ms: Double) -> String {

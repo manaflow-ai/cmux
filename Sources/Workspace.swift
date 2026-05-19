@@ -463,9 +463,20 @@ extension Workspace {
             let restorableTmuxStartCommand = effectiveRestorableAgent == nil
                 ? Self.restorableTmuxStartCommand(terminalPanel.surface.debugTmuxStartCommand())
                 : nil
+            let agentWasRunning: Bool? = {
+                guard effectiveRestorableAgent != nil else { return nil }
+                switch panelShellActivityStates[panelId] {
+                case .some(.commandRunning):
+                    return true
+                case .some(.promptIdle):
+                    return false
+                case .some(.unknown), .none:
+                    return nil
+                }
+            }()
             let resumeStartupInput = Self.surfaceResumeStartupInput(
                 resumeBinding,
-                autoResumeAgentSessions: AgentSessionAutoResumeSettings.isEnabled(),
+                autoResumeAgentSessions: AgentSessionAutoResumeSettings.isEnabled() && (agentWasRunning ?? true),
                 promptForApproval: false
             )
             let shouldPersistScrollback = Self.shouldPersistSessionScrollback(
@@ -499,7 +510,8 @@ extension Workspace {
                 scrollback: resolvedScrollback,
                 agent: effectiveRestorableAgent,
                 tmuxStartCommand: restorableTmuxStartCommand,
-                resumeBinding: resumeBinding
+                resumeBinding: resumeBinding,
+                wasAgentRunning: agentWasRunning
             )
             browserSnapshot = nil
             markdownSnapshot = nil
@@ -884,9 +896,13 @@ extension Workspace {
             let resumeBinding = snapshot.terminal?.resumeBinding
             let restorableAgent = snapshot.terminal?.agent
             let autoResumeAgentSessions = AgentSessionAutoResumeSettings.isEnabled()
+            // Only auto-resume if the agent was actively running when the snapshot was saved.
+            // wasAgentRunning == nil means a legacy snapshot; treat as true for backwards compatibility.
+            let agentWasRunningAtQuit = snapshot.terminal?.wasAgentRunning ?? true
+            let shouldAutoResumeAgent = autoResumeAgentSessions && agentWasRunningAtQuit
             let restoredBindingInput = Self.surfaceResumeStartupInput(
                 resumeBinding,
-                autoResumeAgentSessions: autoResumeAgentSessions,
+                autoResumeAgentSessions: shouldAutoResumeAgent,
                 allowLauncherScript: true
             )
             let effectiveResumeBinding = restoredBindingInput == nil ? nil : resumeBinding
@@ -912,7 +928,7 @@ extension Workspace {
                 tmuxStartCommand: restoredTmuxStartCommand,
                 resumeStartupInput: restoredBindingInput
             )
-            let restoredAgentResumeInput = autoResumeAgentSessions
+            let restoredAgentResumeInput = shouldAutoResumeAgent
                 ? (restoredBindingInput == nil ? restorableAgent?.resumeStartupInput() : nil)
                 : nil
             let restoredStartupInput = restoredBindingInput ?? restoredAgentResumeInput
@@ -7296,10 +7312,15 @@ struct ClosedBrowserPanelRestoreSnapshot {
 final class Workspace: Identifiable, ObservableObject {
     enum BrowserPanelCreationPolicy {
         case userInitiated
+        case automationPreload
         case restoration
 
         var permitsCreationWhenBrowserDisabled: Bool {
             self == .restoration
+        }
+
+        var preloadsInitialNavigationInBackground: Bool {
+            self == .automationPreload
         }
     }
 
@@ -8845,8 +8866,18 @@ final class Workspace: Identifiable, ObservableObject {
     }
 
     func applyProcessTitle(_ title: String) {
-        processTitle = title
+        if processTitle != title {
+            processTitle = title
+        }
         guard customTitle == nil else { return }
+        guard self.title != title else { return }
+#if DEBUG
+        cmuxDebugLog(
+            "workspace.title.applyProcess workspace=\(id.uuidString.prefix(5)) " +
+            "from=\"\(debugWorkspaceDescriptionPreview(self.title, limit: 80))\" " +
+            "to=\"\(debugWorkspaceDescriptionPreview(title, limit: 80))\""
+        )
+#endif
         self.title = title
     }
 
@@ -9220,10 +9251,13 @@ final class Workspace: Identifiable, ObservableObject {
         let trimmed = title.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !trimmed.isEmpty else { return false }
         var didMutate = false
+        var didMutatePanelTitle = false
+        var didMutateWorkspaceTitle = false
 
         if panelTitles[panelId] != trimmed {
             panelTitles[panelId] = trimmed
             didMutate = true
+            didMutatePanelTitle = true
         }
 
         // Update bonsplit tab title only when this panel's title changed.
@@ -9244,12 +9278,23 @@ final class Workspace: Identifiable, ObservableObject {
             if self.title != trimmed {
                 self.title = trimmed
                 didMutate = true
+                didMutateWorkspaceTitle = true
             }
             if processTitle != trimmed {
                 processTitle = trimmed
             }
         }
 
+#if DEBUG
+        if didMutate {
+            cmuxDebugLog(
+                "workspace.title.updatePanel workspace=\(id.uuidString.prefix(5)) " +
+                "panel=\(panelId.uuidString.prefix(5)) panels=\(panels.count) custom=\(customTitle == nil ? 0 : 1) " +
+                "panelChanged=\(didMutatePanelTitle ? 1 : 0) workspaceChanged=\(didMutateWorkspaceTitle ? 1 : 0) " +
+                "title=\"\(debugWorkspaceDescriptionPreview(trimmed, limit: 80))\""
+            )
+        }
+#endif
         return didMutate
     }
 
@@ -9463,7 +9508,7 @@ final class Workspace: Identifiable, ObservableObject {
     }
 
     func sidebarStatusEntriesInDisplayOrder() -> [SidebarStatusEntry] {
-        sidebarStatusEntriesByKey().values.sorted { lhs, rhs in
+        sidebarStatusEntriesVisibleForDisplay().sorted { lhs, rhs in
             if lhs.priority != rhs.priority { return lhs.priority > rhs.priority }
             if lhs.timestamp != rhs.timestamp { return lhs.timestamp > rhs.timestamp }
             return lhs.key < rhs.key
@@ -10738,6 +10783,7 @@ final class Workspace: Identifiable, ObservableObject {
             ),
             initialURL: url,
             renderInitialNavigation: browserEnabled || creationPolicy != .restoration,
+            preloadInitialNavigationInBackground: creationPolicy.preloadsInitialNavigationInBackground,
             proxyEndpoint: remoteProxyEndpoint,
             isRemoteWorkspace: isRemoteWorkspace,
             remoteWebsiteDataStoreIdentifier: isRemoteWorkspace ? id : nil
@@ -10831,6 +10877,7 @@ final class Workspace: Identifiable, ObservableObject {
             initialURL: url,
             initialRequest: initialRequest,
             renderInitialNavigation: browserEnabled || creationPolicy != .restoration,
+            preloadInitialNavigationInBackground: creationPolicy.preloadsInitialNavigationInBackground,
             bypassInsecureHTTPHostOnce: bypassInsecureHTTPHostOnce,
             proxyEndpoint: remoteProxyEndpoint,
             isRemoteWorkspace: isRemoteWorkspace,
@@ -15032,6 +15079,23 @@ extension Workspace {
         qos: .utility
     )
 
+    private static let structuredAgentHookStatusKeys: Set<String> = [
+        "amp",
+        "claude_code",
+        "codebuddy",
+        "codex",
+        "copilot",
+        "cursor",
+        "factory",
+        "gemini",
+        "grok",
+        "hermes-agent",
+        "opencode",
+        "pi",
+        "qoder",
+        "rovodev",
+    ]
+
     func agentRuntimeState(forPanelId panelId: UUID) -> DetachedAgentRuntimeState? {
         let pidKeys = agentPIDKeysByPanelId[panelId] ?? []
 
@@ -15070,6 +15134,84 @@ extension Workspace {
         return String(key[..<dotIndex])
     }
 
+    func suppressesRawTerminalNotification(panelId: UUID?) -> Bool {
+        if let panelId {
+            let panelKeys = agentPIDKeysByPanelId[panelId] ?? []
+            return panelKeys.contains { isStructuredAgentHookPIDKey($0) }
+        }
+
+        return false
+    }
+
+    func sidebarStatusEntriesVisibleForDisplay() -> [SidebarStatusEntry] {
+        let entriesByKey = sidebarStatusEntriesByKey()
+        let visibleStructuredStatusKeys = visibleStructuredAgentStatusKeysByPanel(entriesByKey: entriesByKey)
+        return entriesByKey.values.filter { entry in
+            shouldDisplaySidebarStatusEntry(entry, visibleStructuredStatusKeys: visibleStructuredStatusKeys)
+        }
+    }
+
+    private func shouldDisplaySidebarStatusEntry(
+        _ entry: SidebarStatusEntry,
+        visibleStructuredStatusKeys: Set<String>
+    ) -> Bool {
+        guard Self.structuredAgentHookStatusKeys.contains(entry.key) else {
+            return true
+        }
+        return visibleStructuredStatusKeys.contains(entry.key)
+    }
+
+    private func visibleStructuredAgentStatusKeysByPanel(entriesByKey: [String: SidebarStatusEntry]) -> Set<String> {
+        var statusKeysByPanelId: [UUID: Set<String>] = [:]
+        for (key, panelId) in agentPIDPanelIdsByKey
+        where panels[panelId] != nil {
+            let statusKey = agentStatusKey(forAgentPIDKey: key)
+            guard Self.structuredAgentHookStatusKeys.contains(statusKey),
+                  entriesByKey[statusKey] != nil else {
+                continue
+            }
+            statusKeysByPanelId[panelId, default: []].insert(statusKey)
+        }
+
+        var visibleStatusKeys = Set<String>()
+        for statusKeys in statusKeysByPanelId.values {
+            let winningEntry = statusKeys.compactMap { entriesByKey[$0] }.max {
+                isSidebarStatusEntryLessCurrent($0, than: $1)
+            }
+            if let winningEntry {
+                visibleStatusKeys.insert(winningEntry.key)
+            }
+        }
+
+        for key in agentPIDs.keys where agentPIDPanelIdsByKey[key] == nil {
+            let statusKey = agentStatusKey(forAgentPIDKey: key)
+            guard Self.structuredAgentHookStatusKeys.contains(statusKey),
+                  entriesByKey[statusKey] != nil else {
+                continue
+            }
+            visibleStatusKeys.insert(statusKey)
+        }
+
+        return visibleStatusKeys
+    }
+
+    private func isSidebarStatusEntryLessCurrent(
+        _ lhs: SidebarStatusEntry,
+        than rhs: SidebarStatusEntry
+    ) -> Bool {
+        if lhs.timestamp != rhs.timestamp {
+            return lhs.timestamp < rhs.timestamp
+        }
+        if lhs.priority != rhs.priority {
+            return lhs.priority < rhs.priority
+        }
+        return lhs.key > rhs.key
+    }
+
+    private func isStructuredAgentHookPIDKey(_ key: String) -> Bool {
+        Self.structuredAgentHookStatusKeys.contains(agentStatusKey(forAgentPIDKey: key))
+    }
+
     private func hasAgentRuntime(forStatusKey statusKey: String) -> Bool {
         for key in agentPIDs.keys where agentStatusKey(forAgentPIDKey: key) == statusKey {
             return true
@@ -15096,6 +15238,17 @@ extension Workspace {
     private func recordAgentPIDOwnership(key: String, panelId: UUID) {
         if let previousPanelId = agentPIDPanelIdsByKey[key], previousPanelId != panelId {
             removeAgentPIDOwnership(key: key)
+        }
+        if isStructuredAgentHookPIDKey(key) {
+            let statusKey = agentStatusKey(forAgentPIDKey: key)
+            let stalePanelKeys = agentPIDKeysByPanelId[panelId]?.filter {
+                $0 != key &&
+                isStructuredAgentHookPIDKey($0) &&
+                agentStatusKey(forAgentPIDKey: $0) != statusKey
+            } ?? []
+            for staleKey in stalePanelKeys {
+                _ = clearAgentPID(key: staleKey, panelId: panelId, clearStatus: true, refreshPorts: false)
+            }
         }
         agentPIDPanelIdsByKey[key] = panelId
         agentPIDKeysByPanelId[panelId, default: []].insert(key)
@@ -15140,10 +15293,28 @@ extension Workspace {
         source.resume()
     }
 
-    func recordAgentPID(key: String, pid: pid_t, panelId: UUID?, refreshPorts: Bool = true) {
+    @discardableResult
+    private func clearOtherStructuredAgentRuntimes(onPanel panelId: UUID, keeping retainedKey: String) -> Bool {
+        guard isStructuredAgentHookPIDKey(retainedKey) else { return false }
+        let staleKeys = agentPIDKeysByPanelId[panelId] ?? []
+        var didChange = false
+        for staleKey in staleKeys where staleKey != retainedKey && isStructuredAgentHookPIDKey(staleKey) {
+            if clearAgentPID(key: staleKey, panelId: panelId, clearStatus: true, refreshPorts: false) {
+                didChange = true
+            }
+        }
+        return didChange
+    }
+
+    @discardableResult
+    func recordAgentPID(key: String, pid: pid_t, panelId: UUID?, refreshPorts: Bool = true) -> Bool {
         guard pid > 0 else {
-            _ = clearAgentPID(key: key, panelId: panelId, clearStatus: true, refreshPorts: refreshPorts)
-            return
+            return clearAgentPID(key: key, panelId: panelId, clearStatus: true, refreshPorts: refreshPorts)
+        }
+
+        var didClearOtherStructuredAgentRuntime = false
+        if let panelId {
+            didClearOtherStructuredAgentRuntime = clearOtherStructuredAgentRuntimes(onPanel: panelId, keeping: key)
         }
 
         setAgentPIDStorageValue(pid, forKey: key)
@@ -15163,6 +15334,7 @@ extension Workspace {
         if refreshPorts {
             refreshTrackedAgentPorts()
         }
+        return didClearOtherStructuredAgentRuntime
     }
 
     func setAgentPID(
