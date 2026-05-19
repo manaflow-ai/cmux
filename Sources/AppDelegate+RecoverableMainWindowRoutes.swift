@@ -206,6 +206,7 @@ extension AppDelegate {
     func recoverableMainWindowSnapshotsForSessionSnapshot(
         includeScrollback: Bool,
         restorableAgentIndex: RestorableAgentSessionIndex,
+        surfaceResumeBindingIndex: SurfaceResumeBindingIndex? = nil,
         excludingWindowIds excludedWindowIds: Set<UUID> = [],
         maxSnapshotCount: Int? = nil
     ) -> [(windowId: UUID, snapshot: SessionWindowSnapshot)] {
@@ -231,7 +232,8 @@ extension AppDelegate {
                         sidebarState: route.sidebarState,
                         sidebarSelectionState: route.sidebarSelectionState,
                         includeScrollback: includeScrollback,
-                        restorableAgentIndex: restorableAgentIndex
+                        restorableAgentIndex: restorableAgentIndex,
+                        surfaceResumeBindingIndex: surfaceResumeBindingIndex
                     )
                 ))
                 continue
@@ -331,7 +333,8 @@ extension AppDelegate {
             sidebarState: sidebarState,
             sidebarSelectionState: sidebarSelectionState,
             includeScrollback: false,
-            restorableAgentIndex: cachedRestorableAgentIndexForSessionSnapshot()
+            restorableAgentIndex: cachedRestorableAgentIndexForSessionSnapshot(),
+            surfaceResumeBindingIndex: cachedSurfaceResumeBindingIndexForSessionSnapshot()
         )
         mainWindowRouteLedger.routesByWindowId[windowId] = RecoverableMainWindowRoute(
             windowId: windowId,
