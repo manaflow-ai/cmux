@@ -251,7 +251,7 @@ func handleWebSocketPTY(w http.ResponseWriter, r *http.Request, cfg wsPTYServerC
 		_ = conn.Close(websocket.StatusInternalError, "pty start failed")
 		return
 	}
-	defer cfg.PTYHub.detach(attachment.sessionID, attachment.id)
+	defer cfg.PTYHub.detach(attachment)
 
 	pumpWebSocketToPTY(r.Context(), cfg.PTYHub, attachment, conn)
 	_ = conn.Close(websocket.StatusNormalClosure, "closed")
@@ -637,20 +637,23 @@ func startPTYCommand(cmd *exec.Cmd, cols int, rows int) (*os.File, *os.File, err
 	return ptyFile, ttyFile, nil
 }
 
-func (h *wsPTYHub) detach(sessionID string, attachmentID string) {
+func (h *wsPTYHub) detach(attachment *wsPTYAttachment) {
+	if attachment == nil {
+		return
+	}
 	h.mu.Lock()
 
-	session := h.sessions[sessionID]
+	session := h.sessions[attachment.sessionID]
 	if session == nil {
 		h.mu.Unlock()
 		return
 	}
-	attachment := session.attachments[attachmentID]
-	if attachment == nil {
+	current := session.attachments[attachment.id]
+	if current != attachment {
 		h.mu.Unlock()
 		return
 	}
-	delete(session.attachments, attachmentID)
+	delete(session.attachments, attachment.id)
 	attachment.cancel()
 	shouldApplySize := h.recomputeSessionSizeLocked(session)
 	h.mu.Unlock()
@@ -954,7 +957,7 @@ func (h *wsPTYHub) resize(attachment *wsPTYAttachment, cols int, rows int) {
 		return
 	}
 	current := session.attachments[attachment.id]
-	if current == nil {
+	if current != attachment {
 		h.mu.Unlock()
 		return
 	}

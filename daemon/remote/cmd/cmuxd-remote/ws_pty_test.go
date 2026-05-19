@@ -214,21 +214,33 @@ func TestWebSocketPTYReplacedAttachmentCannotWriteInput(t *testing.T) {
 
 	writeTestLease(t, leasePath, "old-token", "sess-replace", true, time.Now().Add(time.Minute))
 	oldConn := dialPTY(t, ctx, server.URL)
-	defer oldConn.Close(websocket.StatusNormalClosure, "done")
-	sendAuthWithAttachment(t, ctx, oldConn, "old-token", "sess-replace", "same", 80, 24)
+	sendAuthWithAttachment(t, ctx, oldConn, "old-token", "sess-replace", "same", 120, 40)
 	readReady(t, ctx, oldConn)
 
 	writeTestLease(t, leasePath, "new-token", "sess-replace", true, time.Now().Add(time.Minute))
 	newConn := dialPTY(t, ctx, server.URL)
 	defer newConn.Close(websocket.StatusNormalClosure, "done")
-	sendAuthWithAttachment(t, ctx, newConn, "new-token", "sess-replace", "same", 80, 24)
+	sendAuthWithAttachment(t, ctx, newConn, "new-token", "sess-replace", "same", 90, 30)
 	readReady(t, ctx, newConn)
+	waitForHubSessionSize(t, hub, "sess-replace", 1, 90, 30, 5*time.Second)
 
 	_ = oldConn.Write(ctx, websocket.MessageBinary, []byte("printf 'STALE_INPUT\\n'\r"))
-	if err := newConn.Write(ctx, websocket.MessageBinary, []byte("printf 'FRESH_INPUT\\n'; exit\r")); err != nil {
+	resizePayload, err := json.Marshal(wsPTYControlFrame{Type: "resize", Cols: 100, Rows: 35})
+	if err != nil {
+		t.Fatalf("marshal stale resize: %v", err)
+	}
+	_ = oldConn.Write(ctx, websocket.MessageText, resizePayload)
+	_ = oldConn.Close(websocket.StatusNormalClosure, "stale detach")
+	waitForHubSessionSize(t, hub, "sess-replace", 1, 90, 30, 5*time.Second)
+	waitForHubPTYSize(t, hub, "sess-replace", 90, 30, 5*time.Second)
+
+	if err := newConn.Write(ctx, websocket.MessageBinary, []byte("printf 'SIZE:'; stty size; printf '%b\\n' '\\106\\122\\105\\123\\110\\137\\111\\116\\120\\125\\124'; exit\r")); err != nil {
 		t.Fatalf("write fresh command: %v", err)
 	}
 	output := waitForBinaryContains(t, ctx, newConn, "FRESH_INPUT", 5*time.Second)
+	if !strings.Contains(output, "SIZE:30 90") {
+		t.Fatalf("replaced attachment changed terminal size, output=%q", output)
+	}
 	if strings.Contains(output, "STALE_INPUT") {
 		t.Fatalf("replaced attachment wrote input, output=%q", output)
 	}
