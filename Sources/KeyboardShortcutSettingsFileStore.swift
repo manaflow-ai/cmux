@@ -130,12 +130,7 @@ final class CmuxSettingsFileStore {
     }
 
     func applyDeferredManagedDefaultSideEffects() {
-        let sideEffects = synchronized {
-            let deferred = deferredManagedDefaultSideEffects
-            deferredManagedDefaultSideEffects = ManagedDefaultBatchSideEffects()
-            return deferred
-        }
-        applyManagedDefaultBatchSideEffects(sideEffects)
+        applyManagedDefaultBatchSideEffects(drainDeferredManagedDefaultSideEffects())
     }
 
     private func reload(
@@ -947,8 +942,9 @@ final class CmuxSettingsFileStore {
             saveBackups(backups)
         }
         if applyLiveDefaultSideEffects {
-            sideEffects.merge(drainDeferredManagedDefaultSideEffects())
-            applyManagedDefaultBatchSideEffects(sideEffects)
+            var sideEffectsToApply = drainDeferredManagedDefaultSideEffects()
+            sideEffectsToApply.merge(sideEffects)
+            applyManagedDefaultBatchSideEffects(sideEffectsToApply)
         } else {
             deferManagedDefaultSideEffects(sideEffects)
         }
@@ -1459,7 +1455,13 @@ private struct ManagedDefaultBatchSideEffects {
     }
 
     mutating func merge(_ other: ManagedDefaultBatchSideEffects) {
-        changes.append(contentsOf: other.changes)
+        for change in other.changes {
+            append(
+                defaultsKey: change.defaultsKey,
+                source: change.source,
+                synchronizeAppearanceTerminalTheme: change.synchronizeAppearanceTerminalTheme
+            )
+        }
     }
 
     mutating func append(
@@ -1467,6 +1469,7 @@ private struct ManagedDefaultBatchSideEffects {
         source: String,
         synchronizeAppearanceTerminalTheme: Bool
     ) {
+        changes.removeAll { $0.defaultsKey == defaultsKey }
         changes.append(
             ManagedDefaultSideEffect(
                 defaultsKey: defaultsKey,
