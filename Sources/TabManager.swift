@@ -5338,10 +5338,16 @@ class TabManager: ObservableObject {
         }
         let shouldDismissRestoredUnread = dismissRestoredUnreadOnResume ?? !suppressFlash
         let dismissalContext: NotificationDismissalContext? = shouldDismissRestoredUnread ? .explicitWorkspaceResume : nil
+        let shouldDeferSelectedWorkspaceDismissal =
+            selectedTabId == tabId &&
+            surfaceId.map { tab.panels[$0] != nil && $0 != focusedPanelId(for: tabId) } == true
 #if DEBUG
         debugPrimeWorkspaceSwitchTrigger("focus", to: tabId)
 #endif
-        selectWorkspaceId(tabId, notificationDismissalContext: dismissalContext)
+        selectWorkspaceId(
+            tabId,
+            notificationDismissalContext: shouldDeferSelectedWorkspaceDismissal ? nil : dismissalContext
+        )
         NotificationCenter.default.post(
             name: .ghosttyDidFocusTab,
             object: nil,
