@@ -3,11 +3,12 @@ mod terminal;
 
 use adw::prelude::*;
 use cmux_core::{
+    agent::AgentCommand,
     storage::{SavedSession, SavedState, StateStore},
     terminal::{TerminalCommand, TerminalSession},
     APP_ID,
 };
-use gtk::glib;
+use gtk::{gio, glib};
 use std::{cell::RefCell, rc::Rc};
 
 fn main() -> glib::ExitCode {
@@ -18,10 +19,15 @@ fn main() -> glib::ExitCode {
 
 fn build_ui(app: &adw::Application) {
     let header = adw::HeaderBar::new();
-    let add_button = gtk::Button::builder()
+    let add_button = gtk::MenuButton::builder()
         .icon_name("list-add-symbolic")
-        .tooltip_text("New shell")
+        .tooltip_text("New session")
         .build();
+    let add_menu = gio::Menu::new();
+    add_menu.append(Some("Shell"), Some("app.new-shell"));
+    add_menu.append(Some("Claude"), Some("app.new-claude"));
+    add_menu.append(Some("Codex"), Some("app.new-codex"));
+    add_button.set_menu_model(Some(&add_menu));
     header.pack_start(&add_button);
 
     let sidebar = gtk::ListBox::new();
@@ -57,23 +63,30 @@ fn build_ui(app: &adw::Application) {
         });
     }
 
-    {
-        let sidebar = sidebar.clone();
-        let terminal_stack = terminal_stack.clone();
-        let sessions = Rc::clone(&sessions);
-        add_button.connect_clicked(move |_| {
-            let next = sessions.borrow().len() + 1;
-            let session = TerminalSession::new(
-                format!("workspace-{next}"),
-                format!("Workspace {next}"),
-                TerminalCommand::user_shell(),
-            );
-            append_session(&sidebar, &terminal_stack, &sessions, session);
-            let last_index =
-                i32::try_from(sessions.borrow().len() - 1).expect("session count fits i32");
-            sidebar.select_row(sidebar.row_at_index(last_index).as_ref());
-        });
-    }
+    install_new_session_action(
+        app,
+        "new-shell",
+        AgentCommand::shell,
+        &sidebar,
+        &terminal_stack,
+        &sessions,
+    );
+    install_new_session_action(
+        app,
+        "new-claude",
+        || AgentCommand::claude(None),
+        &sidebar,
+        &terminal_stack,
+        &sessions,
+    );
+    install_new_session_action(
+        app,
+        "new-codex",
+        || AgentCommand::codex(None),
+        &sidebar,
+        &terminal_stack,
+        &sessions,
+    );
 
     let split = gtk::Paned::builder()
         .orientation(gtk::Orientation::Horizontal)
@@ -109,6 +122,29 @@ fn build_ui(app: &adw::Application) {
     }
 
     window.present();
+}
+
+fn install_new_session_action(
+    app: &adw::Application,
+    name: &str,
+    command: impl Fn() -> AgentCommand + 'static,
+    sidebar: &gtk::ListBox,
+    terminal_stack: &gtk::Stack,
+    sessions: &Rc<RefCell<Vec<TerminalSession>>>,
+) {
+    let sidebar = sidebar.clone();
+    let terminal_stack = terminal_stack.clone();
+    let sessions = Rc::clone(sessions);
+    let action = gio::SimpleAction::new(name, None);
+    action.connect_activate(move |_, _| {
+        let next = sessions.borrow().len() + 1;
+        let session = command().into_terminal_session(format!("workspace-{next}"));
+        append_session(&sidebar, &terminal_stack, &sessions, session);
+        let last_index =
+            i32::try_from(sessions.borrow().len() - 1).expect("session count fits i32");
+        sidebar.select_row(sidebar.row_at_index(last_index).as_ref());
+    });
+    app.add_action(&action);
 }
 
 fn load_sessions(store: Option<&StateStore>) -> Vec<TerminalSession> {
