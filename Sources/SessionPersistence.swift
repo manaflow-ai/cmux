@@ -686,7 +686,7 @@ enum SurfaceResumeApprovalStore {
             signingSecret: signingSecret
         ) else {
             effective.autoResume = false
-            effective.approvalPolicy = effective.approvalPolicy ?? .manual
+            effective.approvalPolicy = .manual
             effective.approvalRecordId = nil
             return effective
         }

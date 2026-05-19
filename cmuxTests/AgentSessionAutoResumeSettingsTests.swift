@@ -248,6 +248,7 @@ final class AgentSessionAutoResumeSettingsTests: XCTestCase {
                 cwd: "/tmp/repo",
                 checkpointId: "codex-binding-auto-resume-session",
                 source: "agent-hook",
+                autoResume: true,
                 updatedAt: 1_777_777_777
             ),
         ])

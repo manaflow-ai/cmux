@@ -3900,6 +3900,26 @@ extension SessionPersistenceTests {
         XCTAssertFalse(effectiveBinding.allowsAutomaticResume)
     }
 
+    func testSurfaceResumeApprovalMissingRecordResetsStalePromptPolicy() throws {
+        let binding = SurfaceResumeBindingSnapshot(
+            command: "tmux attach -t work",
+            cwd: "/tmp/project",
+            source: "cli",
+            autoResume: false,
+            approvalPolicy: .prompt,
+            approvalRecordId: "deleted-record"
+        )
+
+        let effectiveBinding = SurfaceResumeApprovalStore.applyingStoredApproval(
+            to: binding,
+            fileURL: URL(fileURLWithPath: "/tmp/cmux-missing-\(UUID().uuidString).json"),
+            signingSecret: Data("approval-secret".utf8)
+        )
+        XCTAssertEqual(effectiveBinding.approvalPolicy, .manual)
+        XCTAssertNil(effectiveBinding.approvalRecordId)
+        XCTAssertFalse(effectiveBinding.allowsAutomaticResume)
+    }
+
     func testSurfaceResumePromptPolicyDoesNotRunAutomaticallyUnderTest() throws {
         let storeURL = try makeSurfaceResumeApprovalStoreURL()
         let secret = Data("approval-secret".utf8)
