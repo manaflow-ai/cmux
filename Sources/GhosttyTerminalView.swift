@@ -4704,8 +4704,8 @@ final class TerminalSurface: Identifiable, ObservableObject {
     private var runtimeSurfaceCreatedAt: Date?
     private var teardownRequestedAt: Date?
     private var teardownRequestReason: String?
-    // Main-thread only. Public socket send entrypoints are MainActor-isolated
-    // before reading `surface` or mutating this pending queue.
+    // Protected by `inputLifecycleLock`; Ghostty callback threads can clear
+    // pending socket input as soon as the child process exit is observed.
     private var pendingSocketInputQueue: [PendingSocketInput] = []
     private var pendingSocketInputBytes: Int = 0
     private let maxPendingSocketInputBytes = 1_048_576
