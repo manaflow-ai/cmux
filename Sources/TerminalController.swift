@@ -6440,6 +6440,12 @@ class TerminalController {
     private func v2SurfaceResumeBindingWithApproval(_ binding: SurfaceResumeBindingSnapshot) -> SurfaceResumeBindingSnapshot {
         let existingRecord = SurfaceResumeApprovalStore.matchingRecord(for: binding)
         var effectiveBinding = SurfaceResumeApprovalStore.applyingStoredApproval(to: binding)
+        if let promptlessCLIManualBinding = SurfaceResumeApprovalStore.applyingPromptlessCLIManualApprovalIfNeeded(
+            to: binding,
+            existingRecord: existingRecord
+        ) {
+            return promptlessCLIManualBinding
+        }
         guard v2ShouldPromptForSurfaceResumeApproval(binding: binding, existingRecord: existingRecord) else {
             return effectiveBinding
         }
@@ -6458,20 +6464,12 @@ class TerminalController {
         binding: SurfaceResumeBindingSnapshot,
         existingRecord: SurfaceResumeApprovalRecord?
     ) -> Bool {
-        guard Thread.isMainThread else {
-            return false
-        }
-        guard ProcessInfo.processInfo.environment["XCTestConfigurationFilePath"] == nil else {
-            return false
-        }
-        guard !binding.isProcessDetected, !binding.isAgentHookBinding else {
-            return false
-        }
-        guard SurfaceResumeCommandCanonicalizer.tokens(from: binding.command) != nil else {
-            return false
-        }
-        guard let existingRecord else { return true }
-        return existingRecord.policy == .prompt
+        SurfaceResumeApprovalStore.shouldPromptForProposal(
+            binding: binding,
+            existingRecord: existingRecord,
+            isMainThread: Thread.isMainThread,
+            isRunningTests: ProcessInfo.processInfo.environment["XCTestConfigurationFilePath"] != nil
+        )
     }
 
     private func v2PromptForSurfaceResumeApproval(
