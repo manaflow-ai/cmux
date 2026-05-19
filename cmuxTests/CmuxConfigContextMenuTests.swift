@@ -13,11 +13,11 @@ final class CmuxConfigContextMenuTests: XCTestCase {
     }
 
     @MainActor
-    private func makePNGData() throws -> Data {
-        let image = NSImage(size: NSSize(width: 2, height: 2))
+    private func makePNGData(size: NSSize = NSSize(width: 2, height: 2)) throws -> Data {
+        let image = NSImage(size: size)
         image.lockFocus()
         NSColor.systemBlue.setFill()
-        NSRect(x: 0, y: 0, width: 2, height: 2).fill()
+        NSRect(origin: .zero, size: size).fill()
         image.unlockFocus()
 
         guard let tiffData = image.tiffRepresentation,
@@ -355,6 +355,29 @@ final class CmuxConfigContextMenuTests: XCTestCase {
             )
         }
         XCTAssertTrue(store.configurationIssues.isEmpty)
+    }
+
+    @MainActor
+    func testContextMenuImageAssetsAreNormalizedToMenuSize() throws {
+        let root = FileManager.default.temporaryDirectory.appendingPathComponent(
+            "cmux-context-menu-large-icon-\(UUID().uuidString)",
+            isDirectory: true
+        )
+        try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: root) }
+
+        let iconURL = root.appendingPathComponent("large.png")
+        try makePNGData(size: NSSize(width: 512, height: 256)).write(to: iconURL)
+
+        let image = try XCTUnwrap(
+            CmuxButtonIcon.imagePath(iconURL.path).contextMenuImage(
+                configSourcePath: nil,
+                globalConfigPath: root.appendingPathComponent("missing-global.json").path
+            )
+        )
+
+        XCTAssertEqual(image.size.width, 16, accuracy: 0.001)
+        XCTAssertEqual(image.size.height, 8, accuracy: 0.001)
     }
 
     @MainActor
