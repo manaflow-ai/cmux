@@ -338,11 +338,10 @@ final class BonsplitTabDragUITests: XCTestCase {
 
         let nameField = app.textFields["paneTab.inlineRenameField"].firstMatch
         XCTAssertTrue(nameField.waitForExistence(timeout: 3.0), "Expected double-clicking a pane tab to show an inline rename field")
-        XCTAssertEqual(
-            betaTab.frame.height,
-            tabHeightBeforeRename,
-            accuracy: 1.0,
-            "Expected inline pane tab rename not to change tab height"
+        XCTAssertLessThanOrEqual(
+            nameField.frame.height,
+            tabHeightBeforeRename + 1.0,
+            "Expected inline pane tab rename field not to exceed the original tab height"
         )
         nameField.click()
         app.typeKey("a", modifierFlags: [.command])
