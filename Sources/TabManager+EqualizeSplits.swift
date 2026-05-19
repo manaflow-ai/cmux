@@ -16,16 +16,11 @@ extension TabManager {
     }
 
     @discardableResult
-    private func equalizeSplitsOnce(in tab: Workspace) -> EqualizeSplitsResult {
-        var foundSplit = false
-        var allSucceeded = true
-        equalizeSplits(
+    private func equalizeSplitsOnce(in tab: Workspace) -> SplitEqualizer.Result {
+        SplitEqualizer.equalize(
             in: tab.bonsplitController.treeSnapshot(),
-            controller: tab.bonsplitController,
-            foundSplit: &foundSplit,
-            allSucceeded: &allSucceeded
+            controller: tab.bonsplitController
         )
-        return EqualizeSplitsResult(foundSplit: foundSplit, allSucceeded: allSucceeded)
     }
 
     private func scheduleEqualizeSplitsFollowUp(tabId: UUID) {
@@ -44,44 +39,75 @@ extension TabManager {
         }
     }
 
-    private func equalizeSplits(
-        in node: ExternalTreeNode,
-        controller: BonsplitController,
-        foundSplit: inout Bool,
-        allSucceeded: inout Bool
-    ) {
-        switch node {
-        case .pane:
-            return
-        case .split(let splitNode):
-            foundSplit = true
-            if let splitId = UUID(uuidString: splitNode.id) {
-                if !controller.setDividerPosition(0.5, forSplit: splitId, fromExternal: true) {
-                    allSucceeded = false
-                }
-            } else {
-                allSucceeded = false
-            }
+}
 
-            equalizeSplits(
-                in: splitNode.first,
-                controller: controller,
-                foundSplit: &foundSplit,
-                allSucceeded: &allSucceeded
-            )
-            equalizeSplits(
-                in: splitNode.second,
-                controller: controller,
-                foundSplit: &foundSplit,
-                allSucceeded: &allSucceeded
-            )
-        }
-    }
-
-    private struct EqualizeSplitsResult {
+enum SplitEqualizer {
+    struct Result {
         let foundSplit: Bool
         let allSucceeded: Bool
 
         var didFullyEqualize: Bool { foundSplit && allSucceeded }
+    }
+
+    @discardableResult
+    static func equalize(
+        in node: ExternalTreeNode,
+        controller: BonsplitController,
+        orientationFilter: String? = nil
+    ) -> Result {
+        var foundSplit = false
+        var allSucceeded = true
+        _ = equalize(
+            node,
+            controller: controller,
+            orientationFilter: orientationFilter,
+            foundSplit: &foundSplit,
+            allSucceeded: &allSucceeded
+        )
+        return Result(foundSplit: foundSplit, allSucceeded: allSucceeded)
+    }
+
+    @discardableResult
+    private static func equalize(
+        _ node: ExternalTreeNode,
+        controller: BonsplitController,
+        orientationFilter: String?,
+        foundSplit: inout Bool,
+        allSucceeded: inout Bool
+    ) -> Int {
+        switch node {
+        case .pane:
+            return 1
+        case .split(let splitNode):
+            let firstLeafCount = equalize(
+                splitNode.first,
+                controller: controller,
+                orientationFilter: orientationFilter,
+                foundSplit: &foundSplit,
+                allSucceeded: &allSucceeded
+            )
+            let secondLeafCount = equalize(
+                splitNode.second,
+                controller: controller,
+                orientationFilter: orientationFilter,
+                foundSplit: &foundSplit,
+                allSucceeded: &allSucceeded
+            )
+
+            if orientationFilter == nil || splitNode.orientation == orientationFilter {
+                foundSplit = true
+                if let splitId = UUID(uuidString: splitNode.id) {
+                    let totalLeafCount = firstLeafCount + secondLeafCount
+                    let position = CGFloat(firstLeafCount) / CGFloat(totalLeafCount)
+                    if !controller.setDividerPosition(position, forSplit: splitId, fromExternal: true) {
+                        allSucceeded = false
+                    }
+                } else {
+                    allSucceeded = false
+                }
+            }
+
+            return firstLeafCount + secondLeafCount
+        }
     }
 }
