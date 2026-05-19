@@ -350,8 +350,11 @@ extension TabManager {
         let didChange = tab.updatePanelTitle(panelId: panelId, title: title)
         guard didChange else { return }
 
-        if selectedTabId == tabId && tab.focusedPanelId == panelId {
-            updateWindowTitle(for: tab)
+        if tab.focusedPanelId == panelId {
+            tab.applyProcessTitle(title)
+            if selectedTabId == tabId {
+                updateWindowTitle(for: tab)
+            }
         }
     }
 }
