@@ -12582,7 +12582,7 @@ private struct TabItemView: View, Equatable {
 
     private var sidebarTitleLineHeight: CGFloat {
         let font = NSFont.systemFont(ofSize: 12.5, weight: .semibold)
-        return max(16, ceil(font.boundingRectForFont.height))
+        return max(1, ceil(font.boundingRectForFont.height))
     }
 
     private var showsLeadingRail: Bool {
@@ -12802,25 +12802,32 @@ private struct TabItemView: View, Equatable {
                         .safeHelp(protectedWorkspaceTooltip)
                 }
 
+                let titleLabel = Text(workspaceSnapshot.title)
+                    .font(.system(size: 12.5, weight: titleFontWeight))
+                    .foregroundColor(activePrimaryTextColor)
+                    .lineLimit(1)
+                    .truncationMode(.tail)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+
                 if let inlineRenameInitialTitle {
-                    SidebarInlineRenameField(
-                        initialTitle: inlineRenameInitialTitle,
-                        fontSize: 12.5,
-                        fontWeight: .semibold,
-                        textColor: activePrimaryTextNSColor,
-                        height: sidebarTitleLineHeight,
-                        onCommit: commitInlineRename,
-                        onCancel: cancelInlineRename
-                    )
-                    .frame(maxWidth: .infinity, minHeight: sidebarTitleLineHeight, maxHeight: sidebarTitleLineHeight, alignment: .leading)
+                    ZStack(alignment: .leading) {
+                        titleLabel
+                            .hidden()
+                        SidebarInlineRenameField(
+                            initialTitle: inlineRenameInitialTitle,
+                            fontSize: 12.5,
+                            fontWeight: .semibold,
+                            textColor: activePrimaryTextNSColor,
+                            height: sidebarTitleLineHeight,
+                            onCommit: commitInlineRename,
+                            onCancel: cancelInlineRename
+                        )
+                        .frame(maxWidth: .infinity, minHeight: sidebarTitleLineHeight, maxHeight: sidebarTitleLineHeight, alignment: .leading)
+                    }
+                    .frame(maxWidth: .infinity, alignment: .leading)
                     .layoutPriority(1)
                 } else {
-                    Text(workspaceSnapshot.title)
-                        .font(.system(size: 12.5, weight: titleFontWeight))
-                        .foregroundColor(activePrimaryTextColor)
-                        .lineLimit(1)
-                        .truncationMode(.tail)
-                        .frame(maxWidth: .infinity, alignment: .leading)
+                    titleLabel
                         .layoutPriority(1)
                 }
             }

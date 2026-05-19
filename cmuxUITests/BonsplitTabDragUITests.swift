@@ -325,11 +325,15 @@ final class BonsplitTabDragUITests: XCTestCase {
         let betaTitle = ready["betaTitle"] ?? "UITest Beta"
         let renamedTitle = "Renamed Beta \(UUID().uuidString.prefix(4))"
         let window = app.windows.element(boundBy: 0)
+        let alphaTitle = ready["alphaTitle"] ?? "UITest Alpha"
+        let alphaTab = app.buttons[alphaTitle]
         let betaTab = app.buttons[betaTitle]
 
         XCTAssertTrue(window.waitForExistence(timeout: 5.0), "Expected main window to exist")
+        XCTAssertTrue(alphaTab.waitForExistence(timeout: 5.0), "Expected alpha tab to exist")
         XCTAssertTrue(betaTab.waitForExistence(timeout: 5.0), "Expected beta tab to exist")
-        let tabHeightBeforeRename = betaTab.frame.height
+        let alphaFrameBeforeRename = alphaTab.frame
+        let betaFrameBeforeRename = betaTab.frame
 
         doubleClick(in: window, atAccessibilityPoint: CGPoint(x: betaTab.frame.midX, y: betaTab.frame.midY))
 
@@ -338,9 +342,25 @@ final class BonsplitTabDragUITests: XCTestCase {
 
         let nameField = app.textFields["paneTab.inlineRenameField"].firstMatch
         XCTAssertTrue(nameField.waitForExistence(timeout: 3.0), "Expected double-clicking a pane tab to show an inline rename field")
+        XCTAssertStableFrame(
+            alphaTab.frame,
+            comparedTo: alphaFrameBeforeRename,
+            accuracy: 1.0,
+            "Expected neighboring pane tab geometry to stay stable while another tab is inline-renaming"
+        )
+        XCTAssertGreaterThanOrEqual(
+            nameField.frame.minY,
+            betaFrameBeforeRename.minY - 1.0,
+            "Expected pane tab inline editor to stay inside the original tab bounds"
+        )
+        XCTAssertLessThanOrEqual(
+            nameField.frame.maxY,
+            betaFrameBeforeRename.maxY + 1.0,
+            "Expected pane tab inline editor to stay inside the original tab bounds"
+        )
         XCTAssertLessThanOrEqual(
             nameField.frame.height,
-            tabHeightBeforeRename + 1.0,
+            betaFrameBeforeRename.height + 1.0,
             "Expected inline pane tab rename field not to exceed the original tab height"
         )
         nameField.click()
@@ -404,6 +424,16 @@ final class BonsplitTabDragUITests: XCTestCase {
             rowHeightBeforeRename,
             accuracy: 1.0,
             "Expected inline workspace rename not to change sidebar row height"
+        )
+        XCTAssertGreaterThanOrEqual(
+            nameField.frame.minY,
+            workspaceRow.frame.minY - 1.0,
+            "Expected sidebar inline editor to stay inside the original workspace row bounds"
+        )
+        XCTAssertLessThanOrEqual(
+            nameField.frame.maxY,
+            workspaceRow.frame.maxY + 1.0,
+            "Expected sidebar inline editor to stay inside the original workspace row bounds"
         )
         nameField.click()
         app.typeKey("a", modifierFlags: [.command])
@@ -971,6 +1001,20 @@ final class BonsplitTabDragUITests: XCTestCase {
     private func clickOutsideInlineEditor(in window: XCUIElement) {
         window.coordinate(withNormalizedOffset: CGVector(dx: 0.9, dy: 0.9)).click()
         RunLoop.current.run(until: Date().addingTimeInterval(0.2))
+    }
+
+    private func XCTAssertStableFrame(
+        _ actual: CGRect,
+        comparedTo expected: CGRect,
+        accuracy: CGFloat,
+        _ message: @autoclosure () -> String,
+        file: StaticString = #filePath,
+        line: UInt = #line
+    ) {
+        XCTAssertEqual(actual.minX, expected.minX, accuracy: accuracy, message(), file: file, line: line)
+        XCTAssertEqual(actual.minY, expected.minY, accuracy: accuracy, message(), file: file, line: line)
+        XCTAssertEqual(actual.width, expected.width, accuracy: accuracy, message(), file: file, line: line)
+        XCTAssertEqual(actual.height, expected.height, accuracy: accuracy, message(), file: file, line: line)
     }
 
     private func dragTab(_ sourceTab: XCUIElement, before targetTab: XCUIElement) {
