@@ -2115,3 +2115,36 @@ final class CmuxLayoutEncodingTests: XCTestCase {
         }
     }
 }
+
+// MARK: - Note support
+
+final class NoteSupportTests: XCTestCase {
+
+    func testNoteSlugFromPathRejectsInvalidFilenames() {
+        XCTAssertNil(NoteSupport.slug(forNotePath: "/tmp/project/.cmux/notes/Bad Name.md"))
+        XCTAssertNil(NoteSupport.slug(forNotePath: "/tmp/project/.cmux/notes/-todo.md"))
+        XCTAssertEqual(
+            NoteSupport.slug(forNotePath: "/tmp/project/.cmux/notes/todo-1.md"),
+            "todo-1"
+        )
+    }
+
+    func testConfigFallbackSlugIsDeterministicAndValid() throws {
+        let first = NoteSupport.configFallbackSlug(seed: "root.0.surface.1")
+        let second = NoteSupport.configFallbackSlug(seed: "root.0.surface.1")
+        let other = NoteSupport.configFallbackSlug(seed: "root.1.surface.1")
+
+        XCTAssertEqual(first, second)
+        XCTAssertNotEqual(first, other)
+        XCTAssertEqual(try NoteSupport.validateSlug(first), first)
+    }
+
+    func testDeleteNoteIsIdempotentWhenFileIsAlreadyAbsent() throws {
+        let root = FileManager.default.temporaryDirectory
+            .appendingPathComponent(UUID().uuidString, isDirectory: true)
+        try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: root) }
+
+        XCTAssertFalse(try NoteSupport.deleteNote(slug: "todo", projectRoot: root.path))
+    }
+}

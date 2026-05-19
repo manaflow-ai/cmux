@@ -3906,6 +3906,23 @@ struct CMUXCLI {
             return params
         }
 
+        func slugArgument(for verb: String, usage: String) throws -> String {
+            guard let slugArg = trailingArgs.first, !slugArg.isEmpty else {
+                throw CLIError(message: "cmux note \(verb): missing slug. Usage: \(usage)")
+            }
+            if slugArg.hasPrefix("-") {
+                throw CLIError(message: "cmux note \(verb): unknown flag '\(slugArg)'")
+            }
+            let rest = Array(trailingArgs.dropFirst())
+            if let unknownFlag = rest.first(where: { $0.hasPrefix("-") }) {
+                throw CLIError(message: "cmux note \(verb): unknown flag '\(unknownFlag)'")
+            }
+            if let extraArg = rest.first {
+                throw CLIError(message: "cmux note \(verb): unexpected argument '\(extraArg)'")
+            }
+            return slugArg
+        }
+
         switch subcommand.lowercased() {
         case "new", "create":
             if let unknownFlag = trailingArgs.first(where: { $0.hasPrefix("-") }) {
@@ -3931,16 +3948,7 @@ struct CMUXCLI {
             }
 
         case "open":
-            guard let slugArg = trailingArgs.first, !slugArg.isEmpty else {
-                throw CLIError(message: "cmux note open: missing slug. Usage: cmux note open <slug>")
-            }
-            let rest = Array(trailingArgs.dropFirst())
-            if let unknownFlag = rest.first(where: { $0.hasPrefix("-") }) {
-                throw CLIError(message: "cmux note open: unknown flag '\(unknownFlag)'")
-            }
-            if let extraArg = rest.first {
-                throw CLIError(message: "cmux note open: unexpected argument '\(extraArg)'")
-            }
+            let slugArg = try slugArgument(for: "open", usage: "cmux note open <slug>")
             var params = try buildRoutingParams()
             params["slug"] = slugArg
             params["direction"] = directionOpt ?? "right"
@@ -3989,13 +3997,7 @@ struct CMUXCLI {
             }
 
         case "path":
-            guard let slugArg = trailingArgs.first, !slugArg.isEmpty else {
-                throw CLIError(message: "cmux note path: missing slug. Usage: cmux note path <slug>")
-            }
-            let rest = Array(trailingArgs.dropFirst())
-            if let extraArg = rest.first {
-                throw CLIError(message: "cmux note path: unexpected argument '\(extraArg)'")
-            }
+            let slugArg = try slugArgument(for: "path", usage: "cmux note path <slug>")
             var params = try buildRoutingParams()
             params["slug"] = slugArg
             let payload = try client.sendV2(method: "note.path", params: params)
@@ -4007,13 +4009,7 @@ struct CMUXCLI {
             }
 
         case "rm", "delete":
-            guard let slugArg = trailingArgs.first, !slugArg.isEmpty else {
-                throw CLIError(message: "cmux note rm: missing slug. Usage: cmux note rm <slug>")
-            }
-            let rest = Array(trailingArgs.dropFirst())
-            if let extraArg = rest.first {
-                throw CLIError(message: "cmux note rm: unexpected argument '\(extraArg)'")
-            }
+            let slugArg = try slugArgument(for: "rm", usage: "cmux note rm <slug>")
             var params = try buildRoutingParams()
             params["slug"] = slugArg
             let payload = try client.sendV2(method: "note.delete", params: params)
