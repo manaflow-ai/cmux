@@ -99,6 +99,12 @@ class UpdateController {
     /// Start the updater. If startup fails, the error is shown via the custom UI.
     func startUpdaterIfNeeded() {
         guard !didStartUpdater else { return }
+#if DEBUG
+        if SocketControlSettings.isTaggedDevBuild() {
+            UpdateLogStore.shared.append("updater skipped (tagged dev build)")
+            return
+        }
+#endif
         ensureSparkleInstallationCache()
 #if DEBUG
         // Keep the permission-related defaults resettable for UI tests even though the
