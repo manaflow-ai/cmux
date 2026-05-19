@@ -8736,22 +8736,22 @@ final class Workspace: Identifiable, ObservableObject {
         guard force || workspaceIconDetectionDirectory != directory else { return }
         workspaceIconDetectionDirectory = directory
         workspaceIconDetectionTask?.cancel()
-        workspaceIconDetectionTask = Task { [weak self, directory] in
-            let result = await Task.detached(priority: .utility) {
-                WorkspaceIconDetectionResult.detect(in: directory)
-            }.value
+        workspaceIconDetectionTask = Task.detached(priority: .utility) { [weak self, directory] in
+            let result = WorkspaceIconDetectionResult.detect(in: directory)
+            guard !Task.isCancelled else { return }
 
-            guard !Task.isCancelled,
-                  let self,
-                  self.workspaceIconDetectionDirectory == directory,
-                  WorkspaceIconValue.normalizedStorageValue(self.currentDirectory) == directory else {
-                return
-            }
-            let didChange = self.detectedIconPath != result.path || self.detectedIconSignature != result.signature
-            if didChange {
-                self.detectedIconPath = result.path
-                self.detectedIconSignature = result.signature
-                self.detectedIconRevision &+= 1
+            await MainActor.run { [weak self] in
+                guard let self,
+                      self.workspaceIconDetectionDirectory == directory,
+                      WorkspaceIconValue.normalizedStorageValue(self.currentDirectory) == directory else {
+                    return
+                }
+                let didChange = self.detectedIconPath != result.path || self.detectedIconSignature != result.signature
+                if didChange {
+                    self.detectedIconPath = result.path
+                    self.detectedIconSignature = result.signature
+                    self.detectedIconRevision &+= 1
+                }
             }
         }
     }

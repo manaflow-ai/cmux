@@ -13227,7 +13227,7 @@ private struct TabItemView: View, Equatable {
         }
 
         Menu(String(localized: "contextMenu.workspaceIcon", defaultValue: "Workspace Icon")) {
-            if tab.customIconPath != nil {
+            if hasCustomIcon(in: targetIds) {
                 Button {
                     applyTabIcon(nil, targetIds: targetIds)
                 } label: {
@@ -13543,6 +13543,12 @@ private struct TabItemView: View, Equatable {
 
     private func hasLatestNotifications(in targetIds: [UUID]) -> Bool {
         targetIds.contains { notificationStore.latestNotification(forTabId: $0) != nil }
+    }
+
+    private func hasCustomIcon(in targetIds: [UUID]) -> Bool {
+        targetIds.contains { targetId in
+            tabManager.tabs.first(where: { $0.id == targetId })?.customIconPath != nil
+        }
     }
 
     private func syncSelectionAfterMutation() {

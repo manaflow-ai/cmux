@@ -5650,7 +5650,14 @@ class TerminalController {
             case "set_icon":
                 guard let iconRaw = v2String(params, "icon"),
                       let icon = WorkspaceIconValue.normalizedStorageValue(iconRaw) else {
-                    result = .err(code: "invalid_params", message: "Missing or invalid icon", data: nil)
+                    result = .err(
+                        code: "invalid_params",
+                        message: String(
+                            localized: "socket.workspace.icon.invalid",
+                            defaultValue: "Invalid workspace icon. Provide an emoji or image path in \"icon\", or use \"clear_icon\" to remove it."
+                        ),
+                        data: nil
+                    )
                     return
                 }
                 tabManager.setTabIcon(tabId: workspace.id, iconPath: icon)

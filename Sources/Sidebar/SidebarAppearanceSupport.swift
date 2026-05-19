@@ -63,9 +63,9 @@ enum WorkspaceIconValue: Equatable, Sendable {
 
 enum WorkspaceIconDetector {
     static let standardIconFilenames = [
-        "favicon.png", "favicon.ico", "favicon.svg",
-        "icon.png", "icon.svg",
-        "logo.png", "logo.svg",
+        "favicon.png", "favicon.jpg", "favicon.jpeg",
+        "icon.png", "icon.jpg", "icon.jpeg",
+        "logo.png", "logo.jpg", "logo.jpeg",
     ]
 
     static let standardIconSubdirectories = [
@@ -120,6 +120,7 @@ enum WorkspaceIconDetector {
                 ? directory
                 : (directory as NSString).appendingPathComponent(subdirectory)
             for filename in standardIconFilenames {
+                guard !Task.isCancelled else { return nil }
                 let path = (basePath as NSString).appendingPathComponent(filename)
                 if fileManager.fileExists(atPath: path) {
                     return path
@@ -138,9 +139,13 @@ enum WorkspaceIconDetector {
             guard let contents = try? fileManager.contentsOfDirectory(atPath: iconsetPath) else {
                 continue
             }
+            guard !Task.isCancelled else { return nil }
             let pngs = contents
                 .filter { $0.lowercased().hasSuffix(".png") }
-                .sorted { lhs, rhs in lhs.localizedStandardCompare(rhs) == .orderedDescending }
+                .sorted { lhs, rhs in
+                    fileSize(at: (iconsetPath as NSString).appendingPathComponent(lhs), fileManager: fileManager)
+                        > fileSize(at: (iconsetPath as NSString).appendingPathComponent(rhs), fileManager: fileManager)
+                }
             if let largest = pngs.first {
                 return (iconsetPath as NSString).appendingPathComponent(largest)
             }
@@ -154,12 +159,21 @@ enum WorkspaceIconDetector {
         fileManager: FileManager
     ) -> String? {
         for relativePath in relativePaths {
+            guard !Task.isCancelled else { return nil }
             let path = (directory as NSString).appendingPathComponent(relativePath)
             if fileManager.fileExists(atPath: path) {
                 return path
             }
         }
         return nil
+    }
+
+    private static func fileSize(at path: String, fileManager: FileManager) -> UInt64 {
+        guard let attributes = try? fileManager.attributesOfItem(atPath: path),
+              let size = attributes[.size] as? NSNumber else {
+            return 0
+        }
+        return size.uint64Value
     }
 }
 
@@ -182,14 +196,6 @@ struct WorkspaceIconDetectionResult: Equatable, Sendable {
     static func detect(in directory: String) -> Self {
         let path = WorkspaceIconDetector.detectedIconPath(in: directory)
         return Self(path: path, signature: path.flatMap { WorkspaceIconFileSignature.current(for: $0) })
-    }
-}
-
-private final class WorkspaceIconImageBox: @unchecked Sendable {
-    let image: NSImage
-
-    init(image: NSImage) {
-        self.image = image
     }
 }
 
@@ -263,13 +269,13 @@ struct WorkspaceIconView: View {
         loadedImagePath = path
         imageLoadFailed = false
 
-        let imageBox = await Task.detached(priority: .utility) {
-            NSImage(contentsOfFile: path).map(WorkspaceIconImageBox.init(image:))
+        let imageData = await Task.detached(priority: .utility) {
+            try? Data(contentsOf: URL(fileURLWithPath: path), options: [.mappedIfSafe])
         }.value
 
         guard !Task.isCancelled, loadedImagePath == path else { return }
-        loadedImage = imageBox?.image
-        imageLoadFailed = imageBox == nil
+        loadedImage = imageData.flatMap(NSImage.init(data:))
+        imageLoadFailed = loadedImage == nil
     }
 }
 

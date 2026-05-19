@@ -4658,7 +4658,10 @@ struct CMUXCLI {
             iconOpt ?? (action == "set_icon" ? (inferredPositional.isEmpty ? nil : inferredPositional) : nil)
         )?.trimmingCharacters(in: .whitespacesAndNewlines)
         if action == "set_icon", (icon?.isEmpty ?? true) {
-            throw CLIError(message: "workspace-action set-icon requires --icon <path|emoji:🚀> (or a trailing icon)")
+            throw CLIError(message: String(
+                localized: "cli.error.workspaceActionSetIconRequiresIcon",
+                defaultValue: "workspace-action set-icon requires --icon <path|emoji:🚀> (or a trailing icon)"
+            ))
         }
 
         let description = (
@@ -9510,7 +9513,7 @@ struct CMUXCLI {
               cmux reorder-workspace --workspace workspace:3 --after workspace:1
             """
         case "workspace-action":
-            return """
+            return String(localized: "cli.help.workspaceAction", defaultValue: """
             Usage: cmux workspace-action --action <name> [flags]
 
             Perform workspace context-menu actions from CLI/socket.
@@ -9550,7 +9553,7 @@ struct CMUXCLI {
               cmux workspace-action --action set-description $'Ship checklist\n- verify build\n- post notes'
               cmux workspace-action clear-color
               cmux workspace-action clear-icon
-            """
+            """)
         case "tab-action":
             return """
             Usage: cmux tab-action --action <name> [flags]
