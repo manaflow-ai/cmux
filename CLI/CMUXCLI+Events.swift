@@ -32,7 +32,7 @@ extension CMUXCLI {
         while true {
             let client = SocketClient(path: socketPath)
             do {
-                try client.connect()
+                try client.connect(allowListenerRestartRecovery: true)
                 try authenticateClientIfNeeded(
                     client,
                     explicitPassword: explicitPassword,

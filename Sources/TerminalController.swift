@@ -7,6 +7,7 @@ import WebKit
 
 extension Notification.Name {
     static let socketListenerDidStart = Notification.Name("cmux.socketListenerDidStart")
+    static let socketListenerNeedsRestart = Notification.Name("cmux.socketListenerNeedsRestart")
     static let terminalSurfaceDidBecomeReady = Notification.Name("cmux.terminalSurfaceDidBecomeReady")
     static let terminalSurfaceHostedViewDidMoveToWindow = Notification.Name("cmux.terminalSurfaceHostedViewDidMoveToWindow")
     static let mainWindowContextsDidChange = Notification.Name("cmux.mainWindowContextsDidChange")
@@ -1713,13 +1714,62 @@ class TerminalController {
     }
 
     private nonisolated func finishAcceptSourceCancel(listenerSocket: Int32, generation: UInt64) {
-        withListenerState {
-            guard activeAcceptLoopGeneration == generation, serverSocket == listenerSocket else { return }
+        let restartRequest = withListenerState { () -> (path: String, reason: String)? in
+            guard activeAcceptLoopGeneration == generation, serverSocket == listenerSocket else { return nil }
+            let cancelledPath = socketPath
+            isRunning = false
             acceptLoopAlive = false
+            activeAcceptLoopGeneration = 0
+            pendingAcceptLoopRearmGeneration = nil
+            serverSocket = -1
             listenerReadSource = nil
             listenerReadSourceSuspended = false
+            return (cancelledPath, "accept_source_cancelled")
         }
+
+        guard let restartRequest else { return }
+        unlinkSocketPathIfListenerStillInactive(restartRequest.path)
+        notifySocketListenerNeedsRestart(
+            path: restartRequest.path,
+            reason: restartRequest.reason,
+            generation: generation
+        )
     }
+
+    private nonisolated func notifySocketListenerNeedsRestart(path: String, reason: String, generation: UInt64) {
+        sentryBreadcrumb(
+            "socket.listener.restart_needed",
+            category: "socket",
+            data: socketListenerEventData(
+                stage: reason,
+                extra: [
+                    "path": path,
+                    "generation": generation
+                ]
+            )
+        )
+        NotificationCenter.default.post(
+            name: .socketListenerNeedsRestart,
+            object: self,
+            userInfo: [
+                "path": path,
+                "reason": reason,
+                "generation": generation
+            ]
+        )
+    }
+
+#if DEBUG
+    nonisolated func debugCancelActiveSocketListenerForTesting() {
+        let (sourceToCancel, sourceWasSuspended) = withListenerState {
+            (listenerReadSource, listenerReadSourceSuspended)
+        }
+        if sourceWasSuspended {
+            sourceToCancel?.resume()
+        }
+        sourceToCancel?.cancel()
+    }
+#endif
 
     private nonisolated func drainPendingSocketClients(listenerSocket: Int32, generation: UInt64) {
         while shouldContinueAcceptLoop(generation: generation) {

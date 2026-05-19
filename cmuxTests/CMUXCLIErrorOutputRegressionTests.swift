@@ -103,6 +103,51 @@ final class CMUXCLIErrorOutputRegressionTests: XCTestCase {
         )
     }
 
+    func testBundledCLIRecoversRefusedSocketByRequestingListenerRestart() throws {
+        let cliPath = try bundledCLIPath()
+        let socketPath = "/tmp/cmux-cli-recover-\(UUID().uuidString.lowercased()).sock"
+        try bindClosedUnixSocket(at: socketPath)
+        defer { unlink(socketPath) }
+
+        var responder: UnixSocketResponder?
+        let notificationExpectation = expectation(description: "CLI requested socket listener restart")
+        let notificationObserver = SocketRestartNotificationObserver(socketPath: socketPath) {
+            responder = try UnixSocketResponder(path: socketPath, response: "PONG")
+        } onNotification: {
+            notificationExpectation.fulfill()
+        }
+        defer {
+            DistributedNotificationCenter.default().removeObserver(notificationObserver)
+            responder?.stop()
+        }
+
+        DistributedNotificationCenter.default().addObserver(
+            notificationObserver,
+            selector: #selector(SocketRestartNotificationObserver.handleNotification(_:)),
+            name: Notification.Name("com.cmuxterm.socket.restartListener"),
+            object: nil,
+            suspensionBehavior: .deliverImmediately
+        )
+
+        var environment = ProcessInfo.processInfo.environment
+        environment["CMUX_CLI_SENTRY_DISABLED"] = "1"
+        environment["CMUX_SOCKET_PATH"] = socketPath
+        environment.removeValue(forKey: "CMUX_SOCKET")
+
+        let result = runProcessPumpingRunLoop(
+            executablePath: cliPath,
+            arguments: ["ping"],
+            environment: environment,
+            timeout: 5
+        )
+
+        wait(for: [notificationExpectation], timeout: 1)
+        XCTAssertNil(notificationObserver.error.map(String.init(describing:)))
+        XCTAssertFalse(result.timedOut, result.stdout)
+        XCTAssertEqual(result.status, 0, result.stdout)
+        XCTAssertEqual(result.stdout.trimmingCharacters(in: .whitespacesAndNewlines), "PONG", result.stdout)
+    }
+
     private func bundledCLIPath() throws -> String {
         let fileManager = FileManager.default
         let appBundleURL = Bundle(for: Self.self)
@@ -185,6 +230,52 @@ final class CMUXCLIErrorOutputRegressionTests: XCTestCase {
         return fakeCLIURL.path
     }
 
+    private func bindClosedUnixSocket(at path: String) throws {
+        unlink(path)
+        let listenerFD = socket(AF_UNIX, SOCK_STREAM, 0)
+        guard listenerFD >= 0 else {
+            throw posixError("socket")
+        }
+
+        var address = sockaddr_un()
+        address.sun_family = sa_family_t(AF_UNIX)
+        let maxLength = MemoryLayout.size(ofValue: address.sun_path)
+        guard path.utf8.count < maxLength else {
+            Darwin.close(listenerFD)
+            throw NSError(
+                domain: NSPOSIXErrorDomain,
+                code: Int(ENAMETOOLONG),
+                userInfo: [NSLocalizedDescriptionKey: "Unix socket path is too long: \(path)"]
+            )
+        }
+        path.withCString { pointer in
+            withUnsafeMutablePointer(to: &address.sun_path) { tuplePointer in
+                let buffer = UnsafeMutableRawPointer(tuplePointer).assumingMemoryBound(to: CChar.self)
+                strncpy(buffer, pointer, maxLength - 1)
+            }
+        }
+
+        let bindResult = withUnsafePointer(to: &address) { pointer in
+            pointer.withMemoryRebound(to: sockaddr.self, capacity: 1) { socketPointer in
+                Darwin.bind(listenerFD, socketPointer, socklen_t(MemoryLayout<sockaddr_un>.size))
+            }
+        }
+        guard bindResult == 0 else {
+            let error = posixError("bind")
+            Darwin.close(listenerFD)
+            throw error
+        }
+        Darwin.close(listenerFD)
+    }
+
+    private func posixError(_ operation: String) -> NSError {
+        NSError(
+            domain: NSPOSIXErrorDomain,
+            code: Int(errno),
+            userInfo: [NSLocalizedDescriptionKey: "\(operation) failed: \(String(cString: strerror(errno)))"]
+        )
+    }
+
     private func shellSingleQuote(_ value: String) -> String {
         "'\(value.replacingOccurrences(of: "'", with: "'\"'\"'"))'"
     }
@@ -260,6 +351,72 @@ final class CMUXCLIErrorOutputRegressionTests: XCTestCase {
             stdout: String(data: outputPipe.fileHandleForReading.readDataToEndOfFile(), encoding: .utf8) ?? "",
             timedOut: timedOut
         )
+    }
+
+    private func runProcessPumpingRunLoop(
+        executablePath: String,
+        arguments: [String],
+        environment: [String: String],
+        timeout: TimeInterval
+    ) -> ProcessRunResult {
+        let process = Process()
+        let outputPipe = Pipe()
+        process.executableURL = URL(fileURLWithPath: executablePath)
+        process.arguments = arguments
+        process.environment = environment
+        process.standardInput = FileHandle.nullDevice
+        process.standardOutput = outputPipe
+        process.standardError = outputPipe
+
+        do {
+            try process.run()
+        } catch {
+            return ProcessRunResult(status: -1, stdout: String(describing: error), timedOut: false)
+        }
+
+        let deadline = Date().addingTimeInterval(timeout)
+        while process.isRunning && Date() < deadline {
+            RunLoop.current.run(mode: .default, before: Date(timeIntervalSinceNow: 0.02))
+        }
+
+        let timedOut = process.isRunning
+        if timedOut {
+            process.terminate()
+        }
+        process.waitUntilExit()
+
+        return ProcessRunResult(
+            status: process.terminationStatus,
+            stdout: String(data: outputPipe.fileHandleForReading.readDataToEndOfFile(), encoding: .utf8) ?? "",
+            timedOut: timedOut
+        )
+    }
+}
+
+private final class SocketRestartNotificationObserver: NSObject {
+    let socketPath: String
+    private let startResponder: () throws -> Void
+    private let onNotification: () -> Void
+    private(set) var error: Error?
+
+    init(socketPath: String, startResponder: @escaping () throws -> Void, onNotification: @escaping () -> Void) {
+        self.socketPath = socketPath
+        self.startResponder = startResponder
+        self.onNotification = onNotification
+    }
+
+    @objc func handleNotification(_ notification: Notification) {
+        guard let requestedPath = notification.userInfo?["socketPath"] as? String,
+              requestedPath == socketPath else {
+            return
+        }
+
+        do {
+            try startResponder()
+        } catch {
+            self.error = error
+        }
+        onNotification()
     }
 }
 
