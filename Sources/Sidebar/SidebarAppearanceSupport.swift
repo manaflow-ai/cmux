@@ -227,15 +227,13 @@ func sidebarSelectedWorkspaceBackgroundNSColor(
 func sidebarSelectedWorkspaceForegroundNSColor(opacity: CGFloat) -> NSColor {
     sidebarSelectedWorkspaceForegroundNSColor(
         on: sidebarSelectedWorkspaceBackgroundNSColor(for: .dark),
-        opacity: opacity,
-        usesDefaultSelectionColor: true
+        opacity: opacity
     )
 }
 
 func sidebarSelectedWorkspaceForegroundNSColor(
     on backgroundColor: NSColor,
-    opacity: CGFloat,
-    usesDefaultSelectionColor: Bool = false
+    opacity: CGFloat
 ) -> NSColor {
     let clampedOpacity = max(0, min(opacity, 1))
     return cmuxReadableForegroundNSColor(

@@ -81,8 +81,7 @@ final class SidebarSelectedWorkspaceColorTests: XCTestCase {
     func testDefaultSelectedWorkspaceForegroundUsesNativeSelectionTextOnAccentBackground() {
         guard let color = sidebarSelectedWorkspaceForegroundNSColor(
             on: sidebarSelectedWorkspaceBackgroundNSColor(for: .light),
-            opacity: 0.65,
-            usesDefaultSelectionColor: true
+            opacity: 0.65
         ).usingColorSpace(.sRGB) else {
             XCTFail("Expected sRGB-convertible color")
             return

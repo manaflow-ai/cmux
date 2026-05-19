@@ -132,8 +132,7 @@ final class SidebarWorkspaceSelectionColorTests: XCTestCase {
         let background = try XCTUnwrap(NSColor(hex: "#F7F7F7"))
         let foreground = sidebarSelectedWorkspaceForegroundNSColor(
             on: background,
-            opacity: 1.0,
-            usesDefaultSelectionColor: true
+            opacity: 1.0
         )
 
         assertColor(foreground, equals: .black)
@@ -147,8 +146,7 @@ final class SidebarWorkspaceSelectionColorTests: XCTestCase {
         let background = try XCTUnwrap(NSColor(hex: "#0088FF"))
         let foreground = sidebarSelectedWorkspaceForegroundNSColor(
             on: background,
-            opacity: 1.0,
-            usesDefaultSelectionColor: false
+            opacity: 1.0
         )
 
         assertColor(foreground, equals: .white)

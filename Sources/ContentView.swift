@@ -12434,8 +12434,7 @@ private struct TabItemView: View, Equatable {
     private func selectedWorkspaceForegroundNSColor(opacity: CGFloat) -> NSColor {
         sidebarSelectedWorkspaceForegroundNSColor(
             on: selectedWorkspaceBackgroundNSColor,
-            opacity: opacity,
-            usesDefaultSelectionColor: sidebarSelectionColorHex == nil
+            opacity: opacity
         )
     }
 
