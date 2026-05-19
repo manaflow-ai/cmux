@@ -1329,17 +1329,16 @@ extension Workspace {
 
         case .note:
             let slug = noteSlugForConfigSurface(surface, fallbackSeed: surfaceSeed)
-            if let panel = newNoteSurface(
+            if surface.focus == true {
+                focusPanelId = panelId
+            }
+            scheduleConfigNoteSurface(
+                replacingPanelId: panelId,
                 inPane: paneId,
                 slug: slug,
-                createIfMissing: true,
-                focus: false,
-                reuseExisting: false
-            ) {
-                _ = closePanel(panelId, force: true)
-                if let name = surface.name { setPanelCustomTitle(panelId: panel.id, title: name) }
-                if surface.focus == true { focusPanelId = panel.id }
-            }
+                customTitle: surface.name,
+                shouldFocus: surface.focus == true
+            )
         }
     }
 
@@ -1378,15 +1377,45 @@ extension Workspace {
 
         case .note:
             let slug = noteSlugForConfigSurface(surface, fallbackSeed: surfaceSeed)
-            if let panel = newNoteSurface(
+            scheduleConfigNoteSurface(
+                replacingPanelId: nil,
+                inPane: paneId,
+                slug: slug,
+                customTitle: surface.name,
+                shouldFocus: surface.focus == true
+            )
+        }
+    }
+
+    private func scheduleConfigNoteSurface(
+        replacingPanelId placeholderPanelId: UUID?,
+        inPane paneId: PaneID,
+        slug: String,
+        customTitle: String?,
+        shouldFocus: Bool
+    ) {
+        Task { @MainActor [weak self] in
+            guard let self else { return }
+            if let placeholderPanelId, panels[placeholderPanelId] == nil {
+                return
+            }
+            guard let panel = await newNoteSurface(
                 inPane: paneId,
                 slug: slug,
                 createIfMissing: true,
                 focus: false,
                 reuseExisting: false
-            ) {
-                if let name = surface.name { setPanelCustomTitle(panelId: panel.id, title: name) }
-                if surface.focus == true { focusPanelId = panel.id }
+            ) else {
+                return
+            }
+            if let placeholderPanelId {
+                _ = closePanel(placeholderPanelId, force: true)
+            }
+            if let customTitle {
+                setPanelCustomTitle(panelId: panel.id, title: customTitle)
+            }
+            if shouldFocus {
+                focusPanel(panel.id)
             }
         }
     }
@@ -11148,8 +11177,8 @@ final class Workspace: Identifiable, ObservableObject {
     /// Open (or focus) a project-scoped note as a surface in the given pane.
     /// Internally this is a `MarkdownPanel` — the "note" distinction lives at
     /// the storage convention and at the `CmuxSurfaceType.note` public surface
-    /// type. When `createIfMissing` is true, file creation is scheduled
-    /// off-main so config/layout materialization does not block the UI thread.
+    /// type. When `createIfMissing` is true, file creation completes off-main
+    /// before the main-actor panel lifecycle starts.
     @discardableResult
     func newNoteSurface(
         inPane paneId: PaneID,
@@ -11157,7 +11186,7 @@ final class Workspace: Identifiable, ObservableObject {
         createIfMissing: Bool = true,
         focus: Bool? = nil,
         reuseExisting: Bool = true
-    ) -> MarkdownPanel? {
+    ) async -> MarkdownPanel? {
         let validatedSlug: String
         do {
             validatedSlug = try NoteSupport.validateSlug(slug)
@@ -11171,22 +11200,29 @@ final class Workspace: Identifiable, ObservableObject {
             workspaceLogger.error("Note surfaces are not available for remote workspaces")
             return nil
         }
-        let filePath = NoteSupport.notePath(forSlug: validatedSlug, projectRoot: root)
+        let filePath: String
         if createIfMissing {
-            Task.detached(priority: .utility) {
-                do {
-                    try NoteSupport.ensureNoteFile(slug: validatedSlug, projectRoot: root)
-                } catch {
-                    workspaceLogger.error(
-                        "Failed to create note file for config note slug=\(validatedSlug, privacy: .private) error=\(error.localizedDescription, privacy: .private)"
-                    )
-                }
+            do {
+                filePath = try await Self.ensureNoteFileOffMain(slug: validatedSlug, projectRoot: root)
+            } catch {
+                workspaceLogger.error(
+                    "Failed to create note file for config note slug=\(validatedSlug, privacy: .private) error=\(error.localizedDescription, privacy: .private)"
+                )
+                return nil
             }
+        } else {
+            filePath = NoteSupport.notePath(forSlug: validatedSlug, projectRoot: root)
         }
         if reuseExisting {
             return openOrFocusMarkdownSurface(inPane: paneId, filePath: filePath, focus: focus ?? false)
         }
         return newMarkdownSurface(inPane: paneId, filePath: filePath, focus: focus)
+    }
+
+    private nonisolated static func ensureNoteFileOffMain(slug: String, projectRoot: String) async throws -> String {
+        try await Task.detached(priority: .utility) {
+            try NoteSupport.ensureNoteFile(slug: slug, projectRoot: projectRoot)
+        }.value
     }
 
     @discardableResult
