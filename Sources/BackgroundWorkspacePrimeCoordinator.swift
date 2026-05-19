@@ -258,7 +258,7 @@ final class BackgroundWorkspacePrimeCoordinator {
         readinessCancellables.removeAll(keepingCapacity: false)
         readinessObservers.forEach { NotificationCenter.default.removeObserver($0) }
         readinessObservers.removeAll(keepingCapacity: false)
-        readinessWaitersByWorkspaceId.removeAll(keepingCapacity: false)
+        cancelRegisteredReadinessWaiters()
         observedTabManager = tabManager
 
         let readyObserver = NotificationCenter.default.addObserver(
@@ -309,6 +309,14 @@ final class BackgroundWorkspacePrimeCoordinator {
                 }
             }
         readinessCancellables.insert(tabsObserver)
+    }
+
+    private func cancelRegisteredReadinessWaiters() {
+        let waiters = readinessWaitersByWorkspaceId.values.flatMap { registrations in
+            registrations.compactMap(\.waiter)
+        }
+        readinessWaitersByWorkspaceId.removeAll(keepingCapacity: false)
+        waiters.forEach { $0.finish(reason: .cancelled) }
     }
 
     private func unregisterReadinessWaiter(registrationId: UUID, workspaceId: UUID) {
