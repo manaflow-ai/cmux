@@ -436,19 +436,12 @@ final class BrowserProfilePopoverContrastUITests: XCTestCase {
         XCTAssertTrue(defaultProfileRow.waitForExistence(timeout: 5.0), "Expected profile popover default row")
 
         let rowScreenshot = defaultProfileRow.screenshot()
-        let samples = try sampleRGBAs(
+        let samples = try sampleRGBAGrid(
             fromPNG: rowScreenshot.pngRepresentation,
-            points: [
-                (0.74, 0.28),
-                (0.84, 0.28),
-                (0.94, 0.28),
-                (0.74, 0.50),
-                (0.84, 0.50),
-                (0.94, 0.50),
-                (0.74, 0.72),
-                (0.84, 0.72),
-                (0.94, 0.72),
-            ]
+            xRange: 0.68 ... 0.96,
+            yRange: 0.24 ... 0.76,
+            columns: 7,
+            rows: 5
         )
         attachPNG(rowScreenshot.pngRepresentation, name: "profile-popover-default-row")
 
@@ -456,12 +449,12 @@ final class BrowserProfilePopoverContrastUITests: XCTestCase {
         let darkSamples = samples.filter { $0.luminance < 0.72 }
         XCTAssertGreaterThanOrEqual(
             opaqueSamples.count,
-            8,
+            28,
             "Expected most profile popover row samples to be composited against opaque menu chrome, samples=\(samples)"
         )
         XCTAssertGreaterThanOrEqual(
             darkSamples.count,
-            6,
+            22,
             "Expected dark app mode profile menu chrome to stay visibly distinct from the white page behind it, samples=\(samples)"
         )
     }
@@ -554,6 +547,30 @@ final class BrowserProfilePopoverContrastUITests: XCTestCase {
                 y: y
             )
         }
+    }
+
+    private func sampleRGBAGrid(
+        fromPNG pngData: Data,
+        xRange: ClosedRange<CGFloat>,
+        yRange: ClosedRange<CGFloat>,
+        columns: Int,
+        rows: Int
+    ) throws -> [RGBA] {
+        guard columns > 1, rows > 1 else {
+            throw XCTSkip("Grid sampling needs at least two columns and rows")
+        }
+
+        let points = (0 ..< rows).flatMap { row in
+            (0 ..< columns).map { column in
+                let xStep = CGFloat(column) / CGFloat(columns - 1)
+                let yStep = CGFloat(row) / CGFloat(rows - 1)
+                return (
+                    xFraction: xRange.lowerBound + (xRange.upperBound - xRange.lowerBound) * xStep,
+                    yFraction: yRange.lowerBound + (yRange.upperBound - yRange.lowerBound) * yStep
+                )
+            }
+        }
+        return try sampleRGBAs(fromPNG: pngData, points: points)
     }
 
     private func attachPNG(_ data: Data, name: String) {
