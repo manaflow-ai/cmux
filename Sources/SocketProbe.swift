@@ -23,7 +23,7 @@ nonisolated func socketPathHasLiveListener(_ path: String, timeout _: TimeInterv
     guard fcntl(fd, F_SETFL, originalFlags | O_NONBLOCK) >= 0 else { return true }
     defer { _ = fcntl(fd, F_SETFL, originalFlags) }
 
-    guard var addr = socketProbeUnixSocketAddress(path: path) else { return true }
+    guard var addr = socketProbeUnixSocketAddress(path: path) else { return false }
     var connectResult: Int32 = -1
     var connectErrno: Int32 = 0
     repeat {

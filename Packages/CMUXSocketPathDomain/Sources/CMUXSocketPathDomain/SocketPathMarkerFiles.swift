@@ -187,7 +187,7 @@ public enum SocketPathMarkerFiles {
                 directoryPath: directoryPath,
                 filePrefix: nightlySocketFilePrefix,
                 slug: slug,
-                fallbackPath: slug.map { _ in nightlySocketPath } ?? nightlySocketPath,
+                fallbackPath: fallbackSocketPath(nightlySocketPath, slug: slug),
                 maxSocketPathLength: maxSocketPathLength
             )
         case .staging(let slug):
@@ -195,7 +195,7 @@ public enum SocketPathMarkerFiles {
                 directoryPath: directoryPath,
                 filePrefix: stagingSocketFilePrefix,
                 slug: slug,
-                fallbackPath: slug.map { _ in stagingSocketPath } ?? stagingSocketPath,
+                fallbackPath: fallbackSocketPath(stagingSocketPath, slug: slug),
                 maxSocketPathLength: maxSocketPathLength
             )
         case .dev(let slug):
@@ -203,7 +203,7 @@ public enum SocketPathMarkerFiles {
                 directoryPath: directoryPath,
                 filePrefix: devSocketFilePrefix,
                 slug: slug,
-                fallbackPath: slug.map { _ in debugSocketPath } ?? debugSocketPath,
+                fallbackPath: fallbackSocketPath(debugSocketPath, slug: slug),
                 maxSocketPathLength: maxSocketPathLength
             )
         }
@@ -301,6 +301,17 @@ public enum SocketPathMarkerFiles {
             .path
             .utf8
             .count
+    }
+
+    private static func fallbackSocketPath(_ path: String, slug: String?) -> String {
+        guard let slug else { return path }
+        let url = URL(fileURLWithPath: path)
+        let stem = url.deletingPathExtension().path
+        let pathExtension = url.pathExtension
+        guard !pathExtension.isEmpty else {
+            return "\(path)-\(slug)"
+        }
+        return "\(stem)-\(slug).\(pathExtension)"
     }
 
     private static func stableSlugHash(_ value: String) -> String {
