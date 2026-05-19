@@ -426,9 +426,9 @@ final class EphemeralWorktreeRegistry: @unchecked Sendable {
     }
 
     private func cleanupOrphan(_ record: EphemeralWorktreeRecord) throws -> EphemeralWorktreeCleanupResult {
-        // Orphans no longer have a UI owner to ask. Preserve dirty contents with
-        // the snapshot path, then remove the unowned worktree record.
-        try cleanup(record, userConfirmed: true)
+        // Startup reconciliation has no user-confirmation surface. Respect `.block`
+        // for dirty orphans so the registry keeps pointing at the preserved worktree.
+        try cleanup(record, userConfirmed: false)
     }
 
     private func updateRecords(_ mutation: (inout [EphemeralWorktreeRecord]) -> Void) throws {
