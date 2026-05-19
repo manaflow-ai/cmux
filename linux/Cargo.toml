@@ -8,7 +8,7 @@ resolver = "2"
 [workspace.package]
 edition = "2021"
 license = "GPL-3.0-or-later"
-repository = "https://github.com/manaflow-ai/cmux"
+repository = "https://github.com/abobneil/cmux"
 
 [workspace.lints.rust]
 unsafe_code = "forbid"
