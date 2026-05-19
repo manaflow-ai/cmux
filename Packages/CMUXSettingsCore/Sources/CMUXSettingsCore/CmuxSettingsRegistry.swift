@@ -199,6 +199,8 @@ public enum CmuxSettingsRegistry {
         SettingDefinition(key: "browser.defaultSearchEngine", kind: .enumValue(["google", "duckduckgo", "bing", "kagi", "startpage"]), defaultValue: "google"),
         SettingDefinition(key: "browser.showSearchSuggestions", kind: .bool, defaultValue: true),
         SettingDefinition(key: "browser.theme", kind: .enumValue(["system", "light", "dark"]), defaultValue: "system"),
+        SettingDefinition(key: "browser.discardHiddenWebViews", kind: .bool, defaultValue: true),
+        SettingDefinition(key: "browser.hiddenWebViewDiscardDelaySeconds", kind: .double(min: 0, max: 3600), defaultValue: 300.0),
         SettingDefinition(key: "browser.openTerminalLinksInCmuxBrowser", kind: .bool, defaultValue: true),
         SettingDefinition(key: "browser.interceptTerminalOpenCommandInCmuxBrowser", kind: .bool, defaultValue: true),
         SettingDefinition(key: "browser.hostsToOpenInEmbeddedBrowser", kind: .stringList, defaultValue: [String]()),
