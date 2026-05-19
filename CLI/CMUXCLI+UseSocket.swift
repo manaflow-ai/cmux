@@ -13,9 +13,10 @@ extension CMUXCLI {
         } catch {
             client.close()
             guard shouldLaunchAppAfterSocketConnectFailure(socketPath: socketPath) else {
+                let connectError = String(describing: error)
                 throw CLIError(message: String(
                     localized: "cli.use.error.socketConnectFailed",
-                    defaultValue: "Failed to connect to cmux socket at \(socketPath): \(error)"
+                    defaultValue: "Failed to connect to cmux socket at \(socketPath): \(connectError)"
                 ))
             }
 
