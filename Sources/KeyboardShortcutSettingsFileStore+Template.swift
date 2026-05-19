@@ -101,6 +101,7 @@ extension CmuxSettingsFileStore {
                     "hideAllDetails": SidebarWorkspaceDetailSettings.defaultHideAllDetails,
                     "showWorkspaceDescription": SidebarWorkspaceDetailSettings.defaultShowWorkspaceDescription,
                     "branchLayout": SidebarBranchLayoutSettings.defaultVerticalLayout ? "vertical" : "inline",
+                    "autoDetectWorkspaceIcon": SidebarWorkspaceIconSettings.defaultAutoDetect,
                     "showNotificationMessage": SidebarWorkspaceDetailSettings.defaultShowNotificationMessage,
                     "showBranchDirectory": SidebarWorkspaceDetailDefaults.showBranchDirectory,
                     "showPullRequests": SidebarWorkspaceDetailDefaults.showPullRequests,

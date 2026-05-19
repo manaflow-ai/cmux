@@ -7,6 +7,245 @@ enum SidebarMatchTerminalBackgroundSettings {
     static let legacyAppliedSettingsFileDefaultKey = "cmux.settingsFile.sidebarMatchTerminalBackground.appliedDefault.v1"
 }
 
+enum SidebarWorkspaceIconSettings {
+    static let autoDetectKey = "sidebarAutoDetectWorkspaceIcon"
+    static let defaultAutoDetect = false
+
+    static func autoDetectsWorkspaceIcon(defaults: UserDefaults = .standard) -> Bool {
+        guard defaults.object(forKey: autoDetectKey) != nil else { return defaultAutoDetect }
+        return defaults.bool(forKey: autoDetectKey)
+    }
+}
+
+enum WorkspaceIconValue: Equatable, Sendable {
+    case emoji(String)
+    case file(path: String)
+
+    init?(storedValue: String?) {
+        guard let storedValue = Self.normalizedStorageValue(storedValue) else { return nil }
+        if storedValue.hasPrefix(Self.emojiPrefix) {
+            let emoji = String(storedValue.dropFirst(Self.emojiPrefix.count))
+            guard !emoji.isEmpty else { return nil }
+            self = .emoji(emoji)
+        } else {
+            self = .file(path: storedValue)
+        }
+    }
+
+    var storageValue: String {
+        switch self {
+        case .emoji(let emoji):
+            return Self.emojiPrefix + emoji
+        case .file(let path):
+            return path
+        }
+    }
+
+    static func normalizedStorageValue(_ rawValue: String?) -> String? {
+        guard let rawValue else { return nil }
+        let trimmed = rawValue.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmed.isEmpty else { return nil }
+
+        if trimmed.hasPrefix(Self.emojiPrefix) {
+            let emoji = String(trimmed.dropFirst(Self.emojiPrefix.count))
+                .trimmingCharacters(in: .whitespacesAndNewlines)
+            return emoji.isEmpty ? nil : Self.emojiPrefix + emoji
+        }
+
+        let expanded = NSString(string: trimmed).expandingTildeInPath
+        let standardized = NSString(string: expanded).standardizingPath
+        let normalized = standardized.trimmingCharacters(in: .whitespacesAndNewlines)
+        return normalized.isEmpty ? nil : normalized
+    }
+
+    private static let emojiPrefix = "emoji:"
+}
+
+enum WorkspaceIconDetector {
+    static let standardIconFilenames = [
+        "favicon.png", "favicon.ico", "favicon.svg",
+        "icon.png", "icon.svg",
+        "logo.png", "logo.svg",
+    ]
+
+    static let standardIconSubdirectories = [
+        "",
+        "public",
+        "static",
+        "src",
+        "assets",
+        "images",
+        "Resources",
+        ".github",
+        "docs",
+    ]
+
+    static func detectedIconPath(in directory: String) -> String? {
+        let normalizedDirectory = WorkspaceIconValue.normalizedStorageValue(directory)
+        guard let normalizedDirectory else { return nil }
+
+        let fileManager = FileManager.default
+        if let standardIcon = findStandardIcon(in: normalizedDirectory, fileManager: fileManager) {
+            return standardIcon
+        }
+        if let appIcon = findXcodeAppIcon(in: normalizedDirectory, fileManager: fileManager) {
+            return appIcon
+        }
+        if let androidIcon = findFirstExistingPath(
+            in: normalizedDirectory,
+            relativePaths: [
+                "android/app/src/main/res/mipmap-xxxhdpi/ic_launcher.png",
+                "android/app/src/main/res/mipmap-xxhdpi/ic_launcher.png",
+                "app/src/main/res/mipmap-xxxhdpi/ic_launcher.png",
+                "app/src/main/res/mipmap-xxhdpi/ic_launcher.png",
+            ],
+            fileManager: fileManager
+        ) {
+            return androidIcon
+        }
+        return findFirstExistingPath(
+            in: normalizedDirectory,
+            relativePaths: [
+                "build/icon.png",
+                "build/icons/icon.png",
+                "resources/icon.png",
+            ],
+            fileManager: fileManager
+        )
+    }
+
+    private static func findStandardIcon(in directory: String, fileManager: FileManager) -> String? {
+        for subdirectory in standardIconSubdirectories {
+            let basePath = subdirectory.isEmpty
+                ? directory
+                : (directory as NSString).appendingPathComponent(subdirectory)
+            for filename in standardIconFilenames {
+                let path = (basePath as NSString).appendingPathComponent(filename)
+                if fileManager.fileExists(atPath: path) {
+                    return path
+                }
+            }
+        }
+        return nil
+    }
+
+    private static func findXcodeAppIcon(in directory: String, fileManager: FileManager) -> String? {
+        for candidate in [
+            "Assets.xcassets/AppIcon.appiconset",
+            "Resources/Assets.xcassets/AppIcon.appiconset",
+        ] {
+            let iconsetPath = (directory as NSString).appendingPathComponent(candidate)
+            guard let contents = try? fileManager.contentsOfDirectory(atPath: iconsetPath) else {
+                continue
+            }
+            let pngs = contents
+                .filter { $0.lowercased().hasSuffix(".png") }
+                .sorted { lhs, rhs in lhs.localizedStandardCompare(rhs) == .orderedDescending }
+            if let largest = pngs.first {
+                return (iconsetPath as NSString).appendingPathComponent(largest)
+            }
+        }
+        return nil
+    }
+
+    private static func findFirstExistingPath(
+        in directory: String,
+        relativePaths: [String],
+        fileManager: FileManager
+    ) -> String? {
+        for relativePath in relativePaths {
+            let path = (directory as NSString).appendingPathComponent(relativePath)
+            if fileManager.fileExists(atPath: path) {
+                return path
+            }
+        }
+        return nil
+    }
+}
+
+private final class WorkspaceIconImageBox: @unchecked Sendable {
+    let image: NSImage
+
+    init(image: NSImage) {
+        self.image = image
+    }
+}
+
+struct WorkspaceIconView: View {
+    let iconPath: String
+    let size: CGFloat
+
+    @State private var loadedImage: NSImage?
+    @State private var loadedImagePath: String?
+    @State private var imageLoadFailed = false
+
+    private var iconValue: WorkspaceIconValue? {
+        WorkspaceIconValue(storedValue: iconPath)
+    }
+
+    var body: some View {
+        ZStack {
+            switch iconValue {
+            case .emoji(let emoji):
+                Text(emoji)
+                    .font(.system(size: size * 0.55))
+                    .frame(width: size, height: size)
+                    .background(Circle().fill(Color.primary.opacity(0.08)))
+
+            case .file(let path):
+                if loadedImagePath == path, let loadedImage {
+                    Image(nsImage: loadedImage)
+                        .resizable()
+                        .scaledToFill()
+                        .frame(width: size, height: size)
+                } else {
+                    placeholderIcon
+                }
+
+            case nil:
+                placeholderIcon
+            }
+        }
+        .frame(width: size, height: size)
+        .clipShape(Circle())
+        .overlay(Circle().stroke(Color.primary.opacity(0.08), lineWidth: 0.5))
+        .task(id: iconPath) {
+            await loadFileIconIfNeeded()
+        }
+    }
+
+    @ViewBuilder
+    private var placeholderIcon: some View {
+        Image(systemName: imageLoadFailed ? "exclamationmark.triangle" : "photo")
+            .font(.system(size: size * 0.36, weight: .medium))
+            .foregroundColor(.secondary)
+            .frame(width: size, height: size)
+            .background(Circle().fill(Color.primary.opacity(0.06)))
+    }
+
+    @MainActor
+    private func loadFileIconIfNeeded() async {
+        guard case .file(let path) = iconValue else {
+            loadedImage = nil
+            loadedImagePath = nil
+            imageLoadFailed = false
+            return
+        }
+
+        loadedImage = nil
+        loadedImagePath = path
+        imageLoadFailed = false
+
+        let imageBox = await Task.detached(priority: .utility) {
+            NSImage(contentsOfFile: path).map(WorkspaceIconImageBox.init(image:))
+        }.value
+
+        guard !Task.isCancelled, loadedImagePath == path else { return }
+        loadedImage = imageBox?.image
+        imageLoadFailed = imageBox == nil
+    }
+}
+
 extension Color {
     init?(hex: String) {
         let hex = hex.trimmingCharacters(in: .init(charactersIn: "#"))

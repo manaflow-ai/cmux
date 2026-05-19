@@ -197,6 +197,50 @@ final class SidebarSelectedWorkspaceColorTests: XCTestCase {
     }
 }
 
+@MainActor
+final class WorkspaceIconTests: XCTestCase {
+    func testIconStorageNormalizesEmojiAndFilePaths() {
+        XCTAssertEqual(WorkspaceIconValue.normalizedStorageValue(" emoji: 🚀 "), "emoji:🚀")
+        XCTAssertNil(WorkspaceIconValue.normalizedStorageValue("emoji:   "))
+        XCTAssertNil(WorkspaceIconValue.normalizedStorageValue("   "))
+
+        let rawPath = "~/Desktop/cmux-icon.png"
+        let expectedPath = NSString(
+            string: NSString(string: rawPath).expandingTildeInPath
+        ).standardizingPath
+        XCTAssertEqual(WorkspaceIconValue.normalizedStorageValue(rawPath), expectedPath)
+    }
+
+    func testWorkspaceCustomIconAffectsAutosaveFingerprint() {
+        let manager = TabManager()
+        guard let workspace = manager.tabs.first else {
+            XCTFail("Expected TabManager to initialise with a workspace")
+            return
+        }
+
+        let cleanFingerprint = manager.sessionAutosaveFingerprint()
+        manager.setTabIcon(tabId: workspace.id, iconPath: "emoji:🚀")
+
+        XCTAssertEqual(workspace.customIconPath, "emoji:🚀")
+        XCTAssertNotEqual(cleanFingerprint, manager.sessionAutosaveFingerprint())
+    }
+
+    func testWorkspaceIconDetectorFindsRootFavicon() throws {
+        let directory = FileManager.default.temporaryDirectory
+            .appendingPathComponent("cmux-workspace-icon-\(UUID().uuidString)", isDirectory: true)
+        try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: directory) }
+
+        let iconURL = directory.appendingPathComponent("favicon.png")
+        try Data([0x89, 0x50, 0x4E, 0x47]).write(to: iconURL)
+
+        XCTAssertEqual(
+            WorkspaceIconDetector.detectedIconPath(in: directory.path),
+            iconURL.path
+        )
+    }
+}
+
 
 final class WorkspaceRenameShortcutDefaultsTests: XCTestCase {
     func testRenameTabShortcutDefaultsAndMetadata() {

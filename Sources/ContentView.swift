@@ -9245,6 +9245,7 @@ private struct SidebarTabItemSettingsSnapshot: Equatable {
     let notificationBadgeColorHex: String?
     let visibleAuxiliaryDetails: SidebarWorkspaceAuxiliaryDetailVisibility
     let iMessageModeEnabled: Bool
+    let autoDetectWorkspaceIcon: Bool
 
     init(defaults: UserDefaults = .standard) {
         sidebarShortcutHintXOffset = ShortcutHintDebugSettings.defaultSidebarHintX
@@ -9298,6 +9299,7 @@ private struct SidebarTabItemSettingsSnapshot: Equatable {
         selectionColorHex = defaults.string(forKey: "sidebarSelectionColorHex")
         notificationBadgeColorHex = defaults.string(forKey: "sidebarNotificationBadgeColorHex")
         iMessageModeEnabled = IMessageModeSettings.isEnabled(defaults: defaults)
+        autoDetectWorkspaceIcon = SidebarWorkspaceIconSettings.autoDetectsWorkspaceIcon(defaults: defaults)
     }
 
     private static func bool(
@@ -12276,6 +12278,7 @@ struct SidebarWorkspaceSnapshotBuilder {
         let customDescription: String?
         let isPinned: Bool
         let customColorHex: String?
+        let workspaceIconPath: String?
         let remoteWorkspaceSidebarText: String?
         let remoteConnectionStatusText: String
         let remoteStateHelpText: String
@@ -12624,6 +12627,14 @@ private struct TabItemView: View, Equatable {
             : nil
         let effectiveSubtitle = latestNotificationSubtitle ?? conversationMessageSubtitle
         let detailVisibility = visibleAuxiliaryDetails
+        let workspaceIconPath = workspaceSnapshot.workspaceIconPath
+
+        HStack(alignment: .top, spacing: workspaceIconPath == nil ? 0 : 10) {
+            if let workspaceIconPath {
+                WorkspaceIconView(iconPath: workspaceIconPath, size: 36)
+                    .padding(.top, 1)
+                    .accessibilityIdentifier("SidebarWorkspaceIcon")
+            }
 
         VStack(alignment: .leading, spacing: 4) {
             HStack(spacing: 8) {
@@ -12834,10 +12845,13 @@ private struct TabItemView: View, Equatable {
                 .lineLimit(1)
             }
         }
+        .frame(maxWidth: .infinity, alignment: .leading)
+        }
         .animation(.easeInOut(duration: 0.2), value: workspaceSnapshot.latestLog)
         .animation(.easeInOut(duration: 0.2), value: workspaceSnapshot.progress != nil)
         .animation(.easeInOut(duration: 0.2), value: workspaceSnapshot.metadataBlocks.count)
-        .padding(.horizontal, 10)
+        .padding(.leading, workspaceIconPath == nil ? 10 : 6)
+        .padding(.trailing, 10)
         .padding(.vertical, 8)
         .background(
             RoundedRectangle(cornerRadius: 6)
@@ -12921,6 +12935,7 @@ private struct TabItemView: View, Equatable {
             }
         }
         .onAppear {
+            refreshWorkspaceIconDetection()
             refreshWorkspaceSnapshot(force: true)
         }
         .task(id: finderDirectoryCacheKey) {
@@ -12948,6 +12963,7 @@ private struct TabItemView: View, Equatable {
                 "desc=\"\(debugCommandPaletteTextPreview(description))\""
             )
 #endif
+            refreshWorkspaceIconDetection()
             refreshWorkspaceSnapshot()
         }
         .onReceive(
@@ -12968,9 +12984,11 @@ private struct TabItemView: View, Equatable {
                 "desc=\"\(debugCommandPaletteTextPreview(description))\""
             )
 #endif
+            refreshWorkspaceIconDetection()
             refreshWorkspaceSnapshot()
         }
         .onChange(of: settings) { _ in
+            refreshWorkspaceIconDetection()
             refreshWorkspaceSnapshot(force: true)
         }
         .onDrag {
@@ -13045,6 +13063,10 @@ private struct TabItemView: View, Equatable {
         if contextMenuState.hasDeferredWorkspaceObservationInvalidation != decision.hasDeferredWorkspaceObservationInvalidation {
             contextMenuState.hasDeferredWorkspaceObservationInvalidation = decision.hasDeferredWorkspaceObservationInvalidation
         }
+    }
+
+    private func refreshWorkspaceIconDetection() {
+        tab.refreshDetectedWorkspaceIcon(autoDetectEnabled: settings.autoDetectWorkspaceIcon)
     }
 
     private func flushDeferredWorkspaceObservationInvalidation() {
@@ -13196,6 +13218,28 @@ private struct TabItemView: View, Equatable {
                         Image(systemName: "checkmark")
                     }
                 }
+            }
+        }
+
+        Menu(String(localized: "contextMenu.workspaceIcon", defaultValue: "Workspace Icon")) {
+            if tab.customIconPath != nil {
+                Button {
+                    applyTabIcon(nil, targetIds: targetIds)
+                } label: {
+                    Label(String(localized: "contextMenu.clearIcon", defaultValue: "Clear Icon"), systemImage: "xmark.circle")
+                }
+            }
+
+            Button {
+                promptIconFromFile(targetIds: targetIds)
+            } label: {
+                Label(String(localized: "contextMenu.setIconFromFile", defaultValue: "Set Icon from File…"), systemImage: "photo")
+            }
+
+            Button {
+                promptEmojiIcon(targetIds: targetIds)
+            } label: {
+                Label(String(localized: "contextMenu.setEmojiIcon", defaultValue: "Set Emoji Icon…"), systemImage: "face.smiling")
             }
         }
 
@@ -13619,6 +13663,7 @@ private struct TabItemView: View, Equatable {
             customDescription: settings.showsWorkspaceDescription ? sidebarVisibleCustomDescription : nil,
             isPinned: tab.isPinned,
             customColorHex: tab.customColor,
+            workspaceIconPath: tab.effectiveIconPath(autoDetectEnabled: settings.autoDetectWorkspaceIcon),
             remoteWorkspaceSidebarText: remoteWorkspaceSidebarText,
             remoteConnectionStatusText: remoteConnectionStatusText,
             remoteStateHelpText: remoteStateHelpText,
@@ -13956,6 +14001,10 @@ private struct TabItemView: View, Equatable {
         tabManager.applyWorkspaceColor(hex, toWorkspaceIds: targetIds)
     }
 
+    private func applyTabIcon(_ iconPath: String?, targetIds: [UUID]) {
+        tabManager.applyWorkspaceIcon(iconPath, toWorkspaceIds: targetIds)
+    }
+
     private func toggleWorkspaceTerminalScrollBarHidden(targetIds: [UUID]) {
         let currentlyHidden = !targetIds.isEmpty && targetIds.allSatisfy { targetId in
             tabManager.tabs.first(where: { $0.id == targetId })?.terminalScrollBarHidden == true
@@ -13964,6 +14013,38 @@ private struct TabItemView: View, Equatable {
         for targetId in targetIds {
             tabManager.setWorkspaceTerminalScrollBarHidden(tabId: targetId, hidden: hideScrollBar)
         }
+    }
+
+    private func promptIconFromFile(targetIds: [UUID]) {
+        let panel = NSOpenPanel()
+        panel.title = String(localized: "openPanel.workspaceIcon.title", defaultValue: "Choose Workspace Icon")
+        panel.allowedContentTypes = [.image]
+        panel.allowsMultipleSelection = false
+        panel.canChooseDirectories = false
+        let response = panel.runModal()
+        guard response == .OK, let url = panel.url else { return }
+        applyTabIcon(url.path, targetIds: targetIds)
+    }
+
+    private func promptEmojiIcon(targetIds: [UUID]) {
+        let alert = NSAlert()
+        alert.messageText = String(localized: "alert.emojiIcon.title", defaultValue: "Emoji Workspace Icon")
+        alert.informativeText = String(localized: "alert.emojiIcon.message", defaultValue: "Enter an emoji to use as the workspace icon.")
+
+        let input = NSTextField(string: "")
+        input.placeholderString = String(localized: "alert.emojiIcon.placeholder", defaultValue: "🚀")
+        input.frame = NSRect(x: 0, y: 0, width: 240, height: 22)
+        alert.accessoryView = input
+        alert.addButton(withTitle: String(localized: "alert.emojiIcon.apply", defaultValue: "Apply"))
+        alert.addButton(withTitle: String(localized: "alert.emojiIcon.cancel", defaultValue: "Cancel"))
+        alert.window.initialFirstResponder = input
+
+        let response = alert.runModal()
+        guard response == .alertFirstButtonReturn,
+              let normalized = WorkspaceIconValue.normalizedStorageValue("emoji:\(input.stringValue)") else {
+            return
+        }
+        applyTabIcon(normalized, targetIds: targetIds)
     }
 
     private func promptCustomColor(targetIds: [UUID]) {

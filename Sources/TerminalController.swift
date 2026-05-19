@@ -4300,7 +4300,9 @@ class TerminalController {
             "listening_ports": workspace.listeningPorts,
             "remote": workspace.remoteStatusPayload(),
             "current_directory": v2OrNull(workspace.currentDirectory),
-            "custom_color": v2OrNull(workspace.customColor)
+            "custom_color": v2OrNull(workspace.customColor),
+            "custom_icon": v2OrNull(workspace.customIconPath),
+            "detected_icon": v2OrNull(workspace.detectedIconPath)
         ]
         if let index {
             payload["index"] = index
@@ -5475,7 +5477,8 @@ class TerminalController {
             "move_up", "move_down", "move_top",
             "close_others", "close_above", "close_below",
             "mark_read", "mark_unread",
-            "set_color", "clear_color"
+            "set_color", "clear_color",
+            "set_icon", "clear_icon"
         ]
 
         var result: V2CallResult = .err(code: "invalid_params", message: "Unknown workspace action", data: [
@@ -5643,6 +5646,19 @@ class TerminalController {
             case "clear_color":
                 tabManager.setTabColor(tabId: workspace.id, color: nil)
                 finish(["color": NSNull()])
+
+            case "set_icon":
+                guard let iconRaw = v2String(params, "icon"),
+                      let icon = WorkspaceIconValue.normalizedStorageValue(iconRaw) else {
+                    result = .err(code: "invalid_params", message: "Missing or invalid icon", data: nil)
+                    return
+                }
+                tabManager.setTabIcon(tabId: workspace.id, iconPath: icon)
+                finish(["custom_icon": v2OrNull(workspace.customIconPath)])
+
+            case "clear_icon":
+                tabManager.setTabIcon(tabId: workspace.id, iconPath: nil)
+                finish(["custom_icon": NSNull()])
 
             default:
                 result = .err(code: "invalid_params", message: "Unknown workspace action", data: [
@@ -17441,6 +17457,8 @@ class TerminalController {
             var lines: [String] = []
             lines.append("tab=\(tab.id.uuidString)")
             lines.append("color=\(tab.customColor ?? "none")")
+            lines.append("icon=\(tab.customIconPath ?? "none")")
+            lines.append("detected_icon=\(tab.detectedIconPath ?? "none")")
             lines.append("cwd=\(tab.currentDirectory)")
 
             if let focused = tab.focusedPanelId,
