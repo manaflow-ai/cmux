@@ -1669,6 +1669,12 @@ class GhosttyApp {
     static let shared = GhosttyApp()
     private static let releaseBundleIdentifier = "com.cmuxterm.app"
     private static let fallbackAppearanceConfig = GhosttyConfig()
+    // SAFETY: Ghostty C callbacks can run while GhosttyApp.shared is still initializing.
+    // cmux owns one process-lifetime GhosttyApp, so the registry avoids singleton re-entry
+    // without adding a teardown path for a ghostty_app_t that is never freed/recreated.
+    private static let appRegistryLock = NSLock()
+    private static var appRegistry: [UInt: GhosttyApp] = [:]
+    private static var initializingRuntimeApp: GhosttyApp?
     private static let backgroundLogTimestampFormatter: ISO8601DateFormatter = {
         let formatter = ISO8601DateFormatter()
         formatter.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
@@ -2001,15 +2007,11 @@ class GhosttyApp {
         runtimeConfig.userdata = Unmanaged.passUnretained(self).toOpaque()
         runtimeConfig.supports_selection_clipboard = true
         runtimeConfig.wakeup_cb = { userdata in
-            guard let userdata else { return }
-            Unmanaged<GhosttyApp>
-                .fromOpaque(userdata)
-                .takeUnretainedValue()
-                .scheduleTick()
+            GhosttyApp.runtimeApp(from: userdata)?.scheduleTick()
         }
         runtimeConfig.action_cb = { app, target, action in
-            guard let app, app == GhosttyApp.shared.app else { return false }
-            return GhosttyApp.shared.handleAction(target: target, action: action)
+            guard let runtimeApp = GhosttyApp.runtimeAppForActionCallback(app) else { return false }
+            return runtimeApp.handleAction(target: target, action: action)
         }
         // Some GhosttyKit builds import this callback as returning `Void` in Swift even
         // though the C ABI returns `bool`. Store the C-compatible shim explicitly so the
@@ -2096,9 +2098,13 @@ class GhosttyApp {
         }
 
         // Create app
+        Self.setInitializingRuntimeApp(self)
+        defer { Self.setInitializingRuntimeApp(nil) }
+
         if let created = ghostty_app_new(&runtimeConfig, primaryConfig) {
             self.app = created
             self.config = primaryConfig
+            Self.registerRuntimeApp(self, for: created)
         } else {
             #if DEBUG
             Self.initLog("ghostty_app_new(primary) failed; attempting fallback config")
@@ -2156,6 +2162,7 @@ class GhosttyApp {
 
             self.app = created
             self.config = fallbackConfig
+            Self.registerRuntimeApp(self, for: created)
         }
 
         // Notify observers that a usable config is available (initial load).
@@ -3617,7 +3624,7 @@ class GhosttyApp {
                 scope: .app
             )
             DispatchQueue.main.async {
-                GhosttyApp.shared.applyBackgroundToKeyWindow()
+                self.applyBackgroundToKeyWindow()
             }
         case GHOSTTY_ACTION_COLOR_KIND_FOREGROUND:
             applyDefaultBackground(
@@ -3756,6 +3763,44 @@ class GhosttyApp {
     private static func callbackContext(from userdata: UnsafeMutableRawPointer?) -> GhosttySurfaceCallbackContext? {
         guard let userdata else { return nil }
         return Unmanaged<GhosttySurfaceCallbackContext>.fromOpaque(userdata).takeUnretainedValue()
+    }
+
+    private static func runtimeApp(from userdata: UnsafeMutableRawPointer?) -> GhosttyApp? {
+        guard let userdata else { return nil }
+        return Unmanaged<GhosttyApp>.fromOpaque(userdata).takeUnretainedValue()
+    }
+
+    private static func registerRuntimeApp(_ runtimeApp: GhosttyApp, for app: ghostty_app_t) {
+        let key = UInt(bitPattern: app)
+        appRegistryLock.lock()
+        appRegistry[key] = runtimeApp
+        appRegistryLock.unlock()
+    }
+
+    private static func setInitializingRuntimeApp(_ runtimeApp: GhosttyApp?) {
+        appRegistryLock.lock()
+        initializingRuntimeApp = runtimeApp
+        appRegistryLock.unlock()
+    }
+
+    private static func runtimeApp(for app: ghostty_app_t?) -> GhosttyApp? {
+        guard let app else { return nil }
+        let key = UInt(bitPattern: app)
+        appRegistryLock.lock()
+        defer { appRegistryLock.unlock() }
+        return appRegistry[key]
+    }
+
+    private static func runtimeAppForActionCallback(_ app: ghostty_app_t?) -> GhosttyApp? {
+        appRegistryLock.lock()
+        defer { appRegistryLock.unlock() }
+        if let app {
+            let key = UInt(bitPattern: app)
+            if let registered = appRegistry[key] {
+                return registered
+            }
+        }
+        return initializingRuntimeApp
     }
 
     private func handleAction(target: ghostty_target_s, action: ghostty_action_s) -> Bool {
@@ -5123,6 +5168,21 @@ final class TerminalSurface: Identifiable, ObservableObject {
         portalLifecycleState == .live
     }
 
+    private var hasDeferredStartupWork: Bool {
+        let inheritedCommand = configTemplate?.command?.trimmingCharacters(in: .whitespacesAndNewlines)
+        let inheritedInput = configTemplate?.initialInput
+        return initialCommand != nil ||
+            tmuxStartCommand != nil ||
+            initialInput != nil ||
+            inheritedCommand?.isEmpty == false ||
+            inheritedInput?.isEmpty == false ||
+            pendingSocketInputBytes > 0
+    }
+
+    func hasDeferredStartupWorkForBackgroundStart() -> Bool {
+        hasDeferredStartupWork
+    }
+
     func beginPortalCloseLifecycle(reason: String) {
         guard portalLifecycleState != .closed else { return }
         guard portalLifecycleState != .closing else { return }
@@ -5199,6 +5259,11 @@ final class TerminalSurface: Identifiable, ObservableObject {
 
     func debugDesiredFocusState() -> Bool {
         desiredFocusState
+    }
+
+    @MainActor
+    func debugAdditionalEnvironmentForTesting() -> [String: String] {
+        additionalEnvironment
     }
 
     func debugForceRefreshCount() -> Int {

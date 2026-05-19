@@ -865,6 +865,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
     private var sessionAutosaveTimer: DispatchSourceTimer?
     private var sessionAutosaveTickInFlight = false
     private var sessionAutosaveDeferredRetryPending = false
+    private var processDetectedSessionSaveGeneration: UInt64 = 0
     private let sessionPersistenceQueue = DispatchQueue(
         label: "com.cmuxterm.app.sessionPersistence",
         qos: .utility
@@ -1010,14 +1011,23 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         let env = ProcessInfo.processInfo.environment
         let isRunningUnderXCTest = isRunningUnderXCTest(env)
         let telemetryEnabled = TelemetrySettings.enabledForCurrentLaunch
+        StartupBreadcrumbLog.append(
+            "appDelegate.didFinish.begin",
+            fields: [
+                "xctest": isRunningUnderXCTest ? "1" : "0",
+                "telemetry": telemetryEnabled ? "1" : "0"
+            ]
+        )
         AppIconLaunchState.markDidFinishLaunching()
         if isRunningUnderXCTest {
             NSApp.setActivationPolicy(.regular)
         } else {
             syncActivationPolicy()
         }
+        StartupBreadcrumbLog.append("appDelegate.didFinish.activationPolicy.synced")
 
         claimAuthCallbackURLSchemes()
+        StartupBreadcrumbLog.append("appDelegate.didFinish.authSchemes.claimed")
 
         // Install the Feed (workstream) store. Separate from the transport
         // wiring: the store is a plain singleton here, and the socket
@@ -1029,6 +1039,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
                 persistence: WorkstreamPersistence(fileURL: WorkstreamPersistence.defaultFileURL())
             )
         )
+        StartupBreadcrumbLog.append("appDelegate.didFinish.feedStore.installed")
         Task { @MainActor in
             await FeedCoordinator.shared.store?.start()
 #if DEBUG
@@ -1090,6 +1101,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             _ = Locale.current
             _ = NSLocale.preferredLanguages
 
+            StartupBreadcrumbLog.append("appDelegate.didFinish.sentry.begin")
             SentrySDK.start { options in
                 options.dsn = "https://ecba1ec90ecaee02a102fba931b6d2b3@o4507547940749312.ingest.us.sentry.io/4510796264636416"
                 #if DEBUG
@@ -1111,10 +1123,13 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
                 // Avoid recursively capturing failed requests from Sentry's own ingestion endpoint.
                 options.enableCaptureFailedRequests = false
             }
+            StartupBreadcrumbLog.append("appDelegate.didFinish.sentry.complete")
         }
 
         if telemetryEnabled && !isRunningUnderXCTest {
+            StartupBreadcrumbLog.append("appDelegate.didFinish.posthog.begin")
             PostHogAnalytics.shared.startIfNeeded()
+            StartupBreadcrumbLog.append("appDelegate.didFinish.posthog.complete")
         }
 
         let forceDuplicateLaunchObserver = env["CMUX_UI_TEST_ENABLE_DUPLICATE_LAUNCH_OBSERVER"] == "1"
@@ -1125,9 +1140,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         if !isRunningUnderXCTest {
             DispatchQueue.main.async { [weak self] in
                 guard let self else { return }
+                StartupBreadcrumbLog.append("appDelegate.singleInstance.async.begin")
                 self.scheduleLaunchServicesBundleRegistration()
+                StartupBreadcrumbLog.append("appDelegate.singleInstance.launchServices.scheduled")
                 self.enforceSingleInstance()
                 self.observeDuplicateLaunches()
+                StartupBreadcrumbLog.append("appDelegate.singleInstance.async.complete")
             }
         } else if forceDuplicateLaunchObserver {
             // Some UI regressions specifically exercise launch-observer behavior while still
@@ -1162,7 +1180,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         SystemWideHotkeyController.shared.start()
         NSApp.servicesProvider = self
 
+        StartupBreadcrumbLog.append("appDelegate.didFinish.bootstrap.begin")
         scheduleInitialMainWindowBootstrap(debugSource: "didFinishLaunching")
+        StartupBreadcrumbLog.append("appDelegate.didFinish.complete")
 #if DEBUG
         UpdateTestSupport.applyIfNeeded(to: updateController.viewModel)
         if env["CMUX_UI_TEST_MODE"] == "1" {
@@ -1507,12 +1527,21 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
     }
 
     func applicationShouldTerminate(_ sender: NSApplication) -> NSApplication.TerminateReply {
+        StartupBreadcrumbLog.append(
+            "appDelegate.shouldTerminate.begin",
+            fields: [
+                "taggedDev": SocketControlSettings.isTaggedDevBuild() ? "1" : "0",
+                "quitWarningConfirmed": isQuitWarningConfirmed ? "1" : "0",
+                "quitWarningEnabled": QuitWarningSettings.isEnabled() ? "1" : "0"
+            ]
+        )
         isTerminatingApp = true
-        _ = saveSessionSnapshot(includeScrollback: true, removeWhenEmpty: false)
+        _ = saveSessionSnapshotIncludingProcessDetectedIndexes(includeScrollback: true, removeWhenEmpty: false)
 
         // Tagged DEV builds are ephemeral, skip quit confirmation entirely.
         if SocketControlSettings.isTaggedDevBuild() {
             closeAllWebInspectorsBeforeAppTeardown()
+            StartupBreadcrumbLog.append("appDelegate.shouldTerminate.terminateNow", fields: ["reason": "taggedDev"])
             return .terminateNow
         }
 
@@ -1520,6 +1549,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         // (handleQuitShortcutWarning), skip the check to avoid a second alert.
         if isQuitWarningConfirmed {
             closeAllWebInspectorsBeforeAppTeardown()
+            StartupBreadcrumbLog.append("appDelegate.shouldTerminate.terminateNow", fields: ["reason": "confirmed"])
             return .terminateNow
         }
 
@@ -1527,6 +1557,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         // the Cmd+Tab app switcher, bypassing handleCustomShortcut.
         guard QuitWarningSettings.isEnabled() else {
             closeAllWebInspectorsBeforeAppTeardown()
+            StartupBreadcrumbLog.append("appDelegate.shouldTerminate.terminateNow", fields: ["reason": "warningDisabled"])
             return .terminateNow
         }
 
@@ -1551,12 +1582,15 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             if shouldQuit {
                 self.isQuitWarningConfirmed = true
                 self.closeAllWebInspectorsBeforeAppTeardown()
+                StartupBreadcrumbLog.append("appDelegate.shouldTerminate.reply", fields: ["shouldQuit": "1"])
             } else {
                 // Reset so that the next quit attempt can show the dialog again.
                 self.isTerminatingApp = false
+                StartupBreadcrumbLog.append("appDelegate.shouldTerminate.reply", fields: ["shouldQuit": "0"])
             }
             NSApp.reply(toApplicationShouldTerminate: shouldQuit)
         }
+        StartupBreadcrumbLog.append("appDelegate.shouldTerminate.later")
         return .terminateLater
     }
 
@@ -1566,9 +1600,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
     }
 
     func applicationWillTerminate(_ notification: Notification) {
+        StartupBreadcrumbLog.append("appDelegate.willTerminate.begin")
         isTerminatingApp = true
         closeAllWebInspectorsBeforeAppTeardown()
-        _ = saveSessionSnapshot(includeScrollback: true, removeWhenEmpty: false)
+        _ = saveSessionSnapshotIncludingProcessDetectedIndexes(includeScrollback: true, removeWhenEmpty: false)
         stopSessionAutosaveTimer()
         CloudVMActionLauncher.shared.terminateAll()
         CmuxSSHURLProcessLauncher.shared.terminateAll()
@@ -1583,18 +1618,19 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         ghosttyCrashBreadcrumbTask = nil
         notificationStore?.clearAll()
         GhosttyCrashBreadcrumb.markCleanExit()
+        StartupBreadcrumbLog.append("appDelegate.willTerminate.complete")
         enableSuddenTerminationIfNeeded()
     }
 
     func applicationWillResignActive(_ notification: Notification) {
         guard !isTerminatingApp else { return }
         clearConfiguredShortcutChordState()
-        _ = saveSessionSnapshot(includeScrollback: false)
+        saveSessionSnapshotAfterLoadingProcessDetectedIndexes(includeScrollback: false)
     }
 
     func persistSessionForUpdateRelaunch() {
         isTerminatingApp = true
-        _ = saveSessionSnapshot(includeScrollback: true, removeWhenEmpty: false)
+        _ = saveSessionSnapshotIncludingProcessDetectedIndexes(includeScrollback: true, removeWhenEmpty: false)
     }
 
     func configure(tabManager: TabManager, notificationStore: TerminalNotificationStore, sidebarState: SidebarState) {
@@ -2750,11 +2786,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         )
     }
 
-    private func attemptStartupSessionRestoreIfNeeded(primaryWindow: NSWindow) {
-        guard !didAttemptStartupSessionRestore else { return }
+    @discardableResult
+    private func attemptStartupSessionRestoreIfNeeded(primaryWindow: NSWindow) -> Bool {
+        guard !didAttemptStartupSessionRestore else { return false }
         didAttemptStartupSessionRestore = true
-        guard !didHandleExplicitOpenIntentAtStartup else { return }
-        guard let primaryContext = contextForMainTerminalWindow(primaryWindow) else { return }
+        guard !didHandleExplicitOpenIntentAtStartup else { return false }
+        guard let primaryContext = contextForMainTerminalWindow(primaryWindow) else { return false }
 
         let startupSnapshot = startupSessionSnapshot
         let primaryWindowSnapshot = startupSnapshot?.windows.first
@@ -2786,38 +2823,41 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             }
         }
 
-        if let startupSnapshot {
-            let additionalWindows = Array(startupSnapshot
-                .windows
-                .dropFirst()
-                .prefix(max(0, SessionPersistencePolicy.maxWindowsPerSnapshot - 1)))
+        guard let startupSnapshot else { return false }
+
+        let additionalWindows = Array(startupSnapshot
+            .windows
+            .dropFirst()
+            .prefix(max(0, SessionPersistencePolicy.maxWindowsPerSnapshot - 1)))
 #if DEBUG
-            for (index, windowSnapshot) in additionalWindows.enumerated() {
-                cmuxDebugLog(
-                    "session.restore.enqueueAdditional idx=\(index + 1) " +
-                        "frame={\(debugSessionRectDescription(windowSnapshot.frame))} " +
-                        "display={\(debugSessionDisplayDescription(windowSnapshot.display))}"
-                )
-            }
-#endif
-            if !additionalWindows.isEmpty {
-                DispatchQueue.main.async { [weak self] in
-                    guard let self else { return }
-                    for windowSnapshot in additionalWindows {
-                        _ = self.createMainWindow(sessionWindowSnapshot: windowSnapshot)
-                    }
-                    self.completeSessionRestoreOperation(isManualReopen: false)
-                }
-            } else {
-                completeSessionRestoreOperation(isManualReopen: false)
-            }
+        for (index, windowSnapshot) in additionalWindows.enumerated() {
+            cmuxDebugLog(
+                "session.restore.enqueueAdditional idx=\(index + 1) " +
+                    "frame={\(debugSessionRectDescription(windowSnapshot.frame))} " +
+                    "display={\(debugSessionDisplayDescription(windowSnapshot.display))}"
+            )
         }
+#endif
+        if !additionalWindows.isEmpty {
+            DispatchQueue.main.async { [weak self] in
+                guard let self else { return }
+                for windowSnapshot in additionalWindows {
+                    _ = self.createMainWindow(sessionWindowSnapshot: windowSnapshot)
+                }
+                self.completeSessionRestoreOperation(isManualReopen: false)
+            }
+        } else {
+            completeSessionRestoreOperation(isManualReopen: false)
+        }
+        return true
     }
 
     private func completeSessionRestoreOperation(isManualReopen: Bool) {
         startupSessionSnapshot = nil
         isApplyingSessionRestore = false
         if Self.shouldSaveSessionSnapshotOnRestoreCompletion(isManualReopen: isManualReopen) {
+            // Auto-resume input can be queued before tmux has spawned; preserve
+            // restored process-detected bindings until a later live scan.
             _ = saveSessionSnapshot(includeScrollback: false)
         }
     }
@@ -3310,7 +3350,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             Task { @MainActor [weak self] in
                 guard let self else { return }
                 self.isTerminatingApp = true
-                _ = self.saveSessionSnapshot(includeScrollback: true, removeWhenEmpty: false)
+                _ = self.saveSessionSnapshotIncludingProcessDetectedIndexes(includeScrollback: true, removeWhenEmpty: false)
             }
         }
         lifecycleSnapshotObservers.append(powerOffObserver)
@@ -3323,9 +3363,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             Task { @MainActor [weak self] in
                 guard let self else { return }
                 if self.isTerminatingApp {
-                    _ = self.saveSessionSnapshot(includeScrollback: true, removeWhenEmpty: false)
+                    _ = self.saveSessionSnapshotIncludingProcessDetectedIndexes(includeScrollback: true, removeWhenEmpty: false)
                 } else {
-                    _ = self.saveSessionSnapshot(includeScrollback: false)
+                    self.saveSessionSnapshotAfterLoadingProcessDetectedIndexes(includeScrollback: false)
                 }
             }
         }
@@ -3393,7 +3433,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
 
     private func sessionAutosaveFingerprint(
         includeScrollback: Bool,
-        restorableAgentIndex: RestorableAgentSessionIndex
+        restorableAgentIndex: RestorableAgentSessionIndex,
+        surfaceResumeBindingIndex: SurfaceResumeBindingIndex
     ) -> Int? {
         guard !includeScrollback else { return nil }
 
@@ -3407,7 +3448,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             hasher.combine(context.windowId)
             hasher.combine(
                 context.tabManager.sessionAutosaveFingerprint(
-                    restorableAgentIndex: restorableAgentIndex
+                    restorableAgentIndex: restorableAgentIndex,
+                    surfaceResumeBindingIndex: surfaceResumeBindingIndex
                 )
             )
             hasher.combine(context.sidebarState.isVisible)
@@ -3436,7 +3478,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
     private func saveSessionSnapshot(
         includeScrollback: Bool,
         removeWhenEmpty: Bool = false,
-        restorableAgentIndex: RestorableAgentSessionIndex? = nil
+        restorableAgentIndex: RestorableAgentSessionIndex? = nil,
+        surfaceResumeBindingIndex: SurfaceResumeBindingIndex? = nil
     ) -> Bool {
         if Self.shouldSkipSessionSaveDuringRestore(
             isApplyingSessionRestore: isApplyingSessionRestore,
@@ -3447,7 +3490,6 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
 #endif
             return false
         }
-
         let writeSynchronously = Self.shouldWriteSessionSnapshotSynchronously(
             isTerminatingApp: isTerminatingApp,
             includeScrollback: includeScrollback
@@ -3465,7 +3507,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
 
         guard let snapshot = buildSessionSnapshot(
             includeScrollback: includeScrollback,
-            restorableAgentIndex: restorableAgentIndex
+            restorableAgentIndex: restorableAgentIndex,
+            surfaceResumeBindingIndex: surfaceResumeBindingIndex
         ) else {
             persistSessionSnapshot(
                 nil,
@@ -3525,6 +3568,16 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         )
     }
 
+    func debugBuildSessionSnapshotForTesting(
+        includeScrollback: Bool,
+        surfaceResumeBindingIndex: SurfaceResumeBindingIndex? = nil
+    ) -> AppSessionSnapshot? {
+        buildSessionSnapshot(
+            includeScrollback: includeScrollback,
+            surfaceResumeBindingIndex: surfaceResumeBindingIndex
+        )
+    }
+
     func debugSeedSessionSnapshotScrollback(charactersPerTerminal: Int) -> [String: Any] {
         let workspaces = sortedMainWindowContextsForSessionSnapshot().flatMap { context in
             context.tabManager.tabs.filter { !$0.isRemoteWorkspace }
@@ -3538,6 +3591,14 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
 
     nonisolated static func shouldPersistSnapshotOnWindowUnregister(isTerminatingApp: Bool) -> Bool {
         !isTerminatingApp
+    }
+
+    nonisolated static func shouldSaveSessionSnapshotAfterMainWindowRegistration(
+        isTerminatingApp: Bool,
+        didApplyStartupSessionRestore: Bool,
+        isApplyingSessionRestore: Bool
+    ) -> Bool {
+        !isTerminatingApp && !didApplyStartupSessionRestore && !isApplyingSessionRestore
     }
 
     nonisolated static func shouldSkipSessionSaveDuringRestore(
@@ -3588,10 +3649,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         }
 
         sessionAutosaveTickInFlight = true
-        Task { @MainActor in await self.finishSessionAutosaveTick(source: source) }
+        let generation = nextProcessDetectedSessionSaveGeneration()
+        Task { @MainActor in await self.finishSessionAutosaveTick(source: source, generation: generation) }
     }
 
-    private func finishSessionAutosaveTick(source: String) async {
+    private func finishSessionAutosaveTick(source: String, generation: UInt64) async {
 #if DEBUG
         let timingStart = CmuxTypingTiming.start()
         let phaseStart = ProcessInfo.processInfo.systemUptime
@@ -3624,10 +3686,20 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
 #if DEBUG
         let fingerprintStart = ProcessInfo.processInfo.systemUptime
 #endif
-        let restorableAgentIndex = await RestorableAgentSessionIndex.loadIncludingProcessDetectedSnapshots()
+        let resumeIndexes = await ProcessDetectedResumeIndexes.load()
+        guard !isTerminatingApp,
+              isCurrentProcessDetectedSessionSaveGeneration(generation) else {
+#if DEBUG
+            cmuxDebugLog(
+                "session.save.skipped reason=stale_process_detected_scan includeScrollback=0 source=\(source)"
+            )
+#endif
+            return
+        }
         let autosaveFingerprint = sessionAutosaveFingerprint(
             includeScrollback: false,
-            restorableAgentIndex: restorableAgentIndex
+            restorableAgentIndex: resumeIndexes.restorableAgentIndex,
+            surfaceResumeBindingIndex: resumeIndexes.surfaceResumeBindingIndex
         )
 #if DEBUG
         fingerprintMs = (ProcessInfo.processInfo.systemUptime - fingerprintStart) * 1000.0
@@ -3653,7 +3725,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
 #endif
         _ = saveSessionSnapshot(
             includeScrollback: false,
-            restorableAgentIndex: restorableAgentIndex
+            restorableAgentIndex: resumeIndexes.restorableAgentIndex,
+            surfaceResumeBindingIndex: resumeIndexes.surfaceResumeBindingIndex
         )
 #if DEBUG
         saveMs = (ProcessInfo.processInfo.systemUptime - saveStart) * 1000.0
@@ -3663,6 +3736,49 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             persistedAt: now,
             fingerprint: autosaveFingerprint
         )
+    }
+
+    @discardableResult
+    private func saveSessionSnapshotIncludingProcessDetectedIndexes(
+        includeScrollback: Bool,
+        removeWhenEmpty: Bool = false
+    ) -> Bool {
+        let resumeIndexes = ProcessDetectedResumeIndexes.loadSynchronously()
+        return saveSessionSnapshot(
+            includeScrollback: includeScrollback,
+            removeWhenEmpty: removeWhenEmpty,
+            restorableAgentIndex: resumeIndexes.restorableAgentIndex,
+            surfaceResumeBindingIndex: resumeIndexes.surfaceResumeBindingIndex
+        )
+    }
+
+    private func saveSessionSnapshotAfterLoadingProcessDetectedIndexes(
+        includeScrollback: Bool,
+        removeWhenEmpty: Bool = false
+    ) {
+        let generation = nextProcessDetectedSessionSaveGeneration()
+        Task { @MainActor [weak self] in
+            let resumeIndexes = await ProcessDetectedResumeIndexes.load()
+            guard let self,
+                  !self.isTerminatingApp,
+                  self.isCurrentProcessDetectedSessionSaveGeneration(generation) else { return }
+            _ = self.saveSessionSnapshot(
+                includeScrollback: includeScrollback,
+                removeWhenEmpty: removeWhenEmpty,
+                restorableAgentIndex: resumeIndexes.restorableAgentIndex,
+                surfaceResumeBindingIndex: resumeIndexes.surfaceResumeBindingIndex
+            )
+        }
+    }
+
+    @discardableResult
+    private func nextProcessDetectedSessionSaveGeneration() -> UInt64 {
+        processDetectedSessionSaveGeneration &+= 1
+        return processDetectedSessionSaveGeneration
+    }
+
+    private func isCurrentProcessDetectedSessionSaveGeneration(_ generation: UInt64) -> Bool {
+        generation == processDetectedSessionSaveGeneration
     }
 
     fileprivate func recordTypingActivity() {
@@ -3762,7 +3878,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
 
     private func buildSessionSnapshot(
         includeScrollback: Bool,
-        restorableAgentIndex suppliedRestorableAgentIndex: RestorableAgentSessionIndex? = nil
+        restorableAgentIndex suppliedRestorableAgentIndex: RestorableAgentSessionIndex? = nil,
+        surfaceResumeBindingIndex suppliedSurfaceResumeBindingIndex: SurfaceResumeBindingIndex? = nil
     ) -> AppSessionSnapshot? {
         let contexts = sortedMainWindowContextsForSessionSnapshot()
 
@@ -3778,7 +3895,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
                     display: displaySnapshot(for: window),
                     tabManager: context.tabManager.sessionSnapshot(
                         includeScrollback: includeScrollback,
-                        restorableAgentIndex: restorableAgentIndex
+                        restorableAgentIndex: restorableAgentIndex,
+                        surfaceResumeBindingIndex: suppliedSurfaceResumeBindingIndex
                     ),
                     sidebar: SessionSidebarSnapshot(
                         isVisible: context.sidebarState.isVisible,
@@ -3948,9 +4066,13 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             setActiveMainWindow(window)
         }
 
-        attemptStartupSessionRestoreIfNeeded(primaryWindow: window)
-        if !isTerminatingApp {
-            _ = saveSessionSnapshot(includeScrollback: false)
+        let didApplyStartupSessionRestore = attemptStartupSessionRestoreIfNeeded(primaryWindow: window)
+        if Self.shouldSaveSessionSnapshotAfterMainWindowRegistration(
+            isTerminatingApp: isTerminatingApp,
+            didApplyStartupSessionRestore: didApplyStartupSessionRestore,
+            isApplyingSessionRestore: isApplyingSessionRestore
+        ) {
+            saveSessionSnapshotAfterLoadingProcessDetectedIndexes(includeScrollback: false)
         }
     }
 
@@ -11490,6 +11612,15 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             return false
         }
 
+        let shortcutWindowForMarkedText = resolvedShortcutEventWindow(event) ?? event.window ?? NSApp.keyWindow ?? NSApp.mainWindow
+        if browserOmnibarShouldBypassShortcutRoutingForMarkedText(
+            hasFocusedAddressBar: hasFocusedAddressBarInShortcutContext,
+            firstResponderHasMarkedText: browserResponderHasMarkedText(shortcutWindowForMarkedText?.firstResponder),
+            flags: event.modifierFlags
+        ) {
+            return false
+        }
+
         // When the notifications popover is open, Escape should dismiss it immediately.
         if flags.isEmpty, event.keyCode == 53, titlebarAccessoryController.dismissNotificationsPopoverIfShown() {
             return true
@@ -13774,25 +13905,48 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
 #endif
 
     private func enforceSingleInstance() {
-        guard let bundleId = Bundle.main.bundleIdentifier else { return }
+        guard let bundleId = Bundle.main.bundleIdentifier else {
+            StartupBreadcrumbLog.append("singleInstance.enforce.skip", fields: ["reason": "missingBundleId"])
+            return
+        }
         let currentPid = ProcessInfo.processInfo.processIdentifier
+        var terminatedPids: [String] = []
 
         for app in NSRunningApplication.runningApplications(withBundleIdentifier: bundleId) {
             guard app.processIdentifier != currentPid else { continue }
+            terminatedPids.append(String(app.processIdentifier))
             app.terminate()
             if !app.isTerminated {
                 _ = app.forceTerminate()
             }
         }
+        StartupBreadcrumbLog.append(
+            "singleInstance.enforce.complete",
+            fields: [
+                "bundleIdentifier": bundleId,
+                "currentPid": String(currentPid),
+                "terminatedPids": terminatedPids.joined(separator: ",")
+            ]
+        )
     }
 
     private func observeDuplicateLaunches() {
-        guard let bundleId = Bundle.main.bundleIdentifier else { return }
+        guard let bundleId = Bundle.main.bundleIdentifier else {
+            StartupBreadcrumbLog.append("singleInstance.observe.skip", fields: ["reason": "missingBundleId"])
+            return
+        }
         let embeddedCLIURL = Bundle.main.bundleURL
             .appendingPathComponent("Contents/Resources/bin/cmux", isDirectory: false)
             .standardizedFileURL
             .resolvingSymlinksInPath()
         let currentPid = ProcessInfo.processInfo.processIdentifier
+        StartupBreadcrumbLog.append(
+            "singleInstance.observe.install",
+            fields: [
+                "bundleIdentifier": bundleId,
+                "currentPid": String(currentPid)
+            ]
+        )
 
         workspaceObserver = NSWorkspace.shared.notificationCenter.addObserver(
             forName: NSWorkspace.didLaunchApplicationNotification,
@@ -13809,6 +13963,13 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
                 return
             }
 
+            StartupBreadcrumbLog.append(
+                "singleInstance.observe.terminateDuplicate",
+                fields: [
+                    "duplicatePid": String(app.processIdentifier),
+                    "duplicateBundleIdentifier": app.bundleIdentifier ?? "nil"
+                ]
+            )
             app.terminate()
             if !app.isTerminated {
                 _ = app.forceTerminate()
@@ -14150,7 +14311,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         // in applicationShouldTerminate/applicationWillTerminate. Saving again here would
         // overwrite it as windows tear down one-by-one, dropping closed windows and replay.
         if Self.shouldPersistSnapshotOnWindowUnregister(isTerminatingApp: isTerminatingApp) {
-            _ = saveSessionSnapshot(includeScrollback: false, removeWhenEmpty: false)
+            saveSessionSnapshotAfterLoadingProcessDetectedIndexes(includeScrollback: false, removeWhenEmpty: false)
         }
     }
 
@@ -14510,6 +14671,7 @@ private var cmuxFirstResponderGuardHitViewContext: NSView?
 private var cmuxFirstResponderGuardContextWindowNumber: Int?
 private var cmuxBrowserReturnForwardingDepth = 0
 private var cmuxBrowserArrowForwardingDepth = 0
+private var cmuxBrowserOmnibarMarkedTextForwardingDepth = 0
 private var cmuxCommandPaletteArrowForwardingDepth = 0
 private var cmuxWindowFirstResponderBypassDepth = 0
 private var cmuxFieldEditorOwningWebViewAssociationKey: UInt8 = 0
@@ -15124,6 +15286,7 @@ private extension NSWindow {
             self.firstResponder as? NSTextView,
             in: self
         )
+        let firstResponderOmnibarPanelId = browserOmnibarPanelId(for: self.firstResponder)
         if ShortcutRecorderEventRouter.dispatchActiveRecordingEvent(event, preferredWindow: self) {
             return true
         }
@@ -15186,6 +15349,34 @@ private extension NSWindow {
             }
         }
 
+        if browserOmnibarShouldBypassShortcutRoutingForMarkedText(
+            hasFocusedAddressBar: firstResponderOmnibarPanelId != nil,
+            firstResponderHasMarkedText: firstResponderHasMarkedText,
+            flags: event.modifierFlags
+        ) {
+            if cmuxBrowserOmnibarMarkedTextForwardingDepth > 0 {
+#if DEBUG
+                cmuxDebugLog("  → browser omnibar marked-text reentry; leaving unhandled")
+#endif
+                return false
+            }
+            cmuxBrowserOmnibarMarkedTextForwardingDepth += 1
+            defer {
+                cmuxBrowserOmnibarMarkedTextForwardingDepth = max(
+                    0,
+                    cmuxBrowserOmnibarMarkedTextForwardingDepth - 1
+                )
+            }
+#if DEBUG
+            cmuxDebugLog(
+                "  → browser omnibar marked-text routed to firstResponder.keyDown " +
+                "panel=\(firstResponderOmnibarPanelId.map { String($0.uuidString.prefix(5)) } ?? "nil")"
+            )
+#endif
+            self.firstResponder?.keyDown(with: event)
+            return true
+        }
+
         if shouldDispatchCommandPaletteHorizontalArrowViaFirstResponderKeyDown(
             keyCode: event.keyCode,
             firstResponderIsCommandPaletteFieldEditor: firstResponderIsCommandPaletteFieldEditor,
@@ -15201,7 +15392,6 @@ private extension NSWindow {
             return true
         }
 
-        let firstResponderOmnibarPanelId = browserOmnibarPanelId(for: self.firstResponder)
         if shouldDispatchBrowserOmnibarArrowViaFirstResponderKeyDown(
             keyCode: event.keyCode,
             firstResponderIsBrowserOmnibar: firstResponderOmnibarPanelId != nil,

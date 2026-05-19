@@ -86,13 +86,13 @@ extension RestorableAgentSessionIndex {
         registry: CmuxVaultAgentRegistry,
         fileManager: FileManager,
         fallbackScope: RestorableAgentProcessDetectionScope? = nil,
-        processSnapshot: CmuxTopProcessSnapshot = CmuxTopProcessSnapshot.capture(includeProcessDetails: false),
+        processSnapshot: CmuxTopProcessSnapshot = CmuxTopProcessSnapshot.capture(includeProcessDetails: true),
         processArguments: (Int) -> CmuxTopProcessArguments? = CmuxTopProcessSnapshot.processArgumentsAndEnvironment,
         processOpenFilePaths: (Int) -> [String] = CmuxTopProcessSnapshot.processOpenFilePaths,
         latestOpenCodeSessionId: (String?, String?, FileManager) -> String? = RestorableAgentSessionIndex.latestOpenCodeSessionId,
-        latestCodexForkSessionId: (String?, String, [String: String], Date?, FileManager) -> String? = RestorableAgentSessionIndex.latestCodexForkSessionId
+        latestCodexForkSessionId: (String?, String, [String: String], Date?, FileManager) -> String? = RestorableAgentSessionIndex.latestCodexForkSessionId,
+        capturedAt: TimeInterval = Date().timeIntervalSince1970
     ) -> [PanelKey: (snapshot: SessionRestorableAgentSnapshot, updatedAt: TimeInterval)] {
-        let capturedAt = Date().timeIntervalSince1970
         let candidates = processDetectionCandidates(
             processSnapshot: processSnapshot,
             fallbackScope: fallbackScope,
@@ -1809,6 +1809,67 @@ extension RestorableAgentSessionIndex {
     }
 }
 
+extension SurfaceResumeBindingIndex {
+    static func processDetectedTmuxBindings(
+        fileManager: FileManager
+    ) -> [PanelKey: (binding: SurfaceResumeBindingSnapshot, updatedAt: TimeInterval)] {
+        _ = fileManager
+        let capturedAt = Date().timeIntervalSince1970
+        let processSnapshot = CmuxTopProcessSnapshot.capture(includeProcessDetails: true)
+        return processDetectedTmuxBindings(
+            fileManager: fileManager,
+            processSnapshot: processSnapshot,
+            capturedAt: capturedAt
+        )
+    }
+
+    static func processDetectedTmuxBindings(
+        fileManager: FileManager,
+        processSnapshot: CmuxTopProcessSnapshot,
+        capturedAt: TimeInterval
+    ) -> [PanelKey: (binding: SurfaceResumeBindingSnapshot, updatedAt: TimeInterval)] {
+        _ = fileManager
+        var resolved: [PanelKey: (binding: SurfaceResumeBindingSnapshot, updatedAt: TimeInterval)] = [:]
+
+        for process in processSnapshot.cmuxScopedProcesses() {
+            guard let workspaceId = process.cmuxWorkspaceID,
+                  let panelId = process.cmuxSurfaceID,
+                  process.isTerminalForegroundProcessGroup,
+                  let processArguments = CmuxTopProcessSnapshot.processArgumentsAndEnvironment(for: process.pid) else {
+                continue
+            }
+            guard let binding = TmuxResumeParser.binding(
+                processName: process.name,
+                processPath: process.path,
+                arguments: processArguments.arguments,
+                environment: processArguments.environment,
+                capturedAt: capturedAt
+            ) else {
+                continue
+            }
+            resolved[PanelKey(workspaceId: workspaceId, panelId: panelId)] = (binding: binding, updatedAt: capturedAt)
+        }
+
+        return resolved
+    }
+
+    static func tmuxResumeBindingForTesting(
+        processName: String,
+        processPath: String?,
+        arguments: [String],
+        environment: [String: String],
+        capturedAt: TimeInterval = 1_777_777_777
+    ) -> SurfaceResumeBindingSnapshot? {
+        TmuxResumeParser.binding(
+            processName: processName,
+            processPath: processPath,
+            arguments: arguments,
+            environment: environment,
+            capturedAt: capturedAt
+        )
+    }
+}
+
 struct VaultObservedAgentProcess: Sendable {
     let processName: String
     let processPath: String?
@@ -1909,6 +1970,18 @@ struct VaultObservedAgentProcess: Sendable {
         let basename = pathComponents.last ?? normalized
         return basename == "codex" ||
             normalized.contains("/@openai/codex/")
+    }
+
+    static func argumentLooksLikeTmux(_ argument: String) -> Bool {
+        TmuxResumeParser.argumentLooksLikeTmux(argument)
+    }
+
+    static func argumentLooksLikeTmuxProcessTitle(_ argument: String) -> Bool {
+        TmuxResumeParser.argumentLooksLikeTmuxProcessTitle(argument)
+    }
+
+    static func argumentLooksLikeTmuxServerProcessTitle(_ argument: String) -> Bool {
+        TmuxResumeParser.argumentLooksLikeTmuxServerProcessTitle(argument)
     }
 
     static func wrapperLooksLikeNodeRuntime(_ basename: String) -> Bool {

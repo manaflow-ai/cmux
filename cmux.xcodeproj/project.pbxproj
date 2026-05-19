@@ -85,6 +85,7 @@
 		D0B10016A1B2C3D4E5F60001 /* FilePreviewTextEditor.swift in Sources */ = {isa = PBXBuildFile; fileRef = D0B10017A1B2C3D4E5F60001 /* FilePreviewTextEditor.swift */; };
 		A5001450A5001450A5001450 /* FilePreviewNativeBackground.swift in Sources */ = {isa = PBXBuildFile; fileRef = A5001451A5001451A5001451 /* FilePreviewNativeBackground.swift */; };
 		D0B10018A1B2C3D4E5F60001 /* FileDropOverlayViewTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = D0B10019A1B2C3D4E5F60001 /* FileDropOverlayViewTests.swift */; };
+		D35B71010000000000000001 /* StartupBreadcrumbLog.swift in Sources */ = {isa = PBXBuildFile; fileRef = D35B71010000000000000002 /* StartupBreadcrumbLog.swift */; };
 		D35110010000000000000001 /* CmuxApplicationSupportDirectories.swift in Sources */ = {isa = PBXBuildFile; fileRef = D35110010000000000000002 /* CmuxApplicationSupportDirectories.swift */; };
 		D35110010000000000000003 /* CmuxApplicationSupportDirectories.swift in Sources */ = {isa = PBXBuildFile; fileRef = D35110010000000000000002 /* CmuxApplicationSupportDirectories.swift */; };
 		D7AB34300000000000000001 /* SidebarDropPlanner.swift in Sources */ = {isa = PBXBuildFile; fileRef = D7AB34300000000000000002 /* SidebarDropPlanner.swift */; };
@@ -284,7 +285,15 @@
 		A50014F2 /* MarkdownPanelFileLinkResolver.swift in Sources */ = {isa = PBXBuildFile; fileRef = A50014F0 /* MarkdownPanelFileLinkResolver.swift */; };
 		A50014F3 /* MarkdownViewerAssets.swift in Sources */ = {isa = PBXBuildFile; fileRef = A50014F1 /* MarkdownViewerAssets.swift */; };
 		A50014F5 /* MarkdownWebRenderer.swift in Sources */ = {isa = PBXBuildFile; fileRef = A50014F4 /* MarkdownWebRenderer.swift */; };
+		A50014F7 /* MarkdownRemoteImageLoader.swift in Sources */ = {isa = PBXBuildFile; fileRef = A50014F6 /* MarkdownRemoteImageLoader.swift */; };
+		A50014F9 /* MarkdownWebSupport.swift in Sources */ = {isa = PBXBuildFile; fileRef = A50014F8 /* MarkdownWebSupport.swift */; };
 		A5001422 /* FilePreviewPanel.swift in Sources */ = {isa = PBXBuildFile; fileRef = A5001423 /* FilePreviewPanel.swift */; };
+		BB49DF25341706C2A892C27C /* PanelOwnedNativeViewSession.swift in Sources */ = {isa = PBXBuildFile; fileRef = CE314D9700F6F1C8D4A2FE11 /* PanelOwnedNativeViewSession.swift */; };
+		904D6350B3BB50DEDED3F410 /* FilePreviewNativeViewSessions.swift in Sources */ = {isa = PBXBuildFile; fileRef = 81E3615490F822CA0C8527C9 /* FilePreviewNativeViewSessions.swift */; };
+		C769A75E303493BCB5EC9CCC /* FilePreviewPDFSession.swift in Sources */ = {isa = PBXBuildFile; fileRef = D5D8322021F224A1538F8988 /* FilePreviewPDFSession.swift */; };
+		01EE5DC99896BA30240EF1B5 /* FilePreviewImageSession.swift in Sources */ = {isa = PBXBuildFile; fileRef = 7D1450569A797AA7937677D9 /* FilePreviewImageSession.swift */; };
+		287C15EFC945CE9D560600E3 /* FilePreviewMediaSession.swift in Sources */ = {isa = PBXBuildFile; fileRef = 64D7B3C5A409C0B3EDD002CE /* FilePreviewMediaSession.swift */; };
+		DD62AFF1D95A1D5D1850AC10 /* FilePreviewQuickLookSession.swift in Sources */ = {isa = PBXBuildFile; fileRef = 0A02623202562490B3E88372 /* FilePreviewQuickLookSession.swift */; };
 		A5001441A5001441A5001441 /* FileOpenSocketSupport.swift in Sources */ = {isa = PBXBuildFile; fileRef = A5001440A5001440A5001440 /* FileOpenSocketSupport.swift */; };
 		A5001443A5001443A5001443 /* FilePreviewModeSupport.swift in Sources */ = {isa = PBXBuildFile; fileRef = A5001442A5001442A5001442 /* FilePreviewModeSupport.swift */; };
 		A5001445A5001445A5001445 /* FilePreviewWorkspaceOpenSupport.swift in Sources */ = {isa = PBXBuildFile; fileRef = A5001444A5001444A5001444 /* FilePreviewWorkspaceOpenSupport.swift */; };
@@ -319,6 +328,7 @@
 		A5001601 /* SentryHelper.swift in Sources */ = {isa = PBXBuildFile; fileRef = A5001600 /* SentryHelper.swift */; };
 		A5001610 /* SessionPersistence.swift in Sources */ = {isa = PBXBuildFile; fileRef = A5001611 /* SessionPersistence.swift */; };
 		A5001670 /* SessionRestoredTerminalCommandStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = A5001671 /* SessionRestoredTerminalCommandStore.swift */; };
+		B35751000000000000000002 /* TmuxResumeParser.swift in Sources */ = {isa = PBXBuildFile; fileRef = B35751000000000000000001 /* TmuxResumeParser.swift */; };
 		A5001621 /* AppleScriptSupport.swift in Sources */ = {isa = PBXBuildFile; fileRef = A5001620 /* AppleScriptSupport.swift */; };
 		C3873001C3873001C3873001 /* GhosttyCrashBreadcrumb.swift in Sources */ = {isa = PBXBuildFile; fileRef = C3873002C3873002C3873002 /* GhosttyCrashBreadcrumb.swift */; };
 		C3873003C3873003C3873003 /* GhosttyCrashReportMetadata.swift in Sources */ = {isa = PBXBuildFile; fileRef = C3873004C3873004C3873004 /* GhosttyCrashReportMetadata.swift */; };
@@ -687,6 +697,7 @@
 		2F0C07000000000000000001 /* CmuxMainWindow.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = App/CmuxMainWindow.swift; sourceTree = "<group>"; };
 		2F0C06000000000000000001 /* MainWindowVisibilityController.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = App/MainWindowVisibilityController.swift; sourceTree = "<group>"; };
 		A500D011A1B2C3D4E5F60718 /* DebugLogging.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = App/DebugLogging.swift; sourceTree = "<group>"; };
+		D35B71010000000000000002 /* StartupBreadcrumbLog.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = App/StartupBreadcrumbLog.swift; sourceTree = "<group>"; };
 		A50016B0A1B2C3D4E5F60718 /* SessionSnapshotDebugBenchmark.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = App/SessionSnapshotDebugBenchmark.swift; sourceTree = "<group>"; };
 		A5001013 /* TabManager.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TabManager.swift; sourceTree = "<group>"; };
 		C3677003000000000000002 /* TabManager+CompatibilityTypes.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "TabManager+CompatibilityTypes.swift"; sourceTree = "<group>"; };
@@ -827,7 +838,15 @@
 		A50014F0 /* MarkdownPanelFileLinkResolver.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Panels/MarkdownPanelFileLinkResolver.swift; sourceTree = "<group>"; };
 		A50014F1 /* MarkdownViewerAssets.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Panels/MarkdownViewerAssets.swift; sourceTree = "<group>"; };
 		A50014F4 /* MarkdownWebRenderer.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Panels/MarkdownWebRenderer.swift; sourceTree = "<group>"; };
+		A50014F6 /* MarkdownRemoteImageLoader.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Panels/MarkdownRemoteImageLoader.swift; sourceTree = "<group>"; };
+		A50014F8 /* MarkdownWebSupport.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Panels/MarkdownWebSupport.swift; sourceTree = "<group>"; };
 		A5001423 /* FilePreviewPanel.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Panels/FilePreviewPanel.swift; sourceTree = "<group>"; };
+		CE314D9700F6F1C8D4A2FE11 /* PanelOwnedNativeViewSession.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Panels/PanelOwnedNativeViewSession.swift; sourceTree = "<group>"; };
+		81E3615490F822CA0C8527C9 /* FilePreviewNativeViewSessions.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Panels/FilePreviewNativeViewSessions.swift; sourceTree = "<group>"; };
+		D5D8322021F224A1538F8988 /* FilePreviewPDFSession.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Panels/FilePreviewPDFSession.swift; sourceTree = "<group>"; };
+		7D1450569A797AA7937677D9 /* FilePreviewImageSession.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Panels/FilePreviewImageSession.swift; sourceTree = "<group>"; };
+		64D7B3C5A409C0B3EDD002CE /* FilePreviewMediaSession.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Panels/FilePreviewMediaSession.swift; sourceTree = "<group>"; };
+		0A02623202562490B3E88372 /* FilePreviewQuickLookSession.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Panels/FilePreviewQuickLookSession.swift; sourceTree = "<group>"; };
 		A5001440A5001440A5001440 /* FileOpenSocketSupport.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FileOpenSocketSupport.swift; sourceTree = "<group>"; };
 		A5001442A5001442A5001442 /* FilePreviewModeSupport.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Panels/FilePreviewModeSupport.swift; sourceTree = "<group>"; };
 		A5001444A5001444A5001444 /* FilePreviewWorkspaceOpenSupport.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Panels/FilePreviewWorkspaceOpenSupport.swift; sourceTree = "<group>"; };
@@ -852,6 +871,7 @@
 		A5001600 /* SentryHelper.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SentryHelper.swift; sourceTree = "<group>"; };
 		A5001611 /* SessionPersistence.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SessionPersistence.swift; sourceTree = "<group>"; };
 		A5001671 /* SessionRestoredTerminalCommandStore.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SessionRestoredTerminalCommandStore.swift; sourceTree = "<group>"; };
+		B35751000000000000000001 /* TmuxResumeParser.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TmuxResumeParser.swift; sourceTree = "<group>"; };
 		A5001620 /* AppleScriptSupport.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AppleScriptSupport.swift; sourceTree = "<group>"; };
 		A5001622 /* cmux.sdef */ = {isa = PBXFileReference; lastKnownFileType = text.sdef; path = cmux.sdef; sourceTree = "<group>"; };
 		A5001641 /* RemoteRelayZshBootstrap.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RemoteRelayZshBootstrap.swift; sourceTree = "<group>"; };
@@ -1229,6 +1249,7 @@
 				2F0C07000000000000000001 /* CmuxMainWindow.swift */,
 				2F0C06000000000000000001 /* MainWindowVisibilityController.swift */,
 				A500D011A1B2C3D4E5F60718 /* DebugLogging.swift */,
+				D35B71010000000000000002 /* StartupBreadcrumbLog.swift */,
 				A50016B0A1B2C3D4E5F60718 /* SessionSnapshotDebugBenchmark.swift */,
 				9AD52285508B1D6A9875E7B3 /* SidebarSelectionState.swift */,
 				B9000017A1B2C3D4E5F60719 /* WindowDragHandleView.swift */,
@@ -1354,12 +1375,20 @@
 				B0A500000000000000000002 /* BrowserOmnibarPerformanceSupport.swift */,
 				A5007421 /* BrowserPopupWindowController.swift */,
 				A5007423 /* BrowserWebAuthnSupport.swift */,
-				A5001418 /* MarkdownPanel.swift */,
-				A50014F0 /* MarkdownPanelFileLinkResolver.swift */,
-				A5001419 /* MarkdownPanelView.swift */,
-				A50014F4 /* MarkdownWebRenderer.swift */,
-				A50014F1 /* MarkdownViewerAssets.swift */,
-				A5001423 /* FilePreviewPanel.swift */,
+					A5001418 /* MarkdownPanel.swift */,
+					A50014F0 /* MarkdownPanelFileLinkResolver.swift */,
+					A5001419 /* MarkdownPanelView.swift */,
+					A50014F4 /* MarkdownWebRenderer.swift */,
+					A50014F6 /* MarkdownRemoteImageLoader.swift */,
+					A50014F8 /* MarkdownWebSupport.swift */,
+					A50014F1 /* MarkdownViewerAssets.swift */,
+					A5001423 /* FilePreviewPanel.swift */,
+				CE314D9700F6F1C8D4A2FE11 /* PanelOwnedNativeViewSession.swift */,
+				81E3615490F822CA0C8527C9 /* FilePreviewNativeViewSessions.swift */,
+				D5D8322021F224A1538F8988 /* FilePreviewPDFSession.swift */,
+				7D1450569A797AA7937677D9 /* FilePreviewImageSession.swift */,
+				64D7B3C5A409C0B3EDD002CE /* FilePreviewMediaSession.swift */,
+				0A02623202562490B3E88372 /* FilePreviewQuickLookSession.swift */,
 				D0B10017A1B2C3D4E5F60001 /* FilePreviewTextEditor.swift */,
 				A5001451A5001451A5001451 /* FilePreviewNativeBackground.swift */,
 				A5001442A5001442A5001442 /* FilePreviewModeSupport.swift */,
@@ -1391,6 +1420,7 @@
 				A5001222 /* WindowAccessor.swift */,
 				A5001611 /* SessionPersistence.swift */,
 				A5001671 /* SessionRestoredTerminalCommandStore.swift */,
+				B35751000000000000000001 /* TmuxResumeParser.swift */,
 				A5001661 /* RestorableAgentSession.swift */,
 				C0DEF0C10000000000000002 /* AgentForkSupport.swift */,
 				C0DEF0C20000000000000002 /* SemanticVersion.swift */,
@@ -1952,6 +1982,7 @@
 				2F0C07000000000000000002 /* CmuxMainWindow.swift in Sources */,
 				2F0C06000000000000000002 /* MainWindowVisibilityController.swift in Sources */,
 				A500D010A1B2C3D4E5F60718 /* DebugLogging.swift in Sources */,
+				D35B71010000000000000001 /* StartupBreadcrumbLog.swift in Sources */,
 				E62155868BB29FEB5DAAAF25 /* SidebarSelectionState.swift in Sources */,
 				B9000018A1B2C3D4E5F60719 /* WindowDragHandleView.swift in Sources */,
 				A50012F1 /* Backport.swift in Sources */,
@@ -2080,13 +2111,21 @@
 				B0A501000000000000000001 /* BrowserOmnibarAppKitBridge.swift in Sources */,
 				B0A500000000000000000001 /* BrowserOmnibarPerformanceSupport.swift in Sources */,
 				A5007420 /* BrowserPopupWindowController.swift in Sources */,
-				A5007422 /* BrowserWebAuthnSupport.swift in Sources */,
-				A5001420 /* MarkdownPanel.swift in Sources */,
-				A50014F2 /* MarkdownPanelFileLinkResolver.swift in Sources */,
-				A5001421 /* MarkdownPanelView.swift in Sources */,
-				A50014F5 /* MarkdownWebRenderer.swift in Sources */,
-				A50014F3 /* MarkdownViewerAssets.swift in Sources */,
-				A5001422 /* FilePreviewPanel.swift in Sources */,
+					A5007422 /* BrowserWebAuthnSupport.swift in Sources */,
+					A5001420 /* MarkdownPanel.swift in Sources */,
+					A50014F2 /* MarkdownPanelFileLinkResolver.swift in Sources */,
+					A5001421 /* MarkdownPanelView.swift in Sources */,
+					A50014F5 /* MarkdownWebRenderer.swift in Sources */,
+					A50014F7 /* MarkdownRemoteImageLoader.swift in Sources */,
+					A50014F9 /* MarkdownWebSupport.swift in Sources */,
+					A50014F3 /* MarkdownViewerAssets.swift in Sources */,
+					A5001422 /* FilePreviewPanel.swift in Sources */,
+				BB49DF25341706C2A892C27C /* PanelOwnedNativeViewSession.swift in Sources */,
+				904D6350B3BB50DEDED3F410 /* FilePreviewNativeViewSessions.swift in Sources */,
+				C769A75E303493BCB5EC9CCC /* FilePreviewPDFSession.swift in Sources */,
+				01EE5DC99896BA30240EF1B5 /* FilePreviewImageSession.swift in Sources */,
+				287C15EFC945CE9D560600E3 /* FilePreviewMediaSession.swift in Sources */,
+				DD62AFF1D95A1D5D1850AC10 /* FilePreviewQuickLookSession.swift in Sources */,
 				D0B10016A1B2C3D4E5F60001 /* FilePreviewTextEditor.swift in Sources */,
 				A5001450A5001450A5001450 /* FilePreviewNativeBackground.swift in Sources */,
 				A5001443A5001443A5001443 /* FilePreviewModeSupport.swift in Sources */,
@@ -2118,6 +2157,7 @@
 				A500120C /* WindowAccessor.swift in Sources */,
 				A5001610 /* SessionPersistence.swift in Sources */,
 				A5001670 /* SessionRestoredTerminalCommandStore.swift in Sources */,
+				B35751000000000000000002 /* TmuxResumeParser.swift in Sources */,
 				A5001660 /* RestorableAgentSession.swift in Sources */,
 				C0DEF0C10000000000000001 /* AgentForkSupport.swift in Sources */,
 				C0DEF0C20000000000000001 /* SemanticVersion.swift in Sources */,
