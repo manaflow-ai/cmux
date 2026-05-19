@@ -301,6 +301,31 @@ final class CMUXOpenCommandTests: XCTestCase {
         XCTAssertFalse(result.stderr.contains("Socket"), result.stderr)
     }
 
+    func testPathShorthandRejectsWhitespacePaddedFocusValueBeforeConnecting() throws {
+        let cliPath = try bundledCLIPath()
+        let socketPath = makeSocketPath("path-space-focus")
+        let rootURL = FileManager.default.temporaryDirectory
+            .appendingPathComponent(UUID().uuidString, isDirectory: true)
+        try FileManager.default.createDirectory(at: rootURL, withIntermediateDirectories: true)
+
+        defer {
+            unlink(socketPath)
+            try? FileManager.default.removeItem(at: rootURL)
+        }
+
+        let result = runCLI(
+            cliPath: cliPath,
+            socketPath: socketPath,
+            arguments: [rootURL.path, "--focus", " true"]
+        )
+
+        XCTAssertFalse(result.timedOut, result.stderr)
+        XCTAssertEqual(result.status, 1, result.stderr)
+        XCTAssertTrue(result.stdout.isEmpty, result.stdout)
+        XCTAssertTrue(result.stderr.contains("path open: --focus must be true or false"), result.stderr)
+        XCTAssertFalse(result.stderr.contains("Socket"), result.stderr)
+    }
+
     func testGlobalWindowOptionRoutesWithoutFocusingWindow() throws {
         let cliPath = try bundledCLIPath()
         let socketPath = makeSocketPath("win-nf")
