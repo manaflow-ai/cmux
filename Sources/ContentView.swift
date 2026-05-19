@@ -12305,26 +12305,50 @@ private struct SidebarInlineRenameField: NSViewRepresentable {
     let fontSize: CGFloat
     let fontWeight: NSFont.Weight
     let textColor: NSColor
+    let height: CGFloat
     let onCommit: (String) -> Void
     let onCancel: () -> Void
+
+    private final class InlineRenameTextField: NSTextField {
+        var fixedHeight: CGFloat = 16 {
+            didSet { invalidateIntrinsicContentSize() }
+        }
+
+        override var intrinsicContentSize: NSSize {
+            var size = super.intrinsicContentSize
+            size.height = fixedHeight
+            return size
+        }
+    }
 
     final class Coordinator: NSObject, NSTextFieldDelegate {
         var parent: SidebarInlineRenameField
         var didFinish = false
+        private var outsideClickMonitor: Any?
 
         init(parent: SidebarInlineRenameField) {
             self.parent = parent
         }
 
+        deinit {
+            removeOutsideClickMonitor()
+        }
+
+        func attach(to field: NSTextField) {
+            installOutsideClickMonitor(for: field)
+        }
+
         func finishCommit(_ title: String) {
             guard !didFinish else { return }
             didFinish = true
+            removeOutsideClickMonitor()
             parent.onCommit(title)
         }
 
         func finishCancel() {
             guard !didFinish else { return }
             didFinish = true
+            removeOutsideClickMonitor()
             parent.onCancel()
         }
 
@@ -12347,6 +12371,33 @@ private struct SidebarInlineRenameField: NSViewRepresentable {
                 return false
             }
         }
+
+        private func installOutsideClickMonitor(for field: NSTextField) {
+            guard outsideClickMonitor == nil else { return }
+            outsideClickMonitor = NSEvent.addLocalMonitorForEvents(
+                matching: [.leftMouseDown, .rightMouseDown, .otherMouseDown]
+            ) { [weak self, weak field] event in
+                guard let self, let field, !self.didFinish else { return event }
+                guard !self.event(event, isInside: field) else { return event }
+
+                self.finishCommit(field.stringValue)
+                field.window?.makeFirstResponder(nil)
+                return event
+            }
+        }
+
+        private func removeOutsideClickMonitor() {
+            if let outsideClickMonitor {
+                NSEvent.removeMonitor(outsideClickMonitor)
+                self.outsideClickMonitor = nil
+            }
+        }
+
+        private func event(_ event: NSEvent, isInside field: NSTextField) -> Bool {
+            guard let window = field.window, event.window === window else { return false }
+            let point = field.convert(event.locationInWindow, from: nil)
+            return field.bounds.contains(point)
+        }
     }
 
     func makeCoordinator() -> Coordinator {
@@ -12354,7 +12405,8 @@ private struct SidebarInlineRenameField: NSViewRepresentable {
     }
 
     func makeNSView(context: Context) -> NSTextField {
-        let field = NSTextField(string: initialTitle)
+        let field = InlineRenameTextField(string: initialTitle)
+        field.fixedHeight = height
         field.delegate = context.coordinator
         field.isBordered = false
         field.isBezeled = false
@@ -12367,9 +12419,12 @@ private struct SidebarInlineRenameField: NSViewRepresentable {
         field.cell?.wraps = false
         field.cell?.isScrollable = true
         field.setAccessibilityIdentifier("sidebar.workspace.inlineRenameField")
+        field.setContentCompressionResistancePriority(.defaultLow, for: .horizontal)
+        field.setContentHuggingPriority(.defaultLow, for: .horizontal)
 
         DispatchQueue.main.async {
             guard !context.coordinator.didFinish else { return }
+            context.coordinator.attach(to: field)
             field.window?.makeFirstResponder(field)
             field.currentEditor()?.selectAll(nil)
         }
@@ -12381,6 +12436,9 @@ private struct SidebarInlineRenameField: NSViewRepresentable {
         context.coordinator.parent = self
         field.font = .systemFont(ofSize: fontSize, weight: fontWeight)
         field.textColor = textColor
+        if let field = field as? InlineRenameTextField {
+            field.fixedHeight = height
+        }
         if field.currentEditor() == nil, field.stringValue != initialTitle {
             field.stringValue = initialTitle
         }
@@ -12520,6 +12578,11 @@ private struct TabItemView: View, Equatable {
 
     private var titleFontWeight: Font.Weight {
         .semibold
+    }
+
+    private var sidebarTitleLineHeight: CGFloat {
+        let font = NSFont.systemFont(ofSize: 12.5, weight: .semibold)
+        return max(16, ceil(font.boundingRectForFont.height))
     }
 
     private var showsLeadingRail: Bool {
@@ -12745,10 +12808,11 @@ private struct TabItemView: View, Equatable {
                         fontSize: 12.5,
                         fontWeight: .semibold,
                         textColor: activePrimaryTextNSColor,
+                        height: sidebarTitleLineHeight,
                         onCommit: commitInlineRename,
                         onCancel: cancelInlineRename
                     )
-                    .frame(maxWidth: .infinity, minHeight: 18, maxHeight: 22, alignment: .leading)
+                    .frame(maxWidth: .infinity, minHeight: sidebarTitleLineHeight, maxHeight: sidebarTitleLineHeight, alignment: .leading)
                     .layoutPriority(1)
                 } else {
                     Text(workspaceSnapshot.title)

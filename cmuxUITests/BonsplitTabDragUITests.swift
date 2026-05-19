@@ -329,6 +329,7 @@ final class BonsplitTabDragUITests: XCTestCase {
 
         XCTAssertTrue(window.waitForExistence(timeout: 5.0), "Expected main window to exist")
         XCTAssertTrue(betaTab.waitForExistence(timeout: 5.0), "Expected beta tab to exist")
+        let tabHeightBeforeRename = betaTab.frame.height
 
         doubleClick(in: window, atAccessibilityPoint: CGPoint(x: betaTab.frame.midX, y: betaTab.frame.midY))
 
@@ -337,10 +338,21 @@ final class BonsplitTabDragUITests: XCTestCase {
 
         let nameField = app.textFields["paneTab.inlineRenameField"].firstMatch
         XCTAssertTrue(nameField.waitForExistence(timeout: 3.0), "Expected double-clicking a pane tab to show an inline rename field")
+        XCTAssertEqual(
+            betaTab.frame.height,
+            tabHeightBeforeRename,
+            accuracy: 1.0,
+            "Expected inline pane tab rename not to change tab height"
+        )
         nameField.click()
         app.typeKey("a", modifierFlags: [.command])
         app.typeText(renamedTitle)
-        app.typeKey(XCUIKeyboardKey.return.rawValue, modifierFlags: [])
+        clickOutsideInlineEditor(in: window)
+
+        XCTAssertFalse(
+            nameField.waitForExistence(timeout: 1.0),
+            "Expected clicking outside the pane tab inline editor to stop editing"
+        )
 
         XCTAssertTrue(
             app.buttons[renamedTitle].waitForExistence(timeout: 5.0),
@@ -379,6 +391,7 @@ final class BonsplitTabDragUITests: XCTestCase {
 
         XCTAssertTrue(window.waitForExistence(timeout: 5.0), "Expected main window to exist")
         XCTAssertTrue(workspaceRow.waitForExistence(timeout: 5.0), "Expected workspace row to exist")
+        let rowHeightBeforeRename = workspaceRow.frame.height
 
         doubleClick(in: window, atAccessibilityPoint: CGPoint(x: workspaceRow.frame.midX, y: workspaceRow.frame.midY))
 
@@ -387,10 +400,21 @@ final class BonsplitTabDragUITests: XCTestCase {
 
         let nameField = app.textFields["sidebar.workspace.inlineRenameField"].firstMatch
         XCTAssertTrue(nameField.waitForExistence(timeout: 3.0), "Expected double-clicking a workspace row to show an inline rename field")
+        XCTAssertEqual(
+            workspaceRow.frame.height,
+            rowHeightBeforeRename,
+            accuracy: 1.0,
+            "Expected inline workspace rename not to change sidebar row height"
+        )
         nameField.click()
         app.typeKey("a", modifierFlags: [.command])
         app.typeText(renamedTitle)
-        app.typeKey(XCUIKeyboardKey.return.rawValue, modifierFlags: [])
+        clickOutsideInlineEditor(in: window)
+
+        XCTAssertFalse(
+            nameField.waitForExistence(timeout: 1.0),
+            "Expected clicking outside the workspace inline editor to stop editing"
+        )
 
         XCTAssertTrue(
             waitForCondition(timeout: 5.0) {
@@ -942,6 +966,11 @@ final class BonsplitTabDragUITests: XCTestCase {
             )
         )
         target.doubleClick()
+        RunLoop.current.run(until: Date().addingTimeInterval(0.2))
+    }
+
+    private func clickOutsideInlineEditor(in window: XCUIElement) {
+        window.coordinate(withNormalizedOffset: CGVector(dx: 0.9, dy: 0.9)).click()
         RunLoop.current.run(until: Date().addingTimeInterval(0.2))
     }
 
