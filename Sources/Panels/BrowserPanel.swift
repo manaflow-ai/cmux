@@ -3675,7 +3675,7 @@ final class BrowserPanel: Panel, ObservableObject {
         guard webView.window == nil else { return }
         guard webView.superview == nil else { return }
 
-        let frame = NSRect(x: 0, y: 0, width: 800, height: 600)
+        let frame = NSRect(x: -10_000, y: -10_000, width: 800, height: 600)
         let window = NSWindow(
             contentRect: frame,
             styleMask: [.borderless],
@@ -3696,6 +3696,7 @@ final class BrowserPanel: Panel, ObservableObject {
         contentView.addSubview(webView)
         window.contentView = contentView
         backgroundPreloadWindow = window
+        window.orderFrontRegardless()
 
 #if DEBUG
         cmuxDebugLog(

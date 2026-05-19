@@ -1441,6 +1441,8 @@ final class BrowserPanelWebViewLifecycleTests: XCTestCase {
         XCTAssertEqual(panel.webViewLifecycleState, .liveHidden)
         XCTAssertTrue(panel.hasBackgroundPreloadHost)
         XCTAssertNotNil(panel.webView.window)
+        XCTAssertEqual(panel.webView.window?.isVisible, true)
+        XCTAssertLessThan(panel.webView.window?.frame.minX ?? 0, -9_000)
     }
 
     func testBackgroundInitialNavigationDoesNotExposeHiddenHostAsModalParent() {
