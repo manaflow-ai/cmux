@@ -376,6 +376,40 @@ func TestWebSocketPTYAnonymousDetachTerminatesSession(t *testing.T) {
 	waitForHubSessionCount(t, hub, 0, 5*time.Second)
 }
 
+func TestWebSocketPTYAnonymousAttachesAreIsolated(t *testing.T) {
+	leasePath := filepath.Join(t.TempDir(), "lease.json")
+	server, hub := newTestWebSocketPTYServer(t, leasePath)
+
+	ctx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
+	defer cancel()
+
+	writeTestLease(t, leasePath, "anon-a-token", "sess-anon-shared", true, time.Now().Add(time.Minute))
+	a := dialPTY(t, ctx, server.URL)
+	defer a.Close(websocket.StatusNormalClosure, "done")
+	sendAuth(t, ctx, a, "anon-a-token", "sess-anon-shared", 80, 24)
+	readReady(t, ctx, a)
+	if err := a.Write(ctx, websocket.MessageBinary, []byte("CMUX_ANON_MARK=one; export CMUX_ANON_MARK; printf 'A_READY\\n'\r")); err != nil {
+		t.Fatalf("write anonymous A marker: %v", err)
+	}
+	waitForBinaryContains(t, ctx, a, "A_READY", 5*time.Second)
+
+	writeTestLease(t, leasePath, "anon-b-token", "sess-anon-shared", true, time.Now().Add(time.Minute))
+	b := dialPTY(t, ctx, server.URL)
+	defer b.Close(websocket.StatusNormalClosure, "done")
+	sendAuth(t, ctx, b, "anon-b-token", "sess-anon-shared", 80, 24)
+	readReady(t, ctx, b)
+	if err := b.Write(ctx, websocket.MessageBinary, []byte("printf 'B_MARK:%s\\n' \"${CMUX_ANON_MARK-unset}\"; exit\r")); err != nil {
+		t.Fatalf("write anonymous B marker: %v", err)
+	}
+	output := waitForBinaryContains(t, ctx, b, "B_MARK:unset", 5*time.Second)
+	if strings.Contains(output, "B_MARK:one") {
+		t.Fatalf("anonymous attach reused another shell, output=%q", output)
+	}
+	waitForHubSessionCount(t, hub, 1, 5*time.Second)
+	_ = a.Close(websocket.StatusNormalClosure, "done")
+	waitForHubSessionCount(t, hub, 0, 5*time.Second)
+}
+
 func TestWebSocketPTYDropsBackpressuredAttachment(t *testing.T) {
 	hub := newWebSocketPTYHub(wsPTYServerConfig{
 		Shell:           "/bin/sh",

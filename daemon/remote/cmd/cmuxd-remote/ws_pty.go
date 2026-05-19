@@ -124,6 +124,7 @@ type wsPTYHub struct {
 	mu               sync.Mutex
 	sessions         map[string]*wsPTYSession
 	nextAttachmentID uint64
+	nextAnonymousID  uint64
 	shell            string
 	stderr           io.Writer
 	scrollbackLimit  int
@@ -529,22 +530,27 @@ func (h *wsPTYHub) attach(ctx context.Context, conn *websocket.Conn, auth wsAuth
 		sessionID = "default"
 	}
 	cols, rows := normalizePTYSize(auth.Cols, auth.Rows)
+	attachmentID := strings.TrimSpace(auth.AttachmentID)
+	persistent := attachmentID != ""
 
 	h.mu.Lock()
 
-	session := h.sessions[sessionID]
+	sessionKey := sessionID
+	if !persistent {
+		sessionKey = fmt.Sprintf("%s:anon-%d", sessionID, h.nextAnonymousID)
+		h.nextAnonymousID++
+	}
+	session := h.sessions[sessionKey]
 	if session == nil || session.closed {
 		var err error
-		session, err = h.startSessionLocked(sessionID, cols, rows)
+		session, err = h.startSessionLocked(sessionKey, cols, rows)
 		if err != nil {
 			h.mu.Unlock()
 			return nil, err
 		}
-		h.sessions[sessionID] = session
+		h.sessions[sessionKey] = session
 	}
 
-	attachmentID := strings.TrimSpace(auth.AttachmentID)
-	persistent := attachmentID != ""
 	if attachmentID == "" {
 		attachmentID = fmt.Sprintf("att-%d", h.nextAttachmentID)
 		h.nextAttachmentID++
@@ -558,7 +564,7 @@ func (h *wsPTYHub) attach(ctx context.Context, conn *websocket.Conn, auth wsAuth
 
 	attachmentCtx, cancel := context.WithCancel(ctx)
 	attachment := &wsPTYAttachment{
-		sessionID:  sessionID,
+		sessionID:  sessionKey,
 		id:         attachmentID,
 		cols:       cols,
 		rows:       rows,
