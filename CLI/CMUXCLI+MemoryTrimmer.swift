@@ -202,13 +202,18 @@ extension CMUXCLI {
                 gracefulAction = graceful?.label
             }
 
-            let stillRunning = options.dryRun
-                ? signaler.isRunning(pid: candidate.pid)
-                : try isOriginalProcessStillRunning(
+            let stillRunning: Bool
+            if options.dryRun {
+                stillRunning = signaler.isRunning(pid: candidate.pid)
+            } else if processExited {
+                stillRunning = false
+            } else {
+                stillRunning = try isOriginalProcessStillRunning(
                     matching: candidate,
                     workspaceHandle: workspaceHandle,
                     tolerateMissingRevalidation: attemptedShutdown
                 )
+            }
 
             return MemoryTrimResult(
                 workspaceId: workspaceId,
