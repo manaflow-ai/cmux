@@ -2889,6 +2889,8 @@ class TerminalController {
             return v2Result(id: id, self.v2DebugCommandPaletteSelection(params: params))
         case "debug.command_palette.results":
             return v2Result(id: id, self.v2DebugCommandPaletteResults(params: params))
+        case "debug.command_palette.query.set":
+            return v2Result(id: id, self.v2DebugCommandPaletteSetQuery(params: params))
         case "debug.command_palette.rename_input.interact":
             return v2Result(id: id, self.v2DebugCommandPaletteRenameInputInteraction(params: params))
         case "debug.command_palette.rename_input.delete_backward":
@@ -3145,6 +3147,7 @@ class TerminalController {
             "debug.command_palette.visible",
             "debug.command_palette.selection",
             "debug.command_palette.results",
+            "debug.command_palette.query.set",
             "debug.command_palette.rename_input.interact",
             "debug.command_palette.rename_input.delete_backward",
             "debug.command_palette.rename_input.selection",
@@ -12898,6 +12901,36 @@ class TerminalController {
             "mode": snapshot.mode,
             "results": rows
         ])
+    }
+
+    private func v2DebugCommandPaletteSetQuery(params: [String: Any]) -> V2CallResult {
+        guard let windowId = v2UUID(params, "window_id") else {
+            return .err(code: "invalid_params", message: "Missing or invalid window_id", data: nil)
+        }
+        guard let query = (params["query"] as? String) ?? (params["text"] as? String) else {
+            return .err(code: "invalid_params", message: "Missing query", data: nil)
+        }
+
+        var result: V2CallResult = .ok([:])
+        v2MainSync {
+            guard let window = AppDelegate.shared?.mainWindow(for: windowId) else {
+                result = .err(
+                    code: "not_found",
+                    message: "Window not found",
+                    data: [
+                        "window_id": windowId.uuidString,
+                        "window_ref": v2Ref(kind: .window, uuid: windowId)
+                    ]
+                )
+                return
+            }
+            NotificationCenter.default.post(
+                name: .commandPaletteQuerySetRequested,
+                object: window,
+                userInfo: ["query": query]
+            )
+        }
+        return result
     }
 
     private func v2DebugCommandPaletteRenameInputInteraction(params: [String: Any]) -> V2CallResult {

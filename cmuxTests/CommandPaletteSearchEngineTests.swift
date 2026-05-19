@@ -2215,6 +2215,32 @@ final class CommandPaletteSearchEngineTests: XCTestCase {
         )
     }
 
+    func testResultsRevisionResetsSelectionWhenQueryClearedAnchor() {
+        let resultIDs = [
+            "palette.forkAgentConversationRight",
+            "palette.forkAgentConversationBottom",
+            "palette.forkAgentConversationLeft",
+            "command.focusPaneOnFirstClick"
+        ]
+
+        XCTAssertEqual(
+            ContentView.commandPaletteResolvedSelectionIndexForResultsRevision(
+                preferredCommandID: nil,
+                fallbackSelectedIndex: 3,
+                resultIDs: resultIDs
+            ),
+            0
+        )
+        XCTAssertEqual(
+            ContentView.commandPaletteResolvedSelectionIndexForResultsRevision(
+                preferredCommandID: "command.focusPaneOnFirstClick",
+                fallbackSelectedIndex: 0,
+                resultIDs: resultIDs
+            ),
+            3
+        )
+    }
+
     func testResolvedPendingActivationPreservesSubmitAndClickSemantics() {
         let resultIDs = ["command.0", "command.1", "command.2"]
 

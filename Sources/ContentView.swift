@@ -3083,6 +3083,22 @@ struct ContentView: View {
             moveCommandPaletteSelection(by: delta)
         })
 
+        view = AnyView(view.onReceive(NotificationCenter.default.publisher(for: .commandPaletteQuerySetRequested)) { notification in
+            let requestedWindow = notification.object as? NSWindow
+            guard Self.shouldHandleCommandPaletteRequest(
+                observedWindow: observedWindow,
+                requestedWindow: requestedWindow,
+                keyWindow: NSApp.keyWindow,
+                mainWindow: NSApp.mainWindow
+            ) else { return }
+            let query = notification.userInfo?["query"] as? String ?? Self.commandPaletteCommandsPrefix
+            if isCommandPalettePresented {
+                resetCommandPaletteListState(initialQuery: query)
+            } else {
+                presentCommandPalette(initialQuery: query)
+            }
+        })
+
         view = AnyView(view.onReceive(NotificationCenter.default.publisher(for: .commandPaletteRenameInputInteractionRequested)) { notification in
             guard isCommandPalettePresented else { return }
             guard case .renameInput = commandPaletteMode else { return }
@@ -3848,7 +3864,7 @@ struct ContentView: View {
         }
         .onChange(of: commandPaletteResultsRevision) { _ in
             let resultIDs = cachedCommandPaletteResults.map(\.id)
-            commandPaletteSelectedResultIndex = Self.commandPaletteResolvedSelectionIndex(
+            commandPaletteSelectedResultIndex = Self.commandPaletteResolvedSelectionIndexForResultsRevision(
                 preferredCommandID: commandPaletteSelectionAnchorCommandID,
                 fallbackSelectedIndex: commandPaletteSelectedResultIndex,
                 resultIDs: resultIDs
@@ -8304,6 +8320,19 @@ struct ContentView: View {
             return anchoredIndex
         }
         return min(max(fallbackSelectedIndex, 0), resultIDs.count - 1)
+    }
+
+    static func commandPaletteResolvedSelectionIndexForResultsRevision(
+        preferredCommandID: String?,
+        fallbackSelectedIndex: Int,
+        resultIDs: [String]
+    ) -> Int {
+        let resolvedFallback = preferredCommandID == nil ? 0 : fallbackSelectedIndex
+        return commandPaletteResolvedSelectionIndex(
+            preferredCommandID: preferredCommandID,
+            fallbackSelectedIndex: resolvedFallback,
+            resultIDs: resultIDs
+        )
     }
 
     static func commandPaletteSelectionAnchorCommandID(
