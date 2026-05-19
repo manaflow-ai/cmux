@@ -18891,8 +18891,13 @@ struct CMUXCLI {
             return .invalid
         }
 
-        guard let notifications = root["notifications"] as? [String: Any],
-              let rawValues = notifications["ignoredClaudeNotificationTypes"] else {
+        guard let rawNotifications = root["notifications"] else {
+            return .parsed(nil)
+        }
+        guard let notifications = rawNotifications as? [String: Any] else {
+            return .invalid
+        }
+        guard let rawValues = notifications["ignoredClaudeNotificationTypes"] else {
             return .parsed(nil)
         }
         guard let values = rawValues as? [String] else {

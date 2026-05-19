@@ -520,6 +520,35 @@ def main() -> int:
             print(f"invalid_type_commands={invalid_type_commands!r}")
             return 1
 
+        write_raw_cmux_config(home, json.dumps({"notifications": "idle_prompt"}))
+        before_malformed_notifications_count = len(server.commands)
+        malformed_notifications_idle = run_notification_hook(
+            cli_path,
+            server,
+            stale_env,
+            {
+                "session_id": f"sess-{uuid.uuid4().hex}",
+                "hook_event_name": "Notification",
+                "notification_type": "idle_prompt",
+                "message": "Malformed notifications block should fall back to hook env",
+            },
+        )
+        if malformed_notifications_idle.returncode != 0 or malformed_notifications_idle.stdout.strip() != "OK":
+            print("FAIL: malformed notifications block did not fall back to hook env")
+            print(f"stdout={malformed_notifications_idle.stdout!r}")
+            print(f"stderr={malformed_notifications_idle.stderr!r}")
+            print(f"commands={server.commands!r}")
+            return 1
+
+        malformed_notifications_commands = server.commands[before_malformed_notifications_count:]
+        if any(
+            line.startswith("notify_target_async ") or line.startswith("set_status claude_code Needs input ")
+            for line in malformed_notifications_commands
+        ):
+            print("FAIL: malformed notifications block blocked hook env ignored types")
+            print(f"malformed_notifications_commands={malformed_notifications_commands!r}")
+            return 1
+
         legacy_env = env.copy()
         legacy_env.pop("CMUX_CLAUDE_IGNORED_NOTIFICATION_TYPES", None)
         write_cmux_config(home, {})
