@@ -3032,6 +3032,7 @@ final class CLINotifyProcessIntegrationTests: XCTestCase {
             .appendingPathComponent("cmux-codex-monitor-\(UUID().uuidString)", isDirectory: true)
         let workspaceId = "11111111-1111-1111-1111-111111111111"
         let surfaceId = "22222222-2222-2222-2222-222222222222"
+        let otherSurfaceId = "33333333-3333-3333-3333-333333333333"
         let sessionId = "codex-session-monitor-healthy"
         let turnId = "turn-monitor-healthy"
 
@@ -3049,6 +3050,23 @@ final class CLINotifyProcessIntegrationTests: XCTestCase {
         {"timestamp":"2026-04-25T07:55:29.600Z","type":"response_item","payload":{"type":"message","role":"assistant","content":[{"type":"output_text","text":"Done"}]}}
         {"timestamp":"2026-04-25T07:55:29.804Z","type":"event_msg","payload":{"type":"task_complete","turn_id":"\(turnId)","last_agent_message":"Done"}}
         """.write(to: transcriptURL, atomically: true, encoding: .utf8)
+
+        let stateURL = root.appendingPathComponent("codex-hook-sessions.json")
+        try """
+        {
+          "version": 1,
+          "sessions": {
+            "other-running-session": {
+              "sessionId": "other-running-session",
+              "workspaceId": "\(workspaceId)",
+              "surfaceId": "\(otherSurfaceId)",
+              "runtimeStatus": "running",
+              "startedAt": 1777107000,
+              "updatedAt": 1777107000
+            }
+          }
+        }
+        """.write(to: stateURL, atomically: true, encoding: .utf8)
 
         startMockServerAccepting(listenerFD: listenerFD, state: state, connectionLimit: 4) { line in
             if let data = line.data(using: .utf8),
@@ -3093,7 +3111,7 @@ final class CLINotifyProcessIntegrationTests: XCTestCase {
                     command.contains("--color=#8E8E93") &&
                     command.contains("--tab=\(workspaceId)")
             },
-            "Expected monitor to clear Running when a Codex turn completes without Stop, saw \(state.commands)"
+            "Expected monitor to clear panel-scoped Running when a Codex turn completes without Stop, even if another panel is still running; saw \(state.commands)"
         )
     }
 

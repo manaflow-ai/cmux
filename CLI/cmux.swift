@@ -660,14 +660,20 @@ private final class ClaudeHookSessionStore {
         }
     }
 
-    func hasRunningSession(workspaceId: String, excludingSessionId: String?) throws -> Bool {
+    func hasRunningSession(
+        workspaceId: String,
+        surfaceId: String? = nil,
+        excludingSessionId: String?
+    ) throws -> Bool {
         guard let normalizedWorkspace = normalizeOptional(workspaceId) else {
             return false
         }
+        let normalizedSurface = normalizeOptional(surfaceId)
         let excluded = normalizeOptional(excludingSessionId)
         return try withLockedState { state in
             state.sessions.values.contains { record in
                 normalizeOptional(record.workspaceId) == normalizedWorkspace
+                    && (normalizedSurface == nil || normalizeOptional(record.surfaceId) == normalizedSurface)
                     && record.sessionId != excluded
                     && record.runtimeStatus == .running
             }
@@ -19206,6 +19212,9 @@ struct CMUXCLI {
                     turnId: turnId,
                     excluding: publishedUserInputCallIds
                 ) {
+                    if isCodexMonitorLeaseRetired(path: leasePath) {
+                        return
+                    }
                     publishedUserInputCallIds.insert(userInput.callId)
                     publishCodexMonitorUserInput(
                         userInput,
@@ -19224,6 +19233,9 @@ struct CMUXCLI {
                     requireTerminalCompletion: true
                 ) {
                 case .failure(let failure):
+                    if isCodexMonitorLeaseRetired(path: leasePath) {
+                        return
+                    }
                     publishCodexMonitorFailure(
                         failure,
                         sessionId: sessionId,
@@ -19235,6 +19247,9 @@ struct CMUXCLI {
                     )
                     return
                 case .healthy:
+                    if isCodexMonitorLeaseRetired(path: leasePath) {
+                        return
+                    }
                     publishCodexMonitorIdle(
                         sessionId: sessionId,
                         workspaceId: workspaceId,
@@ -19319,15 +19334,18 @@ struct CMUXCLI {
     private func hasOtherRunningCodexMonitorSession(
         sessionId: String,
         workspaceId: String,
+        surfaceId: String?,
         env: [String: String]
     ) -> Bool {
         let normalizedSessionId = sessionId.trimmingCharacters(in: .whitespacesAndNewlines)
         let normalizedWorkspaceId = workspaceId.trimmingCharacters(in: .whitespacesAndNewlines)
+        let normalizedSurfaceId = surfaceId?.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !normalizedWorkspaceId.isEmpty else {
             return false
         }
         return (try? codexHookSessionStore(env: env).hasRunningSession(
             workspaceId: normalizedWorkspaceId,
+            surfaceId: normalizedSurfaceId,
             excludingSessionId: normalizedSessionId
         )) == true
     }
@@ -19348,7 +19366,12 @@ struct CMUXCLI {
             env: env,
             notificationStatus: .idle
         )
-        guard !hasOtherRunningCodexMonitorSession(sessionId: sessionId, workspaceId: workspaceId, env: env) else {
+        guard !hasOtherRunningCodexMonitorSession(
+            sessionId: sessionId,
+            workspaceId: workspaceId,
+            surfaceId: surfaceId,
+            env: env
+        ) else {
             return
         }
         let idleStatus = String(localized: "agent.generic.notification.status.idle", defaultValue: "Idle")
