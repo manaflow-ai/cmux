@@ -1707,8 +1707,8 @@ final class SocketListenerAcceptPolicyTests: XCTestCase {
     }
 
     func testSocketPathIdentityOnlyAcceptsUnixSocketFiles() throws {
-        let directory = FileManager.default.temporaryDirectory
-            .appendingPathComponent("cmux-socket-identity-\(UUID().uuidString)", isDirectory: true)
+        let shortId = String(UUID().uuidString.replacingOccurrences(of: "-", with: "").prefix(8))
+        let directory = URL(fileURLWithPath: "/tmp/csid-\(shortId)", isDirectory: true)
         try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
         defer { try? FileManager.default.removeItem(at: directory) }
 
@@ -1716,7 +1716,7 @@ final class SocketListenerAcceptPolicyTests: XCTestCase {
         XCTAssertTrue(FileManager.default.createFile(atPath: plainFile.path, contents: Data()))
         XCTAssertNil(TerminalController.socketPathIdentity(at: plainFile.path))
 
-        let socketPath = directory.appendingPathComponent("cmux.sock").path
+        let socketPath = directory.appendingPathComponent("s").path
         let socketFD = try bindTestUnixSocket(at: socketPath)
         defer {
             Darwin.close(socketFD)
