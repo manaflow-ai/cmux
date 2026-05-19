@@ -191,12 +191,17 @@ extension TerminalController {
             return windowId
         }
 
+        if let callerSurfaceId = eventCallerUUID(params: params, key: "surface_id") ??
+            eventCallerUUID(params: params, key: "tab_id"),
+           let windowId = eventWindowId(surfaceId: callerSurfaceId) {
+            return windowId
+        }
+        if let callerPaneId = eventCallerUUID(params: params, key: "pane_id"),
+           let windowId = eventWindowId(paneId: callerPaneId) {
+            return windowId
+        }
         if let callerWorkspaceId = eventCallerUUID(params: params, key: "workspace_id") {
             return eventWindowId(workspaceId: callerWorkspaceId)
-        }
-        if let callerSurfaceId = eventCallerUUID(params: params, key: "surface_id") ??
-            eventCallerUUID(params: params, key: "tab_id") {
-            return v2MainSync { AppDelegate.shared?.locateSurface(surfaceId: callerSurfaceId)?.windowId }
         }
 
         return eventFocusedContext(params: params).windowId
@@ -222,11 +227,16 @@ extension TerminalController {
             }
             return workspaceId
         }
-        if let callerWorkspaceId = eventCallerUUID(params: params, key: "workspace_id") { return callerWorkspaceId }
         if let callerSurfaceId = eventCallerUUID(params: params, key: "surface_id") ??
-            eventCallerUUID(params: params, key: "tab_id") {
-            return eventWorkspaceId(surfaceId: callerSurfaceId)
+            eventCallerUUID(params: params, key: "tab_id"),
+           let workspaceId = eventWorkspaceId(surfaceId: callerSurfaceId) {
+            return workspaceId
         }
+        if let callerPaneId = eventCallerUUID(params: params, key: "pane_id"),
+           let workspaceId = eventWorkspaceId(paneId: callerPaneId) {
+            return workspaceId
+        }
+        if let callerWorkspaceId = eventCallerUUID(params: params, key: "workspace_id") { return callerWorkspaceId }
         return eventFocusedContext(params: params).workspaceId
     }
 
@@ -276,6 +286,11 @@ extension TerminalController {
             guard let paneId = context.paneId else {
                 throw EventsScopeError(message: "Event scope pane context was not found")
             }
+            return paneId
+        }
+        if let callerSurfaceId = eventCallerUUID(params: params, key: "surface_id") ??
+            eventCallerUUID(params: params, key: "tab_id"),
+           let paneId = eventPaneId(surfaceId: callerSurfaceId) {
             return paneId
         }
         if let callerPaneId = eventCallerUUID(params: params, key: "pane_id") { return callerPaneId }
@@ -422,8 +437,30 @@ extension TerminalController {
         }
     }
 
+    private nonisolated func eventWindowId(surfaceId: UUID) -> UUID? {
+        v2MainSync { AppDelegate.shared?.locateSurface(surfaceId: surfaceId)?.windowId }
+    }
+
+    private nonisolated func eventWindowId(paneId: UUID) -> UUID? {
+        v2MainSync { v2LocatePane(paneId)?.windowId }
+    }
+
     private nonisolated func eventWorkspaceId(surfaceId: UUID) -> UUID? {
         v2MainSync { AppDelegate.shared?.locateSurface(surfaceId: surfaceId)?.workspaceId }
+    }
+
+    private nonisolated func eventWorkspaceId(paneId: UUID) -> UUID? {
+        v2MainSync { v2LocatePane(paneId)?.workspace.id }
+    }
+
+    private nonisolated func eventPaneId(surfaceId: UUID) -> UUID? {
+        v2MainSync {
+            guard let located = AppDelegate.shared?.locateSurface(surfaceId: surfaceId),
+                  let workspace = located.tabManager.tabs.first(where: { $0.id == located.workspaceId }) else {
+                return nil
+            }
+            return workspace.paneId(forPanelId: surfaceId)?.id
+        }
     }
 
     private nonisolated func eventWorkspaceIds(windowId: UUID) -> Set<String> {
