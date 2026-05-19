@@ -63,6 +63,7 @@ class TerminalController {
     private nonisolated(unsafe) var listenerReadSourceSuspended = false
     private nonisolated(unsafe) var listenerHealthTimer: DispatchSourceTimer?
     private nonisolated(unsafe) var pendingSocketFileRecoveryGeneration: UInt64?
+    private nonisolated(unsafe) var socketFileRecoveryRetryToken: UInt64 = 0
     private nonisolated(unsafe) var acceptSourceConsecutiveFailures = 0
     private var clientHandlers: [Int32: Thread] = [:]
     private var tabManager: TabManager?
@@ -940,6 +941,12 @@ class TerminalController {
         return (consecutiveFailures & (consecutiveFailures - 1)) == 0
     }
 
+    private nonisolated func cancelSocketFileRecoveryRetry() {
+        withListenerState {
+            socketFileRecoveryRetryToken &+= 1
+        }
+    }
+
     nonisolated static func shouldUnlinkSocketPathAfterAcceptLoopCleanup(
         pathMatches: Bool,
         isRunning: Bool,
@@ -1371,6 +1378,7 @@ class TerminalController {
         accessMode: SocketControlMode,
         preserveAcceptFailureStreak: Bool = false
     ) {
+        cancelSocketFileRecoveryRetry()
         self.tabManager = tabManager
         self.accessMode = accessMode
 
@@ -1790,6 +1798,80 @@ class TerminalController {
             accessMode: restart.mode,
             preserveAcceptFailureStreak: true
         )
+        if !listenerStateSnapshot().isRunning {
+            scheduleSocketFileRecoveryRetry(
+                tabManager: tabManager,
+                recoveryPath: recoveryPath,
+                mode: restart.mode
+            )
+        }
+    }
+
+    private func scheduleSocketFileRecoveryRetry(
+        tabManager: TabManager,
+        recoveryPath: String,
+        mode: SocketControlMode
+    ) {
+        let retryToken = withListenerState { () -> UInt64 in
+            socketFileRecoveryRetryToken &+= 1
+            return socketFileRecoveryRetryToken
+        }
+
+        sentryBreadcrumb(
+            "socket.listener.path.recovery.retry_scheduled",
+            category: "socket",
+            data: socketListenerEventData(
+                stage: "socket_file_recovery_retry",
+                extra: [
+                    "path": recoveryPath,
+                    "mode": mode.rawValue
+                ]
+            )
+        )
+
+        DispatchQueue.main.asyncAfter(
+            deadline: .now() + Self.dispatchTimeInterval(seconds: Self.socketFileHealthCheckInterval)
+        ) { [weak self, weak tabManager] in
+            guard let self, let tabManager else { return }
+            self.performSocketFileRecoveryRetry(
+                retryToken: retryToken,
+                tabManager: tabManager,
+                recoveryPath: recoveryPath,
+                mode: mode
+            )
+        }
+    }
+
+    private func performSocketFileRecoveryRetry(
+        retryToken: UInt64,
+        tabManager: TabManager,
+        recoveryPath: String,
+        mode: SocketControlMode
+    ) {
+        let shouldRetry = withListenerState {
+            socketFileRecoveryRetryToken == retryToken
+        }
+        guard shouldRetry else { return }
+
+        let snapshot = listenerStateSnapshot()
+        guard !snapshot.isRunning,
+              !snapshot.listenerStartInProgress else {
+            return
+        }
+
+        start(
+            tabManager: tabManager,
+            socketPath: recoveryPath,
+            accessMode: mode,
+            preserveAcceptFailureStreak: true
+        )
+        if !listenerStateSnapshot().isRunning {
+            scheduleSocketFileRecoveryRetry(
+                tabManager: tabManager,
+                recoveryPath: recoveryPath,
+                mode: mode
+            )
+        }
     }
 
     nonisolated static func probeSocketCommand(
@@ -1874,6 +1956,7 @@ class TerminalController {
     }
 
     nonisolated func stop() {
+        cancelSocketFileRecoveryRetry()
         let (
             sourceToCancel,
             sourceWasSuspended,
