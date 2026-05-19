@@ -2463,7 +2463,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             }
 
             self.writeUITestDiagnosticsIfNeeded(stage: "socketSanityRestart")
-            self.restartSocketListenerIfEnabled(source: "uiTest.socketSanity")
+            self.scheduleSocketListenerRestartIfEnabled(source: "uiTest.socketSanity")
             DispatchQueue.main.asyncAfter(deadline: .now() + 0.75) { [weak self] in
                 self?.writeUITestDiagnosticsIfNeeded(stage: "socketSanityPostRestart")
             }
@@ -3377,7 +3377,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             queue: .main
         ) { [weak self] _ in
             Task { @MainActor [weak self] in
-                self?.restartSocketListenerIfEnabled(source: "workspace.didWake")
+                await self?.restartSocketListenerAfterWakeIfNeeded()
             }
         }
         lifecycleSnapshotObservers.append(didWakeObserver)
@@ -3406,17 +3406,68 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         TerminalController.shared.start(tabManager: tabManager, socketPath: path, accessMode: config.mode)
     }
 
-    private func restartSocketListenerIfEnabled(source: String) {
+    private func scheduleSocketListenerRestartIfEnabled(source: String) {
+        Task { @MainActor [weak self] in
+            await self?.restartSocketListenerIfEnabled(source: source)
+        }
+    }
+
+    private func restartSocketListenerAfterWakeIfNeeded() async {
         guard let tabManager,
               let config = socketListenerConfigurationIfEnabled() else { return }
         let restartPath = TerminalController.shared.activeSocketPath(preferredPath: config.path)
+        guard !socketListenerIsReady(expectedSocketPath: restartPath) else {
+            sentryBreadcrumb("socket.listener.wakeRestartSkipped", category: "socket", data: [
+                "mode": config.mode.rawValue,
+                "path": restartPath,
+                "source": "workspace.didWake",
+                "reason": "healthy"
+            ])
+            return
+        }
+        await restartSocketListenerIfEnabled(
+            tabManager: tabManager,
+            config: config,
+            restartPath: restartPath,
+            source: "workspace.didWake"
+        )
+    }
+
+    private func restartSocketListenerIfEnabled(source: String) async {
+        guard let tabManager,
+              let config = socketListenerConfigurationIfEnabled() else { return }
+        let restartPath = TerminalController.shared.activeSocketPath(preferredPath: config.path)
+        await restartSocketListenerIfEnabled(
+            tabManager: tabManager,
+            config: config,
+            restartPath: restartPath,
+            source: source
+        )
+    }
+
+    private func restartSocketListenerIfEnabled(
+        tabManager: TabManager,
+        config: (mode: SocketControlMode, path: String),
+        restartPath: String,
+        source: String
+    ) async {
         sentryBreadcrumb("socket.listener.restart", category: "socket", data: [
             "mode": config.mode.rawValue,
             "path": restartPath,
             "source": source
         ])
-        TerminalController.shared.stop()
-        TerminalController.shared.start(tabManager: tabManager, socketPath: restartPath, accessMode: config.mode)
+        await TerminalController.shared.restartIfUnhealthy(
+            tabManager: tabManager,
+            socketPath: restartPath,
+            accessMode: config.mode,
+            source: source
+        )
+    }
+
+    private func socketListenerIsReady(expectedSocketPath: String) -> Bool {
+        let health = TerminalController.shared.socketListenerHealth(expectedSocketPath: expectedSocketPath)
+        guard health.isHealthy else { return false }
+        return TerminalController.probeSocketCommand("ping", at: expectedSocketPath, timeout: 1.0) == "PONG"
     }
 
     private func disableSuddenTerminationIfNeeded() {
@@ -7538,7 +7589,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             NSSound.beep()
             return
         }
-        restartSocketListenerIfEnabled(source: "menu.command")
+        scheduleSocketListenerRestartIfEnabled(source: "menu.command")
     }
 
     private func setupMenuBarExtra() {
@@ -10668,7 +10719,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         timeoutWorkItem = timeout
         DispatchQueue.main.asyncAfter(deadline: .now() + 20.0, execute: timeout)
 
-        restartSocketListenerIfEnabled(source: "uiTest.multiWindowNotifications.setup")
+        scheduleSocketListenerRestartIfEnabled(source: "uiTest.multiWindowNotifications.setup")
         publishCurrentState(isTimedOut: false)
     }
 

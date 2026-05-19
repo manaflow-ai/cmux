@@ -71,6 +71,8 @@ class TerminalController {
     private nonisolated static let socketProbePollTimeoutMs: Int32 = 100
     private nonisolated static let socketProbePollAttempts = 3
     private nonisolated static let socketProbePollRetryBackoffUs: useconds_t = 50_000
+    private nonisolated static let socketRestartBindRetryAttempts = 3
+    private nonisolated static let socketRestartBindRetryBackoff: Duration = .milliseconds(50)
     private nonisolated static let socketClientWriteTimeout: TimeInterval = 5
     private nonisolated static let socketListenerFailureCaptureCooldown: TimeInterval = 60
     private nonisolated static let socketListenerFailureCaptureLock = NSLock()
@@ -122,6 +124,11 @@ class TerminalController {
         let activeGeneration: UInt64
         let pendingRearmGeneration: UInt64?
         let listenerStartInProgress: Bool
+    }
+
+    private struct SocketFileIdentity: Equatable {
+        let device: dev_t
+        let inode: ino_t
     }
 
     enum AcceptFailureRecoveryAction: Equatable {
@@ -856,6 +863,21 @@ class TerminalController {
         return !isRunning && activeGeneration == 0
     }
 
+    private nonisolated static func socketFileIdentity(at path: String) -> SocketFileIdentity? {
+        var st = stat()
+        guard lstat(path, &st) == 0 else { return nil }
+        guard (st.st_mode & S_IFMT) == S_IFSOCK else { return nil }
+        return SocketFileIdentity(device: st.st_dev, inode: st.st_ino)
+    }
+
+    private nonisolated static func unlinkSocketPath(_ path: String, ifIdentityMatches expected: SocketFileIdentity?) {
+        guard let expected,
+              socketFileIdentity(at: path) == expected else {
+            return
+        }
+        unlink(path)
+    }
+
     private nonisolated static func unixSocketAddress(path: String) -> sockaddr_un? {
         var addr = sockaddr_un()
         addr.sun_family = sa_family_t(AF_UNIX)
@@ -996,11 +1018,15 @@ class TerminalController {
             errnoCode != EBADF
     }
 
-    private nonisolated static func bindListenerSocket(_ socket: Int32, path: String) -> SocketBindAttemptResult {
+    private nonisolated static func bindListenerSocket(
+        _ socket: Int32,
+        path: String,
+        unlinkExistingPath: Bool = true
+    ) -> SocketBindAttemptResult {
         if let errnoCode = ensureSocketParentDirectoryExists(path: path) {
             return .failure(path: path, stage: "create_directory", errnoCode: errnoCode)
         }
-        if unlink(path) != 0, errno != ENOENT {
+        if unlinkExistingPath, unlink(path) != 0, errno != ENOENT {
             return .failure(path: path, stage: "unlink", errnoCode: errno)
         }
 
@@ -1011,6 +1037,32 @@ class TerminalController {
             return .failure(path: path, stage: "bind", errnoCode: errno)
         }
         return .success(path: path)
+    }
+
+    private nonisolated static func bindListenerSocketWithRetry(
+        _ socket: Int32,
+        path: String,
+        unlinkExistingPath: Bool
+    ) async -> SocketBindAttemptResult {
+        for attempt in 1...socketRestartBindRetryAttempts {
+            let result = bindListenerSocket(
+                socket,
+                path: path,
+                unlinkExistingPath: unlinkExistingPath
+            )
+            guard case .failure(_, let stage, let errnoCode) = result,
+                  stage == "bind",
+                  shouldRetrySocketBindFailure(errnoCode: errnoCode),
+                  attempt < socketRestartBindRetryAttempts else {
+                return result
+            }
+            try? await Task.sleep(for: socketRestartBindRetryBackoff)
+        }
+        return .failure(path: path, stage: "bind", errnoCode: EAGAIN)
+    }
+
+    private nonisolated static func shouldRetrySocketBindFailure(errnoCode: Int32) -> Bool {
+        errnoCode == EADDRINUSE || errnoCode == EAGAIN || errnoCode == EINTR
     }
 
     private nonisolated static func ensureSocketParentDirectoryExists(path: String) -> Int32? {
@@ -1252,6 +1304,202 @@ class TerminalController {
         startAcceptSource(listenerSocket: listenerSocket, generation: generation)
     }
 
+    @discardableResult
+    func restartIfUnhealthy(
+        tabManager: TabManager,
+        socketPath requestedSocketPath: String,
+        accessMode restartAccessMode: SocketControlMode,
+        source: String
+    ) async -> Bool {
+        self.tabManager = tabManager
+        self.accessMode = restartAccessMode
+
+        let health = socketListenerHealth(expectedSocketPath: requestedSocketPath)
+        let pingResponse = health.isHealthy
+            ? Self.probeSocketCommand("ping", at: requestedSocketPath, timeout: 1.0)
+            : nil
+        if health.isHealthy && pingResponse == "PONG" {
+            applySocketPermissions(to: requestedSocketPath, accessMode: restartAccessMode)
+            sentryBreadcrumb("socket.listener.restart.skipped", category: "socket", data: [
+                "path": requestedSocketPath,
+                "source": source,
+                "reason": "healthy"
+            ])
+            return false
+        }
+
+        let previousSnapshot = listenerStateSnapshot()
+        let previousPathIdentity = Self.socketFileIdentity(at: previousSnapshot.socketPath)
+        var activeSocketPath = requestedSocketPath
+
+        sentryBreadcrumb("socket.listener.restart.atomic", category: "socket", data: [
+            "path": requestedSocketPath,
+            "source": source,
+            "failureSignals": health.failureSignals.joined(separator: ","),
+            "pingResponse": pingResponse ?? ""
+        ])
+
+        let newServerSocket = socket(AF_UNIX, SOCK_STREAM, 0)
+        guard newServerSocket >= 0 else {
+            let errnoCode = errno
+            print("TerminalController: Failed to create replacement socket")
+            reportSocketListenerFailure(
+                message: "socket.listener.restart.failed",
+                stage: "create_socket",
+                errnoCode: errnoCode
+            )
+            return false
+        }
+
+        var shouldCloseNewSocket = true
+        defer {
+            if shouldCloseNewSocket {
+                close(newServerSocket)
+            }
+        }
+
+        var bindAttempt = await Self.bindListenerSocketWithRetry(
+            newServerSocket,
+            path: activeSocketPath,
+            unlinkExistingPath: false
+        )
+        if case .failure(let failedPath, let failedStage, let failedErrnoCode) = bindAttempt,
+           let fallbackPath = Self.fallbackSocketPathAfterBindFailure(
+               requestedPath: failedPath,
+               stage: failedStage,
+               errnoCode: failedErrnoCode
+           ),
+           fallbackPath != failedPath {
+            sentryBreadcrumb(
+                "socket.listener.restart.path.fallback",
+                category: "socket",
+                data: [
+                    "requestedPath": failedPath,
+                    "fallbackPath": fallbackPath,
+                    "stage": failedStage,
+                    "errno": Int(failedErrnoCode)
+                ]
+            )
+            activeSocketPath = fallbackPath
+            bindAttempt = await Self.bindListenerSocketWithRetry(
+                newServerSocket,
+                path: activeSocketPath,
+                unlinkExistingPath: true
+            )
+        }
+
+        switch bindAttempt {
+        case .success(let boundPath):
+            activeSocketPath = boundPath
+        case .pathTooLong(let failedPath):
+            reportSocketListenerFailure(
+                message: "socket.listener.restart.failed",
+                stage: "bind_path_too_long",
+                errnoCode: ENAMETOOLONG,
+                extra: [
+                    "path": failedPath,
+                    "pathLength": failedPath.utf8.count,
+                    "maxPathLength": Self.unixSocketPathMaxLength
+                ]
+            )
+            return false
+        case .failure(let failedPath, let failedStage, let failedErrnoCode):
+            print("TerminalController: Failed to bind replacement socket")
+            reportSocketListenerFailure(
+                message: "socket.listener.restart.failed",
+                stage: failedStage,
+                errnoCode: failedErrnoCode,
+                extra: ["path": failedPath]
+            )
+            return false
+        }
+
+        applySocketPermissions(to: activeSocketPath, accessMode: restartAccessMode)
+
+        if let errnoCode = Self.configureNonBlocking(newServerSocket) {
+            let newPathIdentity = Self.socketFileIdentity(at: activeSocketPath)
+            Self.unlinkSocketPath(activeSocketPath, ifIdentityMatches: newPathIdentity)
+            print("TerminalController: Failed to configure replacement socket")
+            reportSocketListenerFailure(
+                message: "socket.listener.restart.failed",
+                stage: "configure_nonblocking",
+                errnoCode: errnoCode
+            )
+            return false
+        }
+
+        guard listen(newServerSocket, Self.socketListenBacklog) >= 0 else {
+            let errnoCode = errno
+            let newPathIdentity = Self.socketFileIdentity(at: activeSocketPath)
+            Self.unlinkSocketPath(activeSocketPath, ifIdentityMatches: newPathIdentity)
+            print("TerminalController: Failed to listen on replacement socket")
+            reportSocketListenerFailure(
+                message: "socket.listener.restart.failed",
+                stage: "listen",
+                errnoCode: errnoCode
+            )
+            return false
+        }
+
+        SocketControlSettings.recordLastSocketPath(activeSocketPath)
+
+        let transfer = withListenerState {
+            let previousSource = listenerReadSource
+            let previousSourceWasSuspended = listenerReadSourceSuspended
+            let previousSocket = serverSocket
+
+            isRunning = true
+            acceptLoopAlive = false
+            pendingAcceptLoopRearmGeneration = nil
+            acceptSourceConsecutiveFailures = 0
+            nextAcceptLoopGeneration &+= 1
+            let generation = nextAcceptLoopGeneration
+            activeAcceptLoopGeneration = generation
+            serverSocket = newServerSocket
+            socketPath = activeSocketPath
+            listenerStartInProgress = false
+            listenerReadSource = nil
+            listenerReadSourceSuspended = false
+
+            return (
+                generation: generation,
+                previousSource: previousSource,
+                previousSourceWasSuspended: previousSourceWasSuspended,
+                previousSocket: previousSocket
+            )
+        }
+        shouldCloseNewSocket = false
+
+        print("TerminalController: Replaced listener on \(activeSocketPath)")
+        sentryBreadcrumb(
+            "socket.listener.restarted",
+            category: "socket",
+            data: [
+                "path": activeSocketPath,
+                "mode": restartAccessMode.rawValue,
+                "generation": transfer.generation,
+                "source": source,
+                "backlog": Self.socketListenBacklog
+            ]
+        )
+        NotificationCenter.default.post(
+            name: .socketListenerDidStart,
+            object: self,
+            userInfo: ["path": activeSocketPath]
+        )
+
+        startAcceptSource(listenerSocket: newServerSocket, generation: transfer.generation)
+        cancelPreviousListener(
+            source: transfer.previousSource,
+            sourceWasSuspended: transfer.previousSourceWasSuspended,
+            socket: transfer.previousSocket
+        )
+        if previousSnapshot.socketPath != activeSocketPath {
+            Self.unlinkSocketPath(previousSnapshot.socketPath, ifIdentityMatches: previousPathIdentity)
+        }
+        return true
+    }
+
     nonisolated func socketListenerHealth(expectedSocketPath: String) -> SocketListenerHealth {
         let snapshot = listenerStateSnapshot()
         let pathMatches = snapshot.socketPath == expectedSocketPath
@@ -1348,6 +1596,24 @@ class TerminalController {
         return trimmed.isEmpty ? nil : trimmed
     }
 
+    private nonisolated func cancelPreviousListener(
+        source: DispatchSourceRead?,
+        sourceWasSuspended: Bool,
+        socket: Int32
+    ) {
+        if socket >= 0 {
+            shutdown(socket, SHUT_RDWR)
+        }
+        if sourceWasSuspended {
+            source?.resume()
+        }
+        if let source {
+            source.cancel()
+        } else if socket >= 0 {
+            close(socket)
+        }
+    }
+
     nonisolated func stop() {
         let (sourceToCancel, sourceWasSuspended, socketToShutdown, socketToClose, socketPathToUnlink) = withListenerState {
             isRunning = false
@@ -1398,12 +1664,15 @@ class TerminalController {
     }
 
     private func applySocketPermissions() {
+        applySocketPermissions(to: withListenerState { socketPath }, accessMode: accessMode)
+    }
+
+    private func applySocketPermissions(to path: String, accessMode: SocketControlMode) {
         let permissions = mode_t(accessMode.socketFilePermissions)
-        let currentSocketPath = withListenerState { socketPath }
-        if chmod(currentSocketPath, permissions) != 0 {
+        if chmod(path, permissions) != 0 {
             let errnoCode = errno
             print(
-                "TerminalController: Failed to set socket permissions to \(String(permissions, radix: 8)) for \(currentSocketPath)"
+                "TerminalController: Failed to set socket permissions to \(String(permissions, radix: 8)) for \(path)"
             )
             sentryBreadcrumb(
                 "socket.listener.permissions.failed",
@@ -1411,7 +1680,10 @@ class TerminalController {
                 data: socketListenerEventData(
                     stage: "chmod",
                     errnoCode: errnoCode,
-                    extra: ["permissions": String(permissions, radix: 8)]
+                    extra: [
+                        "permissions": String(permissions, radix: 8),
+                        "path": path
+                    ]
                 )
             )
         }
