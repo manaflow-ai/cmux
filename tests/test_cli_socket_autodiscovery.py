@@ -1114,7 +1114,7 @@ def test_cli_skips_non_cmux_default_socket(cli_path: str) -> bool:
         fallback_socket = socket_path_for_home(home, f"com.cmuxterm.app.{os.getuid()}.sock")
         write_marker(home, "last-socket-path", fallback_socket)
 
-        squatter_server = PingServer(default_socket, response=b"NOT_CMUX\n")
+        squatter_server = PingServer(default_socket, response=b"\xff\xfe\n")
         fallback_server = PingServer(fallback_socket, max_ping_requests=2)
         squatter_server.start()
         fallback_server.start()

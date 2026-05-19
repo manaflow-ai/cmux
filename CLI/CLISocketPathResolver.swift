@@ -493,16 +493,17 @@ enum CLISocketPathResolver {
             let count = Darwin.read(fd, &buffer, buffer.count)
             if count < 0 {
                 if errno == EINTR { continue }
+                if !bytes.isEmpty { break }
                 return nil
             }
             guard count > 0 else { break }
             bytes.append(contentsOf: buffer.prefix(count))
             if bytes.contains(0x0A) { break }
         }
-        guard !bytes.isEmpty,
-              let response = String(bytes: bytes, encoding: .utf8) else {
+        guard !bytes.isEmpty else {
             return nil
         }
+        let response = String(decoding: bytes, as: UTF8.self)
         return response
             .components(separatedBy: .newlines)
             .first
