@@ -1645,6 +1645,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         prepareStartupSessionSnapshotIfNeeded()
         startSessionAutosaveTimerIfNeeded()
 #if DEBUG
+        let env = ProcessInfo.processInfo.environment
+        let isUITest = isRunningUnderXCTest(env) || env["CMUX_UI_TEST_MODE"] == "1"
+        if isUITest {
+            startSocketListenerIfEnabled(tabManager: tabManager, source: "uiTest.configure")
+        }
+
         setupJumpUnreadUITestIfNeeded()
         setupTerminalCmdClickUITestIfNeeded()
         setupGotoSplitUITestIfNeeded()
@@ -1653,8 +1659,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         setupDisplayResolutionUITestDiagnosticsIfNeeded()
         setupPortalStatsUITestDiagnosticsIfNeeded()
 
-        let env = ProcessInfo.processInfo.environment
-        if isRunningUnderXCTest(env) || env["CMUX_UI_TEST_MODE"] == "1" {
+        if isUITest {
             scheduleUITestSocketSanityCheckIfNeeded()
         }
 #endif
