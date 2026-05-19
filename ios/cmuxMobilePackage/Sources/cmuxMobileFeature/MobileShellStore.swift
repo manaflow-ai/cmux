@@ -214,6 +214,8 @@ public enum MobileShellPhase: Equatable, Sendable {
 }
 
 public struct CMUXMobileRuntime: Sendable {
+    public static let defaultRPCRequestTimeoutNanoseconds: UInt64 = 30 * 1_000_000_000
+
     public var supportedRouteKinds: [CmxAttachTransportKind]
     public var transportFactory: any CmxByteTransportFactory
     public var stackAccessTokenProvider: @Sendable () async throws -> String
@@ -230,7 +232,7 @@ public struct CMUXMobileRuntime: Sendable {
         supportedRouteKinds: [CmxAttachTransportKind] = [.tailscale, .debugLoopback],
         transportFactory: any CmxByteTransportFactory,
         stackAccessTokenProvider: (@Sendable () async throws -> String)? = nil,
-        rpcRequestTimeoutNanoseconds: UInt64 = 10 * 1_000_000_000,
+        rpcRequestTimeoutNanoseconds: UInt64 = CMUXMobileRuntime.defaultRPCRequestTimeoutNanoseconds,
         now: @escaping @Sendable () -> Date = Date.init
     ) {
         self.supportedRouteKinds = supportedRouteKinds
@@ -243,7 +245,7 @@ public struct CMUXMobileRuntime: Sendable {
     public init(
         transportFactory: any CmxRouteAwareByteTransportFactory,
         stackAccessTokenProvider: (@Sendable () async throws -> String)? = nil,
-        rpcRequestTimeoutNanoseconds: UInt64 = 10 * 1_000_000_000,
+        rpcRequestTimeoutNanoseconds: UInt64 = CMUXMobileRuntime.defaultRPCRequestTimeoutNanoseconds,
         now: @escaping @Sendable () -> Date = Date.init
     ) {
         self.supportedRouteKinds = transportFactory.supportedKinds

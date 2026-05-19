@@ -126,6 +126,16 @@ import UIKit
     #expect(await cancelled.isSet())
 }
 
+@Test func mobileRuntimeDefaultsToThirtySecondRPCTimeout() {
+    let runtime = CMUXMobileRuntime(
+        supportedRouteKinds: [.debugLoopback],
+        transportFactory: ScriptedTransportFactory(responses: ScriptedTransportResponses([])),
+        stackAccessTokenProvider: { "test-stack-token" }
+    )
+
+    #expect(runtime.rpcRequestTimeoutNanoseconds == 30 * 1_000_000_000)
+}
+
 @Test func manualRouteAuthPolicyOnlyAllowsStackAuthForLoopbackAndMagicDNS() throws {
     let loopback = try hostPortRoute(kind: .debugLoopback, host: "127.0.0.1", port: CmxMobileDefaults.defaultHostPort)
     let tailscaleIP = try hostPortRoute(kind: .tailscale, host: "100.71.210.41", port: CmxMobileDefaults.defaultHostPort)
@@ -1939,7 +1949,7 @@ private func testRuntime(
     supportedRouteKinds: [CmxAttachTransportKind] = [.tailscale, .debugLoopback, .websocket],
     transportFactory: any CmxByteTransportFactory,
     stackAccessToken: String? = "test-stack-token",
-    rpcRequestTimeoutNanoseconds: UInt64 = 10 * 1_000_000_000,
+    rpcRequestTimeoutNanoseconds: UInt64 = CMUXMobileRuntime.defaultRPCRequestTimeoutNanoseconds,
     now: @escaping @Sendable () -> Date = Date.init
 ) -> CMUXMobileRuntime {
     CMUXMobileRuntime(
