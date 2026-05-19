@@ -30,7 +30,7 @@ enum RightSidebarChromeMetrics {
     static let headerIconSize: CGFloat = 12
     static let headerControlSpacing: CGFloat = 4
     static let headerControlCornerRadius: CGFloat = 6
-    static let headerControlCenterAlignmentLift: CGFloat = 2
+    static let headerControlCenterAlignmentAdjustment: CGFloat = -8.0 / 3.0
 }
 
 enum SidebarWorkspaceListMetrics {

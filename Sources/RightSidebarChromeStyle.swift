@@ -203,7 +203,7 @@ extension View {
 
     func rightSidebarHeaderControlAlignment() -> some View {
         alignmentGuide(VerticalAlignment.center) { dimensions in
-            dimensions[VerticalAlignment.center] + RightSidebarChromeMetrics.headerControlCenterAlignmentLift
+            dimensions[VerticalAlignment.center] + RightSidebarChromeMetrics.headerControlCenterAlignmentAdjustment
         }
     }
 }
