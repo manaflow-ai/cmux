@@ -106795,6 +106795,261 @@
         }
       }
     },
+    "settings.search.alias.setting.terminal.status-bar": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "terminal.statusBar persistent pinned bottom status bar statusline hardstatus command refresh interval rows claude codex tokens cost branch"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "terminal.statusBar persistent pinned bottom status bar statusline hardstatus command refresh interval rows claude codex tokens cost branch ターミナル ステータスバー ステータスライン 固定 下部 コマンド 更新間隔 行 トークン コスト ブランチ"
+          }
+        }
+      }
+    },
+    "settings.terminal.statusBar": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Terminal Status Bar"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ターミナルステータスバー"
+          }
+        }
+      }
+    },
+    "settings.terminal.statusBar.command": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Status Bar Command"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ステータスバーコマンド"
+          }
+        }
+      }
+    },
+    "settings.terminal.statusBar.command.placeholder": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "git branch --show-current"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "git branch --show-current"
+          }
+        }
+      }
+    },
+    "settings.terminal.statusBar.command.subtitle": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "stdout is rendered in the reserved bottom status rows."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "標準出力を下部に確保したステータス行へ表示します。"
+          }
+        }
+      }
+    },
+    "settings.terminal.statusBar.height": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Status Bar Height"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ステータスバーの高さ"
+          }
+        }
+      }
+    },
+    "settings.terminal.statusBar.height.other": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%d rows"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%d 行"
+          }
+        }
+      }
+    },
+    "settings.terminal.statusBar.height.one": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "1 row"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "1 行"
+          }
+        }
+      }
+    },
+    "settings.terminal.statusBar.height.subtitle": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Number of terminal rows reserved at the bottom of each workspace pane."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "各ワークスペースペインの下部に確保するターミナル行数です。"
+          }
+        }
+      }
+    },
+    "settings.terminal.statusBar.refreshInterval": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Status Refresh"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ステータス更新"
+          }
+        }
+      }
+    },
+    "settings.terminal.statusBar.refreshInterval.subtitle": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Seconds between status command refreshes."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ステータスコマンドを再実行する間隔（秒）です。"
+          }
+        }
+      }
+    },
+    "settings.terminal.statusBar.refreshInterval.value": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@s"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ 秒"
+          }
+        }
+      }
+    },
+    "settings.terminal.statusBar.subtitleOff": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Keep terminal panes full height with no pinned status output."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "固定ステータス出力なしでターミナルペインを全高のままにします。"
+          }
+        }
+      }
+    },
+    "settings.terminal.statusBar.subtitleOn": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Reserves bottom terminal rows for non-focusable command output."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "フォーカスされないコマンド出力用に下部のターミナル行を確保します。"
+          }
+        }
+      }
+    },
+    "terminal.statusBar.accessibilityLabel": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Terminal Status Bar"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ターミナルステータスバー"
+          }
+        }
+      }
+    },
     "surfaceResumeApproval.cwd.none": {
       "extractionState": "manual",
       "localizations": {

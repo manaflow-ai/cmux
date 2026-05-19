@@ -470,6 +470,46 @@ final class CmuxSettingsFileStore {
         } else if section.keys.contains("autoResumeAgentSessions") {
             logInvalid("terminal.autoResumeAgentSessions", sourcePath: sourcePath)
         }
+
+        if let statusBar = section["statusBar"] as? [String: Any] {
+            parseTerminalStatusBarSection(statusBar, sourcePath: sourcePath, snapshot: &snapshot)
+        } else if section.keys.contains("statusBar") {
+            logInvalid("terminal.statusBar", sourcePath: sourcePath)
+        }
+    }
+
+    private func parseTerminalStatusBarSection(
+        _ section: [String: Any],
+        sourcePath: String,
+        snapshot: inout ResolvedSettingsSnapshot
+    ) {
+        if let value = jsonBool(section["enabled"]) {
+            snapshot.managedUserDefaults[TerminalStatusBarSettings.enabledKey] = .bool(value)
+        } else if section.keys.contains("enabled") {
+            logInvalid("terminal.statusBar.enabled", sourcePath: sourcePath)
+        }
+
+        if let value = jsonInt(section["height"]) {
+            snapshot.managedUserDefaults[TerminalStatusBarSettings.heightRowsKey] = .int(
+                TerminalStatusBarSettings.normalizedHeightRows(value)
+            )
+        } else if section.keys.contains("height") {
+            logInvalid("terminal.statusBar.height", sourcePath: sourcePath)
+        }
+
+        if let value = jsonString(section["command"]) {
+            snapshot.managedUserDefaults[TerminalStatusBarSettings.commandKey] = .string(value.trimmingCharacters(in: .whitespacesAndNewlines))
+        } else if section.keys.contains("command") {
+            logInvalid("terminal.statusBar.command", sourcePath: sourcePath)
+        }
+
+        if let value = jsonDouble(section["refreshInterval"]) {
+            snapshot.managedUserDefaults[TerminalStatusBarSettings.refreshIntervalKey] = .double(
+                TerminalStatusBarSettings.normalizedRefreshInterval(value)
+            )
+        } else if section.keys.contains("refreshInterval") {
+            logInvalid("terminal.statusBar.refreshInterval", sourcePath: sourcePath)
+        }
     }
 
     private func parseSidebarSection(
@@ -1211,9 +1251,16 @@ final class CmuxSettingsFileStore {
     ) -> ManagedDefaultBatchSideEffects {
         let notificationCenter = notificationCenter
         let notifyScrollBar = defaultsKey == TerminalScrollBarSettings.showScrollBarKey
+        let notifyStatusBar = [
+            TerminalStatusBarSettings.enabledKey,
+            TerminalStatusBarSettings.heightRowsKey,
+            TerminalStatusBarSettings.commandKey,
+            TerminalStatusBarSettings.refreshIntervalKey,
+        ].contains(defaultsKey)
         var sideEffects = ManagedDefaultBatchSideEffects()
         sideEffects.agentSessionAutoResumeDidChange =
             defaultsKey == AgentSessionAutoResumeSettings.autoResumeAgentSessionsKey
+        sideEffects.terminalStatusBarDidChange = notifyStatusBar
         let language = defaultsKey == LanguageSettings.languageKey ? AppLanguage(rawValue: UserDefaults.standard.string(forKey: defaultsKey) ?? "") ?? .system : nil
         let shouldApplyAppearance = defaultsKey == AppearanceSettings.appearanceModeKey
         let appearanceRawValue = shouldApplyAppearance ? UserDefaults.standard.string(forKey: defaultsKey) : nil
@@ -1241,10 +1288,15 @@ final class CmuxSettingsFileStore {
     }
 
     private func applyManagedDefaultBatchSideEffects(_ sideEffects: ManagedDefaultBatchSideEffects) {
-        guard sideEffects.agentSessionAutoResumeDidChange else { return }
+        guard sideEffects.agentSessionAutoResumeDidChange || sideEffects.terminalStatusBarDidChange else { return }
         let notificationCenter = notificationCenter
         let apply = {
-            AgentSessionAutoResumeSettings.notifyDidChange(notificationCenter: notificationCenter)
+            if sideEffects.agentSessionAutoResumeDidChange {
+                AgentSessionAutoResumeSettings.notifyDidChange(notificationCenter: notificationCenter)
+            }
+            if sideEffects.terminalStatusBarDidChange {
+                TerminalStatusBarSettings.notifyDidChange(notificationCenter: notificationCenter)
+            }
         }
         if Thread.isMainThread {
             apply()
@@ -1369,10 +1421,13 @@ private struct ResolvedSettingsSnapshot {
 
 private struct ManagedDefaultBatchSideEffects {
     var agentSessionAutoResumeDidChange = false
+    var terminalStatusBarDidChange = false
 
     mutating func merge(_ other: ManagedDefaultBatchSideEffects) {
         agentSessionAutoResumeDidChange =
             agentSessionAutoResumeDidChange || other.agentSessionAutoResumeDidChange
+        terminalStatusBarDidChange =
+            terminalStatusBarDidChange || other.terminalStatusBarDidChange
     }
 }
 

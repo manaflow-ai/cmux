@@ -10244,6 +10244,8 @@ final class GhosttySurfaceScrollView: NSView {
     private let scrollView: GhosttyScrollView
     private let documentView: NSView
     private let surfaceView: GhosttyNSView
+    private let statusBarView: TerminalStatusBarView
+    private let statusBarCommandController = TerminalStatusBarCommandController()
     private let inactiveOverlayView: GhosttyFlashOverlayView
     private let dropZoneOverlayView: GhosttyFlashOverlayView
     private let paneDropTargetView = TerminalPaneDropTargetView(frame: .zero)
@@ -10288,6 +10290,8 @@ final class GhosttySurfaceScrollView: NSView {
     private var workspaceTerminalScrollBarObserver: NSObjectProtocol?
     private var windowObservers: [NSObjectProtocol] = []
     private var scrollbarTrackingArea: NSTrackingArea?
+    private var currentStatusBarConfiguration: TerminalStatusBarConfiguration = .current()
+    private var lastStatusBarActive = false
     private var isLiveScrolling = false
     private var lastSentRow: Int?
     /// Tracks whether the user has scrolled away from the bottom to review scrollback.
@@ -10496,6 +10500,7 @@ final class GhosttySurfaceScrollView: NSView {
         self.surfaceView = surfaceView
         backgroundView = NSView(frame: .zero)
         scrollView = GhosttyScrollView()
+        statusBarView = TerminalStatusBarView(frame: .zero)
         inactiveOverlayView = GhosttyFlashOverlayView(frame: .zero)
         dropZoneOverlayView = GhosttyFlashOverlayView(frame: .zero)
         notificationRingOverlayView = GhosttyFlashOverlayView(frame: .zero)
@@ -10535,6 +10540,8 @@ final class GhosttySurfaceScrollView: NSView {
         backgroundView.layer?.isOpaque = false
         addSubview(backgroundView)
         addSubview(scrollView)
+        addSubview(statusBarView)
+        statusBarView.isHidden = true
         paneDropTargetView.hostedView = self
         addSubview(paneDropTargetView, positioned: .above, relativeTo: nil)
         synchronizeScrollbarAppearance()
@@ -10793,7 +10800,7 @@ final class GhosttySurfaceScrollView: NSView {
             object: surfaceView,
             queue: .main
         ) { [weak self] _ in
-            self?.synchronizeScrollView()
+            _ = self?.synchronizeGeometryAndContent()
         })
 
         observers.append(NotificationCenter.default.addObserver(
@@ -10812,6 +10819,14 @@ final class GhosttySurfaceScrollView: NSView {
             queue: .main
         ) { [weak self] _ in
             self?.handleTerminalScrollBarPreferenceChange()
+        })
+
+        observers.append(NotificationCenter.default.addObserver(
+            forName: TerminalStatusBarSettings.didChangeNotification,
+            object: nil,
+            queue: .main
+        ) { [weak self] _ in
+            self?.handleTerminalStatusBarPreferenceChange()
         })
 
     }
@@ -10835,6 +10850,9 @@ final class GhosttySurfaceScrollView: NSView {
         windowObservers.forEach { NotificationCenter.default.removeObserver($0) }
         deferredSearchOverlayMutationWorkItem?.cancel()
         imageTransferIndicatorShowWorkItem?.cancel()
+        MainActor.assumeIsolated {
+            statusBarCommandController.stop()
+        }
         dropZoneOverlayView.removeFromSuperview()
         cancelFocusRequest()
     }
@@ -10920,6 +10938,84 @@ final class GhosttySurfaceScrollView: NSView {
     }
 
     @discardableResult
+    private func refreshStatusBarConfiguration() -> Bool {
+        let nextConfiguration = TerminalStatusBarConfiguration.current()
+        let configurationChanged = currentStatusBarConfiguration != nextConfiguration
+        currentStatusBarConfiguration = nextConfiguration
+
+        let shouldShow = shouldShowStatusBar(configuration: nextConfiguration)
+        let shouldRun = shouldShow && surfaceView.isVisibleInUI && window != nil
+        let activeChanged = lastStatusBarActive != shouldRun
+        lastStatusBarActive = shouldRun
+
+        statusBarView.configure(
+            configuration: nextConfiguration,
+            visible: shouldShow,
+            cellHeight: surfaceView.cellSize.height
+        )
+        statusBarCommandController.apply(
+            configuration: nextConfiguration,
+            active: shouldRun,
+            contextProvider: { [weak self] in
+                self?.statusBarExecutionContext()
+            },
+            outputHandler: { [weak self] output, rowCount in
+                self?.statusBarView.setStatusText(output, rowCount: rowCount)
+            }
+        )
+
+        if !shouldShow {
+            statusBarView.setStatusText("", rowCount: nextConfiguration.heightRows)
+        }
+
+        return configurationChanged || activeChanged
+    }
+
+    private func shouldShowStatusBar(configuration: TerminalStatusBarConfiguration) -> Bool {
+        guard configuration.isRenderable else { return false }
+        guard let terminalSurface = surfaceView.terminalSurface else { return false }
+        return terminalSurface.focusPlacement == .workspace
+    }
+
+    private func statusBarExecutionContext() -> TerminalStatusBarExecutionContext? {
+        guard let terminalSurface = surfaceView.terminalSurface else { return nil }
+        return TerminalStatusBarExecutionContext(
+            workspaceId: terminalSurface.tabId,
+            surfaceId: terminalSurface.id,
+            workingDirectory: statusBarWorkingDirectory(for: terminalSurface)
+        )
+    }
+
+    private func statusBarWorkingDirectory(for terminalSurface: TerminalSurface) -> String {
+        let workspaceDirectory = AppDelegate.shared?
+            .tabManagerFor(tabId: terminalSurface.tabId)?
+            .tabs
+            .first(where: { $0.id == terminalSurface.tabId })?
+            .panelDirectories[terminalSurface.id]
+        let candidates: [String?] = [
+            workspaceDirectory,
+            terminalSurface.requestedWorkingDirectory,
+            FileManager.default.homeDirectoryForCurrentUser.path
+        ]
+        for candidate in candidates {
+            let trimmed = candidate?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+            if !trimmed.isEmpty {
+                return trimmed
+            }
+        }
+        return FileManager.default.homeDirectoryForCurrentUser.path
+    }
+
+    private func currentStatusBarLayout() -> TerminalStatusBarLayout.Frames {
+        TerminalStatusBarLayout.frames(
+            in: bounds,
+            rowCount: currentStatusBarConfiguration.heightRows,
+            cellHeight: surfaceView.cellSize.height,
+            isVisible: shouldShowStatusBar(configuration: currentStatusBarConfiguration)
+        )
+    }
+
+    @discardableResult
     private func synchronizeGeometryAndContent() -> Bool {
         CATransaction.begin()
         CATransaction.setDisableActions(true)
@@ -10927,8 +11023,11 @@ final class GhosttySurfaceScrollView: NSView {
 
         let didScrollbarAppearanceChange = synchronizeScrollbarAppearance()
         let previousSurfaceSize = surfaceView.frame.size
+        let didStatusBarConfigurationChange = refreshStatusBarConfiguration()
+        let statusBarLayout = currentStatusBarLayout()
         _ = setFrameIfNeeded(backgroundView, to: bounds)
-        _ = setFrameIfNeeded(scrollView, to: bounds)
+        _ = setFrameIfNeeded(scrollView, to: statusBarLayout.terminalFrame)
+        _ = setFrameIfNeeded(statusBarView, to: statusBarLayout.statusBarFrame)
         let targetSize = scrollView.bounds.size
 #if DEBUG
         logLayoutDuringActiveDrag(targetSize: targetSize)
@@ -10964,7 +11063,7 @@ final class GhosttySurfaceScrollView: NSView {
         _ = setFrameIfNeeded(notificationRingOverlayView, to: bounds)
         _ = setFrameIfNeeded(flashOverlayView, to: bounds)
         if let overlay = searchOverlayHostingView {
-            _ = setFrameIfNeeded(overlay, to: bounds)
+            _ = setFrameIfNeeded(overlay, to: statusBarLayout.terminalFrame)
         }
         bringPaneDropTargetToFrontIfNeeded()
         // NSScrollView can defer clip-view/content-size updates until its own layout pass,
@@ -10979,7 +11078,7 @@ final class GhosttySurfaceScrollView: NSView {
         synchronizeScrollView()
         synchronizeSurfaceView()
         let didCoreSurfaceChange = synchronizeCoreSurface()
-        return !sizeApproximatelyEqual(previousSurfaceSize, targetSize) || didCoreSurfaceChange
+        return didStatusBarConfigurationChange || !sizeApproximatelyEqual(previousSurfaceSize, targetSize) || didCoreSurfaceChange
     }
 
     @discardableResult
@@ -11114,6 +11213,7 @@ final class GhosttySurfaceScrollView: NSView {
         super.viewDidMoveToWindow()
         windowObservers.forEach { NotificationCenter.default.removeObserver($0) }
         windowObservers.removeAll()
+        refreshStatusBarConfiguration()
         guard let window else { return }
         windowObservers.append(NotificationCenter.default.addObserver(
             forName: NSWindow.didBecomeKeyNotification,
@@ -11509,7 +11609,7 @@ final class GhosttySurfaceScrollView: NSView {
            lastSearchOverlayStateID == searchStateID,
            overlay.superview === self {
             cancelDeferredSearchOverlayMutation()
-            _ = setFrameIfNeeded(overlay, to: bounds)
+            _ = setFrameIfNeeded(overlay, to: currentStatusBarLayout().terminalFrame)
             updateKeyboardCopyModeBadgeZOrder(relativeTo: overlay)
             return
         }
@@ -11531,8 +11631,8 @@ final class GhosttySurfaceScrollView: NSView {
                 scheduleDeferredSearchOverlayMutation(generation: mutationGeneration) { [weak self, weak overlay] in
                     guard let self, let overlay else { return }
                     overlay.removeFromSuperview()
-                    overlay.frame = self.bounds
-                    overlay.autoresizingMask = [.width, .height]
+                    overlay.frame = self.currentStatusBarLayout().terminalFrame
+                    overlay.autoresizingMask = []
                     self.addSubview(overlay)
                     self.updateKeyboardCopyModeBadgeZOrder(relativeTo: overlay)
                     self.requestMountedSearchFieldFocus(
@@ -11543,23 +11643,23 @@ final class GhosttySurfaceScrollView: NSView {
                 return
             }
             cancelDeferredSearchOverlayMutation()
-            _ = setFrameIfNeeded(overlay, to: bounds)
+            _ = setFrameIfNeeded(overlay, to: currentStatusBarLayout().terminalFrame)
             updateKeyboardCopyModeBadgeZOrder(relativeTo: overlay)
             return
         }
 
         searchFocusTarget = .searchField
         let overlay = NSHostingView(rootView: rootView)
-        overlay.frame = bounds
-        overlay.autoresizingMask = [.width, .height]
+        overlay.frame = currentStatusBarLayout().terminalFrame
+        overlay.autoresizingMask = []
         searchOverlayHostingView = overlay
         lastSearchOverlayStateID = searchStateID
         scheduleDeferredSearchOverlayMutation(generation: mutationGeneration) { [weak self, weak overlay] in
             guard let self, let overlay else { return }
             guard self.searchOverlayHostingView === overlay else { return }
             overlay.removeFromSuperview()
-            overlay.frame = self.bounds
-            overlay.autoresizingMask = [.width, .height]
+            overlay.frame = self.currentStatusBarLayout().terminalFrame
+            overlay.autoresizingMask = []
             self.addSubview(overlay)
             self.updateKeyboardCopyModeBadgeZOrder(relativeTo: overlay)
             self.requestMountedSearchFieldFocus(
@@ -11808,6 +11908,7 @@ final class GhosttySurfaceScrollView: NSView {
         let wasVisible = surfaceView.isVisibleInUI
         surfaceView.setVisibleInUI(visible)
         isHidden = !visible
+        refreshStatusBarConfiguration()
         if wasVisible != visible, lastRequestedPortalOcclusionVisible != visible {
             lastRequestedPortalOcclusionVisible = visible
             surfaceView.terminalSurface?.setOcclusion(visible)
@@ -13271,6 +13372,17 @@ final class GhosttySurfaceScrollView: NSView {
         guard Thread.isMainThread else {
             DispatchQueue.main.async { [weak self] in
                 self?.handleTerminalScrollBarPreferenceChange()
+            }
+            return
+        }
+
+        _ = synchronizeGeometryAndContent()
+    }
+
+    private func handleTerminalStatusBarPreferenceChange() {
+        guard Thread.isMainThread else {
+            DispatchQueue.main.async { [weak self] in
+                self?.handleTerminalStatusBarPreferenceChange()
             }
             return
         }

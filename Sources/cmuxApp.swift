@@ -5071,6 +5071,14 @@ struct SettingsView: View {
     private var fileDropDefaultBehavior = FileDropBehaviorSettings.defaultBehavior.rawValue
     @AppStorage(AgentSessionAutoResumeSettings.autoResumeAgentSessionsKey)
     private var autoResumeAgentSessions = AgentSessionAutoResumeSettings.defaultAutoResumeAgentSessions
+    @AppStorage(TerminalStatusBarSettings.enabledKey)
+    private var terminalStatusBarEnabled = TerminalStatusBarSettings.defaultEnabled
+    @AppStorage(TerminalStatusBarSettings.heightRowsKey)
+    private var terminalStatusBarHeightRows = TerminalStatusBarSettings.defaultHeightRows
+    @AppStorage(TerminalStatusBarSettings.commandKey)
+    private var terminalStatusBarCommand = TerminalStatusBarSettings.defaultCommand
+    @AppStorage(TerminalStatusBarSettings.refreshIntervalKey)
+    private var terminalStatusBarRefreshInterval = TerminalStatusBarSettings.defaultRefreshInterval
     @AppStorage(WorkspaceAutoReorderSettings.key) private var workspaceAutoReorder = WorkspaceAutoReorderSettings.defaultValue
     @AppStorage(IMessageModeSettings.key) private var iMessageMode = IMessageModeSettings.defaultValue
     @AppStorage(SidebarWorkspaceDetailSettings.hideAllDetailsKey)
@@ -5115,6 +5123,7 @@ struct SettingsView: View {
     @State private var detectedImportBrowsers: [InstalledBrowserCandidate] = []
     @State private var browserInsecureHTTPAllowlistDraft = BrowserInsecureHTTPSettings.defaultAllowlistText
     @State private var socketPasswordDraft = ""
+    @State private var terminalStatusBarCommandDraft = TerminalStatusBarSettings.defaultCommand
     @State private var socketPasswordStatusMessage: String?
     @State private var socketPasswordStatusIsError = false
     @State private var notificationCustomSoundStatusMessage: String?
@@ -5125,6 +5134,11 @@ struct SettingsView: View {
     @State private var showLanguageRestartAlert = false
     @State private var isResettingSettings = false
     @State private var workspaceTabPaletteEntries = WorkspaceTabColorSettings.palette()
+    @FocusState private var focusedSettingsField: SettingsFocusField?
+
+    private enum SettingsFocusField: Hashable {
+        case terminalStatusBarCommand
+    }
 
     private var selectedWorkspacePlacement: NewWorkspacePlacement {
         NewWorkspacePlacement(rawValue: newWorkspacePlacement) ?? WorkspacePlacementSettings.defaultPlacement
@@ -5230,6 +5244,91 @@ struct SettingsView: View {
                 AgentSessionAutoResumeSettings.notifyDidChange()
             }
         )
+    }
+
+    private var terminalStatusBarEnabledBinding: Binding<Bool> {
+        Binding(
+            get: { terminalStatusBarEnabled },
+            set: { newValue in
+                guard terminalStatusBarEnabled != newValue else { return }
+                terminalStatusBarEnabled = newValue
+                TerminalStatusBarSettings.notifyDidChange()
+            }
+        )
+    }
+
+    private var terminalStatusBarCommandBinding: Binding<String> {
+        Binding(
+            get: { terminalStatusBarCommandDraft },
+            set: { newValue in
+                terminalStatusBarCommandDraft = newValue
+            }
+        )
+    }
+
+    private func syncTerminalStatusBarCommandDraft() {
+        guard focusedSettingsField != .terminalStatusBarCommand else { return }
+        guard terminalStatusBarCommandDraft != terminalStatusBarCommand else { return }
+        terminalStatusBarCommandDraft = terminalStatusBarCommand
+    }
+
+    private func commitTerminalStatusBarCommandDraft() {
+        guard terminalStatusBarCommand != terminalStatusBarCommandDraft else { return }
+        terminalStatusBarCommand = terminalStatusBarCommandDraft
+        TerminalStatusBarSettings.notifyDidChange()
+    }
+
+    private var terminalStatusBarHeightRowsBinding: Binding<Int> {
+        Binding(
+            get: { TerminalStatusBarSettings.normalizedHeightRows(terminalStatusBarHeightRows) },
+            set: { newValue in
+                let normalized = TerminalStatusBarSettings.normalizedHeightRows(newValue)
+                guard terminalStatusBarHeightRows != normalized else { return }
+                terminalStatusBarHeightRows = normalized
+                TerminalStatusBarSettings.notifyDidChange()
+            }
+        )
+    }
+
+    private var terminalStatusBarRefreshIntervalBinding: Binding<Double> {
+        Binding(
+            get: { TerminalStatusBarSettings.normalizedRefreshInterval(terminalStatusBarRefreshInterval) },
+            set: { newValue in
+                let normalized = TerminalStatusBarSettings.normalizedRefreshInterval(newValue)
+                guard terminalStatusBarRefreshInterval != normalized else { return }
+                terminalStatusBarRefreshInterval = normalized
+                TerminalStatusBarSettings.notifyDidChange()
+            }
+        )
+    }
+
+    private var terminalStatusBarSubtitle: String {
+        if terminalStatusBarEnabled {
+            return String(
+                localized: "settings.terminal.statusBar.subtitleOn",
+                defaultValue: "Reserves bottom terminal rows for non-focusable command output."
+            )
+        }
+        return String(
+            localized: "settings.terminal.statusBar.subtitleOff",
+            defaultValue: "Keep terminal panes full height with no pinned status output."
+        )
+    }
+
+    private var terminalStatusBarHeightRowsText: String {
+        let rows = TerminalStatusBarSettings.normalizedHeightRows(terminalStatusBarHeightRows)
+        if rows == 1 {
+            return String(localized: "settings.terminal.statusBar.height.one", defaultValue: "1 row")
+        }
+        let format = String(localized: "settings.terminal.statusBar.height.other", defaultValue: "%d rows")
+        return String.localizedStringWithFormat(format, rows)
+    }
+
+    private var terminalStatusBarRefreshIntervalText: String {
+        let interval = TerminalStatusBarSettings.normalizedRefreshInterval(terminalStatusBarRefreshInterval)
+        let formatted = interval.formatted(.number.precision(.fractionLength(0...2)))
+        let format = String(localized: "settings.terminal.statusBar.refreshInterval.value", defaultValue: "%@s")
+        return String.localizedStringWithFormat(format, formatted)
     }
 
     private var selectedSidebarActiveTabIndicatorStyle: SidebarActiveTabIndicatorStyle {
@@ -6299,6 +6398,87 @@ struct SettingsView: View {
                                 .accessibilityLabel(
                                     String(localized: "settings.terminal.agentAutoResume", defaultValue: "Resume Agent Sessions on Reopen")
                                 )
+                        }
+
+                        SettingsCardDivider()
+
+                        SettingsCardRow(
+                            configurationReview: .json("terminal.statusBar.enabled"),
+                            String(localized: "settings.terminal.statusBar", defaultValue: "Terminal Status Bar"),
+                            subtitle: terminalStatusBarSubtitle
+                        ) {
+                            Toggle("", isOn: terminalStatusBarEnabledBinding)
+                                .labelsHidden()
+                                .controlSize(.small)
+                                .accessibilityIdentifier("SettingsTerminalStatusBarToggle")
+                                .accessibilityLabel(
+                                    String(localized: "settings.terminal.statusBar", defaultValue: "Terminal Status Bar")
+                                )
+                        }
+
+                        SettingsCardDivider()
+
+                        SettingsCardRow(
+                            configurationReview: .json("terminal.statusBar.command"),
+                            String(localized: "settings.terminal.statusBar.command", defaultValue: "Status Bar Command"),
+                            subtitle: String(localized: "settings.terminal.statusBar.command.subtitle", defaultValue: "stdout is rendered in the reserved bottom status rows."),
+                            controlWidth: 260
+                        ) {
+                            TextField(
+                                String(localized: "settings.terminal.statusBar.command.placeholder", defaultValue: "git branch --show-current"),
+                                text: terminalStatusBarCommandBinding
+                            )
+                            .textFieldStyle(.roundedBorder)
+                            .focused($focusedSettingsField, equals: .terminalStatusBarCommand)
+                            .onSubmit {
+                                commitTerminalStatusBarCommandDraft()
+                            }
+                            .onChange(of: focusedSettingsField) { oldValue, newValue in
+                                if oldValue == .terminalStatusBarCommand, newValue != .terminalStatusBarCommand {
+                                    commitTerminalStatusBarCommandDraft()
+                                }
+                            }
+                            .onChange(of: terminalStatusBarCommand) { _, _ in
+                                syncTerminalStatusBarCommandDraft()
+                            }
+                            .onAppear {
+                                syncTerminalStatusBarCommandDraft()
+                            }
+                            .disabled(!terminalStatusBarEnabled)
+                        }
+
+                        SettingsCardDivider()
+
+                        SettingsCardRow(
+                            configurationReview: .json("terminal.statusBar.height"),
+                            String(localized: "settings.terminal.statusBar.height", defaultValue: "Status Bar Height"),
+                            subtitle: String(localized: "settings.terminal.statusBar.height.subtitle", defaultValue: "Number of terminal rows reserved at the bottom of each workspace pane."),
+                            controlWidth: 132
+                        ) {
+                            Stepper(value: terminalStatusBarHeightRowsBinding, in: TerminalStatusBarSettings.minimumHeightRows...TerminalStatusBarSettings.maximumHeightRows) {
+                                Text(terminalStatusBarHeightRowsText)
+                                    .frame(width: 48, alignment: .trailing)
+                            }
+                            .disabled(!terminalStatusBarEnabled)
+                        }
+
+                        SettingsCardDivider()
+
+                        SettingsCardRow(
+                            configurationReview: .json("terminal.statusBar.refreshInterval"),
+                            String(localized: "settings.terminal.statusBar.refreshInterval", defaultValue: "Status Refresh"),
+                            subtitle: String(localized: "settings.terminal.statusBar.refreshInterval.subtitle", defaultValue: "Seconds between status command refreshes."),
+                            controlWidth: 132
+                        ) {
+                            Stepper(
+                                value: terminalStatusBarRefreshIntervalBinding,
+                                in: TerminalStatusBarSettings.minimumRefreshInterval...TerminalStatusBarSettings.maximumRefreshInterval,
+                                step: 0.25
+                            ) {
+                                Text(terminalStatusBarRefreshIntervalText)
+                                    .frame(width: 48, alignment: .trailing)
+                            }
+                            .disabled(!terminalStatusBarEnabled)
                         }
                     }
 
@@ -7463,6 +7643,15 @@ struct SettingsView: View {
         autoResumeAgentSessions = AgentSessionAutoResumeSettings.defaultAutoResumeAgentSessions
         if previousAutoResumeAgentSessions != autoResumeAgentSessions {
             AgentSessionAutoResumeSettings.notifyDidChange()
+        }
+        let previousTerminalStatusBarConfiguration = TerminalStatusBarConfiguration.current()
+        terminalStatusBarEnabled = TerminalStatusBarSettings.defaultEnabled
+        terminalStatusBarHeightRows = TerminalStatusBarSettings.defaultHeightRows
+        terminalStatusBarCommand = TerminalStatusBarSettings.defaultCommand
+        terminalStatusBarCommandDraft = TerminalStatusBarSettings.defaultCommand
+        terminalStatusBarRefreshInterval = TerminalStatusBarSettings.defaultRefreshInterval
+        if previousTerminalStatusBarConfiguration != TerminalStatusBarConfiguration.current() {
+            TerminalStatusBarSettings.notifyDidChange()
         }
         workspaceAutoReorder = WorkspaceAutoReorderSettings.defaultValue
         iMessageMode = IMessageModeSettings.defaultValue
