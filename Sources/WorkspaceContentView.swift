@@ -609,6 +609,7 @@ private final class CanvasPanEventMonitorView: NSView {
     var onSmartZoom: ((CGPoint) -> Void)?
 
     private var monitor: Any?
+    private var wheelGestureState = CanvasWheelGestureState()
 
     override var isOpaque: Bool { false }
 
@@ -653,12 +654,24 @@ private final class CanvasPanEventMonitorView: NSView {
         case .scrollWheel:
             let delta = CGSize(width: event.scrollingDeltaX, height: event.scrollingDeltaY)
             guard abs(delta.width) > 0.01 || abs(delta.height) > 0.01 else { return event }
-            if event.modifierFlags.intersection(.deviceIndependentFlagsMask).contains(.command) {
+            let isMomentum = event.momentumPhase != [] && event.momentumPhase != .mayBegin
+            let didEndMomentum = event.momentumPhase == .ended || event.momentumPhase == .cancelled
+            let isCommandWheel = event.modifierFlags.intersection(.deviceIndependentFlagsMask).contains(.command)
+
+            switch wheelGestureState.action(
+                hasCommandModifier: isCommandWheel,
+                isMomentum: isMomentum,
+                didEndMomentum: didEndMomentum
+            ) {
+            case .zoom:
                 onZoom?(Double(delta.height), localPoint)
                 return nil
+            case .consume:
+                return nil
+            case .pan:
+                onPan?(delta)
+                return nil
             }
-            onPan?(delta)
-            return nil
         case .magnify:
             guard abs(event.magnification) > 0.0001 else { return event }
             onMagnify?(Double(event.magnification), localPoint)
@@ -2129,6 +2142,9 @@ private struct WorkspaceCanvasOverviewView<Content: View, EmptyContent: View>: V
                 .accessibilityHidden(true)
             }
             .frame(width: proxy.size.width, height: proxy.size.height, alignment: .topLeading)
+            .transaction { transaction in
+                transaction.animation = nil
+            }
             .coordinateSpace(name: workspaceCanvasFreeformCoordinateSpace)
             .clipped()
         }
@@ -2827,27 +2843,19 @@ private struct WorkspaceCanvasOverviewView<Content: View, EmptyContent: View>: V
     }
 
     private var freeformScale: CGFloat {
-        min(max(CGFloat(controller.canvasViewport.scale), 0.16), 0.72)
+        CGFloat(CanvasViewportZoom.presentationScale(for: controller.canvasViewport))
     }
 
     private func zoomedCanvasScale(delta: Double) -> Double {
-        let current = controller.canvasViewport.scale
-        let step = max(-0.10, min(0.10, delta * 0.002))
-        return clampedCanvasScale(current + step)
+        CanvasViewportZoom.scaleAfterWheel(deltaY: delta, currentScale: controller.canvasViewport.scale)
     }
 
     private func zoomedCanvasScale(magnification: Double) -> Double {
-        let current = controller.canvasViewport.scale
-        let factor = max(0.5, min(1.5, 1 + magnification))
-        return clampedCanvasScale(current * factor)
+        CanvasViewportZoom.scaleAfterMagnification(magnification, currentScale: controller.canvasViewport.scale)
     }
 
     private func smartZoomedCanvasScale() -> Double {
-        controller.canvasViewport.scale < 0.99 ? 1.0 : 0.5
-    }
-
-    private func clampedCanvasScale(_ scale: Double) -> Double {
-        min(max(scale, 0.16), 1.0)
+        CanvasViewportZoom.smartZoomScale(currentScale: controller.canvasViewport.scale)
     }
 
     private func freeformCardSize(for frame: PixelRect, scale: CGFloat) -> CGSize {

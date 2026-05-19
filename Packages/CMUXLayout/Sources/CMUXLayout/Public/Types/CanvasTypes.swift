@@ -91,6 +91,37 @@ public struct CanvasViewport: Codable, Sendable, Equatable {
     }
 }
 
+public enum CanvasViewportZoom {
+    public static let minimumScale: Double = 0.16
+    public static let maximumScale: Double = 1.0
+
+    public static func presentationScale(for viewport: CanvasViewport) -> Double {
+        clampedScale(viewport.scale)
+    }
+
+    public static func clampedScale(_ scale: Double) -> Double {
+        guard scale.isFinite else { return maximumScale }
+        return min(max(scale, minimumScale), maximumScale)
+    }
+
+    public static func scaleAfterWheel(deltaY: Double, currentScale: Double) -> Double {
+        guard deltaY.isFinite else { return clampedScale(currentScale) }
+        let boundedDelta = min(max(deltaY, -80), 80)
+        let factor = exp(boundedDelta * 0.002)
+        return clampedScale(currentScale * factor)
+    }
+
+    public static func scaleAfterMagnification(_ magnification: Double, currentScale: Double) -> Double {
+        guard magnification.isFinite else { return clampedScale(currentScale) }
+        let factor = min(max(1 + magnification, 0.5), 1.5)
+        return clampedScale(currentScale * factor)
+    }
+
+    public static func smartZoomScale(currentScale: Double) -> Double {
+        currentScale < 0.99 ? maximumScale : 0.5
+    }
+}
+
 public struct CanvasItem: Identifiable, Codable, Sendable, Equatable {
     public enum Content: Codable, Sendable, Equatable {
         case pane(PaneID)

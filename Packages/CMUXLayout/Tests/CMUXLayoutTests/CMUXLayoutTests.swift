@@ -4001,6 +4001,77 @@ final class CMUXLayoutTests: XCTestCase {
     }
 
     @MainActor
+    func testCanvasWheelZoomIsMonotonicAndAnchorStableAtNativeScale() {
+        let controller = WorkspaceLayoutController()
+        let viewportSize = CGSize(width: 1_200, height: 800)
+        let anchor = CGPoint(x: 940, y: 140)
+        controller.setCanvasViewport(
+            CanvasViewport(
+                visibleRect: PixelRect(x: 40, y: -120, width: 1_200, height: 800),
+                scale: 1
+            )
+        )
+
+        func documentAnchor(for viewport: CanvasViewport) -> CGPoint {
+            let scale = CanvasViewportZoom.presentationScale(for: viewport)
+            return CGPoint(
+                x: CGFloat(viewport.visibleRect.x) + (anchor.x / CGFloat(scale)),
+                y: CGFloat(viewport.visibleRect.y) + (anchor.y / CGFloat(scale))
+            )
+        }
+
+        var previousScale = controller.canvasViewport.scale
+        for _ in 0..<24 {
+            let beforeViewport = controller.canvasViewport
+            let beforeAnchor = documentAnchor(for: beforeViewport)
+            let nextScale = CanvasViewportZoom.scaleAfterWheel(
+                deltaY: -12,
+                currentScale: beforeViewport.scale
+            )
+            controller.setCanvasViewportScale(
+                nextScale,
+                viewportSize: viewportSize,
+                anchorScreenPoint: anchor
+            )
+            let afterViewport = controller.canvasViewport
+            let afterAnchor = documentAnchor(for: afterViewport)
+
+            XCTAssertLessThanOrEqual(afterViewport.scale, previousScale)
+            XCTAssertEqual(afterAnchor.x, beforeAnchor.x, accuracy: 0.0001)
+            XCTAssertEqual(afterAnchor.y, beforeAnchor.y, accuracy: 0.0001)
+            XCTAssertEqual(CanvasViewportZoom.presentationScale(for: afterViewport), afterViewport.scale, accuracy: 0.0001)
+            previousScale = afterViewport.scale
+        }
+
+        XCTAssertLessThan(controller.canvasViewport.scale, 0.6)
+        XCTAssertGreaterThan(controller.canvasViewport.scale, CanvasViewportZoom.minimumScale)
+    }
+
+    func testCanvasWheelGestureConsumesCommandMomentumInsteadOfPanning() {
+        var state = CanvasWheelGestureState()
+
+        XCTAssertEqual(
+            state.action(hasCommandModifier: true, isMomentum: false, didEndMomentum: false),
+            .zoom
+        )
+        XCTAssertTrue(state.isConsumingCommandWheelMomentum)
+        XCTAssertEqual(
+            state.action(hasCommandModifier: false, isMomentum: true, didEndMomentum: false),
+            .consume
+        )
+        XCTAssertTrue(state.isConsumingCommandWheelMomentum)
+        XCTAssertEqual(
+            state.action(hasCommandModifier: false, isMomentum: true, didEndMomentum: true),
+            .consume
+        )
+        XCTAssertFalse(state.isConsumingCommandWheelMomentum)
+        XCTAssertEqual(
+            state.action(hasCommandModifier: false, isMomentum: false, didEndMomentum: false),
+            .pan
+        )
+    }
+
+    @MainActor
     func testCanvasSceneSnapshotPromotesFocusedItemToNativeMount() throws {
         let controller = WorkspaceLayoutController()
         let initial = controller.canvasSnapshot()

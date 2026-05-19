@@ -11955,9 +11955,7 @@ final class Workspace: Identifiable, ObservableObject {
     }
 
     private enum CanvasOverviewZoom {
-        static let defaultScale = 1.0
-        static let minimumScale = 0.16
-        static let maximumScale = 1.0
+        static let defaultScale = CanvasViewportZoom.maximumScale
         static let step = 0.08
     }
 
@@ -11975,7 +11973,7 @@ final class Workspace: Identifiable, ObservableObject {
 
     @discardableResult
     func setCanvasOverviewScale(_ scale: Double) -> Double {
-        let clamped = min(max(scale, CanvasOverviewZoom.minimumScale), CanvasOverviewZoom.maximumScale)
+        let clamped = CanvasViewportZoom.clampedScale(scale)
         layoutController.setCanvasViewportScale(clamped)
         return clamped
     }

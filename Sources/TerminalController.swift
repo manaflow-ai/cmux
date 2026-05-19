@@ -2840,6 +2840,8 @@ class TerminalController {
             return v2Result(id: id, self.v2DebugCanvasDrag(params: params))
         case "debug.canvas.resize":
             return v2Result(id: id, self.v2DebugCanvasResize(params: params))
+        case "debug.canvas.wheel_zoom":
+            return v2Result(id: id, self.v2DebugCanvasWheelZoom(params: params))
         case "debug.app.activate":
             return v2Result(id: id, self.v2DebugActivateApp())
         case "debug.command_palette.toggle":
@@ -3102,6 +3104,7 @@ class TerminalController {
             "debug.mouse.drag",
             "debug.canvas.drag",
             "debug.canvas.resize",
+            "debug.canvas.wheel_zoom",
             "debug.app.activate",
             "debug.command_palette.toggle",
             "debug.command_palette.rename_tab.open",
@@ -12459,6 +12462,103 @@ class TerminalController {
             : .err(code: "internal_error", message: resp, data: nil)
     }
 
+    private func v2DebugCanvasWheelZoom(params: [String: Any]) -> V2CallResult {
+        let deltaY = v2Double(params, "delta_y") ?? -12
+        let repeatCount = min(max(v2Int(params, "repeat") ?? 1, 1), 240)
+        let viewportSize = CGSize(
+            width: max(1, v2Double(params, "viewport_width") ?? 1_200),
+            height: max(1, v2Double(params, "viewport_height") ?? 800)
+        )
+        let anchorX = min(max(0, v2Double(params, "anchor_x") ?? Double(viewportSize.width / 2)), Double(viewportSize.width))
+        let anchorY = min(max(0, v2Double(params, "anchor_y") ?? Double(viewportSize.height / 2)), Double(viewportSize.height))
+        let anchor = CGPoint(
+            x: anchorX,
+            y: anchorY
+        )
+
+        guard let tabManager = v2ResolveTabManager(params: params) else {
+            return .err(code: "not_found", message: "Window not found", data: nil)
+        }
+
+        return v2MainSync {
+            guard let workspace = v2ResolveWorkspace(params: params, tabManager: tabManager) else {
+                return .err(code: "not_found", message: "Workspace not found", data: nil)
+            }
+
+            let controller = workspace.layoutController
+            controller.setCanvasLayoutPolicy(.freeform)
+            if !controller.isCanvasOverviewActive {
+                controller.enterCanvasOverview(policy: .freeform)
+            }
+            if let startScale = v2Double(params, "start_scale") {
+                controller.setCanvasViewportScale(
+                    CanvasViewportZoom.clampedScale(startScale),
+                    viewportSize: viewportSize,
+                    anchorScreenPoint: anchor
+                )
+            }
+
+            func documentAnchor(for viewport: CanvasViewport) -> CGPoint {
+                let scale = max(CanvasViewportZoom.minimumScale, CanvasViewportZoom.presentationScale(for: viewport))
+                return CGPoint(
+                    x: CGFloat(viewport.visibleRect.x) + (anchor.x / CGFloat(scale)),
+                    y: CGFloat(viewport.visibleRect.y) + (anchor.y / CGFloat(scale))
+                )
+            }
+
+            var maxAnchorDrift = 0.0
+            var maxScaleStep = 0.0
+            var monotonic = true
+            var previousScale = controller.canvasViewport.scale
+            var scales: [Double] = [previousScale]
+
+            for _ in 0..<repeatCount {
+                let beforeViewport = controller.canvasViewport
+                let beforeAnchor = documentAnchor(for: beforeViewport)
+                let nextScale = CanvasViewportZoom.scaleAfterWheel(
+                    deltaY: deltaY,
+                    currentScale: beforeViewport.scale
+                )
+                controller.setCanvasViewportScale(
+                    nextScale,
+                    viewportSize: viewportSize,
+                    anchorScreenPoint: anchor
+                )
+                let afterViewport = controller.canvasViewport
+                let afterAnchor = documentAnchor(for: afterViewport)
+                let drift = max(
+                    abs(Double(afterAnchor.x - beforeAnchor.x)),
+                    abs(Double(afterAnchor.y - beforeAnchor.y))
+                )
+                maxAnchorDrift = max(maxAnchorDrift, drift)
+                maxScaleStep = max(maxScaleStep, abs(afterViewport.scale - beforeViewport.scale))
+                if deltaY < 0, afterViewport.scale > previousScale + 0.000001 {
+                    monotonic = false
+                }
+                if deltaY > 0, afterViewport.scale < previousScale - 0.000001 {
+                    monotonic = false
+                }
+                previousScale = afterViewport.scale
+                scales.append(afterViewport.scale)
+            }
+
+            let viewport = controller.canvasViewport
+            return .ok([
+                "anchor_x": Double(anchor.x),
+                "anchor_y": Double(anchor.y),
+                "delta_y": deltaY,
+                "repeat": repeatCount,
+                "start_scale": scales.first ?? viewport.scale,
+                "end_scale": viewport.scale,
+                "presentation_scale": CanvasViewportZoom.presentationScale(for: viewport),
+                "max_anchor_drift": maxAnchorDrift,
+                "max_scale_step": maxScaleStep,
+                "monotonic": monotonic,
+                "scales": scales
+            ])
+        }
+    }
+
     private func v2DebugCanvasDrag(params: [String: Any]) -> V2CallResult {
         guard let dx = v2Double(params, "dx"),
               let dy = v2Double(params, "dy") else {
@@ -12547,7 +12647,7 @@ class TerminalController {
     }
 
     private func v2DebugCanvasScale(controller: WorkspaceLayoutController) -> CGFloat {
-        min(max(CGFloat(controller.canvasViewport.scale), 0.16), 0.72)
+        CGFloat(CanvasViewportZoom.presentationScale(for: controller.canvasViewport))
     }
 
     private func v2DebugCanvasTransform(controller: WorkspaceLayoutController, scale: CGFloat) -> CanvasTransform {
@@ -15208,6 +15308,7 @@ class TerminalController {
         let canvasPolicy: String
         let canvasOverviewActive: Bool
         let canvasViewportScale: Double
+        let canvasPresentationScale: Double
         let canvasFocusedItemId: String?
         let canvasActiveRenderMode: String?
         let canvasItems: [LayoutDebugCanvasItem]
@@ -15410,6 +15511,7 @@ class TerminalController {
                 canvasPolicy: canvas.policy.rawValue,
                 canvasOverviewActive: tab.layoutController.isCanvasOverviewActive,
                 canvasViewportScale: tab.layoutController.canvasViewport.scale,
+                canvasPresentationScale: CanvasViewportZoom.presentationScale(for: tab.layoutController.canvasViewport),
                 canvasFocusedItemId: tab.layoutController.focusedCanvasItemID?.id.uuidString,
                 canvasActiveRenderMode: canvasScene.activeMountDirective?.renderMode.rawValue,
                 canvasItems: canvasItems,
