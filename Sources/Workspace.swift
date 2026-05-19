@@ -845,10 +845,9 @@ extension Workspace {
                 }
                 invalidatedRestoredAgentFingerprintsByPanelId.removeValue(forKey: terminalPanel.id)
                 if let restoredHibernation,
-                   let resumeStartupInput = restorableAgent.resumeStartupInput() {
+                   restorableAgent.resumeCommand != nil {
                     terminalPanel.enterAgentHibernation(
                         agent: restorableAgent,
-                        resumeStartupInput: resumeStartupInput,
                         lastActivityAt: Date(timeIntervalSince1970: restoredHibernation.lastActivityAt),
                         hibernatedAt: Date(timeIntervalSince1970: restoredHibernation.hibernatedAt)
                     )
@@ -8804,7 +8803,9 @@ final class Workspace: Identifiable, ObservableObject {
         recordAgentLifecycleChange(panelId: targetPanelId)
     }
 
-    func clearAgentLifecycle(key: String, panelId: UUID? = nil) {
+    @discardableResult
+    func clearAgentLifecycle(key: String, panelId: UUID? = nil) -> Bool {
+        var didClear = false
         let panelIds = panelId.map { [$0] } ?? Array(agentLifecycleStatesByPanelId.keys)
         for panelId in panelIds {
             guard agentLifecycleStatesByPanelId[panelId]?[key] != nil else { continue }
@@ -8812,8 +8813,10 @@ final class Workspace: Identifiable, ObservableObject {
             if agentLifecycleStatesByPanelId[panelId]?.isEmpty == true {
                 agentLifecycleStatesByPanelId.removeValue(forKey: panelId)
             }
+            didClear = true
             recordAgentLifecycleChange(panelId: panelId)
         }
+        return didClear
     }
 
     func clearAgentLifecycleStates(panelId: UUID) {
@@ -8871,7 +8874,7 @@ final class Workspace: Identifiable, ObservableObject {
               !terminalPanel.isAgentHibernated else {
             return
         }
-        guard let resumeStartupInput = agent.resumeStartupInput() else { return }
+        guard agent.resumeCommand != nil else { return }
         restoredAgentSnapshotsByPanelId[panelId] = agent
         restoredAgentResumeStatesByPanelId[panelId] = .manualResumeAvailable
         invalidatedRestoredAgentFingerprintsByPanelId.removeValue(forKey: panelId)
@@ -8882,7 +8885,7 @@ final class Workspace: Identifiable, ObservableObject {
         if !keys.isEmpty {
             refreshTrackedAgentPorts()
         }
-        terminalPanel.enterAgentHibernation(agent: agent, resumeStartupInput: resumeStartupInput, lastActivityAt: lastActivityAt)
+        terminalPanel.enterAgentHibernation(agent: agent, lastActivityAt: lastActivityAt)
     }
 
     @discardableResult

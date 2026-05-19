@@ -127,6 +127,19 @@ final class AgentHibernationTests: XCTestCase {
         XCTAssertTrue(selected.isEmpty)
     }
 
+    @MainActor
+    func testClearingAgentPIDByPanelClearsLifecycleWithoutOwnedPID() throws {
+        let workspace = Workspace()
+        let panelId = try XCTUnwrap(workspace.focusedPanelId)
+
+        workspace.setAgentLifecycle(key: "codex", panelId: panelId, lifecycle: .idle)
+        XCTAssertEqual(workspace.agentHibernationLifecycleState(panelId: panelId, fallback: nil), .idle)
+
+        XCTAssertTrue(workspace.clearAgentPID(key: "codex.missing", panelId: panelId, clearStatus: true))
+
+        XCTAssertEqual(workspace.agentHibernationLifecycleState(panelId: panelId, fallback: nil), .unknown)
+    }
+
     func testSessionIndexLoadsAgentLifecycleFromHookStore() throws {
         let home = FileManager.default.temporaryDirectory
             .appendingPathComponent("cmux-agent-hibernation-index-\(UUID().uuidString)", isDirectory: true)

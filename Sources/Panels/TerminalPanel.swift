@@ -5,7 +5,6 @@ import Bonsplit
 
 struct AgentHibernationPanelState {
     let agent: SessionRestorableAgentSnapshot
-    let resumeStartupInput: String
     let hibernatedAt: Date
     let lastActivityAt: Date
 
@@ -221,13 +220,11 @@ final class TerminalPanel: Panel, ObservableObject {
 
     func enterAgentHibernation(
         agent: SessionRestorableAgentSnapshot,
-        resumeStartupInput: String,
         lastActivityAt: Date,
         hibernatedAt: Date = Date()
     ) {
         agentHibernationState = AgentHibernationPanelState(
             agent: agent,
-            resumeStartupInput: resumeStartupInput,
             hibernatedAt: hibernatedAt,
             lastActivityAt: lastActivityAt
         )
@@ -244,8 +241,11 @@ final class TerminalPanel: Panel, ObservableObject {
         guard let state = agentHibernationState else {
             return false
         }
+        guard let resumeStartupInput = state.agent.resumeStartupInput() else {
+            return false
+        }
         agentHibernationState = nil
-        surface.prepareAgentHibernationResume(initialInput: state.resumeStartupInput)
+        surface.prepareAgentHibernationResume(initialInput: resumeStartupInput)
         requestViewReattach()
         surface.requestBackgroundSurfaceStartIfNeeded()
         return true
