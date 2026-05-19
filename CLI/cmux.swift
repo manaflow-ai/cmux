@@ -8770,7 +8770,9 @@ struct CMUXCLI {
                 params["timeout_ms"] = max(1, Int(seconds * 1000.0))
             }
 
-            let payload = try client.sendV2(method: "browser.download.wait", params: params)
+            let effectiveTimeoutMs = min((params["timeout_ms"] as? Int) ?? 5_000, 120_000)
+            let responseTimeout = Double(max(1, effectiveTimeoutMs)) / 1000.0 + 5.0
+            let payload = try client.sendV2(method: "browser.download.wait", params: params, responseTimeout: responseTimeout)
             output(payload, fallback: "OK")
             return
         }
