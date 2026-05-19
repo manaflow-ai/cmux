@@ -206,7 +206,7 @@ final class SidebarSelectedWorkspaceScrollPolicyTests: XCTestCase {
 }
 
 final class SidebarTabItemPresentationResolutionPolicyTests: XCTestCase {
-    func testFrozenContextMenuPresentationDoesNotSuppressLiveNotificationState() {
+    func testStaleFrozenContextMenuPresentationDoesNotSuppressLiveShortcutHintState() {
         let tabId = UUID()
         let frozen = SidebarTabItemPresentationSnapshot(
             tabId: tabId,
@@ -223,11 +223,41 @@ final class SidebarTabItemPresentationResolutionPolicyTests: XCTestCase {
 
         let resolved = SidebarTabItemPresentationResolutionPolicy.resolved(
             live: live,
-            frozen: frozen
+            frozen: frozen,
+            contextMenuVisible: false
         )
 
         XCTAssertEqual(resolved.unreadCount, 1)
         XCTAssertEqual(resolved.latestNotificationText, "done")
+        XCTAssertFalse(
+            resolved.showsModifierShortcutHints,
+            "A stale frozen context-menu presentation must not keep shortcut-hint mode active after the live modifier state is false, because shortcut-hint mode suppresses the hover close button."
+        )
+    }
+
+    func testVisibleContextMenuFreezesPresentationState() {
+        let tabId = UUID()
+        let frozen = SidebarTabItemPresentationSnapshot(
+            tabId: tabId,
+            unreadCount: 0,
+            latestNotificationText: nil,
+            showsModifierShortcutHints: true
+        )
+        let live = SidebarTabItemPresentationSnapshot(
+            tabId: tabId,
+            unreadCount: 1,
+            latestNotificationText: "done",
+            showsModifierShortcutHints: false
+        )
+
+        let resolved = SidebarTabItemPresentationResolutionPolicy.resolved(
+            live: live,
+            frozen: frozen,
+            contextMenuVisible: true
+        )
+
+        XCTAssertEqual(resolved.unreadCount, 0)
+        XCTAssertNil(resolved.latestNotificationText)
         XCTAssertTrue(resolved.showsModifierShortcutHints)
     }
 
@@ -241,7 +271,8 @@ final class SidebarTabItemPresentationResolutionPolicyTests: XCTestCase {
 
         let resolved = SidebarTabItemPresentationResolutionPolicy.resolved(
             live: live,
-            frozen: nil
+            frozen: nil,
+            contextMenuVisible: true
         )
 
         XCTAssertEqual(resolved, live)
@@ -263,7 +294,8 @@ final class SidebarTabItemPresentationResolutionPolicyTests: XCTestCase {
 
         let resolved = SidebarTabItemPresentationResolutionPolicy.resolved(
             live: live,
-            frozen: frozen
+            frozen: frozen,
+            contextMenuVisible: true
         )
 
         XCTAssertEqual(resolved.unreadCount, 1)
@@ -299,6 +331,18 @@ final class SidebarWorkspaceRowInteractionStateTests: XCTestCase {
         )
     }
 
+    func testAppKitMenuTrackingEndClearsStaleContextMenuVisibility() {
+        var state = SidebarWorkspaceRowInteractionState()
+
+        state.contextMenuDidAppear()
+        state.contextMenuTrackingDidEnd()
+
+        XCTAssertFalse(
+            state.contextMenuVisible,
+            "AppKit menu tracking ending is authoritative when SwiftUI misses context-menu disappearance."
+        )
+    }
+
     func testContextMenuTrackingBeginHidesExistingCloseButtonBeforeSwiftUIMenuAppears() {
         var state = SidebarWorkspaceRowInteractionState()
 
@@ -325,6 +369,7 @@ final class SidebarWorkspaceRowInteractionStateTests: XCTestCase {
         var state = SidebarWorkspaceRowInteractionState()
 
         state.contextMenuDidAppear()
+        state.contextMenuTrackingDidBegin()
         state.setPointerHovering(true)
 
         XCTAssertFalse(
@@ -343,6 +388,21 @@ final class SidebarWorkspaceRowInteractionStateTests: XCTestCase {
                 shortcutHintModeActive: false
             ),
             "Once AppKit menu tracking ends, the last reconciled pointer position may reveal the close affordance even if SwiftUI menu state is stale."
+        )
+    }
+
+    func testStaleSwiftUIContextMenuVisibilityDoesNotSuppressFutureHoverWithoutTracking() {
+        var state = SidebarWorkspaceRowInteractionState()
+
+        state.contextMenuDidAppear()
+        state.setPointerHovering(true)
+
+        XCTAssertTrue(
+            state.shouldShowCloseButton(
+                canCloseWorkspace: true,
+                shortcutHintModeActive: false
+            ),
+            "SwiftUI context-menu visibility is not authoritative close-button suppression after AppKit menu tracking has ended or was missed."
         )
     }
 
