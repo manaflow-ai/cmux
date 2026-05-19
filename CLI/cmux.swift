@@ -11007,7 +11007,7 @@ struct CMUXCLI {
             """
         case "claude-hook":
             return String(localized: "cli.help.claudeHook", defaultValue: """
-            Usage: cmux claude-hook <session-start|active|stop|idle|session-end|notification|notify|prompt-submit> [flags]
+            Usage: cmux claude-hook <session-start|active|stop|idle|session-end|notification|notify|prompt-submit|pre-tool-use> [flags]
 
             Hook for Claude Code integration. Reads JSON from stdin.
 
@@ -11020,6 +11020,7 @@ struct CMUXCLI {
               notification    Forward a Claude notification
               notify          Alias for notification
               prompt-submit   Clear notification and set Running on user prompt
+              pre-tool-use    Forward a Claude PreToolUse hook
 
             Flags:
               --workspace <id|ref>   Target workspace (default: $CMUX_WORKSPACE_ID)
