@@ -3792,11 +3792,14 @@ class GhosttyApp {
     }
 
     private static func runtimeAppForActionCallback(_ app: ghostty_app_t?) -> GhosttyApp? {
-        if let registered = runtimeApp(for: app) {
-            return registered
-        }
         appRegistryLock.lock()
         defer { appRegistryLock.unlock() }
+        if let app {
+            let key = UInt(bitPattern: app)
+            if let registered = appRegistry[key] {
+                return registered
+            }
+        }
         return initializingRuntimeApp
     }
 

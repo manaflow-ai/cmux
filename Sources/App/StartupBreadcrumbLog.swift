@@ -78,10 +78,15 @@ enum StartupBreadcrumbLog {
             .appendingPathComponent("Logs/cmux", isDirectory: true)
             ?? URL(fileURLWithPath: NSTemporaryDirectory(), isDirectory: true)
                 .appendingPathComponent("cmux-logs", isDirectory: true)
-        let bundleIdentifier = Bundle.main.bundleIdentifier ?? "unknown"
-        let sanitizedBundleIdentifier = sanitized(bundleIdentifier, maxLength: 160)
-            .replacingOccurrences(of: "/", with: "-")
+        let sanitizedBundleIdentifier = logFileComponent(Bundle.main.bundleIdentifier ?? "unknown")
         return logsDirectory.appendingPathComponent("startup-\(sanitizedBundleIdentifier).log")
+    }
+
+    private static func logFileComponent(_ value: String) -> String {
+        let allowed = CharacterSet(charactersIn: "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789._-")
+        return sanitized(value, maxLength: 160).unicodeScalars.map { scalar in
+            allowed.contains(scalar) ? String(scalar) : "-"
+        }.joined()
     }
 
     private static func sanitized(_ value: String, maxLength: Int = maxFieldLength) -> String {
