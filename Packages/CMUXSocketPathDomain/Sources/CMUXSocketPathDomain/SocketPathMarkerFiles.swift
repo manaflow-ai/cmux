@@ -59,12 +59,18 @@ public enum SocketPathVariant: Equatable {
 public enum SocketPathMarkerFiles {
     public static let stableAppSupportFileName = "last-socket-path"
     public static let stableTmpPath = "/tmp/cmux-last-socket-path"
+    public static let releaseBundleIdentifier = "com.cmuxterm.app"
     public static let nightlyBundleIdentifier = "com.cmuxterm.app.nightly"
     public static let stagingBundleIdentifier = "com.cmuxterm.app.staging"
     public static let defaultBaseDebugBundleIdentifier = "com.cmuxterm.app.debug"
     public static let defaultDebugSocketPath = "/tmp/cmux-debug.sock"
     public static let defaultNightlySocketPath = "/tmp/cmux-nightly.sock"
     public static let defaultStagingSocketPath = "/tmp/cmux-staging.sock"
+    public static let releaseSocketFileName = "\(releaseBundleIdentifier).sock"
+    public static let legacyReleaseSocketFileName = "cmux.sock"
+    public static let nightlySocketFileName = "\(nightlyBundleIdentifier).sock"
+    public static let stagingSocketFileName = "\(stagingBundleIdentifier).sock"
+    public static let devSocketFileName = "\(releaseBundleIdentifier).dev.sock"
 
     public static func appSupportFileURL(
         fileName: String = stableAppSupportFileName,
@@ -133,18 +139,34 @@ public enum SocketPathMarkerFiles {
         environment: [String: String],
         isDebugBuild: Bool,
         stableSocketPath: String,
+        appSupportDirectory: URL? = nil,
         baseDebugBundleIdentifier: String = defaultBaseDebugBundleIdentifier,
         debugSocketPath: String = defaultDebugSocketPath,
         nightlySocketPath: String = defaultNightlySocketPath,
         stagingSocketPath: String = defaultStagingSocketPath
     ) -> String {
-        switch variant(
+        let resolvedVariant = variant(
             bundleIdentifier: bundleIdentifier,
             environment: environment,
             baseDebugBundleIdentifier: baseDebugBundleIdentifier
-        ) {
+        )
+        let effectiveVariant: SocketPathVariant
+        if case .stable = resolvedVariant, isDebugBuild {
+            effectiveVariant = .dev(slug: nil)
+        } else {
+            effectiveVariant = resolvedVariant
+        }
+
+        if let appSupportDirectory, effectiveVariant != .stable {
+            return socketPath(
+                fileName: socketFileName(for: effectiveVariant),
+                directory: appSupportDirectory
+            )
+        }
+
+        switch effectiveVariant {
         case .stable:
-            return isDebugBuild ? debugSocketPath : stableSocketPath
+            return stableSocketPath
         case .nightly(let slug):
             if let slug {
                 return "/tmp/cmux-nightly-\(slug).sock"
@@ -163,6 +185,40 @@ public enum SocketPathMarkerFiles {
         }
     }
 
+    public static func socketFileName(for variant: SocketPathVariant) -> String {
+        switch variant {
+        case .stable:
+            return releaseSocketFileName
+        case .nightly:
+            return nightlySocketFileName
+        case .staging:
+            return stagingSocketFileName
+        case .dev(let slug):
+            if let slug {
+                return "\(releaseBundleIdentifier).dev.\(slug).sock"
+            }
+            return devSocketFileName
+        }
+    }
+
+    public static func socketPath(fileName: String, directory: URL) -> String {
+        let candidate = directory.appendingPathComponent(fileName, isDirectory: false).path
+        guard candidate.utf8.count > unixSocketPathMaxLength else {
+            return candidate
+        }
+        let shortened = directory
+            .appendingPathComponent(shortenedSocketFileName(fileName, directoryPath: directory.path), isDirectory: false)
+            .path
+        if shortened.utf8.count <= unixSocketPathMaxLength {
+            return shortened
+        }
+
+        let tmpDirectory = URL(fileURLWithPath: "/tmp", isDirectory: true)
+        return tmpDirectory
+            .appendingPathComponent(shortenedSocketFileName(fileName, directoryPath: tmpDirectory.path), isDirectory: false)
+            .path
+    }
+
     public static func sanitizeSocketSlug(_ raw: String) -> String? {
         let slug = raw
             .lowercased()
@@ -174,6 +230,68 @@ public enum SocketPathMarkerFiles {
     private static func bundleSuffixSlug(_ bundleIdentifier: String, prefix: String) -> String? {
         let suffix = String(bundleIdentifier.dropFirst(prefix.count))
         return sanitizeSocketSlug(suffix)
+    }
+
+    private static var unixSocketPathMaxLength: Int {
+        #if os(Linux)
+        return 107
+        #else
+        return 103
+        #endif
+    }
+
+    private static func shortenedSocketFileName(_ fileName: String, directoryPath: String) -> String {
+        let separatorLength = 1
+        let budget = unixSocketPathMaxLength - directoryPath.utf8.count - separatorLength
+        let suffix = ".sock"
+        guard fileName.utf8.count > budget else {
+            return fileName
+        }
+
+        let stem = fileName.hasSuffix(suffix) ? String(fileName.dropLast(suffix.count)) : fileName
+        let hashSuffix = "-\(fnv1a32Hex(fileName))"
+        guard budget >= suffix.utf8.count + 1 else {
+            return "\(fnv1a32Hex(fileName))\(suffix)"
+        }
+
+        let stemBudget = budget - hashSuffix.utf8.count - suffix.utf8.count
+        guard stemBudget >= 1 else {
+            let hashBudget = max(1, budget - suffix.utf8.count)
+            return "\(String(fnv1a32Hex(fileName).prefix(hashBudget)))\(suffix)"
+        }
+
+        let shortenedStem = utf8Prefix(stem, maxBytes: stemBudget)
+            .trimmingCharacters(in: CharacterSet(charactersIn: ".-"))
+        let safeStem = shortenedStem.isEmpty ? "cmux" : shortenedStem
+        let shortened = "\(safeStem)\(hashSuffix)\(suffix)"
+        if shortened.utf8.count <= budget {
+            return shortened
+        }
+
+        let hashBudget = max(1, budget - suffix.utf8.count)
+        return "\(String(fnv1a32Hex(fileName).prefix(hashBudget)))\(suffix)"
+    }
+
+    private static func utf8Prefix(_ value: String, maxBytes: Int) -> String {
+        guard maxBytes > 0 else { return "" }
+        var result = ""
+        var usedBytes = 0
+        for character in value {
+            let width = String(character).utf8.count
+            guard usedBytes + width <= maxBytes else { break }
+            result.append(character)
+            usedBytes += width
+        }
+        return result
+    }
+
+    private static func fnv1a32Hex(_ value: String) -> String {
+        var hash: UInt32 = 2_166_136_261
+        for byte in value.utf8 {
+            hash ^= UInt32(byte)
+            hash = hash &* 16_777_619
+        }
+        return String(format: "%08x", hash)
     }
 
     private static func normalized(_ value: String?) -> String? {

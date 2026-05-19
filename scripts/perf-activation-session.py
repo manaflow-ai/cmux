@@ -13,6 +13,8 @@ import tempfile
 import time
 import xml.etree.ElementTree as ET
 
+from cmux_socket_paths import socket_path_for_file_name
+
 
 def sanitize_bundle(raw: str) -> str:
     cleaned = re.sub(r"[^a-z0-9]+", ".", raw.lower()).strip(".")
@@ -44,7 +46,7 @@ class CmuxPerfRunner:
         self.tag = args.tag
         self.tag_slug = sanitize_path(args.tag)
         self.tag_id = sanitize_bundle(args.tag)
-        self.socket_path = pathlib.Path(f"/tmp/cmux-debug-{self.tag_slug}.sock")
+        self.socket_path = socket_path_for_file_name(f"com.cmuxterm.app.dev.{self.tag_slug}.sock")
         self.cmuxd_socket_path = pathlib.Path(
             os.path.expanduser(f"~/Library/Application Support/cmux/cmuxd-dev-{self.tag_slug}.sock")
         )

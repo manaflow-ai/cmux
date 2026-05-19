@@ -1,6 +1,7 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 APP_NAME="cmux DEV"
 BUNDLE_ID="com.cmuxterm.app.debug"
 BASE_APP_NAME="cmux DEV"
@@ -211,6 +212,44 @@ sanitize_path() {
   echo "$cleaned"
 }
 
+socket_path_for_file_name() {
+  local file_name="$1"
+  python3 "$SCRIPT_DIR/cmux_socket_paths.py" "$file_name"
+}
+
+socket_file_name_for_tagged_bundle() {
+  local bundle_id="${BUNDLE_ID:-}"
+  local tag_slug="${TAG_SLUG:-}"
+  local slug=""
+
+  case "$bundle_id" in
+    com.cmuxterm.app.debug)
+      slug="$tag_slug"
+      ;;
+    com.cmuxterm.app.debug.*)
+      slug="$(sanitize_path "${bundle_id#com.cmuxterm.app.debug.}")"
+      ;;
+    com.cmuxterm.app.nightly|com.cmuxterm.app.nightly.*)
+      echo "com.cmuxterm.app.nightly.sock"
+      return 0
+      ;;
+    com.cmuxterm.app.staging|com.cmuxterm.app.staging.*)
+      echo "com.cmuxterm.app.staging.sock"
+      return 0
+      ;;
+    *)
+      echo "com.cmuxterm.app.dev.sock"
+      return 0
+      ;;
+  esac
+
+  if [[ -n "$slug" ]]; then
+    echo "com.cmuxterm.app.dev.${slug}.sock"
+  else
+    echo "com.cmuxterm.app.dev.sock"
+  fi
+}
+
 is_valid_port() {
   local port="${1:-}"
   [[ "$port" =~ ^[0-9]+$ ]] || return 1
@@ -320,14 +359,16 @@ print_tag_cleanup_reminder() {
     echo "Cleanup stale tags only:"
     for tag in "${stale_tags[@]}"; do
       echo "  pkill -f \"cmux DEV ${tag}.app/Contents/MacOS/cmux DEV\""
-      echo "  rm -rf \"$(tagged_derived_data_path "$tag")\" \"/tmp/cmux-${tag}\" \"/tmp/cmux-debug-${tag}.sock\""
+      echo "  rm -rf \"$(tagged_derived_data_path "$tag")\" \"/tmp/cmux-${tag}\""
+      echo "  rm -f \"$(socket_path_for_file_name "com.cmuxterm.app.dev.${tag}.sock")\" \"/tmp/cmux-debug-${tag}.sock\""
       echo "  rm -f \"/tmp/cmux-debug-${tag}.log\""
       echo "  rm -f \"$HOME/Library/Application Support/cmux/cmuxd-dev-${tag}.sock\""
     done
   fi
   echo "After you verify current tag, cleanup command:"
   echo "  pkill -f \"cmux DEV ${current_slug}.app/Contents/MacOS/cmux DEV\""
-  echo "  rm -rf \"$(tagged_derived_data_path "$current_slug")\" \"/tmp/cmux-${current_slug}\" \"/tmp/cmux-debug-${current_slug}.sock\""
+  echo "  rm -rf \"$(tagged_derived_data_path "$current_slug")\" \"/tmp/cmux-${current_slug}\""
+  echo "  rm -f \"$(socket_path_for_file_name "$(socket_file_name_for_tagged_bundle)")\" \"/tmp/cmux-debug-${current_slug}.sock\""
   echo "  rm -f \"/tmp/cmux-debug-${current_slug}.log\""
   echo "  rm -f \"$HOME/Library/Application Support/cmux/cmuxd-dev-${current_slug}.sock\""
 }
@@ -616,14 +657,14 @@ if [[ -n "$TAG" && "$APP_NAME" != "$SEARCH_APP_NAME" ]]; then
     if [[ -n "${TAG_SLUG:-}" ]]; then
       APP_SUPPORT_DIR="$HOME/Library/Application Support/cmux"
       CMUXD_SOCKET="${APP_SUPPORT_DIR}/cmuxd-dev-${TAG_SLUG}.sock"
-      CMUX_SOCKET_PATH_VALUE="/tmp/cmux-debug-${TAG_SLUG}.sock"
+      CMUX_SOCKET_PATH_VALUE="$(socket_path_for_file_name "$(socket_file_name_for_tagged_bundle)")"
       CMUX_DEBUG_LOG="/tmp/cmux-debug-${TAG_SLUG}.log"
       write_last_socket_path "$CMUX_SOCKET_PATH_VALUE"
       echo "$CMUX_DEBUG_LOG" > /tmp/cmux-last-debug-log-path || true
       /usr/libexec/PlistBuddy -c "Add :LSEnvironment dict" "$INFO_PLIST" 2>/dev/null || true
+      set_plist_env "$INFO_PLIST" CMUX_TAG "$TAG_SLUG"
       set_plist_env "$INFO_PLIST" CMUX_BUNDLE_ID "$BUNDLE_ID"
       set_plist_env "$INFO_PLIST" CMUXD_UNIX_PATH "$CMUXD_SOCKET"
-      set_plist_env "$INFO_PLIST" CMUX_SOCKET_PATH "$CMUX_SOCKET_PATH_VALUE"
       set_plist_env "$INFO_PLIST" CMUX_DEBUG_LOG "$CMUX_DEBUG_LOG"
       set_plist_env "$INFO_PLIST" CMUX_SOCKET_ENABLE "1"
       set_plist_env "$INFO_PLIST" CMUX_SOCKET_MODE "allowAll"
@@ -700,6 +741,10 @@ if ! /usr/bin/codesign --force --sign - --timestamp=none --generate-entitlement-
     echo "error: codesign failed for $APP_PATH" >&2
     exit 1
   fi
+fi
+if [[ -n "${TAG_SLUG:-}" ]]; then
+  /System/Library/Frameworks/CoreServices.framework/Versions/Current/Frameworks/LaunchServices.framework/Versions/Current/Support/lsregister \
+    -f -R -trusted "$APP_PATH" || true
 fi
 CLI_PATH="$APP_PATH/Contents/Resources/bin/cmux"
 if [[ -x "$CLI_PATH" ]]; then
@@ -780,19 +825,18 @@ if [[ "$LAUNCH" -eq 1 ]]; then
   LAUNCH_CMD=()
   LAUNCH_RETRY_CMD=()
   if [[ -n "${TAG_SLUG:-}" ]]; then
-    # Launch tagged apps directly so LaunchServices cannot reuse a stale
-    # LSEnvironment for the tag's bundle id.
-    APP_EXECUTABLE="$APP_PATH/Contents/MacOS/${BASE_APP_NAME}"
-    if [[ ! -x "$APP_EXECUTABLE" ]]; then
-      echo "error: tagged app executable not found: $APP_EXECUTABLE" >&2
-      exit 1
-    fi
+    # Launch tagged apps through LaunchServices so the GUI process survives
+    # after this reload command exits. Pass the tag environment explicitly to
+    # avoid reusing a stale LaunchServices environment for this bundle id.
     TAG_LAUNCH_LOG="/tmp/cmux-launch-${TAG_SLUG}.out"
-    if [[ -n "${CMUX_SOCKET_PATH_VALUE:-}" ]]; then
-      nohup "${OPEN_CLEAN_ENV[@]}" "${TAG_LAUNCH_ENV[@]}" CMUX_SOCKET_PATH="$CMUX_SOCKET_PATH_VALUE" CMUXD_UNIX_PATH="$CMUXD_SOCKET" "$APP_EXECUTABLE" >"$TAG_LAUNCH_LOG" 2>&1 &
-    else
-      nohup "${OPEN_CLEAN_ENV[@]}" "${TAG_LAUNCH_ENV[@]}" "$APP_EXECUTABLE" >"$TAG_LAUNCH_LOG" 2>&1 &
-    fi
+    : > "$TAG_LAUNCH_LOG"
+    LAUNCH_CMD=("${OPEN_CLEAN_ENV[@]}" open -n -g --stdout "$TAG_LAUNCH_LOG" --stderr "$TAG_LAUNCH_LOG")
+    for ENV_VAR in "${TAG_LAUNCH_ENV[@]}"; do
+      LAUNCH_CMD+=(--env "$ENV_VAR")
+    done
+    LAUNCH_CMD+=(--env "CMUXD_UNIX_PATH=$CMUXD_SOCKET")
+    LAUNCH_CMD+=("$APP_PATH")
+    LAUNCH_RETRY_CMD=("${LAUNCH_CMD[@]}")
   else
     echo "/tmp/cmux-debug.sock" > /tmp/cmux-last-socket-path || true
     echo "/tmp/cmux-debug.log" > /tmp/cmux-last-debug-log-path || true

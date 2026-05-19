@@ -37,7 +37,15 @@ import json
 import base64
 import glob
 import re
+import sys
 from typing import Optional, List, Tuple, Union
+
+_REPO_ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+_SCRIPTS_DIR = os.path.join(_REPO_ROOT, "scripts")
+if _SCRIPTS_DIR not in sys.path:
+    sys.path.insert(0, _SCRIPTS_DIR)
+
+from cmux_socket_paths import socket_path_for_file_name as _shared_socket_path_for_file_name  # noqa: E402
 
 
 class cmuxError(Exception):
@@ -46,7 +54,8 @@ class cmuxError(Exception):
 
 
 _APP_SUPPORT_DIR = os.path.expanduser("~/Library/Application Support/cmux")
-_STABLE_SOCKET_PATH = os.path.join(_APP_SUPPORT_DIR, "cmux.sock")
+_STABLE_SOCKET_PATH = os.path.join(_APP_SUPPORT_DIR, "com.cmuxterm.app.sock")
+_LEGACY_APP_SUPPORT_SOCKET_PATH = os.path.join(_APP_SUPPORT_DIR, "cmux.sock")
 _LEGACY_STABLE_SOCKET_PATH = "/tmp/cmux.sock"
 _STABLE_BUNDLE_ID = "com.cmuxterm.app"
 _NIGHTLY_BUNDLE_ID = "com.cmuxterm.app.nightly"
@@ -66,6 +75,34 @@ def _sanitize_bundle_suffix(raw: str) -> str:
     cleaned = re.sub(r"[^a-z0-9]+", ".", (raw or "").strip().lower())
     cleaned = re.sub(r"\.+", ".", cleaned).strip(".")
     return cleaned or "agent"
+
+
+def _socket_path_for_file_name(file_name: str) -> str:
+    return str(_shared_socket_path_for_file_name(file_name))
+
+
+def _user_scoped_stable_socket_path() -> str:
+    return _socket_path_for_file_name(f"{_STABLE_BUNDLE_ID}.{os.getuid()}.sock")
+
+
+def _stable_implicit_default_paths() -> set[str]:
+    return {
+        _STABLE_SOCKET_PATH,
+        _LEGACY_APP_SUPPORT_SOCKET_PATH,
+        _LEGACY_STABLE_SOCKET_PATH,
+        _user_scoped_stable_socket_path(),
+    }
+
+
+def _is_stable_implicit_socket_path(path: str) -> bool:
+    if path in _stable_implicit_default_paths():
+        return True
+    return os.path.basename(path) in {
+        os.path.basename(_STABLE_SOCKET_PATH),
+        os.path.basename(_LEGACY_APP_SUPPORT_SOCKET_PATH),
+        os.path.basename(_LEGACY_STABLE_SOCKET_PATH),
+        os.path.basename(_user_scoped_stable_socket_path()),
+    }
 
 
 def _quote_option_value(value: str) -> str:
@@ -96,7 +133,7 @@ def _default_bundle_id() -> str:
         suffix = _sanitize_bundle_suffix(tag)
         return f"{_DEFAULT_DEBUG_BUNDLE_ID}.{suffix}"
 
-    return _DEFAULT_DEBUG_BUNDLE_ID
+    return _STABLE_BUNDLE_ID
 
 
 def _socket_variant() -> Tuple[str, Optional[str]]:
@@ -144,43 +181,74 @@ def _last_socket_path_files() -> List[str]:
 def _variant_socket_candidates() -> List[str]:
     variant, slug = _socket_variant()
     if variant == "nightly":
-        return [f"/tmp/cmux-nightly-{slug}.sock"] if slug else ["/tmp/cmux-nightly.sock"]
+        legacy = [f"/tmp/cmux-nightly-{slug}.sock"] if slug else ["/tmp/cmux-nightly.sock"]
+        return [_socket_path_for_file_name("com.cmuxterm.app.nightly.sock"), *legacy]
     if variant == "staging":
-        return [f"/tmp/cmux-staging-{slug}.sock"] if slug else ["/tmp/cmux-staging.sock"]
+        legacy = [f"/tmp/cmux-staging-{slug}.sock"] if slug else ["/tmp/cmux-staging.sock"]
+        return [_socket_path_for_file_name("com.cmuxterm.app.staging.sock"), *legacy]
     if variant == "dev":
         if slug:
-            return [f"/tmp/cmux-debug-{slug}.sock"]
-        return ["/tmp/cmux-debug.sock"]
-    return [_STABLE_SOCKET_PATH, _LEGACY_STABLE_SOCKET_PATH]
+            return [
+                _socket_path_for_file_name(f"com.cmuxterm.app.dev.{slug}.sock"),
+                f"/tmp/cmux-debug-{slug}.sock",
+                f"/tmp/cmux-{slug}.sock",
+            ]
+        return [_socket_path_for_file_name("com.cmuxterm.app.dev.sock"), "/tmp/cmux-debug.sock"]
+    return [_STABLE_SOCKET_PATH, _LEGACY_APP_SUPPORT_SOCKET_PATH, _LEGACY_STABLE_SOCKET_PATH]
 
 
 def _read_last_socket_path() -> Optional[str]:
+    variant, _ = _socket_variant()
     for marker_path in _last_socket_path_files():
         try:
             with open(marker_path, "r", encoding="utf-8") as f:
                 path = f.read().strip()
-            if path:
+            if path and (
+                variant != "stable"
+                or _is_stable_implicit_socket_path(path)
+            ):
                 return path
         except OSError:
             continue
     return None
 
 
+def _is_discoverable_tagged_debug_socket_name(name: str) -> bool:
+    suffix = ".sock"
+    if not name.endswith(suffix):
+        return False
+    stem = name[: -len(suffix)]
+    app_support_dev_prefix = "com.cmuxterm.app.dev."
+    if stem.startswith(app_support_dev_prefix):
+        return len(stem) > len(app_support_dev_prefix)
+    if stem.startswith("cmux-debug-"):
+        return True
+    if stem == "cmux-debug":
+        return False
+    if stem == "cmux-nightly" or stem.startswith("cmux-nightly-"):
+        return False
+    if stem == "cmux-staging" or stem.startswith("cmux-staging-"):
+        return False
+    return stem.startswith("cmux-")
+
+
 def _can_connect(path: str, timeout: float = 0.15, retries: int = 4) -> bool:
     # Best-effort check to avoid getting stuck on stale socket files.
     for _ in range(max(1, retries)):
-        s = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
         try:
-            s.settimeout(timeout)
-            s.connect(path)
-            return True
+            with socket.socket(socket.AF_UNIX, socket.SOCK_STREAM) as s:
+                s.settimeout(timeout)
+                s.connect(path)
+                s.sendall(b"ping\n")
+                data = b""
+                while b"\n" not in data and len(data) < 1024:
+                    chunk = s.recv(1024)
+                    if not chunk:
+                        break
+                    data += chunk
+                return data.splitlines()[0].strip() == b"PONG" if data else False
         except OSError:
             time.sleep(0.05)
-        finally:
-            try:
-                s.close()
-            except Exception:
-                pass
     return False
 
 
@@ -190,13 +258,14 @@ def _default_socket_path() -> str:
     override = os.environ.get("CMUX_SOCKET_PATH")
     if override:
         variant, _ = _socket_variant()
-        stable_defaults = {_STABLE_SOCKET_PATH, _LEGACY_STABLE_SOCKET_PATH}
+        stable_defaults = _stable_implicit_default_paths()
+        implicit_defaults = stable_defaults.union(_variant_socket_candidates())
         is_stale_stable_default = variant != "stable" and override in stable_defaults
         # Treat stable defaults as implicit so old env values still migrate cleanly.
         if not is_stale_stable_default:
             if os.path.exists(override) and _can_connect(override):
                 return override
-            if not os.path.exists(override):
+            if not os.path.exists(override) and override not in implicit_defaults:
                 return override
 
     last_socket = _read_last_socket_path()
@@ -211,11 +280,13 @@ def _default_socket_path() -> str:
 
     if bundle_id == _DEFAULT_DEBUG_BUNDLE_ID:
         tagged = glob.glob("/tmp/cmux-debug-*.sock")
-        tagged.extend(glob.glob(os.path.join(_APP_SUPPORT_DIR, "cmux*.sock")))
+        tagged.extend(glob.glob("/tmp/cmux-*.sock"))
+        tagged.extend(glob.glob(os.path.join(_APP_SUPPORT_DIR, "com.cmuxterm.app.dev.*.sock")))
+        tagged = list(dict.fromkeys(tagged))
         tagged = [
             p for p in tagged
             if os.path.exists(p)
-            and os.path.basename(p).startswith("cmux-debug-")
+            and _is_discoverable_tagged_debug_socket_name(os.path.basename(p))
         ]
         if tagged:
             tagged.sort(key=lambda p: os.path.getmtime(p), reverse=True)
@@ -226,11 +297,21 @@ def _default_socket_path() -> str:
     return candidates[0]
 
 
+class _DefaultSocketPath:
+    def __get__(self, obj: object, owner: Optional[type] = None) -> str:
+        return _default_socket_path()
+
+
+class _DefaultBundleId:
+    def __get__(self, obj: object, owner: Optional[type] = None) -> str:
+        return _default_bundle_id()
+
+
 class cmux:
     """Client for controlling cmux via Unix socket"""
 
-    DEFAULT_SOCKET_PATH = _default_socket_path()
-    DEFAULT_BUNDLE_ID = _default_bundle_id()
+    DEFAULT_SOCKET_PATH = _DefaultSocketPath()
+    DEFAULT_BUNDLE_ID = _DefaultBundleId()
 
     @staticmethod
     def default_socket_path() -> str:

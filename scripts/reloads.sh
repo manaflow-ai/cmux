@@ -1,6 +1,7 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 APP_NAME="cmux STAGING"
 BUNDLE_ID="com.cmuxterm.app.staging"
 BASE_APP_NAME="cmux"
@@ -195,8 +196,8 @@ if [[ -z "${APP_PATH:-}" || ! -d "${APP_PATH}" ]]; then
 fi
 
 # Staging always copies the built app and patches the plist to set an isolated
-# socket path, bundle id, and display name. This prevents conflicts with the
-# production cmux app.
+# cmuxd socket path, bundle id, and display name. This prevents conflicts with
+# the production cmux app.
 STAGING_APP_PATH="$(dirname "$APP_PATH")/${APP_NAME}.app"
 rm -rf "$STAGING_APP_PATH"
 cp -R "$APP_PATH" "$STAGING_APP_PATH"
@@ -209,25 +210,21 @@ if [[ -f "$INFO_PLIST" ]]; then
   /usr/libexec/PlistBuddy -c "Set :CFBundleIdentifier $BUNDLE_ID" "$INFO_PLIST" 2>/dev/null \
     || /usr/libexec/PlistBuddy -c "Add :CFBundleIdentifier string $BUNDLE_ID" "$INFO_PLIST"
 
-  # Inject staging socket paths via LSEnvironment so the Release binary
-  # (which defaults to the per-user stable socket) uses isolated sockets instead.
+  # Keep staging on the bundle-scoped App Support socket path used by the app.
   STAGING_SLUG="$(staging_slug_from_bundle_id "$BUNDLE_ID")"
   APP_SUPPORT_DIR="$HOME/Library/Application Support/cmux"
   if [[ -n "$STAGING_SLUG" ]]; then
     CMUXD_SOCKET="${APP_SUPPORT_DIR}/cmuxd-${STAGING_SLUG}.sock"
-    CMUX_SOCKET_PATH_VALUE="/tmp/cmux-staging-${STAGING_SLUG}.sock"
   else
     CMUXD_SOCKET="${APP_SUPPORT_DIR}/cmuxd-staging.sock"
-    CMUX_SOCKET_PATH_VALUE="/tmp/cmux-staging.sock"
   fi
+  CMUX_SOCKET_PATH_VALUE="$(python3 "$SCRIPT_DIR/cmux_socket_paths.py" "com.cmuxterm.app.staging.sock")"
   write_last_socket_path "$CMUX_SOCKET_PATH_VALUE"
   /usr/libexec/PlistBuddy -c "Add :LSEnvironment dict" "$INFO_PLIST" 2>/dev/null || true
   /usr/libexec/PlistBuddy -c "Set :LSEnvironment:CMUX_BUNDLE_ID \"${BUNDLE_ID}\"" "$INFO_PLIST" 2>/dev/null \
     || /usr/libexec/PlistBuddy -c "Add :LSEnvironment:CMUX_BUNDLE_ID string \"${BUNDLE_ID}\"" "$INFO_PLIST"
   /usr/libexec/PlistBuddy -c "Set :LSEnvironment:CMUXD_UNIX_PATH \"${CMUXD_SOCKET}\"" "$INFO_PLIST" 2>/dev/null \
     || /usr/libexec/PlistBuddy -c "Add :LSEnvironment:CMUXD_UNIX_PATH string \"${CMUXD_SOCKET}\"" "$INFO_PLIST"
-  /usr/libexec/PlistBuddy -c "Set :LSEnvironment:CMUX_SOCKET_PATH \"${CMUX_SOCKET_PATH_VALUE}\"" "$INFO_PLIST" 2>/dev/null \
-    || /usr/libexec/PlistBuddy -c "Add :LSEnvironment:CMUX_SOCKET_PATH string \"${CMUX_SOCKET_PATH_VALUE}\"" "$INFO_PLIST"
   if [[ -S "$CMUXD_SOCKET" ]]; then
     for PID in $(lsof -t "$CMUXD_SOCKET" 2>/dev/null); do
       kill "$PID" 2>/dev/null || true
@@ -280,9 +277,9 @@ OPEN_CLEAN_ENV=(
   -u XDG_DATA_DIRS
 )
 
-# Always inject staging socket paths via env to ensure they take effect
-# (LSEnvironment requires app restart to pick up plist changes).
-"${OPEN_CLEAN_ENV[@]}" CMUX_BUNDLE_ID="$BUNDLE_ID" CMUX_SOCKET_PATH="$CMUX_SOCKET_PATH_VALUE" CMUXD_UNIX_PATH="$CMUXD_SOCKET" open -g "$APP_PATH"
+# Launch with the isolated cmuxd path; the app derives and exports its own
+# bundle-scoped control socket path.
+"${OPEN_CLEAN_ENV[@]}" CMUX_BUNDLE_ID="$BUNDLE_ID" CMUXD_UNIX_PATH="$CMUXD_SOCKET" open -g "$APP_PATH"
 
 # Safety: ensure only one instance is running.
 sleep 0.2

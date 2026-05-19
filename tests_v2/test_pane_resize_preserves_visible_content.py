@@ -23,7 +23,11 @@ from pane_resize_test_support import (
 )
 
 
-DEFAULT_SOCKET_PATHS = ["/tmp/cmux-debug.sock", "/tmp/cmux.sock"]
+DEFAULT_SOCKET_PATHS = [
+    os.path.expanduser("~/Library/Application Support/cmux/com.cmuxterm.app.sock"),
+    "/tmp/cmux-debug.sock",
+    "/tmp/cmux.sock",
+]
 
 
 def _run_once(socket_path: str) -> int:

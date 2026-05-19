@@ -30,11 +30,10 @@ find_real_claude() {
     return 1
 }
 
-# Return 0 only when CMUX_SOCKET_PATH points to a live cmux socket.
+# Return 0 when the inherited socket env or the current cmux variant resolves
+# to a live cmux socket.
 cmux_socket_available() {
     local socket="${CMUX_SOCKET_PATH:-}"
-    [[ -n "$socket" && -S "$socket" ]] || return 1
-
     local self_dir cmux_bin
     self_dir="$(cd "$(dirname "$0")" && pwd)"
     cmux_bin="$self_dir/cmux"
@@ -43,8 +42,21 @@ cmux_socket_available() {
 
     # Keep stale/hung socket checks bounded so claude startup does not block
     # behind the CLI default timeout (15s).
-    CMUXTERM_CLI_RESPONSE_TIMEOUT_SEC=0.75 \
-        "$cmux_bin" --socket "$socket" ping >/dev/null 2>&1
+    if [[ -n "$socket" && -S "$socket" ]]; then
+        if CMUXTERM_CLI_RESPONSE_TIMEOUT_SEC=0.75 \
+            "$cmux_bin" --socket "$socket" ping >/dev/null 2>&1; then
+            return 0
+        fi
+    fi
+
+    if env -u CMUX_SOCKET_PATH -u CMUX_SOCKET CMUXTERM_CLI_RESPONSE_TIMEOUT_SEC=0.75 \
+        "$cmux_bin" ping >/dev/null 2>&1; then
+        unset CMUX_SOCKET_PATH
+        unset CMUX_SOCKET
+        return 0
+    fi
+
+    return 1
 }
 
 resolve_hook_cmux_bin() {

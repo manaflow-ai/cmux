@@ -1,6 +1,8 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+
 usage() {
   cat <<'EOF'
 Usage: ./scripts/launch-tagged-automation.sh <tag> [options]
@@ -32,6 +34,11 @@ sanitize_path() {
     cleaned="agent"
   fi
   echo "$cleaned"
+}
+
+socket_path_for_file_name() {
+  local file_name="$1"
+  python3 "$SCRIPT_DIR/cmux_socket_paths.py" "$file_name"
 }
 
 if [[ $# -lt 1 ]]; then
@@ -106,7 +113,7 @@ TAG_ID="$(sanitize_bundle "$TAG")"
 TAG_SLUG="$(sanitize_path "$TAG")"
 APP="$HOME/Library/Developer/Xcode/DerivedData/cmux-${TAG_SLUG}/Build/Products/Debug/cmux DEV ${TAG}.app"
 BID="com.cmuxterm.app.debug.${TAG_ID}"
-SOCK="/tmp/cmux-debug-${TAG_SLUG}.sock"
+SOCK="$(socket_path_for_file_name "com.cmuxterm.app.dev.${TAG_SLUG}.sock")"
 DSOCK="$HOME/Library/Application Support/cmux/cmuxd-dev-${TAG_SLUG}.sock"
 LOG="/tmp/cmux-debug-${TAG_SLUG}.log"
 
