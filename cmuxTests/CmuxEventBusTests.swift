@@ -361,6 +361,53 @@ final class CmuxEventBusTests: XCTestCase {
         XCTAssertNil(snapshot.subscription.next(timeout: 0.05))
     }
 
+    func testWindowScopeReplayUsesEventTimeWindowForWorkspaceOnlyEvents() throws {
+        let bus = CmuxEventBus(retainedEventLimit: 8)
+        let sourceWindowId = UUID().uuidString
+        let destinationWindowId = UUID().uuidString
+        let workspaceId = UUID().uuidString
+
+        CmuxEventWindowWorkspaceIndex.shared.replace(
+            windowId: sourceWindowId,
+            workspaceIds: [workspaceId]
+        )
+        bus.publish(
+            name: "feed.item.received",
+            category: "feed",
+            source: "socket-worker",
+            workspaceId: workspaceId,
+            payload: ["workspace_id": workspaceId]
+        )
+        CmuxEventWindowWorkspaceIndex.shared.replace(windowId: sourceWindowId, workspaceIds: [])
+        CmuxEventWindowWorkspaceIndex.shared.replace(
+            windowId: destinationWindowId,
+            workspaceIds: [workspaceId]
+        )
+
+        let sourceReplay = bus.subscribe(
+            afterSequence: 0,
+            names: [],
+            categories: [],
+            scope: CmuxEventScope(kind: .window, windowId: sourceWindowId)
+        )
+        defer { bus.unsubscribe(sourceReplay.subscription) }
+        XCTAssertEqual(sourceReplay.replay.compactMap { $0["name"] as? String }, ["feed.item.received"])
+        XCTAssertEqual(sourceReplay.replay.first?["window_id"] as? String, sourceWindowId)
+
+        let destinationReplay = bus.subscribe(
+            afterSequence: 0,
+            names: [],
+            categories: [],
+            scope: CmuxEventScope(
+                kind: .window,
+                windowId: destinationWindowId,
+                windowWorkspaceIds: [workspaceId]
+            )
+        )
+        defer { bus.unsubscribe(destinationReplay.subscription) }
+        XCTAssertTrue(destinationReplay.replay.isEmpty)
+    }
+
     @MainActor
     func testEventScopeResolverPrefersExplicitWorkspaceOverCallerSurface() throws {
         let previousAppDelegate = AppDelegate.shared

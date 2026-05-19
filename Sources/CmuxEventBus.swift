@@ -11,6 +11,7 @@ final class CmuxEventWindowWorkspaceIndex: @unchecked Sendable {
 
     private let lock = NSLock()
     private var workspaceIdsByWindowId: [String: Set<String>] = [:]
+    private var windowIdByWorkspaceId: [String: String] = [:]
 
     func replace(windowId: UUID?, workspaceIds: [UUID]) {
         replace(
@@ -21,8 +22,16 @@ final class CmuxEventWindowWorkspaceIndex: @unchecked Sendable {
 
     func replace(windowId: String?, workspaceIds: Set<String>) {
         guard let windowId = Self.normalizedId(windowId) else { return }
+        let normalizedWorkspaceIds = Set(workspaceIds.compactMap(Self.normalizedId))
         lock.lock()
-        workspaceIdsByWindowId[windowId] = Set(workspaceIds.compactMap(Self.normalizedId))
+        let previousWorkspaceIds = workspaceIdsByWindowId[windowId] ?? []
+        for workspaceId in previousWorkspaceIds where windowIdByWorkspaceId[workspaceId] == windowId {
+            windowIdByWorkspaceId.removeValue(forKey: workspaceId)
+        }
+        workspaceIdsByWindowId[windowId] = normalizedWorkspaceIds
+        for workspaceId in normalizedWorkspaceIds {
+            windowIdByWorkspaceId[workspaceId] = windowId
+        }
         lock.unlock()
     }
 
@@ -31,6 +40,13 @@ final class CmuxEventWindowWorkspaceIndex: @unchecked Sendable {
         lock.lock()
         defer { lock.unlock() }
         return workspaceIdsByWindowId[windowId] ?? []
+    }
+
+    func windowId(workspaceId: String?) -> String? {
+        guard let workspaceId = Self.normalizedId(workspaceId) else { return nil }
+        lock.lock()
+        defer { lock.unlock() }
+        return windowIdByWorkspaceId[workspaceId]
     }
 
     private static func normalizedId(_ value: String?) -> String? {
@@ -403,6 +419,7 @@ final class CmuxEventBus: @unchecked Sendable {
     ) {
         let occurredAt = Self.isoTimestamp(Date())
         let cleanPayload = Self.sanitizedJSONValue(payload)
+        let resolvedWindowId = windowId ?? CmuxEventWindowWorkspaceIndex.shared.windowId(workspaceId: workspaceId)
 
         lock.lock()
         let sequence = nextSequence
@@ -422,7 +439,7 @@ final class CmuxEventBus: @unchecked Sendable {
             "workspace_id": workspaceId ?? NSNull(),
             "surface_id": surfaceId ?? NSNull(),
             "pane_id": paneId ?? NSNull(),
-            "window_id": windowId ?? NSNull(),
+            "window_id": resolvedWindowId ?? NSNull(),
             "payload": cleanPayload
         ]
 
