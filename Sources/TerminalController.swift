@@ -12626,6 +12626,10 @@ class TerminalController {
                 scale: scale,
                 viewportSize: viewportSize
             )
+            let translateDX = CGFloat(dx)
+            let translateDY = CGFloat(-dy)
+            TerminalWindowPortalRegistry.translateCanvasSurfacePresentations(dx: translateDX, dy: translateDY)
+            BrowserWindowPortalRegistry.translateCanvasSurfacePresentations(dx: translateDX, dy: translateDY)
             TerminalWindowPortalRegistry.scheduleExternalGeometrySynchronizeForAllWindows()
             BrowserWindowPortalRegistry.scheduleExternalGeometrySynchronizeForAllWindows()
             let after = controller.canvasViewport

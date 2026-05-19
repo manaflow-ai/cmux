@@ -1307,6 +1307,19 @@ final class WindowTerminalPortal: NSObject {
         synchronizeHostedView(withId: hostedId)
     }
 
+    func translateCanvasSurfacePresentations(dx: CGFloat, dy: CGFloat) {
+        guard dx.isFinite, dy.isFinite, abs(dx) > 0.01 || abs(dy) > 0.01 else { return }
+        let hostedIds = Array(canvasSurfacePresentationsByHostedId.keys)
+        guard !hostedIds.isEmpty else { return }
+
+        for hostedId in hostedIds {
+            guard var presentation = canvasSurfacePresentationsByHostedId[hostedId] else { continue }
+            presentation.frameInWindow = presentation.frameInWindow.offsetBy(dx: dx, dy: dy)
+            canvasSurfacePresentationsByHostedId[hostedId] = presentation
+            synchronizeHostedView(withId: hostedId, syncLayout: false)
+        }
+    }
+
     func clearInteractiveFrameOverrides() {
         let hostedIds = Array(Set(interactiveFrameOverridesInWindowByHostedId.keys).union(canvasSurfacePresentationsByHostedId.keys))
         interactiveFrameOverridesInWindowByHostedId.removeAll()
@@ -2300,6 +2313,13 @@ enum TerminalWindowPortalRegistry {
         guard let windowId = hostedToWindowId[hostedId],
               let portal = portalsByWindowId[windowId] else { return }
         portal.setCanvasSurfacePresentation(forHostedId: hostedId, presentation: presentation)
+    }
+
+    static func translateCanvasSurfacePresentations(dx: CGFloat, dy: CGFloat) {
+        guard dx.isFinite, dy.isFinite, abs(dx) > 0.01 || abs(dy) > 0.01 else { return }
+        for portal in portalsByWindowId.values {
+            portal.translateCanvasSurfacePresentations(dx: dx, dy: dy)
+        }
     }
 
     static func clearInteractiveFrameOverridesForAllWindows() {

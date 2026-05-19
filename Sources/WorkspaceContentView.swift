@@ -1,7 +1,7 @@
 import SwiftUI
 import Foundation
 import AppKit
-import MetalKit
+import CMUXCanvas
 import CMUXLayout
 
 private let workspaceCanvasFreeformCoordinateSpace = "WorkspaceCanvasFreeformCoordinateSpace"
@@ -84,6 +84,14 @@ private enum WorkspaceCanvasSurfaceMountManager {
         BrowserWindowPortalRegistry.scheduleExternalGeometrySynchronizeForAllWindows()
     }
 
+    static func translateActiveCanvasPresentations(screenDelta: CGSize) {
+        let dx = screenDelta.width.isFinite ? screenDelta.width : 0
+        let dy = screenDelta.height.isFinite ? -screenDelta.height : 0
+        guard abs(dx) > 0.01 || abs(dy) > 0.01 else { return }
+        TerminalWindowPortalRegistry.translateCanvasSurfacePresentations(dx: dx, dy: dy)
+        BrowserWindowPortalRegistry.translateCanvasSurfacePresentations(dx: dx, dy: dy)
+    }
+
     private static func usableFrame(_ frame: CGRect) -> CGRect? {
         guard frame.origin.x.isFinite,
               frame.origin.y.isFinite,
@@ -94,68 +102,6 @@ private enum WorkspaceCanvasSurfaceMountManager {
             return nil
         }
         return frame
-    }
-}
-
-private struct CanvasMetalSceneBackdrop: NSViewRepresentable {
-    var backgroundColor: NSColor
-
-    func makeCoordinator() -> Coordinator {
-        Coordinator(backgroundColor: backgroundColor)
-    }
-
-    func makeNSView(context: Context) -> MTKView {
-        let view = MTKView(frame: .zero, device: MTLCreateSystemDefaultDevice())
-        view.delegate = context.coordinator
-        view.isPaused = true
-        view.enableSetNeedsDisplay = true
-        view.framebufferOnly = true
-        view.clearColor = context.coordinator.clearColor
-        view.layer?.isOpaque = true
-        return view
-    }
-
-    func updateNSView(_ nsView: MTKView, context: Context) {
-        context.coordinator.backgroundColor = backgroundColor
-        nsView.clearColor = context.coordinator.clearColor
-        nsView.setNeedsDisplay(nsView.bounds)
-    }
-
-    final class Coordinator: NSObject, MTKViewDelegate {
-        var backgroundColor: NSColor
-        private let commandQueue: MTLCommandQueue?
-
-        init(backgroundColor: NSColor) {
-            self.backgroundColor = backgroundColor
-            self.commandQueue = MTLCreateSystemDefaultDevice()?.makeCommandQueue()
-        }
-
-        var clearColor: MTLClearColor {
-            let color = backgroundColor.usingColorSpace(.deviceRGB) ?? backgroundColor
-            return MTLClearColor(
-                red: Double(color.redComponent),
-                green: Double(color.greenComponent),
-                blue: Double(color.blueComponent),
-                alpha: 1
-            )
-        }
-
-        func mtkView(_ view: MTKView, drawableSizeWillChange size: CGSize) {
-            _ = size
-            view.setNeedsDisplay(view.bounds)
-        }
-
-        func draw(in view: MTKView) {
-            guard let drawable = view.currentDrawable,
-                  let descriptor = view.currentRenderPassDescriptor,
-                  let commandBuffer = commandQueue?.makeCommandBuffer(),
-                  let encoder = commandBuffer.makeRenderCommandEncoder(descriptor: descriptor) else {
-                return
-            }
-            encoder.endEncoding()
-            commandBuffer.present(drawable)
-            commandBuffer.commit()
-        }
     }
 }
 
@@ -1915,7 +1861,7 @@ private struct WorkspaceCanvasOverviewView<Content: View, EmptyContent: View>: V
             return lhs.id.description < rhs.id.description
         }
         ZStack(alignment: .topLeading) {
-            CanvasMetalSceneBackdrop(backgroundColor: appearance.backgroundColor)
+            CanvasMetalBackdrop(backgroundColor: appearance.backgroundColor, preferredFramesPerSecond: 120)
                 .ignoresSafeArea()
 
             VStack(spacing: 0) {
@@ -2098,6 +2044,7 @@ private struct WorkspaceCanvasOverviewView<Content: View, EmptyContent: View>: V
                             scale: scale,
                             viewportSize: proxy.size
                         )
+                        WorkspaceCanvasSurfaceMountManager.translateActiveCanvasPresentations(screenDelta: delta)
                         WorkspaceCanvasSurfaceMountManager.synchronizeAll()
                     },
                     onZoom: { delta, anchor in
