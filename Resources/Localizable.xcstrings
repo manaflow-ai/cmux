@@ -112709,63 +112709,216 @@
       "extractionState": "manual",
       "localizations": {
         "en": { "stringUnit": { "state": "translated", "value": "UI Scale" } },
-        "ja": { "stringUnit": { "state": "translated", "value": "UIスケール" } }
+        "ja": { "stringUnit": { "state": "translated", "value": "UIスケール" } },
+        "zh-Hans": { "stringUnit": { "state": "translated", "value": "UI 缩放" } },
+        "zh-Hant": { "stringUnit": { "state": "translated", "value": "UI 縮放" } },
+        "ko": { "stringUnit": { "state": "translated", "value": "UI 배율" } },
+        "de": { "stringUnit": { "state": "translated", "value": "UI-Skalierung" } },
+        "es": { "stringUnit": { "state": "translated", "value": "Escala de la IU" } },
+        "fr": { "stringUnit": { "state": "translated", "value": "Échelle de l’interface" } },
+        "it": { "stringUnit": { "state": "translated", "value": "Scala interfaccia" } },
+        "da": { "stringUnit": { "state": "translated", "value": "UI-skalering" } },
+        "pl": { "stringUnit": { "state": "translated", "value": "Skala interfejsu" } },
+        "ru": { "stringUnit": { "state": "translated", "value": "Масштаб интерфейса" } },
+        "bs": { "stringUnit": { "state": "translated", "value": "Skaliranje UI-ja" } },
+        "ar": { "stringUnit": { "state": "translated", "value": "مقياس الواجهة" } },
+        "nb": { "stringUnit": { "state": "translated", "value": "UI-skalering" } },
+        "pt-BR": { "stringUnit": { "state": "translated", "value": "Escala da IU" } },
+        "th": { "stringUnit": { "state": "translated", "value": "ขนาด UI" } },
+        "tr": { "stringUnit": { "state": "translated", "value": "UI ölçeği" } },
+        "uk": { "stringUnit": { "state": "translated", "value": "Масштаб інтерфейсу" } }
       }
     },
     "settings.app.uiScale.subtitle": {
       "extractionState": "manual",
       "localizations": {
         "en": { "stringUnit": { "state": "translated", "value": "Scales cmux chrome such as sidebars, settings, markdown, and the file browser without changing terminal font or browser zoom." } },
-        "ja": { "stringUnit": { "state": "translated", "value": "ターミナルのフォントやブラウザのズームは変えずに、サイドバー、設定、Markdown、ファイルブラウザなどのcmux UIを拡大縮小します。" } }
+        "ja": { "stringUnit": { "state": "translated", "value": "ターミナルのフォントやブラウザのズームは変えずに、サイドバー、設定、Markdown、ファイルブラウザなどのcmux UIを拡大縮小します。" } },
+        "zh-Hans": { "stringUnit": { "state": "translated", "value": "缩放 cmux 界面元素，例如侧边栏、设置、Markdown 和文件浏览器，而不会更改终端字体或浏览器缩放。" } },
+        "zh-Hant": { "stringUnit": { "state": "translated", "value": "縮放 cmux 介面元素，例如側邊欄、設定、Markdown 和檔案瀏覽器，而不會變更終端機字體或瀏覽器縮放。" } },
+        "ko": { "stringUnit": { "state": "translated", "value": "터미널 글꼴이나 브라우저 확대/축소는 바꾸지 않고 사이드바, 설정, Markdown, 파일 브라우저 같은 cmux UI를 확대/축소합니다." } },
+        "de": { "stringUnit": { "state": "translated", "value": "Skaliert cmux-Oberflächen wie Seitenleisten, Einstellungen, Markdown und Dateibrowser, ohne Terminalschrift oder Browser-Zoom zu ändern." } },
+        "es": { "stringUnit": { "state": "translated", "value": "Escala la interfaz de cmux, como barras laterales, ajustes, Markdown y el explorador de archivos, sin cambiar la fuente del terminal ni el zoom del navegador." } },
+        "fr": { "stringUnit": { "state": "translated", "value": "Redimensionne l’interface de cmux, comme les barres latérales, les réglages, Markdown et le navigateur de fichiers, sans modifier la police du terminal ni le zoom du navigateur." } },
+        "it": { "stringUnit": { "state": "translated", "value": "Ridimensiona l’interfaccia di cmux, come barre laterali, impostazioni, Markdown e browser file, senza cambiare il font del terminale o lo zoom del browser." } },
+        "da": { "stringUnit": { "state": "translated", "value": "Skalerer cmux-brugerfladen, f.eks. sidepaneler, indstillinger, Markdown og filbrowseren, uden at ændre terminalskrift eller browserzoom." } },
+        "pl": { "stringUnit": { "state": "translated", "value": "Skaluje interfejs cmux, taki jak paski boczne, ustawienia, Markdown i przeglądarka plików, bez zmiany czcionki terminala ani powiększenia przeglądarki." } },
+        "ru": { "stringUnit": { "state": "translated", "value": "Масштабирует интерфейс cmux, включая боковые панели, настройки, Markdown и файловый браузер, не меняя шрифт терминала или масштаб браузера." } },
+        "bs": { "stringUnit": { "state": "translated", "value": "Skalira cmux interfejs, kao što su bočne trake, postavke, Markdown i preglednik datoteka, bez promjene fonta terminala ili zumiranja preglednika." } },
+        "ar": { "stringUnit": { "state": "translated", "value": "يغيّر حجم واجهة cmux مثل الأشرطة الجانبية والإعدادات وMarkdown ومتصفح الملفات، من دون تغيير خط الطرفية أو تكبير المتصفح." } },
+        "nb": { "stringUnit": { "state": "translated", "value": "Skalerer cmux-grensesnittet, som sidefelt, innstillinger, Markdown og filutforskeren, uten å endre terminalskrift eller nettleserzoom." } },
+        "pt-BR": { "stringUnit": { "state": "translated", "value": "Ajusta a escala da interface do cmux, como barras laterais, configurações, Markdown e navegador de arquivos, sem mudar a fonte do terminal nem o zoom do navegador." } },
+        "th": { "stringUnit": { "state": "translated", "value": "ปรับขนาด UI ของ cmux เช่น แถบด้านข้าง การตั้งค่า Markdown และตัวเลือกดูไฟล์ โดยไม่เปลี่ยนฟอนต์เทอร์มินัลหรือการซูมของเบราว์เซอร์" } },
+        "tr": { "stringUnit": { "state": "translated", "value": "Terminal yazı tipini veya tarayıcı yakınlaştırmasını değiştirmeden kenar çubukları, ayarlar, Markdown ve dosya tarayıcı gibi cmux arayüzünü ölçekler." } },
+        "uk": { "stringUnit": { "state": "translated", "value": "Масштабує інтерфейс cmux, зокрема бічні панелі, параметри, Markdown і файловий браузер, не змінюючи шрифт термінала або масштаб браузера." } }
       }
     },
     "shortcut.uiScaleZoomIn.label": {
       "extractionState": "manual",
       "localizations": {
         "en": { "stringUnit": { "state": "translated", "value": "UI Zoom In" } },
-        "ja": { "stringUnit": { "state": "translated", "value": "UIを拡大" } }
+        "ja": { "stringUnit": { "state": "translated", "value": "UIを拡大" } },
+        "zh-Hans": { "stringUnit": { "state": "translated", "value": "放大 UI" } },
+        "zh-Hant": { "stringUnit": { "state": "translated", "value": "放大 UI" } },
+        "ko": { "stringUnit": { "state": "translated", "value": "UI 확대" } },
+        "de": { "stringUnit": { "state": "translated", "value": "UI vergrößern" } },
+        "es": { "stringUnit": { "state": "translated", "value": "Ampliar IU" } },
+        "fr": { "stringUnit": { "state": "translated", "value": "Zoom avant de l’interface" } },
+        "it": { "stringUnit": { "state": "translated", "value": "Ingrandisci UI" } },
+        "da": { "stringUnit": { "state": "translated", "value": "Zoom ind på UI" } },
+        "pl": { "stringUnit": { "state": "translated", "value": "Powiększ interfejs" } },
+        "ru": { "stringUnit": { "state": "translated", "value": "Увеличить интерфейс" } },
+        "bs": { "stringUnit": { "state": "translated", "value": "Uvećaj UI" } },
+        "ar": { "stringUnit": { "state": "translated", "value": "تكبير الواجهة" } },
+        "nb": { "stringUnit": { "state": "translated", "value": "Zoom inn UI" } },
+        "pt-BR": { "stringUnit": { "state": "translated", "value": "Aumentar zoom da IU" } },
+        "th": { "stringUnit": { "state": "translated", "value": "ซูม UI เข้า" } },
+        "tr": { "stringUnit": { "state": "translated", "value": "UI yakınlaştır" } },
+        "uk": { "stringUnit": { "state": "translated", "value": "Збільшити інтерфейс" } }
       }
     },
     "shortcut.uiScaleZoomOut.label": {
       "extractionState": "manual",
       "localizations": {
         "en": { "stringUnit": { "state": "translated", "value": "UI Zoom Out" } },
-        "ja": { "stringUnit": { "state": "translated", "value": "UIを縮小" } }
+        "ja": { "stringUnit": { "state": "translated", "value": "UIを縮小" } },
+        "zh-Hans": { "stringUnit": { "state": "translated", "value": "缩小 UI" } },
+        "zh-Hant": { "stringUnit": { "state": "translated", "value": "縮小 UI" } },
+        "ko": { "stringUnit": { "state": "translated", "value": "UI 축소" } },
+        "de": { "stringUnit": { "state": "translated", "value": "UI verkleinern" } },
+        "es": { "stringUnit": { "state": "translated", "value": "Reducir IU" } },
+        "fr": { "stringUnit": { "state": "translated", "value": "Zoom arrière de l’interface" } },
+        "it": { "stringUnit": { "state": "translated", "value": "Riduci UI" } },
+        "da": { "stringUnit": { "state": "translated", "value": "Zoom ud fra UI" } },
+        "pl": { "stringUnit": { "state": "translated", "value": "Pomniejsz interfejs" } },
+        "ru": { "stringUnit": { "state": "translated", "value": "Уменьшить интерфейс" } },
+        "bs": { "stringUnit": { "state": "translated", "value": "Umanji UI" } },
+        "ar": { "stringUnit": { "state": "translated", "value": "تصغير الواجهة" } },
+        "nb": { "stringUnit": { "state": "translated", "value": "Zoom ut UI" } },
+        "pt-BR": { "stringUnit": { "state": "translated", "value": "Reduzir zoom da IU" } },
+        "th": { "stringUnit": { "state": "translated", "value": "ซูม UI ออก" } },
+        "tr": { "stringUnit": { "state": "translated", "value": "UI uzaklaştır" } },
+        "uk": { "stringUnit": { "state": "translated", "value": "Зменшити інтерфейс" } }
       }
     },
     "shortcut.uiScaleReset.label": {
       "extractionState": "manual",
       "localizations": {
         "en": { "stringUnit": { "state": "translated", "value": "Reset UI Zoom" } },
-        "ja": { "stringUnit": { "state": "translated", "value": "UIズームをリセット" } }
+        "ja": { "stringUnit": { "state": "translated", "value": "UIズームをリセット" } },
+        "zh-Hans": { "stringUnit": { "state": "translated", "value": "重置 UI 缩放" } },
+        "zh-Hant": { "stringUnit": { "state": "translated", "value": "重設 UI 縮放" } },
+        "ko": { "stringUnit": { "state": "translated", "value": "UI 확대/축소 재설정" } },
+        "de": { "stringUnit": { "state": "translated", "value": "UI-Zoom zurücksetzen" } },
+        "es": { "stringUnit": { "state": "translated", "value": "Restablecer zoom de IU" } },
+        "fr": { "stringUnit": { "state": "translated", "value": "Réinitialiser le zoom de l’interface" } },
+        "it": { "stringUnit": { "state": "translated", "value": "Reimposta zoom UI" } },
+        "da": { "stringUnit": { "state": "translated", "value": "Nulstil UI-zoom" } },
+        "pl": { "stringUnit": { "state": "translated", "value": "Resetuj powiększenie interfejsu" } },
+        "ru": { "stringUnit": { "state": "translated", "value": "Сбросить масштаб интерфейса" } },
+        "bs": { "stringUnit": { "state": "translated", "value": "Resetuj zum UI-ja" } },
+        "ar": { "stringUnit": { "state": "translated", "value": "إعادة تعيين تكبير الواجهة" } },
+        "nb": { "stringUnit": { "state": "translated", "value": "Tilbakestill UI-zoom" } },
+        "pt-BR": { "stringUnit": { "state": "translated", "value": "Redefinir zoom da IU" } },
+        "th": { "stringUnit": { "state": "translated", "value": "รีเซ็ตซูม UI" } },
+        "tr": { "stringUnit": { "state": "translated", "value": "UI yakınlaştırmayı sıfırla" } },
+        "uk": { "stringUnit": { "state": "translated", "value": "Скинути масштаб інтерфейсу" } }
       }
     },
     "menu.view.uiZoomIn": {
       "extractionState": "manual",
       "localizations": {
         "en": { "stringUnit": { "state": "translated", "value": "UI Zoom In" } },
-        "ja": { "stringUnit": { "state": "translated", "value": "UIを拡大" } }
+        "ja": { "stringUnit": { "state": "translated", "value": "UIを拡大" } },
+        "zh-Hans": { "stringUnit": { "state": "translated", "value": "放大 UI" } },
+        "zh-Hant": { "stringUnit": { "state": "translated", "value": "放大 UI" } },
+        "ko": { "stringUnit": { "state": "translated", "value": "UI 확대" } },
+        "de": { "stringUnit": { "state": "translated", "value": "UI vergrößern" } },
+        "es": { "stringUnit": { "state": "translated", "value": "Ampliar IU" } },
+        "fr": { "stringUnit": { "state": "translated", "value": "Zoom avant de l’interface" } },
+        "it": { "stringUnit": { "state": "translated", "value": "Ingrandisci UI" } },
+        "da": { "stringUnit": { "state": "translated", "value": "Zoom ind på UI" } },
+        "pl": { "stringUnit": { "state": "translated", "value": "Powiększ interfejs" } },
+        "ru": { "stringUnit": { "state": "translated", "value": "Увеличить интерфейс" } },
+        "bs": { "stringUnit": { "state": "translated", "value": "Uvećaj UI" } },
+        "ar": { "stringUnit": { "state": "translated", "value": "تكبير الواجهة" } },
+        "nb": { "stringUnit": { "state": "translated", "value": "Zoom inn UI" } },
+        "pt-BR": { "stringUnit": { "state": "translated", "value": "Aumentar zoom da IU" } },
+        "th": { "stringUnit": { "state": "translated", "value": "ซูม UI เข้า" } },
+        "tr": { "stringUnit": { "state": "translated", "value": "UI yakınlaştır" } },
+        "uk": { "stringUnit": { "state": "translated", "value": "Збільшити інтерфейс" } }
       }
     },
     "menu.view.uiZoomOut": {
       "extractionState": "manual",
       "localizations": {
         "en": { "stringUnit": { "state": "translated", "value": "UI Zoom Out" } },
-        "ja": { "stringUnit": { "state": "translated", "value": "UIを縮小" } }
+        "ja": { "stringUnit": { "state": "translated", "value": "UIを縮小" } },
+        "zh-Hans": { "stringUnit": { "state": "translated", "value": "缩小 UI" } },
+        "zh-Hant": { "stringUnit": { "state": "translated", "value": "縮小 UI" } },
+        "ko": { "stringUnit": { "state": "translated", "value": "UI 축소" } },
+        "de": { "stringUnit": { "state": "translated", "value": "UI verkleinern" } },
+        "es": { "stringUnit": { "state": "translated", "value": "Reducir IU" } },
+        "fr": { "stringUnit": { "state": "translated", "value": "Zoom arrière de l’interface" } },
+        "it": { "stringUnit": { "state": "translated", "value": "Riduci UI" } },
+        "da": { "stringUnit": { "state": "translated", "value": "Zoom ud fra UI" } },
+        "pl": { "stringUnit": { "state": "translated", "value": "Pomniejsz interfejs" } },
+        "ru": { "stringUnit": { "state": "translated", "value": "Уменьшить интерфейс" } },
+        "bs": { "stringUnit": { "state": "translated", "value": "Umanji UI" } },
+        "ar": { "stringUnit": { "state": "translated", "value": "تصغير الواجهة" } },
+        "nb": { "stringUnit": { "state": "translated", "value": "Zoom ut UI" } },
+        "pt-BR": { "stringUnit": { "state": "translated", "value": "Reduzir zoom da IU" } },
+        "th": { "stringUnit": { "state": "translated", "value": "ซูม UI ออก" } },
+        "tr": { "stringUnit": { "state": "translated", "value": "UI uzaklaştır" } },
+        "uk": { "stringUnit": { "state": "translated", "value": "Зменшити інтерфейс" } }
       }
     },
     "menu.view.uiZoomReset": {
       "extractionState": "manual",
       "localizations": {
         "en": { "stringUnit": { "state": "translated", "value": "Reset UI Zoom" } },
-        "ja": { "stringUnit": { "state": "translated", "value": "UIズームをリセット" } }
+        "ja": { "stringUnit": { "state": "translated", "value": "UIズームをリセット" } },
+        "zh-Hans": { "stringUnit": { "state": "translated", "value": "重置 UI 缩放" } },
+        "zh-Hant": { "stringUnit": { "state": "translated", "value": "重設 UI 縮放" } },
+        "ko": { "stringUnit": { "state": "translated", "value": "UI 확대/축소 재설정" } },
+        "de": { "stringUnit": { "state": "translated", "value": "UI-Zoom zurücksetzen" } },
+        "es": { "stringUnit": { "state": "translated", "value": "Restablecer zoom de IU" } },
+        "fr": { "stringUnit": { "state": "translated", "value": "Réinitialiser le zoom de l’interface" } },
+        "it": { "stringUnit": { "state": "translated", "value": "Reimposta zoom UI" } },
+        "da": { "stringUnit": { "state": "translated", "value": "Nulstil UI-zoom" } },
+        "pl": { "stringUnit": { "state": "translated", "value": "Resetuj powiększenie interfejsu" } },
+        "ru": { "stringUnit": { "state": "translated", "value": "Сбросить масштаб интерфейса" } },
+        "bs": { "stringUnit": { "state": "translated", "value": "Resetuj zum UI-ja" } },
+        "ar": { "stringUnit": { "state": "translated", "value": "إعادة تعيين تكبير الواجهة" } },
+        "nb": { "stringUnit": { "state": "translated", "value": "Tilbakestill UI-zoom" } },
+        "pt-BR": { "stringUnit": { "state": "translated", "value": "Redefinir zoom da IU" } },
+        "th": { "stringUnit": { "state": "translated", "value": "รีเซ็ตซูม UI" } },
+        "tr": { "stringUnit": { "state": "translated", "value": "UI yakınlaştırmayı sıfırla" } },
+        "uk": { "stringUnit": { "state": "translated", "value": "Скинути масштаб інтерфейсу" } }
       }
     },
     "settings.search.alias.setting.app.ui-scale": {
       "extractionState": "manual",
       "localizations": {
         "en": { "stringUnit": { "state": "translated", "value": "app.uiScale ui scale zoom font size chrome sidebar file browser settings markdown task manager" } },
-        "ja": { "stringUnit": { "state": "translated", "value": "app.uiScale UI スケール ズーム フォント サイズ サイドバー ファイルブラウザ 設定 Markdown タスクマネージャ" } }
+        "ja": { "stringUnit": { "state": "translated", "value": "app.uiScale UI スケール ズーム フォント サイズ サイドバー ファイルブラウザ 設定 Markdown タスクマネージャ" } },
+        "zh-Hans": { "stringUnit": { "state": "translated", "value": "app.uiScale ui scale zoom font size chrome sidebar file browser settings markdown task manager UI 缩放 字体大小 侧边栏 文件浏览器 设置 任务管理器" } },
+        "zh-Hant": { "stringUnit": { "state": "translated", "value": "app.uiScale ui scale zoom font size chrome sidebar file browser settings markdown task manager UI 縮放 字體大小 側邊欄 檔案瀏覽器 設定 工作管理員" } },
+        "ko": { "stringUnit": { "state": "translated", "value": "app.uiScale ui scale zoom font size chrome sidebar file browser settings markdown task manager UI 배율 확대 축소 글꼴 크기 사이드바 파일 브라우저 설정 작업 관리자" } },
+        "de": { "stringUnit": { "state": "translated", "value": "app.uiScale ui scale zoom font size chrome sidebar file browser settings markdown task manager UI Skalierung Zoom Schriftgröße Seitenleiste Dateibrowser Einstellungen Task-Manager" } },
+        "es": { "stringUnit": { "state": "translated", "value": "app.uiScale ui scale zoom font size chrome sidebar file browser settings markdown task manager IU escala zoom tamaño de fuente barra lateral explorador de archivos ajustes administrador de tareas" } },
+        "fr": { "stringUnit": { "state": "translated", "value": "app.uiScale ui scale zoom font size chrome sidebar file browser settings markdown task manager interface échelle zoom taille police barre latérale navigateur fichiers réglages gestionnaire tâches" } },
+        "it": { "stringUnit": { "state": "translated", "value": "app.uiScale ui scale zoom font size chrome sidebar file browser settings markdown task manager UI scala zoom dimensione font barra laterale browser file impostazioni gestione attività" } },
+        "da": { "stringUnit": { "state": "translated", "value": "app.uiScale ui scale zoom font size chrome sidebar file browser settings markdown task manager UI skalering zoom skriftstørrelse sidepanel filbrowser indstillinger joboversigt" } },
+        "pl": { "stringUnit": { "state": "translated", "value": "app.uiScale ui scale zoom font size chrome sidebar file browser settings markdown task manager interfejs skala powiększenie rozmiar czcionki pasek boczny przeglądarka plików ustawienia menedżer zadań" } },
+        "ru": { "stringUnit": { "state": "translated", "value": "app.uiScale ui scale zoom font size chrome sidebar file browser settings markdown task manager интерфейс масштаб размер шрифта боковая панель файловый браузер настройки диспетчер задач" } },
+        "bs": { "stringUnit": { "state": "translated", "value": "app.uiScale ui scale zoom font size chrome sidebar file browser settings markdown task manager UI skaliranje zum veličina fonta bočna traka preglednik datoteka postavke upravitelj zadataka" } },
+        "ar": { "stringUnit": { "state": "translated", "value": "app.uiScale ui scale zoom font size chrome sidebar file browser settings markdown task manager واجهة مقياس تكبير حجم الخط شريط جانبي متصفح ملفات إعدادات مدير المهام" } },
+        "nb": { "stringUnit": { "state": "translated", "value": "app.uiScale ui scale zoom font size chrome sidebar file browser settings markdown task manager UI skalering zoom skriftstørrelse sidefelt filutforsker innstillinger oppgavebehandling" } },
+        "pt-BR": { "stringUnit": { "state": "translated", "value": "app.uiScale ui scale zoom font size chrome sidebar file browser settings markdown task manager IU escala zoom tamanho da fonte barra lateral navegador de arquivos configurações gerenciador de tarefas" } },
+        "th": { "stringUnit": { "state": "translated", "value": "app.uiScale ui scale zoom font size chrome sidebar file browser settings markdown task manager UI ขนาด ซูม ฟอนต์ แถบด้านข้าง ตัวเลือกดูไฟล์ การตั้งค่า ตัวจัดการงาน" } },
+        "tr": { "stringUnit": { "state": "translated", "value": "app.uiScale ui scale zoom font size chrome sidebar file browser settings markdown task manager UI ölçek yakınlaştır yazı tipi boyutu kenar çubuğu dosya tarayıcı ayarlar görev yöneticisi" } },
+        "uk": { "stringUnit": { "state": "translated", "value": "app.uiScale ui scale zoom font size chrome sidebar file browser settings markdown task manager інтерфейс масштаб розмір шрифту бічна панель файловий браузер параметри диспетчер завдань" } }
       }
     },
     "shortcut.globalSearch.label": {
