@@ -365,6 +365,32 @@ nonisolated public enum CMUXSocketProtocol {
         return string
     }
 
+    private static func escapeJSONString(_ string: String) -> String {
+        var escaped = ""
+        escaped.reserveCapacity(string.count)
+        for scalar in string.unicodeScalars {
+            switch scalar.value {
+            case 0x22:
+                escaped += "\\\""
+            case 0x5C:
+                escaped += "\\\\"
+            case 0x0A:
+                escaped += "\\n"
+            case 0x0D:
+                escaped += "\\r"
+            case 0x09:
+                escaped += "\\t"
+            default:
+                if scalar.value < 0x20 {
+                    escaped += String(format: "\\u%04X", scalar.value)
+                } else {
+                    escaped.unicodeScalars.append(scalar)
+                }
+            }
+        }
+        return escaped
+    }
+
     public static func ok(id: Any?, jsonRPC: Bool, result: Any) -> String {
         if jsonRPC {
             return encode([
