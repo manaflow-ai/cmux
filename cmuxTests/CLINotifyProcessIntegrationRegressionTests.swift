@@ -458,6 +458,10 @@ final class CLINotifyProcessIntegrationRegressionTests: XCTestCase {
             persistedProcessNames.contains { $0.contains("SECRET_TOKEN_DO_NOT_STORE") },
             "Persisted process names must not include command-line secrets: \(persistedProcessNames)"
         )
+        XCTAssertFalse(
+            persistedProcessNames.contains { $0.hasPrefix("/") || $0.contains(" --") },
+            "Persisted process names must be bare process names: \(persistedProcessNames)"
+        )
         XCTAssertFalse(result.stdout.contains("SECRET_TOKEN_DO_NOT_STORE"), result.stdout)
         XCTAssertEqual(
             state.commands.compactMap { self.jsonObject($0)?["method"] as? String },
