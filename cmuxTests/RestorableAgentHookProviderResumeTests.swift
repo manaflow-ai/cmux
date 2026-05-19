@@ -608,6 +608,32 @@ extension SocketListenerAcceptPolicyTests {
                 "/tmp/qoder repo"
             ]
         )
+        XCTAssertEqual(
+            AgentLaunchSanitizer.sanitizedLaunchArguments(
+                [
+                    "/Users/example/.grok/bin/grok",
+                    "--session-id",
+                    "old-session",
+                    "--model",
+                    "grok-build",
+                    "-s",
+                    "older-session",
+                    "--sandbox",
+                    "danger-full-access",
+                    "--session-id=inline-session",
+                    "-s=inline-short"
+                ],
+                launcher: "grok",
+                fallbackKind: "grok"
+            ),
+            [
+                "/Users/example/.grok/bin/grok",
+                "--model",
+                "grok-build",
+                "--sandbox",
+                "danger-full-access"
+            ]
+        )
         XCTAssertNil(
             AgentLaunchSanitizer.sanitizedLaunchArguments(
                 [

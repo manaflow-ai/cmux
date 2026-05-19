@@ -425,7 +425,7 @@ extension CLINotifyProcessIntegrationRegressionTests {
         XCTAssertEqual(event["session_id"] as? String, "grok-grok-session-123")
     }
 
-    func testGrokNotificationFeedHookPreservesTopLevelDetails() throws {
+    func testGrokNotificationFeedHookPreservesNestedDetails() throws {
         let cliPath = try bundledCLIPath()
         let socketPath = makeSocketPath("grok-notif")
         let listenerFD = try bindUnixSocket(at: socketPath)
@@ -460,7 +460,7 @@ extension CLINotifyProcessIntegrationRegressionTests {
                 "CMUX_SURFACE_ID": surfaceId,
                 "CMUX_CLI_SENTRY_DISABLED": "1",
             ],
-            standardInput: #"{"sessionId":"grok-session-123","hookEventName":"Notification","cwd":"/tmp/grok repo","workspaceRoot":"/tmp/grok repo","message":"turn complete in 4.9s","timestamp":"2026-05-16T00:00:00Z","durationMs":4900}"#,
+            standardInput: #"{"sessionId":"grok-session-123","hookEventName":"Notification","cwd":"/tmp/grok repo","workspaceRoot":"/tmp/grok repo","message":"turn complete in 4.9s","timestamp":"2026-05-16T00:00:00Z","data":{"durationMs":4900}}"#,
             timeout: 5
         )
 

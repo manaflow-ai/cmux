@@ -9490,6 +9490,34 @@ struct CMUXCLI {
               --legacy         Force the older built-in Swift TUI
             """
         case "hooks":
+            let agents = String(
+                localized: "cli.help.hooks.agents",
+                defaultValue: "codex, opencode, pi, amp, cursor, gemini, grok, rovodev (alias: rovo), hermes-agent, copilot, codebuddy, factory, qoder"
+            )
+            let targets = String(
+                localized: "cli.help.hooks.targets",
+                defaultValue: """
+                  setup              Install hooks for all supported agents on PATH
+                  uninstall          Remove hooks for all supported agents
+                  <agent> install    Install one agent integration
+                  <agent> uninstall  Remove one agent integration
+                  <agent> <event>    Internal hook entrypoint used by generated configs
+                  feed               Internal Feed decision bridge
+                """
+            )
+            let examples = String(
+                localized: "cli.help.hooks.examples",
+                defaultValue: """
+                  cmux hooks setup
+                  cmux hooks setup --agent codex
+                  cmux hooks setup grok
+                  cmux hooks setup rovo
+                  cmux hooks uninstall rovo
+                  cmux hooks codex install
+                  cmux hooks opencode install --project
+                  cmux hooks uninstall
+                """
+            )
             return """
             Usage: cmux hooks setup [agent] [--agent <name>] [--yes|-y]
                    cmux hooks uninstall [agent] [--agent <name>] [--yes|-y]
@@ -9502,15 +9530,10 @@ struct CMUXCLI {
             agent. Claude Code hooks are injected automatically by the cmux Claude wrapper.
 
             Agents:
-              codex, opencode, pi, amp, cursor, gemini, grok, rovodev (alias: rovo), hermes-agent, copilot, codebuddy, factory, qoder
+              \(agents)
 
             Hook targets:
-              setup              Install hooks for all supported agents on PATH
-              uninstall          Remove hooks for all supported agents
-              <agent> install    Install one agent integration
-              <agent> uninstall  Remove one agent integration
-              <agent> <event>    Internal hook entrypoint used by generated configs
-              feed               Internal Feed decision bridge
+            \(targets)
 
             Generated files:
               ~/.config/opencode/plugins/cmux-session.js
@@ -9521,14 +9544,7 @@ struct CMUXCLI {
               See docs/agent-hooks.md for the full integration matrix.
 
             Examples:
-              cmux hooks setup
-              cmux hooks setup --agent codex
-              cmux hooks setup grok
-              cmux hooks setup rovo
-              cmux hooks uninstall rovo
-              cmux hooks codex install
-              cmux hooks opencode install --project
-              cmux hooks uninstall
+            \(examples)
             """
         case "themes":
             return """
@@ -19806,7 +19822,7 @@ struct CMUXCLI {
 
     private static func hookConfigTimeoutValue(timeoutMs: Int, for def: AgentHookDef) -> Int {
         guard def.name == "grok" else { return timeoutMs }
-        return max(1, timeoutMs / 1000)
+        return max(1, (timeoutMs + 999) / 1000)
     }
 
     private static let openCodeSessionPluginMarker = "cmux-opencode-session-plugin-marker"
@@ -22041,12 +22057,20 @@ export default function cmuxPiSessionExtension(pi: ExtensionAPI) {
             }
         }
 
-        for key in ["durationMs", "duration_ms", "durationSeconds", "duration_seconds", "elapsedMs", "elapsed_ms"] {
-            guard detail[key] == nil,
-                  let value = object[key],
-                  Self.isJSONObjectScalar(value)
-            else { continue }
-            detail[key] = value
+        let scalarFields = ["durationMs", "duration_ms", "durationSeconds", "duration_seconds", "elapsedMs", "elapsed_ms"]
+        let copyScalarFields: ([String: Any]) -> Void = { sourceObject in
+            for key in scalarFields {
+                guard detail[key] == nil,
+                      let value = sourceObject[key],
+                      Self.isJSONObjectScalar(value)
+                else { continue }
+                detail[key] = value
+            }
+        }
+        copyScalarFields(object)
+        for nestedKey in ["notification", "data"] {
+            guard let nested = object[nestedKey] as? [String: Any] else { continue }
+            copyScalarFields(nested)
         }
 
         if source == "grok", detail.isEmpty {

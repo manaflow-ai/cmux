@@ -371,8 +371,6 @@ extension AgentLaunchSanitizer {
             "--reasoning-effort",
             "--resume",
             "-r",
-            "--session-id",
-            "-s",
             "--rules",
             "--sandbox",
             "--single",
@@ -381,6 +379,10 @@ extension AgentLaunchSanitizer {
             "--tools",
             "--worktree",
             "-w"
+        ],
+        droppedValueOptions: [
+            "--session-id",
+            "-s"
         ],
         optionalValueOptions: [
             "--resume",
@@ -416,12 +418,16 @@ extension AgentLaunchSanitizer {
             "-c",
             "--resume",
             "-r",
+            "--session-id",
+            "-s",
             "--worktree",
             "-w"
         ],
         droppedOptionPrefixes: [
             "--resume=",
             "-r=",
+            "--session-id=",
+            "-s=",
             "--worktree=",
             "-w="
         ],

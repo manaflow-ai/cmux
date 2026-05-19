@@ -189,7 +189,7 @@ public struct GrokSessionSummaryReader: Sendable {
         do {
             try handle.seek(toOffset: offset)
             let data = try handle.readToEnd() ?? Data()
-            return String(data: data, encoding: .utf8)
+            return String(decoding: data, as: UTF8.self)
         } catch {
             return nil
         }
