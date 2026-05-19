@@ -88,6 +88,12 @@ cmux surface resume clear --checkpoint work`}</CodeBlock>
             <td>{t("none")}</td>
           </tr>
           <tr>
+            <td>OMP</td>
+            <td><code>omp</code></td>
+            <td><code>omp --session &lt;id&gt;</code></td>
+            <td>{t("none")}</td>
+          </tr>
+          <tr>
             <td>Amp</td>
             <td><code>amp</code></td>
             <td><code>amp threads continue &lt;id&gt;</code></td>

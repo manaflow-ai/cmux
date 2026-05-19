@@ -9698,7 +9698,7 @@ struct CMUXCLI {
             agent. Claude Code hooks are injected automatically by the cmux Claude wrapper.
 
             Agents:
-              codex, grok, opencode, pi, amp, cursor, gemini, rovodev (alias: rovo), hermes-agent, copilot, codebuddy, factory, qoder
+              codex, grok, opencode, pi, omp, amp, cursor, gemini, rovodev (alias: rovo), hermes-agent, copilot, codebuddy, factory, qoder
 
             Hook targets:
               setup              Install hooks for all supported agents on PATH
@@ -9712,6 +9712,7 @@ struct CMUXCLI {
               ~/.config/opencode/plugins/cmux-session.js
               ~/.config/opencode/plugins/cmux-feed.js
               ~/.pi/agent/extensions/cmux-session.ts
+              ~/.omp/agent/extensions/cmux-session.ts
               ~/.config/amp/plugins/cmux-session.ts
               See docs/agent-hooks.md for the full integration matrix.
 
@@ -20939,10 +20940,176 @@ export default function cmuxPiSessionExtension(pi: ExtensionAPI) {
 }
 """#
 
+    private static let ompExtensionMarker = "cmux-omp-session-extension-marker"
+    private static let ompExtensionFilename = "cmux-session.ts"
+    private static let ompExtensionSource = #"""
+// cmux-omp-session-extension-marker v1
+// Bridges OMP session lifecycle events into cmux's restorable session store.
+// Installed by `cmux hooks omp install` or `cmux hooks setup`.
+// DO NOT EDIT MANUALLY. cmux upgrades this file in place.
+
+import { spawnSync } from "node:child_process";
+import * as fs from "node:fs";
+import * as path from "node:path";
+import type { AgentEndEvent, ExtensionAPI, ExtensionContext } from "@oh-my-pi/pi-coding-agent";
+
+function firstString(...values: unknown[]): string | null {
+  for (const value of values) {
+    if (typeof value === "string" && value.trim().length > 0) return value.trim();
+  }
+  return null;
+}
+
+function resolveExecutable(name: string): string {
+  const pathEnv = process.env.PATH || "";
+  for (const dir of pathEnv.split(path.delimiter)) {
+    if (!dir) continue;
+    const candidate = path.join(dir, name);
+    try {
+      fs.accessSync(candidate, fs.constants.X_OK);
+      return candidate;
+    } catch (_) {}
+  }
+  return name;
+}
+
+function looksLikeOmpExecutable(value: string): boolean {
+  const base = path.basename(value).toLowerCase();
+  return base === "omp";
+}
+
+function looksLikeOmpScript(value: string): boolean {
+  const normalized = value.replaceAll("\\", "/");
+  const base = path.basename(normalized).toLowerCase();
+  return (
+    normalized.includes("/@oh-my-pi/pi-coding-agent/") ||
+    normalized.includes("/packages/coding-agent/") ||
+    (base === "cli.js" && normalized.includes("pi-coding-agent")) ||
+    (base === "cli.ts" && normalized.includes("coding-agent"))
+  );
+}
+
+function normalizedLaunchArgv(): string[] {
+  const raw = Array.isArray(process.argv) ? process.argv.map((value) => String(value)) : [];
+  if (raw.length === 0) return [resolveExecutable("omp")];
+  if (looksLikeOmpExecutable(raw[0])) return raw;
+  if (raw.length > 1 && looksLikeOmpScript(raw[1])) {
+    return [resolveExecutable("omp"), ...raw.slice(2)];
+  }
+  return [resolveExecutable("omp"), ...raw.slice(1)];
+}
+
+function base64NulSeparated(values: string[]): string {
+  const bytes: Buffer[] = [];
+  for (const value of values) {
+    bytes.push(Buffer.from(String(value), "utf8"));
+    bytes.push(Buffer.from([0]));
+  }
+  return Buffer.concat(bytes).toString("base64");
+}
+
+function hookEnvironment(cwd: string): NodeJS.ProcessEnv {
+  const env: NodeJS.ProcessEnv = { ...process.env };
+  delete env.AMP_API_KEY;
+  if (!env.CMUX_AGENT_LAUNCH_ARGV_B64) {
+    const argv = normalizedLaunchArgv();
+    env.CMUX_AGENT_LAUNCH_KIND = "omp";
+    env.CMUX_AGENT_LAUNCH_EXECUTABLE = argv[0] || resolveExecutable("omp");
+    env.CMUX_AGENT_LAUNCH_ARGV_B64 = base64NulSeparated(argv);
+    env.CMUX_AGENT_LAUNCH_CWD = cwd || process.cwd();
+  }
+  return env;
+}
+
+function eventName(subcommand: string): string {
+  switch (subcommand) {
+    case "session-start":
+      return "SessionStart";
+    case "prompt-submit":
+      return "UserPromptSubmit";
+    case "stop":
+      return "Stop";
+    default:
+      return subcommand;
+  }
+}
+
+function textFromContent(content: unknown): string | null {
+  if (typeof content === "string") return content;
+  if (!Array.isArray(content)) return null;
+  const parts: string[] = [];
+  for (const block of content) {
+    if (!block || typeof block !== "object") continue;
+    const typed = block as { type?: unknown; text?: unknown };
+    if (typed.type === "text" && typeof typed.text === "string") parts.push(typed.text);
+  }
+  return parts.join("\n") || null;
+}
+
+function lastAssistantMessage(event: AgentEndEvent): string | undefined {
+  for (let index = event.messages.length - 1; index >= 0; index -= 1) {
+    const message = event.messages[index];
+    if (!message || typeof message !== "object") continue;
+    const typed = message as { role?: unknown; content?: unknown };
+    if (typed.role !== "assistant") continue;
+    const text = firstString(textFromContent(typed.content));
+    if (text) return text;
+  }
+  return undefined;
+}
+
+function sendHook(subcommand: string, ctx: ExtensionContext, extra: Record<string, unknown> = {}): void {
+  if (process.env.CMUX_OMP_HOOKS_DISABLED === "1") return;
+  if (!process.env.CMUX_SURFACE_ID) return;
+
+  const sessionId = firstString(ctx.sessionManager.getSessionId());
+  if (!sessionId) return;
+
+  const cwd = firstString(ctx.cwd, process.cwd()) || process.cwd();
+  const payload: Record<string, unknown> = {
+    session_id: sessionId,
+    cwd,
+    hook_event_name: eventName(subcommand),
+    event: eventName(subcommand),
+    ...extra,
+  };
+  const cmux = process.env.CMUX_OMP_CMUX_BIN || "cmux";
+  try {
+    spawnSync(cmux, ["hooks", "omp", subcommand], {
+      input: JSON.stringify(payload),
+      encoding: "utf8",
+      env: hookEnvironment(cwd),
+      stdio: ["pipe", "ignore", "ignore"],
+      timeout: 5000,
+    });
+  } catch (_) {}
+}
+
+export default function cmuxOmpSessionExtension(omp: ExtensionAPI) {
+  omp.on("session_start", async (_event, ctx) => {
+    sendHook("session-start", ctx);
+  });
+
+  omp.on("before_agent_start", async (event, ctx) => {
+    sendHook("prompt-submit", ctx, { prompt: event.prompt });
+  });
+
+  omp.on("agent_end", async (event, ctx) => {
+    sendHook("stop", ctx, { last_assistant_message: lastAssistantMessage(event) });
+  });
+}
+"""#
+
     private func piExtensionURL(for def: AgentHookDef) -> URL {
         URL(fileURLWithPath: def.resolvedConfigDir(), isDirectory: true)
             .appendingPathComponent("extensions", isDirectory: true)
             .appendingPathComponent(Self.piExtensionFilename, isDirectory: false)
+    }
+
+    private func ompExtensionURL(for def: AgentHookDef) -> URL {
+        URL(fileURLWithPath: def.resolvedConfigDir(), isDirectory: true)
+            .appendingPathComponent("extensions", isDirectory: true)
+            .appendingPathComponent(Self.ompExtensionFilename, isDirectory: false)
     }
 
     private func installPiExtensionHooks(_ def: AgentHookDef) throws {
@@ -20978,6 +21145,39 @@ export default function cmuxPiSessionExtension(pi: ExtensionAPI) {
         print("Pi hooks installed at \(extensionURL.path)")
     }
 
+    private func installOmpExtensionHooks(_ def: AgentHookDef) throws {
+        let extensionURL = ompExtensionURL(for: def)
+        let skipConfirm = ProcessInfo.processInfo.arguments.contains("--yes")
+            || ProcessInfo.processInfo.arguments.contains("-y")
+        let existing = (try? String(contentsOf: extensionURL, encoding: .utf8)) ?? ""
+        if existing == Self.ompExtensionSource {
+            print("OMP hooks already up to date at \(extensionURL.path)")
+            return
+        }
+        if !existing.isEmpty, !existing.contains(Self.ompExtensionMarker) {
+            throw CLIError(message: "\(extensionURL.path) exists and is not a cmux extension; leaving it alone")
+        }
+        if !skipConfirm {
+            Self.printInstallPreview(
+                path: extensionURL.path,
+                oldContent: existing,
+                newContent: Self.ompExtensionSource,
+                fallbackContent: Self.ompExtensionSource
+            )
+            print("\nProceed? [y/N] ", terminator: "")
+            guard readLine()?.lowercased().hasPrefix("y") == true else {
+                print("Aborted.")
+                return
+            }
+        }
+        try FileManager.default.createDirectory(
+            at: extensionURL.deletingLastPathComponent(),
+            withIntermediateDirectories: true
+        )
+        try Self.ompExtensionSource.write(to: extensionURL, atomically: true, encoding: .utf8)
+        print("OMP hooks installed at \(extensionURL.path)")
+    }
+
     private func uninstallPiExtensionHooks(_ def: AgentHookDef) throws {
         let extensionURL = piExtensionURL(for: def)
         let fm = FileManager.default
@@ -20992,6 +21192,22 @@ export default function cmuxPiSessionExtension(pi: ExtensionAPI) {
         }
         try fm.removeItem(at: extensionURL)
         print("Removed Pi cmux extension from \(extensionURL.path)")
+    }
+
+    private func uninstallOmpExtensionHooks(_ def: AgentHookDef) throws {
+        let extensionURL = ompExtensionURL(for: def)
+        let fm = FileManager.default
+        guard fm.fileExists(atPath: extensionURL.path) else {
+            print("No OMP cmux extension found at \(extensionURL.path)")
+            return
+        }
+        let existing = (try? String(contentsOf: extensionURL, encoding: .utf8)) ?? ""
+        guard existing.contains(Self.ompExtensionMarker) else {
+            print("Refusing to remove \(extensionURL.path): missing cmux marker")
+            return
+        }
+        try fm.removeItem(at: extensionURL)
+        print("Removed OMP cmux extension from \(extensionURL.path)")
     }
 
     private func installRovoDevHooks(_ def: AgentHookDef) throws {
@@ -21084,6 +21300,10 @@ export default function cmuxPiSessionExtension(pi: ExtensionAPI) {
         }
         if def.name == "pi" {
             try installPiExtensionHooks(def)
+            return
+        }
+        if def.name == "omp" {
+            try installOmpExtensionHooks(def)
             return
         }
         if def.name == "amp" {
@@ -21416,6 +21636,10 @@ export default function cmuxPiSessionExtension(pi: ExtensionAPI) {
         }
         if def.name == "pi" {
             try uninstallPiExtensionHooks(def)
+            return
+        }
+        if def.name == "omp" {
+            try uninstallOmpExtensionHooks(def)
             return
         }
         if def.name == "amp" {
@@ -25695,7 +25919,7 @@ export default function cmuxPiSessionExtension(pi: ExtensionAPI) {
         for def in Self.agentDefs {
             if let agentFilterDef, agentFilterDef.name != def.name { continue }
             let configDir = def.resolvedConfigDir()
-            let canUseMissingConfigDir = def.name == "opencode" || def.name == "pi" || def.name == "amp" || (!isUninstall && def.name == "rovodev")
+            let canUseMissingConfigDir = def.name == "opencode" || def.name == "pi" || def.name == "omp" || def.name == "amp" || (!isUninstall && def.name == "rovodev")
             if !canUseMissingConfigDir, !fm.fileExists(atPath: configDir) {
                 print("  \(def.name): skipped (config dir not found)")
                 skipped += 1

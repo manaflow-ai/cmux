@@ -85,6 +85,7 @@ Installs supported agent hooks whose binaries are on `PATH`. See [Agent hook int
 | Factory      | `~/.factory/settings.json`                | PreToolUse               |
 | Qoder        | `~/.qoder/settings.json`                  | PreToolUse               |
 | Pi           | `~/.pi/agent/extensions/cmux-session.ts`  | lifecycle only           |
+| OMP          | `~/.omp/agent/extensions/cmux-session.ts` | lifecycle only           |
 | Rovo Dev     | `~/.rovodev/config.yml`                   | lifecycle only           |
 
 Individual agents:

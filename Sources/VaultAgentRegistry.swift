@@ -121,6 +121,18 @@ struct CmuxVaultAgentRegistration: Codable, Hashable, Sendable {
             sessionDirectory: "~/.pi/agent/sessions"
         )
     }
+
+    static var builtInOmp: CmuxVaultAgentRegistration {
+        CmuxVaultAgentRegistration(
+            id: "omp",
+            name: "OMP",
+            detect: CmuxVaultAgentDetectRule(processName: "omp", argvContains: ["omp", "@oh-my-pi/pi-coding-agent"]),
+            sessionIdSource: .piSessionFile,
+            resumeCommand: "{{executable}} --session {{sessionId}}",
+            cwd: .preserve,
+            sessionDirectory: "~/.omp/agent/sessions"
+        )
+    }
 }
 
 struct CmuxVaultAgentDetectRule: Codable, Hashable, Sendable {
@@ -301,7 +313,10 @@ struct CmuxVaultAgentRegistry: Sendable {
         environment: [String: String] = ProcessInfo.processInfo.environment,
         fileManager: FileManager = .default
     ) -> CmuxVaultAgentRegistry {
-        var registrations = [CmuxVaultAgentRegistration.builtInPi]
+        var registrations = [
+            CmuxVaultAgentRegistration.builtInPi,
+            CmuxVaultAgentRegistration.builtInOmp,
+        ]
         for path in configPaths(homeDirectory: homeDirectory, workingDirectory: workingDirectory, environment: environment, fileManager: fileManager) {
             guard let config = decodeConfig(at: path, fileManager: fileManager) else { continue }
             registrations.append(contentsOf: config.vault?.agents ?? [])

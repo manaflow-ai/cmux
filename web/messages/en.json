@@ -158,7 +158,7 @@
         "baselineItemScrollback": "Terminal scrollback, best effort",
         "baselineItemBrowser": "Browser URL and navigation history",
         "agentTitle": "Agent sessions need hooks",
-        "agentP": "Claude Code, Codex, OpenCode, Pi, Amp, Cursor CLI, Gemini, Rovo Dev, Copilot, CodeBuddy, Factory, and Qoder can resume when cmux has a native session ID. For most agents, install the integration with <code>cmux hooks setup</code>.",
+        "agentP": "Claude Code, Codex, OpenCode, Pi, OMP, Amp, Cursor CLI, Gemini, Rovo Dev, Copilot, CodeBuddy, Factory, and Qoder can resume when cmux has a native session ID. For most agents, install the integration with <code>cmux hooks setup</code>.",
         "agentP2": "The setup command installs supported agents whose binaries are on PATH and skips the rest. Claude Code is handled by the cmux Claude wrapper when Claude integration is enabled in Settings.",
         "implementationTitle": "How it works",
         "implementationP1": "cmux writes a JSON session snapshot under Application Support with the window tree, workspace metadata, pane layout, terminal cwd, scrollback replay data, and browser navigation state.",
