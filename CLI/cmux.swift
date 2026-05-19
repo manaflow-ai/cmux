@@ -1643,11 +1643,13 @@ final class SocketClient {
                 "code",
                 "duration",
                 "durationMs",
+                "exitCode",
                 "field",
                 "idempotencyKeySet",
                 "imageRequested",
                 "limit",
                 "operation",
+                "phase",
                 "retryable",
                 "status",
                 "type",
@@ -1756,7 +1758,8 @@ struct CMUXCLI {
     let args: [String]
 
     private static let vmCreateIdempotencyTTLSeconds: TimeInterval = 10 * 60
-    private static let vmCreateResponseTimeoutSeconds: TimeInterval = 16 * 60
+    static let vmCreateResponseTimeoutSeconds: TimeInterval = 16 * 60
+    static let actionRunResponseTimeoutSeconds: TimeInterval = CloudActionRunTimeouts.runResponseSeconds
     private static let vmAttachResponseTimeoutSeconds: TimeInterval = 16 * 60
 
     private func captureSocketTransportError(telemetry: CLISocketSentryTelemetry, stage: String, error: Error, client: SocketClient) {
@@ -1774,7 +1777,7 @@ struct CMUXCLI {
         let createdAt: TimeInterval
     }
 
-    private struct ActiveVMCreateIdempotency {
+    struct ActiveVMCreateIdempotency {
         let signature: String
         let key: String
     }
@@ -1844,9 +1847,9 @@ struct CMUXCLI {
         return normalized
     }
 
-    private static func isFlagToken(_ value: String) -> Bool { value.hasPrefix("-") && value != "-" }
+    static func isFlagToken(_ value: String) -> Bool { value.hasPrefix("-") && value != "-" }
 
-    private static func isUnknownFlagToken(_ value: String, allowedShortFlags: Set<String> = []) -> Bool { isFlagToken(value) && !allowedShortFlags.contains(value) }
+    static func isUnknownFlagToken(_ value: String, allowedShortFlags: Set<String> = []) -> Bool { isFlagToken(value) && !allowedShortFlags.contains(value) }
 
     private static func vmCreateIdempotencyStoreURL() -> URL {
         FileManager.default.homeDirectoryForCurrentUser
@@ -1874,7 +1877,7 @@ struct CMUXCLI {
         try? fileManager.setAttributes([.posixPermissions: 0o600], ofItemAtPath: url.path)
     }
 
-    private static func activeVMCreateIdempotency(image: String?, provider: String?) throws -> ActiveVMCreateIdempotency {
+    static func activeVMCreateIdempotency(image: String?, provider: String?) throws -> ActiveVMCreateIdempotency {
         let url = vmCreateIdempotencyStoreURL()
         let signature = vmCreateIdempotencySignature(image: image, provider: provider)
         let now = Date().timeIntervalSince1970
@@ -1892,7 +1895,7 @@ struct CMUXCLI {
         return ActiveVMCreateIdempotency(signature: signature, key: key)
     }
 
-    private static func clearVMCreateIdempotency(_ active: ActiveVMCreateIdempotency) {
+    static func clearVMCreateIdempotency(_ active: ActiveVMCreateIdempotency) {
         let url = vmCreateIdempotencyStoreURL()
         var store = loadVMCreateIdempotencyStore(from: url)
         guard store.records[active.signature]?.key == active.key else { return }
@@ -2148,6 +2151,12 @@ struct CMUXCLI {
         if command == "vm-pty-connect" { try runVMPtyConnect(commandArgs: commandArgs); return }
         if command == "docs" { try runDocsCommand(commandArgs: commandArgs, jsonOutput: jsonOutput); return }
         if command == "welcome" { printWelcome(); return }
+
+        if command == "actions",
+           Self.actionsCommandDoesNotNeedSocket(commandArgs) {
+            try runActionsNoSocket(commandArgs: commandArgs, jsonOutput: jsonOutput)
+            return
+        }
 
         if command == "settings",
            settingsCommandDoesNotNeedSocket(commandArgs) {
@@ -2518,6 +2527,9 @@ struct CMUXCLI {
             default:
                 throw CLIError(message: "Usage: cmux auth <status|login|logout>")
             }
+
+        case "actions":
+            try runActionsCommand(commandArgs: commandArgs, jsonOutput: jsonOutput, client: client, idFormat: idFormat)
 
         case "vm", "cloud":
             let sub = commandArgs.first?.lowercased() ?? "ls"
@@ -6452,7 +6464,7 @@ struct CMUXCLI {
         cliDebugLog(parts.joined(separator: " "))
     }
 
-    private func vmOpenShell(id: String, workspaceName: String?, client: SocketClient, jsonOutput: Bool, idFormat: CLIIDFormat) throws {
+    func vmOpenShell(id: String, workspaceName: String?, client: SocketClient, jsonOutput: Bool, idFormat: CLIIDFormat) throws {
         let attachInfoStartedAt = Date()
         let response = try client.sendV2(
             method: "vm.attach_info",
@@ -9312,7 +9324,7 @@ struct CMUXCLI {
     }
 
     /// Return the help/usage text for a subcommand, or nil if the command is unknown.
-    private func subcommandUsage(_ command: String) -> String? {
+    func subcommandUsage(_ command: String) -> String? {
         switch command {
         case "ping":
             return """
@@ -9398,6 +9410,27 @@ struct CMUXCLI {
               cmux vm ls
               cmux cloud exec <id> -- echo hello
               cmux vm rm <id>
+            """
+        case "actions":
+            return """
+            Usage: cmux actions <list|run> [args...]
+
+            Run cloud actions backed by cmux Cloud VMs.
+
+            Subcommands:
+              list                                      List available actions.
+              run <action> [--ref <ref>] [--mode full|basic]
+                                                        Create and start a cloud action environment.
+
+            Options for run:
+              --dry-run                                 Print resolved setup/start scripts.
+              --keep                                    Keep the VM when setup/start fails.
+              --no-cache                                Rebuild the setup layer instead of reusing it.
+              --detach, -d                              Do not open an attached shell after start.
+
+            Example:
+              cmux actions run hexclave/stack-auth:fresh-env
+              cmux actions run hexclave/stack-auth:fresh-env --mode basic --detach
             """
         case "rpc":
             return """
@@ -10957,6 +10990,11 @@ struct CMUXCLI {
     /// Dispatch help for a subcommand. Returns true if help was printed.
     private func dispatchSubcommandHelp(command: String, commandArgs: [String]) -> Bool {
         guard commandArgs.contains("--help") || commandArgs.contains("-h") else { return false }
+        if command == "actions",
+           commandArgs.first?.lowercased() == "run" {
+            print(Self.actionsRunUsageText())
+            return true
+        }
         guard let text = subcommandUsage(command) else { return false }
         print("cmux \(command)")
         print("")
@@ -24851,6 +24889,7 @@ export default function cmuxPiSessionExtension(pi: ExtensionAPI) {
           events [--after <seq>] [--cursor-file <path>] [--name <event>] [--category <category>] [--reconnect] [--limit <n>] [--no-ack] [--no-heartbeat]
           auth <status|login|logout>
           login | logout                                      (aliases for auth login/logout)
+          actions <list|run> [args...]
           vm <new|ls|rm|exec|shell|ssh> [args...]    (alias: cloud)
           rpc <method> [json-params]
           identify [--workspace <id|ref|index>] [--surface <id|ref|index>] [--no-caller]

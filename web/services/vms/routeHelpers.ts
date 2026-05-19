@@ -3,7 +3,11 @@ import { recordSpanError, withApiRouteSpan, type MaybeAttributes } from "../tele
 import { unauthorized, verifyRequest, type AuthedUser } from "./auth";
 import {
   isVmBillingError,
+  isVmCreateCreditsInsufficientError,
+  isVmCreateDisabledError,
   isVmDatabaseError,
+  isVmImageConfigError,
+  isVmLimitExceededError,
   isVmProviderOperationError,
 } from "./errors";
 import { recordSpanTiming } from "./timings";
@@ -129,6 +133,46 @@ export function notFoundVm(vmId: string): Response {
 }
 
 export function vmWorkflowErrorResponse(err: unknown): Response | null {
+  if (isVmLimitExceededError(err)) {
+    return vmErrorResponse({
+      error: "vm_active_limit_exceeded",
+      status: 402,
+      message: `This plan allows ${err.limit} active Cloud VM${err.limit === 1 ? "" : "s"} at a time.`,
+      action: "Run `cmux vm ls`, then stop or delete an active VM with `cmux vm rm <id>` before creating another. Paused VMs do not count against this limit.",
+      extra: { limit: err.limit },
+      details: { limit: err.limit },
+    });
+  }
+
+  if (isVmCreateCreditsInsufficientError(err)) {
+    return vmErrorResponse({
+      error: "vm_create_credits_insufficient",
+      status: 402,
+      message: "This team has no Cloud VM create credits left.",
+      action: "Upgrade the team's plan or ask an admin to add Cloud VM create credits, then retry.",
+      extra: { amount: err.amount },
+      details: { amount: err.amount },
+    });
+  }
+
+  if (isVmCreateDisabledError(err)) {
+    return vmErrorResponse({
+      error: "vm_create_disabled",
+      status: 503,
+      message: "Cloud VM creation is disabled for this environment.",
+      action: "Ask an admin to enable Cloud VM creation, then retry.",
+    });
+  }
+
+  if (isVmImageConfigError(err)) {
+    return vmErrorResponse({
+      error: "vm_image_config_error",
+      status: 503,
+      message: "The requested Cloud VM image is not available in this environment.",
+      action: "Ask an admin to publish the Cloud VM image for this environment, then retry.",
+    });
+  }
+
   if (isVmProviderOperationError(err)) {
     return vmErrorResponse({
       error: "vm_cloud_service_unavailable",

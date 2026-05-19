@@ -21,6 +21,7 @@ import {
   VmCreateFailedError,
   VmCreateInProgressError,
   VmNotFoundError,
+  VmProviderOperationError,
   isVmLimitExceededError,
   vmWorkflowErrorCause,
   type VmDatabaseError,
@@ -300,6 +301,37 @@ export function execVm(input: {
       metadata: { commandLength: input.command.length, exitCode: result.exitCode },
     }).pipe(Effect.catchAll(() => Effect.void));
     return result satisfies ExecResult;
+  });
+}
+
+export function snapshotVm(input: {
+  readonly userId: string;
+  readonly providerVmId: string;
+  readonly name?: string;
+}) {
+  return Effect.gen(function* () {
+    const repo = yield* VmRepository;
+    const providers = yield* VmProviderGateway;
+    const vm = yield* requireUserVm(input.userId, input.providerVmId);
+    if (!providers.snapshot) {
+      return yield* Effect.fail(new VmProviderOperationError({
+        provider: vm.provider,
+        operation: "snapshot",
+        cause: new Error("Cloud VM image snapshots are not available in this environment."),
+      }));
+    }
+    const snapshot = yield* providers.snapshot(vm.provider, input.providerVmId, input.name);
+    yield* repo.recordUsageEvent({
+      userId: input.userId,
+      billingTeamId: vm.billingTeamId,
+      billingPlanId: vm.billingPlanId,
+      vmId: vm.id,
+      eventType: "vm.snapshot.created",
+      provider: vm.provider,
+      imageId: vm.imageId,
+      metadata: { named: !!input.name },
+    }).pipe(Effect.catchAll(() => Effect.void));
+    return snapshot;
   });
 }
 
