@@ -2,16 +2,18 @@
 
 use crate::terminal::{TerminalCommand, TerminalSession};
 
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq, Default)]
 pub enum AgentKind {
+    #[default]
     Shell,
     Claude,
     Codex,
     Custom(String),
 }
 
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq, Default)]
 pub enum SessionStatus {
+    #[default]
     Running,
     WaitingForInput,
     Exited(i32),
