@@ -309,14 +309,39 @@ extension CMUXCLI {
         return regex.stringByReplacingMatches(in: contents, options: [], range: fullRange, withTemplate: "")
     }
 
-    func reloadThemesIfPossible() -> ThemeReloadStatus {
+    func reloadThemesIfPossible(
+        socketPath: String,
+        explicitPassword: String?
+    ) -> ThemeReloadStatus {
         let bundleIdentifier = currentCmuxAppBundleIdentifier() ?? Self.cmuxThemeOverrideBundleIdentifier
+        if requestThemeReloadOverSocket(socketPath: socketPath, explicitPassword: explicitPassword) {
+            return ThemeReloadStatus(requested: true, targetBundleIdentifier: bundleIdentifier)
+        }
+
         DistributedNotificationCenter.default().post(
             name: Notification.Name(Self.cmuxThemesReloadNotificationName),
             object: nil,
             userInfo: ["bundleIdentifier": bundleIdentifier]
         )
         return ThemeReloadStatus(requested: true, targetBundleIdentifier: bundleIdentifier)
+    }
+
+    private func requestThemeReloadOverSocket(socketPath: String, explicitPassword: String?) -> Bool {
+        let client = SocketClient(path: socketPath)
+        do {
+            try client.connect()
+            defer { client.close() }
+            try authenticateClientIfNeeded(
+                client,
+                explicitPassword: explicitPassword,
+                socketPath: socketPath
+            )
+            let response = try client.send(command: "reload_config")
+            return !response.hasPrefix("ERROR:")
+        } catch {
+            client.close()
+            return false
+        }
     }
 
     func currentCmuxAppBundleIdentifier() -> String? {

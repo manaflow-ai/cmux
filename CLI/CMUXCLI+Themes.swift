@@ -169,7 +169,12 @@ extension CMUXCLI {
         return Bundle.main.resourceURL?.appendingPathComponent("ghostty", isDirectory: true)
     }
 
-    func runThemes(commandArgs: [String], jsonOutput: Bool) throws {
+    func runThemes(
+        commandArgs: [String],
+        jsonOutput: Bool,
+        socketPath: String,
+        explicitPassword: String?
+    ) throws {
         if commandArgs.isEmpty {
             if shouldUseInteractiveThemePicker(jsonOutput: jsonOutput) {
                 try runInteractiveThemes()
@@ -193,13 +198,19 @@ extension CMUXCLI {
         case "set":
             try runThemesSet(
                 args: Array(commandArgs.dropFirst()),
-                jsonOutput: jsonOutput
+                jsonOutput: jsonOutput,
+                socketPath: socketPath,
+                explicitPassword: explicitPassword
             )
         case "clear":
             if commandArgs.count > 1 {
                 throw CLIError(message: "themes clear does not take any positional arguments")
             }
-            try runThemesClear(jsonOutput: jsonOutput)
+            try runThemesClear(
+                jsonOutput: jsonOutput,
+                socketPath: socketPath,
+                explicitPassword: explicitPassword
+            )
         default:
             if subcommand.hasPrefix("-") {
                 throw CLIError(message: "Unknown themes subcommand '\(subcommand)'. Run 'cmux themes --help'.")
@@ -207,7 +218,9 @@ extension CMUXCLI {
 
             try runThemesSet(
                 args: commandArgs,
-                jsonOutput: jsonOutput
+                jsonOutput: jsonOutput,
+                socketPath: socketPath,
+                explicitPassword: explicitPassword
             )
         }
     }
@@ -265,7 +278,12 @@ extension CMUXCLI {
         }
     }
 
-    private func runThemesSet(args: [String], jsonOutput: Bool) throws {
+    private func runThemesSet(
+        args: [String],
+        jsonOutput: Bool,
+        socketPath: String,
+        explicitPassword: String?
+    ) throws {
         let (lightOpt, rem0) = parseOption(args, name: "--light")
         let (darkOpt, rem1) = parseOption(rem0, name: "--dark")
 
@@ -300,7 +318,10 @@ extension CMUXCLI {
         }
 
         let configURL = try writeManagedThemeOverride(rawThemeValue: rawThemeValue)
-        let reloadStatus = reloadThemesIfPossible()
+        let reloadStatus = reloadThemesIfPossible(
+            socketPath: socketPath,
+            explicitPassword: explicitPassword
+        )
 
         if jsonOutput {
             let payload: [String: Any] = [
@@ -321,9 +342,16 @@ extension CMUXCLI {
         )
     }
 
-    private func runThemesClear(jsonOutput: Bool) throws {
+    private func runThemesClear(
+        jsonOutput: Bool,
+        socketPath: String,
+        explicitPassword: String?
+    ) throws {
         let configURL = try clearManagedThemeOverride()
-        let reloadStatus = reloadThemesIfPossible()
+        let reloadStatus = reloadThemesIfPossible(
+            socketPath: socketPath,
+            explicitPassword: explicitPassword
+        )
 
         if jsonOutput {
             let payload: [String: Any] = [
