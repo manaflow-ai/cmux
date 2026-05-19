@@ -89,7 +89,7 @@ final class ClaudeWrapperNodeOptionsRestoreModuleTests: XCTestCase {
         try "not a directory".write(to: homeFile, atomically: true, encoding: .utf8)
         defer { try? FileManager.default.removeItem(at: root) }
 
-        let directory = NodeOptionsSupport.claudeRestoreDirectory(
+        let directory = try NodeOptionsSupport.claudeRestoreDirectory(
             homePath: homeFile.path,
             appSupportDirectory: appSupport,
             tempDirectory: tmpDir
@@ -119,7 +119,7 @@ final class ClaudeWrapperNodeOptionsRestoreModuleTests: XCTestCase {
         try "not a directory".write(to: appSupportFile, atomically: true, encoding: .utf8)
         defer { try? FileManager.default.removeItem(at: root) }
 
-        let directory = NodeOptionsSupport.claudeRestoreDirectory(
+        let directory = try NodeOptionsSupport.claudeRestoreDirectory(
             homePath: homeFile.path,
             appSupportDirectory: appSupportFile,
             tempDirectory: tmpDir
@@ -136,6 +136,43 @@ final class ClaudeWrapperNodeOptionsRestoreModuleTests: XCTestCase {
 
         let attributes = try FileManager.default.attributesOfItem(atPath: fallbackRoot.path)
         XCTAssertEqual((attributes[.posixPermissions] as? NSNumber)?.intValue, 0o700)
+    }
+
+    func testClaudeRestoreDirectoryThrowsWhenEveryCandidateFailsValidation() throws {
+        let root = FileManager.default.temporaryDirectory
+            .appendingPathComponent("cmux-node-options-rejected-\(UUID().uuidString)", isDirectory: true)
+        let homeFile = root.appendingPathComponent("home-file", isDirectory: false)
+        let appSupportFile = root.appendingPathComponent("app-support-file", isDirectory: false)
+        let tmpDir = root.appendingPathComponent("tmp", isDirectory: true)
+        let symlinkTarget = root.appendingPathComponent("symlink-target", isDirectory: true)
+        let fallbackRoot = tmpDir.appendingPathComponent("cmux-node-options-\(getuid())", isDirectory: true)
+        try FileManager.default.createDirectory(at: tmpDir, withIntermediateDirectories: true)
+        try FileManager.default.createDirectory(at: symlinkTarget, withIntermediateDirectories: true)
+        try "not a directory".write(to: homeFile, atomically: true, encoding: .utf8)
+        try "not a directory".write(to: appSupportFile, atomically: true, encoding: .utf8)
+        try FileManager.default.createSymbolicLink(at: fallbackRoot, withDestinationURL: symlinkTarget)
+        defer { try? FileManager.default.removeItem(at: root) }
+
+        XCTAssertThrowsError(
+            try NodeOptionsSupport.claudeRestoreDirectory(
+                homePath: homeFile.path,
+                appSupportDirectory: appSupportFile,
+                tempDirectory: tmpDir,
+                systemTempDirectory: nil
+            )
+        ) { error in
+            guard let directoryError = error as? NodeOptionsRestoreDirectoryError else {
+                return XCTFail("Expected NodeOptionsRestoreDirectoryError, got \(error)")
+            }
+            XCTAssertTrue(
+                directoryError.attemptedPaths.contains(
+                    fallbackRoot
+                        .appendingPathComponent("cmux", isDirectory: true)
+                        .appendingPathComponent("node-options", isDirectory: true)
+                        .path
+                )
+            )
+        }
     }
 
     func testCmuxRestoreEntryStrippingRemovesOnlyInjectedHeapCap() {

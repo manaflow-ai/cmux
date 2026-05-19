@@ -5,6 +5,10 @@ import Darwin
 import Glibc
 #endif
 
+public struct NodeOptionsRestoreDirectoryError: Error, Equatable {
+    public let attemptedPaths: [String]
+}
+
 public enum NodeOptionsSupport {
     public static let restoreModuleFilename = "restore-node-options.cjs"
 
@@ -12,21 +16,30 @@ public enum NodeOptionsSupport {
         homePath: String?,
         appSupportDirectory: URL? = nil,
         tempDirectory: URL = FileManager.default.temporaryDirectory,
+        systemTempDirectory: URL? = URL(fileURLWithPath: "/tmp", isDirectory: true),
         fileManager: FileManager = .default
-    ) -> URL {
-        for candidate in claudeRestoreDirectoryCandidates(
+    ) throws -> URL {
+        let durableCandidates = claudeRestoreDirectoryCandidates(
             homePath: homePath,
             appSupportDirectory: appSupportDirectory
-        ) where prepareWritableRestoreDirectory(candidate, fileManager: fileManager) {
+        )
+        for candidate in durableCandidates
+        where prepareWritableRestoreDirectory(candidate, fileManager: fileManager) {
             return candidate
         }
 
-        for candidate in temporaryRestoreDirectoryCandidates(tempDirectory: tempDirectory)
+        let tempCandidates = temporaryRestoreDirectoryCandidates(
+            tempDirectory: tempDirectory,
+            systemTempDirectory: systemTempDirectory
+        )
+        for candidate in tempCandidates
         where prepareSecureTemporaryRestoreDirectory(candidate, fileManager: fileManager) {
             return candidate
         }
 
-        return temporaryRestoreDirectory(under: tempDirectory)
+        throw NodeOptionsRestoreDirectoryError(
+            attemptedPaths: (durableCandidates + tempCandidates).map(\.path)
+        )
     }
 
     private static func claudeRestoreDirectoryCandidates(
@@ -62,11 +75,14 @@ public enum NodeOptionsSupport {
         }
     }
 
-    private static func temporaryRestoreDirectoryCandidates(tempDirectory: URL) -> [URL] {
-        let candidates = [
-            temporaryRestoreDirectory(under: tempDirectory),
-            temporaryRestoreDirectory(under: URL(fileURLWithPath: "/tmp", isDirectory: true))
-        ]
+    private static func temporaryRestoreDirectoryCandidates(
+        tempDirectory: URL,
+        systemTempDirectory: URL?
+    ) -> [URL] {
+        var candidates = [temporaryRestoreDirectory(under: tempDirectory)]
+        if let systemTempDirectory {
+            candidates.append(temporaryRestoreDirectory(under: systemTempDirectory))
+        }
         var seen = Set<String>()
         return candidates.filter { seen.insert($0.standardizedFileURL.path).inserted }
     }

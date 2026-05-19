@@ -13235,15 +13235,15 @@ struct CMUXCLI {
     }
 
     private func createClaudeNodeOptionsRestoreModule() throws -> URL {
-        let root = claudeNodeOptionsRestoreDirectory()
+        let root = try claudeNodeOptionsRestoreDirectory()
         try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true, attributes: nil)
         let restoreModuleURL = root.appendingPathComponent(NodeOptionsSupport.restoreModuleFilename, isDirectory: false)
         try writeShimIfChanged(Self.claudeNodeOptionsRestoreModule, to: restoreModuleURL)
         return restoreModuleURL
     }
 
-    private func claudeNodeOptionsRestoreDirectory() -> URL {
-        NodeOptionsSupport.claudeRestoreDirectory(
+    private func claudeNodeOptionsRestoreDirectory() throws -> URL {
+        try NodeOptionsSupport.claudeRestoreDirectory(
             homePath: ProcessInfo.processInfo.environment["HOME"],
             appSupportDirectory: FileManager.default.urls(
                 for: .applicationSupportDirectory,
