@@ -87,6 +87,58 @@ final class KeyboardShortcutSettingsFileStoreStartupTests: XCTestCase {
         )
     }
 
+    func testInitialSettingsFileLoadDefersChangeNotificationUntilReload() throws {
+        let directoryURL = try makeTemporaryDirectory()
+        defer { try? FileManager.default.removeItem(at: directoryURL) }
+
+        let settingsFileURL = directoryURL.appendingPathComponent("cmux.json", isDirectory: false)
+        try writeSettingsFile(
+            """
+            {
+              "shortcuts": {
+                "openBrowser": "cmd+3"
+              }
+            }
+            """,
+            to: settingsFileURL
+        )
+
+        let notificationCenter = NotificationCenter()
+        var notifications: [Notification] = []
+        let observer = notificationCenter.addObserver(
+            forName: KeyboardShortcutSettings.didChangeNotification,
+            object: nil,
+            queue: nil
+        ) { notification in
+            notifications.append(notification)
+        }
+        defer { notificationCenter.removeObserver(observer) }
+
+        let store = KeyboardShortcutSettingsFileStore(
+            primaryPath: settingsFileURL.path,
+            fallbackPath: nil,
+            additionalFallbackPaths: [],
+            notificationCenter: notificationCenter,
+            startWatching: false
+        )
+
+        XCTAssertTrue(notifications.isEmpty)
+
+        try writeSettingsFile(
+            """
+            {
+              "shortcuts": {
+                "openBrowser": "cmd+4"
+              }
+            }
+            """,
+            to: settingsFileURL
+        )
+        store.reload()
+
+        XCTAssertEqual(notifications.count, 1)
+    }
+
     func testSettingsFileStoreRestoresAbsentAppIconBackupDuringStartupWithoutTouchingAppKit() throws {
         let defaults = UserDefaults.standard
         let previousMode = defaults.object(forKey: AppIconSettings.modeKey)
