@@ -742,6 +742,68 @@ def test_reachable_environment_socket_path_remains_authoritative(cli_path: str) 
     return True
 
 
+def test_dead_environment_socket_path_without_candidate_reports_no_fallback(cli_path: str) -> bool:
+    slug = f"cli-no-fallback-{os.getpid()}"
+    dead_socket = f"/tmp/cmux-dead-env-{slug}.sock"
+    default_socket = f"/tmp/cmux-nightly-{slug}.sock"
+    tmp_marker = f"/tmp/cmux-nightly-{slug}-last-socket-path"
+
+    for path in (dead_socket, default_socket, tmp_marker):
+        try:
+            os.remove(path)
+        except OSError:
+            pass
+
+    try:
+        with temporary_socket_home("cmux-cli-no-fallback-") as home, \
+                tempfile.TemporaryDirectory(prefix="cmux-cli-no-fallback-app-") as apps:
+            nightly_cli = bundled_cli_for_variant(
+                cli_path,
+                apps,
+                "cmux NIGHTLY issue4357 no fallback",
+                f"com.cmuxterm.app.nightly.{slug}",
+            )
+            proc = run_ping(
+                nightly_cli,
+                home,
+                extra_env={
+                    "CMUX_SOCKET_PATH": dead_socket,
+                },
+            )
+    except Exception as exc:
+        print(f"FAIL: invoking cmux ping with no fallback socket failed: {exc}")
+        return False
+    finally:
+        for path in (dead_socket, default_socket, tmp_marker):
+            try:
+                os.remove(path)
+            except OSError:
+                pass
+
+    if proc.returncode == 0:
+        print("FAIL: cmux ping with no fallback socket unexpectedly succeeded")
+        print(f"stdout={proc.stdout!r}")
+        print(f"stderr={proc.stderr!r}")
+        return False
+
+    if dead_socket not in proc.stderr:
+        print("FAIL: no-fallback warning did not name the dead CMUX_SOCKET_PATH")
+        print(f"stderr={proc.stderr!r}")
+        return False
+
+    if f"using {dead_socket}" in proc.stderr:
+        print("FAIL: no-fallback warning claimed it was using the same dead socket")
+        print(f"stderr={proc.stderr!r}")
+        return False
+
+    if "no fallback socket found" not in proc.stderr:
+        print("FAIL: no-fallback warning did not report that no fallback was found")
+        print(f"stderr={proc.stderr!r}")
+        return False
+
+    return True
+
+
 def main() -> int:
     try:
         cli_path = resolve_cmux_cli()
@@ -756,6 +818,9 @@ def main() -> int:
         return 1
 
     if not test_reachable_environment_socket_path_remains_authoritative(cli_path):
+        return 1
+
+    if not test_dead_environment_socket_path_without_candidate_reports_no_fallback(cli_path):
         return 1
 
     if not test_variant_last_socket_markers(cli_path):
