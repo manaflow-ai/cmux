@@ -163,6 +163,7 @@ private final class SidebarWorkspaceIconImageLoader {
 
     @ObservationIgnored private var requestedPath: String?
     @ObservationIgnored private var isLoading = false
+    @ObservationIgnored private var loadGeneration = 0
     @ObservationIgnored private var loadTask: Task<Void, Never>?
 
     func load(path: String) {
@@ -174,33 +175,42 @@ private final class SidebarWorkspaceIconImageLoader {
             image = nil
         }
         didLoad = false
+        loadGeneration += 1
+        let generation = loadGeneration
         isLoading = true
         loadTask?.cancel()
 
-        loadTask = Task { [weak self, expandedPath] in
+        loadTask = Task { [weak self, expandedPath, generation] in
             let cacheKey = await SidebarWorkspaceIconImageCache.metadata(forExpandedPath: expandedPath)
-            guard !Task.isCancelled else { return }
+            guard !Task.isCancelled else {
+                self?.finishLoading(generation: generation, path: expandedPath, image: nil, didLoad: false)
+                return
+            }
 
             if let cached = SidebarWorkspaceIconImageCache.cachedImage(forKey: cacheKey) {
-                guard let self, self.requestedPath == expandedPath else { return }
-                self.image = cached
-                self.didLoad = true
-                self.isLoading = false
+                self?.finishLoading(generation: generation, path: expandedPath, image: cached, didLoad: true)
                 return
             }
 
             let decodedImage = await SidebarWorkspaceIconImageCache.decodedImage(forExpandedPath: expandedPath)
-            guard !Task.isCancelled else { return }
+            guard !Task.isCancelled else {
+                self?.finishLoading(generation: generation, path: expandedPath, image: nil, didLoad: false)
+                return
+            }
 
             let loadedImage = decodedImage?.image
             if let loadedImage {
                 SidebarWorkspaceIconImageCache.store(loadedImage, forKey: cacheKey)
             }
-            guard let self, self.requestedPath == expandedPath else { return }
-            self.image = loadedImage
-            self.didLoad = true
-            self.isLoading = false
+            self?.finishLoading(generation: generation, path: expandedPath, image: loadedImage, didLoad: true)
         }
+    }
+
+    private func finishLoading(generation: Int, path: String, image loadedImage: NSImage?, didLoad: Bool) {
+        guard loadGeneration == generation, requestedPath == path else { return }
+        image = loadedImage
+        self.didLoad = didLoad
+        isLoading = false
     }
 }
 
