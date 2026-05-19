@@ -65,6 +65,32 @@ struct AgentLaunchSanitizerTests {
         )
     }
 
+    @Test("Preserves Codex fork launch context without explicit session")
+    func preservesCodexForkLaunchContextWithoutExplicitSession() {
+        #expect(
+            AgentLaunchSanitizer.sanitizedLaunchArguments(
+                [
+                    "codex",
+                    "fork",
+                    "--last",
+                    "--model",
+                    "gpt-5.4",
+                    "--sandbox",
+                    "danger-full-access",
+                    "prompt should not replay",
+                ],
+                launcher: "codex",
+                fallbackKind: "codex"
+            ) == [
+                "codex",
+                "--model",
+                "gpt-5.4",
+                "--sandbox",
+                "danger-full-access",
+            ]
+        )
+    }
+
     @Test("Detects Codex fork after startup image options")
     func detectsCodexForkAfterStartupImageOptions() {
         #expect(
@@ -88,6 +114,48 @@ struct AgentLaunchSanitizerTests {
                 "codex",
                 "--sandbox",
                 "danger-full-access",
+            ]
+        )
+    }
+
+    @Test("Can preserve Codex fork images for fork replay")
+    func canPreserveCodexForkImagesForForkReplay() {
+        #expect(
+            AgentLaunchSanitizer.preservedCodexForkArguments(
+                args: [
+                    "--image",
+                    "/tmp/screenshot.png",
+                    "fork",
+                    "019dad34-d218-7943-b81a-eddac5c87951",
+                    "--model",
+                    "gpt-5.4",
+                    "prompt should not replay",
+                ],
+                preserveImageOptions: true
+            ) == [
+                "--image",
+                "/tmp/screenshot.png",
+                "--model",
+                "gpt-5.4",
+            ]
+        )
+    }
+
+    @Test("Does not preserve Codex startup images for direct fork replay")
+    func doesNotPreserveCodexStartupImagesForDirectForkReplay() {
+        #expect(
+            AgentLaunchSanitizer.preservedCodexForkArguments(
+                args: [
+                    "--image",
+                    "/tmp/screenshot.png",
+                    "--model",
+                    "gpt-5.4",
+                    "prompt should not replay",
+                ],
+                preserveImageOptions: true
+            ) == [
+                "--model",
+                "gpt-5.4",
             ]
         )
     }

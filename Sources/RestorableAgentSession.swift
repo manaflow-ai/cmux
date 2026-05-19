@@ -60,7 +60,8 @@ enum AgentResumeCommandBuilder {
               let argv = forkArguments(
                   kind: kind,
                   sessionId: sessionId,
-                  launchCommand: launchCommand
+                  launchCommand: launchCommand,
+                  workingDirectory: workingDirectory
               ),
               !argv.isEmpty else {
             return nil
@@ -213,8 +214,12 @@ enum AgentResumeCommandBuilder {
             )
         case .codex:
             let original = commandParts(launchCommand: launchCommand, fallbackExecutable: "codex")
-            guard let preserved = AgentLaunchSanitizer.preservedCodexForkArguments(args: original.tail) else { return nil }
-            return [original.executable, "resume", sessionId] + preserved
+            guard let preserved = preservedCodexForkArguments(
+                args: original.tail,
+                fallbackWorkingDirectory: workingDirectory
+            ) else { return nil }
+            return [original.executable, "resume"]
+                + codexArgumentsWithSession(preserved, sessionId: sessionId)
         case .pi:
             return resumeWithOption(
                 kind: "pi",
@@ -295,7 +300,8 @@ enum AgentResumeCommandBuilder {
     private static func forkArguments(
         kind: RestorableAgentKind,
         sessionId: String,
-        launchCommand: AgentLaunchCommandSnapshot?
+        launchCommand: AgentLaunchCommandSnapshot?,
+        workingDirectory: String?
     ) -> [String]? {
         switch launchCommand?.launcher {
         case "claudeTeams":
@@ -318,8 +324,13 @@ enum AgentResumeCommandBuilder {
             if args.first == "codex-teams" {
                 args.removeFirst()
             }
-            guard let preserved = AgentLaunchSanitizer.preservedCodexForkArguments(args: args) else { return nil }
-            return [original.executable, "codex-teams", "fork", sessionId] + preserved
+            guard let preserved = preservedCodexForkArguments(
+                args: args,
+                fallbackWorkingDirectory: workingDirectory,
+                preserveImageOptions: true
+            ) else { return nil }
+            return [original.executable, "codex-teams", "fork"]
+                + codexArgumentsWithSession(preserved, sessionId: sessionId)
         case "omo":
             let original = commandParts(
                 launchCommand: launchCommand,
@@ -344,8 +355,13 @@ enum AgentResumeCommandBuilder {
             return [original.executable, "--resume", sessionId, "--fork-session"] + preserved
         case .codex:
             let original = commandParts(launchCommand: launchCommand, fallbackExecutable: "codex")
-            guard let preserved = AgentLaunchSanitizer.preservedCodexForkArguments(args: original.tail) else { return nil }
-            return [original.executable, "fork", sessionId] + preserved
+            guard let preserved = preservedCodexForkArguments(
+                args: original.tail,
+                fallbackWorkingDirectory: workingDirectory,
+                preserveImageOptions: true
+            ) else { return nil }
+            return [original.executable, "fork"]
+                + codexArgumentsWithSession(preserved, sessionId: sessionId)
         case .opencode:
             let original = commandParts(launchCommand: launchCommand, fallbackExecutable: "opencode")
             guard let preserved = AgentLaunchSanitizer.preservedArguments(kind: "opencode", args: original.tail) else { return nil }
@@ -353,6 +369,117 @@ enum AgentResumeCommandBuilder {
         default:
             return nil
         }
+    }
+
+    private static func codexWorkingDirectoryArguments(_ workingDirectory: String?) -> [String] {
+        guard let workingDirectory = normalized(workingDirectory) else { return [] }
+        return ["--cd", workingDirectory]
+    }
+
+    private static func codexArgumentsWithSession(
+        _ preserved: PreservedCodexForkArguments,
+        sessionId: String
+    ) -> [String] {
+        let splitArguments = splitCodexImageArguments(preserved.arguments)
+        return codexWorkingDirectoryArguments(preserved.workingDirectory)
+            + splitArguments.beforeSession
+            + [sessionId]
+            + splitArguments.afterSession
+    }
+
+    private static func splitCodexImageArguments(_ arguments: [String]) -> (beforeSession: [String], afterSession: [String]) {
+        var beforeSession: [String] = []
+        var afterSession: [String] = []
+        var index = 0
+        while index < arguments.count {
+            let argument = arguments[index]
+            guard isCodexImageOption(argument) else {
+                beforeSession.append(argument)
+                index += 1
+                continue
+            }
+
+            let start = index
+            index += 1
+            if argument == "--image" || argument == "-i" {
+                while index < arguments.count, !arguments[index].hasPrefix("-") {
+                    index += 1
+                }
+            }
+            afterSession.append(contentsOf: arguments[start..<index])
+        }
+        return (beforeSession, afterSession)
+    }
+
+    private static func isCodexImageOption(_ argument: String) -> Bool {
+        argument == "--image" ||
+            argument == "-i" ||
+            argument.hasPrefix("--image=") ||
+            argument.hasPrefix("-i=")
+    }
+
+    private struct PreservedCodexForkArguments {
+        let workingDirectory: String?
+        let arguments: [String]
+    }
+
+    private static func preservedCodexForkArguments(
+        args: [String],
+        fallbackWorkingDirectory: String?,
+        preserveImageOptions: Bool = false
+    ) -> PreservedCodexForkArguments? {
+        guard let preserved = AgentLaunchSanitizer.preservedCodexForkArguments(
+            args: args,
+            preserveImageOptions: preserveImageOptions
+        ) else {
+            return nil
+        }
+        guard let workingDirectory = codexWorkingDirectoryArgument(in: preserved) ?? normalized(fallbackWorkingDirectory) else {
+            return PreservedCodexForkArguments(workingDirectory: nil, arguments: preserved)
+        }
+        return PreservedCodexForkArguments(
+            workingDirectory: workingDirectory,
+            arguments: removingCodexWorkingDirectoryArguments(preserved)
+        )
+    }
+
+    private static func codexWorkingDirectoryArgument(in arguments: [String]) -> String? {
+        var index = 0
+        while index < arguments.count {
+            let argument = arguments[index]
+            if argument == "--cd" || argument == "-C" {
+                let valueIndex = index + 1
+                guard valueIndex < arguments.count else { return nil }
+                return normalized(arguments[valueIndex])
+            }
+            if argument.hasPrefix("--cd=") {
+                return normalized(String(argument.dropFirst("--cd=".count)))
+            }
+            if argument.hasPrefix("-C=") {
+                return normalized(String(argument.dropFirst("-C=".count)))
+            }
+            index += 1
+        }
+        return nil
+    }
+
+    private static func removingCodexWorkingDirectoryArguments(_ arguments: [String]) -> [String] {
+        var result: [String] = []
+        var index = 0
+        while index < arguments.count {
+            let argument = arguments[index]
+            if argument == "--cd" || argument == "-C" {
+                index += 2
+                continue
+            }
+            if argument.hasPrefix("--cd=") || argument.hasPrefix("-C=") {
+                index += 1
+                continue
+            }
+            result.append(argument)
+            index += 1
+        }
+        return result
     }
 
     private static func customResumeArguments(
@@ -662,6 +789,15 @@ struct RestorableAgentSessionIndex: Sendable {
     private let snapshotsByPanel: [PanelKey: SessionRestorableAgentSnapshot]
     private let snapshotsByPanelId: [UUID: SessionRestorableAgentSnapshot]
 
+    struct ProcessDetectedLoadResult: Sendable {
+        let index: RestorableAgentSessionIndex
+        let processDetectedSnapshotsByPanel: [PanelKey: SessionRestorableAgentSnapshot]
+
+        func processDetectedSnapshot(workspaceId: UUID, panelId: UUID) -> SessionRestorableAgentSnapshot? {
+            processDetectedSnapshotsByPanel[PanelKey(workspaceId: workspaceId, panelId: panelId)]
+        }
+    }
+
     func snapshot(workspaceId: UUID, panelId: UUID) -> SessionRestorableAgentSnapshot? {
         snapshotsByPanel[PanelKey(workspaceId: workspaceId, panelId: panelId)] ?? snapshotsByPanelId[panelId]
     }
@@ -681,31 +817,61 @@ struct RestorableAgentSessionIndex: Sendable {
 
     static func loadIncludingProcessDetectedSnapshots(
         homeDirectory: String = NSHomeDirectory(),
-        fileManager: FileManager = .default
+        fileManager: FileManager = .default,
+        fallbackScope: RestorableAgentProcessDetectionScope? = nil
     ) async -> RestorableAgentSessionIndex {
+        await loadIncludingProcessDetectedSnapshotSources(
+            homeDirectory: homeDirectory,
+            fileManager: fileManager,
+            fallbackScope: fallbackScope
+        ).index
+    }
+
+    static func loadIncludingProcessDetectedSnapshotSources(
+        homeDirectory: String = NSHomeDirectory(),
+        fileManager: FileManager = .default,
+        fallbackScope: RestorableAgentProcessDetectionScope? = nil
+    ) async -> ProcessDetectedLoadResult {
         await Task.detached(priority: .utility) {
-            loadIncludingProcessDetectedSnapshotsSynchronously(
+            loadIncludingProcessDetectedSnapshotSourcesSynchronously(
                 homeDirectory: homeDirectory,
-                fileManager: fileManager
+                fileManager: fileManager,
+                fallbackScope: fallbackScope
             )
         }.value
+    }
+
+    static func loadIncludingProcessDetectedSnapshotSourcesSynchronously(
+        homeDirectory: String = NSHomeDirectory(),
+        fileManager: FileManager = .default,
+        fallbackScope: RestorableAgentProcessDetectionScope? = nil
+    ) -> ProcessDetectedLoadResult {
+        let registry = CmuxVaultAgentRegistry.load(homeDirectory: homeDirectory, fileManager: fileManager)
+        let detectedSnapshots = processDetectedSnapshots(
+            registry: registry,
+            fileManager: fileManager,
+            fallbackScope: fallbackScope
+        )
+        let index = load(
+            homeDirectory: homeDirectory,
+            fileManager: fileManager,
+            registry: registry,
+            detectedSnapshots: detectedSnapshots
+        )
+        return ProcessDetectedLoadResult(
+            index: index,
+            processDetectedSnapshotsByPanel: detectedSnapshots.mapValues(\.snapshot)
+        )
     }
 
     static func loadIncludingProcessDetectedSnapshotsSynchronously(
         homeDirectory: String = NSHomeDirectory(),
         fileManager: FileManager = .default
     ) -> RestorableAgentSessionIndex {
-        let registry = CmuxVaultAgentRegistry.load(homeDirectory: homeDirectory, fileManager: fileManager)
-        let detectedSnapshots = processDetectedSnapshots(
-            registry: registry,
-            fileManager: fileManager
-        )
-        return load(
+        loadIncludingProcessDetectedSnapshotSourcesSynchronously(
             homeDirectory: homeDirectory,
-            fileManager: fileManager,
-            registry: registry,
-            detectedSnapshots: detectedSnapshots
-        )
+            fileManager: fileManager
+        ).index
     }
 
     static func load(

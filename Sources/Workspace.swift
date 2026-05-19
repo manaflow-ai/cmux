@@ -1068,6 +1068,7 @@ extension Workspace {
         } else {
             surfaceTTYNames.removeValue(forKey: panelId)
         }
+        clearCurrentSessionSurfaceTTYReport(forPanelId: panelId)
         syncRemotePortScanTTYs()
 
         if let browserSnapshot = snapshot.browser,
@@ -7451,7 +7452,8 @@ final class Workspace: Identifiable, ObservableObject {
     @Published var remoteLastHeartbeatAt: Date?
     @Published var listeningPorts: [Int] = []
     @Published private(set) var activeRemoteTerminalSessionCount: Int = 0
-    var surfaceTTYNames: [UUID: String] = [:]
+    @Published var surfaceTTYNames: [UUID: String] = [:]
+    @Published private(set) var currentSessionReportedTTYPanelIds: Set<UUID> = []
     private var remoteSessionController: WorkspaceRemoteSessionController?
     private var pendingRemoteForegroundAuthToken: String?
     fileprivate var activeRemoteSessionControllerID: UUID?
@@ -9241,6 +9243,7 @@ final class Workspace: Identifiable, ObservableObject {
         manualUnreadMarkedAt = manualUnreadMarkedAt.filter { validSurfaceIds.contains($0.key) }
         surfaceListeningPorts = surfaceListeningPorts.filter { validSurfaceIds.contains($0.key) }
         surfaceTTYNames = surfaceTTYNames.filter { validSurfaceIds.contains($0.key) }
+        currentSessionReportedTTYPanelIds = currentSessionReportedTTYPanelIds.intersection(validSurfaceIds)
         remoteDetectedSurfaceIds = remoteDetectedSurfaceIds.filter { validSurfaceIds.contains($0) }
         panelShellActivityStates = panelShellActivityStates.filter { validSurfaceIds.contains($0.key) }
         panelPullRequests = panelPullRequests.filter { validSurfaceIds.contains($0.key) }
@@ -9781,6 +9784,29 @@ final class Workspace: Identifiable, ObservableObject {
             }
             disconnectRemoteConnection(clearConfiguration: true)
         }
+    }
+
+    func recordCurrentSessionSurfaceTTY(_ ttyName: String, forPanelId panelId: UUID) {
+        let trimmedTTY = ttyName.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmedTTY.isEmpty else { return }
+        let ttyAlreadyRecorded = surfaceTTYNames[panelId] == trimmedTTY
+        let sessionAlreadyReported = currentSessionReportedTTYPanelIds.contains(panelId)
+        guard !ttyAlreadyRecorded || !sessionAlreadyReported else { return }
+        if !ttyAlreadyRecorded {
+            surfaceTTYNames[panelId] = trimmedTTY
+        }
+        if !sessionAlreadyReported {
+            currentSessionReportedTTYPanelIds.insert(panelId)
+        }
+    }
+
+    func hasCurrentSessionReportedTTY(forPanelId panelId: UUID) -> Bool {
+        currentSessionReportedTTYPanelIds.contains(panelId)
+    }
+
+    func clearCurrentSessionSurfaceTTYReport(forPanelId panelId: UUID) {
+        guard currentSessionReportedTTYPanelIds.contains(panelId) else { return }
+        currentSessionReportedTTYPanelIds.remove(panelId)
     }
 
     @MainActor
@@ -11747,9 +11773,15 @@ final class Workspace: Identifiable, ObservableObject {
             panelDirectories[detached.panelId] = directory
         }
         if let ttyName = detached.ttyName?.trimmingCharacters(in: .whitespacesAndNewlines), !ttyName.isEmpty {
-            surfaceTTYNames[detached.panelId] = ttyName
+            if detached.ttyReportedInCurrentSession {
+                recordCurrentSessionSurfaceTTY(ttyName, forPanelId: detached.panelId)
+            } else {
+                surfaceTTYNames[detached.panelId] = ttyName
+                clearCurrentSessionSurfaceTTYReport(forPanelId: detached.panelId)
+            }
         } else {
             surfaceTTYNames.removeValue(forKey: detached.panelId)
+            clearCurrentSessionSurfaceTTYReport(forPanelId: detached.panelId)
         }
         syncRemotePortScanTTYs()
         if let cachedTitle = detached.cachedTitle {
@@ -11791,6 +11823,7 @@ final class Workspace: Identifiable, ObservableObject {
             panels.removeValue(forKey: detached.panelId)
             panelDirectories.removeValue(forKey: detached.panelId)
             surfaceTTYNames.removeValue(forKey: detached.panelId)
+            clearCurrentSessionSurfaceTTYReport(forPanelId: detached.panelId)
             surfaceResumeBindingsByPanelId.removeValue(forKey: detached.panelId)
             syncRemotePortScanTTYs()
             panelTitles.removeValue(forKey: detached.panelId)
@@ -14289,6 +14322,7 @@ extension Workspace: BonsplitDelegate {
                 isPinned: pinnedPanelIds.contains(panelId),
                 directory: panelDirectories[panelId],
                 ttyName: surfaceTTYNames[panelId],
+                ttyReportedInCurrentSession: hasCurrentSessionReportedTTY(forPanelId: panelId),
                 cachedTitle: cachedTitle,
                 customTitle: panelCustomTitles[panelId],
                 manuallyUnread: manualUnreadPanelIds.contains(panelId),

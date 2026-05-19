@@ -26,6 +26,13 @@ extension TerminalSurface {
         protectedKeys.insert("TERM_PROGRAM")
     }
 
+    static func managedSocketPath(
+        preferredPath: String = SocketControlSettings.socketPath(),
+        activeSocketPath: (String) -> String
+    ) -> String {
+        activeSocketPath(preferredPath)
+    }
+
     static func mergedStartupEnvironment(
         base: [String: String],
         protectedKeys: Set<String>,

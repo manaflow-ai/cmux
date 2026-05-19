@@ -66,6 +66,7 @@ nonisolated struct CmuxTopProcessInfo: Sendable {
     let cmuxAttributionReason: String?
     let processGroupID: Int?
     let terminalProcessGroupID: Int?
+    let startedAt: Date?
     var cpuPercent: Double
     let memoryBytes: Int64
     let memorySource: CmuxTopProcessMemorySource
@@ -85,6 +86,7 @@ nonisolated struct CmuxTopProcessInfo: Sendable {
         cmuxAttributionReason: String?,
         processGroupID: Int?,
         terminalProcessGroupID: Int?,
+        startedAt: Date? = nil,
         cpuPercent: Double,
         memoryBytes: Int64? = nil,
         memorySource: CmuxTopProcessMemorySource? = nil,
@@ -103,6 +105,7 @@ nonisolated struct CmuxTopProcessInfo: Sendable {
         self.cmuxAttributionReason = cmuxAttributionReason
         self.processGroupID = processGroupID
         self.terminalProcessGroupID = terminalProcessGroupID
+        self.startedAt = startedAt
         self.cpuPercent = cpuPercent
         self.memoryBytes = memoryBytes ?? residentBytes
         self.memorySource = memorySource
@@ -228,6 +231,19 @@ nonisolated final class CmuxTopProcessSnapshot: @unchecked Sendable {
             return []
         }
         return Set(pidsByTTYDevice[device] ?? [])
+    }
+
+    func processes(forTTYName ttyName: String) -> [CmuxTopProcessInfo] {
+        guard let device = Self.deviceIdentifier(forTTYName: ttyName) else {
+            return []
+        }
+        return processes(forTTYDevice: device)
+    }
+
+    func processes(forTTYDevice ttyDevice: Int64) -> [CmuxTopProcessInfo] {
+        (pidsByTTYDevice[ttyDevice] ?? [])
+            .compactMap { processesByPID[$0] }
+            .sorted { $0.pid < $1.pid }
     }
 
     func pids(forCMUXSurfaceID surfaceID: UUID) -> Set<Int> {
@@ -678,6 +694,13 @@ nonisolated final class CmuxTopProcessSnapshot: @unchecked Sendable {
         let processGroupID = rawProcessGroupID > 0 ? rawProcessGroupID : nil
         let rawTerminalProcessGroupID = Int(kinfo.kp_eproc.e_tpgid)
         let terminalProcessGroupID = rawTerminalProcessGroupID > 0 ? rawTerminalProcessGroupID : nil
+        let rawStartTime = kinfo.kp_proc.p_un.__p_starttime
+        let startedAt = rawStartTime.tv_sec > 0
+            ? Date(
+                timeIntervalSince1970: TimeInterval(rawStartTime.tv_sec) +
+                    TimeInterval(rawStartTime.tv_usec) / 1_000_000
+            )
+            : nil
         let memoryBytes: Int64
         let memorySource: CmuxTopProcessMemorySource
         if let resourceUsage {
@@ -722,6 +745,7 @@ nonisolated final class CmuxTopProcessSnapshot: @unchecked Sendable {
             cmuxAttributionReason: cmuxScope?.attributionReason,
             processGroupID: processGroupID,
             terminalProcessGroupID: terminalProcessGroupID,
+            startedAt: startedAt,
             cpuPercent: 0,
             memoryBytes: memoryBytes,
             memorySource: memorySource,

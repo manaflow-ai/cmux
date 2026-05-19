@@ -555,6 +555,7 @@ final class TerminalControllerSocketSecurityTests: XCTestCase {
         let reportTTYResult = try XCTUnwrap(reportTTYResponse["result"] as? [String: Any], "Unexpected JSON-RPC response: \(reportTTYResponse)")
         XCTAssertEqual(reportTTYResult["surface_id"] as? String, focusedPanelId.uuidString)
         XCTAssertEqual(workspace.surfaceTTYNames[focusedPanelId], "ttys999")
+        XCTAssertTrue(workspace.hasCurrentSessionReportedTTY(forPanelId: focusedPanelId))
 
         let portsKickResponse = try await sendV2RequestAsync(
             method: "surface.ports_kick",

@@ -1,6 +1,7 @@
 import XCTest
 import Foundation
 import Darwin
+import Dispatch
 
 #if canImport(cmux_DEV)
 @testable import cmux_DEV
@@ -541,6 +542,7 @@ final class CmuxTopSnapshotScopeTests: XCTestCase {
                     cmuxAttributionReason: scope.attributionReason,
                     processGroupID: nil,
                     terminalProcessGroupID: nil,
+                    startedAt: nil,
                     cpuPercent: 0,
                     residentBytes: 64 * 1024 * 1024,
                     virtualBytes: 128 * 1024 * 1024,
@@ -640,6 +642,7 @@ final class CmuxTopSnapshotScopeTests: XCTestCase {
                     cmuxAttributionReason: nil,
                     processGroupID: nil,
                     terminalProcessGroupID: nil,
+                    startedAt: nil,
                     cpuPercent: 0,
                     residentBytes: 32 * 1024 * 1024,
                     virtualBytes: 256 * 1024 * 1024,
@@ -937,6 +940,29 @@ while allocations:
             let webview = try XCTUnwrap(webviews.first)
             return try XCTUnwrap(webview["resources"] as? [String: Any])
         }
+    }
+
+    func testProcessOutputReturnsNilWhenCommandExceedsTimeout() throws {
+        let startedAt = Date()
+        let output = CmuxTopProcessSnapshot.processOutput(
+            executablePath: "/bin/sh",
+            arguments: ["-c", "sleep 2; printf late"],
+            timeout: .milliseconds(50)
+        )
+
+        XCTAssertNil(output)
+        XCTAssertLessThan(Date().timeIntervalSince(startedAt), 1.0)
+    }
+
+    func testProcessOutputDrainsLargeStdoutBeforeProcessExit() throws {
+        let output = try XCTUnwrap(CmuxTopProcessSnapshot.processOutput(
+            executablePath: "/bin/sh",
+            arguments: ["-c", "yes 0123456789abcdef | head -c 200000"],
+            timeout: .seconds(2)
+        ))
+
+        XCTAssertEqual(output.utf8.count, 200_000)
+        XCTAssertTrue(output.hasPrefix("0123456789abcdef\n"))
     }
 
     private func firstSurface(in windows: [[String: Any]]) throws -> [String: Any] {

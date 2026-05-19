@@ -4836,14 +4836,15 @@ final class TerminalControllerSocketListenerHealthTests: XCTestCase {
         )
     }
 
-    func testNonStableSocketBindFailureDoesNotFallback() {
-        XCTAssertNil(
+    func testChannelSocketBindPermissionFailureFallsBackToUserScopedSocket() {
+        XCTAssertEqual(
             TerminalController.fallbackSocketPathAfterBindFailure(
                 requestedPath: "/tmp/cmux-debug.sock",
                 stage: "bind",
                 errnoCode: EACCES,
                 currentUserID: 501
-            )
+            ),
+            SocketControlSettings.userScopedSocketPath(fileName: "cmux-debug-501.sock")
         )
     }
 

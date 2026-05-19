@@ -2,6 +2,59 @@ import Foundation
 import CMUXAgentLaunch
 import SQLite3
 
+struct RestorableAgentProcessDetectionScope: Sendable {
+    let workspaceId: UUID
+    let panelId: UUID
+    let ttyName: String?
+    let ttyDevice: Int64?
+
+    init(workspaceId: UUID, panelId: UUID, ttyName: String?) {
+        self.workspaceId = workspaceId
+        self.panelId = panelId
+        let trimmedTTYName = ttyName?.trimmingCharacters(in: .whitespacesAndNewlines)
+        self.ttyName = trimmedTTYName?.isEmpty == false && trimmedTTYName != "not a tty" ? trimmedTTYName : nil
+        self.ttyDevice = nil
+    }
+
+    init(workspaceId: UUID, panelId: UUID, ttyDevice: Int64) {
+        self.workspaceId = workspaceId
+        self.panelId = panelId
+        self.ttyName = nil
+        self.ttyDevice = ttyDevice
+    }
+}
+
+enum RestorableAgentProcessDetectionCandidateSource {
+    case cmuxScoped
+    case fallbackScope
+}
+
+struct RestorableAgentProcessDetectionCandidate {
+    let panelKey: RestorableAgentSessionIndex.PanelKey
+    let process: CmuxTopProcessInfo
+    let arguments: CmuxTopProcessArguments
+    let source: RestorableAgentProcessDetectionCandidateSource
+    let matchesFallbackScope: Bool
+}
+
+extension CmuxTopProcessInfo {
+    var hasForegroundProcessStatus: Bool {
+        processGroupID != nil && terminalProcessGroupID != nil
+    }
+
+    var isForegroundProcess: Bool {
+        guard let processGroupID,
+              let terminalProcessGroupID else {
+            return false
+        }
+        return processGroupID == terminalProcessGroupID
+    }
+
+    var canBeActiveAgentProcess: Bool {
+        !hasForegroundProcessStatus || isForegroundProcess
+    }
+}
+
 extension AgentLaunchCommandSnapshot {
     init(
         processDetectedLauncher launcher: String,
@@ -31,29 +84,86 @@ extension AgentLaunchCommandSnapshot {
 extension RestorableAgentSessionIndex {
     static func processDetectedSnapshots(
         registry: CmuxVaultAgentRegistry,
-        fileManager: FileManager
-    ) -> [PanelKey: (snapshot: SessionRestorableAgentSnapshot, updatedAt: TimeInterval)] {
-        let capturedAt = Date().timeIntervalSince1970
-        let processSnapshot = CmuxTopProcessSnapshot.capture(includeProcessDetails: true)
-        return processDetectedSnapshots(
-            registry: registry,
-            fileManager: fileManager,
-            processSnapshot: processSnapshot,
-            capturedAt: capturedAt
-        )
-    }
-
-    static func processDetectedSnapshots(
-        registry: CmuxVaultAgentRegistry,
         fileManager: FileManager,
-        processSnapshot: CmuxTopProcessSnapshot,
-        capturedAt: TimeInterval
+        fallbackScope: RestorableAgentProcessDetectionScope? = nil,
+        processSnapshot: CmuxTopProcessSnapshot = CmuxTopProcessSnapshot.capture(includeProcessDetails: true),
+        processArguments: (Int) -> CmuxTopProcessArguments? = CmuxTopProcessSnapshot.processArgumentsAndEnvironment,
+        processOpenFilePaths: (Int) -> [String] = CmuxTopProcessSnapshot.processOpenFilePaths,
+        latestOpenCodeSessionId: (String?, String?, FileManager) -> String? = RestorableAgentSessionIndex.latestOpenCodeSessionId,
+        latestCodexForkSessionId: (String?, String, [String: String], Date?, FileManager) -> String? = RestorableAgentSessionIndex.latestCodexForkSessionId,
+        capturedAt: TimeInterval = Date().timeIntervalSince1970
     ) -> [PanelKey: (snapshot: SessionRestorableAgentSnapshot, updatedAt: TimeInterval)] {
-        var resolved = processDetectedOpenCodeSnapshots(
+        let candidates = processDetectionCandidates(
             processSnapshot: processSnapshot,
+            fallbackScope: fallbackScope,
+            processArguments: processArguments
+        )
+        var resolved = processDetectedClaudeSnapshots(
+            candidates: candidates,
             capturedAt: capturedAt,
             fileManager: fileManager
         )
+        for (key, value) in processDetectedCodexSnapshots(
+            candidates: candidates,
+            capturedAt: capturedAt,
+            fileManager: fileManager,
+            processOpenFilePaths: processOpenFilePaths,
+            latestCodexForkSessionId: latestCodexForkSessionId
+        ) {
+            if let existing = resolved[key] {
+                if processDetectionShouldPreferBuiltin(
+                    .codex,
+                    over: existing.snapshot.kind,
+                    panelKey: key,
+                    candidates: candidates
+                ) {
+                    sentryBreadcrumb(
+                        "session.process_detected.builtin_conflict",
+                        category: "session.restore",
+                        data: ["kept": "codex", "dropped": existing.snapshot.kind.rawValue]
+                    )
+                    resolved[key] = value
+                    continue
+                }
+                sentryBreadcrumb(
+                    "session.process_detected.builtin_conflict",
+                    category: "session.restore",
+                    data: ["kept": existing.snapshot.kind.rawValue, "dropped": "codex"]
+                )
+                continue
+            }
+            resolved[key] = value
+        }
+        for (key, value) in processDetectedOpenCodeSnapshots(
+            candidates: candidates,
+            capturedAt: capturedAt,
+            fileManager: fileManager,
+            latestOpenCodeSessionId: latestOpenCodeSessionId
+        ) {
+            if let existing = resolved[key] {
+                if processDetectionShouldPreferBuiltin(
+                    .opencode,
+                    over: existing.snapshot.kind,
+                    panelKey: key,
+                    candidates: candidates
+                ) {
+                    sentryBreadcrumb(
+                        "session.process_detected.builtin_conflict",
+                        category: "session.restore",
+                        data: ["kept": "opencode", "dropped": existing.snapshot.kind.rawValue]
+                    )
+                    resolved[key] = value
+                    continue
+                }
+                sentryBreadcrumb(
+                    "session.process_detected.builtin_conflict",
+                    category: "session.restore",
+                    data: ["kept": existing.snapshot.kind.rawValue, "dropped": "opencode"]
+                )
+                continue
+            }
+            resolved[key] = value
+        }
 
         guard !registry.registrations.isEmpty else { return resolved }
         var registriesByWorkingDirectory: [String: CmuxVaultAgentRegistry] = [:]
@@ -72,12 +182,13 @@ extension RestorableAgentSessionIndex {
             return resolved
         }
 
-        for process in processSnapshot.cmuxScopedProcesses() {
-            guard let workspaceId = process.cmuxWorkspaceID,
-                  let panelId = process.cmuxSurfaceID,
-                  let processArguments = CmuxTopProcessSnapshot.processArgumentsAndEnvironment(for: process.pid) else {
-                continue
-            }
+        var selectedRegisteredCandidateByPanelKey: [
+            PanelKey: (source: RestorableAgentProcessDetectionCandidateSource, isForeground: Bool, matchesFallbackScope: Bool)
+        ] = [:]
+        for candidate in candidates {
+            let process = candidate.process
+            let processArguments = candidate.arguments
+            guard process.canBeActiveAgentProcess else { continue }
             let observed = VaultObservedAgentProcess(
                 processName: process.name,
                 processPath: process.path,
@@ -110,10 +221,259 @@ extension RestorableAgentSessionIndex {
                 ),
                 registration: registration
             )
-            resolved[PanelKey(workspaceId: workspaceId, panelId: panelId)] = (snapshot: snapshot, updatedAt: capturedAt)
+            let candidatePriority = (
+                source: candidate.source,
+                isForeground: process.isForegroundProcess,
+                matchesFallbackScope: candidate.matchesFallbackScope
+            )
+            if let existing = selectedRegisteredCandidateByPanelKey[candidate.panelKey] {
+                let shouldReplace = processDetectionShouldReplaceCandidate(
+                    existing: existing,
+                    candidate: candidatePriority
+                ) || processDetectionCandidatePriorityMatches(existing, candidatePriority)
+                if !shouldReplace {
+                    continue
+                }
+            }
+            resolved[candidate.panelKey] = (snapshot: snapshot, updatedAt: capturedAt)
+            selectedRegisteredCandidateByPanelKey[candidate.panelKey] = (
+                source: candidate.source,
+                isForeground: candidatePriority.isForeground,
+                matchesFallbackScope: candidate.matchesFallbackScope
+            )
         }
 
         return resolved
+    }
+
+    static func processDetectionShouldReplaceCandidate(
+        existing: (source: RestorableAgentProcessDetectionCandidateSource, isForeground: Bool, matchesFallbackScope: Bool),
+        candidate: (source: RestorableAgentProcessDetectionCandidateSource, isForeground: Bool, matchesFallbackScope: Bool)
+    ) -> Bool {
+        if existing.source == .cmuxScoped,
+           candidate.source != .cmuxScoped {
+            return false
+        }
+        if existing.source != .cmuxScoped,
+           candidate.source == .cmuxScoped {
+            return true
+        }
+        if existing.matchesFallbackScope,
+           !candidate.matchesFallbackScope {
+            return false
+        }
+        if !existing.matchesFallbackScope,
+           candidate.matchesFallbackScope {
+            return true
+        }
+        if existing.isForeground,
+           !candidate.isForeground {
+            return false
+        }
+        if !existing.isForeground,
+           candidate.isForeground {
+            return true
+        }
+        return false
+    }
+
+    private static func processDetectionShouldPreferBuiltin(
+        _ candidateKind: RestorableAgentKind,
+        over existingKind: RestorableAgentKind,
+        panelKey: PanelKey,
+        candidates: [RestorableAgentProcessDetectionCandidate]
+    ) -> Bool {
+        guard let selectedCandidate = processDetectionSelectedBuiltinPriority(
+            kind: candidateKind,
+            panelKey: panelKey,
+            candidates: candidates
+        ) else {
+            return false
+        }
+        guard let selectedExisting = processDetectionSelectedBuiltinPriority(
+            kind: existingKind,
+            panelKey: panelKey,
+            candidates: candidates
+        ) else {
+            return true
+        }
+        if selectedCandidate.source == selectedExisting.source,
+           selectedCandidate.matchesFallbackScope == selectedExisting.matchesFallbackScope,
+           selectedCandidate.isForeground == selectedExisting.isForeground {
+            return false
+        }
+        return processDetectionShouldReplaceCandidate(
+            existing: selectedExisting,
+            candidate: selectedCandidate
+        )
+    }
+
+    private static func processDetectionSelectedBuiltinPriority(
+        kind: RestorableAgentKind,
+        panelKey: PanelKey,
+        candidates: [RestorableAgentProcessDetectionCandidate]
+    ) -> (
+        source: RestorableAgentProcessDetectionCandidateSource,
+        isForeground: Bool,
+        matchesFallbackScope: Bool
+    )? {
+        var selected: (
+            source: RestorableAgentProcessDetectionCandidateSource,
+            isForeground: Bool,
+            matchesFallbackScope: Bool
+        )?
+        for candidate in candidates where candidate.panelKey == panelKey {
+            guard processDetectionBuiltinKind(candidate) == kind else { continue }
+            let priority = (
+                source: candidate.source,
+                isForeground: candidate.process.isForegroundProcess,
+                matchesFallbackScope: candidate.matchesFallbackScope
+            )
+            if let existing = selected {
+                if processDetectionShouldReplaceCandidate(existing: existing, candidate: priority) {
+                    selected = priority
+                }
+            } else {
+                selected = priority
+            }
+        }
+        return selected
+    }
+
+    static func processDetectionCandidatePriorityMatches(
+        _ existing: (source: RestorableAgentProcessDetectionCandidateSource, isForeground: Bool, matchesFallbackScope: Bool),
+        _ candidate: (source: RestorableAgentProcessDetectionCandidateSource, isForeground: Bool, matchesFallbackScope: Bool)
+    ) -> Bool {
+        existing.source == candidate.source
+            && existing.isForeground == candidate.isForeground
+            && existing.matchesFallbackScope == candidate.matchesFallbackScope
+    }
+
+    private static func processDetectionBuiltinKind(
+        _ candidate: RestorableAgentProcessDetectionCandidate
+    ) -> RestorableAgentKind? {
+        let observed = VaultObservedAgentProcess(
+            processName: candidate.process.name,
+            processPath: candidate.process.path,
+            arguments: candidate.arguments.arguments,
+            environment: candidate.arguments.environment
+        )
+        if observed.isOpenCodeProcess {
+            return .opencode
+        }
+        if observed.isCodexProcess {
+            return .codex
+        }
+        if observed.isClaudeProcess {
+            return .claude
+        }
+        return nil
+    }
+
+    private static func processDetectionCandidates(
+        processSnapshot: CmuxTopProcessSnapshot,
+        fallbackScope: RestorableAgentProcessDetectionScope?,
+        processArguments: (Int) -> CmuxTopProcessArguments?
+    ) -> [RestorableAgentProcessDetectionCandidate] {
+        var candidates: [RestorableAgentProcessDetectionCandidate] = []
+        var seenPIDs = Set<Int>()
+        var scopedPanelKeysByPID: [Int: PanelKey] = [:]
+        let fallbackScopedPIDs: Set<Int>? = {
+            guard let fallbackScope,
+                  fallbackScope.ttyDevice != nil || fallbackScope.ttyName != nil else {
+                return nil
+            }
+            let fallbackProcesses = processDetectionFallbackProcesses(
+                processSnapshot: processSnapshot,
+                fallbackScope: fallbackScope
+            )
+            guard !fallbackProcesses.isEmpty else { return nil }
+            return Set(fallbackProcesses.map(\.pid))
+        }()
+
+        for process in processSnapshot.cmuxScopedProcesses() {
+            guard let workspaceId = process.cmuxWorkspaceID,
+                  let panelId = process.cmuxSurfaceID,
+                  let arguments = processArguments(process.pid) else {
+                continue
+            }
+            seenPIDs.insert(process.pid)
+            let panelKey = PanelKey(workspaceId: workspaceId, panelId: panelId)
+            scopedPanelKeysByPID[process.pid] = panelKey
+            candidates.append(
+                RestorableAgentProcessDetectionCandidate(
+                    panelKey: panelKey,
+                    process: process,
+                    arguments: arguments,
+                    source: .cmuxScoped,
+                    matchesFallbackScope: fallbackScopedPIDs?.contains(process.pid) ?? false
+                )
+            )
+        }
+
+        guard let fallbackScope else { return candidates }
+        let fallbackProcesses = processDetectionFallbackProcesses(
+            processSnapshot: processSnapshot,
+            fallbackScope: fallbackScope
+        )
+        let fallbackPanelKey = PanelKey(workspaceId: fallbackScope.workspaceId, panelId: fallbackScope.panelId)
+        for process in fallbackProcesses {
+            let scopedPanelKey = scopedPanelKeysByPID[process.pid]
+            if scopedPanelKey == fallbackPanelKey {
+                continue
+            }
+            if seenPIDs.contains(process.pid), scopedPanelKey == nil {
+                continue
+            }
+            let canUseFallbackScope = scopedPanelKey != nil
+                ? process.canBeActiveAgentProcess
+                : processMatchesFallbackScope(process, fallbackScope: fallbackScope)
+            guard canUseFallbackScope,
+                  let arguments = processArguments(process.pid) else {
+                continue
+            }
+            seenPIDs.insert(process.pid)
+            candidates.append(
+                RestorableAgentProcessDetectionCandidate(
+                    panelKey: fallbackPanelKey,
+                    process: process,
+                    arguments: arguments,
+                    source: .fallbackScope,
+                    matchesFallbackScope: true
+                )
+            )
+        }
+
+        return candidates
+    }
+
+    private static func processDetectionFallbackProcesses(
+        processSnapshot: CmuxTopProcessSnapshot,
+        fallbackScope: RestorableAgentProcessDetectionScope
+    ) -> [CmuxTopProcessInfo] {
+        if let ttyDevice = fallbackScope.ttyDevice {
+            return processSnapshot.processes(forTTYDevice: ttyDevice)
+        }
+        guard let ttyName = fallbackScope.ttyName else {
+            return []
+        }
+        return processSnapshot.processes(forTTYName: ttyName)
+    }
+
+    private static func processMatchesFallbackScope(
+        _ process: CmuxTopProcessInfo,
+        fallbackScope: RestorableAgentProcessDetectionScope
+    ) -> Bool {
+        if let workspaceId = process.cmuxWorkspaceID,
+           workspaceId != fallbackScope.workspaceId {
+            return false
+        }
+        if let panelId = process.cmuxSurfaceID,
+           panelId != fallbackScope.panelId {
+            return false
+        }
+        guard process.canBeActiveAgentProcess else { return false }
+        return true
     }
 
     static func processLooksLikeOpenCode(
@@ -195,10 +555,874 @@ extension RestorableAgentSessionIndex {
         return nil
     }
 
-    private static func processDetectedOpenCodeSnapshots(
-        processSnapshot: CmuxTopProcessSnapshot,
+    static func processLooksLikeCodex(
+        processName: String,
+        processPath: String?,
+        arguments: [String]
+    ) -> Bool {
+        VaultObservedAgentProcess(
+            processName: processName,
+            processPath: processPath,
+            arguments: arguments,
+            environment: [:]
+        ).isCodexProcess
+    }
+
+    static func codexSessionIdForProcess(
+        arguments: [String],
+        environment: [String: String]
+    ) -> String? {
+        codexSessionId(tail: codexLaunchTail(
+            observed: VaultObservedAgentProcess(
+                processName: "",
+                processPath: nil,
+                arguments: arguments,
+                environment: environment
+            )
+        ), environment: environment)
+    }
+
+    static func codexLaunchArgumentsForProcess(
+        arguments: [String],
+        environment: [String: String]
+    ) -> [String]? {
+        let observed = VaultObservedAgentProcess(
+            processName: "",
+            processPath: nil,
+            arguments: arguments,
+            environment: environment
+        )
+        let executablePath = codexExecutablePath(observed: observed, environment: environment)
+        return codexLaunchArguments(observed: observed, executablePath: executablePath)
+    }
+
+    private static func codexForkMetadataScopesAreSingleLogicalProcess(
+        _ scopes: [(panelKey: PanelKey, pid: Int)]?
+    ) -> Bool {
+        guard let scopes, !scopes.isEmpty else { return false }
+
+        var panelKeysByPID: [Int: Set<PanelKey>] = [:]
+        var pidsByPanelKey: [PanelKey: Set<Int>] = [:]
+        for scope in scopes {
+            panelKeysByPID[scope.pid, default: []].insert(scope.panelKey)
+            pidsByPanelKey[scope.panelKey, default: []].insert(scope.pid)
+        }
+
+        var remainingPIDs = Set(panelKeysByPID.keys)
+        var remainingPanelKeys = Set(pidsByPanelKey.keys)
+        var componentCount = 0
+
+        while let startPID = remainingPIDs.first {
+            componentCount += 1
+            if componentCount > 1 { return false }
+
+            var pendingPIDs = [startPID]
+            var pendingPanelKeys: [PanelKey] = []
+            while !pendingPIDs.isEmpty || !pendingPanelKeys.isEmpty {
+                if let pid = pendingPIDs.popLast() {
+                    guard remainingPIDs.remove(pid) != nil else { continue }
+                    pendingPanelKeys.append(contentsOf: panelKeysByPID[pid] ?? [])
+                    continue
+                }
+                guard let panelKey = pendingPanelKeys.popLast() else { continue }
+                guard remainingPanelKeys.remove(panelKey) != nil else { continue }
+                pendingPIDs.append(contentsOf: pidsByPanelKey[panelKey] ?? [])
+            }
+        }
+
+        return true
+    }
+
+    private static func processDetectedCodexSnapshots(
+        candidates: [RestorableAgentProcessDetectionCandidate],
         capturedAt: TimeInterval,
+        fileManager: FileManager,
+        processOpenFilePaths: (Int) -> [String],
+        latestCodexForkSessionId: (String?, String, [String: String], Date?, FileManager) -> String?
+    ) -> [PanelKey: (snapshot: SessionRestorableAgentSnapshot, updatedAt: TimeInterval)] {
+        var resolved: [PanelKey: (snapshot: SessionRestorableAgentSnapshot, updatedAt: TimeInterval)] = [:]
+        var selectedCandidateByPanelKey: [
+            PanelKey: (
+                source: RestorableAgentProcessDetectionCandidateSource,
+                isForeground: Bool,
+                matchesFallbackScope: Bool,
+                sessionSource: CodexSessionResolutionSource
+            )
+        ] = [:]
+        var forkMetadataScopesByKey: [String: [(panelKey: PanelKey, pid: Int)]] = [:]
+        var forkMetadataScopesByParentSessionId: [String: [(panelKey: PanelKey, pid: Int)]] = [:]
+
+        for candidate in candidates {
+            let process = candidate.process
+            let processArguments = candidate.arguments
+            guard process.canBeActiveAgentProcess else { continue }
+            let observed = VaultObservedAgentProcess(
+                processName: process.name,
+                processPath: process.path,
+                arguments: processArguments.arguments,
+                environment: processArguments.environment
+            )
+            guard observed.isCodexProcess else { continue }
+            let tail = codexLaunchTail(observed: observed)
+            guard let command = codexSessionCommand(in: tail),
+                  command.name == "fork" else {
+                continue
+            }
+            let workingDirectory = normalized(
+                observed.environment["CMUX_AGENT_LAUNCH_CWD"] ?? observed.environment["PWD"]
+            )
+            if let parentSessionId = normalized(command.sessionId) {
+                forkMetadataScopesByParentSessionId[parentSessionId, default: []].append((
+                    candidate.panelKey,
+                    process.pid
+                ))
+            }
+            guard let key = codexForkMetadataFallbackKey(
+                workingDirectory: workingDirectory,
+                parentSessionId: command.sessionId
+            ) else {
+                continue
+            }
+            forkMetadataScopesByKey[key, default: []].append((candidate.panelKey, process.pid))
+        }
+
+        for candidate in candidates {
+            let process = candidate.process
+            let processArguments = candidate.arguments
+            guard process.canBeActiveAgentProcess else { continue }
+            let observed = VaultObservedAgentProcess(
+                processName: process.name,
+                processPath: process.path,
+                arguments: processArguments.arguments,
+                environment: processArguments.environment
+            )
+            guard observed.isCodexProcess else { continue }
+
+            let tail = codexLaunchTail(observed: observed)
+            let executablePath = codexExecutablePath(
+                observed: observed,
+                environment: processArguments.environment
+            )
+            let workingDirectory = normalized(
+                observed.environment["CMUX_AGENT_LAUNCH_CWD"] ?? observed.environment["PWD"]
+            )
+            let command = codexSessionCommand(in: tail)
+            let parentForkSessionId = command.flatMap { normalized($0.sessionId) }
+            let openFilePaths = command?.name == "resume" ? [] : processOpenFilePaths(process.pid)
+            let canUseForkMetadataFallback = command?.name == "fork"
+                && codexForkMetadataFallbackKey(
+                    workingDirectory: workingDirectory,
+                    parentSessionId: command?.sessionId
+                ).map { codexForkMetadataScopesAreSingleLogicalProcess(forkMetadataScopesByKey[$0]) } == true
+                && parentForkSessionId.map {
+                    codexForkMetadataScopesAreSingleLogicalProcess(forkMetadataScopesByParentSessionId[$0])
+                } == true
+            guard let sessionResolution = codexSessionResolution(
+                tail: tail,
+                environment: processArguments.environment,
+                workingDirectory: workingDirectory,
+                fileManager: fileManager,
+                openFilePaths: openFilePaths,
+                latestCodexForkSessionId: latestCodexForkSessionId,
+                processStartedAt: process.startedAt,
+                allowCodexForkMetadataFallback: canUseForkMetadataFallback
+            ) else {
+                continue
+            }
+            guard let launchCommand = codexLaunchCommand(
+                observed: observed,
+                executablePath: executablePath,
+                tail: tail,
+                workingDirectory: workingDirectory
+            ) else {
+                sentryBreadcrumb(
+                    "session.process_detected.codex.skip",
+                    category: "session.restore",
+                    data: ["pid": process.pid, "reason": "sanitize_failed"]
+                )
+                continue
+            }
+            let candidatePriority = (
+                source: candidate.source,
+                isForeground: process.isForegroundProcess,
+                matchesFallbackScope: candidate.matchesFallbackScope
+            )
+            if let existing = selectedCandidateByPanelKey[candidate.panelKey] {
+                let existingPriority = (
+                    source: existing.source,
+                    isForeground: existing.isForeground,
+                    matchesFallbackScope: existing.matchesFallbackScope
+                )
+                let shouldReplace = processDetectionShouldReplaceCandidate(
+                    existing: existingPriority,
+                    candidate: candidatePriority
+                ) || (
+                    processDetectionCandidatePriorityMatches(existingPriority, candidatePriority)
+                        && sessionResolution.source.shouldReplaceCodexTie(over: existing.sessionSource)
+                )
+                if !shouldReplace {
+                    continue
+                }
+            }
+            let snapshot = SessionRestorableAgentSnapshot(
+                kind: .codex,
+                sessionId: sessionResolution.sessionId,
+                workingDirectory: workingDirectory,
+                launchCommand: launchCommand
+            )
+            resolved[candidate.panelKey] = (
+                snapshot: snapshot,
+                updatedAt: sessionResolution.isForkParentFallback ? 0 : capturedAt
+            )
+            selectedCandidateByPanelKey[candidate.panelKey] = (
+                source: candidate.source,
+                isForeground: candidatePriority.isForeground,
+                matchesFallbackScope: candidate.matchesFallbackScope,
+                sessionSource: sessionResolution.source
+            )
+        }
+
+        return resolved
+    }
+
+    private static func codexSessionId(
+        tail: [String],
+        environment: [String: String]
+    ) -> String? {
+        codexSessionId(
+            tail: tail,
+            environment: environment,
+            workingDirectory: normalized(environment["CMUX_AGENT_LAUNCH_CWD"] ?? environment["PWD"]),
+            fileManager: .default,
+            latestCodexForkSessionId: RestorableAgentSessionIndex.latestCodexForkSessionId
+        )
+    }
+
+    private enum CodexSessionResolutionSource: Int {
+        case forkParentFallback = 0
+        case metadataFallback = 1
+        case liveProcess = 2
+
+        func shouldReplaceCodexTie(over existing: CodexSessionResolutionSource) -> Bool {
+            rawValue > existing.rawValue
+        }
+    }
+
+    private struct CodexSessionResolution {
+        let sessionId: String
+        let isForkParentFallback: Bool
+        let source: CodexSessionResolutionSource
+    }
+
+    private static func codexSessionId(
+        tail: [String],
+        environment: [String: String],
+        workingDirectory: String?,
+        fileManager: FileManager,
+        openFilePaths: [String] = [],
+        latestCodexForkSessionId: (String?, String, [String: String], Date?, FileManager) -> String?,
+        processStartedAt: Date? = nil,
+        allowCodexForkMetadataFallback: Bool = true
+    ) -> String? {
+        codexSessionResolution(
+            tail: tail,
+            environment: environment,
+            workingDirectory: workingDirectory,
+            fileManager: fileManager,
+            openFilePaths: openFilePaths,
+            latestCodexForkSessionId: latestCodexForkSessionId,
+            processStartedAt: processStartedAt,
+            allowCodexForkMetadataFallback: allowCodexForkMetadataFallback
+        )?.sessionId
+    }
+
+    private static func codexSessionResolution(
+        tail: [String],
+        environment: [String: String],
+        workingDirectory: String?,
+        fileManager: FileManager,
+        openFilePaths: [String] = [],
+        latestCodexForkSessionId: (String?, String, [String: String], Date?, FileManager) -> String?,
+        processStartedAt: Date? = nil,
+        allowCodexForkMetadataFallback: Bool = true
+    ) -> CodexSessionResolution? {
+        if let command = codexSessionCommand(in: tail),
+           command.name == "resume" || command.name == "fork" {
+            let commandSessionId = command.sessionId
+            if command.name == "fork" {
+                if let openSessionId = codexSessionIdFromOpenSessionFiles(
+                    openFilePaths,
+                    workingDirectory: workingDirectory,
+                    parentSessionId: commandSessionId,
+                    environment: environment,
+                    fileManager: fileManager
+                ) {
+                    return CodexSessionResolution(
+                        sessionId: openSessionId,
+                        isForkParentFallback: false,
+                        source: .liveProcess
+                    )
+                }
+                if let threadId = normalized(environment["CODEX_THREAD_ID"]),
+                   threadId != commandSessionId {
+                    return CodexSessionResolution(
+                        sessionId: threadId,
+                        isForkParentFallback: false,
+                        source: .liveProcess
+                    )
+                }
+                if let sessionId = normalized(environment["CODEX_SESSION_ID"]),
+                   sessionId != commandSessionId {
+                    return CodexSessionResolution(
+                        sessionId: sessionId,
+                        isForkParentFallback: false,
+                        source: .liveProcess
+                    )
+                }
+                // Codex fork processes can inherit the parent CODEX_THREAD_ID.
+                // Fall back to rollout metadata only when the live process does
+                // not expose a distinct child id.
+                if allowCodexForkMetadataFallback,
+                   let forkSessionId = latestCodexForkSessionId(
+                       workingDirectory,
+                       commandSessionId,
+                       environment,
+                       processStartedAt,
+                       fileManager
+                ) {
+                    return CodexSessionResolution(
+                        sessionId: forkSessionId,
+                        isForkParentFallback: false,
+                        source: .metadataFallback
+                    )
+                }
+                return CodexSessionResolution(
+                    sessionId: commandSessionId,
+                    isForkParentFallback: true,
+                    source: .forkParentFallback
+                )
+            }
+            return CodexSessionResolution(
+                sessionId: commandSessionId,
+                isForkParentFallback: false,
+                source: .liveProcess
+            )
+        }
+        if let openSessionId = codexSessionIdFromOpenSessionFiles(
+            openFilePaths,
+            workingDirectory: workingDirectory,
+            environment: environment,
+            fileManager: fileManager
+        ) {
+            return CodexSessionResolution(
+                sessionId: openSessionId,
+                isForkParentFallback: false,
+                source: .liveProcess
+            )
+        }
+        if let threadId = normalized(environment["CODEX_THREAD_ID"]) {
+            return CodexSessionResolution(
+                sessionId: threadId,
+                isForkParentFallback: false,
+                source: .liveProcess
+            )
+        }
+        if let sessionId = normalized(environment["CODEX_SESSION_ID"]) {
+            return CodexSessionResolution(
+                sessionId: sessionId,
+                isForkParentFallback: false,
+                source: .liveProcess
+            )
+        }
+        return nil
+    }
+
+    private static func codexForkMetadataFallbackKey(
+        workingDirectory: String?,
+        parentSessionId: String?
+    ) -> String? {
+        guard let workingDirectory = standardizedPath(workingDirectory),
+              let parentSessionId = normalized(parentSessionId) else {
+            return nil
+        }
+        return workingDirectory + "\u{1f}" + parentSessionId
+    }
+
+    private static func codexSessionIdFromOpenSessionFiles(
+        _ openFilePaths: [String],
+        workingDirectory: String?,
+        parentSessionId: String? = nil,
+        environment: [String: String],
         fileManager: FileManager
+    ) -> String? {
+        let rawParentSessionId = parentSessionId
+        let normalizedParentSessionId = rawParentSessionId.flatMap { normalized($0) }
+        if rawParentSessionId != nil, normalizedParentSessionId == nil {
+            return nil
+        }
+        let sessionsDirectory = codexHomeDirectory(environment: environment, fileManager: fileManager)
+            .appendingPathComponent("sessions", isDirectory: true)
+            .standardizedFileURL
+            .path
+        let sessionsDirectoryPrefix = sessionsDirectory.hasSuffix("/") ? sessionsDirectory : sessionsDirectory + "/"
+        let standardizedWorkingDirectory = standardizedPath(workingDirectory)
+        var selectedMatchingDirectory: (sessionId: String, createdAt: Date)?
+        var selectedAnyDirectory: (sessionId: String, createdAt: Date)?
+
+        for rawPath in openFilePaths {
+            let fileURL = URL(
+                fileURLWithPath: (rawPath as NSString).expandingTildeInPath,
+                isDirectory: false
+            ).standardizedFileURL
+            guard fileURL.pathExtension == "jsonl",
+                  fileURL.path.hasPrefix(sessionsDirectoryPrefix),
+                  let meta = codexSessionMetaLine(fileURL: fileURL),
+                  meta.type == nil || meta.type == "session_meta",
+                  let payload = meta.payload,
+                  let sessionId = normalized(payload.id) else {
+                continue
+            }
+            if let normalizedParentSessionId {
+                guard normalized(payload.forkedFromId) == normalizedParentSessionId,
+                      sessionId != normalizedParentSessionId else {
+                    continue
+                }
+            }
+            let values = try? fileURL.resourceValues(forKeys: [.contentModificationDateKey])
+            let createdAt = codexSessionCreatedAt(meta: meta) ?? values?.contentModificationDate ?? .distantPast
+            if selectedAnyDirectory == nil || createdAt > selectedAnyDirectory!.createdAt {
+                selectedAnyDirectory = (sessionId: sessionId, createdAt: createdAt)
+            }
+            guard let standardizedWorkingDirectory,
+                  standardizedPath(payload.cwd) == standardizedWorkingDirectory else {
+                continue
+            }
+            if selectedMatchingDirectory == nil || createdAt > selectedMatchingDirectory!.createdAt {
+                selectedMatchingDirectory = (sessionId: sessionId, createdAt: createdAt)
+            }
+        }
+
+        return (selectedMatchingDirectory ?? selectedAnyDirectory)?.sessionId
+    }
+
+    private struct CodexSessionMetaLine: Decodable {
+        struct Payload: Decodable {
+            let id: String?
+            let cwd: String?
+            let forkedFromId: String?
+
+            enum CodingKeys: String, CodingKey {
+                case id
+                case cwd
+                case forkedFromId = "forked_from_id"
+            }
+        }
+
+        let timestamp: String?
+        let type: String?
+        let payload: Payload?
+    }
+
+    private static let codexSessionMetaReadLimit = 2 * 1024 * 1024
+
+    static func latestCodexForkSessionId(
+        workingDirectory: String?,
+        parentSessionId: String,
+        environment: [String: String],
+        processStartedAt: Date? = nil,
+        fileManager: FileManager
+    ) -> String? {
+        guard let parentSessionId = normalized(parentSessionId) else { return nil }
+        let codexHome = codexHomeDirectory(environment: environment, fileManager: fileManager)
+        let sessionsURL = codexHome.appendingPathComponent("sessions", isDirectory: true)
+        guard let enumerator = fileManager.enumerator(
+            at: sessionsURL,
+            includingPropertiesForKeys: [.contentModificationDateKey, .isRegularFileKey],
+            options: [.skipsHiddenFiles]
+        ) else {
+            return nil
+        }
+        let standardizedWorkingDirectory = standardizedPath(workingDirectory)
+        var selectedMatchingDirectory: (sessionId: String, createdAt: Date)?
+        var selectedAnyDirectory: (sessionId: String, createdAt: Date)?
+
+        for case let fileURL as URL in enumerator {
+            guard fileURL.pathExtension == "jsonl" else { continue }
+            let values = try? fileURL.resourceValues(forKeys: [.contentModificationDateKey, .isRegularFileKey])
+            guard values?.isRegularFile != false,
+                  let meta = codexSessionMetaLine(fileURL: fileURL),
+                  meta.type == nil || meta.type == "session_meta",
+                  let payload = meta.payload,
+                  normalized(payload.forkedFromId) == parentSessionId,
+                  let sessionId = normalized(payload.id),
+                  sessionId != parentSessionId else {
+                continue
+            }
+            let createdAt = codexSessionCreatedAt(meta: meta) ?? values?.contentModificationDate ?? .distantPast
+            if let processStartedAt,
+               createdAt < processStartedAt {
+                continue
+            }
+            if selectedAnyDirectory == nil || createdAt > selectedAnyDirectory!.createdAt {
+                selectedAnyDirectory = (sessionId: sessionId, createdAt: createdAt)
+            }
+            guard let standardizedWorkingDirectory,
+                  standardizedPath(payload.cwd) == standardizedWorkingDirectory else {
+                continue
+            }
+            if selectedMatchingDirectory == nil || createdAt > selectedMatchingDirectory!.createdAt {
+                selectedMatchingDirectory = (sessionId: sessionId, createdAt: createdAt)
+            }
+        }
+
+        return (selectedMatchingDirectory ?? selectedAnyDirectory)?.sessionId
+    }
+
+    private static func codexHomeDirectory(
+        environment: [String: String],
+        fileManager: FileManager
+    ) -> URL {
+        if let codexHome = normalized(environment["CODEX_HOME"]) {
+            return URL(fileURLWithPath: (codexHome as NSString).expandingTildeInPath, isDirectory: true)
+        }
+        if let home = normalized(environment["HOME"]) {
+            return URL(fileURLWithPath: (home as NSString).expandingTildeInPath, isDirectory: true)
+                .appendingPathComponent(".codex", isDirectory: true)
+        }
+        return fileManager.homeDirectoryForCurrentUser.appendingPathComponent(".codex", isDirectory: true)
+    }
+
+    private static func codexLaunchEnvironment(_ environment: [String: String]) -> [String: String] {
+        guard normalized(environment["CODEX_HOME"]) == nil,
+              let home = normalized(environment["HOME"]) else {
+            return environment
+        }
+        var launchEnvironment = environment
+        launchEnvironment["CODEX_HOME"] = URL(fileURLWithPath: (home as NSString).expandingTildeInPath, isDirectory: true)
+            .appendingPathComponent(".codex", isDirectory: true)
+            .path
+        return launchEnvironment
+    }
+
+    private static func codexSessionMetaLine(fileURL: URL) -> CodexSessionMetaLine? {
+        guard let firstLine = firstLineData(fileURL: fileURL) else { return nil }
+        return try? JSONDecoder().decode(CodexSessionMetaLine.self, from: firstLine)
+    }
+
+    private static let codexSessionTimestampParser = Date.ISO8601FormatStyle(includingFractionalSeconds: false)
+    private static let codexSessionFractionalTimestampParser = Date.ISO8601FormatStyle(includingFractionalSeconds: true)
+
+    private static func codexSessionCreatedAt(meta: CodexSessionMetaLine) -> Date? {
+        guard let timestamp = normalized(meta.timestamp) else { return nil }
+        if let date = try? codexSessionTimestampParser.parse(timestamp) {
+            return date
+        }
+        return try? codexSessionFractionalTimestampParser.parse(timestamp)
+    }
+
+    private static func firstLineData(fileURL: URL) -> Data? {
+        guard let handle = try? FileHandle(forReadingFrom: fileURL) else { return nil }
+        defer {
+            try? handle.close()
+        }
+        guard var data = try? handle.read(upToCount: codexSessionMetaReadLimit), !data.isEmpty else {
+            return nil
+        }
+        if let newline = data.firstIndex(of: 0x0A) {
+            data = data[..<newline]
+        }
+        return data
+    }
+
+    private static func codexSessionCommand(in arguments: [String]) -> (name: String, sessionId: String)? {
+        var index = 0
+        while index < arguments.count {
+            let argument = arguments[index]
+            if argument == "--" {
+                return nil
+            }
+            if !argument.hasPrefix("-") || argument == "-" {
+                guard argument == "resume" || argument == "fork" else { return nil }
+                return codexSessionIdValue(afterCommandAt: index, in: arguments).map {
+                    (name: argument, sessionId: $0)
+                }
+            }
+            let width = codexOptionWidth(arguments, index: index)
+            if codexVariadicOptions.contains(argument) {
+                let end = min(arguments.count, index + width)
+                if index + 2 < end {
+                    for candidateIndex in (index + 2)..<end
+                    where arguments[candidateIndex] == "resume" || arguments[candidateIndex] == "fork" {
+                        if let sessionId = codexSessionIdValue(afterCommandAt: candidateIndex, in: arguments) {
+                            return (name: arguments[candidateIndex], sessionId: sessionId)
+                        }
+                    }
+                }
+            }
+            index += width
+        }
+        return nil
+    }
+
+    private static func codexSessionIdValue(afterCommandAt commandIndex: Int, in arguments: [String]) -> String? {
+        var index = commandIndex + 1
+        while index < arguments.count {
+            let argument = arguments[index]
+            if argument == "--" {
+                return nil
+            }
+            if !argument.hasPrefix("-") || argument == "-" {
+                guard codexLooksLikeSessionIdentifier(argument) else {
+                    return nil
+                }
+                return normalized(argument)
+            }
+            let width = codexOptionWidth(arguments, index: index)
+            if codexVariadicOptions.contains(argument) {
+                let end = min(arguments.count, index + width)
+                if index + 2 < end {
+                    for candidateIndex in (index + 2)..<end {
+                        if codexLooksLikeSessionIdentifier(arguments[candidateIndex]) {
+                            return normalized(arguments[candidateIndex])
+                        }
+                    }
+                }
+            }
+            index += width
+        }
+        return nil
+    }
+
+    private static func codexExecutablePath(
+        observed: VaultObservedAgentProcess,
+        environment: [String: String]
+    ) -> String {
+        if let launchExecutable = normalized(environment["CMUX_AGENT_LAUNCH_EXECUTABLE"]) {
+            return launchExecutable
+        }
+        let argumentExecutable = observed.codexExecutableArgument
+        if let argumentExecutable,
+           argumentExecutable.contains("/") {
+            return argumentExecutable
+        }
+        if let argumentExecutable,
+           let resolved = executablePath(named: argumentExecutable, environment: environment) {
+            return resolved
+        }
+        if let processPath = observed.processPath,
+           processPath.contains("/"),
+           VaultObservedAgentProcess.argumentLooksLikeCodex(processPath) {
+            return processPath
+        }
+        if let resolved = executablePath(named: "codex", environment: environment) {
+            return resolved
+        }
+        return argumentExecutable ?? "codex"
+    }
+
+    private static func codexLaunchArguments(
+        observed: VaultObservedAgentProcess,
+        executablePath: String,
+        tail: [String]? = nil
+    ) -> [String]? {
+        let tail = tail ?? codexLaunchTail(observed: observed)
+        guard let preserved = AgentLaunchSanitizer.preservedCodexForkArguments(
+            args: tail,
+            preserveImageOptions: true
+        ) else {
+            return nil
+        }
+        return [executablePath] + preserved
+    }
+
+    private static func codexLaunchCommand(
+        observed: VaultObservedAgentProcess,
+        executablePath: String,
+        tail: [String],
+        workingDirectory: String?
+    ) -> AgentLaunchCommandSnapshot? {
+        let environment = codexLaunchEnvironment(observed.environment)
+        let inheritedLauncher = normalized(environment["CMUX_AGENT_LAUNCH_KIND"])
+        let inheritedArguments = decodeNULSeparatedBase64(environment["CMUX_AGENT_LAUNCH_ARGV_B64"])
+        let canonicalInheritedLauncher = inheritedLauncher.flatMap(canonicalCodexInheritedLauncher)
+        if inheritedLauncher != nil,
+           canonicalInheritedLauncher == nil {
+            return nil
+        }
+        if let canonicalInheritedLauncher,
+           let inheritedArguments {
+            guard let sanitizedArguments = AgentLaunchSanitizer.sanitizedLaunchArguments(
+                inheritedArguments,
+                launcher: canonicalInheritedLauncher,
+                fallbackKind: "codex"
+            ) else {
+                return nil
+            }
+            let inheritedExecutable = normalized(environment["CMUX_AGENT_LAUNCH_EXECUTABLE"])
+                ?? inheritedArguments.first
+                ?? executablePath
+            let selectedEnvironment = AgentLaunchEnvironmentPolicy.selectedEnvironment(from: environment)
+            return AgentLaunchCommandSnapshot(
+                launcher: canonicalInheritedLauncher,
+                executablePath: inheritedExecutable,
+                arguments: sanitizedArguments,
+                workingDirectory: workingDirectory,
+                environment: selectedEnvironment.isEmpty ? nil : selectedEnvironment,
+                capturedAt: nil,
+                source: "environment"
+            )
+        }
+
+        if let inheritedLauncher,
+           !codexLaunchKindAllowsProcessFallback(inheritedLauncher) {
+            return nil
+        }
+        guard let launchArguments = codexLaunchArguments(
+            observed: observed,
+            executablePath: executablePath,
+            tail: tail
+        ) else {
+            return nil
+        }
+        return AgentLaunchCommandSnapshot(
+            processDetectedLauncher: "codex",
+            executablePath: executablePath,
+            arguments: launchArguments,
+            workingDirectory: workingDirectory,
+            environment: environment
+        )
+    }
+
+    private static func codexLaunchTail(observed: VaultObservedAgentProcess) -> [String] {
+        let arguments = observed.arguments
+        guard !arguments.isEmpty else { return [] }
+        if let executableIndex = observed.codexExecutableArgumentIndex {
+            return Array(arguments.dropFirst(executableIndex + 1))
+        }
+        let processIdentityLooksLikeCodex = observed.executableBasenames.contains { basename in
+            VaultObservedAgentProcess.argumentLooksLikeCodex(basename)
+        }
+        guard processIdentityLooksLikeCodex else { return [] }
+        if arguments[0].hasPrefix("-") {
+            return arguments
+        }
+        return Array(arguments.dropFirst())
+    }
+
+    private static let codexVariadicOptions: Set<String> = ["--image", "-i"]
+
+    private static func codexOptionWidth(_ arguments: [String], index: Int) -> Int {
+        guard index < arguments.count else { return 1 }
+        let argument = arguments[index]
+        if argument.contains("=") {
+            return 1
+        }
+        let valueOptions: Set<String> = [
+            "--config",
+            "-c",
+            "--remote",
+            "--remote-auth-token-env",
+            "--image",
+            "-i",
+            "--model",
+            "-m",
+            "--local-provider",
+            "--profile",
+            "-p",
+            "--sandbox",
+            "-s",
+            "--ask-for-approval",
+            "-a",
+            "--cd",
+            "-C",
+            "--add-dir",
+            "--enable",
+            "--disable"
+        ]
+        guard valueOptions.contains(argument),
+              index + 1 < arguments.count else {
+            return 1
+        }
+        if codexVariadicOptions.contains(argument) {
+            var end = index + 1
+            while end < arguments.count, !arguments[end].hasPrefix("-") {
+                end += 1
+            }
+            return max(1, end - index)
+        }
+        return 2
+    }
+
+    private static func codexLooksLikeSessionIdentifier(_ value: String) -> Bool {
+        let trimmed = value.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard trimmed.count >= 20 else { return false }
+        if trimmed.hasPrefix("019") {
+            return true
+        }
+        let allowed = CharacterSet(charactersIn: "0123456789abcdefABCDEF-")
+        return trimmed.unicodeScalars.allSatisfy { allowed.contains($0) } && trimmed.contains("-")
+    }
+
+    private static func codexLaunchKindAllowsProcessFallback(_ launcher: String) -> Bool {
+        switch normalizedLaunchKind(launcher) {
+        case "", "codex":
+            return true
+        default:
+            return false
+        }
+    }
+
+    private static func canonicalCodexInheritedLauncher(_ launcher: String) -> String? {
+        switch normalizedLaunchKind(launcher) {
+        case "codex":
+            return "codex"
+        case "codexteams":
+            return "codexTeams"
+        default:
+            return nil
+        }
+    }
+
+    static func normalizedLaunchKind(_ launcher: String) -> String {
+        launcher
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+            .lowercased()
+            .replacingOccurrences(of: "-", with: "")
+            .replacingOccurrences(of: "_", with: "")
+    }
+
+    static func decodeNULSeparatedBase64(_ rawValue: String?) -> [String]? {
+        guard let rawValue = normalized(rawValue),
+              let data = Data(base64Encoded: rawValue) else {
+            return nil
+        }
+        var parts: [String] = []
+        var start = data.startIndex
+        var index = data.startIndex
+        while index < data.endIndex {
+            if data[index] == 0 {
+                guard let value = String(data: data[start..<index], encoding: .utf8) else {
+                    return nil
+                }
+                parts.append(value)
+                start = data.index(after: index)
+            }
+            index = data.index(after: index)
+        }
+        if start < data.endIndex {
+            guard let value = String(data: data[start..<data.endIndex], encoding: .utf8) else {
+                return nil
+            }
+            parts.append(value)
+        }
+        return parts.isEmpty ? nil : parts
+    }
+
+    private static func processDetectedOpenCodeSnapshots(
+        candidates: [RestorableAgentProcessDetectionCandidate],
+        capturedAt: TimeInterval,
+        fileManager: FileManager,
+        latestOpenCodeSessionId: (String?, String?, FileManager) -> String?
     ) -> [PanelKey: (snapshot: SessionRestorableAgentSnapshot, updatedAt: TimeInterval)] {
         var resolved: [PanelKey: (snapshot: SessionRestorableAgentSnapshot, updatedAt: TimeInterval)] = [:]
         var sessionByWorkingDirectoryAndParent: [String: String] = [:]
@@ -206,20 +1430,24 @@ extension RestorableAgentSessionIndex {
         var openCodeProcesses: [
             (
                 panelKey: PanelKey,
+                pid: Int,
                 observed: VaultObservedAgentProcess,
                 environment: [String: String],
                 workingDirectory: String?,
-                workingDirectoryKey: String
+                workingDirectoryKey: String,
+                source: RestorableAgentProcessDetectionCandidateSource,
+                isForeground: Bool,
+                matchesFallbackScope: Bool
             )
         ] = []
-        var panelKeysByWorkingDirectory: [String: Set<PanelKey>] = [:]
+        var selectedCandidateByPanelKey: [
+            PanelKey: (source: RestorableAgentProcessDetectionCandidateSource, isForeground: Bool, matchesFallbackScope: Bool)
+        ] = [:]
 
-        for process in processSnapshot.cmuxScopedProcesses() {
-            guard let workspaceId = process.cmuxWorkspaceID,
-                  let panelId = process.cmuxSurfaceID,
-                  let processArguments = CmuxTopProcessSnapshot.processArgumentsAndEnvironment(for: process.pid) else {
-                continue
-            }
+        for candidate in candidates {
+            let process = candidate.process
+            let processArguments = candidate.arguments
+            guard process.canBeActiveAgentProcess else { continue }
             let observed = VaultObservedAgentProcess(
                 processName: process.name,
                 processPath: process.path,
@@ -230,15 +1458,28 @@ extension RestorableAgentSessionIndex {
 
             let cwd = openCodeWorkingDirectory(observed: observed)
             let cwdKey = cwd.map { ($0 as NSString).standardizingPath } ?? ""
-            let panelKey = PanelKey(workspaceId: workspaceId, panelId: panelId)
+            let panelKey = candidate.panelKey
             openCodeProcesses.append((
                 panelKey: panelKey,
+                pid: process.pid,
                 observed: observed,
                 environment: processArguments.environment,
                 workingDirectory: cwd,
-                workingDirectoryKey: cwdKey
+                workingDirectoryKey: cwdKey,
+                source: candidate.source,
+                isForeground: process.isForegroundProcess,
+                matchesFallbackScope: candidate.matchesFallbackScope
             ))
-            panelKeysByWorkingDirectory[cwdKey, default: []].insert(panelKey)
+        }
+
+        let fallbackRemappedPIDs = Set(openCodeProcesses.filter { $0.source == .fallbackScope }.map(\.pid))
+        var panelKeysByWorkingDirectory: [String: Set<PanelKey>] = [:]
+        for process in openCodeProcesses {
+            if process.source == .cmuxScoped,
+               fallbackRemappedPIDs.contains(process.pid) {
+                continue
+            }
+            panelKeysByWorkingDirectory[process.workingDirectoryKey, default: []].insert(process.panelKey)
         }
 
         for process in openCodeProcesses {
@@ -255,11 +1496,7 @@ extension RestorableAgentSessionIndex {
             } else if sessionMissesByWorkingDirectoryAndParent.contains(sessionCacheKey) {
                 latestSessionId = nil
             } else {
-                latestSessionId = latestOpenCodeSessionId(
-                    workingDirectory: process.workingDirectory,
-                    parentSessionId: forkParentSessionId,
-                    fileManager: fileManager
-                )
+                latestSessionId = latestOpenCodeSessionId(process.workingDirectory, forkParentSessionId, fileManager)
                 if let latestSessionId {
                     sessionByWorkingDirectoryAndParent[sessionCacheKey] = latestSessionId
                 } else {
@@ -292,9 +1529,28 @@ extension RestorableAgentSessionIndex {
                     environment: process.observed.environment
                 )
             )
+            let candidatePriority = (
+                source: process.source,
+                isForeground: process.isForeground,
+                matchesFallbackScope: process.matchesFallbackScope
+            )
+            if let existing = selectedCandidateByPanelKey[process.panelKey] {
+                let shouldReplace = processDetectionShouldReplaceCandidate(
+                    existing: existing,
+                    candidate: candidatePriority
+                ) || processDetectionCandidatePriorityMatches(existing, candidatePriority)
+                if !shouldReplace {
+                    continue
+                }
+            }
             resolved[process.panelKey] = (
                 snapshot: snapshot,
                 updatedAt: capturedAt
+            )
+            selectedCandidateByPanelKey[process.panelKey] = (
+                source: process.source,
+                isForeground: candidatePriority.isForeground,
+                matchesFallbackScope: process.matchesFallbackScope
             )
         }
 
@@ -465,7 +1721,7 @@ extension RestorableAgentSessionIndex {
             .path
     }
 
-    private static func executablePath(
+    static func executablePath(
         named name: String,
         environment: [String: String]
     ) -> String? {
@@ -540,12 +1796,16 @@ extension RestorableAgentSessionIndex {
         return sessionId
     }
 
-    private static func normalized(_ rawValue: String?) -> String? {
+    static func normalized(_ rawValue: String?) -> String? {
         guard let rawValue = rawValue?.trimmingCharacters(in: .whitespacesAndNewlines),
               !rawValue.isEmpty else {
             return nil
         }
         return rawValue
+    }
+
+    private static func standardizedPath(_ rawValue: String?) -> String? {
+        normalized(rawValue).map { ($0 as NSString).standardizingPath }
     }
 }
 
@@ -610,7 +1870,7 @@ extension SurfaceResumeBindingIndex {
     }
 }
 
-private struct VaultObservedAgentProcess: Sendable {
+struct VaultObservedAgentProcess: Sendable {
     let processName: String
     let processPath: String?
     let arguments: [String]
@@ -627,6 +1887,10 @@ private struct VaultObservedAgentProcess: Sendable {
 
     var isOpenCodeProcess: Bool {
         processIdentityLooksLikeOpenCode || openCodeExecutableArgumentIndex != nil
+    }
+
+    var isCodexProcess: Bool {
+        processIdentityLooksLikeCodex || codexExecutableArgumentIndex != nil
     }
 
     var openCodeExecutableArgument: String? {
@@ -651,6 +1915,28 @@ private struct VaultObservedAgentProcess: Sendable {
         return Self.argumentLooksLikeOpenCode(arguments[scriptIndex]) ? scriptIndex : nil
     }
 
+    var codexExecutableArgument: String? {
+        guard let index = codexExecutableArgumentIndex,
+              arguments.indices.contains(index) else {
+            return nil
+        }
+        return arguments[index]
+    }
+
+    var codexExecutableArgumentIndex: Int? {
+        if let first = arguments.first,
+           Self.argumentLooksLikeCodex(first) {
+            return 0
+        }
+        guard executableBasenames.contains(where: Self.wrapperLooksLikeNodeRuntime) else {
+            return nil
+        }
+        guard let scriptIndex = Self.nodeScriptArgumentIndex(arguments) else {
+            return nil
+        }
+        return Self.argumentLooksLikeCodex(arguments[scriptIndex]) ? scriptIndex : nil
+    }
+
     private var processIdentityLooksLikeOpenCode: Bool {
         executableBasenames.contains { basename in
             let normalized = basename.lowercased()
@@ -671,6 +1957,21 @@ private struct VaultObservedAgentProcess: Sendable {
             basename == "open-code"
     }
 
+    private var processIdentityLooksLikeCodex: Bool {
+        executableBasenames.contains { basename in
+            Self.argumentLooksLikeCodex(basename)
+        }
+    }
+
+    static func argumentLooksLikeCodex(_ argument: String) -> Bool {
+        let normalized = argument.lowercased()
+            .replacingOccurrences(of: "\\", with: "/")
+        let pathComponents = (normalized as NSString).pathComponents
+        let basename = pathComponents.last ?? normalized
+        return basename == "codex" ||
+            normalized.contains("/@openai/codex/")
+    }
+
     static func argumentLooksLikeTmux(_ argument: String) -> Bool {
         TmuxResumeParser.argumentLooksLikeTmux(argument)
     }
@@ -683,7 +1984,7 @@ private struct VaultObservedAgentProcess: Sendable {
         TmuxResumeParser.argumentLooksLikeTmuxServerProcessTitle(argument)
     }
 
-    private static func wrapperLooksLikeNodeRuntime(_ basename: String) -> Bool {
+    static func wrapperLooksLikeNodeRuntime(_ basename: String) -> Bool {
         switch basename.lowercased() {
         case "node":
             return true
@@ -692,7 +1993,7 @@ private struct VaultObservedAgentProcess: Sendable {
         }
     }
 
-    private static func nodeScriptArgumentIndex(_ arguments: [String]) -> Int? {
+    static func nodeScriptArgumentIndex(_ arguments: [String]) -> Int? {
         guard !arguments.isEmpty else { return nil }
         var index = 0
         if wrapperLooksLikeNodeRuntime((arguments[0] as NSString).lastPathComponent) {
@@ -793,7 +2094,7 @@ private extension CmuxVaultAgentSessionIDSource {
     }
 }
 
-private extension Array where Element == String {
+extension Array where Element == String {
     var hasOpenCodeForkFlag: Bool {
         contains { $0 == "--fork" || $0.hasPrefix("--fork=") }
     }

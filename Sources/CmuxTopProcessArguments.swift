@@ -1,9 +1,29 @@
 import Darwin
+import Dispatch
 import Foundation
 
 struct CmuxTopProcessArguments: Sendable {
     let arguments: [String]
     let environment: [String: String]
+}
+
+private final class CmuxProcessOutputBuffer: @unchecked Sendable {
+    private let lock = NSLock()
+    private var data = Data()
+
+    func append(_ chunk: Data) {
+        guard !chunk.isEmpty else { return }
+        lock.lock()
+        data.append(chunk)
+        lock.unlock()
+    }
+
+    func value() -> Data {
+        lock.lock()
+        let snapshot = data
+        lock.unlock()
+        return snapshot
+    }
 }
 
 extension CmuxTopProcessSnapshot {
@@ -60,6 +80,23 @@ extension CmuxTopProcessSnapshot {
         return CmuxTopProcessArguments(arguments: arguments, environment: environment)
     }
 
+    static func processOpenFilePaths(for pid: Int) -> [String] {
+        guard pid > 0, pid <= Int(Int32.max),
+              let output = processOutput(
+                  executablePath: "/usr/sbin/lsof",
+                  arguments: ["-nP", "-w", "-Fn", "-p", String(pid)]
+              ) else {
+            return []
+        }
+        return output
+            .split(separator: "\n")
+            .compactMap { line -> String? in
+                guard line.first == "n" else { return nil }
+                let path = String(line.dropFirst()).trimmingCharacters(in: .whitespacesAndNewlines)
+                return path.isEmpty ? nil : path
+            }
+    }
+
     private static func kernProcArgsBytes(for pid: Int) -> [UInt8]? {
         var mib: [Int32] = [CTL_KERN, KERN_PROCARGS2, Int32(pid)]
         var size: size_t = 0
@@ -74,6 +111,59 @@ extension CmuxTopProcessSnapshot {
         }
         guard success else { return nil }
         return Array(buffer.prefix(Int(size)))
+    }
+
+    static func processOutput(
+        executablePath: String,
+        arguments: [String],
+        timeout: DispatchTimeInterval = .seconds(1)
+    ) -> String? {
+        let process = Process()
+        process.executableURL = URL(fileURLWithPath: executablePath)
+        process.arguments = arguments
+
+        let stdout = Pipe()
+        process.standardOutput = stdout
+        process.standardError = FileHandle.nullDevice
+        let outputBuffer = CmuxProcessOutputBuffer()
+        stdout.fileHandleForReading.readabilityHandler = { handle in
+            outputBuffer.append(handle.availableData)
+        }
+        let completion = DispatchSemaphore(value: 0)
+        process.terminationHandler = { _ in
+            completion.signal()
+        }
+
+        do {
+            try process.run()
+        } catch {
+            stdout.fileHandleForReading.readabilityHandler = nil
+            stdout.fileHandleForReading.closeFile()
+            process.terminationHandler = nil
+            return nil
+        }
+
+        guard completion.wait(timeout: .now() + timeout) == .success else {
+            if process.isRunning {
+                process.terminate()
+            }
+            if completion.wait(timeout: .now() + .milliseconds(150)) == .timedOut,
+               process.isRunning {
+                kill(process.processIdentifier, SIGKILL)
+                _ = completion.wait(timeout: .now() + .milliseconds(150))
+            }
+            stdout.fileHandleForReading.readabilityHandler = nil
+            stdout.fileHandleForReading.closeFile()
+            process.terminationHandler = nil
+            return nil
+        }
+
+        process.terminationHandler = nil
+        stdout.fileHandleForReading.readabilityHandler = nil
+        outputBuffer.append(stdout.fileHandleForReading.readDataToEndOfFile())
+        guard process.terminationStatus == 0 else { return nil }
+
+        return String(data: outputBuffer.value(), encoding: .utf8)
     }
 
     private static func skipString(in bytes: [UInt8], index: inout Int) {

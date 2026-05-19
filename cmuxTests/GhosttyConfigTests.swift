@@ -2287,6 +2287,27 @@ final class SocketControlSettingsTests: XCTestCase {
         XCTAssertEqual(path, "/tmp/cmux-nightly.sock")
     }
 
+    func testNightlyReleaseFallsBackWhenDedicatedSocketBelongsToAnotherUser() {
+        let path = SocketControlSettings.socketPath(
+            environment: [
+                "CMUX_SOCKET_PATH": "/tmp/cmux-debug-issue-153-tmux-compat.sock",
+            ],
+            bundleIdentifier: "com.cmuxterm.app.nightly",
+            isDebugBuild: false,
+            currentUserID: 501,
+            probeStableDefaultPathEntry: { requestedPath in
+                requestedPath == "/tmp/cmux-nightly.sock"
+                    ? .socket(ownerUserID: 502)
+                    : .missing
+            }
+        )
+
+        XCTAssertEqual(
+            path,
+            SocketControlSettings.userScopedSocketPath(fileName: "cmux-nightly-501.sock")
+        )
+    }
+
     func testDebugBundleHonorsSocketOverrideWithoutOptInFlag() {
         let path = SocketControlSettings.socketPath(
             environment: [
@@ -2388,6 +2409,27 @@ final class SocketControlSettingsTests: XCTestCase {
         )
 
         XCTAssertEqual(path, SocketControlSettings.userScopedStableSocketPath(currentUserID: 501))
+    }
+
+    func testFixedDefaultSocketBindFallbackUsesChannelScopedPath() {
+        XCTAssertEqual(
+            TerminalController.fallbackSocketPathAfterBindFailure(
+                requestedPath: "/tmp/cmux-nightly.sock",
+                stage: "bind",
+                errnoCode: EADDRINUSE,
+                currentUserID: 501
+            ),
+            SocketControlSettings.userScopedSocketPath(fileName: "cmux-nightly-501.sock")
+        )
+        XCTAssertEqual(
+            TerminalController.fallbackSocketPathAfterBindFailure(
+                requestedPath: SocketControlSettings.legacyStableDefaultSocketPath,
+                stage: "bind",
+                errnoCode: EADDRINUSE,
+                currentUserID: 501
+            ),
+            SocketControlSettings.userScopedStableSocketPath(currentUserID: 501)
+        )
     }
 
     func testUntaggedDebugBundleBlockedWithoutLaunchTag() {

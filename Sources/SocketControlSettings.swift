@@ -455,22 +455,72 @@ struct SocketControlSettings {
         currentUserID: uid_t = getuid(),
         probeStableDefaultPathEntry: (String) -> StableDefaultSocketPathEntry = inspectStableDefaultSocketPathEntry
     ) -> String {
-        SocketPathMarkerFiles.defaultSocketPath(
+        let stableSocketPath = resolvedStableDefaultSocketPath(
+            currentUserID: currentUserID,
+            probeStableDefaultPathEntry: probeStableDefaultPathEntry
+        )
+        let defaultPath = SocketPathMarkerFiles.defaultSocketPath(
             bundleIdentifier: bundleIdentifier,
             environment: environment,
             isDebugBuild: isDebugBuild,
-            stableSocketPath: resolvedStableDefaultSocketPath(
-                currentUserID: currentUserID,
-                probeStableDefaultPathEntry: probeStableDefaultPathEntry
-            ),
+            stableSocketPath: stableSocketPath,
             baseDebugBundleIdentifier: baseDebugBundleIdentifier
         )
+
+        switch defaultPath {
+        case SocketPathMarkerFiles.defaultNightlySocketPath:
+            return resolvedFixedDefaultSocketPath(
+                preferredPath: defaultPath,
+                fallbackFileName: "cmux-nightly-\(currentUserID).sock",
+                currentUserID: currentUserID,
+                probePathEntry: probeStableDefaultPathEntry
+            )
+        case SocketPathMarkerFiles.defaultDebugSocketPath:
+            return resolvedFixedDefaultSocketPath(
+                preferredPath: defaultPath,
+                fallbackFileName: "cmux-debug-\(currentUserID).sock",
+                currentUserID: currentUserID,
+                probePathEntry: probeStableDefaultPathEntry
+            )
+        case SocketPathMarkerFiles.defaultStagingSocketPath:
+            return resolvedFixedDefaultSocketPath(
+                preferredPath: defaultPath,
+                fallbackFileName: "cmux-staging-\(currentUserID).sock",
+                currentUserID: currentUserID,
+                probePathEntry: probeStableDefaultPathEntry
+            )
+        default:
+            return defaultPath
+        }
     }
 
     static func userScopedStableSocketPath(currentUserID: uid_t = getuid()) -> String {
+        userScopedSocketPath(fileName: "cmux-\(currentUserID).sock")
+    }
+
+    static func userScopedSocketPath(fileName: String) -> String {
         stableSocketDirectoryURL()?
-            .appendingPathComponent("cmux-\(currentUserID).sock", isDirectory: false)
-            .path ?? "/tmp/cmux-\(currentUserID).sock"
+            .appendingPathComponent(fileName, isDirectory: false)
+            .path ?? "/tmp/\(fileName)"
+    }
+
+    static func userScopedFallbackSocketPath(
+        forDefaultPath requestedPath: String,
+        currentUserID: uid_t = getuid()
+    ) -> String? {
+        if requestedPath == stableDefaultSocketPath || requestedPath == legacyStableDefaultSocketPath {
+            return userScopedStableSocketPath(currentUserID: currentUserID)
+        }
+        switch requestedPath {
+        case "/tmp/cmux-nightly.sock":
+            return userScopedSocketPath(fileName: "cmux-nightly-\(currentUserID).sock")
+        case "/tmp/cmux-debug.sock":
+            return userScopedSocketPath(fileName: "cmux-debug-\(currentUserID).sock")
+        case "/tmp/cmux-staging.sock":
+            return userScopedSocketPath(fileName: "cmux-staging-\(currentUserID).sock")
+        default:
+            return nil
+        }
     }
 
     static func resolvedStableDefaultSocketPath(
@@ -484,6 +534,22 @@ struct SocketControlSettings {
             return stableDefaultSocketPath
         case .socket, .other, .inaccessible:
             return userScopedStableSocketPath(currentUserID: currentUserID)
+        }
+    }
+
+    private static func resolvedFixedDefaultSocketPath(
+        preferredPath: String,
+        fallbackFileName: String,
+        currentUserID: uid_t,
+        probePathEntry: (String) -> StableDefaultSocketPathEntry
+    ) -> String {
+        switch probePathEntry(preferredPath) {
+        case .missing:
+            return preferredPath
+        case .socket(let ownerUserID) where ownerUserID == currentUserID:
+            return preferredPath
+        case .socket, .other, .inaccessible:
+            return userScopedSocketPath(fileName: fallbackFileName)
         }
     }
 
