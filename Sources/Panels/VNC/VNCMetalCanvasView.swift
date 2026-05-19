@@ -193,25 +193,13 @@ final class VNCMetalCanvasView: NSView {
             return
         }
 
-        let rowBytes = header.width * Self.bytesPerPixel
-        frame.payload.withUnsafeBytes { sourceBytes in
-            guard let source = sourceBytes.bindMemory(to: UInt8.self).baseAddress else { return }
-            framebuffer.withUnsafeMutableBytes { destinationBytes in
-                guard let destination = destinationBytes.bindMemory(to: UInt8.self).baseAddress else { return }
-                for row in 0..<header.height {
-                    let sourceOffset = row * rowBytes
-                    let destinationOffset = ((header.y + row) * framebufferWidth + header.x) * Self.bytesPerPixel
-                    guard destinationOffset >= 0,
-                          destinationOffset + rowBytes <= framebuffer.count,
-                          sourceOffset >= 0,
-                          sourceOffset + rowBytes <= frame.payload.count else {
-                        return
-                    }
-                    destination.advanced(by: destinationOffset)
-                        .update(from: source.advanced(by: sourceOffset), count: rowBytes)
-                }
-            }
-        }
+        _ = VNCFrameBlitter.copyBGRAFrame(
+            header: header,
+            payload: frame.payload,
+            into: &framebuffer,
+            framebufferWidth: framebufferWidth,
+            framebufferHeight: framebufferHeight
+        )
     }
 
     private func drawFramebuffer() {

@@ -123,6 +123,66 @@ final class CMUXVNCTests: XCTestCase {
         )
     }
 
+    func testFrameBlitterCopiesPartialFrameIntoFramebuffer() {
+        var framebuffer = Data(repeating: 0, count: 3 * 2 * 4)
+        let header = VNCFrameHeader(
+            sequence: 1,
+            x: 1,
+            y: 0,
+            width: 2,
+            height: 2,
+            framebufferWidth: 3,
+            framebufferHeight: 2,
+            stride: 8
+        )
+        let payload = Data([
+            1, 2, 3, 4, 5, 6, 7, 8,
+            9, 10, 11, 12, 13, 14, 15, 16
+        ])
+
+        XCTAssertTrue(
+            VNCFrameBlitter.copyBGRAFrame(
+                header: header,
+                payload: payload,
+                into: &framebuffer,
+                framebufferWidth: 3,
+                framebufferHeight: 2
+            )
+        )
+        XCTAssertEqual(
+            Array(framebuffer),
+            [
+                0, 0, 0, 0, 1, 2, 3, 4, 5, 6, 7, 8,
+                0, 0, 0, 0, 9, 10, 11, 12, 13, 14, 15, 16
+            ]
+        )
+    }
+
+    func testFrameBlitterRejectsInvalidPayload() {
+        var framebuffer = Data(repeating: 0, count: 4)
+        let header = VNCFrameHeader(
+            sequence: 1,
+            x: 0,
+            y: 0,
+            width: 1,
+            height: 1,
+            framebufferWidth: 1,
+            framebufferHeight: 1,
+            stride: 4
+        )
+
+        XCTAssertFalse(
+            VNCFrameBlitter.copyBGRAFrame(
+                header: header,
+                payload: Data(),
+                into: &framebuffer,
+                framebufferWidth: 1,
+                framebufferHeight: 1
+            )
+        )
+        XCTAssertEqual(framebuffer, Data(repeating: 0, count: 4))
+    }
+
     func testIPCFrameRoundTrip() throws {
         let header = VNCFrameHeader(
             sequence: 7,
