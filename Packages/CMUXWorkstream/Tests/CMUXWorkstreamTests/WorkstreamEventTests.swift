@@ -95,6 +95,7 @@ struct WorkstreamEventTests {
         #expect(event.workspaceId == nil)
         #expect(event.requestId == nil)
         #expect(event.ppid == nil)
+        #expect(event.matcher == nil)
     }
 
     @Test("Unknown event fields round-trip for forward compatibility")
