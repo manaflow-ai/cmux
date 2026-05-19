@@ -230,8 +230,10 @@ func handleTitlebarDoubleClick(
 
 private enum WindowDragHandleAssociatedObjectKeys {
     private static let suppressionDepthToken = NSObject()
+    private static let terminalInputSuppressionDepthToken = NSObject()
 
     static let suppressionDepth = UnsafeRawPointer(Unmanaged.passUnretained(suppressionDepthToken).toOpaque())
+    static let terminalInputSuppressionDepth = UnsafeRawPointer(Unmanaged.passUnretained(terminalInputSuppressionDepthToken).toOpaque())
 }
 
 func beginWindowDragSuppression(window: NSWindow?) -> Int? {
@@ -280,6 +282,69 @@ func windowDragSuppressionDepth(window: NSWindow?) -> Int {
 
 func isWindowDragSuppressed(window: NSWindow?) -> Bool {
     windowDragSuppressionDepth(window: window) > 0
+}
+
+@MainActor
+func beginWindowMoveTerminalInputSuppression(window: NSWindow?) -> Int? {
+    guard let window else { return nil }
+    let current = windowMoveTerminalInputSuppressionDepth(window: window)
+    let next = current + 1
+    objc_setAssociatedObject(
+        window,
+        WindowDragHandleAssociatedObjectKeys.terminalInputSuppressionDepth,
+        NSNumber(value: next),
+        .OBJC_ASSOCIATION_RETAIN_NONATOMIC
+    )
+    return next
+}
+
+@discardableResult
+@MainActor
+func endWindowMoveTerminalInputSuppression(window: NSWindow?) -> Int {
+    guard let window else { return 0 }
+    let current = windowMoveTerminalInputSuppressionDepth(window: window)
+    let next = max(0, current - 1)
+    if next == 0 {
+        objc_setAssociatedObject(
+            window,
+            WindowDragHandleAssociatedObjectKeys.terminalInputSuppressionDepth,
+            nil,
+            .OBJC_ASSOCIATION_RETAIN_NONATOMIC
+        )
+    } else {
+        objc_setAssociatedObject(
+            window,
+            WindowDragHandleAssociatedObjectKeys.terminalInputSuppressionDepth,
+            NSNumber(value: next),
+            .OBJC_ASSOCIATION_RETAIN_NONATOMIC
+        )
+    }
+    return next
+}
+
+@MainActor
+func windowMoveTerminalInputSuppressionDepth(window: NSWindow?) -> Int {
+    guard let window,
+          let value = objc_getAssociatedObject(
+            window,
+            WindowDragHandleAssociatedObjectKeys.terminalInputSuppressionDepth
+          ) as? NSNumber else {
+        return 0
+    }
+    return value.intValue
+}
+
+@MainActor
+func shouldForwardTerminalMouseEventToGhostty(window: NSWindow?) -> Bool {
+    windowMoveTerminalInputSuppressionDepth(window: window) == 0
+}
+
+@discardableResult
+@MainActor
+func withWindowMoveTerminalInputSuppression<T>(window: NSWindow?, _ body: () -> T) -> T {
+    _ = beginWindowMoveTerminalInputSuppression(window: window)
+    defer { endWindowMoveTerminalInputSuppression(window: window) }
+    return body()
 }
 
 @discardableResult
@@ -1044,8 +1109,10 @@ struct WindowDragHandleView: NSViewRepresentable {
             }
 
             if let window {
-                let previousMovableState = withTemporaryWindowMovableEnabled(window: window) {
-                    window.performDrag(with: event)
+                let previousMovableState = withWindowMoveTerminalInputSuppression(window: window) {
+                    withTemporaryWindowMovableEnabled(window: window) {
+                        window.performDrag(with: event)
+                    }
                 }
                 #if DEBUG
                 let restored = previousMovableState.map { String($0) } ?? "nil"

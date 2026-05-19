@@ -8857,6 +8857,7 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
         let debugPoint = convert(event.locationInWindow, from: nil)
         cmuxDebugLog("terminal.mouseDown surface=\(terminalSurface?.id.uuidString.prefix(5) ?? "nil") mods=[\(debugModifierString(event.modifierFlags))] clickCount=\(event.clickCount) point=(\(String(format: "%.0f", debugPoint.x)),\(String(format: "%.0f", debugPoint.y)))")
         #endif
+        guard shouldForwardTerminalMouseEventToGhostty(window: window) else { return }
         // Split reparent/layout churn can suppress the later `becomeFirstResponder -> onFocus`
         // callback. Treat pointer-down as explicit focus intent so clicking a ghost pane still
         // repairs workspace/pane active state before key routing runs.
@@ -8895,6 +8896,7 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
         #if DEBUG
         cmuxDebugLog("terminal.mouseUp surface=\(terminalSurface?.id.uuidString.prefix(5) ?? "nil") mods=[\(debugModifierString(event.modifierFlags))]")
         #endif
+        guard shouldForwardTerminalMouseEventToGhostty(window: window) else { return }
         guard let surface = surface else { return }
         let point = convert(event.locationInWindow, from: nil)
         let consumed = ghostty_surface_mouse_button(surface, GHOSTTY_MOUSE_RELEASE, GHOSTTY_MOUSE_LEFT, modsFromEvent(event))
@@ -9485,6 +9487,7 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
 #endif
 
     override func rightMouseDown(with event: NSEvent) {
+        guard shouldForwardTerminalMouseEventToGhostty(window: window) else { return }
         guard let surface = surface else { return }
         if !ghostty_surface_mouse_captured(surface) {
             requestPointerFocusRecovery()
@@ -9500,6 +9503,7 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
     }
 
     override func rightMouseUp(with event: NSEvent) {
+        guard shouldForwardTerminalMouseEventToGhostty(window: window) else { return }
         guard let surface = surface else { return }
         if !ghostty_surface_mouse_captured(surface) {
             super.rightMouseUp(with: event)
@@ -9510,6 +9514,7 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
     }
 
     override func otherMouseDown(with event: NSEvent) {
+        guard shouldForwardTerminalMouseEventToGhostty(window: window) else { return }
         guard event.buttonNumber == 2 else {
             super.otherMouseDown(with: event)
             return
@@ -9523,6 +9528,7 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
     }
 
     override func otherMouseUp(with event: NSEvent) {
+        guard shouldForwardTerminalMouseEventToGhostty(window: window) else { return }
         guard event.buttonNumber == 2 else {
             super.otherMouseUp(with: event)
             return
@@ -9532,6 +9538,7 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
     }
 
     override func menu(for event: NSEvent) -> NSMenu? {
+        guard shouldForwardTerminalMouseEventToGhostty(window: window) else { return nil }
         guard let surface = surface else { return nil }
         if ghostty_surface_mouse_captured(surface) {
             return nil
@@ -9652,6 +9659,7 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
     }
 
     override func mouseMoved(with event: NSEvent) {
+        guard shouldForwardTerminalMouseEventToGhostty(window: window) else { return }
         maybeRequestFirstResponderForMouseFocus()
         guard let surface = surface else { return }
         let suppressCommandPathHover = shouldSuppressCommandPathHover(for: event.modifierFlags)
@@ -9675,6 +9683,7 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
 
     override func mouseEntered(with event: NSEvent) {
         super.mouseEntered(with: event)
+        guard shouldForwardTerminalMouseEventToGhostty(window: window) else { return }
         maybeRequestFirstResponderForMouseFocus()
         guard let surface = surface else { return }
         let suppressCommandPathHover = shouldSuppressCommandPathHover(for: event.modifierFlags)
@@ -9718,6 +9727,7 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
             wordPathHoverActive = false
             NSCursor.pop()
         }
+        guard shouldForwardTerminalMouseEventToGhostty(window: window) else { return }
         guard let surface = surface else { return }
         if NSEvent.pressedMouseButtons != 0 {
             return
@@ -9726,6 +9736,7 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
     }
 
     override func mouseDragged(with event: NSEvent) {
+        guard shouldForwardTerminalMouseEventToGhostty(window: window) else { return }
         guard let surface = surface else { return }
         let eventPoint = convert(event.locationInWindow, from: nil)
         trackMousePointIfUsable(eventPoint)
@@ -9736,6 +9747,7 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
     }
 
     override func scrollWheel(with event: NSEvent) {
+        guard shouldForwardTerminalMouseEventToGhostty(window: window) else { return }
         NotificationCenter.default.post(name: .ghosttyDidReceiveWheelScroll, object: self)
         guard let surface = surface else { return }
         lastScrollEventTime = CACurrentMediaTime()

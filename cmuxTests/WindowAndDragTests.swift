@@ -1706,6 +1706,33 @@ final class FolderWindowMoveSuppressionTests: XCTestCase {
         XCTAssertEqual(previous, true)
         XCTAssertTrue(window.isMovable)
     }
+
+    func testTerminalMouseReportsAreSuppressedDuringExplicitWindowDrag() {
+        let window = makeWindow()
+
+        beginWindowMoveTerminalInputSuppression(window: window)
+
+        XCTAssertFalse(shouldForwardTerminalMouseEventToGhostty(window: window))
+
+        endWindowMoveTerminalInputSuppression(window: window)
+
+        XCTAssertTrue(shouldForwardTerminalMouseEventToGhostty(window: window))
+    }
+
+    func testWindowMoveTerminalInputSuppressionIsReferenceCounted() {
+        let window = makeWindow()
+
+        XCTAssertEqual(windowMoveTerminalInputSuppressionDepth(window: window), 0)
+        XCTAssertEqual(beginWindowMoveTerminalInputSuppression(window: window), 1)
+        XCTAssertEqual(beginWindowMoveTerminalInputSuppression(window: window), 2)
+        XCTAssertFalse(shouldForwardTerminalMouseEventToGhostty(window: window))
+
+        XCTAssertEqual(endWindowMoveTerminalInputSuppression(window: window), 1)
+        XCTAssertFalse(shouldForwardTerminalMouseEventToGhostty(window: window))
+
+        XCTAssertEqual(endWindowMoveTerminalInputSuppression(window: window), 0)
+        XCTAssertTrue(shouldForwardTerminalMouseEventToGhostty(window: window))
+    }
 }
 
 
