@@ -4,12 +4,14 @@ on:
   pull_request:
     paths:
       - 'linux/**'
+      - 'packaging/arch/**'
       - '.github/workflows/linux-rust.yml'
   push:
     branches:
       - main
     paths:
       - 'linux/**'
+      - 'packaging/arch/**'
       - '.github/workflows/linux-rust.yml'
 
 jobs:
@@ -23,7 +25,7 @@ jobs:
       - name: Install GTK dependencies
         run: |
           sudo apt-get update
-          sudo apt-get install -y libgtk-4-dev libadwaita-1-dev
+          sudo apt-get install -y libgtk-4-dev libadwaita-1-dev libvte-2.91-gtk4-dev
       - name: Format
         working-directory: linux
         run: cargo fmt --all -- --check
