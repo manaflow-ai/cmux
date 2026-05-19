@@ -144,10 +144,7 @@ func cmuxContrastRatio(foreground: NSColor, background: NSColor) -> CGFloat {
 }
 
 private func cmuxReadableForegroundBaseColor(on backgroundColor: NSColor) -> NSColor {
-    let backgroundLuminance = cmuxRelativeLuminance(backgroundColor)
-    let whiteContrast = cmuxContrastRatio(backgroundLuminance, 1.0)
-    let blackContrast = cmuxContrastRatio(backgroundLuminance, 0.0)
-    return whiteContrast >= blackContrast ? .white : .black
+    cmuxReadableColorScheme(for: backgroundColor) == .dark ? .white : .black
 }
 
 private func cmuxRelativeLuminance(_ color: NSColor) -> CGFloat {
