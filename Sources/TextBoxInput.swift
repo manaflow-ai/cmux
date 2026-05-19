@@ -1758,6 +1758,7 @@ private final class TextBoxSubmitEventRunner {
     private var claudeImageTokenBaseline = 0
     private var visibleTextBaseline = ""
     private var clipboardReadBaseline = 0
+    private var filePasteFallbackSatisfiedClipboardRead = false
     private var observers: [NSObjectProtocol] = []
     private var releaseRenderedFrameNotifications: (() -> Void)?
     private var displayLinkPulse: TextBoxDisplayLinkPulse?
@@ -1807,6 +1808,7 @@ private final class TextBoxSubmitEventRunner {
                 _ = surface.sendNamedKey(key)
             case .captureClipboardReadBaseline:
                 clipboardReadBaseline = surface.clipboardReadGeneration
+                filePasteFallbackSatisfiedClipboardRead = false
             case .waitForClipboardRead:
                 waitForClipboardRead()
                 return
@@ -1856,6 +1858,15 @@ private final class TextBoxSubmitEventRunner {
     }
 
     private func waitForClipboardRead() {
+        if filePasteFallbackSatisfiedClipboardRead {
+            filePasteFallbackSatisfiedClipboardRead = false
+#if DEBUG
+            cmuxDebugLog("textbox.submit.wait.clipboard.fallback id=\(id.uuidString.prefix(5)) baseline=\(clipboardReadBaseline)")
+#endif
+            processNext()
+            return
+        }
+
         if clipboardReadReady() {
 #if DEBUG
             cmuxDebugLog("textbox.submit.wait.clipboard.ready id=\(id.uuidString.prefix(5)) baseline=\(clipboardReadBaseline)")
@@ -2050,7 +2061,9 @@ private final class TextBoxSubmitEventRunner {
         cmuxDebugLog("textbox.submit.pasteFile.binding id=\(id.uuidString.prefix(5)) handled=\(handled ? 1 : 0)")
 #endif
         guard handled else {
+            filePasteFallbackSatisfiedClipboardRead = true
             surface.sendText(TerminalImageTransferPlanner.escapeForShell(path))
+            restorePasteboardIfNeeded()
             return
         }
     }

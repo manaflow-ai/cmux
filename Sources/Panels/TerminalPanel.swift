@@ -330,8 +330,8 @@ final class TerminalPanel: Panel, ObservableObject {
         textBoxContent = TextBoxInputTextView.plainText(from: draft)
         textBoxAttachments = TextBoxInputTextView.attachments(from: draft)
         isTextBoxActive = draft.isActive
-        textBoxInputFocusIntent = draft.isActive ? .textBox : .hidden
-        shouldFocusTextBoxWhenAvailable = draft.isActive
+        textBoxInputFocusIntent = draft.isActive ? .terminal : .hidden
+        shouldFocusTextBoxWhenAvailable = false
         shouldOpenTextBoxFilePickerWhenAvailable = false
         shouldHideTextBoxOnNextEscape = false
     }

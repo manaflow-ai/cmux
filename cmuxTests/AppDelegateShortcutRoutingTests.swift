@@ -6199,6 +6199,39 @@ final class AppDelegateShortcutRoutingTests: XCTestCase {
 #endif
     }
 
+    func testTextBoxSessionRestoreShowsDraftWithoutStealingFocus() {
+        guard let appDelegate = AppDelegate.shared else {
+            XCTFail("Expected AppDelegate.shared")
+            return
+        }
+
+        let windowId = appDelegate.createMainWindow()
+        defer { closeWindow(withId: windowId) }
+
+        guard let manager = appDelegate.tabManagerFor(windowId: windowId),
+              let workspace = manager.selectedWorkspace,
+              let panelId = workspace.focusedPanelId,
+              let terminalPanel = workspace.terminalPanel(for: panelId) else {
+            XCTFail("Expected focused terminal surface")
+            return
+        }
+
+        terminalPanel.restoreSessionTextBoxDraft(SessionTextBoxInputDraftSnapshot(
+            isActive: true,
+            parts: [.text("restore me")]
+        ))
+
+        XCTAssertTrue(terminalPanel.isTextBoxActive)
+        XCTAssertEqual(terminalPanel.textBoxContent, "restore me")
+        XCTAssertEqual(terminalPanel.preferredFocusIntentForActivation(), .terminal(.surface))
+#if DEBUG
+        XCTAssertFalse(
+            terminalPanel.debugHasPendingTextBoxFocusRequest,
+            "Visible restored TextBox drafts must not queue first-responder focus"
+        )
+#endif
+    }
+
     func testTextBoxMentionCompletionDetectsFileAndSkillTokens() {
         let filePrompt = "open @Sources/TextBox"
         let fileQuery = TextBoxMentionCompletionDetector.query(
