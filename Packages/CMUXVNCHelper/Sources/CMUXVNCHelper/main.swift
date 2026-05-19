@@ -240,7 +240,10 @@ private final class VNCSessionController: NSObject, VNCConnectionDelegate, @unch
         }
         guard byteCount > 0 else { return }
 
-        let nextSequence = sequence &+ 1
+        let nextSequence = stateLock.withLock { () -> UInt64 in
+            sequence &+= 1
+            return sequence
+        }
         let header = VNCFrameHeader(
             sequence: nextSequence,
             x: rectX,
@@ -268,7 +271,6 @@ private final class VNCSessionController: NSObject, VNCConnectionDelegate, @unch
             }
         }
 
-        sequence = nextSequence
         do {
             try channel.send(try VNCIPCCodec.encodeFrame(header: header, payload: payload))
         } catch {
