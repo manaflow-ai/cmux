@@ -14,6 +14,13 @@ import tempfile
 import threading
 from pathlib import Path
 
+_REPO_ROOT = Path(__file__).resolve().parents[1]
+_SCRIPTS_DIR = _REPO_ROOT / "scripts"
+if str(_SCRIPTS_DIR) not in sys.path:
+    sys.path.insert(0, str(_SCRIPTS_DIR))
+
+from cmux_socket_paths import socket_path_for_file_name as shared_socket_path_for_file_name  # noqa: E402
+
 
 def resolve_cmux_cli() -> str:
     explicit = os.environ.get("CMUX_CLI_BIN") or os.environ.get("CMUX_CLI")
@@ -105,6 +112,14 @@ def write_marker(home: str, marker_name: str, socket_path: str) -> None:
     os.makedirs(app_support, exist_ok=True)
     with open(os.path.join(app_support, marker_name), "w", encoding="utf-8") as f:
         f.write(f"{socket_path}\n")
+
+
+def app_support_dir(home: str) -> Path:
+    return Path(home) / "Library" / "Application Support" / "cmux"
+
+
+def socket_path_for_home(home: str, file_name: str) -> str:
+    return str(shared_socket_path_for_file_name(file_name, app_support_dir(home)))
 
 
 def temporary_socket_home(prefix: str) -> tempfile.TemporaryDirectory:
@@ -431,10 +446,10 @@ def test_python_client_treats_stable_override_as_implicit() -> bool:
     tag = f"python-stale-stable-{os.getpid()}"
 
     with temporary_socket_home("cmux-py-") as home:
-        app_support = os.path.join(home, "Library", "Application Support", "cmux")
+        app_support = app_support_dir(home)
         os.makedirs(app_support, exist_ok=True)
-        stable_socket = os.path.join(app_support, "cmux.sock")
-        expected_socket = os.path.join(app_support, f"com.cmuxterm.app.dev.{tag}.sock")
+        stable_socket = str(app_support / "cmux.sock")
+        expected_socket = socket_path_for_home(home, f"com.cmuxterm.app.dev.{tag}.sock")
 
         server = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
         try:
@@ -468,8 +483,7 @@ def test_python_client_treats_stable_override_as_implicit() -> bool:
 
 def test_python_v2_client_matches_empty_swift_tag_slug() -> bool:
     with temporary_socket_home("cmux-v2-empty-tag-") as home:
-        app_support = os.path.join(home, "Library", "Application Support", "cmux")
-        expected_socket = os.path.join(app_support, "com.cmuxterm.app.dev.sock")
+        expected_socket = socket_path_for_home(home, "com.cmuxterm.app.dev.sock")
         actual = python_v2_client_default_socket_path({
             "HOME": home,
             "CFFIXED_USER_HOME": home,
@@ -488,8 +502,7 @@ def test_python_v2_client_matches_empty_swift_tag_slug() -> bool:
 
 def test_python_v2_client_treats_stable_override_as_implicit() -> bool:
     with temporary_socket_home("cmux-v2-stable-override-") as home:
-        app_support = os.path.join(home, "Library", "Application Support", "cmux")
-        stable_socket = os.path.join(app_support, "com.cmuxterm.app.sock")
+        stable_socket = socket_path_for_home(home, "com.cmuxterm.app.sock")
         base_env = {
             "HOME": home,
             "CFFIXED_USER_HOME": home,
@@ -512,7 +525,7 @@ def test_python_v2_client_treats_stable_override_as_implicit() -> bool:
 
 def test_python_v2_client_ignores_non_release_stable_marker() -> bool:
     with temporary_socket_home("cmux-v2-marker-") as home:
-        app_support = Path(home) / "Library" / "Application Support" / "cmux"
+        app_support = app_support_dir(home)
         app_support.mkdir(parents=True, exist_ok=True)
         base_env = {
             "HOME": home,
@@ -520,7 +533,7 @@ def test_python_v2_client_ignores_non_release_stable_marker() -> bool:
             "CMUX_BUNDLE_ID": "com.cmuxterm.app",
         }
         expected = python_v2_client_default_socket_path(base_env)
-        variant_socket = str(app_support / "com.cmuxterm.app.nightly.sock")
+        variant_socket = socket_path_for_home(home, "com.cmuxterm.app.nightly.sock")
         write_marker(home, "last-socket-path", variant_socket)
 
         variant_server = PingServer(
@@ -559,9 +572,9 @@ def test_python_v2_client_ignores_non_release_stable_marker() -> bool:
 def test_python_v2_client_reads_tagged_dev_marker() -> bool:
     tag = f"v2-marker-{os.getpid()}"
     with temporary_socket_home("cmux-v2-dev-marker-") as home:
-        app_support = Path(home) / "Library" / "Application Support" / "cmux"
+        app_support = app_support_dir(home)
         app_support.mkdir(parents=True, exist_ok=True)
-        marker_socket = str(app_support / f"com.cmuxterm.app.dev.{tag}.sock")
+        marker_socket = socket_path_for_home(home, f"com.cmuxterm.app.dev.{tag}.sock")
         write_marker(home, f"dev-{tag}-last-socket-path", marker_socket)
 
         server = PingServer(
@@ -680,13 +693,7 @@ def test_variant_last_socket_markers(cli_path: str) -> bool:
             ):
                 return False
 
-            stable_default_socket = os.path.join(
-                home,
-                "Library",
-                "Application Support",
-                "cmux",
-                "com.cmuxterm.app.sock",
-            )
+            stable_default_socket = socket_path_for_home(home, "com.cmuxterm.app.sock")
             if not expect_ping_does_not_use_socket(
                 isolated_nightly_cli,
                 home,
@@ -782,10 +789,10 @@ def test_cli_prefers_tagged_app_support_socket_over_stale_stable_override(cli_pa
 
     with temporary_socket_home("cmux-cli-app-support-") as home, \
             tempfile.TemporaryDirectory(prefix="cmux-cli-app-support-app-") as apps:
-        app_support = Path(home) / "Library" / "Application Support" / "cmux"
+        app_support = app_support_dir(home)
         app_support.mkdir(parents=True, exist_ok=True)
-        socket_path = str(app_support / f"com.cmuxterm.app.dev.{tag}.sock")
-        stale_stable_socket = str(app_support / "com.cmuxterm.app.sock")
+        socket_path = socket_path_for_home(home, f"com.cmuxterm.app.dev.{tag}.sock")
+        stale_stable_socket = socket_path_for_home(home, "com.cmuxterm.app.sock")
 
         tagged_server = PingServer(socket_path, max_ping_requests=2)
         stale_server = PingServer(stale_stable_socket, response=b"WRONG\n", accept_timeout=1.0)
@@ -839,10 +846,10 @@ def test_cli_prefers_tagged_app_support_socket_over_stale_stable_override(cli_pa
 def test_cli_skips_non_cmux_default_socket(cli_path: str) -> bool:
     with temporary_socket_home("cmux-cli-squatter-") as home, \
             tempfile.TemporaryDirectory(prefix="cmux-cli-squatter-app-") as apps:
-        app_support = Path(home) / "Library" / "Application Support" / "cmux"
+        app_support = app_support_dir(home)
         app_support.mkdir(parents=True, exist_ok=True)
-        default_socket = str(app_support / "com.cmuxterm.app.sock")
-        fallback_socket = str(app_support / f"com.cmuxterm.app.{os.getuid()}.sock")
+        default_socket = socket_path_for_home(home, "com.cmuxterm.app.sock")
+        fallback_socket = socket_path_for_home(home, f"com.cmuxterm.app.{os.getuid()}.sock")
         write_marker(home, "last-socket-path", fallback_socket)
 
         squatter_server = PingServer(default_socket, response=b"NOT_CMUX\n")
@@ -899,9 +906,11 @@ def test_cli_ignores_non_release_stable_marker(cli_path: str) -> bool:
     for variant_name in variant_names:
         with temporary_socket_home("cmux-cli-variant-marker-") as home, \
                 tempfile.TemporaryDirectory(prefix="cmux-cli-variant-marker-app-") as apps:
-            app_support = Path(home) / "Library" / "Application Support" / "cmux"
+            app_support = app_support_dir(home)
             app_support.mkdir(parents=True, exist_ok=True)
-            variant_socket = str(app_support / variant_name)
+            # This test validates basename-based marker filtering, so keep the
+            # variant socket name intact instead of allowing path shortening.
+            variant_socket = f"/tmp/{variant_name}"
             write_marker(home, "last-socket-path", variant_socket)
 
             variant_server = PingServer(variant_socket, max_ping_requests=2, accept_timeout=1.0)
