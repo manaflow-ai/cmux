@@ -694,6 +694,9 @@ final class CmuxSettingsFileStore {
         if let raw = jsonString(section["claudeBinaryPath"]) {
             snapshot.managedUserDefaults[ClaudeCodeIntegrationSettings.customClaudePathKey] = .string(raw)
         }
+        if let value = jsonBool(section["claudeCodeNotificationHook"]) {
+            snapshot.managedUserDefaults[ClaudeCodeIntegrationSettings.notificationHookEnabledKey] = .bool(value)
+        }
         if let value = jsonBool(section["cursorIntegration"]) {
             snapshot.managedUserDefaults[CursorIntegrationSettings.hooksEnabledKey] = .bool(value)
         }

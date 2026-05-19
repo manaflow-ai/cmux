@@ -5538,6 +5538,9 @@ final class TerminalSurface: Identifiable, ObservableObject {
         if let customClaudePath = ClaudeCodeIntegrationSettings.customClaudePath() {
             setManagedEnvironmentValue("CMUX_CUSTOM_CLAUDE_PATH", customClaudePath)
         }
+        if !ClaudeCodeIntegrationSettings.notificationHookEnabled() {
+            setManagedEnvironmentValue("CMUX_CLAUDE_NOTIFICATION_HOOK_DISABLED", "1")
+        }
         if !CursorIntegrationSettings.hooksEnabled() {
             setManagedEnvironmentValue("CMUX_CURSOR_HOOKS_DISABLED", "1")
         }

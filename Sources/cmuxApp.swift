@@ -4666,12 +4666,21 @@ enum ClaudeCodeIntegrationSettings {
     static let hooksEnabledKey = "claudeCodeHooksEnabled"
     static let defaultHooksEnabled = true
     static let customClaudePathKey = "claudeCodeCustomClaudePath"
+    static let notificationHookEnabledKey = "claudeCodeNotificationHookEnabled"
+    static let defaultNotificationHookEnabled = true
 
     static func hooksEnabled(defaults: UserDefaults = .standard) -> Bool {
         if defaults.object(forKey: hooksEnabledKey) == nil {
             return defaultHooksEnabled
         }
         return defaults.bool(forKey: hooksEnabledKey)
+    }
+
+    static func notificationHookEnabled(defaults: UserDefaults = .standard) -> Bool {
+        if defaults.object(forKey: notificationHookEnabledKey) == nil {
+            return defaultNotificationHookEnabled
+        }
+        return defaults.bool(forKey: notificationHookEnabledKey)
     }
 
     static func customClaudePath(defaults: UserDefaults = .standard) -> String? {
@@ -5012,6 +5021,8 @@ struct SettingsView: View {
     private var claudeCodeHooksEnabled = ClaudeCodeIntegrationSettings.defaultHooksEnabled
     @AppStorage(ClaudeCodeIntegrationSettings.customClaudePathKey)
     private var customClaudePath = ""
+    @AppStorage(ClaudeCodeIntegrationSettings.notificationHookEnabledKey)
+    private var claudeCodeNotificationHookEnabled = ClaudeCodeIntegrationSettings.defaultNotificationHookEnabled
     @AppStorage(CursorIntegrationSettings.hooksEnabledKey)
     private var cursorHooksEnabled = CursorIntegrationSettings.defaultHooksEnabled
     @AppStorage(GeminiIntegrationSettings.hooksEnabledKey)
@@ -6575,6 +6586,21 @@ struct SettingsView: View {
 
                         SettingsCardDivider()
 
+                        SettingsCardRow(
+                            configurationReview: .json("automation.claudeCodeNotificationHook"),
+                            String(localized: "settings.automation.claudeCode.notificationHook", defaultValue: "Claude Code Idle Notifications"),
+                            subtitle: String(localized: "settings.automation.claudeCode.notificationHook.subtitle", defaultValue: "Notify when Claude Code reports that it is waiting for input. Completion notifications are unaffected.")
+                        ) {
+                            Toggle("", isOn: $claudeCodeNotificationHookEnabled)
+                                .labelsHidden()
+                                .controlSize(.small)
+                                .accessibilityIdentifier("SettingsClaudeCodeNotificationHookToggle")
+                        }
+                        .disabled(!claudeCodeHooksEnabled)
+                        .opacity(claudeCodeHooksEnabled ? 1 : 0.75)
+
+                        SettingsCardDivider()
+
                         SettingsCardNote(String(localized: "settings.automation.claudeCode.note", defaultValue: "When enabled, cmux wraps the claude command to inject session tracking and notification hooks. Disable if you prefer to manage Claude Code hooks yourself."))
                     }
 
@@ -7403,6 +7429,7 @@ struct SettingsView: View {
         socketControlMode = SocketControlSettings.defaultMode.rawValue
         claudeCodeHooksEnabled = ClaudeCodeIntegrationSettings.defaultHooksEnabled
         customClaudePath = ""
+        claudeCodeNotificationHookEnabled = ClaudeCodeIntegrationSettings.defaultNotificationHookEnabled
         cursorHooksEnabled = CursorIntegrationSettings.defaultHooksEnabled
         geminiHooksEnabled = GeminiIntegrationSettings.defaultHooksEnabled
         sendAnonymousTelemetry = TelemetrySettings.defaultSendAnonymousTelemetry
