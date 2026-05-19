@@ -13344,12 +13344,26 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
     }
 
     private func handleTerminalDirectoryOpenShortcut(event: NSEvent) -> Bool {
+        if activeConfiguredShortcutChordPrefixForCurrentEvent == nil,
+           armConfiguredShortcutChordIfNeeded(
+               event: event,
+               actions: KeyboardShortcutSettings.Action.terminalDirectoryOpenActions
+           ) {
+            return true
+        }
+
         for binding in KeyboardShortcutSettings.Action.terminalDirectoryOpenShortcutBindings {
             guard matchConfiguredShortcut(event: event, action: binding.action) else {
                 continue
             }
             let targetTabManager = preferredMainWindowContextForShortcutRouting(event: event)?.tabManager ?? tabManager
-            if !TerminalDirectoryOpenLauncher.openCurrentDirectory(in: binding.target, tabManager: targetTabManager) {
+            if !TerminalDirectoryOpenLauncher.openCurrentDirectory(
+                in: binding.target,
+                tabManager: targetTabManager,
+                onOpenFailure: { _ in
+                    NSSound.beep()
+                }
+            ) {
                 NSSound.beep()
             }
             return true

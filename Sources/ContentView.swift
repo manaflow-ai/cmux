@@ -9142,7 +9142,13 @@ struct ContentView: View {
     }
 
     private func openFocusedDirectory(in target: TerminalDirectoryOpenTarget) -> Bool {
-        TerminalDirectoryOpenLauncher.openCurrentDirectory(in: target, tabManager: tabManager)
+        TerminalDirectoryOpenLauncher.openCurrentDirectory(
+            in: target,
+            tabManager: tabManager,
+            onOpenFailure: { _ in
+                NSSound.beep()
+            }
+        )
     }
 
     private func stopInlineVSCodeServeWeb() {

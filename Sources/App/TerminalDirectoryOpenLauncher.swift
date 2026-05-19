@@ -3,6 +3,14 @@ import Foundation
 
 @MainActor
 enum TerminalDirectoryOpenLauncher {
+    typealias ApplicationOpenCompletion = @MainActor (Error?) -> Void
+    typealias ApplicationOpenHandler = (
+        _ urls: [URL],
+        _ applicationURL: URL,
+        _ configuration: NSWorkspace.OpenConfiguration,
+        _ completion: @escaping ApplicationOpenCompletion
+    ) -> Void
+
     static func currentDirectoryURL(in tabManager: TabManager?) -> URL? {
         guard let workspace = tabManager?.selectedWorkspace else { return nil }
         let focusedPanelDirectory = workspace.focusedPanelId.flatMap { workspace.panelDirectories[$0] }
@@ -25,16 +33,25 @@ enum TerminalDirectoryOpenLauncher {
 
     static func openCurrentDirectory(
         in target: TerminalDirectoryOpenTarget,
-        tabManager: TabManager?
+        tabManager: TabManager?,
+        onOpenFailure: ApplicationOpenCompletion? = nil
     ) -> Bool {
         guard let directoryURL = currentDirectoryURL(in: tabManager) else { return false }
-        return openDirectory(directoryURL, in: target, tabManager: tabManager)
+        return openDirectory(
+            directoryURL,
+            in: target,
+            tabManager: tabManager,
+            onOpenFailure: onOpenFailure
+        )
     }
 
     static func openDirectory(
         _ directoryURL: URL,
         in target: TerminalDirectoryOpenTarget,
-        tabManager: TabManager?
+        tabManager: TabManager?,
+        onOpenFailure: ApplicationOpenCompletion? = nil,
+        applicationURLProvider: (TerminalDirectoryOpenTarget) -> URL? = { $0.applicationURL() },
+        openWithApplication: ApplicationOpenHandler? = nil
     ) -> Bool {
         switch target {
         case .finder:
@@ -42,10 +59,27 @@ enum TerminalDirectoryOpenLauncher {
         case .vscodeInline:
             return AppDelegate.shared?.openDirectoryInInlineVSCode(directoryURL, tabManager: tabManager) ?? false
         default:
-            guard let applicationURL = target.applicationURL() else { return false }
+            guard let applicationURL = applicationURLProvider(target) else { return false }
             let configuration = NSWorkspace.OpenConfiguration()
-            NSWorkspace.shared.open([directoryURL], withApplicationAt: applicationURL, configuration: configuration)
+            let openWithApplication = openWithApplication ?? openURLsWithApplication
+            openWithApplication([directoryURL], applicationURL, configuration) { error in
+                guard error != nil else { return }
+                onOpenFailure?(error)
+            }
             return true
+        }
+    }
+
+    private static func openURLsWithApplication(
+        _ urls: [URL],
+        applicationURL: URL,
+        configuration: NSWorkspace.OpenConfiguration,
+        completion: @escaping ApplicationOpenCompletion
+    ) {
+        NSWorkspace.shared.open(urls, withApplicationAt: applicationURL, configuration: configuration) { _, error in
+            Task { @MainActor in
+                completion(error)
+            }
         }
     }
 }
