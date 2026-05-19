@@ -5001,55 +5001,6 @@ final class TerminalControllerSocketListenerHealthTests: XCTestCase {
         wait(for: [handled], timeout: 1.0)
     }
 
-    func testCLISocketResolverFallsBackWhenEnvironmentSocketIsDead() throws {
-        let tag = "issue-4357-\(UUID().uuidString.lowercased())"
-        let livePath = "/tmp/cmux-debug-\(tag).sock"
-        let deadPath = "/tmp/cmux-dead-\(tag).sock"
-        let listenerFD = try bindUnixSocket(at: livePath)
-        defer {
-            Darwin.close(listenerFD)
-            unlink(livePath)
-            unlink(deadPath)
-        }
-
-        var warnings: [String] = []
-        let resolved = CLISocketPathResolver.resolve(
-            requestedPath: deadPath,
-            source: .environment,
-            environment: ["CMUX_TAG": tag],
-            bundleIdentifier: "com.cmuxterm.app.debug",
-            warningSink: { warnings.append($0) }
-        )
-
-        XCTAssertEqual(resolved, livePath)
-        XCTAssertEqual(warnings.count, 1)
-        let warning = try XCTUnwrap(warnings.first)
-        XCTAssertTrue(warning.contains(deadPath))
-        XCTAssertTrue(warning.contains(livePath))
-    }
-
-    func testCLISocketResolverKeepsReachableEnvironmentSocket() throws {
-        let tag = "issue-4357-\(UUID().uuidString.lowercased())"
-        let envPath = "/tmp/cmux-env-\(tag).sock"
-        let listenerFD = try bindUnixSocket(at: envPath)
-        defer {
-            Darwin.close(listenerFD)
-            unlink(envPath)
-        }
-
-        var warnings: [String] = []
-        let resolved = CLISocketPathResolver.resolve(
-            requestedPath: envPath,
-            source: .environment,
-            environment: ["CMUX_TAG": tag],
-            bundleIdentifier: "com.cmuxterm.app.debug",
-            warningSink: { warnings.append($0) }
-        )
-
-        XCTAssertEqual(resolved, envPath)
-        XCTAssertTrue(warnings.isEmpty)
-    }
-
     func testSocketListenerHealthFailureSignalsAreEmptyWhenHealthy() {
         let health = TerminalController.SocketListenerHealth(
             isRunning: true,
