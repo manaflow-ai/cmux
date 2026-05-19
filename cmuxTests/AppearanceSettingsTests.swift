@@ -37,6 +37,16 @@ final class AppearanceSettingsTests: XCTestCase {
         )
     }
 
+    func testBundleIconPersistenceRejectsMismatchedStableIdentifierAndPath() {
+        XCTAssertFalse(
+            AppBundleIconPersistencePolicy.shouldPersist(
+                bundleIdentifier: "com.cmuxterm.app",
+                appBundleLastPathComponent: "cmux NIGHTLY.app",
+                launchArguments: []
+            )
+        )
+    }
+
     func testBundleIconPersistenceSkipsDebugBundles() {
         XCTAssertFalse(
             AppBundleIconPersistencePolicy.shouldPersist(
