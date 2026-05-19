@@ -1321,6 +1321,7 @@ struct HiddenTitlebarSidebarControlsView: View {
                     }
                 }
                 #if DEBUG
+                TitlebarChromeUITestRecorder.recordTrafficLightFrames(window: window)
                 _ = CmuxUITestCapture.mutateJSONObjectIfConfigured(envKey: "CMUX_UI_TEST_BONSPLIT_TAB_DRAG_PATH") { payload in
                     payload["minimalSidebarHostWindowNumber"] = String(nextWindowNumber)
                     payload["minimalSidebarHostPinned"] = String(
