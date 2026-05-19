@@ -424,9 +424,9 @@ final class CmuxSettingsFileStore {
         }
         if let value = jsonDouble(section["uiScale"]) {
             let clamped = UIScaleSettings.clamped(value)
-            if UIScaleSettings.shouldApplySettingsFileValue(clamped) {
-                snapshot.managedUserDefaults[UIScaleSettings.userDefaultsKey] = .double(clamped)
-            }
+            snapshot.managedUserDefaults[UIScaleSettings.userDefaultsKey] = .double(
+                UIScaleSettings.settingsFileManagedValue(clamped)
+            )
         } else if section.keys.contains("uiScale") {
             logInvalid("app.uiScale", sourcePath: sourcePath)
         }

@@ -95,16 +95,19 @@ enum UIScaleSettings {
         (clamped(value) * 100).rounded() / 100
     }
 
-    static func shouldApplySettingsFileValue(
+    static func settingsFileManagedValue(
         _ value: Double,
         defaults: UserDefaults = .standard
-    ) -> Bool {
+    ) -> Double {
         let persisted = roundedForPersistence(value)
         let current = roundedForPersistence(resolved(defaults: defaults))
         guard let pending = pendingPersistence(defaults: defaults) else {
-            return true
+            return persisted
         }
-        return roundedForPersistence(pending.value) != current || persisted == current
+        if roundedForPersistence(pending.value) == current && persisted != current {
+            return current
+        }
+        return persisted
     }
 
     fileprivate static func completePendingPersistence(
