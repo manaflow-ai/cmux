@@ -215,6 +215,13 @@ enum DragOverlayRoutingPolicy {
         hasFileURL(pasteboardTypes) || hasFilePreviewTransfer(pasteboardTypes)
     }
 
+    static func isPlainExternalFileDrop(_ pasteboardTypes: [NSPasteboard.PasteboardType]?) -> Bool {
+        hasFileURL(pasteboardTypes)
+            && !hasFilePreviewTransfer(pasteboardTypes)
+            && !hasBonsplitTabTransfer(pasteboardTypes)
+            && !hasSidebarTabReorder(pasteboardTypes)
+    }
+
     static func fileURLs(from pasteboard: NSPasteboard) -> [URL] {
         let fileURLs = PasteboardFileURLReader.fileURLs(from: pasteboard)
         if !fileURLs.isEmpty {

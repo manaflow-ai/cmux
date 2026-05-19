@@ -79,6 +79,12 @@ final class BrowserPaneDropTargetView: NSView {
         }
 
         let pasteboardTypes = NSPasteboard(name: .drag).types
+        if shouldDeferPlainExternalFileDropToHostedWebView(pasteboardTypes: pasteboardTypes, at: point) {
+#if DEBUG
+            logHitTestDecision(capture: false, pasteboardTypes: pasteboardTypes, eventType: NSApp.currentEvent?.type)
+#endif
+            return nil
+        }
         let eventType = NSApp.currentEvent?.type
         let capture = Self.shouldCaptureHitTesting(
             pasteboardTypes: pasteboardTypes,
@@ -112,6 +118,12 @@ final class BrowserPaneDropTargetView: NSView {
         }
 
         let location = convert(sender.draggingLocation, from: nil)
+        if shouldDeferPlainExternalFileDropToHostedWebView(sender, at: location) {
+#if DEBUG
+            cmuxDebugLog("browser.paneDrop.prepare allowed=0 reason=plainExternalWebContentFileDrop")
+#endif
+            return false
+        }
         if shouldRouteFileDropToHostedWebView(sender, at: location) {
             clearDragState(phase: "prepare.text")
             let webView = activeFileDropWebView ?? slotView?.hostedWebViewForFileDrop(at: location)
@@ -142,6 +154,12 @@ final class BrowserPaneDropTargetView: NSView {
         }
 
         let location = convert(sender.draggingLocation, from: nil)
+        if shouldDeferPlainExternalFileDropToHostedWebView(sender, at: location) {
+#if DEBUG
+            cmuxDebugLog("browser.paneDrop.perform allowed=0 reason=plainExternalWebContentFileDrop")
+#endif
+            return false
+        }
         let zone = BrowserPaneDropRouting.zone(
             for: location,
             in: bounds.size,
@@ -301,6 +319,12 @@ final class BrowserPaneDropTargetView: NSView {
             topChromeHeight: slotView?.effectivePaneTopChromeHeight() ?? 0
         )
 
+        if shouldDeferPlainExternalFileDropToHostedWebView(sender, at: location) {
+            exitActiveFileDropWebView(sender)
+            clearDragState(phase: "\(phase).webContent")
+            return []
+        }
+
         if shouldRouteFileDropToHostedWebView(sender, at: location) {
             clearDragState(phase: "\(phase).text")
             return updateHostedWebViewDragState(sender, at: location)
@@ -347,6 +371,24 @@ final class BrowserPaneDropTargetView: NSView {
             modifierFlags: DragOverlayRoutingPolicy.currentModifierFlags,
             canDropAsText: canDropIntoHostedWebView
         )
+    }
+
+    private func shouldDeferPlainExternalFileDropToHostedWebView(
+        _ sender: any NSDraggingInfo,
+        at location: NSPoint
+    ) -> Bool {
+        shouldDeferPlainExternalFileDropToHostedWebView(
+            pasteboardTypes: sender.draggingPasteboard.types,
+            at: location
+        )
+    }
+
+    private func shouldDeferPlainExternalFileDropToHostedWebView(
+        pasteboardTypes: [NSPasteboard.PasteboardType]?,
+        at location: NSPoint
+    ) -> Bool {
+        guard DragOverlayRoutingPolicy.isPlainExternalFileDrop(pasteboardTypes) else { return false }
+        return slotView?.hostedWebViewForFileDrop(at: location) != nil
     }
 
     private func updateHostedWebViewDragState(_ sender: any NSDraggingInfo, at location: NSPoint) -> NSDragOperation {
