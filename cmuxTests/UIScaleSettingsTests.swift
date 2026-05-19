@@ -123,6 +123,33 @@ final class UIScaleSettingsTests: XCTestCase {
         waitForPersistedUIScale(1.4, in: settingsFileURL)
     }
 
+    func testFileManagedUIScaleChangeSurvivesDefaultsReapply() throws {
+        let settingsFileURL = FileManager.default.temporaryDirectory
+            .appendingPathComponent("cmux-ui-scale-managed-reapply-\(UUID().uuidString).json", isDirectory: false)
+        try #"{"schemaVersion":1,"app":{"uiScale":1.0}}"#.write(
+            to: settingsFileURL,
+            atomically: true,
+            encoding: .utf8
+        )
+        let store = KeyboardShortcutSettingsFileStore(
+            primaryPath: settingsFileURL.path,
+            fallbackPath: nil,
+            additionalFallbackPaths: [],
+            startWatching: true
+        )
+        KeyboardShortcutSettings.settingsFileStore = store
+        XCTAssertEqual(UIScaleSettings.resolved(), 1.0, accuracy: 0.001)
+
+        UIScaleSettings.set(1.4)
+        XCTAssertEqual(UIScaleSettings.resolved(), 1.4, accuracy: 0.001)
+
+        NotificationCenter.default.post(name: UserDefaults.didChangeNotification, object: UserDefaults.standard)
+        RunLoop.main.run(until: Date(timeIntervalSinceNow: 0.05))
+
+        XCTAssertEqual(UIScaleSettings.resolved(), 1.4, accuracy: 0.001)
+        waitForPersistedUIScale(1.4, in: settingsFileURL)
+    }
+
     func testWritingAppUIScalePreservesJSONCTemplateComments() throws {
         let settingsFileURL = FileManager.default.temporaryDirectory
             .appendingPathComponent("cmux-ui-scale-template-\(UUID().uuidString).json", isDirectory: false)

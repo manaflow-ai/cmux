@@ -1071,17 +1071,17 @@ final class CmuxSettingsFileStore {
                 didMutateStoredValue = true
             }
         case .bool(let value):
-            if defaults.object(forKey: defaultsKey) as? Bool != value {
+            if currentBoolUserDefaultsValue(for: defaultsKey, defaults: defaults) != value {
                 defaults.set(value, forKey: defaultsKey)
                 didMutateStoredValue = true
             }
         case .int(let value):
-            if defaults.object(forKey: defaultsKey) as? Int != value {
+            if currentIntUserDefaultsValue(for: defaultsKey, defaults: defaults) != value {
                 defaults.set(value, forKey: defaultsKey)
                 didMutateStoredValue = true
             }
         case .double(let value):
-            if defaults.object(forKey: defaultsKey) as? Double != value {
+            if currentDoubleUserDefaultsValue(for: defaultsKey, defaults: defaults) != value {
                 defaults.set(value, forKey: defaultsKey)
                 didMutateStoredValue = true
             }
@@ -1109,6 +1109,48 @@ final class CmuxSettingsFileStore {
             )
         }
         return ManagedDefaultBatchSideEffects()
+    }
+
+    private func currentBoolUserDefaultsValue(
+        for defaultsKey: String,
+        defaults: UserDefaults
+    ) -> Bool? {
+        guard let object = defaults.object(forKey: defaultsKey) else { return nil }
+        if let value = object as? Bool {
+            return value
+        }
+        if let number = object as? NSNumber {
+            return number.boolValue
+        }
+        return nil
+    }
+
+    private func currentIntUserDefaultsValue(
+        for defaultsKey: String,
+        defaults: UserDefaults
+    ) -> Int? {
+        guard let object = defaults.object(forKey: defaultsKey) else { return nil }
+        if let value = object as? Int {
+            return value
+        }
+        if let number = object as? NSNumber {
+            return number.intValue
+        }
+        return nil
+    }
+
+    private func currentDoubleUserDefaultsValue(
+        for defaultsKey: String,
+        defaults: UserDefaults
+    ) -> Double? {
+        guard let object = defaults.object(forKey: defaultsKey) else { return nil }
+        if let value = object as? Double {
+            return value
+        }
+        if let number = object as? NSNumber {
+            return number.doubleValue
+        }
+        return nil
     }
 
     private func applyManagedUserDefaultsValue(
@@ -1140,19 +1182,19 @@ final class CmuxSettingsFileStore {
         var didMutateStoredValue = false
         switch value {
         case .bool(let next):
-            let current = defaults.object(forKey: defaultsKey) as? Bool
+            let current = currentBoolUserDefaultsValue(for: defaultsKey, defaults: defaults)
             if current != next {
                 defaults.set(next, forKey: defaultsKey)
                 didMutateStoredValue = true
             }
         case .int(let next):
-            let current = defaults.object(forKey: defaultsKey) as? Int
+            let current = currentIntUserDefaultsValue(for: defaultsKey, defaults: defaults)
             if current != next {
                 defaults.set(next, forKey: defaultsKey)
                 didMutateStoredValue = true
             }
         case .double(let next):
-            let current = defaults.object(forKey: defaultsKey) as? Double
+            let current = currentDoubleUserDefaultsValue(for: defaultsKey, defaults: defaults)
             if current != next {
                 defaults.set(next, forKey: defaultsKey)
                 didMutateStoredValue = true
@@ -1240,13 +1282,19 @@ final class CmuxSettingsFileStore {
     ) -> ManagedSettingsValue? {
         switch value {
         case .bool:
-            guard let current = defaults.object(forKey: defaultsKey) as? Bool else { return nil }
+            guard let current = currentBoolUserDefaultsValue(for: defaultsKey, defaults: defaults) else {
+                return nil
+            }
             return .bool(current)
         case .int:
-            guard let current = defaults.object(forKey: defaultsKey) as? Int else { return nil }
+            guard let current = currentIntUserDefaultsValue(for: defaultsKey, defaults: defaults) else {
+                return nil
+            }
             return .int(current)
         case .double:
-            guard let current = defaults.object(forKey: defaultsKey) as? Double else { return nil }
+            guard let current = currentDoubleUserDefaultsValue(for: defaultsKey, defaults: defaults) else {
+                return nil
+            }
             return .double(current)
         case .string:
             guard let current = defaults.string(forKey: defaultsKey) else { return nil }
