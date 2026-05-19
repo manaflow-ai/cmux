@@ -1817,8 +1817,8 @@ private final class TextBoxSubmitEventRunner {
                 return
             case .captureClaudeImageTokenBaseline:
                 claudeImageTokenBaseline = Self.claudeImageTokenCount(in: surface.visibleText() ?? "")
-            case .waitForClaudeImageToken:
-                waitForClaudeImageToken()
+            case .waitForClaudeImageToken(let expectedText):
+                waitForClaudeImageToken(expectedText)
                 return
             }
         }
@@ -1887,10 +1887,13 @@ private final class TextBoxSubmitEventRunner {
         }
     }
 
-    private func waitForClaudeImageToken() {
+    private func waitForClaudeImageToken(_ expectedText: String) {
         if claudeImageTokenReady() {
 #if DEBUG
-            cmuxDebugLog("textbox.submit.wait.image.ready id=\(id.uuidString.prefix(5)) baseline=\(claudeImageTokenBaseline)")
+            cmuxDebugLog(
+                "textbox.submit.wait.image.ready id=\(id.uuidString.prefix(5)) " +
+                "baseline=\(claudeImageTokenBaseline) expected=\(Self.debugText(expectedText))"
+            )
 #endif
             processNext()
             return
@@ -1902,10 +1905,22 @@ private final class TextBoxSubmitEventRunner {
                 return false
             }
 #if DEBUG
-            cmuxDebugLog("textbox.submit.wait.image.observed id=\(self.id.uuidString.prefix(5)) baseline=\(self.claudeImageTokenBaseline)")
+            cmuxDebugLog(
+                "textbox.submit.wait.image.observed id=\(self.id.uuidString.prefix(5)) " +
+                "baseline=\(self.claudeImageTokenBaseline) expected=\(Self.debugText(expectedText))"
+            )
 #endif
             self.processNext()
             return true
+        } onExhausted: { [weak self] in
+            guard let self else { return }
+#if DEBUG
+            cmuxDebugLog(
+                "textbox.submit.wait.image.exhausted.continuing id=\(self.id.uuidString.prefix(5)) " +
+                "baseline=\(self.claudeImageTokenBaseline) expected=\(Self.debugText(expectedText))"
+            )
+#endif
+            self.processNext()
         }
     }
 
