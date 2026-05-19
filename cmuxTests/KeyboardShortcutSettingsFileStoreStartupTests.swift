@@ -461,6 +461,114 @@ final class KeyboardShortcutSettingsFileStoreStartupTests: XCTestCase {
         XCTAssertEqual(defaults.object(forKey: key) as? Bool, false)
     }
 
+    @MainActor
+    func testSettingsFileStoreAppliesFileExplorerGitStatusColors() throws {
+        let defaults = UserDefaults.standard
+        let key = FileExplorerGitStatusColorSettings.userDefaultsKey
+        defer {
+            FileExplorerGitStatusColorSettings.reloadSharedPaletteOnMainThread()
+            NotificationCenter.default.post(name: .fileExplorerStyleDidChange, object: nil)
+        }
+
+        try preservingDefaults(keys: [key, settingsFileBackupsDefaultsKey, importedManagedDefaultsKey]) {
+            defaults.removeObject(forKey: key)
+            defaults.removeObject(forKey: settingsFileBackupsDefaultsKey)
+            defaults.removeObject(forKey: importedManagedDefaultsKey)
+            // Warm FileExplorerGitStatusColorPalette.shared through
+            // FileExplorerStyle.highDensity.gitColor(for: .modified); the
+            // assertions below verify the managed override reloads the cache.
+            _ = FileExplorerStyle.highDensity.gitColor(for: .modified)
+
+            let directoryURL = try makeTemporaryDirectory()
+            defer { try? FileManager.default.removeItem(at: directoryURL) }
+
+            let settingsFileURL = directoryURL.appendingPathComponent("cmux.json", isDirectory: false)
+            try writeSettingsFile(
+                """
+                {
+                  "fileExplorer": {
+                    "gitStatusColors": {
+                      "modified": "#218d8f",
+                      "added": "#2aa54d",
+                      "deleted": "#d24545",
+                      "renamed": "#7c68ef",
+                      "untracked": "#577172"
+                    }
+                  }
+                }
+                """,
+                to: settingsFileURL
+            )
+
+            _ = KeyboardShortcutSettingsFileStore(
+                primaryPath: settingsFileURL.path,
+                fallbackPath: nil,
+                additionalFallbackPaths: [],
+                startWatching: false
+            )
+
+            XCTAssertEqual(
+                defaults.dictionary(forKey: key) as? [String: String],
+                [
+                    "modified": "#218D8F",
+                    "added": "#2AA54D",
+                    "deleted": "#D24545",
+                    "renamed": "#7C68EF",
+                    "untracked": "#577172",
+                ]
+            )
+            XCTAssertEqual(FileExplorerStyle.highDensity.gitColor(for: .modified).hexString(), "#218D8F")
+            XCTAssertEqual(FileExplorerStyle.highDensity.gitColor(for: .added).hexString(), "#2AA54D")
+            XCTAssertEqual(FileExplorerStyle.highDensity.gitColor(for: .deleted).hexString(), "#D24545")
+            XCTAssertEqual(FileExplorerStyle.highDensity.gitColor(for: .renamed).hexString(), "#7C68EF")
+            XCTAssertEqual(FileExplorerStyle.highDensity.gitColor(for: .untracked).hexString(), "#577172")
+        }
+    }
+
+    @MainActor
+    func testFileExplorerGitStatusColorsIgnoreMalformedPersistedEntries() throws {
+        let suiteName = "cmux-file-explorer-git-colors-\(UUID().uuidString)"
+        let defaults = try XCTUnwrap(UserDefaults(suiteName: suiteName))
+        defer { defaults.removePersistentDomain(forName: suiteName) }
+
+        defaults.set(
+            [
+                "modified": "#123456",
+                "added": 12,
+                "deleted": "not-a-color",
+                "unknown": "#FFFFFF",
+            ],
+            forKey: FileExplorerGitStatusColorSettings.userDefaultsKey
+        )
+        let addedFallback = try XCTUnwrap(NSColor(hex: "#00AA00"))
+        let deletedFallback = try XCTUnwrap(NSColor(hex: "#AA0000"))
+
+        XCTAssertEqual(
+            FileExplorerGitStatusColorSettings.resolvedColor(
+                for: .modified,
+                fallback: .systemOrange,
+                defaults: defaults
+            ).hexString(),
+            "#123456"
+        )
+        XCTAssertEqual(
+            FileExplorerGitStatusColorSettings.resolvedColor(
+                for: .added,
+                fallback: addedFallback,
+                defaults: defaults
+            ).hexString(),
+            "#00AA00"
+        )
+        XCTAssertEqual(
+            FileExplorerGitStatusColorSettings.resolvedColor(
+                for: .deleted,
+                fallback: deletedFallback,
+                defaults: defaults
+            ).hexString(),
+            "#AA0000"
+        )
+    }
+
     private func makeTemporaryDirectory() throws -> URL {
         let url = FileManager.default.temporaryDirectory.appendingPathComponent(
             "cmux-settings-startup-\(UUID().uuidString)",

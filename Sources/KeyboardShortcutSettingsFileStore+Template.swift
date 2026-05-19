@@ -125,6 +125,17 @@ extension CmuxSettingsFileStore {
                 ],
             ],
             [
+                "fileExplorer": [
+                    "gitStatusColors": [
+                        "modified": "#218D8F",
+                        "added": "#2AA54D",
+                        "deleted": "#D24545",
+                        "renamed": "#7C68EF",
+                        "untracked": "#577172",
+                    ],
+                ],
+            ],
+            [
                 "sidebarAppearance": [
                     "matchTerminalBackground": false,
                     "tintColor": SidebarTintDefaults.hex,

@@ -39,6 +39,7 @@ const sectionOrder = [
   "terminal",
   "notifications",
   "sidebar",
+  "fileExplorer",
   "workspaceColors",
   "sidebarAppearance",
   "automation",
@@ -77,6 +78,16 @@ const settingsFileExample = `{
   //     "Red": "#C0392B",
   //     "Blue": "#1565C0",
   //     "Neon Mint": "#00F5D4"
+  //   }
+  // },
+
+  // "fileExplorer": {
+  //   "gitStatusColors": {
+  //     "modified": "#218D8F",
+  //     "added": "#2AA54D",
+  //     "deleted": "#D24545",
+  //     "renamed": "#7C68EF",
+  //     "untracked": "#577172"
   //   }
   // },
 
@@ -347,6 +358,25 @@ working-directory = ~/code`}</CodeBlock>
       "Red": "#C0392B",
       "Blue": "#1565C0",
       "Neon Mint": "#00F5D4"
+    }
+  }
+}`}</CodeBlock>
+              </>
+            )}
+            {sectionName === "fileExplorer" && (
+              <>
+                <p>
+                  <code>fileExplorer.gitStatusColors</code> overrides the File Explorer label color for
+                  each git status. Leave a status out to keep the active File Explorer style's built-in color.
+                </p>
+                <CodeBlock lang="json">{`{
+  "fileExplorer": {
+    "gitStatusColors": {
+      "modified": "#218D8F",
+      "added": "#2AA54D",
+      "deleted": "#D24545",
+      "renamed": "#7C68EF",
+      "untracked": "#577172"
     }
   }
 }`}</CodeBlock>

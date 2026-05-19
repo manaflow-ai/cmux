@@ -147,7 +147,15 @@ enum FileExplorerStyle: Int, CaseIterable {
         }
     }
 
+    @MainActor
     func gitColor(for status: GitFileStatus) -> NSColor {
+        FileExplorerGitStatusColorSettings.resolvedColor(
+            for: status,
+            fallback: defaultGitColor(for: status)
+        )
+    }
+
+    private func defaultGitColor(for status: GitFileStatus) -> NSColor {
         switch self {
         case .liquidGlass:
             switch status {
@@ -1155,7 +1163,7 @@ final class FileExplorerDirectoryWatcher {
 
 // MARK: - Git Status
 
-enum GitFileStatus {
+enum GitFileStatus: String, CaseIterable {
     case modified, added, deleted, renamed, untracked
 }
 
