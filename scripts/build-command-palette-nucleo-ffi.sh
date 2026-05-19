@@ -103,6 +103,8 @@ else
   lipo -create -output "${SOURCE_LIB}" "${libs[@]}"
 fi
 
+/usr/bin/install_name_tool -id "@rpath/${LIB_NAME}" "${SOURCE_LIB}"
+
 if [ -z "${TARGET_BUILD_DIR:-}" ]; then
   echo "built ${SOURCE_LIB}"
   exit 0
