@@ -20524,10 +20524,52 @@
     "command.promptSnippet.subtitle": {
       "extractionState": "manual",
       "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "مقتطف مطالبة"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Isječak prompta"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Promptuddrag"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Prompt-Snippet"
+          }
+        },
         "en": {
           "stringUnit": {
             "state": "translated",
             "value": "Prompt Snippet"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Fragmento de prompt"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Extrait de prompt"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Snippet di prompt"
           }
         },
         "ja": {
@@ -20535,22 +20577,184 @@
             "state": "translated",
             "value": "プロンプトスニペット"
           }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "프롬프트 스니펫"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Prompt-snutt"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Fragment promptu"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Snippet de prompt"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Фрагмент запроса"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "สไนปเป็ตพรอมป์"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "İstem parçası"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Фрагмент промпту"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "提示片段"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "提示片段"
+          }
         }
       }
     },
     "command.promptSnippet.title": {
       "extractionState": "manual",
       "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "إدراج مقتطف مطالبة: %@"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Umetni isječak prompta: %@"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Indsæt promptuddrag: %@"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Prompt-Snippet einfügen: %@"
+          }
+        },
         "en": {
           "stringUnit": {
             "state": "translated",
             "value": "Insert Prompt Snippet: %@"
           }
         },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Insertar fragmento de prompt: %@"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Insérer un extrait de prompt : %@"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Inserisci snippet di prompt: %@"
+          }
+        },
         "ja": {
           "stringUnit": {
             "state": "translated",
             "value": "プロンプトスニペットを挿入: %@"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "프롬프트 스니펫 삽입: %@"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Sett inn prompt-snutt: %@"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Wstaw fragment promptu: %@"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Inserir snippet de prompt: %@"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Вставить фрагмент запроса: %@"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "แทรกสไนปเป็ตพรอมป์: %@"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "İstem parçası ekle: %@"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Вставити фрагмент промпту: %@"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "插入提示片段：%@"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "插入提示片段：%@"
           }
         }
       }
@@ -21221,16 +21425,118 @@
     "command.cmuxConfig.issue.promptSnippetDuplicateID.detail": {
       "extractionState": "manual",
       "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ تجاهل معرّف مقتطف مطالبة مكرر '%@'"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ je ignorisao duplirani ID isječka prompta '%@'"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ ignorerede duplikeret promptuddrags-id '%@'"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ hat die doppelte Prompt-Snippet-ID '%@' ignoriert"
+          }
+        },
         "en": {
           "stringUnit": {
             "state": "translated",
             "value": "%@ ignored duplicate prompt snippet ID '%@'"
           }
         },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ ignoró el ID de fragmento de prompt duplicado '%@'"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ a ignoré l'ID d'extrait de prompt dupliqué '%@'"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ ha ignorato l'ID snippet di prompt duplicato '%@'"
+          }
+        },
         "ja": {
           "stringUnit": {
             "state": "translated",
             "value": "%@ は重複するプロンプトスニペット ID '%@' を無視しました"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@이(가) 중복된 프롬프트 스니펫 ID '%@'을(를) 무시했습니다"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ ignorerte duplisert prompt-snutt-ID '%@'"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ zignorował zduplikowany identyfikator fragmentu promptu '%@'"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ ignorou o ID de snippet de prompt duplicado '%@'"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ проигнорировал повторяющийся ID фрагмента запроса '%@'"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ ละเว้น ID สไนปเป็ตพรอมป์ที่ซ้ำกัน '%@'"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ yinelenen istem parçası kimliğini yok saydı: '%@'"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ проігнорував дубльований ID фрагмента промпту '%@'"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ 已忽略重复的提示片段 ID '%@'"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ 已忽略重複的提示片段 ID '%@'"
           }
         }
       }
