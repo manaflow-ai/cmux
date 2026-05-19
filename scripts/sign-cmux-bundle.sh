@@ -26,6 +26,7 @@
 #      notarized macOS 26 Tahoe rejects with errno 163.
 
 set -euo pipefail
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 
 if [[ $# -lt 3 ]]; then
   echo "usage: $0 <app-path> <app-entitlements> <signing-identity>" >&2

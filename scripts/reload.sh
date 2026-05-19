@@ -625,6 +625,8 @@ if [[ -n "$TAG" && "$APP_NAME" != "$SEARCH_APP_NAME" ]]; then
       set_plist_env "$INFO_PLIST" CMUX_SOCKET_MODE "allowAll"
       set_plist_env "$INFO_PLIST" CMUX_REMOTE_DAEMON_ALLOW_LOCAL_BUILD "1"
       set_plist_env "$INFO_PLIST" CMUXTERM_REPO_ROOT "$PWD"
+      set_plist_env "$INFO_PLIST" CMUX_BUNDLED_CLI_PATH "$TAG_APP_PATH/Contents/Resources/bin/cmux"
+      set_plist_env "$INFO_PLIST" CMUX_SHELL_INTEGRATION_DIR "$TAG_APP_PATH/Contents/Resources/shell-integration"
       set_plist_env "$INFO_PLIST" CMUX_PORT "$CMUX_DEV_PORT"
       set_plist_env "$INFO_PLIST" CMUX_PORT_END "$CMUX_DEV_PORT_END"
       set_plist_env "$INFO_PLIST" CMUX_PORT_RANGE "$CMUX_DEV_PORT_RANGE"
@@ -725,6 +727,8 @@ if [[ "$LAUNCH" -eq 1 ]]; then
   # socket and resource-path conflicts.
   OPEN_CLEAN_ENV=(
     env
+    -u CMUX_SOCKET
+    -u CMUX_SOCKET_PASSWORD
     -u CMUX_SOCKET_PATH
     -u CMUX_WORKSPACE_ID
     -u CMUX_SURFACE_ID
@@ -734,10 +738,14 @@ if [[ "$LAUNCH" -eq 1 ]]; then
     -u CMUX_TAG
     -u CMUX_DEBUG_LOG
     -u CMUX_BUNDLE_ID
+    -u CMUX_BUNDLED_CLI_PATH
     -u CMUX_SHELL_INTEGRATION
+    -u CMUX_SHELL_INTEGRATION_DIR
+    -u CMUX_LOAD_GHOSTTY_ZSH_INTEGRATION
     -u GHOSTTY_BIN_DIR
     -u GHOSTTY_RESOURCES_DIR
     -u GHOSTTY_SHELL_FEATURES
+    -u GHOSTTY_SURFACE_ID
     # Dev shells (including CI/Codex) often force-disable paging by exporting these.
     # Don't leak that into cmux, otherwise `git diff` won't page even with PAGER=less.
     -u GIT_PAGER
@@ -754,6 +762,8 @@ if [[ "$LAUNCH" -eq 1 ]]; then
     CMUX_DEBUG_LOG="$CMUX_DEBUG_LOG"
     CMUX_REMOTE_DAEMON_ALLOW_LOCAL_BUILD=1
     CMUXTERM_REPO_ROOT="$PWD"
+    CMUX_BUNDLED_CLI_PATH="$CLI_PATH"
+    CMUX_SHELL_INTEGRATION_DIR="$APP_PATH/Contents/Resources/shell-integration"
     CMUX_PORT="$CMUX_DEV_PORT"
     CMUX_PORT_END="$CMUX_DEV_PORT_END"
     CMUX_PORT_RANGE="$CMUX_DEV_PORT_RANGE"
@@ -765,16 +775,34 @@ if [[ "$LAUNCH" -eq 1 ]]; then
 
   LAUNCH_CMD=()
   LAUNCH_RETRY_CMD=()
-  if [[ -n "${CMUX_SOCKET_PATH_VALUE:-}" ]]; then
-    # Ensure tag-specific socket paths win even if the caller has CMUX_* overrides.
-    LAUNCH_CMD=("${OPEN_CLEAN_ENV[@]}" "${TAG_LAUNCH_ENV[@]}" CMUX_SOCKET_PATH="$CMUX_SOCKET_PATH_VALUE" CMUXD_UNIX_PATH="$CMUXD_SOCKET" open -g "$APP_PATH")
-    LAUNCH_RETRY_CMD=("${OPEN_CLEAN_ENV[@]}" "${TAG_LAUNCH_ENV[@]}" CMUX_SOCKET_PATH="$CMUX_SOCKET_PATH_VALUE" CMUXD_UNIX_PATH="$CMUXD_SOCKET" open -n -g "$APP_PATH")
+  if [[ -n "${TAG_SLUG:-}" ]]; then
+    # Launch tagged apps directly so LaunchServices cannot reuse a stale
+    # LSEnvironment for the tag's bundle id.
+    APP_EXECUTABLE="$APP_PATH/Contents/MacOS/${BASE_APP_NAME}"
+    if [[ ! -x "$APP_EXECUTABLE" ]]; then
+      echo "error: tagged app executable not found: $APP_EXECUTABLE" >&2
+      exit 1
+    fi
+    TAG_LAUNCH_LOG="/tmp/cmux-launch-${TAG_SLUG}.out"
+    if [[ -n "${CMUX_SOCKET_PATH_VALUE:-}" ]]; then
+      nohup "${OPEN_CLEAN_ENV[@]}" "${TAG_LAUNCH_ENV[@]}" CMUX_SOCKET_PATH="$CMUX_SOCKET_PATH_VALUE" CMUXD_UNIX_PATH="$CMUXD_SOCKET" "$APP_EXECUTABLE" >"$TAG_LAUNCH_LOG" 2>&1 &
+    else
+      nohup "${OPEN_CLEAN_ENV[@]}" "${TAG_LAUNCH_ENV[@]}" "$APP_EXECUTABLE" >"$TAG_LAUNCH_LOG" 2>&1 &
+    fi
   else
-    LAUNCH_CMD=("${OPEN_CLEAN_ENV[@]}" "${TAG_LAUNCH_ENV[@]}" open -g "$APP_PATH")
-    LAUNCH_RETRY_CMD=("${OPEN_CLEAN_ENV[@]}" "${TAG_LAUNCH_ENV[@]}" open -n -g "$APP_PATH")
+    echo "/tmp/cmux-debug.sock" > /tmp/cmux-last-socket-path || true
+    echo "/tmp/cmux-debug.log" > /tmp/cmux-last-debug-log-path || true
+    if [[ -n "${CMUX_SOCKET_PATH_VALUE:-}" ]]; then
+      # Ensure explicit socket paths win even if the caller has CMUX_* overrides.
+      LAUNCH_CMD=("${OPEN_CLEAN_ENV[@]}" "${TAG_LAUNCH_ENV[@]}" CMUX_SOCKET_PATH="$CMUX_SOCKET_PATH_VALUE" CMUXD_UNIX_PATH="$CMUXD_SOCKET" open -g "$APP_PATH")
+      LAUNCH_RETRY_CMD=("${OPEN_CLEAN_ENV[@]}" "${TAG_LAUNCH_ENV[@]}" CMUX_SOCKET_PATH="$CMUX_SOCKET_PATH_VALUE" CMUXD_UNIX_PATH="$CMUXD_SOCKET" open -n -g "$APP_PATH")
+    else
+      LAUNCH_CMD=("${OPEN_CLEAN_ENV[@]}" "${TAG_LAUNCH_ENV[@]}" open -g "$APP_PATH")
+      LAUNCH_RETRY_CMD=("${OPEN_CLEAN_ENV[@]}" "${TAG_LAUNCH_ENV[@]}" open -n -g "$APP_PATH")
+    fi
   fi
 
-  if ! "${LAUNCH_CMD[@]}"; then
+  if [[ "${#LAUNCH_CMD[@]}" -gt 0 ]] && ! "${LAUNCH_CMD[@]}"; then
     echo "warning: open -g failed; retrying launch with open -n -g" >&2
     "${LAUNCH_RETRY_CMD[@]}"
   fi
@@ -782,6 +810,14 @@ if [[ "$LAUNCH" -eq 1 ]]; then
   # Safety: ensure only one instance is running.
   sleep 0.2
   PIDS=($(pgrep -f "${APP_PATH}/Contents/MacOS/" || true))
+  if [[ -n "${TAG_SLUG:-}" && "${#PIDS[@]}" -eq 0 ]]; then
+    echo "error: tagged app exited immediately after launch" >&2
+    if [[ -n "${TAG_LAUNCH_LOG:-}" && -f "$TAG_LAUNCH_LOG" ]]; then
+      echo "Launch log: $TAG_LAUNCH_LOG" >&2
+      tail -n 80 "$TAG_LAUNCH_LOG" >&2 || true
+    fi
+    exit 1
+  fi
   if [[ "${#PIDS[@]}" -gt 1 ]]; then
     NEWEST_PID=""
     NEWEST_AGE=999999
@@ -797,6 +833,27 @@ if [[ "$LAUNCH" -eq 1 ]]; then
         kill "$PID" 2>/dev/null || true
       fi
     done
+  fi
+  if [[ -n "${TAG_SLUG:-}" && -n "${CMUX_SOCKET_PATH_VALUE:-}" ]]; then
+    SOCKET_READY=0
+    for _ in {1..80}; do
+      if [[ -S "$CMUX_SOCKET_PATH_VALUE" ]]; then
+        SOCKET_READY=1
+        break
+      fi
+      if ! pgrep -f "${APP_PATH}/Contents/MacOS/" >/dev/null 2>&1; then
+        break
+      fi
+      sleep 0.1
+    done
+    if [[ "$SOCKET_READY" -ne 1 ]]; then
+      echo "error: tagged app did not create socket: $CMUX_SOCKET_PATH_VALUE" >&2
+      if [[ -n "${TAG_LAUNCH_LOG:-}" && -f "$TAG_LAUNCH_LOG" ]]; then
+        echo "Launch log: $TAG_LAUNCH_LOG" >&2
+        tail -n 80 "$TAG_LAUNCH_LOG" >&2 || true
+      fi
+      exit 1
+    fi
   fi
 fi
 
