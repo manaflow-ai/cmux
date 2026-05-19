@@ -17,12 +17,30 @@ extension Notification.Name {
 nonisolated private struct SocketLineProcessingResult: Sendable {
     let response: String
     let authenticated: Bool
+    let postResponseAction: SocketLinePostResponseAction?
+}
+
+nonisolated private struct SocketCommandProcessingResult: Sendable {
+    let response: String
+    let postResponseAction: SocketLinePostResponseAction?
+
+    static func responseOnly(_ response: String) -> SocketCommandProcessingResult {
+        SocketCommandProcessingResult(response: response, postResponseAction: nil)
+    }
+}
+
+nonisolated private enum SocketLinePostResponseAction: Sendable {
+    case reloadConfiguration(source: String)
 }
 
 /// Unix socket-based controller for programmatic terminal control
 /// Allows automated testing and external control of terminal tabs
 @MainActor
 class TerminalController {
+#if DEBUG
+    static var socketReloadConfigurationHandlerForTesting: (@MainActor (String) -> Void)?
+#endif
+
     struct SocketListenerHealth: Sendable {
         let isRunning: Bool
         let acceptLoopAlive: Bool
@@ -2021,10 +2039,11 @@ class TerminalController {
                 let result = processSocketLine(trimmed, authenticated: authenticated)
                 authenticated = result.authenticated
                 let didWriteResponse = writeSocketResponse(result.response, to: socket)
-                publishSocketEvents(command: trimmed, response: result.response)
                 guard didWriteResponse else {
                     return
                 }
+                publishSocketEvents(command: trimmed, response: result.response)
+                schedulePostResponseAction(result.postResponseAction)
             }
         }
     }
@@ -2035,32 +2054,50 @@ class TerminalController {
     ) -> SocketLineProcessingResult {
         var nextAuthenticated = authenticated
         if let response = authResponseIfNeeded(for: command, authenticated: &nextAuthenticated) {
-            return SocketLineProcessingResult(response: response, authenticated: nextAuthenticated)
-        }
-
-        let response = processCommandUsingSocketExecutionPolicy(command)
-        return SocketLineProcessingResult(response: response, authenticated: nextAuthenticated)
-    }
-
-    private nonisolated func processCommandUsingSocketExecutionPolicy(_ command: String) -> String {
-        if Thread.isMainThread,
-           let request = parseV2SocketRequest(command),
-           Self.executionPolicy(forV2Method: request.method) == .socketWorker {
-            return v2Error(
-                id: request.id,
-                code: "invalid_dispatch",
-                message: "\(request.method) must run off the main thread"
+            return SocketLineProcessingResult(
+                response: response,
+                authenticated: nextAuthenticated,
+                postResponseAction: nil
             )
         }
 
+        let commandResult = processCommandUsingSocketExecutionPolicy(command)
+        return SocketLineProcessingResult(
+            response: commandResult.response,
+            authenticated: nextAuthenticated,
+            postResponseAction: commandResult.postResponseAction
+        )
+    }
+
+    private nonisolated func schedulePostResponseAction(_ action: SocketLinePostResponseAction?) {
+        guard let action else { return }
+        switch action {
+        case .reloadConfiguration(let source):
+            Task { @MainActor in
+                Self.performSocketReloadConfiguration(source: source)
+            }
+        }
+    }
+
+    private nonisolated func processCommandUsingSocketExecutionPolicy(_ command: String) -> SocketCommandProcessingResult {
+        if Thread.isMainThread,
+           let request = parseV2SocketRequest(command),
+           Self.executionPolicy(forV2Method: request.method) == .socketWorker {
+            return .responseOnly(v2Error(
+                id: request.id,
+                code: "invalid_dispatch",
+                message: "\(request.method) must run off the main thread"
+            ))
+        }
+
         if let response = socketWorkerV2ResponseIfNeeded(for: command) {
-            return response
+            return .responseOnly(response)
         }
 
         if command.trimmingCharacters(in: .whitespacesAndNewlines).lowercased() == "ping" {
-            return withSocketCommandPolicy(commandKey: "ping", isV2: false) {
+            return .responseOnly(withSocketCommandPolicy(commandKey: "ping", isV2: false) {
                 "PONG"
-            }
+            })
         }
 
         return v2MainSync {
@@ -2073,27 +2110,37 @@ class TerminalController {
     /// request) can reuse the full V1/V2 dispatcher without duplicating
     /// its auth/policy wrappers.
     nonisolated func handleSocketLine(_ line: String) -> String {
-        return processCommandUsingSocketExecutionPolicy(line)
+        let result = processCommandUsingSocketExecutionPolicy(line)
+        schedulePostResponseAction(result.postResponseAction)
+        return result.response
     }
 
-    private func processCommand(_ command: String) -> String {
+    private func processCommand(_ command: String) -> SocketCommandProcessingResult {
         let trimmed = command.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !trimmed.isEmpty else { return "ERROR: Empty command" }
+        guard !trimmed.isEmpty else { return .responseOnly("ERROR: Empty command") }
 
         // v2 protocol: newline-delimited JSON.
         if trimmed.hasPrefix("{") {
-            return processV2Command(trimmed)
+            return .responseOnly(processV2Command(trimmed))
         }
 
         let parts = trimmed.split(separator: " ", maxSplits: 1).map(String.init)
-        guard !parts.isEmpty else { return "ERROR: Empty command" }
+        guard !parts.isEmpty else { return .responseOnly("ERROR: Empty command") }
 
         let cmd = parts[0].lowercased()
         let args = parts.count > 1 ? parts[1] : ""
 
         let policyParams = cmd == "right_sidebar" ? ["args": args] : [:]
         return withSocketCommandPolicy(commandKey: cmd, isV2: false, params: policyParams) {
-            switch cmd {
+            if cmd == "reload_config" {
+                return reloadConfigCommandResult(args)
+            }
+            return .responseOnly(processV1Command(cmd, args: args))
+        }
+    }
+
+    private func processV1Command(_ cmd: String, args: String) -> String {
+        switch cmd {
         case "ping":
             return "PONG"
 
@@ -2428,9 +2475,6 @@ class TerminalController {
         case "close_surface":
             return closeSurface(args)
 
-        case "reload_config":
-            return reloadConfig(args)
-
         case "refresh_surfaces":
             return refreshSurfaces()
 
@@ -2440,7 +2484,6 @@ class TerminalController {
             default:
                 return "ERROR: Unknown command '\(cmd)'. Use 'help' for available commands."
             }
-        }
     }
 
     // MARK: - V2 JSON Socket Protocol
@@ -17559,16 +17602,26 @@ class TerminalController {
         return result
     }
 
-    private func reloadConfig(_ args: String) -> String {
+    private func reloadConfigCommandResult(_ args: String) -> SocketCommandProcessingResult {
         let trimmed = args.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
         guard trimmed.isEmpty else {
-            return "ERROR: Usage: reload_config"
+            return .responseOnly("ERROR: Usage: reload_config")
         }
 
-        v2MainSync {
-            GhosttyApp.shared.reloadConfiguration(source: "socket.reload_config")
+        return SocketCommandProcessingResult(
+            response: "OK Reloaded config",
+            postResponseAction: .reloadConfiguration(source: "socket.reload_config")
+        )
+    }
+
+    private static func performSocketReloadConfiguration(source: String) {
+#if DEBUG
+        if let handler = socketReloadConfigurationHandlerForTesting {
+            handler(source)
+            return
         }
-        return "OK Reloaded config"
+#endif
+        GhosttyApp.shared.reloadConfiguration(source: source)
     }
 
     private func refreshSurfaces() -> String {

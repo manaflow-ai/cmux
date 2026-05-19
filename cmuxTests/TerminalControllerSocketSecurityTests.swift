@@ -74,6 +74,57 @@ final class TerminalControllerSocketSecurityTests: XCTestCase {
         XCTAssertTrue(wrongAuthThenPing[1].hasPrefix("ERROR:"))
     }
 
+    func testReloadConfigRespondsBeforeReloadWorkCompletes() async throws {
+#if DEBUG
+        let socketPath = makeSocketPath("reload-config")
+        let tabManager = TabManager()
+        let reloadStarted = expectation(description: "reload config work started")
+        let reloadMayFinish = DispatchSemaphore(value: 0)
+        var observedSource: String?
+
+        TerminalController.socketReloadConfigurationHandlerForTesting = { source in
+            observedSource = source
+            reloadStarted.fulfill()
+            _ = reloadMayFinish.wait(timeout: .now() + 5)
+        }
+        defer {
+            reloadMayFinish.signal()
+            TerminalController.socketReloadConfigurationHandlerForTesting = nil
+        }
+
+        TerminalController.shared.start(
+            tabManager: tabManager,
+            socketPath: socketPath,
+            accessMode: .allowAll
+        )
+        try waitForSocket(at: socketPath)
+
+        let response = try await withCheckedThrowingContinuation { continuation in
+            DispatchQueue.global(qos: .userInitiated).async {
+                do {
+                    let fd = try self.connect(to: socketPath)
+                    defer { Darwin.close(fd) }
+
+                    try self.configureReadTimeout(1.0, on: fd)
+                    try self.writeLine("reload_config", to: fd)
+                    let response = try self.readLine(from: fd)
+                    reloadMayFinish.signal()
+                    continuation.resume(returning: response)
+                } catch {
+                    reloadMayFinish.signal()
+                    continuation.resume(throwing: error)
+                }
+            }
+        }
+
+        XCTAssertEqual(response, "OK Reloaded config")
+        await fulfillment(of: [reloadStarted], timeout: 2.0)
+        XCTAssertEqual(observedSource, "socket.reload_config")
+#else
+        throw XCTSkip("Socket reload test hook is debug-only.")
+#endif
+    }
+
     func testSocketCommandPolicyDistinguishesFocusIntent() throws {
 #if DEBUG
         let nonFocus = TerminalController.debugSocketCommandPolicySnapshot(
@@ -822,6 +873,27 @@ final class TerminalControllerSocketSecurityTests: XCTestCase {
                 throw posixError("write(\(command))")
             }
             offset += wrote
+        }
+    }
+
+    private nonisolated func configureReadTimeout(_ timeout: TimeInterval, on fd: Int32) throws {
+        let seconds = floor(timeout)
+        let microseconds = max(0, min(Int((timeout - seconds) * 1_000_000), 999_999))
+        var value = timeval(
+            tv_sec: Int(seconds),
+            tv_usec: __darwin_suseconds_t(microseconds)
+        )
+        let result = withUnsafePointer(to: &value) { pointer in
+            setsockopt(
+                fd,
+                SOL_SOCKET,
+                SO_RCVTIMEO,
+                pointer,
+                socklen_t(MemoryLayout<timeval>.size)
+            )
+        }
+        guard result == 0 else {
+            throw posixError("setsockopt(SO_RCVTIMEO)")
         }
     }
 
