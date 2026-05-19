@@ -210,6 +210,57 @@ final class BonsplitTabDragUITests: XCTestCase {
             waitForCondition(timeout: 3.0) { closeButton.isHittable },
             "Expected right sidebar close button to be hittable. button=\(closeButton.debugDescription)"
         )
+        let openAsPaneButton = app.buttons["RightSidebar.openAsPaneButton"]
+        XCTAssertTrue(openAsPaneButton.waitForExistence(timeout: 5.0), "Expected open-as-pane button inside the right sidebar chrome.")
+        XCTAssertTrue(
+            waitForCondition(timeout: 3.0) { openAsPaneButton.isHittable },
+            "Expected right sidebar open-as-pane button to be hittable. button=\(openAsPaneButton.debugDescription)"
+        )
+        XCTAssertEqual(openAsPaneButton.frame.width, closeButton.frame.width, accuracy: 1)
+        XCTAssertEqual(openAsPaneButton.frame.height, closeButton.frame.height, accuracy: 1)
+        XCTAssertEqual(openAsPaneButton.frame.minY, closeButton.frame.minY, accuracy: 1)
+        XCTAssertEqual(openAsPaneButton.frame.maxY, closeButton.frame.maxY, accuracy: 1)
+        let headerGeometryKeys = [
+            "rightSidebarHeaderCloseMinX",
+            "rightSidebarHeaderCloseMaxX",
+            "rightSidebarHeaderCloseMinY",
+            "rightSidebarHeaderCloseMaxY",
+            "rightSidebarHeaderCloseWidth",
+            "rightSidebarHeaderCloseHeight",
+            "rightSidebarHeaderOpenAsPaneMinX",
+            "rightSidebarHeaderOpenAsPaneMaxX",
+            "rightSidebarHeaderOpenAsPaneMinY",
+            "rightSidebarHeaderOpenAsPaneMaxY",
+            "rightSidebarHeaderOpenAsPaneWidth",
+            "rightSidebarHeaderOpenAsPaneHeight",
+        ]
+        guard let headerGeometry = waitForJSONNumbers(
+            headerGeometryKeys,
+            atPath: dataPath,
+            timeout: 5.0
+        ),
+              let closeMinX = Double(headerGeometry["rightSidebarHeaderCloseMinX"] ?? ""),
+              let closeMaxX = Double(headerGeometry["rightSidebarHeaderCloseMaxX"] ?? ""),
+              let closeWidth = Double(headerGeometry["rightSidebarHeaderCloseWidth"] ?? ""),
+              let closeHeight = Double(headerGeometry["rightSidebarHeaderCloseHeight"] ?? ""),
+              let closeMinY = Double(headerGeometry["rightSidebarHeaderCloseMinY"] ?? ""),
+              let closeMaxY = Double(headerGeometry["rightSidebarHeaderCloseMaxY"] ?? ""),
+              let openMinX = Double(headerGeometry["rightSidebarHeaderOpenAsPaneMinX"] ?? ""),
+              let openMaxX = Double(headerGeometry["rightSidebarHeaderOpenAsPaneMaxX"] ?? ""),
+              let openWidth = Double(headerGeometry["rightSidebarHeaderOpenAsPaneWidth"] ?? ""),
+              let openHeight = Double(headerGeometry["rightSidebarHeaderOpenAsPaneHeight"] ?? ""),
+              let openMinY = Double(headerGeometry["rightSidebarHeaderOpenAsPaneMinY"] ?? ""),
+              let openMaxY = Double(headerGeometry["rightSidebarHeaderOpenAsPaneMaxY"] ?? "") else {
+            XCTFail("Timed out waiting for right sidebar header control geometry. data=\(loadJSON(atPath: dataPath) ?? [:])")
+            return
+        }
+        XCTAssertEqual(closeMaxX - closeMinX, closeWidth, accuracy: 0.5, "Expected close x bounds to match width. geometry=\(headerGeometry)")
+        XCTAssertEqual(openMaxX - openMinX, openWidth, accuracy: 0.5, "Expected open-as-pane x bounds to match width. geometry=\(headerGeometry)")
+        XCTAssertLessThan(openMaxX, closeMinX, "Expected open-as-pane control to remain left of close. geometry=\(headerGeometry)")
+        XCTAssertEqual(openWidth, closeWidth, accuracy: 0.5, "Expected header accessory controls to share width. geometry=\(headerGeometry)")
+        XCTAssertEqual(openHeight, closeHeight, accuracy: 0.5, "Expected header accessory controls to share height. geometry=\(headerGeometry)")
+        XCTAssertEqual(openMinY, closeMinY, accuracy: 0.5, "Expected header accessory controls to share top edge. geometry=\(headerGeometry)")
+        XCTAssertEqual(openMaxY, closeMaxY, accuracy: 0.5, "Expected header accessory controls to share bottom edge. geometry=\(headerGeometry)")
 
         let shortcutHint = app.staticTexts["rightSidebarCloseShortcutHint"]
         XCTAssertTrue(shortcutHint.waitForExistence(timeout: 5.0), "Expected Cmd+Option+B hint over the close button.")
@@ -800,6 +851,38 @@ final class BonsplitTabDragUITests: XCTestCase {
            let rawValue = data[key],
            let value = Double(rawValue),
            value > threshold {
+            return data
+        }
+        return nil
+    }
+
+    private func waitForJSONNumbers(
+        _ keys: [String],
+        atPath path: String,
+        timeout: TimeInterval
+    ) -> [String: String]? {
+        let deadline = Date().addingTimeInterval(timeout)
+        while Date() < deadline {
+            if let data = loadJSON(atPath: path),
+               keys.allSatisfy({ key in
+                   guard let rawValue = data[key],
+                         Double(rawValue) != nil else {
+                       return false
+                   }
+                   return true
+               }) {
+                return data
+            }
+            RunLoop.current.run(until: Date().addingTimeInterval(0.05))
+        }
+        if let data = loadJSON(atPath: path),
+           keys.allSatisfy({ key in
+               guard let rawValue = data[key],
+                     Double(rawValue) != nil else {
+                   return false
+               }
+               return true
+           }) {
             return data
         }
         return nil

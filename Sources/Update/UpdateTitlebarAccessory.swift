@@ -135,6 +135,7 @@ final class TitlebarControlsViewModel: ObservableObject {
     weak var notificationsAnchorView: NSView?
 }
 
+@MainActor
 final class NotificationsAnchorRegistry {
     static let shared = NotificationsAnchorRegistry()
 
@@ -164,6 +165,7 @@ final class NotificationsAnchorRegistry {
     }
 }
 
+@MainActor
 func notificationsPopoverAnchorIsVisible(_ view: NSView) -> Bool {
     var current: NSView? = view
     while let candidate = current {
@@ -175,6 +177,7 @@ func notificationsPopoverAnchorIsVisible(_ view: NSView) -> Bool {
     return true
 }
 
+@MainActor
 func preferredNotificationsPopoverAnchor(buttonAnchor: NSView?, fallbackAnchor: NSView?) -> NSView? {
     let fallbackWindow = fallbackAnchor?.window
     guard let buttonAnchor,
@@ -457,12 +460,12 @@ enum TitlebarControlsLayoutMetrics {
 }
 
 private enum TitlebarControlIconStyle {
-    static let opacity = 0.86
-    static let hoveredOpacity = 0.96
-    static let pressedOpacity = 1.0
-    static let weight: Font.Weight = .regular
-    static let foregroundColor = Color(nsColor: .secondaryLabelColor)
-    static let sidebarGlyphStrokeWidth: CGFloat = 1
+    static let opacity = HeaderChromeIconStyle.opacity
+    static let hoveredOpacity = HeaderChromeIconStyle.hoveredOpacity
+    static let pressedOpacity = HeaderChromeIconStyle.pressedOpacity
+    static let weight = HeaderChromeIconStyle.weight
+    static let foregroundColor = HeaderChromeIconStyle.foregroundColor
+    static let sidebarGlyphStrokeWidth = HeaderChromeIconStyle.sidebarGlyphStrokeWidth
 
     static func iconFrameSize(for config: TitlebarControlsStyleConfig) -> CGFloat {
         max(14, config.iconSize + 2)
@@ -474,14 +477,7 @@ func titlebarControlForegroundOpacity(isHovering: Bool, isPressed: Bool) -> Doub
 }
 
 func titlebarControlForegroundOpacity(isHovering: Bool, isPressed: Bool, isEnabled: Bool) -> Double {
-    guard isEnabled else { return 0.34 }
-    if isPressed {
-        return TitlebarControlIconStyle.pressedOpacity
-    }
-    if isHovering {
-        return TitlebarControlIconStyle.hoveredOpacity
-    }
-    return TitlebarControlIconStyle.opacity
+    HeaderChromeIconStyle.foregroundOpacity(isHovering: isHovering, isPressed: isPressed, isEnabled: isEnabled)
 }
 
 func titlebarControlBackgroundOpacity(
@@ -498,14 +494,12 @@ func titlebarControlBackgroundOpacity(
     isPressed: Bool,
     isEnabled: Bool
 ) -> Double {
-    guard isEnabled else { return 0 }
-    if isPressed {
-        return 0.14
-    }
-    if isHovering {
-        return config.hoverBackground ? 0.09 : 0.07
-    }
-    return 0
+    HeaderChromeIconStyle.backgroundOpacity(
+        hoverBackground: config.hoverBackground,
+        isHovering: isHovering,
+        isPressed: isPressed,
+        isEnabled: isEnabled
+    )
 }
 
 func titlebarControlBorderOpacity(
@@ -522,14 +516,12 @@ func titlebarControlBorderOpacity(
     isPressed: Bool,
     isEnabled: Bool
 ) -> Double {
-    guard isEnabled else { return config.buttonBackground ? 0.04 : 0 }
-    if isPressed {
-        return 0.11
-    }
-    if isHovering {
-        return 0.07
-    }
-    return config.buttonBackground ? 0.05 : 0
+    HeaderChromeIconStyle.borderOpacity(
+        buttonBackground: config.buttonBackground,
+        isHovering: isHovering,
+        isPressed: isPressed,
+        isEnabled: isEnabled
+    )
 }
 
 struct TitlebarControlButton<Content: View>: View {

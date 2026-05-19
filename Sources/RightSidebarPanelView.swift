@@ -231,7 +231,7 @@ struct RightSidebarPanelView: View {
         return ZStack {
             WindowDragHandleView()
 
-            HStack(spacing: 4) {
+            HStack(spacing: RightSidebarChromeMetrics.headerControlSpacing) {
                 ForEach(availableModes, id: \.rawValue) { mode in
                     ModeBarButton(
                         mode: mode,
@@ -275,12 +275,16 @@ struct RightSidebarPanelView: View {
             onOpenAsPane(mode)
         } label: {
             Image(systemName: "rectangle.split.2x1")
-                .font(.system(size: 11, weight: .semibold))
-                .frame(width: RightSidebarChromeMetrics.controlHeight, height: RightSidebarChromeMetrics.controlHeight)
-                .contentShape(Rectangle())
         }
-        .buttonStyle(.plain)
-        .foregroundColor(.secondary)
+        .buttonStyle(RightSidebarHeaderIconButtonStyle())
+        .frame(
+            width: RightSidebarChromeMetrics.headerControlSize,
+            height: RightSidebarChromeMetrics.headerControlSize
+        )
+        .reportRightSidebarChromeNamedGeometryForBonsplitUITest(
+            keyPrefix: "rightSidebarHeaderOpenAsPane",
+            isVisible: true
+        )
         .safeHelp(String(localized: "rightSidebar.openAsPane.tooltip", defaultValue: "Open as pane"))
         .accessibilityLabel(
             String.localizedStringWithFormat(
@@ -302,12 +306,16 @@ struct RightSidebarPanelView: View {
         return ZStack {
             Button(action: onClose) {
                 Image(systemName: "xmark")
-                    .font(.system(size: 11, weight: .semibold))
-                    .frame(width: RightSidebarChromeMetrics.controlHeight, height: RightSidebarChromeMetrics.controlHeight)
-                    .contentShape(Rectangle())
             }
-            .buttonStyle(.plain)
-            .foregroundColor(.secondary)
+            .buttonStyle(RightSidebarHeaderIconButtonStyle())
+            .frame(
+                width: RightSidebarChromeMetrics.headerControlSize,
+                height: RightSidebarChromeMetrics.headerControlSize
+            )
+            .reportRightSidebarChromeNamedGeometryForBonsplitUITest(
+                keyPrefix: "rightSidebarHeaderClose",
+                isVisible: true
+            )
             .safeHelp(
                 KeyboardShortcutSettings.Action.toggleRightSidebar.tooltip(
                     String(localized: "rightSidebar.toggle.tooltip", defaultValue: "Toggle right sidebar")
@@ -316,7 +324,10 @@ struct RightSidebarPanelView: View {
             .accessibilityLabel(String(localized: "rightSidebar.close.accessibilityLabel", defaultValue: "Close Right Sidebar"))
             .accessibilityIdentifier("RightSidebar.closeButton")
         }
-        .frame(width: RightSidebarChromeMetrics.controlHeight, height: RightSidebarChromeMetrics.controlHeight)
+        .frame(
+            width: RightSidebarChromeMetrics.headerControlSize,
+            height: RightSidebarChromeMetrics.headerControlSize
+        )
         .overlay(alignment: .top) {
             if showsShortcutHint {
                 ShortcutHintPill(shortcut: shortcut, fontSize: 9, emphasis: 1.05)

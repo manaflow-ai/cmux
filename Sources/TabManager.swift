@@ -5687,7 +5687,7 @@ class TabManager: ObservableObject {
         if focusHistory.isEmpty {
             historyIndex = -1
         } else {
-            historyIndex = min(max(0, historyIndex), focusHistory.count - 1)
+            historyIndex = min(max(-1, historyIndex), focusHistory.count - 1)
         }
         focusHistoryRevision &+= 1
     }
