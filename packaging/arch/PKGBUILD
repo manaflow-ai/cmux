@@ -37,4 +37,5 @@ package() {
   cd cmux
   install -Dm755 linux/target/release/cmux-gtk "$pkgdir/usr/bin/cmux"
   install -Dm644 packaging/arch/cmux.desktop "$pkgdir/usr/share/applications/cmux.desktop"
+  install -Dm644 packaging/arch/cmux.svg "$pkgdir/usr/share/icons/hicolor/scalable/apps/cmux.svg"
 }

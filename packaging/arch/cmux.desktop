@@ -3,6 +3,7 @@ Type=Application
 Name=cmux
 Comment=Terminal workspaces for AI coding agents
 Exec=cmux
+Icon=cmux
 Terminal=false
 Categories=Development;TerminalEmulator;GTK;
 StartupNotify=true
