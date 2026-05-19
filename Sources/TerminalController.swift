@@ -5895,6 +5895,49 @@ class TerminalController {
         let bounds: CGRect
     }
 
+    struct EqualizeSplitsResult {
+        let foundSplit: Bool
+        let allSucceeded: Bool
+    }
+
+    @discardableResult
+    static func equalizeSplitsProportionally(
+        in node: ExternalTreeNode,
+        controller: BonsplitController,
+        fromExternal: Bool = false
+    ) -> EqualizeSplitsResult {
+        var foundSplit = false
+        var allSucceeded = true
+
+        @discardableResult
+        func equalize(_ node: ExternalTreeNode) -> Int {
+            switch node {
+            case .pane:
+                return 1
+            case .split(let split):
+                foundSplit = true
+                let firstLeafCount = equalize(split.first)
+                let secondLeafCount = equalize(split.second)
+                let totalLeafCount = firstLeafCount + secondLeafCount
+
+                guard let splitId = UUID(uuidString: split.id), totalLeafCount > 0 else {
+                    allSucceeded = false
+                    return totalLeafCount
+                }
+
+                let position = CGFloat(firstLeafCount) / CGFloat(totalLeafCount)
+                if !controller.setDividerPosition(position, forSplit: splitId, fromExternal: fromExternal) {
+                    allSucceeded = false
+                }
+
+                return totalLeafCount
+            }
+        }
+
+        equalize(node)
+        return EqualizeSplitsResult(foundSplit: foundSplit, allSucceeded: allSucceeded)
+    }
+
     private func v2PaneResizeCollectCandidates(
         node: ExternalTreeNode,
         targetPaneId: String,
