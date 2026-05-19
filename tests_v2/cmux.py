@@ -140,7 +140,7 @@ def _socket_variant() -> Tuple[str, Optional[str]]:
     tag = os.environ.get("CMUX_TAG", "").strip()
     if tag:
         return ("dev", _sanitize_tag_slug(tag))
-    return ("dev", None)
+    return ("stable", None)
 
 
 def _last_socket_path_files() -> List[str]:

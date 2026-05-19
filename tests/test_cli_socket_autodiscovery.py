@@ -660,6 +660,32 @@ def test_python_client_default_constants_are_lazy() -> bool:
     return True
 
 
+def test_python_clients_default_to_stable_without_context() -> bool:
+    with temporary_socket_home("cmux-py-stable-default-") as home:
+        env = {
+            "HOME": home,
+            "CFFIXED_USER_HOME": home,
+        }
+        expected_socket = socket_path_for_home(home, "com.cmuxterm.app.sock")
+        actual_bundle = python_client_default_bundle_id(env)
+        actual_socket = python_client_default_socket_path(env)
+        actual_v2_socket = python_v2_client_default_socket_path(env)
+
+    if actual_bundle != "com.cmuxterm.app":
+        print("FAIL: python client defaulted to non-stable bundle without context")
+        print(f"actual_bundle={actual_bundle!r}")
+        return False
+    if actual_socket != expected_socket or actual_v2_socket != expected_socket:
+        print("FAIL: python clients defaulted to non-stable socket without context")
+        print(f"expected_socket={expected_socket!r}")
+        print(f"actual_socket={actual_socket!r}")
+        print(f"actual_v2_socket={actual_v2_socket!r}")
+        return False
+
+    print("PASS: python clients default to stable without bundle or tag context")
+    return True
+
+
 def test_python_v2_client_matches_empty_swift_tag_slug() -> bool:
     with temporary_socket_home("cmux-v2-empty-tag-") as home:
         expected_socket = socket_path_for_home(home, "com.cmuxterm.app.dev.sock")
@@ -1444,6 +1470,9 @@ def main() -> int:
         return 1
 
     if not test_python_client_default_constants_are_lazy():
+        return 1
+
+    if not test_python_clients_default_to_stable_without_context():
         return 1
 
     if not test_python_v2_client_matches_empty_swift_tag_slug():

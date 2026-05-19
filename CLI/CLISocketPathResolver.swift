@@ -87,6 +87,8 @@ enum CLISocketPathResolver {
     private static let fallbackSocketPath = SocketPathMarkerFiles.defaultDebugSocketPath
     private static let nightlySocketPath = SocketPathMarkerFiles.defaultNightlySocketPath
     private static let stagingSocketPath = SocketPathMarkerFiles.defaultStagingSocketPath
+    private static let socketProbeTimeout: TimeInterval = 0.35
+    private static let minimumSocketProbeTimeout: TimeInterval = 0.01
 
     private enum SocketProbeResult {
         case cmux
@@ -353,12 +355,17 @@ enum CLISocketPathResolver {
     }
 
     private static func probeCmuxSocket(at path: String) -> SocketProbeResult {
-        let legacyResult = probeLegacyCmuxSocket(at: path)
+        let deadline = ProcessInfo.processInfo.systemUptime + socketProbeTimeout
+        let legacyResult = probeLegacyCmuxSocket(at: path, timeout: socketProbeTimeout)
         if legacyResult == .cmux {
             return .cmux
         }
 
-        let v2Result = probeV2CmuxSocket(at: path)
+        guard let remainingTimeout = socketProbeTimeoutRemaining(until: deadline) else {
+            return legacyResult
+        }
+
+        let v2Result = probeV2CmuxSocket(at: path, timeout: remainingTimeout)
         if v2Result == .cmux {
             return .cmux
         }
@@ -372,8 +379,14 @@ enum CLISocketPathResolver {
         return .unavailable
     }
 
-    private static func probeLegacyCmuxSocket(at path: String) -> SocketProbeResult {
-        withConnectedSocket(at: path) { fd in
+    private static func socketProbeTimeoutRemaining(until deadline: TimeInterval) -> TimeInterval? {
+        let remaining = deadline - ProcessInfo.processInfo.systemUptime
+        guard remaining > minimumSocketProbeTimeout else { return nil }
+        return remaining
+    }
+
+    private static func probeLegacyCmuxSocket(at path: String, timeout: TimeInterval) -> SocketProbeResult {
+        withConnectedSocket(at: path, timeout: timeout) { fd in
             guard writeAll(Data("ping\n".utf8), to: fd) else { return .notCmux }
             guard let response = readFirstLine(from: fd) else {
                 return .indeterminate
@@ -382,8 +395,8 @@ enum CLISocketPathResolver {
         }
     }
 
-    private static func probeV2CmuxSocket(at path: String) -> SocketProbeResult {
-        withConnectedSocket(at: path) { fd in
+    private static func probeV2CmuxSocket(at path: String, timeout: TimeInterval) -> SocketProbeResult {
+        withConnectedSocket(at: path, timeout: timeout) { fd in
             let payload = #"{"id":1,"method":"system.ping","params":{}}"# + "\n"
             guard writeAll(Data(payload.utf8), to: fd) else { return .notCmux }
             guard let response = readFirstLine(from: fd) else {
@@ -395,13 +408,14 @@ enum CLISocketPathResolver {
 
     private static func withConnectedSocket(
         at path: String,
+        timeout: TimeInterval,
         perform: (Int32) -> SocketProbeResult
     ) -> SocketProbeResult {
         guard isSocketFile(path) else { return .unavailable }
         let fd = socket(AF_UNIX, SOCK_STREAM, 0)
         guard fd >= 0 else { return .unavailable }
         defer { Darwin.close(fd) }
-        configureSocketTimeouts(fd, timeout: 0.35)
+        configureSocketTimeouts(fd, timeout: timeout)
         configureNoSigPipe(fd)
 
         var addr = sockaddr_un()
@@ -415,7 +429,7 @@ enum CLISocketPathResolver {
             }
         }
 
-        guard connectSocketWithTimeout(fd, to: &addr, timeout: 0.35) else {
+        guard connectSocketWithTimeout(fd, to: &addr, timeout: timeout) else {
             return .unavailable
         }
         return perform(fd)

@@ -133,7 +133,7 @@ def _default_bundle_id() -> str:
         suffix = _sanitize_bundle_suffix(tag)
         return f"{_DEFAULT_DEBUG_BUNDLE_ID}.{suffix}"
 
-    return _DEFAULT_DEBUG_BUNDLE_ID
+    return _STABLE_BUNDLE_ID
 
 
 def _socket_variant() -> Tuple[str, Optional[str]]:
