@@ -2304,6 +2304,140 @@ final class CLINotifyProcessIntegrationRegressionTests: XCTestCase {
         }
     }
 
+    func testTmuxCompatDisplayMessageSubstitutesShortFormatsAndAttachedState() throws {
+        let cliPath = try bundledCLIPath()
+        let socketPath = makeSocketPath("tmuxfmt")
+        let listenerFD = try bindUnixSocket(at: socketPath)
+        let state = MockSocketServerState()
+        let workspaceId = "11111111-1111-1111-1111-111111111111"
+        let paneId = "22222222-2222-2222-2222-222222222222"
+        let surfaceId = "33333333-3333-3333-3333-333333333333"
+
+        defer {
+            Darwin.close(listenerFD)
+            unlink(socketPath)
+        }
+
+        let serverHandled = startMockServer(listenerFD: listenerFD, state: state) { line in
+            guard let payload = self.jsonObject(line),
+                  let id = payload["id"] as? String,
+                  let method = payload["method"] as? String else {
+                return self.malformedRequestResponse(raw: line)
+            }
+
+            switch method {
+            case "workspace.list":
+                return self.v2Response(
+                    id: id,
+                    ok: true,
+                    result: [
+                        "workspaces": [[
+                            "id": workspaceId,
+                            "ref": "workspace:7",
+                            "index": 7,
+                            "title": "Build",
+                        ]],
+                    ]
+                )
+            case "surface.current":
+                return self.v2Response(
+                    id: id,
+                    ok: true,
+                    result: [
+                        "workspace_id": workspaceId,
+                        "pane_id": paneId,
+                        "surface_id": surfaceId,
+                    ]
+                )
+            case "surface.list":
+                return self.v2Response(
+                    id: id,
+                    ok: true,
+                    result: [
+                        "surfaces": [[
+                            "id": surfaceId,
+                            "ref": "surface:3",
+                            "index": 3,
+                            "title": "Codex",
+                            "focused": true,
+                        ]],
+                    ]
+                )
+            case "pane.list":
+                return self.v2Response(
+                    id: id,
+                    ok: true,
+                    result: [
+                        "panes": [[
+                            "id": paneId,
+                            "ref": "pane:2",
+                            "index": 2,
+                            "focused": true,
+                        ]],
+                    ]
+                )
+            default:
+                return self.v2Response(
+                    id: id,
+                    ok: false,
+                    error: ["code": "unexpected_method", "message": "Unexpected method \(method)"]
+                )
+            }
+        }
+
+        var environment = ProcessInfo.processInfo.environment
+        environment["CMUX_SOCKET_PATH"] = socketPath
+        environment["CMUX_WORKSPACE_ID"] = workspaceId
+        environment["CMUX_SURFACE_ID"] = surfaceId
+        environment["CMUX_CLI_SENTRY_DISABLED"] = "1"
+
+        let result = runProcess(
+            executablePath: cliPath,
+            arguments: [
+                "__tmux-compat",
+                "display-message",
+                "-p",
+                "#S:#I:#W:#P:#{session_attached}:#{pane_id}",
+            ],
+            environment: environment,
+            timeout: 5
+        )
+
+        wait(for: [serverHandled], timeout: 5)
+        XCTAssertFalse(result.timedOut, result.stderr)
+        XCTAssertEqual(result.status, 0, result.stderr)
+        XCTAssertEqual(result.stdout, "cmux:7:Build:2:1:%\(paneId)\n")
+        XCTAssertTrue(
+            state.commands.contains { $0.contains(#""method":"surface.current""#) },
+            "Expected display-message to resolve tmux context through the socket, saw \(state.commands)"
+        )
+    }
+
+    func testTmuxCompatShowOptionsHandlesCommonReadOnlyProbes() throws {
+        let cliPath = try bundledCLIPath()
+        var environment = ProcessInfo.processInfo.environment
+        environment["CMUX_CLI_SENTRY_DISABLED"] = "1"
+
+        let cases: [(arguments: [String], expected: String)] = [
+            (["__tmux-compat", "show-options", "-sv", "default-terminal"], "tmux-256color\n"),
+            (["__tmux-compat", "show-option", "-sv", "extended-keys-format"], "csi-u\n"),
+            (["__tmux-compat", "show", "-sv", "status"], "on\n"),
+        ]
+
+        for item in cases {
+            let result = runProcess(
+                executablePath: cliPath,
+                arguments: item.arguments,
+                environment: environment,
+                timeout: 5
+            )
+
+            XCTAssertFalse(result.timedOut, result.stderr)
+            XCTAssertEqual(result.status, 0, result.stderr)
+            XCTAssertEqual(result.stdout, item.expected)
+        }
+    }
+
     private func notificationRows(from stdout: String) throws -> [[String: Any]] {
         let data = Data(stdout.utf8)
         return try XCTUnwrap(
