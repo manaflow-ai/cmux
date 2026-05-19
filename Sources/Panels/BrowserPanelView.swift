@@ -334,8 +334,8 @@ private extension View {
 
     func browserToolbarPopoverChrome(appColorScheme: ColorScheme) -> some View {
         self
-            .environment(\.colorScheme, appColorScheme)
             .background(Color(nsColor: .windowBackgroundColor))
+            .environment(\.colorScheme, appColorScheme)
     }
 }
 

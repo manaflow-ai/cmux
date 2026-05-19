@@ -436,18 +436,33 @@ final class BrowserProfilePopoverContrastUITests: XCTestCase {
         XCTAssertTrue(defaultProfileRow.waitForExistence(timeout: 5.0), "Expected profile popover default row")
 
         let rowScreenshot = defaultProfileRow.screenshot()
-        let sample = try sampleRGBA(fromPNG: rowScreenshot.pngRepresentation, xFraction: 0.88, yFraction: 0.5)
+        let samples = try sampleRGBAs(
+            fromPNG: rowScreenshot.pngRepresentation,
+            points: [
+                (0.74, 0.28),
+                (0.84, 0.28),
+                (0.94, 0.28),
+                (0.74, 0.50),
+                (0.84, 0.50),
+                (0.94, 0.50),
+                (0.74, 0.72),
+                (0.84, 0.72),
+                (0.94, 0.72),
+            ]
+        )
         attachPNG(rowScreenshot.pngRepresentation, name: "profile-popover-default-row")
 
-        XCTAssertGreaterThan(
-            sample.alpha,
-            0.95,
-            "Expected the profile popover row to be composited against opaque menu chrome, sample=\(sample)"
+        let opaqueSamples = samples.filter { $0.alpha > 0.95 }
+        let darkSamples = samples.filter { $0.luminance < 0.72 }
+        XCTAssertGreaterThanOrEqual(
+            opaqueSamples.count,
+            8,
+            "Expected most profile popover row samples to be composited against opaque menu chrome, samples=\(samples)"
         )
-        XCTAssertLessThan(
-            sample.luminance,
-            0.72,
-            "Expected dark app mode profile menu chrome to stay visibly distinct from the white page behind it, sample=\(sample)"
+        XCTAssertGreaterThanOrEqual(
+            darkSamples.count,
+            6,
+            "Expected dark app mode profile menu chrome to stay visibly distinct from the white page behind it, samples=\(samples)"
         )
     }
 
@@ -497,11 +512,10 @@ final class BrowserProfilePopoverContrastUITests: XCTestCase {
         return "data:text/html;base64,\(data.base64EncodedString())"
     }
 
-    private func sampleRGBA(
+    private func sampleRGBAs(
         fromPNG pngData: Data,
-        xFraction: CGFloat,
-        yFraction: CGFloat
-    ) throws -> RGBA {
+        points: [(xFraction: CGFloat, yFraction: CGFloat)]
+    ) throws -> [RGBA] {
         guard let source = CGImageSourceCreateWithData(pngData as CFData, nil),
               let image = CGImageSourceCreateImageAtIndex(source, 0, nil) else {
             throw XCTSkip("Could not decode row screenshot PNG")
@@ -511,6 +525,7 @@ final class BrowserProfilePopoverContrastUITests: XCTestCase {
         let height = image.height
         var bytes = [UInt8](repeating: 0, count: width * height * 4)
         let colorSpace = CGColorSpaceCreateDeviceRGB()
+        let bitmapInfo = CGBitmapInfo.byteOrder32Big.rawValue | CGImageAlphaInfo.premultipliedLast.rawValue
         guard let context = CGContext(
             data: &bytes,
             width: width,
@@ -518,25 +533,27 @@ final class BrowserProfilePopoverContrastUITests: XCTestCase {
             bitsPerComponent: 8,
             bytesPerRow: width * 4,
             space: colorSpace,
-            bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue
+            bitmapInfo: bitmapInfo
         ) else {
             throw XCTSkip("Could not create bitmap context for row screenshot")
         }
         context.draw(image, in: CGRect(x: 0, y: 0, width: width, height: height))
 
-        let x = min(width - 1, max(0, Int(CGFloat(width - 1) * xFraction)))
-        let y = min(height - 1, max(0, Int(CGFloat(height - 1) * yFraction)))
-        let offset = (y * width + x) * 4
-        return RGBA(
-            red: Double(bytes[offset]) / 255.0,
-            green: Double(bytes[offset + 1]) / 255.0,
-            blue: Double(bytes[offset + 2]) / 255.0,
-            alpha: Double(bytes[offset + 3]) / 255.0,
-            width: width,
-            height: height,
-            x: x,
-            y: y
-        )
+        return points.map { point in
+            let x = min(width - 1, max(0, Int(CGFloat(width - 1) * point.xFraction)))
+            let y = min(height - 1, max(0, Int(CGFloat(height - 1) * point.yFraction)))
+            let offset = (y * width + x) * 4
+            return RGBA(
+                red: Double(bytes[offset]) / 255.0,
+                green: Double(bytes[offset + 1]) / 255.0,
+                blue: Double(bytes[offset + 2]) / 255.0,
+                alpha: Double(bytes[offset + 3]) / 255.0,
+                width: width,
+                height: height,
+                x: x,
+                y: y
+            )
+        }
     }
 
     private func attachPNG(_ data: Data, name: String) {
