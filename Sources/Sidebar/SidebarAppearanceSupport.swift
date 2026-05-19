@@ -40,6 +40,16 @@ func sidebarActiveForegroundNSColor(
     return baseColor.withAlphaComponent(clampedOpacity)
 }
 
+func titlebarControlForegroundNSColor(
+    opacity: CGFloat,
+    appearance: WindowAppearanceSnapshot = .currentFromUserDefaults()
+) -> NSColor {
+    cmuxReadableForegroundNSColor(
+        on: appearance.compositedTerminalBackgroundColor,
+        opacity: opacity
+    )
+}
+
 func cmuxAccentNSColor(for colorScheme: ColorScheme) -> NSColor {
     switch colorScheme {
     case .dark:
@@ -93,7 +103,10 @@ func cmuxReadableForegroundNSColor(
     on backgroundColor: NSColor,
     minimumContrast: CGFloat = 4.5
 ) -> NSColor {
-    guard cmuxContrastRatio(foreground: preferredColor, background: backgroundColor) < minimumContrast else {
+    let foregroundForComparison = preferredColor.alphaComponent < 1
+        ? cmuxCompositedNSColor(preferredColor, over: backgroundColor)
+        : preferredColor
+    guard cmuxContrastRatio(foreground: foregroundForComparison, background: backgroundColor) < minimumContrast else {
         return preferredColor
     }
     return cmuxReadableForegroundNSColor(on: backgroundColor, opacity: preferredColor.alphaComponent)
@@ -224,10 +237,15 @@ func sidebarSelectedWorkspaceForegroundNSColor(
     opacity: CGFloat,
     usesDefaultSelectionColor: Bool = false
 ) -> NSColor {
+    let clampedOpacity = max(0, min(opacity, 1))
     if usesDefaultSelectionColor {
-        return NSColor.white.withAlphaComponent(max(0, min(opacity, 1)))
+        return cmuxReadableForegroundNSColor(
+            preferred: NSColor.white.withAlphaComponent(clampedOpacity),
+            on: backgroundColor,
+            minimumContrast: 3.0
+        )
     }
-    return cmuxReadableForegroundNSColor(on: backgroundColor, opacity: opacity)
+    return cmuxReadableForegroundNSColor(on: backgroundColor, opacity: clampedOpacity)
 }
 
 struct SidebarWorkspaceRowBackgroundStyle {

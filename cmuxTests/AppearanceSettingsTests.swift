@@ -113,6 +113,9 @@ final class AppearanceSettingsTests: XCTestCase {
                 XCTAssertTrue(soft)
                 events.append("reload:\(source)")
             },
+            applySurfaceColorScheme: {
+                events.append("color-scheme")
+            },
             refreshHostBackground: {
                 events.append("host-background")
             },
@@ -122,6 +125,7 @@ final class AppearanceSettingsTests: XCTestCase {
         )
 
         XCTAssertEqual(events, [
+            "color-scheme",
             "reload:appearanceSync:test",
             "host-background",
             "force-refresh:\(GhosttySurfaceConfigurationRefresh.forceRefreshReason)"
@@ -136,6 +140,9 @@ final class AppearanceSettingsTests: XCTestCase {
             source: "appearanceSync:teardown",
             reloadSurfaceConfiguration: { _, _, _ in
                 events.append("reload")
+            },
+            applySurfaceColorScheme: {
+                events.append("color-scheme")
             },
             refreshHostBackground: {
                 events.append("host-background")

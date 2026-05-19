@@ -6,10 +6,12 @@ enum GhosttySurfaceConfigurationRefresh {
         to surface: ghostty_surface_t?,
         source: String,
         reloadSurfaceConfiguration: (ghostty_surface_t, Bool, String) -> Void,
+        applySurfaceColorScheme: () -> Void,
         refreshHostBackground: () -> Void,
         forceRefresh: (String) -> Void
     ) {
         if let surface {
+            applySurfaceColorScheme()
             reloadSurfaceConfiguration(surface, true, source)
         }
         refreshHostBackground()

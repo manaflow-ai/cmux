@@ -3172,6 +3172,7 @@ class GhosttyApp {
             logThemeAction("reload skipped source=\(source) soft=\(soft) reason=no_app")
             return
         }
+        synchronizeGhosttyRuntimeColorScheme(reloadColorScheme, source: "reloadConfiguration:\(source)")
         logThemeAction("reload begin source=\(source) soft=\(soft)")
         resetDefaultBackgroundUpdateScope(source: "reloadConfiguration(source=\(source))")
         if soft, let config {
@@ -3179,7 +3180,10 @@ class GhosttyApp {
             lastAppearanceColorScheme = reloadColorScheme
             GhosttyConfig.invalidateLoadCache()
             NotificationCenter.default.post(name: .ghosttyConfigDidReload, object: nil)
-            scheduleSurfaceRefreshAfterConfigurationReload(source: source)
+            scheduleSurfaceRefreshAfterConfigurationReload(
+                source: source,
+                preferredColorScheme: reloadColorScheme
+            )
             logThemeAction("reload end source=\(source) soft=\(soft) mode=soft")
             return
         }
@@ -3209,13 +3213,22 @@ class GhosttyApp {
         lastAppearanceColorScheme = reloadColorScheme
         GhosttyConfig.invalidateLoadCache()
         NotificationCenter.default.post(name: .ghosttyConfigDidReload, object: nil)
-        scheduleSurfaceRefreshAfterConfigurationReload(source: source)
+        scheduleSurfaceRefreshAfterConfigurationReload(
+            source: source,
+            preferredColorScheme: reloadColorScheme
+        )
         logThemeAction("reload end source=\(source) soft=\(soft) mode=full")
     }
 
-    private func scheduleSurfaceRefreshAfterConfigurationReload(source: String) {
+    private func scheduleSurfaceRefreshAfterConfigurationReload(
+        source: String,
+        preferredColorScheme: GhosttyConfig.ColorSchemePreference
+    ) {
         DispatchQueue.main.async {
-            AppDelegate.shared?.refreshTerminalSurfacesAfterGhosttyConfigReload(source: source)
+            AppDelegate.shared?.refreshTerminalSurfacesAfterGhosttyConfigReload(
+                source: source,
+                preferredColorScheme: preferredColorScheme
+            )
         }
     }
 
@@ -4158,7 +4171,16 @@ class GhosttyApp {
                 "reload request target=surface tab=\(surfaceView.tabId?.uuidString ?? "nil") surface=\(surfaceView.terminalSurface?.id.uuidString ?? "nil") soft=\(soft)"
             )
             return performOnMain {
-                self.reloadSurfaceConfiguration(target.target.surface, soft: soft, source: "action.reload_config.surface tab=\(surfaceView.tabId?.uuidString ?? "nil") surface=\(surfaceView.terminalSurface?.id.uuidString ?? "nil")")
+                let preferredColorScheme = GhosttyConfig.currentColorSchemePreference()
+                surfaceView.terminalSurface?.hostedView.reapplySurfaceColorSchemeAfterGhosttyConfigReload(
+                    preferredColorScheme: preferredColorScheme
+                )
+                self.reloadSurfaceConfiguration(
+                    target.target.surface,
+                    soft: soft,
+                    source: "action.reload_config.surface tab=\(surfaceView.tabId?.uuidString ?? "nil") surface=\(surfaceView.terminalSurface?.id.uuidString ?? "nil")",
+                    preferredColorScheme: preferredColorScheme
+                )
                 surfaceView.terminalSurface?.hostedView.refreshHostBackgroundAfterGhosttyConfigReload()
                 surfaceView.terminalSurface?.forceRefresh(reason: "surface.reloadConfig")
                 return true
@@ -6748,13 +6770,13 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
         appPreferredColorScheme
     }
 
-        // Visibility is used for focus gating. Explicit portal visibility transitions
-        // also drive Ghostty occlusion so hidden workspace/split surfaces pause and
-        // queue a redraw when they become visible again.
-        fileprivate var isVisibleInUI: Bool { visibleInUI }
-        fileprivate func setVisibleInUI(_ visible: Bool) {
-            visibleInUI = visible
-        }
+    // Visibility is used for focus gating. Explicit portal visibility transitions
+    // also drive Ghostty occlusion so hidden workspace/split surfaces pause and
+    // queue a redraw when they become visible again.
+    fileprivate var isVisibleInUI: Bool { visibleInUI }
+    fileprivate func setVisibleInUI(_ visible: Bool) {
+        visibleInUI = visible
+    }
 
     override init(frame frameRect: NSRect) {
         super.init(frame: frameRect)
@@ -7269,11 +7291,14 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
         terminalSurface?.surface
     }
 
-    private func applySurfaceColorScheme(force: Bool = false) {
+    private func applySurfaceColorScheme(
+        force: Bool = false,
+        preferredColorScheme: GhosttyConfig.ColorSchemePreference? = nil
+    ) {
         guard let surface else { return }
         let bestMatch = effectiveAppearance.bestMatch(from: [.darkAqua, .aqua])
         let preferredColorScheme = Self.surfaceColorSchemePreference(
-            appPreferredColorScheme: GhosttyConfig.currentColorSchemePreference(),
+            appPreferredColorScheme: preferredColorScheme ?? GhosttyConfig.currentColorSchemePreference(),
             surfaceAppearanceBestMatch: bestMatch
         )
         let scheme = GhosttyApp.ghosttyRuntimeColorScheme(for: preferredColorScheme)
@@ -11610,6 +11635,15 @@ final class GhosttySurfaceScrollView: NSView {
         _ = synchronizeGeometryAndContent()
         surfaceView.applySurfaceBackground()
         surfaceView.applyWindowBackgroundIfActive()
+    }
+
+    func reapplySurfaceColorSchemeAfterGhosttyConfigReload(
+        preferredColorScheme: GhosttyConfig.ColorSchemePreference
+    ) {
+        surfaceView.applySurfaceColorScheme(
+            force: true,
+            preferredColorScheme: preferredColorScheme
+        )
     }
 
     private func dropZoneOverlayFrame(for zone: DropZone, in size: CGSize) -> CGRect {
