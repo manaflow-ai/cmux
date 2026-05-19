@@ -203,7 +203,7 @@ func sidebarSelectedWorkspaceForegroundNSColor(
     if usesDefaultSelectionColor {
         return NSColor.white.withAlphaComponent(max(0, min(opacity, 1)))
     }
-    cmuxReadableForegroundNSColor(on: backgroundColor, opacity: opacity)
+    return cmuxReadableForegroundNSColor(on: backgroundColor, opacity: opacity)
 }
 
 struct SidebarWorkspaceRowBackgroundStyle {
