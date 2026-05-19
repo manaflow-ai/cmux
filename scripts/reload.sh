@@ -594,7 +594,7 @@ except OSError as exc:
 try:
     fcntl.flock(fd, fcntl.LOCK_EX | fcntl.LOCK_NB)
 except BlockingIOError:
-    msg = f"==> Another xcodebuild is running; waiting for {lock_path}...\n"
+    msg = "==> Another xcodebuild is running; waiting for xcodebuild lock...\n"
     # reload.sh saves the original stderr on fd 4 before redirecting to the
     # log file. Surface the wait notice to the terminal so the user knows
     # they are queued, not hung. Fall back to stderr (the log) if fd 4 is
