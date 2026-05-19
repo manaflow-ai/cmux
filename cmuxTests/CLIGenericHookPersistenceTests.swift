@@ -1813,6 +1813,76 @@ extension CLINotifyProcessIntegrationRegressionTests {
         XCTAssertFalse(isDirectory.boolValue)
     }
 
+    func testCopilotHookInstallUsesStableHookFileWhenConfigJSONIsJSONC() throws {
+        let cliPath = try bundledCLIPath()
+        let root = FileManager.default.temporaryDirectory
+            .appendingPathComponent("cmux-copilot-hook-file-\(UUID().uuidString)", isDirectory: true)
+        let copilotHome = root.appendingPathComponent("copilot-home", isDirectory: true)
+        let configURL = copilotHome.appendingPathComponent("config.json", isDirectory: false)
+        let hookURL = copilotHome
+            .appendingPathComponent("hooks", isDirectory: true)
+            .appendingPathComponent("cmux.json", isDirectory: false)
+        try FileManager.default.createDirectory(at: copilotHome, withIntermediateDirectories: true)
+        try """
+        // Copilot CLI 1.0.49 writes comments at the top of config.json.
+        {
+          "editor": "vim"
+        }
+        """.write(to: configURL, atomically: true, encoding: .utf8)
+        defer { try? FileManager.default.removeItem(at: root) }
+
+        let result = runProcess(
+            executablePath: cliPath,
+            arguments: ["hooks", "copilot", "install", "--yes"],
+            environment: [
+                "HOME": root.path,
+                "COPILOT_HOME": copilotHome.path,
+                "PATH": "/usr/bin:/bin:/usr/sbin:/sbin",
+                "CMUX_CLI_SENTRY_DISABLED": "1",
+            ],
+            timeout: 5
+        )
+
+        XCTAssertFalse(result.timedOut, result.stderr)
+        XCTAssertEqual(result.status, 0, result.stderr)
+        XCTAssertTrue(
+            result.stdout.contains("Copilot hooks installed at \(hookURL.path)")
+                || result.stdout.contains("Copilot hooks already up to date at \(hookURL.path)"),
+            result.stdout
+        )
+        XCTAssertTrue(
+            result.stdout.contains("Copilot hooks stored in \(hookURL.path)"),
+            result.stdout
+        )
+
+        let hookJSON = try XCTUnwrap(JSONSerialization.jsonObject(with: Data(contentsOf: hookURL)) as? [String: Any])
+        XCTAssertEqual(hookJSON["version"] as? Int, 1)
+        let hooks = try XCTUnwrap(hookJSON["hooks"] as? [String: Any])
+        let sessionStart = try XCTUnwrap(hooks["SessionStart"] as? [[String: Any]])
+        let sessionStartCommand = try XCTUnwrap(sessionStart.first?["command"] as? String)
+        XCTAssertEqual(sessionStart.first?["type"] as? String, "command")
+        XCTAssertEqual(sessionStart.first?["timeoutSec"] as? Int, 5)
+        XCTAssertTrue(sessionStartCommand.contains("hooks copilot session-start"), sessionStartCommand)
+        let preToolUse = try XCTUnwrap(hooks["PreToolUse"] as? [[String: Any]])
+        XCTAssertEqual(preToolUse.first?["timeoutSec"] as? Int, 120)
+
+        var configJSONC = try String(contentsOf: configURL, encoding: .utf8)
+        XCTAssertFalse(configJSONC.contains(#""hooks""#), configJSONC)
+
+        try """
+        // Copilot CLI 1.0.49 regenerated config.json on launch.
+        {
+          "editor": "vim",
+          "firstLaunchAt": "2026-05-19T00:00:00Z"
+        }
+        """.write(to: configURL, atomically: true, encoding: .utf8)
+
+        let stableHookJSON = try XCTUnwrap(JSONSerialization.jsonObject(with: Data(contentsOf: hookURL)) as? [String: Any])
+        XCTAssertNotNil((stableHookJSON["hooks"] as? [String: Any])?["SessionStart"])
+        configJSONC = try String(contentsOf: configURL, encoding: .utf8)
+        XCTAssertFalse(configJSONC.contains(#""hooks""#), configJSONC)
+    }
+
     func runGenericHookPersistenceScenario(_ scenario: GenericHookPersistenceScenario) throws {
         let cliPath = try bundledCLIPath()
         let socketPath = makeSocketPath("hook-\(scenario.agent)")
