@@ -1,4 +1,5 @@
 import AppKit
+import Bonsplit
 
 struct CmuxConfigUIDefinition: Codable, Sendable, Hashable {
     var newWorkspace: CmuxConfigButtonPlacement?
@@ -206,6 +207,7 @@ struct CmuxResolvedConfigMenuAction: Identifiable, Sendable, Hashable {
     var id: String
     var title: String
     var icon: CmuxButtonIcon?
+    var iconSourcePath: String?
     var tooltip: String?
     var action: CmuxResolvedConfigAction
 }
@@ -232,13 +234,33 @@ enum CmuxRestartBehavior: String, Codable, Sendable {
 }
 
 extension CmuxButtonIcon {
-    var sfSymbolImage: NSImage? {
-        guard case .symbol(let symbolName) = self else {
-#if DEBUG
-            assertionFailure("cmux config menu icons only support SF Symbols")
-#endif
-            return nil
+    func contextMenuImage(configSourcePath: String?, globalConfigPath: String) -> NSImage? {
+        switch bonsplitIcon(configSourcePath: configSourcePath, globalConfigPath: globalConfigPath) {
+        case .systemImage(let symbolName):
+            return NSImage(systemSymbolName: symbolName, accessibilityDescription: nil)
+        case .emoji(let value, let scale):
+            return Self.contextMenuEmojiImage(value, scale: scale)
+        case .imageData(let data):
+            let image = NSImage(data: data)
+            image?.isTemplate = false
+            return image
         }
-        return NSImage(systemSymbolName: symbolName, accessibilityDescription: nil)
+    }
+
+    private static func contextMenuEmojiImage(_ value: String, scale: Double) -> NSImage? {
+        let clampedScale = min(max(scale, 0.25), 4)
+        let font = NSFont.systemFont(ofSize: CGFloat(16.0 * clampedScale))
+        let attributedString = NSAttributedString(string: value, attributes: [.font: font])
+        let measuredSize = attributedString.size()
+        let imageSize = NSSize(
+            width: ceil(max(1, measuredSize.width)),
+            height: ceil(max(1, measuredSize.height))
+        )
+        let image = NSImage(size: imageSize)
+        image.lockFocus()
+        attributedString.draw(at: .zero)
+        image.unlockFocus()
+        image.isTemplate = false
+        return image
     }
 }
