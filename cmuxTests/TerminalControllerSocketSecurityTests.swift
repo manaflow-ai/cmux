@@ -184,6 +184,10 @@ final class TerminalControllerSocketSecurityTests: XCTestCase {
 
         XCTAssertTrue(explicitNullIDResponse["id"] is NSNull, "Unexpected v2 response: \(explicitNullIDResponse)")
         let error = try XCTUnwrap(explicitNullIDResponse["error"] as? [String: Any], "Expected auth error")
+        XCTAssertEqual(
+            error["message"] as? String,
+            "Authentication required. For JSON-RPC call auth.login with params.password."
+        )
         let data = try XCTUnwrap(error["data"] as? [String: Any], "Expected JSON-RPC error data")
         XCTAssertEqual(data["cmux_code"] as? String, "auth_required")
 

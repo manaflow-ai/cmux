@@ -1458,8 +1458,8 @@ class TerminalController {
         for command: String,
         parsedV2Request: V2SocketRequest?
     ) -> String {
-        let message = "Authentication required. Send auth <password> first."
         if let parsedV2Request {
+            let message = passwordAuthRequiredMessage(usesJSONRPC: parsedV2Request.usesJSONRPC)
             return v2Error(
                 id: parsedV2Request.id,
                 jsonRPC: parsedV2Request.usesJSONRPC,
@@ -1474,7 +1474,15 @@ class TerminalController {
         }
         let id = dict["id"]
         let usesJSONRPC = CMUXSocketProtocol.usesJSONRPC(dict)
+        let message = passwordAuthRequiredMessage(usesJSONRPC: usesJSONRPC)
         return v2Error(id: id, jsonRPC: usesJSONRPC, code: "auth_required", message: message)
+    }
+
+    private nonisolated func passwordAuthRequiredMessage(usesJSONRPC: Bool) -> String {
+        if usesJSONRPC {
+            return "Authentication required. For JSON-RPC call auth.login with params.password."
+        }
+        return "Authentication required. Send auth <password> first."
     }
 
     private nonisolated func passwordLoginV1ResponseIfNeeded(for command: String, authenticated: inout Bool) -> String? {
