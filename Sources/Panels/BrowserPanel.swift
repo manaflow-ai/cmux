@@ -2678,6 +2678,7 @@ final class BrowserPanel: Panel, ObservableObject {
     private(set) var webViewLastHiddenAt: Date?
     private(set) var webViewLastVisibilityChangeAt: Date?
     private(set) var webViewLastVisibilityChangeReason: String?
+    private(set) var hasBackgroundPreloadHost = false
     private var isWebViewVisibleInUI: Bool = false
     private var isClosingWebViewLifecycle: Bool = false
 
@@ -3424,6 +3425,7 @@ final class BrowserPanel: Panel, ObservableObject {
         initialURL: URL? = nil,
         initialRequest: URLRequest? = nil,
         renderInitialNavigation: Bool = true,
+        preloadInitialNavigationInBackground: Bool = false,
         bypassInsecureHTTPHostOnce: String? = nil,
         proxyEndpoint: BrowserProxyEndpoint? = nil,
         isRemoteWorkspace: Bool = false,
