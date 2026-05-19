@@ -357,6 +357,17 @@ final class AppIconSettingsTests: XCTestCase {
         XCTAssertEqual(dockTileNotificationCount, 2)
     }
 
+    func testNativeDockBadgeLabelClearsWhenRuntimeIconIncludesBadge() {
+        XCTAssertNil(
+            NotificationBadgeSettings.nativeDockBadgeLabel("3", runtimeIconIncludesBadge: true),
+            "Expected native Dock badge to clear when the runtime app icon already includes the badge"
+        )
+        XCTAssertEqual(
+            NotificationBadgeSettings.nativeDockBadgeLabel("3", runtimeIconIncludesBadge: false),
+            "3"
+        )
+    }
+
     func testBadgeRendererDoesNotDrawWhiteHaloAroundBadge() throws {
         let baseIcon = NSImage(size: NSSize(width: 64, height: 64))
         baseIcon.lockFocus()

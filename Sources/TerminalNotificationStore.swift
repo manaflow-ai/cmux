@@ -577,6 +577,10 @@ enum NotificationBadgeSettings {
         }
         _ = defaults.synchronize()
     }
+
+    static func nativeDockBadgeLabel(_ label: String?, runtimeIconIncludesBadge: Bool) -> String? {
+        runtimeIconIncludesBadge ? nil : label
+    }
 }
 
 enum NotificationPaneRingSettings {
@@ -2131,7 +2135,10 @@ final class TerminalNotificationStore: ObservableObject {
             runTag: TaggedRunBadgeSettings.normalizedTag()
         )
         NotificationBadgeSettings.persistDockBadgeLabel(label)
-        AppIconSettings.updateRuntimeBadgeLabel(label)
-        NSApp?.dockTile.badgeLabel = label
+        let runtimeIconIncludesBadge = AppIconSettings.updateRuntimeBadgeLabel(label)
+        NSApp?.dockTile.badgeLabel = NotificationBadgeSettings.nativeDockBadgeLabel(
+            label,
+            runtimeIconIncludesBadge: runtimeIconIncludesBadge
+        )
     }
 }

@@ -4461,14 +4461,18 @@ enum AppIconSettings {
     }
 
     @MainActor
-    static func updateRuntimeBadgeLabel(_ label: String?, environment: Environment? = nil) {
+    @discardableResult
+    static func updateRuntimeBadgeLabel(_ label: String?, environment: Environment? = nil) -> Bool {
         runtimeBadgeLabel = AppIconBadgeRenderer.normalizedBadgeLabel(label)
         let environment = environment ?? liveEnvironmentProvider()
-        guard environment.isApplicationFinishedLaunching() else { return }
+        guard environment.isApplicationFinishedLaunching() else { return false }
         if let runtimeBaseIcon {
             environment.setApplicationIconImage(runtimeIcon(for: runtimeBaseIcon))
+            environment.notifyDockTilePlugin()
+            return true
         }
         environment.notifyDockTilePlugin()
+        return false
     }
 
     @MainActor
