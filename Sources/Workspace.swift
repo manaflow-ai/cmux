@@ -13577,16 +13577,15 @@ final class Workspace: Identifiable, ObservableObject {
             return false
         }
 
-        if let splitTarget,
-           let movedTabId = surfaceIdFromPanelId(entry.transfer.panelId),
-           bonsplitController.splitPane(
-            targetPane,
-            orientation: splitTarget.orientation,
-            movingTab: movedTabId,
-            insertFirst: splitTarget.insertFirst
-           ) != nil {
-            focusPanel(entry.transfer.panelId)
-        } else if splitTarget != nil {
+        if let splitTarget {
+            if let movedTabId = surfaceIdFromPanelId(entry.transfer.panelId) {
+                _ = bonsplitController.splitPane(
+                    targetPane,
+                    orientation: splitTarget.orientation,
+                    movingTab: movedTabId,
+                    insertFirst: splitTarget.insertFirst
+                )
+            }
             focusPanel(entry.transfer.panelId)
         }
 
