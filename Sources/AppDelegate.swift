@@ -3426,6 +3426,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             timeout: 1.0
         )
         guard !readiness.isReady else {
+            TerminalController.shared.refreshSocketListenerPermissions(
+                socketPath: restartPath,
+                accessMode: config.mode
+            )
             sentryBreadcrumb("socket.listener.wakeRestartSkipped", category: "socket", data: [
                 "mode": config.mode.rawValue,
                 "path": restartPath,

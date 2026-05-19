@@ -1674,6 +1674,10 @@ class TerminalController {
         return true
     }
 
+    func refreshSocketListenerPermissions(socketPath: String, accessMode: SocketControlMode) {
+        applySocketPermissions(to: socketPath, accessMode: accessMode)
+    }
+
     nonisolated func socketListenerHealth(expectedSocketPath: String) -> SocketListenerHealth {
         let snapshot = listenerStateSnapshot()
         let pathMatches = snapshot.socketPath == expectedSocketPath
