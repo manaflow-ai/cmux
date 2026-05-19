@@ -823,7 +823,8 @@ final class CLINotifyProcessIntegrationRegressionTests: XCTestCase {
         let socketPath = makeSocketPath("mem-trim")
         let listenerFD = try bindUnixSocket(at: socketPath)
         let state = MockSocketServerState()
-        let workspaceId = "55555555-5555-5555-5555-555555555555"
+        let workspaceId = "AAAAAAAA-BBBB-CCCC-DDDD-EEEEEEEEEEEE"
+        let lowercaseWorkspaceId = workspaceId.lowercased()
         let surfaceId = "66666666-6666-6666-6666-666666666666"
 
         defer {
@@ -845,7 +846,7 @@ final class CLINotifyProcessIntegrationRegressionTests: XCTestCase {
                 )
             }
             let params = payload["params"] as? [String: Any] ?? [:]
-            XCTAssertEqual(params["workspace_id"] as? String, "workspace:2")
+            XCTAssertEqual(params["workspace_id"] as? String, lowercaseWorkspaceId)
             var result = self.memorySystemTopFixture(
                 workspaceId: workspaceId,
                 workspaceRef: "workspace:2",
@@ -891,7 +892,7 @@ final class CLINotifyProcessIntegrationRegressionTests: XCTestCase {
                 "memory",
                 "trim",
                 "--workspace",
-                "workspace:2",
+                lowercaseWorkspaceId,
                 "--agent",
                 "claude",
                 "--dry-run",
@@ -1423,36 +1424,100 @@ final class CLINotifyProcessIntegrationRegressionTests: XCTestCase {
         )
     }
 
-    func testMemoryTrimRenderingDistinguishesNoShutdownAction() throws {
-        let cli = CMUXCLI(args: [])
-        let result = CMUXCLI.MemoryTrimResult(
-            workspaceId: "33333333-3333-3333-3333-333333333333",
-            workspaceRef: "workspace:11",
-            agent: CMUXCLI.MemoryAgentCandidate(
-                key: "opencode",
-                pid: 4242,
-                surfaceId: nil,
-                surfaceRef: nil,
-                processName: "opencode",
-                residentBytes: 268_435_456,
-                residentBytesKnown: true,
-                source: .tag,
-                identity: nil
-            ),
-            gracefulAction: nil,
-            attemptedShutdown: false,
-            terminated: false,
-            killed: false,
-            stillRunning: true,
-            dryRun: false
+    func testMemoryTrimTextOutputDistinguishesNoShutdownAction() throws {
+        let cliPath = try bundledCLIPath()
+        let socketPath = makeSocketPath("mem-trim-no-action")
+        let listenerFD = try bindUnixSocket(at: socketPath)
+        let state = MockSocketServerState()
+        let workspaceId = "33333333-3333-3333-3333-333333333333"
+        let sleeper = Process()
+        sleeper.executableURL = URL(fileURLWithPath: "/bin/sleep")
+        sleeper.arguments = ["30"]
+        try sleeper.run()
+
+        defer {
+            terminateProcess(sleeper)
+            Darwin.close(listenerFD)
+            unlink(socketPath)
+        }
+
+        let serverHandled = startMockServer(listenerFD: listenerFD, state: state) { line in
+            guard let payload = self.jsonObject(line),
+                  let id = payload["id"] as? String,
+                  let method = payload["method"] as? String else {
+                return self.malformedRequestResponse(raw: line)
+            }
+            guard method == "system.top" else {
+                return self.v2Response(
+                    id: id,
+                    ok: false,
+                    error: ["code": "unexpected_method", "message": "Unexpected method \(method)"]
+                )
+            }
+            return self.v2Response(
+                id: id,
+                ok: true,
+                result: [
+                    "sample": ["sampled_at": "2026-05-13T12:00:00Z"],
+                    "windows": [
+                        [
+                            "id": "36363636-3636-3636-3636-363636363636",
+                            "ref": "window:1",
+                            "workspaces": [
+                                [
+                                    "id": workspaceId,
+                                    "ref": "workspace:11",
+                                    "title": "Memory Workspace",
+                                    "tags": [
+                                        [
+                                            "kind": "tag",
+                                            "key": "opencode",
+                                            "pid": Int(sleeper.processIdentifier),
+                                            "surface_ref": "surface:11",
+                                            "resources": ["resident_bytes": 268_435_456],
+                                        ],
+                                    ],
+                                    "panes": [],
+                                ],
+                            ],
+                        ],
+                    ],
+                ]
+            )
+        }
+
+        var environment = ProcessInfo.processInfo.environment
+        environment["CMUX_SOCKET_PATH"] = socketPath
+        environment["CMUX_CLI_SENTRY_DISABLED"] = "1"
+
+        let result = runProcess(
+            executablePath: cliPath,
+            arguments: [
+                "memory",
+                "trim",
+                "--workspace",
+                "workspace:11",
+                "--agent",
+                "opencode",
+                "--id-format",
+                "refs",
+            ],
+            environment: environment,
+            timeout: 5
         )
 
-        let output = cli.renderMemoryTrimResult(result, idFormat: .refs)
-
-        XCTAssertTrue(output.hasPrefix("No trim action opencode"), output)
-        XCTAssertTrue(output.contains("attempted=no"), output)
-        XCTAssertTrue(output.contains("still_running=yes"), output)
-        XCTAssertFalse(output.hasPrefix("Trimmed "), output)
+        wait(for: [serverHandled], timeout: 5)
+        XCTAssertFalse(result.timedOut, result.stderr)
+        XCTAssertEqual(result.status, 0, result.stderr)
+        XCTAssertTrue(result.stderr.isEmpty, result.stderr)
+        XCTAssertTrue(result.stdout.hasPrefix("No trim action opencode"), result.stdout)
+        XCTAssertTrue(result.stdout.contains("attempted=no"), result.stdout)
+        XCTAssertTrue(result.stdout.contains("still_running=yes"), result.stdout)
+        XCTAssertFalse(result.stdout.hasPrefix("Trimmed "), result.stdout)
+        XCTAssertEqual(
+            state.commands.compactMap { self.jsonObject($0)?["method"] as? String },
+            ["system.top"]
+        )
     }
 
     func testMemoryTrimAutoRejectsProcessNameFallbackWithoutOwnedTag() throws {

@@ -175,7 +175,10 @@ extension CMUXCLI {
             guard let handle = handle?.trimmingCharacters(in: .whitespacesAndNewlines), !handle.isEmpty else {
                 return false
             }
-            return (workspace["id"] as? String) == handle || (workspace["ref"] as? String) == handle
+            if let id = workspace["id"] as? String, id.caseInsensitiveCompare(handle) == .orderedSame {
+                return true
+            }
+            return (workspace["ref"] as? String) == handle
         }
 
         private func memoryProcessIndex(in workspace: [String: Any]) -> [Int: [String: Any]] {
