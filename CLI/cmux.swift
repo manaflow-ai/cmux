@@ -19376,16 +19376,6 @@ struct CMUXCLI {
                 isFallback: false
             )
         }
-        if let grokSummary = summarizeGrokAssistantCompletionNotification(
-            def: def,
-            message: normalizedMessage,
-            cwd: cwd,
-            env: env,
-            sessionId: sessionId,
-            matchesMessage: isGrokInternalSessionNotification
-        ) {
-            return grokSummary
-        }
         return classifyAgentHookNotification(
             def: def,
             signal: signal,
