@@ -201,6 +201,81 @@ final class KeyboardShortcutSettingsFileStoreStartupTests: XCTestCase {
         XCTAssertEqual(dockTileNotificationCount, 0)
     }
 
+    func testManagedAppearanceInitialLoadDoesNotSynchronizeTerminalThemeUntilReload() throws {
+        let defaults = UserDefaults.standard
+        let key = AppearanceSettings.appearanceModeKey
+
+        try preservingDefaults(keys: [key, settingsFileBackupsDefaultsKey, importedManagedDefaultsKey]) {
+            defaults.removeObject(forKey: key)
+            defaults.removeObject(forKey: settingsFileBackupsDefaultsKey)
+            defaults.removeObject(forKey: importedManagedDefaultsKey)
+
+            let directoryURL = try makeTemporaryDirectory()
+            defer { try? FileManager.default.removeItem(at: directoryURL) }
+
+            let settingsFileURL = directoryURL.appendingPathComponent("cmux.json", isDirectory: false)
+            try writeSettingsFile(
+                """
+                {
+                  "app": {
+                    "appearance": "dark"
+                  }
+                }
+                """,
+                to: settingsFileURL
+            )
+
+            var appliedAppearanceNames: [NSAppearance.Name?] = []
+            var synchronizedAppearanceNames: [(appearance: NSAppearance.Name?, source: String)] = []
+            let environment = AppearanceSettings.LiveApplyEnvironment(
+                setApplicationAppearance: { appearance in
+                    appliedAppearanceNames.append(appearance?.bestMatch(from: [.darkAqua, .aqua]))
+                },
+                synchronizeTerminalThemeWithAppearance: { appearance, source in
+                    synchronizedAppearanceNames.append((
+                        appearance: appearance?.bestMatch(from: [.darkAqua, .aqua]),
+                        source: source
+                    ))
+                },
+                systemAppearance: {
+                    NSAppearance(named: .aqua)
+                }
+            )
+
+            let store = KeyboardShortcutSettingsFileStore(
+                primaryPath: settingsFileURL.path,
+                fallbackPath: nil,
+                additionalFallbackPaths: [],
+                appearanceEnvironment: environment,
+                startWatching: false
+            )
+
+            XCTAssertEqual(defaults.string(forKey: key), AppearanceMode.dark.rawValue)
+            XCTAssertEqual(appliedAppearanceNames, [.darkAqua])
+            XCTAssertTrue(synchronizedAppearanceNames.isEmpty)
+
+            try withExtendedLifetime(store) {
+                try writeSettingsFile(
+                    """
+                    {
+                      "app": {
+                        "appearance": "light"
+                      }
+                    }
+                    """,
+                    to: settingsFileURL
+                )
+                store.reload()
+            }
+
+            XCTAssertEqual(defaults.string(forKey: key), AppearanceMode.light.rawValue)
+            XCTAssertEqual(appliedAppearanceNames, [.darkAqua, .aqua])
+            XCTAssertEqual(synchronizedAppearanceNames.count, 1)
+            XCTAssertEqual(synchronizedAppearanceNames.first?.appearance, .aqua)
+            XCTAssertEqual(synchronizedAppearanceNames.first?.source, "cmuxConfig.applyManagedDefault")
+        }
+    }
+
     func testSidebarMatchTerminalBackgroundUserDefaultSurvivesSettingsFileReapply() throws {
         let defaults = UserDefaults.standard
         let key = SidebarMatchTerminalBackgroundSettings.userDefaultsKey

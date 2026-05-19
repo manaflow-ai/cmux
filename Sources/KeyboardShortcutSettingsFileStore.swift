@@ -54,6 +54,7 @@ final class CmuxSettingsFileStore {
     private let fallbackPaths: [String]
     private let fileManager: FileManager
     private let notificationCenter: NotificationCenter
+    private let appearanceEnvironment: AppearanceSettings.LiveApplyEnvironment
     private let stateLock = NSLock()
 
     private var primaryWatcher: ShortcutSettingsFileWatcher?
@@ -75,6 +76,7 @@ final class CmuxSettingsFileStore {
         additionalFallbackPaths: [String] = [CmuxSettingsFileStore.defaultApplicationSupportFallbackPath].compactMap { $0 },
         fileManager: FileManager = .default,
         notificationCenter: NotificationCenter = .default,
+        appearanceEnvironment: AppearanceSettings.LiveApplyEnvironment = .live,
         startWatching: Bool = true
     ) {
         self.primaryPath = primaryPath
@@ -82,6 +84,7 @@ final class CmuxSettingsFileStore {
             .filter { $0 != primaryPath }
         self.fileManager = fileManager
         self.notificationCenter = notificationCenter
+        self.appearanceEnvironment = appearanceEnvironment
         importedManagedDefaults = Self.loadImportedManagedDefaults()
 
         bootstrapPrimaryTemplateIfNeeded()
@@ -1312,7 +1315,8 @@ final class CmuxSettingsFileStore {
                         rawValue: UserDefaults.standard.string(forKey: change.defaultsKey),
                         source: change.source,
                         duringLaunch: !change.synchronizeAppearanceTerminalTheme,
-                        synchronizeTerminalTheme: change.synchronizeAppearanceTerminalTheme
+                        synchronizeTerminalTheme: change.synchronizeAppearanceTerminalTheme,
+                        environment: self.appearanceEnvironment
                     )
                 } else if change.defaultsKey == AppIconSettings.modeKey {
                     AppIconSettings.applyIcon(AppIconSettings.resolvedMode())
