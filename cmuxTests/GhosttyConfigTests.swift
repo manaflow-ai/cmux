@@ -2331,6 +2331,39 @@ final class SocketControlSettingsTests: XCTestCase {
         XCTAssertEqual(path, "/tmp/cmux-debug-forced.sock")
     }
 
+    func testListenerConfigurationHonorsEnvDisabledOverride() {
+        let suiteName = "SocketControlSettingsTests.disabled.\(UUID().uuidString)"
+        let defaults = UserDefaults(suiteName: suiteName)!
+        defer { defaults.removePersistentDomain(forName: suiteName) }
+        defaults.set(SocketControlMode.password.rawValue, forKey: SocketControlSettings.appStorageKey)
+
+        let config = SocketControlSettings.listenerConfigurationIfEnabled(
+            defaults: defaults,
+            environment: ["CMUX_SOCKET_ENABLE": "0"],
+            bundleIdentifier: "com.cmuxterm.app.debug.test",
+            isDebugBuild: true
+        )
+
+        XCTAssertNil(config)
+    }
+
+    func testListenerConfigurationHonorsEffectiveSocketPathOverride() {
+        let suiteName = "SocketControlSettingsTests.path.\(UUID().uuidString)"
+        let defaults = UserDefaults(suiteName: suiteName)!
+        defer { defaults.removePersistentDomain(forName: suiteName) }
+        defaults.set(SocketControlMode.cmuxOnly.rawValue, forKey: SocketControlSettings.appStorageKey)
+
+        let config = SocketControlSettings.listenerConfigurationIfEnabled(
+            defaults: defaults,
+            environment: ["CMUX_SOCKET_PATH": "/tmp/cmux-debug-forced.sock"],
+            bundleIdentifier: "com.cmuxterm.app.debug.test",
+            isDebugBuild: true
+        )
+
+        XCTAssertEqual(config?.mode, .cmuxOnly)
+        XCTAssertEqual(config?.path, "/tmp/cmux-debug-forced.sock")
+    }
+
     func testDefaultSocketPathByChannel() {
         XCTAssertEqual(
             SocketControlSettings.defaultSocketPath(

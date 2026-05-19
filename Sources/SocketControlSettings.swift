@@ -448,6 +448,32 @@ struct SocketControlSettings {
         return fallback
     }
 
+    static func listenerConfigurationIfEnabled(
+        defaults: UserDefaults = .standard,
+        environment: [String: String] = ProcessInfo.processInfo.environment,
+        bundleIdentifier: String? = Bundle.main.bundleIdentifier,
+        isDebugBuild: Bool = SocketControlSettings.isDebugBuild,
+        currentUserID: uid_t = getuid(),
+        probeStableDefaultPathEntry: (String) -> StableDefaultSocketPathEntry = inspectStableDefaultSocketPathEntry
+    ) -> (mode: SocketControlMode, path: String)? {
+        let rawMode = defaults.string(forKey: appStorageKey) ?? defaultMode.rawValue
+        let mode = effectiveMode(
+            userMode: migrateMode(rawMode),
+            environment: environment
+        )
+        guard mode != .off else { return nil }
+        return (
+            mode: mode,
+            path: socketPath(
+                environment: environment,
+                bundleIdentifier: bundleIdentifier,
+                isDebugBuild: isDebugBuild,
+                currentUserID: currentUserID,
+                probeStableDefaultPathEntry: probeStableDefaultPathEntry
+            )
+        )
+    }
+
     static func defaultSocketPath(
         bundleIdentifier: String?,
         environment: [String: String] = ProcessInfo.processInfo.environment,

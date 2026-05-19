@@ -94,15 +94,10 @@ struct cmuxApp: App {
     }
 
     private static func startupSocketCollisionPath(defaults: UserDefaults) -> String? {
-        let storedMode = defaults.string(forKey: SocketControlSettings.appStorageKey)
-            ?? SocketControlSettings.defaultMode.rawValue
-        let mode = SocketControlSettings.effectiveMode(
-            userMode: SocketControlSettings.migrateMode(storedMode)
-        )
-        guard mode != .off else {
+        guard let config = SocketControlSettings.listenerConfigurationIfEnabled(defaults: defaults) else {
             return nil
         }
-        let socketPath = SocketControlSettings.socketPath()
+        let socketPath = config.path
         return socketPathHasLiveListener(socketPath, timeout: 0.2)
             ? socketPath
             : nil

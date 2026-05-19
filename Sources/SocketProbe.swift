@@ -6,6 +6,9 @@ private let socketProbeUnixSocketPathMaxLength: Int = {
     return MemoryLayout.size(ofValue: addr.sun_path) - 1
 }()
 
+/// Probes whether `path` is a Unix socket with an active listener.
+/// The timeout parameter is accepted for existing call sites but intentionally
+/// ignored because nonblocking local Unix socket connects complete immediately.
 nonisolated func socketPathHasLiveListener(_ path: String, timeout _: TimeInterval) -> Bool {
     var st = stat()
     guard lstat(path, &st) == 0,
