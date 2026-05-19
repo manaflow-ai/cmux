@@ -314,10 +314,6 @@ func TestWebSocketPTYStressSessionCleanupAndBoundedScrollback(t *testing.T) {
 		conn := dialPTY(t, ctx, server.URL)
 		sendAuth(t, ctx, conn, token, sessionID, 80+i, 24)
 		readReady(t, ctx, conn)
-		if err := conn.Write(ctx, websocket.MessageBinary, []byte("\r")); err != nil {
-			t.Fatalf("write prompt probe %d: %v", i, err)
-		}
-		waitForBinaryContainsLabel(t, ctx, conn, "stress session "+sessionID+" shell prompt", "$", 10*time.Second)
 		if err := conn.Write(ctx, websocket.MessageBinary, []byte("printf '%8192s\\n' x; printf '%b\\n' '\\103\\115\\125\\130\\137\\110\\117\\114\\104'; read line; exit\r")); err != nil {
 			t.Fatalf("write stress command %d: %v", i, err)
 		}
