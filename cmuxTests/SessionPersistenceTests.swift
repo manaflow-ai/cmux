@@ -4040,6 +4040,47 @@ extension SessionPersistenceTests {
         ))
     }
 
+    func testSurfaceResumeApprovalCreatesManualRecordForPromptlessCLICommand() throws {
+        let storeURL = try makeSurfaceResumeApprovalStoreURL()
+        let secret = Data("approval-secret".utf8)
+        let binding = SurfaceResumeBindingSnapshot(
+            name: "tmux work",
+            kind: "tmux",
+            command: "tmux attach -t work",
+            cwd: "/tmp/project",
+            source: "cli",
+            environment: ["PATH": "/usr/bin:/bin"]
+        )
+
+        let effectiveBinding = try XCTUnwrap(SurfaceResumeApprovalStore.applyingPromptlessCLIManualApprovalIfNeeded(
+            to: binding,
+            existingRecord: nil,
+            fileURL: storeURL,
+            signingSecret: secret
+        ))
+        XCTAssertEqual(effectiveBinding.approvalPolicy, .manual)
+        XCTAssertFalse(effectiveBinding.allowsAutomaticResume)
+        XCTAssertNotNil(effectiveBinding.approvalRecordId)
+
+        let records = SurfaceResumeApprovalStore.validRecords(
+            fileURL: storeURL,
+            signingSecret: secret
+        )
+        let record = try XCTUnwrap(records.first)
+        XCTAssertEqual(records.count, 1)
+        XCTAssertEqual(record.policy, .manual)
+        XCTAssertEqual(record.source, "cli")
+        XCTAssertEqual(record.commandPrefixText, "tmux attach -t work")
+        XCTAssertEqual(effectiveBinding.approvalRecordId, record.id)
+
+        XCTAssertNil(SurfaceResumeApprovalStore.applyingPromptlessCLIManualApprovalIfNeeded(
+            to: binding,
+            existingRecord: record,
+            fileURL: storeURL,
+            signingSecret: secret
+        ))
+    }
+
     func testSurfaceResumeApprovalPromptsForUnknownManualProposal() throws {
         let binding = SurfaceResumeBindingSnapshot(
             command: "tmux attach -t work",

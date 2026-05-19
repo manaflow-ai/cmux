@@ -726,6 +726,37 @@ enum SurfaceResumeApprovalStore {
         return existingRecord.policy == .prompt
     }
 
+    static func applyingPromptlessCLIManualApprovalIfNeeded(
+        to binding: SurfaceResumeBindingSnapshot,
+        existingRecord: SurfaceResumeApprovalRecord?,
+        fileURL: URL = defaultURL(),
+        fileManager: FileManager = .default,
+        signingSecret: Data? = nil
+    ) -> SurfaceResumeBindingSnapshot? {
+        guard binding.isCLIBinding, existingRecord == nil else {
+            return nil
+        }
+        guard let record = approve(
+            binding: binding,
+            policy: .manual,
+            fileURL: fileURL,
+            fileManager: fileManager,
+            signingSecret: signingSecret
+        ) else {
+            return nil
+        }
+        var effectiveBinding = applyingStoredApproval(
+            to: binding,
+            fileURL: fileURL,
+            fileManager: fileManager,
+            signingSecret: signingSecret
+        )
+        effectiveBinding.approvalPolicy = record.policy
+        effectiveBinding.approvalRecordId = record.id
+        effectiveBinding.autoResume = record.policy == .auto
+        return effectiveBinding
+    }
+
     @discardableResult
     static func approve(
         binding: SurfaceResumeBindingSnapshot,
