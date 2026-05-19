@@ -639,6 +639,39 @@ final class CmuxEventBusTests: XCTestCase {
     }
 
     @MainActor
+    func testEventScopeKindFallsBackWhenScopeIsNull() throws {
+        let previousAppDelegate = AppDelegate.shared
+        let app = AppDelegate()
+        defer { AppDelegate.shared = previousAppDelegate }
+
+        let windowId = UUID()
+        let manager = TabManager()
+        app.registerMainWindowContextForTesting(windowId: windowId, tabManager: manager)
+        defer { app.unregisterMainWindowContextForTesting(windowId: windowId) }
+
+        let workspace = try XCTUnwrap(manager.selectedWorkspace)
+        let surfaceId = try XCTUnwrap(workspace.focusedPanelId)
+        let paneId = try XCTUnwrap(workspace.paneId(forPanelId: surfaceId)?.id)
+
+        let scope = try TerminalController.shared.resolveEventsScopeForTesting(params: [
+            "scope": NSNull(),
+            "scope_kind": "pane",
+            "surface_id": surfaceId.uuidString
+        ])
+
+        XCTAssertEqual(scope.kind, .pane)
+        XCTAssertEqual(scope.paneId, paneId.uuidString)
+    }
+
+    @MainActor
+    func testGlobalEventScopeRejectsSelectorsForSocketClients() {
+        XCTAssertThrowsError(try TerminalController.shared.resolveEventsScopeForTesting(params: [
+            "scope": "global",
+            "workspace_id": UUID().uuidString
+        ]))
+    }
+
+    @MainActor
     func testEventScopeResolverPrefersExplicitWorkspaceOverCallerSurface() throws {
         let previousAppDelegate = AppDelegate.shared
         let app = AppDelegate()

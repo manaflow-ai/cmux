@@ -222,7 +222,6 @@ extension CMUXCLI {
     ) throws {
         let effectiveScope = try effectiveEventScope(options)
         let hasSelector = hasEventScopeSelector(options)
-        try validateEventScopeCombination(options)
         params["scope"] = effectiveScope
 
         let caller = eventCallerContextFromEnvironment()

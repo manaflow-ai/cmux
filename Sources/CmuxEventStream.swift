@@ -103,6 +103,12 @@ extension TerminalController {
         let inferredKind = try inferEventsScopeKind(params: params)
         switch inferredKind {
         case .global:
+            if Self.hasExplicitEventContext(params) {
+                throw EventsScopeError(message: String(
+                    localized: "cli.error.eventsGlobalScopeWithSelectors",
+                    defaultValue: "--scope global cannot be combined with --window, --workspace, --surface, or --pane."
+                ))
+            }
             return .global
         case .window:
             guard let windowId = try resolveEventsWindowId(params: params) else {
@@ -136,7 +142,7 @@ extension TerminalController {
     }
 
     private nonisolated func inferEventsScopeKind(params: [String: Any]) throws -> CmuxEventScope.Kind {
-        if let raw = Self.stringValue(params["scope"] ?? params["scope_kind"]) {
+        if let raw = Self.stringValue(params["scope"]) ?? Self.stringValue(params["scope_kind"]) {
             switch raw.lowercased().replacingOccurrences(of: "_", with: "-") {
             case "global", "all":
                 return .global
