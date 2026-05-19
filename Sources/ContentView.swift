@@ -12605,42 +12605,26 @@ private struct TabItemView: View, Equatable {
         )
     }
 
-    var body: some View {
-        let workspaceSnapshot = self.workspaceSnapshot
-        let closeWorkspaceTooltip = String(localized: "sidebar.closeWorkspace.tooltip", defaultValue: "Close Workspace")
-        let protectedWorkspaceTooltip = String(
-            localized: "sidebar.pinnedWorkspaceProtected.tooltip",
-            defaultValue: "Pinned workspace. Closing requires confirmation."
-        )
-        let closeButtonTooltip = workspaceSnapshot.isPinned
-            ? protectedWorkspaceTooltip
-            : KeyboardShortcutSettings.Action.closeWorkspace.tooltip(closeWorkspaceTooltip)
-        let accessibilityHintText = String(localized: "sidebar.workspace.accessibilityHint", defaultValue: "Activate to focus this workspace. Drag to reorder, or use Move Up and Move Down actions.")
-        let moveUpActionText = String(localized: "sidebar.workspace.moveUpAction", defaultValue: "Move Up")
-        let moveDownActionText = String(localized: "sidebar.workspace.moveDownAction", defaultValue: "Move Down")
-        let finderDirectoryPath = WorkspaceFinderDirectoryResolver.path(for: tab)
-        let finderDirectoryCacheKey = WorkspaceFinderDirectoryCacheKey(path: finderDirectoryPath)
-        let latestNotificationSubtitle = latestNotificationText
-        let conversationMessageSubtitle = !settings.hidesAllDetails && settings.iMessageModeEnabled
-            ? workspaceSnapshot.latestConversationMessage?
-                .trimmingCharacters(in: .whitespacesAndNewlines)
-                .nilIfEmpty
-            : nil
-        let effectiveSubtitle = latestNotificationSubtitle ?? conversationMessageSubtitle
-        let detailVisibility = visibleAuxiliaryDetails
-        let workspaceIconPath = workspaceSnapshot.workspaceIconPath
+    @ViewBuilder
+    private func workspaceIconSection(path: String?, reloadToken: String?) -> some View {
+        if let path {
+            WorkspaceIconView(
+                iconPath: path,
+                reloadToken: reloadToken,
+                size: 36
+            )
+            .padding(.top, 1)
+            .accessibilityIdentifier("SidebarWorkspaceIcon")
+        }
+    }
 
-        HStack(alignment: .top, spacing: workspaceIconPath == nil ? 0 : 10) {
-            if let workspaceIconPath {
-                WorkspaceIconView(
-                    iconPath: workspaceIconPath,
-                    reloadToken: workspaceSnapshot.workspaceIconReloadToken,
-                    size: 36
-                )
-                    .padding(.top, 1)
-                    .accessibilityIdentifier("SidebarWorkspaceIcon")
-            }
-
+    @ViewBuilder
+    private func workspaceDetailsContent(
+        workspaceSnapshot: SidebarWorkspaceSnapshotBuilder.Snapshot,
+        effectiveSubtitle: String?,
+        detailVisibility: SidebarWorkspaceAuxiliaryDetailVisibility,
+        protectedWorkspaceTooltip: String
+    ) -> some View {
         VStack(alignment: .leading, spacing: 4) {
             HStack(spacing: 8) {
                 if unreadCount > 0 {
@@ -12747,7 +12731,6 @@ private struct TabItemView: View, Equatable {
                 .transition(.opacity.combined(with: .move(edge: .top)))
             }
 
-            // Branch + directory row
             if detailVisibility.showsBranchDirectory {
                 if sidebarBranchVerticalLayout {
                     if !workspaceSnapshot.branchDirectoryLines.isEmpty {
@@ -12801,7 +12784,6 @@ private struct TabItemView: View, Equatable {
                 }
             }
 
-            // Pull request rows
             if detailVisibility.showsPullRequests, !workspaceSnapshot.pullRequestRows.isEmpty {
                 VStack(alignment: .leading, spacing: 1) {
                     ForEach(workspaceSnapshot.pullRequestRows) { pullRequest in
@@ -12828,7 +12810,6 @@ private struct TabItemView: View, Equatable {
                 }
             }
 
-            // Ports row
             if detailVisibility.showsPorts, !workspaceSnapshot.listeningPorts.isEmpty {
                 HStack(spacing: 4) {
                     ForEach(workspaceSnapshot.listeningPorts, id: \.self) { port in
@@ -12851,6 +12832,44 @@ private struct TabItemView: View, Equatable {
             }
         }
         .frame(maxWidth: .infinity, alignment: .leading)
+    }
+
+    var body: some View {
+        let workspaceSnapshot = self.workspaceSnapshot
+        let closeWorkspaceTooltip = String(localized: "sidebar.closeWorkspace.tooltip", defaultValue: "Close Workspace")
+        let protectedWorkspaceTooltip = String(
+            localized: "sidebar.pinnedWorkspaceProtected.tooltip",
+            defaultValue: "Pinned workspace. Closing requires confirmation."
+        )
+        let closeButtonTooltip = workspaceSnapshot.isPinned
+            ? protectedWorkspaceTooltip
+            : KeyboardShortcutSettings.Action.closeWorkspace.tooltip(closeWorkspaceTooltip)
+        let accessibilityHintText = String(localized: "sidebar.workspace.accessibilityHint", defaultValue: "Activate to focus this workspace. Drag to reorder, or use Move Up and Move Down actions.")
+        let moveUpActionText = String(localized: "sidebar.workspace.moveUpAction", defaultValue: "Move Up")
+        let moveDownActionText = String(localized: "sidebar.workspace.moveDownAction", defaultValue: "Move Down")
+        let finderDirectoryPath = WorkspaceFinderDirectoryResolver.path(for: tab)
+        let finderDirectoryCacheKey = WorkspaceFinderDirectoryCacheKey(path: finderDirectoryPath)
+        let latestNotificationSubtitle = latestNotificationText
+        let conversationMessageSubtitle = !settings.hidesAllDetails && settings.iMessageModeEnabled
+            ? workspaceSnapshot.latestConversationMessage?
+                .trimmingCharacters(in: .whitespacesAndNewlines)
+                .nilIfEmpty
+            : nil
+        let effectiveSubtitle = latestNotificationSubtitle ?? conversationMessageSubtitle
+        let detailVisibility = visibleAuxiliaryDetails
+        let workspaceIconPath = workspaceSnapshot.workspaceIconPath
+
+        HStack(alignment: .top, spacing: workspaceIconPath == nil ? 0 : 10) {
+            workspaceIconSection(
+                path: workspaceIconPath,
+                reloadToken: workspaceSnapshot.workspaceIconReloadToken
+            )
+            workspaceDetailsContent(
+                workspaceSnapshot: workspaceSnapshot,
+                effectiveSubtitle: effectiveSubtitle,
+                detailVisibility: detailVisibility,
+                protectedWorkspaceTooltip: protectedWorkspaceTooltip
+            )
         }
         .animation(.easeInOut(duration: 0.2), value: workspaceSnapshot.latestLog)
         .animation(.easeInOut(duration: 0.2), value: workspaceSnapshot.progress != nil)
