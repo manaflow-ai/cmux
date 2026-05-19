@@ -6592,7 +6592,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
                     action: menuAction.action
                 )
                 item.toolTip = menuAction.tooltip
-                item.image = (menuAction.icon ?? menuAction.action.icon)?.sfSymbolImage
+                item.image = menuAction.icon?.contextMenuImage(
+                    configSourcePath: menuAction.iconSourcePath,
+                    globalConfigPath: cmuxConfigStore.globalConfigPath
+                )
                 menu.addItem(item)
             }
         }
