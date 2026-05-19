@@ -3653,7 +3653,8 @@ final class BrowserPanel: Panel, ObservableObject {
 
     func releaseBackgroundPreloadHostIfAttachedToRealWindow(reason: String) {
         guard let preloadWindow = backgroundPreloadWindow else { return }
-        guard webView.window !== preloadWindow else { return }
+        guard let attachedWindow = webView.window else { return }
+        guard attachedWindow !== preloadWindow else { return }
         closeBackgroundPreloadHost(reason: reason)
     }
 

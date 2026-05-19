@@ -1457,6 +1457,25 @@ final class BrowserPanelWebViewLifecycleTests: XCTestCase {
         XCTAssertNil(browserInteractiveModalHostWindow(for: panel.webView))
     }
 
+    func testBackgroundPreloadHostStaysOpenUntilWebViewHasRealWindow() {
+        let panel = BrowserPanel(
+            workspaceId: UUID(),
+            initialURL: URL(string: "about:blank")!,
+            preloadInitialNavigationInBackground: true,
+            isRemoteWorkspace: false
+        )
+        defer { panel.close() }
+
+        XCTAssertTrue(panel.hasBackgroundPreloadHost)
+        panel.webView.removeFromSuperview()
+
+        XCTAssertNil(panel.webView.window)
+
+        panel.releaseBackgroundPreloadHostIfAttachedToRealWindow(reason: "test.detached")
+
+        XCTAssertTrue(panel.hasBackgroundPreloadHost)
+    }
+
     func testLifecycleTracksVisibleHiddenAndClosingStates() {
         let hiddenAt = Date(timeIntervalSince1970: 100)
         let duplicateHiddenAt = hiddenAt.addingTimeInterval(10)
