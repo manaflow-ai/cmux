@@ -1104,13 +1104,19 @@ class TabManager: ObservableObject {
         initialWorkspaceTitle: String? = nil,
         initialWorkingDirectory: String? = nil,
         initialTerminalInput: String? = nil,
-        autoWelcomeIfNeeded: Bool = true
+        autoWelcomeIfNeeded: Bool = true,
+        workspaceSessionAppSupportDirectory: URL? = nil,
+        workspaceSessionBundleIdentifier: String? = Bundle.main.bundleIdentifier,
+        restoreWorkspaceSession: Bool = true
     ) {
         addWorkspace(
             title: initialWorkspaceTitle,
             workingDirectory: initialWorkingDirectory,
             initialTerminalInput: initialTerminalInput,
-            autoWelcomeIfNeeded: autoWelcomeIfNeeded
+            autoWelcomeIfNeeded: autoWelcomeIfNeeded,
+            workspaceSessionAppSupportDirectory: workspaceSessionAppSupportDirectory,
+            workspaceSessionBundleIdentifier: workspaceSessionBundleIdentifier,
+            restoreWorkspaceSession: restoreWorkspaceSession
         )
         observers.append(NotificationCenter.default.addObserver(
             forName: .ghosttyDidSetTitle,
@@ -2126,7 +2132,10 @@ class TabManager: ObservableObject {
         select: Bool = true,
         eagerLoadTerminal: Bool = false,
         placementOverride: NewWorkspacePlacement? = nil,
-        autoWelcomeIfNeeded: Bool = true
+        autoWelcomeIfNeeded: Bool = true,
+        workspaceSessionAppSupportDirectory: URL? = nil,
+        workspaceSessionBundleIdentifier: String? = Bundle.main.bundleIdentifier,
+        restoreWorkspaceSession: Bool = true
     ) -> Workspace {
         let sourceWorkspace = selectedWorkspace
         let capturedTabs = tabs
@@ -2156,6 +2165,11 @@ class TabManager: ObservableObject {
             sentryBreadcrumb("workspace.create", data: ["tabCount": nextTabCount])
             let explicitWorkingDirectory = normalizedWorkingDirectory(overrideWorkingDirectory)
             let workingDirectory = explicitWorkingDirectory ?? snapshot.preferredWorkingDirectory
+            let workspaceSessionRestoreRequested = restoreWorkspaceSession
+                && explicitWorkingDirectory != nil
+                && initialTerminalCommand == nil
+                && initialTerminalInput == nil
+                && initialTerminalEnvironment.isEmpty
             let inheritedConfig = workspaceCreationConfigTemplate(
                 inheritedTerminalFontPoints: snapshot.inheritedTerminalFontPoints
             )
@@ -2226,7 +2240,20 @@ class TabManager: ObservableObject {
                 "selectedTabId": select ? newWorkspace.id.uuidString : (snapshot.selectedTabId?.uuidString ?? "")
             ])
 #endif
-            if autoWelcomeIfNeeded && select && !UserDefaults.standard.bool(forKey: WelcomeSettings.shownKey) {
+            if workspaceSessionRestoreRequested, let explicitWorkingDirectory {
+                scheduleWorkspaceSessionRestore(
+                    workingDirectory: explicitWorkingDirectory,
+                    workspaceId: newWorkspace.id,
+                    bundleIdentifier: workspaceSessionBundleIdentifier,
+                    appSupportDirectory: workspaceSessionAppSupportDirectory,
+                    autoWelcomeIfNeeded: autoWelcomeIfNeeded,
+                    select: select,
+                    expectedCustomTitle: newWorkspace.customTitle,
+                    expectedCurrentDirectory: newWorkspace.currentDirectory,
+                    expectedPanelIds: Set(newWorkspace.panels.keys),
+                    explicitTitle: title
+                )
+            } else if autoWelcomeIfNeeded && select && !UserDefaults.standard.bool(forKey: WelcomeSettings.shownKey) {
                 if let appDelegate = AppDelegate.shared {
                     appDelegate.sendWelcomeCommandWhenReady(to: newWorkspace, markShownOnSend: true)
                 } else {
@@ -2234,6 +2261,64 @@ class TabManager: ObservableObject {
                 }
             }
             return newWorkspace
+        }
+    }
+
+    @MainActor private func scheduleWorkspaceSessionRestore(
+        workingDirectory: String,
+        workspaceId: UUID,
+        bundleIdentifier: String?,
+        appSupportDirectory: URL?,
+        autoWelcomeIfNeeded: Bool,
+        select: Bool,
+        expectedCustomTitle: String?,
+        expectedCurrentDirectory: String,
+        expectedPanelIds: Set<UUID>,
+        explicitTitle: String?
+    ) {
+        Task { [weak self, workingDirectory, bundleIdentifier, appSupportDirectory] in
+            let restoredSnapshot = await Task.detached(priority: .utility) {
+                SessionPersistenceStore.loadWorkspaceSnapshot(
+                    workingDirectory: workingDirectory,
+                    bundleIdentifier: bundleIdentifier,
+                    appSupportDirectory: appSupportDirectory
+                )
+            }.value
+            guard let self else { return }
+            guard let workspace = tabs.first(where: { $0.id == workspaceId }) else { return }
+            guard workspace.customTitle == expectedCustomTitle,
+                  workspace.currentDirectory == expectedCurrentDirectory,
+                  Set(workspace.panels.keys) == expectedPanelIds else {
+                return
+            }
+            if let restoredSnapshot {
+                workspace.restoreSessionSnapshot(restoredSnapshot)
+                clearWorkspaceGitProbes(workspaceId: workspace.id)
+                for terminalPanel in workspace.panels.values.compactMap({ $0 as? TerminalPanel }) {
+                    scheduleInitialWorkspaceGitMetadataRefreshIfPossible(
+                        workspaceId: workspace.id,
+                        panelId: terminalPanel.id,
+                        reason: "workspace-session-restore"
+                    )
+                }
+                if let explicitTitle {
+                    workspace.setCustomTitle(explicitTitle)
+                }
+                if selectedTabId == workspace.id {
+                    updateWindowTitle(for: workspace)
+                }
+                return
+            }
+            guard autoWelcomeIfNeeded,
+                  select,
+                  !UserDefaults.standard.bool(forKey: WelcomeSettings.shownKey) else {
+                return
+            }
+            if let appDelegate = AppDelegate.shared {
+                appDelegate.sendWelcomeCommandWhenReady(to: workspace, markShownOnSend: true)
+            } else {
+                sendWelcomeWhenReady(to: workspace)
+            }
         }
     }
 

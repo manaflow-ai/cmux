@@ -1,4 +1,5 @@
 import CoreGraphics
+import CryptoKit
 import Foundation
 import Bonsplit
 
@@ -348,6 +349,7 @@ struct SessionWorkspaceSnapshot: Codable, Sendable {
     var hasUnreadIndicator: Bool? = nil
     var terminalScrollBarHidden: Bool?
     var currentDirectory: String
+    var workspaceSessionRootDirectory: String? = nil
     var focusedPanelId: UUID?
     var layout: SessionWorkspaceLayoutSnapshot
     var panels: [SessionPanelSnapshot]
@@ -376,6 +378,28 @@ struct AppSessionSnapshot: Codable, Sendable {
     var windows: [SessionWindowSnapshot]
 }
 
+struct WorkspaceSessionSnapshotEnvelope: Codable, Sendable {
+    var version: Int
+    var createdAt: TimeInterval
+    var workingDirectory: String
+    var workspace: SessionWorkspaceSnapshot
+}
+
+enum SessionSnapshotWriteResult: Equatable, Sendable {
+    case written
+    case unchanged
+    case failed
+
+    var succeeded: Bool {
+        switch self {
+        case .written, .unchanged:
+            true
+        case .failed:
+            false
+        }
+    }
+}
+
 enum SessionPersistenceStore {
     static func load(fileURL: URL? = nil) -> AppSessionSnapshot? {
         guard let fileURL = fileURL ?? defaultSnapshotFileURL() else { return nil }
@@ -389,18 +413,22 @@ enum SessionPersistenceStore {
 
     @discardableResult
     static func save(_ snapshot: AppSessionSnapshot, fileURL: URL? = nil) -> Bool {
-        guard let fileURL = fileURL ?? defaultSnapshotFileURL() else { return false }
+        saveResult(snapshot, fileURL: fileURL).succeeded
+    }
+
+    static func saveResult(_ snapshot: AppSessionSnapshot, fileURL: URL? = nil) -> SessionSnapshotWriteResult {
+        guard let fileURL = fileURL ?? defaultSnapshotFileURL() else { return .failed }
         let directory = fileURL.deletingLastPathComponent()
         do {
             try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true, attributes: nil)
             let data = try encodedSnapshotData(snapshot)
             if let existingData = try? Data(contentsOf: fileURL), existingData == data {
-                return true
+                return .unchanged
             }
             try data.write(to: fileURL, options: .atomic)
-            return true
+            return .written
         } catch {
-            return false
+            return .failed
         }
     }
 
@@ -436,6 +464,191 @@ enum SessionPersistenceStore {
             return
         }
         _ = save(snapshot, fileURL: fileURL)
+    }
+
+    static func loadWorkspaceSnapshot(
+        workingDirectory: String,
+        bundleIdentifier: String? = Bundle.main.bundleIdentifier,
+        appSupportDirectory: URL? = nil,
+        fileManager: FileManager = .default
+    ) -> SessionWorkspaceSnapshot? {
+        guard let fileURL = workspaceSnapshotFileURL(
+            workingDirectory: workingDirectory,
+            bundleIdentifier: bundleIdentifier,
+            appSupportDirectory: appSupportDirectory,
+            fileManager: fileManager
+        ) else {
+            return nil
+        }
+        guard let data = try? Data(contentsOf: fileURL) else { return nil }
+        let decoder = JSONDecoder()
+        guard let envelope = try? decoder.decode(WorkspaceSessionSnapshotEnvelope.self, from: data) else {
+            return nil
+        }
+        guard envelope.version == SessionSnapshotSchema.currentVersion else { return nil }
+        guard let canonicalRequested = canonicalWorkspaceDirectoryPath(
+            workingDirectory,
+            fileManager: fileManager
+        ) else {
+            return nil
+        }
+        guard envelope.workingDirectory == canonicalRequested else { return nil }
+        return envelope.workspace
+    }
+
+    @discardableResult
+    static func saveWorkspaceSnapshot(
+        _ snapshot: SessionWorkspaceSnapshot,
+        workingDirectory: String,
+        bundleIdentifier: String? = Bundle.main.bundleIdentifier,
+        appSupportDirectory: URL? = nil,
+        fileManager: FileManager = .default
+    ) -> Bool {
+        guard let canonicalDirectory = canonicalWorkspaceDirectoryPath(
+            workingDirectory,
+            fileManager: fileManager
+        ) else {
+            return false
+        }
+        guard let fileURL = workspaceSnapshotFileURL(
+            workingDirectory: canonicalDirectory,
+            bundleIdentifier: bundleIdentifier,
+            appSupportDirectory: appSupportDirectory,
+            fileManager: fileManager
+        ) else {
+            return false
+        }
+        var canonicalSnapshot = snapshot
+        canonicalSnapshot.workspaceSessionRootDirectory = canonicalDirectory
+        let directory = fileURL.deletingLastPathComponent()
+        do {
+            try fileManager.createDirectory(at: directory, withIntermediateDirectories: true, attributes: nil)
+            let existingData = try? Data(contentsOf: fileURL)
+            let existingEnvelope = existingData.flatMap { data -> WorkspaceSessionSnapshotEnvelope? in
+                try? JSONDecoder().decode(WorkspaceSessionSnapshotEnvelope.self, from: data)
+            }
+            let createdAt: TimeInterval
+            if existingEnvelope?.version == SessionSnapshotSchema.currentVersion,
+               existingEnvelope?.workingDirectory == canonicalDirectory,
+               let existingCreatedAt = existingEnvelope?.createdAt {
+                createdAt = existingCreatedAt
+            } else {
+                createdAt = Date().timeIntervalSince1970
+            }
+            let envelope = WorkspaceSessionSnapshotEnvelope(
+                version: SessionSnapshotSchema.currentVersion,
+                createdAt: createdAt,
+                workingDirectory: canonicalDirectory,
+                workspace: canonicalSnapshot
+            )
+            let data = try encodedWorkspaceSnapshotData(envelope)
+            if existingData == data {
+                return true
+            }
+            try data.write(to: fileURL, options: .atomic)
+            return true
+        } catch {
+            return false
+        }
+    }
+
+    static func saveWorkspaceSnapshots(
+        from snapshot: AppSessionSnapshot,
+        bundleIdentifier: String? = Bundle.main.bundleIdentifier,
+        appSupportDirectory: URL? = nil,
+        fileManager: FileManager = .default
+    ) {
+        for window in snapshot.windows {
+            for workspace in window.tabManager.workspaces {
+                let keyDirectory = workspace.workspaceSessionRootDirectory ?? workspace.currentDirectory
+                _ = saveWorkspaceSnapshot(
+                    workspace,
+                    workingDirectory: keyDirectory,
+                    bundleIdentifier: bundleIdentifier,
+                    appSupportDirectory: appSupportDirectory,
+                    fileManager: fileManager
+                )
+            }
+        }
+    }
+
+    private static func encodedWorkspaceSnapshotData(_ envelope: WorkspaceSessionSnapshotEnvelope) throws -> Data {
+        let encoder = JSONEncoder()
+        encoder.outputFormatting = [.sortedKeys]
+        return try encoder.encode(envelope)
+    }
+
+    private static func workspaceSnapshotFileURL(
+        workingDirectory: String,
+        bundleIdentifier: String?,
+        appSupportDirectory: URL?,
+        fileManager: FileManager
+    ) -> URL? {
+        guard let canonicalDirectory = canonicalWorkspaceDirectoryPath(
+            workingDirectory,
+            fileManager: fileManager
+        ) else {
+            return nil
+        }
+        guard let root = workspaceSnapshotsRootURL(
+            bundleIdentifier: bundleIdentifier,
+            appSupportDirectory: appSupportDirectory
+        ) else {
+            return nil
+        }
+        let digest = workspaceDirectoryDigest(canonicalDirectory)
+        return root
+            .appendingPathComponent(digest, isDirectory: true)
+            .appendingPathComponent("session.json", isDirectory: false)
+    }
+
+    private static func workspaceSnapshotsRootURL(
+        bundleIdentifier: String?,
+        appSupportDirectory: URL?
+    ) -> URL? {
+        let resolvedAppSupport: URL
+        if let appSupportDirectory {
+            resolvedAppSupport = appSupportDirectory
+        } else if let discovered = FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask).first {
+            resolvedAppSupport = discovered
+        } else {
+            return nil
+        }
+        let bundleId = (bundleIdentifier?.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty == false)
+            ? bundleIdentifier!
+            : "com.cmuxterm.app"
+        let safeBundleId = bundleId.replacingOccurrences(
+            of: "[^A-Za-z0-9._-]",
+            with: "_",
+            options: .regularExpression
+        )
+        return resolvedAppSupport
+            .appendingPathComponent("cmux", isDirectory: true)
+            .appendingPathComponent("workspace-sessions", isDirectory: true)
+            .appendingPathComponent(safeBundleId, isDirectory: true)
+    }
+
+    private static func canonicalWorkspaceDirectoryPath(
+        _ workingDirectory: String,
+        fileManager: FileManager
+    ) -> String? {
+        let trimmed = workingDirectory.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmed.isEmpty else { return nil }
+        let expanded = (trimmed as NSString).expandingTildeInPath
+        let url = URL(fileURLWithPath: expanded, isDirectory: true)
+            .standardizedFileURL
+            .resolvingSymlinksInPath()
+        var isDirectory: ObjCBool = false
+        guard fileManager.fileExists(atPath: url.path, isDirectory: &isDirectory), isDirectory.boolValue else {
+            return nil
+        }
+        return url.path
+    }
+
+    private static func workspaceDirectoryDigest(_ path: String) -> String {
+        SHA256.hash(data: Data(path.utf8))
+            .map { String(format: "%02x", $0) }
+            .joined()
     }
 
     static func defaultSnapshotFileURL(

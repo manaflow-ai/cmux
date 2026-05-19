@@ -98,6 +98,20 @@ final class SessionPersistenceTests: XCTestCase {
         XCTAssertEqual(visibleFrame.y, 25, accuracy: 0.001)
     }
 
+    func testSaveResultDistinguishesUnchangedFromFailedWrites() throws {
+        let tempDir = FileManager.default.temporaryDirectory
+            .appendingPathComponent("cmux-session-tests-\(UUID().uuidString)", isDirectory: true)
+        try FileManager.default.createDirectory(at: tempDir, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: tempDir) }
+
+        let snapshotURL = tempDir.appendingPathComponent("session.json", isDirectory: false)
+        let snapshot = makeSnapshot(version: SessionSnapshotSchema.currentVersion)
+
+        XCTAssertEqual(SessionPersistenceStore.saveResult(snapshot, fileURL: snapshotURL), .written)
+        XCTAssertEqual(SessionPersistenceStore.saveResult(snapshot, fileURL: snapshotURL), .unchanged)
+        XCTAssertTrue(SessionPersistenceStore.save(snapshot, fileURL: snapshotURL))
+    }
+
     func testLoadReopenSessionSnapshotRequiresPreviousSnapshotFile() throws {
         let tempDir = FileManager.default.temporaryDirectory
             .appendingPathComponent("cmux-session-tests-\(UUID().uuidString)", isDirectory: true)
@@ -160,6 +174,178 @@ final class SessionPersistenceTests: XCTestCase {
         XCTAssertEqual(
             loaded?.windows.first?.tabManager.workspaces.first?.customColor,
             "#C0392B"
+        )
+    }
+
+    func testWorkspaceSessionSnapshotRoundTripsByWorkingDirectory() throws {
+        let appSupport = FileManager.default.temporaryDirectory
+            .appendingPathComponent("cmux-workspace-session-support-\(UUID().uuidString)", isDirectory: true)
+        let workspaceDirectory = FileManager.default.temporaryDirectory
+            .appendingPathComponent("cmux-workspace-session-repo-\(UUID().uuidString)", isDirectory: true)
+        try FileManager.default.createDirectory(at: appSupport, withIntermediateDirectories: true)
+        try FileManager.default.createDirectory(at: workspaceDirectory, withIntermediateDirectories: true)
+        defer {
+            try? FileManager.default.removeItem(at: appSupport)
+            try? FileManager.default.removeItem(at: workspaceDirectory)
+        }
+
+        var workspace = makeSnapshot(version: SessionSnapshotSchema.currentVersion)
+            .windows[0]
+            .tabManager
+            .workspaces[0]
+        workspace.currentDirectory = workspaceDirectory.path
+        workspace.customTitle = "Workspace Local Session"
+
+        XCTAssertTrue(
+            SessionPersistenceStore.saveWorkspaceSnapshot(
+                workspace,
+                workingDirectory: workspaceDirectory.path,
+                bundleIdentifier: "dev.cmux.tests",
+                appSupportDirectory: appSupport
+            )
+        )
+
+        let loaded = try XCTUnwrap(
+            SessionPersistenceStore.loadWorkspaceSnapshot(
+                workingDirectory: workspaceDirectory.path,
+                bundleIdentifier: "dev.cmux.tests",
+                appSupportDirectory: appSupport
+            )
+        )
+        XCTAssertEqual(loaded.customTitle, "Workspace Local Session")
+        XCTAssertEqual(loaded.currentDirectory, workspaceDirectory.path)
+        XCTAssertFalse(
+            FileManager.default.fileExists(
+                atPath: workspaceDirectory.appendingPathComponent(".cmux/session.json").path
+            ),
+            "Workspace session persistence should not write private session data into the project directory"
+        )
+    }
+
+    func testWorkspaceSessionSavePreservesLiveDirectoryWhileCanonicalizingKey() throws {
+        let appSupport = FileManager.default.temporaryDirectory
+            .appendingPathComponent("cmux-workspace-session-support-\(UUID().uuidString)", isDirectory: true)
+        let workspaceDirectory = FileManager.default.temporaryDirectory
+            .appendingPathComponent("cmux-workspace-session-repo-\(UUID().uuidString)", isDirectory: true)
+        try FileManager.default.createDirectory(at: appSupport, withIntermediateDirectories: true)
+        try FileManager.default.createDirectory(at: workspaceDirectory, withIntermediateDirectories: true)
+        defer {
+            try? FileManager.default.removeItem(at: appSupport)
+            try? FileManager.default.removeItem(at: workspaceDirectory)
+        }
+
+        var workspace = makeSnapshot(version: SessionSnapshotSchema.currentVersion)
+            .windows[0]
+            .tabManager
+            .workspaces[0]
+        workspace.currentDirectory = "/tmp"
+        workspace.customTitle = "Canonicalized Workspace"
+
+        XCTAssertTrue(
+            SessionPersistenceStore.saveWorkspaceSnapshot(
+                workspace,
+                workingDirectory: workspaceDirectory.path,
+                bundleIdentifier: "dev.cmux.tests",
+                appSupportDirectory: appSupport
+            )
+        )
+
+        let loaded = try XCTUnwrap(
+            SessionPersistenceStore.loadWorkspaceSnapshot(
+                workingDirectory: workspaceDirectory.path,
+                bundleIdentifier: "dev.cmux.tests",
+                appSupportDirectory: appSupport
+            )
+        )
+        XCTAssertEqual(loaded.customTitle, "Canonicalized Workspace")
+        XCTAssertEqual(loaded.currentDirectory, "/tmp")
+        XCTAssertEqual(loaded.workspaceSessionRootDirectory, workspaceDirectory.path)
+    }
+
+    func testWorkspaceSessionBatchSaveUsesStableRootDirectoryKey() throws {
+        let appSupport = FileManager.default.temporaryDirectory
+            .appendingPathComponent("cmux-workspace-session-support-\(UUID().uuidString)", isDirectory: true)
+        let workspaceDirectory = FileManager.default.temporaryDirectory
+            .appendingPathComponent("cmux-workspace-session-repo-\(UUID().uuidString)", isDirectory: true)
+        let liveDirectory = workspaceDirectory.appendingPathComponent("src", isDirectory: true)
+        try FileManager.default.createDirectory(at: appSupport, withIntermediateDirectories: true)
+        try FileManager.default.createDirectory(at: liveDirectory, withIntermediateDirectories: true)
+        defer {
+            try? FileManager.default.removeItem(at: appSupport)
+            try? FileManager.default.removeItem(at: workspaceDirectory)
+        }
+
+        var snapshot = makeSnapshot(version: SessionSnapshotSchema.currentVersion)
+        snapshot.windows[0].tabManager.workspaces[0].currentDirectory = liveDirectory.path
+        snapshot.windows[0].tabManager.workspaces[0].workspaceSessionRootDirectory = workspaceDirectory.path
+        snapshot.windows[0].tabManager.workspaces[0].customTitle = "Stable Root Workspace"
+
+        SessionPersistenceStore.saveWorkspaceSnapshots(
+            from: snapshot,
+            bundleIdentifier: "dev.cmux.tests",
+            appSupportDirectory: appSupport
+        )
+
+        let loaded = try XCTUnwrap(
+            SessionPersistenceStore.loadWorkspaceSnapshot(
+                workingDirectory: workspaceDirectory.path,
+                bundleIdentifier: "dev.cmux.tests",
+                appSupportDirectory: appSupport
+            )
+        )
+        XCTAssertEqual(loaded.customTitle, "Stable Root Workspace")
+        XCTAssertEqual(loaded.currentDirectory, liveDirectory.path)
+        XCTAssertEqual(loaded.workspaceSessionRootDirectory, workspaceDirectory.path)
+    }
+
+    func testWorkspaceSessionSaveSkipsRewritingIdenticalSnapshotData() throws {
+        let appSupport = FileManager.default.temporaryDirectory
+            .appendingPathComponent("cmux-workspace-session-support-\(UUID().uuidString)", isDirectory: true)
+        let workspaceDirectory = FileManager.default.temporaryDirectory
+            .appendingPathComponent("cmux-workspace-session-repo-\(UUID().uuidString)", isDirectory: true)
+        try FileManager.default.createDirectory(at: appSupport, withIntermediateDirectories: true)
+        try FileManager.default.createDirectory(at: workspaceDirectory, withIntermediateDirectories: true)
+        defer {
+            try? FileManager.default.removeItem(at: appSupport)
+            try? FileManager.default.removeItem(at: workspaceDirectory)
+        }
+
+        var workspace = makeSnapshot(version: SessionSnapshotSchema.currentVersion)
+            .windows[0]
+            .tabManager
+            .workspaces[0]
+        workspace.currentDirectory = workspaceDirectory.path
+        workspace.customTitle = "Stable Workspace"
+
+        XCTAssertTrue(
+            SessionPersistenceStore.saveWorkspaceSnapshot(
+                workspace,
+                workingDirectory: workspaceDirectory.path,
+                bundleIdentifier: "dev.cmux.tests",
+                appSupportDirectory: appSupport
+            )
+        )
+        let snapshotPath = try XCTUnwrap(
+            FileManager.default.subpathsOfDirectory(atPath: appSupport.path)
+                .first { $0.hasSuffix("session.json") }
+        )
+        let snapshotURL = appSupport.appendingPathComponent(snapshotPath, isDirectory: false)
+        let firstFileNumber = try fileNumber(for: snapshotURL)
+
+        XCTAssertTrue(
+            SessionPersistenceStore.saveWorkspaceSnapshot(
+                workspace,
+                workingDirectory: workspaceDirectory.path,
+                bundleIdentifier: "dev.cmux.tests",
+                appSupportDirectory: appSupport
+            )
+        )
+        let secondFileNumber = try fileNumber(for: snapshotURL)
+
+        XCTAssertEqual(
+            secondFileNumber,
+            firstFileNumber,
+            "Saving identical workspace session data should not replace the snapshot file"
         )
     }
 

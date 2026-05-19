@@ -3717,6 +3717,20 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         quantized.forEach { hasher.combine($0) }
     }
 
+    private func persistWorkspaceSessionSnapshots(
+        from snapshot: AppSessionSnapshot,
+        synchronously: Bool
+    ) {
+        let writeBlock = {
+            SessionPersistenceStore.saveWorkspaceSnapshots(from: snapshot)
+        }
+        if synchronously {
+            sessionPersistenceQueue.sync(execute: writeBlock)
+        } else {
+            sessionPersistenceQueue.async(execute: writeBlock)
+        }
+    }
+
     private func persistSessionSnapshot(
         _ snapshot: AppSessionSnapshot?,
         removeWhenEmpty: Bool,
@@ -3725,7 +3739,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
     ) {
         guard snapshot != nil || removeWhenEmpty || persistedGeometryData != nil else { return }
 
-        let writeBlock = {
+        let writePrimarySnapshotBlock = { () -> SessionSnapshotWriteResult in
             Self.removeLegacyPersistedWindowGeometry()
             if let persistedGeometryData {
                 UserDefaults.standard.set(
@@ -3734,16 +3748,26 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
                 )
             }
             if let snapshot {
-                _ = SessionPersistenceStore.save(snapshot)
+                return SessionPersistenceStore.saveResult(snapshot)
             } else if removeWhenEmpty {
                 SessionPersistenceStore.removeSnapshot()
             }
+            return .unchanged
+        }
+
+        let writeAllSnapshotsBlock = {
+            guard let snapshot else {
+                _ = writePrimarySnapshotBlock()
+                return
+            }
+            guard writePrimarySnapshotBlock() != .failed else { return }
+            SessionPersistenceStore.saveWorkspaceSnapshots(from: snapshot)
         }
 
         if synchronously {
-            writeBlock()
+            sessionPersistenceQueue.sync(execute: writeAllSnapshotsBlock)
         } else {
-            sessionPersistenceQueue.async(execute: writeBlock)
+            sessionPersistenceQueue.async(execute: writeAllSnapshotsBlock)
         }
     }
 
@@ -3772,19 +3796,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         let windows: [SessionWindowSnapshot] = contexts
             .prefix(SessionPersistencePolicy.maxWindowsPerSnapshot)
             .map { context in
-                let window = context.window ?? windowForMainWindowId(context.windowId)
-                return SessionWindowSnapshot(
-                    frame: window.map { SessionRectSnapshot($0.frame) },
-                    display: displaySnapshot(for: window),
-                    tabManager: context.tabManager.sessionSnapshot(
-                        includeScrollback: includeScrollback,
-                        restorableAgentIndex: restorableAgentIndex
-                    ),
-                    sidebar: SessionSidebarSnapshot(
-                        isVisible: context.sidebarState.isVisible,
-                        selection: SessionSidebarSelection(selection: context.sidebarSelectionState.selection),
-                        width: SessionPersistencePolicy.sanitizedSidebarWidth(Double(context.sidebarState.persistedWidth))
-                    )
+                sessionWindowSnapshot(
+                    for: context,
+                    includeScrollback: includeScrollback,
+                    restorableAgentIndex: restorableAgentIndex
                 )
             }
 
@@ -3793,6 +3808,27 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             version: SessionSnapshotSchema.currentVersion,
             createdAt: Date().timeIntervalSince1970,
             windows: windows
+        )
+    }
+
+    private func sessionWindowSnapshot(
+        for context: MainWindowContext,
+        includeScrollback: Bool,
+        restorableAgentIndex: RestorableAgentSessionIndex?
+    ) -> SessionWindowSnapshot {
+        let window = context.window ?? windowForMainWindowId(context.windowId)
+        return SessionWindowSnapshot(
+            frame: window.map { SessionRectSnapshot($0.frame) },
+            display: displaySnapshot(for: window),
+            tabManager: context.tabManager.sessionSnapshot(
+                includeScrollback: includeScrollback,
+                restorableAgentIndex: restorableAgentIndex
+            ),
+            sidebar: SessionSidebarSnapshot(
+                isVisible: context.sidebarState.isVisible,
+                selection: SessionSidebarSelection(selection: context.sidebarSelectionState.selection),
+                width: SessionPersistencePolicy.sanitizedSidebarWidth(Double(context.sidebarState.persistedWidth))
+            )
         )
     }
 
@@ -14125,6 +14161,22 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             persistWindowGeometry(from: window)
         }
 
+        let shouldPersistOnUnregister = Self.shouldPersistSnapshotOnWindowUnregister(isTerminatingApp: isTerminatingApp)
+        let closingWorkspaceSnapshot = shouldPersistOnUnregister
+            ? contextForMainTerminalWindow(window, reindex: false).map { context in
+                AppSessionSnapshot(
+                    version: SessionSnapshotSchema.currentVersion,
+                    createdAt: Date().timeIntervalSince1970,
+                    windows: [
+                        sessionWindowSnapshot(
+                            for: context,
+                            includeScrollback: false,
+                            restorableAgentIndex: RestorableAgentSessionIndex.load()
+                        ),
+                    ]
+                )
+            }
+            : nil
         guard let removed = unregisterMainWindowContext(for: window) else { return }
         publishCmuxWindowLifecycle(name: "window.closed", windowId: removed.windowId, origin: "appkit_close")
         commandPaletteVisibilityByWindowId.removeValue(forKey: removed.windowId)
@@ -14158,7 +14210,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         // During app termination we already persisted a full snapshot (with scrollback)
         // in applicationShouldTerminate/applicationWillTerminate. Saving again here would
         // overwrite it as windows tear down one-by-one, dropping closed windows and replay.
-        if Self.shouldPersistSnapshotOnWindowUnregister(isTerminatingApp: isTerminatingApp) {
+        if shouldPersistOnUnregister {
+            if let closingWorkspaceSnapshot {
+                persistWorkspaceSessionSnapshots(from: closingWorkspaceSnapshot, synchronously: false)
+            }
             _ = saveSessionSnapshot(includeScrollback: false, removeWhenEmpty: false)
         }
     }

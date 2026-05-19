@@ -8,6 +8,31 @@ import XCTest
 
 @MainActor
 final class TabManagerSessionSnapshotTests: XCTestCase {
+    private func waitForWorkspaceSessionRestore(
+        _ manager: TabManager,
+        expectedCustomTitle: String,
+        timeout: TimeInterval = 2.0
+    ) -> Bool {
+        waitForWorkspaceSessionRestore(manager, timeout: timeout) { workspace in
+            workspace.customTitle == expectedCustomTitle
+        }
+    }
+
+    private func waitForWorkspaceSessionRestore(
+        _ manager: TabManager,
+        timeout: TimeInterval = 2.0,
+        predicate: (Workspace) -> Bool
+    ) -> Bool {
+        let deadline = Date().addingTimeInterval(timeout)
+        while Date() < deadline {
+            if let workspace = manager.selectedWorkspace, predicate(workspace) {
+                return true
+            }
+            RunLoop.current.run(mode: .default, before: Date().addingTimeInterval(0.01))
+        }
+        return manager.selectedWorkspace.map(predicate) ?? false
+    }
+
     func testSessionSnapshotSerializesWorkspacesAndRestoreRebuildsSelection() {
         let manager = TabManager()
         guard let firstWorkspace = manager.selectedWorkspace else {
@@ -45,6 +70,193 @@ final class TabManagerSessionSnapshotTests: XCTestCase {
 
         XCTAssertEqual(manager.tabs.count, 1)
         XCTAssertNotNil(manager.selectedTabId)
+    }
+
+    func testInitialWorkspaceRestoresWorkspaceSessionForWorkingDirectory() throws {
+        let appSupport = FileManager.default.temporaryDirectory
+            .appendingPathComponent("cmux-workspace-session-support-\(UUID().uuidString)", isDirectory: true)
+        let workspaceDirectory = FileManager.default.temporaryDirectory
+            .appendingPathComponent("cmux-workspace-session-repo-\(UUID().uuidString)", isDirectory: true)
+        try FileManager.default.createDirectory(at: appSupport, withIntermediateDirectories: true)
+        try FileManager.default.createDirectory(at: workspaceDirectory, withIntermediateDirectories: true)
+        defer {
+            try? FileManager.default.removeItem(at: appSupport)
+            try? FileManager.default.removeItem(at: workspaceDirectory)
+        }
+
+        var workspaceSnapshot = try XCTUnwrap(TabManager().selectedWorkspace)
+            .sessionSnapshot(includeScrollback: false)
+        workspaceSnapshot.currentDirectory = workspaceDirectory.path
+        workspaceSnapshot.customTitle = "Persisted Workspace"
+        XCTAssertTrue(
+            SessionPersistenceStore.saveWorkspaceSnapshot(
+                workspaceSnapshot,
+                workingDirectory: workspaceDirectory.path,
+                bundleIdentifier: "dev.cmux.tests",
+                appSupportDirectory: appSupport
+            )
+        )
+
+        let manager = TabManager(
+            initialWorkingDirectory: workspaceDirectory.path,
+            autoWelcomeIfNeeded: false,
+            workspaceSessionAppSupportDirectory: appSupport,
+            workspaceSessionBundleIdentifier: "dev.cmux.tests"
+        )
+
+        XCTAssertEqual(manager.tabs.count, 1)
+        XCTAssertTrue(waitForWorkspaceSessionRestore(manager, expectedCustomTitle: "Persisted Workspace"))
+        XCTAssertEqual(manager.selectedWorkspace?.customTitle, "Persisted Workspace")
+        XCTAssertEqual(manager.selectedWorkspace?.currentDirectory, workspaceDirectory.path)
+    }
+
+    func testInitialWorkspaceRestorePreservesExplicitTitle() throws {
+        let appSupport = FileManager.default.temporaryDirectory
+            .appendingPathComponent("cmux-workspace-session-support-\(UUID().uuidString)", isDirectory: true)
+        let workspaceDirectory = FileManager.default.temporaryDirectory
+            .appendingPathComponent("cmux-workspace-session-repo-\(UUID().uuidString)", isDirectory: true)
+        try FileManager.default.createDirectory(at: appSupport, withIntermediateDirectories: true)
+        try FileManager.default.createDirectory(at: workspaceDirectory, withIntermediateDirectories: true)
+        defer {
+            try? FileManager.default.removeItem(at: appSupport)
+            try? FileManager.default.removeItem(at: workspaceDirectory)
+        }
+
+        var workspaceSnapshot = try XCTUnwrap(TabManager().selectedWorkspace)
+            .sessionSnapshot(includeScrollback: false)
+        workspaceSnapshot.currentDirectory = workspaceDirectory.path
+        workspaceSnapshot.customTitle = "Persisted Workspace"
+        workspaceSnapshot.customDescription = "Restored Description"
+        XCTAssertTrue(
+            SessionPersistenceStore.saveWorkspaceSnapshot(
+                workspaceSnapshot,
+                workingDirectory: workspaceDirectory.path,
+                bundleIdentifier: "dev.cmux.tests",
+                appSupportDirectory: appSupport
+            )
+        )
+
+        let manager = TabManager(
+            initialWorkspaceTitle: "Explicit Workspace",
+            initialWorkingDirectory: workspaceDirectory.path,
+            autoWelcomeIfNeeded: false,
+            workspaceSessionAppSupportDirectory: appSupport,
+            workspaceSessionBundleIdentifier: "dev.cmux.tests"
+        )
+
+        XCTAssertEqual(manager.tabs.count, 1)
+        XCTAssertTrue(
+            waitForWorkspaceSessionRestore(manager) { workspace in
+                workspace.customDescription == "Restored Description"
+            }
+        )
+        XCTAssertEqual(manager.selectedWorkspace?.customTitle, "Explicit Workspace")
+        XCTAssertEqual(manager.selectedWorkspace?.customDescription, "Restored Description")
+        XCTAssertEqual(manager.selectedWorkspace?.currentDirectory, workspaceDirectory.path)
+    }
+
+    func testInitialWorkspaceRestoreSkipsWhenWorkspaceMutatesBeforeAsyncRestoreApplies() throws {
+        let appSupport = FileManager.default.temporaryDirectory
+            .appendingPathComponent("cmux-workspace-session-support-\(UUID().uuidString)", isDirectory: true)
+        let workspaceDirectory = FileManager.default.temporaryDirectory
+            .appendingPathComponent("cmux-workspace-session-repo-\(UUID().uuidString)", isDirectory: true)
+        try FileManager.default.createDirectory(at: appSupport, withIntermediateDirectories: true)
+        try FileManager.default.createDirectory(at: workspaceDirectory, withIntermediateDirectories: true)
+        defer {
+            try? FileManager.default.removeItem(at: appSupport)
+            try? FileManager.default.removeItem(at: workspaceDirectory)
+        }
+
+        var workspaceSnapshot = try XCTUnwrap(TabManager().selectedWorkspace)
+            .sessionSnapshot(includeScrollback: false)
+        workspaceSnapshot.currentDirectory = workspaceDirectory.path
+        workspaceSnapshot.customTitle = "Persisted Workspace"
+        workspaceSnapshot.customDescription = "Restored Description"
+        XCTAssertTrue(
+            SessionPersistenceStore.saveWorkspaceSnapshot(
+                workspaceSnapshot,
+                workingDirectory: workspaceDirectory.path,
+                bundleIdentifier: "dev.cmux.tests",
+                appSupportDirectory: appSupport
+            )
+        )
+
+        let manager = TabManager(
+            initialWorkingDirectory: workspaceDirectory.path,
+            autoWelcomeIfNeeded: false,
+            workspaceSessionAppSupportDirectory: appSupport,
+            workspaceSessionBundleIdentifier: "dev.cmux.tests"
+        )
+        let workspace = try XCTUnwrap(manager.selectedWorkspace)
+        workspace.setCustomTitle("User Change")
+
+        XCTAssertFalse(
+            waitForWorkspaceSessionRestore(manager, timeout: 1.0) { restored in
+                restored.customTitle == "Persisted Workspace"
+                    || restored.customDescription == "Restored Description"
+            }
+        )
+        XCTAssertEqual(workspace.customTitle, "User Change")
+        XCTAssertNil(workspace.customDescription)
+        XCTAssertEqual(workspace.currentDirectory, workspaceDirectory.path)
+    }
+
+    func testInitialWorkspaceRestoreCanBeDisabledForExplicitLayouts() throws {
+        let appSupport = FileManager.default.temporaryDirectory
+            .appendingPathComponent("cmux-workspace-session-support-\(UUID().uuidString)", isDirectory: true)
+        let workspaceDirectory = FileManager.default.temporaryDirectory
+            .appendingPathComponent("cmux-workspace-session-repo-\(UUID().uuidString)", isDirectory: true)
+        try FileManager.default.createDirectory(at: appSupport, withIntermediateDirectories: true)
+        try FileManager.default.createDirectory(at: workspaceDirectory, withIntermediateDirectories: true)
+        defer {
+            try? FileManager.default.removeItem(at: appSupport)
+            try? FileManager.default.removeItem(at: workspaceDirectory)
+        }
+
+        var workspaceSnapshot = try XCTUnwrap(TabManager().selectedWorkspace)
+            .sessionSnapshot(includeScrollback: false)
+        workspaceSnapshot.currentDirectory = workspaceDirectory.path
+        workspaceSnapshot.customTitle = "Persisted Workspace"
+        XCTAssertTrue(
+            SessionPersistenceStore.saveWorkspaceSnapshot(
+                workspaceSnapshot,
+                workingDirectory: workspaceDirectory.path,
+                bundleIdentifier: "dev.cmux.tests",
+                appSupportDirectory: appSupport
+            )
+        )
+
+        let manager = TabManager(
+            initialWorkingDirectory: workspaceDirectory.path,
+            autoWelcomeIfNeeded: false,
+            workspaceSessionAppSupportDirectory: appSupport,
+            workspaceSessionBundleIdentifier: "dev.cmux.tests",
+            restoreWorkspaceSession: false
+        )
+
+        XCTAssertEqual(manager.tabs.count, 1)
+        XCTAssertFalse(
+            waitForWorkspaceSessionRestore(
+                manager,
+                expectedCustomTitle: "Persisted Workspace",
+                timeout: 1.0
+            )
+        )
+        XCTAssertNotEqual(manager.selectedWorkspace?.customTitle, "Persisted Workspace")
+        XCTAssertEqual(manager.selectedWorkspace?.currentDirectory, workspaceDirectory.path)
+    }
+
+    func testWorkspaceRestoreClearsMissingSessionRootDirectory() throws {
+        let manager = TabManager(initialWorkingDirectory: "/tmp/cmux-root")
+        let workspace = try XCTUnwrap(manager.selectedWorkspace)
+        XCTAssertEqual(workspace.workspaceSessionRootDirectory, "/tmp/cmux-root")
+
+        var snapshot = workspace.sessionSnapshot(includeScrollback: false)
+        snapshot.workspaceSessionRootDirectory = nil
+
+        workspace.restoreSessionSnapshot(snapshot)
+
+        XCTAssertNil(workspace.workspaceSessionRootDirectory)
     }
 
     func testSessionSnapshotIncludesRemoteWorkspacesForRestore() throws {
