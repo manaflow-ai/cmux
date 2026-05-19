@@ -43,6 +43,15 @@ class TerminalController {
         }
     }
 
+    struct SocketListenerReadiness: Sendable {
+        let health: SocketListenerHealth
+        let pingResponse: String?
+
+        var isReady: Bool {
+            health.isHealthy && pingResponse == "PONG"
+        }
+    }
+
     static let shared = TerminalController()
 
     private nonisolated(unsafe) var socketPath = SocketControlSettings.stableDefaultSocketPath
@@ -72,7 +81,7 @@ class TerminalController {
     private nonisolated static let socketProbePollAttempts = 3
     private nonisolated static let socketProbePollRetryBackoffUs: useconds_t = 50_000
     private nonisolated static let socketRestartBindRetryAttempts = 3
-    private nonisolated static let socketRestartBindRetryBackoff: Duration = .milliseconds(50)
+    private nonisolated static let socketRestartBindRetryBackoffMs = 50
     private nonisolated static let socketClientWriteTimeout: TimeInterval = 5
     private nonisolated static let socketListenerFailureCaptureCooldown: TimeInterval = 60
     private nonisolated static let socketListenerFailureCaptureLock = NSLock()
@@ -1052,17 +1061,40 @@ class TerminalController {
             )
             guard case .failure(_, let stage, let errnoCode) = result,
                   stage == "bind",
-                  shouldRetrySocketBindFailure(errnoCode: errnoCode),
+                  shouldRetrySocketBindFailure(
+                      errnoCode: errnoCode,
+                      unlinkExistingPath: unlinkExistingPath
+                  ),
                   attempt < socketRestartBindRetryAttempts else {
                 return result
             }
-            try? await Task.sleep(for: socketRestartBindRetryBackoff)
+            await socketRestartBindRetryDelay()
         }
         return .failure(path: path, stage: "bind", errnoCode: EAGAIN)
     }
 
-    private nonisolated static func shouldRetrySocketBindFailure(errnoCode: Int32) -> Bool {
-        errnoCode == EADDRINUSE || errnoCode == EAGAIN || errnoCode == EINTR
+    private nonisolated static func shouldRetrySocketBindFailure(
+        errnoCode: Int32,
+        unlinkExistingPath: Bool
+    ) -> Bool {
+        switch errnoCode {
+        case EADDRINUSE:
+            return unlinkExistingPath
+        case EAGAIN, EINTR:
+            return true
+        default:
+            return false
+        }
+    }
+
+    private nonisolated static func socketRestartBindRetryDelay() async {
+        await withCheckedContinuation { (continuation: CheckedContinuation<Void, Never>) in
+            DispatchQueue.global(qos: .utility).asyncAfter(
+                deadline: .now() + .milliseconds(socketRestartBindRetryBackoffMs)
+            ) {
+                continuation.resume()
+            }
+        }
     }
 
     private nonisolated static func ensureSocketParentDirectoryExists(path: String) -> Int32? {
@@ -1309,16 +1341,17 @@ class TerminalController {
         tabManager: TabManager,
         socketPath requestedSocketPath: String,
         accessMode restartAccessMode: SocketControlMode,
-        source: String
+        source: String,
+        preflightReadiness: SocketListenerReadiness? = nil
     ) async -> Bool {
         self.tabManager = tabManager
         self.accessMode = restartAccessMode
 
-        let health = socketListenerHealth(expectedSocketPath: requestedSocketPath)
-        let pingResponse = health.isHealthy
-            ? Self.probeSocketCommand("ping", at: requestedSocketPath, timeout: 1.0)
-            : nil
-        if health.isHealthy && pingResponse == "PONG" {
+        let readiness = preflightReadiness
+            ?? await socketListenerReadiness(expectedSocketPath: requestedSocketPath, timeout: 1.0)
+        let health = readiness.health
+        let pingResponse = readiness.pingResponse
+        if readiness.isReady {
             applySocketPermissions(to: requestedSocketPath, accessMode: restartAccessMode)
             sentryBreadcrumb("socket.listener.restart.skipped", category: "socket", data: [
                 "path": requestedSocketPath,
@@ -1342,7 +1375,6 @@ class TerminalController {
         let newServerSocket = socket(AF_UNIX, SOCK_STREAM, 0)
         guard newServerSocket >= 0 else {
             let errnoCode = errno
-            print("TerminalController: Failed to create replacement socket")
             reportSocketListenerFailure(
                 message: "socket.listener.restart.failed",
                 stage: "create_socket",
@@ -1404,7 +1436,6 @@ class TerminalController {
             )
             return false
         case .failure(let failedPath, let failedStage, let failedErrnoCode):
-            print("TerminalController: Failed to bind replacement socket")
             reportSocketListenerFailure(
                 message: "socket.listener.restart.failed",
                 stage: failedStage,
@@ -1419,7 +1450,6 @@ class TerminalController {
         if let errnoCode = Self.configureNonBlocking(newServerSocket) {
             let newPathIdentity = Self.socketFileIdentity(at: activeSocketPath)
             Self.unlinkSocketPath(activeSocketPath, ifIdentityMatches: newPathIdentity)
-            print("TerminalController: Failed to configure replacement socket")
             reportSocketListenerFailure(
                 message: "socket.listener.restart.failed",
                 stage: "configure_nonblocking",
@@ -1432,7 +1462,6 @@ class TerminalController {
             let errnoCode = errno
             let newPathIdentity = Self.socketFileIdentity(at: activeSocketPath)
             Self.unlinkSocketPath(activeSocketPath, ifIdentityMatches: newPathIdentity)
-            print("TerminalController: Failed to listen on replacement socket")
             reportSocketListenerFailure(
                 message: "socket.listener.restart.failed",
                 stage: "listen",
@@ -1470,7 +1499,6 @@ class TerminalController {
         }
         shouldCloseNewSocket = false
 
-        print("TerminalController: Replaced listener on \(activeSocketPath)")
         sentryBreadcrumb(
             "socket.listener.restarted",
             category: "socket",
@@ -1513,6 +1541,17 @@ class TerminalController {
             socketPathMatches: pathMatches,
             socketPathExists: exists
         )
+    }
+
+    nonisolated func socketListenerReadiness(
+        expectedSocketPath: String,
+        timeout: TimeInterval
+    ) async -> SocketListenerReadiness {
+        let health = socketListenerHealth(expectedSocketPath: expectedSocketPath)
+        let pingResponse = health.isHealthy
+            ? await Self.probeSocketCommandAsync("ping", at: expectedSocketPath, timeout: timeout)
+            : nil
+        return SocketListenerReadiness(health: health, pingResponse: pingResponse)
     }
 
     nonisolated static func probeSocketCommand(
@@ -1594,6 +1633,16 @@ class TerminalController {
 
         let trimmed = response.trimmingCharacters(in: .whitespacesAndNewlines)
         return trimmed.isEmpty ? nil : trimmed
+    }
+
+    nonisolated static func probeSocketCommandAsync(
+        _ command: String,
+        at socketPath: String,
+        timeout: TimeInterval
+    ) async -> String? {
+        await Task.detached(priority: .utility) {
+            Self.probeSocketCommand(command, at: socketPath, timeout: timeout)
+        }.value
     }
 
     private nonisolated func cancelPreviousListener(

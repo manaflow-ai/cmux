@@ -3416,7 +3416,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         guard let tabManager,
               let config = socketListenerConfigurationIfEnabled() else { return }
         let restartPath = TerminalController.shared.activeSocketPath(preferredPath: config.path)
-        guard !socketListenerIsReady(expectedSocketPath: restartPath) else {
+        let readiness = await TerminalController.shared.socketListenerReadiness(
+            expectedSocketPath: restartPath,
+            timeout: 1.0
+        )
+        guard !readiness.isReady else {
             sentryBreadcrumb("socket.listener.wakeRestartSkipped", category: "socket", data: [
                 "mode": config.mode.rawValue,
                 "path": restartPath,
@@ -3429,6 +3433,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             tabManager: tabManager,
             config: config,
             restartPath: restartPath,
+            preflightReadiness: readiness,
             source: "workspace.didWake"
         )
     }
@@ -3449,6 +3454,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         tabManager: TabManager,
         config: (mode: SocketControlMode, path: String),
         restartPath: String,
+        preflightReadiness: TerminalController.SocketListenerReadiness? = nil,
         source: String
     ) async {
         sentryBreadcrumb("socket.listener.restart", category: "socket", data: [
@@ -3460,14 +3466,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             tabManager: tabManager,
             socketPath: restartPath,
             accessMode: config.mode,
-            source: source
+            source: source,
+            preflightReadiness: preflightReadiness
         )
-    }
-
-    private func socketListenerIsReady(expectedSocketPath: String) -> Bool {
-        let health = TerminalController.shared.socketListenerHealth(expectedSocketPath: expectedSocketPath)
-        guard health.isHealthy else { return false }
-        return TerminalController.probeSocketCommand("ping", at: expectedSocketPath, timeout: 1.0) == "PONG"
     }
 
     private func disableSuddenTerminationIfNeeded() {

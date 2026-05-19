@@ -89,7 +89,6 @@ enum CLISocketPathResolver {
 
     private struct SocketPathCandidate {
         let path: String
-        let sourceDescription: String
     }
 
     static func defaultSocketPath(
@@ -173,7 +172,7 @@ enum CLISocketPathResolver {
             return candidate
         }
 
-        return SocketPathCandidate(path: requestedPath, sourceDescription: "requested-path")
+        return SocketPathCandidate(path: requestedPath)
     }
 
     private static func candidatePaths(
@@ -185,19 +184,19 @@ enum CLISocketPathResolver {
         let variant = SocketPathMarkerFiles.variant(bundleIdentifier: bundleIdentifier, environment: environment)
         let defaultPath = defaultSocketPath(bundleIdentifier: bundleIdentifier, environment: environment)
 
-        candidates.append(SocketPathCandidate(path: defaultPath, sourceDescription: "default-path"))
+        candidates.append(SocketPathCandidate(path: defaultPath))
         if let last = readLastSocketPath(bundleIdentifier: bundleIdentifier, environment: environment) {
-            candidates.append(SocketPathCandidate(path: last, sourceDescription: "last-socket-path"))
+            candidates.append(SocketPathCandidate(path: last))
         }
         if shouldIncludeImplicitRequestedPath(
             requestedPath,
             defaultPath: defaultPath,
             variant: variant
         ) {
-            candidates.append(SocketPathCandidate(path: requestedPath, sourceDescription: "requested-path"))
+            candidates.append(SocketPathCandidate(path: requestedPath))
         }
         candidates.append(contentsOf: implicitFallbackCandidatePaths(for: variant).map {
-            SocketPathCandidate(path: $0, sourceDescription: "variant-fallback")
+            SocketPathCandidate(path: $0)
         })
         if shouldDiscoverTaggedSockets(
             variant: variant,
@@ -205,7 +204,7 @@ enum CLISocketPathResolver {
             environment: environment
         ) {
             candidates.append(contentsOf: discoverTaggedSockets(limit: 12).map {
-                SocketPathCandidate(path: $0, sourceDescription: "tagged-socket-discovery")
+                SocketPathCandidate(path: $0)
             })
         }
         return candidates
@@ -458,9 +457,9 @@ enum CLISocketPathResolver {
     ) {
         let format = String(
             localized: "cli.socketPath.environment.unreachable",
-            defaultValue: "cmux: CMUX_SOCKET_PATH=%@ is unreachable; using %@ from %@"
+            defaultValue: "cmux: CMUX_SOCKET_PATH=%@ is unreachable; using %@"
         )
-        warningSink(String(format: format, requestedPath, resolved.path, resolved.sourceDescription) + "\n")
+        warningSink(String(format: format, requestedPath, resolved.path) + "\n")
     }
 
     private static func writeStandardErrorLine(_ message: String) {

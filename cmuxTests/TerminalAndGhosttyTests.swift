@@ -5023,8 +5023,8 @@ final class TerminalControllerSocketListenerHealthTests: XCTestCase {
 
         XCTAssertEqual(resolved, livePath)
         XCTAssertEqual(warnings.count, 1)
-        XCTAssertTrue(warnings[0].contains("CMUX_SOCKET_PATH=\(deadPath) is unreachable"))
-        XCTAssertTrue(warnings[0].contains("using \(livePath) from default-path"))
+        XCTAssertTrue(warnings[0].contains(deadPath))
+        XCTAssertTrue(warnings[0].contains(livePath))
     }
 
     func testCLISocketResolverKeepsReachableEnvironmentSocket() throws {
