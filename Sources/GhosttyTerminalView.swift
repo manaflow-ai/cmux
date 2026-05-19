@@ -4554,13 +4554,6 @@ final class TerminalSurface: Identifiable, ObservableObject {
         let processExited: Bool?
         let foregroundPID: Int?
         let ttyName: String?
-
-        var terminalReady: Bool {
-            runtimeSurfaceReady &&
-                processExited == false &&
-                foregroundPID != nil &&
-                ttyName != nil
-        }
     }
 
     private struct PendingKeyEvent {
