@@ -108,7 +108,13 @@ extension CMUXCLI {
 
         let windowHandle = try normalizeWindowHandle(windowRaw, client: client)
         let workspaceHandle = try normalizeWorkspaceHandle(workspaceRaw, client: client, windowHandle: windowHandle)
-        let surfaceHandle = try normalizeSurfaceHandle(surfaceRaw, client: client, allowFocused: false)
+        let surfaceHandle = try normalizeSurfaceHandle(
+            surfaceRaw,
+            client: client,
+            workspaceHandle: workspaceHandle,
+            windowHandle: windowHandle,
+            allowFocused: false
+        )
         let paneHandle = try normalizePaneHandle(paneRaw, client: client, workspaceHandle: workspaceHandle, windowHandle: windowHandle)
         let beforeHandle = try normalizeSurfaceHandle(beforeRaw, client: client, workspaceHandle: workspaceHandle, windowHandle: windowHandle)
         let afterHandle = try normalizeSurfaceHandle(afterRaw, client: client, workspaceHandle: workspaceHandle, windowHandle: windowHandle)
