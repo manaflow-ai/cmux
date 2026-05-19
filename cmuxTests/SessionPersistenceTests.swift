@@ -1986,8 +1986,15 @@ final class SocketListenerAcceptPolicyTests: XCTestCase {
             )
         )
 
+        let resumeCommand = try XCTUnwrap(snapshot.resumeCommand)
+        XCTAssertTrue(resumeCommand.contains("'CMUX_PRESERVE_CLAUDE_AUTH_SELECTION_ENV=1'"))
+        XCTAssertTrue(
+            resumeCommand.contains(
+                "'CMUX_PRESERVE_CLAUDE_AUTH_SELECTION_ENV_KEYS=ANTHROPIC_BASE_URL,ANTHROPIC_MODEL'"
+            )
+        )
         XCTAssertGreaterThan(
-            snapshot.resumeCommand?.appending("\n").utf8.count ?? 0,
+            resumeCommand.appending("\n").utf8.count,
             SessionRestorableAgentSnapshot.maxInlineStartupInputBytes
         )
         XCTAssertNil(snapshot.resumeStartupInput(temporaryDirectory: tempDir))

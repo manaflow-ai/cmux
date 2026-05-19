@@ -3490,6 +3490,7 @@ struct ContentView: View {
                                 Self.commandPaletteResultLabelContent(
                                     title: result.command.title,
                                     matchedIndices: result.titleMatchIndices,
+                                    subtitle: result.command.subtitle,
                                     trailingLabel: trailingLabel
                                 )
                                     .padding(.horizontal, 9)
@@ -4985,9 +4986,9 @@ struct ContentView: View {
     }
 
     static func commandPaletteShouldSynchronouslySeedResults(
-        hasVisibleResultsForScope: Bool
+        hasVisibleResultsForScope _: Bool
     ) -> Bool {
-        !hasVisibleResultsForScope
+        true
     }
 
     static func commandPaletteShouldPreserveEmptyStateWhileSearchPending(
@@ -5259,17 +5260,26 @@ struct ContentView: View {
     private static func commandPaletteResultLabelContent(
         title: String,
         matchedIndices: Set<Int>,
+        subtitle: String?,
         trailingLabel: CommandPaletteTrailingLabel?
     ) -> some View {
-        HStack(spacing: 8) {
-            commandPaletteHighlightedTitleText(
-                title,
-                matchedIndices: matchedIndices
-            )
-                .font(.system(size: 13, weight: .regular))
-                .lineLimit(1)
-            Spacer()
-            commandPaletteTrailingLabelView(trailingLabel)
+        VStack(alignment: .leading, spacing: 2) {
+            HStack(spacing: 8) {
+                commandPaletteHighlightedTitleText(
+                    title,
+                    matchedIndices: matchedIndices
+                )
+                    .font(.system(size: 13, weight: .regular))
+                    .lineLimit(1)
+                Spacer()
+                commandPaletteTrailingLabelView(trailingLabel)
+            }
+            if let subtitle, !subtitle.isEmpty {
+                Text(subtitle)
+                    .font(.system(size: 11, weight: .regular))
+                    .foregroundStyle(.secondary)
+                    .lineLimit(1)
+            }
         }
     }
 

@@ -472,13 +472,13 @@ final class CommandPaletteSearchEngineTests: XCTestCase {
         XCTAssertEqual(previewCandidateIDs.last, "command.191")
     }
 
-    func testSynchronousSeedRunsOnlyWhenScopeChanges() {
+    func testSynchronousSeedAlwaysRunsForRefreshes() {
         XCTAssertTrue(
             ContentView.commandPaletteShouldSynchronouslySeedResults(
                 hasVisibleResultsForScope: false
             )
         )
-        XCTAssertFalse(
+        XCTAssertTrue(
             ContentView.commandPaletteShouldSynchronouslySeedResults(
                 hasVisibleResultsForScope: true
             )

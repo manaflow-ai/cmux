@@ -8559,8 +8559,8 @@ final class Workspace: Identifiable, ObservableObject {
 
     private func syncPanelDerivedWorkspaceUnreadState() {
         let hasPanelUnreadIndicator =
-            manualUnreadPanelIds.contains { panels[$0] != nil } ||
-            restoredUnreadPanelIds.contains { panels[$0] != nil }
+            !manualUnreadPanelIds.isEmpty ||
+            !restoredUnreadPanelIds.isEmpty
         if let notificationStore = AppDelegate.shared?.notificationStore {
             if hasPanelUnreadIndicator {
                 notificationStore.restoreUnreadIndicator(forTabId: id)
@@ -12051,7 +12051,10 @@ final class Workspace: Identifiable, ObservableObject {
             return bonsplitController.focusedPaneId == targetPaneId &&
                 bonsplitController.selectedTab(inPane: targetPaneId)?.id == tabId
         }()
-        let shouldSuppressReentrantRefocus = trigger == .terminalFirstResponder && selectionAlreadyConverged
+        let shouldSuppressReentrantRefocus =
+            trigger == .terminalFirstResponder &&
+            selectionAlreadyConverged &&
+            previousTerminalHostedView?.isSuppressingReparentFocus == true
 #if DEBUG
         let targetPaneShort = targetPaneId.map { String($0.id.uuidString.prefix(5)) } ?? "nil"
         let focusedPaneShort = bonsplitController.focusedPaneId.map { String($0.id.uuidString.prefix(5)) } ?? "nil"

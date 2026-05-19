@@ -231,8 +231,8 @@ final class TerminalSidekickCoordinator {
 
     private func replaceState(_ next: TerminalSidekickState) {
         guard state != next else { return }
-        notifyChanged()
         state = next
+        notifyChanged()
     }
 
     private func replaceBrowserPanel(_ next: BrowserPanel?) {
@@ -243,8 +243,8 @@ final class TerminalSidekickCoordinator {
             return
         }
 
-        notifyChanged()
         browserPanel = next
         observeBrowserPanelChanges()
+        notifyChanged()
     }
 }

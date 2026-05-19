@@ -135,7 +135,7 @@ final class FeedCoordinatorTests: XCTestCase {
         )
     }
 
-    func testBlockingIngestExpiresWaiterWhenAgentProcessExitsBeforeNotificationDisplay() async {
+    func testBlockingIngestExpiresWaiterWhenAgentProcessExitsBeforeNotificationDisplay() async throws {
 #if DEBUG
         let requestId = "agent-exit-request"
         let ppid = 424_242

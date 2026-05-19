@@ -5889,7 +5889,11 @@ final class TerminalSurface: Identifiable, ObservableObject {
         }
 
         guard allowsRuntimeSurfaceCreation() else { return }
-        guard surface == nil, attachedView != nil else { return }
+        guard surface == nil,
+              let attachedView,
+              attachedView.window != nil else {
+            return
+        }
         guard !backgroundSurfaceStartQueued else { return }
         backgroundSurfaceStartQueued = true
 
@@ -5897,7 +5901,11 @@ final class TerminalSurface: Identifiable, ObservableObject {
             guard let self else { return }
             self.backgroundSurfaceStartQueued = false
             guard self.allowsRuntimeSurfaceCreation() else { return }
-            guard self.surface == nil, let view = self.attachedView else { return }
+            guard self.surface == nil,
+                  let view = self.attachedView,
+                  view.window != nil else {
+                return
+            }
             #if DEBUG
             let startedAt = ProcessInfo.processInfo.systemUptime
             #endif
@@ -9958,6 +9966,9 @@ final class GhosttySurfaceScrollView: NSView {
     private let flashOverlayView: GhosttyFlashOverlayView
     private let flashLayer: CAShapeLayer
     private var reparentFocusSuppressionCount = 0
+    var isSuppressingReparentFocus: Bool {
+        reparentFocusSuppressionCount > 0
+    }
     var isRightSidebarDockSurface: Bool {
         surfaceView.terminalSurface?.focusPlacement == .rightSidebarDock
     }

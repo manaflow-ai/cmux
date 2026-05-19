@@ -241,6 +241,10 @@ struct CommandPaletteHandlerRegistry {
     private var handlers: [String: () -> Void] = [:]
 
     mutating func register(commandId: String, handler: @escaping () -> Void) {
+        guard handlers[commandId] == nil else {
+            assertionFailure("Duplicate command palette handler id: \(commandId)")
+            return
+        }
         handlers[commandId] = handler
     }
 
