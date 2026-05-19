@@ -15582,13 +15582,21 @@ class TerminalController {
         // Capture the main window on main thread
         var captureError: String?
         v2MainSync {
-            guard let window = NSApp.mainWindow ?? NSApp.windows.first else {
+            let preferredWindows = [NSApp.mainWindow, NSApp.keyWindow].compactMap { $0 } + NSApp.windows
+            func validCaptureWindow(_ window: NSWindow) -> Bool {
+                CGWindowID(exactly: window.windowNumber) != nil
+            }
+            guard let window = preferredWindows.first(where: { window in
+                validCaptureWindow(window) && window.isVisible && !window.isMiniaturized
+            }) ?? preferredWindows.first(where: validCaptureWindow) else {
                 captureError = "No window available"
                 return
             }
 
-            // Get window's CGWindowID
-            let windowNumber = CGWindowID(window.windowNumber)
+            guard let windowNumber = CGWindowID(exactly: window.windowNumber) else {
+                captureError = "Invalid window number: \(window.windowNumber)"
+                return
+            }
 
             // Capture the window using CGWindowListCreateImage
             guard let cgImage = CGWindowListCreateImage(

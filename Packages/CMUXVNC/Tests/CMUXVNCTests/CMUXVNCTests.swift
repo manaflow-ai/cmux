@@ -183,6 +183,85 @@ final class CMUXVNCTests: XCTestCase {
         XCTAssertEqual(framebuffer, Data(repeating: 0, count: 4))
     }
 
+    func testFramebufferComposerReturnsFullFrameAfterPartialUpdate() throws {
+        var composer = VNCFramebufferComposer()
+        let firstHeader = VNCFrameHeader(
+            sequence: 1,
+            x: 0,
+            y: 0,
+            width: 1,
+            height: 1,
+            framebufferWidth: 2,
+            framebufferHeight: 2,
+            stride: 4
+        )
+        let secondHeader = VNCFrameHeader(
+            sequence: 2,
+            x: 1,
+            y: 1,
+            width: 1,
+            height: 1,
+            framebufferWidth: 2,
+            framebufferHeight: 2,
+            stride: 4
+        )
+
+        _ = try XCTUnwrap(composer.apply(header: firstHeader, payload: Data([1, 2, 3, 4])))
+        let frame = try XCTUnwrap(composer.apply(header: secondHeader, payload: Data([5, 6, 7, 8])))
+
+        XCTAssertEqual(
+            frame.header,
+            VNCFrameHeader(
+                sequence: 2,
+                x: 0,
+                y: 0,
+                width: 2,
+                height: 2,
+                framebufferWidth: 2,
+                framebufferHeight: 2,
+                stride: 8
+            )
+        )
+        XCTAssertEqual(
+            Array(frame.payload),
+            [
+                1, 2, 3, 4, 0, 0, 0, 0,
+                0, 0, 0, 0, 5, 6, 7, 8
+            ]
+        )
+    }
+
+    func testFramebufferComposerResetsWhenFramebufferSizeChanges() throws {
+        var composer = VNCFramebufferComposer()
+        let firstHeader = VNCFrameHeader(
+            sequence: 1,
+            x: 0,
+            y: 0,
+            width: 1,
+            height: 1,
+            framebufferWidth: 2,
+            framebufferHeight: 2,
+            stride: 4
+        )
+        let resizedHeader = VNCFrameHeader(
+            sequence: 2,
+            x: 0,
+            y: 0,
+            width: 1,
+            height: 1,
+            framebufferWidth: 1,
+            framebufferHeight: 1,
+            stride: 4
+        )
+
+        _ = try XCTUnwrap(composer.apply(header: firstHeader, payload: Data([1, 2, 3, 4])))
+        let frame = try XCTUnwrap(composer.apply(header: resizedHeader, payload: Data([5, 6, 7, 8])))
+
+        XCTAssertEqual(frame.header.width, 1)
+        XCTAssertEqual(frame.header.height, 1)
+        XCTAssertEqual(Array(frame.payload), [5, 6, 7, 8])
+    }
+
     func testIPCFrameRoundTrip() throws {
         let header = VNCFrameHeader(
             sequence: 7,

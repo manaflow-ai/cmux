@@ -68,6 +68,7 @@ final class VNCMetalCanvasView: NSView {
 
     private let device = MTLCreateSystemDefaultDevice()
     private var commandQueue: MTLCommandQueue?
+    private let rootLayer = CALayer()
     private let metalLayer = CAMetalLayer()
     private var framebuffer = Data()
     private var framebufferWidth = 0
@@ -77,11 +78,15 @@ final class VNCMetalCanvasView: NSView {
     override init(frame frameRect: NSRect) {
         super.init(frame: frameRect)
         wantsLayer = true
-        layer = metalLayer
+        rootLayer.backgroundColor = NSColor.black.cgColor
+        rootLayer.masksToBounds = true
+        layer = rootLayer
+        rootLayer.addSublayer(metalLayer)
         metalLayer.device = device
         metalLayer.pixelFormat = .bgra8Unorm
         metalLayer.framebufferOnly = false
-        metalLayer.contentsGravity = .resizeAspect
+        metalLayer.contentsGravity = .resize
+        metalLayer.masksToBounds = true
         commandQueue = device?.makeCommandQueue()
         postsFrameChangedNotifications = true
     }
@@ -99,13 +104,14 @@ final class VNCMetalCanvasView: NSView {
 
     override func viewDidMoveToWindow() {
         super.viewDidMoveToWindow()
-        metalLayer.contentsScale = window?.backingScaleFactor ?? NSScreen.main?.backingScaleFactor ?? 2
+        updateMetalLayerGeometry()
         drawFramebuffer()
     }
 
     override func setFrameSize(_ newSize: NSSize) {
         super.setFrameSize(newSize)
-        metalLayer.frame = bounds
+        rootLayer.frame = bounds
+        updateMetalLayerGeometry()
         drawFramebuffer()
     }
 
@@ -223,7 +229,7 @@ final class VNCMetalCanvasView: NSView {
         framebufferWidth = width
         framebufferHeight = height
         framebuffer = Data(repeating: 0, count: byteCount)
-        metalLayer.drawableSize = CGSize(width: width, height: height)
+        updateMetalLayerGeometry()
         return true
     }
 
@@ -266,6 +272,20 @@ final class VNCMetalCanvasView: NSView {
         let commandBuffer = commandQueue?.makeCommandBuffer()
         commandBuffer?.present(drawable)
         commandBuffer?.commit()
+    }
+
+    private func updateMetalLayerGeometry() {
+        metalLayer.contentsScale = window?.backingScaleFactor ?? NSScreen.main?.backingScaleFactor ?? 2
+        metalLayer.frame = aspectFittedFramebufferRect()
+        if framebufferWidth > 0, framebufferHeight > 0 {
+            metalLayer.drawableSize = CGSize(width: framebufferWidth, height: framebufferHeight)
+        } else {
+            let scale = metalLayer.contentsScale
+            metalLayer.drawableSize = CGSize(
+                width: max(1, bounds.width * scale),
+                height: max(1, bounds.height * scale)
+            )
+        }
     }
 
     private func sendPointer(_ event: NSEvent, button: Int, isDown: Bool, clampOutside: Bool = false) {

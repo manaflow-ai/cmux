@@ -32,6 +32,7 @@ final class VNCPanel: Panel, ObservableObject {
     private weak var focusView: NSView?
     private var connection: VNCPanelConnection?
     private var connectionID: UUID?
+    private var framebufferComposer = VNCFramebufferComposer()
     private var restartDates: [Date] = []
     private let restartPolicy = VNCHelperRestartPolicy()
 
@@ -67,7 +68,7 @@ final class VNCPanel: Panel, ObservableObject {
             },
             onFrame: { [weak self] header, payload in
                 guard self?.connectionID == nextConnectionID else { return }
-                self?.latestFrame = VNCDisplayFrame(header: header, payload: payload)
+                self?.applyFrame(header: header, payload: payload)
             },
             onExit: { [weak self] reason, shouldRestart in
                 guard let self, self.connectionID == nextConnectionID else { return }
@@ -94,6 +95,7 @@ final class VNCPanel: Panel, ObservableObject {
         connectionID = nil
         restartDates.removeAll()
         latestFrame = nil
+        framebufferComposer.reset()
         startIfNeeded()
     }
 
@@ -130,6 +132,8 @@ final class VNCPanel: Panel, ObservableObject {
         connection = nil
         connectionID = nil
         focusView = nil
+        latestFrame = nil
+        framebufferComposer.reset()
     }
 
     func focus() {
@@ -169,6 +173,11 @@ final class VNCPanel: Panel, ObservableObject {
         }
     }
 
+    private func applyFrame(header: VNCFrameHeader, payload: Data) {
+        guard let frame = framebufferComposer.apply(header: header, payload: payload) else { return }
+        latestFrame = VNCDisplayFrame(header: frame.header, payload: frame.payload)
+    }
+
     private func restartAfterUnexpectedExit(reason: String) -> Bool {
         let now = Date()
         guard restartPolicy.canRestart(previousRestartDates: restartDates, now: now) else {
@@ -177,6 +186,7 @@ final class VNCPanel: Panel, ObservableObject {
         }
         restartDates = restartPolicy.recordRestart(previousRestartDates: restartDates, now: now)
         latestFrame = nil
+        framebufferComposer.reset()
         connectionState = .connecting
         startIfNeeded()
         return true
