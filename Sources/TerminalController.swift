@@ -12278,7 +12278,7 @@ class TerminalController {
             finishOnce(true)
         }
         if semaphore.wait(timeout: .now() + timeout) == .timedOut {
-            finishOnce(false)
+            finishOnce(pathIsReady())
         }
         source.cancel()
         return ready ? .ready : .timeout
