@@ -542,9 +542,12 @@ extension Workspace {
             guard let markdownPanel = panel as? MarkdownPanel else { return nil }
             terminalSnapshot = nil
             browserSnapshot = nil
+            let noteSlug = noteProjectRoot().flatMap { projectRoot in
+                NoteSupport.slug(forNotePath: markdownPanel.filePath, projectRoot: projectRoot)
+            }
             markdownSnapshot = SessionMarkdownPanelSnapshot(
                 filePath: markdownPanel.filePath,
-                noteSlug: NoteSupport.slug(forNotePath: markdownPanel.filePath)
+                noteSlug: noteSlug
             )
             filePreviewSnapshot = nil
             rightSidebarToolSnapshot = nil
@@ -1027,8 +1030,8 @@ extension Workspace {
             // original absolute path if slug-resolution finds nothing.
             let restorePath: String
             if let rawSlug = snapshotMarkdown.noteSlug,
-               let slug = try? NoteSupport.validateSlug(rawSlug) {
-                let projectRootCandidate = sessionRestoreNoteProjectRoot ?? noteProjectRoot()
+               let slug = try? NoteSupport.validateSlug(rawSlug),
+               let projectRootCandidate = sessionRestoreNoteProjectRoot ?? noteProjectRoot() {
                 let resolved = NoteSupport.notePath(forSlug: slug, projectRoot: projectRootCandidate)
                 if (try? NoteSupport.noteFileExists(forSlug: slug, projectRoot: projectRootCandidate)) == true {
                     restorePath = resolved
@@ -11136,8 +11139,9 @@ final class Workspace: Identifiable, ObservableObject {
     /// Resolve the `.cmux/notes/` project root for this workspace by walking
     /// `currentDirectory` upward. Falls back to the cwd itself if no `.cmux/`
     /// is found.
-    func noteProjectRoot() -> String {
-        NoteSupport.projectRoot(forCwd: currentDirectory)
+    func noteProjectRoot() -> String? {
+        guard !isRemoteWorkspace else { return nil }
+        return NoteSupport.projectRoot(forCwd: currentDirectory)
     }
 
     /// Open (or focus) a project-scoped note as a surface in the given pane.
@@ -11160,7 +11164,10 @@ final class Workspace: Identifiable, ObservableObject {
             )
             return nil
         }
-        let root = noteProjectRoot()
+        guard let root = noteProjectRoot() else {
+            workspaceLogger.error("Note surfaces are not available for remote workspaces")
+            return nil
+        }
         let filePath: String
         if createIfMissing {
             do {

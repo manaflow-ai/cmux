@@ -1,4 +1,5 @@
 import Foundation
+import Darwin
 
 // MARK: - Notes (project-scoped markdown notes at .cmux/notes/<slug>.md)
 
@@ -14,19 +15,22 @@ enum NoteSupport {
     static func validateSlug(_ raw: String) throws -> String {
         let trimmed = raw.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !trimmed.isEmpty else {
-            throw NoteError.invalidSlug("slug is empty")
+            throw NoteError.invalidSlug(String(localized: "note.error.slugEmpty", defaultValue: "slug is empty"))
         }
         guard trimmed.count <= maxSlugLength else {
-            throw NoteError.invalidSlug("slug is longer than \(maxSlugLength) characters")
+            throw NoteError.invalidSlug(String(localized: "note.error.slugTooLong", defaultValue: "slug is longer than 64 characters"))
         }
         let allowed = CharacterSet(charactersIn: "abcdefghijklmnopqrstuvwxyz0123456789-")
         guard trimmed.unicodeScalars.allSatisfy({ allowed.contains($0) }) else {
             throw NoteError.invalidSlug(
-                "slug may contain only lowercase letters, digits, and hyphens"
+                String(
+                    localized: "note.error.slugInvalidChars",
+                    defaultValue: "slug may contain only lowercase letters, digits, and hyphens"
+                )
             )
         }
         guard let first = trimmed.first, first != "-" else {
-            throw NoteError.invalidSlug("slug must not start with a hyphen")
+            throw NoteError.invalidSlug(String(localized: "note.error.slugStartsWithHyphen", defaultValue: "slug must not start with a hyphen"))
         }
         return trimmed
     }
@@ -112,6 +116,17 @@ enum NoteSupport {
         guard filename.hasSuffix(".md") else { return nil }
         let slug = String(filename.dropLast(3))
         return try? validateSlug(slug)
+    }
+
+    /// Project-root-aware reverse lookup for note files. This avoids treating an
+    /// arbitrary `.cmux/notes/<slug>.md` path from another project as this
+    /// workspace's note.
+    static func slug(forNotePath path: String, projectRoot: String) -> String? {
+        let standardized = (path as NSString).standardizingPath
+        let parent = (standardized as NSString).deletingLastPathComponent
+        let expectedParent = (notesDirectory(forProjectRoot: projectRoot) as NSString).standardizingPath
+        guard parent == expectedParent else { return nil }
+        return slug(forNotePath: standardized)
     }
 
     /// Ensure the `.cmux/notes/` directory and the `<slug>.md` file exist.
@@ -206,15 +221,18 @@ enum NoteSupport {
             guard fs.fileExists(atPath: path) else { return false }
             throw NoteError.notRegularFile
         }
-        do {
-            try fs.removeItem(atPath: path)
+        errno = 0
+        let status = path.withCString { Darwin.unlink($0) }
+        if status == 0 {
             return true
-        } catch {
-            let nsError = error as NSError
-            if nsError.domain == NSCocoaErrorDomain && nsError.code == NSFileNoSuchFileError {
-                return false
-            }
-            throw error
+        }
+        switch errno {
+        case ENOENT:
+            return false
+        case EISDIR, EPERM:
+            throw NoteError.notRegularFile
+        default:
+            throw POSIXError(POSIXErrorCode(rawValue: errno) ?? .EIO)
         }
     }
 
@@ -232,8 +250,10 @@ enum NoteSupport {
 
         var description: String {
             switch self {
-            case .invalidSlug(let reason): return "Invalid note slug: \(reason)"
-            case .notRegularFile: return "Note path is not a regular file"
+            case .invalidSlug(let reason):
+                return String(localized: "note.error.invalidSlug", defaultValue: "Invalid note slug: \(reason)")
+            case .notRegularFile:
+                return String(localized: "note.error.notRegularFile", defaultValue: "Note path is not a regular file")
             }
         }
 
