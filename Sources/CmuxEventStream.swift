@@ -108,12 +108,17 @@ extension TerminalController {
             guard let windowId = try resolveEventsWindowId(params: params) else {
                 throw EventsScopeError(message: "Event scope window requires a resolvable window_id or caller/focused window")
             }
+            let workspaceIds = eventWorkspaceIds(windowId: windowId)
+            CmuxEventWindowWorkspaceIndex.shared.replace(
+                windowId: windowId.uuidString,
+                workspaceIds: workspaceIds
+            )
             return CmuxEventScope(
                 kind: .window,
                 windowId: windowId.uuidString,
-                windowWorkspaceIds: eventWorkspaceIds(windowId: windowId),
-                currentWindowWorkspaceIdsProvider: { [weak self] in
-                    self?.eventWorkspaceIds(windowId: windowId) ?? []
+                windowWorkspaceIds: workspaceIds,
+                currentWindowWorkspaceIdsProvider: {
+                    CmuxEventWindowWorkspaceIndex.shared.workspaceIds(windowId: windowId.uuidString)
                 }
             )
         case .workspace:
@@ -294,18 +299,23 @@ extension TerminalController {
         params: [String: Any]
     ) -> (windowId: UUID?, workspaceId: UUID?, surfaceId: UUID?, paneId: UUID?) {
         let contextSurfaceId = eventContextSurfaceId(params: params)
+        let contextPaneId = eventContextPaneId(params: params)
         let tabManager = eventTabManager(params: params)
         return v2MainSync {
             let locatedSurface = contextSurfaceId.flatMap { AppDelegate.shared?.locateSurface(surfaceId: $0) }
             if contextSurfaceId != nil, locatedSurface == nil {
                 return (nil, nil, nil, nil)
             }
-
-            guard let tabManager = locatedSurface?.tabManager ?? tabManager else {
+            let locatedPane = contextPaneId.flatMap { v2LocatePane($0) }
+            if contextPaneId != nil, locatedPane == nil {
                 return (nil, nil, nil, nil)
             }
-            let windowId = locatedSurface?.windowId ?? AppDelegate.shared?.windowId(for: tabManager)
-            let workspaceId = locatedSurface?.workspaceId ?? v2UUID(params, "workspace_id") ?? tabManager.selectedTabId
+
+            guard let tabManager = locatedSurface?.tabManager ?? locatedPane?.tabManager ?? tabManager else {
+                return (nil, nil, nil, nil)
+            }
+            let windowId = locatedSurface?.windowId ?? locatedPane?.windowId ?? AppDelegate.shared?.windowId(for: tabManager)
+            let workspaceId = locatedSurface?.workspaceId ?? locatedPane?.workspace.id ?? v2UUID(params, "workspace_id") ?? tabManager.selectedTabId
             guard let workspaceId,
                   let workspace = tabManager.tabs.first(where: { $0.id == workspaceId }) else {
                 return (windowId, nil, nil, nil)
@@ -319,6 +329,17 @@ extension TerminalController {
                     workspaceId,
                     contextSurfaceId,
                     workspace.paneId(forPanelId: contextSurfaceId)?.id
+                )
+            }
+            if let locatedPane {
+                let selectedSurfaceId = workspace.bonsplitController
+                    .selectedTab(inPane: locatedPane.paneId)
+                    .flatMap { workspace.panelIdFromSurfaceId($0.id) }
+                return (
+                    windowId,
+                    workspaceId,
+                    selectedSurfaceId,
+                    locatedPane.paneId.id
                 )
             }
             return (
@@ -339,6 +360,13 @@ extension TerminalController {
         }
         return eventCallerUUID(params: params, key: "surface_id") ??
             eventCallerUUID(params: params, key: "tab_id")
+    }
+
+    private nonisolated func eventContextPaneId(params: [String: Any]) -> UUID? {
+        if Self.hasNonNullParam(params, "pane_id") {
+            return eventUUID(params: params, key: "pane_id")
+        }
+        return eventCallerUUID(params: params, key: "pane_id")
     }
 
     private nonisolated func eventTabManager(params: [String: Any]) -> TabManager? {

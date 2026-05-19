@@ -4256,6 +4256,7 @@ class TabManager: ObservableObject {
         if tabs.isEmpty {
             // The UI assumes each window always has at least one workspace.
             _ = addWorkspace()
+            refreshCmuxEventWindowWorkspaceIndex()
             return removed
         }
 
@@ -4264,6 +4265,7 @@ class TabManager: ObservableObject {
             selectedTabId = tabs[nextIndex].id
         }
 
+        refreshCmuxEventWindowWorkspaceIndex()
         return removed
     }
 
@@ -4279,6 +4281,7 @@ class TabManager: ObservableObject {
         if select {
             selectedTabId = workspace.id
         }
+        refreshCmuxEventWindowWorkspaceIndex()
     }
 
     // Keep closeTab as convenience alias

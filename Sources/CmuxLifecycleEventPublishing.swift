@@ -40,7 +40,15 @@ extension TabManager {
         AppDelegate.shared?.windowId(for: self)
     }
 
+    func refreshCmuxEventWindowWorkspaceIndex() {
+        CmuxEventWindowWorkspaceIndex.shared.replace(
+            windowId: cmuxEventWindowId,
+            workspaceIds: tabs.map(\.id)
+        )
+    }
+
     func publishCmuxWorkspaceCreated(_ workspace: Workspace, selected: Bool) {
+        refreshCmuxEventWindowWorkspaceIndex()
         CmuxEventBus.shared.publishWorkspaceCreated(
             workspaceId: workspace.id,
             windowId: cmuxEventWindowId,
@@ -65,6 +73,7 @@ extension TabManager {
     }
 
     func publishCmuxWorkspaceClosed(_ workspace: Workspace) {
+        refreshCmuxEventWindowWorkspaceIndex()
         CmuxEventBus.shared.publishWorkspaceClosed(
             workspaceId: workspace.id,
             windowId: cmuxEventWindowId,
@@ -77,6 +86,7 @@ extension TabManager {
     }
 
     func publishCmuxWorkspaceSelected(_ workspace: Workspace) {
+        refreshCmuxEventWindowWorkspaceIndex()
         CmuxEventBus.shared.publishWorkspaceSelected(
             workspaceId: workspace.id,
             windowId: cmuxEventWindowId,
@@ -92,6 +102,7 @@ extension TabManager {
     func publishCmuxWorkspaceSelectedChange(from previousWorkspaceId: UUID?) {
         guard let selectedTabId,
               let workspace = tabs.first(where: { $0.id == selectedTabId }) else { return }
+        refreshCmuxEventWindowWorkspaceIndex()
         CmuxEventBus.shared.publishWorkspaceSelected(
             workspaceId: workspace.id,
             windowId: cmuxEventWindowId,

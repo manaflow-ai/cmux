@@ -6,6 +6,45 @@ struct CmuxEventSubscriptionSnapshot {
     let ack: [String: Any]
 }
 
+final class CmuxEventWindowWorkspaceIndex: @unchecked Sendable {
+    static let shared = CmuxEventWindowWorkspaceIndex()
+
+    private let lock = NSLock()
+    private var workspaceIdsByWindowId: [String: Set<String>] = [:]
+
+    func replace(windowId: UUID?, workspaceIds: [UUID]) {
+        replace(
+            windowId: windowId?.uuidString,
+            workspaceIds: Set(workspaceIds.map(\.uuidString))
+        )
+    }
+
+    func replace(windowId: String?, workspaceIds: Set<String>) {
+        guard let windowId = Self.normalizedId(windowId) else { return }
+        lock.lock()
+        workspaceIdsByWindowId[windowId] = Set(workspaceIds.compactMap(Self.normalizedId))
+        lock.unlock()
+    }
+
+    func workspaceIds(windowId: String) -> Set<String> {
+        guard let windowId = Self.normalizedId(windowId) else { return [] }
+        lock.lock()
+        defer { lock.unlock() }
+        return workspaceIdsByWindowId[windowId] ?? []
+    }
+
+    private static func normalizedId(_ value: String?) -> String? {
+        guard let trimmed = value?.trimmingCharacters(in: .whitespacesAndNewlines),
+              !trimmed.isEmpty else {
+            return nil
+        }
+        if let uuid = UUID(uuidString: trimmed) {
+            return uuid.uuidString
+        }
+        return trimmed
+    }
+}
+
 struct CmuxEventScope {
     enum Kind: String {
         case global
