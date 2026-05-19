@@ -84,7 +84,9 @@ final class CmuxSettingsFileStore {
         importedManagedDefaults = Self.loadImportedManagedDefaults()
 
         bootstrapPrimaryTemplateIfNeeded()
-        reload()
+        // The shared store is owned by KeyboardShortcutSettings. Publishing during
+        // construction reenters that static initializer on app startup.
+        reload(notifyChanges: false)
         guard startWatching else { return }
 
         primaryWatcher = ShortcutSettingsFileWatcher(path: primaryPath, fileManager: fileManager) { [weak self] in
@@ -115,7 +117,7 @@ final class CmuxSettingsFileStore {
         }
     }
 
-    func reload() {
+    func reload(notifyChanges: Bool = true) {
         let previousState = synchronized {
             (
                 shortcuts: shortcutsByAction,
@@ -141,7 +143,8 @@ final class CmuxSettingsFileStore {
         }
         saveImportedManagedDefaults(resolved.managedUserDefaults)
 
-        if previousState.shortcuts != resolved.shortcuts || previousState.sourcePath != resolved.path {
+        if notifyChanges,
+           previousState.shortcuts != resolved.shortcuts || previousState.sourcePath != resolved.path {
             KeyboardShortcutSettings.notifySettingsFileDidChange(center: notificationCenter)
         }
     }
