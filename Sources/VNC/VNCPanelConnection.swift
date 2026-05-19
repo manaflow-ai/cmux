@@ -2,7 +2,6 @@ import CMUXVNC
 import Darwin
 import Foundation
 
-@MainActor
 final class VNCPanelConnection {
     typealias ControlHandler = @MainActor (VNCControlMessage) -> Void
     typealias FrameHandler = @MainActor (VNCFrameHeader, Data) -> Void
@@ -55,7 +54,7 @@ final class VNCPanelConnection {
             }
         } catch {
             close()
-            onExit(VNCPanelText.helperLaunchFailed(error.localizedDescription))
+            notifyMainExit(VNCPanelText.helperLaunchFailed(error.localizedDescription))
         }
     }
 
@@ -67,7 +66,7 @@ final class VNCPanelConnection {
                 self?.write(message)
             }
         } catch {
-            onExit(VNCPanelText.helperProtocolFailed(error.localizedDescription))
+            notifyMainExit(VNCPanelText.helperProtocolFailed(error.localizedDescription))
         }
     }
 
@@ -186,6 +185,12 @@ final class VNCPanelConnection {
         Task { @MainActor in
             guard !isClosed else { return }
             close()
+            onExit(reason)
+        }
+    }
+
+    private func notifyMainExit(_ reason: String) {
+        Task { @MainActor in
             onExit(reason)
         }
     }
