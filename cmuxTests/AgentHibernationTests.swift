@@ -1,5 +1,6 @@
 import Foundation
 import XCTest
+import Bonsplit
 
 #if canImport(cmux_DEV)
 @testable import cmux_DEV
@@ -138,6 +139,24 @@ final class AgentHibernationTests: XCTestCase {
         XCTAssertTrue(workspace.clearAgentPID(key: "codex.missing", panelId: panelId, clearStatus: true))
 
         XCTAssertEqual(workspace.agentHibernationLifecycleState(panelId: panelId, fallback: nil), .unknown)
+    }
+
+    @MainActor
+    func testClearingAgentPIDByPanelClearsOnlyThatPanelLifecycleWhenSameStatusKeyRemains() throws {
+        let workspace = Workspace()
+        let firstPanelId = try XCTUnwrap(workspace.focusedPanelId)
+        let paneId = try XCTUnwrap(workspace.paneId(forPanelId: firstPanelId))
+        let secondPanelId = try XCTUnwrap(workspace.newTerminalSurface(inPane: paneId, focus: false)).id
+
+        workspace.recordAgentPID(key: "codex.first", pid: 111, panelId: firstPanelId, refreshPorts: false)
+        workspace.recordAgentPID(key: "codex.second", pid: 222, panelId: secondPanelId, refreshPorts: false)
+        workspace.setAgentLifecycle(key: "codex", panelId: firstPanelId, lifecycle: .idle)
+        workspace.setAgentLifecycle(key: "codex", panelId: secondPanelId, lifecycle: .running)
+
+        XCTAssertTrue(workspace.clearAgentPID(key: "codex.first", panelId: firstPanelId, clearStatus: true, refreshPorts: false))
+
+        XCTAssertEqual(workspace.agentHibernationLifecycleState(panelId: firstPanelId, fallback: nil), .unknown)
+        XCTAssertEqual(workspace.agentHibernationLifecycleState(panelId: secondPanelId, fallback: nil), .running)
     }
 
     func testSessionIndexLoadsAgentLifecycleFromHookStore() throws {

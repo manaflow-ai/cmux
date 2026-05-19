@@ -7617,16 +7617,26 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
         )
     }
 
+    private func recordDirectAgentHibernationTerminalInput() {
+        guard let terminalSurface else { return }
+        recordAgentHibernationTerminalInput(
+            workspaceId: terminalSurface.tabId,
+            panelId: terminalSurface.id
+        )
+    }
+
     // MARK: - Clipboard paste
 
     @IBAction func paste(_ sender: Any?) {
         guard prepareSurfaceForPaste(reason: "paste.missingSurface") else { return }
+        recordDirectAgentHibernationTerminalInput()
         _ = performBindingAction("paste_from_clipboard")
     }
 
     /// Pastes clipboard text as plain text, stripping any rich formatting.
     @IBAction func pasteAsPlainText(_ sender: Any?) {
         guard prepareSurfaceForPaste(reason: "pasteAsPlainText.missingSurface") else { return }
+        recordDirectAgentHibernationTerminalInput()
         _ = performBindingAction("paste_from_clipboard")
     }
 
@@ -8129,6 +8139,7 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
             super.keyDown(with: event)
             return
         }
+        recordDirectAgentHibernationTerminalInput()
 #if DEBUG
         ensureSurfaceMs = (ProcessInfo.processInfo.systemUptime - ensureSurfaceStart) * 1000.0
 #endif
@@ -13898,6 +13909,7 @@ extension GhosttyNSView: NSTextInputClient {
         guard !sanitizedChars.isEmpty else { return }
 
         // Otherwise send directly to the terminal
+        recordDirectAgentHibernationTerminalInput()
         sendTextToSurface(
             sanitizedChars,
             preserveLiteralEscape: !isExternalCommittedText

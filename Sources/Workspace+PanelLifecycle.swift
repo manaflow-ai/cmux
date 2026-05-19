@@ -99,10 +99,8 @@ extension Workspace {
         }
         if let lifecyclePanelId = ownedPanelId ?? panelId {
             let lifecycleStatusKey = agentStatusKey(forAgentPIDKey: key)
-            if !hasAgentRuntime(forStatusKey: lifecycleStatusKey) {
-                if clearAgentLifecycle(key: lifecycleStatusKey, panelId: lifecyclePanelId) {
-                    didChange = true
-                }
+            if clearAgentLifecycle(key: lifecycleStatusKey, panelId: lifecyclePanelId) {
+                didChange = true
             }
         }
         if let statusKeyToClear,
