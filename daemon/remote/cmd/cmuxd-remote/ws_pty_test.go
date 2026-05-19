@@ -185,7 +185,7 @@ func TestWebSocketPTYReconnectKeepsSessionProcess(t *testing.T) {
 
 	writeTestLease(t, leasePath, "first-token", "sess-reconnect", true, time.Now().Add(time.Minute))
 	conn := dialPTY(t, ctx, server.URL)
-	sendAuth(t, ctx, conn, "first-token", "sess-reconnect", 80, 24)
+	sendAuthWithAttachment(t, ctx, conn, "first-token", "sess-reconnect", "same", 80, 24)
 	readReady(t, ctx, conn)
 	if err := conn.Write(ctx, websocket.MessageBinary, []byte("CMUX_RECONNECT_MARKER=alive; export CMUX_RECONNECT_MARKER; printf 'first-ready\\n'\r")); err != nil {
 		t.Fatalf("write first command: %v", err)
@@ -196,7 +196,7 @@ func TestWebSocketPTYReconnectKeepsSessionProcess(t *testing.T) {
 	writeTestLease(t, leasePath, "second-token", "sess-reconnect", true, time.Now().Add(time.Minute))
 	conn = dialPTY(t, ctx, server.URL)
 	defer conn.Close(websocket.StatusNormalClosure, "done")
-	sendAuth(t, ctx, conn, "second-token", "sess-reconnect", 80, 24)
+	sendAuthWithAttachment(t, ctx, conn, "second-token", "sess-reconnect", "same", 80, 24)
 	readReady(t, ctx, conn)
 	if err := conn.Write(ctx, websocket.MessageBinary, []byte("printf '%s\\n' \"$CMUX_RECONNECT_MARKER\"; exit\r")); err != nil {
 		t.Fatalf("write reconnect command: %v", err)
@@ -356,6 +356,26 @@ func TestWebSocketPTYStressSessionCleanupAndBoundedScrollback(t *testing.T) {
 	waitForGoroutineCeiling(t, baseGoroutines+8, 5*time.Second)
 }
 
+func TestWebSocketPTYAnonymousDetachTerminatesSession(t *testing.T) {
+	leasePath := filepath.Join(t.TempDir(), "lease.json")
+	server, hub := newTestWebSocketPTYServer(t, leasePath)
+
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancel()
+
+	writeTestLease(t, leasePath, "anon-token", "sess-anon", true, time.Now().Add(time.Minute))
+	conn := dialPTY(t, ctx, server.URL)
+	sendAuth(t, ctx, conn, "anon-token", "sess-anon", 80, 24)
+	readReady(t, ctx, conn)
+	if err := conn.Write(ctx, websocket.MessageBinary, []byte("printf 'ANON_READY\\n'\r")); err != nil {
+		t.Fatalf("write anonymous marker: %v", err)
+	}
+	waitForBinaryContains(t, ctx, conn, "ANON_READY", 5*time.Second)
+	_ = conn.Close(websocket.StatusNormalClosure, "detach")
+
+	waitForHubSessionCount(t, hub, 0, 5*time.Second)
+}
+
 func TestWebSocketPTYDropsBackpressuredAttachment(t *testing.T) {
 	hub := newWebSocketPTYHub(wsPTYServerConfig{
 		Shell:           "/bin/sh",
@@ -364,12 +384,13 @@ func TestWebSocketPTYDropsBackpressuredAttachment(t *testing.T) {
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 	attachment := &wsPTYAttachment{
-		sessionID: "sess-backpressure",
-		id:        "slow",
-		cols:      80,
-		rows:      24,
-		send:      make(chan wsPTYOutgoingFrame, 1),
-		cancel:    cancel,
+		sessionID:  "sess-backpressure",
+		id:         "slow",
+		cols:       80,
+		rows:       24,
+		send:       make(chan wsPTYOutgoingFrame, 1),
+		cancel:     cancel,
+		persistent: true,
 	}
 	attachment.send <- wsPTYOutgoingFrame{
 		messageType: websocket.MessageBinary,
@@ -422,7 +443,7 @@ func TestWebSocketPTYReapsDetachedIdleSession(t *testing.T) {
 
 	writeTestLease(t, leasePath, "idle-token", "sess-idle", true, time.Now().Add(time.Minute))
 	conn := dialPTY(t, ctx, server.URL)
-	sendAuth(t, ctx, conn, "idle-token", "sess-idle", 80, 24)
+	sendAuthWithAttachment(t, ctx, conn, "idle-token", "sess-idle", "persist", 80, 24)
 	readReady(t, ctx, conn)
 	if err := conn.Write(ctx, websocket.MessageBinary, []byte("printf 'IDLE_READY\\n'\r")); err != nil {
 		t.Fatalf("write idle marker: %v", err)
@@ -716,9 +737,6 @@ func (h *wsPTYHub) sessionPTYSize(sessionID string) (cols int, rows int, ok bool
 	session.ptyWriteMu.Lock()
 	defer session.ptyWriteMu.Unlock()
 	sizeFile := session.ptyFile
-	if session.ttyFile != nil {
-		sizeFile = session.ttyFile
-	}
 
 	size, err := pty.GetsizeFull(sizeFile)
 	if err != nil {

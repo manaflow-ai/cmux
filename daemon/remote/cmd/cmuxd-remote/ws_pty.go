@@ -90,13 +90,14 @@ type wsPTYOutgoingFrame struct {
 }
 
 type wsPTYAttachment struct {
-	sessionID string
-	id        string
-	cols      int
-	rows      int
-	send      chan wsPTYOutgoingFrame
-	cancel    context.CancelFunc
-	conn      *websocket.Conn
+	sessionID  string
+	id         string
+	cols       int
+	rows       int
+	send       chan wsPTYOutgoingFrame
+	cancel     context.CancelFunc
+	conn       *websocket.Conn
+	persistent bool
 }
 
 type wsPTYSession struct {
@@ -261,7 +262,13 @@ func handleWebSocketPTY(w http.ResponseWriter, r *http.Request, cfg wsPTYServerC
 		_ = conn.Close(websocket.StatusInternalError, "pty start failed")
 		return
 	}
-	defer cfg.PTYHub.detach(attachment)
+	defer func() {
+		if attachment.persistent {
+			cfg.PTYHub.detach(attachment)
+		} else {
+			cfg.PTYHub.closeSessionForAttachment(attachment)
+		}
+	}()
 
 	pumpWebSocketToPTY(r.Context(), cfg.PTYHub, attachment, conn)
 	_ = conn.Close(websocket.StatusNormalClosure, "closed")
@@ -537,6 +544,7 @@ func (h *wsPTYHub) attach(ctx context.Context, conn *websocket.Conn, auth wsAuth
 	}
 
 	attachmentID := strings.TrimSpace(auth.AttachmentID)
+	persistent := attachmentID != ""
 	if attachmentID == "" {
 		attachmentID = fmt.Sprintf("att-%d", h.nextAttachmentID)
 		h.nextAttachmentID++
@@ -550,13 +558,14 @@ func (h *wsPTYHub) attach(ctx context.Context, conn *websocket.Conn, auth wsAuth
 
 	attachmentCtx, cancel := context.WithCancel(ctx)
 	attachment := &wsPTYAttachment{
-		sessionID: sessionID,
-		id:        attachmentID,
-		cols:      cols,
-		rows:      rows,
-		send:      make(chan wsPTYOutgoingFrame, defaultWebSocketWriteQueueCap),
-		cancel:    cancel,
-		conn:      conn,
+		sessionID:  sessionID,
+		id:         attachmentID,
+		cols:       cols,
+		rows:       rows,
+		send:       make(chan wsPTYOutgoingFrame, defaultWebSocketWriteQueueCap),
+		cancel:     cancel,
+		conn:       conn,
+		persistent: persistent,
 	}
 	replay := append([]byte(nil), session.scrollback...)
 	if ok := attachment.enqueueReady(sessionID); !ok {
@@ -656,7 +665,8 @@ func startPTYCommand(cmd *exec.Cmd, cols int, rows int) (*os.File, *os.File, err
 		return nil, nil, err
 	}
 	closeFiles = false
-	return ptyFile, ttyFile, nil
+	_ = ttyFile.Close()
+	return ptyFile, nil, nil
 }
 
 func (h *wsPTYHub) detach(attachment *wsPTYAttachment) bool {
@@ -690,8 +700,34 @@ func (h *wsPTYHub) dropAttachment(attachment *wsPTYAttachment) {
 	if attachment == nil {
 		return
 	}
-	h.detach(attachment)
+	if attachment.persistent {
+		h.detach(attachment)
+	} else {
+		h.closeSessionForAttachment(attachment)
+	}
 	attachment.closeNow()
+}
+
+func (h *wsPTYHub) closeSessionForAttachment(attachment *wsPTYAttachment) {
+	if attachment == nil {
+		return
+	}
+	h.mu.Lock()
+	session := h.sessions[attachment.sessionID]
+	if session == nil || session.attachments[attachment.id] != attachment {
+		h.mu.Unlock()
+		return
+	}
+	delete(h.sessions, session.id)
+	delete(session.attachments, attachment.id)
+	h.cancelIdleReapLocked(session)
+	attachment.cancel()
+	h.mu.Unlock()
+
+	if session.cmd != nil && session.cmd.Process != nil {
+		_ = session.cmd.Process.Kill()
+	}
+	session.closePTYFiles()
 }
 
 func (h *wsPTYHub) closeAll() {
@@ -726,8 +762,6 @@ func (session *wsPTYSession) closePTYFiles() {
 
 func (session *wsPTYSession) closeTTYFile() {
 	session.closeTTYOnce.Do(func() {
-		session.ptyWriteMu.Lock()
-		defer session.ptyWriteMu.Unlock()
 		if session.ttyFile != nil {
 			_ = session.ttyFile.Close()
 			session.ttyFile = nil
@@ -945,9 +979,6 @@ func (h *wsPTYHub) applyPTYSizeWithWriteLock(session *wsPTYSession, cols int, ro
 	var lastErr error
 	for attempt := 0; attempt < 8; attempt++ {
 		resizeFile := session.ptyFile
-		if session.ttyFile != nil {
-			resizeFile = session.ttyFile
-		}
 		lastErr = pty.Setsize(resizeFile, desired)
 		if lastErr != nil {
 			continue
@@ -1141,6 +1172,7 @@ func pumpWebSocketToPTY(ctx context.Context, hub *wsPTYHub, attachment *wsPTYAtt
 			case "resize":
 				hub.resize(attachment, control.Cols, control.Rows)
 			case "close":
+				hub.closeSessionForAttachment(attachment)
 				return
 			}
 		}
