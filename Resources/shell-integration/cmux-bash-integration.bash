@@ -16,18 +16,20 @@ _cmux_detect_send_tool() {
 _cmux_send() {
     local payload="$1"
     _cmux_refresh_socket_path_from_marker
+    local socket_path="${CMUX_SOCKET_PATH:-}"
+    [[ -n "$socket_path" ]] || return 1
     case "$_CMUX_SEND_TOOL" in
         ncat)
-            printf '%s\n' "$payload" | ncat -w 1 -U "$CMUX_SOCKET_PATH" --send-only
+            printf '%s\n' "$payload" | ncat -w 1 -U "$socket_path" --send-only
             ;;
         socat)
-            printf '%s\n' "$payload" | socat -T 1 - "UNIX-CONNECT:$CMUX_SOCKET_PATH" >/dev/null 2>&1
+            printf '%s\n' "$payload" | socat -T 1 - "UNIX-CONNECT:$socket_path" >/dev/null 2>&1
             ;;
         nc)
-            if printf '%s\n' "$payload" | nc -N -U "$CMUX_SOCKET_PATH" >/dev/null 2>&1; then
+            if printf '%s\n' "$payload" | nc -N -U "$socket_path" >/dev/null 2>&1; then
                 :
             else
-                printf '%s\n' "$payload" | nc -w 1 -U "$CMUX_SOCKET_PATH" >/dev/null 2>&1 || true
+                printf '%s\n' "$payload" | nc -w 1 -U "$socket_path" >/dev/null 2>&1 || true
             fi
             ;;
     esac
@@ -35,7 +37,8 @@ _cmux_send() {
 
 _cmux_socket_is_unix() {
     _cmux_refresh_socket_path_from_marker
-    [[ -n "$CMUX_SOCKET_PATH" && -S "$CMUX_SOCKET_PATH" ]]
+    local socket_path="${CMUX_SOCKET_PATH:-}"
+    [[ -n "$socket_path" && -S "$socket_path" ]]
 }
 
 _cmux_relay_cli_path() {
@@ -114,9 +117,10 @@ _cmux_refresh_socket_path_from_marker() {
 
 _cmux_socket_uses_remote_relay() {
     _cmux_refresh_socket_path_from_marker
-    [[ -n "$CMUX_SOCKET_PATH" ]] || return 1
-    [[ "$CMUX_SOCKET_PATH" == /* ]] && return 1
-    [[ "$CMUX_SOCKET_PATH" == *:* ]] || return 1
+    local socket_path="${CMUX_SOCKET_PATH:-}"
+    [[ -n "$socket_path" ]] || return 1
+    [[ "$socket_path" == /* ]] && return 1
+    [[ "$socket_path" == *:* ]] || return 1
     [[ -n "$(_cmux_relay_cli_path)" ]]
 }
 
@@ -466,7 +470,7 @@ _cmux_report_tty_once() {
 _cmux_report_shell_activity_state() {
     local state="$1"
     [[ -n "$state" ]] || return 0
-    [[ -S "$CMUX_SOCKET_PATH" ]] || return 0
+    _cmux_socket_is_unix || return 0
     [[ -n "$CMUX_TAB_ID" ]] || return 0
     [[ -n "$CMUX_PANEL_ID" ]] || return 0
     [[ "$_CMUX_SHELL_ACTIVITY_LAST" == "$state" ]] && return 0
@@ -503,7 +507,7 @@ _cmux_ports_kick() {
 }
 
 _cmux_clear_pr_for_panel() {
-    [[ -S "$CMUX_SOCKET_PATH" ]] || return 0
+    _cmux_socket_is_unix || return 0
     [[ -n "$CMUX_TAB_ID" ]] || return 0
     [[ -n "$CMUX_PANEL_ID" ]] || return 0
     # Synchronous: must arrive before the next report_pr from the poll loop.
@@ -582,7 +586,7 @@ _cmux_record_pr_command_hint() {
 }
 
 _cmux_emit_pr_command_hint() {
-    [[ -S "$CMUX_SOCKET_PATH" ]] || return 0
+    _cmux_socket_is_unix || return 0
     [[ -n "$CMUX_TAB_ID" ]] || return 0
     [[ -n "$CMUX_PANEL_ID" ]] || return 0
     [[ -n "$_CMUX_LAST_PR_ACTION" ]] || return 0
@@ -699,7 +703,7 @@ _cmux_report_pr_for_path() {
         _cmux_clear_pr_for_panel
         return 0
     }
-    [[ -S "$CMUX_SOCKET_PATH" ]] || return 0
+    _cmux_socket_is_unix || return 0
     [[ -n "$CMUX_TAB_ID" ]] || return 0
     [[ -n "$CMUX_PANEL_ID" ]] || return 0
 
@@ -892,7 +896,7 @@ _cmux_stop_pr_poll_loop() {
 }
 
 _cmux_start_pr_poll_loop() {
-    [[ -S "$CMUX_SOCKET_PATH" ]] || return 0
+    _cmux_socket_is_unix || return 0
     [[ -n "$CMUX_TAB_ID" ]] || return 0
     [[ -n "$CMUX_PANEL_ID" ]] || return 0
 
