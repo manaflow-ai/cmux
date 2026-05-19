@@ -3105,13 +3105,13 @@ final class CLINotifyProcessIntegrationTests: XCTestCase {
         XCTAssertEqual(result.status, 0, result.stderr)
         XCTAssertEqual(result.stdout, "")
         XCTAssertTrue(
-            state.commands.contains { command in
+            waitForSocketCommand(state: state, timeout: 5) { command in
                 command.contains("set_status codex Idle") &&
                     command.contains("--icon=pause.circle.fill") &&
                     command.contains("--color=#8E8E93") &&
                     command.contains("--tab=\(workspaceId)")
             },
-            "Expected monitor to clear panel-scoped Running when a Codex turn completes without Stop, even if another panel is still running; saw \(state.commands)"
+            "Expected monitor to clear panel-scoped Running when a Codex turn completes without Stop, even if another panel is still running; saw \(state.snapshot())"
         )
     }
 

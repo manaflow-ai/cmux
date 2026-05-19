@@ -675,7 +675,7 @@ private final class ClaudeHookSessionStore {
                 normalizeOptional(record.workspaceId) == normalizedWorkspace
                     && (normalizedSurface == nil || normalizeOptional(record.surfaceId) == normalizedSurface)
                     && record.sessionId != excluded
-                    && record.runtimeStatus == .running
+                    && (record.runtimeStatus == .running || record.runtimeStatus == .needsInput)
             }
         }
     }
