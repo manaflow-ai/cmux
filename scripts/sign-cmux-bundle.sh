@@ -113,6 +113,32 @@ plist_array_contains_exact() {
   return 1
 }
 
+verify_signed_keychain_groups() {
+  local expected_plist_xml="$1"
+  local signed_plist_xml="$2"
+  local expected_groups
+  local expected_group
+  local index=0
+
+  expected_groups="$(plist_print "$expected_plist_xml" "keychain-access-groups")"
+  if [[ -z "$expected_groups" ]]; then
+    return 0
+  fi
+
+  if [[ -z "$(plist_print "$signed_plist_xml" "keychain-access-groups")" ]]; then
+    echo "error: signed app missing keychain-access-groups entitlement" >&2
+    exit 1
+  fi
+
+  while expected_group="$(/usr/libexec/PlistBuddy -c "Print :keychain-access-groups:${index}" /dev/stdin <<<"$expected_plist_xml" 2>/dev/null)"; do
+    if ! plist_array_contains_exact "$signed_plist_xml" "keychain-access-groups" "$expected_group"; then
+      echo "error: signed app missing keychain access group $expected_group" >&2
+      exit 1
+    fi
+    index=$((index + 1))
+  done
+}
+
 APP_ENTITLEMENTS_XML="$(plutil -convert xml1 -o - "$APP_ENTITLEMENTS")"
 APP_ID="$(plist_print "$APP_ENTITLEMENTS_XML" "com.apple.application-identifier")"
 
@@ -127,18 +153,8 @@ if [[ -n "$APP_ID" ]]; then
     echo "error: signed app missing application-identifier $APP_ID" >&2
     exit 1
   fi
-  KEYCHAIN_ACCESS_GROUPS="$(
-    plist_print "$SIGNED_ENTITLEMENTS" "keychain-access-groups"
-  )"
-  if [[ -z "$KEYCHAIN_ACCESS_GROUPS" ]]; then
-    echo "error: signed app missing keychain-access-groups entitlement" >&2
-    exit 1
-  fi
-  if ! plist_array_contains_exact "$SIGNED_ENTITLEMENTS" "keychain-access-groups" "$APP_ID"; then
-    echo "error: signed app missing keychain access group $APP_ID" >&2
-    exit 1
-  fi
 fi
+verify_signed_keychain_groups "$APP_ENTITLEMENTS_XML" "$SIGNED_ENTITLEMENTS"
 grep -Fq -- "com.apple.developer.web-browser.public-key-credential" <<<"$SIGNED_ENTITLEMENTS" || {
     echo "error: signed app missing web-browser entitlement" >&2
     exit 1
