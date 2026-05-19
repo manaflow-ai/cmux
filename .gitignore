@@ -37,6 +37,9 @@ __pycache__/
 .zig-cache/
 zig-out/
 
+# Rust
+target/
+
 # Node
 node_modules/
 .next/

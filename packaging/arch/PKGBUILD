@@ -4,13 +4,13 @@ pkgver=0.1.0.r0.g0000000
 pkgrel=1
 pkgdesc='Linux GTK port of cmux, a terminal workspace for AI coding agents'
 arch=('x86_64' 'aarch64')
-url='https://github.com/abobneil/cmux'
+url='https://github.com/manaflow-ai/cmux'
 license=('GPL-3.0-or-later')
 depends=('gtk4' 'libadwaita' 'vte4')
 makedepends=('cargo' 'git')
 provides=('cmux')
 conflicts=('cmux')
-source=('git+https://github.com/abobneil/cmux.git')
+source=('git+https://github.com/manaflow-ai/cmux.git')
 sha256sums=('SKIP')
 
 pkgver() {
