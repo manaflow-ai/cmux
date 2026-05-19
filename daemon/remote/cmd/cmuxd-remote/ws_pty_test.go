@@ -268,6 +268,20 @@ func TestWebSocketPTYMultiAttachUsesSmallestResize(t *testing.T) {
 	readReady(t, ctx, b)
 	waitForHubPTYSize(t, hub, "sess-resize", 90, 30, 5*time.Second)
 
+	invalidResizePayload, err := json.Marshal(wsPTYControlFrame{Type: "resize", Cols: 0, Rows: 0})
+	if err != nil {
+		t.Fatalf("marshal invalid resize: %v", err)
+	}
+	if err := b.Write(ctx, websocket.MessageText, invalidResizePayload); err != nil {
+		t.Fatalf("write invalid resize: %v", err)
+	}
+	if err := b.Write(ctx, websocket.MessageBinary, []byte("printf 'BADSIZE:'; stty size\r")); err != nil {
+		t.Fatalf("write bad resize stty size: %v", err)
+	}
+	waitForBinaryContains(t, ctx, a, "BADSIZE:30 90", 5*time.Second)
+	waitForHubSessionSize(t, hub, "sess-resize", 2, 90, 30, 5*time.Second)
+	waitForHubPTYSize(t, hub, "sess-resize", 90, 30, 5*time.Second)
+
 	if err := a.Write(ctx, websocket.MessageBinary, []byte("stty size\r")); err != nil {
 		t.Fatalf("write stty size: %v", err)
 	}
@@ -340,6 +354,49 @@ func TestWebSocketPTYStressSessionCleanupAndBoundedScrollback(t *testing.T) {
 		waitForHubSessionCount(t, hub, 0, 5*time.Second)
 	}
 	waitForGoroutineCeiling(t, baseGoroutines+8, 5*time.Second)
+}
+
+func TestWebSocketPTYDropsBackpressuredAttachment(t *testing.T) {
+	hub := newWebSocketPTYHub(wsPTYServerConfig{
+		Shell:           "/bin/sh",
+		ScrollbackLimit: 4096,
+	}, &bytes.Buffer{})
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	attachment := &wsPTYAttachment{
+		sessionID: "sess-backpressure",
+		id:        "slow",
+		cols:      80,
+		rows:      24,
+		send:      make(chan wsPTYOutgoingFrame, 1),
+		cancel:    cancel,
+	}
+	attachment.send <- wsPTYOutgoingFrame{
+		messageType: websocket.MessageBinary,
+		payload:     []byte("already queued"),
+	}
+	session := &wsPTYSession{
+		id:            "sess-backpressure",
+		attachments:   map[string]*wsPTYAttachment{"slow": attachment},
+		effectiveCols: 80,
+		effectiveRows: 24,
+		lastKnownCols: 80,
+		lastKnownRows: 24,
+	}
+
+	hub.mu.Lock()
+	hub.sessions[session.id] = session
+	hub.mu.Unlock()
+
+	hub.recordAndBroadcast(session, []byte("overflow"))
+	if attachments, _, _, ok := hub.sessionDebugSnapshot(session.id); !ok || attachments != 0 {
+		t.Fatalf("backpressured session state = ok:%v attachments:%d, want ok:true attachments:0", ok, attachments)
+	}
+	select {
+	case <-ctx.Done():
+	default:
+		t.Fatal("backpressured attachment context was not canceled")
+	}
 }
 
 func TestWebSocketPTYScrollbackDoesNotRetainOversizedChunks(t *testing.T) {

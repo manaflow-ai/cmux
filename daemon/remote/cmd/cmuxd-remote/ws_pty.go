@@ -94,6 +94,7 @@ type wsPTYAttachment struct {
 	rows      int
 	send      chan wsPTYOutgoingFrame
 	cancel    context.CancelFunc
+	conn      *websocket.Conn
 }
 
 type wsPTYSession struct {
@@ -544,6 +545,7 @@ func (h *wsPTYHub) attach(ctx context.Context, conn *websocket.Conn, auth wsAuth
 		rows:      rows,
 		send:      make(chan wsPTYOutgoingFrame, defaultWebSocketWriteQueueCap),
 		cancel:    cancel,
+		conn:      conn,
 	}
 	replay := append([]byte(nil), session.scrollback...)
 	if ok := attachment.enqueueReady(sessionID); !ok {
@@ -637,21 +639,21 @@ func startPTYCommand(cmd *exec.Cmd, cols int, rows int) (*os.File, *os.File, err
 	return ptyFile, ttyFile, nil
 }
 
-func (h *wsPTYHub) detach(attachment *wsPTYAttachment) {
+func (h *wsPTYHub) detach(attachment *wsPTYAttachment) bool {
 	if attachment == nil {
-		return
+		return false
 	}
 	h.mu.Lock()
 
 	session := h.sessions[attachment.sessionID]
 	if session == nil {
 		h.mu.Unlock()
-		return
+		return false
 	}
 	current := session.attachments[attachment.id]
 	if current != attachment {
 		h.mu.Unlock()
-		return
+		return false
 	}
 	delete(session.attachments, attachment.id)
 	attachment.cancel()
@@ -661,6 +663,12 @@ func (h *wsPTYHub) detach(attachment *wsPTYAttachment) {
 	if shouldApplySize {
 		h.applyCurrentPTYSize(session)
 	}
+	return true
+}
+
+func (h *wsPTYHub) dropAttachment(attachment *wsPTYAttachment) {
+	h.detach(attachment)
+	attachment.closeNow()
 }
 
 func (h *wsPTYHub) closeAll() {
@@ -779,7 +787,7 @@ func (h *wsPTYHub) recordAndBroadcast(session *wsPTYSession, data []byte) {
 
 	for _, attachment := range attachments {
 		if ok := attachment.enqueueBinary(data); !ok {
-			attachment.cancel()
+			h.dropAttachment(attachment)
 		}
 	}
 }
@@ -948,6 +956,9 @@ func (h *wsPTYHub) sessionForAttachment(sessionID string) *wsPTYSession {
 }
 
 func (h *wsPTYHub) resize(attachment *wsPTYAttachment, cols int, rows int) {
+	if cols <= 0 || rows <= 0 {
+		return
+	}
 	cols, rows = normalizePTYSize(cols, rows)
 	h.mu.Lock()
 
@@ -1040,6 +1051,13 @@ func (a *wsPTYAttachment) writeFrame(ctx context.Context, conn *websocket.Conn, 
 		return false
 	}
 	return true
+}
+
+func (a *wsPTYAttachment) closeNow() {
+	if a == nil || a.conn == nil {
+		return
+	}
+	_ = a.conn.CloseNow()
 }
 
 func pumpWebSocketToPTY(ctx context.Context, hub *wsPTYHub, attachment *wsPTYAttachment, conn *websocket.Conn) {
