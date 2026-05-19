@@ -1986,7 +1986,7 @@ class TabManager: ObservableObject {
               focusedBrowserPanel == nil else {
             return false
         }
-        selectedTerminalPanel?.hasSelection() == true
+        return selectedTerminalPanel?.hasSelection() == true
     }
 
     func startSearch() {
