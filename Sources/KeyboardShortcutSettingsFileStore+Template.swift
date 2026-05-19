@@ -149,6 +149,7 @@ extension CmuxSettingsFileStore {
                     "socketPassword": "",
                     "claudeCodeIntegration": ClaudeCodeIntegrationSettings.defaultHooksEnabled,
                     "claudeBinaryPath": "",
+                    "ripgrepBinaryPath": "",
                     "cursorIntegration": CursorIntegrationSettings.defaultHooksEnabled,
                     "geminiIntegration": GeminiIntegrationSettings.defaultHooksEnabled,
                     "portBase": AutomationSettings.defaultPortBase,
