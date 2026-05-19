@@ -695,6 +695,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
     private var browserAddressBarFocusedPanelId: UUID?
     private var browserOmnibarRepeatStartWorkItem: DispatchWorkItem?
     private var browserOmnibarRepeatTickWorkItem: DispatchWorkItem?
+    private var browserOmnibarRepeatPanelId: UUID?
     private var browserOmnibarRepeatKeyCode: UInt16?
     private var browserOmnibarRepeatDelta: Int = 0
     private var browserAddressBarFocusObserver: NSObjectProtocol?
@@ -752,6 +753,16 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         let targetClass: AnyClass = NSApplication.self
         let originalSelector = #selector(NSApplication.sendEvent(_:))
         let swizzledSelector = #selector(NSApplication.cmux_applicationSendEvent(_:))
+        guard let originalMethod = class_getInstanceMethod(targetClass, originalSelector),
+              let swizzledMethod = class_getInstanceMethod(targetClass, swizzledSelector) else {
+            return
+        }
+        method_exchangeImplementations(originalMethod, swizzledMethod)
+    }()
+    private static let didInstallApplicationSendActionSwizzle: Void = {
+        let targetClass: AnyClass = NSApplication.self
+        let originalSelector = #selector(NSApplication.sendAction(_:to:from:))
+        let swizzledSelector = #selector(NSApplication.cmux_sendAction(_:to:from:))
         guard let originalMethod = class_getInstanceMethod(targetClass, originalSelector),
               let swizzledMethod = class_getInstanceMethod(targetClass, swizzledSelector) else {
             return
@@ -999,6 +1010,13 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         let env = ProcessInfo.processInfo.environment
         let isRunningUnderXCTest = isRunningUnderXCTest(env)
         let telemetryEnabled = TelemetrySettings.enabledForCurrentLaunch
+        StartupBreadcrumbLog.append(
+            "appDelegate.didFinish.begin",
+            fields: [
+                "xctest": isRunningUnderXCTest ? "1" : "0",
+                "telemetry": telemetryEnabled ? "1" : "0"
+            ]
+        )
         AppIconLaunchState.markDidFinishLaunching()
         if isRunningUnderXCTest {
             NSApp.setActivationPolicy(.regular)
@@ -1010,8 +1028,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             #endif
             syncActivationPolicy()
         }
+        StartupBreadcrumbLog.append("appDelegate.didFinish.activationPolicy.synced")
 
         claimAuthCallbackURLSchemes()
+        StartupBreadcrumbLog.append("appDelegate.didFinish.authSchemes.claimed")
 
         // Install the Feed (workstream) store. Separate from the transport
         // wiring: the store is a plain singleton here, and the socket
@@ -1023,6 +1043,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
                 persistence: WorkstreamPersistence(fileURL: WorkstreamPersistence.defaultFileURL())
             )
         )
+        StartupBreadcrumbLog.append("appDelegate.didFinish.feedStore.installed")
         Task { @MainActor in
             await FeedCoordinator.shared.store?.start()
 #if DEBUG
@@ -1084,6 +1105,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             _ = Locale.current
             _ = NSLocale.preferredLanguages
 
+            StartupBreadcrumbLog.append("appDelegate.didFinish.sentry.begin")
             SentrySDK.start { options in
                 options.dsn = "https://ecba1ec90ecaee02a102fba931b6d2b3@o4507547940749312.ingest.us.sentry.io/4510796264636416"
                 #if DEBUG
@@ -1105,10 +1127,13 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
                 // Avoid recursively capturing failed requests from Sentry's own ingestion endpoint.
                 options.enableCaptureFailedRequests = false
             }
+            StartupBreadcrumbLog.append("appDelegate.didFinish.sentry.complete")
         }
 
         if telemetryEnabled && !isRunningUnderXCTest {
+            StartupBreadcrumbLog.append("appDelegate.didFinish.posthog.begin")
             PostHogAnalytics.shared.startIfNeeded()
+            StartupBreadcrumbLog.append("appDelegate.didFinish.posthog.complete")
         }
 
         let forceDuplicateLaunchObserver = env["CMUX_UI_TEST_ENABLE_DUPLICATE_LAUNCH_OBSERVER"] == "1"
@@ -1119,9 +1144,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         if !isRunningUnderXCTest {
             DispatchQueue.main.async { [weak self] in
                 guard let self else { return }
+                StartupBreadcrumbLog.append("appDelegate.singleInstance.async.begin")
                 self.scheduleLaunchServicesBundleRegistration()
+                StartupBreadcrumbLog.append("appDelegate.singleInstance.launchServices.scheduled")
                 self.enforceSingleInstance()
                 self.observeDuplicateLaunches()
+                StartupBreadcrumbLog.append("appDelegate.singleInstance.async.complete")
             }
         } else if forceDuplicateLaunchObserver {
             // Some UI regressions specifically exercise launch-observer behavior while still
@@ -1156,7 +1184,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         SystemWideHotkeyController.shared.start()
         NSApp.servicesProvider = self
 
+        StartupBreadcrumbLog.append("appDelegate.didFinish.bootstrap.begin")
         scheduleInitialMainWindowBootstrap(debugSource: "didFinishLaunching")
+        StartupBreadcrumbLog.append("appDelegate.didFinish.complete")
 #if DEBUG
         UpdateTestSupport.applyIfNeeded(to: updateController.viewModel)
         if env["CMUX_UI_TEST_MODE"] == "1" {
@@ -1501,12 +1531,21 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
     }
 
     func applicationShouldTerminate(_ sender: NSApplication) -> NSApplication.TerminateReply {
+        StartupBreadcrumbLog.append(
+            "appDelegate.shouldTerminate.begin",
+            fields: [
+                "taggedDev": SocketControlSettings.isTaggedDevBuild() ? "1" : "0",
+                "quitWarningConfirmed": isQuitWarningConfirmed ? "1" : "0",
+                "quitWarningEnabled": QuitWarningSettings.isEnabled() ? "1" : "0"
+            ]
+        )
         isTerminatingApp = true
         _ = saveSessionSnapshot(includeScrollback: true, removeWhenEmpty: false)
 
         // Tagged DEV builds are ephemeral, skip quit confirmation entirely.
         if SocketControlSettings.isTaggedDevBuild() {
             closeAllWebInspectorsBeforeAppTeardown()
+            StartupBreadcrumbLog.append("appDelegate.shouldTerminate.terminateNow", fields: ["reason": "taggedDev"])
             return .terminateNow
         }
 
@@ -1514,6 +1553,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         // (handleQuitShortcutWarning), skip the check to avoid a second alert.
         if isQuitWarningConfirmed {
             closeAllWebInspectorsBeforeAppTeardown()
+            StartupBreadcrumbLog.append("appDelegate.shouldTerminate.terminateNow", fields: ["reason": "confirmed"])
             return .terminateNow
         }
 
@@ -1521,6 +1561,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         // the Cmd+Tab app switcher, bypassing handleCustomShortcut.
         guard QuitWarningSettings.isEnabled() else {
             closeAllWebInspectorsBeforeAppTeardown()
+            StartupBreadcrumbLog.append("appDelegate.shouldTerminate.terminateNow", fields: ["reason": "warningDisabled"])
             return .terminateNow
         }
 
@@ -1545,12 +1586,15 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             if shouldQuit {
                 self.isQuitWarningConfirmed = true
                 self.closeAllWebInspectorsBeforeAppTeardown()
+                StartupBreadcrumbLog.append("appDelegate.shouldTerminate.reply", fields: ["shouldQuit": "1"])
             } else {
                 // Reset so that the next quit attempt can show the dialog again.
                 self.isTerminatingApp = false
+                StartupBreadcrumbLog.append("appDelegate.shouldTerminate.reply", fields: ["shouldQuit": "0"])
             }
             NSApp.reply(toApplicationShouldTerminate: shouldQuit)
         }
+        StartupBreadcrumbLog.append("appDelegate.shouldTerminate.later")
         return .terminateLater
     }
 
@@ -1560,6 +1604,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
     }
 
     func applicationWillTerminate(_ notification: Notification) {
+        StartupBreadcrumbLog.append("appDelegate.willTerminate.begin")
         isTerminatingApp = true
         closeAllWebInspectorsBeforeAppTeardown()
         _ = saveSessionSnapshot(includeScrollback: true, removeWhenEmpty: false)
@@ -1577,6 +1622,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         ghosttyCrashBreadcrumbTask = nil
         notificationStore?.clearAll()
         GhosttyCrashBreadcrumb.markCleanExit()
+        StartupBreadcrumbLog.append("appDelegate.willTerminate.complete")
         enableSuddenTerminationIfNeeded()
     }
 
@@ -1638,8 +1684,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
                 ),
                 body: String(
                     localized: "crashBreadcrumb.body",
-                    defaultValue: "Diagnostic file saved to ~/.local/state/cmux/crash/"
-                )
+                    defaultValue: "Diagnostic file saved. Click to reveal it in Finder."
+                ),
+                clickAction: .revealInFinder(path: pendingCrash.fileURL.path)
             )
             GhosttyCrashBreadcrumb.markShown(pendingCrash)
         }
@@ -2047,7 +2094,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             return workspace.panels.values
                 .compactMap { $0 as? TerminalPanel }
                 .first { panel in
-                    panel.hostedView.window != nil &&
+                    panel.surface.isViewInWindow &&
                         panel.hostedView.debugPortalVisibleInUI &&
                         !panel.hostedView.debugPortalFrameInWindow.isEmpty
                 }
@@ -2181,7 +2228,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             let currentTabManager = self.tabManager
             let workspace = currentTabManager?.selectedWorkspace ?? currentTabManager?.tabs.first
             let terminalPanel = cmdClickUITestTerminalPanel(in: workspace)
-            let mainWindow = terminalPanel?.hostedView.window
+            let mainWindow = terminalPanel?.surface.uiWindow
                 ?? currentTabManager.flatMap { self.windowId(for: $0).flatMap { self.mainWindow(for: $0) } }
             if Date() >= deadline {
                 let textSnapshot = terminalPanel
@@ -2284,7 +2331,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
 
             let terminalFrame = terminalPanel.hostedView.debugPortalFrameInWindow
             let terminalReady = terminalPanel.surface.surface != nil
-            let terminalVisible = terminalPanel.hostedView.window != nil &&
+            let terminalVisible = terminalPanel.surface.isViewInWindow &&
                 terminalPanel.hostedView.debugPortalVisibleInUI &&
                 !terminalFrame.isEmpty &&
                 terminalFrame.width > 0 &&
@@ -6730,10 +6777,14 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         }
 
 #if DEBUG
-        cmuxDebugLog("file.preview.externalOpen source=\(debugSource) path=\(filePath)")
+        cmuxDebugLog("file.externalOpen source=\(debugSource) path=\(filePath)")
 #endif
-        _ = workspace.openOrFocusFilePreviewSurface(inPane: paneId, filePath: filePath)
-        return true
+        return !workspace.openFileSurfaces(
+            inPane: paneId,
+            filePaths: [filePath],
+            focus: true,
+            reuseExisting: true
+        ).isEmpty
     }
 
     @discardableResult
@@ -7428,11 +7479,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
                 self?.showNotificationsPopoverFromMenuBar()
             },
             onOpenNotification: { [weak self] notification in
-                _ = self?.openNotification(
-                    tabId: notification.tabId,
-                    surfaceId: notification.surfaceId,
-                    notificationId: notification.id
-                )
+                _ = self?.openTerminalNotification(notification)
             },
             onJumpToLatestUnread: { [weak self] in
                 self?.jumpToLatestUnread()
@@ -8569,7 +8616,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
                 let hostedView = terminalPanel.hostedView
                 let shouldReconcileVisibleSelection =
                     target.workspace.id == selectedWorkspaceId &&
-                    hostedView.window != nil &&
+                    terminalPanel.surface.isViewInWindow &&
                     hostedView.superview != nil
 
                 if shouldReconcileVisibleSelection {
@@ -9027,6 +9074,37 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             }
 
             workspace.setPanelCustomTitle(panelId: betaPanelId, title: betaTitle)
+            if let rawActionButtonCount = env["CMUX_UI_TEST_BONSPLIT_ACTION_BUTTON_COUNT"],
+               let requestedActionButtonCount = Int(rawActionButtonCount),
+               requestedActionButtonCount > 0 {
+                guard let cmuxConfigStore = context.cmuxConfigStore else {
+                    self.writeBonsplitTabDragUITestData(["setupError": "Missing cmux config store"])
+                    return
+                }
+                let actionButtonCount = min(requestedActionButtonCount, 32)
+                let buttons = (1...actionButtonCount).map { index in
+                    let actionTitle = String(
+                        format: String(
+                            localized: "uiTest.bonsplit.action.title",
+                            defaultValue: "UITest Action %lld"
+                        ),
+                        Int64(index)
+                    )
+                    return CmuxSurfaceTabBarButton.actionReference(
+                        "cmux-ui-test-action-\(index)",
+                        title: actionTitle,
+                        icon: .symbol("circle.fill"),
+                        tooltip: actionTitle
+                    )
+                }
+                workspace.applySurfaceTabBarButtons(
+                    buttons,
+                    sourcePath: nil,
+                    globalConfigPath: cmuxConfigStore.globalConfigPath,
+                    terminalCommandSourcePaths: [:],
+                    workspaceCommands: [:]
+                )
+            }
             if startWithHiddenSidebar {
                 context.sidebarState.isVisible = false
             }
@@ -10589,12 +10667,81 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         // Prefer the latest unread that we can actually open. In early startup (especially on the VM),
         // the window-context registry can lag behind model initialization, so fall back to whatever
         // tab manager currently owns the tab.
-        for notification in notificationStore.notifications where !notification.isRead && notification.id != excludedNotificationId {
-            if openNotification(tabId: notification.tabId, surfaceId: notification.surfaceId, notificationId: notification.id) {
+        for notification in notificationStore.notifications
+            where Self.shouldOpenFromJumpToLatestUnread(notification, excludingNotificationId: excludedNotificationId) {
+            if openTerminalNotification(notification) {
                 return notificationStore.notifications.first(where: { $0.id == notification.id }) ?? notification
             }
         }
+        _ = openLatestWorkspaceUnread()
         return nil
+    }
+
+    static func shouldOpenFromJumpToLatestUnread(
+        _ notification: TerminalNotification,
+        excludingNotificationId excludedNotificationId: UUID? = nil
+    ) -> Bool {
+        guard !notification.isRead, notification.id != excludedNotificationId else { return false }
+        return notification.clickAction == nil
+    }
+
+    private func openLatestWorkspaceUnread() -> Bool {
+        guard let notificationStore else { return false }
+        let unreadWorkspaceIds = notificationStore.workspaceUnreadIndicatorIds
+        guard !unreadWorkspaceIds.isEmpty else { return false }
+
+        var seenWindowIds = Set<UUID>()
+        let preferredContext = preferredRegisteredMainWindowContext(preferredWindow: NSApp.keyWindow ?? NSApp.mainWindow)
+        let orderedContexts = ([preferredContext].compactMap { $0 } + sortedMainWindowContextsForSessionSnapshot())
+            .filter { seenWindowIds.insert($0.windowId).inserted }
+
+        for context in orderedContexts {
+            for workspace in context.tabManager.tabs where unreadWorkspaceIds.contains(workspace.id) {
+                if openWorkspaceUnread(workspace, in: context) {
+                    return true
+                }
+            }
+        }
+
+        guard let tabManager,
+              let workspace = tabManager.tabs.first(where: { unreadWorkspaceIds.contains($0.id) }) else {
+            return false
+        }
+        let panelId = workspace.preferredUnreadPanelIdForJump()
+        let didOpen = openNotificationFallback(tabId: workspace.id, surfaceId: panelId, notificationId: nil)
+        if didOpen {
+            clearWorkspaceUnreadAfterJump(workspace: workspace, panelId: panelId)
+        }
+        return didOpen
+    }
+
+    private func openWorkspaceUnread(_ workspace: Workspace, in context: MainWindowContext) -> Bool {
+        let panelId = workspace.preferredUnreadPanelIdForJump()
+        let didOpen = openNotificationInContext(context, tabId: workspace.id, surfaceId: panelId, notificationId: nil)
+        if didOpen {
+            clearWorkspaceUnreadAfterJump(workspace: workspace, panelId: panelId)
+        }
+        return didOpen
+    }
+
+    private func clearWorkspaceUnreadAfterJump(workspace: Workspace, panelId: UUID?) {
+        workspace.clearUnreadAfterJump(panelId: panelId)
+    }
+
+    @discardableResult
+    func toggleFocusedNotificationUnread(
+        preferredWindow: NSWindow? = nil
+    ) -> Bool {
+        guard let notificationStore,
+              let target = focusedNotificationTarget(preferredWindow: preferredWindow) else {
+            return false
+        }
+        if notificationStore.workspaceIsUnread(forTabId: target.tabId) {
+            notificationStore.markRead(forTabId: target.tabId)
+            return true
+        }
+        notificationStore.markUnread(forTabId: target.tabId)
+        return true
     }
 
     @discardableResult
@@ -10627,6 +10774,13 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
               let target = focusedNotificationTarget(preferredWindow: preferredWindow) else {
             return nil
         }
+        return markFocusedNotificationAsOldestUnread(target: target, notificationStore: notificationStore)
+    }
+
+    private func markFocusedNotificationAsOldestUnread(
+        target: FocusedNotificationTarget,
+        notificationStore: TerminalNotificationStore
+    ) -> FocusedNotificationMarkResult? {
         if let notificationId = notificationStore.markLatestNotificationAsOldestUnread(
             forTabId: target.tabId,
             surfaceId: target.surfaceId
@@ -10663,6 +10817,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
 
     static func installWindowResponderSwizzlesForTesting() {
         _ = didInstallApplicationAccessibilitySwizzle
+        _ = didInstallApplicationSendActionSwizzle
         _ = didInstallWindowKeyEquivalentSwizzle
         _ = didInstallWindowFirstResponderSwizzle
         _ = didInstallWindowSendEventSwizzle
@@ -10682,6 +10837,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
 
     private func installWindowResponderSwizzles() {
         _ = Self.didInstallApplicationAccessibilitySwizzle
+        _ = Self.didInstallApplicationSendActionSwizzle
         _ = Self.didInstallApplicationSendEventSwizzle
         _ = Self.didInstallWindowKeyEquivalentSwizzle
         _ = Self.didInstallWindowFirstResponderSwizzle
@@ -11322,7 +11478,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             stopBrowserOmnibarSelectionRepeat()
         }
 
-        let hasFocusedAddressBarInShortcutContext = focusedBrowserAddressBarPanelIdForShortcutEvent(event) != nil
+        let focusedAddressBarPanelIdInShortcutContext = focusedBrowserAddressBarPanelIdForShortcutEvent(event)
+        let hasFocusedAddressBarInShortcutContext = focusedAddressBarPanelIdInShortcutContext != nil
 
         if shouldRouteConfiguredPaletteSelection, activeConfiguredShortcutChordPrefixForCurrentEvent == nil, armConfiguredShortcutChordIfNeeded(event: event, actions: [.commandPaletteNext, .commandPalettePrevious]) {
             return true
@@ -11370,6 +11527,15 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         if !normalizedFlags.contains(.command),
            let ghosttyView = cmuxOwningGhosttyView(for: NSApp.keyWindow?.firstResponder),
            ghosttyView.hasMarkedText() {
+            return false
+        }
+
+        let shortcutWindowForMarkedText = resolvedShortcutEventWindow(event) ?? event.window ?? NSApp.keyWindow ?? NSApp.mainWindow
+        if browserOmnibarShouldBypassShortcutRoutingForMarkedText(
+            hasFocusedAddressBar: hasFocusedAddressBarInShortcutContext,
+            firstResponderHasMarkedText: browserResponderHasMarkedText(shortcutWindowForMarkedText?.firstResponder),
+            flags: event.modifierFlags
+        ) {
             return false
         }
 
@@ -11429,14 +11595,19 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             // Ctrl+D belongs to the focused terminal surface; never treat it as an app shortcut.
             return false
         }
-        // Chrome-like omnibar navigation while holding Cmd+N / Ctrl+N / Cmd+P / Ctrl+P.
-        if let delta = commandOmnibarSelectionDelta(
+        // Chrome-like omnibar navigation while holding Ctrl+N / Ctrl+P.
+        if let delta = controlOmnibarSelectionDelta(
             hasFocusedAddressBar: hasFocusedAddressBarInShortcutContext,
             flags: flags,
             chars: chars
-        ) {
-            dispatchBrowserOmnibarSelectionMove(delta: delta)
-            startBrowserOmnibarSelectionRepeatIfNeeded(keyCode: event.keyCode, delta: delta)
+        ),
+           let focusedAddressBarPanelIdInShortcutContext {
+            dispatchBrowserOmnibarSelectionMove(panelId: focusedAddressBarPanelIdInShortcutContext, delta: delta)
+            startBrowserOmnibarSelectionRepeatIfNeeded(
+                panelId: focusedAddressBarPanelIdInShortcutContext,
+                keyCode: event.keyCode,
+                delta: delta
+            )
             return true
         }
 
@@ -11444,8 +11615,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             hasFocusedAddressBar: hasFocusedAddressBarInShortcutContext,
             flags: event.modifierFlags,
             keyCode: event.keyCode
-        ) {
-            dispatchBrowserOmnibarSelectionMove(delta: delta)
+        ),
+           let focusedAddressBarPanelIdInShortcutContext {
+            dispatchBrowserOmnibarSelectionMove(panelId: focusedAddressBarPanelIdInShortcutContext, delta: delta)
             return true
         }
 
@@ -11453,13 +11625,6 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         // history): after command-palette/notification handling and browser omnibar
         // arrow navigation above, most plain key events have no app-level shortcut behavior.
         if shouldBypassPlainKeyShortcutRouting(event: event, normalizedFlags: normalizedFlags) {
-            return false
-        }
-
-        // Let omnibar-local Emacs navigation (Cmd/Ctrl+N/P) win while the browser
-        // address bar is focused. Without this, app-level Cmd+N can steal focus.
-        if hasFocusedAddressBarInShortcutContext,
-           shouldBypassAppShortcutForFocusedBrowserAddressBar(flags: flags, chars: chars) {
             return false
         }
 
@@ -11608,6 +11773,13 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             }
 #endif
             jumpToLatestUnread()
+            return true
+        }
+
+        if matchConfiguredShortcut(event: event, action: .toggleUnread) {
+            toggleFocusedNotificationUnread(
+                preferredWindow: mainWindowForShortcutEvent(event)
+            )
             return true
         }
 
@@ -12073,7 +12245,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         let hostedView = terminalPanel.hostedView
         let hostedSize = hostedView.bounds.size
         let hostedHiddenInHierarchy = hostedView.isHiddenOrHasHiddenAncestor
-        let hostedAttachedToWindow = hostedView.window != nil
+        let hostedAttachedToWindow = terminalPanel.surface.isViewInWindow
         let firstResponderIsWindow = NSApp.keyWindow?.firstResponder is NSWindow
 
         let shouldSuppress = shouldSuppressSplitShortcutForTransientTerminalFocusInputs(
@@ -12263,6 +12435,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         browserAddressBarFocusedPanelId
     }
 
+    func focusedBrowserOmnibarField(for event: NSEvent, in window: NSWindow?) -> OmnibarNativeTextField? {
+        let panelId = focusedBrowserAddressBarPanelIdForShortcutEvent(event)
+        return browserOmnibarField(panelId: panelId, in: window)
+    }
+
     func clearBrowserAddressBarFocus(panelId: UUID, reason: String) {
         guard browserAddressBarFocusedPanelId == panelId else { return }
         browserAddressBarFocusedPanelId = nil
@@ -12273,17 +12450,26 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
     }
 
     func focusedBrowserAddressBarPanelIdForShortcutEvent(_ event: NSEvent) -> UUID? {
-        guard let panelId = browserAddressBarFocusedPanelId else { return nil }
+        let shortcutWindow = resolvedShortcutEventWindow(event) ?? NSApp.keyWindow ?? NSApp.mainWindow
+        let shortcutResponder = shortcutWindow?.firstResponder
+        let responderPanelId = isBrowserOmnibarResponder(shortcutResponder)
+            ? browserOmnibarPanelId(for: shortcutResponder)
+            : nil
 
         guard let context = preferredMainWindowContextForShortcutRouting(event: event) else {
 #if DEBUG
+            let candidatePanelId = responderPanelId ?? browserAddressBarFocusedPanelId
+            guard let candidatePanelId else { return nil }
             cmuxDebugLog(
-                "browser.focus.addressBar.shortcutContext panel=\(panelId.uuidString.prefix(5)) " +
+                "browser.focus.addressBar.shortcutContext panel=\(candidatePanelId.uuidString.prefix(5)) " +
                 "accepted=0 reason=no_context event=\(NSWindow.keyDescription(event))"
             )
 #endif
             return nil
         }
+
+        let intentPanelId = browserAddressBarIntentPanelId(in: context, window: shortcutWindow)
+        guard let panelId = responderPanelId ?? browserAddressBarFocusedPanelId ?? intentPanelId else { return nil }
 
         guard let workspace = context.tabManager.selectedWorkspace else {
 #if DEBUG
@@ -12306,30 +12492,144 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             return nil
         }
 
-        let shortcutWindow = resolvedShortcutEventWindow(event) ?? NSApp.keyWindow ?? NSApp.mainWindow
-        let shortcutResponder = shortcutWindow?.firstResponder
-
-        guard isBrowserOmnibarResponder(shortcutResponder) else {
+        if let responderPanelId {
 #if DEBUG
-            let focusedPanel = workspace.focusedPanelId.map { String($0.uuidString.prefix(5)) } ?? "nil"
             cmuxDebugLog(
-                "browser.focus.addressBar.shortcutContext panel=\(panelId.uuidString.prefix(5)) " +
-                "accepted=0 reason=responder_not_omnibar responder=\(shortcutResponder.map { String(describing: type(of: $0)) } ?? "nil") " +
-                "pending=\(panel.pendingAddressBarFocusRequestId != nil ? 1 : 0) focusedPanel=\(focusedPanel) " +
+                "browser.focus.addressBar.shortcutContext panel=\(responderPanelId.uuidString.prefix(5)) " +
+                "accepted=1 reason=omnibar_responder workspace=\(workspace.id.uuidString.prefix(5)) " +
                 "event=\(NSWindow.keyDescription(event))"
             )
 #endif
-            return nil
+            return responderPanelId
+        }
+
+        if intentPanelId == panelId, browserAddressBarFocusedPanelId == nil {
+#if DEBUG
+            cmuxDebugLog(
+                "browser.focus.addressBar.shortcutContext panel=\(panelId.uuidString.prefix(5)) " +
+                "accepted=1 reason=addressbar_intent workspace=\(workspace.id.uuidString.prefix(5)) " +
+                "event=\(NSWindow.keyDescription(event))"
+            )
+#endif
+            return panelId
+        }
+
+        let liveOmnibarFieldExists = browserOmnibarField(panelId: panelId, in: shortcutWindow) != nil
+        let trackedPanelMatchesShortcutResponder = browserPanel(panel, ownsShortcutResponder: shortcutResponder, in: shortcutWindow)
+        let trackingContext = BrowserAddressBarTrackingContext(
+            trackedPanelMatchesWebView: trackedPanelMatchesShortcutResponder,
+            omnibarResponderActive: false,
+            preferredFocusIntentIsAddressBar: panel.preferredFocusIntent == .addressBar,
+            suppressesWebViewFocus: panel.shouldSuppressWebViewFocus(),
+            pointerInitiatedWebFocus: false,
+            liveOmnibarFieldExists: liveOmnibarFieldExists
+        )
+        if shouldPreserveBrowserAddressBarTrackingDuringWebViewFocus(trackingContext) {
+#if DEBUG
+            cmuxDebugLog(
+                "browser.focus.addressBar.shortcutContext panel=\(panelId.uuidString.prefix(5)) " +
+                "accepted=1 reason=tracked_omnibar_field workspace=\(workspace.id.uuidString.prefix(5)) " +
+                "event=\(NSWindow.keyDescription(event))"
+            )
+#endif
+            return panelId
+        }
+
+        if shouldPreserveBrowserAddressBarTrackingDuringTransientShortcutResponder(
+            for: panel,
+            responder: shortcutResponder,
+            in: shortcutWindow,
+            liveOmnibarFieldExists: liveOmnibarFieldExists
+        ) {
+#if DEBUG
+            cmuxDebugLog(
+                "browser.focus.addressBar.shortcutContext panel=\(panelId.uuidString.prefix(5)) " +
+                "accepted=1 reason=transient_omnibar_focus workspace=\(workspace.id.uuidString.prefix(5)) " +
+                "event=\(NSWindow.keyDescription(event))"
+            )
+#endif
+            return panelId
         }
 
 #if DEBUG
+        let focusedPanel = workspace.focusedPanelId.map { String($0.uuidString.prefix(5)) } ?? "nil"
         cmuxDebugLog(
             "browser.focus.addressBar.shortcutContext panel=\(panelId.uuidString.prefix(5)) " +
-            "accepted=1 reason=omnibar_responder workspace=\(workspace.id.uuidString.prefix(5)) " +
+            "accepted=0 reason=responder_not_omnibar responder=\(shortcutResponder.map { String(describing: type(of: $0)) } ?? "nil") " +
+            "pending=\(panel.pendingAddressBarFocusRequestId != nil ? 1 : 0) focusedPanel=\(focusedPanel) " +
             "event=\(NSWindow.keyDescription(event))"
         )
 #endif
-        return panelId
+        return nil
+    }
+
+    private func shouldPreserveBrowserAddressBarTrackingDuringTransientShortcutResponder(
+        for panel: BrowserPanel,
+        responder: NSResponder?,
+        in window: NSWindow?,
+        liveOmnibarFieldExists: Bool
+    ) -> Bool {
+        guard browserAddressBarFocusedPanelId == panel.id else { return false }
+        guard panel.preferredFocusIntent == .addressBar else { return false }
+        guard panel.shouldSuppressWebViewFocus() ||
+            liveOmnibarFieldExists ||
+            panel.pendingAddressBarFocusRequestId != nil else {
+            return false
+        }
+
+        guard let responder else { return true }
+        if let window, responder === window {
+            return true
+        }
+        if responder is NSWindow {
+            return true
+        }
+        if browserOmnibarPanelId(for: responder) == panel.id {
+            return true
+        }
+        if cmuxOwningGhosttyView(for: responder) != nil {
+            return false
+        }
+        if responder is NSTextView || responder is NSTextField {
+            return false
+        }
+        if let window, panel.ownedFocusIntent(for: responder, in: window) != nil {
+            return false
+        }
+        return false
+    }
+
+    private func browserAddressBarIntentPanelId(
+        in context: MainWindowContext,
+        window: NSWindow?
+    ) -> UUID? {
+        guard let workspace = context.tabManager.selectedWorkspace,
+              let focusedPanelId = workspace.focusedPanelId,
+              let panel = workspace.browserPanel(for: focusedPanelId),
+              panel.preferredFocusIntent == .addressBar,
+              let field = browserOmnibarField(panelId: panel.id, in: window) else {
+            return nil
+        }
+
+        guard panel.shouldSuppressWebViewFocus() || field.currentEditor() != nil else {
+            return nil
+        }
+        return panel.id
+    }
+
+    private func browserPanel(
+        _ panel: BrowserPanel,
+        ownsShortcutResponder responder: NSResponder?,
+        in window: NSWindow?
+    ) -> Bool {
+        guard let responder, let window else { return false }
+        if browserOmnibarPanelId(for: responder) == panel.id {
+            return true
+        }
+        if case .browser(.webView)? = panel.ownedFocusIntent(for: responder, in: window) {
+            return true
+        }
+        return false
     }
 
     private func browserOmnibarOwnerView(for responder: NSResponder?) -> NSView? {
@@ -12358,12 +12658,23 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         return true
     }
 
-    private func shouldPreserveBrowserAddressBarTracking(for panel: BrowserPanel) -> Bool {
+    private func shouldPreserveBrowserAddressBarTracking(
+        for panel: BrowserPanel,
+        trackedPanelMatchesWebView: Bool,
+        pointerInitiatedWebFocus: Bool = false,
+        in window: NSWindow? = nil
+    ) -> Bool {
         guard browserAddressBarFocusedPanelId == panel.id else { return false }
-        if isBrowserOmnibarResponder(panel.webView.window?.firstResponder) {
-            return true
-        }
-        return panel.preferredFocusIntent == .addressBar && panel.shouldSuppressWebViewFocus()
+        let resolvedWindow = window ?? panel.webView.window
+        let trackingContext = BrowserAddressBarTrackingContext(
+            trackedPanelMatchesWebView: trackedPanelMatchesWebView,
+            omnibarResponderActive: isBrowserOmnibarResponder(resolvedWindow?.firstResponder),
+            preferredFocusIntentIsAddressBar: panel.preferredFocusIntent == .addressBar,
+            suppressesWebViewFocus: panel.shouldSuppressWebViewFocus(),
+            pointerInitiatedWebFocus: pointerInitiatedWebFocus,
+            liveOmnibarFieldExists: browserOmnibarField(panelId: panel.id, in: resolvedWindow) != nil
+        )
+        return shouldPreserveBrowserAddressBarTrackingDuringWebViewFocus(trackingContext)
     }
 
     @discardableResult
@@ -12371,42 +12682,20 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         focusBrowserAddressBar(panelId: panelId)
     }
 
-    private func shouldBypassAppShortcutForFocusedBrowserAddressBar(
-        flags: NSEvent.ModifierFlags,
-        chars: String
-    ) -> Bool {
-        guard browserAddressBarFocusedPanelId != nil else { return false }
-        let normalizedFlags = browserOmnibarNormalizedModifierFlags(flags)
-        let isCommandOrControlOnly = normalizedFlags == [.command] || normalizedFlags == [.control]
-        guard isCommandOrControlOnly else { return false }
-        let shouldBypass = chars == "n" || chars == "p"
-#if DEBUG
-        if shouldBypass {
-            let panelToken = browserAddressBarFocusedPanelId.map { String($0.uuidString.prefix(5)) } ?? "nil"
-            cmuxDebugLog(
-                "browser.focus.addressBar.shortcutBypass panel=\(panelToken) " +
-                "chars=\(chars) flags=\(normalizedFlags.rawValue)"
-            )
-        }
-#endif
-        return shouldBypass
-    }
-
-    private func commandOmnibarSelectionDelta(
+    private func controlOmnibarSelectionDelta(
         hasFocusedAddressBar: Bool,
         flags: NSEvent.ModifierFlags,
         chars: String
     ) -> Int? {
-        browserOmnibarSelectionDeltaForCommandNavigation(
+        browserOmnibarSelectionDeltaForControlNavigation(
             hasFocusedAddressBar: hasFocusedAddressBar,
             flags: flags,
             chars: chars
         )
     }
 
-    private func dispatchBrowserOmnibarSelectionMove(delta: Int) {
+    private func dispatchBrowserOmnibarSelectionMove(panelId: UUID, delta: Int) {
         guard delta != 0 else { return }
-        guard let panelId = browserAddressBarFocusedPanelId else { return }
 #if DEBUG
         cmuxDebugLog(
             "browser.focus.omnibar.selectionMove panel=\(panelId.uuidString.prefix(5)) " +
@@ -12420,23 +12709,15 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         )
     }
 
-    private func startBrowserOmnibarSelectionRepeatIfNeeded(keyCode: UInt16, delta: Int) {
+    private func startBrowserOmnibarSelectionRepeatIfNeeded(panelId: UUID, keyCode: UInt16, delta: Int) {
         guard delta != 0 else { return }
-        guard browserAddressBarFocusedPanelId != nil else {
-#if DEBUG
-            cmuxDebugLog(
-                "browser.focus.omnibar.repeat.start key=\(keyCode) delta=\(delta) " +
-                "result=skip_no_focused_address_bar"
-            )
-#endif
-            return
-        }
 
-        if browserOmnibarRepeatKeyCode == keyCode, browserOmnibarRepeatDelta == delta {
+        if browserOmnibarRepeatPanelId == panelId,
+           browserOmnibarRepeatKeyCode == keyCode,
+           browserOmnibarRepeatDelta == delta {
 #if DEBUG
-            let panelToken = browserAddressBarFocusedPanelId.map { String($0.uuidString.prefix(5)) } ?? "nil"
             cmuxDebugLog(
-                "browser.focus.omnibar.repeat.start panel=\(panelToken) " +
+                "browser.focus.omnibar.repeat.start panel=\(panelId.uuidString.prefix(5)) " +
                 "key=\(keyCode) delta=\(delta) result=reuse"
             )
 #endif
@@ -12444,12 +12725,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         }
 
         stopBrowserOmnibarSelectionRepeat()
+        browserOmnibarRepeatPanelId = panelId
         browserOmnibarRepeatKeyCode = keyCode
         browserOmnibarRepeatDelta = delta
 #if DEBUG
-        let panelToken = browserAddressBarFocusedPanelId.map { String($0.uuidString.prefix(5)) } ?? "nil"
         cmuxDebugLog(
-            "browser.focus.omnibar.repeat.start panel=\(panelToken) " +
+            "browser.focus.omnibar.repeat.start panel=\(panelId.uuidString.prefix(5)) " +
             "key=\(keyCode) delta=\(delta) result=armed"
         )
 #endif
@@ -12463,7 +12744,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
 
     private func scheduleBrowserOmnibarSelectionRepeatTick() {
         browserOmnibarRepeatStartWorkItem = nil
-        guard browserAddressBarFocusedPanelId != nil else {
+        guard let panelId = browserOmnibarRepeatPanelId else {
 #if DEBUG
             cmuxDebugLog("browser.focus.omnibar.repeat.tick result=stop_no_focused_address_bar")
 #endif
@@ -12473,13 +12754,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         guard browserOmnibarRepeatKeyCode != nil else { return }
 
 #if DEBUG
-        let panelToken = browserAddressBarFocusedPanelId.map { String($0.uuidString.prefix(5)) } ?? "nil"
         cmuxDebugLog(
-            "browser.focus.omnibar.repeat.tick panel=\(panelToken) " +
+            "browser.focus.omnibar.repeat.tick panel=\(panelId.uuidString.prefix(5)) " +
             "delta=\(browserOmnibarRepeatDelta)"
         )
 #endif
-        dispatchBrowserOmnibarSelectionMove(delta: browserOmnibarRepeatDelta)
+        dispatchBrowserOmnibarSelectionMove(panelId: panelId, delta: browserOmnibarRepeatDelta)
 
         let tick = DispatchWorkItem { [weak self] in
             self?.scheduleBrowserOmnibarSelectionRepeatTick()
@@ -12490,6 +12770,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
 
     private func stopBrowserOmnibarSelectionRepeat() {
 #if DEBUG
+        let previousPanelId = browserOmnibarRepeatPanelId
         let previousKeyCode = browserOmnibarRepeatKeyCode
         let previousDelta = browserOmnibarRepeatDelta
 #endif
@@ -12497,12 +12778,14 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         browserOmnibarRepeatTickWorkItem?.cancel()
         browserOmnibarRepeatStartWorkItem = nil
         browserOmnibarRepeatTickWorkItem = nil
+        browserOmnibarRepeatPanelId = nil
         browserOmnibarRepeatKeyCode = nil
         browserOmnibarRepeatDelta = 0
 #if DEBUG
         if previousKeyCode != nil || previousDelta != 0 {
             cmuxDebugLog(
-                "browser.focus.omnibar.repeat.stop key=\(previousKeyCode.map(String.init) ?? "nil") " +
+                "browser.focus.omnibar.repeat.stop panel=\(previousPanelId.map { String($0.uuidString.prefix(5)) } ?? "nil") " +
+                "key=\(previousKeyCode.map(String.init) ?? "nil") " +
                 "delta=\(previousDelta)"
             )
         }
@@ -12525,7 +12808,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             }
         case .flagsChanged:
             let flags = event.modifierFlags.intersection(.deviceIndependentFlagsMask)
-            if !flags.contains(.command) {
+            if !browserOmnibarShouldContinueControlNavigationRepeat(flags: flags) {
 #if DEBUG
                 cmuxDebugLog(
                     "browser.focus.omnibar.repeat.lifecycle event=flagsChanged " +
@@ -13540,25 +13823,48 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
 #endif
 
     private func enforceSingleInstance() {
-        guard let bundleId = Bundle.main.bundleIdentifier else { return }
+        guard let bundleId = Bundle.main.bundleIdentifier else {
+            StartupBreadcrumbLog.append("singleInstance.enforce.skip", fields: ["reason": "missingBundleId"])
+            return
+        }
         let currentPid = ProcessInfo.processInfo.processIdentifier
+        var terminatedPids: [String] = []
 
         for app in NSRunningApplication.runningApplications(withBundleIdentifier: bundleId) {
             guard app.processIdentifier != currentPid else { continue }
+            terminatedPids.append(String(app.processIdentifier))
             app.terminate()
             if !app.isTerminated {
                 _ = app.forceTerminate()
             }
         }
+        StartupBreadcrumbLog.append(
+            "singleInstance.enforce.complete",
+            fields: [
+                "bundleIdentifier": bundleId,
+                "currentPid": String(currentPid),
+                "terminatedPids": terminatedPids.joined(separator: ",")
+            ]
+        )
     }
 
     private func observeDuplicateLaunches() {
-        guard let bundleId = Bundle.main.bundleIdentifier else { return }
+        guard let bundleId = Bundle.main.bundleIdentifier else {
+            StartupBreadcrumbLog.append("singleInstance.observe.skip", fields: ["reason": "missingBundleId"])
+            return
+        }
         let embeddedCLIURL = Bundle.main.bundleURL
             .appendingPathComponent("Contents/Resources/bin/cmux", isDirectory: false)
             .standardizedFileURL
             .resolvingSymlinksInPath()
         let currentPid = ProcessInfo.processInfo.processIdentifier
+        StartupBreadcrumbLog.append(
+            "singleInstance.observe.install",
+            fields: [
+                "bundleIdentifier": bundleId,
+                "currentPid": String(currentPid)
+            ]
+        )
 
         workspaceObserver = NSWorkspace.shared.notificationCenter.addObserver(
             forName: NSWorkspace.didLaunchApplicationNotification,
@@ -13575,6 +13881,13 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
                 return
             }
 
+            StartupBreadcrumbLog.append(
+                "singleInstance.observe.terminateDuplicate",
+                fields: [
+                    "duplicatePid": String(app.processIdentifier),
+                    "duplicateBundleIdentifier": app.bundleIdentifier ?? "nil"
+                ]
+            )
             app.terminate()
             if !app.isTerminated {
                 _ = app.forceTerminate()
@@ -13631,6 +13944,15 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
                 }
                 return nil
             }()
+            if let clickAction = TerminalNotificationClickAction(userInfo: response.notification.request.content.userInfo) {
+                Task { @MainActor in
+                    let didPerform = self.performTerminalNotificationClickAction(clickAction)
+                    if didPerform, let notificationId {
+                        self.notificationStore?.markRead(id: notificationId)
+                    }
+                }
+                return
+            }
             DispatchQueue.main.async {
                 _ = self.openNotification(tabId: tabId, surfaceId: surfaceId, notificationId: notificationId)
             }
@@ -13705,45 +14027,63 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             object: nil,
             queue: .main
         ) { [weak self] notification in
-            guard let self else { return }
-            guard let webView = notification.object as? CmuxWebView,
-                  let panel = self.browserPanelOwning(webView) else { return }
+            MainActor.assumeIsolated {
+                self?.handleBrowserWebViewFirstResponderNotification(notification)
+            }
+        }
+    }
 
-            if let trackedPanelId = self.browserAddressBarFocusedPanelId,
-               trackedPanelId != panel.id,
-               let trackedPanel = self.browserPanel(for: trackedPanelId),
-               !self.shouldPreserveBrowserAddressBarTracking(for: trackedPanel) {
-                trackedPanel.endSuppressWebViewFocusForAddressBar()
-                self.browserAddressBarFocusedPanelId = nil
-                self.stopBrowserOmnibarSelectionRepeat()
-#if DEBUG
-                cmuxDebugLog(
-                    "addressBar CLEAR panelId=\(trackedPanelId.uuidString.prefix(8)) " +
-                    "reason=stale_other_panel_webViewFirstResponder"
-                )
-#endif
-            }
+    @MainActor
+    private func handleBrowserWebViewFirstResponderNotification(_ notification: Notification) {
+        guard let webView = notification.object as? CmuxWebView,
+              let panel = browserPanelOwning(webView) else { return }
+        let pointerInitiatedKey = BrowserFirstResponderNotificationUserInfoKey.pointerInitiated
+        let pointerInitiated = notification.userInfo?[pointerInitiatedKey] as? Bool ?? false
 
-            guard !self.shouldPreserveBrowserAddressBarTracking(for: panel) else {
+        if let trackedPanelId = browserAddressBarFocusedPanelId,
+           trackedPanelId != panel.id,
+           let trackedPanel = browserPanel(for: trackedPanelId),
+           !shouldPreserveBrowserAddressBarTracking(
+               for: trackedPanel,
+               trackedPanelMatchesWebView: false,
+               pointerInitiatedWebFocus: pointerInitiated,
+               in: trackedPanel.webView.window
+           ) {
+            trackedPanel.endSuppressWebViewFocusForAddressBar()
+            browserAddressBarFocusedPanelId = nil
+            stopBrowserOmnibarSelectionRepeat()
 #if DEBUG
-                cmuxDebugLog(
-                    "addressBar CLEAR panelId=\(panel.id.uuidString.prefix(8)) " +
-                    "reason=skip_preserve_omnibar_handoff"
-                )
+            cmuxDebugLog(
+                "addressBar CLEAR panelId=\(trackedPanelId.uuidString.prefix(8)) " +
+                "reason=stale_other_panel_webViewFirstResponder"
+            )
 #endif
-                return
-            }
-            panel.endSuppressWebViewFocusForAddressBar()
-            if self.browserAddressBarFocusedPanelId == panel.id {
-                self.browserAddressBarFocusedPanelId = nil
-                self.stopBrowserOmnibarSelectionRepeat()
+        }
+
+        guard !shouldPreserveBrowserAddressBarTracking(
+            for: panel,
+            trackedPanelMatchesWebView: panel.webView === webView,
+            pointerInitiatedWebFocus: pointerInitiated,
+            in: webView.window
+        ) else {
 #if DEBUG
-                cmuxDebugLog(
-                    "addressBar CLEAR panelId=\(panel.id.uuidString.prefix(8)) " +
-                    "reason=webViewFirstResponder"
-                )
+            cmuxDebugLog(
+                "addressBar CLEAR panelId=\(panel.id.uuidString.prefix(8)) " +
+                "reason=skip_preserve_omnibar_handoff pointer=\(pointerInitiated ? 1 : 0)"
+            )
 #endif
-            }
+            return
+        }
+        panel.endSuppressWebViewFocusForAddressBar()
+        if browserAddressBarFocusedPanelId == panel.id {
+            browserAddressBarFocusedPanelId = nil
+            stopBrowserOmnibarSelectionRepeat()
+#if DEBUG
+            cmuxDebugLog(
+                "addressBar CLEAR panelId=\(panel.id.uuidString.prefix(8)) " +
+                "reason=webViewFirstResponder"
+            )
+#endif
         }
     }
 
@@ -13916,6 +14256,52 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         let expectedIdentifier = "cmux.main.\(context.windowId.uuidString)"
         let window: NSWindow? = context.window ?? NSApp.windows.first(where: { $0.identifier?.rawValue == expectedIdentifier })
         window?.performClose(nil)
+    }
+
+    @discardableResult
+    @MainActor
+    func openTerminalNotification(_ notification: TerminalNotification) -> Bool {
+        if let clickAction = notification.clickAction {
+            let didPerform = performTerminalNotificationClickAction(clickAction)
+            if didPerform {
+                notificationStore?.markRead(id: notification.id)
+            }
+            return didPerform
+        }
+        return openNotification(
+            tabId: notification.tabId,
+            surfaceId: notification.surfaceId,
+            notificationId: notification.id
+        )
+    }
+
+    @discardableResult
+    @MainActor
+    private func performTerminalNotificationClickAction(_ action: TerminalNotificationClickAction) -> Bool {
+        switch action {
+        case .revealInFinder(let path):
+            return revealInFinder(path: path)
+        }
+    }
+
+    @discardableResult
+    @MainActor
+    private func revealInFinder(path: String) -> Bool {
+        let expandedPath = (path as NSString).expandingTildeInPath
+        guard !expandedPath.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else {
+            return false
+        }
+        let fileURL = URL(fileURLWithPath: expandedPath)
+        let fileManager = FileManager.default
+        if fileManager.fileExists(atPath: fileURL.path) {
+            NSWorkspace.shared.activateFileViewerSelecting([fileURL])
+            return true
+        }
+        let directoryURL = fileURL.deletingLastPathComponent()
+        if fileManager.fileExists(atPath: directoryURL.path) {
+            return NSWorkspace.shared.open(directoryURL)
+        }
+        return false
     }
 
     @discardableResult
@@ -14203,6 +14589,7 @@ private var cmuxFirstResponderGuardHitViewContext: NSView?
 private var cmuxFirstResponderGuardContextWindowNumber: Int?
 private var cmuxBrowserReturnForwardingDepth = 0
 private var cmuxBrowserArrowForwardingDepth = 0
+private var cmuxBrowserOmnibarMarkedTextForwardingDepth = 0
 private var cmuxCommandPaletteArrowForwardingDepth = 0
 private var cmuxWindowFirstResponderBypassDepth = 0
 private var cmuxFieldEditorOwningWebViewAssociationKey: UInt8 = 0
@@ -14298,9 +14685,143 @@ private extension NSApplication {
         }
         cmux_applicationSendEvent(event)
     }
+
+    @objc func cmux_sendAction(_ action: Selector, to target: Any?, from sender: Any?) -> Bool {
+        if AppDelegate.shared?.handleDetachedInspectorWindowCloseAction(
+            action: action,
+            target: target,
+            sender: sender
+        ) == true {
+            return true
+        }
+
+        return cmux_sendAction(action, to: target, from: sender)
+    }
 }
 
 private extension AppDelegate {
+    @discardableResult
+    func handleDetachedInspectorWindowCloseAction(
+        action: Selector,
+        target: Any?,
+        sender: Any?
+    ) -> Bool {
+        guard Thread.isMainThread else { return false }
+
+        return MainActor.assumeIsolated {
+            guard Self.shouldInterceptWindowCloseAction(
+                action,
+                target: target,
+                sender: sender
+            ) else { return false }
+            guard let window = Self.actionWindow(
+                target: target,
+                sender: sender,
+                allowFallback: Self.allowsWindowFallback(for: action)
+            ),
+                  BrowserPanel.isDetachedInspectorWindow(window) else { return false }
+
+            for panel in allBrowserPanelsForInspectorWindowClose() {
+                if panel.closeDeveloperToolsFromDetachedInspectorWindowUserAction(
+                    window,
+                    source: "sendAction.\(NSStringFromSelector(action))"
+                ) {
+#if DEBUG
+                    cmuxDebugLog(
+                        "browser.devtools detachedClose.action panel=\(panel.id.uuidString.prefix(5)) " +
+                        "action=\(NSStringFromSelector(action)) window=\(window.windowNumber)"
+                    )
+#endif
+                    return true
+                }
+            }
+
+            return false
+        }
+    }
+
+    private static func shouldInterceptWindowCloseAction(
+        _ action: Selector,
+        target: Any?,
+        sender: Any?
+    ) -> Bool {
+        switch NSStringFromSelector(action) {
+        case "__close", "performClose:":
+            return true
+        case "close", "close:":
+            return actionWindow(target: target, sender: sender, allowFallback: false) != nil
+        default:
+            return false
+        }
+    }
+
+    private static func allowsWindowFallback(for action: Selector) -> Bool {
+        switch NSStringFromSelector(action) {
+        case "__close", "performClose:":
+            return true
+        default:
+            return false
+        }
+    }
+
+    private static func actionWindow(
+        target: Any?,
+        sender: Any?,
+        allowFallback: Bool = true
+    ) -> NSWindow? {
+        if let window = target as? NSWindow {
+            return window
+        }
+        if let window = sender as? NSWindow {
+            return window
+        }
+        if let view = sender as? NSView {
+            return view.window
+        }
+        if let cell = sender as? NSCell {
+            return cell.controlView?.window
+        }
+        if target == nil, sender is NSMenuItem {
+            return NSApp.keyWindow ?? NSApp.mainWindow
+        }
+        return allowFallback ? (NSApp.keyWindow ?? NSApp.mainWindow) : nil
+    }
+
+    private func allBrowserPanelsForInspectorWindowClose() -> [BrowserPanel] {
+        var candidateManagers: [TabManager] = []
+        var seenManagers = Set<ObjectIdentifier>()
+        var panels: [BrowserPanel] = []
+        var seenPanels = Set<ObjectIdentifier>()
+
+        func appendCandidate(_ manager: TabManager?) {
+            guard let manager else { return }
+            let identifier = ObjectIdentifier(manager)
+            guard seenManagers.insert(identifier).inserted else { return }
+            candidateManagers.append(manager)
+        }
+
+        appendCandidate(tabManager)
+        for context in mainWindowContexts.values {
+            appendCandidate(context.tabManager)
+        }
+        for route in recoverableMainWindowRoutes() {
+            appendCandidate(route.tabManager)
+        }
+
+        for manager in candidateManagers {
+            for workspace in manager.tabs {
+                for panel in workspace.panels.values {
+                    guard let browserPanel = panel as? BrowserPanel else { continue }
+                    let identifier = ObjectIdentifier(browserPanel)
+                    guard seenPanels.insert(identifier).inserted else { continue }
+                    panels.append(browserPanel)
+                }
+            }
+        }
+
+        return panels
+    }
+
     @discardableResult
     func handleMinimalModeTitlebarDoubleClickMouseDown(event: NSEvent) -> Bool {
         windowDecorationsController.handleMinimalModeTitlebarDoubleClickMouseDown(event: event)
@@ -14683,6 +15204,7 @@ private extension NSWindow {
             self.firstResponder as? NSTextView,
             in: self
         )
+        let firstResponderOmnibarPanelId = browserOmnibarPanelId(for: self.firstResponder)
         if ShortcutRecorderEventRouter.dispatchActiveRecordingEvent(event, preferredWindow: self) {
             return true
         }
@@ -14745,6 +15267,34 @@ private extension NSWindow {
             }
         }
 
+        if browserOmnibarShouldBypassShortcutRoutingForMarkedText(
+            hasFocusedAddressBar: firstResponderOmnibarPanelId != nil,
+            firstResponderHasMarkedText: firstResponderHasMarkedText,
+            flags: event.modifierFlags
+        ) {
+            if cmuxBrowserOmnibarMarkedTextForwardingDepth > 0 {
+#if DEBUG
+                cmuxDebugLog("  → browser omnibar marked-text reentry; leaving unhandled")
+#endif
+                return false
+            }
+            cmuxBrowserOmnibarMarkedTextForwardingDepth += 1
+            defer {
+                cmuxBrowserOmnibarMarkedTextForwardingDepth = max(
+                    0,
+                    cmuxBrowserOmnibarMarkedTextForwardingDepth - 1
+                )
+            }
+#if DEBUG
+            cmuxDebugLog(
+                "  → browser omnibar marked-text routed to firstResponder.keyDown " +
+                "panel=\(firstResponderOmnibarPanelId.map { String($0.uuidString.prefix(5)) } ?? "nil")"
+            )
+#endif
+            self.firstResponder?.keyDown(with: event)
+            return true
+        }
+
         if shouldDispatchCommandPaletteHorizontalArrowViaFirstResponderKeyDown(
             keyCode: event.keyCode,
             firstResponderIsCommandPaletteFieldEditor: firstResponderIsCommandPaletteFieldEditor,
@@ -14756,6 +15306,30 @@ private extension NSWindow {
             }
             cmuxCommandPaletteArrowForwardingDepth += 1
             defer { cmuxCommandPaletteArrowForwardingDepth = max(0, cmuxCommandPaletteArrowForwardingDepth - 1) }
+            self.firstResponder?.keyDown(with: event)
+            return true
+        }
+
+        if shouldDispatchBrowserOmnibarArrowViaFirstResponderKeyDown(
+            keyCode: event.keyCode,
+            firstResponderIsBrowserOmnibar: firstResponderOmnibarPanelId != nil,
+            firstResponderHasMarkedText: firstResponderHasMarkedText,
+            flags: event.modifierFlags
+        ) {
+            if cmuxBrowserArrowForwardingDepth > 0 {
+#if DEBUG
+                cmuxDebugLog("  → browser omnibar arrow reentry; using normal dispatch")
+#endif
+                return cmux_performKeyEquivalent(with: event)
+            }
+            cmuxBrowserArrowForwardingDepth += 1
+            defer { cmuxBrowserArrowForwardingDepth = max(0, cmuxBrowserArrowForwardingDepth - 1) }
+#if DEBUG
+            cmuxDebugLog(
+                "  → browser omnibar arrow routed to firstResponder.keyDown " +
+                "panel=\(firstResponderOmnibarPanelId.map { String($0.uuidString.prefix(5)) } ?? "nil")"
+            )
+#endif
             self.firstResponder?.keyDown(with: event)
             return true
         }
@@ -14796,6 +15370,51 @@ private extension NSWindow {
             firstResponderHasMarkedText: firstResponderHasMarkedText,
             flags: event.modifierFlags
         ) {
+            if let focusedOmnibarField = AppDelegate.shared?.focusedBrowserOmnibarField(for: event, in: self),
+               browserOmnibarPanelId(for: self.firstResponder) == nil,
+               focusedOmnibarField.window === self {
+                if cmuxBrowserArrowForwardingDepth > 0 {
+#if DEBUG
+                    cmuxDebugLog("  → browser arrow omnibar restore reentry; using normal dispatch")
+#endif
+                    return cmux_performKeyEquivalent(with: event)
+                }
+                cmuxBrowserArrowForwardingDepth += 1
+                defer { cmuxBrowserArrowForwardingDepth = max(0, cmuxBrowserArrowForwardingDepth - 1) }
+
+                var currentEditorResponder: NSResponder? = focusedOmnibarField.currentEditor()
+                if currentEditorResponder == nil || self.firstResponder !== currentEditorResponder {
+                    guard self.makeFirstResponder(focusedOmnibarField) else {
+#if DEBUG
+                        cmuxDebugLog("  → browser arrow omnibar restore rejected")
+#endif
+                        return false
+                    }
+                    currentEditorResponder = focusedOmnibarField.currentEditor()
+                }
+
+                let omnibarResponder: NSResponder
+                if let currentEditorResponder, self.firstResponder === currentEditorResponder {
+                    omnibarResponder = currentEditorResponder
+                } else if self.firstResponder === focusedOmnibarField {
+                    omnibarResponder = focusedOmnibarField
+                } else {
+#if DEBUG
+                    cmuxDebugLog("  → browser arrow omnibar restore did not become first responder")
+#endif
+                    return false
+                }
+#if DEBUG
+                if browserResponderHasMarkedText(omnibarResponder) {
+                    cmuxDebugLog("  → browser arrow restored focused omnibar with marked text before keyDown")
+                } else {
+                    cmuxDebugLog("  → browser arrow restored focused omnibar before keyDown")
+                }
+#endif
+                omnibarResponder.keyDown(with: event)
+                return true
+            }
+
             // Match the Return/Enter forwarding guard: AppKit/WebKit can re-enter
             // performKeyEquivalent while the synthesized keyDown is in flight.
             if cmuxBrowserArrowForwardingDepth > 0 {
@@ -14810,6 +15429,24 @@ private extension NSWindow {
             cmuxDebugLog("  → browser arrow routed to firstResponder.keyDown")
 #endif
             self.firstResponder?.keyDown(with: event)
+            return true
+        }
+
+        if let firstResponderWebView,
+           shouldRouteBrowserDocumentEditingCommandEquivalentThroughWebContentFirst(
+               event,
+               responder: self.firstResponder
+           ) {
+            let result = firstResponderWebView.performKeyEquivalent(with: event)
+#if DEBUG
+            cmuxDebugLog(
+                "  → browser document editing command preflight " +
+                (result ? "resolved before window menu path" : "left unclaimed; suppressing replay")
+            )
+#endif
+            // The focused web view has already received this editing shortcut once.
+            // `CmuxWebView.performKeyEquivalent` also runs the main-menu fallback
+            // before returning, so falling through here would only replay WebKit.
             return true
         }
 
@@ -14931,6 +15568,10 @@ private extension NSWindow {
         in window: NSWindow,
         event: NSEvent?
     ) -> CmuxWebView? {
+        if browserOmnibarPanelId(for: responder) != nil {
+            return nil
+        }
+
         // Browser find runs in the portal slot alongside the hosted WKWebView.
         // Treat its native field editor chain as browser chrome, not as web content,
         // so Cmd+F can move first responder into the find field while web focus is suppressed.

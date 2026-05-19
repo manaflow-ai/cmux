@@ -153,6 +153,7 @@ jobs:
       - name: Install build deps
         if: needs.decide.outputs.should_publish != 'true' || steps.current_head_prebuild.outputs.still_current == 'true'
         run: |
+          ./scripts/install-rust-ci.sh
           ./scripts/install-zig-ci.sh
           npm install --global "create-dmg@${CREATE_DMG_VERSION}"
 
@@ -166,7 +167,7 @@ jobs:
         uses: actions/cache@27d5ce7f107fe9357f9df03efb73ab90386fccae # v5.0.5
         with:
           path: .spm-cache
-          key: spm-${{ hashFiles('GhosttyTabs.xcodeproj/project.xcworkspace/xcshareddata/swiftpm/Package.resolved') }}
+          key: spm-${{ hashFiles('cmux.xcodeproj/project.xcworkspace/xcshareddata/swiftpm/Package.resolved') }}
           restore-keys: spm-
 
       - name: Setup Go
@@ -476,6 +477,7 @@ jobs:
             xcrun stapler staple "$app_path"
             xcrun stapler validate "$app_path"
             spctl -a -vv --type execute "$app_path"
+            ./scripts/smoke-launch-macos-app.sh "$app_path"
             rm -f "$zip_submit"
 
             dmg_tmp_dir="$(mktemp -d)"

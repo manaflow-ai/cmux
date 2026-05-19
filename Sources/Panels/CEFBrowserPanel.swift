@@ -1,6 +1,6 @@
 import AppKit
-import Combine
 import Foundation
+import Observation
 
 #if canImport(CMUXCEF)
 import CMUXCEF
@@ -28,14 +28,15 @@ import CMUXCEF
 /// `BrowserPanel`. After the package is wired, the same source compiles
 /// into a fully-functional Panel implementation.
 @MainActor
+@Observable
 final class CEFBrowserPanel: BrowserEngineBackedPanel {
 
     // MARK: Panel protocol — engine-agnostic metadata
 
     let id: UUID = UUID()
     let panelType: PanelType = .browser
-    @Published private(set) var displayTitle: String
-    @Published private(set) var displayIcon: String? = "globe"
+    private(set) var displayTitle: String
+    private(set) var displayIcon: String? = "globe"
 
     // MARK: BrowserEngineBackedPanel — shape shared with BrowserPanel
 
@@ -47,23 +48,23 @@ final class CEFBrowserPanel: BrowserEngineBackedPanel {
     /// `chrome.storage`, login state, and extension state are isolated
     /// across profiles, just like the WKWebView path's
     /// `WKWebsiteDataStore` isolation.
-    @Published private(set) var profileID: UUID
+    private(set) var profileID: UUID
 
     /// True while the CEF browser is in the middle of a navigation.
     /// Mirrors ``BrowserPanel/isLoading`` so the tab strip's loading
     /// indicator works the same in both engines.
-    @Published private(set) var isLoading: Bool = false
+    private(set) var isLoading: Bool = false
 
     /// Current main-frame URL, surfaced to the lightweight CEF toolbar.
-    @Published private(set) var currentURL: URL?
+    private(set) var currentURL: URL?
 
     /// Browser history availability, surfaced to the lightweight CEF toolbar.
-    @Published private(set) var canGoBack: Bool = false
-    @Published private(set) var canGoForward: Bool = false
+    private(set) var canGoBack: Bool = false
+    private(set) var canGoForward: Bool = false
 
     /// Last main-frame load error, if any. Kept out of the primary pane UI
     /// for now; debug builds can inspect it through the panel object.
-    @Published private(set) var loadErrorDescription: String?
+    private(set) var loadErrorDescription: String?
 
     /// URL the pane was created with. Re-loaded after a renderer
     /// crash; navigated to immediately on ``focus()`` if the underlying
@@ -75,7 +76,7 @@ final class CEFBrowserPanel: BrowserEngineBackedPanel {
     #if canImport(CMUXCEF)
     /// The live CEF browser. Nil before ``activate()`` has been called.
     /// Held strongly; `close()` releases it.
-    private var browser: CMUXCEF.CEFBrowser?
+    @ObservationIgnored private var browser: CMUXCEF.CEFBrowser?
     #endif
     private let renderInitialNavigation: Bool
 
@@ -83,7 +84,7 @@ final class CEFBrowserPanel: BrowserEngineBackedPanel {
     /// re-fetches `embeddableView` via `CEFBrowserPanelView`. SwiftUI keys
     /// off this Int rather than the strong reference to keep value-type
     /// semantics in the panel API.
-    @Published private(set) var activationRevision: Int = 0
+    private(set) var activationRevision: Int = 0
 
     // MARK: Construction
 

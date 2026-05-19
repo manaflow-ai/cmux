@@ -10,7 +10,7 @@ import SwiftUI
 /// background and any cmux pane chrome live in the surrounding view
 /// tree (same as ``BrowserPanelView``).
 struct CEFBrowserPanelView: View {
-    @ObservedObject var panel: CEFBrowserPanel
+    let panel: CEFBrowserPanel
     let paneId: Any
     let isFocused: Bool
     let isVisibleInUI: Bool

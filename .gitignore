@@ -21,7 +21,7 @@ GhosttyKit.xcframework
 GhosttyKit.xcframework.bak-*/
 
 # Release artifacts
-GhosttyTabs-*.zip
+cmux-*.zip
 cmux-macos.dmg
 appcast.xml
 
@@ -44,6 +44,10 @@ node_modules/
 # Test outputs
 tests/visual_output/
 tests/visual_report.html
+
+# Generated docs search index
+web/.pagefind-site/
+web/public/pagefind/
 
 # Local scratch (screenshots, etc.)
 tmp/
