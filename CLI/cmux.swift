@@ -432,6 +432,8 @@ private struct ClaudeHookSessionRecord: Codable {
     var lastSubtitle: String?
     var lastBody: String?
     var lastNotificationStatus: AgentHookNotificationStatus?
+    var lastEmittedNotificationFingerprint: String?
+    var lastEmittedNotificationAt: TimeInterval?
     var runtimeStatus: AgentHookRuntimeStatus?
     var startedAt: TimeInterval
     var updatedAt: TimeInterval
@@ -559,6 +561,8 @@ private final class ClaudeHookSessionStore {
                 lastSubtitle: nil,
                 lastBody: nil,
                 lastNotificationStatus: nil,
+                lastEmittedNotificationFingerprint: nil,
+                lastEmittedNotificationAt: nil,
                 runtimeStatus: nil,
                 startedAt: now,
                 updatedAt: now
@@ -606,6 +610,53 @@ private final class ClaudeHookSessionStore {
                     updatedAt: now
                 )
             }
+        }
+    }
+
+    func clearNotificationEmission(sessionId: String) throws {
+        let normalized = normalizeSessionId(sessionId)
+        guard !normalized.isEmpty else { return }
+        try withLockedState { state in
+            guard var record = state.sessions[normalized] else { return }
+            let now = Date().timeIntervalSince1970
+            record.lastEmittedNotificationFingerprint = nil
+            record.lastEmittedNotificationAt = nil
+            record.updatedAt = now
+            state.sessions[normalized] = record
+        }
+    }
+
+    func recentlyEmittedNotification(
+        sessionId: String,
+        fingerprint: String,
+        within interval: TimeInterval = 60 * 60
+    ) throws -> Bool {
+        let normalized = normalizeSessionId(sessionId)
+        guard !normalized.isEmpty else { return false }
+        let normalizedFingerprint = fingerprint.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !normalizedFingerprint.isEmpty else { return false }
+        return try withLockedState { state in
+            guard let record = state.sessions[normalized],
+                  record.lastEmittedNotificationFingerprint == normalizedFingerprint,
+                  let emittedAt = record.lastEmittedNotificationAt else {
+                return false
+            }
+            return Date().timeIntervalSince1970 - emittedAt <= interval
+        }
+    }
+
+    func markNotificationEmitted(sessionId: String, fingerprint: String) throws {
+        let normalized = normalizeSessionId(sessionId)
+        guard !normalized.isEmpty else { return }
+        let normalizedFingerprint = fingerprint.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !normalizedFingerprint.isEmpty else { return }
+        try withLockedState { state in
+            guard var record = state.sessions[normalized] else { return }
+            let now = Date().timeIntervalSince1970
+            record.lastEmittedNotificationFingerprint = normalizedFingerprint
+            record.lastEmittedNotificationAt = now
+            record.updatedAt = now
+            state.sessions[normalized] = record
         }
     }
 
@@ -22381,6 +22432,20 @@ export default function cmuxPiSessionExtension(pi: ExtensionAPI) {
                 workspaceId: workspaceId ?? workspaceArg()
             )
         }
+        func notificationDedupeFingerprint(status: AgentHookNotificationStatus?) -> String? {
+            guard def.name == "grok", !sessionId.isEmpty, status == .idle else {
+                return nil
+            }
+            return "idle-turn"
+        }
+        func shouldSendNotification(fingerprint: String?) -> Bool {
+            guard let fingerprint else { return true }
+            return (try? store.recentlyEmittedNotification(sessionId: sessionId, fingerprint: fingerprint)) != true
+        }
+        func markNotificationSent(fingerprint: String?) {
+            guard let fingerprint else { return }
+            try? store.markNotificationEmitted(sessionId: sessionId, fingerprint: fingerprint)
+        }
         func resolveAgentHookTarget(mapped: ClaudeHookSessionRecord?) -> (workspaceId: String, surfaceId: String)? {
             guard !hasUnusableDirectBinding else {
 #if DEBUG
@@ -22499,6 +22564,7 @@ export default function cmuxPiSessionExtension(pi: ExtensionAPI) {
                     runtimeStatus: .running,
                     updateRuntimeStatus: true
                 )
+                try? store.clearNotificationEmission(sessionId: sessionId)
                 publishAgentSurfaceResumeBinding(
                     client: client,
                     workspaceId: workspaceId,
@@ -22545,6 +22611,7 @@ export default function cmuxPiSessionExtension(pi: ExtensionAPI) {
                     runtimeStatus: .running,
                     updateRuntimeStatus: true
                 )
+                try? store.clearNotificationEmission(sessionId: sessionId)
                 publishAgentSurfaceResumeBinding(
                     client: client,
                     workspaceId: workspaceId,
@@ -22666,6 +22733,7 @@ export default function cmuxPiSessionExtension(pi: ExtensionAPI) {
                     ),
                     def.displayName
                 )
+            let stopNotificationStatus: AgentHookNotificationStatus = codexFailure == nil ? .idle : .error
 
             if !sessionId.isEmpty {
                 let launchCommand = agentLaunchCommandFromEnvironment(
@@ -22674,7 +22742,6 @@ export default function cmuxPiSessionExtension(pi: ExtensionAPI) {
                     fallbackKind: def.name,
                     cwd: cwd
                 )
-                let stopNotificationStatus: AgentHookNotificationStatus = codexFailure == nil ? .idle : .error
                 try? store.upsert(sessionId: sessionId, workspaceId: workspaceId, surfaceId: surfaceId, cwd: cwd, pid: pid,
                                   launchCommand: launchCommand,
                                   lastSubtitle: subtitle,
@@ -22702,7 +22769,8 @@ export default function cmuxPiSessionExtension(pi: ExtensionAPI) {
             }
 
             let shouldPublishStopNotification = def.publishesStopNotification
-            if shouldPublishStopNotification {
+            let notificationFingerprint = notificationDedupeFingerprint(status: stopNotificationStatus)
+            if shouldPublishStopNotification, shouldSendNotification(fingerprint: notificationFingerprint) {
                 let payload = notificationPayload(title: def.displayName, subtitle: subtitle, body: body)
                 let notifyCommand = "notify_target_async \(workspaceId) \(surfaceId) \(payload)"
 #if DEBUG
@@ -22721,6 +22789,7 @@ export default function cmuxPiSessionExtension(pi: ExtensionAPI) {
                         env: env
                     )
 #endif
+                    markNotificationSent(fingerprint: notificationFingerprint)
                 } catch {
 #if DEBUG
                     agentHookDebugLog(
@@ -22730,6 +22799,14 @@ export default function cmuxPiSessionExtension(pi: ExtensionAPI) {
                     )
 #endif
                 }
+            } else if shouldPublishStopNotification {
+#if DEBUG
+                agentHookDebugLog(
+                    "agentHook.stop.notify.skipDuplicate agent=\(def.name) session=\(agentHookDebugShort(sessionId)) fingerprint=\(agentHookDebugShort(notificationFingerprint))",
+                    socketPath: client.socketPath,
+                    env: env
+                )
+#endif
             }
             if let codexFailure {
                 _ = try? sendV1Command(
@@ -22833,28 +22910,40 @@ export default function cmuxPiSessionExtension(pi: ExtensionAPI) {
                 )
             }
 
-            let payload = notificationPayload(title: def.displayName, subtitle: summary.subtitle, body: summary.body)
-            let notifyCommand = "notify_target_async \(workspaceId) \(surfaceId) \(payload)"
-#if DEBUG
-            agentHookDebugLog(
-                "agentHook.notification.notify agent=\(def.name) session=\(agentHookDebugShort(sessionId)) workspace=\(agentHookDebugShort(workspaceId)) surface=\(agentHookDebugShort(surfaceId))",
-                socketPath: client.socketPath,
-                env: env
-            )
-#endif
-            do {
-                let response = try sendV1Command(notifyCommand, client: client)
+            let notificationFingerprint = notificationDedupeFingerprint(status: summary.status)
+            if shouldSendNotification(fingerprint: notificationFingerprint) {
+                let payload = notificationPayload(title: def.displayName, subtitle: summary.subtitle, body: summary.body)
+                let notifyCommand = "notify_target_async \(workspaceId) \(surfaceId) \(payload)"
 #if DEBUG
                 agentHookDebugLog(
-                    "agentHook.notification.notify.sent agent=\(def.name) session=\(agentHookDebugShort(sessionId)) response=\(response)",
+                    "agentHook.notification.notify agent=\(def.name) session=\(agentHookDebugShort(sessionId)) workspace=\(agentHookDebugShort(workspaceId)) surface=\(agentHookDebugShort(surfaceId))",
                     socketPath: client.socketPath,
                     env: env
                 )
 #endif
-            } catch {
+                do {
+                    let response = try sendV1Command(notifyCommand, client: client)
+#if DEBUG
+                    agentHookDebugLog(
+                        "agentHook.notification.notify.sent agent=\(def.name) session=\(agentHookDebugShort(sessionId)) response=\(response)",
+                        socketPath: client.socketPath,
+                        env: env
+                    )
+#endif
+                    markNotificationSent(fingerprint: notificationFingerprint)
+                } catch {
+#if DEBUG
+                    agentHookDebugLog(
+                        "agentHook.notification.notify.error agent=\(def.name) session=\(agentHookDebugShort(sessionId)) error=\(String(describing: error))",
+                        socketPath: client.socketPath,
+                        env: env
+                    )
+#endif
+                }
+            } else {
 #if DEBUG
                 agentHookDebugLog(
-                    "agentHook.notification.notify.error agent=\(def.name) session=\(agentHookDebugShort(sessionId)) error=\(String(describing: error))",
+                    "agentHook.notification.notify.skipDuplicate agent=\(def.name) session=\(agentHookDebugShort(sessionId)) fingerprint=\(agentHookDebugShort(notificationFingerprint))",
                     socketPath: client.socketPath,
                     env: env
                 )
