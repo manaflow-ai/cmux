@@ -39,7 +39,7 @@ final class CodexTranscriptMonitorSession {
         self.onFinish = onFinish
         self.workspaceId = request.workspaceId
         self.transcriptPath = CodexTranscriptMonitorParser.normalizedValue(request.transcriptPath)
-        self.sawRelevantTurn = CodexTranscriptMonitorParser.normalizedValue(request.turnId) == nil
+        self.sawRelevantTurn = Self.initialSawRelevantTurn(for: request)
     }
 
     deinit {
@@ -430,5 +430,11 @@ final class CodexTranscriptMonitorSession {
         readOffset = 0
         pendingData.removeAll(keepingCapacity: false)
         discardingOversizedLine = false
+        sawRelevantTurn = Self.initialSawRelevantTurn(for: request)
+        sawAssistantMessage = false
+    }
+
+    private static func initialSawRelevantTurn(for request: CodexTranscriptMonitorRequest) -> Bool {
+        CodexTranscriptMonitorParser.normalizedValue(request.turnId) == nil
     }
 }
