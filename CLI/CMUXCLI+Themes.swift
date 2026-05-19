@@ -30,7 +30,10 @@ extension CMUXCLI {
         return isatty(STDIN_FILENO) == 1 && isatty(STDOUT_FILENO) == 1
     }
 
-    private func runInteractiveThemes() throws {
+    private func runInteractiveThemes(
+        socketPath: String,
+        explicitPassword: String?
+    ) throws {
         guard let helperURL = bundledHelperURL(named: "ghostty") else {
             throw CLIError(message: "Bundled Ghostty theme picker helper not found")
         }
@@ -51,11 +54,12 @@ extension CMUXCLI {
             environment["GHOSTTY_RESOURCES_DIR"] = resourcesURL.path
         }
 
-        try execInteractiveHelper(
+        try runInteractiveHelper(
             executablePath: helperURL.path,
             arguments: ["+list-themes"],
             environment: environment
         )
+        _ = reloadThemesIfPossible(socketPath: socketPath, explicitPassword: explicitPassword)
     }
 
     private func defaultThemePickerTargetMode(current: ThemeSelection) -> ThemePickerTargetMode {
@@ -111,31 +115,34 @@ extension CMUXCLI {
         return candidates.first(where: { fileManager.isExecutableFile(atPath: $0.path) })
     }
 
-    private func execInteractiveHelper(
+    private func runInteractiveHelper(
         executablePath: String,
         arguments: [String],
         environment: [String: String]
-    ) throws -> Never {
-        var argv = ([executablePath] + arguments).map { strdup($0) }
-        defer {
-            for item in argv {
-                free(item)
-            }
-        }
-        argv.append(nil)
+    ) throws {
+        let process = Process()
+        process.executableURL = URL(fileURLWithPath: executablePath)
+        process.arguments = arguments
+        process.environment = environment
+        process.standardInput = FileHandle.standardInput
+        process.standardOutput = FileHandle.standardOutput
+        process.standardError = FileHandle.standardError
 
-        var envp = environment
-            .map { key, value in strdup("\(key)=\(value)") }
-        defer {
-            for item in envp {
-                free(item)
-            }
+        do {
+            try process.run()
+        } catch {
+            throw CLIError(message: "Failed to launch interactive theme picker: \(error.localizedDescription)")
         }
-        envp.append(nil)
 
-        execve(executablePath, &argv, &envp)
-        let code = errno
-        throw CLIError(message: "Failed to launch interactive theme picker: \(String(cString: strerror(code)))")
+        process.waitUntilExit()
+        if process.terminationReason == .exit, process.terminationStatus == 0 {
+            return
+        }
+
+        if process.terminationReason == .uncaughtSignal {
+            throw CLIError(message: "Interactive theme picker exited from signal \(process.terminationStatus)")
+        }
+        throw CLIError(message: "Interactive theme picker exited with status \(process.terminationStatus)")
     }
 
     private func bundledGhosttyResourcesURL() -> URL? {
@@ -177,7 +184,7 @@ extension CMUXCLI {
     ) throws {
         if commandArgs.isEmpty {
             if shouldUseInteractiveThemePicker(jsonOutput: jsonOutput) {
-                try runInteractiveThemes()
+                try runInteractiveThemes(socketPath: socketPath, explicitPassword: explicitPassword)
                 return
             }
             try printThemesList(jsonOutput: jsonOutput)
