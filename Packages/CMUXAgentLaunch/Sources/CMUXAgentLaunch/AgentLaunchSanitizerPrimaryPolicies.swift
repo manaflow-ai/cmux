@@ -146,7 +146,6 @@ extension AgentLaunchSanitizer {
             "debug",
             "apply",
             "a",
-            "fork",
             "cloud",
             "exec-server",
             "features",
@@ -164,7 +163,10 @@ extension AgentLaunchSanitizer {
             "--remote=",
             "--remote-auth-token-env="
         ],
-        resumeSubcommand: "resume"
+        resumeSubcommand: "resume",
+        sessionSubcommands: [
+            "fork"
+        ]
     )
 
     static let piPolicy = Policy(

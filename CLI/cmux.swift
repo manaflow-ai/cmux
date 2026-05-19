@@ -19456,7 +19456,7 @@ struct CMUXCLI {
             let original = agentSurfaceResumeCommandParts(launchCommand: launchCommand, fallbackExecutable: "cmux")
             var tail = original.tail
             if tail.first == "codex-teams" { tail.removeFirst() }
-            argv = AgentLaunchSanitizer.preservedCodexForkArguments(args: tail).map {
+            argv = AgentLaunchSanitizer.preservedArguments(kind: "codex", args: tail).map {
                 [original.executable, "codex-teams", "resume", normalizedSessionId] + $0
             }
         case "omx", "omc":
@@ -19482,7 +19482,7 @@ struct CMUXCLI {
             return agentSurfaceResumeWithOption(kind: kind, launchCommand: launchCommand, fallbackExecutable: "claude", option: "--resume", sessionId: sessionId)
         case "codex":
             let original = agentSurfaceResumeCommandParts(launchCommand: launchCommand, fallbackExecutable: "codex")
-            return AgentLaunchSanitizer.preservedCodexForkArguments(args: original.tail).map {
+            return AgentLaunchSanitizer.preservedArguments(kind: "codex", args: original.tail).map {
                 [original.executable, "resume", sessionId] + $0
             }
         case "pi":

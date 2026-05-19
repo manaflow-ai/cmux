@@ -10,6 +10,7 @@ public enum AgentLaunchSanitizer {
         var droppedOptionPrefixes: [String] = []
         var rejectOptions: Set<String> = []
         var resumeSubcommand: String?
+        var sessionSubcommands: Set<String> = []
         var preserveFirstPositional: Bool = false
         var skipClaudeHookSettings: Bool = false
     }
@@ -133,7 +134,7 @@ public enum AgentLaunchSanitizer {
         var result: [String] = []
         var index = 0
         var consumedFirstPositional = false
-        var skippingResumePositionals = false
+        var skippingSessionPositionals = false
 
         while index < args.count {
             let arg = args[index]
@@ -142,13 +143,14 @@ public enum AgentLaunchSanitizer {
             }
 
             if !arg.hasPrefix("-") || arg == "-" {
-                if let resumeSubcommand = policy.resumeSubcommand, arg == resumeSubcommand {
-                    skippingResumePositionals = true
+                let isSessionSubcommand = policy.resumeSubcommand == arg ||
+                    policy.sessionSubcommands.contains(arg)
+                if isSessionSubcommand {
+                    skippingSessionPositionals = true
                     index += 1
                     continue
                 }
-                if skippingResumePositionals {
-                    skippingResumePositionals = false
+                if skippingSessionPositionals {
                     index += 1
                     continue
                 }
