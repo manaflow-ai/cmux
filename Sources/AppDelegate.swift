@@ -1011,14 +1011,23 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         let env = ProcessInfo.processInfo.environment
         let isRunningUnderXCTest = isRunningUnderXCTest(env)
         let telemetryEnabled = TelemetrySettings.enabledForCurrentLaunch
+        StartupBreadcrumbLog.append(
+            "appDelegate.didFinish.begin",
+            fields: [
+                "xctest": isRunningUnderXCTest ? "1" : "0",
+                "telemetry": telemetryEnabled ? "1" : "0"
+            ]
+        )
         AppIconLaunchState.markDidFinishLaunching()
         if isRunningUnderXCTest {
             NSApp.setActivationPolicy(.regular)
         } else {
             syncActivationPolicy()
         }
+        StartupBreadcrumbLog.append("appDelegate.didFinish.activationPolicy.synced")
 
         claimAuthCallbackURLSchemes()
+        StartupBreadcrumbLog.append("appDelegate.didFinish.authSchemes.claimed")
 
         // Install the Feed (workstream) store. Separate from the transport
         // wiring: the store is a plain singleton here, and the socket
@@ -1030,6 +1039,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
                 persistence: WorkstreamPersistence(fileURL: WorkstreamPersistence.defaultFileURL())
             )
         )
+        StartupBreadcrumbLog.append("appDelegate.didFinish.feedStore.installed")
         Task { @MainActor in
             await FeedCoordinator.shared.store?.start()
 #if DEBUG
@@ -1091,6 +1101,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             _ = Locale.current
             _ = NSLocale.preferredLanguages
 
+            StartupBreadcrumbLog.append("appDelegate.didFinish.sentry.begin")
             SentrySDK.start { options in
                 options.dsn = "https://ecba1ec90ecaee02a102fba931b6d2b3@o4507547940749312.ingest.us.sentry.io/4510796264636416"
                 #if DEBUG
@@ -1112,10 +1123,13 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
                 // Avoid recursively capturing failed requests from Sentry's own ingestion endpoint.
                 options.enableCaptureFailedRequests = false
             }
+            StartupBreadcrumbLog.append("appDelegate.didFinish.sentry.complete")
         }
 
         if telemetryEnabled && !isRunningUnderXCTest {
+            StartupBreadcrumbLog.append("appDelegate.didFinish.posthog.begin")
             PostHogAnalytics.shared.startIfNeeded()
+            StartupBreadcrumbLog.append("appDelegate.didFinish.posthog.complete")
         }
 
         let forceDuplicateLaunchObserver = env["CMUX_UI_TEST_ENABLE_DUPLICATE_LAUNCH_OBSERVER"] == "1"
@@ -1126,9 +1140,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         if !isRunningUnderXCTest {
             DispatchQueue.main.async { [weak self] in
                 guard let self else { return }
+                StartupBreadcrumbLog.append("appDelegate.singleInstance.async.begin")
                 self.scheduleLaunchServicesBundleRegistration()
+                StartupBreadcrumbLog.append("appDelegate.singleInstance.launchServices.scheduled")
                 self.enforceSingleInstance()
                 self.observeDuplicateLaunches()
+                StartupBreadcrumbLog.append("appDelegate.singleInstance.async.complete")
             }
         } else if forceDuplicateLaunchObserver {
             // Some UI regressions specifically exercise launch-observer behavior while still
@@ -1163,7 +1180,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         SystemWideHotkeyController.shared.start()
         NSApp.servicesProvider = self
 
+        StartupBreadcrumbLog.append("appDelegate.didFinish.bootstrap.begin")
         scheduleInitialMainWindowBootstrap(debugSource: "didFinishLaunching")
+        StartupBreadcrumbLog.append("appDelegate.didFinish.complete")
 #if DEBUG
         UpdateTestSupport.applyIfNeeded(to: updateController.viewModel)
         if env["CMUX_UI_TEST_MODE"] == "1" {
@@ -1508,12 +1527,21 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
     }
 
     func applicationShouldTerminate(_ sender: NSApplication) -> NSApplication.TerminateReply {
+        StartupBreadcrumbLog.append(
+            "appDelegate.shouldTerminate.begin",
+            fields: [
+                "taggedDev": SocketControlSettings.isTaggedDevBuild() ? "1" : "0",
+                "quitWarningConfirmed": isQuitWarningConfirmed ? "1" : "0",
+                "quitWarningEnabled": QuitWarningSettings.isEnabled() ? "1" : "0"
+            ]
+        )
         isTerminatingApp = true
         _ = saveSessionSnapshotIncludingProcessDetectedIndexes(includeScrollback: true, removeWhenEmpty: false)
 
         // Tagged DEV builds are ephemeral, skip quit confirmation entirely.
         if SocketControlSettings.isTaggedDevBuild() {
             closeAllWebInspectorsBeforeAppTeardown()
+            StartupBreadcrumbLog.append("appDelegate.shouldTerminate.terminateNow", fields: ["reason": "taggedDev"])
             return .terminateNow
         }
 
@@ -1521,6 +1549,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         // (handleQuitShortcutWarning), skip the check to avoid a second alert.
         if isQuitWarningConfirmed {
             closeAllWebInspectorsBeforeAppTeardown()
+            StartupBreadcrumbLog.append("appDelegate.shouldTerminate.terminateNow", fields: ["reason": "confirmed"])
             return .terminateNow
         }
 
@@ -1528,6 +1557,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         // the Cmd+Tab app switcher, bypassing handleCustomShortcut.
         guard QuitWarningSettings.isEnabled() else {
             closeAllWebInspectorsBeforeAppTeardown()
+            StartupBreadcrumbLog.append("appDelegate.shouldTerminate.terminateNow", fields: ["reason": "warningDisabled"])
             return .terminateNow
         }
 
@@ -1552,12 +1582,15 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             if shouldQuit {
                 self.isQuitWarningConfirmed = true
                 self.closeAllWebInspectorsBeforeAppTeardown()
+                StartupBreadcrumbLog.append("appDelegate.shouldTerminate.reply", fields: ["shouldQuit": "1"])
             } else {
                 // Reset so that the next quit attempt can show the dialog again.
                 self.isTerminatingApp = false
+                StartupBreadcrumbLog.append("appDelegate.shouldTerminate.reply", fields: ["shouldQuit": "0"])
             }
             NSApp.reply(toApplicationShouldTerminate: shouldQuit)
         }
+        StartupBreadcrumbLog.append("appDelegate.shouldTerminate.later")
         return .terminateLater
     }
 
@@ -1567,6 +1600,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
     }
 
     func applicationWillTerminate(_ notification: Notification) {
+        StartupBreadcrumbLog.append("appDelegate.willTerminate.begin")
         isTerminatingApp = true
         closeAllWebInspectorsBeforeAppTeardown()
         _ = saveSessionSnapshotIncludingProcessDetectedIndexes(includeScrollback: true, removeWhenEmpty: false)
@@ -1584,6 +1618,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         ghosttyCrashBreadcrumbTask = nil
         notificationStore?.clearAll()
         GhosttyCrashBreadcrumb.markCleanExit()
+        StartupBreadcrumbLog.append("appDelegate.willTerminate.complete")
         enableSuddenTerminationIfNeeded()
     }
 
@@ -11577,6 +11612,15 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             return false
         }
 
+        let shortcutWindowForMarkedText = resolvedShortcutEventWindow(event) ?? event.window ?? NSApp.keyWindow ?? NSApp.mainWindow
+        if browserOmnibarShouldBypassShortcutRoutingForMarkedText(
+            hasFocusedAddressBar: hasFocusedAddressBarInShortcutContext,
+            firstResponderHasMarkedText: browserResponderHasMarkedText(shortcutWindowForMarkedText?.firstResponder),
+            flags: event.modifierFlags
+        ) {
+            return false
+        }
+
         // When the notifications popover is open, Escape should dismiss it immediately.
         if flags.isEmpty, event.keyCode == 53, titlebarAccessoryController.dismissNotificationsPopoverIfShown() {
             return true
@@ -13861,25 +13905,48 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
 #endif
 
     private func enforceSingleInstance() {
-        guard let bundleId = Bundle.main.bundleIdentifier else { return }
+        guard let bundleId = Bundle.main.bundleIdentifier else {
+            StartupBreadcrumbLog.append("singleInstance.enforce.skip", fields: ["reason": "missingBundleId"])
+            return
+        }
         let currentPid = ProcessInfo.processInfo.processIdentifier
+        var terminatedPids: [String] = []
 
         for app in NSRunningApplication.runningApplications(withBundleIdentifier: bundleId) {
             guard app.processIdentifier != currentPid else { continue }
+            terminatedPids.append(String(app.processIdentifier))
             app.terminate()
             if !app.isTerminated {
                 _ = app.forceTerminate()
             }
         }
+        StartupBreadcrumbLog.append(
+            "singleInstance.enforce.complete",
+            fields: [
+                "bundleIdentifier": bundleId,
+                "currentPid": String(currentPid),
+                "terminatedPids": terminatedPids.joined(separator: ",")
+            ]
+        )
     }
 
     private func observeDuplicateLaunches() {
-        guard let bundleId = Bundle.main.bundleIdentifier else { return }
+        guard let bundleId = Bundle.main.bundleIdentifier else {
+            StartupBreadcrumbLog.append("singleInstance.observe.skip", fields: ["reason": "missingBundleId"])
+            return
+        }
         let embeddedCLIURL = Bundle.main.bundleURL
             .appendingPathComponent("Contents/Resources/bin/cmux", isDirectory: false)
             .standardizedFileURL
             .resolvingSymlinksInPath()
         let currentPid = ProcessInfo.processInfo.processIdentifier
+        StartupBreadcrumbLog.append(
+            "singleInstance.observe.install",
+            fields: [
+                "bundleIdentifier": bundleId,
+                "currentPid": String(currentPid)
+            ]
+        )
 
         workspaceObserver = NSWorkspace.shared.notificationCenter.addObserver(
             forName: NSWorkspace.didLaunchApplicationNotification,
@@ -13896,6 +13963,13 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
                 return
             }
 
+            StartupBreadcrumbLog.append(
+                "singleInstance.observe.terminateDuplicate",
+                fields: [
+                    "duplicatePid": String(app.processIdentifier),
+                    "duplicateBundleIdentifier": app.bundleIdentifier ?? "nil"
+                ]
+            )
             app.terminate()
             if !app.isTerminated {
                 _ = app.forceTerminate()
@@ -14597,6 +14671,7 @@ private var cmuxFirstResponderGuardHitViewContext: NSView?
 private var cmuxFirstResponderGuardContextWindowNumber: Int?
 private var cmuxBrowserReturnForwardingDepth = 0
 private var cmuxBrowserArrowForwardingDepth = 0
+private var cmuxBrowserOmnibarMarkedTextForwardingDepth = 0
 private var cmuxCommandPaletteArrowForwardingDepth = 0
 private var cmuxWindowFirstResponderBypassDepth = 0
 private var cmuxFieldEditorOwningWebViewAssociationKey: UInt8 = 0
@@ -15211,6 +15286,7 @@ private extension NSWindow {
             self.firstResponder as? NSTextView,
             in: self
         )
+        let firstResponderOmnibarPanelId = browserOmnibarPanelId(for: self.firstResponder)
         if ShortcutRecorderEventRouter.dispatchActiveRecordingEvent(event, preferredWindow: self) {
             return true
         }
@@ -15273,6 +15349,34 @@ private extension NSWindow {
             }
         }
 
+        if browserOmnibarShouldBypassShortcutRoutingForMarkedText(
+            hasFocusedAddressBar: firstResponderOmnibarPanelId != nil,
+            firstResponderHasMarkedText: firstResponderHasMarkedText,
+            flags: event.modifierFlags
+        ) {
+            if cmuxBrowserOmnibarMarkedTextForwardingDepth > 0 {
+#if DEBUG
+                cmuxDebugLog("  → browser omnibar marked-text reentry; leaving unhandled")
+#endif
+                return false
+            }
+            cmuxBrowserOmnibarMarkedTextForwardingDepth += 1
+            defer {
+                cmuxBrowserOmnibarMarkedTextForwardingDepth = max(
+                    0,
+                    cmuxBrowserOmnibarMarkedTextForwardingDepth - 1
+                )
+            }
+#if DEBUG
+            cmuxDebugLog(
+                "  → browser omnibar marked-text routed to firstResponder.keyDown " +
+                "panel=\(firstResponderOmnibarPanelId.map { String($0.uuidString.prefix(5)) } ?? "nil")"
+            )
+#endif
+            self.firstResponder?.keyDown(with: event)
+            return true
+        }
+
         if shouldDispatchCommandPaletteHorizontalArrowViaFirstResponderKeyDown(
             keyCode: event.keyCode,
             firstResponderIsCommandPaletteFieldEditor: firstResponderIsCommandPaletteFieldEditor,
@@ -15288,7 +15392,6 @@ private extension NSWindow {
             return true
         }
 
-        let firstResponderOmnibarPanelId = browserOmnibarPanelId(for: self.firstResponder)
         if shouldDispatchBrowserOmnibarArrowViaFirstResponderKeyDown(
             keyCode: event.keyCode,
             firstResponderIsBrowserOmnibar: firstResponderOmnibarPanelId != nil,
