@@ -249,10 +249,14 @@ extension CMUXCLI {
                 params["window_id"] = windowHandle
             }
 
+            let requiresWorkspaceContext = options.workspace != nil ||
+                options.surface != nil ||
+                options.pane != nil
             let workspaceHandle = try normalizeWorkspaceHandle(
                 options.workspace,
                 client: resolver,
-                windowHandle: windowHandle
+                windowHandle: windowHandle,
+                allowCurrent: requiresWorkspaceContext
             )
             if let workspaceHandle {
                 params["workspace_id"] = workspaceHandle

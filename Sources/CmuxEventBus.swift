@@ -112,18 +112,34 @@ struct CmuxEventScope {
 
     private static func payloadString(_ event: [String: Any], key: String) -> String? {
         guard let payload = event["payload"] as? [String: Any] else { return nil }
-        return stringValue(payload[key])
+        if let direct = stringValue(payload[key]) {
+            return direct
+        }
+        for containerKey in ["result", "params"] {
+            guard let nested = payload[containerKey] as? [String: Any],
+                  let value = stringValue(nested[key]) else {
+                continue
+            }
+            return value
+        }
+        return nil
     }
 
     private static func payloadStringArray(_ event: [String: Any], key: String) -> [String] {
         guard let payload = event["payload"] as? [String: Any] else { return [] }
-        if let values = payload[key] as? [String] {
-            return values.compactMap(normalizedId)
+        let containers: [[String: Any]] = [payload] + ["result", "params"].compactMap {
+            payload[$0] as? [String: Any]
         }
-        if let values = payload[key] as? [Any] {
-            return values.compactMap { stringValue($0) }
+        var result: [String] = []
+        for container in containers {
+            if let values = container[key] as? [String] {
+                result.append(contentsOf: values.compactMap(normalizedId))
+            }
+            if let values = container[key] as? [Any] {
+                result.append(contentsOf: values.compactMap { stringValue($0) })
+            }
         }
-        return []
+        return result
     }
 
     private static func workspaceIds(_ event: [String: Any]) -> [String] {

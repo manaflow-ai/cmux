@@ -4210,7 +4210,11 @@ struct CMUXCLI {
     ) throws -> String? {
         guard let raw else {
             if !allowCurrent { return nil }
-            let current = try client.sendV2(method: "workspace.current")
+            var params: [String: Any] = [:]
+            if let windowHandle {
+                params["window_id"] = windowHandle
+            }
+            let current = try client.sendV2(method: "workspace.current", params: params)
             return (current["workspace_ref"] as? String) ?? (current["workspace_id"] as? String)
         }
 

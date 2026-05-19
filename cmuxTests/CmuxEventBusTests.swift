@@ -268,6 +268,53 @@ final class CmuxEventBusTests: XCTestCase {
         XCTAssertEqual(paneSnapshot.replay.compactMap { $0["pane_id"] as? String }, ["pane-a"])
     }
 
+    func testScopeFiltersMatchNestedV2PayloadIds() throws {
+        let bus = CmuxEventBus(retainedEventLimit: 8)
+        bus.publish(
+            name: "pane.swapped",
+            category: "pane",
+            source: "socket.v2",
+            payload: [
+                "method": "pane.swap",
+                "params": [
+                    "pane_id": "pane-a"
+                ],
+                "result": [
+                    "target_pane_id": "pane-b"
+                ]
+            ]
+        )
+        bus.publish(
+            name: "surface.closed",
+            category: "surface",
+            source: "socket.v2",
+            payload: [
+                "method": "surface.close",
+                "result": [
+                    "closed_surface_ids": ["surface-b"]
+                ]
+            ]
+        )
+
+        let paneSnapshot = bus.subscribe(
+            afterSequence: 0,
+            names: [],
+            categories: [],
+            scope: CmuxEventScope(kind: .pane, paneId: "pane-b")
+        )
+        defer { bus.unsubscribe(paneSnapshot.subscription) }
+        XCTAssertEqual(paneSnapshot.replay.compactMap { $0["name"] as? String }, ["pane.swapped"])
+
+        let surfaceSnapshot = bus.subscribe(
+            afterSequence: 0,
+            names: [],
+            categories: [],
+            scope: CmuxEventScope(kind: .surface, surfaceId: "surface-b")
+        )
+        defer { bus.unsubscribe(surfaceSnapshot.subscription) }
+        XCTAssertEqual(surfaceSnapshot.replay.compactMap { $0["name"] as? String }, ["surface.closed"])
+    }
+
     func testSlowSubscriptionClosesWhenPendingQueueIsFull() {
         let bus = CmuxEventBus(retainedEventLimit: 8, maxPendingEventsPerSubscription: 2)
         let snapshot = bus.subscribe(afterSequence: nil, names: [], categories: [])
