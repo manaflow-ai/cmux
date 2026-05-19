@@ -10411,7 +10411,7 @@ private struct CmuxExtensionSidebarWorkspaceRowView: View, Equatable {
         .frame(minHeight: isSuperCompact ? 22 : 32)
         .background {
             if isSelected {
-                RoundedRectangle(cornerRadius: 7, style: .continuous)
+                Rectangle()
                     .fill(Color.primary.opacity(0.10))
             }
         }
