@@ -51,7 +51,7 @@ struct WorkstreamEventTests {
             workspaceId: "22222222-2222-2222-2222-222222222222",
             cwd: "/work",
             toolName: "ExitPlanMode",
-            matcher: "ExitPlanMode",
+            matcher: "prompt_input_exit",
             toolInputJSON: "{\"plan\":\"step1\\nstep2\"}",
             context: WorkstreamContext(
                 lastUserMessage: "make a plan",

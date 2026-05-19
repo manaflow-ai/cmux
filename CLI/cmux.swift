@@ -11006,7 +11006,7 @@ struct CMUXCLI {
             Trigger the app-active handler used by notification focus tests.
             """
         case "claude-hook":
-            return """
+            return String(localized: "cli.help.claudeHook", defaultValue: """
             Usage: cmux claude-hook <session-start|active|stop|idle|session-end|notification|notify|prompt-submit> [flags]
 
             Hook for Claude Code integration. Reads JSON from stdin.
@@ -11028,7 +11028,7 @@ struct CMUXCLI {
             Example:
               echo '{"session_id":"abc"}' | cmux claude-hook session-start
               echo '{}' | cmux claude-hook stop
-            """
+            """)
         case "codex":
             return """
             Usage: cmux codex <install-hooks|uninstall-hooks>
@@ -17504,9 +17504,29 @@ struct CMUXCLI {
         case "help", "--help", "-h":
             telemetry.breadcrumb("claude-hook.help")
             print(
-                """
-                cmux claude-hook <session-start|stop|session-end|notification|prompt-submit|pre-tool-use> [--workspace <id|index>] [--surface <id|index>]
-                """
+                String(localized: "cli.help.claudeHook", defaultValue: """
+                Usage: cmux claude-hook <session-start|active|stop|idle|session-end|notification|notify|prompt-submit> [flags]
+
+                Hook for Claude Code integration. Reads JSON from stdin.
+
+                Subcommands:
+                  session-start   Signal that a Claude session has started
+                  active          Alias for session-start
+                  stop            Signal that a Claude session has stopped
+                  idle            Alias for stop
+                  session-end     Signal that a Claude session has ended
+                  notification    Forward a Claude notification
+                  notify          Alias for notification
+                  prompt-submit   Clear notification and set Running on user prompt
+
+                Flags:
+                  --workspace <id|ref>   Target workspace (default: $CMUX_WORKSPACE_ID)
+                  --surface <id|ref>     Target surface (default: $CMUX_SURFACE_ID)
+
+                Example:
+                  echo '{"session_id":"abc"}' | cmux claude-hook session-start
+                  echo '{}' | cmux claude-hook stop
+                """)
             )
 
         default:
@@ -23204,7 +23224,7 @@ export default function cmuxPiSessionExtension(pi: ExtensionAPI) {
     private func feedMatcher(rawObject: [String: Any]?, source: String, hookEventName: String) -> String? {
         guard let rawObject else { return nil }
         if source == "claude", hookEventName == "SessionEnd" {
-            let rawMatcher = firstString(in: rawObject, keys: ["matcher", "reason", "source"])
+            let rawMatcher = firstString(in: rawObject, keys: ["matcher", "reason"])
             return normalizedClaudeSessionEndMatcher(rawMatcher) ?? "other"
         }
         return firstString(in: rawObject, keys: ["matcher"])
