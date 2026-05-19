@@ -114,6 +114,12 @@ _cmux_refresh_socket_path_from_marker() {
         path="${path//$'\r'/}"
         path="${path//$'\n'/}"
         [[ -n "$path" ]] || continue
+        local existing="${CMUX_SOCKET_PATH:-}"
+        if [[ -n "$existing" && "$path" == /* ]]; then
+            if [[ "$existing" == *:* || "$existing" != /* ]]; then
+                continue
+            fi
+        fi
         if [[ "${CMUX_SOCKET_PATH:-}" != "$path" ]]; then
             export CMUX_SOCKET_PATH="$path"
             if [[ -n "$TMUX" ]] && command -v tmux >/dev/null 2>&1; then
