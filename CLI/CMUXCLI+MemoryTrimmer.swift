@@ -156,9 +156,9 @@ extension CMUXCLI {
             if !options.dryRun {
                 if let graceful {
                     do {
+                        attemptedShutdown = true
                         try signaler.sendGracefulExit(graceful, workspaceId: workspaceId)
                         gracefulAction = graceful.label
-                        attemptedShutdown = true
                         processExited = signaler.waitForExit(pid: candidate.pid, timeout: options.graceSeconds)
                     } catch {
                         gracefulAction = nil
@@ -171,9 +171,9 @@ extension CMUXCLI {
                         workspaceHandle: workspaceHandle,
                         tolerateMissingRevalidation: attemptedShutdown
                     ) {
+                        attemptedShutdown = true
                         if signaler.sendTerminateSignal(pid: liveCandidate.pid) {
                             terminated = true
-                            attemptedShutdown = true
                         }
                         processExited = signaler.waitForExit(pid: liveCandidate.pid, timeout: Self.postSignalWaitSeconds)
                     } else {
@@ -188,9 +188,9 @@ extension CMUXCLI {
                         workspaceHandle: workspaceHandle,
                         tolerateMissingRevalidation: attemptedShutdown
                     ) {
+                        attemptedShutdown = true
                         if signaler.sendKillSignal(pid: liveCandidate.pid) {
                             killed = true
-                            attemptedShutdown = true
                         }
                         _ = signaler.waitForExit(pid: liveCandidate.pid, timeout: Self.postSignalWaitSeconds)
                     } else {
