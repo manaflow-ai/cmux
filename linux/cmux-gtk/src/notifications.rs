@@ -20,6 +20,18 @@ impl AgentNotification {
             workspace_id: None,
         }
     }
+
+    #[must_use]
+    pub fn waiting_for_input_in_workspace(
+        agent_name: &str,
+        workspace_id: impl Into<String>,
+        workspace_title: &str,
+    ) -> Self {
+        Self {
+            workspace_id: Some(workspace_id.into()),
+            ..Self::waiting_for_input(agent_name, workspace_title)
+        }
+    }
 }
 
 pub trait Notifier {
@@ -55,5 +67,12 @@ mod tests {
         let notification = AgentNotification::waiting_for_input("Claude", "api refactor");
         assert_eq!(notification.title, "Claude needs input");
         assert!(notification.body.contains("api refactor"));
+    }
+
+    #[test]
+    fn waiting_notification_can_include_workspace_id() {
+        let notification =
+            AgentNotification::waiting_for_input_in_workspace("Codex", "workspace-1", "tests");
+        assert_eq!(notification.workspace_id.as_deref(), Some("workspace-1"));
     }
 }

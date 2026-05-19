@@ -4,6 +4,7 @@
 //! platform integrations live in the `cmux-gtk` crate.
 
 pub mod agent;
+pub mod hooks;
 pub mod session;
 pub mod storage;
 pub mod terminal;
