@@ -655,6 +655,11 @@
           "default": "",
           "description": "Custom path to the claude binary."
         },
+        "ripgrepBinaryPath": {
+          "type": "string",
+          "default": "",
+          "description": "Custom path to the ripgrep (rg) binary used by project search."
+        },
         "cursorIntegration": {
           "type": "boolean",
           "default": true,

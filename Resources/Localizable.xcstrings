@@ -2,14 +2,21 @@
   "sourceLanguage": "en",
   "version": "1.0",
   "strings": {
+    "cli.hooks.error.configDirectoryIsFile": { "extractionState": "manual", "localizations": { "en": { "stringUnit": { "state": "translated", "value": "cmux could not create the hooks directory: a file exists at %@; remove or rename the conflicting file and re-run `cmux hooks setup`" } }, "ja": { "stringUnit": { "state": "translated", "value": "cmux は hooks ディレクトリを作成できませんでした: %@ にファイルがあります。競合するファイルを削除または名前変更してから `cmux hooks setup` を再実行してください" } } } },
     "cli.error.dismissNotificationSelector": { "extractionState": "manual", "localizations": { "en": { "stringUnit": { "state": "translated", "value": "dismiss-notification requires exactly one of --id or --all-read" } }, "ja": { "stringUnit": { "state": "translated", "value": "dismiss-notification には --id または --all-read のどちらか一方だけを指定してください" } } } },
     "cli.error.markNotificationReadSelector": { "extractionState": "manual", "localizations": { "en": { "stringUnit": { "state": "translated", "value": "mark-notification-read requires exactly one selector: --id, --workspace, or --all" } }, "ja": { "stringUnit": { "state": "translated", "value": "mark-notification-read には --id、--workspace、--all のいずれか一つだけを指定してください" } } } },
     "cli.error.markNotificationReadSurfaceRequiresWorkspace": { "extractionState": "manual", "localizations": { "en": { "stringUnit": { "state": "translated", "value": "--surface requires --workspace" } }, "ja": { "stringUnit": { "state": "translated", "value": "--surface には --workspace が必要です" } } } },
     "cli.error.openNotificationRequiresId": { "extractionState": "manual", "localizations": { "en": { "stringUnit": { "state": "translated", "value": "open-notification requires --id" } }, "ja": { "stringUnit": { "state": "translated", "value": "open-notification には --id が必要です" } } } },
+    "cli.omo.installingPlugin": {"extractionState": "manual","localizations": {"ar": {"stringUnit": {"state": "translated","value": "جارٍ تثبيت المكوّن الإضافي %@ (قد يستغرق هذا دقيقة في أول تشغيل)..."}},"bs": {"stringUnit": {"state": "translated","value": "Instaliram %@ dodatak (ovo može potrajati minutu pri prvom pokretanju)..."}},"da": {"stringUnit": {"state": "translated","value": "Installerer %@-plugin (det kan tage et minut ved første kørsel)..."}},"de": {"stringUnit": {"state": "translated","value": "%@-Plugin wird installiert (dies kann beim ersten Start eine Minute dauern)..."}},"en": {"stringUnit": {"state": "translated","value": "Installing %@ plugin (this may take a minute on first run)..."}},"es": {"stringUnit": {"state": "translated","value": "Instalando el plugin %@ (puede tardar un minuto en el primer inicio)..."}},"fr": {"stringUnit": {"state": "translated","value": "Installation du plugin %@ (cela peut prendre une minute au premier lancement)..."}},"it": {"stringUnit": {"state": "translated","value": "Installazione del plugin %@ (al primo avvio potrebbe richiedere un minuto)..."}},"ja": {"stringUnit": {"state": "translated","value": "%@ プラグインをインストールしています (初回実行時は 1 分ほどかかる場合があります)..."}},"ko": {"stringUnit": {"state": "translated","value": "%@ 플러그인을 설치하는 중입니다(처음 실행할 때 1분 정도 걸릴 수 있습니다)..."}},"nb": {"stringUnit": {"state": "translated","value": "Installerer %@-tillegget (kan ta et minutt første gang)..."}},"pl": {"stringUnit": {"state": "translated","value": "Instalowanie wtyczki %@ (przy pierwszym uruchomieniu może to potrwać minutę)..."}},"pt-BR": {"stringUnit": {"state": "translated","value": "Instalando o plugin %@ (isso pode levar um minuto na primeira execução)..."}},"ru": {"stringUnit": {"state": "translated","value": "Устанавливается плагин %@ (при первом запуске это может занять минуту)..."}},"th": {"stringUnit": {"state": "translated","value": "กำลังติดตั้งปลั๊กอิน %@ (ครั้งแรกอาจใช้เวลาประมาณหนึ่งนาที)..."}},"tr": {"stringUnit": {"state": "translated","value": "%@ eklentisi yükleniyor (ilk çalıştırmada bir dakika sürebilir)..."}},"uk": {"stringUnit": {"state": "translated","value": "Встановлюється плагін %@ (під час першого запуску це може тривати хвилину)..."}},"zh-Hans": {"stringUnit": {"state": "translated","value": "正在安装 %@ 插件（首次运行可能需要一分钟）..."}},"zh-Hant": {"stringUnit": {"state": "translated","value": "正在安裝 %@ 外掛（首次執行可能需要一分鐘）..."}}}},
+    "cli.omo.retryingInstallCleanState": {"extractionState": "manual","localizations": {"ar": {"stringUnit": {"state": "translated","value": "تتم إعادة محاولة تثبيت %@ بحالة حزمة ظل نظيفة..."}},"bs": {"stringUnit": {"state": "translated","value": "Ponovo pokušavam instalaciju %@ s čistim stanjem shadow paketa..."}},"da": {"stringUnit": {"state": "translated","value": "Prøver %@-installationen igen med ren skyggepakketilstand..."}},"de": {"stringUnit": {"state": "translated","value": "%@-Installation wird mit bereinigtem Shadow-Paketstatus erneut versucht..."}},"en": {"stringUnit": {"state": "translated","value": "Retrying %@ install with a clean shadow package state..."}},"es": {"stringUnit": {"state": "translated","value": "Reintentando la instalación de %@ con un estado limpio del paquete sombra..."}},"fr": {"stringUnit": {"state": "translated","value": "Nouvelle tentative d’installation de %@ avec un état de paquet shadow propre..."}},"it": {"stringUnit": {"state": "translated","value": "Nuovo tentativo di installazione di %@ con uno stato pulito del pacchetto shadow..."}},"ja": {"stringUnit": {"state": "translated","value": "クリーンなシャドウパッケージ状態で %@ のインストールを再試行しています..."}},"ko": {"stringUnit": {"state": "translated","value": "깨끗한 섀도 패키지 상태로 %@ 설치를 다시 시도하는 중입니다..."}},"nb": {"stringUnit": {"state": "translated","value": "Prøver %@-installasjonen på nytt med ren skyggepakketilstand..."}},"pl": {"stringUnit": {"state": "translated","value": "Ponawianie instalacji %@ z czystym stanem pakietu shadow..."}},"pt-BR": {"stringUnit": {"state": "translated","value": "Tentando instalar %@ novamente com um estado limpo do pacote sombra..."}},"ru": {"stringUnit": {"state": "translated","value": "Повторная установка %@ с чистым состоянием теневого пакета..."}},"th": {"stringUnit": {"state": "translated","value": "กำลังลองติดตั้ง %@ อีกครั้งด้วยสถานะแพ็กเกจเงาที่สะอาด..."}},"tr": {"stringUnit": {"state": "translated","value": "%@ kurulumu temiz bir gölge paket durumuyla yeniden deneniyor..."}},"uk": {"stringUnit": {"state": "translated","value": "Повторна спроба встановити %@ з чистим станом тіньового пакета..."}},"zh-Hans": {"stringUnit": {"state": "translated","value": "正在使用干净的影子包状态重试安装 %@..."}},"zh-Hant": {"stringUnit": {"state": "translated","value": "正在使用乾淨的影子套件狀態重試安裝 %@..."}}}},
+    "cli.omo.installFailed": {"extractionState": "manual","localizations": {"ar": {"stringUnit": {"state": "translated","value": "فشل تثبيت %1$@. جرّب يدويًا: npm install -g %2$@"}},"bs": {"stringUnit": {"state": "translated","value": "Instalacija %1$@ nije uspjela. Pokušajte ručno: npm install -g %2$@"}},"da": {"stringUnit": {"state": "translated","value": "Kunne ikke installere %1$@. Prøv manuelt: npm install -g %2$@"}},"de": {"stringUnit": {"state": "translated","value": "%1$@ konnte nicht installiert werden. Versuchen Sie es manuell: npm install -g %2$@"}},"en": {"stringUnit": {"state": "translated","value": "Failed to install %1$@. Try manually: npm install -g %2$@"}},"es": {"stringUnit": {"state": "translated","value": "No se pudo instalar %1$@. Intenta manualmente: npm install -g %2$@"}},"fr": {"stringUnit": {"state": "translated","value": "Échec de l’installation de %1$@. Essayez manuellement : npm install -g %2$@"}},"it": {"stringUnit": {"state": "translated","value": "Installazione di %1$@ non riuscita. Prova manualmente: npm install -g %2$@"}},"ja": {"stringUnit": {"state": "translated","value": "%1$@ のインストールに失敗しました。手動で試してください: npm install -g %2$@"}},"ko": {"stringUnit": {"state": "translated","value": "%1$@ 설치에 실패했습니다. 직접 시도하세요: npm install -g %2$@"}},"nb": {"stringUnit": {"state": "translated","value": "Kunne ikke installere %1$@. Prøv manuelt: npm install -g %2$@"}},"pl": {"stringUnit": {"state": "translated","value": "Nie udało się zainstalować %1$@. Spróbuj ręcznie: npm install -g %2$@"}},"pt-BR": {"stringUnit": {"state": "translated","value": "Falha ao instalar %1$@. Tente manualmente: npm install -g %2$@"}},"ru": {"stringUnit": {"state": "translated","value": "Не удалось установить %1$@. Попробуйте вручную: npm install -g %2$@"}},"th": {"stringUnit": {"state": "translated","value": "ติดตั้ง %1$@ ไม่สำเร็จ ลองด้วยตนเอง: npm install -g %2$@"}},"tr": {"stringUnit": {"state": "translated","value": "%1$@ yüklenemedi. Elle deneyin: npm install -g %2$@"}},"uk": {"stringUnit": {"state": "translated","value": "Не вдалося встановити %1$@. Спробуйте вручну: npm install -g %2$@"}},"zh-Hans": {"stringUnit": {"state": "translated","value": "无法安装 %1$@。请手动尝试：npm install -g %2$@"}},"zh-Hant": {"stringUnit": {"state": "translated","value": "無法安裝 %1$@。請手動嘗試：npm install -g %2$@"}}}},
+    "cli.omo.noPackageManager": {"extractionState": "manual","localizations": {"ar": {"stringUnit": {"state": "translated","value": "لم يتم العثور على bun أو npm في PATH. ثبّت %1$@ يدويًا: bunx %2$@ install"}},"bs": {"stringUnit": {"state": "translated","value": "Ni bun ni npm nisu pronađeni u PATH-u. Instalirajte %1$@ ručno: bunx %2$@ install"}},"da": {"stringUnit": {"state": "translated","value": "Hverken bun eller npm blev fundet i PATH. Installer %1$@ manuelt: bunx %2$@ install"}},"de": {"stringUnit": {"state": "translated","value": "Weder bun noch npm wurde in PATH gefunden. Installieren Sie %1$@ manuell: bunx %2$@ install"}},"en": {"stringUnit": {"state": "translated","value": "Neither bun nor npm found in PATH. Install %1$@ manually: bunx %2$@ install"}},"es": {"stringUnit": {"state": "translated","value": "No se encontró bun ni npm en PATH. Instala %1$@ manualmente: bunx %2$@ install"}},"fr": {"stringUnit": {"state": "translated","value": "Ni bun ni npm n’a été trouvé dans PATH. Installez %1$@ manuellement : bunx %2$@ install"}},"it": {"stringUnit": {"state": "translated","value": "Né bun né npm trovati in PATH. Installa %1$@ manualmente: bunx %2$@ install"}},"ja": {"stringUnit": {"state": "translated","value": "PATH に bun も npm も見つかりません。%1$@ を手動でインストールしてください: bunx %2$@ install"}},"ko": {"stringUnit": {"state": "translated","value": "PATH에서 bun 또는 npm을 찾을 수 없습니다. %1$@을(를) 직접 설치하세요: bunx %2$@ install"}},"nb": {"stringUnit": {"state": "translated","value": "Fant verken bun eller npm i PATH. Installer %1$@ manuelt: bunx %2$@ install"}},"pl": {"stringUnit": {"state": "translated","value": "Nie znaleziono bun ani npm w PATH. Zainstaluj %1$@ ręcznie: bunx %2$@ install"}},"pt-BR": {"stringUnit": {"state": "translated","value": "Nem bun nem npm foram encontrados no PATH. Instale %1$@ manualmente: bunx %2$@ install"}},"ru": {"stringUnit": {"state": "translated","value": "В PATH не найден ни bun, ни npm. Установите %1$@ вручную: bunx %2$@ install"}},"th": {"stringUnit": {"state": "translated","value": "ไม่พบ bun หรือ npm ใน PATH ติดตั้ง %1$@ ด้วยตนเอง: bunx %2$@ install"}},"tr": {"stringUnit": {"state": "translated","value": "PATH içinde bun veya npm bulunamadı. %1$@ paketini elle yükleyin: bunx %2$@ install"}},"uk": {"stringUnit": {"state": "translated","value": "У PATH не знайдено ні bun, ні npm. Встановіть %1$@ вручну: bunx %2$@ install"}},"zh-Hans": {"stringUnit": {"state": "translated","value": "在 PATH 中找不到 bun 或 npm。请手动安装 %1$@：bunx %2$@ install"}},"zh-Hant": {"stringUnit": {"state": "translated","value": "在 PATH 中找不到 bun 或 npm。請手動安裝 %1$@：bunx %2$@ install"}}}},
+    "cli.omo.pluginInstalled": {"extractionState": "manual","localizations": {"ar": {"stringUnit": {"state": "translated","value": "تم تثبيت المكوّن الإضافي %@"}},"bs": {"stringUnit": {"state": "translated","value": "%@ dodatak je instaliran"}},"da": {"stringUnit": {"state": "translated","value": "%@-plugin installeret"}},"de": {"stringUnit": {"state": "translated","value": "%@-Plugin installiert"}},"en": {"stringUnit": {"state": "translated","value": "%@ plugin installed"}},"es": {"stringUnit": {"state": "translated","value": "Plugin %@ instalado"}},"fr": {"stringUnit": {"state": "translated","value": "Plugin %@ installé"}},"it": {"stringUnit": {"state": "translated","value": "Plugin %@ installato"}},"ja": {"stringUnit": {"state": "translated","value": "%@ プラグインをインストールしました"}},"ko": {"stringUnit": {"state": "translated","value": "%@ 플러그인이 설치되었습니다"}},"nb": {"stringUnit": {"state": "translated","value": "%@-tillegget er installert"}},"pl": {"stringUnit": {"state": "translated","value": "Wtyczka %@ została zainstalowana"}},"pt-BR": {"stringUnit": {"state": "translated","value": "Plugin %@ instalado"}},"ru": {"stringUnit": {"state": "translated","value": "Плагин %@ установлен"}},"th": {"stringUnit": {"state": "translated","value": "ติดตั้งปลั๊กอิน %@ แล้ว"}},"tr": {"stringUnit": {"state": "translated","value": "%@ eklentisi yüklendi"}},"uk": {"stringUnit": {"state": "translated","value": "Плагін %@ встановлено"}},"zh-Hans": {"stringUnit": {"state": "translated","value": "%@ 插件已安装"}},"zh-Hant": {"stringUnit": {"state": "translated","value": "%@ 外掛已安裝"}}}},
     "cli.help.dismissNotification": { "extractionState": "manual", "localizations": { "en": { "stringUnit": { "state": "translated", "value": "Usage: cmux dismiss-notification (--id <uuid> | --all-read)\n\nRemove one notification, or remove every already-read notification.\n\nFlags:\n  --id <uuid>           Notification id to remove\n  --all-read            Remove every already-read notification\n  --json                Print JSON\n  --id-format <mode>    refs, uuids, or both" } }, "ja": { "stringUnit": { "state": "translated", "value": "Usage: cmux dismiss-notification (--id <uuid> | --all-read)\n\n通知を1件削除するか、既読の通知をすべて削除します。\n\nFlags:\n  --id <uuid>           削除する通知 ID\n  --all-read            既読の通知をすべて削除\n  --json                JSON を出力\n  --id-format <mode>    refs、uuids、both のいずれか" } } } },
     "cli.help.jumpToUnread": { "extractionState": "manual", "localizations": { "en": { "stringUnit": { "state": "translated", "value": "Usage: cmux jump-to-unread\n\nFocus the latest unread notification, matching the Notifications page action.\n\nFlags:\n  --json                Print JSON\n  --id-format <mode>    refs, uuids, or both" } }, "ja": { "stringUnit": { "state": "translated", "value": "Usage: cmux jump-to-unread\n\n通知ページの操作と同じく、最新の未読通知へフォーカスします。\n\nFlags:\n  --json                JSON を出力\n  --id-format <mode>    refs、uuids、both のいずれか" } } } },
     "cli.help.markNotificationRead": { "extractionState": "manual", "localizations": { "en": { "stringUnit": { "state": "translated", "value": "Usage: cmux mark-notification-read (--id <uuid> | --workspace <id|ref> [--surface <id|ref>] | --all)\n\nMark notifications read without opening them. Exactly one selector is required.\n\nFlags:\n  --id <uuid>           Mark one notification read\n  --workspace <id|ref>  Mark notifications for a workspace\n  --surface <id|ref>    Narrow --workspace to one surface\n  --all                 Mark every notification read\n  --json                Print JSON\n  --id-format <mode>    refs, uuids, or both" } }, "ja": { "stringUnit": { "state": "translated", "value": "Usage: cmux mark-notification-read (--id <uuid> | --workspace <id|ref> [--surface <id|ref>] | --all)\n\n通知を開かずに既読にします。セレクタは1つだけ指定してください。\n\nFlags:\n  --id <uuid>           通知を1件既読にする\n  --workspace <id|ref>  ワークスペースの通知を既読にする\n  --surface <id|ref>    --workspace を1つのサーフェスに絞り込む\n  --all                 すべての通知を既読にする\n  --json                JSON を出力\n  --id-format <mode>    refs、uuids、both のいずれか" } } } },
     "cli.help.openNotification": { "extractionState": "manual", "localizations": { "en": { "stringUnit": { "state": "translated", "value": "Usage: cmux open-notification --id <uuid>\n\nFocus the notification's workspace and surface, then mark the row read.\n\nFlags:\n  --id <uuid>           Notification id to open\n  --json                Print JSON\n  --id-format <mode>    refs, uuids, or both" } }, "ja": { "stringUnit": { "state": "translated", "value": "Usage: cmux open-notification --id <uuid>\n\n通知のワークスペースとサーフェスへフォーカスし、その行を既読にします。\n\nFlags:\n  --id <uuid>           開く通知 ID\n  --json                JSON を出力\n  --id-format <mode>    refs、uuids、both のいずれか" } } } },
+    "cli.help.setStatus": { "extractionState": "manual", "localizations": { "en": { "stringUnit": { "state": "translated", "value": "Usage: cmux set-status <key> <value> [flags]\n\nSet a sidebar status entry for a workspace. Status entries appear as\npills in the sidebar tab row. Use a unique key so different tools\n(e.g. \"claude_code\", \"build\") can manage their own entries.\n\nFlags:\n  --icon <name>          Icon name (e.g. \"sparkle\", \"hammer\")\n  --color <#hex>         Pill color (e.g. \"#ff9500\")\n  --priority <n>         Sort priority; higher appears first (default: 0)\n  --workspace <id|ref>   Target workspace (default: $CMUX_WORKSPACE_ID)\n\nExample:\n  cmux set-status build \"compiling\" --icon hammer --color \"#ff9500\" --priority 80\n  cmux set-status deploy \"v1.2.3\" --workspace workspace:2" } }, "ja": { "stringUnit": { "state": "translated", "value": "Usage: cmux set-status <key> <value> [flags]\n\nワークスペースのサイドバーステータスエントリを設定します。ステータスエントリは\nサイドバーのタブ行にピルとして表示されます。異なるツール\n（例: \"claude_code\", \"build\"）がそれぞれのエントリを管理できるよう、一意のキーを使用してください。\n\nFlags:\n  --icon <name>          アイコン名（例: \"sparkle\", \"hammer\"）\n  --color <#hex>         ピルの色（例: \"#ff9500\"）\n  --priority <n>         並び順の優先度。大きい値ほど先に表示（デフォルト: 0）\n  --workspace <id|ref>   対象ワークスペース（デフォルト: $CMUX_WORKSPACE_ID）\n\nExample:\n  cmux set-status build \"compiling\" --icon hammer --color \"#ff9500\" --priority 80\n  cmux set-status deploy \"v1.2.3\" --workspace workspace:2" } } } },
     "socket.notification.dismissSelectorRequired": { "extractionState": "manual", "localizations": { "en": { "stringUnit": { "state": "translated", "value": "Select exactly one of id or all_read" } }, "ja": { "stringUnit": { "state": "translated", "value": "id または all_read のどちらか一つだけを選択してください" } } } },
     "socket.notification.idRequired": { "extractionState": "manual", "localizations": { "en": { "stringUnit": { "state": "translated", "value": "Missing or invalid notification id" } }, "ja": { "stringUnit": { "state": "translated", "value": "通知 ID が指定されていないか無効です" } } } },
     "socket.notification.markReadSelectorRequired": { "extractionState": "manual", "localizations": { "en": { "stringUnit": { "state": "translated", "value": "Select exactly one of id, tab_id, or all" } }, "ja": { "stringUnit": { "state": "translated", "value": "id、tab_id、all のいずれか一つだけを選択してください" } } } },
@@ -20911,7 +20918,7 @@
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "待機中"
+            "value": "待機状態"
           }
         }
       }
@@ -20923,6 +20930,244 @@
           "stringUnit": {
             "state": "translated",
             "value": "Idle"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "入力待ち"
+          }
+        }
+      }
+    },
+    "agent.generic.notification.body.approvalNeeded": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Approval needed"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "承認が必要です"
+          }
+        }
+      }
+    },
+    "agent.generic.notification.body.needsAttention": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ needs your attention"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ の確認が必要です"
+          }
+        }
+      }
+    },
+    "agent.generic.notification.body.reportedError": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ reported an error"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ がエラーを報告しました"
+          }
+        }
+      }
+    },
+    "agent.generic.notification.body.sentNotification": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ sent a notification"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ から通知が届きました"
+          }
+        }
+      }
+    },
+    "agent.generic.notification.body.taskCompleted": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Task completed"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "タスクが完了しました"
+          }
+        }
+      }
+    },
+    "agent.generic.notification.body.waitingForInput": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Waiting for input"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "入力待ち"
+          }
+        }
+      }
+    },
+    "agent.generic.notification.status.error": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ error"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ エラー"
+          }
+        }
+      }
+    },
+    "agent.generic.notification.status.idle": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Idle"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "待機中"
+          }
+        }
+      }
+    },
+    "agent.generic.notification.status.needsInput": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ needs input"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ 入力待ち"
+          }
+        }
+      }
+    },
+    "agent.generic.notification.subtitle.attention": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Attention"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "確認"
+          }
+        }
+      }
+    },
+    "agent.generic.notification.subtitle.completed": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Completed"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "完了"
+          }
+        }
+      }
+    },
+    "agent.generic.notification.subtitle.error": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Error"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "エラー"
+          }
+        }
+      }
+    },
+    "agent.generic.notification.subtitle.permission": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Permission"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "権限"
+          }
+        }
+      }
+    },
+    "agent.generic.notification.subtitle.waiting": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Waiting"
           }
         },
         "ja": {
@@ -59589,6 +59834,75 @@
         }
       }
     },
+    "settings.automation.ripgrep.customPath": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ripgrep Binary Path"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ripgrepバイナリパス"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ripgrep 바이너리 경로"
+          }
+        }
+      }
+    },
+    "settings.automation.ripgrep.customPath.placeholder": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "e.g. /etc/profiles/per-user/you/bin/rg"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "例: /etc/profiles/per-user/you/bin/rg"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "예: /etc/profiles/per-user/you/bin/rg"
+          }
+        }
+      }
+    },
+    "settings.automation.ripgrep.customPath.subtitle": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Custom path to the rg binary used by Find. Leave empty to use common install locations and PATH."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Findで使用するrgバイナリのカスタムパス。空欄の場合は一般的なインストール先とPATHを使用します。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Find에서 사용하는 rg 바이너리의 사용자 지정 경로입니다. 일반 설치 위치와 PATH를 사용하려면 비워두세요."
+          }
+        }
+      }
+    },
     "settings.automation.claudeCode.note": {
       "extractionState": "manual",
       "localizations": {
@@ -77867,6 +78181,29 @@
             }
         }
     },
+    "settings.search.alias.setting.automation.ripgrep-path": {
+        "extractionState": "manual",
+        "localizations": {
+            "en": {
+                "stringUnit": {
+                    "state": "translated",
+                    "value": "automation.ripgrepBinaryPath ripgrep rg binary executable path search find nix custom"
+                }
+            },
+            "ja": {
+                "stringUnit": {
+                    "state": "translated",
+                    "value": "automation.ripgrepBinaryPath ripgrep rg binary executable path search find nix custom 検索 パス カスタム"
+                }
+            },
+            "ko": {
+                "stringUnit": {
+                    "state": "translated",
+                    "value": "automation.ripgrepBinaryPath ripgrep rg binary executable path search find nix custom 검색 경로 사용자 지정"
+                }
+            }
+        }
+    },
     "settings.search.alias.setting.automation.cursor": {
         "extractionState": "manual",
         "localizations": {
@@ -87116,6 +87453,29 @@
           "stringUnit": {
             "state": "translated",
             "value": "%d件、検索中"
+          }
+        }
+      }
+    },
+    "fileExplorer.search.rgConfiguredPathNotExecutable": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Configured ripgrep path is not executable: %@"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "設定されたripgrepパスは実行できません: %@"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "설정된 ripgrep 경로를 실행할 수 없습니다: %@"
           }
         }
       }
@@ -106799,6 +107159,533 @@
         }
       }
     },
+    "surfaceResumeApproval.cwd.none": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "None"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "なし"
+          }
+        }
+      }
+    },
+    "surfaceResumeApproval.proposal.ask": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ask Each Time"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "毎回確認"
+          }
+        }
+      }
+    },
+    "surfaceResumeApproval.proposal.auto": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Auto-Restore"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "自動復元"
+          }
+        }
+      }
+    },
+    "surfaceResumeApproval.proposal.manual": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Keep Manual"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "手動で保持"
+          }
+        }
+      }
+    },
+    "surfaceResumeApproval.proposal.message": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "A process wants cmux to keep this resume command for the current terminal:\n\n%@\n\nWorking directory: %@"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "プロセスが現在のターミナルにこの復元コマンドを保持しようとしています:\n\n%@\n\n作業ディレクトリ: %@"
+          }
+        }
+      }
+    },
+    "surfaceResumeApproval.proposal.title": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Allow Resume Command?"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "復元コマンドを許可しますか?"
+          }
+        }
+      }
+    },
+    "surfaceResumeApproval.runPrompt.message": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux is restoring a terminal with this resume command:\n\n%@\n\nWorking directory: %@"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux はこの復元コマンドでターミナルを復元しようとしています:\n\n%@\n\n作業ディレクトリ: %@"
+          }
+        }
+      }
+    },
+    "surfaceResumeApproval.runPrompt.run": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Run"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "実行"
+          }
+        }
+      }
+    },
+    "surfaceResumeApproval.runPrompt.skip": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Skip"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "スキップ"
+          }
+        }
+      }
+    },
+    "surfaceResumeApproval.runPrompt.title": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Run Resume Command?"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "復元コマンドを実行しますか?"
+          }
+        }
+      }
+    },
+    "settings.terminal.resumeCommands": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Resume Commands"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "復元コマンド"
+          }
+        }
+      }
+    },
+    "settings.terminal.resumeCommands.cwdSummary": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Prefix: %@, cwd: %@"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "プレフィックス: %@、cwd: %@"
+          }
+        }
+      }
+    },
+    "settings.terminal.resumeCommands.cwdOnlySummary": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cwd: %@"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cwd: %@"
+          }
+        }
+      }
+    },
+    "settings.terminal.resumeCommands.delete": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Delete"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "削除"
+          }
+        }
+      }
+    },
+    "settings.terminal.resumeCommands.deleteFailed": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Could not delete the resume command approval."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "復元コマンドの承認を削除できませんでした。"
+          }
+        }
+      }
+    },
+    "settings.terminal.resumeCommands.deleted": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Resume command approval deleted."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "復元コマンドの承認を削除しました。"
+          }
+        }
+      }
+    },
+    "settings.terminal.resumeCommands.empty": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "No custom resume commands have been approved."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "承認済みのカスタム復元コマンドはありません。"
+          }
+        }
+      }
+    },
+    "settings.terminal.resumeCommands.envSummary": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "env: %@"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "環境変数: %@"
+          }
+        }
+      }
+    },
+    "settings.terminal.resumeCommands.invalidPrefix": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Enter a valid shell-style command prefix."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "有効なシェル形式のコマンドプレフィックスを入力してください。"
+          }
+        }
+      }
+    },
+    "settings.terminal.resumeCommands.invalidSignature": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Signature does not match. Delete this approval and approve the command again."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "署名が一致しません。この承認を削除してから、コマンドを再度承認してください。"
+          }
+        }
+      }
+    },
+    "settings.terminal.resumeCommands.policy.auto": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Auto"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "自動"
+          }
+        }
+      }
+    },
+    "settings.terminal.resumeCommands.policy.manual": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Manual"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "手動"
+          }
+        }
+      }
+    },
+    "settings.terminal.resumeCommands.policy.prompt": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ask"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "確認"
+          }
+        }
+      }
+    },
+    "settings.terminal.resumeCommands.prefixPlaceholder": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Command prefix"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "コマンドプレフィックス"
+          }
+        }
+      }
+    },
+    "settings.terminal.resumeCommands.prefixSummary": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Prefix: %@"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "プレフィックス: %@"
+          }
+        }
+      }
+    },
+    "settings.terminal.resumeCommands.save": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Save"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "保存"
+          }
+        }
+      }
+    },
+    "settings.terminal.resumeCommands.sourceUnknown": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Unknown source"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "不明なソース"
+          }
+        }
+      }
+    },
+    "settings.terminal.resumeCommands.subtitle": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Review signed command prefixes that can restore non-agent terminal surfaces."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "非エージェントのターミナルサーフェスを復元できる署名済みコマンドプレフィックスを確認します。"
+          }
+        }
+      }
+    },
+    "settings.terminal.resumeCommands.updateFailed": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Could not update the resume command approval."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "復元コマンドの承認を更新できませんでした。"
+          }
+        }
+      }
+    },
+    "settings.terminal.resumeCommands.updated": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Resume command approval updated."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "復元コマンドの承認を更新しました。"
+          }
+        }
+      }
+    },
+    "settings.search.alias.setting.terminal.resume-commands": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "surface resume commands approvals command prefixes auto restore ask manual tmux hibernation sticky process"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "surface resume commands approvals command prefixes auto restore ask manual tmux hibernation sticky process"
+          }
+        }
+      }
+    },
     "settings.app.preferredEditor.subtitle": {
       "extractionState": "manual",
       "localizations": {
@@ -107123,6 +108010,23 @@
           "stringUnit": {
             "state": "translated",
             "value": "Codex"
+          }
+        }
+      }
+    },
+    "sessionIndex.agent.grok": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Grok"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Grok"
           }
         }
       }
@@ -112400,6 +113304,13 @@
       "localizations": {
         "en": { "stringUnit": { "state": "translated", "value": "Codex" } },
         "ja": { "stringUnit": { "state": "translated", "value": "Codex" } }
+      }
+    },
+    "taskManager.agent.grok": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Grok" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "Grok" } }
       }
     },
     "taskManager.agent.opencode": {
