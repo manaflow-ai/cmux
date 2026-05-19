@@ -56,6 +56,22 @@ final class CmuxEventWindowWorkspaceIndex: @unchecked Sendable {
         return windowIdByWorkspaceId[workspaceId]
     }
 
+    func rememberWorkspace(windowId: String?, workspaceId: String?) {
+        guard let windowId = Self.normalizedId(windowId),
+              let workspaceId = Self.normalizedId(workspaceId) else { return }
+        lock.lock()
+        if let oldWindowId = windowIdByWorkspaceId[workspaceId],
+           oldWindowId != windowId {
+            workspaceIdsByWindowId[oldWindowId]?.remove(workspaceId)
+        }
+        for existingWindowId in Array(workspaceIdsByWindowId.keys) where existingWindowId != windowId {
+            workspaceIdsByWindowId[existingWindowId]?.remove(workspaceId)
+        }
+        workspaceIdsByWindowId[windowId, default: []].insert(workspaceId)
+        windowIdByWorkspaceId[workspaceId] = windowId
+        lock.unlock()
+    }
+
     func rememberSurface(surfaceId: String?, workspaceId: String?, windowId: String?, paneId: String?) {
         guard let surfaceId = Self.normalizedId(surfaceId) else { return }
         lock.lock()
@@ -463,6 +479,12 @@ final class CmuxEventBus: @unchecked Sendable {
         let resolvedWindowId = windowId ??
             CmuxEventWindowWorkspaceIndex.shared.windowId(workspaceId: resolvedWorkspaceId) ??
             indexedSurfaceLocation?.windowId
+        if windowId != nil {
+            CmuxEventWindowWorkspaceIndex.shared.rememberWorkspace(
+                windowId: resolvedWindowId,
+                workspaceId: resolvedWorkspaceId
+            )
+        }
         if surfaceId != nil, resolvedWorkspaceId != nil || resolvedWindowId != nil || resolvedPaneId != nil {
             CmuxEventWindowWorkspaceIndex.shared.rememberSurface(
                 surfaceId: surfaceId,
@@ -471,6 +493,13 @@ final class CmuxEventBus: @unchecked Sendable {
                 paneId: resolvedPaneId
             )
         }
+        Self.rememberPayloadSurfaceLocations(
+            name: name,
+            payload: cleanPayload,
+            workspaceId: resolvedWorkspaceId,
+            windowId: resolvedWindowId,
+            paneId: resolvedPaneId
+        )
 
         lock.lock()
         let sequence = nextSequence
@@ -770,6 +799,52 @@ final class CmuxEventBus: @unchecked Sendable {
             return values.compactMap(normalizedString)
         }
         return []
+    }
+
+    private static func rememberPayloadSurfaceLocations(
+        name: String,
+        payload: Any,
+        workspaceId: String?,
+        windowId: String?,
+        paneId: String?
+    ) {
+        guard name == "pane.swapped" else { return }
+        let sourcePaneId = payloadString(payload, key: "source_pane_id") ??
+            payloadString(payload, key: "pane_id") ??
+            paneId
+        let targetPaneId = payloadString(payload, key: "target_pane_id")
+        let sourceSurfaceId = payloadString(payload, key: "source_surface_id")
+        let targetSurfaceId = payloadString(payload, key: "target_surface_id")
+
+        if let sourceSurfaceId, let targetPaneId {
+            CmuxEventWindowWorkspaceIndex.shared.rememberSurface(
+                surfaceId: sourceSurfaceId,
+                workspaceId: workspaceId,
+                windowId: windowId,
+                paneId: targetPaneId
+            )
+        }
+        if let targetSurfaceId, let sourcePaneId {
+            CmuxEventWindowWorkspaceIndex.shared.rememberSurface(
+                surfaceId: targetSurfaceId,
+                workspaceId: workspaceId,
+                windowId: windowId,
+                paneId: sourcePaneId
+            )
+        }
+    }
+
+    private static func payloadString(_ payload: Any, key: String) -> String? {
+        guard let payload = payload as? [String: Any] else { return nil }
+        let containers: [[String: Any]] = [payload] + ["result", "params"].compactMap {
+            payload[$0] as? [String: Any]
+        }
+        for container in containers {
+            if let value = normalizedString(container[key]) {
+                return value
+            }
+        }
+        return nil
     }
 
     private static func normalizedString(_ value: Any?) -> String? {

@@ -454,6 +454,109 @@ final class CmuxEventBusTests: XCTestCase {
         XCTAssertEqual(windowReplay.replay.compactMap { $0["name"] as? String }, ["notification.requested"])
     }
 
+    func testExplicitWindowWorkspaceEventsIndexFutureWorkspaceOnlyEvents() throws {
+        let bus = CmuxEventBus(retainedEventLimit: 8)
+        let windowId = UUID().uuidString
+        let workspaceId = UUID().uuidString
+
+        bus.publish(
+            name: "pane.broken",
+            category: "pane",
+            source: "socket.v2",
+            workspaceId: workspaceId,
+            windowId: windowId,
+            payload: [
+                "result": [
+                    "workspace_id": workspaceId,
+                    "window_id": windowId
+                ]
+            ]
+        )
+        bus.publish(
+            name: "feed.item.received",
+            category: "feed",
+            source: "socket-worker",
+            workspaceId: workspaceId,
+            payload: ["workspace_id": workspaceId]
+        )
+
+        let retained = bus.retainedSnapshot()
+        XCTAssertEqual(retained.last?["window_id"] as? String, windowId)
+
+        let windowReplay = bus.subscribe(
+            afterSequence: 0,
+            names: [],
+            categories: [],
+            scope: CmuxEventScope(kind: .window, windowId: windowId)
+        )
+        defer { bus.unsubscribe(windowReplay.subscription) }
+        XCTAssertEqual(
+            windowReplay.replay.compactMap { $0["name"] as? String },
+            ["pane.broken", "feed.item.received"]
+        )
+    }
+
+    func testPaneSwapUpdatesIndexedSurfacePaneOwnership() throws {
+        let bus = CmuxEventBus(retainedEventLimit: 8)
+        let windowId = UUID().uuidString
+        let workspaceId = UUID().uuidString
+        let sourcePaneId = UUID().uuidString
+        let targetPaneId = UUID().uuidString
+        let sourceSurfaceId = UUID().uuidString
+        let targetSurfaceId = UUID().uuidString
+
+        CmuxEventWindowWorkspaceIndex.shared.replace(windowId: windowId, workspaceIds: [workspaceId])
+        CmuxEventWindowWorkspaceIndex.shared.rememberSurface(
+            surfaceId: sourceSurfaceId,
+            workspaceId: workspaceId,
+            windowId: windowId,
+            paneId: sourcePaneId
+        )
+        CmuxEventWindowWorkspaceIndex.shared.rememberSurface(
+            surfaceId: targetSurfaceId,
+            workspaceId: workspaceId,
+            windowId: windowId,
+            paneId: targetPaneId
+        )
+
+        bus.publish(
+            name: "pane.swapped",
+            category: "pane",
+            source: "socket.v2",
+            workspaceId: workspaceId,
+            paneId: sourcePaneId,
+            windowId: windowId,
+            payload: [
+                "result": [
+                    "workspace_id": workspaceId,
+                    "window_id": windowId,
+                    "pane_id": sourcePaneId,
+                    "target_pane_id": targetPaneId,
+                    "source_surface_id": sourceSurfaceId,
+                    "target_surface_id": targetSurfaceId
+                ]
+            ]
+        )
+        bus.publish(
+            name: "surface.input_sent",
+            category: "surface",
+            source: "socket.v1",
+            surfaceId: sourceSurfaceId,
+            payload: ["surface_id": sourceSurfaceId]
+        )
+        bus.publish(
+            name: "surface.input_sent",
+            category: "surface",
+            source: "socket.v1",
+            surfaceId: targetSurfaceId,
+            payload: ["surface_id": targetSurfaceId]
+        )
+
+        let retained = bus.retainedSnapshot()
+        XCTAssertEqual(retained[1]["pane_id"] as? String, targetPaneId)
+        XCTAssertEqual(retained[2]["pane_id"] as? String, sourcePaneId)
+    }
+
     @MainActor
     func testEventScopeResolverPrefersExplicitWorkspaceOverCallerSurface() throws {
         let previousAppDelegate = AppDelegate.shared

@@ -82,6 +82,7 @@ extension TabManager {
             let insertIndex = Self.clampedDetachedWorkspaceInsertIndex(plannedInsertIndex, workspaces: updatedTabs)
             updatedTabs.insert(newWorkspace, at: insertIndex)
             tabs = updatedTabs
+            refreshCmuxEventWindowWorkspaceIndex()
 
             if select {
 #if DEBUG
