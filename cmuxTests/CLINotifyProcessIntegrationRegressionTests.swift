@@ -1313,6 +1313,78 @@ final class CLINotifyProcessIntegrationRegressionTests: XCTestCase {
         )
     }
 
+    func testVMNewWindowFlagAcceptsCaseInsensitiveUUID() throws {
+        let cliPath = try bundledCLIPath()
+        let socketPath = makeSocketPath("vm-window-case")
+        let listenerFD = try bindUnixSocket(at: socketPath)
+        let state = MockSocketServerState()
+        let listedWindowId = "AAAAAAAA-AAAA-4AAA-8AAA-AAAAAAAAAAAA"
+        let requestedWindowId = listedWindowId.lowercased()
+
+        defer {
+            Darwin.close(listenerFD)
+            unlink(socketPath)
+        }
+
+        let serverHandled = startMockServer(listenerFD: listenerFD, state: state) { line in
+            guard let payload = self.jsonObject(line),
+                  let id = payload["id"] as? String,
+                  let method = payload["method"] as? String else {
+                return self.malformedRequestResponse(raw: line)
+            }
+
+            switch method {
+            case "window.list":
+                return self.v2Response(
+                    id: id,
+                    ok: true,
+                    result: [
+                        "windows": [
+                            [
+                                "id": listedWindowId,
+                                "ref": "window:1",
+                                "index": 0,
+                            ],
+                        ],
+                    ]
+                )
+            case "vm.create":
+                return self.v2Response(
+                    id: id,
+                    ok: true,
+                    result: [
+                        "id": "vm-test-case-window",
+                        "provider": "freestyle",
+                        "image": "default",
+                    ]
+                )
+            default:
+                return self.v2Response(id: id, ok: false, error: ["code": "unexpected", "message": "unexpected method: \(method)"])
+            }
+        }
+
+        var environment = ProcessInfo.processInfo.environment
+        environment["CMUX_SOCKET_PATH"] = socketPath
+        environment["CMUX_CLI_SENTRY_DISABLED"] = "1"
+        environment["CMUX_CLAUDE_HOOK_SENTRY_DISABLED"] = "1"
+
+        let result = runProcess(
+            executablePath: cliPath,
+            arguments: ["vm", "new", "--window", requestedWindowId, "--detach"],
+            environment: environment,
+            timeout: 5
+        )
+
+        wait(for: [serverHandled], timeout: 5)
+        XCTAssertFalse(result.timedOut, result.stderr)
+        XCTAssertEqual(result.status, 0, result.stderr)
+        XCTAssertTrue(result.stdout.contains("OK vm-test-case-window"), result.stdout)
+        XCTAssertEqual(
+            state.commands.compactMap { self.jsonObject($0)?["method"] as? String },
+            ["window.list", "vm.create"]
+        )
+    }
+
     func testMoveSurfaceWindowFlagTargetsDestinationOnly() throws {
         let cliPath = try bundledCLIPath()
         let socketPath = makeSocketPath("move-surface-window")
