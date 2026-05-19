@@ -289,6 +289,7 @@ struct RightSidebarPanelView: View {
             keyPrefix: "rightSidebarHeaderOpenAsPane",
             isVisible: true
         )
+        .rightSidebarHeaderControlAlignment()
         .safeHelp(String(localized: "rightSidebar.openAsPane.tooltip", defaultValue: "Open as pane"))
         .accessibilityLabel(
             String.localizedStringWithFormat(
@@ -346,6 +347,7 @@ struct RightSidebarPanelView: View {
                     .zIndex(10)
             }
         }
+        .rightSidebarHeaderControlAlignment()
         .shortcutHintVisibilityAnimation(value: showsShortcutHint)
     }
 
