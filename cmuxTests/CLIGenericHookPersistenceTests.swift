@@ -1893,6 +1893,24 @@ extension CLINotifyProcessIntegrationRegressionTests {
         let preToolUse = try XCTUnwrap(hooks["PreToolUse"] as? [[String: Any]])
         XCTAssertEqual(preToolUse.first?["timeoutSec"] as? Int, 120)
 
+        try ("// Copilot hook file comment\n" + String(contentsOf: hookURL, encoding: .utf8))
+            .write(to: hookURL, atomically: true, encoding: .utf8)
+        let reinstallResult = runProcess(
+            executablePath: cliPath,
+            arguments: ["hooks", "copilot", "install", "--yes"],
+            environment: [
+                "HOME": root.path,
+                "COPILOT_HOME": copilotHome.path,
+                "PATH": "/usr/bin:/bin:/usr/sbin:/sbin",
+                "CMUX_CLI_SENTRY_DISABLED": "1",
+            ],
+            timeout: 5
+        )
+        XCTAssertFalse(reinstallResult.timedOut, reinstallResult.stderr)
+        XCTAssertEqual(reinstallResult.status, 0, reinstallResult.stderr)
+        let reinstalledHookString = try String(contentsOf: hookURL, encoding: .utf8)
+        XCTAssertTrue(reinstalledHookString.hasPrefix("// Copilot hook file comment\n"), reinstalledHookString)
+
         var configJSONC = try String(contentsOf: configURL, encoding: .utf8)
         XCTAssertTrue(
             configJSONC.hasPrefix("// Copilot CLI 1.0.49 writes comments at the top of config.json."),
@@ -1908,7 +1926,12 @@ extension CLINotifyProcessIntegrationRegressionTests {
         }
         """.write(to: configURL, atomically: true, encoding: .utf8)
 
-        let stableHookJSON = try XCTUnwrap(JSONSerialization.jsonObject(with: Data(contentsOf: hookURL)) as? [String: Any])
+        let uncommentedHookFile = try String(contentsOf: hookURL, encoding: .utf8)
+            .split(separator: "\n", omittingEmptySubsequences: false)
+            .filter { !String($0).trimmingCharacters(in: .whitespaces).hasPrefix("//") }
+            .joined(separator: "\n")
+        let stableHookJSONData = try XCTUnwrap(uncommentedHookFile.data(using: .utf8))
+        let stableHookJSON = try XCTUnwrap(JSONSerialization.jsonObject(with: stableHookJSONData) as? [String: Any])
         XCTAssertNotNil((stableHookJSON["hooks"] as? [String: Any])?["SessionStart"])
         configJSONC = try String(contentsOf: configURL, encoding: .utf8)
         XCTAssertFalse(configJSONC.contains(#""hooks""#), configJSONC)

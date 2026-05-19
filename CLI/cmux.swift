@@ -21153,7 +21153,7 @@ export default function cmuxPiSessionExtension(pi: ExtensionAPI) {
 
         var existing: [String: Any] = [:]
         if let data = fm.contents(atPath: filePath) {
-            guard let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any] else {
+            guard let json = Self.jsonObjectForHookConfig(from: data, def: def) else {
                 throw CLIError(message: "\(filePath) exists but is not valid JSON. Fix or remove it before installing hooks.")
             }
             existing = json
@@ -21269,14 +21269,19 @@ export default function cmuxPiSessionExtension(pi: ExtensionAPI) {
         let codexLegacyHookTrustHashes = Self.codexLegacyHookTrustHashes(def: def)
 
         let newData = try JSONSerialization.data(withJSONObject: existing, options: [.prettyPrinted, .sortedKeys])
-        let newString = String(data: newData, encoding: .utf8) ?? "{}"
+        let dataToWrite = Self.hookConfigDataPreservingLeadingComments(
+            newData,
+            originalData: fm.contents(atPath: filePath),
+            def: def
+        )
+        let newString = String(data: dataToWrite, encoding: .utf8) ?? "{}"
         let oldString: String = {
             if let data = fm.contents(atPath: filePath),
-               let json = try? JSONSerialization.jsonObject(with: data),
+               let json = Self.jsonObjectForHookConfig(from: data, def: def),
                let pretty = try? JSONSerialization.data(
                     withJSONObject: json, options: [.prettyPrinted, .sortedKeys]
                ),
-               let s = String(data: pretty, encoding: .utf8)
+               let s = String(data: Self.hookConfigDataPreservingLeadingComments(pretty, originalData: data, def: def), encoding: .utf8)
             {
                 return s
             }
@@ -21300,7 +21305,7 @@ export default function cmuxPiSessionExtension(pi: ExtensionAPI) {
                     return
                 }
             }
-            try newData.write(to: URL(fileURLWithPath: filePath), options: .atomic)
+            try dataToWrite.write(to: URL(fileURLWithPath: filePath), options: .atomic)
             print("\(def.displayName) hooks installed at \(filePath)")
         }
 
@@ -21614,27 +21619,18 @@ export default function cmuxPiSessionExtension(pi: ExtensionAPI) {
     }
 
     private static func localizedLegacyHookRemovalMessage(
-        count: Int,
+        count _: Int,
         displayName: String,
         path: String
     ) -> String {
-        let format: String
-        if count == 1 {
-            format = String(localized: "cli.hooks.legacy.removedEntry.one", defaultValue: "Removed %lld legacy %@ cmux hook from %@")
-        } else {
-            format = String(localized: "cli.hooks.legacy.removedEntry.other", defaultValue: "Removed %lld legacy %@ cmux hooks from %@")
-        }
-        return String(format: format, Int64(count), displayName, path)
+        String(format: String(localized: "cli.hooks.legacy.removedFile", defaultValue: "Removed legacy %@ hooks at %@"), displayName, path)
     }
 
     private static func localizedHookRemovalMessage(count: Int, path: String) -> String {
-        let format: String
-        if count == 1 {
-            format = String(localized: "cli.hooks.removedEntry.one", defaultValue: "Removed %lld cmux hook from %@")
-        } else {
-            format = String(localized: "cli.hooks.removedEntry.other", defaultValue: "Removed %lld cmux hooks from %@")
+        if count == 0 {
+            return String(format: String(localized: "cli.hooks.removedNone", defaultValue: "No cmux hooks found at %@"), path)
         }
-        return String(format: format, Int64(count), path)
+        return String(format: String(localized: "cli.hooks.removedFile", defaultValue: "Removed cmux hooks at %@"), path)
     }
 
     private static func hookCommandValue(in entry: [String: Any]) -> String? {
@@ -21673,6 +21669,31 @@ export default function cmuxPiSessionExtension(pi: ExtensionAPI) {
         case .nested, .rovoDevYAML, .hermesAgentYAML:
             return false
         }
+    }
+
+    private static func jsonObjectForHookConfig(from data: Data, def: AgentHookDef) -> [String: Any]? {
+        if def.name == "copilot" {
+            return jsonObjectAllowingLineComments(from: data)
+        }
+        return try? JSONSerialization.jsonObject(with: data) as? [String: Any]
+    }
+
+    private static func hookConfigDataPreservingLeadingComments(
+        _ data: Data,
+        originalData: Data?,
+        def: AgentHookDef
+    ) -> Data {
+        guard def.name == "copilot",
+              let originalData,
+              let original = String(data: originalData, encoding: .utf8),
+              let serialized = String(data: data, encoding: .utf8) else {
+            return data
+        }
+        let prefix = leadingJSONLineCommentPrefix(from: original)
+        guard !prefix.isEmpty, let prefixedData = (prefix + serialized).data(using: .utf8) else {
+            return data
+        }
+        return prefixedData
     }
 
     private static func jsonObjectAllowingLineComments(from data: Data) -> [String: Any]? {
