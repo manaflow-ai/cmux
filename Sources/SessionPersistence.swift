@@ -1281,7 +1281,114 @@ enum SessionScrollbackReplayStore {
         guard let scrollback else { return nil }
         guard scrollback.contains(where: { !$0.isWhitespace }) else { return nil }
         guard let truncated = SessionPersistencePolicy.truncatedScrollback(scrollback) else { return nil }
-        return ansiSafeReplayText(truncated)
+        let replayText = removingTrailingZshEndOfLinePercentMarkers(from: truncated)
+        guard replayText.contains(where: { !$0.isWhitespace }) else { return nil }
+        return ansiSafeReplayText(replayText)
+    }
+
+    private static func removingTrailingZshEndOfLinePercentMarkers(from text: String) -> String {
+        var output = text
+        while let lineRange = trailingNonEmptyLineRange(in: output) {
+            let line = String(output[lineRange])
+            guard isZshEndOfLinePercentMarker(line) else { break }
+            output.removeSubrange(lineRange.lowerBound..<output.endIndex)
+        }
+        return output
+    }
+
+    private static func trailingNonEmptyLineRange(in text: String) -> Range<String.Index>? {
+        guard !text.isEmpty else { return nil }
+
+        var lineEnd = text.endIndex
+        while lineEnd > text.startIndex {
+            let previous = text.index(before: lineEnd)
+            guard isLineSeparator(text[previous]) else { break }
+            lineEnd = previous
+        }
+        guard lineEnd > text.startIndex else { return nil }
+
+        var lineStart = lineEnd
+        while lineStart > text.startIndex {
+            let previous = text.index(before: lineStart)
+            guard !isLineSeparator(text[previous]) else { break }
+            lineStart = previous
+        }
+        return lineStart..<lineEnd
+    }
+
+    private static func isLineSeparator(_ character: Character) -> Bool {
+        character.unicodeScalars.allSatisfy { scalar in
+            scalar.value == 0x0A || scalar.value == 0x0D
+        }
+    }
+
+    private static func isZshEndOfLinePercentMarker(_ line: String) -> Bool {
+        removingANSIControlSequences(from: line)
+            .trimmingCharacters(in: .whitespacesAndNewlines) == "%"
+    }
+
+    private static func removingANSIControlSequences(from text: String) -> String {
+        var output = String.UnicodeScalarView()
+        var iterator = text.unicodeScalars.makeIterator()
+
+        while let scalar = iterator.next() {
+            switch scalar.value {
+            case 0x1B:
+                guard let introducer = iterator.next() else { continue }
+                if introducer.value == 0x5B {
+                    skipCSISequence(using: &iterator)
+                } else if introducer.value == 0x5D {
+                    skipOSCSequence(using: &iterator)
+                } else if isStringTerminatedEscapeIntroducer(introducer) {
+                    skipStringTerminatedSequence(using: &iterator)
+                }
+            case 0x9B:
+                skipCSISequence(using: &iterator)
+            case 0x9D:
+                skipOSCSequence(using: &iterator)
+            case 0x90, 0x9E, 0x9F:
+                skipStringTerminatedSequence(using: &iterator)
+            default:
+                output.append(scalar)
+            }
+        }
+
+        return String(output)
+    }
+
+    private static func isStringTerminatedEscapeIntroducer(_ scalar: Unicode.Scalar) -> Bool {
+        scalar.value == 0x50 || scalar.value == 0x5E || scalar.value == 0x5F
+    }
+
+    private static func skipCSISequence(using iterator: inout String.UnicodeScalarView.Iterator) {
+        while let scalar = iterator.next() {
+            if (0x40...0x7E).contains(scalar.value) {
+                return
+            }
+        }
+    }
+
+    private static func skipOSCSequence(using iterator: inout String.UnicodeScalarView.Iterator) {
+        skipStringTerminatedSequence(using: &iterator, allowsBellTerminator: true)
+    }
+
+    private static func skipStringTerminatedSequence(
+        using iterator: inout String.UnicodeScalarView.Iterator,
+        allowsBellTerminator: Bool = false
+    ) {
+        var previousWasEscape = false
+        while let scalar = iterator.next() {
+            if allowsBellTerminator, scalar.value == 0x07 {
+                return
+            }
+            if scalar.value == 0x9C {
+                return
+            }
+            if previousWasEscape, scalar.value == 0x5C {
+                return
+            }
+            previousWasEscape = scalar.value == 0x1B
+        }
     }
 
     /// Preserve ANSI color state safely across replay boundaries.

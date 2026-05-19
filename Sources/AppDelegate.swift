@@ -879,6 +879,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
     }
     private var lastSessionAutosaveFingerprint: Int?
     private var lastSessionAutosavePersistedAt: Date = .distantPast
+    private var latestRestorableAgentIndexForSessionSnapshot: RestorableAgentSessionIndex = .empty
+    private var latestSurfaceResumeBindingIndexForSessionSnapshot: SurfaceResumeBindingIndex = .empty
     private var lastTypingActivityAt: TimeInterval = 0
     var didHandleExplicitOpenIntentAtStartup = false
     private var didScheduleInitialMainWindowBootstrap = false
@@ -1527,37 +1529,34 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
     }
 
     func applicationShouldTerminate(_ sender: NSApplication) -> NSApplication.TerminateReply {
+        let isTaggedDevBuild = SocketControlSettings.isTaggedDevBuild()
+        let isQuitWarningEnabled = QuitWarningSettings.isEnabled()
         StartupBreadcrumbLog.append(
             "appDelegate.shouldTerminate.begin",
             fields: [
-                "taggedDev": SocketControlSettings.isTaggedDevBuild() ? "1" : "0",
+                "taggedDev": isTaggedDevBuild ? "1" : "0",
                 "quitWarningConfirmed": isQuitWarningConfirmed ? "1" : "0",
-                "quitWarningEnabled": QuitWarningSettings.isEnabled() ? "1" : "0"
+                "quitWarningEnabled": isQuitWarningEnabled ? "1" : "0"
             ]
         )
-        isTerminatingApp = true
-        _ = saveSessionSnapshotIncludingProcessDetectedIndexes(includeScrollback: true, removeWhenEmpty: false)
 
-        // Tagged DEV builds are ephemeral, skip quit confirmation entirely.
-        if SocketControlSettings.isTaggedDevBuild() {
-            closeAllWebInspectorsBeforeAppTeardown()
-            StartupBreadcrumbLog.append("appDelegate.shouldTerminate.terminateNow", fields: ["reason": "taggedDev"])
-            return .terminateNow
-        }
-
-        // If the user already confirmed via the Cmd+Q shortcut warning dialog
-        // (handleQuitShortcutWarning), skip the check to avoid a second alert.
-        if isQuitWarningConfirmed {
-            closeAllWebInspectorsBeforeAppTeardown()
-            StartupBreadcrumbLog.append("appDelegate.shouldTerminate.terminateNow", fields: ["reason": "confirmed"])
-            return .terminateNow
-        }
-
-        // Respect the "Warn Before Quit" setting even when Cmd+Q arrives via
-        // the Cmd+Tab app switcher, bypassing handleCustomShortcut.
-        guard QuitWarningSettings.isEnabled() else {
-            closeAllWebInspectorsBeforeAppTeardown()
-            StartupBreadcrumbLog.append("appDelegate.shouldTerminate.terminateNow", fields: ["reason": "warningDisabled"])
+        if Self.shouldSaveTerminatingSessionSnapshotBeforeQuitWarning(
+            isTaggedDevBuild: isTaggedDevBuild,
+            isQuitWarningConfirmed: isQuitWarningConfirmed,
+            isQuitWarningEnabled: isQuitWarningEnabled
+        ) {
+            let reason: String
+            if isTaggedDevBuild {
+                // Tagged DEV builds are ephemeral, skip quit confirmation entirely.
+                reason = "taggedDev"
+            } else if isQuitWarningConfirmed {
+                // The Cmd+Q shortcut warning path already asked the user.
+                reason = "confirmed"
+            } else {
+                // Respect "Warn Before Quit" even when Cmd+Q bypasses handleCustomShortcut.
+                reason = "warningDisabled"
+            }
+            prepareForConfirmedAppTerminationSnapshot(reason: reason)
             return .terminateNow
         }
 
@@ -1581,7 +1580,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             let shouldQuit = response == .alertFirstButtonReturn
             if shouldQuit {
                 self.isQuitWarningConfirmed = true
-                self.closeAllWebInspectorsBeforeAppTeardown()
+                self.prepareForConfirmedAppTerminationSnapshot(reason: "confirmed")
                 StartupBreadcrumbLog.append("appDelegate.shouldTerminate.reply", fields: ["shouldQuit": "1"])
             } else {
                 // Reset so that the next quit attempt can show the dialog again.
@@ -1592,6 +1591,13 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         }
         StartupBreadcrumbLog.append("appDelegate.shouldTerminate.later")
         return .terminateLater
+    }
+
+    private func prepareForConfirmedAppTerminationSnapshot(reason: String) {
+        isTerminatingApp = true
+        _ = saveSessionSnapshotIncludingProcessDetectedIndexes(includeScrollback: true, removeWhenEmpty: false)
+        closeAllWebInspectorsBeforeAppTeardown()
+        StartupBreadcrumbLog.append("appDelegate.shouldTerminate.terminateNow", fields: ["reason": reason])
     }
 
     @discardableResult
@@ -3311,6 +3317,31 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         )
     }
 
+    func sessionWindowSnapshotForSessionPersistence(
+        tabManager: TabManager,
+        window: NSWindow?,
+        sidebarState: SidebarState,
+        sidebarSelectionState: SidebarSelectionState,
+        includeScrollback: Bool,
+        restorableAgentIndex: RestorableAgentSessionIndex,
+        surfaceResumeBindingIndex: SurfaceResumeBindingIndex? = nil
+    ) -> SessionWindowSnapshot {
+        SessionWindowSnapshot(
+            frame: window.map { SessionRectSnapshot($0.frame) },
+            display: displaySnapshot(for: window),
+            tabManager: tabManager.sessionSnapshot(
+                includeScrollback: includeScrollback,
+                restorableAgentIndex: restorableAgentIndex,
+                surfaceResumeBindingIndex: surfaceResumeBindingIndex
+            ),
+            sidebar: SessionSidebarSnapshot(
+                isVisible: sidebarState.isVisible,
+                selection: SessionSidebarSelection(selection: sidebarSelectionState.selection),
+                width: SessionPersistencePolicy.sanitizedSidebarWidth(Double(sidebarState.persistedWidth))
+            )
+        )
+    }
+
     private func startSessionAutosaveTimerIfNeeded() {
         guard sessionAutosaveTimer == nil else { return }
         let env = ProcessInfo.processInfo.environment
@@ -3439,32 +3470,30 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         guard !includeScrollback else { return nil }
 
         var hasher = Hasher()
-        let contexts = mainWindowContexts.values.sorted { lhs, rhs in
-            lhs.windowId.uuidString < rhs.windowId.uuidString
-        }
-        hasher.combine(contexts.count)
+        let routes = sortedMainWindowRoutesForSessionAutosaveFingerprint()
+        hasher.combine(routes.count)
 
-        for context in contexts.prefix(SessionPersistencePolicy.maxWindowsPerSnapshot) {
-            hasher.combine(context.windowId)
+        for route in routes.prefix(SessionPersistencePolicy.maxWindowsPerSnapshot) {
+            hasher.combine(route.windowId)
             hasher.combine(
-                context.tabManager.sessionAutosaveFingerprint(
+                route.tabManager.sessionAutosaveFingerprint(
                     restorableAgentIndex: restorableAgentIndex,
                     surfaceResumeBindingIndex: surfaceResumeBindingIndex
                 )
             )
-            hasher.combine(context.sidebarState.isVisible)
+            hasher.combine(route.sidebarState.isVisible)
             hasher.combine(
-                Int(SessionPersistencePolicy.sanitizedSidebarWidth(Double(context.sidebarState.persistedWidth)).rounded())
+                Int(SessionPersistencePolicy.sanitizedSidebarWidth(Double(route.sidebarState.persistedWidth)).rounded())
             )
 
-            switch context.sidebarSelectionState.selection {
+            switch route.sidebarSelectionState.selection {
             case .tabs:
                 hasher.combine(0)
             case .notifications:
                 hasher.combine(1)
             }
 
-            if let window = context.window ?? windowForMainWindowId(context.windowId) {
+            if let window = route.window {
                 Self.hashFrame(window.frame, into: &hasher)
             } else {
                 hasher.combine(-1)
@@ -3474,11 +3503,34 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         return hasher.finalize()
     }
 
+#if DEBUG
+    func debugSessionAutosaveFingerprintForTesting() -> Int? {
+        sessionAutosaveFingerprint(
+            includeScrollback: false,
+            restorableAgentIndex: .empty,
+            surfaceResumeBindingIndex: .empty
+        )
+    }
+
+    func debugSetLatestRestorableAgentIndexForTesting(_ index: RestorableAgentSessionIndex) {
+        latestRestorableAgentIndexForSessionSnapshot = index
+    }
+#endif
+
+    func cachedRestorableAgentIndexForSessionSnapshot() -> RestorableAgentSessionIndex {
+        latestRestorableAgentIndexForSessionSnapshot
+    }
+
+    func cachedSurfaceResumeBindingIndexForSessionSnapshot() -> SurfaceResumeBindingIndex {
+        latestSurfaceResumeBindingIndexForSessionSnapshot
+    }
+
     @discardableResult
     private func saveSessionSnapshot(
         includeScrollback: Bool,
         removeWhenEmpty: Bool = false,
         restorableAgentIndex: RestorableAgentSessionIndex? = nil,
+        includeRecoverableRoutes: Bool? = nil,
         surfaceResumeBindingIndex: SurfaceResumeBindingIndex? = nil
     ) -> Bool {
         if Self.shouldSkipSessionSaveDuringRestore(
@@ -3505,10 +3557,14 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         }
 #endif
 
+        let shouldIncludeRecoverableRoutes = includeRecoverableRoutes ?? Self.shouldIncludeRecoverableRoutesInSessionSnapshot(
+            isTerminatingApp: isTerminatingApp
+        )
         guard let snapshot = buildSessionSnapshot(
             includeScrollback: includeScrollback,
             restorableAgentIndex: restorableAgentIndex,
-            surfaceResumeBindingIndex: surfaceResumeBindingIndex
+            surfaceResumeBindingIndex: surfaceResumeBindingIndex,
+            includeRecoverableRoutes: shouldIncludeRecoverableRoutes
         ) else {
             persistSessionSnapshot(
                 nil,
@@ -3541,13 +3597,17 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
 #if DEBUG
     func debugBenchmarkSessionSnapshot(
         includeScrollback: Bool,
-        persist: Bool
+        persist: Bool,
+        includeRecoverableRoutes: Bool = true
     ) -> [String: Any] {
         SessionSnapshotDebugBenchmark.run(
             includeScrollback: includeScrollback,
             persist: persist,
             buildSnapshot: { [self] includeScrollback in
-                buildSessionSnapshot(includeScrollback: includeScrollback)
+                buildSessionSnapshot(
+                    includeScrollback: includeScrollback,
+                    includeRecoverableRoutes: includeRecoverableRoutes
+                )
             },
             persistedGeometryData: { snapshot in
                 snapshot?.windows.first.flatMap { primaryWindow in
@@ -3570,17 +3630,21 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
 
     func debugBuildSessionSnapshotForTesting(
         includeScrollback: Bool,
+        includeRecoverableRoutes: Bool = true,
+        restorableAgentIndex: RestorableAgentSessionIndex? = nil,
         surfaceResumeBindingIndex: SurfaceResumeBindingIndex? = nil
     ) -> AppSessionSnapshot? {
         buildSessionSnapshot(
             includeScrollback: includeScrollback,
-            surfaceResumeBindingIndex: surfaceResumeBindingIndex
+            restorableAgentIndex: restorableAgentIndex,
+            surfaceResumeBindingIndex: surfaceResumeBindingIndex,
+            includeRecoverableRoutes: includeRecoverableRoutes
         )
     }
 
     func debugSeedSessionSnapshotScrollback(charactersPerTerminal: Int) -> [String: Any] {
-        let workspaces = sortedMainWindowContextsForSessionSnapshot().flatMap { context in
-            context.tabManager.tabs.filter { !$0.isRemoteWorkspace }
+        let workspaces = sortedMainWindowRoutesForSessionSnapshot().flatMap { route in
+            route.tabManager.tabs.filter { !$0.isRemoteWorkspace }
         }
         return SessionSnapshotDebugBenchmark.seedScrollback(
             workspaces: workspaces,
@@ -3591,6 +3655,18 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
 
     nonisolated static func shouldPersistSnapshotOnWindowUnregister(isTerminatingApp: Bool) -> Bool {
         !isTerminatingApp
+    }
+
+    nonisolated static func shouldSaveTerminatingSessionSnapshotBeforeQuitWarning(
+        isTaggedDevBuild: Bool,
+        isQuitWarningConfirmed: Bool,
+        isQuitWarningEnabled: Bool
+    ) -> Bool {
+        isTaggedDevBuild || isQuitWarningConfirmed || !isQuitWarningEnabled
+    }
+
+    nonisolated static func shouldIncludeRecoverableRoutesInSessionSnapshot(isTerminatingApp: Bool) -> Bool {
+        isTerminatingApp
     }
 
     nonisolated static func shouldSaveSessionSnapshotAfterMainWindowRegistration(
@@ -3696,6 +3772,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
 #endif
             return
         }
+        rememberLatestResumeIndexesForSessionSnapshot(resumeIndexes)
         let autosaveFingerprint = sessionAutosaveFingerprint(
             includeScrollback: false,
             restorableAgentIndex: resumeIndexes.restorableAgentIndex,
@@ -3744,6 +3821,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         removeWhenEmpty: Bool = false
     ) -> Bool {
         let resumeIndexes = ProcessDetectedResumeIndexes.loadSynchronously()
+        rememberLatestResumeIndexesForSessionSnapshot(resumeIndexes)
         return saveSessionSnapshot(
             includeScrollback: includeScrollback,
             removeWhenEmpty: removeWhenEmpty,
@@ -3762,6 +3840,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             guard let self,
                   !self.isTerminatingApp,
                   self.isCurrentProcessDetectedSessionSaveGeneration(generation) else { return }
+            self.rememberLatestResumeIndexesForSessionSnapshot(resumeIndexes)
             _ = self.saveSessionSnapshot(
                 includeScrollback: includeScrollback,
                 removeWhenEmpty: removeWhenEmpty,
@@ -3779,6 +3858,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
 
     private func isCurrentProcessDetectedSessionSaveGeneration(_ generation: UInt64) -> Bool {
         generation == processDetectedSessionSaveGeneration
+    }
+
+    private func rememberLatestResumeIndexesForSessionSnapshot(_ resumeIndexes: ProcessDetectedResumeIndexes) {
+        latestRestorableAgentIndexForSessionSnapshot = resumeIndexes.restorableAgentIndex
+        latestSurfaceResumeBindingIndexForSessionSnapshot = resumeIndexes.surfaceResumeBindingIndex
     }
 
     fileprivate func recordTypingActivity() {
@@ -3879,32 +3963,54 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
     private func buildSessionSnapshot(
         includeScrollback: Bool,
         restorableAgentIndex suppliedRestorableAgentIndex: RestorableAgentSessionIndex? = nil,
-        surfaceResumeBindingIndex suppliedSurfaceResumeBindingIndex: SurfaceResumeBindingIndex? = nil
+        surfaceResumeBindingIndex suppliedSurfaceResumeBindingIndex: SurfaceResumeBindingIndex? = nil,
+        includeRecoverableRoutes: Bool = true
     ) -> AppSessionSnapshot? {
-        let contexts = sortedMainWindowContextsForSessionSnapshot()
+        let routes = sortedMainWindowRoutesForSessionSnapshot(
+            includeRecoverableRoutes: false
+        )
 
-        guard !contexts.isEmpty else { return nil }
-        let restorableAgentIndex = suppliedRestorableAgentIndex ?? RestorableAgentSessionIndex.load()
+        let restorableAgentIndex: RestorableAgentSessionIndex
+        if let suppliedRestorableAgentIndex {
+            restorableAgentIndex = suppliedRestorableAgentIndex
+            latestRestorableAgentIndexForSessionSnapshot = suppliedRestorableAgentIndex
+        } else {
+            restorableAgentIndex = RestorableAgentSessionIndex.load()
+        }
+        if let suppliedSurfaceResumeBindingIndex {
+            latestSurfaceResumeBindingIndexForSessionSnapshot = suppliedSurfaceResumeBindingIndex
+        }
+        let maxWindowSnapshots = SessionPersistencePolicy.maxWindowsPerSnapshot
 
-        let windows: [SessionWindowSnapshot] = contexts
-            .prefix(SessionPersistencePolicy.maxWindowsPerSnapshot)
-            .map { context in
-                let window = context.window ?? windowForMainWindowId(context.windowId)
-                return SessionWindowSnapshot(
-                    frame: window.map { SessionRectSnapshot($0.frame) },
-                    display: displaySnapshot(for: window),
-                    tabManager: context.tabManager.sessionSnapshot(
-                        includeScrollback: includeScrollback,
-                        restorableAgentIndex: restorableAgentIndex,
-                        surfaceResumeBindingIndex: suppliedSurfaceResumeBindingIndex
-                    ),
-                    sidebar: SessionSidebarSnapshot(
-                        isVisible: context.sidebarState.isVisible,
-                        selection: SessionSidebarSelection(selection: context.sidebarSelectionState.selection),
-                        width: SessionPersistencePolicy.sanitizedSidebarWidth(Double(context.sidebarState.persistedWidth))
-                    )
+        var seenWindowIds: Set<UUID> = []
+        var windows: [SessionWindowSnapshot] = []
+        for route in routes {
+            guard windows.count < maxWindowSnapshots else { break }
+            guard seenWindowIds.insert(route.windowId).inserted else { continue }
+            windows.append(
+                sessionWindowSnapshotForSessionPersistence(
+                    tabManager: route.tabManager,
+                    window: route.window,
+                    sidebarState: route.sidebarState,
+                    sidebarSelectionState: route.sidebarSelectionState,
+                    includeScrollback: includeScrollback,
+                    restorableAgentIndex: restorableAgentIndex,
+                    surfaceResumeBindingIndex: suppliedSurfaceResumeBindingIndex
                 )
+            )
+        }
+
+        if includeRecoverableRoutes, windows.count < maxWindowSnapshots {
+            for recoverable in recoverableMainWindowSnapshotsForSessionSnapshot(
+                includeScrollback: includeScrollback,
+                restorableAgentIndex: restorableAgentIndex,
+                surfaceResumeBindingIndex: suppliedSurfaceResumeBindingIndex,
+                excludingWindowIds: seenWindowIds,
+                maxSnapshotCount: maxWindowSnapshots - windows.count
+            ) where seenWindowIds.insert(recoverable.windowId).inserted {
+                windows.append(recoverable.snapshot)
             }
+        }
 
         guard !windows.isEmpty else { return nil }
         return AppSessionSnapshot(
@@ -5356,7 +5462,13 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         for key in removedKeys {
             mainWindowContexts.removeValue(forKey: key)
         }
-        rememberRecoverableMainWindowRoute(windowId: removed.windowId, tabManager: removed.tabManager, window: removed.window)
+        rememberRecoverableMainWindowRoute(
+            windowId: removed.windowId,
+            tabManager: removed.tabManager,
+            window: removed.window,
+            sidebarState: removed.sidebarState,
+            sidebarSelectionState: removed.sidebarSelectionState
+        )
         notifyMainWindowContextsDidChange()
         return removed
     }
@@ -5368,7 +5480,13 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         for key in contextKeys {
             mainWindowContexts.removeValue(forKey: key)
         }
-        rememberRecoverableMainWindowRoute(windowId: context.windowId, tabManager: context.tabManager, window: context.window)
+        rememberRecoverableMainWindowRoute(
+            windowId: context.windowId,
+            tabManager: context.tabManager,
+            window: context.window,
+            sidebarState: context.sidebarState,
+            sidebarSelectionState: context.sidebarSelectionState
+        )
         notifyMainWindowContextsDidChange()
 
         commandPaletteVisibilityByWindowId.removeValue(forKey: context.windowId)

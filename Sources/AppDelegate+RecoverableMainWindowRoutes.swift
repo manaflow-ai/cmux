@@ -1,17 +1,58 @@
 import AppKit
 import ObjectiveC.runtime
 
+private extension SessionWindowSnapshot {
+    var containsTerminalPanel: Bool {
+        tabManager.workspaces.contains { workspace in
+            workspace.panels.contains { $0.terminal != nil }
+        }
+    }
+
+    func removingTerminalScrollback() -> SessionWindowSnapshot {
+        var snapshot = self
+        snapshot.tabManager.workspaces = snapshot.tabManager.workspaces.map { workspace in
+            var workspace = workspace
+            workspace.panels = workspace.panels.map { panel in
+                var panel = panel
+                if var terminal = panel.terminal {
+                    terminal.scrollback = nil
+                    panel.terminal = terminal
+                }
+                return panel
+            }
+            return workspace
+        }
+        return snapshot
+    }
+}
+
 @MainActor
 final class RecoverableMainWindowRoute {
     let windowId: UUID
     weak var tabManager: TabManager?
     weak var window: NSWindow?
+    let sidebarState: SidebarState
+    let sidebarSelectionState: SidebarSelectionState
+    // Full snapshots are rebuilt at save time while the manager is live; this is only a lightweight
+    // no-scrollback fallback for routes whose manager disappears before the terminating save.
+    let fallbackSnapshot: SessionWindowSnapshot
     let order: UInt64
 
-    init(windowId: UUID, tabManager: TabManager, window: NSWindow?, order: UInt64) {
+    init(
+        windowId: UUID,
+        tabManager: TabManager,
+        window: NSWindow?,
+        sidebarState: SidebarState,
+        sidebarSelectionState: SidebarSelectionState,
+        fallbackSnapshot: SessionWindowSnapshot,
+        order: UInt64
+    ) {
         self.windowId = windowId
         self.tabManager = tabManager
         self.window = window
+        self.sidebarState = sidebarState
+        self.sidebarSelectionState = sidebarSelectionState
+        self.fallbackSnapshot = fallbackSnapshot
         self.order = order
     }
 }
@@ -34,9 +75,22 @@ private struct MainWindowRouteSnapshot {
     let window: NSWindow?
 }
 
+private enum RegisteredMainWindowSessionRouteOrdering {
+    case keyWindowFirst
+    case stableWindowId
+}
+
 private var mainWindowRouteLedgerKey: UInt8 = 0
 
 extension AppDelegate {
+    struct SessionSnapshotMainWindowRoute {
+        let windowId: UUID
+        let tabManager: TabManager
+        let window: NSWindow?
+        let sidebarState: SidebarState
+        let sidebarSelectionState: SidebarSelectionState
+    }
+
     private var mainWindowRouteLedger: MainWindowRouteLedger {
         if let ledger = objc_getAssociatedObject(self, &mainWindowRouteLedgerKey) as? MainWindowRouteLedger {
             return ledger
@@ -101,13 +155,146 @@ extension AppDelegate {
         }
     }
 
+    private func registeredMainWindowRoutesForSessionSnapshot(
+        ordering: RegisteredMainWindowSessionRouteOrdering
+    ) -> [SessionSnapshotMainWindowRoute] {
+        mainWindowContexts.values
+            .sorted { lhs, rhs in
+                switch ordering {
+                case .keyWindowFirst:
+                    let lhsWindow = lhs.window ?? windowForMainWindowId(lhs.windowId)
+                    let rhsWindow = rhs.window ?? windowForMainWindowId(rhs.windowId)
+                    let lhsIsKey = lhsWindow?.isKeyWindow ?? false
+                    let rhsIsKey = rhsWindow?.isKeyWindow ?? false
+                    if lhsIsKey != rhsIsKey {
+                        return lhsIsKey && !rhsIsKey
+                    }
+                case .stableWindowId:
+                    break
+                }
+                return lhs.windowId.uuidString < rhs.windowId.uuidString
+            }
+            .map { context in
+                SessionSnapshotMainWindowRoute(
+                    windowId: context.windowId,
+                    tabManager: context.tabManager,
+                    window: context.window ?? windowForMainWindowId(context.windowId),
+                    sidebarState: context.sidebarState,
+                    sidebarSelectionState: context.sidebarSelectionState
+                )
+            }
+    }
+
+    private func recoverableMainWindowRoutesForSessionSnapshot() -> [SessionSnapshotMainWindowRoute] {
+        sortedRecoverableMainWindowRoutes().compactMap { route in
+            guard let manager = route.tabManager else { return nil }
+            guard tabManagerHasRegisteredTerminalSurface(manager) else { return nil }
+            let window = liveRecoverableMainWindow(windowId: route.windowId, cachedWindow: route.window)
+            if let window {
+                route.window = window
+            }
+            return SessionSnapshotMainWindowRoute(
+                windowId: route.windowId,
+                tabManager: manager,
+                window: window,
+                sidebarState: route.sidebarState,
+                sidebarSelectionState: route.sidebarSelectionState
+            )
+        }
+    }
+
+    func recoverableMainWindowSnapshotsForSessionSnapshot(
+        includeScrollback: Bool,
+        restorableAgentIndex: RestorableAgentSessionIndex,
+        surfaceResumeBindingIndex: SurfaceResumeBindingIndex? = nil,
+        excludingWindowIds excludedWindowIds: Set<UUID> = [],
+        maxSnapshotCount: Int? = nil
+    ) -> [(windowId: UUID, snapshot: SessionWindowSnapshot)] {
+        var snapshots: [(windowId: UUID, snapshot: SessionWindowSnapshot)] = []
+        for route in sortedRecoverableMainWindowRoutes() {
+            if let maxSnapshotCount, snapshots.count >= maxSnapshotCount {
+                break
+            }
+            guard !excludedWindowIds.contains(route.windowId) else { continue }
+
+            let window = liveRecoverableMainWindow(windowId: route.windowId, cachedWindow: route.window)
+            if let window {
+                route.window = window
+            }
+
+            if let manager = route.tabManager,
+               tabManagerHasRegisteredTerminalSurface(manager) {
+                snapshots.append((
+                    route.windowId,
+                    sessionWindowSnapshotForSessionPersistence(
+                        tabManager: manager,
+                        window: window,
+                        sidebarState: route.sidebarState,
+                        sidebarSelectionState: route.sidebarSelectionState,
+                        includeScrollback: includeScrollback,
+                        restorableAgentIndex: restorableAgentIndex,
+                        surfaceResumeBindingIndex: surfaceResumeBindingIndex
+                    )
+                ))
+                continue
+            }
+
+            let cachedSnapshot = route.fallbackSnapshot
+            guard cachedSnapshot.containsTerminalPanel else { continue }
+
+            let snapshot = includeScrollback
+                ? cachedSnapshot
+                : cachedSnapshot.removingTerminalScrollback()
+            snapshots.append((route.windowId, snapshot))
+        }
+        return snapshots
+    }
+
+    private func sortedMainWindowRoutesForSessionSnapshot(
+        registeredRouteOrdering: RegisteredMainWindowSessionRouteOrdering,
+        includeRecoverableRoutes: Bool
+    ) -> [SessionSnapshotMainWindowRoute] {
+        var seen: Set<UUID> = []
+        var routes: [SessionSnapshotMainWindowRoute] = []
+        let registeredRoutes = registeredMainWindowRoutesForSessionSnapshot(ordering: registeredRouteOrdering)
+
+        for route in registeredRoutes where seen.insert(route.windowId).inserted {
+            routes.append(route)
+        }
+
+        if includeRecoverableRoutes {
+            for route in recoverableMainWindowRoutesForSessionSnapshot() where seen.insert(route.windowId).inserted {
+                routes.append(route)
+            }
+        }
+
+        return routes
+    }
+
+    func sortedMainWindowRoutesForSessionSnapshot(
+        includeRecoverableRoutes: Bool = true
+    ) -> [SessionSnapshotMainWindowRoute] {
+        sortedMainWindowRoutesForSessionSnapshot(
+            registeredRouteOrdering: .keyWindowFirst,
+            includeRecoverableRoutes: includeRecoverableRoutes
+        )
+    }
+
+    func sortedMainWindowRoutesForSessionAutosaveFingerprint() -> [SessionSnapshotMainWindowRoute] {
+        sortedMainWindowRoutesForSessionSnapshot(
+            registeredRouteOrdering: .stableWindowId,
+            includeRecoverableRoutes: false
+        )
+    }
+
     func retireRecoverableMainWindowRoutesWithoutRegisteredTerminalSurfaces(reason: String) {
         let before = mainWindowRouteLedger.routesByWindowId.count
         mainWindowRouteLedger.routesByWindowId = mainWindowRouteLedger.routesByWindowId.filter { _, route in
-            guard let manager = route.tabManager else { return false }
-            guard let window = liveRecoverableMainWindow(windowId: route.windowId, cachedWindow: route.window) else { return false }
-            route.window = window
-            return tabManagerHasRegisteredTerminalSurface(manager)
+            guard let manager = route.tabManager else { return route.fallbackSnapshot.containsTerminalPanel }
+            if let window = liveRecoverableMainWindow(windowId: route.windowId, cachedWindow: route.window) {
+                route.window = window
+            }
+            return tabManagerHasRegisteredTerminalSurface(manager) || route.fallbackSnapshot.containsTerminalPanel
         }
         let after = mainWindowRouteLedger.routesByWindowId.count
 #if DEBUG
@@ -125,13 +312,37 @@ extension AppDelegate {
         }
     }
 
-    func rememberRecoverableMainWindowRoute(windowId: UUID, tabManager: TabManager, window: NSWindow?) {
-        guard let window = liveRecoverableMainWindow(windowId: windowId, cachedWindow: window) else { return }
+#if DEBUG
+    func debugClearRecoverableMainWindowRouteManagerForTesting(windowId: UUID) {
+        mainWindowRouteLedger.routesByWindowId[windowId]?.tabManager = nil
+    }
+#endif
+
+    func rememberRecoverableMainWindowRoute(
+        windowId: UUID,
+        tabManager: TabManager,
+        window: NSWindow?,
+        sidebarState: SidebarState,
+        sidebarSelectionState: SidebarSelectionState
+    ) {
+        let window = liveRecoverableMainWindow(windowId: windowId, cachedWindow: window)
         guard tabManagerHasRegisteredTerminalSurface(tabManager) else { return }
+        let fallbackSnapshot = sessionWindowSnapshotForSessionPersistence(
+            tabManager: tabManager,
+            window: window,
+            sidebarState: sidebarState,
+            sidebarSelectionState: sidebarSelectionState,
+            includeScrollback: false,
+            restorableAgentIndex: cachedRestorableAgentIndexForSessionSnapshot(),
+            surfaceResumeBindingIndex: cachedSurfaceResumeBindingIndexForSessionSnapshot()
+        )
         mainWindowRouteLedger.routesByWindowId[windowId] = RecoverableMainWindowRoute(
             windowId: windowId,
             tabManager: tabManager,
             window: window,
+            sidebarState: sidebarState,
+            sidebarSelectionState: sidebarSelectionState,
+            fallbackSnapshot: fallbackSnapshot,
             order: mainWindowRouteLedger.issueOrder()
         )
 #if DEBUG

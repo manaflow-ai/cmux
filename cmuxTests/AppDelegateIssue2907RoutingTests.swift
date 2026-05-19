@@ -676,6 +676,281 @@ final class AppDelegateIssue2907RoutingTests: XCTestCase {
         XCTAssertEqual(currentWorkspace["workspace_id"] as? String, recoveredWorkspace.id.uuidString)
     }
 
+#if DEBUG
+    func testSessionSnapshotIncludesRecoveredWindowRouteAfterCloseBeforeQuit() throws {
+        _ = NSApplication.shared
+        let previousAppDelegate = AppDelegate.shared
+        let app = AppDelegate()
+        defer {
+            AppDelegate.shared = previousAppDelegate
+        }
+
+        let registeredWindowId = UUID()
+        let recoveredWindowId = UUID()
+        let registeredWindow = makeMainWindow(id: registeredWindowId)
+        let recoveredWindow = makeMainWindow(id: recoveredWindowId)
+        defer {
+            TerminalController.shared.setActiveTabManager(nil)
+            app.unregisterMainWindowContextForTesting(windowId: registeredWindowId)
+            app.unregisterMainWindowContextForTesting(windowId: recoveredWindowId)
+            registeredWindow.orderOut(nil)
+            recoveredWindow.orderOut(nil)
+        }
+
+        let registeredManager = TabManager()
+        let recoveredManager = TabManager()
+        app.registerMainWindow(
+            registeredWindow,
+            windowId: registeredWindowId,
+            tabManager: registeredManager,
+            sidebarState: SidebarState(),
+            sidebarSelectionState: SidebarSelectionState(),
+            fileExplorerState: FileExplorerState()
+        )
+        app.registerMainWindow(
+            recoveredWindow,
+            windowId: recoveredWindowId,
+            tabManager: recoveredManager,
+            sidebarState: SidebarState(),
+            sidebarSelectionState: SidebarSelectionState(),
+            fileExplorerState: FileExplorerState()
+        )
+
+        let recoveredWorkspace = try XCTUnwrap(recoveredManager.selectedWorkspace)
+        let recoveredTerminal = try XCTUnwrap(recoveredWorkspace.focusedTerminalPanel)
+        XCTAssertTrue(TerminalSurfaceRegistry.shared.surface(id: recoveredTerminal.id) === recoveredTerminal.surface)
+
+        app.unregisterMainWindowContextForTesting(windowId: recoveredWindowId)
+        TerminalController.shared.setActiveTabManager(nil)
+
+        let payload = app.debugBenchmarkSessionSnapshot(
+            includeScrollback: false,
+            persist: false,
+            includeRecoverableRoutes: true
+        )
+        let shape = try XCTUnwrap(payload["shape"] as? [String: Any])
+        XCTAssertEqual(shape["windows"] as? Int, 2)
+        XCTAssertEqual(shape["workspaces"] as? Int, 2)
+    }
+
+    func testSessionSnapshotCanBeBuiltFromOnlyRecoveredWindowSnapshotAfterManagerReferenceCleared() throws {
+        _ = NSApplication.shared
+        let previousAppDelegate = AppDelegate.shared
+        let app = AppDelegate()
+        defer {
+            AppDelegate.shared = previousAppDelegate
+        }
+
+        let recoveredWindowId = UUID()
+        let recoveredWindow = makeMainWindow(id: recoveredWindowId)
+        defer {
+            TerminalController.shared.setActiveTabManager(nil)
+            app.unregisterMainWindowContextForTesting(windowId: recoveredWindowId)
+            recoveredWindow.orderOut(nil)
+        }
+
+        let recoveredManager = TabManager()
+        app.registerMainWindow(
+            recoveredWindow,
+            windowId: recoveredWindowId,
+            tabManager: recoveredManager,
+            sidebarState: SidebarState(),
+            sidebarSelectionState: SidebarSelectionState(),
+            fileExplorerState: FileExplorerState()
+        )
+
+        let recoveredWorkspace = try XCTUnwrap(recoveredManager.selectedWorkspace)
+        let recoveredTerminal = try XCTUnwrap(recoveredWorkspace.focusedTerminalPanel)
+        XCTAssertTrue(TerminalSurfaceRegistry.shared.surface(id: recoveredTerminal.id) === recoveredTerminal.surface)
+
+        app.unregisterMainWindowContextForTesting(windowId: recoveredWindowId)
+        app.debugClearRecoverableMainWindowRouteManagerForTesting(windowId: recoveredWindowId)
+        TerminalController.shared.setActiveTabManager(nil)
+        app.retireRecoverableMainWindowRoutesWithoutRegisteredTerminalSurfaces(reason: "test")
+
+        let payload = app.debugBenchmarkSessionSnapshot(
+            includeScrollback: false,
+            persist: false,
+            includeRecoverableRoutes: true
+        )
+        let shape = try XCTUnwrap(payload["shape"] as? [String: Any])
+        XCTAssertEqual(shape["windows"] as? Int, 1)
+        XCTAssertEqual(shape["workspaces"] as? Int, 1)
+    }
+
+    func testRecoveredFallbackSnapshotPreservesCachedRestorableAgentMetadataAfterManagerReferenceCleared() throws {
+        _ = NSApplication.shared
+        let previousAppDelegate = AppDelegate.shared
+        let app = AppDelegate()
+        defer {
+            AppDelegate.shared = previousAppDelegate
+        }
+
+        let recoveredWindowId = UUID()
+        let recoveredWindow = makeMainWindow(id: recoveredWindowId)
+        defer {
+            TerminalController.shared.setActiveTabManager(nil)
+            app.unregisterMainWindowContextForTesting(windowId: recoveredWindowId)
+            recoveredWindow.orderOut(nil)
+        }
+
+        let recoveredManager = TabManager()
+        app.registerMainWindow(
+            recoveredWindow,
+            windowId: recoveredWindowId,
+            tabManager: recoveredManager,
+            sidebarState: SidebarState(),
+            sidebarSelectionState: SidebarSelectionState(),
+            fileExplorerState: FileExplorerState()
+        )
+
+        let recoveredWorkspace = try XCTUnwrap(recoveredManager.selectedWorkspace)
+        let recoveredTerminal = try XCTUnwrap(recoveredWorkspace.focusedTerminalPanel)
+        let agentSnapshot = SessionRestorableAgentSnapshot(
+            kind: .codex,
+            sessionId: "cached-codex-session",
+            workingDirectory: "/tmp/recovered-agent",
+            launchCommand: nil
+        )
+        let restorableAgentIndex = RestorableAgentSessionIndex.load(
+            homeDirectory: NSTemporaryDirectory(),
+            fileManager: .default,
+            registry: CmuxVaultAgentRegistry(registrations: []),
+            detectedSnapshots: [
+                RestorableAgentSessionIndex.PanelKey(
+                    workspaceId: recoveredWorkspace.id,
+                    panelId: recoveredTerminal.id
+                ): (
+                    snapshot: agentSnapshot,
+                    updatedAt: 1
+                ),
+            ]
+        )
+        app.debugSetLatestRestorableAgentIndexForTesting(restorableAgentIndex)
+
+        app.unregisterMainWindowContextForTesting(windowId: recoveredWindowId)
+        app.debugClearRecoverableMainWindowRouteManagerForTesting(windowId: recoveredWindowId)
+        TerminalController.shared.setActiveTabManager(nil)
+        app.retireRecoverableMainWindowRoutesWithoutRegisteredTerminalSurfaces(reason: "test")
+
+        let snapshot = try XCTUnwrap(app.debugBuildSessionSnapshotForTesting(
+            includeScrollback: false,
+            includeRecoverableRoutes: true
+        ))
+        let terminal = try XCTUnwrap(snapshot.windows.first?.tabManager.workspaces.first?.panels.first?.terminal)
+        XCTAssertEqual(terminal.agent?.sessionId, "cached-codex-session")
+        XCTAssertNil(terminal.scrollback)
+    }
+
+    func testSessionSnapshotExcludesRecoveredWindowRouteDuringNormalCloseSave() throws {
+        _ = NSApplication.shared
+        let previousAppDelegate = AppDelegate.shared
+        let app = AppDelegate()
+        defer {
+            AppDelegate.shared = previousAppDelegate
+        }
+
+        let registeredWindowId = UUID()
+        let recoveredWindowId = UUID()
+        let registeredWindow = makeMainWindow(id: registeredWindowId)
+        let recoveredWindow = makeMainWindow(id: recoveredWindowId)
+        defer {
+            TerminalController.shared.setActiveTabManager(nil)
+            app.unregisterMainWindowContextForTesting(windowId: registeredWindowId)
+            app.unregisterMainWindowContextForTesting(windowId: recoveredWindowId)
+            registeredWindow.orderOut(nil)
+            recoveredWindow.orderOut(nil)
+        }
+
+        let registeredManager = TabManager()
+        let recoveredManager = TabManager()
+        app.registerMainWindow(
+            registeredWindow,
+            windowId: registeredWindowId,
+            tabManager: registeredManager,
+            sidebarState: SidebarState(),
+            sidebarSelectionState: SidebarSelectionState(),
+            fileExplorerState: FileExplorerState()
+        )
+        app.registerMainWindow(
+            recoveredWindow,
+            windowId: recoveredWindowId,
+            tabManager: recoveredManager,
+            sidebarState: SidebarState(),
+            sidebarSelectionState: SidebarSelectionState(),
+            fileExplorerState: FileExplorerState()
+        )
+
+        let recoveredWorkspace = try XCTUnwrap(recoveredManager.selectedWorkspace)
+        let recoveredTerminal = try XCTUnwrap(recoveredWorkspace.focusedTerminalPanel)
+        XCTAssertTrue(TerminalSurfaceRegistry.shared.surface(id: recoveredTerminal.id) === recoveredTerminal.surface)
+        XCTAssertFalse(AppDelegate.shouldIncludeRecoverableRoutesInSessionSnapshot(isTerminatingApp: false))
+        XCTAssertTrue(AppDelegate.shouldIncludeRecoverableRoutesInSessionSnapshot(isTerminatingApp: true))
+
+        app.unregisterMainWindowContextForTesting(windowId: recoveredWindowId)
+        TerminalController.shared.setActiveTabManager(nil)
+
+        let payload = app.debugBenchmarkSessionSnapshot(
+            includeScrollback: false,
+            persist: false,
+            includeRecoverableRoutes: false
+        )
+        let shape = try XCTUnwrap(payload["shape"] as? [String: Any])
+        XCTAssertEqual(shape["windows"] as? Int, 1)
+        XCTAssertEqual(shape["workspaces"] as? Int, 1)
+    }
+
+    func testSessionAutosaveFingerprintIgnoresKeyWindowOrdering() throws {
+        _ = NSApplication.shared
+        let previousAppDelegate = AppDelegate.shared
+        let app = AppDelegate()
+        defer {
+            AppDelegate.shared = previousAppDelegate
+        }
+
+        let firstWindowId = UUID()
+        let secondWindowId = UUID()
+        let firstWindow = makeMainWindow(id: firstWindowId)
+        let secondWindow = makeMainWindow(id: secondWindowId)
+        defer {
+            TerminalController.shared.setActiveTabManager(nil)
+            app.unregisterMainWindowContextForTesting(windowId: firstWindowId)
+            app.unregisterMainWindowContextForTesting(windowId: secondWindowId)
+            firstWindow.orderOut(nil)
+            secondWindow.orderOut(nil)
+        }
+
+        let firstManager = TabManager()
+        let secondManager = TabManager()
+        app.registerMainWindow(
+            firstWindow,
+            windowId: firstWindowId,
+            tabManager: firstManager,
+            sidebarState: SidebarState(),
+            sidebarSelectionState: SidebarSelectionState(),
+            fileExplorerState: FileExplorerState()
+        )
+        app.registerMainWindow(
+            secondWindow,
+            windowId: secondWindowId,
+            tabManager: secondManager,
+            sidebarState: SidebarState(),
+            sidebarSelectionState: SidebarSelectionState(),
+            fileExplorerState: FileExplorerState()
+        )
+
+        firstWindow.makeKeyAndOrderFront(nil)
+        XCTAssertTrue(firstWindow.isKeyWindow)
+        let firstFingerprint = try XCTUnwrap(app.debugSessionAutosaveFingerprintForTesting())
+
+        secondWindow.makeKeyAndOrderFront(nil)
+        XCTAssertTrue(secondWindow.isKeyWindow)
+        let secondFingerprint = try XCTUnwrap(app.debugSessionAutosaveFingerprintForTesting())
+
+        XCTAssertEqual(firstFingerprint, secondFingerprint)
+    }
+#endif
+
     func testIssue2907BonsplitTabLookupUsesRecoveredRoute() throws {
         _ = NSApplication.shared
         let previousAppDelegate = AppDelegate.shared

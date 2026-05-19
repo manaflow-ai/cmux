@@ -387,6 +387,137 @@ final class SessionPersistenceTests: XCTestCase {
         XCTAssertTrue(contents.hasSuffix(reset))
     }
 
+    func testScrollbackReplayEnvironmentDropsTrailingZshEndOfLinePercentMarker() {
+        let tempDir = FileManager.default.temporaryDirectory
+            .appendingPathComponent("cmux-scrollback-replay-\(UUID().uuidString)", isDirectory: true)
+        try? FileManager.default.createDirectory(at: tempDir, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: tempDir) }
+
+        let source = "progress 100%\nrestored output\n%\n"
+        let environment = SessionScrollbackReplayStore.replayEnvironment(
+            for: source,
+            tempDirectory: tempDir
+        )
+
+        guard let path = environment[SessionScrollbackReplayStore.environmentKey] else {
+            XCTFail("Expected replay file path")
+            return
+        }
+
+        guard let contents = try? String(contentsOfFile: path, encoding: .utf8) else {
+            XCTFail("Expected replay file contents")
+            return
+        }
+
+        XCTAssertEqual(contents, "progress 100%\nrestored output\n")
+    }
+
+    func testScrollbackReplayEnvironmentDropsTrailingCRLFZshEndOfLinePercentMarker() {
+        let tempDir = FileManager.default.temporaryDirectory
+            .appendingPathComponent("cmux-scrollback-replay-\(UUID().uuidString)", isDirectory: true)
+        try? FileManager.default.createDirectory(at: tempDir, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: tempDir) }
+
+        let source = "progress 100%\r\nrestored output\r\n%\r\n"
+        let environment = SessionScrollbackReplayStore.replayEnvironment(
+            for: source,
+            tempDirectory: tempDir
+        )
+
+        guard let path = environment[SessionScrollbackReplayStore.environmentKey] else {
+            XCTFail("Expected replay file path")
+            return
+        }
+
+        guard let contents = try? String(contentsOfFile: path, encoding: .utf8) else {
+            XCTFail("Expected replay file contents")
+            return
+        }
+
+        XCTAssertEqual(contents, "progress 100%\r\nrestored output\r\n")
+    }
+
+    func testScrollbackReplayEnvironmentDropsTrailingANSIWrappedZshEndOfLinePercentMarker() {
+        let tempDir = FileManager.default.temporaryDirectory
+            .appendingPathComponent("cmux-scrollback-replay-\(UUID().uuidString)", isDirectory: true)
+        try? FileManager.default.createDirectory(at: tempDir, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: tempDir) }
+
+        let inverse = "\u{001B}[7m"
+        let reset = "\u{001B}[0m"
+        let source = "progress 100%\nrestored output\n\(inverse)%\(reset)\n"
+        let environment = SessionScrollbackReplayStore.replayEnvironment(
+            for: source,
+            tempDirectory: tempDir
+        )
+
+        guard let path = environment[SessionScrollbackReplayStore.environmentKey] else {
+            XCTFail("Expected replay file path")
+            return
+        }
+
+        guard let contents = try? String(contentsOfFile: path, encoding: .utf8) else {
+            XCTFail("Expected replay file contents")
+            return
+        }
+
+        XCTAssertEqual(contents, "progress 100%\nrestored output\n")
+    }
+
+    func testScrollbackReplayEnvironmentDropsTrailingPassthroughWrappedZshEndOfLinePercentMarker() {
+        let tempDir = FileManager.default.temporaryDirectory
+            .appendingPathComponent("cmux-scrollback-replay-\(UUID().uuidString)", isDirectory: true)
+        try? FileManager.default.createDirectory(at: tempDir, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: tempDir) }
+
+        let stringTerminator = "\u{001B}\\"
+        let source = "progress 100%\nrestored output\n\u{001B}Pignored\(stringTerminator)%\n"
+        let environment = SessionScrollbackReplayStore.replayEnvironment(
+            for: source,
+            tempDirectory: tempDir
+        )
+
+        guard let path = environment[SessionScrollbackReplayStore.environmentKey] else {
+            XCTFail("Expected replay file path")
+            return
+        }
+
+        guard let contents = try? String(contentsOfFile: path, encoding: .utf8) else {
+            XCTFail("Expected replay file contents")
+            return
+        }
+
+        XCTAssertEqual(contents, "progress 100%\nrestored output\n")
+    }
+
+    func testScrollbackReplayEnvironmentDropsTrailingC1WrappedZshEndOfLinePercentMarker() {
+        let tempDir = FileManager.default.temporaryDirectory
+            .appendingPathComponent("cmux-scrollback-replay-\(UUID().uuidString)", isDirectory: true)
+        try? FileManager.default.createDirectory(at: tempDir, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: tempDir) }
+
+        let csi = "\u{009B}"
+        let dcs = "\u{0090}"
+        let stringTerminator = "\u{009C}"
+        let source = "progress 100%\nrestored output\n\(dcs)ignored\(stringTerminator)\(csi)7m%\(csi)0m\n"
+        let environment = SessionScrollbackReplayStore.replayEnvironment(
+            for: source,
+            tempDirectory: tempDir
+        )
+
+        guard let path = environment[SessionScrollbackReplayStore.environmentKey] else {
+            XCTFail("Expected replay file path")
+            return
+        }
+
+        guard let contents = try? String(contentsOfFile: path, encoding: .utf8) else {
+            XCTFail("Expected replay file contents")
+            return
+        }
+
+        XCTAssertEqual(contents, "progress 100%\nrestored output\n")
+    }
+
     func testSessionScrollbackPersistenceHonorsReportedShellState() {
         XCTAssertTrue(
             Workspace.shouldPersistSessionScrollback(
@@ -494,6 +625,37 @@ final class SessionPersistenceTests: XCTestCase {
     func testWindowUnregisterSnapshotPersistencePolicy() {
         XCTAssertTrue(AppDelegate.shouldPersistSnapshotOnWindowUnregister(isTerminatingApp: false))
         XCTAssertFalse(AppDelegate.shouldPersistSnapshotOnWindowUnregister(isTerminatingApp: true))
+    }
+
+    func testTerminatingSnapshotSavePolicyWaitsForCancelableQuitWarning() {
+        XCTAssertFalse(
+            AppDelegate.shouldSaveTerminatingSessionSnapshotBeforeQuitWarning(
+                isTaggedDevBuild: false,
+                isQuitWarningConfirmed: false,
+                isQuitWarningEnabled: true
+            )
+        )
+        XCTAssertTrue(
+            AppDelegate.shouldSaveTerminatingSessionSnapshotBeforeQuitWarning(
+                isTaggedDevBuild: true,
+                isQuitWarningConfirmed: false,
+                isQuitWarningEnabled: true
+            )
+        )
+        XCTAssertTrue(
+            AppDelegate.shouldSaveTerminatingSessionSnapshotBeforeQuitWarning(
+                isTaggedDevBuild: false,
+                isQuitWarningConfirmed: true,
+                isQuitWarningEnabled: true
+            )
+        )
+        XCTAssertTrue(
+            AppDelegate.shouldSaveTerminatingSessionSnapshotBeforeQuitWarning(
+                isTaggedDevBuild: false,
+                isQuitWarningConfirmed: false,
+                isQuitWarningEnabled: false
+            )
+        )
     }
 
     func testMainWindowRegistrationSnapshotSavePolicySkipsStartupRestore() {
