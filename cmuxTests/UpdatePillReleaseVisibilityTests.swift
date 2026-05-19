@@ -194,18 +194,18 @@ final class TitlebarControlsSizingPolicyTests: XCTestCase {
         XCTAssertTrue(TitlebarWindowGeometryNotifications.names.contains(NSWindow.didChangeBackingPropertiesNotification))
     }
 
-    func testShortcutHintVerticalOffsetKeepsPillInsideButtonLane() {
+    func testShortcutHintVerticalOffsetKeepsPillBelowButtonLane() {
         for style in TitlebarControlsStyle.allCases {
             let config = style.config
             let hintHeight = titlebarShortcutHintHeight(for: config)
             let verticalOffset = titlebarShortcutHintVerticalOffset(for: config)
 
-            XCTAssertGreaterThanOrEqual(verticalOffset, 0, "Expected non-negative hint offset for style \(style)")
-            XCTAssertLessThanOrEqual(
-                verticalOffset + hintHeight,
-                config.buttonSize,
-                "Expected hint pill to fit within the titlebar button lane for style \(style)"
+            XCTAssertGreaterThanOrEqual(
+                verticalOffset,
+                config.buttonSize + TitlebarShortcutHintMetrics.verticalGap,
+                "Expected hint pill to sit below the titlebar button lane for style \(style)"
             )
+            XCTAssertGreaterThan(verticalOffset + hintHeight, config.buttonSize)
         }
     }
 
