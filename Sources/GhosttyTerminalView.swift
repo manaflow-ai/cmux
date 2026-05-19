@@ -7291,7 +7291,7 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
         terminalSurface?.surface
     }
 
-    private func applySurfaceColorScheme(
+    fileprivate func applySurfaceColorScheme(
         force: Bool = false,
         preferredColorScheme: GhosttyConfig.ColorSchemePreference? = nil
     ) {
