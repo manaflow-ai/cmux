@@ -205,8 +205,24 @@ final class CMUXCLIErrorOutputRegressionTests: XCTestCase {
             .deletingLastPathComponent()
             .appendingPathComponent("ghostty", isDirectory: false)
         try """
-        #!/bin/sh
-        exit 0
+        #!/usr/bin/env python3
+        import os
+        import sys
+        import time
+
+        deadline = time.time() + 2.0
+        last_error = ""
+        while time.time() < deadline:
+            try:
+                if os.isatty(0) and os.tcgetpgrp(0) == os.getpgrp():
+                    sys.exit(0)
+                last_error = f"pgrp={os.getpgrp()} tpgid={os.tcgetpgrp(0)}"
+            except OSError as error:
+                last_error = str(error)
+            time.sleep(0.02)
+
+        sys.stderr.write(f"theme picker was not foregrounded: {last_error}\\n")
+        sys.exit(42)
         """.write(to: fakeGhosttyHelperURL, atomically: true, encoding: .utf8)
         try fileManager.setAttributes(
             [.posixPermissions: 0o755],
