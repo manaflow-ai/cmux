@@ -346,6 +346,7 @@ final class KeyboardShortcutSettingsFileStoreStartupTests: XCTestCase {
         }
     }
 
+    @MainActor
     func testSettingsFileStoreInitialAppearanceReplayDoesNotSynchronizeTerminalTheme() throws {
         let defaults = UserDefaults.standard
         let key = AppearanceSettings.appearanceModeKey
@@ -396,6 +397,12 @@ final class KeyboardShortcutSettingsFileStoreStartupTests: XCTestCase {
             )
 
             XCTAssertEqual(defaults.string(forKey: key), AppearanceMode.dark.rawValue)
+            XCTAssertNil(appliedAppearanceName)
+            XCTAssertNil(synchronizedAppearanceName)
+            XCTAssertTrue(synchronizedSources.isEmpty)
+
+            store.applyDeferredManagedDefaultSideEffects()
+
             XCTAssertEqual(appliedAppearanceName, .darkAqua)
             XCTAssertNil(synchronizedAppearanceName)
             XCTAssertTrue(synchronizedSources.isEmpty)
@@ -479,6 +486,81 @@ final class KeyboardShortcutSettingsFileStoreStartupTests: XCTestCase {
                 notificationCenter.post(name: UserDefaults.didChangeNotification, object: defaults)
                 XCTAssertEqual(defaults.object(forKey: key) as? Bool, true)
             }
+        }
+    }
+
+    @MainActor
+    func testInitialSettingsFileLoadImportsDefaultsWithoutLiveDefaultNotifications() throws {
+        let defaults = UserDefaults.standard
+        let scrollBarKey = TerminalScrollBarSettings.showScrollBarKey
+        let autoResumeKey = AgentSessionAutoResumeSettings.autoResumeAgentSessionsKey
+
+        try preservingDefaults(keys: [
+            scrollBarKey,
+            autoResumeKey,
+            settingsFileBackupsDefaultsKey,
+            importedManagedDefaultsKey,
+        ]) {
+            defaults.removeObject(forKey: scrollBarKey)
+            defaults.removeObject(forKey: autoResumeKey)
+            defaults.removeObject(forKey: settingsFileBackupsDefaultsKey)
+            defaults.removeObject(forKey: importedManagedDefaultsKey)
+
+            let directoryURL = try makeTemporaryDirectory()
+            defer { try? FileManager.default.removeItem(at: directoryURL) }
+
+            let settingsFileURL = directoryURL.appendingPathComponent("cmux.json", isDirectory: false)
+            try writeSettingsFile(
+                """
+                {
+                  "terminal": {
+                    "showScrollBar": false,
+                    "autoResumeAgentSessions": false
+                  }
+                }
+                """,
+                to: settingsFileURL
+            )
+
+            let notificationCenter = NotificationCenter()
+            var scrollBarNotificationCount = 0
+            var autoResumeNotificationCount = 0
+            let scrollBarObserver = notificationCenter.addObserver(
+                forName: TerminalScrollBarSettings.didChangeNotification,
+                object: nil,
+                queue: nil
+            ) { _ in
+                scrollBarNotificationCount += 1
+            }
+            let autoResumeObserver = notificationCenter.addObserver(
+                forName: AgentSessionAutoResumeSettings.didChangeNotification,
+                object: nil,
+                queue: nil
+            ) { _ in
+                autoResumeNotificationCount += 1
+            }
+            defer {
+                notificationCenter.removeObserver(scrollBarObserver)
+                notificationCenter.removeObserver(autoResumeObserver)
+            }
+
+            let store = KeyboardShortcutSettingsFileStore(
+                primaryPath: settingsFileURL.path,
+                fallbackPath: nil,
+                additionalFallbackPaths: [],
+                notificationCenter: notificationCenter,
+                startWatching: false
+            )
+
+            XCTAssertEqual(defaults.object(forKey: scrollBarKey) as? Bool, false)
+            XCTAssertEqual(defaults.object(forKey: autoResumeKey) as? Bool, false)
+            XCTAssertEqual(scrollBarNotificationCount, 0)
+            XCTAssertEqual(autoResumeNotificationCount, 0)
+
+            store.applyDeferredManagedDefaultSideEffects()
+
+            XCTAssertEqual(scrollBarNotificationCount, 1)
+            XCTAssertEqual(autoResumeNotificationCount, 1)
         }
     }
 

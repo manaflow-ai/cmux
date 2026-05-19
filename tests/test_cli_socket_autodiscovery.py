@@ -12,6 +12,7 @@ import subprocess
 import sys
 import tempfile
 import threading
+import time
 
 
 def resolve_cmux_cli() -> str:
@@ -45,8 +46,10 @@ class PingServer:
         self.response = response
         self.accept_timeout = accept_timeout
         self.ready = threading.Event()
+        self._done = threading.Event()
         self.error: Exception | None = None
         self._thread = threading.Thread(target=self._run, daemon=True)
+        self._connection_threads: list[threading.Thread] = []
 
     def start(self) -> None:
         self._thread.start()
@@ -63,35 +66,54 @@ class PingServer:
             if os.path.exists(self.socket_path):
                 os.remove(self.socket_path)
             server.bind(self.socket_path)
-            server.listen(1)
-            server.settimeout(self.accept_timeout)
+            server.listen(8)
             self.ready.set()
 
             # The CLI may probe candidate sockets with a connect-only check before
             # issuing the actual command, so keep accepting until the ping arrives
             # or the test socket times out.
-            while True:
-                conn, _ = server.accept()
-                with conn:
-                    conn.settimeout(2.0)
-                    data = b""
-                    try:
-                        while b"\n" not in data:
-                            chunk = conn.recv(4096)
-                            if not chunk:
-                                break
-                            data += chunk
-                    except (ConnectionResetError, socket.timeout):
-                        continue
-
-                    if b"ping" in data:
-                        conn.sendall(self.response)
-                        return
+            deadline = time.monotonic() + self.accept_timeout
+            while not self._done.is_set():
+                remaining = deadline - time.monotonic()
+                if remaining <= 0:
+                    return
+                server.settimeout(min(0.2, remaining))
+                try:
+                    conn, _ = server.accept()
+                except TimeoutError:
+                    continue
+                connection_thread = threading.Thread(
+                    target=self._handle_connection,
+                    args=(conn,),
+                    daemon=True,
+                )
+                self._connection_threads.append(connection_thread)
+                connection_thread.start()
         except Exception as exc:  # pragma: no cover - explicit surface on failure
             self.error = exc
             self.ready.set()
         finally:
+            self._done.set()
             server.close()
+            for connection_thread in self._connection_threads:
+                connection_thread.join(timeout=1.0)
+
+    def _handle_connection(self, conn: socket.socket) -> None:
+        with conn:
+            conn.settimeout(2.0)
+            data = b""
+            try:
+                while b"\n" not in data:
+                    chunk = conn.recv(4096)
+                    if not chunk:
+                        break
+                    data += chunk
+            except (ConnectionResetError, TimeoutError):
+                return
+
+            if b"ping" in data:
+                conn.sendall(self.response)
+                self._done.set()
 
 
 def write_marker(home: str, marker_name: str, socket_path: str) -> None:
