@@ -1513,9 +1513,14 @@ final class BrowserPaneNavigationKeybindUITests: XCTestCase {
     }
 
     private func waitForSocketPong(timeout: TimeInterval) -> Bool {
-        waitForCondition(timeout: timeout) {
-            self.socketCommand("ping") == "PONG"
+        let deadline = Date().addingTimeInterval(timeout)
+        while Date() < deadline {
+            if socketCommand("ping")?.trimmingCharacters(in: .whitespacesAndNewlines) == "PONG" {
+                return true
+            }
+            RunLoop.current.run(until: Date().addingTimeInterval(0.1))
         }
+        return socketCommand("ping")?.trimmingCharacters(in: .whitespacesAndNewlines) == "PONG"
     }
 
     private func loadDiagnostics() -> [String: String]? {
