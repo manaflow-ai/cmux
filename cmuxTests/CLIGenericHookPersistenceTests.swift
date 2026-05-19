@@ -406,9 +406,12 @@ extension CLINotifyProcessIntegrationRegressionTests {
         XCTAssertEqual(enrichedStop.stdout, "{}\n")
 
         let enrichedStopCommands = Array(state.commands.dropFirst(enrichedStopCommandStart))
-        XCTAssertFalse(
-            enrichedStopCommands.contains { $0.hasPrefix("notify_target_async ") },
-            "Grok Stop should not double-notify when the Notification event carries the completion message, saw \(enrichedStopCommands)"
+        XCTAssertTrue(
+            enrichedStopCommands.contains {
+                $0.contains("notify_target_async \(workspaceId) \(surfaceId) Grok|Completed in ")
+                    && $0.contains(assistantMessage)
+            },
+            "Expected Grok Stop to publish the cwd-scoped assistant response, saw \(enrichedStopCommands)"
         )
         XCTAssertTrue(
             enrichedStopCommands.contains { $0.contains("set_status grok Idle") },
@@ -425,11 +428,9 @@ extension CLINotifyProcessIntegrationRegressionTests {
         XCTAssertEqual(genericCompletion.stdout, "{}\n")
 
         let genericCompletionCommands = Array(state.commands.dropFirst(genericCompletionCommandStart))
-        XCTAssertTrue(
-            genericCompletionCommands.contains {
-                $0.contains("notify_target_async \(workspaceId) \(surfaceId) Grok|Completed|\(assistantMessage)")
-            },
-            "Expected generic Grok completion notification to use the cwd-scoped assistant response, saw \(genericCompletionCommands)"
+        XCTAssertFalse(
+            genericCompletionCommands.contains { $0.hasPrefix("notify_target_async ") },
+            "Grok Notification must not double-notify after Stop already published the completion, saw \(genericCompletionCommands)"
         )
         XCTAssertTrue(
             genericCompletionCommands.contains { $0.contains("set_status grok Idle") },
@@ -695,7 +696,7 @@ extension CLINotifyProcessIntegrationRegressionTests {
         )
     }
 
-    func testGrokNotificationCompletionsFireForTwoIndependentThreads() throws {
+    func testGrokStopCompletionsFireForTwoIndependentThreadsAndNotificationDedupes() throws {
         let cliPath = try bundledCLIPath()
         let socketPath = makeSocketPath("grok-two-threads")
         let listenerFD = try bindUnixSocket(at: socketPath)
@@ -703,7 +704,10 @@ extension CLINotifyProcessIntegrationRegressionTests {
         let root = FileManager.default.temporaryDirectory
             .appendingPathComponent("cmux-grok-two-threads-\(UUID().uuidString)", isDirectory: true)
         let workspaceId = "11111111-1111-1111-1111-111111111111"
-        let surfaceId = "22222222-2222-2222-2222-222222222222"
+        let surfaceIds = [
+            "22222222-2222-2222-2222-222222222222",
+            "33333333-3333-3333-3333-333333333333",
+        ]
         let grokHome = root.appendingPathComponent("grok-home", isDirectory: true)
 
         try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
@@ -713,19 +717,18 @@ extension CLINotifyProcessIntegrationRegressionTests {
             try? FileManager.default.removeItem(at: root)
         }
 
-        let environment: [String: String] = [
+        let baseEnvironment: [String: String] = [
             "HOME": root.path,
             "PATH": "/usr/bin:/bin:/usr/sbin:/sbin",
             "PWD": root.path,
             "CMUX_SOCKET_PATH": socketPath,
             "CMUX_WORKSPACE_ID": workspaceId,
-            "CMUX_SURFACE_ID": surfaceId,
             "CMUX_AGENT_HOOK_STATE_DIR": root.path,
             "CMUX_CLI_SENTRY_DISABLED": "1",
             "GROK_HOME": grokHome.path,
         ]
 
-        func runGrokHook(_ subcommand: String, input: String) -> ProcessRunResult {
+        func runGrokHook(_ subcommand: String, input: String, surfaceId: String) -> ProcessRunResult {
             let serverHandled = startMockServer(listenerFD: listenerFD, state: state) { line in
                 guard let payload = self.jsonObject(line) else {
                     return "OK"
@@ -735,13 +738,27 @@ extension CLINotifyProcessIntegrationRegressionTests {
                 }
                 switch method {
                 case "surface.list":
-                    return self.surfaceListResponse(id: id, surfaceId: surfaceId)
+                    return self.v2Response(
+                        id: id,
+                        ok: true,
+                        result: [
+                            "surfaces": surfaceIds.enumerated().map { index, listedSurfaceId in
+                                [
+                                    "id": listedSurfaceId,
+                                    "ref": "surface:\(index + 1)",
+                                    "focused": listedSurfaceId == surfaceId,
+                                ] as [String: Any]
+                            },
+                        ]
+                    )
                 case "feed.push":
                     return self.v2Response(id: id, ok: true, result: [:])
                 default:
                     return self.v2Response(id: id, ok: false, error: ["code": "unrecognized_method", "message": "unexpected method: \(method)"])
                 }
             }
+            var environment = baseEnvironment
+            environment["CMUX_SURFACE_ID"] = surfaceId
             let result = runProcess(
                 executablePath: cliPath,
                 arguments: ["hooks", "grok", subcommand],
@@ -755,9 +772,11 @@ extension CLINotifyProcessIntegrationRegressionTests {
 
         for index in 1...2 {
             let sessionId = "grok-thread-\(index)"
+            let surfaceId = surfaceIds[index - 1]
             let start = runGrokHook(
                 "session-start",
-                input: #"{"sessionId":"\#(sessionId)","cwd":"\#(root.path)","hookEventName":"SessionStart"}"#
+                input: #"{"sessionId":"\#(sessionId)","cwd":"\#(root.path)","hookEventName":"SessionStart"}"#,
+                surfaceId: surfaceId
             )
             XCTAssertFalse(start.timedOut, start.stderr)
             XCTAssertEqual(start.status, 0, start.stderr)
@@ -765,7 +784,8 @@ extension CLINotifyProcessIntegrationRegressionTests {
 
             let prompt = runGrokHook(
                 "prompt-submit",
-                input: #"{"sessionId":"\#(sessionId)","cwd":"\#(root.path)","hookEventName":"UserPromptSubmit","prompt":"thread \#(index) prompt"}"#
+                input: #"{"sessionId":"\#(sessionId)","cwd":"\#(root.path)","hookEventName":"UserPromptSubmit","prompt":"thread \#(index) prompt"}"#,
+                surfaceId: surfaceId
             )
             XCTAssertFalse(prompt.timedOut, prompt.stderr)
             XCTAssertEqual(prompt.status, 0, prompt.stderr)
@@ -774,7 +794,8 @@ extension CLINotifyProcessIntegrationRegressionTests {
             let internalCommandStart = state.commands.count
             let internalNotification = runGrokHook(
                 "notification",
-                input: #"{"sessionId":"\#(sessionId)","cwd":"\#(root.path)","hookEventName":"Notification","message":"SessionNotification { update: HookExecution { event_name: user_prompt_submit } }"}"#
+                input: #"{"sessionId":"\#(sessionId)","cwd":"\#(root.path)","hookEventName":"Notification","message":"SessionNotification { update: HookExecution { event_name: user_prompt_submit } }"}"#,
+                surfaceId: surfaceId
             )
             XCTAssertFalse(internalNotification.timedOut, internalNotification.stderr)
             XCTAssertEqual(internalNotification.status, 0, internalNotification.stderr)
@@ -797,16 +818,20 @@ extension CLINotifyProcessIntegrationRegressionTests {
             let stopCommandStart = state.commands.count
             let stop = runGrokHook(
                 "stop",
-                input: #"{"sessionId":"\#(sessionId)","cwd":"\#(root.path)","hookEventName":"Stop"}"#
+                input: #"{"sessionId":"\#(sessionId)","cwd":"\#(root.path)","hookEventName":"Stop"}"#,
+                surfaceId: surfaceId
             )
             XCTAssertFalse(stop.timedOut, stop.stderr)
             XCTAssertEqual(stop.status, 0, stop.stderr)
             XCTAssertEqual(stop.stdout, "{}\n")
 
             let stopCommands = Array(state.commands.dropFirst(stopCommandStart))
-            XCTAssertFalse(
-                stopCommands.contains { $0.hasPrefix("notify_target_async ") },
-                "Grok Stop must not notify for thread \(index); Notification owns completion alerts. Saw \(stopCommands)"
+            XCTAssertTrue(
+                stopCommands.contains {
+                    $0.contains("notify_target_async \(workspaceId) \(surfaceId) Grok|Completed in ")
+                        && $0.contains(assistantMessage)
+                },
+                "Expected Grok Stop to notify for thread \(index), saw \(stopCommands)"
             )
             XCTAssertTrue(
                 stopCommands.contains { $0.contains("set_status grok Idle") },
@@ -816,23 +841,26 @@ extension CLINotifyProcessIntegrationRegressionTests {
             let notificationCommandStart = state.commands.count
             let notification = runGrokHook(
                 "notification",
-                input: #"{"sessionId":"\#(sessionId)","cwd":"\#(root.path)","hookEventName":"Notification","message":"Turn complete in \#(index).0s."}"#
+                input: #"{"sessionId":"\#(sessionId)","cwd":"\#(root.path)","hookEventName":"Notification","message":"Turn complete in \#(index).0s."}"#,
+                surfaceId: surfaceId
             )
             XCTAssertFalse(notification.timedOut, notification.stderr)
             XCTAssertEqual(notification.status, 0, notification.stderr)
             XCTAssertEqual(notification.stdout, "{}\n")
 
             let notificationCommands = Array(state.commands.dropFirst(notificationCommandStart))
+            XCTAssertFalse(
+                notificationCommands.contains { $0.hasPrefix("notify_target_async ") },
+                "Grok Notification must not double-notify thread \(index) after Stop already published the completion, saw \(notificationCommands)"
+            )
             XCTAssertTrue(
-                notificationCommands.contains {
-                    $0.contains("notify_target_async \(workspaceId) \(surfaceId) Grok|Completed|\(assistantMessage)")
-                },
-                "Expected Grok Notification to notify for thread \(index), saw \(notificationCommands)"
+                notificationCommands.contains { $0.contains("set_status grok Idle") },
+                "Expected duplicate Grok Notification for thread \(index) to still leave Grok idle, saw \(notificationCommands)"
             )
         }
     }
 
-    func testGrokStopWithoutCwdDoesNotPublishNotification() throws {
+    func testGrokStopNotificationFallsBackWhenTranscriptCwdIsUnavailable() throws {
         let cliPath = try bundledCLIPath()
         let socketPath = makeSocketPath("grok-stop-without-cwd")
         let listenerFD = try bindUnixSocket(at: socketPath)
@@ -906,9 +934,11 @@ extension CLINotifyProcessIntegrationRegressionTests {
         XCTAssertEqual(stop.stdout, "{}\n")
 
         let stopCommands = Array(state.commands.dropFirst(stopCommandStart))
-        XCTAssertFalse(
-            stopCommands.contains { $0.hasPrefix("notify_target_async ") },
-            "Grok Stop without cwd should persist status without publishing a duplicate completion notification, saw \(stopCommands)"
+        XCTAssertTrue(
+            stopCommands.contains {
+                $0.contains("notify_target_async \(workspaceId) \(surfaceId) Grok|Completed|Grok session completed")
+            },
+            "Expected Grok Stop without cwd to notify with a generic completion body, saw \(stopCommands)"
         )
         XCTAssertTrue(
             stopCommands.contains { $0.contains("set_status grok Idle") },
