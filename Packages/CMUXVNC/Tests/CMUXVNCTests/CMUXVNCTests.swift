@@ -287,6 +287,14 @@ final class CMUXVNCTests: XCTestCase {
         XCTAssertEqual(try decoder.append(encoded), [.control(control)])
     }
 
+    func testIPCPointerMoveRoundTripWithoutButtonState() throws {
+        let control = VNCControlMessage(kind: "pointer", x: 12, y: 34)
+        let encoded = try VNCIPCCodec.encodeControl(control)
+        var decoder = VNCIPCStreamDecoder()
+
+        XCTAssertEqual(try decoder.append(encoded), [.control(control)])
+    }
+
     func testIPCRejectsOutOfRangeFrameHeaderOnEncode() throws {
         let header = VNCFrameHeader(
             sequence: 7,

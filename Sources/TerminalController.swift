@@ -12810,8 +12810,19 @@ class TerminalController {
               let y = params["y"] as? Int else {
             return .err(code: "invalid_params", message: "Missing x/y", data: nil)
         }
-        let button = (params["button"] as? Int) ?? 0
-        let isDown = (params["is_down"] as? Bool) ?? (params["isDown"] as? Bool) ?? false
+        let hasButton = v2HasNonNullParam(params, "button")
+        let hasIsDown = v2HasNonNullParam(params, "is_down") || v2HasNonNullParam(params, "isDown")
+        let button = params["button"] as? Int
+        let isDown = (params["is_down"] as? Bool) ?? (params["isDown"] as? Bool)
+        if hasButton, button == nil {
+            return .err(code: "invalid_params", message: "button must be an integer", data: nil)
+        }
+        if hasIsDown, isDown == nil {
+            return .err(code: "invalid_params", message: "is_down must be a boolean", data: nil)
+        }
+        guard hasButton == hasIsDown else {
+            return .err(code: "invalid_params", message: "button and is_down must be provided together", data: nil)
+        }
 
         var result: V2CallResult = .err(code: "internal_error", message: "Failed to send VNC pointer input", data: nil)
         v2MainSync {
@@ -12846,8 +12857,8 @@ class TerminalController {
                 "surface_type": "vnc",
                 "x": x,
                 "y": y,
-                "button": button,
-                "is_down": isDown,
+                "button": v2OrNull(button),
+                "is_down": v2OrNull(isDown),
                 "window_id": v2OrNull(v2ResolveWindowId(tabManager: tabManager)?.uuidString),
                 "window_ref": v2Ref(kind: .window, uuid: v2ResolveWindowId(tabManager: tabManager))
             ])

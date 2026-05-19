@@ -60,7 +60,7 @@ struct VNCMetalCanvasRepresentable: NSViewRepresentable {
 final class VNCMetalCanvasView: NSView {
     var onText: ((String) -> Void)?
     var onKey: ((UInt16, Bool) -> Void)?
-    var onPointer: ((Int, Int, Int, Bool) -> Void)?
+    var onPointer: ((Int, Int, Int?, Bool?) -> Void)?
 
     private static let maxFramebufferDimension = 16_384
     private static let maxFramebufferPixels = 33_554_432
@@ -74,6 +74,7 @@ final class VNCMetalCanvasView: NSView {
     private var framebufferWidth = 0
     private var framebufferHeight = 0
     private var lastSequence: UInt64?
+    private var pointerTrackingArea: NSTrackingArea?
 
     override init(frame frameRect: NSRect) {
         super.init(frame: frameRect)
@@ -120,6 +121,7 @@ final class VNCMetalCanvasView: NSView {
         onKey = nil
         onPointer = nil
         framebuffer.removeAll(keepingCapacity: false)
+        removePointerTrackingArea()
     }
 
     func apply(_ frame: VNCDisplayFrame) {
@@ -199,6 +201,14 @@ final class VNCMetalCanvasView: NSView {
         sendPointer(event, button: 0, isDown: true)
     }
 
+    override func mouseEntered(with event: NSEvent) {
+        sendPointerMove(event)
+    }
+
+    override func mouseMoved(with event: NSEvent) {
+        sendPointerMove(event)
+    }
+
     override func mouseDragged(with event: NSEvent) {
         sendPointer(event, button: 0, isDown: true, clampOutside: true)
     }
@@ -217,6 +227,19 @@ final class VNCMetalCanvasView: NSView {
 
     override func rightMouseUp(with event: NSEvent) {
         sendPointer(event, button: 2, isDown: false, clampOutside: true)
+    }
+
+    override func updateTrackingAreas() {
+        super.updateTrackingAreas()
+        removePointerTrackingArea()
+        let trackingArea = NSTrackingArea(
+            rect: bounds,
+            options: [.mouseEnteredAndExited, .mouseMoved, .activeAlways, .inVisibleRect],
+            owner: self,
+            userInfo: nil
+        )
+        addTrackingArea(trackingArea)
+        pointerTrackingArea = trackingArea
     }
 
     private func resizeFramebufferIfNeeded(width: Int, height: Int) -> Bool {
@@ -288,7 +311,18 @@ final class VNCMetalCanvasView: NSView {
         }
     }
 
-    private func sendPointer(_ event: NSEvent, button: Int, isDown: Bool, clampOutside: Bool = false) {
+    private func removePointerTrackingArea() {
+        if let pointerTrackingArea {
+            removeTrackingArea(pointerTrackingArea)
+            self.pointerTrackingArea = nil
+        }
+    }
+
+    private func sendPointerMove(_ event: NSEvent) {
+        sendPointer(event, button: nil, isDown: nil)
+    }
+
+    private func sendPointer(_ event: NSEvent, button: Int?, isDown: Bool?, clampOutside: Bool = false) {
         guard let remotePoint = remotePointerPoint(for: event, clampOutside: clampOutside) else { return }
         onPointer?(remotePoint.x, remotePoint.y, button, isDown)
     }

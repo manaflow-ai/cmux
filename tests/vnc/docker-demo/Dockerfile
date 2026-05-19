@@ -12,6 +12,7 @@ RUN apt-get update && \
         xfce4 \
         xfce4-terminal \
         x11-apps \
+        x11-utils \
         x11-xserver-utils \
         x11vnc \
         xterm \

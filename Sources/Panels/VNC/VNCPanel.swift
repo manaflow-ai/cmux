@@ -114,7 +114,7 @@ final class VNCPanel: Panel, ObservableObject {
         connection?.sendControl(VNCControlMessage(kind: "key", isDown: isDown, keyCode: Int(keyCode)))
     }
 
-    func sendPointer(x: Int, y: Int, button: Int, isDown: Bool) {
+    func sendPointer(x: Int, y: Int, button: Int? = nil, isDown: Bool? = nil) {
         startIfNeeded()
         connection?.sendControl(VNCControlMessage(kind: "pointer", x: x, y: y, button: button, isDown: isDown))
     }
