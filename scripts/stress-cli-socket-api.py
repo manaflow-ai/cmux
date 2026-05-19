@@ -1453,11 +1453,17 @@ class StressRunner:
 
         with concurrent.futures.ThreadPoolExecutor(max_workers=self.args.burst_workers) as executor:
             futures = [executor.submit(one, i) for i in range(self.args.burst_requests)]
-            for future in concurrent.futures.as_completed(futures, timeout=max(self.ctx.timeout * 2, 30)):
-                try:
-                    future.result()
-                except Exception as exc:
-                    failures.append(repr(exc))
+            try:
+                for future in concurrent.futures.as_completed(futures, timeout=max(self.ctx.timeout * 2, 30)):
+                    try:
+                        future.result()
+                    except Exception as exc:
+                        failures.append(repr(exc))
+            except concurrent.futures.TimeoutError as exc:
+                pending = sum(1 for future in futures if not future.done())
+                failures.append(f"parallel burst timed out with {pending} pending requests: {exc!r}")
+                for future in futures:
+                    future.cancel()
         elapsed_ms = (time.monotonic() - started) * 1000
         ok = not failures
         details = {

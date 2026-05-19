@@ -1761,7 +1761,18 @@ final class SocketListenerAcceptPolicyTests: XCTestCase {
             Darwin.unlink(socketPath)
         }
 
-        XCTAssertNotNil(TerminalController.socketPathIdentity(at: socketPath))
+        let identity = try XCTUnwrap(TerminalController.socketPathIdentity(at: socketPath))
+        XCTAssertTrue(TerminalController.socketPathExists(socketPath, matching: identity))
+        XCTAssertFalse(
+            TerminalController.socketPathExists(
+                socketPath,
+                matching: TerminalController.SocketPathIdentity(
+                    device: identity.device,
+                    inode: identity.inode + 1
+                )
+            )
+        )
+        XCTAssertFalse(TerminalController.socketPathExists(socketPath, matching: nil))
     }
 
     private func bindTestUnixSocket(at path: String) throws -> Int32 {
