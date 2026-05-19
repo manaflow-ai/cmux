@@ -12309,7 +12309,12 @@ private struct SidebarInlineRenameField: NSViewRepresentable {
     let onCommit: (String) -> Void
     let onCancel: () -> Void
 
-    fileprivate final class InlineRenameTextField: NSTextField {}
+    fileprivate final class InlineRenameTextField: NSTextField {
+        override class var cellClass: AnyClass? {
+            get { InlineRenameTextFieldCell.self }
+            set {}
+        }
+    }
 
     fileprivate final class InlineRenameTextFieldCell: NSTextFieldCell {
         override func drawingRect(forBounds rect: NSRect) -> NSRect {
@@ -12486,9 +12491,7 @@ private struct SidebarInlineRenameField: NSViewRepresentable {
     }
 
     fileprivate func makeNSView(context: Context) -> InlineRenameHostView {
-        let field = InlineRenameTextField(frame: .zero)
-        field.cell = InlineRenameTextFieldCell(textCell: initialTitle)
-        field.stringValue = initialTitle
+        let field = InlineRenameTextField(string: initialTitle)
         field.delegate = context.coordinator
         field.isBordered = false
         field.isBezeled = false
