@@ -1117,9 +1117,11 @@ class TerminalController {
     private nonisolated static func bindListenerSocketWithRetry(
         _ socket: Int32,
         path: String,
-        unlinkExistingPath: Bool
+        unlinkExistingPath: Bool,
+        unlinkStaleSocketOnAddressInUse: Bool = false
     ) async -> SocketBindAttemptResult {
-        for attempt in 1...socketRestartBindRetryAttempts {
+        var attempt = 1
+        while true {
             let result = bindListenerSocket(
                 socket,
                 path: path,
@@ -1127,30 +1129,42 @@ class TerminalController {
             )
             guard case .failure(_, let stage, let errnoCode) = result,
                   stage == "bind",
-                  shouldRetrySocketBindFailure(
-                      errnoCode: errnoCode,
-                      unlinkExistingPath: unlinkExistingPath
-                  ),
-                  attempt < socketRestartBindRetryAttempts else {
+                  shouldRetrySocketBindFailure(errnoCode: errnoCode) else {
                 return result
             }
+            guard attempt < socketRestartBindRetryAttempts else { return result }
+            if errnoCode == EADDRINUSE, unlinkStaleSocketOnAddressInUse {
+                if let unlinkFailure = unlinkStaleSocketPathForBindRetryIfNeeded(path) {
+                    return unlinkFailure
+                }
+            }
+            attempt += 1
             await socketRestartBindRetryDelay()
         }
-        return .failure(path: path, stage: "bind", errnoCode: EAGAIN)
     }
 
     private nonisolated static func shouldRetrySocketBindFailure(
-        errnoCode: Int32,
-        unlinkExistingPath: Bool
+        errnoCode: Int32
     ) -> Bool {
         switch errnoCode {
-        case EADDRINUSE:
-            return unlinkExistingPath
-        case EAGAIN, EINTR:
+        case EADDRINUSE, EAGAIN, EINTR:
             return true
         default:
             return false
         }
+    }
+
+    private nonisolated static func unlinkStaleSocketPathForBindRetryIfNeeded(
+        _ path: String
+    ) -> SocketBindAttemptResult? {
+        guard socketPathIdentity(at: path) != nil,
+              !canConnectToUnixSocket(at: path, timeout: 0.1) else {
+            return nil
+        }
+        if unlink(path) != 0, errno != ENOENT {
+            return .failure(path: path, stage: "unlink_stale", errnoCode: errno)
+        }
+        return nil
     }
 
     private nonisolated static func socketRestartBindRetryDelay() async {
@@ -1533,7 +1547,8 @@ class TerminalController {
             bindAttempt = await Self.bindListenerSocketWithRetry(
                 newServerSocket,
                 path: activeSocketPath,
-                unlinkExistingPath: false
+                unlinkExistingPath: false,
+                unlinkStaleSocketOnAddressInUse: true
             )
         }
 
@@ -1823,6 +1838,44 @@ class TerminalController {
             accessMode: restartMode,
             source: "path_monitor"
         )
+    }
+
+    private nonisolated static func canConnectToUnixSocket(
+        at socketPath: String,
+        timeout: TimeInterval
+    ) -> Bool {
+        let fd = socket(AF_UNIX, SOCK_STREAM, 0)
+        guard fd >= 0 else { return false }
+        defer { close(fd) }
+        Self.configureSocketTimeouts(fd, timeout: timeout)
+
+        var addr = sockaddr_un()
+        memset(&addr, 0, MemoryLayout<sockaddr_un>.size)
+        addr.sun_family = sa_family_t(AF_UNIX)
+
+        let maxLen = MemoryLayout.size(ofValue: addr.sun_path)
+        let pathBytes = Array(socketPath.utf8CString)
+        guard pathBytes.count <= maxLen else { return false }
+        withUnsafeMutablePointer(to: &addr.sun_path) { ptr in
+            let raw = UnsafeMutableRawPointer(ptr).assumingMemoryBound(to: CChar.self)
+            memset(raw, 0, maxLen)
+            for index in 0..<pathBytes.count {
+                raw[index] = pathBytes[index]
+            }
+        }
+
+        let pathOffset = MemoryLayout<sockaddr_un>.offset(of: \.sun_path) ?? 0
+        let addrLen = socklen_t(pathOffset + pathBytes.count)
+#if os(macOS)
+        addr.sun_len = UInt8(min(Int(addrLen), 255))
+#endif
+
+        let connectResult = withUnsafePointer(to: &addr) { ptr in
+            ptr.withMemoryRebound(to: sockaddr.self, capacity: 1) { sockaddrPtr in
+                connect(fd, sockaddrPtr, addrLen)
+            }
+        }
+        return connectResult == 0
     }
 
     nonisolated static func probeSocketCommand(
