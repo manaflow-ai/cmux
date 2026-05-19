@@ -12352,7 +12352,7 @@ final class Workspace: Identifiable, ObservableObject {
 
     func triggerUnreadIndicatorDismissFlash(panelId: UUID) {
         guard terminalPanel(for: panelId) != nil else { return }
-        requestAttentionFlash(panelId: panelId, reason: .manualUnreadDismiss)
+        requestAttentionFlash(panelId: panelId, reason: .unreadIndicatorDismiss)
     }
 
     func triggerDebugFlash(panelId: UUID) {

@@ -10216,7 +10216,7 @@ final class GhosttySurfaceScrollView: NSView {
         switch reason {
         case .navigation:
             return .navigation
-        case .notificationArrival, .notificationDismiss, .manualUnreadDismiss, .debug:
+        case .notificationArrival, .notificationDismiss, .unreadIndicatorDismiss, .debug:
             return .notification
         }
     }
