@@ -675,7 +675,7 @@ private final class ClaudeHookSessionStore {
                 normalizeOptional(record.workspaceId) == normalizedWorkspace
                     && (normalizedSurface == nil || normalizeOptional(record.surfaceId) == normalizedSurface)
                     && record.sessionId != excluded
-                    && (record.runtimeStatus == .running || record.runtimeStatus == .needsInput)
+                    && (record.runtimeStatus == .running || (normalizedSurface != nil && record.runtimeStatus == .needsInput))
             }
         }
     }
@@ -22560,11 +22560,15 @@ export default function cmuxPiSessionExtension(pi: ExtensionAPI) {
                 return nil
             }
         }
-        func hasOtherRunningSession(workspaceId: String) -> Bool {
-            (try? store.hasRunningSession(workspaceId: workspaceId, excludingSessionId: sessionId)) == true
+        func hasOtherRunningSession(workspaceId: String, surfaceId: String?) -> Bool {
+            (try? store.hasRunningSession(
+                workspaceId: workspaceId,
+                surfaceId: surfaceId,
+                excludingSessionId: sessionId
+            )) == true
         }
         func setIdleStatusUnlessAnotherSessionIsRunning(workspaceId: String, surfaceId: String) {
-            if hasOtherRunningSession(workspaceId: workspaceId) {
+            if hasOtherRunningSession(workspaceId: workspaceId, surfaceId: surfaceId) {
 #if DEBUG
                 agentHookDebugLog(
                     "agentHook.status.keepRunning agent=\(def.name) session=\(agentHookDebugShort(sessionId)) workspace=\(agentHookDebugShort(workspaceId)) surface=\(agentHookDebugShort(surfaceId))",
