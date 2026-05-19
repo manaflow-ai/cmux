@@ -360,7 +360,8 @@ extension CMUXCLI {
             normalizedEventEnvironmentValue(environment["CMUX_TAB_ID"]) {
             caller["workspace_id"] = workspaceId
         }
-        if let surfaceId = normalizedEventEnvironmentValue(environment["CMUX_SURFACE_ID"]) {
+        if let surfaceId = normalizedEventEnvironmentValue(environment["CMUX_SURFACE_ID"]) ??
+            normalizedEventEnvironmentValue(environment["CMUX_PANEL_ID"]) {
             caller["surface_id"] = surfaceId
             caller["tab_id"] = surfaceId
         }
