@@ -1228,7 +1228,7 @@ final class CLINotifyProcessIntegrationRegressionTests: XCTestCase {
 
         let payload = try jsonPayload(from: result.stdout)
         XCTAssertEqual(payload["attempted_shutdown"] as? Bool, true)
-        XCTAssertEqual(payload["graceful_action"] as? String, "/exit")
+        XCTAssertEqual(payload["graceful_action"] as? String, "send /exit")
         XCTAssertEqual(payload["terminated"] as? Bool, false)
         XCTAssertEqual(payload["killed"] as? Bool, false)
         XCTAssertEqual(payload["still_running"] as? Bool, true)
