@@ -10,13 +10,17 @@ import XCTest
 
 final class SidebarWidthPolicyTests: XCTestCase {
     func testDefaultMinimumSidebarWidthIsPersistedProductDefault() {
+        let suiteName = "SidebarWidthPolicyTests.defaultMinimum.\(UUID().uuidString)"
+        let defaults = UserDefaults(suiteName: suiteName)!
+        defer { defaults.removePersistentDomain(forName: suiteName) }
+
         XCTAssertEqual(
             SessionPersistencePolicy.defaultMinimumSidebarWidth,
             216,
             accuracy: 0.001
         )
         XCTAssertEqual(
-            SessionPersistencePolicy.resolvedMinimumSidebarWidth(),
+            SessionPersistencePolicy.resolvedMinimumSidebarWidth(defaults: defaults),
             216,
             accuracy: 0.001
         )
