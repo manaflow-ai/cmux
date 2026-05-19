@@ -63,7 +63,7 @@ dump_system_log() {
 }
 
 echo "==> smoke launching $APP_PATH"
-/usr/bin/open -n -g "$APP_PATH" --args -ApplePersistenceIgnoreState YES >"$OPEN_LOG" 2>&1 &
+/usr/bin/open -n -g "$APP_PATH" --args -ApplePersistenceIgnoreState YES --cmux-disable-bundle-icon-persistence >"$OPEN_LOG" 2>&1 &
 OPEN_PID=$!
 
 # CI-only LaunchServices smoke: open returns before the app process is visible.
