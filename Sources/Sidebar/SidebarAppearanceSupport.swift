@@ -163,6 +163,28 @@ enum WorkspaceIconDetector {
     }
 }
 
+struct WorkspaceIconFileSignature: Equatable, Sendable {
+    let modificationTime: TimeInterval
+    let size: UInt64
+
+    static func current(for path: String, fileManager: FileManager = .default) -> Self? {
+        guard let attributes = try? fileManager.attributesOfItem(atPath: path) else { return nil }
+        let modificationTime = (attributes[.modificationDate] as? Date)?.timeIntervalSinceReferenceDate ?? 0
+        let size = (attributes[.size] as? NSNumber)?.uint64Value ?? 0
+        return Self(modificationTime: modificationTime, size: size)
+    }
+}
+
+struct WorkspaceIconDetectionResult: Equatable, Sendable {
+    let path: String?
+    let signature: WorkspaceIconFileSignature?
+
+    static func detect(in directory: String) -> Self {
+        let path = WorkspaceIconDetector.detectedIconPath(in: directory)
+        return Self(path: path, signature: path.flatMap { WorkspaceIconFileSignature.current(for: $0) })
+    }
+}
+
 private final class WorkspaceIconImageBox: @unchecked Sendable {
     let image: NSImage
 
@@ -173,6 +195,7 @@ private final class WorkspaceIconImageBox: @unchecked Sendable {
 
 struct WorkspaceIconView: View {
     let iconPath: String
+    let reloadToken: String?
     let size: CGFloat
 
     @State private var loadedImage: NSImage?
@@ -209,9 +232,13 @@ struct WorkspaceIconView: View {
         .frame(width: size, height: size)
         .clipShape(Circle())
         .overlay(Circle().stroke(Color.primary.opacity(0.08), lineWidth: 0.5))
-        .task(id: iconPath) {
+        .task(id: iconLoadKey) {
             await loadFileIconIfNeeded()
         }
+    }
+
+    private var iconLoadKey: String {
+        "\(iconPath)\u{0}\(reloadToken ?? "")"
     }
 
     @ViewBuilder

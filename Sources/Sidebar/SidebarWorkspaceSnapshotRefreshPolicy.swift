@@ -5,6 +5,7 @@ extension SidebarWorkspaceSnapshotBuilder.Snapshot {
         let isPinned: Bool
         let customColorHex: String?
         let workspaceIconPath: String?
+        let workspaceIconReloadToken: String?
     }
 
     var contextMenuImmediateFields: ContextMenuImmediateFields {
@@ -13,7 +14,8 @@ extension SidebarWorkspaceSnapshotBuilder.Snapshot {
             customDescription: customDescription,
             isPinned: isPinned,
             customColorHex: customColorHex,
-            workspaceIconPath: workspaceIconPath
+            workspaceIconPath: workspaceIconPath,
+            workspaceIconReloadToken: workspaceIconReloadToken
         )
     }
 
@@ -26,6 +28,7 @@ extension SidebarWorkspaceSnapshotBuilder.Snapshot {
             isPinned: snapshot.isPinned,
             customColorHex: snapshot.customColorHex,
             workspaceIconPath: snapshot.workspaceIconPath,
+            workspaceIconReloadToken: snapshot.workspaceIconReloadToken,
             remoteWorkspaceSidebarText: remoteWorkspaceSidebarText,
             remoteConnectionStatusText: remoteConnectionStatusText,
             remoteStateHelpText: remoteStateHelpText,

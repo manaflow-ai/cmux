@@ -120,6 +120,7 @@ final class SidebarWorkspaceSnapshotRefreshPolicyTests: XCTestCase {
         isPinned: Bool = false,
         customColorHex: String? = nil,
         workspaceIconPath: String? = nil,
+        workspaceIconReloadToken: String? = nil,
         remoteConnectionStatusText: String = "Disconnected",
         latestConversationMessage: String? = nil,
         listeningPorts: [Int] = []
@@ -131,6 +132,7 @@ final class SidebarWorkspaceSnapshotRefreshPolicyTests: XCTestCase {
             isPinned: isPinned,
             customColorHex: customColorHex,
             workspaceIconPath: workspaceIconPath,
+            workspaceIconReloadToken: workspaceIconReloadToken,
             remoteWorkspaceSidebarText: nil,
             remoteConnectionStatusText: remoteConnectionStatusText,
             remoteStateHelpText: "",

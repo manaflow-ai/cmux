@@ -7174,6 +7174,8 @@ final class Workspace: Identifiable, ObservableObject {
     @Published var customColor: String?  // hex string, e.g. "#C0392B"
     @Published private(set) var customIconPath: String?
     @Published private(set) var detectedIconPath: String?
+    @Published private(set) var customIconRevision = 0
+    @Published private(set) var detectedIconRevision = 0
     @Published private(set) var terminalScrollBarHidden: Bool = false
     @Published var currentDirectory: String {
         didSet {
@@ -7187,6 +7189,7 @@ final class Workspace: Identifiable, ObservableObject {
     private(set) var preferredBrowserProfileID: UUID?
     private var workspaceIconDetectionTask: Task<Void, Never>?
     private var workspaceIconDetectionDirectory: String?
+    private var detectedIconSignature: WorkspaceIconFileSignature?
 
     /// Ordinal for CMUX_PORT range assignment (monotonically increasing per app session)
     var portOrdinal: Int = 0
@@ -7390,6 +7393,8 @@ final class Workspace: Identifiable, ObservableObject {
             sidebarObservationSignal($customColor),
             sidebarObservationSignal($customIconPath),
             sidebarObservationSignal($detectedIconPath),
+            sidebarObservationSignal($customIconRevision),
+            sidebarObservationSignal($detectedIconRevision),
             sidebarObservationSignal($terminalScrollBarHidden),
             sidebarObservationSignal($latestConversationMessage),
         ]
@@ -7790,6 +7795,8 @@ final class Workspace: Identifiable, ObservableObject {
         self.customDescription = nil
         self.customIconPath = nil
         self.detectedIconPath = nil
+        self.customIconRevision = 0
+        self.detectedIconRevision = 0
 
         let trimmedWorkingDirectory = workingDirectory?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
         let hasWorkingDirectory = !trimmedWorkingDirectory.isEmpty
@@ -8681,20 +8688,34 @@ final class Workspace: Identifiable, ObservableObject {
     }
 
     func setCustomIcon(_ iconPath: String?) {
-        customIconPath = WorkspaceIconValue.normalizedStorageValue(iconPath)
+        let normalized = WorkspaceIconValue.normalizedStorageValue(iconPath)
+        if customIconPath != normalized || normalized != nil {
+            customIconRevision &+= 1
+        }
+        customIconPath = normalized
     }
 
     func effectiveIconPath(autoDetectEnabled: Bool) -> String? {
         customIconPath ?? (autoDetectEnabled ? detectedIconPath : nil)
     }
 
-    func refreshDetectedWorkspaceIcon(autoDetectEnabled: Bool) {
+    func effectiveIconReloadToken(autoDetectEnabled: Bool) -> String? {
+        if let customIconPath {
+            return "\(customIconPath)\u{0}custom:\(customIconRevision)"
+        }
+        guard autoDetectEnabled, let detectedIconPath else { return nil }
+        return "\(detectedIconPath)\u{0}detected:\(detectedIconRevision)"
+    }
+
+    func refreshDetectedWorkspaceIcon(autoDetectEnabled: Bool, force: Bool = false) {
         guard autoDetectEnabled else {
             workspaceIconDetectionTask?.cancel()
             workspaceIconDetectionTask = nil
             workspaceIconDetectionDirectory = nil
+            detectedIconSignature = nil
             if detectedIconPath != nil {
                 detectedIconPath = nil
+                detectedIconRevision &+= 1
             }
             return
         }
@@ -8704,18 +8725,20 @@ final class Workspace: Identifiable, ObservableObject {
             workspaceIconDetectionTask?.cancel()
             workspaceIconDetectionTask = nil
             workspaceIconDetectionDirectory = nil
+            detectedIconSignature = nil
             if detectedIconPath != nil {
                 detectedIconPath = nil
+                detectedIconRevision &+= 1
             }
             return
         }
 
-        guard workspaceIconDetectionDirectory != directory else { return }
+        guard force || workspaceIconDetectionDirectory != directory else { return }
         workspaceIconDetectionDirectory = directory
         workspaceIconDetectionTask?.cancel()
         workspaceIconDetectionTask = Task { [weak self, directory] in
-            let detectedPath = await Task.detached(priority: .utility) {
-                WorkspaceIconDetector.detectedIconPath(in: directory)
+            let result = await Task.detached(priority: .utility) {
+                WorkspaceIconDetectionResult.detect(in: directory)
             }.value
 
             guard !Task.isCancelled,
@@ -8724,8 +8747,11 @@ final class Workspace: Identifiable, ObservableObject {
                   WorkspaceIconValue.normalizedStorageValue(self.currentDirectory) == directory else {
                 return
             }
-            if self.detectedIconPath != detectedPath {
-                self.detectedIconPath = detectedPath
+            let didChange = self.detectedIconPath != result.path || self.detectedIconSignature != result.signature
+            if didChange {
+                self.detectedIconPath = result.path
+                self.detectedIconSignature = result.signature
+                self.detectedIconRevision &+= 1
             }
         }
     }

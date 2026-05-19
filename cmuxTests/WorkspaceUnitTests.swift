@@ -225,6 +225,21 @@ final class WorkspaceIconTests: XCTestCase {
         XCTAssertNotEqual(cleanFingerprint, manager.sessionAutosaveFingerprint())
     }
 
+    func testSettingSameCustomIconRefreshesReloadToken() {
+        let manager = TabManager()
+        guard let workspace = manager.tabs.first else {
+            XCTFail("Expected TabManager to initialise with a workspace")
+            return
+        }
+
+        manager.setTabIcon(tabId: workspace.id, iconPath: "~/Desktop/cmux-icon.png")
+        let firstToken = workspace.effectiveIconReloadToken(autoDetectEnabled: false)
+        manager.setTabIcon(tabId: workspace.id, iconPath: "~/Desktop/cmux-icon.png")
+
+        XCTAssertNotNil(firstToken)
+        XCTAssertNotEqual(firstToken, workspace.effectiveIconReloadToken(autoDetectEnabled: false))
+    }
+
     func testWorkspaceIconDetectorFindsRootFavicon() throws {
         let directory = FileManager.default.temporaryDirectory
             .appendingPathComponent("cmux-workspace-icon-\(UUID().uuidString)", isDirectory: true)
@@ -238,6 +253,36 @@ final class WorkspaceIconTests: XCTestCase {
             WorkspaceIconDetector.detectedIconPath(in: directory.path),
             iconURL.path
         )
+    }
+
+    func testWorkspaceIconDetectionForceRescansSameDirectory() async throws {
+        let directory = FileManager.default.temporaryDirectory
+            .appendingPathComponent("cmux-workspace-icon-\(UUID().uuidString)", isDirectory: true)
+        try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: directory) }
+
+        let manager = TabManager()
+        guard let workspace = manager.tabs.first else {
+            XCTFail("Expected TabManager to initialise with a workspace")
+            return
+        }
+        workspace.currentDirectory = directory.path
+        workspace.refreshDetectedWorkspaceIcon(autoDetectEnabled: true, force: true)
+
+        let iconURL = directory.appendingPathComponent("favicon.png")
+        try Data([0x89, 0x50, 0x4E, 0x47]).write(to: iconURL)
+        workspace.refreshDetectedWorkspaceIcon(autoDetectEnabled: true)
+
+        let expectation = expectation(description: "detected icon refreshes")
+        let cancellable = workspace.$detectedIconPath.sink { detectedPath in
+            if detectedPath == iconURL.path {
+                expectation.fulfill()
+            }
+        }
+
+        workspace.refreshDetectedWorkspaceIcon(autoDetectEnabled: true, force: true)
+        await fulfillment(of: [expectation], timeout: 3)
+        withExtendedLifetime(cancellable) {}
     }
 }
 

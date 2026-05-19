@@ -12279,6 +12279,7 @@ struct SidebarWorkspaceSnapshotBuilder {
         let isPinned: Bool
         let customColorHex: String?
         let workspaceIconPath: String?
+        let workspaceIconReloadToken: String?
         let remoteWorkspaceSidebarText: String?
         let remoteConnectionStatusText: String
         let remoteStateHelpText: String
@@ -12631,7 +12632,11 @@ private struct TabItemView: View, Equatable {
 
         HStack(alignment: .top, spacing: workspaceIconPath == nil ? 0 : 10) {
             if let workspaceIconPath {
-                WorkspaceIconView(iconPath: workspaceIconPath, size: 36)
+                WorkspaceIconView(
+                    iconPath: workspaceIconPath,
+                    reloadToken: workspaceSnapshot.workspaceIconReloadToken,
+                    size: 36
+                )
                     .padding(.top, 1)
                     .accessibilityIdentifier("SidebarWorkspaceIcon")
             }
@@ -12935,7 +12940,7 @@ private struct TabItemView: View, Equatable {
             }
         }
         .onAppear {
-            refreshWorkspaceIconDetection()
+            refreshWorkspaceIconDetection(force: true)
             refreshWorkspaceSnapshot(force: true)
         }
         .task(id: finderDirectoryCacheKey) {
@@ -12988,7 +12993,7 @@ private struct TabItemView: View, Equatable {
             refreshWorkspaceSnapshot()
         }
         .onChange(of: settings) { _ in
-            refreshWorkspaceIconDetection()
+            refreshWorkspaceIconDetection(force: true)
             refreshWorkspaceSnapshot(force: true)
         }
         .onDrag {
@@ -13065,8 +13070,8 @@ private struct TabItemView: View, Equatable {
         }
     }
 
-    private func refreshWorkspaceIconDetection() {
-        tab.refreshDetectedWorkspaceIcon(autoDetectEnabled: settings.autoDetectWorkspaceIcon)
+    private func refreshWorkspaceIconDetection(force: Bool = false) {
+        tab.refreshDetectedWorkspaceIcon(autoDetectEnabled: settings.autoDetectWorkspaceIcon, force: force)
     }
 
     private func flushDeferredWorkspaceObservationInvalidation() {
@@ -13664,6 +13669,7 @@ private struct TabItemView: View, Equatable {
             isPinned: tab.isPinned,
             customColorHex: tab.customColor,
             workspaceIconPath: tab.effectiveIconPath(autoDetectEnabled: settings.autoDetectWorkspaceIcon),
+            workspaceIconReloadToken: tab.effectiveIconReloadToken(autoDetectEnabled: settings.autoDetectWorkspaceIcon),
             remoteWorkspaceSidebarText: remoteWorkspaceSidebarText,
             remoteConnectionStatusText: remoteConnectionStatusText,
             remoteStateHelpText: remoteStateHelpText,
