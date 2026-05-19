@@ -2315,7 +2315,7 @@ final class AppDelegateShortcutRoutingTests: XCTestCase {
         XCTAssertEqual(RightSidebarChromeMetrics.headerControlSize, titlebarConfig.buttonSize, accuracy: 0.001)
         XCTAssertEqual(RightSidebarChromeMetrics.headerIconSize, titlebarConfig.iconSize, accuracy: 0.001)
         XCTAssertEqual(RightSidebarChromeMetrics.headerControlCornerRadius, titlebarConfig.buttonCornerRadius, accuracy: 0.001)
-        XCTAssertEqual(RightSidebarChromeMetrics.headerControlCenterAlignmentLift, 2, accuracy: 0.001)
+        XCTAssertEqual(RightSidebarChromeMetrics.headerControlCenterAlignmentAdjustment, -8.0 / 3.0, accuracy: 0.001)
     }
 
     func testMinimalModeCollapsedSidebarResyncsTrafficLightInsetAfterNewWorkspaceCreation() {
