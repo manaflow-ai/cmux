@@ -21607,7 +21607,13 @@ export default function cmuxPiSessionExtension(pi: ExtensionAPI) {
     }
 
     private static func hookCommandValue(in entry: [String: Any]) -> String? {
-        (entry["command"] as? String) ?? (entry["bash"] as? String)
+        if let command = entry["command"] as? String {
+            return command
+        }
+        if let command = entry["command"] as? [Any] {
+            return command.map { String(describing: $0) }.joined(separator: " ")
+        }
+        return entry["bash"] as? String
     }
 
     private static func hookFormatUsesTopLevelVersion(_ format: AgentHookDef.HookFormat) -> Bool {

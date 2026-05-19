@@ -1838,6 +1838,17 @@ extension CLINotifyProcessIntegrationRegressionTests {
                   }
                 ]
               }
+            ],
+            "SessionEnd": [
+              {
+                "hooks": [
+                  {
+                    "type": "command",
+                    "command": ["sh", "-c", "cmux hooks copilot session-end"],
+                    "timeout": 5000
+                  }
+                ]
+              }
             ]
           }
         }
@@ -1876,6 +1887,9 @@ extension CLINotifyProcessIntegrationRegressionTests {
         XCTAssertEqual(sessionStart.first?["type"] as? String, "command")
         XCTAssertEqual(sessionStart.first?["timeoutSec"] as? Int, 5)
         XCTAssertTrue(sessionStartCommand.contains("hooks copilot session-start"), sessionStartCommand)
+        let stop = try XCTUnwrap(hooks["Stop"] as? [[String: Any]])
+        let stopCommand = try XCTUnwrap(stop.first?["command"] as? String)
+        XCTAssertTrue(stopCommand.contains("hooks copilot stop"), stopCommand)
         let preToolUse = try XCTUnwrap(hooks["PreToolUse"] as? [[String: Any]])
         XCTAssertEqual(preToolUse.first?["timeoutSec"] as? Int, 120)
 
