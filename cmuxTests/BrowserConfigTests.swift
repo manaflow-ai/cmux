@@ -1829,6 +1829,35 @@ final class BrowserInsecureHTTPAlertPresentationTests: XCTestCase {
         XCTAssertEqual(alertSpy.beginSheetModalCallCount, 0)
         XCTAssertEqual(alertSpy.runModalCallCount, 1)
     }
+
+    func testInsecureHTTPPromptDefersWhileBackgroundPreloadHasNoInteractiveHost() {
+        let panel = BrowserPanel(
+            workspaceId: UUID(),
+            initialURL: URL(string: "about:blank")!,
+            preloadInitialNavigationInBackground: true,
+            isRemoteWorkspace: false
+        )
+        defer {
+            panel.resetInsecureHTTPAlertHooksForTesting()
+            panel.close()
+        }
+
+        XCTAssertTrue(panel.hasBackgroundPreloadHost)
+        XCTAssertNil(browserInteractiveModalHostWindow(for: panel.webView))
+
+        let alertSpy = BrowserInsecureHTTPAlertSpy()
+        panel.configureInsecureHTTPAlertHooksForTesting(
+            alertFactory: { alertSpy },
+            windowProvider: {
+                XCTFail("Background preload should not prompt on fallback windows")
+                return nil
+            }
+        )
+        panel.presentInsecureHTTPAlertForTesting(url: URL(string: "http://example.com")!)
+
+        XCTAssertEqual(alertSpy.beginSheetModalCallCount, 0)
+        XCTAssertEqual(alertSpy.runModalCallCount, 0)
+    }
 }
 
 

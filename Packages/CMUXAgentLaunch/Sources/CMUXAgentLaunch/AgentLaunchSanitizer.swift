@@ -64,6 +64,8 @@ public enum AgentLaunchSanitizer {
             return preserveOptions(args, policy: claudePolicy)
         case "codex":
             return preserveOptions(args, policy: codexPolicy)
+        case "grok":
+            return preserveOptions(args, policy: grokPolicy)
         case "pi":
             return preserveOptions(args, policy: piPolicy)
         case "amp":
@@ -134,7 +136,7 @@ public enum AgentLaunchSanitizer {
         var result: [String] = []
         var index = 0
         var consumedFirstPositional = false
-        var skippingSessionPositionals = false
+        var sessionPositionalsToSkip = 0
 
         while index < args.count {
             let arg = args[index]
@@ -144,11 +146,13 @@ public enum AgentLaunchSanitizer {
 
             if !arg.hasPrefix("-") || arg == "-" {
                 if isSessionSubcommandStart(args, index: index, policy: policy) {
-                    skippingSessionPositionals = true
+                    let hasSessionID = index + 1 < args.count && !args[index + 1].hasPrefix("-")
+                    sessionPositionalsToSkip = hasSessionID ? 1 : 0
                     index += 1
                     continue
                 }
-                if skippingSessionPositionals {
+                if sessionPositionalsToSkip > 0 {
+                    sessionPositionalsToSkip -= 1
                     index += 1
                     continue
                 }
