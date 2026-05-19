@@ -4071,6 +4071,21 @@ final class CMUXLayoutTests: XCTestCase {
         )
     }
 
+    func testCanvasWheelGesturePansTrackpadScrollWithoutCommandModifier() {
+        var state = CanvasWheelGestureState()
+
+        XCTAssertEqual(
+            state.action(hasCommandModifier: false, isMomentum: false, didEndMomentum: false),
+            .pan
+        )
+        XCTAssertFalse(state.isConsumingCommandWheelMomentum)
+        XCTAssertEqual(
+            state.action(hasCommandModifier: false, isMomentum: true, didEndMomentum: false),
+            .pan
+        )
+        XCTAssertFalse(state.isConsumingCommandWheelMomentum)
+    }
+
     @MainActor
     func testCanvasSceneSnapshotPromotesFocusedItemToNativeMount() throws {
         let controller = WorkspaceLayoutController()

@@ -2838,6 +2838,8 @@ class TerminalController {
             return v2Result(id: id, self.v2DebugMouseDrag(params: params))
         case "debug.canvas.drag":
             return v2Result(id: id, self.v2DebugCanvasDrag(params: params))
+        case "debug.canvas.pan":
+            return v2Result(id: id, self.v2DebugCanvasPan(params: params))
         case "debug.canvas.resize":
             return v2Result(id: id, self.v2DebugCanvasResize(params: params))
         case "debug.canvas.viewport":
@@ -3105,6 +3107,7 @@ class TerminalController {
             "debug.type",
             "debug.mouse.drag",
             "debug.canvas.drag",
+            "debug.canvas.pan",
             "debug.canvas.resize",
             "debug.canvas.viewport",
             "debug.canvas.wheel_zoom",
@@ -12589,6 +12592,51 @@ class TerminalController {
             )
             controller.moveCanvasItem(item.id, to: geometry.frame)
             return geometry
+        }
+    }
+
+    private func v2DebugCanvasPan(params: [String: Any]) -> V2CallResult {
+        guard let dx = v2Double(params, "dx"),
+              let dy = v2Double(params, "dy") else {
+            return .err(code: "invalid_params", message: "Missing dx/dy", data: nil)
+        }
+        let viewportSize = CGSize(
+            width: max(1, v2Double(params, "viewport_width") ?? 1_200),
+            height: max(1, v2Double(params, "viewport_height") ?? 800)
+        )
+
+        guard let tabManager = v2ResolveTabManager(params: params) else {
+            return .err(code: "not_found", message: "Window not found", data: nil)
+        }
+
+        return v2MainSync {
+            guard let workspace = v2ResolveWorkspace(params: params, tabManager: tabManager) else {
+                return .err(code: "not_found", message: "Workspace not found", data: nil)
+            }
+
+            let controller = workspace.layoutController
+            controller.setCanvasLayoutPolicy(.freeform)
+            if !controller.isCanvasOverviewActive {
+                controller.enterCanvasOverview(policy: .freeform)
+            }
+            let before = controller.canvasViewport
+            let scale = CGFloat(CanvasViewportZoom.presentationScale(for: before))
+            controller.panCanvasViewport(
+                screenDelta: CGSize(width: dx, height: dy),
+                scale: scale,
+                viewportSize: viewportSize
+            )
+            TerminalWindowPortalRegistry.scheduleExternalGeometrySynchronizeForAllWindows()
+            BrowserWindowPortalRegistry.scheduleExternalGeometrySynchronizeForAllWindows()
+            let after = controller.canvasViewport
+            return .ok([
+                "before": v2DebugPixelRect(before.visibleRect),
+                "after": v2DebugPixelRect(after.visibleRect),
+                "dx": dx,
+                "dy": dy,
+                "presentation_scale": CanvasViewportZoom.presentationScale(for: after),
+                "scale": after.scale
+            ])
         }
     }
 

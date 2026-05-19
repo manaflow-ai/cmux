@@ -2067,6 +2067,7 @@ private struct WorkspaceCanvasOverviewView<Content: View, EmptyContent: View>: V
                             scale: scale,
                             viewportSize: proxy.size
                         )
+                        WorkspaceCanvasSurfaceMountManager.synchronizeAll()
                     },
                     onZoom: { delta, anchor in
                         controller.setCanvasViewportScale(
@@ -2074,6 +2075,7 @@ private struct WorkspaceCanvasOverviewView<Content: View, EmptyContent: View>: V
                             viewportSize: proxy.size,
                             anchorScreenPoint: anchor
                         )
+                        WorkspaceCanvasSurfaceMountManager.synchronizeAll()
                     },
                     onMagnify: { magnification, anchor in
                         controller.setCanvasViewportScale(
@@ -2081,6 +2083,7 @@ private struct WorkspaceCanvasOverviewView<Content: View, EmptyContent: View>: V
                             viewportSize: proxy.size,
                             anchorScreenPoint: anchor
                         )
+                        WorkspaceCanvasSurfaceMountManager.synchronizeAll()
                     },
                     onSmartZoom: { anchor in
                         controller.setCanvasViewportScale(
@@ -2088,6 +2091,7 @@ private struct WorkspaceCanvasOverviewView<Content: View, EmptyContent: View>: V
                             viewportSize: proxy.size,
                             anchorScreenPoint: anchor
                         )
+                        WorkspaceCanvasSurfaceMountManager.synchronizeAll()
                     }
                 )
                 .frame(width: proxy.size.width, height: proxy.size.height)
@@ -2431,6 +2435,9 @@ private struct WorkspaceCanvasOverviewView<Content: View, EmptyContent: View>: V
                     .clipped()
                     .opacity(0.88)
                     .allowsHitTesting(false)
+                if selected.kind == "browser" {
+                    canvasBrowserPreviewOmnibar(selected: selected)
+                }
             } else {
                 VStack(alignment: .leading, spacing: 4) {
                     Text(selected.title.trimmingCharacters(in: .whitespacesAndNewlines).nilIfEmpty ?? String(localized: "canvas.preview.surface", defaultValue: "Surface"))
@@ -2447,6 +2454,40 @@ private struct WorkspaceCanvasOverviewView<Content: View, EmptyContent: View>: V
         }
         .clipped()
         .accessibilityIdentifier("WorkspaceCanvasPreview.\(item.id.description).\(paneID.id.uuidString)")
+    }
+
+    private func canvasBrowserPreviewOmnibar(selected: SurfaceTab) -> some View {
+        let text = browserPreviewAddressText(for: selected)
+        return HStack(spacing: 5) {
+            Image(systemName: "chevron.left")
+                .font(.system(size: 8, weight: .semibold))
+            Image(systemName: "chevron.right")
+                .font(.system(size: 8, weight: .semibold))
+            Image(systemName: "arrow.clockwise")
+                .font(.system(size: 8, weight: .semibold))
+            Text(text)
+                .font(.system(size: 9, weight: .medium, design: .rounded))
+                .lineLimit(1)
+                .truncationMode(.middle)
+                .padding(.horizontal, 7)
+                .frame(maxWidth: .infinity, minHeight: 16, alignment: .leading)
+                .background(Color.black.opacity(0.24), in: RoundedRectangle(cornerRadius: 8, style: .continuous))
+        }
+        .foregroundStyle(canvasForegroundColor.opacity(0.74))
+        .padding(.horizontal, 7)
+        .frame(height: 26)
+        .background(canvasHeaderBackgroundColor.opacity(0.94))
+        .allowsHitTesting(false)
+        .accessibilityHidden(true)
+    }
+
+    private func browserPreviewAddressText(for selected: SurfaceTab) -> String {
+        if let browserPanel = workspace.panel(for: selected.id) as? BrowserPanel,
+           let urlString = browserPanel.webView.url?.absoluteString,
+           !urlString.isEmpty {
+            return urlString
+        }
+        return selected.title.trimmingCharacters(in: .whitespacesAndNewlines).nilIfEmpty ?? "about:blank"
     }
 
     private func captureCanvasPreviewSnapshot(for selected: SurfaceTab) {

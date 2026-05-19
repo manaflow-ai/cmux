@@ -60,6 +60,7 @@ struct Config {
     interval: Duration,
     once: bool,
     report_path: Option<String>,
+    probe_pattern: bool,
 }
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
@@ -109,7 +110,7 @@ fn run() -> io::Result<()> {
 }
 
 fn usage() -> &'static str {
-    "Usage: cmux-size-tui [--once] [--interval seconds] [--report-path path]\n\n\
+    "Usage: cmux-size-tui [--once] [--probe-pattern] [--interval seconds] [--report-path path]\n\n\
 Draws a full-terminal border and live size readout. Resize the containing pane;\n\
 the border should stay pinned to every edge and cols x rows should update.\n\n\
 Keys: q or Esc exits."
@@ -119,11 +120,13 @@ fn parse_args() -> io::Result<Config> {
     let mut interval = Duration::from_millis(16);
     let mut once = false;
     let mut report_path = None;
+    let mut probe_pattern = false;
     let mut args = env::args().skip(1);
 
     while let Some(arg) = args.next() {
         match arg.as_str() {
             "--once" => once = true,
+            "--probe-pattern" => probe_pattern = true,
             "--interval" => {
                 let value = args.next().ok_or_else(|| {
                     io::Error::new(io::ErrorKind::InvalidInput, "--interval requires a value")
@@ -156,6 +159,7 @@ fn parse_args() -> io::Result<Config> {
         interval,
         once,
         report_path,
+        probe_pattern,
     })
 }
 
@@ -226,7 +230,7 @@ fn run_loop(config: &Config) -> io::Result<()> {
         }
 
         let force_clear = size != last_size;
-        draw(size, frames, started.elapsed(), force_clear)?;
+        draw(config, size, frames, started.elapsed(), force_clear)?;
         last_size = size;
         frames += 1;
 
@@ -289,7 +293,13 @@ fn terminal_size() -> Size {
     Size::clamped(rows, cols)
 }
 
-fn draw(size: Size, frames: u64, elapsed: Duration, force_clear: bool) -> io::Result<()> {
+fn draw(
+    config: &Config,
+    size: Size,
+    frames: u64,
+    elapsed: Duration,
+    force_clear: bool,
+) -> io::Result<()> {
     let mut out = String::with_capacity(size.rows.saturating_mul(size.cols + 16) + 128);
     if force_clear {
         out.push_str("\x1b[2J");
@@ -298,10 +308,93 @@ fn draw(size: Size, frames: u64, elapsed: Duration, force_clear: bool) -> io::Re
 
     for row in 0..size.rows {
         out.push_str(&format!("\x1b[{};1H", row + 1));
-        out.push_str(&line_for_row(size, row, frames, elapsed));
+        if config.probe_pattern {
+            push_probe_row(&mut out, size, row);
+        } else {
+            out.push_str(&line_for_row(size, row, frames, elapsed));
+        }
     }
 
     write_all(&out)
+}
+
+#[derive(Clone, Copy, Eq, PartialEq)]
+enum ProbeCell {
+    Background,
+    Border,
+    Red,
+    Green,
+    Blue,
+}
+
+impl ProbeCell {
+    fn ansi_background(self) -> &'static str {
+        match self {
+            ProbeCell::Background => "\x1b[48;2;21;21;21m",
+            ProbeCell::Border => "\x1b[48;2;0;180;255m",
+            ProbeCell::Red => "\x1b[48;2;255;64;32m",
+            ProbeCell::Green => "\x1b[48;2;0;255;80m",
+            ProbeCell::Blue => "\x1b[48;2;40;80;255m",
+        }
+    }
+}
+
+fn push_probe_row(out: &mut String, size: Size, row: usize) {
+    let mut current = None;
+    for col in 0..size.cols {
+        let cell = probe_cell(size, row, col);
+        if current != Some(cell) {
+            out.push_str(cell.ansi_background());
+            current = Some(cell);
+        }
+        out.push(' ');
+    }
+    out.push_str("\x1b[0m");
+}
+
+fn probe_cell(size: Size, row: usize, col: usize) -> ProbeCell {
+    if row == 0 || row + 1 == size.rows || col == 0 || col + 1 == size.cols {
+        return ProbeCell::Border;
+    }
+
+    if point_in_rect(row, col, scaled_rect(size, 5, 24, 9, 8, 10, 7)) {
+        return ProbeCell::Red;
+    }
+
+    if point_in_rect(row, col, scaled_rect(size, 13, 42, 8, 11, 10, 6)) {
+        return ProbeCell::Green;
+    }
+
+    if point_in_rect(row, col, scaled_rect(size, 22, 28, 8, 10, 9, 6)) {
+        return ProbeCell::Blue;
+    }
+
+    ProbeCell::Background
+}
+
+fn scaled_rect(
+    size: Size,
+    top_floor: usize,
+    left_percent: usize,
+    width_floor: usize,
+    height_floor: usize,
+    width_divisor: usize,
+    height_divisor: usize,
+) -> (usize, usize, usize, usize) {
+    let top = top_floor.min(size.rows.saturating_sub(2));
+    let left = ((size.cols * left_percent) / 100).min(size.cols.saturating_sub(2));
+    let width = width_floor
+        .max(size.cols / width_divisor)
+        .min(size.cols.saturating_sub(left + 1));
+    let height = height_floor
+        .max(size.rows / height_divisor)
+        .min(size.rows.saturating_sub(top + 1));
+    (top, left, width.max(1), height.max(1))
+}
+
+fn point_in_rect(row: usize, col: usize, rect: (usize, usize, usize, usize)) -> bool {
+    let (top, left, width, height) = rect;
+    row >= top && row < top + height && col >= left && col < left + width
 }
 
 fn line_for_row(size: Size, row: usize, frames: u64, elapsed: Duration) -> String {
@@ -324,8 +417,14 @@ fn line_for_row(size: Size, row: usize, frames: u64, elapsed: Duration) -> Strin
         1 => format!(" CMUX SIZE TUI  {} cols x {} rows", size.cols, size.rows),
         3 => " Pane fit: border must touch every visible terminal edge".to_string(),
         4 => " Resize canvas card or outer window; readout should update immediately".to_string(),
-        6 => format!(" Surface: {}", env::var("CMUX_SURFACE_ID").unwrap_or_else(|_| "unknown".into())),
-        7 => format!(" Workspace: {}", env::var("CMUX_WORKSPACE_ID").unwrap_or_else(|_| "unknown".into())),
+        6 => format!(
+            " Surface: {}",
+            env::var("CMUX_SURFACE_ID").unwrap_or_else(|_| "unknown".into())
+        ),
+        7 => format!(
+            " Workspace: {}",
+            env::var("CMUX_WORKSPACE_ID").unwrap_or_else(|_| "unknown".into())
+        ),
         9 => format!(" Frames: {}  Uptime: {:.2}s", frames, elapsed.as_secs_f64()),
         _ if row + 2 == size.rows => " q/Esc exits".to_string(),
         _ => String::new(),
