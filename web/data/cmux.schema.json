@@ -655,6 +655,11 @@
           "default": "",
           "description": "Custom path to the claude binary."
         },
+        "suppressSubagentNotifications": {
+          "type": "boolean",
+          "default": true,
+          "description": "Suppress visible completion notifications and status mutations from nested Codex or Claude child agents while keeping their events in Feed telemetry."
+        },
         "cursorIntegration": {
           "type": "boolean",
           "default": true,

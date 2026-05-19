@@ -592,6 +592,29 @@ enum CommandPaletteSettingsToggleCommands {
                 defaultsKey: ClaudeCodeIntegrationSettings.hooksEnabledKey
             ),
             CommandPaletteSettingToggleDescriptor(
+                commandId: commandIdPrefix + "suppressSubagentNotifications",
+                settingsKey: "automation.suppressSubagentNotifications",
+                title: {
+                    String(
+                        localized: "settings.automation.suppressSubagentNotifications",
+                        defaultValue: "Suppress Subagent Notifications"
+                    )
+                },
+                sectionTitle: automation,
+                keywords: [
+                    "automation.suppressSubagentNotifications",
+                    "subagent",
+                    "nested",
+                    "agent",
+                    "codex",
+                    "claude",
+                    "notifications",
+                    "hooks",
+                ],
+                defaultValue: AgentSubagentNotificationSettings.defaultSuppressNotifications,
+                defaultsKey: AgentSubagentNotificationSettings.suppressNotificationsKey
+            ),
+            CommandPaletteSettingToggleDescriptor(
                 commandId: commandIdPrefix + "cursorIntegration",
                 settingsKey: "automation.cursorIntegration",
                 title: {

@@ -716,6 +716,9 @@ private enum HookAgentProcessKind: String {
     case claude
 }
 
+private let suppressSubagentNotificationsDefaultsKey = "suppressSubagentNotifications"
+private let suppressSubagentNotificationsEnvironmentKey = "CMUX_SUPPRESS_SUBAGENT_NOTIFICATIONS"
+
 enum CLIIDFormat: String {
     case refs
     case uuids
@@ -18919,6 +18922,10 @@ struct CMUXCLI {
             return true
         }
 
+        guard subagentNotificationSuppressionEnabled(env: env) else {
+            return false
+        }
+
         guard let currentAgentPID, currentAgentPID > 1 else {
             return false
         }
@@ -18943,10 +18950,55 @@ struct CMUXCLI {
         return false
     }
 
+    private func subagentNotificationSuppressionEnabled(env: [String: String]) -> Bool {
+        if let raw = normalizedHookValue(env[suppressSubagentNotificationsEnvironmentKey]),
+           let parsed = Self.parseHookBoolean(raw) {
+            return parsed
+        }
+        for defaults in appDefaultsCandidates(env: env) {
+            if defaults.object(forKey: suppressSubagentNotificationsDefaultsKey) != nil {
+                return defaults.bool(forKey: suppressSubagentNotificationsDefaultsKey)
+            }
+        }
+        return true
+    }
+
+    private func appDefaultsCandidates(env: [String: String]) -> [UserDefaults] {
+        var candidates: [UserDefaults] = []
+        if let bundleId = normalizedHookValue(env["CMUX_BUNDLE_ID"]),
+           let defaults = UserDefaults(suiteName: bundleId) {
+            candidates.append(defaults)
+        }
+        candidates.append(.standard)
+        return candidates
+    }
+
+    private static func parseHookBoolean(_ rawValue: String) -> Bool? {
+        switch rawValue.trimmingCharacters(in: .whitespacesAndNewlines).lowercased() {
+        case "1", "true", "yes", "on", "enabled":
+            return true
+        case "0", "false", "no", "off", "disabled":
+            return false
+        default:
+            return nil
+        }
+    }
+
     private func nativeAgentProcessKind(for pid: pid_t) -> HookAgentProcessKind? {
         let name = processName(for: pid)
-        let arguments = processArguments(for: pid) ?? []
-        return Self.nativeAgentProcessKind(processName: name, arguments: arguments)
+        if let kind = Self.nativeAgentProcessKind(processName: name, arguments: []) {
+            return kind
+        }
+
+        let nameBase = Self.agentProcessBasename(name)
+        guard nameBase == "node" || nameBase == "bun" else {
+            return nil
+        }
+
+        return Self.nativeAgentProcessKind(
+            processName: name,
+            arguments: processArguments(for: pid) ?? []
+        )
     }
 
     private static func nativeAgentProcessKind(

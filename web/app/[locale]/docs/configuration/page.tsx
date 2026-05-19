@@ -72,6 +72,10 @@ const settingsFileExample = `{
   //   "hostsToOpenInEmbeddedBrowser": ["localhost", "*.internal.example"]
   // },
 
+  // "automation": {
+  //   "suppressSubagentNotifications": true
+  // },
+
   // "workspaceColors": {
   //   "colors": {
   //     "Red": "#C0392B",

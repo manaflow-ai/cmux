@@ -101,6 +101,7 @@ extension CmuxSettingsFileStore {
         "automation.socketPassword",
         "automation.claudeCodeIntegration",
         "automation.claudeBinaryPath",
+        "automation.suppressSubagentNotifications",
         "automation.cursorIntegration",
         "automation.geminiIntegration",
         "automation.portBase",

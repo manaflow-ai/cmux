@@ -59941,6 +59941,98 @@
         }
       }
     },
+    "settings.automation.suppressSubagentNotifications": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Suppress Subagent Notifications"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "サブエージェント通知を抑制"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "하위 에이전트 알림 억제"
+          }
+        }
+      }
+    },
+    "settings.automation.suppressSubagentNotifications.note": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Uses process ancestry from hook processes. Disable if nested Codex or Claude sessions should trigger completion notifications."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "フックプロセスの親子関係を使用します。ネストされたCodexまたはClaudeセッションでも完了通知を出したい場合は無効にしてください。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "훅 프로세스의 상위 프로세스 관계를 사용합니다. 중첩된 Codex 또는 Claude 세션도 완료 알림을 보내야 한다면 비활성화하세요."
+          }
+        }
+      }
+    },
+    "settings.automation.suppressSubagentNotifications.subtitleOff": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Child agent completions notify like top-level agents."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "子エージェントの完了もトップレベルのエージェントと同様に通知します。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "하위 에이전트 완료도 최상위 에이전트처럼 알립니다."
+          }
+        }
+      }
+    },
+    "settings.automation.suppressSubagentNotifications.subtitleOn": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Child agent completions stay in Feed without notifications."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "子エージェントの完了は通知せずFeedにのみ残ります。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "하위 에이전트 완료는 알림 없이 Feed에만 남습니다."
+          }
+        }
+      }
+    },
     "settings.automation.cursor": {
       "extractionState": "manual",
       "localizations": {
@@ -77861,6 +77953,29 @@
                 }
             }
         }
+    },
+    "settings.search.alias.setting.automation.subagent-notifications": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "automation.suppressSubagentNotifications subagent nested child agent codex claude hooks notifications"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "automation.suppressSubagentNotifications サブエージェント ネスト 子エージェント codex claude フック 通知"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "automation.suppressSubagentNotifications 하위 에이전트 중첩 자식 에이전트 codex claude 훅 알림"
+          }
+        }
+      }
     },
     "settings.search.alias.setting.automation.cursor": {
         "extractionState": "manual",

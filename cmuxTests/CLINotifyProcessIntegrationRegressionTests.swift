@@ -363,6 +363,34 @@ final class CLINotifyProcessIntegrationRegressionTests: XCTestCase {
         )
     }
 
+    func testNestedCodexStopCanNotifyWhenSubagentSuppressionIsDisabled() throws {
+        let context = try makeClaudeHookContext(name: "codex-nested-stop-disabled")
+        defer { context.cleanup() }
+        let serverHandled = startAgentHookMockServer(context: context)
+
+        let result = try runCodexStopHookInFakeAgentTree(
+            context: context,
+            nested: true,
+            standardInput: #"{"session_id":"nested-session-disabled","cwd":"\#(context.root.path)","hook_event_name":"Stop","last_assistant_message":"child done"}"#,
+            extraEnvironment: [
+                "CMUX_SUPPRESS_SUBAGENT_NOTIFICATIONS": "0",
+            ]
+        )
+
+        wait(for: [serverHandled], timeout: 5)
+        XCTAssertFalse(result.timedOut, result.stderr)
+        XCTAssertEqual(result.status, 0, result.stderr)
+        XCTAssertEqual(result.stdout, "{}\n")
+        XCTAssertTrue(
+            context.state.commands.contains { $0.hasPrefix("notify_target_async \(context.workspaceId) \(context.surfaceId) Codex|") },
+            "Nested Codex Stop should notify when suppression is disabled, saw \(context.state.commands)"
+        )
+        XCTAssertTrue(
+            context.state.commands.contains { $0.hasPrefix("set_status codex ") && $0.contains(" Idle ") },
+            "Nested Codex Stop should mark Codex idle when suppression is disabled, saw \(context.state.commands)"
+        )
+    }
+
     func testRightSidebarCLIForwardsV1SocketCommandsQuietly() throws {
         let cliPath = try bundledCLIPath()
         let cases: [(name: String, arguments: [String], expectedCommand: String, response: String, stdout: String)] = [
@@ -1058,7 +1086,8 @@ final class CLINotifyProcessIntegrationRegressionTests: XCTestCase {
     private func runCodexStopHookInFakeAgentTree(
         context: ClaudeHookContext,
         nested: Bool,
-        standardInput: String
+        standardInput: String,
+        extraEnvironment: [String: String] = [:]
     ) throws -> ProcessRunResult {
         let fakeCodex = context.root.appendingPathComponent("codex", isDirectory: false)
         try FileManager.default.createSymbolicLink(atPath: fakeCodex.path, withDestinationPath: "/bin/sh")
@@ -1071,19 +1100,22 @@ final class CLINotifyProcessIntegrationRegressionTests: XCTestCase {
             outerCommand = hookCommand
         }
 
+        var environment = [
+            "HOME": context.root.path,
+            "PATH": "/usr/bin:/bin:/usr/sbin:/sbin",
+            "PWD": context.root.path,
+            "CMUX_SOCKET_PATH": context.socketPath,
+            "CMUX_WORKSPACE_ID": context.workspaceId,
+            "CMUX_SURFACE_ID": context.surfaceId,
+            "CMUX_AGENT_HOOK_STATE_DIR": context.root.path,
+            "CMUX_CLI_SENTRY_DISABLED": "1",
+        ]
+        environment.merge(extraEnvironment, uniquingKeysWith: { _, new in new })
+
         return runProcess(
             executablePath: fakeCodex.path,
             arguments: ["-c", outerCommand],
-            environment: [
-                "HOME": context.root.path,
-                "PATH": "/usr/bin:/bin:/usr/sbin:/sbin",
-                "PWD": context.root.path,
-                "CMUX_SOCKET_PATH": context.socketPath,
-                "CMUX_WORKSPACE_ID": context.workspaceId,
-                "CMUX_SURFACE_ID": context.surfaceId,
-                "CMUX_AGENT_HOOK_STATE_DIR": context.root.path,
-                "CMUX_CLI_SENTRY_DISABLED": "1",
-            ],
+            environment: environment,
             standardInput: standardInput,
             timeout: 5
         )
