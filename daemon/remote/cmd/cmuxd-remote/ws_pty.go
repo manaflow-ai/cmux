@@ -226,12 +226,7 @@ func handleWebSocketPTY(w http.ResponseWriter, r *http.Request, cfg wsPTYServerC
 		_ = conn.Close(websocket.StatusPolicyViolation, "invalid auth")
 		return
 	}
-	if auth.Cols <= 0 {
-		auth.Cols = 80
-	}
-	if auth.Rows <= 0 {
-		auth.Rows = 24
-	}
+	auth.Cols, auth.Rows = normalizePTYSize(auth.Cols, auth.Rows)
 	if auth.SessionID == "" {
 		auth.SessionID = "default"
 	}
