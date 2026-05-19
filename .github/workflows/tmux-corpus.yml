@@ -48,7 +48,8 @@ jobs:
           done
 
   terminal-nightly:
-    runs-on: warp-macos-15-arm64-6x
+    if: github.event_name == 'schedule'
+    runs-on: [self-hosted, warp-macos-15-arm64-6x]
     timeout-minutes: 30
     steps:
       - name: Checkout
@@ -79,7 +80,7 @@ jobs:
         uses: actions/cache@27d5ce7f107fe9357f9df03efb73ab90386fccae # v5.0.5
         with:
           path: GhosttyKit.xcframework
-          key: ghosttykit-${{ hashFiles('.gitmodules', 'ghostty') }}
+          key: ghosttykit-${{ hashFiles('.gitmodules', 'ghostty/**') }}
 
       - name: Download pre-built GhosttyKit.xcframework
         if: steps.cache-ghosttykit.outputs.cache-hit != 'true'

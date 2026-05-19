@@ -21,6 +21,8 @@ func FuzzTmuxCompatArgParser(f *testing.F) {
 	f.Fuzz(func(t *testing.T, input string) {
 		fields := strings.Fields(input)
 		_, _, _ = splitTmuxCmd(fields)
+		// These value and boolean flag lists mirror the pinned tmux corpus manifest;
+		// keep them in sync with manifest value_flags and boolean_flags when updating parseTmuxArgs coverage.
 		_ = parseTmuxArgs(fields, []string{"-c", "-F", "-n", "-s", "-t", "-x", "-y", "-S", "-E"}, []string{"-A", "-b", "-d", "-D", "-h", "-J", "-L", "-N", "-p", "-P", "-R", "-U", "-v"})
 	})
 }
@@ -83,8 +85,13 @@ func FuzzWebSocketPTYControlFrame(f *testing.F) {
 		var frame wsPTYControlFrame
 		_ = json.Unmarshal([]byte(input), &frame)
 		if frame.Type == "resize" && frame.Cols > 0 && frame.Rows > 0 {
-			_ = uint16(frame.Cols)
-			_ = uint16(frame.Rows)
+			cols, rows := normalizePTYSize(frame.Cols, frame.Rows)
+			if cols <= 0 || rows <= 0 {
+				t.Fatalf("normalizePTYSize(%d, %d) = %dx%d, expected positive dimensions", frame.Cols, frame.Rows, cols, rows)
+			}
+			if cols > maxPTYDimension || rows > maxPTYDimension {
+				t.Fatalf("normalizePTYSize(%d, %d) = %dx%d, expected <= %d", frame.Cols, frame.Rows, cols, rows, maxPTYDimension)
+			}
 		}
 	})
 }

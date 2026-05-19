@@ -69,6 +69,12 @@ var (
 	wsLeaseMu           sync.Mutex
 )
 
+const (
+	defaultPTYCols  = 80
+	defaultPTYRows  = 24
+	maxPTYDimension = 65535
+)
+
 func runWebSocketPTYServer(ctx context.Context, cfg wsPTYServerConfig, stderr io.Writer) error {
 	addr := cfg.ListenAddr
 	if strings.TrimSpace(addr) == "" {
@@ -150,12 +156,7 @@ func handleWebSocketPTY(w http.ResponseWriter, r *http.Request, cfg wsPTYServerC
 		_ = conn.Close(websocket.StatusPolicyViolation, "invalid auth")
 		return
 	}
-	if auth.Cols <= 0 {
-		auth.Cols = 80
-	}
-	if auth.Rows <= 0 {
-		auth.Rows = 24
-	}
+	auth.Cols, auth.Rows = normalizePTYSize(auth.Cols, auth.Rows)
 	if auth.SessionID == "" {
 		auth.SessionID = "default"
 	}
@@ -507,9 +508,10 @@ func pumpWebSocketToPTY(ctx context.Context, conn *websocket.Conn, ptyFile *os.F
 			switch control.Type {
 			case "resize":
 				if control.Cols > 0 && control.Rows > 0 {
+					cols, rows := normalizePTYSize(control.Cols, control.Rows)
 					_ = pty.Setsize(ptyFile, &pty.Winsize{
-						Cols: uint16(control.Cols),
-						Rows: uint16(control.Rows),
+						Cols: uint16(cols),
+						Rows: uint16(rows),
 					})
 				}
 			case "close":
@@ -517,6 +519,22 @@ func pumpWebSocketToPTY(ctx context.Context, conn *websocket.Conn, ptyFile *os.F
 			}
 		}
 	}
+}
+
+func normalizePTYSize(cols int, rows int) (int, int) {
+	if cols <= 0 {
+		cols = defaultPTYCols
+	}
+	if rows <= 0 {
+		rows = defaultPTYRows
+	}
+	if cols > maxPTYDimension {
+		cols = maxPTYDimension
+	}
+	if rows > maxPTYDimension {
+		rows = maxPTYDimension
+	}
+	return cols, rows
 }
 
 func resolvePTYShell(explicit string) string {
