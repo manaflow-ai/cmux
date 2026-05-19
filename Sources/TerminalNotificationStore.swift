@@ -2131,7 +2131,7 @@ final class TerminalNotificationStore: ObservableObject {
             runTag: TaggedRunBadgeSettings.normalizedTag()
         )
         NotificationBadgeSettings.persistDockBadgeLabel(label)
-        NSApp?.dockTile.badgeLabel = label
         AppIconSettings.updateRuntimeBadgeLabel(label)
+        NSApp?.dockTile.badgeLabel = label
     }
 }

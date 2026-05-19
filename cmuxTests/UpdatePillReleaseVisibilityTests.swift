@@ -209,6 +209,7 @@ final class TitlebarControlsHoverPolicyTests: XCTestCase {
     }
 }
 
+@MainActor
 final class AppIconAppearanceObserverTests: XCTestCase {
     private final class ObservationToken: AppIconAppearanceObservation {
         private(set) var invalidateCallCount = 0
@@ -225,6 +226,7 @@ final class AppIconAppearanceObserverTests: XCTestCase {
         var currentAppearanceIsDarkCallCount = 0
         var imageRequests: [String] = []
         var appliedIconCount = 0
+        var dockTileNotificationCount = 0
         var didFinishLaunchingObserverCount = 0
         private(set) var didFinishLaunchingHandler: (() -> Void)?
         private(set) var appearanceHandler: (() -> Void)?
@@ -255,6 +257,9 @@ final class AppIconAppearanceObserverTests: XCTestCase {
             },
             setApplicationIconImage: { [unowned self] _ in
                 self.appliedIconCount += 1
+            },
+            notifyDockTilePlugin: { [unowned self] in
+                self.dockTileNotificationCount += 1
             }
         )
 
