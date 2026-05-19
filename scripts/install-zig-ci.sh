@@ -25,8 +25,17 @@ case "$(uname -m)" in
 esac
 
 if ! command -v minisign >/dev/null 2>&1; then
-  if command -v brew >/dev/null 2>&1; then
-    brew install minisign
+  BREW_BIN="$(command -v brew 2>/dev/null || true)"
+  if [ -z "$BREW_BIN" ]; then
+    for candidate in /opt/homebrew/bin/brew /usr/local/bin/brew; do
+      if [ -x "$candidate" ]; then
+        BREW_BIN="$candidate"
+        break
+      fi
+    done
+  fi
+  if [ -n "$BREW_BIN" ]; then
+    "$BREW_BIN" install minisign
   else
     echo "minisign is required to verify Zig downloads" >&2
     exit 1
