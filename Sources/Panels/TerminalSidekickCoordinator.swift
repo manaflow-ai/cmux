@@ -152,17 +152,31 @@ final class TerminalSidekickCoordinator {
             return
         }
 
-        if state.isOpen {
-            let hadBrowserPanel = browserPanel != nil
-            guard let browserPanel = ensureBrowserPanel() else {
+        guard state.isOpen else {
+            closeBrowserPanel()
+            return
+        }
+
+        guard let url = state.url else {
+            closeBrowserPanel()
+            guard ensureBrowserPanel(renderInitialNavigation: false) != nil else {
                 var next = state
                 next.isOpen = false
                 replaceState(next)
                 return
             }
-            if hadBrowserPanel, let url = state.url {
-                browserPanel.navigate(to: url, recordTypedNavigation: false)
-            }
+            return
+        }
+
+        let hadBrowserPanel = browserPanel != nil
+        guard let browserPanel = ensureBrowserPanel() else {
+            var next = state
+            next.isOpen = false
+            replaceState(next)
+            return
+        }
+        if hadBrowserPanel {
+            browserPanel.navigate(to: url, recordTypedNavigation: false)
         }
     }
 

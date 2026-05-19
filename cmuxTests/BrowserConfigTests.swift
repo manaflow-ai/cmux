@@ -3894,9 +3894,11 @@ final class BrowserOmnibarCommandOrControlNavigationTests: XCTestCase {
         )
     }
 
-    func testControlNavigationRepeatLifecycleRequiresControlOnly() {
+    func testCommandNavigationRepeatLifecycleRequiresCommandOrControlOnly() {
         XCTAssertTrue(browserOmnibarShouldContinueControlNavigationRepeat(flags: [.control]))
         XCTAssertTrue(browserOmnibarShouldContinueControlNavigationRepeat(flags: [.control, .capsLock]))
+        XCTAssertTrue(browserOmnibarShouldContinueControlNavigationRepeat(flags: [.command]))
+        XCTAssertTrue(browserOmnibarShouldContinueControlNavigationRepeat(flags: [.command, .capsLock]))
         XCTAssertFalse(browserOmnibarShouldContinueControlNavigationRepeat(flags: [.control, .command]))
         XCTAssertFalse(browserOmnibarShouldContinueControlNavigationRepeat(flags: [.control, .option]))
         XCTAssertFalse(browserOmnibarShouldContinueControlNavigationRepeat(flags: [.control, .shift]))

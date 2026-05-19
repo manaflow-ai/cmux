@@ -16178,21 +16178,24 @@ class TerminalController {
 
         let terminalSurface = terminalPanel.surface
         terminalSurface.requestBackgroundSurfaceStartIfNeeded()
-        _ = v2AwaitCallback(timeout: timeout) { finish in
-            var readyObserver: NSObjectProtocol?
-            var hostedViewObserver: NSObjectProtocol?
-            var didFinish = false
+        var readyObserver: NSObjectProtocol?
+        var hostedViewObserver: NSObjectProtocol?
+        var didFinish = false
+        let cleanupObservers: () -> Void = {
+            if let readyObserver {
+                NotificationCenter.default.removeObserver(readyObserver)
+            }
+            if let hostedViewObserver {
+                NotificationCenter.default.removeObserver(hostedViewObserver)
+            }
+            readyObserver = nil
+            hostedViewObserver = nil
+        }
+        let waitResult: Void? = v2AwaitCallback(timeout: timeout) { finish in
             let finishOnce: () -> Void = {
                 guard !didFinish else { return }
                 didFinish = true
-                if let readyObserver {
-                    NotificationCenter.default.removeObserver(readyObserver)
-                }
-                if let hostedViewObserver {
-                    NotificationCenter.default.removeObserver(hostedViewObserver)
-                }
-                readyObserver = nil
-                hostedViewObserver = nil
+                cleanupObservers()
                 finish(())
             }
 
@@ -16218,6 +16221,10 @@ class TerminalController {
             if terminalSurface.surface != nil {
                 finishOnce()
             }
+        }
+        if waitResult == nil, !didFinish {
+            didFinish = true
+            cleanupObservers()
         }
 
         return terminalPanel.surface.surface
@@ -16440,6 +16447,7 @@ class TerminalController {
     private func sendSocketInput(_ text: String, to terminalPanel: TerminalPanel) {
         if let surface = terminalPanel.surface.surface {
             sendSocketText(text, surface: surface)
+            terminalPanel.surface.forceRefresh(reason: "terminalController.sendSocketInput")
         } else {
             terminalPanel.sendInput(text)
             terminalPanel.surface.requestBackgroundSurfaceStartIfNeeded()

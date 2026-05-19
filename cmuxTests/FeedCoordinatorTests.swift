@@ -22,7 +22,7 @@ final class FeedCoordinatorTests: XCTestCase {
         XCTAssertFalse(FeedPermissionActionPolicy.supportsBypassPermissions(source: .hermesAgent))
     }
 
-    func testBlockingIngestExpiresItemWhenHookTimesOut() async {
+    func testBlockingIngestExpiresItemWhenHookTimesOut() async throws {
         await MainActor.run {
             let store = WorkstreamStore(ringCapacity: 10)
             FeedCoordinator.shared.install(store: store)
@@ -200,7 +200,7 @@ final class FeedCoordinatorTests: XCTestCase {
             "expired hook requests should not post native notifications"
         )
 #else
-        XCTFail("debug feed test hooks are only available in DEBUG")
+        throw XCTSkip("debug feed test hooks are only available in DEBUG")
 #endif
     }
 

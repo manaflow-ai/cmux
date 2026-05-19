@@ -12592,6 +12592,19 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             return nil
         }
 
+        guard browserOmnibarPanelId(for: shortcutResponder) == panelId else {
+#if DEBUG
+            let responderPanel = browserOmnibarPanelId(for: shortcutResponder)
+                .map { String($0.uuidString.prefix(5)) } ?? "nil"
+            cmuxDebugLog(
+                "browser.focus.addressBar.shortcutContext panel=\(panelId.uuidString.prefix(5)) " +
+                "accepted=0 reason=responder_panel_mismatch responderPanel=\(responderPanel) " +
+                "workspace=\(workspace.id.uuidString.prefix(5)) event=\(NSWindow.keyDescription(event))"
+            )
+#endif
+            return nil
+        }
+
 #if DEBUG
         cmuxDebugLog(
             "browser.focus.addressBar.shortcutContext panel=\(panelId.uuidString.prefix(5)) " +

@@ -46,7 +46,8 @@ func browserOmnibarNormalizedModifierFlags(_ flags: NSEvent.ModifierFlags) -> NS
 }
 
 func browserOmnibarShouldContinueControlNavigationRepeat(flags: NSEvent.ModifierFlags) -> Bool {
-    browserOmnibarNormalizedModifierFlags(flags) == [.control]
+    let normalizedFlags = browserOmnibarNormalizedModifierFlags(flags)
+    return normalizedFlags == [.control] || normalizedFlags == [.command]
 }
 
 func browserOmnibarShouldSubmitOnReturn(flags: NSEvent.ModifierFlags) -> Bool {

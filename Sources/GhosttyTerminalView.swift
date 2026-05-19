@@ -4558,13 +4558,16 @@ final class TerminalSurface: Identifiable, ObservableObject {
     }
 
     private enum PendingSocketInput {
-        case text(Data)
+        case pasteText(Data)
+        case keyText(String)
         case key(PendingKeyEvent)
 
         var estimatedBytes: Int {
             switch self {
-            case .text(let data):
+            case .pasteText(let data):
                 return data.count
+            case .keyText(let text):
+                return text.utf8.count
             case .key(let event):
                 return max(event.label.utf8.count, 1)
             }
@@ -5759,7 +5762,7 @@ final class TerminalSurface: Identifiable, ObservableObject {
     func sendText(_ text: String) {
         guard let data = text.data(using: .utf8), !data.isEmpty else { return }
         guard let surface = surface else {
-            enqueuePendingSocketInput(.text(data))
+            enqueuePendingSocketInput(.pasteText(data))
             requestBackgroundSurfaceStartIfNeeded()
             return
         }
@@ -5855,8 +5858,8 @@ final class TerminalSurface: Identifiable, ObservableObject {
 
     @discardableResult
     private func enqueuePendingText(_ buffer: inout String) -> Bool {
-        guard let data = buffer.data(using: .utf8), !data.isEmpty else { return false }
-        enqueuePendingSocketInput(.text(data))
+        guard !buffer.isEmpty else { return false }
+        enqueuePendingSocketInput(.keyText(buffer))
         buffer.removeAll(keepingCapacity: true)
         return true
     }
@@ -6095,8 +6098,11 @@ final class TerminalSurface: Identifiable, ObservableObject {
         var queuedKeys = 0
         for item in queued {
             switch item {
-            case .text(let chunk):
+            case .pasteText(let chunk):
                 writeTextData(chunk, to: surface)
+            case .keyText(let chunk):
+                var bufferedText = chunk
+                flushText(&bufferedText, surface: surface)
             case .key(let event):
                 queuedKeys += 1
                 sendKeyEvent(surface: surface, keycode: event.keycode, mods: event.mods)
