@@ -9508,6 +9508,7 @@ struct VerticalTabsSidebar: View {
 
     private let tabRowSpacing: CGFloat = 2
     private static let extensionSidebarObservationCoalesceInterval: RunLoop.SchedulerTimeType.Stride = .milliseconds(40)
+    private static let extensionSidebarDisclosureAnimation = Animation.easeInOut(duration: 0.18)
     private var sidebarTitlebarInteractionHeight: CGFloat {
         MinimalModeChromeMetrics.titlebarHeight
     }
@@ -10044,10 +10045,12 @@ struct VerticalTabsSidebar: View {
         VStack(alignment: .leading, spacing: 1) {
             HStack(spacing: 7) {
                 Button {
-                    if isCollapsed {
-                        collapsedExtensionSidebarSectionIds.remove(section.id)
-                    } else {
-                        collapsedExtensionSidebarSectionIds.insert(section.id)
+                    withAnimation(Self.extensionSidebarDisclosureAnimation) {
+                        if isCollapsed {
+                            collapsedExtensionSidebarSectionIds.remove(section.id)
+                        } else {
+                            collapsedExtensionSidebarSectionIds.insert(section.id)
+                        }
                     }
                 } label: {
                     Image(systemName: isCollapsed ? "folder" : "folder.fill")
@@ -10084,19 +10087,24 @@ struct VerticalTabsSidebar: View {
             .padding(.bottom, 4)
 
             if !isCollapsed {
-                ForEach(section.rows) { row in
-                    CmuxExtensionSidebarWorkspaceRowView(
-                        row: row,
-                        workspace: extensionWorkspaceSnapshot(for: row.workspaceId),
-                        providerId: providerId,
-                        relativeNow: now,
-                        isSelected: row.workspaceId == tabManager.selectedTabId,
-                        onSelect: selectExtensionSidebarWorkspace,
-                        onOpenWindow: CmuxExtensionSidebarInspectorWindowController.show
-                    )
-                    .id(row.id)
-                    .accessibilityIdentifier("extensionSidebar.workspace.\(row.workspaceId.uuidString)")
+                VStack(alignment: .leading, spacing: 1) {
+                    ForEach(section.rows) { row in
+                        CmuxExtensionSidebarWorkspaceRowView(
+                            row: row,
+                            workspace: extensionWorkspaceSnapshot(for: row.workspaceId),
+                            providerId: providerId,
+                            relativeNow: now,
+                            isSelected: row.workspaceId == tabManager.selectedTabId,
+                            onSelect: selectExtensionSidebarWorkspace,
+                            onOpenWindow: CmuxExtensionSidebarInspectorWindowController.show
+                        )
+                        .id(row.id)
+                        .accessibilityIdentifier("extensionSidebar.workspace.\(row.workspaceId.uuidString)")
+                    }
                 }
+                .frame(maxWidth: .infinity, alignment: .leading)
+                .clipped()
+                .transition(.opacity.combined(with: .move(edge: .top)))
             }
         }
     }
