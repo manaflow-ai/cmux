@@ -12,12 +12,12 @@ extension FileDropOverlayView {
             pasteboardTypes: types,
             hasLocalDraggingSource: hasLocalDraggingSource
         )
-        updateHintBadge(sender: sender, pasteboardTypes: types)
         if shouldDeferPlainExternalFileDropToWebContent(sender) {
             hintBadgeView.hide()
             exitActiveDragTargets(sender)
             return []
         }
+        updateHintBadge(sender: sender, pasteboardTypes: types)
 
         if shouldRouteFileDropToTextDestination(sender) {
             let paneDropTarget = paneDropTargetForTextDrop(at: loc)
