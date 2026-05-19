@@ -261,9 +261,6 @@ extension Workspace {
         restoredAgentResumeStatesByPanelId.removeAll(keepingCapacity: false)
         invalidatedRestoredAgentFingerprintsByPanelId.removeAll(keepingCapacity: false)
         surfaceResumeBindingsByPanelId.removeAll(keepingCapacity: false)
-        sessionRestoreNoteProjectRoot = noteProjectRoot()
-        defer { sessionRestoreNoteProjectRoot = nil }
-
         let restoredRemoteConfiguration = snapshot.remote?.workspaceConfiguration()
         if let restoredRemoteConfiguration {
             configureRemoteConnection(
@@ -278,6 +275,8 @@ extension Workspace {
         if !normalizedCurrentDirectory.isEmpty {
             currentDirectory = normalizedCurrentDirectory
         }
+        sessionRestoreNoteProjectRoot = noteProjectRoot()
+        defer { sessionRestoreNoteProjectRoot = nil }
 
         let panelSnapshotsById = Dictionary(uniqueKeysWithValues: snapshot.panels.map { ($0.id, $0) })
         let leafEntries = restoreSessionLayout(snapshot.layout)
@@ -11147,9 +11146,10 @@ final class Workspace: Identifiable, ObservableObject {
     }
 
     /// Open (or focus) a project-scoped note as a surface in the given pane.
-    /// Creates `.cmux/notes/<slug>.md` if it doesn't exist. Internally this
-    /// is a `MarkdownPanel` — the "note" distinction lives at the storage
-    /// convention and at the `CmuxSurfaceType.note` public surface type.
+    /// Internally this is a `MarkdownPanel` — the "note" distinction lives at
+    /// the storage convention and at the `CmuxSurfaceType.note` public surface
+    /// type. When `createIfMissing` is true, file creation is scheduled
+    /// off-main so config/layout materialization does not block the UI thread.
     @discardableResult
     func newNoteSurface(
         inPane paneId: PaneID,
@@ -11171,27 +11171,17 @@ final class Workspace: Identifiable, ObservableObject {
             workspaceLogger.error("Note surfaces are not available for remote workspaces")
             return nil
         }
-        let filePath: String
+        let filePath = NoteSupport.notePath(forSlug: validatedSlug, projectRoot: root)
         if createIfMissing {
-            do {
-                filePath = try NoteSupport.ensureNoteFile(slug: validatedSlug, projectRoot: root)
-            } catch {
-                workspaceLogger.error(
-                    "Failed to create note file for config note slug=\(validatedSlug, privacy: .private) error=\(error.localizedDescription, privacy: .private)"
-                )
-                return nil
+            Task.detached(priority: .utility) {
+                do {
+                    try NoteSupport.ensureNoteFile(slug: validatedSlug, projectRoot: root)
+                } catch {
+                    workspaceLogger.error(
+                        "Failed to create note file for config note slug=\(validatedSlug, privacy: .private) error=\(error.localizedDescription, privacy: .private)"
+                    )
+                }
             }
-        } else {
-            let candidate = NoteSupport.notePath(forSlug: validatedSlug, projectRoot: root)
-            do {
-                guard try NoteSupport.noteFileExists(forSlug: validatedSlug, projectRoot: root) else { return nil }
-            } catch {
-                workspaceLogger.error(
-                    "Failed to resolve existing config note slug=\(validatedSlug, privacy: .private) error=\(error.localizedDescription, privacy: .private)"
-                )
-                return nil
-            }
-            filePath = candidate
         }
         if reuseExisting {
             return openOrFocusMarkdownSurface(inPane: paneId, filePath: filePath, focus: focus ?? false)
