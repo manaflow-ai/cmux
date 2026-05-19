@@ -59590,6 +59590,75 @@
         }
       }
     },
+    "settings.automation.ripgrep.customPath": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ripgrep Binary Path"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ripgrepバイナリパス"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ripgrep 바이너리 경로"
+          }
+        }
+      }
+    },
+    "settings.automation.ripgrep.customPath.placeholder": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "e.g. /etc/profiles/per-user/you/bin/rg"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "例: /etc/profiles/per-user/you/bin/rg"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "예: /etc/profiles/per-user/you/bin/rg"
+          }
+        }
+      }
+    },
+    "settings.automation.ripgrep.customPath.subtitle": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Custom path to the rg binary used by Find. Leave empty to use common install locations and PATH."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Findで使用するrgバイナリのカスタムパス。空欄の場合は一般的なインストール先とPATHを使用します。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Find에서 사용하는 rg 바이너리의 사용자 지정 경로입니다. 일반 설치 위치와 PATH를 사용하려면 비워두세요."
+          }
+        }
+      }
+    },
     "settings.automation.claudeCode.note": {
       "extractionState": "manual",
       "localizations": {
@@ -77868,6 +77937,29 @@
             }
         }
     },
+    "settings.search.alias.setting.automation.ripgrep-path": {
+        "extractionState": "manual",
+        "localizations": {
+            "en": {
+                "stringUnit": {
+                    "state": "translated",
+                    "value": "automation.ripgrepBinaryPath ripgrep rg binary executable path search find nix custom"
+                }
+            },
+            "ja": {
+                "stringUnit": {
+                    "state": "translated",
+                    "value": "automation.ripgrepBinaryPath ripgrep rg binary executable path search find nix custom 検索 パス カスタム"
+                }
+            },
+            "ko": {
+                "stringUnit": {
+                    "state": "translated",
+                    "value": "automation.ripgrepBinaryPath ripgrep rg binary executable path search find nix custom 검색 경로 사용자 지정"
+                }
+            }
+        }
+    },
     "settings.search.alias.setting.automation.cursor": {
         "extractionState": "manual",
         "localizations": {
@@ -87117,6 +87209,29 @@
           "stringUnit": {
             "state": "translated",
             "value": "%d件、検索中"
+          }
+        }
+      }
+    },
+    "fileExplorer.search.rgConfiguredPathNotExecutable": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Configured ripgrep path is not executable: %@"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "設定されたripgrepパスは実行できません: %@"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "설정된 ripgrep 경로를 실행할 수 없습니다: %@"
           }
         }
       }
