@@ -2678,7 +2678,11 @@ final class BrowserPanel: Panel, ObservableObject {
     private(set) var webViewLastHiddenAt: Date?
     private(set) var webViewLastVisibilityChangeAt: Date?
     private(set) var webViewLastVisibilityChangeReason: String?
-    private(set) var hasBackgroundPreloadHost = false
+    var hasBackgroundPreloadHost: Bool {
+        backgroundPreloadWindow != nil
+    }
+    private let preloadsNavigationInBackground: Bool
+    private var backgroundPreloadWindow: NSWindow?
     private var isWebViewVisibleInUI: Bool = false
     private var isClosingWebViewLifecycle: Bool = false
 
@@ -3032,6 +3036,7 @@ final class BrowserPanel: Panel, ObservableObject {
 
         webViewObservers.removeAll()
         webViewCancellables.removeAll()
+        closeBackgroundPreloadHost(reason: "discardHiddenWebView")
         BrowserWindowPortalRegistry.detach(webView: oldWebView)
         oldWebView.stopLoading()
         oldWebView.navigationDelegate = nil
@@ -3443,6 +3448,7 @@ final class BrowserPanel: Panel, ObservableObject {
         self.remoteProxyEndpoint = proxyEndpoint
         self.usesRemoteWorkspaceProxy = isRemoteWorkspace
         self.browserThemeMode = BrowserThemeSettings.mode()
+        self.preloadsNavigationInBackground = preloadInitialNavigationInBackground
         self.websiteDataStore = isRemoteWorkspace
             ? WKWebsiteDataStore(forIdentifier: remoteWebsiteDataStoreIdentifier ?? workspaceId)
             : BrowserProfileStore.shared.websiteDataStore(for: resolvedProfileID)
@@ -3587,6 +3593,60 @@ final class BrowserPanel: Panel, ObservableObject {
         }
     }
 
+    private func ensureBackgroundPreloadHostIfNeeded(reason: String) {
+        guard preloadsNavigationInBackground else { return }
+        guard backgroundPreloadWindow == nil else { return }
+        guard webView.window == nil else { return }
+        guard webView.superview == nil else { return }
+
+        let frame = NSRect(x: 0, y: 0, width: 800, height: 600)
+        let window = NSWindow(
+            contentRect: frame,
+            styleMask: [.borderless],
+            backing: .buffered,
+            defer: false
+        )
+        window.isReleasedWhenClosed = false
+        window.hasShadow = false
+        window.alphaValue = 0
+        window.ignoresMouseEvents = true
+        window.collectionBehavior = [.transient, .ignoresCycle, .stationary]
+        window.isExcludedFromWindowsMenu = true
+
+        let contentView = NSView(frame: frame)
+        webView.frame = contentView.bounds
+        webView.autoresizingMask = [.width, .height]
+        contentView.addSubview(webView)
+        window.contentView = contentView
+        backgroundPreloadWindow = window
+
+#if DEBUG
+        cmuxDebugLog(
+            "browser.backgroundPreload.host.create panel=\(id.uuidString.prefix(5)) " +
+            "reason=\(reason)"
+        )
+#endif
+    }
+
+    func releaseBackgroundPreloadHostIfAttachedToRealWindow(reason: String) {
+        guard let preloadWindow = backgroundPreloadWindow else { return }
+        guard webView.window !== preloadWindow else { return }
+        closeBackgroundPreloadHost(reason: reason)
+    }
+
+    private func closeBackgroundPreloadHost(reason: String) {
+        guard let preloadWindow = backgroundPreloadWindow else { return }
+        backgroundPreloadWindow = nil
+        preloadWindow.contentView = nil
+        preloadWindow.close()
+#if DEBUG
+        cmuxDebugLog(
+            "browser.backgroundPreload.host.close panel=\(id.uuidString.prefix(5)) " +
+            "reason=\(reason)"
+        )
+#endif
+    }
+
     func setRemoteProxyEndpoint(_ endpoint: BrowserProxyEndpoint?) {
         guard remoteProxyEndpoint != endpoint else { return }
         remoteProxyEndpoint = endpoint
@@ -3715,6 +3775,7 @@ final class BrowserPanel: Panel, ObservableObject {
         faviconTask?.cancel()
         faviconTask = nil
         faviconRefreshGeneration &+= 1
+        closeBackgroundPreloadHost(reason: "profileSwitch")
         BrowserWindowPortalRegistry.detach(webView: previousWebView)
         previousWebView.stopLoading()
         previousWebView.navigationDelegate = nil
@@ -4079,6 +4140,7 @@ final class BrowserPanel: Panel, ObservableObject {
         faviconTask?.cancel()
         faviconTask = nil
         faviconRefreshGeneration &+= 1
+        closeBackgroundPreloadHost(reason: reason)
         BrowserWindowPortalRegistry.detach(webView: oldWebView)
         oldWebView.stopLoading()
         oldWebView.navigationDelegate = nil
@@ -4218,6 +4280,7 @@ final class BrowserPanel: Panel, ObservableObject {
         // Ensure we don't keep a hidden WKWebView (or its content view) as first responder while
         // bonsplit/SwiftUI reshuffles views during close.
         unfocus()
+        closeBackgroundPreloadHost(reason: "close")
 
         // Snapshot first: popup close unregisters itself from popupControllers.
         let popupsToClose = popupControllers
@@ -4684,6 +4747,7 @@ final class BrowserPanel: Panel, ObservableObject {
         webView.customUserAgent = BrowserUserAgentSettings.safariUserAgent
         hiddenWebViewDiscardManager.updateRestoredSessionRenderIntent(nil)
         shouldRenderWebView = true
+        ensureBackgroundPreloadHostIfNeeded(reason: "navigation")
         if recordTypedNavigation {
             historyStore.recordTypedNavigation(url: originalURL)
         }
@@ -5018,6 +5082,7 @@ extension BrowserPanel {
         let oldWebView = webView
         webViewObservers.removeAll()
         webViewCancellables.removeAll()
+        closeBackgroundPreloadHost(reason: "contextReset")
         BrowserWindowPortalRegistry.detach(webView: oldWebView)
         oldWebView.stopLoading()
         oldWebView.navigationDelegate = nil
