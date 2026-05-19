@@ -143,9 +143,7 @@ public enum AgentLaunchSanitizer {
             }
 
             if !arg.hasPrefix("-") || arg == "-" {
-                let isSessionSubcommand = policy.resumeSubcommand == arg ||
-                    policy.sessionSubcommands.contains(arg)
-                if isSessionSubcommand {
+                if isSessionSubcommandStart(args, index: index, policy: policy) {
                     skippingSessionPositionals = true
                     index += 1
                     continue
@@ -220,8 +218,7 @@ public enum AgentLaunchSanitizer {
         if policy.variadicOptions.contains(arg) {
             var end = index + 1
             while end < args.count, !args[end].hasPrefix("-") {
-                if let resumeSubcommand = policy.resumeSubcommand,
-                   args[end] == resumeSubcommand {
+                if isSessionSubcommandStart(args, index: end, policy: policy) {
                     break
                 }
                 end += 1
@@ -229,6 +226,21 @@ public enum AgentLaunchSanitizer {
             return max(1, end - index)
         }
         return 2
+    }
+
+    private static func isSessionSubcommandStart(
+        _ args: [String],
+        index: Int,
+        policy: Policy
+    ) -> Bool {
+        let arg = args[index]
+        if let resumeSubcommand = policy.resumeSubcommand, arg == resumeSubcommand {
+            return true
+        }
+        guard policy.sessionSubcommands.contains(arg) else {
+            return false
+        }
+        return index + 1 < args.count && !args[index + 1].hasPrefix("-")
     }
 
     private static func looksLikeOptionalValue(_ value: String, following: String?) -> Bool {
