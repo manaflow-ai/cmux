@@ -19,5 +19,9 @@ let package = Package(
             name: "CmuxExtensionSidebarExamples",
             dependencies: ["CmuxExtensionKit"]
         ),
+        .testTarget(
+            name: "CmuxExtensionSidebarExamplesTests",
+            dependencies: ["CmuxExtensionSidebarExamples"]
+        ),
     ]
 )

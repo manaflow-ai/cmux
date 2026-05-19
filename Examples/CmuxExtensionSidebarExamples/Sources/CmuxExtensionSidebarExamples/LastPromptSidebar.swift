@@ -6,7 +6,6 @@ public struct LastPromptSidebar: CmuxExtensionSidebarProvider {
         title: localized("example.sidebar.lastPrompt.title", "Last Prompt"),
         subtitle: localized("example.sidebar.lastPrompt.subtitle", "User extension"),
         systemImageName: "clock",
-        mode: nil,
         isHostProvided: false
     )
 

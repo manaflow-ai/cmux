@@ -6,7 +6,6 @@ public struct DevServerSidebar: CmuxExtensionSidebarProvider {
         title: localized("example.sidebar.devServers.title", "Dev Servers"),
         subtitle: localized("example.sidebar.devServers.subtitle", "User extension"),
         systemImageName: "terminal",
-        mode: nil,
         isHostProvided: false
     )
 

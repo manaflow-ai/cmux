@@ -9361,7 +9361,7 @@ enum CmuxExtensionSidebarSelection {
     static let defaultProviderId = CmuxExtensionSidebarProviderID.defaultWorkspaces
 
     static var descriptors: [CmuxExtensionSidebarProviderDescriptor] {
-        CmuxExtensionSidebarProviderDescriptor.builtInProviders
+        [.defaultWorkspaces]
     }
 
     static func descriptor(for providerId: String) -> CmuxExtensionSidebarProviderDescriptor {
@@ -9635,7 +9635,7 @@ struct VerticalTabsSidebar: View {
         )
 
         ZStack(alignment: .bottomLeading) {
-            if selectedExtensionSidebarProviderId == CmuxExtensionSidebarProviderID.defaultWorkspaces {
+            if CmuxExtensionSidebarSelection.descriptor(for: selectedExtensionSidebarProviderId).id == CmuxExtensionSidebarProviderID.defaultWorkspaces {
                 workspaceScrollArea(renderContext: renderContext)
             } else {
                 extensionSidebarScrollArea(renderContext: renderContext)
@@ -9983,13 +9983,11 @@ struct VerticalTabsSidebar: View {
     ) -> CmuxExtensionSidebarRenderModel {
         let _ = extensionSidebarUpdateToken
         let descriptor = CmuxExtensionSidebarSelection.descriptor(for: selectedExtensionSidebarProviderId)
-        let provider = CmuxExtensionWorkspaceTreeProvider(descriptor: descriptor)
-        return provider.render(
-            snapshot: extensionSidebarSnapshot(renderContext: renderContext),
-            context: CmuxExtensionSidebarRenderContext(now: now),
-            localize: {
-                CmuxExtensionSidebarSelection.localizedText($0)
-            }
+        let snapshot = extensionSidebarSnapshot(renderContext: renderContext)
+        return CmuxExtensionSidebarRenderModel(
+            providerId: descriptor.id,
+            snapshotSequence: snapshot.sequence,
+            sections: []
         )
     }
 
@@ -10049,16 +10047,16 @@ struct VerticalTabsSidebar: View {
         now: Date
     ) -> some View {
         let rows = model.sections.flatMap(\.rows)
-        let pinnedRows = Array(rows.prefix(3))
-        let looseRows = Array(rows.dropFirst(3).prefix(5))
-        let groupedRows = Array(rows.dropFirst(8))
+        let tileRows = model.sections.first { $0.id == "tiles" }?.rows ?? Array(rows.prefix(3))
+        let looseRows = model.sections.first { $0.id == "loose" }?.rows ?? Array(rows.dropFirst(3).prefix(5))
+        let groupedSections = model.sections.filter { $0.id != "tiles" && $0.id != "loose" && !$0.rows.isEmpty }
 
         return VStack(alignment: .leading, spacing: 10) {
             LazyVGrid(
                 columns: Array(repeating: GridItem(.flexible(), spacing: 8), count: 3),
                 spacing: 8
             ) {
-                ForEach(Array(pinnedRows.enumerated()), id: \.element.id) { index, row in
+                ForEach(Array(tileRows.enumerated()), id: \.element.id) { index, row in
                     extensionBrowserStackTile(
                         row: row,
                         isSelected: row.workspaceId == tabManager.selectedTabId
@@ -10076,49 +10074,10 @@ struct VerticalTabsSidebar: View {
             }
             .padding(.horizontal, 8)
 
-            if !groupedRows.isEmpty {
-                VStack(alignment: .leading, spacing: 4) {
-                    HStack(spacing: 8) {
-                        Image(systemName: "folder.fill")
-                            .font(.system(size: 14, weight: .regular))
-                            .foregroundColor(.secondary)
-                        Text(String(localized: "sidebar.browserStack.demoGroup", defaultValue: "lmao"))
-                            .font(.system(size: 13, weight: .semibold))
-                            .foregroundColor(.primary.opacity(0.86))
-                            .lineLimit(1)
-                        Image(systemName: "chevron.down")
-                            .font(.system(size: 11, weight: .medium))
-                            .foregroundColor(.secondary)
-                        Spacer(minLength: 0)
-                        Button {} label: {
-                            Image(systemName: "xmark")
-                                .font(.system(size: 12, weight: .medium))
-                                .foregroundColor(.secondary)
-                                .frame(width: 22, height: 22)
-                        }
-                        .buttonStyle(.plain)
-                        .safeHelp(String(localized: "sidebar.browserStack.closeGroup", defaultValue: "Close group"))
-                    }
-                    .padding(.horizontal, 10)
-                    .padding(.top, 9)
-
-                    LazyVStack(alignment: .leading, spacing: 4) {
-                        ForEach(groupedRows) { row in
-                            extensionBrowserStackRow(row: row, now: now, compact: true)
-                                .padding(.horizontal, 8)
-                        }
-                    }
+            LazyVStack(alignment: .leading, spacing: 8) {
+                ForEach(groupedSections) { section in
+                    extensionBrowserStackGroup(section: section, now: now)
                 }
-                .padding(.bottom, 9)
-                .background(
-                    RoundedRectangle(cornerRadius: 12, style: .continuous)
-                        .fill(Color.primary.opacity(0.09))
-                        .overlay(
-                            RoundedRectangle(cornerRadius: 12, style: .continuous)
-                                .stroke(Color.primary.opacity(0.08), lineWidth: 1)
-                        )
-                )
-                .padding(.horizontal, 8)
             }
 
             Button(action: onNewTab) {
@@ -10149,6 +10108,54 @@ struct VerticalTabsSidebar: View {
             .frame(maxWidth: .infinity, minHeight: 48)
         }
         .padding(.bottom, SidebarWorkspaceListMetrics.rowVerticalPadding + 40)
+    }
+
+    private func extensionBrowserStackGroup(
+        section: CmuxExtensionSidebarRenderSection,
+        now: Date
+    ) -> some View {
+        VStack(alignment: .leading, spacing: 4) {
+            HStack(spacing: 8) {
+                Image(systemName: "folder.fill")
+                    .font(.system(size: 14, weight: .regular))
+                    .foregroundColor(.secondary)
+                Text(section.treeSection.title)
+                    .font(.system(size: 13, weight: .semibold))
+                    .foregroundColor(.primary.opacity(0.86))
+                    .lineLimit(1)
+                Image(systemName: "chevron.down")
+                    .font(.system(size: 11, weight: .medium))
+                    .foregroundColor(.secondary)
+                Spacer(minLength: 0)
+                Button {} label: {
+                    Image(systemName: "xmark")
+                        .font(.system(size: 12, weight: .medium))
+                        .foregroundColor(.secondary)
+                        .frame(width: 22, height: 22)
+                }
+                .buttonStyle(.plain)
+                .safeHelp(String(localized: "sidebar.browserStack.closeGroup", defaultValue: "Close group"))
+            }
+            .padding(.horizontal, 10)
+            .padding(.top, 9)
+
+            LazyVStack(alignment: .leading, spacing: 4) {
+                ForEach(section.rows) { row in
+                    extensionBrowserStackRow(row: row, now: now, compact: true)
+                        .padding(.horizontal, 8)
+                }
+            }
+        }
+        .padding(.bottom, 9)
+        .background(
+            RoundedRectangle(cornerRadius: 12, style: .continuous)
+                .fill(Color.primary.opacity(0.09))
+                .overlay(
+                    RoundedRectangle(cornerRadius: 12, style: .continuous)
+                        .stroke(Color.primary.opacity(0.08), lineWidth: 1)
+                )
+        )
+        .padding(.horizontal, 8)
     }
 
     private func extensionBrowserStackTile(
@@ -10386,7 +10393,6 @@ struct VerticalTabsSidebar: View {
     ) -> some View {
         let isCollapsed = collapsedExtensionSidebarSectionIds.contains(section.id)
         let canCreateWorktree = section.treeSection.projectRootPath != nil
-            && CmuxExtensionSidebarSelection.descriptor(for: providerId).mode?.allowsProjectWorktreeActions == true
 
         VStack(alignment: .leading, spacing: 1) {
             HStack(spacing: 7) {
@@ -10705,11 +10711,11 @@ private struct CmuxExtensionSidebarWorkspaceRowView: View, Equatable {
     }
 
     private var isSuperCompact: Bool {
-        providerId == CmuxExtensionSidebarProviderID.superCompact
+        false
     }
 
     private var isThin: Bool {
-        providerId == CmuxExtensionSidebarProviderID.thin || providerId == CmuxExtensionSidebarProviderID.projectTree
+        false
     }
 
     var body: some View {
@@ -10727,7 +10733,7 @@ private struct CmuxExtensionSidebarWorkspaceRowView: View, Equatable {
                     Text(subtitle)
                         .font(.system(size: secondarySize, weight: .regular))
                         .foregroundColor(.secondary)
-                        .lineLimit(providerId == CmuxExtensionSidebarProviderID.lastMessage ? 2 : 1)
+                        .lineLimit(1)
                         .truncationMode(.tail)
                 }
             }

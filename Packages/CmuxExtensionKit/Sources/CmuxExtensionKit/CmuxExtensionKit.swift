@@ -354,29 +354,6 @@ public struct CmuxExtensionSidebarReducer {
 
 public enum CmuxExtensionSidebarProviderID {
     public static let defaultWorkspaces = "cmux.sidebar.default"
-    public static let thin = "cmux.sidebar.thin"
-    public static let projectTree = "cmux.sidebar.project-tree"
-    public static let attention = "cmux.sidebar.attention"
-    public static let servers = "cmux.sidebar.servers"
-    public static let lastMessage = "cmux.sidebar.last-message"
-    public static let browser = "cmux.sidebar.browser"
-    public static let superCompact = "cmux.sidebar.super-compact"
-    public static let browserStack = "cmux.sidebar.browser-stack"
-}
-
-public enum CmuxExtensionSidebarCustomizationMode: String, Codable, Equatable, Sendable {
-    case thin
-    case projectTree = "project-tree"
-    case attention
-    case servers
-    case lastMessage = "last-message"
-    case browser
-    case superCompact = "super-compact"
-    case browserStack = "browser-stack"
-
-    public var allowsProjectWorktreeActions: Bool {
-        self == .projectTree
-    }
 }
 
 public enum CmuxExtensionSidebarPresentation: String, Codable, Equatable, Sendable {
@@ -389,7 +366,6 @@ public struct CmuxExtensionSidebarProviderDescriptor: Identifiable, Codable, Equ
     public var title: CmuxExtensionLocalizedText
     public var subtitle: CmuxExtensionLocalizedText?
     public var systemImageName: String
-    public var mode: CmuxExtensionSidebarCustomizationMode?
     public var isHostProvided: Bool
 
     public init(
@@ -397,14 +373,12 @@ public struct CmuxExtensionSidebarProviderDescriptor: Identifiable, Codable, Equ
         title: CmuxExtensionLocalizedText,
         subtitle: CmuxExtensionLocalizedText?,
         systemImageName: String,
-        mode: CmuxExtensionSidebarCustomizationMode?,
         isHostProvided: Bool
     ) {
         self.id = id
         self.title = title
         self.subtitle = subtitle
         self.systemImageName = systemImageName
-        self.mode = mode
         self.isHostProvided = isHostProvided
     }
 
@@ -419,141 +393,8 @@ public struct CmuxExtensionSidebarProviderDescriptor: Identifiable, Codable, Equ
             defaultValue: "cmux"
         ),
         systemImageName: "list.bullet",
-        mode: nil,
         isHostProvided: true
     )
-
-    public static let projectTree = CmuxExtensionSidebarProviderDescriptor(
-        id: CmuxExtensionSidebarProviderID.projectTree,
-        title: CmuxExtensionLocalizedText(
-            key: "sidebar.provider.projectTree.title",
-            defaultValue: "Project Tree"
-        ),
-        subtitle: CmuxExtensionLocalizedText(
-            key: "sidebar.provider.projectTree.subtitle",
-            defaultValue: "CmuxExtensionKit"
-        ),
-        systemImageName: "folder",
-        mode: .projectTree,
-        isHostProvided: true
-    )
-
-    public static let thin = CmuxExtensionSidebarProviderDescriptor(
-        id: CmuxExtensionSidebarProviderID.thin,
-        title: CmuxExtensionLocalizedText(
-            key: "sidebar.provider.thin.title",
-            defaultValue: "Thin Workspaces"
-        ),
-        subtitle: CmuxExtensionLocalizedText(
-            key: "sidebar.provider.thin.subtitle",
-            defaultValue: "CmuxExtensionKit"
-        ),
-        systemImageName: "text.alignleft",
-        mode: .thin,
-        isHostProvided: true
-    )
-
-    public static let attention = CmuxExtensionSidebarProviderDescriptor(
-        id: CmuxExtensionSidebarProviderID.attention,
-        title: CmuxExtensionLocalizedText(
-            key: "sidebar.provider.attention.title",
-            defaultValue: "Attention"
-        ),
-        subtitle: CmuxExtensionLocalizedText(
-            key: "sidebar.provider.attention.subtitle",
-            defaultValue: "CmuxExtensionKit"
-        ),
-        systemImageName: "bell",
-        mode: .attention,
-        isHostProvided: true
-    )
-
-    public static let servers = CmuxExtensionSidebarProviderDescriptor(
-        id: CmuxExtensionSidebarProviderID.servers,
-        title: CmuxExtensionLocalizedText(
-            key: "sidebar.provider.servers.title",
-            defaultValue: "Servers"
-        ),
-        subtitle: CmuxExtensionLocalizedText(
-            key: "sidebar.provider.servers.subtitle",
-            defaultValue: "CmuxExtensionKit"
-        ),
-        systemImageName: "terminal",
-        mode: .servers,
-        isHostProvided: true
-    )
-
-    public static let lastMessage = CmuxExtensionSidebarProviderDescriptor(
-        id: CmuxExtensionSidebarProviderID.lastMessage,
-        title: CmuxExtensionLocalizedText(
-            key: "sidebar.provider.lastMessage.title",
-            defaultValue: "Last Message"
-        ),
-        subtitle: CmuxExtensionLocalizedText(
-            key: "sidebar.provider.lastMessage.subtitle",
-            defaultValue: "CmuxExtensionKit"
-        ),
-        systemImageName: "clock",
-        mode: .lastMessage,
-        isHostProvided: true
-    )
-
-    public static let browser = CmuxExtensionSidebarProviderDescriptor(
-        id: CmuxExtensionSidebarProviderID.browser,
-        title: CmuxExtensionLocalizedText(
-            key: "sidebar.provider.browser.title",
-            defaultValue: "Browser Workspaces"
-        ),
-        subtitle: CmuxExtensionLocalizedText(
-            key: "sidebar.provider.browser.subtitle",
-            defaultValue: "CmuxExtensionKit"
-        ),
-        systemImageName: "globe",
-        mode: .browser,
-        isHostProvided: true
-    )
-
-    public static let superCompact = CmuxExtensionSidebarProviderDescriptor(
-        id: CmuxExtensionSidebarProviderID.superCompact,
-        title: CmuxExtensionLocalizedText(
-            key: "sidebar.provider.superCompact.title",
-            defaultValue: "Super Compact"
-        ),
-        subtitle: CmuxExtensionLocalizedText(
-            key: "sidebar.provider.superCompact.subtitle",
-            defaultValue: "CmuxExtensionKit"
-        ),
-        systemImageName: "rectangle.compress.vertical",
-        mode: .superCompact,
-        isHostProvided: true
-    )
-
-    public static let browserStack = CmuxExtensionSidebarProviderDescriptor(
-        id: CmuxExtensionSidebarProviderID.browserStack,
-        title: CmuxExtensionLocalizedText(
-            key: "sidebar.provider.browserStack.title",
-            defaultValue: "Browser Stack"
-        ),
-        subtitle: CmuxExtensionLocalizedText(
-            key: "sidebar.provider.browserStack.subtitle",
-            defaultValue: "CmuxExtensionKit"
-        ),
-        systemImageName: "square.on.square",
-        mode: .browserStack,
-        isHostProvided: true
-    )
-
-    public static let builtInProviders: [CmuxExtensionSidebarProviderDescriptor] = [
-        .defaultWorkspaces,
-        .thin,
-        .projectTree,
-        .attention,
-        .servers,
-        .lastMessage,
-        .browser,
-        .superCompact,
-        .browserStack,
-    ]
 }
 
 public struct CmuxExtensionWorkspaceTreeSection: Identifiable, Codable, Equatable, Sendable {
@@ -798,10 +639,30 @@ public enum CmuxExtensionSidebarPresentationRequest: Codable, Equatable, Sendabl
     case openURL(String)
 }
 
+public struct CmuxExtensionSidebarWorkspaceMove: Codable, Equatable, Sendable {
+    public var workspaceId: UUID
+    public var sourceSectionId: String?
+    public var targetSectionId: String
+    public var targetIndex: Int
+
+    public init(
+        workspaceId: UUID,
+        sourceSectionId: String?,
+        targetSectionId: String,
+        targetIndex: Int
+    ) {
+        self.workspaceId = workspaceId
+        self.sourceSectionId = sourceSectionId
+        self.targetSectionId = targetSectionId
+        self.targetIndex = targetIndex
+    }
+}
+
 public enum CmuxExtensionSidebarMutation: Codable, Equatable, Sendable {
     case selectWorkspace(UUID)
     case closeWorkspace(UUID)
     case createWorktree(projectRootPath: String)
+    case moveWorkspace(CmuxExtensionSidebarWorkspaceMove)
     case present(CmuxExtensionSidebarPresentationRequest)
 }
 
@@ -827,540 +688,16 @@ public protocol CmuxExtensionSidebarContextualProvider: CmuxExtensionSidebarProv
     func render(snapshot: CmuxExtensionSidebarSnapshot, context: CmuxExtensionSidebarRenderContext) -> CmuxExtensionSidebarRenderModel
 }
 
+public protocol CmuxExtensionSidebarMutableProvider: CmuxExtensionSidebarContextualProvider {
+    func handle(
+        _ mutation: CmuxExtensionSidebarMutation,
+        snapshot: CmuxExtensionSidebarSnapshot
+    ) throws -> CmuxExtensionCommandResult
+}
+
 public extension CmuxExtensionSidebarProvider {
     func render(snapshot: CmuxExtensionSidebarSnapshot, context: CmuxExtensionSidebarRenderContext) -> CmuxExtensionSidebarRenderModel {
         render(snapshot: snapshot)
-    }
-}
-
-public struct CmuxExtensionWorkspaceTreeProvider: CmuxExtensionSidebarContextualProvider {
-    public var descriptor: CmuxExtensionSidebarProviderDescriptor
-
-    public init(descriptor: CmuxExtensionSidebarProviderDescriptor) {
-        self.descriptor = descriptor
-    }
-
-    public func render(snapshot: CmuxExtensionSidebarSnapshot) -> CmuxExtensionSidebarRenderModel {
-        render(snapshot: snapshot, context: .current, localize: { $0.defaultValue })
-    }
-
-    public func render(
-        snapshot: CmuxExtensionSidebarSnapshot,
-        context: CmuxExtensionSidebarRenderContext
-    ) -> CmuxExtensionSidebarRenderModel {
-        render(snapshot: snapshot, context: context, localize: { $0.defaultValue })
-    }
-
-    public func render(
-        snapshot: CmuxExtensionSidebarSnapshot,
-        context: CmuxExtensionSidebarRenderContext = .current,
-        localize: CmuxExtensionWorkspaceTreeBuilder.Localize
-    ) -> CmuxExtensionSidebarRenderModel {
-        let mode = descriptor.mode ?? .projectTree
-        let sections = CmuxExtensionWorkspaceTreeBuilder.sections(for: snapshot, mode: mode, localize: localize)
-        let workspacesById = Dictionary(uniqueKeysWithValues: snapshot.workspaces.map { ($0.id, $0) })
-        return CmuxExtensionSidebarRenderModel(
-            providerId: descriptor.id,
-            snapshotSequence: snapshot.sequence,
-            sections: sections.map { section in
-                CmuxExtensionSidebarRenderSection(
-                    id: section.id,
-                    treeSection: section,
-                    rows: section.workspaceIds.compactMap { workspaceId in
-                        guard let workspace = workspacesById[workspaceId] else { return nil }
-                        return CmuxExtensionSidebarRenderRow(
-                            id: workspace.id,
-                            title: workspace.title,
-                            workspaceId: workspace.id,
-                            accessory: .inspector,
-                            subtitle: Self.subtitle(for: workspace, mode: mode),
-                            trailingText: Self.trailingText(for: workspace, mode: mode),
-                            leadingIcon: Self.leadingIcon(for: workspace, mode: mode)
-                        )
-                    }
-                )
-            },
-            presentation: mode == .browserStack ? .browserStack : .tree
-        )
-    }
-
-    private static func subtitle(
-        for workspace: CmuxExtensionWorkspaceSnapshot,
-        mode: CmuxExtensionSidebarCustomizationMode
-    ) -> CmuxExtensionSidebarRenderText? {
-        guard mode == .lastMessage else { return nil }
-        if let message = trimmedNonEmpty(workspace.latestSubmittedMessage) {
-            return .plain(message)
-        }
-        return .localized(
-            CmuxExtensionLocalizedText(
-                key: "sidebar.custom.lastMessage.none",
-                defaultValue: "No messages yet"
-            )
-        )
-    }
-
-    private static func trailingText(
-        for workspace: CmuxExtensionWorkspaceSnapshot,
-        mode: CmuxExtensionSidebarCustomizationMode
-    ) -> CmuxExtensionSidebarRenderText? {
-        guard mode == .lastMessage, let latestSubmittedAt = workspace.latestSubmittedAt else {
-            return nil
-        }
-        return .relativeDate(latestSubmittedAt, style: .compact)
-    }
-
-    private static func leadingIcon(
-        for workspace: CmuxExtensionWorkspaceSnapshot,
-        mode: CmuxExtensionSidebarCustomizationMode
-    ) -> CmuxExtensionSidebarRenderIcon? {
-        guard mode == .browserStack else { return nil }
-        let title = workspace.title.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
-        if title.contains("google") {
-            return CmuxExtensionSidebarRenderIcon(text: "G", foregroundColorHex: "#4285F4", backgroundColorHex: "#FFFFFF")
-        }
-        if title.contains("hacker") || title.contains("ycombinator") || title.contains("yc") {
-            return CmuxExtensionSidebarRenderIcon(text: "Y", foregroundColorHex: "#FFFFFF", backgroundColorHex: "#FF6600", shape: .roundedRectangle)
-        }
-        if title == "x" || title.hasPrefix("x.") || title.contains("twitter") || title.contains("what's happening") {
-            return CmuxExtensionSidebarRenderIcon(text: "X", foregroundColorHex: "#FFFFFF", backgroundColorHex: "#000000", shape: .roundedRectangle)
-        }
-        if title.contains("dia") || workspace.unreadCount > 0 {
-            return CmuxExtensionSidebarRenderIcon(systemImageName: "bubble.left.fill", foregroundColorHex: "#D8D8D8", backgroundColorHex: "#000000")
-        }
-        return CmuxExtensionSidebarRenderIcon(systemImageName: "bubble.left.fill", foregroundColorHex: "#D0D0D0", backgroundColorHex: "#5A5A5A")
-    }
-
-    private static func trimmedNonEmpty(_ value: String?) -> String? {
-        guard let trimmed = value?.trimmingCharacters(in: .whitespacesAndNewlines),
-              !trimmed.isEmpty else {
-            return nil
-        }
-        return trimmed
-    }
-}
-
-public enum CmuxExtensionWorkspaceTreeBuilder {
-    public typealias Localize = @Sendable (CmuxExtensionLocalizedText) -> String
-
-    public static func sections(
-        for snapshot: CmuxExtensionSidebarSnapshot,
-        mode: CmuxExtensionSidebarCustomizationMode,
-        localize: Localize = { $0.defaultValue }
-    ) -> [CmuxExtensionWorkspaceTreeSection] {
-        switch mode {
-        case .thin:
-            return flatSections(for: snapshot, localize: localize)
-        case .projectTree:
-            return projectTreeSections(for: snapshot, localize: localize)
-        case .attention:
-            return attentionSections(for: snapshot, localize: localize)
-        case .servers:
-            return serverSections(for: snapshot, localize: localize)
-        case .lastMessage:
-            return lastMessageSections(for: snapshot, localize: localize)
-        case .browser:
-            return browserSections(for: snapshot, localize: localize)
-        case .superCompact:
-            return flatSections(for: snapshot, localize: localize)
-        case .browserStack:
-            return browserStackSections(for: snapshot, localize: localize)
-        }
-    }
-
-    public static func sections(
-        for snapshot: CmuxExtensionSidebarSnapshot,
-        localize: Localize = { $0.defaultValue }
-    ) -> [CmuxExtensionWorkspaceTreeSection] {
-        projectTreeSections(for: snapshot, localize: localize)
-    }
-
-    private static func projectTreeSections(
-        for snapshot: CmuxExtensionSidebarSnapshot,
-        localize: Localize
-    ) -> [CmuxExtensionWorkspaceTreeSection] {
-        var sections: [CmuxExtensionWorkspaceTreeSection] = []
-
-        let pinned = snapshot.workspaces.filter(\.isPinned)
-        if !pinned.isEmpty {
-            let title = CmuxExtensionLocalizedText(
-                key: "sidebar.tree.group.pinned",
-                defaultValue: "Pinned"
-            )
-            sections.append(
-                CmuxExtensionWorkspaceTreeSection(
-                    id: "pinned",
-                    title: localize(title),
-                    titleText: title,
-                    subtitle: nil,
-                    systemImageName: "pin",
-                    projectRootPath: nil,
-                    workspaceIds: pinned.map(\.id)
-                )
-            )
-        }
-
-        var grouped: [String: CmuxExtensionWorkspaceTreeSection] = [:]
-        var orderedGroupIds: [String] = []
-
-        for workspace in snapshot.workspaces where !workspace.isPinned {
-            let group = groupSectionTemplate(for: workspace, localize: localize)
-            if grouped[group.id] == nil {
-                grouped[group.id] = group
-                orderedGroupIds.append(group.id)
-            }
-            guard var current = grouped[group.id] else { continue }
-            current = CmuxExtensionWorkspaceTreeSection(
-                id: current.id,
-                title: current.title,
-                titleText: current.titleText,
-                subtitle: current.subtitle,
-                subtitleText: current.subtitleText,
-                systemImageName: current.systemImageName,
-                projectRootPath: current.projectRootPath,
-                workspaceIds: current.workspaceIds + [workspace.id]
-            )
-            grouped[group.id] = current
-        }
-
-        sections.append(contentsOf: orderedGroupIds.compactMap { grouped[$0] })
-        return sections
-    }
-
-    private static func flatSections(
-        for snapshot: CmuxExtensionSidebarSnapshot,
-        localize: Localize
-    ) -> [CmuxExtensionWorkspaceTreeSection] {
-        let title = CmuxExtensionLocalizedText(
-            key: "sidebar.custom.group.workspaces",
-            defaultValue: "Workspaces"
-        )
-        return [
-            CmuxExtensionWorkspaceTreeSection(
-                id: "workspaces",
-                title: localize(title),
-                titleText: title,
-                subtitle: nil,
-                systemImageName: "list.bullet",
-                projectRootPath: nil,
-                workspaceIds: snapshot.workspaces.map(\.id)
-            )
-        ]
-    }
-
-    private static func browserSections(
-        for snapshot: CmuxExtensionSidebarSnapshot,
-        localize: Localize
-    ) -> [CmuxExtensionWorkspaceTreeSection] {
-        var sections: [CmuxExtensionWorkspaceTreeSection] = []
-        appendSection(
-            id: "browser:pull-requests",
-            title: CmuxExtensionLocalizedText(
-                key: "sidebar.custom.group.pullRequests",
-                defaultValue: "Pull Requests"
-            ),
-            systemImageName: "arrow.triangle.pull",
-            workspaces: snapshot.workspaces.filter { !$0.pullRequestURLs.isEmpty },
-            localize: localize,
-            to: &sections
-        )
-        appendSection(
-            id: "browser:other",
-            title: CmuxExtensionLocalizedText(
-                key: "sidebar.custom.group.workspaces",
-                defaultValue: "Workspaces"
-            ),
-            systemImageName: "globe",
-            workspaces: snapshot.workspaces.filter { $0.pullRequestURLs.isEmpty },
-            localize: localize,
-            to: &sections
-        )
-        return sections
-    }
-
-    private static func browserStackSections(
-        for snapshot: CmuxExtensionSidebarSnapshot,
-        localize: Localize
-    ) -> [CmuxExtensionWorkspaceTreeSection] {
-        let title = CmuxExtensionLocalizedText(
-            key: "sidebar.custom.group.browserStack",
-            defaultValue: "Browser Stack"
-        )
-        return [
-            CmuxExtensionWorkspaceTreeSection(
-                id: "browser-stack",
-                title: localize(title),
-                titleText: title,
-                subtitle: nil,
-                systemImageName: "square.on.square",
-                projectRootPath: nil,
-                workspaceIds: snapshot.workspaces.map(\.id)
-            )
-        ]
-    }
-
-    private static func attentionSections(
-        for snapshot: CmuxExtensionSidebarSnapshot,
-        localize: Localize
-    ) -> [CmuxExtensionWorkspaceTreeSection] {
-        var sections: [CmuxExtensionWorkspaceTreeSection] = []
-        let selectedId = snapshot.selectedWorkspaceId
-
-        appendSection(
-            id: "attention:active",
-            title: CmuxExtensionLocalizedText(
-                key: "sidebar.custom.group.active",
-                defaultValue: "Active"
-            ),
-            systemImageName: "circle.fill",
-            workspaces: snapshot.workspaces.filter { $0.id == selectedId },
-            localize: localize,
-            to: &sections
-        )
-        appendSection(
-            id: "attention:pinned",
-            title: CmuxExtensionLocalizedText(
-                key: "sidebar.tree.group.pinned",
-                defaultValue: "Pinned"
-            ),
-            systemImageName: "pin",
-            workspaces: snapshot.workspaces.filter { $0.isPinned && $0.id != selectedId },
-            localize: localize,
-            to: &sections
-        )
-        appendSection(
-            id: "attention:needs-attention",
-            title: CmuxExtensionLocalizedText(
-                key: "sidebar.custom.group.attention",
-                defaultValue: "Needs Attention"
-            ),
-            systemImageName: "bell",
-            workspaces: snapshot.workspaces.filter {
-                $0.id != selectedId && !$0.isPinned && needsAttention($0)
-            },
-            localize: localize,
-            to: &sections
-        )
-        appendSection(
-            id: "attention:quiet",
-            title: CmuxExtensionLocalizedText(
-                key: "sidebar.custom.group.quiet",
-                defaultValue: "Quiet"
-            ),
-            systemImageName: "checkmark.circle",
-            workspaces: snapshot.workspaces.filter {
-                $0.id != selectedId && !$0.isPinned && !needsAttention($0)
-            },
-            localize: localize,
-            to: &sections
-        )
-
-        return sections
-    }
-
-    private static func serverSections(
-        for snapshot: CmuxExtensionSidebarSnapshot,
-        localize: Localize
-    ) -> [CmuxExtensionWorkspaceTreeSection] {
-        var sections: [CmuxExtensionWorkspaceTreeSection] = []
-
-        appendSection(
-            id: "servers:pinned",
-            title: CmuxExtensionLocalizedText(
-                key: "sidebar.tree.group.pinned",
-                defaultValue: "Pinned"
-            ),
-            systemImageName: "pin",
-            workspaces: snapshot.workspaces.filter(\.isPinned),
-            localize: localize,
-            to: &sections
-        )
-        appendSection(
-            id: "servers:live",
-            title: CmuxExtensionLocalizedText(
-                key: "sidebar.custom.group.liveServers",
-                defaultValue: "Live Servers"
-            ),
-            systemImageName: "terminal",
-            workspaces: snapshot.workspaces.filter { !$0.isPinned && hasServerSignal($0) },
-            localize: localize,
-            to: &sections
-        )
-        appendSection(
-            id: "servers:remote",
-            title: CmuxExtensionLocalizedText(
-                key: "sidebar.custom.group.remote",
-                defaultValue: "Remote"
-            ),
-            systemImageName: "network",
-            workspaces: snapshot.workspaces.filter {
-                !$0.isPinned && !hasServerSignal($0) && trimmedNonEmpty($0.remoteDisplayTarget) != nil
-            },
-            localize: localize,
-            to: &sections
-        )
-        appendSection(
-            id: "servers:local",
-            title: CmuxExtensionLocalizedText(
-                key: "sidebar.custom.group.local",
-                defaultValue: "Local Workspaces"
-            ),
-            systemImageName: "folder",
-            workspaces: snapshot.workspaces.filter {
-                !$0.isPinned && !hasServerSignal($0) && trimmedNonEmpty($0.remoteDisplayTarget) == nil
-            },
-            localize: localize,
-            to: &sections
-        )
-
-        return sections
-    }
-
-    private static func lastMessageSections(
-        for snapshot: CmuxExtensionSidebarSnapshot,
-        localize: Localize
-    ) -> [CmuxExtensionWorkspaceTreeSection] {
-        var sections: [CmuxExtensionWorkspaceTreeSection] = []
-        let withMessages = snapshot.workspaces
-            .filter { $0.latestSubmittedAt != nil }
-            .sorted { lhs, rhs in
-                guard let lhsDate = lhs.latestSubmittedAt else { return false }
-                guard let rhsDate = rhs.latestSubmittedAt else { return true }
-                return lhsDate > rhsDate
-            }
-
-        appendSection(
-            id: "last-message:recent",
-            title: CmuxExtensionLocalizedText(
-                key: "sidebar.custom.group.recentMessages",
-                defaultValue: "Recent Messages"
-            ),
-            systemImageName: "clock",
-            workspaces: withMessages,
-            localize: localize,
-            to: &sections
-        )
-
-        appendSection(
-            id: "last-message:none",
-            title: CmuxExtensionLocalizedText(
-                key: "sidebar.custom.group.noMessages",
-                defaultValue: "No Messages"
-            ),
-            systemImageName: "tray",
-            workspaces: snapshot.workspaces.filter { $0.latestSubmittedAt == nil },
-            localize: localize,
-            to: &sections
-        )
-
-        return sections
-    }
-
-    private static func groupSectionTemplate(
-        for workspace: CmuxExtensionWorkspaceSnapshot,
-        localize: Localize
-    ) -> CmuxExtensionWorkspaceTreeSection {
-        if let remoteTarget = trimmedNonEmpty(workspace.remoteDisplayTarget) {
-            let subtitle = CmuxExtensionLocalizedText(
-                key: "sidebar.tree.group.remote.subtitle",
-                defaultValue: "SSH"
-            )
-            return CmuxExtensionWorkspaceTreeSection(
-                id: "remote:\(remoteTarget)",
-                title: remoteTarget,
-                subtitle: localize(subtitle),
-                subtitleText: subtitle,
-                systemImageName: "network",
-                projectRootPath: nil,
-                workspaceIds: []
-            )
-        }
-
-        guard let rootPath = trimmedNonEmpty(workspace.rootPath) else {
-            let title = CmuxExtensionLocalizedText(
-                key: "sidebar.tree.group.other",
-                defaultValue: "Other"
-            )
-            let subtitle = CmuxExtensionLocalizedText(
-                key: "sidebar.tree.group.other.subtitle",
-                defaultValue: "No folder"
-            )
-            return CmuxExtensionWorkspaceTreeSection(
-                id: "other",
-                title: localize(title),
-                titleText: title,
-                subtitle: localize(subtitle),
-                subtitleText: subtitle,
-                systemImageName: "tray",
-                projectRootPath: nil,
-                workspaceIds: []
-            )
-        }
-
-        let url = URL(fileURLWithPath: rootPath, isDirectory: true).standardizedFileURL
-        let groupURL = trimmedNonEmpty(workspace.projectRootPath)
-            .map { URL(fileURLWithPath: $0, isDirectory: true).standardizedFileURL }
-            ?? url.deletingLastPathComponent()
-        let groupPath = groupURL.path
-        let title = groupURL.lastPathComponent.isEmpty ? CmuxExtensionPathFormatter.shortenedPath(groupPath) : groupURL.lastPathComponent
-        let subtitle = CmuxExtensionPathFormatter.shortenedPath(groupPath)
-
-        return CmuxExtensionWorkspaceTreeSection(
-            id: "folder:\(groupPath)",
-            title: title.isEmpty ? "/" : title,
-            subtitle: subtitle,
-            systemImageName: "folder",
-            projectRootPath: groupPath,
-            workspaceIds: []
-        )
-    }
-
-    private static func appendSection(
-        id: String,
-        title: CmuxExtensionLocalizedText,
-        systemImageName: String,
-        workspaces: [CmuxExtensionWorkspaceSnapshot],
-        localize: Localize,
-        to sections: inout [CmuxExtensionWorkspaceTreeSection]
-    ) {
-        guard !workspaces.isEmpty else { return }
-        sections.append(
-            CmuxExtensionWorkspaceTreeSection(
-                id: id,
-                title: localize(title),
-                titleText: title,
-                subtitle: nil,
-                systemImageName: systemImageName,
-                projectRootPath: nil,
-                workspaceIds: workspaces.map(\.id)
-            )
-        )
-    }
-
-    private static func needsAttention(_ workspace: CmuxExtensionWorkspaceSnapshot) -> Bool {
-        workspace.unreadCount > 0 ||
-            trimmedNonEmpty(workspace.latestNotificationText) != nil ||
-            workspace.remoteConnectionState == "connecting" ||
-            workspace.remoteConnectionState == "reconnecting" ||
-            workspace.remoteConnectionState == "disconnected"
-    }
-
-    private static func hasServerSignal(_ workspace: CmuxExtensionWorkspaceSnapshot) -> Bool {
-        if !workspace.listeningPorts.isEmpty {
-            return true
-        }
-        guard let description = trimmedNonEmpty(workspace.customDescription)?.lowercased() else {
-            return false
-        }
-        return description.contains("server") || description.contains(":")
-    }
-
-    private static func trimmedNonEmpty(_ value: String?) -> String? {
-        guard let trimmed = value?.trimmingCharacters(in: .whitespacesAndNewlines),
-              !trimmed.isEmpty else {
-            return nil
-        }
-        return trimmed
     }
 }
 

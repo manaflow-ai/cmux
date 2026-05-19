@@ -6,7 +6,6 @@ public struct AttentionQueueSidebar: CmuxExtensionSidebarProvider {
         title: localized("example.sidebar.attentionQueue.title", "Attention Queue"),
         subtitle: localized("example.sidebar.attentionQueue.subtitle", "User extension"),
         systemImageName: "bell",
-        mode: nil,
         isHostProvided: false
     )
 

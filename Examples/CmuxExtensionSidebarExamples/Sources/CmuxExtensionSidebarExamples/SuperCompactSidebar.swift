@@ -7,7 +7,6 @@ public struct SuperCompactSidebar: CmuxExtensionSidebarProvider {
         title: localized("example.sidebar.superCompact.title", "Super Compact"),
         subtitle: localized("example.sidebar.superCompact.subtitle", "User extension"),
         systemImageName: "rectangle.compress.vertical",
-        mode: nil,
         isHostProvided: false
     )
 

@@ -2,43 +2,9 @@ import XCTest
 @testable import CmuxExtensionKit
 
 final class CmuxExtensionKitTests: XCTestCase {
-    func testBuiltInProviderIDsAreStable() {
-        XCTAssertEqual(CmuxExtensionSidebarProviderDescriptor.projectTree.id, "cmux.sidebar.project-tree")
-        XCTAssertEqual(CmuxExtensionSidebarProviderDescriptor.attention.mode, .attention)
-        XCTAssertEqual(CmuxExtensionSidebarProviderDescriptor.servers.mode, .servers)
-        XCTAssertEqual(CmuxExtensionSidebarProviderDescriptor.lastMessage.id, "cmux.sidebar.last-message")
-        XCTAssertEqual(CmuxExtensionSidebarProviderDescriptor.lastMessage.mode, .lastMessage)
-        XCTAssertEqual(CmuxExtensionSidebarProviderDescriptor.superCompact.mode, .superCompact)
-        XCTAssertEqual(CmuxExtensionSidebarProviderDescriptor.browserStack.mode, .browserStack)
-        XCTAssertEqual(CmuxExtensionSidebarProviderDescriptor.builtInProviders.map(\.id), [
-            "cmux.sidebar.default",
-            "cmux.sidebar.thin",
-            "cmux.sidebar.project-tree",
-            "cmux.sidebar.attention",
-            "cmux.sidebar.servers",
-            "cmux.sidebar.last-message",
-            "cmux.sidebar.browser",
-            "cmux.sidebar.super-compact",
-            "cmux.sidebar.browser-stack",
-        ])
-    }
-
-    func testProviderRenderModelAddsInspectorAccessories() {
-        let first = workspace(title: "API", rootPath: "/tmp/cmux/api", projectRootPath: "/tmp/cmux")
-        let second = workspace(title: "Web", rootPath: "/tmp/cmux/web", projectRootPath: "/tmp/cmux")
-        let snapshot = CmuxExtensionSidebarSnapshot(
-            sequence: 42,
-            selectedWorkspaceId: first.id,
-            workspaces: [first, second]
-        )
-
-        let model = CmuxExtensionWorkspaceTreeProvider(descriptor: .projectTree).render(snapshot: snapshot)
-
-        XCTAssertEqual(model.providerId, CmuxExtensionSidebarProviderID.projectTree)
-        XCTAssertEqual(model.snapshotSequence, 42)
-        XCTAssertEqual(model.sections.map(\.treeSection.id), ["folder:/tmp/cmux"])
-        XCTAssertEqual(model.sections[0].rows.map(\.workspaceId), [first.id, second.id])
-        XCTAssertEqual(model.sections[0].rows.map(\.accessory?.kind), [.workspaceInspector, .workspaceInspector])
+    func testDefaultProviderDescriptorIsStable() {
+        XCTAssertEqual(CmuxExtensionSidebarProviderDescriptor.defaultWorkspaces.id, "cmux.sidebar.default")
+        XCTAssertEqual(CmuxExtensionSidebarProviderDescriptor.defaultWorkspaces.isHostProvided, true)
     }
 
     func testPresentationRequestCodableRoundTrips() throws {
@@ -71,65 +37,19 @@ final class CmuxExtensionKitTests: XCTestCase {
         XCTAssertEqual(decoded.presentation, .tree)
     }
 
-    func testBrowserStackProviderUsesBrowserPresentationAndLeadingIcons() {
-        let google = workspace(title: "Google", rootPath: nil, projectRootPath: nil)
-        let hackerNews = workspace(title: "hacker news", rootPath: nil, projectRootPath: nil)
-        let x = workspace(title: "X. It's what's happening / X", rootPath: nil, projectRootPath: nil)
-        let snapshot = CmuxExtensionSidebarSnapshot(
-            sequence: 12,
-            selectedWorkspaceId: google.id,
-            workspaces: [google, hackerNews, x]
+    func testMoveWorkspaceMutationCodableRoundTrips() throws {
+        let move = CmuxExtensionSidebarWorkspaceMove(
+            workspaceId: UUID(),
+            sourceSectionId: "loose",
+            targetSectionId: "group:research",
+            targetIndex: 2
         )
+        let mutation = CmuxExtensionSidebarMutation.moveWorkspace(move)
 
-        let model = CmuxExtensionWorkspaceTreeProvider(descriptor: .browserStack).render(snapshot: snapshot)
+        let data = try JSONEncoder().encode(mutation)
+        let decoded = try JSONDecoder().decode(CmuxExtensionSidebarMutation.self, from: data)
 
-        XCTAssertEqual(model.providerId, CmuxExtensionSidebarProviderID.browserStack)
-        XCTAssertEqual(model.presentation, .browserStack)
-        XCTAssertEqual(model.sections.map(\.id), ["browser-stack"])
-        XCTAssertEqual(model.sections[0].rows.map(\.leadingIcon?.text), ["G", "Y", "X"])
-    }
-
-    func testLastMessageProviderSortsBySubmittedTimeAndAddsRelativeRows() {
-        let olderDate = Date(timeIntervalSinceReferenceDate: 100)
-        let newerDate = Date(timeIntervalSinceReferenceDate: 200)
-        let older = workspace(
-            title: "Older",
-            rootPath: "/tmp/cmux/older",
-            projectRootPath: "/tmp/cmux",
-            latestSubmittedMessage: "review the tests",
-            latestSubmittedAt: olderDate
-        )
-        let newer = workspace(
-            title: "Newer",
-            rootPath: "/tmp/cmux/newer",
-            projectRootPath: "/tmp/cmux",
-            latestSubmittedMessage: "ship the sidebar",
-            latestSubmittedAt: newerDate
-        )
-        let empty = workspace(title: "Empty", rootPath: "/tmp/cmux/empty", projectRootPath: "/tmp/cmux")
-        let snapshot = CmuxExtensionSidebarSnapshot(
-            sequence: 9,
-            selectedWorkspaceId: nil,
-            workspaces: [older, empty, newer]
-        )
-
-        let model = CmuxExtensionWorkspaceTreeProvider(descriptor: .lastMessage).render(
-            snapshot: snapshot,
-            context: CmuxExtensionSidebarRenderContext(now: Date(timeIntervalSinceReferenceDate: 250))
-        )
-
-        XCTAssertEqual(model.providerId, CmuxExtensionSidebarProviderID.lastMessage)
-        XCTAssertEqual(model.sections.map(\.id), ["last-message:recent", "last-message:none"])
-        XCTAssertEqual(model.sections[0].rows.map(\.workspaceId), [newer.id, older.id])
-        XCTAssertEqual(model.sections[0].rows[0].subtitle, .plain("ship the sidebar"))
-        XCTAssertEqual(model.sections[0].rows[0].trailingText, .relativeDate(newerDate, style: .compact))
-        XCTAssertEqual(model.sections[1].rows.map(\.workspaceId), [empty.id])
-        XCTAssertEqual(
-            model.sections[1].rows[0].subtitle,
-            .localized(.init(key: "sidebar.custom.lastMessage.none", defaultValue: "No messages yet"))
-        )
-        XCTAssertNil(model.sections[1].rows[0].trailingText)
-        XCTAssertEqual(model.relativeTextDates, [newerDate, olderDate])
+        XCTAssertEqual(decoded, mutation)
     }
 
     func testPromptSubmittedEventUpdatesLastMessageProjection() {

@@ -7,7 +7,6 @@ public struct ProjectWorktreeSidebar: CmuxExtensionSidebarProvider {
         title: localized("example.sidebar.projectWorktrees.title", "Project Worktrees"),
         subtitle: localized("example.sidebar.projectWorktrees.subtitle", "User extension"),
         systemImageName: "folder",
-        mode: .projectTree,
         isHostProvided: false
     )
 
