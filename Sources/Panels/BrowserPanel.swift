@@ -8460,6 +8460,7 @@ enum InstalledBrowserDetector {
             NSWorkspace.shared.urlForApplication(withBundleIdentifier: bundleIdentifier)
         }
         let appSearchDirectories = applicationSearchDirectories ?? defaultApplicationSearchDirectories(homeDirectoryURL: homeDirectoryURL)
+        let runningDataRoots = extractRunningUserDataDirectories()
 
         let candidates = allBrowserDescriptors.compactMap { descriptor -> InstalledBrowserCandidate? in
             let appDetection = detectApplication(
@@ -8469,10 +8470,25 @@ enum InstalledBrowserDetector {
                 fileManager: fileManager
             )
 
+            var candidateRunningRoots: [URL] = []
+            for bundleId in descriptor.bundleIdentifiers {
+                if let roots = runningDataRoots[bundleId] {
+                    candidateRunningRoots.append(contentsOf: roots)
+                }
+            }
+            if let appBundleId = appDetection.bundleIdentifier, let roots = runningDataRoots[appBundleId] {
+                for root in roots {
+                    if !candidateRunningRoots.contains(root) {
+                        candidateRunningRoots.append(root)
+                    }
+                }
+            }
+
             let dataDetection = detectData(
                 descriptor: descriptor,
                 homeDirectoryURL: homeDirectoryURL,
                 appBundleIdentifier: appDetection.bundleIdentifier,
+                runningDataRoots: candidateRunningRoots,
                 fileManager: fileManager
             )
 
@@ -8597,6 +8613,7 @@ enum InstalledBrowserDetector {
         descriptor: BrowserImportBrowserDescriptor,
         homeDirectoryURL: URL,
         appBundleIdentifier: String?,
+        runningDataRoots: [URL] = [],
         fileManager: FileManager
     ) -> (dataRootURL: URL?, family: BrowserImportEngineFamily, profiles: [InstalledBrowserProfile], artifactHits: [String]) {
         var bestRootURL: URL?
@@ -8608,8 +8625,12 @@ enum InstalledBrowserDetector {
             appBundleIdentifier: appBundleIdentifier
         )
 
+        var candidateURLs = runningDataRoots
         for relativePath in candidateRootPaths {
-            let rootURL = homeDirectoryURL.appendingPathComponent(relativePath, isDirectory: true)
+            candidateURLs.append(homeDirectoryURL.appendingPathComponent(relativePath, isDirectory: true))
+        }
+
+        for rootURL in candidateURLs {
             guard fileManager.fileExists(atPath: rootURL.path) else { continue }
 
             let detectedProfiles = detectProfiles(
@@ -8706,6 +8727,95 @@ enum InstalledBrowserDetector {
             }
             return lhs.0.rawValue > rhs.0.rawValue
         } ?? (descriptor.family, [])
+    }
+
+    private static func extractRunningUserDataDirectories() -> [String: [URL]] {
+        let process = Process()
+        process.executableURL = URL(fileURLWithPath: "/bin/ps")
+        process.arguments = ["-xww", "-o", "command"]
+        let pipe = Pipe()
+        process.standardOutput = pipe
+        
+        var results: [String: [URL]] = [:]
+        
+        do {
+            try process.run()
+            let data = pipe.fileHandleForReading.readDataToEndOfFile()
+            if let output = String(data: data, encoding: .utf8) {
+                let lines = output.components(separatedBy: .newlines)
+                for line in lines {
+                    var execName: String
+                    if let flagRange = line.range(of: "--user-data-dir") {
+                        execName = String(line[..<flagRange.lowerBound])
+                    } else {
+                        continue
+                    }
+                    
+                    var matchedBundle: String?
+                    if execName.contains("Google Chrome") {
+                        matchedBundle = "com.google.Chrome"
+                    } else if execName.contains("Brave") {
+                        matchedBundle = "com.brave.Browser"
+                    } else if execName.contains("Chromium") {
+                        matchedBundle = "org.chromium.Chromium"
+                    } else if execName.contains("Edge") {
+                        matchedBundle = "com.microsoft.edgemac"
+                    } else if execName.contains("Arc") {
+                        matchedBundle = "company.thebrowser.Browser"
+                    } else if execName.contains("Vivaldi") {
+                        matchedBundle = "com.vivaldi.Vivaldi"
+                    }
+                    
+                    guard let bundle = matchedBundle else { continue }
+                    
+                    var path = ""
+                    if let range = line.range(of: "--user-data-dir=") {
+                        let remainder = line[range.upperBound...]
+                        if remainder.hasPrefix("\"") {
+                            if let endQuote = remainder.dropFirst().firstIndex(of: "\"") {
+                                path = String(remainder.dropFirst()[..<endQuote])
+                            }
+                        } else if remainder.hasPrefix("'") {
+                            if let endQuote = remainder.dropFirst().firstIndex(of: "'") {
+                                path = String(remainder.dropFirst()[..<endQuote])
+                            }
+                        } else {
+                            if let nextFlag = remainder.range(of: " --") {
+                                path = String(remainder[..<nextFlag.lowerBound]).trimmingCharacters(in: .whitespaces)
+                            } else {
+                                path = String(remainder).trimmingCharacters(in: .whitespaces)
+                            }
+                        }
+                    } else if let range = line.range(of: "--user-data-dir") {
+                        let remainder = line[range.upperBound...].trimmingCharacters(in: .whitespaces)
+                        if remainder.hasPrefix("\"") {
+                            if let endQuote = remainder.dropFirst().firstIndex(of: "\"") {
+                                path = String(remainder.dropFirst()[..<endQuote])
+                            }
+                        } else if remainder.hasPrefix("'") {
+                            if let endQuote = remainder.dropFirst().firstIndex(of: "'") {
+                                path = String(remainder.dropFirst()[..<endQuote])
+                            }
+                        } else {
+                            if let nextSpace = remainder.firstIndex(of: " ") {
+                                path = String(remainder[..<nextSpace])
+                            } else {
+                                path = String(remainder)
+                            }
+                        }
+                    }
+                    
+                    guard !path.isEmpty else { continue }
+                    
+                    let url = URL(fileURLWithPath: path)
+                    if results[bundle]?.contains(url) != true {
+                        results[bundle, default: []].append(url)
+                    }
+                }
+            }
+        } catch {
+        }
+        return results
     }
 
     private static func bundleIdentifier(for appURL: URL) -> String? {
