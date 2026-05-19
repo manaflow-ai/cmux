@@ -21500,7 +21500,7 @@ export default function cmuxPiSessionExtension(pi: ExtensionAPI) {
         let filePath = "\(configDir)/\(def.configFile)"
 
         guard let data = fm.contents(atPath: filePath),
-              var json = try? JSONSerialization.jsonObject(with: data) as? [String: Any] else {
+              var json = Self.jsonObjectForHookConfig(from: data, def: def) else {
             print("No \(def.configFile) found at \(filePath)")
             try pruneLegacyCopilotConfigHooksIfNeeded(def: def, configDir: configDir, primaryFilePath: filePath)
             return
@@ -21579,7 +21579,8 @@ export default function cmuxPiSessionExtension(pi: ExtensionAPI) {
             }
         }
         let newData = try JSONSerialization.data(withJSONObject: json, options: [.prettyPrinted, .sortedKeys])
-        try newData.write(to: URL(fileURLWithPath: filePath), options: .atomic)
+        let dataToWrite = Self.hookConfigDataPreservingLeadingComments(newData, originalData: data, def: def)
+        try dataToWrite.write(to: URL(fileURLWithPath: filePath), options: .atomic)
         print(Self.localizedHookRemovalMessage(count: removed, path: filePath))
         try pruneLegacyCopilotConfigHooksIfNeeded(def: def, configDir: configDir, primaryFilePath: filePath)
 

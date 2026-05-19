@@ -1935,6 +1935,21 @@ extension CLINotifyProcessIntegrationRegressionTests {
         XCTAssertNotNil((stableHookJSON["hooks"] as? [String: Any])?["SessionStart"])
         configJSONC = try String(contentsOf: configURL, encoding: .utf8)
         XCTAssertFalse(configJSONC.contains(#""hooks""#), configJSONC)
+
+        let uninstallResult = runProcess(
+            executablePath: cliPath,
+            arguments: ["hooks", "copilot", "uninstall"],
+            environment: [
+                "HOME": root.path,
+                "COPILOT_HOME": copilotHome.path,
+                "PATH": "/usr/bin:/bin:/usr/sbin:/sbin",
+                "CMUX_CLI_SENTRY_DISABLED": "1",
+            ],
+            timeout: 5
+        )
+        XCTAssertFalse(uninstallResult.timedOut, uninstallResult.stderr)
+        XCTAssertEqual(uninstallResult.status, 0, uninstallResult.stderr)
+        XCTAssertFalse(FileManager.default.fileExists(atPath: hookURL.path), uninstallResult.stdout)
     }
 
     func runGenericHookPersistenceScenario(_ scenario: GenericHookPersistenceScenario) throws {
