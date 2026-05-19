@@ -1038,6 +1038,135 @@ final class CLINotifyProcessIntegrationRegressionTests: XCTestCase {
         )
     }
 
+    func testMemoryTrimReturnsResultWhenGracefulRevalidationDisappears() throws {
+        let cliPath = try bundledCLIPath()
+        let socketPath = makeSocketPath("mem-trim-revalidate")
+        let listenerFD = try bindUnixSocket(at: socketPath)
+        let state = MockSocketServerState()
+        let workspaceId = "41414141-4141-4141-4141-414141414141"
+        let surfaceId = "42424242-4242-4242-4242-424242424242"
+        let sleeper = Process()
+        sleeper.executableURL = URL(fileURLWithPath: "/bin/sleep")
+        sleeper.arguments = ["30"]
+        try sleeper.run()
+        let agentPID = Int(sleeper.processIdentifier)
+
+        defer {
+            terminateProcess(sleeper)
+            Darwin.close(listenerFD)
+            unlink(socketPath)
+        }
+
+        let serverHandled = startMockServer(listenerFD: listenerFD, state: state) { line in
+            guard let payload = self.jsonObject(line),
+                  let id = payload["id"] as? String,
+                  let method = payload["method"] as? String else {
+                return self.malformedRequestResponse(raw: line)
+            }
+            switch method {
+            case "system.top":
+                let systemTopRequestCount = state.commands
+                    .compactMap { self.jsonObject($0)?["method"] as? String }
+                    .filter { $0 == "system.top" }
+                    .count
+                if systemTopRequestCount == 1 {
+                    return self.v2Response(
+                        id: id,
+                        ok: true,
+                        result: self.memorySystemTopFixture(
+                            workspaceId: workspaceId,
+                            workspaceRef: "workspace:12",
+                            surfaceId: surfaceId,
+                            agentKey: "claude_code",
+                            agentPID: agentPID,
+                            secretCommandLine: "/opt/homebrew/bin/claude --dangerous-secret ignored"
+                        )
+                    )
+                }
+                return self.v2Response(
+                    id: id,
+                    ok: true,
+                    result: [
+                        "sample": ["sampled_at": "2026-05-13T12:00:00Z"],
+                        "windows": [
+                            [
+                                "id": "43434343-4343-4343-4343-434343434343",
+                                "ref": "window:1",
+                                "workspaces": [
+                                    [
+                                        "id": workspaceId,
+                                        "ref": "workspace:12",
+                                        "title": "Memory Workspace",
+                                        "resources": [
+                                            "cpu_percent": 1,
+                                            "memory_percent": 1,
+                                            "resident_bytes": 268_435_456,
+                                            "virtual_bytes": 536_870_912,
+                                            "process_count": 1,
+                                        ],
+                                        "tags": [],
+                                        "panes": [],
+                                    ],
+                                ],
+                            ],
+                        ],
+                    ]
+                )
+            case "surface.send_text":
+                let params = payload["params"] as? [String: Any] ?? [:]
+                XCTAssertEqual(params["workspace_id"] as? String, workspaceId)
+                XCTAssertEqual(params["surface_id"] as? String, surfaceId)
+                XCTAssertEqual(params["text"] as? String, "/exit\r")
+                return self.v2Response(id: id, ok: true, result: [:])
+            default:
+                return self.v2Response(
+                    id: id,
+                    ok: false,
+                    error: ["code": "unexpected_method", "message": "Unexpected method \(method)"]
+                )
+            }
+        }
+
+        var environment = ProcessInfo.processInfo.environment
+        environment["CMUX_SOCKET_PATH"] = socketPath
+        environment["CMUX_CLI_SENTRY_DISABLED"] = "1"
+
+        let result = runProcess(
+            executablePath: cliPath,
+            arguments: [
+                "memory",
+                "trim",
+                "--workspace",
+                "workspace:12",
+                "--agent",
+                "claude",
+                "--grace-seconds",
+                "0",
+                "--json",
+                "--id-format",
+                "uuids",
+            ],
+            environment: environment,
+            timeout: 5
+        )
+
+        wait(for: [serverHandled], timeout: 5)
+        XCTAssertFalse(result.timedOut, result.stderr)
+        XCTAssertEqual(result.status, 0, result.stderr)
+        XCTAssertTrue(result.stderr.isEmpty, result.stderr)
+
+        let payload = try jsonPayload(from: result.stdout)
+        XCTAssertEqual(payload["attempted_shutdown"] as? Bool, true)
+        XCTAssertEqual(payload["graceful_action"] as? String, "/exit")
+        XCTAssertEqual(payload["terminated"] as? Bool, false)
+        XCTAssertEqual(payload["killed"] as? Bool, false)
+        XCTAssertEqual(payload["still_running"] as? Bool, true)
+        XCTAssertEqual(
+            state.commands.compactMap { self.jsonObject($0)?["method"] as? String },
+            ["system.top", "surface.send_text", "system.top", "system.top"]
+        )
+    }
+
     func testMemoryTrimRecoversSurfaceUUIDWhenOwnedTagOnlyHasSurfaceRef() throws {
         let cliPath = try bundledCLIPath()
         let socketPath = makeSocketPath("mem-trim-surface-ref")

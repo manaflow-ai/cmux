@@ -145,6 +145,7 @@ extension CMUXCLI {
             var killed = false
             var attemptedShutdown = false
             var processExited = false
+            var canEscalateSignals = true
 
             if !options.dryRun {
                 if let graceful {
@@ -158,26 +159,38 @@ extension CMUXCLI {
                     }
                 }
 
-                if !processExited, candidate.identity != nil, let liveCandidate = try revalidatedSignalCandidate(
-                    matching: candidate,
-                    workspaceHandle: workspaceHandle
-                ) {
-                    if signaler.sendTerminateSignal(pid: liveCandidate.pid) {
-                        terminated = true
-                        attemptedShutdown = true
+                if !processExited, candidate.identity != nil, canEscalateSignals {
+                    if let liveCandidate = try revalidatedSignalCandidate(
+                        matching: candidate,
+                        workspaceHandle: workspaceHandle,
+                        tolerateMissingRevalidation: attemptedShutdown
+                    ) {
+                        if signaler.sendTerminateSignal(pid: liveCandidate.pid) {
+                            terminated = true
+                            attemptedShutdown = true
+                        }
+                        processExited = signaler.waitForExit(pid: liveCandidate.pid, timeout: Self.postSignalWaitSeconds)
+                    } else {
+                        processExited = !signaler.isRunning(pid: candidate.pid)
+                        canEscalateSignals = false
                     }
-                    processExited = signaler.waitForExit(pid: liveCandidate.pid, timeout: Self.postSignalWaitSeconds)
                 }
 
-                if !processExited, candidate.identity != nil, let liveCandidate = try revalidatedSignalCandidate(
-                    matching: candidate,
-                    workspaceHandle: workspaceHandle
-                ) {
-                    if signaler.sendKillSignal(pid: liveCandidate.pid) {
-                        killed = true
-                        attemptedShutdown = true
+                if !processExited, candidate.identity != nil, canEscalateSignals {
+                    if let liveCandidate = try revalidatedSignalCandidate(
+                        matching: candidate,
+                        workspaceHandle: workspaceHandle,
+                        tolerateMissingRevalidation: attemptedShutdown
+                    ) {
+                        if signaler.sendKillSignal(pid: liveCandidate.pid) {
+                            killed = true
+                            attemptedShutdown = true
+                        }
+                        _ = signaler.waitForExit(pid: liveCandidate.pid, timeout: Self.postSignalWaitSeconds)
+                    } else {
+                        processExited = !signaler.isRunning(pid: candidate.pid)
+                        canEscalateSignals = false
                     }
-                    _ = signaler.waitForExit(pid: liveCandidate.pid, timeout: Self.postSignalWaitSeconds)
                 }
             } else {
                 gracefulAction = graceful?.label
@@ -220,6 +233,21 @@ extension CMUXCLI {
                 throw CLIError(message: "memory trim refused to signal PID \(original.pid) because the process identity could not be verified")
             }
             return candidate
+        }
+
+        private func revalidatedSignalCandidate(
+            matching original: MemoryAgentCandidate,
+            workspaceHandle: String,
+            tolerateMissingRevalidation: Bool
+        ) throws -> MemoryAgentCandidate? {
+            do {
+                return try revalidatedSignalCandidate(matching: original, workspaceHandle: workspaceHandle)
+            } catch {
+                if tolerateMissingRevalidation {
+                    return nil
+                }
+                throw error
+            }
         }
 
         private func isOriginalProcessStillRunning(
