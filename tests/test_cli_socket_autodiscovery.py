@@ -617,7 +617,6 @@ def test_python_v2_client_reads_tagged_dev_marker() -> bool:
 
 def test_variant_last_socket_markers(cli_path: str) -> bool:
     pid = os.getpid()
-    stable_socket = f"/tmp/cmux-issue3542-stable-{pid}.sock"
     nightly_socket = f"/tmp/cmux-issue3542-nightly-{pid}.sock"
     dev_agent_socket = f"/tmp/cmux-issue3542-dev-agent-{pid}.sock"
     rogue_stable_socket = f"/tmp/cmux-debug-rogue-stable-{pid}.sock"
@@ -629,6 +628,7 @@ def test_variant_last_socket_markers(cli_path: str) -> bool:
 
     with temporary_socket_home("cmux-home-") as home, \
             tempfile.TemporaryDirectory(prefix="cmux-cli-variant-apps-") as apps:
+        stable_socket = socket_path_for_home(home, f"com.cmuxterm.app.{os.getuid()}.sock")
         stable_cli = bundled_cli_for_variant(
             cli_path,
             apps,

@@ -9,6 +9,7 @@ Requires:
 """
 
 import os
+import re
 import sys
 import time
 import subprocess
@@ -24,6 +25,13 @@ from cmux import cmux, cmuxError
 class SkipTest(Exception):
     """Raised to skip this test when the environment can't support it."""
 
+
+def sanitize_tag_slug(raw: str) -> Optional[str]:
+    cleaned = re.sub(r"[^a-z0-9]+", "-", (raw or "").strip().lower())
+    cleaned = re.sub(r"-+", "-", cleaned).strip("-")
+    return cleaned or None
+
+
 def infer_app_name_for_osascript(socket_path: str) -> str:
     """
     Infer the app display name from the socket path.
@@ -35,7 +43,7 @@ def infer_app_name_for_osascript(socket_path: str) -> str:
       - /tmp/cmux-foo.sock            -> "cmux foo"
     """
     base = Path(socket_path).name
-    env_tag = (os.environ.get("CMUX_TAG") or "").strip()
+    env_tag = sanitize_tag_slug(os.environ.get("CMUX_TAG") or "")
     if env_tag and (
         base == "com.cmuxterm.app.dev.sock"
         or base.startswith("com.cmuxterm.app.dev.")
