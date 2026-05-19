@@ -68,6 +68,30 @@ def _socket_path_for_file_name(file_name: str) -> str:
     return str(_shared_socket_path_for_file_name(file_name))
 
 
+def _user_scoped_stable_socket_path() -> str:
+    return _socket_path_for_file_name(f"{_STABLE_BUNDLE_ID}.{os.getuid()}.sock")
+
+
+def _stable_implicit_default_paths() -> set[str]:
+    return {
+        _STABLE_SOCKET_PATH,
+        _LEGACY_APP_SUPPORT_SOCKET_PATH,
+        _LEGACY_STABLE_SOCKET_PATH,
+        _user_scoped_stable_socket_path(),
+    }
+
+
+def _is_stable_implicit_socket_path(path: str) -> bool:
+    if path in _stable_implicit_default_paths():
+        return True
+    return os.path.basename(path) in {
+        os.path.basename(_STABLE_SOCKET_PATH),
+        os.path.basename(_LEGACY_APP_SUPPORT_SOCKET_PATH),
+        os.path.basename(_LEGACY_STABLE_SOCKET_PATH),
+        os.path.basename(_user_scoped_stable_socket_path()),
+    }
+
+
 def _is_known_cmux_bundle_id(bundle_id: str) -> bool:
     return (
         bundle_id == _STABLE_BUNDLE_ID
@@ -159,26 +183,6 @@ def _variant_socket_candidates() -> List[str]:
     return [_STABLE_SOCKET_PATH, _LEGACY_APP_SUPPORT_SOCKET_PATH, _LEGACY_STABLE_SOCKET_PATH]
 
 
-def _is_non_release_variant_socket_name(name: str) -> bool:
-    if not name.endswith(".sock"):
-        return False
-    return (
-        name == "cmux-staging.sock"
-        or name.startswith("cmux-staging-")
-        or name == "cmux-nightly.sock"
-        or name.startswith("cmux-nightly-")
-        or name == "cmux-debug.sock"
-        or name.startswith("cmux-debug-")
-        or (name.startswith("cmux-") and name != "cmux.sock")
-        or name == "com.cmuxterm.app.dev.sock"
-        or name.startswith("com.cmuxterm.app.dev.")
-        or name == "com.cmuxterm.app.nightly.sock"
-        or name.startswith("com.cmuxterm.app.nightly.")
-        or name == "com.cmuxterm.app.staging.sock"
-        or name.startswith("com.cmuxterm.app.staging.")
-    )
-
-
 def _is_discoverable_tagged_debug_socket_name(name: str) -> bool:
     if not name.endswith(".sock"):
         return False
@@ -199,7 +203,7 @@ def _read_last_socket_path() -> Optional[str]:
                 path = f.read().strip()
             if path and (
                 variant != "stable"
-                or not _is_non_release_variant_socket_name(os.path.basename(path))
+                or _is_stable_implicit_socket_path(path)
             ):
                 return path
         except OSError:
@@ -246,11 +250,7 @@ def _default_socket_path() -> str:
     variant, slug = _socket_variant()
     override = os.environ.get("CMUX_SOCKET_PATH")
     if override:
-        stable_defaults = {
-            _STABLE_SOCKET_PATH,
-            _LEGACY_APP_SUPPORT_SOCKET_PATH,
-            _LEGACY_STABLE_SOCKET_PATH,
-        }
+        stable_defaults = _stable_implicit_default_paths()
         implicit_defaults = stable_defaults.union(_variant_socket_candidates())
         is_stale_stable_default = variant != "stable" and override in stable_defaults
         if not is_stale_stable_default:

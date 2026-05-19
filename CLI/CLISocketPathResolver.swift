@@ -241,36 +241,26 @@ enum CLISocketPathResolver {
     private static func shouldUseLastSocketPath(_ path: String, variant: SocketPathVariant) -> Bool {
         switch variant {
         case .stable:
-            return !isNonReleaseVariantSocketName(URL(fileURLWithPath: path).lastPathComponent)
+            return isStableImplicitSocketPath(path)
         case .nightly, .staging, .dev:
             return true
         }
     }
 
-    private static func isNonReleaseVariantSocketName(_ name: String) -> Bool {
-        guard name.hasSuffix(".sock") else { return false }
-        if name == "cmux-staging.sock" || name.hasPrefix("cmux-staging-") {
+    private static func isStableImplicitSocketPath(_ path: String) -> Bool {
+        if stableImplicitDefaultPaths().contains(path) {
             return true
         }
-        if name == "cmux-nightly.sock" || name.hasPrefix("cmux-nightly-") {
-            return true
-        }
-        if name == "cmux-debug.sock" || name.hasPrefix("cmux-debug-") {
-            return true
-        }
-        if name.hasPrefix("cmux-"), name != "cmux.sock" {
-            return true
-        }
-        if name == "com.cmuxterm.app.dev.sock" || name.hasPrefix("com.cmuxterm.app.dev.") {
-            return true
-        }
-        if name == "com.cmuxterm.app.nightly.sock" || name.hasPrefix("com.cmuxterm.app.nightly.") {
-            return true
-        }
-        if name == "com.cmuxterm.app.staging.sock" || name.hasPrefix("com.cmuxterm.app.staging.") {
-            return true
-        }
-        return false
+        return stableImplicitSocketFileNames().contains(URL(fileURLWithPath: path).lastPathComponent)
+    }
+
+    private static func stableImplicitSocketFileNames() -> Set<String> {
+        Set([
+            stableSocketFileName,
+            legacyStableSocketFileName,
+            URL(fileURLWithPath: legacyDefaultSocketPath).lastPathComponent,
+            "com.cmuxterm.app.\(getuid()).sock",
+        ])
     }
 
     private static func shouldDiscoverTaggedSockets(
@@ -354,6 +344,50 @@ enum CLISocketPathResolver {
     }
 
     private static func probeCmuxSocket(at path: String) -> SocketProbeResult {
+        let legacyResult = probeLegacyCmuxSocket(at: path)
+        if legacyResult == .cmux {
+            return .cmux
+        }
+
+        let v2Result = probeV2CmuxSocket(at: path)
+        if v2Result == .cmux {
+            return .cmux
+        }
+
+        if legacyResult == .notCmux || v2Result == .notCmux {
+            return .notCmux
+        }
+        if legacyResult == .indeterminate || v2Result == .indeterminate {
+            return .indeterminate
+        }
+        return .unavailable
+    }
+
+    private static func probeLegacyCmuxSocket(at path: String) -> SocketProbeResult {
+        withConnectedSocket(at: path) { fd in
+            guard writeAll(Data("ping\n".utf8), to: fd) else { return .notCmux }
+            guard let response = readFirstLine(from: fd) else {
+                return .indeterminate
+            }
+            return response == "PONG" ? .cmux : .notCmux
+        }
+    }
+
+    private static func probeV2CmuxSocket(at path: String) -> SocketProbeResult {
+        withConnectedSocket(at: path) { fd in
+            let payload = #"{"id":1,"method":"system.ping","params":{}}"# + "\n"
+            guard writeAll(Data(payload.utf8), to: fd) else { return .notCmux }
+            guard let response = readFirstLine(from: fd) else {
+                return .indeterminate
+            }
+            return isSuccessfulV2PingResponse(response) ? .cmux : .notCmux
+        }
+    }
+
+    private static func withConnectedSocket(
+        at path: String,
+        perform: (Int32) -> SocketProbeResult
+    ) -> SocketProbeResult {
         guard isSocketFile(path) else { return .unavailable }
         let fd = socket(AF_UNIX, SOCK_STREAM, 0)
         guard fd >= 0 else { return .unavailable }
@@ -378,11 +412,35 @@ enum CLISocketPathResolver {
             }
         }
         guard result == 0 else { return .unavailable }
-        guard writeAll(Data("ping\n".utf8), to: fd) else { return .notCmux }
-        guard let response = readFirstLine(from: fd) else {
-            return .indeterminate
+        return perform(fd)
+    }
+
+    private static func isSuccessfulV2PingResponse(_ response: String) -> Bool {
+        guard let data = response.data(using: .utf8),
+              let object = try? JSONSerialization.jsonObject(with: data) as? [String: Any] else {
+            return false
         }
-        return response == "PONG" ? .cmux : .notCmux
+
+        guard isV2PingResponseID(object["id"]) else {
+            return false
+        }
+        guard object["ok"] as? Bool == true else {
+            return false
+        }
+        if let result = object["result"] as? [String: Any] {
+            return result["pong"] as? Bool == true
+        }
+        return object["result"] as? Bool == true
+    }
+
+    private static func isV2PingResponseID(_ value: Any?) -> Bool {
+        if let id = value as? Int {
+            return id == 1
+        }
+        if let id = value as? NSNumber {
+            return id.intValue == 1
+        }
+        return false
     }
 
     private static func configureSocketTimeouts(_ fd: Int32, timeout: TimeInterval) {
@@ -456,7 +514,7 @@ enum CLISocketPathResolver {
         environment: [String: String]
     ) -> [String] {
         let variant = SocketPathMarkerFiles.variant(bundleIdentifier: bundleIdentifier, environment: environment)
-        dedupe(
+        return dedupe(
             [defaultSocketPath(bundleIdentifier: bundleIdentifier, environment: environment)]
                 + implicitFallbackCandidatePaths(for: variant)
                 + stableImplicitDefaultPaths()
@@ -466,9 +524,20 @@ enum CLISocketPathResolver {
     private static func stableImplicitDefaultPaths() -> [String] {
         dedupe([
             stableDefaultSocketPath,
+            userScopedStableSocketPath(),
             legacyStableSocketPath,
             legacyDefaultSocketPath,
         ])
+    }
+
+    private static func userScopedStableSocketPath(currentUserID: uid_t = getuid()) -> String {
+        if let directory = stableSocketDirectoryURL() {
+            return SocketPathMarkerFiles.socketPath(
+                fileName: "com.cmuxterm.app.\(currentUserID).sock",
+                directory: directory
+            )
+        }
+        return "/tmp/com.cmuxterm.app.\(currentUserID).sock"
     }
 
     private static func allKnownDefaultSocketPaths() -> Set<String> {

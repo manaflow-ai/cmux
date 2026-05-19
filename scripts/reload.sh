@@ -213,6 +213,39 @@ socket_path_for_file_name() {
   python3 "$SCRIPT_DIR/cmux_socket_paths.py" "$file_name"
 }
 
+socket_file_name_for_tagged_bundle() {
+  local bundle_id="${BUNDLE_ID:-}"
+  local tag_slug="${TAG_SLUG:-}"
+  local slug=""
+
+  case "$bundle_id" in
+    com.cmuxterm.app.debug)
+      slug="$tag_slug"
+      ;;
+    com.cmuxterm.app.debug.*)
+      slug="$(sanitize_path "${bundle_id#com.cmuxterm.app.debug.}")"
+      ;;
+    com.cmuxterm.app.nightly|com.cmuxterm.app.nightly.*)
+      echo "com.cmuxterm.app.nightly.sock"
+      return 0
+      ;;
+    com.cmuxterm.app.staging|com.cmuxterm.app.staging.*)
+      echo "com.cmuxterm.app.staging.sock"
+      return 0
+      ;;
+    *)
+      echo "com.cmuxterm.app.dev.sock"
+      return 0
+      ;;
+  esac
+
+  if [[ -n "$slug" ]]; then
+    echo "com.cmuxterm.app.dev.${slug}.sock"
+  else
+    echo "com.cmuxterm.app.dev.sock"
+  fi
+}
+
 is_valid_port() {
   local port="${1:-}"
   [[ "$port" =~ ^[0-9]+$ ]] || return 1
@@ -331,7 +364,7 @@ print_tag_cleanup_reminder() {
   echo "After you verify current tag, cleanup command:"
   echo "  pkill -f \"cmux DEV ${current_slug}.app/Contents/MacOS/cmux DEV\""
   echo "  rm -rf \"$(tagged_derived_data_path "$current_slug")\" \"/tmp/cmux-${current_slug}\""
-  echo "  rm -f \"$(socket_path_for_file_name "com.cmuxterm.app.dev.${current_slug}.sock")\" \"/tmp/cmux-debug-${current_slug}.sock\""
+  echo "  rm -f \"$(socket_path_for_file_name "$(socket_file_name_for_tagged_bundle)")\" \"/tmp/cmux-debug-${current_slug}.sock\""
   echo "  rm -f \"/tmp/cmux-debug-${current_slug}.log\""
   echo "  rm -f \"$HOME/Library/Application Support/cmux/cmuxd-dev-${current_slug}.sock\""
 }
@@ -620,7 +653,7 @@ if [[ -n "$TAG" && "$APP_NAME" != "$SEARCH_APP_NAME" ]]; then
     if [[ -n "${TAG_SLUG:-}" ]]; then
       APP_SUPPORT_DIR="$HOME/Library/Application Support/cmux"
       CMUXD_SOCKET="${APP_SUPPORT_DIR}/cmuxd-dev-${TAG_SLUG}.sock"
-      CMUX_SOCKET_PATH_VALUE="$(socket_path_for_file_name "com.cmuxterm.app.dev.${TAG_SLUG}.sock")"
+      CMUX_SOCKET_PATH_VALUE="$(socket_path_for_file_name "$(socket_file_name_for_tagged_bundle)")"
       CMUX_DEBUG_LOG="/tmp/cmux-debug-${TAG_SLUG}.log"
       write_last_socket_path "$CMUX_SOCKET_PATH_VALUE"
       echo "$CMUX_DEBUG_LOG" > /tmp/cmux-last-debug-log-path || true

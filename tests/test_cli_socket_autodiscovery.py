@@ -47,11 +47,13 @@ class PingServer:
         self,
         socket_path: str,
         response: bytes = b"PONG\n",
+        responses: list[bytes] | None = None,
         max_ping_requests: int = 1,
         accept_timeout: float = 6.0,
     ):
         self.socket_path = socket_path
         self.response = response
+        self.responses = responses
         self.max_ping_requests = max_ping_requests
         self.accept_timeout = accept_timeout
         self.ready = threading.Event()
@@ -95,7 +97,10 @@ class PingServer:
                         continue
 
                     if b"ping" in data:
-                        conn.sendall(self.response)
+                        response = self.response
+                        if self.responses:
+                            response = self.responses[min(handled_pings, len(self.responses) - 1)]
+                        conn.sendall(response)
                         handled_pings += 1
                         if handled_pings >= self.max_ping_requests:
                             return
@@ -392,6 +397,44 @@ def python_client_default_socket_path(extra_env: dict[str, str]) -> str:
     return proc.stdout.strip()
 
 
+def python_client_defaults_after_env_mutation(extra_env: dict[str, str], tag: str) -> tuple[str, str]:
+    env = os.environ.copy()
+    env.pop("CMUX_SOCKET_PATH", None)
+    env.pop("CMUX_SOCKET", None)
+    env.pop("CMUX_BUNDLE_ID", None)
+    env.pop("CMUX_TAG", None)
+    env.update(extra_env)
+
+    tests_dir = os.path.dirname(os.path.abspath(__file__))
+    python_path = env.get("PYTHONPATH")
+    env["PYTHONPATH"] = tests_dir if not python_path else f"{tests_dir}{os.pathsep}{python_path}"
+
+    proc = subprocess.run(
+        [
+            sys.executable,
+            "-c",
+            (
+                "import os\n"
+                "from cmux import cmux\n"
+                f"os.environ['CMUX_TAG'] = {tag!r}\n"
+                "print(cmux.DEFAULT_SOCKET_PATH)\n"
+                "print(cmux.DEFAULT_BUNDLE_ID)\n"
+            ),
+        ],
+        text=True,
+        capture_output=True,
+        env=env,
+        timeout=8,
+        check=False,
+    )
+    if proc.returncode != 0:
+        raise RuntimeError(f"cmux.py lazy default resolution failed: {proc.stderr!r}")
+    lines = proc.stdout.strip().splitlines()
+    if len(lines) != 2:
+        raise RuntimeError(f"cmux.py lazy default resolution produced unexpected output: {proc.stdout!r}")
+    return lines[0], lines[1]
+
+
 def python_v2_client_default_socket_path(extra_env: dict[str, str]) -> str:
     env = os.environ.copy()
     env.pop("CMUX_SOCKET_PATH", None)
@@ -501,6 +544,32 @@ def test_python_client_treats_legacy_tagged_override_as_implicit() -> bool:
         return False
 
     print("PASS: python client treats legacy tagged socket overrides as implicit")
+    return True
+
+
+def test_python_client_default_constants_are_lazy() -> bool:
+    tag = f"python-lazy-{os.getpid()}"
+
+    with temporary_socket_home("cmux-py-lazy-") as home:
+        expected_socket = socket_path_for_home(home, f"com.cmuxterm.app.dev.{tag}.sock")
+        expected_bundle = f"com.cmuxterm.app.debug.{tag.replace('-', '.')}"
+        actual_socket, actual_bundle = python_client_defaults_after_env_mutation(
+            {
+                "HOME": home,
+                "CFFIXED_USER_HOME": home,
+            },
+            tag,
+        )
+
+    if actual_socket != expected_socket or actual_bundle != expected_bundle:
+        print("FAIL: python client default constants were frozen at import")
+        print(f"expected_socket={expected_socket!r}")
+        print(f"actual_socket={actual_socket!r}")
+        print(f"expected_bundle={expected_bundle!r}")
+        print(f"actual_bundle={actual_bundle!r}")
+        return False
+
+    print("PASS: python client default constants resolve lazily")
     return True
 
 
@@ -614,6 +683,50 @@ def test_python_v2_client_ignores_non_release_stable_marker() -> bool:
         return False
 
     print("PASS: tests_v2 stable client ignores non-release variant markers")
+    return True
+
+
+def test_python_v2_client_ignores_custom_stable_marker() -> bool:
+    with temporary_socket_home("cmux-v2-custom-marker-") as home:
+        app_support = app_support_dir(home)
+        app_support.mkdir(parents=True, exist_ok=True)
+        base_env = {
+            "HOME": home,
+            "CFFIXED_USER_HOME": home,
+            "CMUX_BUNDLE_ID": "com.cmuxterm.app",
+        }
+        expected = python_v2_client_default_socket_path(base_env)
+        custom_socket = str(app_support / "custom-review.sock")
+        write_marker(home, "last-socket-path", custom_socket)
+
+        custom_server = PingServer(
+            custom_socket,
+            response=b'{"id":1,"ok":true,"result":{"pong":true}}\n',
+            accept_timeout=1.0,
+        )
+        custom_server.start()
+        if not custom_server.wait_ready(2.0):
+            print("FAIL: v2 custom marker socket server did not become ready")
+            return False
+        if custom_server.error is not None:
+            print(f"FAIL: v2 custom marker socket server failed to start: {custom_server.error}")
+            return False
+
+        actual = python_v2_client_default_socket_path(base_env)
+
+        custom_server.join(timeout=2.0)
+        try:
+            os.remove(custom_socket)
+        except OSError:
+            pass
+
+    if actual != expected:
+        print("FAIL: tests_v2 stable client followed a custom marker")
+        print(f"expected={expected!r}")
+        print(f"actual={actual!r}")
+        return False
+
+    print("PASS: tests_v2 stable client ignores custom markers")
     return True
 
 
@@ -1045,12 +1158,66 @@ def test_cli_skips_non_cmux_default_socket(cli_path: str) -> bool:
     return True
 
 
+def test_cli_accepts_v2_json_probe_for_marked_socket(cli_path: str) -> bool:
+    with temporary_socket_home("cmux-cli-v2-probe-") as home, \
+            tempfile.TemporaryDirectory(prefix="cmux-cli-v2-probe-app-") as apps:
+        app_support = app_support_dir(home)
+        app_support.mkdir(parents=True, exist_ok=True)
+        socket_path = socket_path_for_home(home, f"com.cmuxterm.app.{os.getuid()}.sock")
+        write_marker(home, "last-socket-path", socket_path)
+
+        server = PingServer(
+            socket_path,
+            responses=[
+                b'{"id":1,"ok":false,"error":{"code":"invalid_request"}}\n',
+                b'{"id":1,"ok":true,"result":{"pong":true}}\n',
+                b"PONG\n",
+            ],
+            max_ping_requests=3,
+        )
+        server.start()
+        if not server.wait_ready(2.0):
+            print("FAIL: v2 probe socket server did not become ready")
+            return False
+        if server.error is not None:
+            print(f"FAIL: v2 probe socket server failed to start: {server.error}")
+            return False
+
+        stable_cli = bundled_cli_for_variant(
+            cli_path,
+            apps,
+            "cmux",
+            "com.cmuxterm.app",
+        )
+        proc = run_ping(stable_cli, home)
+
+        server.join(timeout=2.0)
+        try:
+            os.remove(socket_path)
+        except OSError:
+            pass
+
+    if server.error is not None:
+        print(f"FAIL: v2 probe socket server error: {server.error}")
+        return False
+    if proc.returncode != 0 or proc.stdout.strip() != "PONG":
+        print("FAIL: cmux ping rejected a socket that passed the v2 JSON probe")
+        print(f"stdout={proc.stdout!r}")
+        print(f"stderr={proc.stderr!r}")
+        return False
+
+    print("PASS: CLI accepts sockets that pass v2 JSON probe")
+    return True
+
+
 def test_cli_ignores_non_release_stable_marker(cli_path: str) -> bool:
+    pid = os.getpid()
     variant_names = [
         "com.cmuxterm.app.staging.review.sock",
         "cmux-nightly.sock",
         "cmux-nightly-review.sock",
         "cmux-legacy-dev-marker.sock",
+        f"custom-review-{pid}.sock",
     ]
     for variant_name in variant_names:
         with temporary_socket_home("cmux-cli-variant-marker-") as home, \
@@ -1118,6 +1285,9 @@ def main() -> int:
     if not test_cli_skips_non_cmux_default_socket(cli_path):
         return 1
 
+    if not test_cli_accepts_v2_json_probe_for_marked_socket(cli_path):
+        return 1
+
     if not test_cli_ignores_non_release_stable_marker(cli_path):
         return 1
 
@@ -1133,6 +1303,9 @@ def main() -> int:
     if not test_python_client_treats_legacy_tagged_override_as_implicit():
         return 1
 
+    if not test_python_client_default_constants_are_lazy():
+        return 1
+
     if not test_python_v2_client_matches_empty_swift_tag_slug():
         return 1
 
@@ -1143,6 +1316,9 @@ def main() -> int:
         return 1
 
     if not test_python_v2_client_ignores_non_release_stable_marker():
+        return 1
+
+    if not test_python_v2_client_ignores_custom_stable_marker():
         return 1
 
     if not test_python_v2_client_reads_tagged_dev_marker():

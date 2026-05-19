@@ -44,11 +44,9 @@ def infer_app_name_for_osascript(socket_path: str) -> str:
     """
     base = Path(socket_path).name
     env_tag = sanitize_tag_slug(os.environ.get("CMUX_TAG") or "")
-    if env_tag and (
-        base == "com.cmuxterm.app.dev.sock"
-        or base.startswith("com.cmuxterm.app.dev.")
-        or base.startswith("cmux-debug")
-    ):
+    if base in {"com.cmuxterm.app.dev.sock", "cmux-debug.sock"}:
+        return "cmux DEV"
+    if env_tag and (base.startswith("com.cmuxterm.app.dev.") or base.startswith("cmux-debug-")):
         return f"cmux DEV {env_tag}"
     if base == "com.cmuxterm.app.sock":
         return "cmux"
