@@ -9,6 +9,7 @@ import (
 	"strings"
 	"syscall"
 	"time"
+	"unicode"
 )
 
 const claudeNodeOptionsRestoreModuleScript = `const hadOriginalNodeOptions = process.env.CMUX_ORIGINAL_NODE_OPTIONS_PRESENT === "1";
@@ -340,7 +341,7 @@ func claudeNodeOptionsRestoreDirs() []string {
 		home = strings.TrimSpace(home)
 		// mergeNodeOptions and walkNodeOptions use whitespace tokenization, so
 		// use TMPDIR instead of a HOME path that would require quote-aware parsing.
-		if home != "" && !strings.ContainsAny(home, " \t\n\r") {
+		if home != "" && strings.IndexFunc(home, unicode.IsSpace) < 0 {
 			dirs = append(dirs, filepath.Join(home, ".claude", "cmux"))
 		}
 	}

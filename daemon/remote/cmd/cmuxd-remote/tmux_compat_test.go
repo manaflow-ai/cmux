@@ -514,29 +514,40 @@ func TestEnsureClaudeNodeOptionsRestoreModuleUsesHome(t *testing.T) {
 }
 
 func TestEnsureClaudeNodeOptionsRestoreModuleSkipsHomeWithWhitespace(t *testing.T) {
-	root := t.TempDir()
-	home := filepath.Join(root, "home with space")
-	tmp := filepath.Join(root, "tmp")
-	if err := os.MkdirAll(home, 0755); err != nil {
-		t.Fatalf("create home: %v", err)
-	}
-	if err := os.MkdirAll(tmp, 0755); err != nil {
-		t.Fatalf("create tmp: %v", err)
-	}
-	t.Setenv("HOME", home)
-	t.Setenv("TMPDIR", tmp)
+	for _, tc := range []struct {
+		name string
+		home string
+	}{
+		{name: "space", home: "home with space"},
+		{name: "vertical-tab", home: "home\vwith\vtab"},
+		{name: "form-feed", home: "home\fwith\ffeed"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			root := t.TempDir()
+			home := filepath.Join(root, tc.home)
+			tmp := filepath.Join(root, "tmp")
+			if err := os.MkdirAll(home, 0755); err != nil {
+				t.Fatalf("create home: %v", err)
+			}
+			if err := os.MkdirAll(tmp, 0755); err != nil {
+				t.Fatalf("create tmp: %v", err)
+			}
+			t.Setenv("HOME", home)
+			t.Setenv("TMPDIR", tmp)
 
-	path, err := ensureClaudeNodeOptionsRestoreModule()
-	if err != nil {
-		t.Fatalf("ensureClaudeNodeOptionsRestoreModule() error = %v", err)
-	}
+			path, err := ensureClaudeNodeOptionsRestoreModule()
+			if err != nil {
+				t.Fatalf("ensureClaudeNodeOptionsRestoreModule() error = %v", err)
+			}
 
-	want := filepath.Join(tmp, "cmux-claude-node-options", "restore-node-options.cjs")
-	if path != want {
-		t.Fatalf("restore module path = %q, want %q", path, want)
-	}
-	if strings.HasPrefix(path, home+string(os.PathSeparator)) {
-		t.Fatalf("restore module path should not be under whitespace HOME %q: %q", home, path)
+			want := filepath.Join(tmp, "cmux-claude-node-options", "restore-node-options.cjs")
+			if path != want {
+				t.Fatalf("restore module path = %q, want %q", path, want)
+			}
+			if strings.HasPrefix(path, home+string(os.PathSeparator)) {
+				t.Fatalf("restore module path should not be under whitespace HOME %q: %q", home, path)
+			}
+		})
 	}
 }
 
