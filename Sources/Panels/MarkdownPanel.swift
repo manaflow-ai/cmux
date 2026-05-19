@@ -25,13 +25,13 @@ final class MarkdownPanel: Panel, ObservableObject, FilePreviewTextEditingPanel 
     /// Current markdown content read from the file.
     @Published private(set) var content: String = ""
 
-    /// Current raw text shown by the TextEdit mode.
+    /// Current raw markdown shown by the editor mode.
     @Published private(set) var textContent: String = ""
 
-    /// Whether TextEdit mode has unsaved changes.
+    /// Whether editor mode has unsaved changes.
     @Published private(set) var isDirty: Bool = false
 
-    /// Whether TextEdit mode is saving to disk.
+    /// Whether editor mode is saving to disk.
     @Published private(set) var isSaving: Bool = false
 
     /// The current view mode for this markdown panel. New panels default to preview.
@@ -66,6 +66,7 @@ final class MarkdownPanel: Panel, ObservableObject, FilePreviewTextEditingPanel 
     private var activeSaveGeneration: Int?
     private var pendingSearchNeedle: String?
     private weak var textView: NSTextView?
+    private weak var codeMirrorEditor: (any MarkdownCodeMirrorPanelEditor)?
     private var isClosed: Bool = false
     private let watchQueue = DispatchQueue(label: "com.cmux.markdown-file-watch", qos: .utility)
 
@@ -85,6 +86,11 @@ final class MarkdownPanel: Panel, ObservableObject, FilePreviewTextEditingPanel 
 
     func focus() {
         guard displayMode == .text else { return }
+        if let codeMirrorEditor {
+            codeMirrorEditor.focusEditor()
+            applyPendingSearchNeedleIfPossible()
+            return
+        }
         _ = textView?.window?.makeFirstResponder(textView)
         applyPendingSearchNeedleIfPossible()
     }
@@ -98,6 +104,7 @@ final class MarkdownPanel: Panel, ObservableObject, FilePreviewTextEditingPanel 
         rendererSession.close()
         GlobalSearchCoordinator.shared.purgePanel(id: id)
         textView = nil
+        codeMirrorEditor = nil
         stopWatching()
     }
 
@@ -119,6 +126,16 @@ final class MarkdownPanel: Panel, ObservableObject, FilePreviewTextEditingPanel 
         self.textView = textView
     }
 
+    func attachCodeMirrorEditor(_ editor: any MarkdownCodeMirrorPanelEditor) {
+        self.codeMirrorEditor = editor
+    }
+
+    func detachCodeMirrorEditor(_ editor: any MarkdownCodeMirrorPanelEditor) {
+        guard let codeMirrorEditor,
+              (codeMirrorEditor as AnyObject) === (editor as AnyObject) else { return }
+        self.codeMirrorEditor = nil
+    }
+
     func retryPendingFocus() {
         focus()
     }
@@ -137,6 +154,11 @@ final class MarkdownPanel: Panel, ObservableObject, FilePreviewTextEditingPanel 
         content = nextContent
         isDirty = nextContent != originalTextContent
         GlobalSearchCoordinator.shared.captureMarkdownPanel(self)
+    }
+
+    func openLinkedMarkdownFile(rawPath: String) {
+        guard let resolved = resolvedMarkdownFilePath(rawPath) else { return }
+        openMarkdownFile(resolved)
     }
 
     @discardableResult
@@ -246,10 +268,17 @@ final class MarkdownPanel: Panel, ObservableObject, FilePreviewTextEditingPanel 
     }
 
     private func applyPendingSearchNeedleIfPossible() {
-        guard let needle = pendingSearchNeedle,
-              let textView else {
+        guard let needle = pendingSearchNeedle else {
             return
         }
+
+        if let codeMirrorEditor {
+            codeMirrorEditor.selectFirstMatch(needle)
+            pendingSearchNeedle = nil
+            return
+        }
+
+        guard let textView else { return }
 
         let range = (textView.string as NSString).range(
             of: needle,
@@ -264,6 +293,27 @@ final class MarkdownPanel: Panel, ObservableObject, FilePreviewTextEditingPanel 
         textView.setSelectedRange(range)
         textView.scrollRangeToVisible(range)
         pendingSearchNeedle = nil
+    }
+
+    private func resolvedMarkdownFilePath(_ rawPath: String) -> String? {
+        let trimmed = rawPath.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmed.isEmpty else { return nil }
+        guard MarkdownPanelFileLinkResolver.isMarkdownPathLike(trimmed) else { return nil }
+        return MarkdownPanelFileLinkResolver.resolve(rawPath: trimmed, relativeToMarkdownFile: filePath)
+    }
+
+    private func openMarkdownFile(_ path: String) {
+        guard let app = AppDelegate.shared,
+              let location = app.workspaceContainingPanel(
+                  panelId: id,
+                  preferredWorkspaceId: workspaceId
+              ),
+              let paneId = location.workspace.paneId(forPanelId: id) else { return }
+        _ = location.workspace.newMarkdownSurface(
+            inPane: paneId,
+            filePath: path,
+            focus: true
+        )
     }
 
     // MARK: - File watcher via DispatchSource

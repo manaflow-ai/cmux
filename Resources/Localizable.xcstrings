@@ -102329,6 +102329,23 @@
         }
       }
     },
+    "markdown.mode.showEditor": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Show Editor"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "エディタを表示"
+          }
+        }
+      }
+    },
     "markdown.mode.showTextEdit": {
       "extractionState": "manual",
       "localizations": {
@@ -102352,13 +102369,13 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "TextEdit"
+            "value": "Editor"
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "テキスト編集"
+            "value": "エディタ"
           }
         }
       }
@@ -102376,6 +102393,40 @@
           "stringUnit": {
             "state": "translated",
             "value": "Markdownモードを切り替え"
+          }
+        }
+      }
+    },
+    "markdown.editor.taskComplete": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Completed task"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "完了したタスク"
+          }
+        }
+      }
+    },
+    "markdown.editor.taskIncomplete": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Incomplete task"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "未完了のタスク"
           }
         }
       }
