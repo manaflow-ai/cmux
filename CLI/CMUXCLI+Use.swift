@@ -151,10 +151,9 @@ extension CMUXCLI {
         let launchScript = try detectedCommand.map { try writeUseLaunchCommandScript($0.command) }
         var shouldRemoveLaunchScriptOnFailure = launchScript != nil
         defer {
-            guard shouldRemoveLaunchScriptOnFailure, let launchScript else {
-                return
+            if shouldRemoveLaunchScriptOnFailure, let launchScript {
+                try? FileManager.default.removeItem(at: launchScript.url)
             }
-            try? FileManager.default.removeItem(at: launchScript.url)
         }
 
         try withUseSocketClient(socketPath: socketPath, explicitPassword: explicitPassword) { client, launched in
