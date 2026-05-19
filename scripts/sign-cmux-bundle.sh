@@ -113,20 +113,38 @@ plist_array_contains_exact() {
   return 1
 }
 
+plist_array_count() {
+  local plist_xml="$1"
+  local key_path="$2"
+  local index=0
+
+  while /usr/libexec/PlistBuddy -c "Print :${key_path}:${index}" /dev/stdin <<<"$plist_xml" >/dev/null 2>&1; do
+    index=$((index + 1))
+  done
+
+  printf "%s" "$index"
+}
+
 verify_signed_keychain_groups() {
   local expected_plist_xml="$1"
   local signed_plist_xml="$2"
-  local expected_groups
+  local expected_count
+  local signed_count
   local expected_group
   local index=0
 
-  expected_groups="$(plist_print "$expected_plist_xml" "keychain-access-groups")"
-  if [[ -z "$expected_groups" ]]; then
+  expected_count="$(plist_array_count "$expected_plist_xml" "keychain-access-groups")"
+  if [[ "$expected_count" == "0" ]]; then
     return 0
   fi
 
-  if [[ -z "$(plist_print "$signed_plist_xml" "keychain-access-groups")" ]]; then
+  signed_count="$(plist_array_count "$signed_plist_xml" "keychain-access-groups")"
+  if [[ "$signed_count" == "0" ]]; then
     echo "error: signed app missing keychain-access-groups entitlement" >&2
+    exit 1
+  fi
+  if [[ "$signed_count" != "$expected_count" ]]; then
+    echo "error: signed app has $signed_count keychain access group(s), expected $expected_count" >&2
     exit 1
   fi
 
@@ -136,6 +154,16 @@ verify_signed_keychain_groups() {
       exit 1
     fi
     index=$((index + 1))
+  done
+
+  local signed_group
+  local signed_index=0
+  while signed_group="$(/usr/libexec/PlistBuddy -c "Print :keychain-access-groups:${signed_index}" /dev/stdin <<<"$signed_plist_xml" 2>/dev/null)"; do
+    if ! plist_array_contains_exact "$expected_plist_xml" "keychain-access-groups" "$signed_group"; then
+      echo "error: signed app has unexpected keychain access group $signed_group" >&2
+      exit 1
+    fi
+    signed_index=$((signed_index + 1))
   done
 }
 
