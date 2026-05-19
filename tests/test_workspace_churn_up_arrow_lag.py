@@ -218,6 +218,7 @@ def resolve_target_socket() -> str:
         or (
             base.startswith("com.cmuxterm.app")
             and not is_unshortened_tagged_dev_socket
+            and not is_allowed_tagged_dev_socket
         )
     )
     if not ALLOW_MAIN_SOCKET and is_main_socket:
