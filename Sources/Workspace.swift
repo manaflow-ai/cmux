@@ -1212,7 +1212,7 @@ extension Workspace {
             }
         }
         pendingTerminalInputObserversByPanelId[panelId, default: []].append(registration)
-        panel.surface.requestBackgroundSurfaceStartIfNeeded(allowOffWindow: true)
+        panel.surface.requestBackgroundSurfaceStartIfNeeded()
 
         guard let timeout else { return }
         DispatchQueue.main.asyncAfter(deadline: .now() + timeout) { [weak self, registration] in
@@ -7877,6 +7877,11 @@ final class Workspace: Identifiable, ObservableObject {
         bonsplitController.onTabCloseRequest = { [weak self] tabId, _ in
             self?.markExplicitClose(surfaceId: tabId)
         }
+        bonsplitController.onTabZoomToggleRequest = { [weak self] tabId, _ in
+            guard let self,
+                  let panelId = self.panelIdFromSurfaceId(tabId) else { return false }
+            return self.toggleSplitZoom(panelId: panelId)
+        }
 
         // Set ourselves as delegate
         bonsplitController.delegate = self
@@ -8466,7 +8471,7 @@ final class Workspace: Identifiable, ObservableObject {
     }
     func requestBackgroundPrimeTerminalSurfaceStartIfNeeded() {
         backgroundPrimeTerminalPanels.forEach {
-            $0.surface.requestBackgroundSurfaceStartIfNeeded(allowOffWindow: true)
+            $0.surface.requestBackgroundSurfaceStartIfNeeded()
         }
     }
     func hasLoadedBackgroundPrimeTerminalSurface() -> Bool { backgroundPrimeTerminalPanels.allSatisfy { $0.surface.surface != nil } }
@@ -8485,7 +8490,7 @@ final class Workspace: Identifiable, ObservableObject {
         let isVisibleSelection =
             bonsplitController.focusedPaneId == paneId &&
             bonsplitController.selectedTab(inPane: paneId)?.id == tabId &&
-            terminalPanel.hostedView.window != nil &&
+            terminalPanel.surface.isViewInWindow &&
             terminalPanel.hostedView.superview != nil
 
         if isVisibleSelection {
@@ -12730,7 +12735,7 @@ final class Workspace: Identifiable, ObservableObject {
             let hostedView = terminalPanel.hostedView
             let hasUsableBounds = hostedView.bounds.width > 1 && hostedView.bounds.height > 1
             let hasSurface = terminalPanel.surface.surface != nil
-            let isAttached = hostedView.window != nil && hostedView.superview != nil
+            let isAttached = terminalPanel.surface.isViewInWindow && hostedView.superview != nil
 
             // Split close/reparent churn can transiently detach a surviving terminal view.
             // Force one SwiftUI representable update so the portal binding reattaches it.
@@ -12844,7 +12849,7 @@ final class Workspace: Identifiable, ObservableObject {
             let hostedView = terminalPanel.hostedView
 
             if shouldBeVisible {
-                if hostedView.isHidden || hostedView.window == nil || hostedView.superview == nil {
+                if hostedView.isHidden || !terminalPanel.surface.isViewInWindow || hostedView.superview == nil {
                     return true
                 }
             } else if !hostedView.isHidden {
@@ -13011,17 +13016,20 @@ final class Workspace: Identifiable, ObservableObject {
         _ = reorderSurface(panelId: newPanel.id, toIndex: targetIndex)
     }
 
-    private func duplicateBrowserToRight(anchorTabId: TabID, inPane paneId: PaneID) {
-        guard let panelId = panelIdFromSurfaceId(anchorTabId),
-              let browser = browserPanel(for: panelId) else { return }
+    @discardableResult
+    func duplicateBrowserToRight(panelId: UUID, focus: Bool = true) -> BrowserPanel? {
+        guard let anchorTabId = surfaceIdFromPanelId(panelId),
+              let paneId = paneId(forPanelId: panelId),
+              let browser = browserPanel(for: panelId) else { return nil }
         let targetIndex = insertionIndexToRight(of: anchorTabId, inPane: paneId)
         guard let newPanel = newBrowserSurface(
             inPane: paneId,
-            url: browser.currentURL,
-            focus: true,
+            url: browser.currentURLForTabDuplication,
+            focus: focus,
             preferredProfileID: browser.profileID
-        ) else { return }
-        _ = reorderSurface(panelId: newPanel.id, toIndex: targetIndex)
+        ) else { return nil }
+        _ = reorderSurface(panelId: newPanel.id, toIndex: targetIndex, focus: focus)
+        return newPanel
     }
 
     private func promptRenamePanel(tabId: TabID) {
@@ -13056,11 +13064,7 @@ final class Workspace: Identifiable, ObservableObject {
         guard let panelId = panelIdFromSurfaceId(tabId),
               let app = AppDelegate.shared else { return [] }
 
-        let currentWindowId = app.tabManagerFor(tabId: id).flatMap { app.windowId(for: $0) }
-        let workspaceTargets = app.workspaceMoveTargets(
-            excludingWorkspaceId: id,
-            referenceWindowId: currentWindowId
-        )
+        let workspaceTargets = app.workspaceMoveTargets(forBonsplitTab: tabId.uuid)
         var destinations: [TabContextMoveDestination] = []
         if app.canMoveSurfaceToNewWorkspace(panelId: panelId) {
             destinations.append(TabContextMoveDestination(
@@ -13150,14 +13154,14 @@ final class Workspace: Identifiable, ObservableObject {
     ) -> Bool {
         switch destination {
         case .insert(let paneId, let index):
-            return openDroppedFileSurfaces(
+            return !openFileSurfaces(
                 inPane: paneId,
                 filePaths: [entry.filePath],
                 focus: true,
                 targetIndex: index
-            )
+            ).isEmpty
         case .split(let paneId, let orientation, let insertFirst):
-            return splitPaneWithDroppedFile(
+            return splitPaneWithFileSurface(
                 targetPane: paneId,
                 orientation: orientation,
                 insertFirst: insertFirst,
@@ -13179,16 +13183,16 @@ final class Workspace: Identifiable, ObservableObject {
 
         switch request.destination {
         case .insert(let paneId, let index):
-            return openDroppedFileSurfaces(
+            return !openFileSurfaces(
                 inPane: paneId,
                 filePaths: entries.map(\.filePath),
                 focus: true,
                 targetIndex: index
-            )
+            ).isEmpty
 
         case .split(let sourcePaneId, let orientation, let insertFirst):
             guard let first = entries.first,
-                  let firstPanel = splitPaneWithDroppedFile(
+                  let firstPanel = splitPaneWithFileSurface(
                     targetPane: sourcePaneId,
                     orientation: orientation,
                     insertFirst: insertFirst,
@@ -13198,59 +13202,17 @@ final class Workspace: Identifiable, ObservableObject {
             }
 
             let targetPane = paneId(forPanelId: firstPanel.id) ?? sourcePaneId
-            var openedAny = true
-            let openedRest = openDroppedFileSurfaces(
+            _ = openFileSurfaces(
                 inPane: targetPane,
                 filePaths: entries.dropFirst().map(\.filePath),
                 focus: true
             )
-            openedAny = openedAny || openedRest
-            return openedAny
+            return true
         }
     }
 
     @discardableResult
-    private func openDroppedFileSurfaces(
-        inPane paneId: PaneID,
-        filePaths: [String],
-        focus: Bool? = nil,
-        targetIndex: Int? = nil
-    ) -> Bool {
-        let shouldFocusNewTabs = focus ?? (bonsplitController.focusedPaneId == paneId)
-        var nextIndex = targetIndex
-        var openedAny = false
-
-        for filePath in filePaths {
-            let opened: Bool
-            if MarkdownPanelFileLinkResolver.isMarkdownPathLike(filePath) {
-                opened = newMarkdownSurface(
-                    inPane: paneId,
-                    filePath: filePath,
-                    focus: shouldFocusNewTabs,
-                    targetIndex: nextIndex
-                ) != nil
-            } else {
-                opened = newFilePreviewSurface(
-                    inPane: paneId,
-                    filePath: filePath,
-                    focus: shouldFocusNewTabs,
-                    targetIndex: nextIndex
-                ) != nil
-            }
-
-            if opened {
-                openedAny = true
-                if let index = nextIndex {
-                    nextIndex = index + 1
-                }
-            }
-        }
-
-        return openedAny
-    }
-
-    @discardableResult
-    private func splitPaneWithDroppedFile(
+    private func splitPaneWithFileSurface(
         targetPane paneId: PaneID,
         orientation: SplitOrientation,
         insertFirst: Bool,
@@ -13844,7 +13806,7 @@ extension Workspace: BonsplitDelegate {
 
     private func activationWindow(for panel: any Panel) -> NSWindow? {
         if let terminalPanel = panel as? TerminalPanel {
-            return terminalPanel.hostedView.window ?? NSApp.keyWindow ?? NSApp.mainWindow
+            return terminalPanel.surface.uiWindow ?? NSApp.keyWindow ?? NSApp.mainWindow
         }
         if let browserPanel = panel as? BrowserPanel {
             return browserPanel.webView.window ?? browserPanel.portalAnchorView.window ?? NSApp.keyWindow ?? NSApp.mainWindow
@@ -14547,7 +14509,7 @@ extension Workspace: BonsplitDelegate {
         guard let executable = surfaceTabBarCommandButtons[identifier] else {
             return
         }
-        let presentingWindow = selectedTerminalPanel(inPane: pane)?.hostedView.window
+        let presentingWindow = selectedTerminalPanel(inPane: pane)?.surface.uiWindow
             ?? NSApp.keyWindow
             ?? NSApp.mainWindow
 
@@ -14691,7 +14653,8 @@ extension Workspace: BonsplitDelegate {
                   let browser = browserPanel(for: panelId) else { return }
             browser.reload()
         case .duplicate:
-            duplicateBrowserToRight(anchorTabId: tab.id, inPane: pane)
+            guard let panelId = panelIdFromSurfaceId(tab.id) else { return }
+            _ = duplicateBrowserToRight(panelId: panelId)
         case .togglePin:
             guard let panelId = panelIdFromSurfaceId(tab.id) else { return }
             let shouldPin = !pinnedPanelIds.contains(panelId)
