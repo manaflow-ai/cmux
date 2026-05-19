@@ -410,6 +410,40 @@ func TestWebSocketPTYAnonymousAttachesAreIsolated(t *testing.T) {
 	waitForHubSessionCount(t, hub, 0, 5*time.Second)
 }
 
+func TestWebSocketPTYAnonymousSessionKeyCannotBeForged(t *testing.T) {
+	leasePath := filepath.Join(t.TempDir(), "lease.json")
+	server, hub := newTestWebSocketPTYServer(t, leasePath)
+
+	ctx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
+	defer cancel()
+
+	writeTestLease(t, leasePath, "anon-forge-token", "sess-forge", true, time.Now().Add(time.Minute))
+	anon := dialPTY(t, ctx, server.URL)
+	defer anon.Close(websocket.StatusNormalClosure, "done")
+	sendAuth(t, ctx, anon, "anon-forge-token", "sess-forge", 80, 24)
+	readReady(t, ctx, anon)
+	if err := anon.Write(ctx, websocket.MessageBinary, []byte("CMUX_FORGE_MARK=anon; export CMUX_FORGE_MARK; printf 'ANON_FORGE_READY\\n'\r")); err != nil {
+		t.Fatalf("write anonymous forge marker: %v", err)
+	}
+	waitForBinaryContains(t, ctx, anon, "ANON_FORGE_READY", 5*time.Second)
+
+	writeTestLease(t, leasePath, "persistent-forge-token", "sess-forge:anon-0", true, time.Now().Add(time.Minute))
+	persistent := dialPTY(t, ctx, server.URL)
+	defer persistent.Close(websocket.StatusNormalClosure, "done")
+	sendAuthWithAttachment(t, ctx, persistent, "persistent-forge-token", "sess-forge:anon-0", "persist", 80, 24)
+	readReady(t, ctx, persistent)
+	if err := persistent.Write(ctx, websocket.MessageBinary, []byte("printf 'PERSISTENT_FORGE:%s\\n' \"${CMUX_FORGE_MARK-unset}\"; exit\r")); err != nil {
+		t.Fatalf("write persistent forge probe: %v", err)
+	}
+	output := waitForBinaryContains(t, ctx, persistent, "PERSISTENT_FORGE:unset", 5*time.Second)
+	if strings.Contains(output, "PERSISTENT_FORGE:anon") {
+		t.Fatalf("persistent attach reused anonymous shell, output=%q", output)
+	}
+	waitForHubSessionCount(t, hub, 1, 5*time.Second)
+	_ = anon.Close(websocket.StatusNormalClosure, "done")
+	waitForHubSessionCount(t, hub, 0, 5*time.Second)
+}
+
 func TestWebSocketPTYDropsBackpressuredAttachment(t *testing.T) {
 	hub := newWebSocketPTYHub(wsPTYServerConfig{
 		Shell:           "/bin/sh",
@@ -417,8 +451,9 @@ func TestWebSocketPTYDropsBackpressuredAttachment(t *testing.T) {
 	}, &bytes.Buffer{})
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
+	sessionKey := persistentPTYSessionKey("sess-backpressure")
 	attachment := &wsPTYAttachment{
-		sessionID:  "sess-backpressure",
+		sessionKey: sessionKey,
 		id:         "slow",
 		cols:       80,
 		rows:       24,
@@ -432,6 +467,7 @@ func TestWebSocketPTYDropsBackpressuredAttachment(t *testing.T) {
 	}
 	session := &wsPTYSession{
 		id:            "sess-backpressure",
+		key:           sessionKey,
 		attachments:   map[string]*wsPTYAttachment{"slow": attachment},
 		effectiveCols: 80,
 		effectiveRows: 24,
@@ -440,7 +476,7 @@ func TestWebSocketPTYDropsBackpressuredAttachment(t *testing.T) {
 	}
 
 	hub.mu.Lock()
-	hub.sessions[session.id] = session
+	hub.sessions[session.key] = session
 	hub.mu.Unlock()
 
 	hub.recordAndBroadcast(session, []byte("overflow"))
@@ -752,7 +788,7 @@ func waitForGoroutineCeiling(t *testing.T, ceiling int, timeout time.Duration) {
 func (h *wsPTYHub) sessionDebugSnapshot(sessionID string) (attachments int, effectiveCols int, effectiveRows int, ok bool) {
 	h.mu.Lock()
 	defer h.mu.Unlock()
-	session := h.sessions[sessionID]
+	session := h.sessions[persistentPTYSessionKey(sessionID)]
 	if session == nil {
 		return 0, 0, 0, false
 	}
@@ -761,7 +797,7 @@ func (h *wsPTYHub) sessionDebugSnapshot(sessionID string) (attachments int, effe
 
 func (h *wsPTYHub) sessionPTYSize(sessionID string) (cols int, rows int, ok bool, err error) {
 	h.mu.Lock()
-	session := h.sessions[sessionID]
+	session := h.sessions[persistentPTYSessionKey(sessionID)]
 	if session == nil {
 		h.mu.Unlock()
 		return 0, 0, false, nil

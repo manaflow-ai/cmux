@@ -90,7 +90,7 @@ type wsPTYOutgoingFrame struct {
 }
 
 type wsPTYAttachment struct {
-	sessionID  string
+	sessionKey wsPTYSessionKey
 	id         string
 	cols       int
 	rows       int
@@ -100,8 +100,30 @@ type wsPTYAttachment struct {
 	persistent bool
 }
 
+type wsPTYSessionKey struct {
+	kind        wsPTYSessionKind
+	sessionID   string
+	anonymousID uint64
+}
+
+type wsPTYSessionKind uint8
+
+const (
+	wsPTYPersistentSession wsPTYSessionKind = iota
+	wsPTYAnonymousSession
+)
+
+func persistentPTYSessionKey(sessionID string) wsPTYSessionKey {
+	return wsPTYSessionKey{kind: wsPTYPersistentSession, sessionID: sessionID}
+}
+
+func anonymousPTYSessionKey(sessionID string, anonymousID uint64) wsPTYSessionKey {
+	return wsPTYSessionKey{kind: wsPTYAnonymousSession, sessionID: sessionID, anonymousID: anonymousID}
+}
+
 type wsPTYSession struct {
 	id             string
+	key            wsPTYSessionKey
 	cmd            *exec.Cmd
 	ptyFile        *os.File
 	ttyFile        *os.File
@@ -122,7 +144,7 @@ type wsPTYSession struct {
 
 type wsPTYHub struct {
 	mu               sync.Mutex
-	sessions         map[string]*wsPTYSession
+	sessions         map[wsPTYSessionKey]*wsPTYSession
 	nextAttachmentID uint64
 	nextAnonymousID  uint64
 	shell            string
@@ -141,7 +163,7 @@ func newWebSocketPTYHub(cfg wsPTYServerConfig, stderr io.Writer) *wsPTYHub {
 		idleTTL = defaultWebSocketSessionIdleTTL
 	}
 	return &wsPTYHub{
-		sessions:        map[string]*wsPTYSession{},
+		sessions:        map[wsPTYSessionKey]*wsPTYSession{},
 		shell:           strings.TrimSpace(cfg.Shell),
 		stderr:          stderr,
 		scrollbackLimit: limit,
@@ -535,15 +557,15 @@ func (h *wsPTYHub) attach(ctx context.Context, conn *websocket.Conn, auth wsAuth
 
 	h.mu.Lock()
 
-	sessionKey := sessionID
+	sessionKey := persistentPTYSessionKey(sessionID)
 	if !persistent {
-		sessionKey = fmt.Sprintf("%s:anon-%d", sessionID, h.nextAnonymousID)
+		sessionKey = anonymousPTYSessionKey(sessionID, h.nextAnonymousID)
 		h.nextAnonymousID++
 	}
 	session := h.sessions[sessionKey]
 	if session == nil || session.closed {
 		var err error
-		session, err = h.startSessionLocked(sessionKey, cols, rows)
+		session, err = h.startSessionLocked(sessionKey, sessionID, cols, rows)
 		if err != nil {
 			h.mu.Unlock()
 			return nil, err
@@ -564,7 +586,7 @@ func (h *wsPTYHub) attach(ctx context.Context, conn *websocket.Conn, auth wsAuth
 
 	attachmentCtx, cancel := context.WithCancel(ctx)
 	attachment := &wsPTYAttachment{
-		sessionID:  sessionKey,
+		sessionKey: sessionKey,
 		id:         attachmentID,
 		cols:       cols,
 		rows:       rows,
@@ -608,7 +630,7 @@ func (h *wsPTYHub) attach(ctx context.Context, conn *websocket.Conn, auth wsAuth
 	return attachment, nil
 }
 
-func (h *wsPTYHub) startSessionLocked(sessionID string, cols int, rows int) (*wsPTYSession, error) {
+func (h *wsPTYHub) startSessionLocked(sessionKey wsPTYSessionKey, sessionID string, cols int, rows int) (*wsPTYSession, error) {
 	shellPath := resolvePTYShell(h.shell)
 	cmd := exec.Command(shellPath)
 	cmd.Env = defaultWebSocketPTYEnv(shellPath)
@@ -618,6 +640,7 @@ func (h *wsPTYHub) startSessionLocked(sessionID string, cols int, rows int) (*ws
 	}
 	session := &wsPTYSession{
 		id:            sessionID,
+		key:           sessionKey,
 		cmd:           cmd,
 		ptyFile:       ptyFile,
 		ttyFile:       ttyFile,
@@ -681,7 +704,7 @@ func (h *wsPTYHub) detach(attachment *wsPTYAttachment) bool {
 	}
 	h.mu.Lock()
 
-	session := h.sessions[attachment.sessionID]
+	session := h.sessions[attachment.sessionKey]
 	if session == nil {
 		h.mu.Unlock()
 		return false
@@ -719,12 +742,12 @@ func (h *wsPTYHub) closeSessionForAttachment(attachment *wsPTYAttachment) {
 		return
 	}
 	h.mu.Lock()
-	session := h.sessions[attachment.sessionID]
+	session := h.sessions[attachment.sessionKey]
 	if session == nil || session.attachments[attachment.id] != attachment {
 		h.mu.Unlock()
 		return
 	}
-	delete(h.sessions, session.id)
+	delete(h.sessions, session.key)
 	delete(session.attachments, attachment.id)
 	h.cancelIdleReapLocked(session)
 	attachment.cancel()
@@ -825,8 +848,8 @@ func (h *wsPTYHub) finishSession(session *wsPTYSession) {
 	session.closePTYFiles()
 
 	h.mu.Lock()
-	if h.sessions[session.id] == session {
-		delete(h.sessions, session.id)
+	if h.sessions[session.key] == session {
+		delete(h.sessions, session.key)
 	}
 	h.cancelIdleReapLocked(session)
 	session.closed = true
@@ -934,11 +957,11 @@ func (h *wsPTYHub) cancelIdleReapLocked(session *wsPTYSession) {
 
 func (h *wsPTYHub) reapIdleSession(session *wsPTYSession) {
 	h.mu.Lock()
-	if h.sessions[session.id] != session || session.closed || len(session.attachments) > 0 {
+	if h.sessions[session.key] != session || session.closed || len(session.attachments) > 0 {
 		h.mu.Unlock()
 		return
 	}
-	delete(h.sessions, session.id)
+	delete(h.sessions, session.key)
 	session.idleTimer = nil
 	h.mu.Unlock()
 
@@ -950,7 +973,7 @@ func (h *wsPTYHub) reapIdleSession(session *wsPTYSession) {
 
 func (h *wsPTYHub) confirmPTYSizeAfterOutput(session *wsPTYSession) {
 	h.mu.Lock()
-	if h.sessions[session.id] != session || session.closed || session.resizeConfirms <= 0 {
+	if h.sessions[session.key] != session || session.closed || session.resizeConfirms <= 0 {
 		h.mu.Unlock()
 		return
 	}
@@ -965,7 +988,7 @@ func (h *wsPTYHub) applyCurrentPTYSize(session *wsPTYSession) bool {
 	defer session.ptyWriteMu.Unlock()
 
 	h.mu.Lock()
-	current := h.sessions[session.id] == session && !session.closed && len(session.attachments) > 0
+	current := h.sessions[session.key] == session && !session.closed && len(session.attachments) > 0
 	cols := session.effectiveCols
 	rows := session.effectiveRows
 	h.mu.Unlock()
@@ -1006,7 +1029,7 @@ func (h *wsPTYHub) applyPTYSizeWithWriteLock(session *wsPTYSession, cols int, ro
 }
 
 func (h *wsPTYHub) writeInput(attachment *wsPTYAttachment, payload []byte) bool {
-	session := h.sessionForAttachment(attachment.sessionID)
+	session := h.sessionForAttachment(attachment.sessionKey)
 	if session == nil {
 		return false
 	}
@@ -1015,7 +1038,7 @@ func (h *wsPTYHub) writeInput(attachment *wsPTYAttachment, payload []byte) bool 
 	defer session.ptyWriteMu.Unlock()
 
 	h.mu.Lock()
-	current := h.sessions[attachment.sessionID] == session &&
+	current := h.sessions[attachment.sessionKey] == session &&
 		!session.closed &&
 		session.attachments[attachment.id] == attachment
 	cols := session.effectiveCols
@@ -1043,10 +1066,10 @@ func (h *wsPTYHub) writeInput(attachment *wsPTYAttachment, payload []byte) bool 
 	return true
 }
 
-func (h *wsPTYHub) sessionForAttachment(sessionID string) *wsPTYSession {
+func (h *wsPTYHub) sessionForAttachment(sessionKey wsPTYSessionKey) *wsPTYSession {
 	h.mu.Lock()
 	defer h.mu.Unlock()
-	session := h.sessions[sessionID]
+	session := h.sessions[sessionKey]
 	if session == nil || session.closed {
 		return nil
 	}
@@ -1060,7 +1083,7 @@ func (h *wsPTYHub) resize(attachment *wsPTYAttachment, cols int, rows int) {
 	cols, rows = normalizePTYSize(cols, rows)
 	h.mu.Lock()
 
-	session := h.sessions[attachment.sessionID]
+	session := h.sessions[attachment.sessionKey]
 	if session == nil || session.closed {
 		h.mu.Unlock()
 		return
