@@ -17509,9 +17509,9 @@ struct CMUXCLI {
         case "help", "--help", "-h":
             telemetry.breadcrumb("claude-hook.help")
             print(
-                """
+                String(localized: "cli.claude-hook.help", defaultValue: """
                 cmux claude-hook <session-start|stop|stop-failure|session-end|notification|prompt-submit|pre-tool-use> [--workspace <id|index>] [--surface <id|index>]
-                """
+                """)
             )
 
         default:
