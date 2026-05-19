@@ -251,8 +251,8 @@ extension CMUXCLI {
             }
 
             let requiresWorkspaceContext = options.workspace != nil ||
-                options.surface != nil ||
-                options.pane != nil
+                eventScopeSelectorNeedsWorkspaceContext(options.surface) ||
+                eventScopeSelectorNeedsWorkspaceContext(options.pane)
             let callerWorkspaceHandle = caller?["workspace_id"] as? String
             let workspaceOption = options.workspace ??
                 (windowHandle == nil && requiresWorkspaceContext ? callerWorkspaceHandle : nil)
@@ -318,6 +318,21 @@ extension CMUXCLI {
         default:
             throw CLIError(message: "Unknown events scope: \(raw)")
         }
+    }
+
+    private func eventScopeSelectorNeedsWorkspaceContext(_ raw: String?) -> Bool {
+        guard let trimmed = normalizedEventEnvironmentValue(raw) else { return false }
+        if UUID(uuidString: trimmed) != nil { return false }
+        if eventScopeSelectorIsHandleRef(trimmed) { return false }
+        return Int(trimmed) != nil
+    }
+
+    private func eventScopeSelectorIsHandleRef(_ value: String) -> Bool {
+        let pieces = value.split(separator: ":", omittingEmptySubsequences: false)
+        guard pieces.count == 2 else { return false }
+        let kind = String(pieces[0]).lowercased()
+        guard ["window", "workspace", "pane", "surface"].contains(kind) else { return false }
+        return Int(String(pieces[1])) != nil
     }
 
     private func eventCallerContextFromEnvironment() -> [String: Any]? {

@@ -179,9 +179,10 @@ extension TerminalController {
 
         if Self.hasNonNullParam(params, "pane_id") {
             let context = eventFocusedContext(params: params)
-            if let windowId = context.windowId {
-                return windowId
+            guard let windowId = context.windowId else {
+                throw EventsScopeError(message: "Event scope window context was not found")
             }
+            return windowId
         }
 
         if let callerWorkspaceId = eventCallerUUID(params: params, key: "workspace_id") {
@@ -210,9 +211,10 @@ extension TerminalController {
             Self.hasNonNullParam(params, "pane_id")
         if hasExplicitWorkspaceContext {
             let context = eventFocusedContext(params: params)
-            if let workspaceId = context.workspaceId {
-                return workspaceId
+            guard let workspaceId = context.workspaceId else {
+                throw EventsScopeError(message: "Event scope workspace context was not found")
             }
+            return workspaceId
         }
         if let callerWorkspaceId = eventCallerUUID(params: params, key: "workspace_id") { return callerWorkspaceId }
         if let callerSurfaceId = eventCallerUUID(params: params, key: "surface_id") ??
@@ -240,9 +242,10 @@ extension TerminalController {
             Self.hasNonNullParam(params, "pane_id")
         if hasExplicitSurfaceContext {
             let context = eventFocusedContext(params: params)
-            if let surfaceId = context.surfaceId {
-                return surfaceId
+            guard let surfaceId = context.surfaceId else {
+                throw EventsScopeError(message: "Event scope surface context was not found")
             }
+            return surfaceId
         }
         if let callerSurfaceId = eventCallerUUID(params: params, key: "surface_id") ??
             eventCallerUUID(params: params, key: "tab_id") {
@@ -264,9 +267,10 @@ extension TerminalController {
             Self.hasNonNullParam(params, "tab_id")
         if hasExplicitPaneContext {
             let context = eventFocusedContext(params: params)
-            if let paneId = context.paneId {
-                return paneId
+            guard let paneId = context.paneId else {
+                throw EventsScopeError(message: "Event scope pane context was not found")
             }
+            return paneId
         }
         if let callerPaneId = eventCallerUUID(params: params, key: "pane_id") { return callerPaneId }
         return eventFocusedContext(params: params).paneId
@@ -310,19 +314,34 @@ extension TerminalController {
 
     private nonisolated func eventTabManager(params: [String: Any]) -> TabManager? {
         v2MainSync {
-            if let windowId = v2UUID(params, "window_id") {
+            if Self.hasNonNullParam(params, "window_id") {
+                guard let windowId = v2UUID(params, "window_id") else { return nil }
                 return AppDelegate.shared?.tabManagerFor(windowId: windowId)
             }
-            if let workspaceId = v2UUID(params, "workspace_id") ?? eventCallerUUID(params: params, key: "workspace_id") {
+            if Self.hasNonNullParam(params, "workspace_id") {
+                guard let workspaceId = v2UUID(params, "workspace_id") else { return nil }
                 return AppDelegate.shared?.tabManagerFor(tabId: workspaceId)
             }
-            if let surfaceId = v2UUID(params, "surface_id") ??
-                v2UUID(params, "tab_id") ??
-                eventCallerUUID(params: params, key: "surface_id") ??
+            if Self.hasNonNullParam(params, "surface_id") {
+                guard let surfaceId = v2UUID(params, "surface_id") else { return nil }
+                return AppDelegate.shared?.locateSurface(surfaceId: surfaceId)?.tabManager
+            }
+            if Self.hasNonNullParam(params, "tab_id") {
+                guard let surfaceId = v2UUID(params, "tab_id") else { return nil }
+                return AppDelegate.shared?.locateSurface(surfaceId: surfaceId)?.tabManager
+            }
+            if Self.hasNonNullParam(params, "pane_id") {
+                guard let paneId = v2UUID(params, "pane_id") else { return nil }
+                return v2LocatePane(paneId)?.tabManager
+            }
+            if let workspaceId = eventCallerUUID(params: params, key: "workspace_id") {
+                return AppDelegate.shared?.tabManagerFor(tabId: workspaceId)
+            }
+            if let surfaceId = eventCallerUUID(params: params, key: "surface_id") ??
                 eventCallerUUID(params: params, key: "tab_id") {
                 return AppDelegate.shared?.locateSurface(surfaceId: surfaceId)?.tabManager
             }
-            if let paneId = v2UUID(params, "pane_id") ?? eventCallerUUID(params: params, key: "pane_id") {
+            if let paneId = eventCallerUUID(params: params, key: "pane_id") {
                 return v2LocatePane(paneId)?.tabManager
             }
             return AppDelegate.shared?.currentScriptableMainWindow()?.tabManager
