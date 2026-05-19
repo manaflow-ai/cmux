@@ -441,14 +441,6 @@ struct CmuxTaskManagerCodingAgentDefinition: Equatable {
             argumentNeedles: ["gemini"]
         ),
         CmuxTaskManagerCodingAgentDefinition(
-            id: "grok",
-            displayName: "Grok",
-            assetName: nil,
-            launchKinds: ["grok"],
-            directBasenames: ["grok"],
-            argumentNeedles: ["grok"]
-        ),
-        CmuxTaskManagerCodingAgentDefinition(
             id: "rovodev",
             displayName: "Rovo Dev",
             assetName: "AgentIcons/RovoDev",

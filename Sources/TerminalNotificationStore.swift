@@ -874,6 +874,8 @@ final class TerminalNotificationStore: ObservableObject {
     private static let notificationHookFailureThrottle: TimeInterval = 300
     private var lastNotificationDateByCooldownKey: [String: Date] = [:]
     private var lastNotificationHookFailureDateByKey: [NotificationHookFailureThrottleKey: Date] = [:]
+    private var notificationEnrichmentGeneration: UInt64 = 0
+    private var latestNotificationEnrichmentGenerationByTabSurface: [TabSurfaceKey: UInt64] = [:]
     private var indexes = NotificationIndexes()
 
     private init() {
@@ -1227,6 +1229,10 @@ final class TerminalNotificationStore: ObservableObject {
         }
 
         let cwd = notificationCWD(forTabId: tabId)
+        let enrichmentGeneration = advanceNotificationEnrichmentGeneration(
+            tabId: tabId,
+            surfaceId: surfaceId
+        )
         if GrokTerminalNotificationEnricher.shouldEnrich(title: title, body: body) {
             let reader = grokSessionSummaryReader()
             Task { @MainActor [weak self] in
@@ -1237,6 +1243,13 @@ final class TerminalNotificationStore: ObservableObject {
                     cwd: cwd,
                     reader: reader
                 )
+                guard self?.isCurrentNotificationEnrichmentGeneration(
+                    enrichmentGeneration,
+                    tabId: tabId,
+                    surfaceId: surfaceId
+                ) == true else {
+                    return
+                }
                 self?.addNotificationAfterEnrichment(
                     tabId: tabId,
                     surfaceId: surfaceId,
@@ -1246,7 +1259,8 @@ final class TerminalNotificationStore: ObservableObject {
                     cwd: cwd,
                     now: now,
                     cooldownReservation: cooldownReservation,
-                    clickAction: clickAction
+                    clickAction: clickAction,
+                    freshnessGeneration: enrichmentGeneration
                 )
             }
             return
@@ -1261,8 +1275,31 @@ final class TerminalNotificationStore: ObservableObject {
             cwd: cwd,
             now: now,
             cooldownReservation: cooldownReservation,
-            clickAction: clickAction
+            clickAction: clickAction,
+            freshnessGeneration: enrichmentGeneration
         )
+    }
+
+    private func advanceNotificationEnrichmentGeneration(
+        tabId: UUID,
+        surfaceId: UUID?
+    ) -> UInt64 {
+        notificationEnrichmentGeneration &+= 1
+        let generation = notificationEnrichmentGeneration
+        latestNotificationEnrichmentGenerationByTabSurface[
+            TabSurfaceKey(tabId: tabId, surfaceId: surfaceId)
+        ] = generation
+        return generation
+    }
+
+    private func isCurrentNotificationEnrichmentGeneration(
+        _ generation: UInt64,
+        tabId: UUID,
+        surfaceId: UUID?
+    ) -> Bool {
+        latestNotificationEnrichmentGenerationByTabSurface[
+            TabSurfaceKey(tabId: tabId, surfaceId: surfaceId)
+        ] == generation
     }
 
     private func addNotificationAfterEnrichment(
@@ -1274,7 +1311,8 @@ final class TerminalNotificationStore: ObservableObject {
         cwd: String,
         now: Date,
         cooldownReservation: NotificationCooldownReservation?,
-        clickAction: TerminalNotificationClickAction?
+        clickAction: TerminalNotificationClickAction?,
+        freshnessGeneration: UInt64?
     ) {
         let policyContext = makeNotificationPolicyContext(
             tabId: tabId,
@@ -1284,6 +1322,14 @@ final class TerminalNotificationStore: ObservableObject {
             body: body,
             cwd: cwd
         )
+        if let freshnessGeneration,
+           !isCurrentNotificationEnrichmentGeneration(
+                freshnessGeneration,
+                tabId: tabId,
+                surfaceId: surfaceId
+           ) {
+            return
+        }
         guard !policyContext.hooks.isEmpty else {
             applyNotification(
                 request: policyContext.request,
@@ -1301,6 +1347,14 @@ final class TerminalNotificationStore: ObservableObject {
                 policyContext.hooks,
                 globalConfigPath: policyContext.globalConfigPath
             )
+            if let freshnessGeneration,
+               !self.isCurrentNotificationEnrichmentGeneration(
+                    freshnessGeneration,
+                    tabId: tabId,
+                    surfaceId: surfaceId
+               ) {
+                return
+            }
             guard !authorizedHooks.isEmpty else {
                 self.applyNotification(
                     request: policyContext.request,
@@ -1316,6 +1370,14 @@ final class TerminalNotificationStore: ObservableObject {
                 request: policyContext.request,
                 hooks: authorizedHooks
             )
+            if let freshnessGeneration,
+               !self.isCurrentNotificationEnrichmentGeneration(
+                    freshnessGeneration,
+                    tabId: tabId,
+                    surfaceId: surfaceId
+               ) {
+                return
+            }
             switch result {
             case .success(let envelope):
                 self.applyNotification(

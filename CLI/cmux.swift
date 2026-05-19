@@ -18267,7 +18267,7 @@ struct CMUXCLI {
         let body: String? = {
             if let hookAssistant { return hookAssistant }
             guard let sessionId = parsedInput.sessionId ?? sessionRecord?.sessionId else {
-                return genericMessage
+                return nil
             }
             let sessionSummary = GrokSessionSummaryReader(env: env).summary(
                 sessionId: sessionId,
@@ -18287,9 +18287,18 @@ struct CMUXCLI {
 
     private func grokHookMessage(from object: [String: Any]?) -> String? {
         guard let object else { return nil }
-        let nested = (object["notification"] as? [String: Any]) ?? (object["data"] as? [String: Any]) ?? [:]
-        return firstString(in: object, keys: ["message", "body", "text", "summary", "description"])
-            ?? firstString(in: nested, keys: ["message", "body", "text", "summary", "description"])
+        let keys = ["message", "body", "text", "summary", "description"]
+        if let value = firstString(in: object, keys: keys) {
+            return value
+        }
+        for nestedKey in ["notification", "data"] {
+            guard let nested = object[nestedKey] as? [String: Any],
+                  let value = firstString(in: nested, keys: keys) else {
+                continue
+            }
+            return value
+        }
+        return nil
     }
 
     private func completedSubtitle(projectName: String?) -> String {
@@ -22803,16 +22812,27 @@ export default function cmuxPiSessionExtension(pi: ExtensionAPI) {
                     env: env
                 )
             }()
+            let grokFallbackHookMessage: String? = {
+                guard def.name == "grok" else { return nil }
+                return grokHookMessage(from: input.object)
+                    .map { truncate(normalizedSingleLine($0), maxLength: 200) }
+            }()
             let lastMsg = input.object?["last_assistant_message"] as? String
                 ?? input.object?["lastAssistantMessage"] as? String
             let projectName: String? = {
                 guard let cwd, !cwd.isEmpty else { return nil }
                 return URL(fileURLWithPath: NSString(string: cwd).expandingTildeInPath).lastPathComponent
             }()
+            let completedSubtitleKey = def.name == "grok"
+                ? "agent.grok.completion.subtitle.completed"
+                : "agent.codex.completion.subtitle.completed"
+            let completedInProjectSubtitleKey = def.name == "grok"
+                ? "agent.grok.completion.subtitle.completedInProject"
+                : "agent.codex.completion.subtitle.completedInProject"
             var subtitle = codexFailure?.subtitle
                 ?? completionSummary?.subtitle
                 ?? String(
-                    localized: "agent.codex.completion.subtitle.completed",
+                    localized: completedSubtitleKey,
                     defaultValue: "Completed"
                 )
             if codexFailure == nil,
@@ -22820,7 +22840,7 @@ export default function cmuxPiSessionExtension(pi: ExtensionAPI) {
                let projectName, !projectName.isEmpty {
                 subtitle = String.localizedStringWithFormat(
                     String(
-                        localized: "agent.codex.completion.subtitle.completedInProject",
+                        localized: completedInProjectSubtitleKey,
                         defaultValue: "Completed in %@"
                     ),
                     projectName
@@ -22830,6 +22850,7 @@ export default function cmuxPiSessionExtension(pi: ExtensionAPI) {
                 ?? completionSummary?.body
                 ?? lastMsg.map { truncate(normalizedSingleLine($0), maxLength: 200) }
                 ?? grokAssistantMessage.map { truncate(normalizedSingleLine($0), maxLength: 200) }
+                ?? grokFallbackHookMessage
                 ?? String.localizedStringWithFormat(
                     String(
                         localized: "agent.codex.completion.body.sessionCompleted",
