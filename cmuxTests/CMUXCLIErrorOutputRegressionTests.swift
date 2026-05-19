@@ -189,6 +189,55 @@ final class CMUXCLIErrorOutputRegressionTests: XCTestCase {
         ])
     }
 
+    func testBareInteractiveThemesReloadsRunningAppAfterPickerExits() throws {
+        let cliPath = try bundledCLIPath()
+        let fileManager = FileManager.default
+        let root = fileManager.temporaryDirectory
+            .appendingPathComponent("cmux-themes-picker-socket-\(UUID().uuidString)", isDirectory: true)
+        try fileManager.createDirectory(at: root, withIntermediateDirectories: true)
+        defer { try? fileManager.removeItem(at: root) }
+
+        let fakeCLIPath = try fakeTaggedBundledCLIPath(
+            sourceCLIPath: cliPath,
+            tagSlug: "theme-picker-\(UUID().uuidString.lowercased())"
+        )
+        let fakeGhosttyHelperURL = URL(fileURLWithPath: fakeCLIPath)
+            .deletingLastPathComponent()
+            .appendingPathComponent("ghostty", isDirectory: false)
+        try """
+        #!/bin/sh
+        exit 0
+        """.write(to: fakeGhosttyHelperURL, atomically: true, encoding: .utf8)
+        try fileManager.setAttributes(
+            [.posixPermissions: 0o755],
+            ofItemAtPath: fakeGhosttyHelperURL.path
+        )
+
+        let socketPath = "/tmp/cmux-theme-picker-\(UUID().uuidString.prefix(8)).sock"
+        let responder = try UnixSocketResponder(path: socketPath, response: "OK")
+        defer { responder.stop() }
+
+        let command = [
+            "env",
+            "-i",
+            "HOME=\(shellSingleQuote(root.path))",
+            "CFFIXED_USER_HOME=\(shellSingleQuote(root.path))",
+            "CMUX_SOCKET_PATH=\(shellSingleQuote(socketPath))",
+            "CMUX_CLI_SENTRY_DISABLED=1",
+            "PATH=/usr/bin:/bin",
+            "/usr/bin/script",
+            "-q",
+            "/dev/null",
+            shellSingleQuote(fakeCLIPath),
+            "themes",
+        ].joined(separator: " ")
+        let result = runShell(command, timeout: 5)
+
+        XCTAssertFalse(result.timedOut, result.stdout)
+        XCTAssertEqual(result.status, 0, result.stdout)
+        XCTAssertEqual(responder.receivedRequests, ["reload_config"])
+    }
+
     func testBrowserDownloadWaitUsesRequestedTimeoutForSocketResponse() throws {
         let cliPath = try bundledCLIPath()
         let socketPath = "/tmp/cmux-dw-\(UUID().uuidString.prefix(8)).sock"
