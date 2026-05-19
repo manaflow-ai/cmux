@@ -24804,6 +24804,10 @@ export default function cmuxPiSessionExtension(pi: ExtensionAPI) {
     }
 
     private func usage() -> String {
+        let setStatusUsage = String(
+            localized: "cli.usage.command.setStatus",
+            defaultValue: "set-status <key> <value> [--workspace <id|ref>] [--icon <name>] [--color <#hex>] [--url <url>] [--priority <n>]"
+        )
         return """
         cmux - control cmux via Unix socket
 
@@ -24909,7 +24913,7 @@ export default function cmuxPiSessionExtension(pi: ExtensionAPI) {
           jump-to-unread
           clear-notifications
           right-sidebar <toggle|show|hide|focus|set|mode|files|find|vault|sessions|feed|dock> [--workspace <id|ref|index>] [--window <id|ref|index>] [--no-focus]
-          set-status <key> <value> [--workspace <id|ref>] [--icon <name>] [--color <#hex>] [--url <url>] [--priority <n>]
+          \(setStatusUsage)
           clear-status <key> [--workspace <id|ref>]
           list-status [--workspace <id|ref>]
           set-progress <0.0-1.0> [--label <text>] [--workspace <id|ref>]

@@ -16789,7 +16789,7 @@ class TerminalController {
         if let rawURL = normalizedOptionValue(parsed.options["url"] ?? parsed.options["link"]) {
             guard let candidate = URL(string: rawURL),
                   candidate.scheme?.isEmpty == false else {
-                return "ERROR: Invalid metadata URL '\(rawURL)': expected URL with a scheme"
+                return String(localized: "socket.sidebarStatus.invalidURL", defaultValue: "ERROR: Invalid metadata URL: expected URL with a scheme")
             }
             parsedURL = candidate
         } else {
