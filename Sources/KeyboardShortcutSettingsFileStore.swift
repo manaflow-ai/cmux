@@ -880,6 +880,16 @@ final class CmuxSettingsFileStore: @unchecked Sendable {
             }
             snapshot.managedUserDefaults[BrowserThemeSettings.modeKey] = .string(mode.rawValue)
         }
+        if let value = jsonBool(section["discardHiddenWebViews"]) {
+            snapshot.managedUserDefaults[BrowserHiddenWebViewDiscardPolicy.enabledKey] = .bool(value)
+        }
+        if let value = jsonDouble(section["hiddenWebViewDiscardDelaySeconds"]) {
+            guard let delay = BrowserHiddenWebViewDiscardPolicy.resolvedHiddenDelay(value) else {
+                logInvalid("browser.hiddenWebViewDiscardDelaySeconds", sourcePath: sourcePath)
+                return
+            }
+            snapshot.managedUserDefaults[BrowserHiddenWebViewDiscardPolicy.hiddenDelayKey] = .double(delay)
+        }
         if let value = jsonBool(section["openTerminalLinksInCmuxBrowser"]) {
             snapshot.managedUserDefaults[BrowserLinkOpenSettings.openTerminalLinksInCmuxBrowserKey] = .bool(value)
         }
