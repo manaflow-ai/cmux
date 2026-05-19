@@ -22805,7 +22805,7 @@ export default function cmuxPiSessionExtension(pi: ExtensionAPI) {
                 : nil
             let cwd = hookCwd ?? mapped?.cwd
             let grokAssistantMessage: String? = {
-                guard def.name == "grok" else { return nil }
+                guard def.name == "grok", completionSummary == nil else { return nil }
                 return latestGrokAssistantMessage(
                     cwd: cwd,
                     sessionId: input.sessionId ?? sessionId,
