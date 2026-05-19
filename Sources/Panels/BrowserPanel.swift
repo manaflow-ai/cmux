@@ -1291,6 +1291,26 @@ private func browserCopyExternalNavigationURL(_ url: URL) {
     NSPasteboard.general.setString(url.absoluteString, forType: .string)
 }
 
+func browserInteractiveModalHostWindow(_ window: NSWindow?) -> NSWindow? {
+    guard let window else { return nil }
+    guard window.isVisible else { return nil }
+    guard window.alphaValue > 0 else { return nil }
+    guard !window.ignoresMouseEvents else { return nil }
+    guard !window.isExcludedFromWindowsMenu else { return nil }
+    return window
+}
+
+func browserInteractiveModalHostWindow(for webView: WKWebView) -> NSWindow? {
+    browserInteractiveModalHostWindow(webView.window)
+}
+
+private func browserFallbackInteractiveModalHostWindow() -> NSWindow? {
+    if let keyWindow = browserInteractiveModalHostWindow(NSApp.keyWindow) {
+        return keyWindow
+    }
+    return browserInteractiveModalHostWindow(NSApp.mainWindow)
+}
+
 private func browserPresentExternalNavigationPrompt(
     for url: URL,
     in webView: WKWebView,
@@ -1319,7 +1339,7 @@ private func browserPresentExternalNavigationPrompt(
         completion(response == .alertFirstButtonReturn)
     }
 
-    if let window = webView.window {
+    if let window = browserInteractiveModalHostWindow(for: webView) {
         alert.beginSheetModal(for: window, completionHandler: handleResponse)
         return
     }
@@ -1349,7 +1369,7 @@ private func browserPresentExternalNavigationFailure(for url: URL, in webView: W
         }
     }
 
-    if let window = webView.window {
+    if let window = browserInteractiveModalHostWindow(for: webView) {
         alert.beginSheetModal(for: window, completionHandler: handleResponse)
         return
     }
@@ -3562,7 +3582,10 @@ final class BrowserPanel: Panel, ObservableObject {
         applyBrowserThemeModeIfNeeded()
         ReactGrabScriptLoader.prefetch()
         insecureHTTPAlertWindowProvider = { [weak self] in
-            self?.webView.window ?? NSApp.keyWindow ?? NSApp.mainWindow
+            if let self, let window = browserInteractiveModalHostWindow(for: self.webView) {
+                return window
+            }
+            return browserFallbackInteractiveModalHostWindow()
         }
 
         if let initialRequest {
@@ -6682,7 +6705,10 @@ extension BrowserPanel {
     func resetInsecureHTTPAlertHooksForTesting() {
         insecureHTTPAlertFactory = { NSAlert() }
         insecureHTTPAlertWindowProvider = { [weak self] in
-            self?.webView.window ?? NSApp.keyWindow ?? NSApp.mainWindow
+            if let self, let window = browserInteractiveModalHostWindow(for: self.webView) {
+                return window
+            }
+            return browserFallbackInteractiveModalHostWindow()
         }
     }
 
@@ -7678,7 +7704,7 @@ private class BrowserUIDelegate: NSObject, WKUIDelegate {
         for webView: WKWebView,
         completion: @escaping (NSApplication.ModalResponse) -> Void
     ) {
-        if let window = webView.window {
+        if let window = browserInteractiveModalHostWindow(for: webView) {
             alert.beginSheetModal(for: window, completionHandler: completion)
             return
         }

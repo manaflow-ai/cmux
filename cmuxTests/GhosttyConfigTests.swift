@@ -1443,6 +1443,20 @@ final class BrowserPanelWebViewLifecycleTests: XCTestCase {
         XCTAssertNotNil(panel.webView.window)
     }
 
+    func testBackgroundInitialNavigationDoesNotExposeHiddenHostAsModalParent() {
+        let panel = BrowserPanel(
+            workspaceId: UUID(),
+            initialURL: URL(string: "about:blank")!,
+            preloadInitialNavigationInBackground: true,
+            isRemoteWorkspace: false
+        )
+        defer { panel.close() }
+
+        XCTAssertTrue(panel.hasBackgroundPreloadHost)
+        XCTAssertNotNil(panel.webView.window)
+        XCTAssertNil(browserInteractiveModalHostWindow(for: panel.webView))
+    }
+
     func testLifecycleTracksVisibleHiddenAndClosingStates() {
         let hiddenAt = Date(timeIntervalSince1970: 100)
         let duplicateHiddenAt = hiddenAt.addingTimeInterval(10)
