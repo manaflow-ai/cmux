@@ -34,12 +34,19 @@ enum AppearanceSettings {
         let systemAppearance: () -> NSAppearance?
 
         static var live: LiveApplyEnvironment {
-            AppearanceSettings.liveEnvironmentProvider()
+            AppearanceSettings.currentLiveEnvironmentProvider()()
         }
     }
 
+    private static let liveEnvironmentProviderLock = NSLock()
     private static var liveEnvironmentProvider: () -> LiveApplyEnvironment = {
         AppearanceSettings.defaultLiveEnvironment()
+    }
+
+    private static func currentLiveEnvironmentProvider() -> () -> LiveApplyEnvironment {
+        liveEnvironmentProviderLock.lock()
+        defer { liveEnvironmentProviderLock.unlock() }
+        return liveEnvironmentProvider
     }
 
     private static func defaultLiveEnvironment() -> LiveApplyEnvironment {
@@ -202,10 +209,14 @@ enum AppearanceSettings {
     }
 
     static func setLiveEnvironmentProviderForTesting(_ provider: @escaping () -> LiveApplyEnvironment) {
+        liveEnvironmentProviderLock.lock()
+        defer { liveEnvironmentProviderLock.unlock() }
         liveEnvironmentProvider = provider
     }
 
     static func resetLiveEnvironmentProviderForTesting() {
+        liveEnvironmentProviderLock.lock()
+        defer { liveEnvironmentProviderLock.unlock() }
         liveEnvironmentProvider = {
             AppearanceSettings.defaultLiveEnvironment()
         }
