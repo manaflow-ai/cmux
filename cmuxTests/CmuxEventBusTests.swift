@@ -315,6 +315,7 @@ final class CmuxEventBusTests: XCTestCase {
             workspaceId: "workspace",
             cwd: "/tmp/workspace",
             toolName: "Bash",
+            matcher: "Bash",
             toolInputJSON: #"{"command":"echo secret"}"#,
             context: WorkstreamContext(
                 lastUserMessage: "secret prompt",
@@ -331,6 +332,7 @@ final class CmuxEventBusTests: XCTestCase {
         XCTAssertEqual(payload["session_id"] as? String, "session")
         XCTAssertEqual(payload["hook_event_name"] as? String, "PreToolUse")
         XCTAssertEqual(payload["tool_name"] as? String, "Bash")
+        XCTAssertEqual(payload["matcher"] as? String, "Bash")
         XCTAssertTrue(payload["tool_input"] is NSNull)
         XCTAssertTrue(payload["context"] is NSNull)
         XCTAssertTrue(payload["extra_fields"] is NSNull)

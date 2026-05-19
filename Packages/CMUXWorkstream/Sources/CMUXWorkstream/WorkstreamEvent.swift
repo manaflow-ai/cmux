@@ -5,8 +5,8 @@ import Foundation
 ///
 /// Field names mirror Vibe Island's hook payload format exactly so existing
 /// agent payloads pass through untouched: `session_id`, `hook_event_name`,
-/// `workspace_id`, `cwd`, `tool_name`, `tool_input`, `_source`, `_ppid`,
-/// `_opencode_request_id`. `context` is cmux-specific and optional.
+/// `workspace_id`, `cwd`, `tool_name`, `tool_input`, `matcher`, `_source`,
+/// `_ppid`, `_opencode_request_id`. `context` is cmux-specific and optional.
 public struct WorkstreamEvent: Codable, Sendable, Equatable {
     public let sessionId: String
     public let hookEventName: HookEventName
@@ -14,6 +14,7 @@ public struct WorkstreamEvent: Codable, Sendable, Equatable {
     public let workspaceId: String?
     public let cwd: String?
     public let toolName: String?
+    public let matcher: String?
     public let toolInputJSON: String?
     public let context: WorkstreamContext?
     public let requestId: String?
@@ -28,6 +29,7 @@ public struct WorkstreamEvent: Codable, Sendable, Equatable {
         workspaceId: String? = nil,
         cwd: String? = nil,
         toolName: String? = nil,
+        matcher: String? = nil,
         toolInputJSON: String? = nil,
         context: WorkstreamContext? = nil,
         requestId: String? = nil,
@@ -41,6 +43,7 @@ public struct WorkstreamEvent: Codable, Sendable, Equatable {
         self.workspaceId = workspaceId
         self.cwd = cwd
         self.toolName = toolName
+        self.matcher = matcher
         self.toolInputJSON = toolInputJSON
         self.context = context
         self.requestId = requestId
@@ -74,6 +77,7 @@ public struct WorkstreamEvent: Codable, Sendable, Equatable {
         case workspaceId = "workspace_id"
         case cwd
         case toolName = "tool_name"
+        case matcher
         case toolInputJSON = "tool_input"
         case context
         case requestId = "_opencode_request_id"
@@ -89,6 +93,7 @@ public struct WorkstreamEvent: Codable, Sendable, Equatable {
         self.workspaceId = try c.decodeIfPresent(String.self, forKey: .workspaceId)
         self.cwd = try c.decodeIfPresent(String.self, forKey: .cwd)
         self.toolName = try c.decodeIfPresent(String.self, forKey: .toolName)
+        self.matcher = try c.decodeIfPresent(String.self, forKey: .matcher)
         self.context = try c.decodeIfPresent(WorkstreamContext.self, forKey: .context)
         self.requestId = try c.decodeIfPresent(String.self, forKey: .requestId)
         self.ppid = try c.decodeIfPresent(Int.self, forKey: .ppid)
@@ -119,6 +124,7 @@ public struct WorkstreamEvent: Codable, Sendable, Equatable {
         try c.encodeIfPresent(workspaceId, forKey: .workspaceId)
         try c.encodeIfPresent(cwd, forKey: .cwd)
         try c.encodeIfPresent(toolName, forKey: .toolName)
+        try c.encodeIfPresent(matcher, forKey: .matcher)
         try c.encodeIfPresent(context, forKey: .context)
         try c.encodeIfPresent(requestId, forKey: .requestId)
         try c.encodeIfPresent(ppid, forKey: .ppid)

@@ -421,6 +421,37 @@ final class CLINotifyProcessIntegrationRegressionTests: XCTestCase {
         XCTAssertEqual(request["source"] as? String, "agent-hook")
     }
 
+    func testClaudeSessionEndFeedTelemetryIncludesMatcher() throws {
+        let context = try makeClaudeHookContext(name: "claude-session-end-feed-matcher")
+        defer { context.cleanup() }
+
+        let sessionId = "ending-session"
+        let result = runClaudeHook(
+            context: context,
+            arguments: ["hooks", "claude", "session-end"],
+            standardInput: #"{"session_id":"\#(sessionId)","cwd":"\#(context.root.path)","hook_event_name":"SessionEnd","matcher":"prompt_input_exit"}"#
+        )
+
+        XCTAssertFalse(result.timedOut, result.stderr)
+        XCTAssertEqual(result.status, 0, result.stderr)
+        XCTAssertEqual(result.stdout, "OK\n")
+        let feedEvents = context.state.commands.compactMap { command -> [String: Any]? in
+            guard let payload = jsonObject(command),
+                  payload["method"] as? String == "feed.push",
+                  let params = payload["params"] as? [String: Any],
+                  let event = params["event"] as? [String: Any] else {
+                return nil
+            }
+            return event
+        }
+        let event = try XCTUnwrap(feedEvents.first)
+        XCTAssertEqual(event["workspace_id"] as? String, context.workspaceId)
+        XCTAssertEqual(event["session_id"] as? String, "claude-\(sessionId)")
+        XCTAssertEqual(event["hook_event_name"] as? String, "SessionEnd")
+        XCTAssertEqual(event["matcher"] as? String, "prompt_input_exit")
+        XCTAssertEqual(event["_source"] as? String, "claude")
+    }
+
     func testRightSidebarCLIForwardsV1SocketCommandsQuietly() throws {
         let cliPath = try bundledCLIPath()
         let cases: [(name: String, arguments: [String], expectedCommand: String, response: String, stdout: String)] = [

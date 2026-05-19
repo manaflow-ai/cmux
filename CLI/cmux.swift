@@ -11007,7 +11007,7 @@ struct CMUXCLI {
             """
         case "claude-hook":
             return """
-            Usage: cmux claude-hook <session-start|active|stop|idle|notification|notify|prompt-submit> [flags]
+            Usage: cmux claude-hook <session-start|active|stop|idle|session-end|notification|notify|prompt-submit> [flags]
 
             Hook for Claude Code integration. Reads JSON from stdin.
 
@@ -11016,6 +11016,7 @@ struct CMUXCLI {
               active          Alias for session-start
               stop            Signal that a Claude session has stopped
               idle            Alias for stop
+              session-end     Signal that a Claude session has ended
               notification    Forward a Claude notification
               notify          Alias for notification
               prompt-submit   Clear notification and set Running on user prompt
@@ -23049,6 +23050,13 @@ export default function cmuxPiSessionExtension(pi: ExtensionAPI) {
         if let toolName, !toolName.isEmpty {
             event["tool_name"] = toolName
         }
+        if let matcher = feedMatcher(
+            rawObject: parsedInput.object,
+            source: source,
+            hookEventName: hookEventName
+        ) {
+            event["matcher"] = matcher
+        }
         if let toolInput = parsedInput.object?["tool_input"] {
             event["tool_input"] = toolInput
         }
@@ -23067,7 +23075,7 @@ export default function cmuxPiSessionExtension(pi: ExtensionAPI) {
             hookEventName: hookEventName,
             promptText: promptText
         )
-        event["_opencode_request_id"] = "\(source)-\(sessionId)-\(hookEventName)-\(Int(Date().timeIntervalSince1970 * 1000))"
+        event["_opencode_request_id"] = "\(source)-\(sessionId)-\(hookEventName)-\(Int(Date.now.timeIntervalSince1970 * 1000))"
 
         let frame: [String: Any] = [
             "id": UUID().uuidString,
@@ -23182,6 +23190,33 @@ export default function cmuxPiSessionExtension(pi: ExtensionAPI) {
             return direct
         }
         return nil
+    }
+
+    private static let claudeSessionEndMatcherValues: Set<String> = [
+        "clear",
+        "resume",
+        "logout",
+        "prompt_input_exit",
+        "bypass_permissions_disabled",
+        "other",
+    ]
+
+    private func feedMatcher(rawObject: [String: Any]?, source: String, hookEventName: String) -> String? {
+        guard let rawObject else { return nil }
+        if source == "claude", hookEventName == "SessionEnd" {
+            let rawMatcher = firstString(in: rawObject, keys: ["matcher", "reason", "source"])
+            return normalizedClaudeSessionEndMatcher(rawMatcher) ?? "other"
+        }
+        return firstString(in: rawObject, keys: ["matcher"])
+    }
+
+    private func normalizedClaudeSessionEndMatcher(_ rawValue: String?) -> String? {
+        guard let rawValue = normalizedHookValue(rawValue) else { return nil }
+        let normalized = rawValue.lowercased().replacingOccurrences(of: "-", with: "_")
+        guard Self.claudeSessionEndMatcherValues.contains(normalized) else {
+            return "other"
+        }
+        return normalized
     }
 
     private func enrichUserPromptSubmitFeedEvent(
@@ -24948,6 +24983,9 @@ export default function cmuxPiSessionExtension(pi: ExtensionAPI) {
         }
         if let cwd = stdinObj["cwd"] as? String { eventDict["cwd"] = cwd }
         if !toolName.isEmpty { eventDict["tool_name"] = toolName }
+        if let matcher = feedMatcher(rawObject: stdinObj, source: source, hookEventName: hookEventName) {
+            eventDict["matcher"] = matcher
+        }
         let promptText = hookEventName == "UserPromptSubmit" ? feedPromptText(from: stdinObj) : nil
         if let toolInput = stdinObj["tool_input"] {
             eventDict["tool_input"] = toolInput
@@ -24969,7 +25007,7 @@ export default function cmuxPiSessionExtension(pi: ExtensionAPI) {
         )
         let requestId = stdinObj["_opencode_request_id"] as? String
             ?? firstString(in: stdinObj, keys: ["request_id", "tool_use_id", "toolUseID"])
-            ?? "\(source)-\(sessionId)-\(rawEvent)-\(toolName)-\(Int(Date().timeIntervalSince1970 * 1000))"
+            ?? "\(source)-\(sessionId)-\(rawEvent)-\(toolName)-\(Int(Date.now.timeIntervalSince1970 * 1000))"
         eventDict["_opencode_request_id"] = requestId
 
         // Sync. For actionable events we block up to 120s waiting
