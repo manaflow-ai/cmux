@@ -535,6 +535,15 @@ final class TaskManagerResourcesTests: XCTestCase {
             )?.id,
             "codex"
         )
+        XCTAssertEqual(
+            CmuxTaskManagerCodingAgentDefinition.matchingDefinition(
+                processName: "node",
+                processPath: nil,
+                arguments: ["node", "/usr/local/lib/node_modules/@oh-my-pi/pi-coding-agent/src/cli.ts"],
+                environment: [:]
+            )?.id,
+            "omp"
+        )
     }
 
     func testCodingAgentMatcherCoversSupportedAgentExecutableNames() {
@@ -544,6 +553,7 @@ final class TaskManagerResourcesTests: XCTestCase {
             ("opencode", "opencode"),
             ("pi", "pi"),
             ("pi-coding-agent", "pi"),
+            ("omp", "omp"),
             ("amp", "amp"),
             ("cursor-agent", "cursor"),
             ("gemini", "gemini"),

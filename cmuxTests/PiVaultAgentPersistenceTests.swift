@@ -68,6 +68,17 @@ final class PiVaultAgentPersistenceTests: XCTestCase {
         XCTAssertEqual(SessionAgent.registered(agent).assetName, "AgentIcons/Pi")
     }
 
+    func testBuiltInOmpRegistrationUsesOmpSessionDefaults() {
+        let registration = CmuxVaultAgentRegistration.builtInOmp
+
+        XCTAssertEqual(registration.id, "omp")
+        XCTAssertEqual(registration.name, "OMP")
+        XCTAssertEqual(registration.detect.processName, "omp")
+        XCTAssertEqual(registration.sessionIdSource, .piSessionFile)
+        XCTAssertEqual(registration.resumeCommand, "{{executable}} --session {{sessionId}}")
+        XCTAssertEqual(registration.sessionDirectory, "~/.omp/agent/sessions")
+    }
+
     func testRegisteredAgentTemplateFailsClosedWhenPlaceholderIsUnavailable() {
         let registration = CmuxVaultAgentRegistration(
             id: "acme-agent",

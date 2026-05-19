@@ -164,6 +164,14 @@ extension CMUXCLI {
             events: []
         ),
         AgentHookDef(
+            name: "omp", displayName: "OMP", statusKey: "omp",
+            configDir: ".omp/agent", configFile: "extensions/cmux-session.ts", configDirEnvOverride: "PI_CODING_AGENT_DIR",
+            binaryName: "omp",
+            sessionStoreSuffix: "omp", disableEnvVar: "CMUX_OMP_HOOKS_DISABLED",
+            hookMarker: "cmux hooks omp", format: .flat,
+            events: []
+        ),
+        AgentHookDef(
             name: "amp", displayName: "Amp", statusKey: "amp",
             configDir: ".config/amp", configFile: "plugins/cmux-session.ts",
             sessionStoreSuffix: "amp", disableEnvVar: "CMUX_AMP_HOOKS_DISABLED",
