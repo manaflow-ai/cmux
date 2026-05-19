@@ -58,6 +58,69 @@ final class TerminalNotificationClearAllTests: XCTestCase {
         XCTAssertTrue(store.notifications.isEmpty)
     }
 
+    func testClearNotificationsCommandWithPanelPreservesSiblingSurfaceNotifications() throws {
+        let store = TerminalNotificationStore.shared
+        let appDelegate = AppDelegate.shared ?? AppDelegate()
+        let manager = TabManager()
+
+        let originalTabManager = appDelegate.tabManager
+        let originalNotificationStore = appDelegate.notificationStore
+        let originalAppFocusOverride = AppFocusState.overrideIsFocused
+
+        store.replaceNotificationsForTesting([])
+        store.configureNotificationDeliveryHandlerForTesting { _, _ in }
+        appDelegate.tabManager = manager
+        appDelegate.notificationStore = store
+        AppFocusState.overrideIsFocused = false
+
+        let workspace = manager.addWorkspace(select: true)
+        defer {
+            if manager.tabs.contains(where: { $0.id == workspace.id }) {
+                manager.closeWorkspace(workspace)
+            }
+            store.replaceNotificationsForTesting([])
+            store.resetNotificationDeliveryHandlerForTesting()
+            appDelegate.tabManager = originalTabManager
+            appDelegate.notificationStore = originalNotificationStore
+            AppFocusState.overrideIsFocused = originalAppFocusOverride
+        }
+
+        let firstPanelId = try XCTUnwrap(workspace.focusedPanelId)
+        let secondPanel = try XCTUnwrap(
+            workspace.newTerminalSplit(from: firstPanelId, orientation: .horizontal)
+        )
+
+        TerminalMutationBus.shared.enqueueNotification(
+            tabId: workspace.id,
+            surfaceId: firstPanelId,
+            title: "Grok",
+            subtitle: "Waiting",
+            body: "First"
+        )
+        TerminalMutationBus.shared.enqueueNotification(
+            tabId: workspace.id,
+            surfaceId: secondPanel.id,
+            title: "Grok",
+            subtitle: "Waiting",
+            body: "Second"
+        )
+        TerminalMutationBus.shared.drainForTesting()
+
+        XCTAssertTrue(store.hasUnreadNotification(forTabId: workspace.id, surfaceId: firstPanelId))
+        XCTAssertTrue(store.hasUnreadNotification(forTabId: workspace.id, surfaceId: secondPanel.id))
+
+        let response = TerminalController.shared.handleSocketLine(
+            "clear_notifications --tab=\(workspace.id.uuidString) --panel=\(firstPanelId.uuidString)"
+        )
+        XCTAssertEqual(response, "OK")
+        TerminalMutationBus.shared.drainForTesting()
+
+        XCTAssertFalse(store.hasUnreadNotification(forTabId: workspace.id, surfaceId: firstPanelId))
+        XCTAssertTrue(store.hasUnreadNotification(forTabId: workspace.id, surfaceId: secondPanel.id))
+        XCTAssertEqual(store.notifications.count, 1)
+        XCTAssertEqual(store.notifications.first?.surfaceId, secondPanel.id)
+    }
+
     func testClosingPaneRemovesSurfaceNotificationContribution() throws {
         let store = TerminalNotificationStore.shared
         let appDelegate = AppDelegate.shared ?? AppDelegate()

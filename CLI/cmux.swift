@@ -344,6 +344,13 @@ private enum AgentHookNotificationStatus: String, Codable {
     case error
 }
 
+private enum AgentHookRuntimeStatus: String, Codable {
+    case running
+    case idle
+    case needsInput
+    case error
+}
+
 private struct AgentHookNotificationSummary {
     let subtitle: String
     let body: String
@@ -425,6 +432,7 @@ private struct ClaudeHookSessionRecord: Codable {
     var lastSubtitle: String?
     var lastBody: String?
     var lastNotificationStatus: AgentHookNotificationStatus?
+    var runtimeStatus: AgentHookRuntimeStatus?
     var startedAt: TimeInterval
     var updatedAt: TimeInterval
 }
@@ -529,6 +537,8 @@ private final class ClaudeHookSessionStore {
         lastBody: String? = nil,
         lastNotificationStatus: AgentHookNotificationStatus? = nil,
         updateLastNotificationStatus: Bool = false,
+        runtimeStatus: AgentHookRuntimeStatus? = nil,
+        updateRuntimeStatus: Bool = false,
         markActive: Bool = false,
         turnId: String? = nil,
         allowsNewSessionReplacement: Bool = false
@@ -549,6 +559,7 @@ private final class ClaudeHookSessionStore {
                 lastSubtitle: nil,
                 lastBody: nil,
                 lastNotificationStatus: nil,
+                runtimeStatus: nil,
                 startedAt: now,
                 updatedAt: now
             )
@@ -582,6 +593,9 @@ private final class ClaudeHookSessionStore {
             if updateLastNotificationStatus {
                 record.lastNotificationStatus = lastNotificationStatus
             }
+            if updateRuntimeStatus {
+                record.runtimeStatus = runtimeStatus
+            }
             record.updatedAt = now
             state.sessions[normalized] = record
             if markActive, let normalizedWorkspace = normalizeOptional(workspaceId) {
@@ -591,6 +605,20 @@ private final class ClaudeHookSessionStore {
                     allowsNewSessionReplacement: allowsNewSessionReplacement ? true : nil,
                     updatedAt: now
                 )
+            }
+        }
+    }
+
+    func hasRunningSession(workspaceId: String, excludingSessionId: String?) throws -> Bool {
+        guard let normalizedWorkspace = normalizeOptional(workspaceId) else {
+            return false
+        }
+        let excluded = normalizeOptional(excludingSessionId)
+        return try withLockedState { state in
+            state.sessions.values.contains { record in
+                normalizeOptional(record.workspaceId) == normalizedWorkspace
+                    && record.sessionId != excluded
+                    && record.runtimeStatus == .running
             }
         }
     }
@@ -22218,19 +22246,35 @@ export default function cmuxPiSessionExtension(pi: ExtensionAPI) {
         }
         let resolvedDirectWorkspaceArg = resolveAccessibleWorkspaceId(directWorkspaceArg)
         let hasInvalidDirectWorkspaceArg = directWorkspaceArg != nil && resolvedDirectWorkspaceArg == nil
-        let processBinding: CallerTerminalBinding? = {
-            guard directWorkspaceArg == nil || directSurfaceArg == nil else { return nil }
-            return resolveCallerTerminalBindingByTTY(client: client)
-                ?? resolveAgentProcessTerminalBinding(pid: inferredPID, client: client)
-        }()
+        var processBindingCache: CallerTerminalBinding?
+        var didResolveProcessBinding = false
+        func processBinding() -> CallerTerminalBinding? {
+            if !didResolveProcessBinding {
+                didResolveProcessBinding = true
+                guard directWorkspaceArg == nil || directSurfaceArg == nil else {
+                    return nil
+                }
+                processBindingCache = resolveCallerTerminalBindingByTTY(client: client)
+                    ?? resolveAgentProcessTerminalBinding(pid: inferredPID, client: client)
+            }
+            return processBindingCache
+        }
+#if DEBUG
+        func processBindingDebugState() -> String {
+            guard didResolveProcessBinding else { return "deferred" }
+            return processBindingCache == nil ? "nil" : "resolved"
+        }
+#endif
         let resolvedDirectSurfaceArg: String? = {
             guard let directSurfaceArg else { return nil }
-            guard let workspaceId = resolvedDirectWorkspaceArg ?? processBinding?.workspaceId else { return nil }
+            guard let workspaceId = resolvedDirectWorkspaceArg ?? processBinding()?.workspaceId else { return nil }
             return resolveAccessibleSurfaceId(directSurfaceArg, workspaceId: workspaceId)
         }()
         let hasInvalidDirectSurfaceArg = directSurfaceArg != nil && resolvedDirectSurfaceArg == nil
         let hasUnusableDirectBinding = hasInvalidDirectWorkspaceArg || hasInvalidDirectSurfaceArg
-        let workspaceArg = resolvedDirectWorkspaceArg ?? processBinding?.workspaceId
+        func workspaceArg() -> String? {
+            resolvedDirectWorkspaceArg ?? processBinding()?.workspaceId
+        }
 
         let rawInput = String(data: FileHandle.standardInput.readDataToEndOfFile(), encoding: .utf8) ?? ""
         let input = parseClaudeHookInput(rawInput: rawInput)
@@ -22249,13 +22293,45 @@ export default function cmuxPiSessionExtension(pi: ExtensionAPI) {
         let action = Self.subcommandActions[subcommand] ?? .noop
 #if DEBUG
         agentHookDebugLog(
-            "agentHook.start agent=\(def.name) subcommand=\(subcommand) session=\(agentHookDebugShort(sessionId)) inputSession=\(agentHookDebugShort(input.sessionId)) rawBytes=\(rawInput.utf8.count) hasCwd=\(hookCwd == nil ? 0 : 1) envWorkspace=\(env["CMUX_WORKSPACE_ID"] == nil ? 0 : 1) envSurface=\(env["CMUX_SURFACE_ID"] == nil ? 0 : 1) directWorkspace=\(directWorkspaceArg == nil ? 0 : 1) directSurface=\(directSurfaceArg == nil ? 0 : 1) invalidDirect=\(hasUnusableDirectBinding ? 1 : 0) processBinding=\(processBinding == nil ? 0 : 1) socketName=\(agentHookDebugSocketName(client.socketPath))",
+            "agentHook.start agent=\(def.name) subcommand=\(subcommand) session=\(agentHookDebugShort(sessionId)) inputSession=\(agentHookDebugShort(input.sessionId)) rawBytes=\(rawInput.utf8.count) hasCwd=\(hookCwd == nil ? 0 : 1) envWorkspace=\(env["CMUX_WORKSPACE_ID"] == nil ? 0 : 1) envSurface=\(env["CMUX_SURFACE_ID"] == nil ? 0 : 1) directWorkspace=\(directWorkspaceArg == nil ? 0 : 1) directSurface=\(directSurfaceArg == nil ? 0 : 1) invalidDirect=\(hasUnusableDirectBinding ? 1 : 0) processBinding=\(processBindingDebugState()) socketName=\(agentHookDebugSocketName(client.socketPath))",
             socketPath: client.socketPath,
             env: env
         )
 #endif
         let pidKey = "\(def.statusKey).\(sessionId.isEmpty ? "default" : sessionId)"
         var didSendFeedTelemetry = false
+        func runtimeStatus(for notificationStatus: AgentHookNotificationStatus?) -> AgentHookRuntimeStatus? {
+            switch notificationStatus {
+            case .idle?:
+                return .idle
+            case .needsInput?:
+                return .needsInput
+            case .error?:
+                return .error
+            case nil:
+                return nil
+            }
+        }
+        func hasOtherRunningSession(workspaceId: String) -> Bool {
+            (try? store.hasRunningSession(workspaceId: workspaceId, excludingSessionId: sessionId)) == true
+        }
+        func setIdleStatusUnlessAnotherSessionIsRunning(workspaceId: String, surfaceId: String) {
+            if hasOtherRunningSession(workspaceId: workspaceId) {
+#if DEBUG
+                agentHookDebugLog(
+                    "agentHook.status.keepRunning agent=\(def.name) session=\(agentHookDebugShort(sessionId)) workspace=\(agentHookDebugShort(workspaceId)) surface=\(agentHookDebugShort(surfaceId))",
+                    socketPath: client.socketPath,
+                    env: env
+                )
+#endif
+                return
+            }
+            let idleStatus = String(localized: "agent.generic.notification.status.idle", defaultValue: "Idle")
+            _ = try? sendV1Command(
+                "set_status \(def.statusKey) \(idleStatus) --icon=pause.circle.fill --color=#8E8E93 --tab=\(workspaceId)\(socketPanelOption(surfaceId))",
+                client: client
+            )
+        }
         func sendAgentFeedTelemetry(workspaceId: String? = nil) {
             didSendFeedTelemetry = true
             sendFeedTelemetry(
@@ -22263,7 +22339,7 @@ export default function cmuxPiSessionExtension(pi: ExtensionAPI) {
                 source: def.name,
                 subcommand: subcommand,
                 parsedInput: input,
-                workspaceId: workspaceId ?? workspaceArg
+                workspaceId: workspaceId ?? workspaceArg()
             )
         }
         func resolveAgentHookTarget(mapped: ClaudeHookSessionRecord?) -> (workspaceId: String, surfaceId: String)? {
@@ -22300,7 +22376,7 @@ export default function cmuxPiSessionExtension(pi: ExtensionAPI) {
 
             if let workspaceId = resolvedDirectWorkspaceArg {
                 let preferredSurfaceId = resolvedDirectSurfaceArg
-                    ?? (hookWsFlag == nil ? processBinding?.surfaceId : nil)
+                    ?? (hookWsFlag == nil ? processBinding()?.surfaceId : nil)
                 let target = resolveTarget(workspaceId: workspaceId, preferredSurfaceId: preferredSurfaceId, mapped: mapped)
 #if DEBUG
                 agentHookDebugLog(
@@ -22312,10 +22388,11 @@ export default function cmuxPiSessionExtension(pi: ExtensionAPI) {
                 return target
             }
 
-            if let workspaceId = resolveAccessibleWorkspaceId(processBinding?.workspaceId),
+            let binding = processBinding()
+            if let workspaceId = resolveAccessibleWorkspaceId(binding?.workspaceId),
                let target = resolveTarget(
                    workspaceId: workspaceId,
-                   preferredSurfaceId: processBinding?.surfaceId,
+                   preferredSurfaceId: binding?.surfaceId,
                    mapped: mapped
                ) {
 #if DEBUG
@@ -22379,7 +22456,9 @@ export default function cmuxPiSessionExtension(pi: ExtensionAPI) {
                     surfaceId: surfaceId,
                     cwd: hookCwd ?? mapped?.cwd,
                     pid: pid,
-                    launchCommand: launchCommand
+                    launchCommand: launchCommand,
+                    runtimeStatus: .running,
+                    updateRuntimeStatus: true
                 )
                 publishAgentSurfaceResumeBinding(
                     client: client,
@@ -22442,7 +22521,10 @@ export default function cmuxPiSessionExtension(pi: ExtensionAPI) {
                     client: client
                 )
             }
-            _ = try? sendV1Command("clear_notifications --tab=\(workspaceId)", client: client)
+            _ = try? sendV1Command(
+                "clear_notifications --tab=\(workspaceId)\(socketPanelOption(surfaceId))",
+                client: client
+            )
             _ = try sendV1Command(
                 "set_status \(def.statusKey) Running --icon=bolt.fill --color=#4C8DFF --tab=\(workspaceId)\(socketPanelOption(surfaceId))",
                 client: client
@@ -22557,7 +22639,9 @@ export default function cmuxPiSessionExtension(pi: ExtensionAPI) {
                                   lastSubtitle: subtitle,
                                   lastBody: body,
                                   lastNotificationStatus: stopNotificationStatus,
-                                  updateLastNotificationStatus: true)
+                                  updateLastNotificationStatus: true,
+                                  runtimeStatus: runtimeStatus(for: stopNotificationStatus),
+                                  updateRuntimeStatus: true)
                 publishAgentSurfaceResumeBinding(
                     client: client,
                     workspaceId: workspaceId,
@@ -22612,11 +22696,7 @@ export default function cmuxPiSessionExtension(pi: ExtensionAPI) {
                     client: client
                 )
             } else {
-                let idleStatus = String(localized: "agent.generic.notification.status.idle", defaultValue: "Idle")
-                _ = try? sendV1Command(
-                    "set_status \(def.statusKey) \(idleStatus) --icon=pause.circle.fill --color=#8E8E93 --tab=\(workspaceId)\(socketPanelOption(surfaceId))",
-                    client: client
-                )
+                setIdleStatusUnlessAnotherSessionIsRunning(workspaceId: workspaceId, surfaceId: surfaceId)
             }
 
         case .notification:
@@ -22706,7 +22786,9 @@ export default function cmuxPiSessionExtension(pi: ExtensionAPI) {
                     lastSubtitle: summary.subtitle,
                     lastBody: summary.body,
                     lastNotificationStatus: summary.status,
-                    updateLastNotificationStatus: true
+                    updateLastNotificationStatus: true,
+                    runtimeStatus: runtimeStatus(for: summary.status),
+                    updateRuntimeStatus: summary.status != nil
                 )
             }
 
@@ -22758,11 +22840,7 @@ export default function cmuxPiSessionExtension(pi: ExtensionAPI) {
                     client: client
                 )
             case .idle?:
-                let idleStatus = String(localized: "agent.generic.notification.status.idle", defaultValue: "Idle")
-                _ = try? sendV1Command(
-                    "set_status \(def.statusKey) \(idleStatus) --icon=pause.circle.fill --color=#8E8E93 --tab=\(workspaceId)\(socketPanelOption(surfaceId))",
-                    client: client
-                )
+                setIdleStatusUnlessAnotherSessionIsRunning(workspaceId: workspaceId, surfaceId: surfaceId)
             case nil:
                 break
             }
