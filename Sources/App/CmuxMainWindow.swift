@@ -29,6 +29,12 @@ final class MainWindowHostingView<Content: View>: NSHostingView<Content> {
 }
 
 @MainActor
+func configureCmuxMainWindowDragBehavior(_ window: NSWindow) {
+    window.isMovableByWindowBackground = false
+    window.isMovable = false
+}
+
+@MainActor
 final class CmuxMainWindow: NSWindow {
     private var isSoftHiddenForVisibilityController = false
 

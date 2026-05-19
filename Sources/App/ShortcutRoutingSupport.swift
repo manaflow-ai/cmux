@@ -764,8 +764,7 @@ enum WindowMoveSuppressionReason: String {
 }
 
 func shouldSuppressWindowMoveForBonsplitPaneTabDrag(window: NSWindow, event: NSEvent) -> Bool {
-    guard event.type == .leftMouseDown,
-          window.isMovable else {
+    guard event.type == .leftMouseDown else {
         return false
     }
 
