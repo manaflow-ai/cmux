@@ -94,6 +94,10 @@ final class MarkdownViewerAssets {
                 localized: "markdown.web.remoteImageLoadImage",
                 defaultValue: "Load this image"
             ),
+            "remoteImageLoading": String(
+                localized: "markdown.web.remoteImageLoading",
+                defaultValue: "Loading"
+            ),
             "remoteImageHTTPSOnly": String(
                 localized: "markdown.web.remoteImageHTTPSOnly",
                 defaultValue: "Only HTTPS remote images can be loaded in the viewer."

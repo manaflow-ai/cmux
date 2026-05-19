@@ -574,12 +574,36 @@ html { scroll-behavior: smooth; }
     if (placeholder) { placeholder.remove(); }
   }
 
+  function remoteImagePlaceholderForImage(img) {
+    var id = img && img.getAttribute('data-cmux-remote-placeholder-id');
+    if (!id) { return null; }
+    return contentEl.querySelector('[data-cmux-remote-placeholder-for="' + id + '"]');
+  }
+
+  function setRemoteImageLoadingState(img, loading) {
+    var placeholder = remoteImagePlaceholderForImage(img);
+    if (!placeholder) { return; }
+    var buttons = placeholder.querySelectorAll('button[data-cmux-remote-action="load"]');
+    Array.prototype.slice.call(buttons).forEach(function(button) {
+      if (loading) {
+        button.textContent = cmuxString('remoteImageLoading', 'Loading');
+        button.disabled = true;
+        button.setAttribute('data-loading', '1');
+      } else {
+        button.textContent = cmuxString('remoteImageLoadImage', 'Load this image');
+        button.disabled = false;
+        button.removeAttribute('data-loading');
+      }
+    });
+  }
+
   function loadRemoteImage(img) {
     var raw = unescapeDataAttribute(img.getAttribute('data-cmux-remote-src'));
     var rewritten = cmuxRemoteImageURL(raw);
     if (!rewritten) { return false; }
     if (img.getAttribute('data-cmux-remote-loading') === '1') { return true; }
     img.setAttribute('data-cmux-remote-loading', '1');
+    setRemoteImageLoadingState(img, true);
     function cleanup() {
       img.removeEventListener('load', onLoad);
       img.removeEventListener('error', onError);
@@ -592,6 +616,7 @@ html { scroll-behavior: smooth; }
     }
     function onError() {
       cleanup();
+      setRemoteImageLoadingState(img, false);
       img.hidden = true;
       img.removeAttribute('src');
     }
@@ -714,7 +739,7 @@ html { scroll-behavior: smooth; }
         'cmux will not contact this image URL until you load this image.'
       );
       appendRemoteImageURL(placeholder, info.href);
-      appendRemoteImageButton(
+      var loadButton = appendRemoteImageButton(
         placeholder,
         cmuxString(
           'remoteImageLoadImage',
@@ -724,6 +749,7 @@ html { scroll-behavior: smooth; }
           loadApprovedRemoteImage(info.href);
         }
       );
+      loadButton.setAttribute('data-cmux-remote-action', 'load');
     } else if (!info.https) {
       appendRemoteImageText(
         placeholder,

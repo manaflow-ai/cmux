@@ -644,6 +644,10 @@ final class MarkdownPanelTests: XCTestCase {
             localized: "markdown.web.remoteImageLoadImage",
             defaultValue: "Load this image"
         )
+        let expectedLoadingButton = String(
+            localized: "markdown.web.remoteImageLoading",
+            defaultValue: "Loading"
+        )
         let expectedCopyURLButton = String(
             localized: "markdown.web.remoteImageCopyURL",
             defaultValue: "Copy image URL"
@@ -866,6 +870,7 @@ final class MarkdownPanelTests: XCTestCase {
         let loadingImages = try XCTUnwrap(loading["images"] as? [[String: Any]])
         let loadingPlaceholders = try XCTUnwrap(loading["placeholders"] as? [String])
         let loadingButtons = try XCTUnwrap(loading["buttons"] as? [String])
+        let loadingButtonStates = try XCTUnwrap(loading["buttonStates"] as? [[String: Any]])
         let loadingHTTPSImage = try XCTUnwrap(loadingImages.first { $0["alt"] as? String == "HTTPS remote" })
         let loadingLinkedImage = try XCTUnwrap(loadingImages.first { $0["alt"] as? String == "Linked remote" })
         let loadingDuplicateImage = try XCTUnwrap(loadingImages.first { $0["alt"] as? String == "Duplicate linked remote" })
@@ -879,9 +884,14 @@ final class MarkdownPanelTests: XCTestCase {
         XCTAssertEqual(loadingExpandedIPv6Image["src"] as? String, "")
         XCTAssertEqual(loadingExpandedIPv6Image["hidden"] as? Bool, true)
         XCTAssertEqual(loadingPlaceholders.count, 7)
-        XCTAssertEqual(loadingButtons.filter { $0 == expectedLoadButton }.count, 3)
+        XCTAssertEqual(loadingButtons.filter { $0 == expectedLoadButton }.count, 1)
+        XCTAssertEqual(loadingButtons.filter { $0 == expectedLoadingButton }.count, 2)
         XCTAssertEqual(loadingButtons.filter { $0 == expectedCopyURLButton }.count, 7)
         XCTAssertEqual(loadingButtons.filter { $0 == expectedOpenURLButton }.count, 7)
+        let activeLoadingButtons = loadingButtonStates.filter { $0["loading"] as? String == "1" }
+        XCTAssertEqual(activeLoadingButtons.count, 2)
+        XCTAssertTrue(activeLoadingButtons.allSatisfy { $0["text"] as? String == expectedLoadingButton })
+        XCTAssertTrue(activeLoadingButtons.allSatisfy { $0["disabled"] as? Bool == true })
 
         _ = try await webView.evaluateJavaScript(
             """
@@ -949,13 +959,16 @@ final class MarkdownPanelTests: XCTestCase {
         let autoLoadingImages = try XCTUnwrap(autoLoading["images"] as? [[String: Any]])
         let autoLoadingPlaceholders = try XCTUnwrap(autoLoading["placeholders"] as? [String])
         let autoLoadingButtons = try XCTUnwrap(autoLoading["buttons"] as? [String])
+        let autoLoadingButtonStates = try XCTUnwrap(autoLoading["buttonStates"] as? [[String: Any]])
         let autoLoadingImage = try XCTUnwrap(autoLoadingImages.first)
         XCTAssertTrue((autoLoadingImage["src"] as? String ?? "").hasPrefix("cmux-remote-image://"))
         XCTAssertEqual(autoLoadingImage["hidden"] as? Bool, true)
         XCTAssertEqual(autoLoadingPlaceholders.count, 1)
-        XCTAssertEqual(autoLoadingButtons.filter { $0 == expectedLoadButton }.count, 1)
+        XCTAssertEqual(autoLoadingButtons.filter { $0 == expectedLoadButton }.count, 0)
+        XCTAssertEqual(autoLoadingButtons.filter { $0 == expectedLoadingButton }.count, 1)
         XCTAssertEqual(autoLoadingButtons.filter { $0 == expectedCopyURLButton }.count, 1)
         XCTAssertEqual(autoLoadingButtons.filter { $0 == expectedOpenURLButton }.count, 1)
+        XCTAssertEqual(autoLoadingButtonStates.filter { $0["loading"] as? String == "1" }.count, 1)
 
         _ = try await webView.evaluateJavaScript(
             """
@@ -974,6 +987,7 @@ final class MarkdownPanelTests: XCTestCase {
         XCTAssertEqual(autoFailedImage["hidden"] as? Bool, true)
         XCTAssertEqual(autoFailedPlaceholders.count, 1)
         XCTAssertEqual(autoFailedButtons.filter { $0 == expectedLoadButton }.count, 1)
+        XCTAssertEqual(autoFailedButtons.filter { $0 == expectedLoadingButton }.count, 0)
         XCTAssertEqual(autoFailedButtons.filter { $0 == expectedCopyURLButton }.count, 1)
         XCTAssertEqual(autoFailedButtons.filter { $0 == expectedOpenURLButton }.count, 1)
     }
@@ -1220,6 +1234,13 @@ final class MarkdownPanelTests: XCTestCase {
                 }),
                 buttons: Array.prototype.slice.call(document.querySelectorAll('.cmux-remote-image-placeholder button')).map(function(el) {
                   return el.textContent || '';
+                }),
+                buttonStates: Array.prototype.slice.call(document.querySelectorAll('.cmux-remote-image-placeholder button')).map(function(el) {
+                  return {
+                    text: el.textContent || '',
+                    loading: el.getAttribute('data-loading') || '',
+                    disabled: !!el.disabled
+                  };
                 }),
                 codeFiles: Array.prototype.slice.call(document.querySelectorAll('code[data-cmux-file]')).map(function(el) {
                   return decodeURIComponent(el.getAttribute('data-cmux-file') || '');
