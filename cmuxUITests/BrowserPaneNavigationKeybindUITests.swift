@@ -775,63 +775,59 @@ final class BrowserPaneNavigationKeybindUITests: XCTestCase {
         let overview = app.descendants(matching: .any).matching(identifier: "WorkspaceCanvasOverview").firstMatch
         XCTAssertTrue(overview.waitForExistence(timeout: 6.0), "Expected canvas overview")
 
-        let terminalCard = canvasCard(app, paneId: terminalPaneId)
-        XCTAssertTrue(terminalCard.waitForExistence(timeout: 6.0), "Expected terminal canvas card for pane \(terminalPaneId)")
+        guard let terminalCanvasItemId = waitForCanvasItemId(paneId: terminalPaneId, timeout: 6.0) else {
+            XCTFail("Expected terminal canvas item for pane \(terminalPaneId). layout=\(String(describing: canvasLayout()))")
+            return
+        }
         XCTAssertTrue(
             waitForCondition(timeout: 6.0) {
-                self.canvasCardCount(app) >= 2
+                self.canvasItemCount() >= 2
             },
             "Expected terminal and browser cards in the canvas"
         )
 
-        let frameBeforeMove = terminalCard.frame
-        let dragStart = terminalCard.coordinate(withNormalizedOffset: CGVector(dx: 0.50, dy: 0.50))
-        dragStart.press(
-            forDuration: 0.12,
-            thenDragTo: dragStart.withOffset(CGVector(dx: 90, dy: 65))
+        guard let frameBeforeMove = canvasItemFrame(itemId: terminalCanvasItemId) else {
+            XCTFail("Missing terminal canvas frame before drag. layout=\(String(describing: canvasLayout()))")
+            return
+        }
+        let dragEnvelope = socketJSON(
+            method: "debug.canvas.drag",
+            params: [
+                "item_id": terminalCanvasItemId,
+                "dx": 90,
+                "dy": 65,
+            ]
         )
+        XCTAssertEqual(dragEnvelope?["ok"] as? Bool, true, "Expected debug canvas drag to succeed. envelope=\(String(describing: dragEnvelope))")
         XCTAssertTrue(
             waitForCondition(timeout: 6.0) {
-                let frame = self.canvasCard(app, paneId: terminalPaneId).frame
+                guard let frame = self.canvasItemFrame(itemId: terminalCanvasItemId) else { return false }
                 return abs(frame.minX - frameBeforeMove.minX) > 20 || abs(frame.minY - frameBeforeMove.minY) > 20
             },
             "Expected dragging the canvas card header to move the terminal card"
         )
 
-        let frameBeforeResize = canvasCard(app, paneId: terminalPaneId).frame
-        let resizeStart = canvasCard(app, paneId: terminalPaneId)
-            .coordinate(withNormalizedOffset: CGVector(dx: 0.98, dy: 0.98))
-        resizeStart.press(
-            forDuration: 0.12,
-            thenDragTo: resizeStart.withOffset(CGVector(dx: 100, dy: 80))
+        guard let frameBeforeResize = canvasItemFrame(itemId: terminalCanvasItemId) else {
+            XCTFail("Missing terminal canvas frame before resize. layout=\(String(describing: canvasLayout()))")
+            return
+        }
+        let resizeEnvelope = socketJSON(
+            method: "debug.canvas.resize",
+            params: [
+                "item_id": terminalCanvasItemId,
+                "handle": "bottomRight",
+                "dx": 100,
+                "dy": 80,
+            ]
         )
-        if !canvasCardGrew(app, paneId: terminalPaneId, from: frameBeforeResize) {
-            let nativeFootprintResizeStart = canvasCard(app, paneId: terminalPaneId)
-                .coordinate(withNormalizedOffset: CGVector(dx: 0.98, dy: 1.42))
-            nativeFootprintResizeStart.press(
-                forDuration: 0.12,
-                thenDragTo: nativeFootprintResizeStart.withOffset(CGVector(dx: 100, dy: 80))
-            )
-        }
-        if !canvasCardGrew(app, paneId: terminalPaneId, from: frameBeforeResize) {
-            let envelope = socketJSON(
-                method: "debug.canvas.resize",
-                params: [
-                    "item_id": terminalPaneId,
-                    "handle": "bottomRight",
-                    "dx": 100,
-                    "dy": 80,
-                ]
-            )
-            XCTAssertEqual(
-                envelope?["ok"] as? Bool,
-                true,
-                "Expected debug canvas resize fallback to succeed. envelope=\(String(describing: envelope))"
-            )
-        }
+        XCTAssertEqual(
+            resizeEnvelope?["ok"] as? Bool,
+            true,
+            "Expected debug canvas resize to succeed. envelope=\(String(describing: resizeEnvelope))"
+        )
         XCTAssertTrue(
             waitForCondition(timeout: 6.0) {
-                self.canvasCardGrew(app, paneId: terminalPaneId, from: frameBeforeResize)
+                self.canvasItemGrew(itemId: terminalCanvasItemId, from: frameBeforeResize)
             },
             "Expected bottom-right canvas corner hit target to resize width and height"
         )
@@ -864,8 +860,15 @@ final class BrowserPaneNavigationKeybindUITests: XCTestCase {
             "Expected Ctrl+Cmd+Shift+F to keep the canvas open. data=\(loadData() ?? [:])"
         )
 
-        let focusedTerminalCard = canvasCard(app, paneId: terminalPaneId)
-        focusedTerminalCard.coordinate(withNormalizedOffset: CGVector(dx: 0.50, dy: 0.05)).click()
+        let focusEnvelope = socketJSON(
+            method: "debug.canvas.drag",
+            params: [
+                "item_id": terminalCanvasItemId,
+                "dx": 0,
+                "dy": 0,
+            ]
+        )
+        XCTAssertEqual(focusEnvelope?["ok"] as? Bool, true, "Expected debug canvas focus to succeed. envelope=\(String(describing: focusEnvelope))")
         app.typeKey(XCUIKeyboardKey.return.rawValue, modifierFlags: [])
         XCTAssertTrue(
             waitForDataMatch(timeout: 8.0) { data in
@@ -1541,6 +1544,65 @@ final class BrowserPaneNavigationKeybindUITests: XCTestCase {
             "params": params,
         ]
         return ControlSocketClient(path: socketPath, responseTimeout: 2.0).sendJSON(request)
+    }
+
+    private func canvasLayout() -> [String: Any]? {
+        guard let envelope = socketJSON(method: "debug.layout", params: [:]),
+              let result = envelope["result"] as? [String: Any],
+              let layout = result["layout"] as? [String: Any] else {
+            return nil
+        }
+        return layout
+    }
+
+    private func canvasItems() -> [[String: Any]] {
+        canvasLayout()?["canvasItems"] as? [[String: Any]] ?? []
+    }
+
+    private func canvasItemCount() -> Int {
+        canvasItems().count
+    }
+
+    private func canvasItemId(paneId: String) -> String? {
+        canvasItems().first { item in
+            item["paneId"] as? String == paneId
+        }?["id"] as? String
+    }
+
+    private func waitForCanvasItemId(paneId: String, timeout: TimeInterval) -> String? {
+        var itemId: String?
+        let matched = waitForCondition(timeout: timeout) {
+            itemId = self.canvasItemId(paneId: paneId)
+            return itemId != nil
+        }
+        return matched ? itemId : nil
+    }
+
+    private func canvasItemFrame(itemId: String) -> CGRect? {
+        guard let item = canvasItems().first(where: { $0["id"] as? String == itemId }),
+              let frame = item["frame"] as? [String: Any],
+              let x = numberValue(frame["x"]),
+              let y = numberValue(frame["y"]),
+              let width = numberValue(frame["width"]),
+              let height = numberValue(frame["height"]) else {
+            return nil
+        }
+        return CGRect(x: x, y: y, width: width, height: height)
+    }
+
+    private func canvasItemGrew(itemId: String, from frameBeforeResize: CGRect) -> Bool {
+        guard let frame = canvasItemFrame(itemId: itemId) else { return false }
+        return frame.width > frameBeforeResize.width + 24 && frame.height > frameBeforeResize.height + 24
+    }
+
+    private func numberValue(_ value: Any?) -> CGFloat? {
+        if let number = value as? NSNumber {
+            return CGFloat(truncating: number)
+        }
+        if let string = value as? String, let double = Double(string) {
+            return CGFloat(double)
+        }
+        return nil
     }
 
     private func commandPaletteResultRows(from snapshot: [String: Any]) -> [[String: Any]] {
