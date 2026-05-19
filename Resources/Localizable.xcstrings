@@ -325,10 +325,52 @@
     "cli.remote-shell-init.error.unknownArguments": {
       "extractionState": "manual",
       "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "الاستخدام: cmux remote-shell-init"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Upotreba: cmux remote-shell-init"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Brug: cmux remote-shell-init"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Verwendung: cmux remote-shell-init"
+          }
+        },
         "en": {
           "stringUnit": {
             "state": "translated",
             "value": "Usage: cmux remote-shell-init"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Uso: cmux remote-shell-init"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Utilisation : cmux remote-shell-init"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Uso: cmux remote-shell-init"
           }
         },
         "ja": {
@@ -336,22 +378,184 @@
             "state": "translated",
             "value": "使い方: cmux remote-shell-init"
           }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "사용법: cmux remote-shell-init"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Bruk: cmux remote-shell-init"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Użycie: cmux remote-shell-init"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Uso: cmux remote-shell-init"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Использование: cmux remote-shell-init"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "การใช้งาน: cmux remote-shell-init"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Kullanım: cmux remote-shell-init"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Використання: cmux remote-shell-init"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "用法：cmux remote-shell-init"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "用法：cmux remote-shell-init"
+          }
         }
       }
     },
     "cli.remote-shell-init.usage": {
       "extractionState": "manual",
       "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "الاستخدام: cmux remote-shell-init\n\nاطبع مقتطف bash/zsh للأصداف البعيدة المفتوحة داخل جزء طرفية cmux عادي.\nاستخدم source له على المضيف البعيد لإرسال تلميحات cwd وفرع git عبر OSC 7 من خلال ssh أو mosh.\nعيّن CMUX_REMOTE_HOST=name قبل source لتجاوز اسم المضيف المعروض.\nعيّن CMUX_REMOTE_DISABLE_GIT=1 قبل source لإرسال cwd فقط.\n\nمثال:\n  cmux remote-shell-init >> ~/.zshrc\n  cmux remote-shell-init >> ~/.bashrc"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Upotreba: cmux remote-shell-init\n\nIspiši bash/zsh isječak za udaljene ljuske otvorene u običnom cmux terminalskom panelu.\nUčitaj ga na udaljenom hostu da preko ssh-a ili mosh-a emituje OSC 7 cwd i naznake git grane.\nPostavi CMUX_REMOTE_HOST=name prije učitavanja da zamijeniš prikazani host.\nPostavi CMUX_REMOTE_DISABLE_GIT=1 prije učitavanja da emituješ samo cwd.\n\nPrimjer:\n  cmux remote-shell-init >> ~/.zshrc\n  cmux remote-shell-init >> ~/.bashrc"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Brug: cmux remote-shell-init\n\nUdskriv et bash/zsh-uddrag til fjernskaller åbnet i en almindelig cmux-terminalrude.\nSource det på fjernværten for at sende OSC 7 cwd- og git-grentips via ssh eller mosh.\nAngiv CMUX_REMOTE_HOST=name før source for at tilsidesætte det viste værtsnavn.\nAngiv CMUX_REMOTE_DISABLE_GIT=1 før source for kun at sende cwd.\n\nEksempel:\n  cmux remote-shell-init >> ~/.zshrc\n  cmux remote-shell-init >> ~/.bashrc"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Verwendung: cmux remote-shell-init\n\nGibt ein bash/zsh-Snippet für Remote-Shells aus, die in einem normalen cmux-Terminalbereich geöffnet wurden.\nSourcen Sie es auf dem Remote-Host, um OSC-7-Hinweise für cwd und Git-Branch über ssh oder mosh zu senden.\nSetzen Sie CMUX_REMOTE_HOST=name vor dem Sourcen, um den angezeigten Host zu überschreiben.\nSetzen Sie CMUX_REMOTE_DISABLE_GIT=1 vor dem Sourcen, um nur cwd zu senden.\n\nBeispiel:\n  cmux remote-shell-init >> ~/.zshrc\n  cmux remote-shell-init >> ~/.bashrc"
+          }
+        },
         "en": {
           "stringUnit": {
             "state": "translated",
             "value": "Usage: cmux remote-shell-init\n\nPrint a bash/zsh snippet for remote shells opened inside a regular cmux terminal pane.\nSource it on the remote host to emit OSC 7 cwd and git branch hints over ssh or mosh.\nSet CMUX_REMOTE_HOST=name before sourcing to override the displayed host.\nSet CMUX_REMOTE_DISABLE_GIT=1 before sourcing to emit cwd only.\n\nExample:\n  cmux remote-shell-init >> ~/.zshrc\n  cmux remote-shell-init >> ~/.bashrc"
           }
         },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Uso: cmux remote-shell-init\n\nImprime un fragmento bash/zsh para shells remotas abiertas dentro de un panel de terminal normal de cmux.\nCárgalo con source en el host remoto para emitir sugerencias de cwd y rama git mediante OSC 7 sobre ssh o mosh.\nDefine CMUX_REMOTE_HOST=name antes de cargarlo para reemplazar el host mostrado.\nDefine CMUX_REMOTE_DISABLE_GIT=1 antes de cargarlo para emitir solo cwd.\n\nEjemplo:\n  cmux remote-shell-init >> ~/.zshrc\n  cmux remote-shell-init >> ~/.bashrc"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Utilisation : cmux remote-shell-init\n\nAffiche un extrait bash/zsh pour les shells distants ouverts dans un panneau de terminal cmux standard.\nSourcez-le sur l'hôte distant pour émettre les indications cwd et branche git OSC 7 via ssh ou mosh.\nDéfinissez CMUX_REMOTE_HOST=name avant de le sourcer pour remplacer l'hôte affiché.\nDéfinissez CMUX_REMOTE_DISABLE_GIT=1 avant de le sourcer pour n'émettre que cwd.\n\nExemple :\n  cmux remote-shell-init >> ~/.zshrc\n  cmux remote-shell-init >> ~/.bashrc"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Uso: cmux remote-shell-init\n\nStampa uno snippet bash/zsh per shell remote aperte in un normale riquadro terminale cmux.\nEsegui source sullo host remoto per emettere suggerimenti OSC 7 per cwd e ramo git tramite ssh o mosh.\nImposta CMUX_REMOTE_HOST=name prima del source per sostituire l'host visualizzato.\nImposta CMUX_REMOTE_DISABLE_GIT=1 prima del source per emettere solo cwd.\n\nEsempio:\n  cmux remote-shell-init >> ~/.zshrc\n  cmux remote-shell-init >> ~/.bashrc"
+          }
+        },
         "ja": {
           "stringUnit": {
             "state": "translated",
             "value": "使い方: cmux remote-shell-init\n\n通常の cmux ターミナルペイン内で開いたリモートシェル用の bash/zsh スニペットを出力します。\nリモートホストで source すると、ssh または mosh 越しに OSC 7 の cwd と git ブランチヒントを送信します。\n表示ホスト名を上書きするには、source する前に CMUX_REMOTE_HOST=name を設定します。\ncwd のみを送信するには、source する前に CMUX_REMOTE_DISABLE_GIT=1 を設定します。\n\n例:\n  cmux remote-shell-init >> ~/.zshrc\n  cmux remote-shell-init >> ~/.bashrc"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "사용법: cmux remote-shell-init\n\n일반 cmux 터미널 패인 안에서 열린 원격 셸용 bash/zsh 스니펫을 출력합니다.\n원격 호스트에서 source하여 ssh 또는 mosh를 통해 OSC 7 cwd 및 git 브랜치 힌트를 보냅니다.\n표시되는 호스트를 재정의하려면 source하기 전에 CMUX_REMOTE_HOST=name을 설정합니다.\ncwd만 보내려면 source하기 전에 CMUX_REMOTE_DISABLE_GIT=1을 설정합니다.\n\n예:\n  cmux remote-shell-init >> ~/.zshrc\n  cmux remote-shell-init >> ~/.bashrc"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Bruk: cmux remote-shell-init\n\nSkriv ut et bash/zsh-utdrag for eksterne skall åpnet i en vanlig cmux-terminalrute.\nSource det på den eksterne verten for å sende OSC 7-hint for cwd og git-gren via ssh eller mosh.\nSett CMUX_REMOTE_HOST=name før sourcing for å overstyre verten som vises.\nSett CMUX_REMOTE_DISABLE_GIT=1 før sourcing for å bare sende cwd.\n\nEksempel:\n  cmux remote-shell-init >> ~/.zshrc\n  cmux remote-shell-init >> ~/.bashrc"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Użycie: cmux remote-shell-init\n\nWypisz fragment bash/zsh dla zdalnych powłok otwartych w zwykłym panelu terminala cmux.\nWczytaj go poleceniem source na zdalnym hoście, aby wysyłać wskazówki OSC 7 dla cwd i gałęzi git przez ssh lub mosh.\nUstaw CMUX_REMOTE_HOST=name przed source, aby zastąpić wyświetlanego hosta.\nUstaw CMUX_REMOTE_DISABLE_GIT=1 przed source, aby wysyłać tylko cwd.\n\nPrzykład:\n  cmux remote-shell-init >> ~/.zshrc\n  cmux remote-shell-init >> ~/.bashrc"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Uso: cmux remote-shell-init\n\nImprime um trecho bash/zsh para shells remotos abertos dentro de um painel de terminal cmux comum.\nExecute source nele no host remoto para emitir dicas OSC 7 de cwd e branch git via ssh ou mosh.\nDefina CMUX_REMOTE_HOST=name antes do source para substituir o host exibido.\nDefina CMUX_REMOTE_DISABLE_GIT=1 antes do source para emitir apenas cwd.\n\nExemplo:\n  cmux remote-shell-init >> ~/.zshrc\n  cmux remote-shell-init >> ~/.bashrc"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Использование: cmux remote-shell-init\n\nПечатает фрагмент bash/zsh для удаленных оболочек, открытых в обычной панели терминала cmux.\nВыполните source на удаленном хосте, чтобы передавать подсказки OSC 7 о cwd и ветке git через ssh или mosh.\nЗадайте CMUX_REMOTE_HOST=name перед source, чтобы переопределить отображаемый хост.\nЗадайте CMUX_REMOTE_DISABLE_GIT=1 перед source, чтобы передавать только cwd.\n\nПример:\n  cmux remote-shell-init >> ~/.zshrc\n  cmux remote-shell-init >> ~/.bashrc"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "การใช้งาน: cmux remote-shell-init\n\nพิมพ์สคริปต์ย่อย bash/zsh สำหรับเชลล์ระยะไกลที่เปิดอยู่ในแผงเทอร์มินัล cmux ปกติ\nsource สคริปต์นี้บนโฮสต์ระยะไกลเพื่อส่งคำใบ้ OSC 7 สำหรับ cwd และสาขา git ผ่าน ssh หรือ mosh\nตั้งค่า CMUX_REMOTE_HOST=name ก่อน source เพื่อแทนที่ชื่อโฮสต์ที่แสดง\nตั้งค่า CMUX_REMOTE_DISABLE_GIT=1 ก่อน source เพื่อส่งเฉพาะ cwd\n\nตัวอย่าง:\n  cmux remote-shell-init >> ~/.zshrc\n  cmux remote-shell-init >> ~/.bashrc"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Kullanım: cmux remote-shell-init\n\nNormal bir cmux terminal bölmesinde açılan uzak kabuklar için bir bash/zsh parçacığı yazdırır.\nssh veya mosh üzerinden OSC 7 cwd ve git dalı ipuçlarını göndermek için uzak makinede source ile yükleyin.\nGösterilen ana makineyi geçersiz kılmak için source etmeden önce CMUX_REMOTE_HOST=name ayarlayın.\nYalnızca cwd göndermek için source etmeden önce CMUX_REMOTE_DISABLE_GIT=1 ayarlayın.\n\nÖrnek:\n  cmux remote-shell-init >> ~/.zshrc\n  cmux remote-shell-init >> ~/.bashrc"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Використання: cmux remote-shell-init\n\nДрукує фрагмент bash/zsh для віддалених оболонок, відкритих у звичайній панелі термінала cmux.\nВиконайте source на віддаленому хості, щоб надсилати підказки OSC 7 про cwd і гілку git через ssh або mosh.\nЗадайте CMUX_REMOTE_HOST=name перед source, щоб замінити відображуваний хост.\nЗадайте CMUX_REMOTE_DISABLE_GIT=1 перед source, щоб надсилати лише cwd.\n\nПриклад:\n  cmux remote-shell-init >> ~/.zshrc\n  cmux remote-shell-init >> ~/.bashrc"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "用法：cmux remote-shell-init\n\n为在常规 cmux 终端窗格中打开的远程 shell 打印 bash/zsh 片段。\n在远程主机上 source 它，以通过 ssh 或 mosh 发送 OSC 7 cwd 和 git 分支提示。\n在 source 前设置 CMUX_REMOTE_HOST=name 可覆盖显示的主机名。\n在 source 前设置 CMUX_REMOTE_DISABLE_GIT=1 可仅发送 cwd。\n\n示例：\n  cmux remote-shell-init >> ~/.zshrc\n  cmux remote-shell-init >> ~/.bashrc"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "用法：cmux remote-shell-init\n\n為在一般 cmux 終端機窗格中開啟的遠端 shell 列印 bash/zsh 片段。\n在遠端主機上 source 它，以透過 ssh 或 mosh 傳送 OSC 7 cwd 和 git 分支提示。\n在 source 前設定 CMUX_REMOTE_HOST=name 可覆寫顯示的主機名稱。\n在 source 前設定 CMUX_REMOTE_DISABLE_GIT=1 可只傳送 cwd。\n\n範例：\n  cmux remote-shell-init >> ~/.zshrc\n  cmux remote-shell-init >> ~/.bashrc"
           }
         }
       }
