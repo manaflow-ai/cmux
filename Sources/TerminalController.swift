@@ -1158,7 +1158,7 @@ class TerminalController {
         _ path: String
     ) -> SocketBindAttemptResult? {
         guard socketPathIdentity(at: path) != nil,
-              !canConnectToUnixSocket(at: path, timeout: 0.1) else {
+              unixSocketConnectErrno(at: path, timeout: 0.1) == ECONNREFUSED else {
             return nil
         }
         if unlink(path) != 0, errno != ENOENT {
@@ -1840,12 +1840,12 @@ class TerminalController {
         )
     }
 
-    private nonisolated static func canConnectToUnixSocket(
+    private nonisolated static func unixSocketConnectErrno(
         at socketPath: String,
         timeout: TimeInterval
-    ) -> Bool {
+    ) -> Int32? {
         let fd = socket(AF_UNIX, SOCK_STREAM, 0)
-        guard fd >= 0 else { return false }
+        guard fd >= 0 else { return errno }
         defer { close(fd) }
         Self.configureSocketTimeouts(fd, timeout: timeout)
 
@@ -1855,7 +1855,7 @@ class TerminalController {
 
         let maxLen = MemoryLayout.size(ofValue: addr.sun_path)
         let pathBytes = Array(socketPath.utf8CString)
-        guard pathBytes.count <= maxLen else { return false }
+        guard pathBytes.count <= maxLen else { return ENAMETOOLONG }
         withUnsafeMutablePointer(to: &addr.sun_path) { ptr in
             let raw = UnsafeMutableRawPointer(ptr).assumingMemoryBound(to: CChar.self)
             memset(raw, 0, maxLen)
@@ -1875,7 +1875,7 @@ class TerminalController {
                 connect(fd, sockaddrPtr, addrLen)
             }
         }
-        return connectResult == 0
+        return connectResult == 0 ? nil : errno
     }
 
     nonisolated static func probeSocketCommand(
