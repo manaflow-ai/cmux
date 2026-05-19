@@ -10892,14 +10892,14 @@ struct CMUXCLI {
               state <save|load> <path>
               addinitscript|addscript [--script <js> | <js>]
               addstyle [--css <css> | <css>]
-              viewport <width> <height>
+              viewport <width> <height> (not supported on WKWebView)
               geolocation|geo <latitude> <longitude>
               offline <true|false>
-              trace <start|stop> [path]
-              network <route|unroute|requests> ...
+              trace <start|stop> [path] (not supported on WKWebView)
+              network <route|unroute|requests> ... (not supported on WKWebView)
                 route <pattern> [--abort] [--body <text>]
                 unroute <pattern>
-              screencast <start|stop>
+              screencast <start|stop> (not supported on WKWebView)
               input <mouse|keyboard|touch> [args...]
               input_mouse | input_keyboard | input_touch
               identify [--surface <id|ref|index>]
