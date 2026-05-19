@@ -16,6 +16,20 @@ import UserNotifications
 @testable import cmux
 #endif
 
+private final class FakeBonsplitTabItemRegionView: NSView, BonsplitTabItemHitRegionProviding {
+    nonisolated(unsafe) var tabFrames: [CGRect] = []
+
+    deinit {}
+
+    nonisolated func containsBonsplitTabItemHit(localPoint: NSPoint) -> Bool {
+        tabFrames.contains { $0.contains(localPoint) }
+    }
+
+    override func hitTest(_ point: NSPoint) -> NSView? {
+        nil
+    }
+}
+
 @MainActor
 final class WindowGlassEffectTests: XCTestCase {
     func testRemoveRestoresOriginalContentHierarchy() {
@@ -639,18 +653,6 @@ final class WindowDragHandleHitTests: XCTestCase {
         override func hitTest(_ point: NSPoint) -> NSView? {
             guard bounds.contains(point) else { return nil }
             return super.hitTest(point) ?? self
-        }
-    }
-
-    private final class FakeBonsplitTabItemRegionView: NSView, BonsplitTabItemHitRegionProviding {
-        nonisolated(unsafe) var tabFrames: [CGRect] = []
-
-        nonisolated func containsBonsplitTabItemHit(localPoint: NSPoint) -> Bool {
-            tabFrames.contains { $0.contains(localPoint) }
-        }
-
-        override func hitTest(_ point: NSPoint) -> NSView? {
-            nil
         }
     }
 
@@ -1846,14 +1848,6 @@ final class FolderWindowMoveSuppressionTests: XCTestCase {
 
 @MainActor
 final class WindowMoveSuppressionHitPathTests: XCTestCase {
-    private final class FakeBonsplitTabItemRegionView: NSView, BonsplitTabItemHitRegionProviding {
-        nonisolated(unsafe) var tabFrames: [CGRect] = []
-
-        nonisolated func containsBonsplitTabItemHit(localPoint: NSPoint) -> Bool {
-            tabFrames.contains { $0.contains(localPoint) }
-        }
-    }
-
     private func makeWindowWithContentView() -> (NSWindow, NSView) {
         let window = NSWindow(
             contentRect: NSRect(x: 0, y: 0, width: 320, height: 180),
