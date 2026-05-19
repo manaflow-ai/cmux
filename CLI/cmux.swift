@@ -2930,8 +2930,8 @@ struct CMUXCLI {
             let (focusOpt, rem6) = parseOption(rem5, name: "--focus")
             let (worktreeOpt, rem7) = parseFlag(rem6, name: "--worktree")
             let (worktreeCleanupOpt, remaining) = parseOption(rem7, name: "--worktree-cleanup")
-            if let unknown = remaining.first(where: { $0.hasPrefix("--") }) {
-                throw CLIError(message: "new-workspace: unknown flag '\(unknown)'. Known flags: --name <title>, --description <text>, --command <text>, --cwd <path>, --layout <json>, --window <id|ref|index>, --focus <true|false>, --worktree, --worktree-cleanup <snapshot|block>")
+            if let unknown = remaining.first {
+                throw CLIError(message: "new-workspace: unknown argument '\(unknown)'. Known flags: --name <title>, --description <text>, --command <text>, --cwd <path>, --layout <json>, --window <id|ref|index>, --focus <true|false>, --worktree, --worktree-cleanup <snapshot|block>")
             }
             var params: [String: Any] = [:]
             try applyWindowOrCallerContext(to: &params, client: client, windowRaw: windowOpt ?? windowId)
@@ -2953,7 +2953,7 @@ struct CMUXCLI {
                 params["layout"] = layoutObj
             }
             try applyFocusOption(focusOpt, defaultValue: false, to: &params)
-            applyWorktreeOptions(enabled: worktreeOpt, cleanup: worktreeCleanupOpt, to: &params)
+            try applyWorktreeOptions(enabled: worktreeOpt, cleanup: worktreeCleanupOpt, to: &params)
             let response = try client.sendV2(method: "workspace.create", params: params)
             let wsId = (response["workspace_ref"] as? String) ?? (response["workspace_id"] as? String) ?? ""
             print("OK \(wsId)")
@@ -2975,8 +2975,8 @@ struct CMUXCLI {
             let workspaceArg = wsArg ?? (windowId == nil ? ProcessInfo.processInfo.environment["CMUX_WORKSPACE_ID"] : nil)
             let surfaceRaw = sfArg ?? panelArg ?? (wsArg == nil && windowId == nil ? ProcessInfo.processInfo.environment["CMUX_SURFACE_ID"] : nil)
             let direction = try validatedSplitDirection(rem7.first, commandName: "new-split")
-            if let unknown = rem7.dropFirst().first(where: { $0.hasPrefix("--") }) {
-                throw CLIError(message: "new-split: unknown flag '\(unknown)'")
+            if let unknown = rem7.dropFirst().first {
+                throw CLIError(message: "new-split: unknown argument '\(unknown)'")
             }
             var params: [String: Any] = ["direction": direction]
             let wsId = try normalizeWorkspaceHandle(workspaceArg, client: client)
@@ -2986,7 +2986,7 @@ struct CMUXCLI {
             try applyFocusOption(focusOpt, defaultValue: false, to: &params)
             if let cwdOpt { params["working_directory"] = resolvePath(cwdOpt) }
             if let commandOpt { params["initial_command"] = commandOpt }
-            applyWorktreeOptions(enabled: worktreeOpt, cleanup: worktreeCleanupOpt, to: &params)
+            try applyWorktreeOptions(enabled: worktreeOpt, cleanup: worktreeCleanupOpt, to: &params)
             let payload = try client.sendV2(method: "surface.split", params: params)
             printV2Payload(payload, jsonOutput: jsonOutput, idFormat: idFormat, fallbackText: v2OKSummary(payload, idFormat: idFormat))
 
@@ -3083,7 +3083,7 @@ struct CMUXCLI {
             if let cwdOpt { params["working_directory"] = resolvePath(cwdOpt) }
             if let commandOpt { params["initial_command"] = commandOpt }
             try applyFocusOption(focusOpt, defaultValue: false, to: &params)
-            applyWorktreeOptions(enabled: worktreeOpt, cleanup: worktreeCleanupOpt, to: &params)
+            try applyWorktreeOptions(enabled: worktreeOpt, cleanup: worktreeCleanupOpt, to: &params)
             let payload = try client.sendV2(method: "pane.create", params: params)
             printV2Payload(payload, jsonOutput: jsonOutput, idFormat: idFormat, fallbackText: v2OKSummary(payload, idFormat: idFormat, kinds: ["surface", "pane", "workspace"]))
 
@@ -3111,7 +3111,7 @@ struct CMUXCLI {
             if let cwdOpt { params["working_directory"] = resolvePath(cwdOpt) }
             if let commandOpt { params["initial_command"] = commandOpt }
             try applyFocusOption(focusOpt, defaultValue: false, to: &params)
-            applyWorktreeOptions(enabled: worktreeOpt, cleanup: worktreeCleanupOpt, to: &params)
+            try applyWorktreeOptions(enabled: worktreeOpt, cleanup: worktreeCleanupOpt, to: &params)
             let payload = try client.sendV2(method: "surface.create", params: params)
             printV2Payload(payload, jsonOutput: jsonOutput, idFormat: idFormat, fallbackText: v2OKSummary(payload, idFormat: idFormat, kinds: ["surface", "pane", "workspace"]))
 
@@ -11072,7 +11072,10 @@ struct CMUXCLI {
         return (found, remaining)
     }
 
-    func applyWorktreeOptions(enabled: Bool, cleanup: String?, to params: inout [String: Any]) {
+    func applyWorktreeOptions(enabled: Bool, cleanup: String?, to params: inout [String: Any]) throws {
+        if cleanup != nil, !enabled {
+            throw CLIError(message: "--worktree-cleanup requires --worktree")
+        }
         if enabled {
             params["worktree"] = true
             if let cleanup {
@@ -24946,14 +24949,14 @@ export default function cmuxPiSessionExtension(pi: ExtensionAPI) {
           new-workspace [--name <title>] [--description <text>] [--cwd <path>] [--command <text>] [--layout <json>] [--window <id|ref|index>] [--focus <true|false>] [--worktree] [--worktree-cleanup <snapshot|block>]
           ssh <destination> [--name <title>] [--port <n>] [--identity <path>] [--ssh-option <opt>] [--no-focus] [-- <remote-command-args>]
           remote-daemon-status [--os <darwin|linux>] [--arch <arm64|amd64>]
-          new-split <left|right|up|down> [--workspace <id|ref>] [--surface <id|ref>] [--panel <id|ref>] [--focus <true|false>] [--worktree] [--worktree-cleanup <snapshot|block>]
+          new-split <left|right|up|down> [--workspace <id|ref>] [--surface <id|ref>] [--panel <id|ref>] [--focus <true|false>] [--cwd <path>] [--command <text>] [--worktree] [--worktree-cleanup <snapshot|block>]
           list-panes [--workspace <id|ref>]
           list-pane-surfaces [--workspace <id|ref>] [--pane <id|ref>]
           tree [--all] [--workspace <id|ref|index>]
           top [--all] [--workspace <id|ref|index>] [--processes] [--sort <cpu|mem|proc>] [--flat] [--format <tree|tsv>]
           focus-pane --pane <id|ref> [--workspace <id|ref>]
-          new-pane [--type <terminal|browser>] [--direction <left|right|up|down>] [--workspace <id|ref>] [--url <url>] [--focus <true|false>] [--worktree] [--worktree-cleanup <snapshot|block>]
-          new-surface [--type <terminal|browser>] [--pane <id|ref>] [--workspace <id|ref>] [--url <url>] [--focus <true|false>] [--worktree] [--worktree-cleanup <snapshot|block>]
+          new-pane [--type <terminal|browser>] [--direction <left|right|up|down>] [--workspace <id|ref>] [--url <url>] [--focus <true|false>] [--cwd <path>] [--command <text>] [--worktree] [--worktree-cleanup <snapshot|block>]
+          new-surface [--type <terminal|browser>] [--pane <id|ref>] [--workspace <id|ref>] [--url <url>] [--focus <true|false>] [--cwd <path>] [--command <text>] [--worktree] [--worktree-cleanup <snapshot|block>]
           close-surface [--surface <id|ref>] [--workspace <id|ref>]
           move-surface --surface <id|ref|index> [--pane <id|ref|index>] [--workspace <id|ref|index>] [--window <id|ref|index>] [--before <id|ref|index>] [--after <id|ref|index>] [--index <n>] [--focus <true|false>]
           split-off --surface <id|ref|index> <left|right|up|down> [--workspace <id|ref|index>] [--focus <true|false>]

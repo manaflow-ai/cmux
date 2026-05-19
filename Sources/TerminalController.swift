@@ -4471,15 +4471,48 @@ class TerminalController {
                     code: "invalid_params",
                     message: String(
                         localized: "error.ephemeralWorktree.worktreeBoolean",
-                        defaultValue: "worktree must be a boolean"
+                        defaultValue: "worktree must be a boolean."
                     ),
                     data: nil
                 )
             )
         }
 
+        let cleanupKey = ["worktree_cleanup", "worktree_cleanup_policy"]
+            .first { v2HasNonNullParam(params, $0) }
+        let rawPolicy: String?
+        if let cleanupKey {
+            guard let raw = v2RawString(params, cleanupKey) else {
+                return (
+                    false,
+                    .defaultPolicy,
+                    .err(
+                        code: "invalid_params",
+                        message: EphemeralWorktreeLifecycleError.invalidCleanupPolicy("").localizedDescription,
+                        data: nil
+                    )
+                )
+            }
+            rawPolicy = raw.trimmingCharacters(in: .whitespacesAndNewlines)
+        } else {
+            rawPolicy = nil
+        }
         let enabled = v2Bool(params, "worktree") ?? false
         guard enabled else {
+            if cleanupKey != nil {
+                return (
+                    false,
+                    .defaultPolicy,
+                    .err(
+                        code: "invalid_params",
+                        message: String(
+                            localized: "error.ephemeralWorktree.cleanupRequiresWorktree",
+                            defaultValue: "worktree_cleanup requires worktree: true."
+                        ),
+                        data: nil
+                    )
+                )
+            }
             return (false, .defaultPolicy, nil)
         }
         guard panelType == .terminal else {
@@ -4490,15 +4523,13 @@ class TerminalController {
                     code: "invalid_params",
                     message: String(
                         localized: "error.ephemeralWorktree.terminalOnly",
-                        defaultValue: "worktree mode is only supported for terminal panes"
+                        defaultValue: "worktree mode is only supported for terminal panes."
                     ),
                     data: nil
                 )
             )
         }
 
-        let rawPolicy = v2OptionalTrimmedRawString(params, "worktree_cleanup")
-            ?? v2OptionalTrimmedRawString(params, "worktree_cleanup_policy")
         guard let policy = EphemeralWorktreeCleanupPolicy(userValue: rawPolicy) else {
             return (
                 false,
@@ -4534,7 +4565,7 @@ class TerminalController {
                     code: "invalid_params",
                     message: String(
                         localized: "error.ephemeralWorktree.sourceDirectoryRequired",
-                        defaultValue: "worktree mode requires a source git repository directory"
+                        defaultValue: "worktree mode requires a source git repository directory."
                     ),
                     data: nil
                 )
@@ -4547,6 +4578,16 @@ class TerminalController {
                 cleanupPolicy: options.policy
             )
             return (record, record.worktreePath, nil)
+        } catch let error as EphemeralWorktreeLifecycleError {
+            return (
+                nil,
+                nil,
+                .err(
+                    code: "worktree_error",
+                    message: error.localizedDescription,
+                    data: nil
+                )
+            )
         } catch {
             return (
                 nil,
@@ -4640,7 +4681,7 @@ class TerminalController {
                 code: "invalid_params",
                 message: String(
                     localized: "error.ephemeralWorktree.layoutUnsupported",
-                    defaultValue: "worktree mode is not supported with workspace layouts yet"
+                    defaultValue: "worktree mode is not supported with workspace layouts yet."
                 ),
                 data: nil
             )
@@ -6898,8 +6939,6 @@ class TerminalController {
                     result = .err(code: "not_found", message: "Workspace not found", data: nil)
                     return
                 }
-                v2MaybeFocusWindow(for: tabManager)
-                v2MaybeSelectWorkspace(tabManager, workspace: ws)
 
                 if let invalidPaneId = v2InvalidExplicitUUIDParamError(params, key: "pane_id") {
                     result = invalidPaneId
@@ -6917,6 +6956,9 @@ class TerminalController {
                     result = .err(code: "not_found", message: "Pane not found", data: nil)
                     return
                 }
+
+                v2MaybeFocusWindow(for: tabManager)
+                v2MaybeSelectWorkspace(tabManager, workspace: ws)
 
                 let focus = v2FocusAllowed(requested: v2Bool(params, "focus") ?? false)
                 guard let newPanelId = ws.newBrowserSurface(inPane: paneId, url: url, focus: focus)?.id else {
@@ -8336,8 +8378,6 @@ class TerminalController {
                     result = .err(code: "not_found", message: "Workspace not found", data: nil)
                     return
                 }
-                v2MaybeFocusWindow(for: tabManager)
-                v2MaybeSelectWorkspace(tabManager, workspace: ws)
                 if let invalidSurfaceId = v2InvalidExplicitUUIDParamError(params, key: "surface_id") {
                     result = invalidSurfaceId
                     return
@@ -8348,6 +8388,9 @@ class TerminalController {
                     result = .err(code: "not_found", message: "No source surface to split", data: nil)
                     return
                 }
+
+                v2MaybeFocusWindow(for: tabManager)
+                v2MaybeSelectWorkspace(tabManager, workspace: ws)
 
                 let focus = v2FocusAllowed(requested: v2Bool(params, "focus") ?? false)
                 guard let newPanelId = ws.newBrowserSplit(

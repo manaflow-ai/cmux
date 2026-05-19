@@ -6,6 +6,7 @@ private enum AsyncWorktreeV2Message {
     static let tabManagerUnavailable = String(localized: "error.socket.tabManagerUnavailable", defaultValue: "TabManager not available")
     static let cwdMustBeString = String(localized: "error.socket.cwdMustBeString", defaultValue: "cwd must be a string")
     static let invalidDirection = String(localized: "socket.surfaceSplitOff.error.invalidDirection", defaultValue: "Missing or invalid direction (left|right|up|down)")
+    static let worktreeRequestTimedOut = String(localized: "error.socket.worktreeRequestTimedOut", defaultValue: "worktree request timed out")
     static let workspaceNotFound = String(localized: "error.socket.workspaceNotFound", defaultValue: "Workspace not found")
     static let surfaceNotFound = String(localized: "error.socket.surfaceNotFound", defaultValue: "Surface not found")
     static let noFocusedSurface = String(localized: "error.socket.noFocusedSurface", defaultValue: "No focused surface")
@@ -14,6 +15,11 @@ private enum AsyncWorktreeV2Message {
     static let failedToCreateSplit = String(localized: "error.socket.failedToCreateSplit", defaultValue: "Failed to create split")
     static let failedToCreateSurface = String(localized: "error.socket.failedToCreateSurface", defaultValue: "Failed to create surface")
     static let failedToCreatePane = String(localized: "error.socket.failedToCreatePane", defaultValue: "Failed to create pane")
+    static let worktreeCreateTimeoutNanoseconds: UInt64 = 120 * 1_000_000_000
+}
+
+private enum AsyncWorktreeV2Error: Error {
+    case requestTimedOut
 }
 
 @MainActor
@@ -39,7 +45,7 @@ extension TerminalController {
                     code: "invalid_params",
                     message: String(
                         localized: "error.ephemeralWorktree.sourceDirectoryRequired",
-                        defaultValue: "worktree mode requires a source git repository directory"
+                        defaultValue: "worktree mode requires a source git repository directory."
                     ),
                     data: nil
                 )
@@ -47,11 +53,31 @@ extension TerminalController {
         }
 
         do {
-            let record = try await EphemeralWorktreeRegistry.shared.createAsync(
+            let record = try await v2CreateEphemeralWorktreeWithTimeout(
                 sourceDirectory: sourceDirectory,
                 cleanupPolicy: options.policy
             )
             return (record, record.worktreePath, nil)
+        } catch AsyncWorktreeV2Error.requestTimedOut {
+            return (
+                nil,
+                nil,
+                .err(
+                    code: "timeout",
+                    message: AsyncWorktreeV2Message.worktreeRequestTimedOut,
+                    data: nil
+                )
+            )
+        } catch let error as EphemeralWorktreeLifecycleError {
+            return (
+                nil,
+                nil,
+                .err(
+                    code: "worktree_error",
+                    message: error.localizedDescription,
+                    data: nil
+                )
+            )
         } catch {
             return (
                 nil,
@@ -68,6 +94,30 @@ extension TerminalController {
         }
     }
 
+    private func v2CreateEphemeralWorktreeWithTimeout(
+        sourceDirectory: String,
+        cleanupPolicy: EphemeralWorktreeCleanupPolicy
+    ) async throws -> EphemeralWorktreeRecord {
+        try await withThrowingTaskGroup(of: EphemeralWorktreeRecord.self) { group in
+            defer { group.cancelAll() }
+            group.addTask {
+                try await EphemeralWorktreeRegistry.shared.createAsync(
+                    sourceDirectory: sourceDirectory,
+                    cleanupPolicy: cleanupPolicy
+                )
+            }
+            group.addTask {
+                try await Task.sleep(nanoseconds: AsyncWorktreeV2Message.worktreeCreateTimeoutNanoseconds)
+                throw AsyncWorktreeV2Error.requestTimedOut
+            }
+
+            guard let record = try await group.next() else {
+                throw AsyncWorktreeV2Error.requestTimedOut
+            }
+            return record
+        }
+    }
+
     private func v2AsyncWorktreeTerminalOnlyError(
         params: [String: Any],
         panelType: PanelType
@@ -77,7 +127,7 @@ extension TerminalController {
                 code: "invalid_params",
                 message: String(
                     localized: "error.ephemeralWorktree.terminalOnly",
-                    defaultValue: "worktree mode is only supported for terminal panes"
+                    defaultValue: "worktree mode is only supported for terminal panes."
                 ),
                 data: nil
             )
@@ -98,9 +148,9 @@ extension TerminalController {
 
     private func v2AsyncWorktreeMaybeFocusWindow(
         for tabManager: TabManager,
-        allowsFocusMutation: Bool
+        shouldFocus: Bool
     ) {
-        guard allowsFocusMutation,
+        guard shouldFocus,
               let windowId = v2ResolveWindowId(tabManager: tabManager) else { return }
         _ = AppDelegate.shared?.focusMainWindow(windowId: windowId)
         setActiveTabManager(tabManager)
@@ -109,9 +159,9 @@ extension TerminalController {
     private func v2AsyncWorktreeMaybeSelectWorkspace(
         _ tabManager: TabManager,
         workspace: Workspace,
-        allowsFocusMutation: Bool
+        shouldFocus: Bool
     ) {
-        guard allowsFocusMutation else { return }
+        guard shouldFocus else { return }
         if tabManager.selectedTabId != workspace.id {
             tabManager.selectWorkspace(workspace)
         }
@@ -154,7 +204,7 @@ extension TerminalController {
                 code: "invalid_params",
                 message: String(
                     localized: "error.ephemeralWorktree.layoutUnsupported",
-                    defaultValue: "worktree mode is not supported with workspace layouts yet"
+                    defaultValue: "worktree mode is not supported with workspace layouts yet."
                 ),
                 data: nil
             )
@@ -267,17 +317,17 @@ extension TerminalController {
             cleanupUnattachedAsyncWorktree(worktree.record)
             return .err(code: "not_found", message: AsyncWorktreeV2Message.surfaceNotFound, data: ["surface_id": context.targetSurfaceId.uuidString])
         }
-        v2AsyncWorktreeMaybeFocusWindow(for: tabManager, allowsFocusMutation: allowsFocusMutation)
-        v2AsyncWorktreeMaybeSelectWorkspace(
-            tabManager,
-            workspace: currentWorkspace,
-            allowsFocusMutation: allowsFocusMutation
-        )
-
         let focus = v2AsyncWorktreeFocusAllowed(
             params: params,
             allowsFocusMutation: allowsFocusMutation
         )
+        v2AsyncWorktreeMaybeFocusWindow(for: tabManager, shouldFocus: focus)
+        v2AsyncWorktreeMaybeSelectWorkspace(
+            tabManager,
+            workspace: currentWorkspace,
+            shouldFocus: focus
+        )
+
         guard let newId = tabManager.newSplit(
             tabId: currentWorkspace.id,
             surfaceId: context.targetSurfaceId,
@@ -365,17 +415,17 @@ extension TerminalController {
             cleanupUnattachedAsyncWorktree(worktree.record)
             return .err(code: "not_found", message: AsyncWorktreeV2Message.paneNotFound, data: nil)
         }
-        v2AsyncWorktreeMaybeFocusWindow(for: tabManager, allowsFocusMutation: allowsFocusMutation)
-        v2AsyncWorktreeMaybeSelectWorkspace(
-            tabManager,
-            workspace: currentWorkspace,
-            allowsFocusMutation: allowsFocusMutation
-        )
-
         let focus = v2AsyncWorktreeFocusAllowed(
             params: params,
             allowsFocusMutation: allowsFocusMutation
         )
+        v2AsyncWorktreeMaybeFocusWindow(for: tabManager, shouldFocus: focus)
+        v2AsyncWorktreeMaybeSelectWorkspace(
+            tabManager,
+            workspace: currentWorkspace,
+            shouldFocus: focus
+        )
+
         guard let newPanelId = currentWorkspace.newTerminalSurface(
             inPane: context.paneId,
             focus: focus,
@@ -465,17 +515,17 @@ extension TerminalController {
             cleanupUnattachedAsyncWorktree(worktree.record)
             return .err(code: "not_found", message: AsyncWorktreeV2Message.noSourceSurfaceToSplit, data: nil)
         }
-        v2AsyncWorktreeMaybeFocusWindow(for: tabManager, allowsFocusMutation: allowsFocusMutation)
-        v2AsyncWorktreeMaybeSelectWorkspace(
-            tabManager,
-            workspace: currentWorkspace,
-            allowsFocusMutation: allowsFocusMutation
-        )
-
         let focus = v2AsyncWorktreeFocusAllowed(
             params: params,
             allowsFocusMutation: allowsFocusMutation
         )
+        v2AsyncWorktreeMaybeFocusWindow(for: tabManager, shouldFocus: focus)
+        v2AsyncWorktreeMaybeSelectWorkspace(
+            tabManager,
+            workspace: currentWorkspace,
+            shouldFocus: focus
+        )
+
         guard let newPanelId = currentWorkspace.newTerminalSplit(
             from: context.sourcePanelId,
             orientation: orientation,

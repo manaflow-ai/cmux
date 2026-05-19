@@ -22,6 +22,7 @@
 		1A1B2C3D4E5F607180000003 /* WorkspacePromptSubmitTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 1A1B2C3D4E5F607180000004 /* WorkspacePromptSubmitTests.swift */; };
 		E42210000000000000000002 /* EphemeralWorktree.swift in Sources */ = {isa = PBXBuildFile; fileRef = E42210000000000000000001 /* EphemeralWorktree.swift */; };
 		E42210000000000000000004 /* EphemeralWorktreeLifecycleTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = E42210000000000000000003 /* EphemeralWorktreeLifecycleTests.swift */; };
+		E4221B000000000000000002 /* WorkspaceEphemeralWorktreeManager.swift in Sources */ = {isa = PBXBuildFile; fileRef = E4221B000000000000000001 /* WorkspaceEphemeralWorktreeManager.swift */; };
 		1F14445B9627DE9D3AF4FD2E /* BrowserPanelTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 58C7B1B978620BE162CC057E /* BrowserPanelTests.swift */; };
 		2BB56A710BB1FC50367E5BCF /* TabManagerSessionSnapshotTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 10D684CFFB8CDEF89CE2D9E1 /* TabManagerSessionSnapshotTests.swift */; };
 		3865A0013865A0013865A001 /* SearchIndex.swift in Sources */ = {isa = PBXBuildFile; fileRef = 3865B0013865B0013865B001 /* SearchIndex.swift */; };
@@ -573,6 +574,7 @@
 		1A1B2C3D4E5F607180000004 /* WorkspacePromptSubmitTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WorkspacePromptSubmitTests.swift; sourceTree = "<group>"; };
 		E42210000000000000000001 /* EphemeralWorktree.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = EphemeralWorktree.swift; sourceTree = "<group>"; };
 		E42210000000000000000003 /* EphemeralWorktreeLifecycleTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = EphemeralWorktreeLifecycleTests.swift; sourceTree = "<group>"; };
+		E4221B000000000000000001 /* WorkspaceEphemeralWorktreeManager.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WorkspaceEphemeralWorktreeManager.swift; sourceTree = "<group>"; };
 		1D301919B10F22B8708E8883 /* WorkspaceManualUnreadTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WorkspaceManualUnreadTests.swift; sourceTree = "<group>"; };
 		2F0C05000000000000000001 /* MainWindowFocusController.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MainWindowFocusController.swift; sourceTree = "<group>"; };
 		3023B1003023B1003023B100 /* ConfigSource.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Settings/ConfigSource.swift; sourceTree = "<group>"; };
@@ -1274,6 +1276,7 @@
 					D7AB00000000000000000014 /* TabManager+DetachedWorkspace.swift */,
 					E30750000000000000000001 /* WorkspaceTabColorResolution.swift */,
 					E42210000000000000000001 /* EphemeralWorktree.swift */,
+					E4221B000000000000000001 /* WorkspaceEphemeralWorktreeManager.swift */,
 					A5001511 /* UITestRecorder.swift */,
 					A5001520 /* PostHogAnalytics.swift */,
 					A5001416 /* Workspace.swift */,
@@ -2063,6 +2066,7 @@
 					E4221A000000000000000002 /* TerminalControllerV2WorktreeSupport.swift in Sources */,
 					C7A505000000000000000002 /* TerminalControllerTopSupport.swift in Sources */,
 					E42210000000000000000002 /* EphemeralWorktree.swift in Sources */,
+					E4221B000000000000000002 /* WorkspaceEphemeralWorktreeManager.swift in Sources */,
 				C7A501000000000000000002 /* CmuxTopSnapshot.swift in Sources */,
 				B35750000000000000000004 /* CmuxTopProcessArguments.swift in Sources */,
 				C7A508000000000000000002 /* CmuxTopSnapshotScopeCache.swift in Sources */,

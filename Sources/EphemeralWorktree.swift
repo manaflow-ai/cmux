@@ -12,8 +12,10 @@ nonisolated enum EphemeralWorktreeCleanupPolicy: String, Codable, Sendable, Equa
             self = .defaultPolicy
             return
         }
-        switch userValue.trimmingCharacters(in: .whitespacesAndNewlines).lowercased() {
-        case "", "snapshot", "snap":
+        let normalized = userValue.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
+        guard !normalized.isEmpty else { return nil }
+        switch normalized {
+        case "snapshot", "snap":
             self = .snapshot
         case "block", "confirm":
             self = .block
@@ -56,7 +58,7 @@ nonisolated enum EphemeralWorktreeLifecycleError: LocalizedError {
         case .notGitRepository:
             return String(
                 localized: "error.ephemeralWorktree.notGitRepository",
-                defaultValue: "Worktree mode requires a git repository."
+                defaultValue: "worktree mode requires a git repository."
             )
         case .dirtyWorktreeRequiresConfirmation:
             return String(
@@ -134,14 +136,25 @@ nonisolated struct EphemeralWorktreeGitClient {
     func snapshotUncommittedChanges(_ record: EphemeralWorktreeRecord) throws -> String {
         let branchName = abandonedBranchName(for: record)
         try runGitChecked(["-C", record.worktreePath, "add", "-A"])
-        try runGitChecked([
+        let tree = try runGitChecked(["-C", record.worktreePath, "write-tree"])
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+        let parent = try runGitChecked(["-C", record.worktreePath, "rev-parse", "HEAD"])
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+        let commit = try runGitChecked([
             "-C", record.worktreePath,
             "-c", "user.name=cmux",
             "-c", "user.email=cmux@localhost",
-            "commit",
+            "commit-tree",
+            tree,
+            "-p", parent,
             "-m", "cmux snapshot abandoned session \(record.sessionId)",
+        ]).trimmingCharacters(in: .whitespacesAndNewlines)
+        try runGitChecked([
+            "-C", record.sourceRepositoryPath,
+            "update-ref",
+            "refs/heads/\(branchName)",
+            commit,
         ])
-        try runGitChecked(["-C", record.worktreePath, "branch", branchName, "HEAD"])
         return branchName
     }
 
@@ -307,7 +320,14 @@ final class EphemeralWorktreeRegistry: @unchecked Sendable {
 
     func records() -> [EphemeralWorktreeRecord] {
         lock.withLocked {
-            loadRecordsUnlocked()
+            do {
+                return try loadRecordsUnlocked()
+            } catch {
+                Self.logger.error(
+                    "Failed to load ephemeral worktree records: \(error.localizedDescription, privacy: .public)"
+                )
+                return []
+            }
         }
     }
 
@@ -360,7 +380,7 @@ final class EphemeralWorktreeRegistry: @unchecked Sendable {
         records()
             .filter { !activeSessionIds.contains($0.sessionId) }
             .map { record in
-                Result { try cleanup(record, userConfirmed: true) }
+                Result { try cleanupOrphan(record) }
             }
     }
 
@@ -376,17 +396,31 @@ final class EphemeralWorktreeRegistry: @unchecked Sendable {
         }
     }
 
+    private func cleanupOrphan(_ record: EphemeralWorktreeRecord) throws -> EphemeralWorktreeCleanupResult {
+        // Orphans no longer have a UI owner to ask. Preserve dirty contents with
+        // the snapshot path, then remove the unowned worktree record.
+        try cleanup(record, userConfirmed: true)
+    }
+
     private func updateRecords(_ mutation: (inout [EphemeralWorktreeRecord]) -> Void) throws {
         try lock.withLocked {
-            var records = loadRecordsUnlocked()
-            mutation(&records)
-            try saveRecordsUnlocked(records)
+            do {
+                var records = try loadRecordsUnlocked()
+                mutation(&records)
+                try saveRecordsUnlocked(records)
+            } catch {
+                Self.logger.error(
+                    "Aborting ephemeral worktree record update after load/save failure: \(error.localizedDescription, privacy: .public)"
+                )
+                throw error
+            }
         }
     }
 
-    private func loadRecordsUnlocked() -> [EphemeralWorktreeRecord] {
-        guard let data = try? Data(contentsOf: storeURL) else { return [] }
-        return (try? JSONDecoder().decode([EphemeralWorktreeRecord].self, from: data)) ?? []
+    private func loadRecordsUnlocked() throws -> [EphemeralWorktreeRecord] {
+        guard fileManager.fileExists(atPath: storeURL.path) else { return [] }
+        let data = try Data(contentsOf: storeURL)
+        return try JSONDecoder().decode([EphemeralWorktreeRecord].self, from: data)
     }
 
     private func saveRecordsUnlocked(_ records: [EphemeralWorktreeRecord]) throws {
