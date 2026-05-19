@@ -77,7 +77,7 @@ final class SessionDragRegistry {
     func consume(id: UUID) -> SessionEntry? {
         expirationTimers[id]?.cancel()
         expirationTimers[id] = nil
-        pending.removeValue(forKey: id)
+        return pending.removeValue(forKey: id)
     }
 
     private func expire(id: UUID) {
