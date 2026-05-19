@@ -1,6 +1,7 @@
 import XCTest
 import Foundation
 import CoreGraphics
+import ImageIO
 
 final class BonsplitTabDragUITests: XCTestCase {
     private let launchTimeout: TimeInterval = 20.0
@@ -334,7 +335,8 @@ final class BonsplitTabDragUITests: XCTestCase {
         XCTAssertTrue(betaTab.waitForExistence(timeout: 5.0), "Expected beta tab to exist")
         let alphaFrameBeforeRename = alphaTab.frame
         let betaFrameBeforeRename = betaTab.frame
-        addWindowScreenshot(named: "pane-tab-before-inline-rename", window: window)
+        let beforeRenameScreenshot = window.screenshot()
+        addWindowScreenshot(named: "pane-tab-before-inline-rename", screenshot: beforeRenameScreenshot)
 
         doubleClick(in: window, atAccessibilityPoint: CGPoint(x: betaTab.frame.midX, y: betaTab.frame.midY))
 
@@ -343,7 +345,16 @@ final class BonsplitTabDragUITests: XCTestCase {
 
         let nameField = app.textFields["paneTab.inlineRenameField"].firstMatch
         XCTAssertTrue(nameField.waitForExistence(timeout: 3.0), "Expected double-clicking a pane tab to show an inline rename field")
-        addWindowScreenshot(named: "pane-tab-during-inline-rename", window: window)
+        let duringRenameScreenshot = window.screenshot()
+        addWindowScreenshot(named: "pane-tab-during-inline-rename", screenshot: duringRenameScreenshot)
+        XCTAssertVisuallyStableCrop(
+            beforeRenameScreenshot,
+            comparedTo: duringRenameScreenshot,
+            cropInWindow: paneTabTitleCrop(for: betaFrameBeforeRename),
+            in: window,
+            maxMeanLumaDiff: 2.0,
+            "Expected pane tab title pixels not to shift when inline editing starts"
+        )
         XCTAssertStableFrame(
             alphaTab.frame,
             comparedTo: alphaFrameBeforeRename,
@@ -419,7 +430,8 @@ final class BonsplitTabDragUITests: XCTestCase {
         XCTAssertTrue(window.waitForExistence(timeout: 5.0), "Expected main window to exist")
         XCTAssertTrue(workspaceRow.waitForExistence(timeout: 5.0), "Expected workspace row to exist")
         let rowFrameBeforeRename = workspaceRow.frame
-        addWindowScreenshot(named: "sidebar-before-inline-rename", window: window)
+        let beforeRenameScreenshot = window.screenshot()
+        addWindowScreenshot(named: "sidebar-before-inline-rename", screenshot: beforeRenameScreenshot)
 
         doubleClick(in: window, atAccessibilityPoint: CGPoint(x: workspaceRow.frame.midX, y: workspaceRow.frame.midY))
 
@@ -428,7 +440,16 @@ final class BonsplitTabDragUITests: XCTestCase {
 
         let nameField = app.textFields["sidebar.workspace.inlineRenameField"].firstMatch
         XCTAssertTrue(nameField.waitForExistence(timeout: 3.0), "Expected double-clicking a workspace row to show an inline rename field")
-        addWindowScreenshot(named: "sidebar-during-inline-rename", window: window)
+        let duringRenameScreenshot = window.screenshot()
+        addWindowScreenshot(named: "sidebar-during-inline-rename", screenshot: duringRenameScreenshot)
+        XCTAssertVisuallyStableCrop(
+            beforeRenameScreenshot,
+            comparedTo: duringRenameScreenshot,
+            cropInWindow: sidebarWorkspaceTitleCrop(for: rowFrameBeforeRename),
+            in: window,
+            maxMeanLumaDiff: 2.0,
+            "Expected sidebar workspace title pixels not to shift when inline editing starts"
+        )
         XCTAssertStableFrame(
             workspaceRow.frame,
             comparedTo: rowFrameBeforeRename,
@@ -982,10 +1003,152 @@ final class BonsplitTabDragUITests: XCTestCase {
     }
 
     private func addWindowScreenshot(named name: String, window: XCUIElement) {
-        let attachment = XCTAttachment(screenshot: window.screenshot())
+        addWindowScreenshot(named: name, screenshot: window.screenshot())
+    }
+
+    private func addWindowScreenshot(named name: String, screenshot: XCUIScreenshot) {
+        let attachment = XCTAttachment(screenshot: screenshot)
         attachment.name = name
         attachment.lifetime = .keepAlways
         add(attachment)
+    }
+
+    private func paneTabTitleCrop(for tabFrame: CGRect) -> CGRect {
+        CGRect(
+            x: tabFrame.minX + 22,
+            y: tabFrame.minY + 2,
+            width: max(1, tabFrame.width - 56),
+            height: max(1, tabFrame.height - 4)
+        )
+    }
+
+    private func sidebarWorkspaceTitleCrop(for rowFrame: CGRect) -> CGRect {
+        CGRect(
+            x: rowFrame.minX + 24,
+            y: rowFrame.minY + 2,
+            width: max(1, rowFrame.width - 32),
+            height: min(20, max(1, rowFrame.height - 4))
+        )
+    }
+
+    private func XCTAssertVisuallyStableCrop(
+        _ before: XCUIScreenshot,
+        comparedTo after: XCUIScreenshot,
+        cropInWindow crop: CGRect,
+        in window: XCUIElement,
+        maxMeanLumaDiff: Double,
+        _ message: @autoclosure () -> String,
+        file: StaticString = #filePath,
+        line: UInt = #line
+    ) {
+        guard let diff = meanAbsLumaDiff(
+            pngA: before.pngRepresentation,
+            pngB: after.pngRepresentation,
+            normalizedCrop: normalizedCrop(crop, in: window)
+        ) else {
+            XCTFail("Unable to compare inline rename screenshots", file: file, line: line)
+            return
+        }
+        XCTAssertLessThanOrEqual(
+            diff,
+            maxMeanLumaDiff,
+            "\(message()) diff=\(String(format: "%.3f", diff)) crop=\(crop) window=\(window.frame)",
+            file: file,
+            line: line
+        )
+    }
+
+    private func normalizedCrop(_ crop: CGRect, in window: XCUIElement) -> CGRect {
+        let windowFrame = window.frame
+        return CGRect(
+            x: (crop.minX - windowFrame.minX) / windowFrame.width,
+            y: (crop.minY - windowFrame.minY) / windowFrame.height,
+            width: crop.width / windowFrame.width,
+            height: crop.height / windowFrame.height
+        )
+    }
+
+    private func meanAbsLumaDiff(pngA: Data, pngB: Data, normalizedCrop: CGRect) -> Double? {
+        guard let imageA = cgImage(from: pngA),
+              let imageB = cgImage(from: pngB) else {
+            return nil
+        }
+        guard imageA.width == imageB.width, imageA.height == imageB.height else { return nil }
+        let width = imageA.width
+        let height = imageA.height
+        guard width > 0, height > 0 else { return nil }
+
+        let cropPx = CGRect(
+            x: max(0, min(CGFloat(width - 1), normalizedCrop.origin.x * CGFloat(width))),
+            y: max(0, min(CGFloat(height - 1), normalizedCrop.origin.y * CGFloat(height))),
+            width: max(1, min(CGFloat(width), normalizedCrop.width * CGFloat(width))),
+            height: max(1, min(CGFloat(height), normalizedCrop.height * CGFloat(height)))
+        ).integral
+
+        let x0 = Int(cropPx.minX)
+        let y0 = Int(cropPx.minY)
+        let x1 = Int(min(CGFloat(width), cropPx.maxX))
+        let y1 = Int(min(CGFloat(height), cropPx.maxY))
+        guard x1 > x0, y1 > y0 else { return nil }
+
+        guard let bufA = decodeRGBA(imageA), let bufB = decodeRGBA(imageB) else { return nil }
+        let bytesPerPixel = 4
+        let bytesPerRow = width * bytesPerPixel
+
+        let step = 2
+        var total = 0.0
+        var count = 0
+        for y in stride(from: y0, to: y1, by: step) {
+            let row = y * bytesPerRow
+            for x in stride(from: x0, to: x1, by: step) {
+                let i = row + x * bytesPerPixel
+                let ar = Double(bufA[i])
+                let ag = Double(bufA[i + 1])
+                let ab = Double(bufA[i + 2])
+                let br = Double(bufB[i])
+                let bg = Double(bufB[i + 1])
+                let bb = Double(bufB[i + 2])
+                let al = 0.2126 * ar + 0.7152 * ag + 0.0722 * ab
+                let bl = 0.2126 * br + 0.7152 * bg + 0.0722 * bb
+                total += abs(al - bl)
+                count += 1
+            }
+        }
+        return count > 0 ? total / Double(count) : nil
+    }
+
+    private func cgImage(from pngData: Data) -> CGImage? {
+        guard let source = CGImageSourceCreateWithData(pngData as CFData, nil) else {
+            return nil
+        }
+        return CGImageSourceCreateImageAtIndex(source, 0, nil)
+    }
+
+    private func decodeRGBA(_ image: CGImage) -> [UInt8]? {
+        let width = image.width
+        let height = image.height
+        let bytesPerPixel = 4
+        let bytesPerRow = width * bytesPerPixel
+        var buf = [UInt8](repeating: 0, count: height * bytesPerRow)
+
+        let ok = buf.withUnsafeMutableBytes { raw -> Bool in
+            guard let base = raw.baseAddress else { return false }
+            let bitmapInfo = CGBitmapInfo.byteOrder32Big.rawValue | CGImageAlphaInfo.premultipliedLast.rawValue
+            guard let ctx = CGContext(
+                data: base,
+                width: width,
+                height: height,
+                bitsPerComponent: 8,
+                bytesPerRow: bytesPerRow,
+                space: CGColorSpaceCreateDeviceRGB(),
+                bitmapInfo: bitmapInfo
+            ) else { return false }
+
+            ctx.draw(image, in: CGRect(x: 0, y: 0, width: width, height: height))
+            return true
+        }
+
+        return ok ? buf : nil
     }
 
     private func hover(in window: XCUIElement, at point: CGPoint) {
