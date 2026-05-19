@@ -334,6 +334,7 @@ final class BonsplitTabDragUITests: XCTestCase {
         XCTAssertTrue(betaTab.waitForExistence(timeout: 5.0), "Expected beta tab to exist")
         let alphaFrameBeforeRename = alphaTab.frame
         let betaFrameBeforeRename = betaTab.frame
+        addWindowScreenshot(named: "pane-tab-before-inline-rename", window: window)
 
         doubleClick(in: window, atAccessibilityPoint: CGPoint(x: betaTab.frame.midX, y: betaTab.frame.midY))
 
@@ -342,11 +343,24 @@ final class BonsplitTabDragUITests: XCTestCase {
 
         let nameField = app.textFields["paneTab.inlineRenameField"].firstMatch
         XCTAssertTrue(nameField.waitForExistence(timeout: 3.0), "Expected double-clicking a pane tab to show an inline rename field")
+        addWindowScreenshot(named: "pane-tab-during-inline-rename", window: window)
         XCTAssertStableFrame(
             alphaTab.frame,
             comparedTo: alphaFrameBeforeRename,
             accuracy: 1.0,
             "Expected neighboring pane tab geometry to stay stable while another tab is inline-renaming"
+        )
+        XCTAssertStableFrame(
+            betaTab.frame,
+            comparedTo: betaFrameBeforeRename,
+            accuracy: 1.0,
+            "Expected the inline-renaming pane tab geometry to stay stable after the editor appears"
+        )
+        XCTAssertCenteredVertically(
+            nameField.frame,
+            in: betaFrameBeforeRename,
+            accuracy: 1.0,
+            "Expected pane tab inline editor to stay vertically centered in the original tab bounds"
         )
         XCTAssertGreaterThanOrEqual(
             nameField.frame.minY,
@@ -410,7 +424,8 @@ final class BonsplitTabDragUITests: XCTestCase {
 
         XCTAssertTrue(window.waitForExistence(timeout: 5.0), "Expected main window to exist")
         XCTAssertTrue(workspaceRow.waitForExistence(timeout: 5.0), "Expected workspace row to exist")
-        let rowHeightBeforeRename = workspaceRow.frame.height
+        let rowFrameBeforeRename = workspaceRow.frame
+        addWindowScreenshot(named: "sidebar-before-inline-rename", window: window)
 
         doubleClick(in: window, atAccessibilityPoint: CGPoint(x: workspaceRow.frame.midX, y: workspaceRow.frame.midY))
 
@@ -419,11 +434,12 @@ final class BonsplitTabDragUITests: XCTestCase {
 
         let nameField = app.textFields["sidebar.workspace.inlineRenameField"].firstMatch
         XCTAssertTrue(nameField.waitForExistence(timeout: 3.0), "Expected double-clicking a workspace row to show an inline rename field")
-        XCTAssertEqual(
-            workspaceRow.frame.height,
-            rowHeightBeforeRename,
+        addWindowScreenshot(named: "sidebar-during-inline-rename", window: window)
+        XCTAssertStableFrame(
+            workspaceRow.frame,
+            comparedTo: rowFrameBeforeRename,
             accuracy: 1.0,
-            "Expected inline workspace rename not to change sidebar row height"
+            "Expected inline workspace rename not to change sidebar row geometry"
         )
         XCTAssertGreaterThanOrEqual(
             nameField.frame.minY,
@@ -971,6 +987,13 @@ final class BonsplitTabDragUITests: XCTestCase {
         return condition()
     }
 
+    private func addWindowScreenshot(named name: String, window: XCUIElement) {
+        let attachment = XCTAttachment(screenshot: window.screenshot())
+        attachment.name = name
+        attachment.lifetime = .keepAlways
+        add(attachment)
+    }
+
     private func hover(in window: XCUIElement, at point: CGPoint) {
         let origin = window.coordinate(withNormalizedOffset: .zero)
         origin.withOffset(
@@ -1001,6 +1024,20 @@ final class BonsplitTabDragUITests: XCTestCase {
     private func clickOutsideInlineEditor(in window: XCUIElement) {
         window.coordinate(withNormalizedOffset: CGVector(dx: 0.9, dy: 0.9)).click()
         RunLoop.current.run(until: Date().addingTimeInterval(0.2))
+    }
+
+    private func XCTAssertCenteredVertically(
+        _ actual: CGRect,
+        in expected: CGRect,
+        accuracy: CGFloat,
+        _ message: @autoclosure () -> String,
+        file: StaticString = #filePath,
+        line: UInt = #line
+    ) {
+        XCTAssertEqual(actual.midY, expected.midY, accuracy: accuracy, message(), file: file, line: line)
+        let topMargin = actual.minY - expected.minY
+        let bottomMargin = expected.maxY - actual.maxY
+        XCTAssertEqual(topMargin, bottomMargin, accuracy: accuracy, message(), file: file, line: line)
     }
 
     private func XCTAssertStableFrame(
