@@ -36,14 +36,14 @@ enum TitlebarControlsStyle: Int, CaseIterable, Identifiable {
         case .classic:
             return TitlebarControlsStyleConfig(
                 spacing: 6,
-                iconSize: 12,
-                buttonSize: 20,
+                iconSize: HeaderChromeControlMetrics.iconSize,
+                buttonSize: HeaderChromeControlMetrics.buttonSize,
                 badgeSize: 12,
                 badgeOffset: CGSize(width: 3, height: -3),
                 groupBackground: false,
                 groupPadding: EdgeInsets(),
                 buttonBackground: false,
-                buttonCornerRadius: 6,
+                buttonCornerRadius: HeaderChromeControlMetrics.cornerRadius,
                 hoverBackground: false
             )
         case .compact:
@@ -484,7 +484,7 @@ private enum TitlebarControlIconStyle {
     static let sidebarGlyphStrokeWidth = HeaderChromeIconStyle.sidebarGlyphStrokeWidth
 
     static func iconFrameSize(for config: TitlebarControlsStyleConfig) -> CGFloat {
-        max(14, config.iconSize + 2)
+        HeaderChromeIconStyle.iconFrameSize(forIconSize: config.iconSize)
     }
 }
 
