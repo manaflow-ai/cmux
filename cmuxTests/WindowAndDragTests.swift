@@ -1790,6 +1790,25 @@ final class FolderWindowMoveSuppressionTests: XCTestCase {
         XCTAssertFalse(window.isMovable)
     }
 
+    func testClearWindowDragSuppressionFinishesActiveMoveSequence() {
+        let window = makeWindow()
+        window.isMovable = true
+
+        XCTAssertEqual(
+            beginWindowMoveSuppressionSequence(window: window, reason: .bonsplitPaneTabDrag),
+            .bonsplitPaneTabDrag
+        )
+        XCTAssertFalse(window.isMovable)
+        XCTAssertEqual(activeWindowMoveSuppressionSequenceReason(window: window), .bonsplitPaneTabDrag)
+
+        XCTAssertEqual(clearWindowDragSuppression(window: window), 0)
+
+        XCTAssertNil(activeWindowMoveSuppressionSequenceReason(window: window))
+        XCTAssertEqual(windowDragSuppressionDepth(window: window), 0)
+        XCTAssertFalse(isWindowDragSuppressed(window: window))
+        XCTAssertTrue(window.isMovable)
+    }
+
     func testWindowDragSuppressionDepthLifecycle() {
         let window = makeWindow()
         XCTAssertEqual(windowDragSuppressionDepth(window: window), 0)
@@ -1950,7 +1969,7 @@ final class WindowMoveSuppressionHitPathTests: XCTestCase {
         let tabPoint = tabRegion.convert(NSPoint(x: 28, y: 15), to: nil)
         let down = makeMouseEvent(type: .leftMouseDown, location: tabPoint, window: window)
 
-        XCTAssertEqual(windowMoveSuppressionReasonForEvent(window: window, event: down), .bonsplitPaneTabDrag)
+        XCTAssertEqual(beginOrContinueWindowMoveSuppressionSequenceForEvent(window: window, event: down), .bonsplitPaneTabDrag)
         XCTAssertFalse(window.isMovable)
         XCTAssertTrue(isWindowDragSuppressed(window: window))
         XCTAssertEqual(activeWindowMoveSuppressionSequenceReason(window: window), .bonsplitPaneTabDrag)
@@ -1960,12 +1979,15 @@ final class WindowMoveSuppressionHitPathTests: XCTestCase {
             location: NSPoint(x: contentView.bounds.midX, y: contentView.bounds.midY),
             window: window
         )
-        XCTAssertEqual(windowMoveSuppressionReasonForEvent(window: window, event: draggedOutsideTab), .bonsplitPaneTabDrag)
+        XCTAssertEqual(
+            beginOrContinueWindowMoveSuppressionSequenceForEvent(window: window, event: draggedOutsideTab),
+            .bonsplitPaneTabDrag
+        )
         XCTAssertFalse(window.isMovable, "Window must remain immovable for the whole tab-drag mouse sequence")
         XCTAssertFalse(shouldFinishWindowMoveSuppressionSequenceAfterDispatch(window: window, event: draggedOutsideTab))
 
         let up = makeMouseEvent(type: .leftMouseUp, location: tabPoint, window: window)
-        XCTAssertEqual(windowMoveSuppressionReasonForEvent(window: window, event: up), .bonsplitPaneTabDrag)
+        XCTAssertEqual(beginOrContinueWindowMoveSuppressionSequenceForEvent(window: window, event: up), .bonsplitPaneTabDrag)
         XCTAssertTrue(shouldFinishWindowMoveSuppressionSequenceAfterDispatch(window: window, event: up))
         XCTAssertEqual(finishWindowMoveSuppressionSequence(window: window), .bonsplitPaneTabDrag)
         XCTAssertTrue(window.isMovable)
@@ -1988,7 +2010,7 @@ final class WindowMoveSuppressionHitPathTests: XCTestCase {
         let tabPoint = tabRegion.convert(NSPoint(x: 28, y: 15), to: nil)
         let down = makeMouseEvent(type: .leftMouseDown, location: tabPoint, window: window)
 
-        XCTAssertEqual(windowMoveSuppressionReasonForEvent(window: window, event: down), .bonsplitPaneTabDrag)
+        XCTAssertEqual(beginOrContinueWindowMoveSuppressionSequenceForEvent(window: window, event: down), .bonsplitPaneTabDrag)
         XCTAssertFalse(window.isMovable)
         XCTAssertEqual(finishWindowMoveSuppressionSequence(window: window), .bonsplitPaneTabDrag)
         XCTAssertFalse(
@@ -2011,13 +2033,13 @@ final class WindowMoveSuppressionHitPathTests: XCTestCase {
 
         let tabPoint = tabRegion.convert(NSPoint(x: 28, y: 15), to: nil)
         let down = makeMouseEvent(type: .leftMouseDown, location: tabPoint, window: window)
-        XCTAssertEqual(windowMoveSuppressionReasonForEvent(window: window, event: down), .bonsplitPaneTabDrag)
+        XCTAssertEqual(beginOrContinueWindowMoveSuppressionSequenceForEvent(window: window, event: down), .bonsplitPaneTabDrag)
         XCTAssertFalse(window.isMovable)
 
         let emptyChromePoint = tabRegion.convert(NSPoint(x: 180, y: 15), to: nil)
         let nextDown = makeMouseEvent(type: .leftMouseDown, location: emptyChromePoint, window: window)
         XCTAssertNil(
-            windowMoveSuppressionReasonForEvent(
+            beginOrContinueWindowMoveSuppressionSequenceForEvent(
                 window: window,
                 event: nextDown,
                 pressedMouseButtons: 1

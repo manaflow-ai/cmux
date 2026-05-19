@@ -781,7 +781,7 @@ func windowMoveSuppressionReason(window: NSWindow, event: NSEvent) -> WindowMove
     return nil
 }
 
-func windowMoveSuppressionReasonForEvent(
+func beginOrContinueWindowMoveSuppressionSequenceForEvent(
     window: NSWindow,
     event: NSEvent,
     pressedMouseButtons: Int = NSEvent.pressedMouseButtons

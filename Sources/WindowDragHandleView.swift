@@ -377,6 +377,9 @@ func restoreWindowDragging(window: NSWindow?, previousMovableState: Bool?) {
 @discardableResult
 func clearWindowDragSuppression(window: NSWindow?) -> Int {
     guard let window else { return 0 }
+    if activeWindowMoveSuppressionSequenceReason(window: window) != nil {
+        _ = finishWindowMoveSuppressionSequence(window: window)
+    }
     var depth = windowDragSuppressionDepth(window: window)
     while depth > 0 {
         depth = endWindowDragSuppression(window: window)
