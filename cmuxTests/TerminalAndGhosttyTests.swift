@@ -2754,12 +2754,12 @@ final class WindowTerminalHostViewTests: XCTestCase {
         let pointInWindow = hostedView.convert(pointInHostedView, to: nil)
         let pointInHost = host.convert(pointInWindow, from: nil)
         let event = makeMouseDownEvent(at: pointInWindow, window: window)
+        let titlebarBandMinY = BonsplitTabBarPassThrough.titlebarInteractionBandMinY(in: window)
 
-        XCTAssertGreaterThanOrEqual(
-            pointInWindow.y,
-            BonsplitTabBarPassThrough.titlebarInteractionBandMinY(in: window),
-            "Test fixture should exercise a terminal top-row hit inside the titlebar interaction band"
-        )
+        guard pointInWindow.y >= titlebarBandMinY else {
+            XCTFail("Test fixture should exercise a terminal top-row hit inside the titlebar interaction band")
+            return
+        }
         assertHitFallsInsideHostedTerminal(
             host.performHitTest(at: pointInHost, currentEvent: event),
             hostedView: hostedView,
