@@ -279,18 +279,15 @@ struct ExtensionBridgeRPCDispatcher {
             "pane.create",
             "surface.focus",
             "surface.split",
-            "surface.close"
+            "surface.close",
+            "surface.send_text",
+            "surface.send_key"
         ]
         let hostPaneMethods: Set<String> = [
             "surface.create"
         ]
-        let workspaceScopedMethods: Set<String> = [
-            "surface.send_text",
-            "surface.send_key"
-        ]
         if hostSurfaceMethods.contains(method)
-            || hostPaneMethods.contains(method)
-            || workspaceScopedMethods.contains(method) {
+            || hostPaneMethods.contains(method) {
             if let error = enforceScope("workspace_id", expected: workspaceString) {
                 return error
             }
