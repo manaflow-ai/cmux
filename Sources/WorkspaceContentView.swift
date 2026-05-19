@@ -2866,24 +2866,21 @@ private struct WorkspaceCanvasOverviewView<Content: View, EmptyContent: View>: V
         )
     }
 
-    private func canvasNativeContentSize(for frame: PixelRect) -> CGSize {
-        CGSize(
-            width: max(1, CGFloat(frame.width)),
-            height: max(1, CGFloat(frame.height))
-        )
-    }
-
     private func canvasNativeContentSize(
         for item: CanvasItem,
         frame: PixelRect,
         visualContentSize: CGSize
     ) -> CGSize {
-        if item.isNativeResolution {
-            return canvasNativeContentSize(for: frame)
-        }
-        return CGSize(
+        let visualSize = CGSize(
             width: max(1, visualContentSize.width),
             height: max(1, visualContentSize.height)
+        )
+        if item.isNativeResolution {
+            return visualSize
+        }
+        return CGSize(
+            width: max(1, CGFloat(frame.width)),
+            height: max(1, CGFloat(frame.height))
         )
     }
 
