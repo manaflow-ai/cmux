@@ -86,13 +86,19 @@ final class AppearanceSettingsTests: XCTestCase {
             defaults: defaults,
             launchArguments: [AppBundleIconPersistencePolicy.disablePersistenceArgument]
         )
-        XCTAssertTrue(defaults.bool(forKey: AppBundleIconPersistencePolicy.disablePersistenceDefaultsKey))
+        XCTAssertEqual(
+            defaults.object(forKey: AppBundleIconPersistencePolicy.disablePersistenceDefaultsKey) as? Bool,
+            true
+        )
 
         AppBundleIconPersistencePolicy.updateDisableDefault(
             defaults: defaults,
             launchArguments: []
         )
-        XCTAssertFalse(defaults.bool(forKey: AppBundleIconPersistencePolicy.disablePersistenceDefaultsKey))
+        XCTAssertEqual(
+            defaults.object(forKey: AppBundleIconPersistencePolicy.disablePersistenceDefaultsKey) as? Bool,
+            false
+        )
     }
 
     func testAppConfigReloadRefreshUpdatesSurfaceConfigBeforeRedraw() throws {
