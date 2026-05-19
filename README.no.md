@@ -236,15 +236,33 @@ Nettleserens utviklerverktøysnarveier følger Safari-standarder og kan tilpasse
 
 cmux NIGHTLY er en separat app med sin egen bundle-ID, så den kjører ved siden av den stabile versjonen. Bygges automatisk fra den siste `main`-commiten og oppdateres automatisk via sin egen Sparkle-feed.
 
-## Sesjonssgjenoppretting (nåværende oppførsel)
+## Sesjonsgjenoppretting
 
-Ved omstart gjenoppretter cmux for øyeblikket kun applayouten og metadata:
+Når du avslutter cmux, lagres den nåværende sesjonen. Ved omstart gjenoppretter cmux tilstand som eies av appen:
 - Vindu-/arbeidsområde-/panellayout
 - Arbeidsmapper
 - Terminal-rullingshistorikk (best effort)
 - Nettleser-URL og navigasjonshistorikk
 
-cmux gjenoppretter **ikke** aktive prosesstilstander inne i terminalapper. For eksempel blir aktive Claude Code/tmux/vim-sesjoner ikke gjenopptatt etter omstart ennå.
+cmux tar ikke checkpoint av vilkårlig aktiv prosesstilstand. tmux, vim, shell og terminalapper uten støtte åpnes igjen som vanlige terminaler.
+
+Støttede agentøkter kan gjenopptas når hooks har lagret en native sesjons-ID:
+
+```bash
+cmux hooks setup
+cmux hooks setup codex
+cmux hooks setup --agent opencode
+```
+
+Avanserte brukere og integrasjoner kan knytte en egendefinert gjenopptakskommando til gjeldende terminal-surface. Dette er nyttig for verktøy med egen varig tilstand, som tmux-sesjoner eller egendefinerte agent-CLI-er:
+
+```bash
+cmux surface resume set --kind tmux --checkpoint work --shell "tmux attach -t work"
+cmux surface resume show --json
+cmux surface resume clear --checkpoint work
+```
+
+Bindingen forblir knyttet til cmux-surfacen. Bindinger opprettet via offentlig CLI eller socket lagres for inspeksjon og manuell gjenopptakelse. cmux auto-kjører bare resume-bindinger den markerer som klarerte, for eksempel tmux-bindinger oppdaget fra levende prosesser. Sensitive miljønøkler som tokens, passord, hemmeligheter og API-nøkler fjernes før en resume-binding lagres.
 
 ## Stjernehistorikk
 
