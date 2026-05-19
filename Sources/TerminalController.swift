@@ -4150,7 +4150,7 @@ class TerminalController {
         return result
     }
 
-    private func v2RefreshKnownRefs() {
+    func v2RefreshKnownRefs() {
         guard let app = AppDelegate.shared else { return }
 
         let windows = app.listMainWindowSummaries()

@@ -28,6 +28,7 @@ extension TerminalController {
         let names = Self.stringSet(params["names"] ?? params["name"])
         let categories = Self.stringSet(params["categories"] ?? params["category"])
         let includeHeartbeats = Self.boolParam(params["include_heartbeats"] ?? params["include_heartbeat"]) ?? true
+        v2MainSync { self.v2RefreshKnownRefs() }
         let scope: CmuxEventScope
         do {
             scope = try resolveEventsScope(params: params)
