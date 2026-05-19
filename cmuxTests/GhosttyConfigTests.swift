@@ -2457,6 +2457,33 @@ final class SocketControlSettingsTests: XCTestCase {
         XCTAssertEqual(path, try appSupportSocketPath("com.cmuxterm.app.dev.my-tag.sock"))
     }
 
+    func testTaggedDebugBundleIgnoresMismatchedInheritedSocketOverride() throws {
+        let path = SocketControlSettings.socketPath(
+            environment: [
+                "CMUX_SOCKET_PATH": "/tmp/cmux-nightly.sock",
+                "CMUX_BUNDLE_ID": "com.cmuxterm.app.nightly",
+            ],
+            bundleIdentifier: "com.cmuxterm.app.debug.fix-grok-notifications",
+            isDebugBuild: false
+        )
+
+        XCTAssertEqual(path, try appSupportSocketPath("com.cmuxterm.app.dev.fix-grok-notifications.sock"))
+    }
+
+    func testTaggedDebugBundleCanOptInToMismatchedSocketOverride() {
+        let path = SocketControlSettings.socketPath(
+            environment: [
+                "CMUX_SOCKET_PATH": "/tmp/cmux-nightly.sock",
+                "CMUX_BUNDLE_ID": "com.cmuxterm.app.nightly",
+                "CMUX_ALLOW_SOCKET_OVERRIDE": "1",
+            ],
+            bundleIdentifier: "com.cmuxterm.app.debug.fix-grok-notifications",
+            isDebugBuild: false
+        )
+
+        XCTAssertEqual(path, "/tmp/cmux-nightly.sock")
+    }
+
     func testStagingBundleUsesDedicatedDefaultAndIgnoresAmbientSocketOverride() throws {
         let path = SocketControlSettings.socketPath(
             environment: [

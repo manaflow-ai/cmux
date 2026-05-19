@@ -440,6 +440,12 @@ struct SocketControlSettings {
             return fallback
         }
 
+        if isTaggedDevBuild(bundleIdentifier: bundleIdentifier),
+           !isTruthy(environment[allowSocketPathOverrideKey]),
+           !pathsMatch(override, fallback) {
+            return fallback
+        }
+
         if shouldHonorSocketPathOverride(
             environment: environment,
             bundleIdentifier: bundleIdentifier,
@@ -449,6 +455,10 @@ struct SocketControlSettings {
         }
 
         return fallback
+    }
+
+    private static func pathsMatch(_ lhs: String, _ rhs: String) -> Bool {
+        (lhs as NSString).standardizingPath == (rhs as NSString).standardizingPath
     }
 
     static func defaultSocketPath(

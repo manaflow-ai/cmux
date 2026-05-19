@@ -2,6 +2,7 @@
   "sourceLanguage": "en",
   "version": "1.0",
   "strings": {
+    "cli.hooks.error.configDirectoryIsFile": { "extractionState": "manual", "localizations": { "en": { "stringUnit": { "state": "translated", "value": "cmux could not create the hooks directory: a file exists at %@; remove or rename the conflicting file and re-run `cmux hooks setup`" } }, "ja": { "stringUnit": { "state": "translated", "value": "cmux は hooks ディレクトリを作成できませんでした: %@ にファイルがあります。競合するファイルを削除または名前変更してから `cmux hooks setup` を再実行してください" } } } },
     "cli.error.dismissNotificationSelector": { "extractionState": "manual", "localizations": { "en": { "stringUnit": { "state": "translated", "value": "dismiss-notification requires exactly one of --id or --all-read" } }, "ja": { "stringUnit": { "state": "translated", "value": "dismiss-notification には --id または --all-read のどちらか一方だけを指定してください" } } } },
     "cli.error.markNotificationReadSelector": { "extractionState": "manual", "localizations": { "en": { "stringUnit": { "state": "translated", "value": "mark-notification-read requires exactly one selector: --id, --workspace, or --all" } }, "ja": { "stringUnit": { "state": "translated", "value": "mark-notification-read には --id、--workspace、--all のいずれか一つだけを指定してください" } } } },
     "cli.error.markNotificationReadSurfaceRequiresWorkspace": { "extractionState": "manual", "localizations": { "en": { "stringUnit": { "state": "translated", "value": "--surface requires --workspace" } }, "ja": { "stringUnit": { "state": "translated", "value": "--surface には --workspace が必要です" } } } },
@@ -20912,7 +20913,7 @@
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "待機中"
+            "value": "待機状態"
           }
         }
       }
@@ -20924,6 +20925,244 @@
           "stringUnit": {
             "state": "translated",
             "value": "Idle"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "入力待ち"
+          }
+        }
+      }
+    },
+    "agent.generic.notification.body.approvalNeeded": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Approval needed"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "承認が必要です"
+          }
+        }
+      }
+    },
+    "agent.generic.notification.body.needsAttention": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ needs your attention"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ の確認が必要です"
+          }
+        }
+      }
+    },
+    "agent.generic.notification.body.reportedError": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ reported an error"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ がエラーを報告しました"
+          }
+        }
+      }
+    },
+    "agent.generic.notification.body.sentNotification": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ sent a notification"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ から通知が届きました"
+          }
+        }
+      }
+    },
+    "agent.generic.notification.body.taskCompleted": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Task completed"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "タスクが完了しました"
+          }
+        }
+      }
+    },
+    "agent.generic.notification.body.waitingForInput": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Waiting for input"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "入力待ち"
+          }
+        }
+      }
+    },
+    "agent.generic.notification.status.error": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ error"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ エラー"
+          }
+        }
+      }
+    },
+    "agent.generic.notification.status.idle": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Idle"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "待機中"
+          }
+        }
+      }
+    },
+    "agent.generic.notification.status.needsInput": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ needs input"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ 入力待ち"
+          }
+        }
+      }
+    },
+    "agent.generic.notification.subtitle.attention": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Attention"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "確認"
+          }
+        }
+      }
+    },
+    "agent.generic.notification.subtitle.completed": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Completed"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "完了"
+          }
+        }
+      }
+    },
+    "agent.generic.notification.subtitle.error": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Error"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "エラー"
+          }
+        }
+      }
+    },
+    "agent.generic.notification.subtitle.permission": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Permission"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "権限"
+          }
+        }
+      }
+    },
+    "agent.generic.notification.subtitle.waiting": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Waiting"
           }
         },
         "ja": {
@@ -107770,6 +108009,23 @@
         }
       }
     },
+    "sessionIndex.agent.grok": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Grok"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Grok"
+          }
+        }
+      }
+    },
     "sessionIndex.agent.opencode": {
       "extractionState": "manual",
       "localizations": {
@@ -113043,6 +113299,13 @@
       "localizations": {
         "en": { "stringUnit": { "state": "translated", "value": "Codex" } },
         "ja": { "stringUnit": { "state": "translated", "value": "Codex" } }
+      }
+    },
+    "taskManager.agent.grok": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Grok" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "Grok" } }
       }
     },
     "taskManager.agent.opencode": {
