@@ -7477,7 +7477,7 @@ class TerminalController {
                 queued = false
             } else {
                 // Avoid blocking the main actor waiting for view/surface attachment.
-                terminalPanel.sendText(text)
+                terminalPanel.sendInput(text)
                 terminalPanel.surface.requestBackgroundSurfaceStartIfNeeded()
                 queued = true
             }
