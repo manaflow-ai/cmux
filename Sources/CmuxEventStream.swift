@@ -1,29 +1,17 @@
+import CMUXSocketProtocol
 import Darwin
 import Foundation
 
 extension TerminalController {
-    nonisolated func isEventsStreamRequest(_ line: String) -> Bool {
-        guard line.hasPrefix("{"),
-              let data = line.data(using: .utf8),
-              let object = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
-              let method = object["method"] as? String else {
-            return false
-        }
-        return method == "events.stream"
-    }
-
-    nonisolated func handleEventsStreamRequest(_ line: String, socket: Int32) {
-        guard let data = line.data(using: .utf8),
-              let object = try? JSONSerialization.jsonObject(with: data) as? [String: Any] else {
-            _ = writeEventsStreamLine([
-                "type": "error",
-                "ok": false,
-                "error": ["code": "invalid_request", "message": "events.stream requires a JSON object"]
-            ], socket: socket)
-            return
-        }
-
-        let params = object["params"] as? [String: Any] ?? [:]
+    nonisolated func handleEventsStreamRequest(
+        _ request: V2SocketRequest,
+        socket: Int32,
+        writeInitialResponse: Bool = true
+    ) {
+        let usesJSONRPC = request.usesJSONRPC
+        let requestId = CMUXSocketProtocol.validJSONRPCIDOrNull(request.id)
+        let params = request.params
+        let shouldWriteInitialResponse = writeInitialResponse && CMUXSocketProtocol.shouldWriteResponse(for: request)
         let afterSequence = CmuxEventBus.int64(params["after_seq"] ?? params["after"])
         let names = Self.stringSet(params["names"] ?? params["name"])
         let categories = Self.stringSet(params["categories"] ?? params["category"])
@@ -36,30 +24,35 @@ extension TerminalController {
         )
         defer { CmuxEventBus.shared.unsubscribe(snapshot.subscription) }
 
-        guard writeEventsStreamLine(snapshot.ack, socket: socket) else { return }
+        if shouldWriteInitialResponse {
+            guard writeEventsStreamLine(snapshot.ack, socket: socket, jsonRPC: usesJSONRPC, responseId: requestId) else { return }
+        }
         for event in snapshot.replay {
-            guard writeEventsStreamLine(event, socket: socket) else { return }
+            guard writeEventsStreamLine(event, socket: socket, jsonRPC: usesJSONRPC) else { return }
         }
 
         while true {
             if let event = snapshot.subscription.next(timeout: CmuxEventBus.defaultHeartbeatIntervalSeconds) {
-                guard writeEventsStreamLine(event, socket: socket) else { return }
+                guard writeEventsStreamLine(event, socket: socket, jsonRPC: usesJSONRPC) else { return }
             } else if snapshot.subscription.isClosed {
                 if let reason = snapshot.subscription.closeReason {
-                    _ = writeEventsStreamLine([
+                    var errorFrame: [String: Any] = [
                         "type": "error",
-                        "ok": false,
                         "error": [
                             "code": "slow_consumer",
                             "message": reason,
                             "latest_seq": NSNumber(value: CmuxEventBus.shared.latestSequence)
                         ]
-                    ], socket: socket)
+                    ]
+                    if !usesJSONRPC {
+                        errorFrame["ok"] = false
+                    }
+                    _ = writeEventsStreamLine(errorFrame, socket: socket, jsonRPC: usesJSONRPC)
                 }
                 return
             } else if includeHeartbeats {
                 let heartbeat = CmuxEventBus.shared.heartbeat(subscription: snapshot.subscription)
-                guard writeEventsStreamLine(heartbeat, socket: socket) else { return }
+                guard writeEventsStreamLine(heartbeat, socket: socket, jsonRPC: usesJSONRPC) else { return }
             } else if Self.socketPeerClosed(socket) {
                 return
             }
@@ -70,8 +63,14 @@ extension TerminalController {
         CmuxSocketEventMapper.publish(command: command, response: response)
     }
 
-    private nonisolated func writeEventsStreamLine(_ object: [String: Any], socket: Int32) -> Bool {
-        guard let line = CmuxEventBus.encodeLine(object) else { return false }
+    private nonisolated func writeEventsStreamLine(
+        _ object: [String: Any],
+        socket: Int32,
+        jsonRPC: Bool = false,
+        responseId: Any? = nil
+    ) -> Bool {
+        let frame = jsonRPC ? CMUXSocketProtocol.eventStreamFrame(object, responseId: responseId) : object
+        guard let line = CmuxEventBus.encodeLine(frame) else { return false }
         return Self.writeAllToSocket(Data((line + "\n").utf8), to: socket)
     }
 

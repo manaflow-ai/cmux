@@ -1,5 +1,6 @@
 import AppKit
 import Carbon.HIToolbox
+import CMUXSocketProtocol
 import CMUXWorkstream
 import Foundation
 import Bonsplit
@@ -17,6 +18,12 @@ extension Notification.Name {
 nonisolated private struct SocketLineProcessingResult: Sendable {
     let response: String
     let authenticated: Bool
+    let shouldWriteResponse: Bool
+}
+
+nonisolated private enum V2SocketCommandDispatchParse {
+    case request(V2SocketRequest)
+    case response(String)
 }
 
 /// Unix socket-based controller for programmatic terminal control
@@ -1662,15 +1669,44 @@ class TerminalController {
         return Self.writeAllToSocket(Data(payload.utf8), to: socket)
     }
 
-    private nonisolated func passwordAuthRequiredResponse(for command: String) -> String {
-        let message = "Authentication required. Send auth <password> first."
+    private nonisolated func passwordAuthRequiredResponse(
+        for command: String,
+        parsedV2Request: V2SocketRequest?
+    ) -> String {
+        if let parsedV2Request {
+            let message = passwordAuthRequiredMessage(usesJSONRPC: parsedV2Request.usesJSONRPC)
+            return v2Error(
+                id: parsedV2Request.id,
+                jsonRPC: parsedV2Request.usesJSONRPC,
+                code: "auth_required",
+                message: message
+            )
+        }
         guard command.hasPrefix("{"),
               let data = command.data(using: .utf8),
               let dict = (try? JSONSerialization.jsonObject(with: data, options: [])) as? [String: Any] else {
-            return "ERROR: Authentication required — send auth <password> first"
+            return String(
+                localized: "socket.auth.required.v1",
+                defaultValue: "ERROR: Authentication required — send auth <password> first"
+            )
         }
         let id = dict["id"]
-        return v2Error(id: id, code: "auth_required", message: message)
+        let usesJSONRPC = CMUXSocketProtocol.usesJSONRPC(dict)
+        let message = passwordAuthRequiredMessage(usesJSONRPC: usesJSONRPC)
+        return v2Error(id: id, jsonRPC: usesJSONRPC, code: "auth_required", message: message)
+    }
+
+    private nonisolated func passwordAuthRequiredMessage(usesJSONRPC: Bool) -> String {
+        if usesJSONRPC {
+            return String(
+                localized: "socket.auth.required.jsonrpc",
+                defaultValue: "Authentication required. For JSON-RPC call auth.login with params.password."
+            )
+        }
+        return String(
+            localized: "socket.auth.required.legacy",
+            defaultValue: "Authentication required. Send auth <password> first."
+        )
     }
 
     private nonisolated func passwordLoginV1ResponseIfNeeded(for command: String, authenticated: inout Bool) -> String? {
@@ -1698,119 +1734,220 @@ class TerminalController {
         return "OK: Authenticated"
     }
 
-    private nonisolated func passwordLoginV2ResponseIfNeeded(for command: String, authenticated: inout Bool) -> String? {
-        guard command.hasPrefix("{"),
-              let data = command.data(using: .utf8),
-              let dict = (try? JSONSerialization.jsonObject(with: data, options: [])) as? [String: Any] else {
-            return nil
-        }
-        let id = dict["id"]
-        let method = (dict["method"] as? String)?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
-        guard method == "auth.login" else {
+    private nonisolated func passwordLoginV2ResponseIfNeeded(
+        for request: V2SocketRequest?,
+        authenticated: inout Bool
+    ) -> String? {
+        guard let request, request.method == "auth.login" else {
             return nil
         }
 
-        guard let params = dict["params"] as? [String: Any],
-              let provided = params["password"] as? String else {
-            return v2Error(id: id, code: "invalid_params", message: "auth.login requires params.password")
+        guard let provided = request.params["password"] as? String else {
+            return v2Error(
+                id: request.id,
+                jsonRPC: request.usesJSONRPC,
+                code: "invalid_params",
+                message: String(
+                    localized: "socket.auth.login.requiresPassword",
+                    defaultValue: "auth.login requires params.password"
+                )
+            )
         }
 
         guard SocketControlPasswordStore.hasConfiguredPassword(allowLazyKeychainFallback: true) else {
             return v2Error(
-                id: id,
+                id: request.id,
+                jsonRPC: request.usesJSONRPC,
                 code: "auth_unconfigured",
-                message: "Password mode is enabled but no socket password is configured in Settings."
+                message: String(
+                    localized: "socket.auth.passwordModeUnconfigured",
+                    defaultValue: "Password mode is enabled but no socket password is configured in Settings."
+                )
             )
         }
 
         guard SocketControlPasswordStore.verify(password: provided, allowLazyKeychainFallback: true) else {
-            return v2Error(id: id, code: "auth_failed", message: "Invalid password")
+            return v2Error(
+                id: request.id,
+                jsonRPC: request.usesJSONRPC,
+                code: "auth_failed",
+                message: String(localized: "socket.auth.invalidPassword", defaultValue: "Invalid password")
+            )
         }
         authenticated = true
-        return v2Ok(id: id, result: ["authenticated": true])
+        return v2Ok(id: request.id, jsonRPC: request.usesJSONRPC, result: ["authenticated": true])
     }
 
-    private nonisolated func authResponseIfNeeded(for command: String, authenticated: inout Bool) -> String? {
+    private nonisolated func authResponseIfNeeded(
+        for command: String,
+        parsedV2Request: V2SocketRequest?,
+        authenticated: inout Bool
+    ) -> String? {
         guard accessMode.requiresPasswordAuth else {
             return nil
         }
-        if let v2Response = passwordLoginV2ResponseIfNeeded(for: command, authenticated: &authenticated) {
+        if let v2Response = passwordLoginV2ResponseIfNeeded(for: parsedV2Request, authenticated: &authenticated) {
             return v2Response
         }
         if let v1Response = passwordLoginV1ResponseIfNeeded(for: command, authenticated: &authenticated) {
             return v1Response
         }
         if !authenticated {
-            return passwordAuthRequiredResponse(for: command)
+            return passwordAuthRequiredResponse(for: command, parsedV2Request: parsedV2Request)
         }
         return nil
     }
 
-    private enum SocketCommandExecutionPolicy: Equatable {
-        case mainActor
-        case socketWorker
-    }
-
-    private struct V2SocketRequest {
-        let id: Any?
-        let method: String
-        let params: [String: Any]
-    }
-
-    private nonisolated static let socketWorkerV2Methods: Set<String> = [
-        "auth.status",
-        "auth.begin_sign_in",
-        "auth.sign_out",
-        "feedback.submit",
-        "feed.push",
-        "feed.permission.reply",
-        "feed.question.reply",
-        "feed.exit_plan.reply",
-        "browser.download.wait",
-        "browser.profiles.list",
-        "browser.profiles.create",
-        "browser.profiles.rename",
-        "browser.profiles.clear",
-        "browser.profiles.delete",
-        "browser.import.cookies",
-        "system.top",
-    ]
-
-    private nonisolated static func executionPolicy(forV2Method method: String) -> SocketCommandExecutionPolicy {
-        if method.hasPrefix("vm.") || socketWorkerV2Methods.contains(method) {
-            return .socketWorker
-        }
-        return .mainActor
-    }
-
-    private nonisolated func parseV2SocketRequest(_ command: String) -> V2SocketRequest? {
-        let trimmedCommand = command.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard trimmedCommand.hasPrefix("{"),
-              let data = trimmedCommand.data(using: .utf8),
-              let dict = (try? JSONSerialization.jsonObject(with: data, options: [])) as? [String: Any] else {
+    private nonisolated func parseV2SocketCommandForDispatch(_ command: String) -> V2SocketCommandDispatchParse? {
+        let trimmed = command.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard trimmed.hasPrefix("{") || trimmed.hasPrefix("[") else {
             return nil
         }
 
-        let method = (dict["method"] as? String)?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
-        guard !method.isEmpty else {
-            return nil
+        guard let data = trimmed.data(using: .utf8) else {
+            return .response(CMUXSocketProtocol.malformedRequestError(
+                command: trimmed,
+                code: "invalid_utf8",
+                message: String(localized: "socket.error.invalidUTF8", defaultValue: "Invalid UTF-8")
+            ))
         }
 
-        return V2SocketRequest(
-            id: dict["id"],
-            method: method,
-            params: dict["params"] as? [String: Any] ?? [:]
-        )
+        let object: Any
+        do {
+            object = try JSONSerialization.jsonObject(with: data, options: [])
+        } catch {
+            return .response(CMUXSocketProtocol.malformedRequestError(
+                command: trimmed,
+                code: "parse_error",
+                message: String(localized: "socket.error.invalidJSON", defaultValue: "Invalid JSON")
+            ))
+        }
+
+        guard let dict = object as? [String: Any] else {
+            return .response(CMUXSocketProtocol.malformedRequestError(
+                command: trimmed,
+                code: "invalid_request",
+                message: String(localized: "socket.error.expectedJSONObject", defaultValue: "Expected JSON object")
+            ))
+        }
+
+        do {
+            return .request(try CMUXSocketProtocol.parseV2SocketRequestObject(dict))
+        } catch let error as V2SocketRequestParseError {
+            return .response(v2RequestParseErrorResponse(error, dict: dict))
+        } catch {
+            return .response(v2Error(
+                id: dict["id"],
+                jsonRPC: CMUXSocketProtocol.usesJSONRPC(dict),
+                code: "invalid_request",
+                message: String(localized: "socket.error.invalidRequest", defaultValue: "Invalid request")
+            ))
+        }
     }
 
-    private nonisolated func socketWorkerV2ResponseIfNeeded(for command: String) -> String? {
-        guard let request = parseV2SocketRequest(command),
-              Self.executionPolicy(forV2Method: request.method) == .socketWorker else {
+    private nonisolated func v2RequestParseErrorResponse(
+        _ error: V2SocketRequestParseError,
+        dict: [String: Any]
+    ) -> String {
+        let usesJSONRPC = CMUXSocketProtocol.usesJSONRPC(dict)
+        let responseID = usesJSONRPC ? CMUXSocketProtocol.validJSONRPCID(dict["id"]) : dict["id"]
+        switch error {
+        case .invalidParams:
+            return v2Error(
+                id: responseID,
+                jsonRPC: usesJSONRPC,
+                code: "invalid_params",
+                message: String(localized: "socket.error.paramsMustBeObject", defaultValue: "params must be a JSON object")
+            )
+        case .missingMethod:
+            return v2Error(
+                id: responseID,
+                jsonRPC: usesJSONRPC,
+                code: "invalid_request",
+                message: String(localized: "socket.error.missingMethod", defaultValue: "Missing method")
+            )
+        case .malformedID:
+            return v2Error(
+                id: nil,
+                jsonRPC: usesJSONRPC,
+                code: "invalid_request",
+                message: String(localized: "socket.error.idMustBeScalar", defaultValue: "id must be a string, number, or null")
+            )
+        case .invalidJSONRPCVersion:
+            return v2Error(
+                id: nil,
+                jsonRPC: true,
+                code: "invalid_request",
+                message: String(localized: "socket.error.jsonrpcMustBe2", defaultValue: "jsonrpc must be \"2.0\"")
+            )
+        }
+    }
+
+    private nonisolated func socketWorkerV2ResponseIfNeeded(for request: V2SocketRequest) -> String? {
+        guard CMUXSocketProtocol.executionPolicy(forV2Method: request.method) == .socketWorker else {
             return nil
         }
 
         return withSocketCommandPolicy(commandKey: request.method, isV2: true, params: request.params) {
             socketWorkerV2Response(request)
+        }
+    }
+
+    nonisolated func socketWorkerAsyncV2Response(
+        id: Any?,
+        jsonRPC: Bool,
+        timeoutSeconds: TimeInterval = 17 * 60,
+        failureCode: String = "request_error",
+        _ work: @escaping @Sendable () async throws -> [String: Any]
+    ) -> String {
+        guard !Thread.isMainThread else {
+            return v2Error(
+                id: id,
+                jsonRPC: jsonRPC,
+                code: "invalid_dispatch",
+                message: CMUXSocketProtocol.invalidDispatchMessage
+            )
+        }
+
+        let semaphore = DispatchSemaphore(value: 0)
+        nonisolated(unsafe) var result: Result<[String: Any], Error>?
+        let task = Task {
+            do {
+                result = .success(try await work())
+            } catch {
+                result = .failure(error)
+            }
+            semaphore.signal()
+        }
+        if semaphore.wait(timeout: .now() + timeoutSeconds) == .timedOut {
+            task.cancel()
+            return v2Error(
+                id: id,
+                jsonRPC: jsonRPC,
+                code: "timeout",
+                message: String.localizedStringWithFormat(
+                    String(
+                        localized: "socket.error.requestTimedOut",
+                        defaultValue: "The request timed out after %d seconds."
+                    ),
+                    Int(timeoutSeconds)
+                )
+            )
+        }
+
+        switch result {
+        case .success(let payload):
+            return v2Ok(id: id, jsonRPC: jsonRPC, result: payload)
+        case .failure, nil:
+            return v2Error(
+                id: id,
+                jsonRPC: jsonRPC,
+                code: failureCode,
+                message: String(
+                    localized: "socket.error.requestFailed",
+                    defaultValue: "The request could not be completed."
+                )
+            )
         }
     }
 
@@ -1823,7 +1960,7 @@ class TerminalController {
                 semaphore.signal()
             }
             semaphore.wait()
-            return v2Ok(id: request.id, result: v2AuthStatusPayload(timedOut: false))
+            return v2Ok(id: request.id, jsonRPC: request.usesJSONRPC, result: v2AuthStatusPayload(timedOut: false))
         case "auth.begin_sign_in":
             let timeoutSeconds = (request.params["timeout_seconds"] as? Double) ?? 300
             let semaphore = DispatchSemaphore(value: 0)
@@ -1835,7 +1972,7 @@ class TerminalController {
                 semaphore.signal()
             }
             semaphore.wait()
-            return v2Ok(id: request.id, result: v2AuthStatusPayload(timedOut: !signedIn))
+            return v2Ok(id: request.id, jsonRPC: request.usesJSONRPC, result: v2AuthStatusPayload(timedOut: !signedIn))
         case "auth.sign_out":
             let semaphore = DispatchSemaphore(value: 0)
             Task { @MainActor in
@@ -1843,50 +1980,60 @@ class TerminalController {
                 semaphore.signal()
             }
             semaphore.wait()
-            return v2Ok(id: request.id, result: v2AuthStatusPayload(timedOut: false))
+            return v2Ok(id: request.id, jsonRPC: request.usesJSONRPC, result: v2AuthStatusPayload(timedOut: false))
         case "feedback.submit":
-            return v2Result(id: request.id, v2FeedbackSubmit(params: request.params))
+            return v2Result(id: request.id, jsonRPC: request.usesJSONRPC, v2FeedbackSubmit(params: request.params))
         case "feed.push":
-            return v2Result(id: request.id, v2FeedPush(params: request.params))
+            return v2Result(id: request.id, jsonRPC: request.usesJSONRPC, v2FeedPush(params: request.params))
         case "feed.permission.reply":
-            return v2Result(id: request.id, v2FeedPermissionReply(params: request.params))
+            return v2Result(id: request.id, jsonRPC: request.usesJSONRPC, v2FeedPermissionReply(params: request.params))
         case "feed.question.reply":
-            return v2Result(id: request.id, v2FeedQuestionReply(params: request.params))
+            return v2Result(id: request.id, jsonRPC: request.usesJSONRPC, v2FeedQuestionReply(params: request.params))
         case "feed.exit_plan.reply":
-            return v2Result(id: request.id, v2FeedExitPlanReply(params: request.params))
+            return v2Result(id: request.id, jsonRPC: request.usesJSONRPC, v2FeedExitPlanReply(params: request.params))
         case "browser.download.wait":
-            return v2Result(id: request.id, v2BrowserDownloadWaitOnSocketWorker(params: request.params))
+            return v2Result(id: request.id, jsonRPC: request.usesJSONRPC, v2BrowserDownloadWaitOnSocketWorker(params: request.params))
         case "browser.profiles.list":
-            return v2VmCall(id: request.id, timeoutSeconds: 30) {
+            return socketWorkerAsyncV2Response(id: request.id, jsonRPC: request.usesJSONRPC, timeoutSeconds: 30) {
                 try await BrowserProfileAutomation.list(params: request.params)
             }
         case "browser.profiles.create":
-            return v2VmCall(id: request.id, timeoutSeconds: 30) {
+            return socketWorkerAsyncV2Response(id: request.id, jsonRPC: request.usesJSONRPC, timeoutSeconds: 30) {
                 try await BrowserProfileAutomation.create(params: request.params)
             }
         case "browser.profiles.rename":
-            return v2VmCall(id: request.id, timeoutSeconds: 30) {
+            return socketWorkerAsyncV2Response(id: request.id, jsonRPC: request.usesJSONRPC, timeoutSeconds: 30) {
                 try await BrowserProfileAutomation.rename(params: request.params)
             }
         case "browser.profiles.clear":
-            return v2VmCall(id: request.id, timeoutSeconds: 120) {
+            return socketWorkerAsyncV2Response(id: request.id, jsonRPC: request.usesJSONRPC, timeoutSeconds: 120) {
                 try await BrowserProfileAutomation.clear(params: request.params)
             }
         case "browser.profiles.delete":
-            return v2VmCall(id: request.id, timeoutSeconds: 120) {
+            return socketWorkerAsyncV2Response(id: request.id, jsonRPC: request.usesJSONRPC, timeoutSeconds: 120) {
                 try await BrowserProfileAutomation.delete(params: request.params)
             }
         case "browser.import.cookies":
-            return v2VmCall(id: request.id, timeoutSeconds: 10 * 60) {
+            return socketWorkerAsyncV2Response(id: request.id, jsonRPC: request.usesJSONRPC, timeoutSeconds: 10 * 60) {
                 let outcome = try await BrowserImportAutomation.importCookies(params: request.params)
                 return outcome.socketPayload
             }
         case "system.top":
-            return v2Result(id: request.id, v2SystemTop(params: request.params))
+            return v2Result(id: request.id, jsonRPC: request.usesJSONRPC, v2SystemTop(params: request.params))
         case let method where method.hasPrefix("vm."):
-            return socketWorkerCloudVMResponse(method: method, id: request.id, params: request.params)
+            return socketWorkerCloudVMResponse(
+                method: method,
+                id: request.id,
+                jsonRPC: request.usesJSONRPC,
+                params: request.params
+            )
         default:
-            return v2Error(id: request.id, code: "method_not_found", message: "Unknown method")
+            return v2Error(
+                id: request.id,
+                jsonRPC: request.usesJSONRPC,
+                code: "method_not_found",
+                message: CMUXSocketProtocol.unknownMethodMessage(request.method)
+            )
         }
     }
 
@@ -2225,23 +2372,38 @@ class TerminalController {
                 let trimmed = line.trimmingCharacters(in: .whitespacesAndNewlines)
                 guard !trimmed.isEmpty else { continue }
 
-                if isEventsStreamRequest(trimmed) {
-                    if let response = authResponseIfNeeded(for: trimmed, authenticated: &authenticated) {
-                        guard writeSocketResponse(response, to: socket) else {
-                            return
+                let parsedV2 = parseV2SocketCommandForDispatch(trimmed)
+                if case .request(let request) = parsedV2, request.method == "events.stream" {
+                    let shouldWriteResponse = CMUXSocketProtocol.shouldWriteResponse(for: request)
+                    if let response = authResponseIfNeeded(
+                        for: trimmed,
+                        parsedV2Request: request,
+                        authenticated: &authenticated
+                    ) {
+                        if shouldWriteResponse {
+                            guard writeSocketResponse(response, to: socket) else {
+                                return
+                            }
                         }
                         continue
                     }
-                    handleEventsStreamRequest(trimmed, socket: socket)
+                    handleEventsStreamRequest(
+                        request,
+                        socket: socket,
+                        writeInitialResponse: shouldWriteResponse
+                    )
                     return
                 }
 
-                let result = processSocketLine(trimmed, authenticated: authenticated)
+                let result = processSocketLine(trimmed, authenticated: authenticated, parsedV2: parsedV2)
                 authenticated = result.authenticated
-                let didWriteResponse = writeSocketResponse(result.response, to: socket)
-                publishSocketEvents(command: trimmed, response: result.response)
-                guard didWriteResponse else {
-                    return
+                if result.shouldWriteResponse {
+                    let didWriteResponse = writeSocketResponse(result.response, to: socket)
+                    guard didWriteResponse else {
+                        return
+                    }
+                    // Domain events describe socket command side effects after the response is delivered.
+                    publishSocketEvents(command: trimmed, response: result.response)
                 }
             }
         }
@@ -2249,7 +2411,8 @@ class TerminalController {
 
     private nonisolated func processSocketLine(
         _ command: String,
-        authenticated: Bool
+        authenticated: Bool,
+        parsedV2: V2SocketCommandDispatchParse? = nil
     ) -> SocketLineProcessingResult {
 #if DEBUG
         let debugInfo = Self.socketCommandDebugInfo(command)
@@ -2262,7 +2425,10 @@ class TerminalController {
         }
 #endif
         var nextAuthenticated = authenticated
-        if let response = authResponseIfNeeded(for: command, authenticated: &nextAuthenticated) {
+        let parsedDispatch = parsedV2 ?? parseV2SocketCommandForDispatch(command)
+        let parsedV2Request: V2SocketRequest?
+        switch parsedDispatch {
+        case .response(let response):
 #if DEBUG
             Self.debugLogSocketCommandEndIfNeeded(
                 debugInfo: debugInfo,
@@ -2271,10 +2437,39 @@ class TerminalController {
                 loggingEnabled: debugLoggingEnabled
             )
 #endif
-            return SocketLineProcessingResult(response: response, authenticated: nextAuthenticated)
+            return SocketLineProcessingResult(
+                response: response,
+                authenticated: nextAuthenticated,
+                shouldWriteResponse: shouldWriteSocketResponse(for: parsedDispatch, command: command)
+            )
+        case .request(let request):
+            parsedV2Request = request
+        case nil:
+            parsedV2Request = nil
         }
 
-        let response = processCommandUsingSocketExecutionPolicy(command)
+        let shouldWriteResponse = shouldWriteSocketResponse(for: parsedDispatch, command: command)
+        if let response = authResponseIfNeeded(
+            for: command,
+            parsedV2Request: parsedV2Request,
+            authenticated: &nextAuthenticated
+        ) {
+#if DEBUG
+            Self.debugLogSocketCommandEndIfNeeded(
+                debugInfo: debugInfo,
+                startedAt: debugStart,
+                response: response,
+                loggingEnabled: debugLoggingEnabled
+            )
+#endif
+            return SocketLineProcessingResult(
+                response: response,
+                authenticated: nextAuthenticated,
+                shouldWriteResponse: shouldWriteResponse
+            )
+        }
+
+        let response = processCommandUsingSocketExecutionPolicy(command, parsedV2: parsedDispatch)
 #if DEBUG
         Self.debugLogSocketCommandEndIfNeeded(
             debugInfo: debugInfo,
@@ -2283,7 +2478,11 @@ class TerminalController {
             loggingEnabled: debugLoggingEnabled
         )
 #endif
-        return SocketLineProcessingResult(response: response, authenticated: nextAuthenticated)
+        return SocketLineProcessingResult(
+            response: response,
+            authenticated: nextAuthenticated,
+            shouldWriteResponse: shouldWriteResponse
+        )
     }
 
 #if DEBUG
@@ -2368,19 +2567,40 @@ class TerminalController {
     }
 #endif
 
-    private nonisolated func processCommandUsingSocketExecutionPolicy(_ command: String) -> String {
-        if Thread.isMainThread,
-           let request = parseV2SocketRequest(command),
-           Self.executionPolicy(forV2Method: request.method) == .socketWorker {
-            return v2Error(
-                id: request.id,
-                code: "invalid_dispatch",
-                message: "\(request.method) must run off the main thread"
-            )
-        }
+    private nonisolated func processCommandUsingSocketExecutionPolicy(
+        _ command: String
+    ) -> String {
+        let parsedV2 = parseV2SocketCommandForDispatch(command)
+        return processCommandUsingSocketExecutionPolicy(command, parsedV2: parsedV2)
+    }
 
-        if let response = socketWorkerV2ResponseIfNeeded(for: command) {
+    private nonisolated func processCommandUsingSocketExecutionPolicy(
+        _ command: String,
+        parsedV2: V2SocketCommandDispatchParse?
+    ) -> String {
+        switch parsedV2 {
+        case .response(let response):
             return response
+        case .request(let request):
+            if Thread.isMainThread,
+               CMUXSocketProtocol.executionPolicy(forV2Method: request.method) == .socketWorker {
+                return v2Error(
+                    id: request.id,
+                    jsonRPC: request.usesJSONRPC,
+                    code: "invalid_dispatch",
+                    message: CMUXSocketProtocol.invalidDispatchMessage
+                )
+            }
+
+            if let response = socketWorkerV2ResponseIfNeeded(for: request) {
+                return response
+            }
+
+            return v2MainSync {
+                self.processV2Command(request)
+            }
+        case nil:
+            break
         }
 
         if command.trimmingCharacters(in: .whitespacesAndNewlines).lowercased() == "ping" {
@@ -2394,12 +2614,26 @@ class TerminalController {
         }
     }
 
+    private nonisolated func shouldWriteSocketResponse(
+        for parsedV2: V2SocketCommandDispatchParse?,
+        command: String
+    ) -> Bool {
+        switch parsedV2 {
+        case .request(let request):
+            return CMUXSocketProtocol.shouldWriteResponse(for: request)
+        case .response, nil:
+            return CMUXSocketProtocol.shouldWriteResponse(for: command)
+        }
+    }
+
     /// Public entry point mirroring the socket's `processCommand` path so
     /// in-process callers (e.g. the Feed coordinator's `feed.jump` focus
     /// request) can reuse the full V1/V2 dispatcher without duplicating
     /// its auth/policy wrappers.
     nonisolated func handleSocketLine(_ line: String) -> String {
-        return processCommandUsingSocketExecutionPolicy(line)
+        let parsedV2 = parseV2SocketCommandForDispatch(line)
+        let response = processCommandUsingSocketExecutionPolicy(line, parsedV2: parsedV2)
+        return shouldWriteSocketResponse(for: parsedV2, command: line) ? response : ""
     }
 
     private func processCommand(_ command: String) -> String {
@@ -2407,7 +2641,7 @@ class TerminalController {
         guard !trimmed.isEmpty else { return "ERROR: Empty command" }
 
         // v2 protocol: newline-delimited JSON.
-        if trimmed.hasPrefix("{") {
+        if trimmed.hasPrefix("{") || trimmed.hasPrefix("[") {
             return processV2Command(trimmed)
         }
 
@@ -2776,59 +3010,86 @@ class TerminalController {
         // to which v1 command without parsing, so parse first and then apply allow-list.
 
         guard let data = jsonLine.data(using: .utf8) else {
-            return v2Encode(["ok": false, "error": ["code": "invalid_utf8", "message": "Invalid UTF-8"]])
+            return CMUXSocketProtocol.malformedRequestError(
+                command: jsonLine,
+                code: "invalid_utf8",
+                message: String(localized: "socket.error.invalidUTF8", defaultValue: "Invalid UTF-8")
+            )
         }
 
         let object: Any
         do {
             object = try JSONSerialization.jsonObject(with: data, options: [])
         } catch {
-            return v2Encode(["ok": false, "error": ["code": "parse_error", "message": "Invalid JSON"]])
+            return CMUXSocketProtocol.malformedRequestError(
+                command: jsonLine,
+                code: "parse_error",
+                message: String(localized: "socket.error.invalidJSON", defaultValue: "Invalid JSON")
+            )
         }
 
         guard let dict = object as? [String: Any] else {
-            return v2Encode(["ok": false, "error": ["code": "invalid_request", "message": "Expected JSON object"]])
+            return CMUXSocketProtocol.malformedRequestError(
+                command: jsonLine,
+                code: "invalid_request",
+                message: String(localized: "socket.error.expectedJSONObject", defaultValue: "Expected JSON object")
+            )
         }
 
-        let id: Any? = dict["id"]
-        let method = (dict["method"] as? String)?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
-        let params = dict["params"] as? [String: Any] ?? [:]
-
-        guard !method.isEmpty else {
-            return v2Error(id: id, code: "invalid_request", message: "Missing method")
+        let request: V2SocketRequest
+        do {
+            request = try CMUXSocketProtocol.parseV2SocketRequestObject(dict)
+        } catch let error as V2SocketRequestParseError {
+            return v2RequestParseErrorResponse(error, dict: dict)
+        } catch {
+            return v2Error(
+                id: dict["id"],
+                jsonRPC: CMUXSocketProtocol.usesJSONRPC(dict),
+                code: "invalid_request",
+                message: String(localized: "socket.error.invalidRequest", defaultValue: "Invalid request")
+            )
         }
+        return processV2Command(request)
+    }
 
-        guard Self.executionPolicy(forV2Method: method) == .mainActor else {
+    private func processV2Command(_ request: V2SocketRequest) -> String {
+        let id = request.id
+        let usesJSONRPC = request.usesJSONRPC
+        let method = request.method
+        let params = request.params
+
+        guard CMUXSocketProtocol.executionPolicy(forV2Method: method) == .mainActor else {
             return v2Error(
                 id: id,
+                jsonRPC: usesJSONRPC,
                 code: "invalid_dispatch",
-                message: "\(method) must run on the socket worker"
+                message: CMUXSocketProtocol.invalidDispatchMessage
             )
         }
 
         v2MainSync { self.v2RefreshKnownRefs() }
 
-
         return withSocketCommandPolicy(commandKey: method, isV2: true, params: params) {
             switch method {
         case "system.ping":
-            return v2Ok(id: id, result: ["pong": true])
+            return v2Ok(id: id, jsonRPC: usesJSONRPC, result: ["pong": true])
         case "system.capabilities":
-            return v2Ok(id: id, result: v2Capabilities())
+            return v2Ok(id: id, jsonRPC: usesJSONRPC, result: v2Capabilities())
 
         case "system.identify":
-            return v2Ok(id: id, result: v2Identify(params: params))
+            return v2Ok(id: id, jsonRPC: usesJSONRPC, result: v2Identify(params: params))
         case "system.tree":
-            return v2Result(id: id, self.v2SystemTree(params: params))
+            return v2Result(id: id, jsonRPC: usesJSONRPC, self.v2SystemTree(params: params))
 #if DEBUG
         case "debug.session_snapshot_benchmark":
-            return v2Result(id: id, self.v2DebugSessionSnapshotBenchmark(params: params))
+            return v2Result(id: id, jsonRPC: usesJSONRPC, self.v2DebugSessionSnapshotBenchmark(params: params))
         case "debug.session_snapshot_seed_scrollback":
-            return v2Result(id: id, self.v2DebugSessionSnapshotSeedScrollback(params: params))
+            return v2Result(id: id, jsonRPC: usesJSONRPC, self.v2DebugSessionSnapshotSeedScrollback(params: params))
 #endif
         case "auth.login":
             return v2Ok(
                 id: id,
+                jsonRPC: usesJSONRPC,
                 result: [
                     "authenticated": true,
                     "required": accessMode.requiresPasswordAuth
@@ -2837,429 +3098,434 @@ class TerminalController {
 
         // Windows
         case "window.list":
-            return v2Result(id: id, self.v2WindowList(params: params))
+            return v2Result(id: id, jsonRPC: usesJSONRPC, self.v2WindowList(params: params))
         case "window.current":
-            return v2Result(id: id, self.v2WindowCurrent(params: params))
+            return v2Result(id: id, jsonRPC: usesJSONRPC, self.v2WindowCurrent(params: params))
         case "window.focus":
-            return v2Result(id: id, self.v2WindowFocus(params: params))
+            return v2Result(id: id, jsonRPC: usesJSONRPC, self.v2WindowFocus(params: params))
         case "window.create":
-            return v2Result(id: id, self.v2WindowCreate(params: params))
+            return v2Result(id: id, jsonRPC: usesJSONRPC, self.v2WindowCreate(params: params))
         case "window.close":
-            return v2Result(id: id, self.v2WindowClose(params: params))
+            return v2Result(id: id, jsonRPC: usesJSONRPC, self.v2WindowClose(params: params))
 
         // Workspaces
         case "workspace.list":
-            return v2Result(id: id, self.v2WorkspaceList(params: params))
+            return v2Result(id: id, jsonRPC: usesJSONRPC, self.v2WorkspaceList(params: params))
         case "workspace.create":
-            return v2Result(id: id, self.v2WorkspaceCreate(params: params))
+            return v2Result(id: id, jsonRPC: usesJSONRPC, self.v2WorkspaceCreate(params: params))
         case "workspace.select":
-            return v2Result(id: id, self.v2WorkspaceSelect(params: params))
+            return v2Result(id: id, jsonRPC: usesJSONRPC, self.v2WorkspaceSelect(params: params))
         case "workspace.current":
-            return v2Result(id: id, self.v2WorkspaceCurrent(params: params))
+            return v2Result(id: id, jsonRPC: usesJSONRPC, self.v2WorkspaceCurrent(params: params))
         case "workspace.close":
-            return v2Result(id: id, self.v2WorkspaceClose(params: params))
+            return v2Result(id: id, jsonRPC: usesJSONRPC, self.v2WorkspaceClose(params: params))
         case "workspace.move_to_window":
-            return v2Result(id: id, self.v2WorkspaceMoveToWindow(params: params))
+            return v2Result(id: id, jsonRPC: usesJSONRPC, self.v2WorkspaceMoveToWindow(params: params))
         case "workspace.reorder":
-            return v2Result(id: id, self.v2WorkspaceReorder(params: params))
+            return v2Result(id: id, jsonRPC: usesJSONRPC, self.v2WorkspaceReorder(params: params))
         case "workspace.prompt_submit":
-            return v2Result(id: id, self.v2WorkspacePromptSubmit(params: params))
+            return v2Result(id: id, jsonRPC: usesJSONRPC, self.v2WorkspacePromptSubmit(params: params))
         case "workspace.rename":
-            return v2Result(id: id, self.v2WorkspaceRename(params: params))
+            return v2Result(id: id, jsonRPC: usesJSONRPC, self.v2WorkspaceRename(params: params))
         case "workspace.action":
-            return v2Result(id: id, self.v2WorkspaceAction(params: params))
+            return v2Result(id: id, jsonRPC: usesJSONRPC, self.v2WorkspaceAction(params: params))
         case "workspace.next":
-            return v2Result(id: id, self.v2WorkspaceNext(params: params))
+            return v2Result(id: id, jsonRPC: usesJSONRPC, self.v2WorkspaceNext(params: params))
         case "workspace.previous":
-            return v2Result(id: id, self.v2WorkspacePrevious(params: params))
+            return v2Result(id: id, jsonRPC: usesJSONRPC, self.v2WorkspacePrevious(params: params))
         case "workspace.last":
-            return v2Result(id: id, self.v2WorkspaceLast(params: params))
+            return v2Result(id: id, jsonRPC: usesJSONRPC, self.v2WorkspaceLast(params: params))
         case "workspace.equalize_splits":
-            return v2Result(id: id, self.v2WorkspaceEqualizeSplits(params: params))
+            return v2Result(id: id, jsonRPC: usesJSONRPC, self.v2WorkspaceEqualizeSplits(params: params))
         case "workspace.remote.configure":
-            return v2Result(id: id, self.v2WorkspaceRemoteConfigure(params: params))
+            return v2Result(id: id, jsonRPC: usesJSONRPC, self.v2WorkspaceRemoteConfigure(params: params))
         case "workspace.remote.foreground_auth_ready":
-            return v2Result(id: id, self.v2WorkspaceRemoteForegroundAuthReady(params: params))
+            return v2Result(id: id, jsonRPC: usesJSONRPC, self.v2WorkspaceRemoteForegroundAuthReady(params: params))
         case "workspace.remote.reconnect":
-            return v2Result(id: id, self.v2WorkspaceRemoteReconnect(params: params))
+            return v2Result(id: id, jsonRPC: usesJSONRPC, self.v2WorkspaceRemoteReconnect(params: params))
         case "workspace.remote.disconnect":
-            return v2Result(id: id, self.v2WorkspaceRemoteDisconnect(params: params))
+            return v2Result(id: id, jsonRPC: usesJSONRPC, self.v2WorkspaceRemoteDisconnect(params: params))
         case "workspace.remote.status":
-            return v2Result(id: id, self.v2WorkspaceRemoteStatus(params: params))
+            return v2Result(id: id, jsonRPC: usesJSONRPC, self.v2WorkspaceRemoteStatus(params: params))
         case "workspace.remote.terminal_session_end":
-            return v2Result(id: id, self.v2WorkspaceRemoteTerminalSessionEnd(params: params))
+            return v2Result(id: id, jsonRPC: usesJSONRPC, self.v2WorkspaceRemoteTerminalSessionEnd(params: params))
         case "session.restore_previous":
-            return v2Result(id: id, self.v2SessionRestorePrevious())
+            return v2Result(id: id, jsonRPC: usesJSONRPC, self.v2SessionRestorePrevious())
 
         // Settings
         case "settings.open":
-            return v2Result(id: id, self.v2SettingsOpen(params: params))
+            return v2Result(id: id, jsonRPC: usesJSONRPC, self.v2SettingsOpen(params: params))
 
         // Feedback
         case "feedback.open":
-            return v2Result(id: id, self.v2FeedbackOpen(params: params))
+            return v2Result(id: id, jsonRPC: usesJSONRPC, self.v2FeedbackOpen(params: params))
 
         // Feed (workstream)
         case "feed.jump":
-            return v2Result(id: id, self.v2FeedJump(params: params))
+            return v2Result(id: id, jsonRPC: usesJSONRPC, self.v2FeedJump(params: params))
         case "feed.list":
-            return v2Result(id: id, self.v2FeedList(params: params))
+            return v2Result(id: id, jsonRPC: usesJSONRPC, self.v2FeedList(params: params))
 
 
         // Surfaces / input
         case "surface.list":
-            return v2Result(id: id, self.v2SurfaceList(params: params))
+            return v2Result(id: id, jsonRPC: usesJSONRPC, self.v2SurfaceList(params: params))
         case "surface.current":
-            return v2Result(id: id, self.v2SurfaceCurrent(params: params))
+            return v2Result(id: id, jsonRPC: usesJSONRPC, self.v2SurfaceCurrent(params: params))
         case "surface.focus":
-            return v2Result(id: id, self.v2SurfaceFocus(params: params))
+            return v2Result(id: id, jsonRPC: usesJSONRPC, self.v2SurfaceFocus(params: params))
         case "surface.split":
-            return v2Result(id: id, self.v2SurfaceSplit(params: params))
+            return v2Result(id: id, jsonRPC: usesJSONRPC, self.v2SurfaceSplit(params: params))
         case "surface.create":
-            return v2Result(id: id, self.v2SurfaceCreate(params: params))
+            return v2Result(id: id, jsonRPC: usesJSONRPC, self.v2SurfaceCreate(params: params))
         case "surface.close":
-            return v2Result(id: id, self.v2SurfaceClose(params: params))
+            return v2Result(id: id, jsonRPC: usesJSONRPC, self.v2SurfaceClose(params: params))
         case "surface.move":
-            return v2Result(id: id, self.v2SurfaceMove(params: params))
+            return v2Result(id: id, jsonRPC: usesJSONRPC, self.v2SurfaceMove(params: params))
         case "surface.reorder":
-            return v2Result(id: id, self.v2SurfaceReorder(params: params))
+            return v2Result(id: id, jsonRPC: usesJSONRPC, self.v2SurfaceReorder(params: params))
         case "surface.action":
-            return v2Result(id: id, self.v2TabAction(params: params))
+            return v2Result(id: id, jsonRPC: usesJSONRPC, self.v2TabAction(params: params))
         case "tab.action":
-            return v2Result(id: id, self.v2TabAction(params: params))
+            return v2Result(id: id, jsonRPC: usesJSONRPC, self.v2TabAction(params: params))
         case "surface.drag_to_split":
-            return v2Result(id: id, self.v2SurfaceDragToSplit(params: params))
+            return v2Result(id: id, jsonRPC: usesJSONRPC, self.v2SurfaceDragToSplit(params: params))
         case "surface.split_off":
-            return v2Result(id: id, self.v2SurfaceSplitOff(params: params))
+            return v2Result(id: id, jsonRPC: usesJSONRPC, self.v2SurfaceSplitOff(params: params))
         case "surface.refresh":
-            return v2Result(id: id, self.v2SurfaceRefresh(params: params))
+            return v2Result(id: id, jsonRPC: usesJSONRPC, self.v2SurfaceRefresh(params: params))
         case "surface.health":
-            return v2Result(id: id, self.v2SurfaceHealth(params: params))
+            return v2Result(id: id, jsonRPC: usesJSONRPC, self.v2SurfaceHealth(params: params))
         case "surface.resume.set":
-            return v2Result(id: id, self.v2SurfaceResumeSet(params: params))
+            return v2Result(id: id, jsonRPC: usesJSONRPC, self.v2SurfaceResumeSet(params: params))
         case "surface.resume.get":
-            return v2Result(id: id, self.v2SurfaceResumeGet(params: params))
+            return v2Result(id: id, jsonRPC: usesJSONRPC, self.v2SurfaceResumeGet(params: params))
         case "surface.resume.clear":
-            return v2Result(id: id, self.v2SurfaceResumeClear(params: params))
+            return v2Result(id: id, jsonRPC: usesJSONRPC, self.v2SurfaceResumeClear(params: params))
         case "debug.terminals":
-            return v2Result(id: id, self.v2DebugTerminals(params: params))
+            return v2Result(id: id, jsonRPC: usesJSONRPC, self.v2DebugTerminals(params: params))
         case "surface.send_text":
-            return v2Result(id: id, self.v2SurfaceSendText(params: params))
+            return v2Result(id: id, jsonRPC: usesJSONRPC, self.v2SurfaceSendText(params: params))
         case "surface.send_key":
-            return v2Result(id: id, self.v2SurfaceSendKey(params: params))
+            return v2Result(id: id, jsonRPC: usesJSONRPC, self.v2SurfaceSendKey(params: params))
         case "surface.report_tty":
-            return v2Result(id: id, self.v2SurfaceReportTTY(params: params))
+            return v2Result(id: id, jsonRPC: usesJSONRPC, self.v2SurfaceReportTTY(params: params))
         case "surface.report_shell_state":
-            return v2Result(id: id, self.v2SurfaceReportShellState(params: params))
+            return v2Result(id: id, jsonRPC: usesJSONRPC, self.v2SurfaceReportShellState(params: params))
         case "surface.ports_kick":
-            return v2Result(id: id, self.v2SurfacePortsKick(params: params))
+            return v2Result(id: id, jsonRPC: usesJSONRPC, self.v2SurfacePortsKick(params: params))
         case "surface.clear_history":
-            return v2Result(id: id, self.v2SurfaceClearHistory(params: params))
+            return v2Result(id: id, jsonRPC: usesJSONRPC, self.v2SurfaceClearHistory(params: params))
         case "surface.trigger_flash":
-            return v2Result(id: id, self.v2SurfaceTriggerFlash(params: params))
+            return v2Result(id: id, jsonRPC: usesJSONRPC, self.v2SurfaceTriggerFlash(params: params))
 
         // Panes
         case "pane.list":
-            return v2Result(id: id, self.v2PaneList(params: params))
+            return v2Result(id: id, jsonRPC: usesJSONRPC, self.v2PaneList(params: params))
         case "pane.focus":
-            return v2Result(id: id, self.v2PaneFocus(params: params))
+            return v2Result(id: id, jsonRPC: usesJSONRPC, self.v2PaneFocus(params: params))
         case "pane.surfaces":
-            return v2Result(id: id, self.v2PaneSurfaces(params: params))
+            return v2Result(id: id, jsonRPC: usesJSONRPC, self.v2PaneSurfaces(params: params))
         case "pane.create":
-            return v2Result(id: id, self.v2PaneCreate(params: params))
+            return v2Result(id: id, jsonRPC: usesJSONRPC, self.v2PaneCreate(params: params))
         case "pane.resize":
-            return v2Result(id: id, self.v2PaneResize(params: params))
+            return v2Result(id: id, jsonRPC: usesJSONRPC, self.v2PaneResize(params: params))
         case "pane.swap":
-            return v2Result(id: id, self.v2PaneSwap(params: params))
+            return v2Result(id: id, jsonRPC: usesJSONRPC, self.v2PaneSwap(params: params))
         case "pane.break":
-            return v2Result(id: id, self.v2PaneBreak(params: params))
+            return v2Result(id: id, jsonRPC: usesJSONRPC, self.v2PaneBreak(params: params))
         case "pane.join":
-            return v2Result(id: id, self.v2PaneJoin(params: params))
+            return v2Result(id: id, jsonRPC: usesJSONRPC, self.v2PaneJoin(params: params))
         case "pane.last":
-            return v2Result(id: id, self.v2PaneLast(params: params))
+            return v2Result(id: id, jsonRPC: usesJSONRPC, self.v2PaneLast(params: params))
 
         // Notifications
         case "notification.create":
-            return v2Result(id: id, self.v2NotificationCreate(params: params))
+            return v2Result(id: id, jsonRPC: usesJSONRPC, self.v2NotificationCreate(params: params))
         case "notification.create_for_caller":
-            return v2Result(id: id, self.v2NotificationCreateForCaller(params: params))
+            return v2Result(id: id, jsonRPC: usesJSONRPC, self.v2NotificationCreateForCaller(params: params))
         case "notification.create_for_surface":
-            return v2Result(id: id, self.v2NotificationCreateForSurface(params: params))
+            return v2Result(id: id, jsonRPC: usesJSONRPC, self.v2NotificationCreateForSurface(params: params))
         case "notification.create_for_target":
-            return v2Result(id: id, self.v2NotificationCreateForTarget(params: params))
+            return v2Result(id: id, jsonRPC: usesJSONRPC, self.v2NotificationCreateForTarget(params: params))
         case "notification.list":
-            return v2Ok(id: id, result: self.v2NotificationList())
+            return v2Ok(id: id, jsonRPC: usesJSONRPC, result: self.v2NotificationList())
         case "notification.clear":
-            return v2Result(id: id, self.v2NotificationClear())
+            return v2Result(id: id, jsonRPC: usesJSONRPC, self.v2NotificationClear())
         case "notification.dismiss":
-            return v2Result(id: id, self.v2NotificationDismiss(params: params))
+            return v2Result(id: id, jsonRPC: usesJSONRPC, self.v2NotificationDismiss(params: params))
         case "notification.mark_read":
-            return v2Result(id: id, self.v2NotificationMarkRead(params: params))
+            return v2Result(id: id, jsonRPC: usesJSONRPC, self.v2NotificationMarkRead(params: params))
         case "notification.open":
-            return v2Result(id: id, self.v2NotificationOpen(params: params))
+            return v2Result(id: id, jsonRPC: usesJSONRPC, self.v2NotificationOpen(params: params))
         case "notification.jump_to_unread":
-            return v2Result(id: id, self.v2NotificationJumpToUnread())
+            return v2Result(id: id, jsonRPC: usesJSONRPC, self.v2NotificationJumpToUnread())
 
         // App focus
         case "app.focus_override.set":
-            return v2Result(id: id, self.v2AppFocusOverride(params: params))
+            return v2Result(id: id, jsonRPC: usesJSONRPC, self.v2AppFocusOverride(params: params))
         case "app.simulate_active":
-            return v2Result(id: id, self.v2AppSimulateActive())
+            return v2Result(id: id, jsonRPC: usesJSONRPC, self.v2AppSimulateActive())
 
         // Browser
         case "browser.open_split":
-            return v2Result(id: id, self.v2BrowserOpenSplit(params: params))
+            return v2Result(id: id, jsonRPC: usesJSONRPC, self.v2BrowserOpenSplit(params: params))
         case "browser.navigate":
-            return v2Result(id: id, self.v2BrowserNavigate(params: params))
+            return v2Result(id: id, jsonRPC: usesJSONRPC, self.v2BrowserNavigate(params: params))
         case "browser.back":
-            return v2Result(id: id, self.v2BrowserBack(params: params))
+            return v2Result(id: id, jsonRPC: usesJSONRPC, self.v2BrowserBack(params: params))
         case "browser.forward":
-            return v2Result(id: id, self.v2BrowserForward(params: params))
+            return v2Result(id: id, jsonRPC: usesJSONRPC, self.v2BrowserForward(params: params))
         case "browser.reload":
-            return v2Result(id: id, self.v2BrowserReload(params: params))
+            return v2Result(id: id, jsonRPC: usesJSONRPC, self.v2BrowserReload(params: params))
         case "browser.url.get":
-            return v2Result(id: id, self.v2BrowserGetURL(params: params))
+            return v2Result(id: id, jsonRPC: usesJSONRPC, self.v2BrowserGetURL(params: params))
         case "browser.focus_webview":
-            return v2Result(id: id, self.v2BrowserFocusWebView(params: params))
+            return v2Result(id: id, jsonRPC: usesJSONRPC, self.v2BrowserFocusWebView(params: params))
         case "browser.is_webview_focused":
-            return v2Result(id: id, self.v2BrowserIsWebViewFocused(params: params))
+            return v2Result(id: id, jsonRPC: usesJSONRPC, self.v2BrowserIsWebViewFocused(params: params))
         case "browser.snapshot":
-            return v2Result(id: id, self.v2BrowserSnapshot(params: params))
+            return v2Result(id: id, jsonRPC: usesJSONRPC, self.v2BrowserSnapshot(params: params))
         case "browser.eval":
-            return v2Result(id: id, self.v2BrowserEval(params: params))
+            return v2Result(id: id, jsonRPC: usesJSONRPC, self.v2BrowserEval(params: params))
         case "browser.wait":
-            return v2Result(id: id, self.v2BrowserWait(params: params))
+            return v2Result(id: id, jsonRPC: usesJSONRPC, self.v2BrowserWait(params: params))
         case "browser.click":
-            return v2Result(id: id, self.v2BrowserClick(params: params))
+            return v2Result(id: id, jsonRPC: usesJSONRPC, self.v2BrowserClick(params: params))
         case "browser.dblclick":
-            return v2Result(id: id, self.v2BrowserDblClick(params: params))
+            return v2Result(id: id, jsonRPC: usesJSONRPC, self.v2BrowserDblClick(params: params))
         case "browser.hover":
-            return v2Result(id: id, self.v2BrowserHover(params: params))
+            return v2Result(id: id, jsonRPC: usesJSONRPC, self.v2BrowserHover(params: params))
         case "browser.focus":
-            return v2Result(id: id, self.v2BrowserFocusElement(params: params))
+            return v2Result(id: id, jsonRPC: usesJSONRPC, self.v2BrowserFocusElement(params: params))
         case "browser.type":
-            return v2Result(id: id, self.v2BrowserType(params: params))
+            return v2Result(id: id, jsonRPC: usesJSONRPC, self.v2BrowserType(params: params))
         case "browser.fill":
-            return v2Result(id: id, self.v2BrowserFill(params: params))
+            return v2Result(id: id, jsonRPC: usesJSONRPC, self.v2BrowserFill(params: params))
         case "browser.press":
-            return v2Result(id: id, self.v2BrowserPress(params: params))
+            return v2Result(id: id, jsonRPC: usesJSONRPC, self.v2BrowserPress(params: params))
         case "browser.keydown":
-            return v2Result(id: id, self.v2BrowserKeyDown(params: params))
+            return v2Result(id: id, jsonRPC: usesJSONRPC, self.v2BrowserKeyDown(params: params))
         case "browser.keyup":
-            return v2Result(id: id, self.v2BrowserKeyUp(params: params))
+            return v2Result(id: id, jsonRPC: usesJSONRPC, self.v2BrowserKeyUp(params: params))
         case "browser.check":
-            return v2Result(id: id, self.v2BrowserCheck(params: params, checked: true))
+            return v2Result(id: id, jsonRPC: usesJSONRPC, self.v2BrowserCheck(params: params, checked: true))
         case "browser.uncheck":
-            return v2Result(id: id, self.v2BrowserCheck(params: params, checked: false))
+            return v2Result(id: id, jsonRPC: usesJSONRPC, self.v2BrowserCheck(params: params, checked: false))
         case "browser.select":
-            return v2Result(id: id, self.v2BrowserSelect(params: params))
+            return v2Result(id: id, jsonRPC: usesJSONRPC, self.v2BrowserSelect(params: params))
         case "browser.scroll":
-            return v2Result(id: id, self.v2BrowserScroll(params: params))
+            return v2Result(id: id, jsonRPC: usesJSONRPC, self.v2BrowserScroll(params: params))
         case "browser.scroll_into_view":
-            return v2Result(id: id, self.v2BrowserScrollIntoView(params: params))
+            return v2Result(id: id, jsonRPC: usesJSONRPC, self.v2BrowserScrollIntoView(params: params))
         case "browser.screenshot":
-            return v2Result(id: id, self.v2BrowserScreenshot(params: params))
+            return v2Result(id: id, jsonRPC: usesJSONRPC, self.v2BrowserScreenshot(params: params))
         case "browser.get.text":
-            return v2Result(id: id, self.v2BrowserGetText(params: params))
+            return v2Result(id: id, jsonRPC: usesJSONRPC, self.v2BrowserGetText(params: params))
         case "browser.get.html":
-            return v2Result(id: id, self.v2BrowserGetHTML(params: params))
+            return v2Result(id: id, jsonRPC: usesJSONRPC, self.v2BrowserGetHTML(params: params))
         case "browser.get.value":
-            return v2Result(id: id, self.v2BrowserGetValue(params: params))
+            return v2Result(id: id, jsonRPC: usesJSONRPC, self.v2BrowserGetValue(params: params))
         case "browser.get.attr":
-            return v2Result(id: id, self.v2BrowserGetAttr(params: params))
+            return v2Result(id: id, jsonRPC: usesJSONRPC, self.v2BrowserGetAttr(params: params))
         case "browser.get.title":
-            return v2Result(id: id, self.v2BrowserGetTitle(params: params))
+            return v2Result(id: id, jsonRPC: usesJSONRPC, self.v2BrowserGetTitle(params: params))
         case "browser.get.count":
-            return v2Result(id: id, self.v2BrowserGetCount(params: params))
+            return v2Result(id: id, jsonRPC: usesJSONRPC, self.v2BrowserGetCount(params: params))
         case "browser.get.box":
-            return v2Result(id: id, self.v2BrowserGetBox(params: params))
+            return v2Result(id: id, jsonRPC: usesJSONRPC, self.v2BrowserGetBox(params: params))
         case "browser.get.styles":
-            return v2Result(id: id, self.v2BrowserGetStyles(params: params))
+            return v2Result(id: id, jsonRPC: usesJSONRPC, self.v2BrowserGetStyles(params: params))
         case "browser.is.visible":
-            return v2Result(id: id, self.v2BrowserIsVisible(params: params))
+            return v2Result(id: id, jsonRPC: usesJSONRPC, self.v2BrowserIsVisible(params: params))
         case "browser.is.enabled":
-            return v2Result(id: id, self.v2BrowserIsEnabled(params: params))
+            return v2Result(id: id, jsonRPC: usesJSONRPC, self.v2BrowserIsEnabled(params: params))
         case "browser.is.checked":
-            return v2Result(id: id, self.v2BrowserIsChecked(params: params))
+            return v2Result(id: id, jsonRPC: usesJSONRPC, self.v2BrowserIsChecked(params: params))
         case "browser.find.role":
-            return v2Result(id: id, self.v2BrowserFindRole(params: params))
+            return v2Result(id: id, jsonRPC: usesJSONRPC, self.v2BrowserFindRole(params: params))
         case "browser.find.text":
-            return v2Result(id: id, self.v2BrowserFindText(params: params))
+            return v2Result(id: id, jsonRPC: usesJSONRPC, self.v2BrowserFindText(params: params))
         case "browser.find.label":
-            return v2Result(id: id, self.v2BrowserFindLabel(params: params))
+            return v2Result(id: id, jsonRPC: usesJSONRPC, self.v2BrowserFindLabel(params: params))
         case "browser.find.placeholder":
-            return v2Result(id: id, self.v2BrowserFindPlaceholder(params: params))
+            return v2Result(id: id, jsonRPC: usesJSONRPC, self.v2BrowserFindPlaceholder(params: params))
         case "browser.find.alt":
-            return v2Result(id: id, self.v2BrowserFindAlt(params: params))
+            return v2Result(id: id, jsonRPC: usesJSONRPC, self.v2BrowserFindAlt(params: params))
         case "browser.find.title":
-            return v2Result(id: id, self.v2BrowserFindTitle(params: params))
+            return v2Result(id: id, jsonRPC: usesJSONRPC, self.v2BrowserFindTitle(params: params))
         case "browser.find.testid":
-            return v2Result(id: id, self.v2BrowserFindTestId(params: params))
+            return v2Result(id: id, jsonRPC: usesJSONRPC, self.v2BrowserFindTestId(params: params))
         case "browser.find.first":
-            return v2Result(id: id, self.v2BrowserFindFirst(params: params))
+            return v2Result(id: id, jsonRPC: usesJSONRPC, self.v2BrowserFindFirst(params: params))
         case "browser.find.last":
-            return v2Result(id: id, self.v2BrowserFindLast(params: params))
+            return v2Result(id: id, jsonRPC: usesJSONRPC, self.v2BrowserFindLast(params: params))
         case "browser.find.nth":
-            return v2Result(id: id, self.v2BrowserFindNth(params: params))
+            return v2Result(id: id, jsonRPC: usesJSONRPC, self.v2BrowserFindNth(params: params))
         case "browser.frame.select":
-            return v2Result(id: id, self.v2BrowserFrameSelect(params: params))
+            return v2Result(id: id, jsonRPC: usesJSONRPC, self.v2BrowserFrameSelect(params: params))
         case "browser.frame.main":
-            return v2Result(id: id, self.v2BrowserFrameMain(params: params))
+            return v2Result(id: id, jsonRPC: usesJSONRPC, self.v2BrowserFrameMain(params: params))
         case "browser.dialog.accept":
-            return v2Result(id: id, self.v2BrowserDialogRespond(params: params, accept: true))
+            return v2Result(id: id, jsonRPC: usesJSONRPC, self.v2BrowserDialogRespond(params: params, accept: true))
         case "browser.dialog.dismiss":
-            return v2Result(id: id, self.v2BrowserDialogRespond(params: params, accept: false))
+            return v2Result(id: id, jsonRPC: usesJSONRPC, self.v2BrowserDialogRespond(params: params, accept: false))
         case "browser.import.dialog":
-            return v2Result(id: id, self.v2BrowserImportDialog(params: params))
+            return v2Result(id: id, jsonRPC: usesJSONRPC, self.v2BrowserImportDialog(params: params))
         case "browser.cookies.get":
-            return v2Result(id: id, self.v2BrowserCookiesGet(params: params))
+            return v2Result(id: id, jsonRPC: usesJSONRPC, self.v2BrowserCookiesGet(params: params))
         case "browser.cookies.set":
-            return v2Result(id: id, self.v2BrowserCookiesSet(params: params))
+            return v2Result(id: id, jsonRPC: usesJSONRPC, self.v2BrowserCookiesSet(params: params))
         case "browser.cookies.clear":
-            return v2Result(id: id, self.v2BrowserCookiesClear(params: params))
+            return v2Result(id: id, jsonRPC: usesJSONRPC, self.v2BrowserCookiesClear(params: params))
         case "browser.storage.get":
-            return v2Result(id: id, self.v2BrowserStorageGet(params: params))
+            return v2Result(id: id, jsonRPC: usesJSONRPC, self.v2BrowserStorageGet(params: params))
         case "browser.storage.set":
-            return v2Result(id: id, self.v2BrowserStorageSet(params: params))
+            return v2Result(id: id, jsonRPC: usesJSONRPC, self.v2BrowserStorageSet(params: params))
         case "browser.storage.clear":
-            return v2Result(id: id, self.v2BrowserStorageClear(params: params))
+            return v2Result(id: id, jsonRPC: usesJSONRPC, self.v2BrowserStorageClear(params: params))
         case "browser.tab.new":
-            return v2Result(id: id, self.v2BrowserTabNew(params: params))
+            return v2Result(id: id, jsonRPC: usesJSONRPC, self.v2BrowserTabNew(params: params))
         case "browser.tab.list":
-            return v2Result(id: id, self.v2BrowserTabList(params: params))
+            return v2Result(id: id, jsonRPC: usesJSONRPC, self.v2BrowserTabList(params: params))
         case "browser.tab.switch":
-            return v2Result(id: id, self.v2BrowserTabSwitch(params: params))
+            return v2Result(id: id, jsonRPC: usesJSONRPC, self.v2BrowserTabSwitch(params: params))
         case "browser.tab.close":
-            return v2Result(id: id, self.v2BrowserTabClose(params: params))
+            return v2Result(id: id, jsonRPC: usesJSONRPC, self.v2BrowserTabClose(params: params))
         case "browser.console.list":
-            return v2Result(id: id, self.v2BrowserConsoleList(params: params))
+            return v2Result(id: id, jsonRPC: usesJSONRPC, self.v2BrowserConsoleList(params: params))
         case "browser.console.clear":
-            return v2Result(id: id, self.v2BrowserConsoleClear(params: params))
+            return v2Result(id: id, jsonRPC: usesJSONRPC, self.v2BrowserConsoleClear(params: params))
         case "browser.errors.list":
-            return v2Result(id: id, self.v2BrowserErrorsList(params: params))
+            return v2Result(id: id, jsonRPC: usesJSONRPC, self.v2BrowserErrorsList(params: params))
         case "browser.highlight":
-            return v2Result(id: id, self.v2BrowserHighlight(params: params))
+            return v2Result(id: id, jsonRPC: usesJSONRPC, self.v2BrowserHighlight(params: params))
         case "browser.state.save":
-            return v2Result(id: id, self.v2BrowserStateSave(params: params))
+            return v2Result(id: id, jsonRPC: usesJSONRPC, self.v2BrowserStateSave(params: params))
         case "browser.state.load":
-            return v2Result(id: id, self.v2BrowserStateLoad(params: params))
+            return v2Result(id: id, jsonRPC: usesJSONRPC, self.v2BrowserStateLoad(params: params))
         case "browser.addinitscript":
-            return v2Result(id: id, self.v2BrowserAddInitScript(params: params))
+            return v2Result(id: id, jsonRPC: usesJSONRPC, self.v2BrowserAddInitScript(params: params))
         case "browser.addscript":
-            return v2Result(id: id, self.v2BrowserAddScript(params: params))
+            return v2Result(id: id, jsonRPC: usesJSONRPC, self.v2BrowserAddScript(params: params))
         case "browser.addstyle":
-            return v2Result(id: id, self.v2BrowserAddStyle(params: params))
+            return v2Result(id: id, jsonRPC: usesJSONRPC, self.v2BrowserAddStyle(params: params))
         case "browser.viewport.set":
-            return v2Result(id: id, self.v2BrowserViewportSet(params: params))
+            return v2Result(id: id, jsonRPC: usesJSONRPC, self.v2BrowserViewportSet(params: params))
         case "browser.geolocation.set":
-            return v2Result(id: id, self.v2BrowserGeolocationSet(params: params))
+            return v2Result(id: id, jsonRPC: usesJSONRPC, self.v2BrowserGeolocationSet(params: params))
         case "browser.offline.set":
-            return v2Result(id: id, self.v2BrowserOfflineSet(params: params))
+            return v2Result(id: id, jsonRPC: usesJSONRPC, self.v2BrowserOfflineSet(params: params))
         case "browser.trace.start":
-            return v2Result(id: id, self.v2BrowserTraceStart(params: params))
+            return v2Result(id: id, jsonRPC: usesJSONRPC, self.v2BrowserTraceStart(params: params))
         case "browser.trace.stop":
-            return v2Result(id: id, self.v2BrowserTraceStop(params: params))
+            return v2Result(id: id, jsonRPC: usesJSONRPC, self.v2BrowserTraceStop(params: params))
         case "browser.network.route":
-            return v2Result(id: id, self.v2BrowserNetworkRoute(params: params))
+            return v2Result(id: id, jsonRPC: usesJSONRPC, self.v2BrowserNetworkRoute(params: params))
         case "browser.network.unroute":
-            return v2Result(id: id, self.v2BrowserNetworkUnroute(params: params))
+            return v2Result(id: id, jsonRPC: usesJSONRPC, self.v2BrowserNetworkUnroute(params: params))
         case "browser.network.requests":
-            return v2Result(id: id, self.v2BrowserNetworkRequests(params: params))
+            return v2Result(id: id, jsonRPC: usesJSONRPC, self.v2BrowserNetworkRequests(params: params))
         case "browser.screencast.start":
-            return v2Result(id: id, self.v2BrowserScreencastStart(params: params))
+            return v2Result(id: id, jsonRPC: usesJSONRPC, self.v2BrowserScreencastStart(params: params))
         case "browser.screencast.stop":
-            return v2Result(id: id, self.v2BrowserScreencastStop(params: params))
+            return v2Result(id: id, jsonRPC: usesJSONRPC, self.v2BrowserScreencastStop(params: params))
         case "browser.input_mouse":
-            return v2Result(id: id, self.v2BrowserInputMouse(params: params))
+            return v2Result(id: id, jsonRPC: usesJSONRPC, self.v2BrowserInputMouse(params: params))
         case "browser.input_keyboard":
-            return v2Result(id: id, self.v2BrowserInputKeyboard(params: params))
+            return v2Result(id: id, jsonRPC: usesJSONRPC, self.v2BrowserInputKeyboard(params: params))
         case "browser.input_touch":
-            return v2Result(id: id, self.v2BrowserInputTouch(params: params))
+            return v2Result(id: id, jsonRPC: usesJSONRPC, self.v2BrowserInputTouch(params: params))
 
         // Markdown
         case "markdown.open":
-            return v2Result(id: id, self.v2MarkdownOpen(params: params))
+            return v2Result(id: id, jsonRPC: usesJSONRPC, self.v2MarkdownOpen(params: params))
         case "file.open":
-            return v2Result(id: id, self.v2FileOpen(params: params))
+            return v2Result(id: id, jsonRPC: usesJSONRPC, self.v2FileOpen(params: params))
 
         case "surface.read_text":
-            return v2Result(id: id, self.v2SurfaceReadText(params: params))
+            return v2Result(id: id, jsonRPC: usesJSONRPC, self.v2SurfaceReadText(params: params))
 
 
 #if DEBUG
         // Debug / test-only
         case "debug.shortcut.set":
-            return v2Result(id: id, self.v2DebugShortcutSet(params: params))
+            return v2Result(id: id, jsonRPC: usesJSONRPC, self.v2DebugShortcutSet(params: params))
         case "debug.shortcut.simulate":
-            return v2Result(id: id, self.v2DebugShortcutSimulate(params: params))
+            return v2Result(id: id, jsonRPC: usesJSONRPC, self.v2DebugShortcutSimulate(params: params))
         case "debug.type":
-            return v2Result(id: id, self.v2DebugType(params: params))
+            return v2Result(id: id, jsonRPC: usesJSONRPC, self.v2DebugType(params: params))
         case "debug.app.activate":
-            return v2Result(id: id, self.v2DebugActivateApp())
+            return v2Result(id: id, jsonRPC: usesJSONRPC, self.v2DebugActivateApp())
         case "debug.command_palette.toggle":
-            return v2Result(id: id, self.v2DebugToggleCommandPalette(params: params))
+            return v2Result(id: id, jsonRPC: usesJSONRPC, self.v2DebugToggleCommandPalette(params: params))
         case "debug.command_palette.rename_tab.open":
-            return v2Result(id: id, self.v2DebugOpenCommandPaletteRenameTabInput(params: params))
+            return v2Result(id: id, jsonRPC: usesJSONRPC, self.v2DebugOpenCommandPaletteRenameTabInput(params: params))
         case "debug.command_palette.visible":
-            return v2Result(id: id, self.v2DebugCommandPaletteVisible(params: params))
+            return v2Result(id: id, jsonRPC: usesJSONRPC, self.v2DebugCommandPaletteVisible(params: params))
         case "debug.command_palette.selection":
-            return v2Result(id: id, self.v2DebugCommandPaletteSelection(params: params))
+            return v2Result(id: id, jsonRPC: usesJSONRPC, self.v2DebugCommandPaletteSelection(params: params))
         case "debug.command_palette.results":
-            return v2Result(id: id, self.v2DebugCommandPaletteResults(params: params))
+            return v2Result(id: id, jsonRPC: usesJSONRPC, self.v2DebugCommandPaletteResults(params: params))
         case "debug.command_palette.rename_input.interact":
-            return v2Result(id: id, self.v2DebugCommandPaletteRenameInputInteraction(params: params))
+            return v2Result(id: id, jsonRPC: usesJSONRPC, self.v2DebugCommandPaletteRenameInputInteraction(params: params))
         case "debug.command_palette.rename_input.delete_backward":
-            return v2Result(id: id, self.v2DebugCommandPaletteRenameInputDeleteBackward(params: params))
+            return v2Result(id: id, jsonRPC: usesJSONRPC, self.v2DebugCommandPaletteRenameInputDeleteBackward(params: params))
         case "debug.command_palette.rename_input.selection":
-            return v2Result(id: id, self.v2DebugCommandPaletteRenameInputSelection(params: params))
+            return v2Result(id: id, jsonRPC: usesJSONRPC, self.v2DebugCommandPaletteRenameInputSelection(params: params))
         case "debug.command_palette.rename_input.select_all":
-            return v2Result(id: id, self.v2DebugCommandPaletteRenameInputSelectAll(params: params))
+            return v2Result(id: id, jsonRPC: usesJSONRPC, self.v2DebugCommandPaletteRenameInputSelectAll(params: params))
         case "debug.browser.address_bar_focused":
-            return v2Result(id: id, self.v2DebugBrowserAddressBarFocused(params: params))
+            return v2Result(id: id, jsonRPC: usesJSONRPC, self.v2DebugBrowserAddressBarFocused(params: params))
         case "debug.browser.favicon":
-            return v2Result(id: id, self.v2DebugBrowserFavicon(params: params))
+            return v2Result(id: id, jsonRPC: usesJSONRPC, self.v2DebugBrowserFavicon(params: params))
         case "debug.right_sidebar.focus":
-            return v2Result(id: id, self.v2DebugRightSidebarFocus(params: params))
+            return v2Result(id: id, jsonRPC: usesJSONRPC, self.v2DebugRightSidebarFocus(params: params))
         case "debug.sidebar.visible":
-            return v2Result(id: id, self.v2DebugSidebarVisible(params: params))
+            return v2Result(id: id, jsonRPC: usesJSONRPC, self.v2DebugSidebarVisible(params: params))
         case "debug.terminal.is_focused":
-            return v2Result(id: id, self.v2DebugIsTerminalFocused(params: params))
+            return v2Result(id: id, jsonRPC: usesJSONRPC, self.v2DebugIsTerminalFocused(params: params))
 #if DEBUG
         case "debug.terminal.simulate_file_drop":
-            return v2Result(id: id, self.v2DebugSimulateTerminalFileDrop(params: params))
+            return v2Result(id: id, jsonRPC: usesJSONRPC, self.v2DebugSimulateTerminalFileDrop(params: params))
 #endif
         case "debug.terminal.read_text":
-            return v2Result(id: id, self.v2DebugReadTerminalText(params: params))
+            return v2Result(id: id, jsonRPC: usesJSONRPC, self.v2DebugReadTerminalText(params: params))
         case "debug.terminal.render_stats":
-            return v2Result(id: id, self.v2DebugRenderStats(params: params))
+            return v2Result(id: id, jsonRPC: usesJSONRPC, self.v2DebugRenderStats(params: params))
         case "debug.layout":
-            return v2Result(id: id, self.v2DebugLayout())
+            return v2Result(id: id, jsonRPC: usesJSONRPC, self.v2DebugLayout())
         case "debug.portal.stats":
-            return v2Result(id: id, self.v2DebugPortalStats())
+            return v2Result(id: id, jsonRPC: usesJSONRPC, self.v2DebugPortalStats())
         case "debug.bonsplit_underflow.count":
-            return v2Result(id: id, self.v2DebugBonsplitUnderflowCount())
+            return v2Result(id: id, jsonRPC: usesJSONRPC, self.v2DebugBonsplitUnderflowCount())
         case "debug.bonsplit_underflow.reset":
-            return v2Result(id: id, self.v2DebugResetBonsplitUnderflowCount())
+            return v2Result(id: id, jsonRPC: usesJSONRPC, self.v2DebugResetBonsplitUnderflowCount())
         case "debug.empty_panel.count":
-            return v2Result(id: id, self.v2DebugEmptyPanelCount())
+            return v2Result(id: id, jsonRPC: usesJSONRPC, self.v2DebugEmptyPanelCount())
         case "debug.empty_panel.reset":
-            return v2Result(id: id, self.v2DebugResetEmptyPanelCount())
+            return v2Result(id: id, jsonRPC: usesJSONRPC, self.v2DebugResetEmptyPanelCount())
         case "debug.notification.focus":
-            return v2Result(id: id, self.v2DebugFocusNotification(params: params))
+            return v2Result(id: id, jsonRPC: usesJSONRPC, self.v2DebugFocusNotification(params: params))
         case "debug.flash.count":
-            return v2Result(id: id, self.v2DebugFlashCount(params: params))
+            return v2Result(id: id, jsonRPC: usesJSONRPC, self.v2DebugFlashCount(params: params))
         case "debug.flash.reset":
-            return v2Result(id: id, self.v2DebugResetFlashCounts())
+            return v2Result(id: id, jsonRPC: usesJSONRPC, self.v2DebugResetFlashCounts())
         case "debug.panel_snapshot":
-            return v2Result(id: id, self.v2DebugPanelSnapshot(params: params))
+            return v2Result(id: id, jsonRPC: usesJSONRPC, self.v2DebugPanelSnapshot(params: params))
         case "debug.panel_snapshot.reset":
-            return v2Result(id: id, self.v2DebugPanelSnapshotReset(params: params))
+            return v2Result(id: id, jsonRPC: usesJSONRPC, self.v2DebugPanelSnapshotReset(params: params))
         case "debug.window.screenshot":
-            return v2Result(id: id, self.v2DebugScreenshot(params: params))
+            return v2Result(id: id, jsonRPC: usesJSONRPC, self.v2DebugScreenshot(params: params))
 #endif
 
             default:
-                return v2Error(id: id, code: "method_not_found", message: "Unknown method")
+                return v2Error(
+                    id: id,
+                    jsonRPC: usesJSONRPC,
+                    code: "method_not_found",
+                    message: CMUXSocketProtocol.unknownMethodMessage(method)
+                )
             }
         }
     }
@@ -3496,6 +3762,7 @@ class TerminalController {
         return [
             "protocol": "cmux-socket",
             "version": 2,
+            "jsonrpc": "2.0",
             "socket_path": socketPath,
             "access_mode": accessMode.rawValue,
             "methods": methods.sorted()
@@ -4241,12 +4508,6 @@ class TerminalController {
         return result
     }
 
-    nonisolated func v2OrNull(_ value: Any?) -> Any {
-        // Avoid relying on `?? NSNull()` inference (Swift toolchains can disagree).
-        if let value { return value }
-        return NSNull()
-    }
-
     private static func notificationCreatedAtString(_ date: Date) -> String {
         let formatter = ISO8601DateFormatter()
         formatter.formatOptions = [.withInternetDateTime]
@@ -4284,96 +4545,6 @@ class TerminalController {
                 }
             }
         }
-    }
-
-    private nonisolated func v2Ok(id: Any?, result: Any) -> String {
-        return v2Encode([
-            "id": v2OrNull(id),
-            "ok": true,
-            "result": result
-        ])
-    }
-
-    /// Bridge an async throws closure into a socket RPC response. Runs the work on a detached
-    /// Task (so VMClient's URLSession hops are free to use any actor) and blocks the socket
-    /// worker thread on a semaphore. Mirrors the auth.begin_sign_in pattern above.
-    nonisolated func v2VmCall(
-        id: Any?,
-        timeoutSeconds: TimeInterval = 17 * 60,
-        _ work: @escaping () async throws -> [String: Any]
-    ) -> String {
-        let semaphore = DispatchSemaphore(value: 0)
-        nonisolated(unsafe) var result: Result<[String: Any], Error>?
-        let task = Task {
-            do {
-                result = .success(try await work())
-            } catch {
-                result = .failure(error)
-            }
-            semaphore.signal()
-        }
-        if semaphore.wait(timeout: .now() + timeoutSeconds) == .timedOut {
-            task.cancel()
-            return v2Error(
-                id: id,
-                code: "timeout",
-                message: "VM request timed out after \(Int(timeoutSeconds)) seconds"
-            )
-        }
-        switch result {
-        case .success(let payload):
-            return v2Ok(id: id, result: payload)
-        case .failure(let error):
-            return v2Error(
-                id: id,
-                code: "vm_error",
-                message: String(describing: error)
-            )
-        case nil:
-            return v2Error(
-                id: id,
-                code: "vm_error",
-                message: "unknown vm error"
-            )
-        }
-    }
-
-    nonisolated func v2Error(id: Any?, code: String, message: String, data: Any? = nil) -> String {
-        var err: [String: Any] = ["code": code, "message": message]
-        if let data {
-            err["data"] = data
-        }
-        return v2Encode([
-            "id": v2OrNull(id),
-            "ok": false,
-            "error": err
-        ])
-    }
-
-    enum V2CallResult {
-        case ok(Any)
-        case err(code: String, message: String, data: Any?)
-    }
-
-    private nonisolated func v2Result(id: Any?, _ res: V2CallResult) -> String {
-        switch res {
-        case .ok(let payload):
-            return v2Ok(id: id, result: payload)
-        case .err(let code, let message, let data):
-            return v2Error(id: id, code: code, message: message, data: data)
-        }
-    }
-
-    private nonisolated func v2Encode(_ object: Any) -> String {
-        guard JSONSerialization.isValidJSONObject(object),
-              let data = try? JSONSerialization.data(withJSONObject: object, options: []),
-              var s = String(data: data, encoding: .utf8) else {
-            return "{\"ok\":false,\"error\":{\"code\":\"encode_error\",\"message\":\"Failed to encode JSON\"}}"
-        }
-
-        // Ensure single-line responses for the line-oriented socket protocol.
-        s = s.replacingOccurrences(of: "\n", with: "\\n")
-        return s
     }
 
     private func v2EnsureHandleRef(kind: V2HandleKind, uuid: UUID) -> String {

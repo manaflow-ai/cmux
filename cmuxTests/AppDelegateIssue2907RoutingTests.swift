@@ -26,6 +26,11 @@ final class AppDelegateIssue2907RoutingTests: XCTestCase {
         return try XCTUnwrap(JSONSerialization.jsonObject(with: data) as? [String: Any], file: file, line: line)
     }
 
+    private func jsonRequestLine(_ request: [String: Any], file: StaticString = #filePath, line: UInt = #line) throws -> String {
+        let requestData = try JSONSerialization.data(withJSONObject: request)
+        return try XCTUnwrap(String(data: requestData, encoding: .utf8), file: file, line: line)
+    }
+
     private func v2Envelope(
         method: String,
         params: [String: Any] = [:],
@@ -79,6 +84,72 @@ final class AppDelegateIssue2907RoutingTests: XCTestCase {
             file: file,
             line: line
         )
+    }
+
+    func testJSONRPCEnvelopeForSocketV2Success() throws {
+        let requestLine = try jsonRequestLine([
+            "jsonrpc": "2.0",
+            "id": "ping-1",
+            "method": "system.ping",
+            "params": [:]
+        ])
+
+        let raw = TerminalController.shared.handleSocketLine(requestLine)
+        let envelope = try decodeV2Response(raw)
+        XCTAssertEqual(envelope["jsonrpc"] as? String, "2.0")
+        XCTAssertEqual(envelope["id"] as? String, "ping-1")
+        XCTAssertNil(envelope["ok"])
+        XCTAssertNil(envelope["error"])
+        let result = try XCTUnwrap(envelope["result"] as? [String: Any], raw)
+        XCTAssertEqual(result["pong"] as? Bool, true)
+    }
+
+    func testJSONRPCEnvelopeMapsCmuxErrors() throws {
+        let requestLine = try jsonRequestLine([
+            "jsonrpc": "2.0",
+            "id": "missing-method",
+            "method": "system.nope",
+            "params": [:]
+        ])
+
+        let raw = TerminalController.shared.handleSocketLine(requestLine)
+        let envelope = try decodeV2Response(raw)
+        XCTAssertEqual(envelope["jsonrpc"] as? String, "2.0")
+        XCTAssertEqual(envelope["id"] as? String, "missing-method")
+        XCTAssertNil(envelope["ok"])
+        let error = try XCTUnwrap(envelope["error"] as? [String: Any], raw)
+        XCTAssertEqual(error["code"] as? Int, -32601)
+        XCTAssertEqual(
+            error["message"] as? String,
+            "Unknown method: system.nope. Call system.capabilities to list supported methods."
+        )
+        let data = try XCTUnwrap(error["data"] as? [String: Any], raw)
+        XCTAssertEqual(data["cmux_code"] as? String, "method_not_found")
+    }
+
+    func testJSONRPCEnvelopeMapsInvalidDispatchAsInternalError() throws {
+        let requestLine = try jsonRequestLine([
+            "jsonrpc": "2.0",
+            "id": "wrong-dispatch",
+            "method": "feedback.submit",
+            "params": [:]
+        ])
+
+        let raw = TerminalController.shared.handleSocketLine(requestLine)
+        let envelope = try decodeV2Response(raw)
+        XCTAssertEqual(envelope["jsonrpc"] as? String, "2.0")
+        XCTAssertEqual(envelope["id"] as? String, "wrong-dispatch")
+        let error = try XCTUnwrap(envelope["error"] as? [String: Any], raw)
+        XCTAssertEqual(error["code"] as? Int, -32603)
+        XCTAssertEqual(
+            error["message"] as? String,
+            String(
+                localized: "socket.error.invalidDispatch",
+                defaultValue: "cmux cannot perform this request in the current socket context. Perform it asynchronously and retry."
+            )
+        )
+        let data = try XCTUnwrap(error["data"] as? [String: Any], raw)
+        XCTAssertEqual(data["cmux_code"] as? String, "invalid_dispatch")
     }
 
     func testWorkspaceListResolvesLiveSurfaceAfterMainWindowContextAssociationIsLost() throws {

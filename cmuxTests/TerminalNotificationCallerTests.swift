@@ -323,14 +323,14 @@ final class TerminalNotificationCallerTests: XCTestCase {
         params: [String: Any],
         to socketPath: String
     ) throws -> [String: Any] {
-        let payload: [String: Any] = ["jsonrpc": "2.0", "id": 1, "method": method, "params": params]
+        let payload: [String: Any] = ["id": 1, "method": method, "params": params]
         let data = try JSONSerialization.data(withJSONObject: payload)
         let line = try XCTUnwrap(String(data: data, encoding: .utf8))
         let responseLine = try sendCommands([line], to: socketPath).first
         let responseData = Data(try XCTUnwrap(responseLine).utf8)
         return try XCTUnwrap(
             try JSONSerialization.jsonObject(with: responseData) as? [String: Any],
-            "Expected JSON-RPC response object"
+            "Expected v2 response object"
         )
     }
 
