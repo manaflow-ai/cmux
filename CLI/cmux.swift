@@ -18828,6 +18828,14 @@ struct CMUXCLI {
         ) {
             return grokSummary
         }
+        if def.name == "grok", isGrokGenericTurnCompletion(normalizedMessage) {
+            return AgentHookNotificationSummary(
+                subtitle: String(localized: "agent.generic.notification.subtitle.completed", defaultValue: "Completed"),
+                body: String(localized: "agent.generic.notification.body.taskCompleted", defaultValue: "Task completed"),
+                status: .idle,
+                isFallback: false
+            )
+        }
         if let grokSummary = summarizeGrokAssistantCompletionNotification(
             def: def,
             message: normalizedMessage,
@@ -18947,6 +18955,7 @@ struct CMUXCLI {
                isDirectory.boolValue {
                 return sessionURL
             }
+            return nil
         }
 
         guard let sessionURLs = try? fileManager.contentsOfDirectory(
@@ -20177,7 +20186,11 @@ export default function cmuxPiSessionExtension(pi: ExtensionAPI) {
                     }
                     rewrittenEntries.append(entry)
                 }
-                hooks[event] = rewrittenEntries.isEmpty ? nil : rewrittenEntries
+                if rewrittenEntries.isEmpty {
+                    hooks.removeValue(forKey: event)
+                } else {
+                    hooks[event] = rewrittenEntries
+                }
             case .nested:
                 guard let groups = value as? [[String: Any]] else { continue }
                 var rewrittenGroups: [[String: Any]] = []
@@ -20203,7 +20216,11 @@ export default function cmuxPiSessionExtension(pi: ExtensionAPI) {
                     group["hooks"] = hookList
                     rewrittenGroups.append(group)
                 }
-                hooks[event] = rewrittenGroups.isEmpty ? nil : rewrittenGroups
+                if rewrittenGroups.isEmpty {
+                    hooks.removeValue(forKey: event)
+                } else {
+                    hooks[event] = rewrittenGroups
+                }
             case .rovoDevYAML, .hermesAgentYAML:
                 break
             }
@@ -20365,7 +20382,11 @@ export default function cmuxPiSessionExtension(pi: ExtensionAPI) {
                 let before = entries.count
                 entries.removeAll { isCmuxOwnedCommand($0["command"] as? String ?? "") }
                 removed += before - entries.count
-                hooks[event] = entries.isEmpty ? nil : entries
+                if entries.isEmpty {
+                    hooks.removeValue(forKey: event)
+                } else {
+                    hooks[event] = entries
+                }
                 continue
             }
             var rewrittenGroups: [[String: Any]] = []
@@ -20381,7 +20402,11 @@ export default function cmuxPiSessionExtension(pi: ExtensionAPI) {
                 group["hooks"] = hookList
                 rewrittenGroups.append(group)
             }
-            hooks[event] = rewrittenGroups.isEmpty ? nil : rewrittenGroups
+            if rewrittenGroups.isEmpty {
+                hooks.removeValue(forKey: event)
+            } else {
+                hooks[event] = rewrittenGroups
+            }
         }
 
         guard removed > 0 else { return }
@@ -20460,7 +20485,11 @@ export default function cmuxPiSessionExtension(pi: ExtensionAPI) {
                 let before = entries.count
                 entries.removeAll { isCmuxOwnedCommand($0["command"] as? String ?? "") }
                 removed += before - entries.count
-                hooks[event] = entries.isEmpty ? nil : entries
+                if entries.isEmpty {
+                    hooks.removeValue(forKey: event)
+                } else {
+                    hooks[event] = entries
+                }
             case .nested:
                 guard let groups = value as? [[String: Any]] else { continue }
                 var rewrittenGroups: [[String: Any]] = []
@@ -20476,7 +20505,11 @@ export default function cmuxPiSessionExtension(pi: ExtensionAPI) {
                     group["hooks"] = hookList
                     rewrittenGroups.append(group)
                 }
-                hooks[event] = rewrittenGroups.isEmpty ? nil : rewrittenGroups
+                if rewrittenGroups.isEmpty {
+                    hooks.removeValue(forKey: event)
+                } else {
+                    hooks[event] = rewrittenGroups
+                }
             case .rovoDevYAML, .hermesAgentYAML:
                 break
             }
@@ -21332,9 +21365,6 @@ export default function cmuxPiSessionExtension(pi: ExtensionAPI) {
         let hasInvalidDirectSurfaceArg = directSurfaceArg != nil && resolvedDirectSurfaceArg == nil
         let hasUnusableDirectBinding = hasInvalidDirectWorkspaceArg || hasInvalidDirectSurfaceArg
         let workspaceArg = resolvedDirectWorkspaceArg ?? processBinding?.workspaceId
-        let surfaceArg = hasUnusableDirectBinding
-            ? nil
-            : (resolvedDirectSurfaceArg ?? (hookWsFlag == nil ? processBinding?.surfaceId : nil))
 
         let rawInput = String(data: FileHandle.standardInput.readDataToEndOfFile(), encoding: .utf8) ?? ""
         let input = parseClaudeHookInput(rawInput: rawInput)
@@ -21367,35 +21397,46 @@ export default function cmuxPiSessionExtension(pi: ExtensionAPI) {
             guard !hasUnusableDirectBinding else {
                 return nil
             }
-            let workspaceId: String
-            if let resolved = resolvedDirectWorkspaceArg {
-                workspaceId = resolved
-            } else if let resolved = resolveAccessibleWorkspaceId(processBinding?.workspaceId) {
-                workspaceId = resolved
-            } else if let resolved = resolveAccessibleWorkspaceId(mapped?.workspaceId) {
-                workspaceId = resolved
-            } else {
-                return nil
-            }
+            func resolveTarget(
+                workspaceId: String,
+                preferredSurfaceId: String?,
+                mapped: ClaudeHookSessionRecord?
+            ) -> (workspaceId: String, surfaceId: String)? {
+                if let preferredSurfaceId = nonEmptyClaudeHookIdentifier(preferredSurfaceId),
+                   let surfaceId = resolveAccessibleSurfaceId(preferredSurfaceId, workspaceId: workspaceId) {
+                    return (workspaceId, surfaceId)
+                }
 
-            if let surfaceArg {
-                guard let surfaceId = resolveAccessibleSurfaceId(surfaceArg, workspaceId: workspaceId) else {
+                if let mappedSurface = nonEmptyClaudeHookIdentifier(mapped?.surfaceId),
+                   let surfaceId = resolveAccessibleSurfaceId(mappedSurface, workspaceId: workspaceId) {
+                    return (workspaceId, surfaceId)
+                }
+
+                guard let surfaceId = resolveDefaultSurfaceId(workspaceId: workspaceId) else {
                     return nil
                 }
                 return (workspaceId, surfaceId)
             }
 
-            if let mappedSurface = nonEmptyClaudeHookIdentifier(mapped?.surfaceId) {
-                guard let surfaceId = resolveAccessibleSurfaceId(mappedSurface, workspaceId: workspaceId) else {
-                    return nil
-                }
-                return (workspaceId, surfaceId)
+            if let workspaceId = resolvedDirectWorkspaceArg {
+                let preferredSurfaceId = resolvedDirectSurfaceArg
+                    ?? (hookWsFlag == nil ? processBinding?.surfaceId : nil)
+                return resolveTarget(workspaceId: workspaceId, preferredSurfaceId: preferredSurfaceId, mapped: mapped)
             }
 
-            guard let surfaceId = resolveDefaultSurfaceId(workspaceId: workspaceId) else {
+            if let workspaceId = resolveAccessibleWorkspaceId(processBinding?.workspaceId),
+               let target = resolveTarget(
+                   workspaceId: workspaceId,
+                   preferredSurfaceId: processBinding?.surfaceId,
+                   mapped: mapped
+               ) {
+                return target
+            }
+
+            guard let workspaceId = resolveAccessibleWorkspaceId(mapped?.workspaceId) else {
                 return nil
             }
-            return (workspaceId, surfaceId)
+            return resolveTarget(workspaceId: workspaceId, preferredSurfaceId: nil, mapped: mapped)
         }
         defer {
             if !didSendFeedTelemetry {
@@ -21622,17 +21663,8 @@ export default function cmuxPiSessionExtension(pi: ExtensionAPI) {
             let notificationCwd = hookCwd ?? mapped?.cwd
             if def.name == "grok",
                let notificationMessage = normalizedAgentHookNotificationMessage(parsedInput: input) {
-                let needsTranscriptBackedBody = isGrokInternalSessionNotification(notificationMessage)
-                    || isGrokGenericTurnCompletion(notificationMessage)
-                if needsTranscriptBackedBody,
+                if isGrokInternalSessionNotification(notificationMessage),
                    latestGrokAssistantMessage(cwd: notificationCwd, sessionId: input.sessionId ?? sessionId, env: env) == nil {
-                    if isGrokGenericTurnCompletion(notificationMessage) {
-                        let idleStatus = String(localized: "agent.generic.notification.status.idle", defaultValue: "Idle")
-                        _ = try? sendV1Command(
-                            "set_status \(def.statusKey) \(idleStatus) --icon=pause.circle.fill --color=#8E8E93 --tab=\(workspaceId)\(socketPanelOption(surfaceId))",
-                            client: client
-                        )
-                    }
                     print("{}")
                     return
                 }
