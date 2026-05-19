@@ -113,6 +113,7 @@ jobs:
           TAG="${{ steps.ghosttykit.outputs.tag }}"
           gh release create "$TAG" \
             --repo manaflow-ai/ghostty \
+            --target "${{ steps.ghostty-sha.outputs.sha }}" \
             --title "GhosttyKit xcframework (${{ steps.ghostty-sha.outputs.sha }})" \
             --notes "${{ steps.ghosttykit.outputs.notes }}" \
             GhosttyKit.xcframework.tar.gz

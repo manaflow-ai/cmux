@@ -29,6 +29,15 @@ func browserOmnibarSelectionDeltaForArrowNavigation(
     }
 }
 
+func browserOmnibarShouldBypassShortcutRoutingForMarkedText(
+    hasFocusedAddressBar: Bool,
+    firstResponderHasMarkedText: Bool,
+    flags: NSEvent.ModifierFlags
+) -> Bool {
+    guard hasFocusedAddressBar, firstResponderHasMarkedText else { return false }
+    return !browserOmnibarNormalizedModifierFlags(flags).contains(.command)
+}
+
 func browserOmnibarNormalizedModifierFlags(_ flags: NSEvent.ModifierFlags) -> NSEvent.ModifierFlags {
     flags
         .intersection(.deviceIndependentFlagsMask)

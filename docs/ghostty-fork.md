@@ -12,14 +12,21 @@ When we change the fork, update this document and the parent submodule SHA.
 
 ## Current fork changes
 
-The fork was refreshed from upstream `main` again on May 12, 2026.
-Current cmux pinned fork head: `7e4cf8a2f`, based on `41ab6c5ab`, with the
-manual embedded IO patch in https://github.com/manaflow-ai/ghostty/pull/53,
-the cursor-line selection API in https://github.com/manaflow-ai/ghostty/pull/56,
-and the Metal renderer row rebuild guard for cmux issue #3369. This head keeps
-the cmux theme picker hooks, exposes the manual surface IO needed by libghostty
-iOS clients, exposes semantic cursor-line selection for cmux terminal Select All,
-and bounds shaped glyph iteration during IME/preedit row rebuilds.
+The fork was refreshed from upstream `main` again on May 18, 2026.
+Current cmux pinned fork head: `5b0b60b95`, based on `ff6e1260d` plus the
+current fork `main`, with the manual embedded IO patch in
+https://github.com/manaflow-ai/ghostty/pull/53, the cursor-line selection API in
+https://github.com/manaflow-ai/ghostty/pull/56, the Metal renderer row rebuild
+guard for https://github.com/manaflow-ai/cmux/issues/3369, crash-report-subdir
+support, and the URL/path regex bound for spaced file paths followed by prose.
+This head keeps the cmux theme picker hooks, exposes the manual surface IO
+needed by libghostty iOS clients, exposes semantic cursor-line selection for
+cmux terminal Select All, bounds shaped glyph iteration during IME/preedit row
+rebuilds, and prevents Cmd-hover from highlighting normal sentence text after a
+file path.
+The corresponding prebuilt archive is published at
+https://github.com/manaflow-ai/ghostty/releases/tag/xcframework-5b0b60b95113cc848cf0c08dbc2cc85e65a4cfc3-crashsubdir-cmux-crash-v1
+and pinned in `scripts/ghosttykit-checksums.txt`.
 
 ### 1) macOS display link restart on display changes
 
@@ -189,27 +196,36 @@ tend to conflict together during rebases.
     `GenericRenderer(Metal).rebuildRow` no longer assumes terminal cells and
     shaped glyph cells have one-to-one cardinality.
   - The first commit intentionally preserves the panic so cmux can keep the
-    required failing-test-then-fix history for issue #3369.
+    required failing-test-then-fix history for https://github.com/manaflow-ai/cmux/issues/3369.
+
+### 12) URL/path regex bounds for spaced file paths
+
+- Commits:
+  - `6e10706a7` (test: cover spaced file path link bounds)
+  - `6eed7af92` (fix: bound spaced file path links)
+  - `ff6e1260d` (fix: handle dotted spaced path prefixes)
+- Files:
+  - `src/config/url.zig`
+- Summary:
+  - Adds coverage for a path with spaces ending in `.mp4` followed by a normal sentence.
+  - Routes dotted paths with spaced directory names through the stricter dotted-path branch.
+  - Keeps single-space path components such as `Recovered Screen Recordings` while preserving
+    the existing double-space stop case.
+  - Trims trailing sentence punctuation when more text follows, without breaking dotted paths
+    that end at end-of-line.
+  - Preserves versioned or dotted path components before the first space, such as
+    `/tmp/v1.2 captures/video.mp4`.
 
 The current cmux pin is the head listed above. It is reachable from
-`manaflow-ai/ghostty` through the `xcframework-7e4cf8a2fd2539d68240aa046e2cc892d21d2e89`
-release tag.
-Published `xcframework-7e4cf8a2fd2539d68240aa046e2cc892d21d2e89` and pinned its
-`GhosttyKit.xcframework.tar.gz` archive checksum
-`6161b00fe4737abcdad9ec9cb456deb50e3cfdd2682cce2bdf83f024637c69d2` in
+`manaflow-ai/ghostty` through the
+`xcframework-5b0b60b95113cc848cf0c08dbc2cc85e65a4cfc3-crashsubdir-cmux-crash-v1`
+release tag and `main` branch.
+Published `xcframework-5b0b60b95113cc848cf0c08dbc2cc85e65a4cfc3-crashsubdir-cmux-crash-v1`
+and pinned its `GhosttyKit.xcframework.tar.gz` archive checksum
+`2005e12930d1ab5e45579517452403c31c7c0060da7c04a54406df472003d06a` in
 `scripts/ghosttykit-checksums.txt`. The release and checksum pin must be
 regenerated whenever this commit changes, even for comment-only amends, because
 the release tag is keyed by the Ghostty commit SHA.
-
-Merge note, May 14, 2026: cmux `main` temporarily pinned Ghostty `aef980e27b`
-for the `-Dcrash-report-subdir` build option while this issue branch pins
-`7e4cf8a2f` for the cursor-line selection API. The parent merge keeps `7e4cf8a2f`
-because terminal Select All depends on `ghostty_surface_select_cursor_line`, and
-cmux build scripts detect whether a Ghostty checkout supports
-`crash-report-subdir` before selecting crash-flavored release tags or Zig flags.
-When the fork next advances, prefer a single Ghostty head that contains both
-patches and publish the crash-flavored `xcframework-<sha>-crashsubdir-cmux-crash-v1`
-artifact.
 
 ## Upstreamed fork changes
 
