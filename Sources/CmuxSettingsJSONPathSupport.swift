@@ -38,6 +38,28 @@ enum AutomationSettings {
     static let defaultPortRange = 10
 }
 
+enum VaultDisplaySettings {
+    static let defaultVisibleRowsKey = "sessionIndex.defaultVisibleRows"
+    static let defaultVisibleRows = 5
+    static let minVisibleRows = 1
+    static let maxVisibleRows = 100
+
+    static func isValidVisibleRows(_ value: Int) -> Bool {
+        (minVisibleRows...maxVisibleRows).contains(value)
+    }
+
+    static func clampedVisibleRows(_ value: Int) -> Int {
+        min(max(value, minVisibleRows), maxVisibleRows)
+    }
+
+    static func visibleRows(defaults: UserDefaults = .standard) -> Int {
+        guard let value = defaults.object(forKey: defaultVisibleRowsKey) as? Int else {
+            return defaultVisibleRows
+        }
+        return clampedVisibleRows(value)
+    }
+}
+
 extension CmuxSettingsFileStore {
     // Keep this in sync with the parser below and the web schema/docs. Settings UI rows
     // validate against this set so new persisted settings need an explicit cmux.json review.
@@ -72,6 +94,7 @@ extension CmuxSettingsFileStore {
         "notifications.command",
         "notifications.hooks",
         "notifications.hooksMode",
+        "vault.defaultVisibleRows",
         "sidebar.hideAllDetails",
         "sidebar.showWorkspaceDescription",
         "sidebar.branchLayout",

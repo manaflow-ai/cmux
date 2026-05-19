@@ -71249,6 +71249,23 @@
             }
         }
     },
+    "settings.search.alias.section.vault": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "vault sessions agents resume restore show more pinned"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "vault sessions agents resume restore show more pinned セッション エージェント 再開 復元 もっと表示 ピン留め"
+          }
+        }
+      }
+    },
     "settings.search.alias.section.sidebarAppearance": {
         "extractionState": "manual",
         "localizations": {
@@ -76790,6 +76807,23 @@
                 }
             }
         }
+    },
+    "settings.search.alias.setting.vault.visible-rows": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "vault.defaultVisibleRows show more rows sessions visible count limit"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "vault.defaultVisibleRows show more rows sessions visible count limit もっと表示 行数 セッション 表示 件数 上限"
+          }
+        }
+      }
     },
     "settings.search.alias.setting.sidebarAppearance.match-terminal": {
         "extractionState": "manual",
@@ -106522,6 +106556,23 @@
         }
       }
     },
+    "settings.section.vault": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Vault"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Vault"
+          }
+        }
+      }
+    },
     "settings.terminal.scrollBar": {
       "extractionState": "manual",
       "localizations": {
@@ -107323,6 +107374,40 @@
         }
       }
     },
+    "settings.vault.defaultVisibleRows": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Rows Before Show More"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "もっと表示前の Vault 行数"
+          }
+        }
+      }
+    },
+    "settings.vault.defaultVisibleRows.subtitle": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Number of sessions shown in each Vault section before Show more appears."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "各 Vault セクションで「もっと表示」が出る前に表示するセッション数です。"
+          }
+        }
+      }
+    },
     "sessionIndex.directory.unknown": {
       "extractionState": "manual",
       "localizations": {
@@ -107340,6 +107425,40 @@
         }
       }
     },
+    "sessionIndex.row.pin": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Pin in Vault"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Vault にピン留め"
+          }
+        }
+      }
+    },
+    "sessionIndex.row.pinned": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Pinned in Vault"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Vault にピン留め済み"
+          }
+        }
+      }
+    },
     "sessionIndex.row.resume": {
       "extractionState": "manual",
       "localizations": {
@@ -107353,6 +107472,23 @@
           "stringUnit": {
             "state": "translated",
             "value": "新しいタブで再開"
+          }
+        }
+      }
+    },
+    "sessionIndex.row.unpin": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Unpin from Vault"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Vault からピン留めを外す"
           }
         }
       }
@@ -107529,6 +107665,91 @@
           "stringUnit": {
             "state": "translated",
             "value": "読み込み中…"
+          }
+        }
+      }
+    },
+    "sessionIndex.search.clear": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Clear Vault search"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Vault 検索をクリア"
+          }
+        }
+      }
+    },
+    "sessionIndex.search.loading": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Searching…"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "検索中…"
+          }
+        }
+      }
+    },
+    "sessionIndex.search.noMatches": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "No matches"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "一致なし"
+          }
+        }
+      }
+    },
+    "sessionIndex.search.placeholder": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Search all"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "すべて検索"
+          }
+        }
+      }
+    },
+    "sessionIndex.search.results": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Search Results"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "検索結果"
           }
         }
       }

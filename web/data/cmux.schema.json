@@ -45,6 +45,13 @@
       "type": "object",
       "additionalProperties": false,
       "properties": {
+        "defaultVisibleRows": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 100,
+          "default": 5,
+          "description": "Default number of sessions shown in each Vault section before the Show more control appears."
+        },
         "agents": {
           "type": "array",
           "description": "Custom coding agents that Vault can detect, list, and resume.",

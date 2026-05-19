@@ -133,6 +133,32 @@ final class CmuxConfigDecodingTests: XCTestCase {
         XCTAssertThrowsError(try decode(json))
     }
 
+    func testDecodeVaultDefaultVisibleRows() throws {
+        let json = """
+        {
+          "vault": {
+            "defaultVisibleRows": 8
+          }
+        }
+        """
+
+        let config = try decode(json)
+
+        XCTAssertEqual(config.vault?.defaultVisibleRows, 8)
+    }
+
+    func testDecodeVaultDefaultVisibleRowsRejectsOutOfRangeValue() {
+        let json = """
+        {
+          "vault": {
+            "defaultVisibleRows": 0
+          }
+        }
+        """
+
+        XCTAssertThrowsError(try decode(json))
+    }
+
     func testDecodeNewWorkspaceCommandTrimsWhitespace() throws {
         let json = """
         {

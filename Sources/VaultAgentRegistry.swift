@@ -3,9 +3,39 @@ import OSLog
 
 struct CmuxVaultConfigDefinition: Codable, Hashable, Sendable {
     var agents: [CmuxVaultAgentRegistration]
+    var defaultVisibleRows: Int?
 
-    init(agents: [CmuxVaultAgentRegistration] = []) {
+    private enum CodingKeys: String, CodingKey {
+        case agents
+        case defaultVisibleRows
+    }
+
+    init(agents: [CmuxVaultAgentRegistration] = [], defaultVisibleRows: Int? = nil) {
         self.agents = agents
+        self.defaultVisibleRows = defaultVisibleRows.map(VaultDisplaySettings.clampedVisibleRows)
+    }
+
+    init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        agents = try container.decodeIfPresent([CmuxVaultAgentRegistration].self, forKey: .agents) ?? []
+        if let value = try container.decodeIfPresent(Int.self, forKey: .defaultVisibleRows) {
+            guard VaultDisplaySettings.isValidVisibleRows(value) else {
+                throw DecodingError.dataCorruptedError(
+                    forKey: .defaultVisibleRows,
+                    in: container,
+                    debugDescription: "Vault defaultVisibleRows must be between \(VaultDisplaySettings.minVisibleRows) and \(VaultDisplaySettings.maxVisibleRows)"
+                )
+            }
+            defaultVisibleRows = value
+        } else {
+            defaultVisibleRows = nil
+        }
+    }
+
+    func encode(to encoder: Encoder) throws {
+        var container = encoder.container(keyedBy: CodingKeys.self)
+        try container.encode(agents, forKey: .agents)
+        try container.encodeIfPresent(defaultVisibleRows, forKey: .defaultVisibleRows)
     }
 }
 

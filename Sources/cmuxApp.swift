@@ -5071,6 +5071,8 @@ struct SettingsView: View {
     private var fileDropDefaultBehavior = FileDropBehaviorSettings.defaultBehavior.rawValue
     @AppStorage(AgentSessionAutoResumeSettings.autoResumeAgentSessionsKey)
     private var autoResumeAgentSessions = AgentSessionAutoResumeSettings.defaultAutoResumeAgentSessions
+    @AppStorage(VaultDisplaySettings.defaultVisibleRowsKey)
+    private var vaultDefaultVisibleRows = VaultDisplaySettings.defaultVisibleRows
     @AppStorage(WorkspaceAutoReorderSettings.key) private var workspaceAutoReorder = WorkspaceAutoReorderSettings.defaultValue
     @AppStorage(IMessageModeSettings.key) private var iMessageMode = IMessageModeSettings.defaultValue
     @AppStorage(SidebarWorkspaceDetailSettings.hideAllDetailsKey)
@@ -5228,6 +5230,15 @@ struct SettingsView: View {
                 guard autoResumeAgentSessions != newValue else { return }
                 autoResumeAgentSessions = newValue
                 AgentSessionAutoResumeSettings.notifyDidChange()
+            }
+        )
+    }
+
+    private var vaultDefaultVisibleRowsBinding: Binding<Int> {
+        Binding(
+            get: { VaultDisplaySettings.clampedVisibleRows(vaultDefaultVisibleRows) },
+            set: { newValue in
+                vaultDefaultVisibleRows = VaultDisplaySettings.clampedVisibleRows(newValue)
             }
         )
     }
@@ -6299,6 +6310,32 @@ struct SettingsView: View {
                                 .accessibilityLabel(
                                     String(localized: "settings.terminal.agentAutoResume", defaultValue: "Resume Agent Sessions on Reopen")
                                 )
+                        }
+                    }
+
+                    SettingsSectionHeader(title: String(localized: "settings.section.vault", defaultValue: "Vault"))
+                        .settingsSearchAnchor(SettingsSearchIndex.sectionID(for: .vault))
+                    SettingsCard {
+
+                        SettingsCardRow(
+                            configurationReview: .json("vault.defaultVisibleRows"),
+                            String(localized: "settings.vault.defaultVisibleRows", defaultValue: "Rows Before Show More"),
+                            subtitle: String(localized: "settings.vault.defaultVisibleRows.subtitle", defaultValue: "Number of sessions shown in each Vault section before Show more appears."),
+                            controlWidth: 128
+                        ) {
+                            Stepper(
+                                value: vaultDefaultVisibleRowsBinding,
+                                in: VaultDisplaySettings.minVisibleRows...VaultDisplaySettings.maxVisibleRows
+                            ) {
+                                Text("\(VaultDisplaySettings.clampedVisibleRows(vaultDefaultVisibleRows))")
+                                    .font(.system(size: 12, design: .monospaced))
+                                    .frame(width: 28, alignment: .trailing)
+                            }
+                            .controlSize(.small)
+                            .accessibilityIdentifier("SettingsVaultDefaultVisibleRowsStepper")
+                            .accessibilityLabel(
+                                String(localized: "settings.vault.defaultVisibleRows", defaultValue: "Rows Before Show More")
+                            )
                         }
                     }
 

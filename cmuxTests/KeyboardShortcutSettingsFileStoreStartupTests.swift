@@ -461,6 +461,113 @@ final class KeyboardShortcutSettingsFileStoreStartupTests: XCTestCase {
         XCTAssertEqual(defaults.object(forKey: key) as? Bool, false)
     }
 
+    func testSettingsFileStoreAppliesVaultDefaultVisibleRowsSetting() throws {
+        let defaults = UserDefaults.standard
+        let key = VaultDisplaySettings.defaultVisibleRowsKey
+        let previousValue = defaults.object(forKey: key)
+        let previousBackups = defaults.data(forKey: settingsFileBackupsDefaultsKey)
+        let previousImportedDefaults = defaults.data(forKey: importedManagedDefaultsKey)
+        defer {
+            if let previousValue {
+                defaults.set(previousValue, forKey: key)
+            } else {
+                defaults.removeObject(forKey: key)
+            }
+
+            if let previousBackups {
+                defaults.set(previousBackups, forKey: settingsFileBackupsDefaultsKey)
+            } else {
+                defaults.removeObject(forKey: settingsFileBackupsDefaultsKey)
+            }
+            if let previousImportedDefaults {
+                defaults.set(previousImportedDefaults, forKey: importedManagedDefaultsKey)
+            } else {
+                defaults.removeObject(forKey: importedManagedDefaultsKey)
+            }
+        }
+
+        defaults.removeObject(forKey: key)
+        defaults.removeObject(forKey: settingsFileBackupsDefaultsKey)
+        defaults.removeObject(forKey: importedManagedDefaultsKey)
+
+        let directoryURL = try makeTemporaryDirectory()
+        defer { try? FileManager.default.removeItem(at: directoryURL) }
+
+        let settingsFileURL = directoryURL.appendingPathComponent("cmux.json", isDirectory: false)
+        try writeSettingsFile(
+            """
+            {
+              "vault": {
+                "defaultVisibleRows": 9
+              }
+            }
+            """,
+            to: settingsFileURL
+        )
+
+        _ = KeyboardShortcutSettingsFileStore(
+            primaryPath: settingsFileURL.path,
+            fallbackPath: nil,
+            startWatching: false
+        )
+
+        XCTAssertEqual(defaults.object(forKey: key) as? Int, 9)
+    }
+
+    func testSettingsFileStoreAppliesVaultDefaultVisibleRowsFromFallbackSettingsFile() throws {
+        let defaults = UserDefaults.standard
+        let key = VaultDisplaySettings.defaultVisibleRowsKey
+        let previousValue = defaults.object(forKey: key)
+        let previousBackups = defaults.data(forKey: settingsFileBackupsDefaultsKey)
+        let previousImportedDefaults = defaults.data(forKey: importedManagedDefaultsKey)
+        defer {
+            if let previousValue {
+                defaults.set(previousValue, forKey: key)
+            } else {
+                defaults.removeObject(forKey: key)
+            }
+
+            if let previousBackups {
+                defaults.set(previousBackups, forKey: settingsFileBackupsDefaultsKey)
+            } else {
+                defaults.removeObject(forKey: settingsFileBackupsDefaultsKey)
+            }
+            if let previousImportedDefaults {
+                defaults.set(previousImportedDefaults, forKey: importedManagedDefaultsKey)
+            } else {
+                defaults.removeObject(forKey: importedManagedDefaultsKey)
+            }
+        }
+
+        defaults.removeObject(forKey: key)
+        defaults.removeObject(forKey: settingsFileBackupsDefaultsKey)
+        defaults.removeObject(forKey: importedManagedDefaultsKey)
+
+        let directoryURL = try makeTemporaryDirectory()
+        defer { try? FileManager.default.removeItem(at: directoryURL) }
+
+        let primaryURL = directoryURL.appendingPathComponent("cmux.json", isDirectory: false)
+        let fallbackURL = directoryURL.appendingPathComponent("settings.json", isDirectory: false)
+        try writeSettingsFile(
+            """
+            {
+              "vault": {
+                "defaultVisibleRows": 7
+              }
+            }
+            """,
+            to: fallbackURL
+        )
+
+        _ = KeyboardShortcutSettingsFileStore(
+            primaryPath: primaryURL.path,
+            fallbackPath: fallbackURL.path,
+            startWatching: false
+        )
+
+        XCTAssertEqual(defaults.object(forKey: key) as? Int, 7)
+    }
+
     private func makeTemporaryDirectory() throws -> URL {
         let url = FileManager.default.temporaryDirectory.appendingPathComponent(
             "cmux-settings-startup-\(UUID().uuidString)",
