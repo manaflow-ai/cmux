@@ -1058,6 +1058,21 @@ final class SidebarAgentPIDFallbackTests: XCTestCase {
     }
 
     @MainActor
+    func testExplicitStructuredHookStatusDisplaysBeforePIDDiscovery() {
+        let workspace = Workspace()
+        workspace.statusEntries["codex"] = SidebarStatusEntry(
+            key: "codex",
+            value: "Running",
+            protocolValue: "running"
+        )
+
+        let entries = workspace.sidebarStatusEntriesInDisplayOrder()
+
+        XCTAssertEqual(entries.map(\.key), ["codex"])
+        XCTAssertEqual(entries.first?.value, "Running")
+    }
+
+    @MainActor
     func testNeedsInputProcessStatePromotesRunningHookStatus() {
         let workspace = Workspace()
         let timestamp = Date(timeIntervalSince1970: 20)
@@ -1176,6 +1191,38 @@ final class SidebarAgentPIDFallbackTests: XCTestCase {
         XCTAssertNil(workspace.statusEntries["codex"])
         XCTAssertTrue(workspace.agentPIDs.isEmpty)
         XCTAssertTrue(workspace.agentProcessStates.isEmpty)
+    }
+
+    @MainActor
+    func testClearSidebarMetadataEntryClearsCollapsedPanelScopedAgentKeys() {
+        let workspace = Workspace()
+        let firstPanelId = UUID()
+        let secondPanelId = UUID()
+        workspace.statusEntries["codex"] = SidebarStatusEntry(
+            key: "codex",
+            value: "Running",
+            protocolValue: "running"
+        )
+        workspace.setAgentPID(
+            key: "codex.\(firstPanelId.uuidString.lowercased())",
+            panelId: firstPanelId,
+            pid: 123,
+            refreshPorts: false
+        )
+        workspace.setAgentPID(
+            key: "codex.\(secondPanelId.uuidString.lowercased())",
+            panelId: secondPanelId,
+            pid: 456,
+            refreshPorts: false
+        )
+
+        XCTAssertTrue(workspace.clearSidebarMetadataEntry(key: "codex", refreshPorts: false))
+
+        XCTAssertNil(workspace.statusEntries["codex"])
+        XCTAssertTrue(workspace.agentPIDs.isEmpty)
+        XCTAssertTrue(workspace.agentProcessStates.isEmpty)
+        XCTAssertTrue(workspace.agentPIDPanelIdsByKey.isEmpty)
+        XCTAssertTrue(workspace.agentPIDKeysByPanelId.isEmpty)
     }
 
     @MainActor

@@ -15158,6 +15158,9 @@ extension Workspace {
         guard Self.structuredAgentHookStatusKeys.contains(entry.key) else {
             return true
         }
+        if statusEntries[entry.key] != nil {
+            return true
+        }
         return visibleStructuredStatusKeys.contains(entry.key)
     }
 
@@ -15334,6 +15337,7 @@ extension Workspace {
         if refreshPorts {
             refreshTrackedAgentPorts()
         }
+        owningTabManager?.agentRuntimeTrackingDidChange()
         return didClearOtherStructuredAgentRuntime
     }
 
@@ -15398,13 +15402,13 @@ extension Workspace {
         if clearStatus, clearNotifications, didChange {
             if let effectivePanelId {
                 AppDelegate.shared?.notificationStore?.clearNotifications(forTabId: id, surfaceId: effectivePanelId)
-            } else {
-                // Unscoped hook registrations have no panel ownership, so their notifications are workspace-scoped.
-                AppDelegate.shared?.notificationStore?.clearNotifications(forTabId: id)
             }
         }
         if didChange, refreshPorts {
             refreshTrackedAgentPorts()
+        }
+        if didChange {
+            owningTabManager?.agentRuntimeTrackingDidChange()
         }
         return didChange
     }
@@ -15430,19 +15434,42 @@ extension Workspace {
         if refreshPorts {
             refreshTrackedAgentPorts()
         }
+        owningTabManager?.agentRuntimeTrackingDidChange()
     }
 
     @discardableResult
     func clearSidebarMetadataEntry(key: String, refreshPorts: Bool = true) -> Bool {
-        let didClearRuntime = clearAgentPID(
-            key: key,
-            clearStatus: true,
-            refreshPorts: refreshPorts
-        )
-        if statusEntries.removeValue(forKey: key) != nil {
-            return true
+        let runtimeKeys = Set(agentPIDs.keys)
+            .union(agentProcessStates.keys)
+            .union(agentPIDPanelIdsByKey.keys)
+            .union(agentPIDExitWatchers.keys)
+            .union(agentPIDExitWatcherPIDs.keys)
+            .union(agentPIDExitWatcherScopes.keys)
+            .filter { runtimeKey in
+                runtimeKey == key ||
+                    runtimeKey.hasPrefix("\(key).") ||
+                    agentStatusKey(forAgentPIDKey: runtimeKey) == key
+            }
+        var didChange = false
+        for runtimeKey in runtimeKeys.sorted() {
+            if clearAgentPID(
+                key: runtimeKey,
+                panelId: agentPIDPanelIdsByKey[runtimeKey],
+                clearStatus: true,
+                refreshPorts: false
+            ) {
+                didChange = true
+            }
         }
-        return didClearRuntime
+        for statusKey in Array(statusEntries.keys)
+        where statusKey == key || statusKey.hasPrefix("\(key).") {
+            statusEntries.removeValue(forKey: statusKey)
+            didChange = true
+        }
+        if didChange, refreshPorts {
+            refreshTrackedAgentPorts()
+        }
+        return didChange
     }
 
     @discardableResult

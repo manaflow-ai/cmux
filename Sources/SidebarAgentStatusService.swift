@@ -18,6 +18,153 @@ struct SidebarAgentPIDProbeResult: Sendable {
     let state: SidebarAgentProcessState
 }
 
+struct SidebarAgentPanelTitleUpdateKey: Hashable {
+    let tabId: UUID
+    let panelId: UUID
+}
+
+struct SidebarAgentPendingPanelTitleUpdate {
+    var title: String
+    var sawAgentTitleRegistration: Bool
+}
+
+final class SidebarAgentStatusTracking {
+    private(set) var pendingPanelTitleUpdates: [SidebarAgentPanelTitleUpdateKey: SidebarAgentPendingPanelTitleUpdate] = [:]
+    private(set) var panelAgentTitleRegistrations: [SidebarAgentPanelTitleUpdateKey: SidebarAgentTitleRegistration] = [:]
+    private(set) var panelAgentTitleRegistrationSeenAt: [SidebarAgentPanelTitleUpdateKey: Date] = [:]
+    private(set) var agentPIDProbeInFlight = false
+    private(set) var agentPIDDiscoveryInFlight = false
+    private(set) var agentPIDProbeGeneration: UInt64 = 0
+    private var agentPIDProbeInFlightGeneration: UInt64?
+    private var agentPIDDiscoveryInFlightGeneration: UInt64?
+    private var agentPIDDiscoveryLastStartedAtByRegistration: [String: Date] = [:]
+
+    func pendingPanelTitleUpdate(for key: SidebarAgentPanelTitleUpdateKey) -> SidebarAgentPendingPanelTitleUpdate? {
+        pendingPanelTitleUpdates[key]
+    }
+
+    func setPendingPanelTitleUpdate(
+        _ update: SidebarAgentPendingPanelTitleUpdate,
+        for key: SidebarAgentPanelTitleUpdateKey
+    ) {
+        pendingPanelTitleUpdates[key] = update
+    }
+
+    func drainPendingPanelTitleUpdates() -> [SidebarAgentPanelTitleUpdateKey: SidebarAgentPendingPanelTitleUpdate] {
+        let updates = pendingPanelTitleUpdates
+        pendingPanelTitleUpdates.removeAll(keepingCapacity: true)
+        return updates
+    }
+
+    func clearPendingPanelTitleUpdates(workspaceId: UUID? = nil) {
+        if let workspaceId {
+            for key in Array(pendingPanelTitleUpdates.keys) where key.tabId == workspaceId {
+                pendingPanelTitleUpdates.removeValue(forKey: key)
+            }
+        } else {
+            pendingPanelTitleUpdates.removeAll()
+        }
+    }
+
+    func panelAgentTitleRegistration(for key: SidebarAgentPanelTitleUpdateKey) -> SidebarAgentTitleRegistration? {
+        panelAgentTitleRegistrations[key]
+    }
+
+    func setPanelAgentTitleRegistration(
+        _ registration: SidebarAgentTitleRegistration,
+        for key: SidebarAgentPanelTitleUpdateKey,
+        seenAt: Date
+    ) {
+        panelAgentTitleRegistrations[key] = registration
+        panelAgentTitleRegistrationSeenAt[key] = seenAt
+    }
+
+    func removePanelAgentTitleRegistration(for key: SidebarAgentPanelTitleUpdateKey) -> SidebarAgentTitleRegistration? {
+        panelAgentTitleRegistrationSeenAt.removeValue(forKey: key)
+        return panelAgentTitleRegistrations.removeValue(forKey: key)
+    }
+
+    func panelAgentTitleRegistrationSeenAt(for key: SidebarAgentPanelTitleUpdateKey) -> Date? {
+        panelAgentTitleRegistrationSeenAt[key]
+    }
+
+    func panelAgentTitleRegistrationKeys(workspaceId: UUID? = nil) -> [SidebarAgentPanelTitleUpdateKey] {
+        Array(panelAgentTitleRegistrations.keys).filter { key in
+            workspaceId.map { key.tabId == $0 } ?? true
+        }
+    }
+
+    func panelAgentTitleRegistrationSeenAtKeys() -> [SidebarAgentPanelTitleUpdateKey] {
+        Array(panelAgentTitleRegistrationSeenAt.keys)
+    }
+
+    func discoveryStartedAt(for registrationKey: String) -> Date? {
+        agentPIDDiscoveryLastStartedAtByRegistration[registrationKey]
+    }
+
+    func setDiscoveryStartedAt(_ date: Date, for registrationKey: String) {
+        agentPIDDiscoveryLastStartedAtByRegistration[registrationKey] = date
+    }
+
+    func removeDiscoveryStartedAt(for registrationKey: String) {
+        agentPIDDiscoveryLastStartedAtByRegistration.removeValue(forKey: registrationKey)
+    }
+
+    func clearDiscoveryStartedAt(workspaceId: UUID? = nil) {
+        if let workspaceId {
+            let prefix = "\(workspaceId.uuidString):"
+            for registrationKey in Array(agentPIDDiscoveryLastStartedAtByRegistration.keys)
+            where registrationKey.hasPrefix(prefix) {
+                agentPIDDiscoveryLastStartedAtByRegistration.removeValue(forKey: registrationKey)
+            }
+        } else {
+            agentPIDDiscoveryLastStartedAtByRegistration.removeAll()
+        }
+    }
+
+    func beginAgentPIDProbe() -> UInt64? {
+        guard !agentPIDProbeInFlight else { return nil }
+        agentPIDProbeInFlight = true
+        let generation = agentPIDProbeGeneration
+        agentPIDProbeInFlightGeneration = generation
+        return generation
+    }
+
+    func finishAgentPIDProbe(generation: UInt64) -> Bool {
+        guard agentPIDProbeInFlightGeneration == generation else { return false }
+        agentPIDProbeInFlight = false
+        agentPIDProbeInFlightGeneration = nil
+        return agentPIDProbeGeneration == generation
+    }
+
+    func beginAgentPIDDiscovery() -> UInt64? {
+        guard !agentPIDDiscoveryInFlight else { return nil }
+        agentPIDDiscoveryInFlight = true
+        let generation = agentPIDProbeGeneration
+        agentPIDDiscoveryInFlightGeneration = generation
+        return generation
+    }
+
+    func finishAgentPIDDiscovery(generation: UInt64) -> Bool {
+        guard agentPIDDiscoveryInFlightGeneration == generation else { return false }
+        agentPIDDiscoveryInFlight = false
+        agentPIDDiscoveryInFlightGeneration = nil
+        return agentPIDProbeGeneration == generation
+    }
+
+    func reset() {
+        pendingPanelTitleUpdates.removeAll()
+        panelAgentTitleRegistrations.removeAll()
+        panelAgentTitleRegistrationSeenAt.removeAll()
+        agentPIDProbeGeneration &+= 1
+        agentPIDProbeInFlight = false
+        agentPIDDiscoveryInFlight = false
+        agentPIDProbeInFlightGeneration = nil
+        agentPIDDiscoveryInFlightGeneration = nil
+        agentPIDDiscoveryLastStartedAtByRegistration.removeAll()
+    }
+}
+
 enum SidebarAgentStatusService {
     static func titleRegistration(for title: String) -> SidebarAgentTitleRegistration? {
         let normalized = title.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
@@ -90,7 +237,7 @@ enum SidebarAgentStatusService {
 
 extension TabManager {
     func scheduleAgentPIDProbePass() {
-        guard !agentPIDProbeInFlight else { return }
+        guard !agentStatusTracking.agentPIDProbeInFlight else { return }
         let requests = collectAgentPIDProbeRequests()
         scheduleAgentPIDDiscoveryFromTerminalTitlesIfNeeded()
         guard !requests.isEmpty else {
@@ -98,17 +245,12 @@ extension TabManager {
             return
         }
 
-        agentPIDProbeInFlight = true
-        let generation = agentPIDProbeGeneration
-        agentPIDProbeInFlightGeneration = generation
+        guard let generation = agentStatusTracking.beginAgentPIDProbe() else { return }
         Task.detached(priority: .utility) { [requests] in
             let results = SidebarAgentStatusService.probeResults(for: requests)
             await MainActor.run { [weak self] in
                 guard let self,
-                      self.agentPIDProbeInFlightGeneration == generation else { return }
-                self.agentPIDProbeInFlight = false
-                self.agentPIDProbeInFlightGeneration = nil
-                guard self.agentPIDProbeGeneration == generation else { return }
+                      self.agentStatusTracking.finishAgentPIDProbe(generation: generation) else { return }
                 self.applyAgentPIDProbeResults(results)
             }
         }
@@ -162,8 +304,8 @@ extension TabManager {
         pruneExpiredPanelAgentTitleRegistrations()
         return tabs.flatMap { tab in
             tab.panels.keys.compactMap { panelId -> (Workspace, UUID, SidebarAgentTitleRegistration)? in
-                let key = PanelTitleUpdateKey(tabId: tab.id, panelId: panelId)
-                guard let registration = panelAgentTitleRegistrations[key] else {
+                let key = SidebarAgentPanelTitleUpdateKey(tabId: tab.id, panelId: panelId)
+                guard let registration = agentStatusTracking.panelAgentTitleRegistration(for: key) else {
                     return nil
                 }
                 let runtimeKey = SidebarAgentStatusService.runtimeKey(
@@ -179,7 +321,7 @@ extension TabManager {
     }
 
     func scheduleAgentPIDDiscoveryFromTerminalTitlesIfNeeded() {
-        guard !agentPIDDiscoveryInFlight else {
+        guard !agentStatusTracking.agentPIDDiscoveryInFlight else {
             return
         }
         let now = Date()
@@ -190,7 +332,7 @@ extension TabManager {
                     panelId: panelId,
                     statusKey: registration.statusKey
                 )
-                if let lastStarted = agentPIDDiscoveryLastStartedAtByRegistration[registrationKey],
+                if let lastStarted = agentStatusTracking.discoveryStartedAt(for: registrationKey),
                    now.timeIntervalSince(lastStarted) < Self.agentPIDDiscoveryMinimumInterval {
                     return nil
                 }
@@ -201,27 +343,19 @@ extension TabManager {
             return
         }
 
-        for registrationKey in dueRegistrationKeys {
-            agentPIDDiscoveryLastStartedAtByRegistration[registrationKey] = now
-        }
-        agentPIDDiscoveryInFlight = true
-        let generation = agentPIDProbeGeneration
-        agentPIDDiscoveryInFlightGeneration = generation
+        guard let generation = agentStatusTracking.beginAgentPIDDiscovery() else { return }
         Task.detached(priority: .utility) { [dueRegistrationKeys] in
             let processSnapshot = CmuxTopProcessSnapshot.capture(includeProcessDetails: true)
             await MainActor.run { [weak self] in
                 guard let self,
-                      self.agentPIDDiscoveryInFlightGeneration == generation else { return }
-                self.agentPIDDiscoveryInFlight = false
-                self.agentPIDDiscoveryInFlightGeneration = nil
-                guard self.agentPIDProbeGeneration == generation else { return }
+                      self.agentStatusTracking.finishAgentPIDDiscovery(generation: generation) else { return }
                 let registeredKeys = self.registerAgentPIDsFromTerminalTitlesIfNeeded(
                     processSnapshot: processSnapshot,
                     allowedRegistrationKeys: dueRegistrationKeys
                 )
                 let completedAt = Date()
                 for registrationKey in registeredKeys {
-                    self.agentPIDDiscoveryLastStartedAtByRegistration[registrationKey] = completedAt
+                    self.agentStatusTracking.setDiscoveryStartedAt(completedAt, for: registrationKey)
                 }
             }
         }
@@ -264,46 +398,37 @@ extension TabManager {
             }
             if registerAgentPID(registration, workspace: tab, panelId: panelId, processSnapshot: processSnapshot) {
                 registeredKeys.insert(registrationKey)
-                clearPanelAgentTitleRegistration(for: PanelTitleUpdateKey(tabId: tab.id, panelId: panelId))
             }
         }
         return registeredKeys
     }
 
     func pruneExpiredPanelAgentTitleRegistrations(now: Date = Date()) {
-        for key in Array(panelAgentTitleRegistrationSeenAt.keys) {
-            guard let seenAt = panelAgentTitleRegistrationSeenAt[key] else { continue }
+        for key in agentStatusTracking.panelAgentTitleRegistrationSeenAtKeys() {
+            guard let seenAt = agentStatusTracking.panelAgentTitleRegistrationSeenAt(for: key) else { continue }
             if now.timeIntervalSince(seenAt) > Self.panelAgentTitleRegistrationLifetime {
                 clearPanelAgentTitleRegistration(for: key)
             }
         }
     }
 
-    func clearPanelAgentTitleRegistration(for key: PanelTitleUpdateKey) {
-        if let registration = panelAgentTitleRegistrations[key] {
+    func clearPanelAgentTitleRegistration(for key: SidebarAgentPanelTitleUpdateKey) {
+        if let registration = agentStatusTracking.removePanelAgentTitleRegistration(for: key) {
             let registrationKey = SidebarAgentStatusService.registrationDeduplicationKey(
                 workspaceId: key.tabId,
                 panelId: key.panelId,
                 statusKey: registration.statusKey
             )
-            agentPIDDiscoveryLastStartedAtByRegistration.removeValue(forKey: registrationKey)
+            agentStatusTracking.removeDiscoveryStartedAt(for: registrationKey)
         }
-        panelAgentTitleRegistrations.removeValue(forKey: key)
-        panelAgentTitleRegistrationSeenAt.removeValue(forKey: key)
     }
 
     func clearPanelTitleTracking(workspaceId: UUID) {
-        for key in Array(pendingPanelTitleUpdates.keys) where key.tabId == workspaceId {
-            pendingPanelTitleUpdates.removeValue(forKey: key)
-        }
-        for key in Array(panelAgentTitleRegistrations.keys) where key.tabId == workspaceId {
+        agentStatusTracking.clearPendingPanelTitleUpdates(workspaceId: workspaceId)
+        for key in agentStatusTracking.panelAgentTitleRegistrationKeys(workspaceId: workspaceId) {
             clearPanelAgentTitleRegistration(for: key)
         }
-        let workspaceRegistrationPrefix = "\(workspaceId.uuidString):"
-        for registrationKey in Array(agentPIDDiscoveryLastStartedAtByRegistration.keys)
-            where registrationKey.hasPrefix(workspaceRegistrationPrefix) {
-            agentPIDDiscoveryLastStartedAtByRegistration.removeValue(forKey: registrationKey)
-        }
+        agentStatusTracking.clearDiscoveryStartedAt(workspaceId: workspaceId)
     }
 
     func registerAgentPID(
@@ -326,16 +451,16 @@ extension TabManager {
             return false
         }
         let runtimeKey = SidebarAgentStatusService.runtimeKey(for: registration, panelId: panelId)
+        clearPanelAgentTitleRegistration(for: SidebarAgentPanelTitleUpdateKey(tabId: workspace.id, panelId: panelId))
         workspace.setAgentPID(key: runtimeKey, panelId: panelId, pid: matchedPID)
         return true
     }
 
     func flushPendingPanelTitleUpdates() {
-        guard !pendingPanelTitleUpdates.isEmpty else { return }
-        let updates = pendingPanelTitleUpdates
-        pendingPanelTitleUpdates.removeAll(keepingCapacity: true)
+        guard !agentStatusTracking.pendingPanelTitleUpdates.isEmpty else { return }
+        let updates = agentStatusTracking.drainPendingPanelTitleUpdates()
         let shouldDiscoverAgentPID = updates.contains { key, update in
-            update.sawAgentTitleRegistration || panelAgentTitleRegistrations[key] != nil
+            update.sawAgentTitleRegistration || agentStatusTracking.panelAgentTitleRegistration(for: key) != nil
         }
         for (key, update) in updates {
             updatePanelTitle(tabId: key.tabId, panelId: key.panelId, title: update.title)

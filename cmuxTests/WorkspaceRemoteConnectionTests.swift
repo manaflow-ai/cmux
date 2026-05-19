@@ -3192,7 +3192,7 @@ final class CLINotifyProcessIntegrationTests: XCTestCase {
         )
         XCTAssertTrue(
             waitForSocketCommand(state: state, timeout: 5) { command in
-                command.contains("set_status codex Codex needs input") &&
+                command.contains("set_status codex \"Codex needs input\"") &&
                     command.contains("--icon=bell.fill") &&
                     command.contains("--color=#4C8DFF") &&
                     command.contains("--priority=100") &&
@@ -3292,7 +3292,7 @@ final class CLINotifyProcessIntegrationTests: XCTestCase {
         )
         XCTAssertTrue(
             waitForSocketCommand(state: state, timeout: 5) { command in
-                command.contains("set_status codex Codex needs input") &&
+                command.contains("set_status codex \"Codex needs input\"") &&
                     command.contains("--icon=bell.fill") &&
                     command.contains("--color=#4C8DFF") &&
                     command.contains("--priority=100") &&

@@ -22471,9 +22471,9 @@ export default function cmuxPiSessionExtension(pi: ExtensionAPI) {
 #endif
                 return
             }
-            let idleStatus = String(localized: "agent.generic.notification.status.idle", defaultValue: "Idle")
+            let idleStatus = ClaudeNotificationSidebarStatusStyle.idleValue
             _ = try? sendV1Command(
-                "set_status \(def.statusKey) \(socketQuote(idleStatus)) --icon=pause.circle.fill --color=#8E8E93 --protocol=idle --tab=\(workspaceId)\(socketPanelOption(surfaceId))",
+                "set_status \(def.statusKey) \(socketQuote(idleStatus)) --icon=\(ClaudeNotificationSidebarStatusStyle.idleIcon) --color=\(ClaudeNotificationSidebarStatusStyle.idleColor) --protocol=\(ClaudeNotificationSidebarStatusStyle.idleProtocolValue) --tab=\(workspaceId)\(socketPanelOption(surfaceId))",
                 client: client
             )
         }
@@ -22688,9 +22688,9 @@ export default function cmuxPiSessionExtension(pi: ExtensionAPI) {
                 "clear_notifications --tab=\(workspaceId)\(socketPanelOption(surfaceId))",
                 client: client
             )
-            let runningStatus = String(localized: "sidebar.agentStatus.running", defaultValue: "Running")
+            let runningStatus = ClaudeNotificationSidebarStatusStyle.runningValue
             _ = try sendV1Command(
-                "set_status \(def.statusKey) \(socketQuote(runningStatus)) --icon=bolt.fill --color=#4C8DFF --protocol=running --tab=\(workspaceId)\(socketPanelOption(surfaceId))",
+                "set_status \(def.statusKey) \(socketQuote(runningStatus)) --icon=\(ClaudeNotificationSidebarStatusStyle.runningIcon) --color=\(ClaudeNotificationSidebarStatusStyle.runningColor) --protocol=\(ClaudeNotificationSidebarStatusStyle.runningProtocolValue) --tab=\(workspaceId)\(socketPanelOption(surfaceId))",
                 client: client
             )
             if def.name == "codex", !sessionId.isEmpty {

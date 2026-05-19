@@ -1047,17 +1047,7 @@ class TabManager: ObservableObject {
     private var observers: [NSObjectProtocol] = []
     private var suppressFocusFlash = false
     private var lastFocusedPanelByTab: [UUID: UUID] = [:]
-    struct PanelTitleUpdateKey: Hashable {
-        let tabId: UUID
-        let panelId: UUID
-    }
-    struct PendingPanelTitleUpdate {
-        var title: String
-        var sawAgentTitleRegistration: Bool
-    }
-    var pendingPanelTitleUpdates: [PanelTitleUpdateKey: PendingPanelTitleUpdate] = [:]
-    var panelAgentTitleRegistrations: [PanelTitleUpdateKey: SidebarAgentTitleRegistration] = [:]
-    var panelAgentTitleRegistrationSeenAt: [PanelTitleUpdateKey: Date] = [:]
+    let agentStatusTracking = SidebarAgentStatusTracking()
     private let panelTitleUpdateCoalescer = NotificationBurstCoalescer(delay: 1.0 / 30.0)
     private var recentlyClosedBrowsers = RecentlyClosedBrowserStack(capacity: 20)
     private let initialWorkspaceGitProbeQueue = DispatchQueue(
@@ -1090,12 +1080,6 @@ class TabManager: ObservableObject {
     private var closeConfirmationInFlight = false
     var confirmCloseHandler: ((String, String, Bool) -> Bool)?
     private var agentPIDSweepTimer: DispatchSourceTimer?
-    var agentPIDProbeInFlight = false
-    var agentPIDDiscoveryInFlight = false
-    var agentPIDProbeGeneration: UInt64 = 0
-    var agentPIDProbeInFlightGeneration: UInt64?
-    var agentPIDDiscoveryInFlightGeneration: UInt64?
-    var agentPIDDiscoveryLastStartedAtByRegistration: [String: Date] = [:]
     private var workspaceGitMetadataPollTimer: DispatchSourceTimer?
     private var selectedWorkspaceGitMetadataPollTimer: DispatchSourceTimer?
 #if DEBUG
@@ -1155,7 +1139,7 @@ class TabManager: ObservableObject {
             }
         })
 
-        startAgentPIDSweepTimer()
+        updateAgentPIDSweepTimer()
         startWorkspaceGitMetadataPollTimer()
         startSelectedWorkspaceGitMetadataPollTimer()
         updateWorkspacePullRequestPollTimer()
@@ -1178,10 +1162,26 @@ class TabManager: ObservableObject {
 
     // MARK: - Agent PID Sweep
 
-    /// Periodically checks registered agent PIDs.
-    /// If a process has exited (SIGKILL, crash, etc.), clears the stale sidebar entry.
-    /// This is the safety net for cases where no hook fires (e.g. SIGKILL).
-    private func startAgentPIDSweepTimer() {
+    func agentRuntimeTrackingDidChange() {
+        updateAgentPIDSweepTimer()
+        if hasTrackedAgentPIDs {
+            scheduleAgentPIDProbePass()
+        }
+    }
+
+    private var hasTrackedAgentPIDs: Bool {
+        tabs.contains { tab in
+            tab.agentPIDs.values.contains { $0 > 0 }
+        }
+    }
+
+    private func updateAgentPIDSweepTimer() {
+        guard hasTrackedAgentPIDs else {
+            agentPIDSweepTimer?.cancel()
+            agentPIDSweepTimer = nil
+            return
+        }
+        guard agentPIDSweepTimer == nil else { return }
         let timer = DispatchSource.makeTimerSource(queue: .global(qos: .utility))
         timer.schedule(deadline: .now() + Self.agentPIDSweepInterval, repeating: Self.agentPIDSweepInterval)
         timer.setEventHandler { [weak self] in
@@ -2182,6 +2182,7 @@ class TabManager: ObservableObject {
                 updatedTabs.append(newWorkspace)
             }
             tabs = updatedTabs
+            updateAgentPIDSweepTimer()
             if let terminalPanel = newWorkspace.focusedTerminalPanel {
                 scheduleInitialWorkspaceGitMetadataRefreshIfPossible(
                     workspaceId: newWorkspace.id,
@@ -4216,6 +4217,7 @@ class TabManager: ObservableObject {
 
         if let index = tabs.firstIndex(where: { $0.id == workspace.id }) {
             tabs.remove(at: index)
+            updateAgentPIDSweepTimer()
 
             if selectedTabId == workspace.id {
                 // Keep the "focused index" stable when possible:
@@ -4241,6 +4243,7 @@ class TabManager: ObservableObject {
         unwireClosedBrowserTracking(for: removed)
         removed.owningTabManager = nil
         lastFocusedPanelByTab.removeValue(forKey: removed.id)
+        updateAgentPIDSweepTimer()
 
         if tabs.isEmpty {
             // The UI assumes each window always has at least one workspace.
@@ -4265,6 +4268,7 @@ class TabManager: ObservableObject {
             return max(0, min(index, tabs.count))
         }()
         tabs.insert(workspace, at: insertIndex)
+        updateAgentPIDSweepTimer()
         if select {
             selectedTabId = workspace.id
         }
@@ -5185,12 +5189,12 @@ class TabManager: ObservableObject {
             "panel=\(panelId.uuidString.prefix(5)) title=\"\(Self.debugTitlePreview(trimmed))\""
         )
 #endif
-        let key = PanelTitleUpdateKey(tabId: tabId, panelId: panelId)
-        let priorSawAgentTitleRegistration = pendingPanelTitleUpdates[key]?.sawAgentTitleRegistration == true
+        let key = SidebarAgentPanelTitleUpdateKey(tabId: tabId, panelId: panelId)
+        let priorSawAgentTitleRegistration = agentStatusTracking.pendingPanelTitleUpdate(for: key)?.sawAgentTitleRegistration == true
         let now = Date()
         let hasActiveAgentTitleRegistration: Bool = {
-            guard panelAgentTitleRegistrations[key] != nil,
-                  let seenAt = panelAgentTitleRegistrationSeenAt[key] else {
+            guard agentStatusTracking.panelAgentTitleRegistration(for: key) != nil,
+                  let seenAt = agentStatusTracking.panelAgentTitleRegistrationSeenAt(for: key) else {
                 return false
             }
             if now.timeIntervalSince(seenAt) <= Self.panelAgentTitleRegistrationLifetime {
@@ -5200,16 +5204,25 @@ class TabManager: ObservableObject {
             return false
         }()
         if let registration = SidebarAgentStatusService.titleRegistration(for: trimmed) {
-            pendingPanelTitleUpdates[key] = PendingPanelTitleUpdate(
-                title: trimmed,
-                sawAgentTitleRegistration: true
+            agentStatusTracking.setPendingPanelTitleUpdate(
+                SidebarAgentPendingPanelTitleUpdate(
+                    title: trimmed,
+                    sawAgentTitleRegistration: true
+                ),
+                for: key
             )
-            panelAgentTitleRegistrations[key] = registration
-            panelAgentTitleRegistrationSeenAt[key] = now
+            agentStatusTracking.setPanelAgentTitleRegistration(
+                registration,
+                for: key,
+                seenAt: now
+            )
         } else {
-            pendingPanelTitleUpdates[key] = PendingPanelTitleUpdate(
-                title: trimmed,
-                sawAgentTitleRegistration: priorSawAgentTitleRegistration || hasActiveAgentTitleRegistration
+            agentStatusTracking.setPendingPanelTitleUpdate(
+                SidebarAgentPendingPanelTitleUpdate(
+                    title: trimmed,
+                    sawAgentTitleRegistration: priorSawAgentTitleRegistration || hasActiveAgentTitleRegistration
+                ),
+                for: key
             )
         }
         panelTitleUpdateCoalescer.signal { [weak self] in
@@ -7565,15 +7578,7 @@ extension TabManager {
 
         // Clear non-@Published state without touching tabs/selectedTabId yet.
         lastFocusedPanelByTab.removeAll()
-        pendingPanelTitleUpdates.removeAll()
-        panelAgentTitleRegistrations.removeAll()
-        panelAgentTitleRegistrationSeenAt.removeAll()
-        agentPIDProbeGeneration &+= 1
-        agentPIDProbeInFlight = false
-        agentPIDDiscoveryInFlight = false
-        agentPIDProbeInFlightGeneration = nil
-        agentPIDDiscoveryInFlightGeneration = nil
-        agentPIDDiscoveryLastStartedAtByRegistration.removeAll()
+        agentStatusTracking.reset()
         tabHistory.removeAll()
         historyIndex = -1
         isNavigatingHistory = false
@@ -7626,6 +7631,7 @@ extension TabManager {
         // never see an intermediate state with empty tabs or nil selection.
         tabs = newTabs
         selectedTabId = newSelectedId
+        updateAgentPIDSweepTimer()
         let existingIds = Set(newTabs.map(\.id))
         pruneBackgroundWorkspaceLoads(existingIds: existingIds)
         sidebarSelectedWorkspaceIds.formIntersection(existingIds)
