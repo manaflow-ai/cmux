@@ -30,6 +30,7 @@ extension CMUXCLI {
         if options.afterSeq == nil, let cursorFile = options.cursorFile {
             options.afterSeq = try readEventCursor(from: cursorFile)
         }
+        try validateEventScopeCombination(options)
 
         var lastSeq = options.afterSeq
         var emittedEvents = 0
@@ -220,14 +221,8 @@ extension CMUXCLI {
         explicitPassword: String?
     ) throws {
         let effectiveScope = try effectiveEventScope(options)
-        let hasSelector = options.window != nil || options.workspace != nil ||
-            options.surface != nil || options.pane != nil
-        if effectiveScope == "global", hasSelector {
-            throw CLIError(message: String(
-                localized: "cli.error.eventsGlobalScopeWithSelectors",
-                defaultValue: "--scope global cannot be combined with --window, --workspace, --surface, or --pane."
-            ))
-        }
+        let hasSelector = hasEventScopeSelector(options)
+        try validateEventScopeCombination(options)
         params["scope"] = effectiveScope
 
         let caller = eventCallerContextFromEnvironment()
@@ -292,6 +287,20 @@ extension CMUXCLI {
         } catch {
             resolver.close()
             throw error
+        }
+    }
+
+    private func hasEventScopeSelector(_ options: EventsCommandOptions) -> Bool {
+        options.window != nil || options.workspace != nil ||
+            options.surface != nil || options.pane != nil
+    }
+
+    private func validateEventScopeCombination(_ options: EventsCommandOptions) throws {
+        if try effectiveEventScope(options) == "global", hasEventScopeSelector(options) {
+            throw CLIError(message: String(
+                localized: "cli.error.eventsGlobalScopeWithSelectors",
+                defaultValue: "--scope global cannot be combined with --window, --workspace, --surface, or --pane."
+            ))
         }
     }
 
