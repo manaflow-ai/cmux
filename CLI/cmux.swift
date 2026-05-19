@@ -949,6 +949,15 @@ final class SocketClient {
         let port: UInt16
     }
 
+    private struct SocketConnectError: Error, CustomStringConvertible {
+        let path: String
+        let errnoValue: Int32
+
+        var description: String {
+            "Failed to connect to socket at \(path) (\(String(cString: strerror(errnoValue))), errno \(errnoValue))"
+        }
+    }
+
     private struct RelayCredentials {
         let relayID: String
         let relayToken: Data
@@ -961,6 +970,8 @@ final class SocketClient {
     private static let defaultResponseTimeoutSeconds: TimeInterval = 15.0
     private static let multilineResponseIdleTimeoutSeconds: TimeInterval = 0.12
     private static let maxSocketTimeoutSeconds: TimeInterval = 9_007_199_254_740_991
+    private static let connectRetryDeadline: TimeInterval = 0.35
+    private static let connectRetryIntervalMicros: useconds_t = 25_000
     private static let responseTimeoutSeconds: TimeInterval = {
         let env = ProcessInfo.processInfo.environment
         if let raw = env["CMUXTERM_CLI_RESPONSE_TIMEOUT_SEC"],
@@ -1071,7 +1082,22 @@ final class SocketClient {
 
     func connect() throws {
         if socketFD >= 0 { return }
-        try connectOnce()
+        let deadline = Date().addingTimeInterval(Self.connectRetryDeadline)
+        var lastError: Error?
+        repeat {
+            do {
+                try connectOnce()
+                return
+            } catch {
+                lastError = error
+                guard Self.shouldRetryConnect(error), Date() < deadline else {
+                    throw error
+                }
+                usleep(Self.connectRetryIntervalMicros)
+            }
+        } while true
+
+        throw lastError ?? CLIError(message: "Failed to connect to socket at \(path)")
     }
 
     func close() {
@@ -1232,9 +1258,19 @@ final class SocketClient {
         let connectErrno = errno
         Darwin.close(socketFD)
         socketFD = -1
-        throw CLIError(
-            message: "Failed to connect to socket at \(path) (\(String(cString: strerror(connectErrno))), errno \(connectErrno))"
-        )
+        throw SocketConnectError(path: path, errnoValue: connectErrno)
+    }
+
+    private static func shouldRetryConnect(_ error: Error) -> Bool {
+        guard let error = error as? SocketConnectError else {
+            return false
+        }
+        switch error.errnoValue {
+        case ECONNREFUSED, EAGAIN, EWOULDBLOCK:
+            return true
+        default:
+            return false
+        }
     }
 
     private static func parseRelayEndpoint(_ raw: String) -> RelayEndpoint? {
@@ -22406,7 +22442,6 @@ export default function cmuxPiSessionExtension(pi: ExtensionAPI) {
             }
 
             let shouldPublishStopNotification = def.publishesStopNotification
-                || def.name == "grok"
             if shouldPublishStopNotification {
                 let payload = notificationPayload(title: def.displayName, subtitle: subtitle, body: body)
                 let notifyCommand = "notify_target_async \(workspaceId) \(surfaceId) \(payload)"

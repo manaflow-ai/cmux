@@ -146,7 +146,6 @@ extension CMUXCLI {
                 .init(agentEvent: "Notification", cmuxSubcommand: "notification"),
                 .init(agentEvent: "SessionEnd", cmuxSubcommand: "session-end"),
             ],
-            publishesStopNotification: false,
             feedHookEvents: ["PreToolUse"]
         ),
         AgentHookDef(
