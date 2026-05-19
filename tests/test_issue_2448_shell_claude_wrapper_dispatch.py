@@ -180,6 +180,62 @@ def run_bash_with_function(shell_dir: Path, real_bin: Path, log_path: Path) -> t
     return result.returncode, combined, read_lines(log_path)
 
 
+def run_zsh_auth_context(shell_dir: Path, real_bin: Path, log_path: Path) -> tuple[int, str, list[str]]:
+    env = dict(os.environ)
+    env["CMUX_SHELL_INTEGRATION_DIR"] = str(shell_dir)
+    env["CMUX_TEST_LOG"] = str(log_path)
+    env["CMUX_TEST_REAL_BIN"] = str(real_bin)
+    env["PATH"] = f"{real_bin}:/usr/bin:/bin"
+    env["CMUX_PRESERVE_CLAUDE_AUTH_SELECTION_ENV"] = "1"
+    env["CMUX_PRESERVE_CLAUDE_AUTH_SELECTION_ENV_KEYS"] = "CLAUDE_CONFIG_DIR,ANTHROPIC_MODEL"
+    env.pop("GHOSTTY_BIN_DIR", None)
+
+    result = subprocess.run(
+        [
+            "zsh",
+            "-fic",
+            f'source "{shell_dir / "cmux-zsh-integration.zsh"}"; '
+            'PATH="$CMUX_TEST_REAL_BIN:$PATH"; claude auth-context-case',
+        ],
+        env=env,
+        capture_output=True,
+        text=True,
+        timeout=8,
+        check=False,
+    )
+    combined = ((result.stdout or "") + (result.stderr or "")).strip()
+    return result.returncode, combined, read_lines(log_path)
+
+
+def run_bash_auth_context(shell_dir: Path, real_bin: Path, log_path: Path) -> tuple[int, str, list[str]]:
+    env = dict(os.environ)
+    env["CMUX_SHELL_INTEGRATION_DIR"] = str(shell_dir)
+    env["CMUX_TEST_LOG"] = str(log_path)
+    env["CMUX_TEST_REAL_BIN"] = str(real_bin)
+    env["PATH"] = f"{real_bin}:/usr/bin:/bin"
+    env["CMUX_PRESERVE_CLAUDE_AUTH_SELECTION_ENV"] = "1"
+    env["CMUX_PRESERVE_CLAUDE_AUTH_SELECTION_ENV_KEYS"] = "CLAUDE_CONFIG_DIR,ANTHROPIC_MODEL"
+    env.pop("GHOSTTY_BIN_DIR", None)
+
+    result = subprocess.run(
+        [
+            "bash",
+            "--noprofile",
+            "--norc",
+            "-c",
+            f'source "{shell_dir / "cmux-bash-integration.bash"}"; '
+            'PATH="$CMUX_TEST_REAL_BIN:$PATH"; claude auth-context-case',
+        ],
+        env=env,
+        capture_output=True,
+        text=True,
+        timeout=8,
+        check=False,
+    )
+    combined = ((result.stdout or "") + (result.stderr or "")).strip()
+    return result.returncode, combined, read_lines(log_path)
+
+
 def main() -> int:
     failures: list[str] = []
 
@@ -193,7 +249,13 @@ def main() -> int:
             bundle_bin / "claude",
             """#!/usr/bin/env bash
 set -euo pipefail
-printf 'wrapper:%s\n' "$*" >> "$CMUX_TEST_LOG"
+if [[ "${1:-}" == "auth-context-case" ]]; then
+  printf 'auth:%s|%s\n' \
+    "${CMUX_PRESERVE_CLAUDE_AUTH_SELECTION_ENV-__UNSET__}" \
+    "${CMUX_PRESERVE_CLAUDE_AUTH_SELECTION_ENV_KEYS-__UNSET__}" >> "$CMUX_TEST_LOG"
+else
+  printf 'wrapper:%s\n' "$*" >> "$CMUX_TEST_LOG"
+fi
 """,
         )
         write_executable(
@@ -252,6 +314,22 @@ printf 'user-function:%s\n' "$*" >> "$CMUX_TEST_LOG"
             failures.append(f"bash function case exited non-zero rc={rc}: {output}")
         elif lines != ["user-function:bash-function-case"]:
             failures.append(f"bash function case should preserve user function, saw {lines!r}")
+
+        expected_auth_line = "auth:1|CLAUDE_CONFIG_DIR,ANTHROPIC_MODEL"
+
+        zsh_auth_log = tmp / "zsh-auth-context.log"
+        rc, output, lines = run_zsh_auth_context(shell_dir, real_bin, zsh_auth_log)
+        if rc != 0:
+            failures.append(f"zsh auth context case exited non-zero rc={rc}: {output}")
+        elif lines != [expected_auth_line]:
+            failures.append(f"zsh auth context case should forward preservation keys, saw {lines!r}")
+
+        bash_auth_log = tmp / "bash-auth-context.log"
+        rc, output, lines = run_bash_auth_context(shell_dir, real_bin, bash_auth_log)
+        if rc != 0:
+            failures.append(f"bash auth context case exited non-zero rc={rc}: {output}")
+        elif lines != [expected_auth_line]:
+            failures.append(f"bash auth context case should forward preservation keys, saw {lines!r}")
 
     if failures:
         print("FAIL: shell integration did not keep claude on the bundled wrapper")

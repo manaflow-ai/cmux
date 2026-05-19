@@ -170,9 +170,8 @@ _cmux_install_claude_wrapper() {
     # via eval so an existing `alias claude=...` cannot break parsing.
     _CMUX_CLAUDE_WRAPPER="$wrapper_path"
     builtin unalias claude >/dev/null 2>&1 || true
-    eval 'claude() { "$_CMUX_CLAUDE_WRAPPER" "$@"; }'
+    eval 'claude() { _cmux_with_context "$_CMUX_CLAUDE_WRAPPER" "$@"; }'
 }
-_cmux_install_claude_wrapper
 
 _cmux_normalize_claude_config_dir() {
     [[ -n "${CLAUDE_CONFIG_DIR:-}" && -n "${HOME:-}" ]] || return 0
@@ -256,6 +255,50 @@ typeset -ga _CMUX_TMUX_SURFACE_SCOPED_KEYS=(
     CMUX_PANEL_ID
     CMUX_SURFACE_ID
 )
+typeset -ga _CMUX_CONTEXT_EXPORT_KEYS=(
+    "${_CMUX_TMUX_SYNC_KEYS[@]}"
+    "${_CMUX_TMUX_SURFACE_SCOPED_KEYS[@]}"
+    CMUX_CLAUDE_HOOKS_DISABLED
+    CMUX_CURSOR_HOOKS_DISABLED
+    CMUX_CUSTOM_CLAUDE_PATH
+    CMUX_GEMINI_HOOKS_DISABLED
+    CMUX_LOAD_GHOSTTY_BASH_INTEGRATION
+    CMUX_PRESERVE_CLAUDE_AUTH_SELECTION_ENV
+    CMUX_PRESERVE_CLAUDE_AUTH_SELECTION_ENV_KEYS
+    CMUX_RESTORE_SCROLLBACK_FILE
+)
+
+_cmux_hide_downstream_environment() {
+    local key
+    for key in ${(k)parameters}; do
+        [[ "$key" == CMUX_* ]] || continue
+        builtin typeset +x "$key" 2>/dev/null || true
+    done
+    if (( ${+parameters[TERMINFO]} )); then
+        builtin typeset +x TERMINFO 2>/dev/null || true
+    fi
+}
+
+_cmux_with_context() {
+    local -a env_args=()
+    local key value
+    for key in "${_CMUX_CONTEXT_EXPORT_KEYS[@]}"; do
+        (( ${+parameters[$key]} )) || continue
+        value="${(P)key}"
+        env_args+=("$key=$value")
+    done
+    command env "${env_args[@]}" "$@"
+}
+
+_cmux_install_context_command_wrapper() {
+    local command_name="$1"
+    (( $+functions[$command_name] )) && return 0
+    builtin alias "$command_name" >/dev/null 2>&1 && return 0
+    eval "$command_name() { _cmux_with_context $command_name \"\$@\"; }"
+}
+_cmux_install_claude_wrapper
+_cmux_install_context_command_wrapper cmux
+_cmux_install_context_command_wrapper open
 
 _cmux_tmux_sync_key_is_managed() {
     local candidate="$1"
@@ -1103,6 +1146,7 @@ _cmux_preexec() {
         _cmux_restore_terminal_identity_after_startup
     fi
     _cmux_tmux_sync_cmux_environment
+    _cmux_hide_downstream_environment
     local cmd="${1## }"
 
     if [[ -z "$_CMUX_TTY_NAME" ]]; then
@@ -1142,6 +1186,7 @@ _cmux_precmd() {
     fi
     _cmux_stop_git_head_watch
     _cmux_tmux_sync_cmux_environment
+    _cmux_hide_downstream_environment
 
     local cmux_has_unix_socket=0
     _cmux_socket_is_unix && cmux_has_unix_socket=1
@@ -1332,3 +1377,4 @@ add-zsh-hook preexec _cmux_preexec
 add-zsh-hook precmd _cmux_precmd
 add-zsh-hook precmd _cmux_fix_path
 add-zsh-hook zshexit _cmux_zshexit
+_cmux_hide_downstream_environment

@@ -174,6 +174,23 @@ clear_inherited_claude_auth_selection_env() {
     normalize_claude_config_dir
 }
 
+hide_cmux_passthrough_environment() {
+    [[ "${IN_CMUX:-0}" == "1" ]] || return 0
+
+    local key
+    while IFS='=' read -r key _; do
+        [[ "$key" == CMUX_* ]] || continue
+        unset "$key"
+    done < <(env)
+    unset TERMINFO
+}
+
+exec_real_claude_passthrough() {
+    clear_inherited_claude_auth_selection_env
+    hide_cmux_passthrough_environment
+    exec "$REAL_CLAUDE" "$@"
+}
+
 # Pass through if not in a cmux terminal, hooks are disabled, or the cmux
 # socket is unavailable (stale env / app not running).
 IN_CMUX=0
@@ -181,24 +198,12 @@ if [[ -n "$CMUX_SURFACE_ID" ]]; then
     IN_CMUX=1
 fi
 
-exec_real_claude_passthrough() {
-    if [[ "$IN_CMUX" == "1" ]]; then
-        local cmux_key
-        for cmux_key in "${!CMUX_@}"; do
-            unset "$cmux_key"
-        done
-        unset TERMINFO
-    fi
-    exec "$REAL_CLAUDE" "$@"
-}
-
 if [[ "$IN_CMUX" == "0" || "$CMUX_CLAUDE_HOOKS_DISABLED" == "1" ]] || ! cmux_socket_available; then
     # In cmux-launched shells, preserve old behavior and always clear nested
     # Claude session markers, even when we must pass through due to stale socket.
     if [[ "$IN_CMUX" == "1" ]]; then
         unset CLAUDECODE
     fi
-    clear_inherited_claude_auth_selection_env
     REAL_CLAUDE="$(find_real_claude)" || { echo "Error: claude not found in PATH" >&2; exit 127; }
     exec_real_claude_passthrough "$@"
 fi
@@ -412,7 +417,6 @@ should_inject_claude_hooks() {
 # Only inject hooks for Claude session entrypoints. Command-like invocations
 # pass through so Claude subcommands do not receive session/hook flags.
 if ! should_inject_claude_hooks "$@"; then
-    clear_inherited_claude_auth_selection_env
     exec_real_claude_passthrough "$@"
 fi
 

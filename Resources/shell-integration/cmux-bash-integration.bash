@@ -166,9 +166,8 @@ _cmux_install_claude_wrapper() {
     # via eval so an existing `alias claude=...` cannot break parsing.
     _CMUX_CLAUDE_WRAPPER="$wrapper_path"
     unalias claude >/dev/null 2>&1 || true
-    eval 'claude() { "$_CMUX_CLAUDE_WRAPPER" "$@"; }'
+    eval 'claude() { _cmux_with_context "$_CMUX_CLAUDE_WRAPPER" "$@"; }'
 }
-_cmux_install_claude_wrapper
 _cmux_now() {
     printf '%s\n' "${EPOCHSECONDS:-$SECONDS}"
 }
@@ -223,6 +222,54 @@ _CMUX_TMUX_SURFACE_SCOPED_KEYS=(
     CMUX_PANEL_ID
     CMUX_SURFACE_ID
 )
+_CMUX_CONTEXT_EXPORT_KEYS=(
+    "${_CMUX_TMUX_SYNC_KEYS[@]}"
+    "${_CMUX_TMUX_SURFACE_SCOPED_KEYS[@]}"
+    CMUX_CLAUDE_HOOKS_DISABLED
+    CMUX_CURSOR_HOOKS_DISABLED
+    CMUX_CUSTOM_CLAUDE_PATH
+    CMUX_GEMINI_HOOKS_DISABLED
+    CMUX_LOAD_GHOSTTY_BASH_INTEGRATION
+    CMUX_PRESERVE_CLAUDE_AUTH_SELECTION_ENV
+    CMUX_PRESERVE_CLAUDE_AUTH_SELECTION_ENV_KEYS
+    CMUX_RESTORE_SCROLLBACK_FILE
+)
+
+_cmux_hide_downstream_environment() {
+    local key
+    while IFS= read -r key; do
+        [[ "$key" == CMUX_* ]] || continue
+        export -n "$key" 2>/dev/null || true
+    done < <(compgen -v CMUX_)
+    export -n TERMINFO 2>/dev/null || true
+}
+
+_cmux_with_context() {
+    local -a env_args=()
+    local key value
+    for key in "${_CMUX_CONTEXT_EXPORT_KEYS[@]}"; do
+        if [[ ${!key+x} ]]; then
+            value="${!key}"
+            env_args+=("$key=$value")
+        fi
+    done
+    env "${env_args[@]}" "$@"
+}
+
+_cmux_install_context_command_wrapper() {
+    local command_name="$1"
+    local existing_type=""
+    existing_type="$(type -t "$command_name" 2>/dev/null || true)"
+    case "$existing_type" in
+        alias|function)
+            return 0
+            ;;
+    esac
+    eval "$command_name() { _cmux_with_context $command_name \"\$@\"; }"
+}
+_cmux_install_claude_wrapper
+_cmux_install_context_command_wrapper cmux
+_cmux_install_context_command_wrapper open
 
 _cmux_tmux_sync_key_is_managed() {
     local candidate="$1"
@@ -926,6 +973,7 @@ _cmux_command_starts_nested_shell() {
 _cmux_preexec_command() {
     local cmd="${1:-${BASH_COMMAND:-}}"
     _cmux_tmux_sync_cmux_environment
+    _cmux_hide_downstream_environment
 
     local cmux_has_unix_socket=0
     _cmux_socket_is_unix && cmux_has_unix_socket=1
@@ -956,6 +1004,7 @@ _cmux_bash_preexec_hook() {
 _cmux_prompt_command() {
     local last_status=$?
     _cmux_tmux_sync_cmux_environment
+    _cmux_hide_downstream_environment
 
     local cmux_has_unix_socket=0
     _cmux_socket_is_unix && cmux_has_unix_socket=1
@@ -1158,3 +1207,4 @@ unset -f _cmux_fix_path
 _cmux_detect_send_tool
 
 _cmux_install_prompt_command
+_cmux_hide_downstream_environment
