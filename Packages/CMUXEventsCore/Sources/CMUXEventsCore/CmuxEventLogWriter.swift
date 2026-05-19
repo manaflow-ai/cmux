@@ -100,7 +100,7 @@ final class CmuxEventLogWriter: @unchecked Sendable {
         let task = Task.detached(priority: .utility) { [self] in
             await withCheckedContinuation { (continuation: CheckedContinuation<Void, Never>) in
                 flushQueue.async {
-                    flushPendingLines()
+                    self.flushPendingLines()
                     continuation.resume()
                 }
             }
