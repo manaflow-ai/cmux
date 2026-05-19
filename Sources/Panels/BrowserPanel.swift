@@ -2701,7 +2701,7 @@ final class BrowserPanel: Panel, ObservableObject {
     var hasBackgroundPreloadHost: Bool {
         backgroundPreloadWindow != nil
     }
-    private let preloadsNavigationInBackground: Bool
+    private var shouldPreloadInitialNavigationInBackground: Bool
     private var backgroundPreloadWindow: NSWindow?
     private var isWebViewVisibleInUI: Bool = false
     private var isClosingWebViewLifecycle: Bool = false
@@ -3468,7 +3468,7 @@ final class BrowserPanel: Panel, ObservableObject {
         self.remoteProxyEndpoint = proxyEndpoint
         self.usesRemoteWorkspaceProxy = isRemoteWorkspace
         self.browserThemeMode = BrowserThemeSettings.mode()
-        self.preloadsNavigationInBackground = preloadInitialNavigationInBackground
+        self.shouldPreloadInitialNavigationInBackground = preloadInitialNavigationInBackground
         self.websiteDataStore = isRemoteWorkspace
             ? WKWebsiteDataStore(forIdentifier: remoteWebsiteDataStoreIdentifier ?? workspaceId)
             : BrowserProfileStore.shared.websiteDataStore(for: resolvedProfileID)
@@ -3617,7 +3617,6 @@ final class BrowserPanel: Panel, ObservableObject {
     }
 
     private func ensureBackgroundPreloadHostIfNeeded(reason: String) {
-        guard preloadsNavigationInBackground else { return }
         guard backgroundPreloadWindow == nil else { return }
         guard webView.window == nil else { return }
         guard webView.superview == nil else { return }
@@ -3630,6 +3629,7 @@ final class BrowserPanel: Panel, ObservableObject {
             defer: false
         )
         window.isReleasedWhenClosed = false
+        window.identifier = NSUserInterfaceItemIdentifier("cmux.browserBackgroundPreload")
         window.hasShadow = false
         window.alphaValue = 0
         window.ignoresMouseEvents = true
@@ -4771,7 +4771,10 @@ final class BrowserPanel: Panel, ObservableObject {
         webView.customUserAgent = BrowserUserAgentSettings.safariUserAgent
         hiddenWebViewDiscardManager.updateRestoredSessionRenderIntent(nil)
         shouldRenderWebView = true
-        ensureBackgroundPreloadHostIfNeeded(reason: "navigation")
+        if shouldPreloadInitialNavigationInBackground {
+            shouldPreloadInitialNavigationInBackground = false
+            ensureBackgroundPreloadHostIfNeeded(reason: "initial-navigation")
+        }
         if recordTypedNavigation {
             historyStore.recordTypedNavigation(url: originalURL)
         }
