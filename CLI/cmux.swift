@@ -17032,14 +17032,15 @@ struct CMUXCLI {
         )
 
         var didSendFeedTelemetry = false
-        func sendClaudeFeedTelemetry(workspaceId: String? = nil) {
+        func sendClaudeFeedTelemetry(workspaceId: String? = nil, sessionIdOverride: String? = nil) {
             didSendFeedTelemetry = true
             sendFeedTelemetry(
                 client: client,
                 source: "claude",
                 subcommand: subcommand,
                 parsedInput: parsedInput,
-                workspaceId: workspaceId ?? workspaceArg
+                workspaceId: workspaceId ?? workspaceArg,
+                sessionIdOverride: sessionIdOverride
             )
         }
         defer {
@@ -17400,7 +17401,10 @@ struct CMUXCLI {
                     surfaceId: consumedSession.surfaceId,
                     sessionId: consumedSession.sessionId
                 )
-                sendClaudeFeedTelemetry(workspaceId: workspaceId)
+                sendClaudeFeedTelemetry(
+                    workspaceId: workspaceId,
+                    sessionIdOverride: consumedSession.sessionId
+                )
                 let shouldClearVisibleState = shouldApplyClaudeHookVisibleMutation(
                     sessionStore: sessionStore,
                     sessionId: consumedSession.sessionId,
@@ -22450,7 +22454,8 @@ export default function cmuxPiSessionExtension(pi: ExtensionAPI) {
                 source: def.name,
                 subcommand: subcommand,
                 parsedInput: input,
-                workspaceId: workspaceId ?? workspaceArg()
+                workspaceId: workspaceId ?? workspaceArg(),
+                sessionIdOverride: sessionId
             )
         }
         func notificationDedupeFingerprint(status: AgentHookNotificationStatus?) -> String? {
@@ -23048,14 +23053,17 @@ export default function cmuxPiSessionExtension(pi: ExtensionAPI) {
         source: String,
         subcommand: String,
         parsedInput: ClaudeHookParsedInput,
-        workspaceId: String? = nil
+        workspaceId: String? = nil,
+        sessionIdOverride: String? = nil
     ) {
         let hookEventName = Self.feedEventName(forClaudeSubcommand: subcommand)
         guard !hookEventName.isEmpty else { return }
         let promptText = hookEventName == "UserPromptSubmit"
             ? (feedPromptText(from: parsedInput.object) ?? parsedInput.rawFallback)
             : nil
-        let sessionId = parsedInput.sessionId ?? UUID().uuidString
+        let sessionId = normalizedHookValue(sessionIdOverride)
+            ?? parsedInput.sessionId
+            ?? UUID().uuidString
         var event: [String: Any] = [
             "session_id": "\(source)-\(sessionId)",
             "hook_event_name": hookEventName,
