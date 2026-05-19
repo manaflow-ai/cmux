@@ -107106,10 +107106,52 @@
     "settings.terminal.timestamps": {
       "extractionState": "manual",
       "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "إظهار الطوابع الزمنية للطرفية"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Prikaži vremenske oznake terminala"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Vis terminaltidsstempler"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Terminal-Zeitstempel anzeigen"
+          }
+        },
         "en": {
           "stringUnit": {
             "state": "translated",
             "value": "Show Terminal Timestamps"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Mostrar marcas de tiempo del terminal"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Afficher les horodatages du terminal"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Mostra timestamp del terminale"
           }
         },
         "ja": {
@@ -107117,16 +107159,118 @@
             "state": "translated",
             "value": "ターミナルのタイムスタンプを表示"
           }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "터미널 타임스탬프 표시"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Vis terminaltidsstempler"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Pokaż znaczniki czasu terminala"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Mostrar carimbos de data/hora do terminal"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Показывать временные метки терминала"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "แสดงเวลาประทับของเทอร์มินัล"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Terminal Zaman Damgalarını Göster"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Показувати часові мітки термінала"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "显示终端时间戳"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "顯示終端時間戳"
+          }
         }
       }
     },
     "settings.terminal.timestamps.subtitleOff": {
       "extractionState": "manual",
       "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "يخفي هامش الطوابع الزمنية للطرفية. يمكن أيضًا تبديل الطوابع الزمنية من قائمة العرض أو لوحة الأوامر."
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Sakriva marginu vremenskih oznaka terminala. Vremenske oznake se mogu prebaciti i iz menija Prikaz ili komandne palete."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Skjuler terminalens tidsstempelrende. Tidsstempler kan også slås til/fra fra menuen Vis eller kommandopaletten."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Blendet die Zeitstempelleiste des Terminals aus. Zeitstempel können auch über das Menü Ansicht oder die Befehlspalette umgeschaltet werden."
+          }
+        },
         "en": {
           "stringUnit": {
             "state": "translated",
             "value": "Hides the terminal timestamp gutter. Timestamps can also be toggled from the View menu or command palette."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Oculta el margen de marcas de tiempo del terminal. Las marcas de tiempo también se pueden alternar desde el menú Ver o la paleta de comandos."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Masque la gouttière d'horodatage du terminal. Les horodatages peuvent aussi être activés ou désactivés depuis le menu Présentation ou la palette de commandes."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Nasconde il margine dei timestamp del terminale. I timestamp possono anche essere attivati o disattivati dal menu Vista o dalla tavolozza comandi."
           }
         },
         "ja": {
@@ -107134,16 +107278,118 @@
             "state": "translated",
             "value": "ターミナルのタイムスタンプ欄を隠します。タイムスタンプは表示メニューやコマンドパレットからも切り替えられます。"
           }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "터미널 타임스탬프 여백을 숨깁니다. 보기 메뉴 또는 명령 팔레트에서도 타임스탬프를 전환할 수 있습니다."
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Skjuler tidsstempelmargen i terminalen. Tidsstempler kan også slås av og på fra Vis-menyen eller kommandopaletten."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ukrywa margines znaczników czasu terminala. Znaczniki czasu można też przełączać z menu Widok lub palety poleceń."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Oculta a margem de carimbos de data/hora do terminal. Os carimbos também podem ser alternados pelo menu Visualizar ou pela paleta de comandos."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Скрывает область временных меток терминала. Временные метки также можно переключать в меню Вид или палитре команд."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ซ่อนแถบเวลาประทับของเทอร์มินัล คุณยังเปิด/ปิดเวลาประทับได้จากเมนูมุมมองหรือพาเล็ตคำสั่ง"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Terminal zaman damgası sütununu gizler. Zaman damgaları Görünüm menüsünden veya komut paletinden de açılıp kapatılabilir."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Приховує поле часових міток термінала. Часові мітки також можна перемикати з меню Перегляд або палітри команд."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "隐藏终端时间戳边栏。也可以从“显示”菜单或命令面板切换时间戳。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "隱藏終端時間戳邊欄。也可以從「顯示」選單或命令面板切換時間戳。"
+          }
         }
       }
     },
     "settings.terminal.timestamps.subtitleOn": {
       "extractionState": "manual",
       "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "يعرض هامشًا زمنيًا على اليسار بمحاذاة صفوف خرج الطرفية."
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Prikazuje lijevu vremensku marginu poravnatu s redovima izlaza terminala."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Viser en venstresidet tidsrende, der flugter med terminalens outputrækker."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Zeigt links eine Zeitleiste an, die an den Ausgabezeilen des Terminals ausgerichtet ist."
+          }
+        },
         "en": {
           "stringUnit": {
             "state": "translated",
             "value": "Shows a left-side time gutter aligned with terminal output rows."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Muestra una columna de hora a la izquierda alineada con las filas de salida del terminal."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Affiche une gouttière horaire à gauche alignée avec les lignes de sortie du terminal."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Mostra un margine temporale a sinistra allineato alle righe di output del terminale."
           }
         },
         "ja": {
@@ -107151,22 +107397,184 @@
             "state": "translated",
             "value": "ターミナル出力行にそろえた左側の時刻欄を表示します。"
           }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "터미널 출력 행에 맞춘 왼쪽 시간 여백을 표시합니다."
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Viser en venstrestilt tidsmarg som er justert med terminalens utdatarader."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Pokazuje lewy margines czasu wyrównany z wierszami wyjścia terminala."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Mostra uma margem de horário à esquerda alinhada às linhas de saída do terminal."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Показывает слева область времени, выровненную по строкам вывода терминала."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "แสดงแถบเวลาด้านซ้ายที่จัดแนวกับแถวเอาต์พุตของเทอร์มินัล"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Terminal çıktı satırlarıyla hizalı sol tarafta bir zaman sütunu gösterir."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Показує ліворуч поле часу, вирівняне за рядками виводу термінала."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "显示与终端输出行对齐的左侧时间栏。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "顯示與終端輸出列對齊的左側時間欄。"
+          }
         }
       }
     },
     "shortcut.toggleTerminalTimestamps.label": {
       "extractionState": "manual",
       "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "تبديل الطوابع الزمنية للطرفية"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Prebaci vremenske oznake terminala"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Slå terminaltidsstempler til/fra"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Terminal-Zeitstempel ein-/ausblenden"
+          }
+        },
         "en": {
           "stringUnit": {
             "state": "translated",
             "value": "Toggle Terminal Timestamps"
           }
         },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Alternar marcas de tiempo del terminal"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Activer/désactiver les horodatages du terminal"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Attiva/Disattiva timestamp del terminale"
+          }
+        },
         "ja": {
           "stringUnit": {
             "state": "translated",
             "value": "ターミナルタイムスタンプを切り替え"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "터미널 타임스탬프 전환"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Slå terminaltidsstempler av/på"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Przełącz znaczniki czasu terminala"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Alternar carimbos de data/hora do terminal"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Переключить временные метки терминала"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "สลับเวลาประทับของเทอร์มินัล"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Terminal Zaman Damgalarını Aç/Kapat"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Перемкнути часові мітки термінала"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "切换终端时间戳"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "切換終端時間戳"
           }
         }
       }
@@ -107174,16 +107582,118 @@
     "menu.view.toggleTerminalTimestamps": {
       "extractionState": "manual",
       "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "تبديل الطوابع الزمنية للطرفية"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Prebaci vremenske oznake terminala"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Slå terminaltidsstempler til/fra"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Terminal-Zeitstempel ein-/ausblenden"
+          }
+        },
         "en": {
           "stringUnit": {
             "state": "translated",
             "value": "Toggle Terminal Timestamps"
           }
         },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Alternar marcas de tiempo del terminal"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Activer/désactiver les horodatages du terminal"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Attiva/Disattiva timestamp del terminale"
+          }
+        },
         "ja": {
           "stringUnit": {
             "state": "translated",
             "value": "ターミナルタイムスタンプを切り替え"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "터미널 타임스탬프 전환"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Slå terminaltidsstempler av/på"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Przełącz znaczniki czasu terminala"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Alternar carimbos de data/hora do terminal"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Переключить временные метки терминала"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "สลับเวลาประทับของเทอร์มินัล"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Terminal Zaman Damgalarını Aç/Kapat"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Перемкнути часові мітки термінала"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "切换终端时间戳"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "切換終端時間戳"
           }
         }
       }
@@ -107191,10 +107701,52 @@
     "command.terminalToggleTimestamps.title": {
       "extractionState": "manual",
       "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "تبديل الطوابع الزمنية للطرفية"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Prebaci vremenske oznake terminala"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Slå terminaltidsstempler til/fra"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Terminal-Zeitstempel ein-/ausblenden"
+          }
+        },
         "en": {
           "stringUnit": {
             "state": "translated",
             "value": "Toggle Terminal Timestamps"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Alternar marcas de tiempo del terminal"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Activer/désactiver les horodatages du terminal"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Attiva/Disattiva timestamp del terminale"
           }
         },
         "ja": {
@@ -107202,16 +107754,118 @@
             "state": "translated",
             "value": "ターミナルタイムスタンプを切り替え"
           }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "터미널 타임스탬프 전환"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Slå terminaltidsstempler av/på"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Przełącz znaczniki czasu terminala"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Alternar carimbos de data/hora do terminal"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Переключить временные метки терминала"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "สลับเวลาประทับของเทอร์มินัล"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Terminal Zaman Damgalarını Aç/Kapat"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Перемкнути часові мітки термінала"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "切换终端时间戳"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "切換終端時間戳"
+          }
         }
       }
     },
     "terminal.timestamps.gutter.accessibility": {
       "extractionState": "manual",
       "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "الطوابع الزمنية للطرفية"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Vremenske oznake terminala"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Terminaltidsstempler"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Terminal-Zeitstempel"
+          }
+        },
         "en": {
           "stringUnit": {
             "state": "translated",
             "value": "Terminal timestamps"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Marcas de tiempo del terminal"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Horodatages du terminal"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Timestamp del terminale"
           }
         },
         "ja": {
@@ -107219,22 +107873,184 @@
             "state": "translated",
             "value": "ターミナルタイムスタンプ"
           }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "터미널 타임스탬프"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Terminaltidsstempler"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Znaczniki czasu terminala"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Carimbos de data/hora do terminal"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Временные метки терминала"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "เวลาประทับของเทอร์มินัล"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Terminal zaman damgaları"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Часові мітки термінала"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "终端时间戳"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "終端時間戳"
+          }
         }
       }
     },
     "settings.search.alias.setting.terminal.timestamps": {
       "extractionState": "manual",
       "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "terminal.showTimestamps timestamps time gutter output lines long running agent hang debug طرفية طوابع زمنية وقت هامش خرج أسطر طويل التشغيل وكيل توقف تصحيح"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "terminal.showTimestamps timestamps time gutter output lines long running agent hang debug terminal vremenske oznake vrijeme margina izlaz redovi dugo pokretanje agent zastoj debug"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "terminal.showTimestamps timestamps time gutter output lines long running agent hang debug terminal tidsstempler tid rende output linjer lang kørsel agent hænger fejlfinding"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "terminal.showTimestamps timestamps time gutter output lines long running agent hang debug terminal zeitstempel zeit leiste ausgabe zeilen lange laufzeit agent hängt debug"
+          }
+        },
         "en": {
           "stringUnit": {
             "state": "translated",
             "value": "terminal.showTimestamps timestamps time gutter output lines long running agent hang debug"
           }
         },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "terminal.showTimestamps timestamps time gutter output lines long running agent hang debug terminal marcas tiempo hora margen salida líneas ejecución larga agente bloqueo depuración"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "terminal.showTimestamps timestamps time gutter output lines long running agent hang debug terminal horodatages heure gouttière sortie lignes longue exécution agent blocage débogage"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "terminal.showTimestamps timestamps time gutter output lines long running agent hang debug terminal timestamp ora margine output righe lunga esecuzione agente blocco debug"
+          }
+        },
         "ja": {
           "stringUnit": {
             "state": "translated",
             "value": "terminal.showTimestamps タイムスタンプ 時刻 出力 行 長時間 エージェント 停止 デバッグ"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "terminal.showTimestamps timestamps time gutter output lines long running agent hang debug 터미널 타임스탬프 시간 여백 출력 행 장시간 실행 에이전트 멈춤 디버그"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "terminal.showTimestamps timestamps time gutter output lines long running agent hang debug terminal tidsstempler tid marg utdata linjer lang kjøring agent henger feilsøking"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "terminal.showTimestamps timestamps time gutter output lines long running agent hang debug terminal znaczniki czasu czas margines wyjście wiersze długie działanie agent zawieszenie debugowanie"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "terminal.showTimestamps timestamps time gutter output lines long running agent hang debug terminal carimbos data hora tempo margem saída linhas longa execução agente travamento depuração"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "terminal.showTimestamps timestamps time gutter output lines long running agent hang debug терминал временные метки время область вывод строки долгий запуск агент зависание отладка"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "terminal.showTimestamps timestamps time gutter output lines long running agent hang debug เทอร์มินัล เวลาประทับ เวลา แถบ เอาต์พุต บรรทัด ทำงานนาน เอเจนต์ ค้าง ดีบัก"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "terminal.showTimestamps timestamps time gutter output lines long running agent hang debug terminal zaman damgaları saat sütun çıktı satırlar uzun çalışan ajan takılma hata ayıklama"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "terminal.showTimestamps timestamps time gutter output lines long running agent hang debug термінал часові мітки час поле вивід рядки тривалий запуск агент зависання налагодження"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "terminal.showTimestamps timestamps time gutter output lines long running agent hang debug 终端 时间戳 时间 边栏 输出 行 长时间运行 代理 卡住 调试"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "terminal.showTimestamps timestamps time gutter output lines long running agent hang debug 終端 時間戳 時間 邊欄 輸出 列 長時間執行 代理 卡住 除錯"
           }
         }
       }
