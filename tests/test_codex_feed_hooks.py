@@ -961,7 +961,7 @@ def test_install_preserves_codex_hook_position_with_third_party_hooks(cli_path: 
         raise AssertionError(f"third-party hook was not preserved after cmux hook: {groups!r}")
 
 
-def test_install_preserves_each_codex_hook_position_with_interleaved_third_party_hooks(
+def test_install_preserves_first_codex_hook_position_with_interleaved_third_party_hooks(
     cli_path: str, root: Path
 ) -> None:
     codex_home = root / "codex-home-interleaved"
@@ -1009,11 +1009,10 @@ def test_install_preserves_each_codex_hook_position_with_interleaved_third_party
         user_hook_before,
         cmux_pre_tool,
         user_hook_middle,
-        cmux_pre_tool,
         user_hook_after,
     ]
     if commands != expected:
-        raise AssertionError(f"interleaved cmux hook positions changed: {commands!r}")
+        raise AssertionError(f"interleaved cmux hook position or user hook order changed: {commands!r}")
 
 
 def test_install_collapses_consecutive_codex_hook_positions(cli_path: str, root: Path) -> None:
@@ -2211,7 +2210,7 @@ def main() -> int:
             test_install_adds_codex_permission_request_hook(cli_path, root)
             test_install_escapes_codex_hook_trust_state_keys(cli_path, root)
             test_install_preserves_codex_hook_position_with_third_party_hooks(cli_path, root)
-            test_install_preserves_each_codex_hook_position_with_interleaved_third_party_hooks(cli_path, root)
+            test_install_preserves_first_codex_hook_position_with_interleaved_third_party_hooks(cli_path, root)
             test_install_collapses_consecutive_codex_hook_positions(cli_path, root)
             test_install_replaces_legacy_codex_hook_commands(cli_path, root)
             test_install_migrates_legacy_codex_hooks_feature(cli_path, root)
