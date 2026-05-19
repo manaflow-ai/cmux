@@ -5,6 +5,36 @@ import Security
 import SwiftUI
 import WebKit
 
+@MainActor
+private final class WeakMarkdownScriptMessageHandler: NSObject, WKScriptMessageHandler {
+    weak var target: WKScriptMessageHandler?
+
+    init(_ target: WKScriptMessageHandler) {
+        self.target = target
+    }
+
+    func userContentController(
+        _ userContentController: WKUserContentController,
+        didReceive message: WKScriptMessage
+    ) {
+        target?.userContentController(userContentController, didReceive: message)
+    }
+}
+
+@MainActor
+final class MarkdownWebView: WKWebView {
+    var onPointerDown: (() -> Void)?
+
+    override func acceptsFirstMouse(for event: NSEvent?) -> Bool {
+        PaneFirstClickFocusSettings.isEnabled()
+    }
+
+    override func mouseDown(with event: NSEvent) {
+        onPointerDown?()
+        super.mouseDown(with: event)
+    }
+}
+
 struct MarkdownWebTheme: Equatable {
     let isDark: Bool
     let background: String
@@ -50,25 +80,32 @@ struct MarkdownWebRenderer: NSViewRepresentable {
     let panelId: UUID
     let workspaceId: UUID
     let filePath: String
-    let handle: MarkdownWebRendererHandle
+    let session: MarkdownRendererSession
     let onRequestPanelFocus: () -> Void
 
     func makeCoordinator() -> Coordinator {
-        let c = Coordinator()
-        c.panelId = panelId
-        c.workspaceId = workspaceId
-        c.filePath = filePath
-        handle.coordinator = c
-        return c
+        session.coordinator(panelId: panelId, workspaceId: workspaceId, filePath: filePath)
     }
 
     func makeNSView(context: Context) -> WKWebView {
+        if let webView = context.coordinator.webView {
+            if webView.superview != nil {
+                webView.removeFromSuperview()
+            }
+            webView.onPointerDown = onRequestPanelFocus
+            webView.navigationDelegate = context.coordinator
+            webView.uiDelegate = context.coordinator
+            applyBackground(to: webView)
+            applyAppearance(to: webView, isDark: theme.isDark)
+            return webView
+        }
+
         let config = WKWebViewConfiguration()
         config.suppressesIncrementalRendering = false
         // Bridge: JS posts to `cmuxLib` to request lazy-loaded libraries
         // (mermaid / vega-lite). Swift fetches the bundled source from the
         // app bundle and injects it via evaluateJavaScript.
-        config.userContentController.add(context.coordinator, name: "cmuxLib")
+        config.userContentController.add(WeakMarkdownScriptMessageHandler(context.coordinator), name: "cmuxLib")
         config.setURLSchemeHandler(
             context.coordinator,
             forURLScheme: Self.localImageURLScheme
@@ -100,12 +137,9 @@ struct MarkdownWebRenderer: NSViewRepresentable {
     }
 
     func updateNSView(_ nsView: WKWebView, context: Context) {
-        // Re-bind the handle in case SwiftUI recreated the representable
-        // wrapper while keeping the same NSView around.
-        handle.coordinator = context.coordinator
-        context.coordinator.panelId = panelId
-        context.coordinator.workspaceId = workspaceId
-        context.coordinator.filePath = filePath
+        // Re-bind panel metadata in case SwiftUI recreated the wrapper while
+        // the panel-owned renderer session kept the same coordinator.
+        context.coordinator.bind(panelId: panelId, workspaceId: workspaceId, filePath: filePath)
         (nsView as? MarkdownWebView)?.onPointerDown = onRequestPanelFocus
         applyBackground(to: nsView)
         applyAppearance(to: nsView, isDark: theme.isDark)
@@ -113,14 +147,14 @@ struct MarkdownWebRenderer: NSViewRepresentable {
     }
 
     static func dismantleNSView(_ nsView: WKWebView, coordinator: Coordinator) {
+        if let retainedWebView = coordinator.webView, retainedWebView === nsView {
+            return
+        }
         nsView.configuration.userContentController.removeScriptMessageHandler(forName: "cmuxLib")
         nsView.navigationDelegate = nil
         nsView.uiDelegate = nil
         (nsView as? MarkdownWebView)?.onPointerDown = nil
         coordinator.cancelImageLoads()
-        if coordinator.webView === nsView {
-            coordinator.webView = nil
-        }
     }
 
     /// WebKit's `prefers-color-scheme` media query reflects the WKWebView's
@@ -142,7 +176,7 @@ struct MarkdownWebRenderer: NSViewRepresentable {
 
     @MainActor
     final class Coordinator: NSObject, WKNavigationDelegate, WKUIDelegate, WKScriptMessageHandler, WKURLSchemeHandler {
-        weak var webView: WKWebView?
+        var webView: MarkdownWebView?
         var panelId: UUID = UUID()
         var workspaceId: UUID = UUID()
         var filePath: String = ""
@@ -151,6 +185,10 @@ struct MarkdownWebRenderer: NSViewRepresentable {
         private var lastMarkdown: String? = nil
         private var lastTheme: MarkdownWebTheme? = nil
         private var isLoaded = false
+        private var isShellLoading = false
+        private var webContentProcessRecoveryAttempts = 0
+        private let maxWebContentProcessRecoveryAttempts = 2
+
         private struct ImageLoadResult {
             let data: Data
             let mimeType: String
@@ -167,12 +205,45 @@ struct MarkdownWebRenderer: NSViewRepresentable {
         }
         private var imageLoads: [ObjectIdentifier: ImageLoad] = [:]
 
+#if DEBUG
+        var isShellLoadingForTesting: Bool {
+            isShellLoading
+        }
+
+        var webContentProcessRecoveryAttemptsForTesting: Int {
+            webContentProcessRecoveryAttempts
+        }
+#endif
+
+        func bind(panelId: UUID, workspaceId: UUID, filePath: String) {
+            self.panelId = panelId
+            self.workspaceId = workspaceId
+            self.filePath = filePath
+        }
+
+        func close() {
+            if let webView {
+                webView.stopLoading()
+                webView.configuration.userContentController.removeScriptMessageHandler(forName: "cmuxLib")
+                webView.navigationDelegate = nil
+                webView.uiDelegate = nil
+                webView.onPointerDown = nil
+            }
+            self.webView = nil
+            isLoaded = false
+            isShellLoading = false
+            webContentProcessRecoveryAttempts = 0
+            cancelImageLoads()
+            requestedLibs.removeAll()
+        }
+
         func loadShell(theme: MarkdownWebTheme, initialMarkdown: String) {
             pendingMarkdown = initialMarkdown
             pendingTheme = theme
             lastTheme = theme
             requestedLibs.removeAll()
             isLoaded = false
+            isShellLoading = true
             let html = MarkdownViewerAssets.shared.shellHTML(isDark: theme.isDark)
             let baseURL = URL(fileURLWithPath: filePath)
 #if DEBUG
@@ -184,7 +255,8 @@ struct MarkdownWebRenderer: NSViewRepresentable {
         func update(markdown: String, theme: MarkdownWebTheme) {
             let themeChanged = lastTheme != theme
             let contentChanged = lastMarkdown != markdown
-            guard themeChanged || contentChanged else { return }
+            let shellNeedsReload = !isLoaded && !isShellLoading
+            guard themeChanged || contentChanged || shellNeedsReload else { return }
 
             pendingMarkdown = markdown
             pendingTheme = theme
@@ -205,9 +277,16 @@ struct MarkdownWebRenderer: NSViewRepresentable {
             }
 
             if contentChanged {
+                webContentProcessRecoveryAttempts = 0
                 lastMarkdown = markdown
                 if isLoaded {
                     pushMarkdown(markdown)
+                } else if shellNeedsReload {
+                    loadShell(theme: theme, initialMarkdown: markdown)
+                }
+            } else if shellNeedsReload {
+                if webContentProcessRecoveryAttempts < maxWebContentProcessRecoveryAttempts {
+                    loadShell(theme: theme, initialMarkdown: markdown)
                 }
             }
         }
@@ -446,10 +525,19 @@ struct MarkdownWebRenderer: NSViewRepresentable {
                 return nil
             }
 
-            let markdownDirectory = URL(fileURLWithPath: filePath)
+            let markdownFilePath = filePath.trimmingCharacters(in: .whitespacesAndNewlines)
+            guard !markdownFilePath.isEmpty else {
+                return nil
+            }
+
+            let markdownDirectory = URL(fileURLWithPath: markdownFilePath)
                 .deletingLastPathComponent()
                 .standardizedFileURL
                 .resolvingSymlinksInPath()
+            guard markdownDirectory.path != "/" else {
+                return nil
+            }
+
             let markdownRoot = markdownDirectory.path.hasSuffix("/")
                 ? markdownDirectory.path
                 : markdownDirectory.path + "/"
@@ -573,12 +661,55 @@ struct MarkdownWebRenderer: NSViewRepresentable {
 #if DEBUG
             NSLog("MarkdownPanel.webView.didFinish")
 #endif
+            isShellLoading = false
             isLoaded = true
             applyTheme(lastTheme ?? pendingTheme)
             // Replay last known markdown after the shell finishes loading.
+            // Keep the recovery budget scoped to the current markdown payload:
+            // a payload can crash after shell load during the render push.
+            // Content changes reset the budget in `update(markdown:theme:)`.
             let md = lastMarkdown ?? pendingMarkdown
             lastMarkdown = md
             pushMarkdown(md)
+        }
+
+        func webView(_ webView: WKWebView, didFail navigation: WKNavigation!, withError error: Error) {
+            handleShellNavigationFailure(for: webView, error: error)
+        }
+
+        func webView(
+            _ webView: WKWebView,
+            didFailProvisionalNavigation navigation: WKNavigation!,
+            withError error: Error
+        ) {
+            handleShellNavigationFailure(for: webView, error: error)
+        }
+
+        func webViewWebContentProcessDidTerminate(_ webView: WKWebView) {
+            guard let currentWebView = self.webView, currentWebView === webView else { return }
+#if DEBUG
+            NSLog("MarkdownPanel.webView.webContentProcessDidTerminate")
+#endif
+            isShellLoading = false
+            guard webContentProcessRecoveryAttempts < maxWebContentProcessRecoveryAttempts else {
+                isLoaded = false
+                requestedLibs.removeAll()
+                return
+            }
+            webContentProcessRecoveryAttempts += 1
+            loadShell(
+                theme: lastTheme ?? pendingTheme,
+                initialMarkdown: lastMarkdown ?? pendingMarkdown
+            )
+        }
+
+        private func handleShellNavigationFailure(for webView: WKWebView, error: Error) {
+            guard let currentWebView = self.webView, currentWebView === webView, isShellLoading else { return }
+#if DEBUG
+            NSLog("MarkdownPanel.webView.navigationFailed error=\(error)")
+#endif
+            isShellLoading = false
+            isLoaded = false
         }
 
         func webView(
@@ -1332,6 +1463,37 @@ enum MarkdownHTTPChunkedBodyDecoder {
             index += 1
         }
         return nil
+    }
+}
+
+/// Panel-owned renderer session for a markdown preview.
+///
+/// SwiftUI may recreate `MarkdownWebRenderer` wrappers during split/tab layout
+/// updates. The session keeps the WebKit coordinator identity tied to the
+/// logical `MarkdownPanel` instead of the transient representable instance.
+@MainActor
+final class MarkdownRendererSession {
+    private let ownedCoordinator = MarkdownWebRenderer.Coordinator()
+
+    func coordinator(
+        panelId: UUID,
+        workspaceId: UUID,
+        filePath: String
+    ) -> MarkdownWebRenderer.Coordinator {
+        ownedCoordinator.bind(panelId: panelId, workspaceId: workspaceId, filePath: filePath)
+        return ownedCoordinator
+    }
+
+    func close() {
+        ownedCoordinator.close()
+    }
+
+    func renderedHTML(markdown: String? = nil) async -> String? {
+        await ownedCoordinator.renderedHTML(markdown: markdown)
+    }
+
+    func renderedText() async -> String? {
+        await ownedCoordinator.renderedText()
     }
 }
 
