@@ -1531,6 +1531,29 @@ func TestCLIBrowserTabShortcutIgnoresInterleavedShortFlag(t *testing.T) {
 	}
 }
 
+func TestCLIBrowserTabShortcutDoesNotHijackCommandWords(t *testing.T) {
+	for _, word := range []string{"help", "open"} {
+		t.Run(word, func(t *testing.T) {
+			sockPath, _ := startMockV2SocketWithRequestCapture(t)
+
+			var code int
+			output := captureStderr(t, func() {
+				code = runCLI([]string{
+					"--socket", sockPath, "--json",
+					"browser", "surface:2", "tab", word,
+				})
+			})
+			if code != 2 {
+				t.Fatalf("browser tab %s should return 2, got %d", word, code)
+			}
+			expected := fmt.Sprintf(`cmux browser: unrecognized extra positional argument %q`, word)
+			if !strings.Contains(output, expected) {
+				t.Fatalf("expected %q, got %q", expected, output)
+			}
+		})
+	}
+}
+
 func TestCLIBrowserOutDoesNotConsumeShortFlagAsPath(t *testing.T) {
 	sockPath, _ := startMockV2SocketWithRequestCapture(t)
 	code := runCLI([]string{
