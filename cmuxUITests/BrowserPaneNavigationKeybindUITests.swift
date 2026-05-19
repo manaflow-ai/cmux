@@ -751,20 +751,11 @@ final class BrowserPaneNavigationKeybindUITests: XCTestCase {
     func testCanvasPaletteShortcutDragResizeZoomAndTerminalActivation() {
         let app = XCUIApplication()
         app.launchEnvironment["CMUX_UI_TEST_MODE"] = "1"
-        app.launchEnvironment["CMUX_UI_TEST_DIAGNOSTICS_PATH"] = diagnosticsPath
-        app.launchEnvironment["CMUX_UI_TEST_SOCKET_SANITY"] = "1"
-        app.launchEnvironment["CMUX_SOCKET_PATH"] = socketPath
-        app.launchEnvironment["CMUX_SOCKET_ENABLE"] = "1"
-        app.launchEnvironment["CMUX_SOCKET_MODE"] = "allowAll"
         app.launchEnvironment["CMUX_UI_TEST_GOTO_SPLIT_SETUP"] = "1"
         app.launchEnvironment["CMUX_UI_TEST_GOTO_SPLIT_PATH"] = dataPath
         app.launchEnvironment["CMUX_UI_TEST_FOCUS_SHORTCUTS"] = "1"
         app.launchEnvironment["CMUX_UI_TEST_GOTO_SPLIT_ALLOW_UNFOCUSED_BROWSER"] = "1"
         launchAndEnsureForeground(app)
-        XCTAssertTrue(
-            waitForSocketPong(timeout: 16.0),
-            "Expected control socket at \(socketPath). diagnostics=\(loadDiagnostics() ?? [:])"
-        )
 
         XCTAssertTrue(
             waitForData(keys: ["terminalPaneId", "browserPaneId", "browserPanelId"], timeout: 12.0),
@@ -787,59 +778,38 @@ final class BrowserPaneNavigationKeybindUITests: XCTestCase {
         let overview = app.descendants(matching: .any).matching(identifier: "WorkspaceCanvasOverview").firstMatch
         XCTAssertTrue(overview.waitForExistence(timeout: 6.0), "Expected canvas overview")
 
-        guard let terminalCanvasItemId = waitForCanvasItemId(paneId: terminalPaneId, timeout: 6.0) else {
-            XCTFail("Expected terminal canvas item for pane \(terminalPaneId). layout=\(String(describing: canvasLayout()))")
-            return
-        }
         XCTAssertTrue(
-            waitForCondition(timeout: 6.0) {
-                self.canvasItemCount() >= 2
+            waitForDataMatch(timeout: 6.0) { data in
+                (Int(data["canvasItemCount"] ?? "") ?? 0) >= 2
             },
             "Expected terminal and browser cards in the canvas"
         )
 
-        guard let frameBeforeMove = canvasItemFrame(itemId: terminalCanvasItemId) else {
-            XCTFail("Missing terminal canvas frame before drag. layout=\(String(describing: canvasLayout()))")
+        let terminalCard = canvasCard(app, paneId: terminalPaneId)
+        XCTAssertTrue(terminalCard.waitForExistence(timeout: 6.0), "Expected terminal canvas card for pane \(terminalPaneId)")
+
+        guard let frameBeforeMove = stableElementFrame(terminalCard, timeout: 4.0) else {
+            XCTFail("Missing terminal canvas card frame before drag")
             return
         }
-        let dragEnvelope = socketJSON(
-            method: "debug.canvas.drag",
-            params: [
-                "item_id": terminalCanvasItemId,
-                "dx": 90,
-                "dy": 65,
-            ]
-        )
-        XCTAssertEqual(dragEnvelope?["ok"] as? Bool, true, "Expected debug canvas drag to succeed. envelope=\(String(describing: dragEnvelope))")
+
+        dragCanvasCard(app, paneId: terminalPaneId, dx: 90, dy: 65)
         XCTAssertTrue(
             waitForCondition(timeout: 6.0) {
-                guard let frame = self.canvasItemFrame(itemId: terminalCanvasItemId) else { return false }
+                let frame = terminalCard.frame
                 return abs(frame.minX - frameBeforeMove.minX) > 20 || abs(frame.minY - frameBeforeMove.minY) > 20
             },
             "Expected dragging the canvas card header to move the terminal card"
         )
 
-        guard let frameBeforeResize = canvasItemFrame(itemId: terminalCanvasItemId) else {
-            XCTFail("Missing terminal canvas frame before resize. layout=\(String(describing: canvasLayout()))")
+        guard let frameBeforeResize = stableElementFrame(terminalCard, timeout: 4.0) else {
+            XCTFail("Missing terminal canvas card frame before resize")
             return
         }
-        let resizeEnvelope = socketJSON(
-            method: "debug.canvas.resize",
-            params: [
-                "item_id": terminalCanvasItemId,
-                "handle": "bottomRight",
-                "dx": 100,
-                "dy": 80,
-            ]
-        )
-        XCTAssertEqual(
-            resizeEnvelope?["ok"] as? Bool,
-            true,
-            "Expected debug canvas resize to succeed. envelope=\(String(describing: resizeEnvelope))"
-        )
+        resizeCanvasCardFromBottomRight(app, paneId: terminalPaneId, dx: 100, dy: 80)
         XCTAssertTrue(
             waitForCondition(timeout: 6.0) {
-                self.canvasItemGrew(itemId: terminalCanvasItemId, from: frameBeforeResize)
+                self.canvasCardGrew(app, paneId: terminalPaneId, from: frameBeforeResize)
             },
             "Expected bottom-right canvas corner hit target to resize width and height"
         )
@@ -872,15 +842,7 @@ final class BrowserPaneNavigationKeybindUITests: XCTestCase {
             "Expected Ctrl+Cmd+Shift+F to keep the canvas open. data=\(loadData() ?? [:])"
         )
 
-        let focusEnvelope = socketJSON(
-            method: "debug.canvas.drag",
-            params: [
-                "item_id": terminalCanvasItemId,
-                "dx": 0,
-                "dy": 0,
-            ]
-        )
-        XCTAssertEqual(focusEnvelope?["ok"] as? Bool, true, "Expected debug canvas focus to succeed. envelope=\(String(describing: focusEnvelope))")
+        focusCanvasCardHeader(app, paneId: terminalPaneId)
         app.typeKey(XCUIKeyboardKey.return.rawValue, modifierFlags: [])
         XCTAssertTrue(
             waitForDataMatch(timeout: 8.0) { data in
@@ -1713,6 +1675,12 @@ final class BrowserPaneNavigationKeybindUITests: XCTestCase {
             .firstMatch
     }
 
+    private func canvasResizeLayer(_ app: XCUIApplication, paneId: String) -> XCUIElement {
+        app.descendants(matching: .any)
+            .matching(identifier: "WorkspaceCanvasResizeLayer.\(paneId)")
+            .firstMatch
+    }
+
     private func canvasCardCount(_ app: XCUIApplication) -> Int {
         app.descendants(matching: .any)
             .matching(NSPredicate(format: "identifier BEGINSWITH %@", "WorkspaceCanvasCard."))
@@ -1726,6 +1694,52 @@ final class BrowserPaneNavigationKeybindUITests: XCTestCase {
     ) -> Bool {
         let frame = canvasCard(app, paneId: paneId).frame
         return frame.width > frameBeforeResize.width + 24 && frame.height > frameBeforeResize.height + 24
+    }
+
+    private func dragCanvasCard(_ app: XCUIApplication, paneId: String, dx: CGFloat, dy: CGFloat) {
+        let dragLayer = canvasDragLayer(app, paneId: paneId)
+        let target = dragLayer.waitForExistence(timeout: 3.0)
+            ? dragLayer
+            : canvasCard(app, paneId: paneId)
+        let start = target.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.5))
+        start.press(forDuration: 0.08, thenDragTo: start.withOffset(CGVector(dx: dx, dy: dy)))
+    }
+
+    private func resizeCanvasCardFromBottomRight(
+        _ app: XCUIApplication,
+        paneId: String,
+        dx: CGFloat,
+        dy: CGFloat
+    ) {
+        let resizeLayer = canvasResizeLayer(app, paneId: paneId)
+        let target = resizeLayer.waitForExistence(timeout: 3.0)
+            ? resizeLayer
+            : canvasCard(app, paneId: paneId)
+        let start = target.coordinate(withNormalizedOffset: CGVector(dx: 0.985, dy: 0.985))
+        start.press(forDuration: 0.08, thenDragTo: start.withOffset(CGVector(dx: dx, dy: dy)))
+    }
+
+    private func focusCanvasCardHeader(_ app: XCUIApplication, paneId: String) {
+        let dragLayer = canvasDragLayer(app, paneId: paneId)
+        let target = dragLayer.waitForExistence(timeout: 3.0)
+            ? dragLayer
+            : canvasCard(app, paneId: paneId)
+        target.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.5)).click()
+    }
+
+    private func stableElementFrame(_ element: XCUIElement, timeout: TimeInterval) -> CGRect? {
+        guard element.exists else { return nil }
+        let deadline = Date().addingTimeInterval(timeout)
+        var previous = element.frame
+        while Date() < deadline {
+            RunLoop.current.run(until: Date().addingTimeInterval(0.1))
+            let current = element.frame
+            if current.equalTo(previous), current.width > 1, current.height > 1 {
+                return current
+            }
+            previous = current
+        }
+        return element.frame.width > 1 && element.frame.height > 1 ? element.frame : nil
     }
 
     private func launchAndEnsureForeground(_ app: XCUIApplication, timeout: TimeInterval = 12.0) {
