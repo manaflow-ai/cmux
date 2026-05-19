@@ -90,4 +90,62 @@ final class AppDelegateMoveTabToNewWorkspaceTests: XCTestCase {
         XCTAssertEqual(manager.tabs.count, 1)
         XCTAssertNotNil(sourceWorkspace.panels[onlyPanelId])
     }
+
+    func testMoveTerminalCMUXLayoutTabToExistingWorkspaceClosesEmptiedSourceWorkspace() throws {
+        let app = AppDelegate()
+        let windowId = UUID()
+        let manager = TabManager()
+        app.registerMainWindowContextForTesting(windowId: windowId, tabManager: manager)
+        defer { app.unregisterMainWindowContextForTesting(windowId: windowId) }
+
+        let sourceWorkspace = try XCTUnwrap(manager.selectedWorkspace)
+        let movedPanelId = try XCTUnwrap(sourceWorkspace.focusedTerminalPanel?.id)
+        let movedCMUXLayoutTabId = try XCTUnwrap(sourceWorkspace.surfaceIdFromPanelId(movedPanelId)?.uuid)
+        let destinationWorkspace = manager.addWorkspace(title: "Operations", select: false)
+        let destinationOriginalPanelId = try XCTUnwrap(destinationWorkspace.focusedTerminalPanel?.id)
+
+        XCTAssertTrue(app.canMoveCMUXLayoutTab(tabId: movedCMUXLayoutTabId, toWorkspace: destinationWorkspace.id))
+        XCTAssertTrue(app.moveCMUXLayoutTab(
+            tabId: movedCMUXLayoutTabId,
+            toWorkspace: destinationWorkspace.id,
+            focus: false,
+            focusWindow: false
+        ))
+
+        XCTAssertFalse(manager.tabs.contains { $0.id == sourceWorkspace.id })
+        XCTAssertEqual(manager.tabs.map(\.id), [destinationWorkspace.id])
+        XCTAssertTrue(sourceWorkspace.panels.isEmpty)
+        XCTAssertNotNil(destinationWorkspace.panels[movedPanelId])
+        XCTAssertNotNil(destinationWorkspace.panels[destinationOriginalPanelId])
+        XCTAssertEqual(destinationWorkspace.panels.count, 2)
+    }
+
+    func testMoveSurfaceToExistingWorkspaceClosesEmptiedSourceWorkspaceAndFocusesDestination() throws {
+        let app = AppDelegate()
+        let windowId = UUID()
+        let manager = TabManager()
+        app.registerMainWindowContextForTesting(windowId: windowId, tabManager: manager)
+        defer { app.unregisterMainWindowContextForTesting(windowId: windowId) }
+
+        let sourceWorkspace = try XCTUnwrap(manager.selectedWorkspace)
+        let movedPanelId = try XCTUnwrap(sourceWorkspace.focusedTerminalPanel?.id)
+        let destinationWorkspace = manager.addWorkspace(title: "Operations", select: false)
+        let destinationOriginalPanelId = try XCTUnwrap(destinationWorkspace.focusedTerminalPanel?.id)
+
+        XCTAssertTrue(app.moveSurface(
+            panelId: movedPanelId,
+            toWorkspace: destinationWorkspace.id,
+            focus: true,
+            focusWindow: false
+        ))
+
+        XCTAssertFalse(manager.tabs.contains { $0.id == sourceWorkspace.id })
+        XCTAssertEqual(manager.tabs.map(\.id), [destinationWorkspace.id])
+        XCTAssertTrue(sourceWorkspace.panels.isEmpty)
+        XCTAssertNotNil(destinationWorkspace.panels[movedPanelId])
+        XCTAssertNotNil(destinationWorkspace.panels[destinationOriginalPanelId])
+        XCTAssertEqual(destinationWorkspace.panels.count, 2)
+        XCTAssertEqual(manager.selectedWorkspace?.id, destinationWorkspace.id)
+        XCTAssertEqual(destinationWorkspace.focusedPanelId, movedPanelId)
+    }
 }

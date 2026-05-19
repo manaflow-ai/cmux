@@ -39,16 +39,14 @@ struct SidebarCMUXLayoutTabNewWorkspaceDropOverlay: NSViewRepresentable {
     }
 
     func updateNSView(_ nsView: SidebarCMUXLayoutTabNewWorkspaceDropView, context: Context) {
-        nsView.isValidTransfer = {
-            guard let transfer = SurfaceTabDragPayload.currentTransfer() else { return false }
+        nsView.isValidTransfer = { transfer in
             return AppDelegate.shared?.canMoveCMUXLayoutTabToNewWorkspace(tabId: transfer.tab.id) ?? false
         }
         nsView.setDropActive = { isActive in
             dropIndicator = isActive ? SidebarDropIndicator(tabId: nil, edge: .bottom) : nil
         }
-        nsView.performMove = {
-            guard let transfer = SurfaceTabDragPayload.currentTransfer(),
-                  let app = AppDelegate.shared,
+        nsView.performMove = { transfer in
+            guard let app = AppDelegate.shared,
                   let result = app.moveCMUXLayoutTabToNewWorkspace(
                     tabId: transfer.tab.id,
                     destinationManager: tabManager,
@@ -78,9 +76,9 @@ struct SidebarCMUXLayoutTabNewWorkspaceDropOverlay: NSViewRepresentable {
 final class SidebarCMUXLayoutTabNewWorkspaceDropView: NSView {
     private static let pasteboardType = NSPasteboard.PasteboardType(SurfaceTabDragPayload.typeIdentifier)
 
-    var isValidTransfer: () -> Bool = { false }
+    var isValidTransfer: (SurfaceTabDragPayload.Transfer) -> Bool = { _ in false }
     var setDropActive: (Bool) -> Void = { _ in }
-    var performMove: () -> Bool = { false }
+    var performMove: (SurfaceTabDragPayload.Transfer) -> Bool = { _ in false }
 
     override var acceptsFirstResponder: Bool { false }
 
@@ -112,13 +110,13 @@ final class SidebarCMUXLayoutTabNewWorkspaceDropView: NSView {
     }
 
     override func prepareForDragOperation(_ sender: any NSDraggingInfo) -> Bool {
-        acceptsDrag(sender)
+        acceptedTransfer(sender) != nil
     }
 
     override func performDragOperation(_ sender: any NSDraggingInfo) -> Bool {
         defer { setDropActive(false) }
-        guard acceptsDrag(sender) else { return false }
-        return performMove()
+        guard let transfer = acceptedTransfer(sender) else { return false }
+        return performMove(transfer)
     }
 
     override func concludeDragOperation(_ sender: (any NSDraggingInfo)?) {
@@ -126,7 +124,7 @@ final class SidebarCMUXLayoutTabNewWorkspaceDropView: NSView {
     }
 
     private func updateDrag(_ sender: any NSDraggingInfo) -> NSDragOperation {
-        guard acceptsDrag(sender) else {
+        guard acceptedTransfer(sender) != nil else {
             setDropActive(false)
             return []
         }
@@ -134,13 +132,20 @@ final class SidebarCMUXLayoutTabNewWorkspaceDropView: NSView {
         return .move
     }
 
-    private func acceptsDrag(_ sender: any NSDraggingInfo) -> Bool {
-        guard sender.draggingPasteboard.types?.contains(Self.pasteboardType) == true else { return false }
-        return isValidTransfer()
+    private func acceptedTransfer(_ sender: any NSDraggingInfo) -> SurfaceTabDragPayload.Transfer? {
+        let pasteboard = sender.draggingPasteboard
+        guard pasteboard.types?.contains(Self.pasteboardType) == true,
+              let transfer = SurfaceTabDragPayload.transfer(from: pasteboard),
+              isValidTransfer(transfer) else {
+            return nil
+        }
+        return transfer
     }
 
     private func shouldCaptureHitTest() -> Bool {
-        guard SurfaceTabDragPayload.currentTransfer() != nil else { return false }
+        guard SurfaceTabDragPayload.canRouteWorkspaceDrop(
+            pasteboardTypes: NSPasteboard(name: .drag).types
+        ) else { return false }
         guard let eventType = NSApp.currentEvent?.type else { return true }
         switch eventType {
         case .leftMouseDragged, .rightMouseDragged, .otherMouseDragged, .cursorUpdate, .mouseMoved:

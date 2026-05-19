@@ -36,6 +36,22 @@ extension AppDelegate {
         return true
     }
 
+    func workspaceMoveTargets(forSurface panelId: UUID) -> [WorkspaceMoveTarget] {
+        guard let source = locateSurface(surfaceId: panelId) else { return [] }
+        return workspaceMoveTargets(
+            excludingWorkspaceId: source.workspaceId,
+            referenceWindowId: source.windowId
+        )
+    }
+
+    func workspaceMoveTargets(forCMUXLayoutTab tabId: UUID) -> [WorkspaceMoveTarget] {
+        guard let located = locateCMUXLayoutSurface(tabId: tabId) else { return [] }
+        return workspaceMoveTargets(
+            excludingWorkspaceId: located.workspaceId,
+            referenceWindowId: located.windowId
+        )
+    }
+
     @discardableResult
     func moveCMUXLayoutTabToNewWorkspace(
         tabId: UUID,

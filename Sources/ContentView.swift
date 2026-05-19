@@ -2455,7 +2455,12 @@ struct ContentView: View {
         }
 
         sidebarSelectionState.selection = .tabs
-        _ = workspace.openOrFocusFilePreviewSurface(inPane: paneId, filePath: filePath)
+        _ = workspace.openFileSurfaces(
+            inPane: paneId,
+            filePaths: [filePath],
+            focus: true,
+            reuseExisting: true
+        )
     }
 
     private func syncFileExplorerDirectory() {
@@ -6525,6 +6530,15 @@ struct ContentView: View {
         )
         contributions.append(
             CommandPaletteCommandContribution(
+                commandId: "palette.toggleUnread",
+                title: constant(String(localized: "command.toggleUnread.title", defaultValue: "Toggle Unread")),
+                subtitle: constant(String(localized: "command.jumpUnread.subtitle", defaultValue: "Notifications")),
+                keywords: ["toggle", "mark", "read", "unread", "notification"],
+                when: { $0.bool(CommandPaletteContextKeys.hasWorkspace) }
+            )
+        )
+        contributions.append(
+            CommandPaletteCommandContribution(
                 commandId: "palette.markOldestUnreadAndJumpNext",
                 title: constant(
                     String(
@@ -7466,6 +7480,11 @@ struct ContentView: View {
         }
         registry.register(commandId: "palette.jumpUnread") {
             AppDelegate.shared?.jumpToLatestUnread()
+        }
+        registry.register(commandId: "palette.toggleUnread") {
+            AppDelegate.shared?.toggleFocusedNotificationUnread(
+                preferredWindow: observedWindow
+            )
         }
         registry.register(commandId: "palette.markOldestUnreadAndJumpNext") {
             AppDelegate.shared?.markFocusedNotificationAsOldestUnreadAndJumpToNextLatestUnread(
@@ -9781,9 +9800,8 @@ struct VerticalTabsSidebar: View {
                     sidebarIndexForTabId: { workspaceId in
                         tabManager.tabs.firstIndex { $0.id == workspaceId }
                     },
-                    moveToExistingWorkspace: { workspaceId in
-                        guard let transfer = SurfaceTabDragPayload.currentTransfer(),
-                              let app = AppDelegate.shared else {
+                    moveToExistingWorkspace: { workspaceId, transfer in
+                        guard let app = AppDelegate.shared else {
                             return false
                         }
                         if let source = app.locateCMUXLayoutSurface(tabId: transfer.tab.id),
@@ -9797,9 +9815,8 @@ struct VerticalTabsSidebar: View {
                             focusWindow: true
                         )
                     },
-                    moveToNewWorkspace: { insertionIndex in
-                        guard let transfer = SurfaceTabDragPayload.currentTransfer(),
-                              let app = AppDelegate.shared,
+                    moveToNewWorkspace: { insertionIndex, transfer in
+                        guard let app = AppDelegate.shared,
                               let result = app.moveCMUXLayoutTabToNewWorkspace(
                                 tabId: transfer.tab.id,
                                 destinationManager: tabManager,
@@ -14580,6 +14597,11 @@ enum SurfaceTabDragPayload {
 
     static func currentTransfer() -> Transfer? {
         transfer(from: NSPasteboard(name: .drag))
+    }
+
+    static func canRouteWorkspaceDrop(pasteboardTypes: [NSPasteboard.PasteboardType]?) -> Bool {
+        DragOverlayRoutingPolicy.hasCMUXLayoutTabTransfer(pasteboardTypes)
+            && !DragOverlayRoutingPolicy.hasFilePreviewTransfer(pasteboardTypes)
     }
 
     static func transfer(from pasteboard: NSPasteboard) -> Transfer? {

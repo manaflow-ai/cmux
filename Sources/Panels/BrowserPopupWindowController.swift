@@ -353,6 +353,20 @@ final class BrowserPopupWindowController: NSObject, NSWindowDelegate {
         }
     }
 
+    fileprivate func requestNavigation(_ request: URLRequest, in webView: WKWebView) {
+        guard let url = request.url else { return }
+
+        if browserShouldBlockInsecureHTTPURL(url) {
+            presentInsecureHTTPAlert(for: url, in: webView) { [weak webView] policy in
+                guard policy == .allow, let webView else { return }
+                browserLoadRequest(request, in: webView)
+            }
+            return
+        }
+
+        browserLoadRequest(request, in: webView)
+    }
+
     // MARK: - Insecure HTTP prompt (parity with main browser)
 
     /// Shows the same 3-button insecure HTTP alert as the main browser.
@@ -424,8 +438,15 @@ private class PopupUIDelegate: NSObject, WKUIDelegate {
         windowFeatures: WKWindowFeatures
     ) -> WKWebView? {
         if let url = navigationAction.request.url,
-           browserShouldOpenURLExternally(url) {
-            NSWorkspace.shared.open(url)
+           browserShouldRouteExternalNavigation(url) {
+            browserHandleExternalNavigation(
+                url,
+                source: "popupUIDelegate",
+                webView: webView,
+                loadFallbackRequest: { [weak controller] request in
+                    controller?.requestNavigation(request, in: webView)
+                }
+            )
             return nil
         }
 
@@ -566,24 +587,28 @@ private class PopupNavigationDelegate: NSObject, WKNavigationDelegate {
         decidePolicyFor navigationAction: WKNavigationAction,
         decisionHandler: @escaping (WKNavigationActionPolicy) -> Void
     ) {
-        // Only guard main-frame navigations
-        guard navigationAction.targetFrame?.isMainFrame != false else {
-            decisionHandler(.allow)
-            return
-        }
-
         guard let url = navigationAction.request.url else {
             decisionHandler(.allow)
             return
         }
 
         // External URL schemes → hand off to macOS
-        if browserShouldOpenURLExternally(url) {
-            NSWorkspace.shared.open(url)
-            #if DEBUG
-            cmuxDebugLog("popup.nav.external url=\(url.absoluteString)")
-            #endif
+        if browserShouldRouteExternalNavigation(url) {
+            browserHandleExternalNavigation(
+                url,
+                source: "popupNavDelegate",
+                webView: webView,
+                loadFallbackRequest: { [weak controller] request in
+                    controller?.requestNavigation(request, in: webView)
+                }
+            )
             decisionHandler(.cancel)
+            return
+        }
+
+        // Only guard main-frame navigations
+        guard navigationAction.targetFrame?.isMainFrame != false else {
+            decisionHandler(.allow)
             return
         }
 
