@@ -627,6 +627,37 @@ final class SessionPersistenceTests: XCTestCase {
         XCTAssertFalse(AppDelegate.shouldPersistSnapshotOnWindowUnregister(isTerminatingApp: true))
     }
 
+    func testTerminatingSnapshotSavePolicyWaitsForCancelableQuitWarning() {
+        XCTAssertFalse(
+            AppDelegate.shouldSaveTerminatingSessionSnapshotBeforeQuitWarning(
+                isTaggedDevBuild: false,
+                isQuitWarningConfirmed: false,
+                isQuitWarningEnabled: true
+            )
+        )
+        XCTAssertTrue(
+            AppDelegate.shouldSaveTerminatingSessionSnapshotBeforeQuitWarning(
+                isTaggedDevBuild: true,
+                isQuitWarningConfirmed: false,
+                isQuitWarningEnabled: true
+            )
+        )
+        XCTAssertTrue(
+            AppDelegate.shouldSaveTerminatingSessionSnapshotBeforeQuitWarning(
+                isTaggedDevBuild: false,
+                isQuitWarningConfirmed: true,
+                isQuitWarningEnabled: true
+            )
+        )
+        XCTAssertTrue(
+            AppDelegate.shouldSaveTerminatingSessionSnapshotBeforeQuitWarning(
+                isTaggedDevBuild: false,
+                isQuitWarningConfirmed: false,
+                isQuitWarningEnabled: false
+            )
+        )
+    }
+
     func testShouldSkipSessionSaveDuringRestorePolicy() {
         XCTAssertTrue(
             AppDelegate.shouldSkipSessionSaveDuringRestore(

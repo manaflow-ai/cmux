@@ -1527,37 +1527,34 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
     }
 
     func applicationShouldTerminate(_ sender: NSApplication) -> NSApplication.TerminateReply {
+        let isTaggedDevBuild = SocketControlSettings.isTaggedDevBuild()
+        let isQuitWarningEnabled = QuitWarningSettings.isEnabled()
         StartupBreadcrumbLog.append(
             "appDelegate.shouldTerminate.begin",
             fields: [
-                "taggedDev": SocketControlSettings.isTaggedDevBuild() ? "1" : "0",
+                "taggedDev": isTaggedDevBuild ? "1" : "0",
                 "quitWarningConfirmed": isQuitWarningConfirmed ? "1" : "0",
-                "quitWarningEnabled": QuitWarningSettings.isEnabled() ? "1" : "0"
+                "quitWarningEnabled": isQuitWarningEnabled ? "1" : "0"
             ]
         )
-        isTerminatingApp = true
-        _ = saveSessionSnapshot(includeScrollback: true, removeWhenEmpty: false)
 
-        // Tagged DEV builds are ephemeral, skip quit confirmation entirely.
-        if SocketControlSettings.isTaggedDevBuild() {
-            closeAllWebInspectorsBeforeAppTeardown()
-            StartupBreadcrumbLog.append("appDelegate.shouldTerminate.terminateNow", fields: ["reason": "taggedDev"])
-            return .terminateNow
-        }
-
-        // If the user already confirmed via the Cmd+Q shortcut warning dialog
-        // (handleQuitShortcutWarning), skip the check to avoid a second alert.
-        if isQuitWarningConfirmed {
-            closeAllWebInspectorsBeforeAppTeardown()
-            StartupBreadcrumbLog.append("appDelegate.shouldTerminate.terminateNow", fields: ["reason": "confirmed"])
-            return .terminateNow
-        }
-
-        // Respect the "Warn Before Quit" setting even when Cmd+Q arrives via
-        // the Cmd+Tab app switcher, bypassing handleCustomShortcut.
-        guard QuitWarningSettings.isEnabled() else {
-            closeAllWebInspectorsBeforeAppTeardown()
-            StartupBreadcrumbLog.append("appDelegate.shouldTerminate.terminateNow", fields: ["reason": "warningDisabled"])
+        if Self.shouldSaveTerminatingSessionSnapshotBeforeQuitWarning(
+            isTaggedDevBuild: isTaggedDevBuild,
+            isQuitWarningConfirmed: isQuitWarningConfirmed,
+            isQuitWarningEnabled: isQuitWarningEnabled
+        ) {
+            let reason: String
+            if isTaggedDevBuild {
+                // Tagged DEV builds are ephemeral, skip quit confirmation entirely.
+                reason = "taggedDev"
+            } else if isQuitWarningConfirmed {
+                // The Cmd+Q shortcut warning path already asked the user.
+                reason = "confirmed"
+            } else {
+                // Respect "Warn Before Quit" even when Cmd+Q bypasses handleCustomShortcut.
+                reason = "warningDisabled"
+            }
+            prepareForConfirmedAppTerminationSnapshot(reason: reason)
             return .terminateNow
         }
 
@@ -1581,7 +1578,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             let shouldQuit = response == .alertFirstButtonReturn
             if shouldQuit {
                 self.isQuitWarningConfirmed = true
-                self.closeAllWebInspectorsBeforeAppTeardown()
+                self.prepareForConfirmedAppTerminationSnapshot(reason: "confirmed")
                 StartupBreadcrumbLog.append("appDelegate.shouldTerminate.reply", fields: ["shouldQuit": "1"])
             } else {
                 // Reset so that the next quit attempt can show the dialog again.
@@ -1592,6 +1589,13 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         }
         StartupBreadcrumbLog.append("appDelegate.shouldTerminate.later")
         return .terminateLater
+    }
+
+    private func prepareForConfirmedAppTerminationSnapshot(reason: String) {
+        isTerminatingApp = true
+        _ = saveSessionSnapshot(includeScrollback: true, removeWhenEmpty: false)
+        closeAllWebInspectorsBeforeAppTeardown()
+        StartupBreadcrumbLog.append("appDelegate.shouldTerminate.terminateNow", fields: ["reason": reason])
     }
 
     @discardableResult
@@ -3621,6 +3625,14 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
 
     nonisolated static func shouldPersistSnapshotOnWindowUnregister(isTerminatingApp: Bool) -> Bool {
         !isTerminatingApp
+    }
+
+    nonisolated static func shouldSaveTerminatingSessionSnapshotBeforeQuitWarning(
+        isTaggedDevBuild: Bool,
+        isQuitWarningConfirmed: Bool,
+        isQuitWarningEnabled: Bool
+    ) -> Bool {
+        isTaggedDevBuild || isQuitWarningConfirmed || !isQuitWarningEnabled
     }
 
     nonisolated static func shouldIncludeRecoverableRoutesInSessionSnapshot(isTerminatingApp: Bool) -> Bool {
