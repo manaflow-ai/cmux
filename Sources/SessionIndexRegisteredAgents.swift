@@ -87,7 +87,14 @@ extension SessionIndexStore {
                 fallbackCWD: cwdFilter
             )
             if let cwdFilter, metadata.cwd != cwdFilter { continue }
-            let sessionId = metadata.sessionId ?? candidate.url.path
+            let sessionId: String
+            switch registration.sessionIdSource {
+            case .argvOption:
+                guard let nativeSessionId = metadata.sessionId else { continue }
+                sessionId = nativeSessionId
+            case .piSessionFile:
+                sessionId = metadata.sessionId ?? candidate.url.path
+            }
             matches.append(SessionEntry(
                 id: "\(registration.id):\(sessionId)",
                 agent: .registered(RegisteredSessionAgent(registration: registration)),

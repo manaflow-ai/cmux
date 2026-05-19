@@ -88,17 +88,24 @@ public enum SessionIndexCore {
 
         let cap = UInt64(byteCap)
         let offset = size > cap ? size - cap : 0
+        var byteBeforeOffset: UInt8?
         do {
+            if offset > 0 {
+                try handle.seek(toOffset: offset - 1)
+                byteBeforeOffset = ((try? handle.read(upToCount: 1)) ?? Data()).first
+            }
             try handle.seek(toOffset: offset)
         } catch {
             return ""
         }
         let data = (try? handle.read(upToCount: byteCap)) ?? Data()
-        // Trim leading partial line when the read starts mid-record.
-        if offset > 0, let newlineIndex = data.firstIndex(of: 0x0a) {
-            return String(data: data[(newlineIndex + 1)...], encoding: .utf8) ?? ""
+        // Trim leading partial line only when the read starts inside a record.
+        if offset > 0,
+           byteBeforeOffset != 0x0a,
+           let newlineIndex = data.firstIndex(of: 0x0a) {
+            return String(decoding: data[(newlineIndex + 1)...], as: UTF8.self)
         }
-        return String(data: data, encoding: .utf8) ?? ""
+        return String(decoding: data, as: UTF8.self)
     }
 
     /// Return true when `needle` appears in `url`, scanning in chunks with overlap.

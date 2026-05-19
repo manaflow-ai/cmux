@@ -121,7 +121,7 @@ public enum OpenCodeIndex {
         } catch {
             let message = String(
                 localized: "sessionIndex.error.openCodeSnapshot",
-                defaultValue: "OpenCode session history is temporarily unavailable."
+                defaultValue: "Session history is temporarily unavailable. Try again later or restart cmux."
             )
             return OpenCodeIndexResult(
                 sessions: [],
@@ -138,7 +138,7 @@ public enum OpenCodeIndex {
             if case OpenCodeIndexError.unsupportedSchema = error {
                 let message = String(
                     localized: "sessionIndex.error.openCodeSchemaUnsupported",
-                    defaultValue: "OpenCode session history is unavailable in this version."
+                    defaultValue: "Session history is unsupported in this version. Update cmux and try again."
                 )
                 return OpenCodeIndexResult(
                     sessions: [],
@@ -147,7 +147,7 @@ public enum OpenCodeIndex {
             }
             let message = String(
                 localized: "sessionIndex.error.openCodeRead",
-                defaultValue: "OpenCode session history could not be read."
+                defaultValue: "Session history could not be read. Restart cmux or export logs and contact support."
             )
             return OpenCodeIndexResult(
                 sessions: [],
@@ -163,6 +163,8 @@ public enum OpenCodeIndex {
         offset: Int,
         limit: Int
     ) throws -> OpenCodeIndexResult {
+        try ensureSupportedSchema(db: db)
+
         let trimmedNeedle = needle.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
         var sql = """
             SELECT s.id, s.title, s.directory, s.time_updated, (
@@ -187,7 +189,7 @@ public enum OpenCodeIndex {
         var stmt: OpaquePointer?
         guard sqlite3_prepare_v2(db, sql, -1, &stmt, nil) == SQLITE_OK, let stmt else {
             sqlite3_finalize(stmt)
-            throw OpenCodeIndexError.unsupportedSchema(sqliteMessage(db) ?? "prepare failed")
+            throw OpenCodeIndexError.sqlite(sqliteMessage(db) ?? "prepare failed")
         }
         defer { sqlite3_finalize(stmt) }
 
@@ -253,6 +255,42 @@ public enum OpenCodeIndex {
             escaped.append(character)
         }
         return "%\(escaped)%"
+    }
+
+    private static func ensureSupportedSchema(db: OpaquePointer) throws {
+        let requiredTables: [(name: String, columns: Set<String>)] = [
+            ("session", ["id", "title", "directory", "time_updated"]),
+            ("message", ["session_id", "data", "time_created"]),
+        ]
+
+        for table in requiredTables {
+            let columns = try columnNames(in: table.name, db: db)
+            guard table.columns.isSubset(of: columns) else {
+                throw OpenCodeIndexError.unsupportedSchema("missing required columns in \(table.name)")
+            }
+        }
+    }
+
+    private static func columnNames(in table: String, db: OpaquePointer) throws -> Set<String> {
+        var stmt: OpaquePointer?
+        guard sqlite3_prepare_v2(db, "PRAGMA table_info(\(table))", -1, &stmt, nil) == SQLITE_OK, let stmt else {
+            sqlite3_finalize(stmt)
+            throw OpenCodeIndexError.sqlite(sqliteMessage(db) ?? "schema check failed")
+        }
+        defer { sqlite3_finalize(stmt) }
+
+        var columns = Set<String>()
+        var stepResult = sqlite3_step(stmt)
+        while stepResult == SQLITE_ROW {
+            if let column = sqliteText(stmt, 1) {
+                columns.insert(column)
+            }
+            stepResult = sqlite3_step(stmt)
+        }
+        guard stepResult == SQLITE_DONE else {
+            throw OpenCodeIndexError.sqlite(sqliteMessage(db) ?? "schema check failed")
+        }
+        return columns
     }
 
     private static func withDatabase<T>(_ path: String, _ body: (OpaquePointer) throws -> T) throws -> T {

@@ -107727,13 +107727,13 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "OpenCode session history is temporarily unavailable."
+            "value": "Session history is temporarily unavailable. Try again later or restart cmux."
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "OpenCode のセッション履歴は一時的に利用できません。"
+            "value": "セッション履歴は一時的に利用できません。後でもう一度試すか、cmux を再起動してください。"
           }
         }
       }
@@ -107744,13 +107744,13 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "OpenCode session history could not be read."
+            "value": "Session history could not be read. Restart cmux or export logs and contact support."
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "OpenCode のセッション履歴を読み込めませんでした。"
+            "value": "セッション履歴を読み込めませんでした。cmux を再起動するか、ログを書き出してサポートにお問い合わせください。"
           }
         }
       }
@@ -107761,13 +107761,13 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "OpenCode session history is unavailable in this version."
+            "value": "Session history is unsupported in this version. Update cmux and try again."
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "このバージョンでは OpenCode のセッション履歴を利用できません。"
+            "value": "このバージョンではセッション履歴を利用できません。cmux をアップデートしてからもう一度試してください。"
           }
         }
       }

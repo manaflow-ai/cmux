@@ -1262,14 +1262,12 @@ final class SessionIndexStore: ObservableObject {
                             true
                         )
                     }
+                    if !needle.isEmpty && !candidate.prefilteredByRipgrep,
+                       !SessionIndexCore.fileContainsNeedle(url: candidate.url, needle: needle) {
+                        return (idx, nil, false)
+                    }
                     let head = SessionIndexCore.readFileHead(url: candidate.url, byteCap: SessionIndexCore.headByteCap)
                     let tail = SessionIndexCore.readFileTail(url: candidate.url, byteCap: SessionIndexCore.tailByteCap)
-                    if !needle.isEmpty && !candidate.prefilteredByRipgrep {
-                        let combined = head + "\n" + tail
-                        if combined.range(of: needle, options: [.caseInsensitive, .literal]) == nil {
-                            return (idx, nil, false)
-                        }
-                    }
                     if let cached {
                         if let cwdFilter, cached.cwd != cwdFilter { return (idx, nil, true) }
                         return (
@@ -1401,8 +1399,7 @@ final class SessionIndexStore: ObservableObject {
             if scanned >= SessionIndexCore.searchMaxFiles { break }
             scanned += 1
             if !needle.isEmpty && !rgFiltered {
-                let head = SessionIndexCore.readFileHead(url: url, byteCap: SessionIndexCore.headByteCap)
-                guard head.range(of: needle, options: [.caseInsensitive, .literal]) != nil else { continue }
+                guard SessionIndexCore.fileContainsNeedle(url: url, needle: needle) else { continue }
             }
             // Fast cwd reject: session_meta is the FIRST line of every Codex
             // rollout. Pull just that line and bail before streaming the

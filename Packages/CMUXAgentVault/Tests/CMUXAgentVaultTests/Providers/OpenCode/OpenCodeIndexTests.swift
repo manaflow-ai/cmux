@@ -142,7 +142,7 @@ struct OpenCodeIndexTests {
 
         #expect(result.sessions.isEmpty)
         #expect(result.errors.count == 1)
-        #expect(result.errors[0] == "OpenCode session history is unavailable in this version.")
+        #expect(result.errors[0] == "Session history is unsupported in this version. Update cmux and try again.")
     }
 
     private func temporaryDirectory() throws -> URL {

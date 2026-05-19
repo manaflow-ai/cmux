@@ -243,16 +243,14 @@ extension SessionIndexStore {
         _ needle: String,
         sessionsRoot: String
     ) async -> Set<String>? {
-        await runSessionIndexBackgroundScan {
-            guard let matches = await SessionIndexCore.ripgrepMatchingPaths(
-                needle: needle,
-                root: sessionsRoot,
-                fileGlob: "*.jsonl"
-            ) else {
-                return nil
-            }
-            return Set(matches.map { ($0.path as NSString).standardizingPath })
+        guard let matches = await SessionIndexCore.ripgrepMatchingPaths(
+            needle: needle,
+            root: sessionsRoot,
+            fileGlob: "*.jsonl"
+        ) else {
+            return nil
         }
+        return Set(matches.map { ($0.path as NSString).standardizingPath })
     }
 
     nonisolated private static func codexRecordMatchesRolloutContent(

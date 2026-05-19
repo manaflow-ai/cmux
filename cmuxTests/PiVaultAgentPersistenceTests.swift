@@ -199,6 +199,38 @@ final class PiVaultAgentPersistenceTests: XCTestCase {
         XCTAssertEqual(entry.gitBranch, "issue-3575-vault-pi-agent-support")
     }
 
+    func testRegisteredAgentJSONLArgvOptionDropsEntriesWithoutNativeSessionID() async throws {
+        let tempDir = FileManager.default.temporaryDirectory
+            .appendingPathComponent("cmux-registered-missing-native-id-\(UUID().uuidString)", isDirectory: true)
+        try FileManager.default.createDirectory(at: tempDir, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: tempDir) }
+
+        let sessionFile = tempDir.appendingPathComponent("metadata.jsonl")
+        try """
+        {"cwd":"/tmp/acme","title":"Resume Acme"}
+        """.write(to: sessionFile, atomically: true, encoding: .utf8)
+
+        let registration = CmuxVaultAgentRegistration(
+            id: "acme-agent",
+            name: "Acme Agent",
+            detect: CmuxVaultAgentDetectRule(processName: "acme-agent"),
+            sessionIdSource: .argvOption("--session"),
+            resumeCommand: "acme-agent --session {{sessionId}}",
+            cwd: .preserve,
+            sessionDirectory: tempDir.path
+        )
+
+        let entries = await SessionIndexStore.loadRegisteredAgentEntries(
+            registration: registration,
+            needle: "",
+            cwdFilter: nil,
+            offset: 0,
+            limit: 10
+        )
+
+        XCTAssertTrue(entries.isEmpty)
+    }
+
     func testRegisteredAgentCWDFilterUsesJSONLMetadataNotFallback() async throws {
         let tempDir = FileManager.default.temporaryDirectory
             .appendingPathComponent("cmux-registered-cwd-filter-\(UUID().uuidString)", isDirectory: true)
