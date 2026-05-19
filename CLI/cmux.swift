@@ -4364,7 +4364,7 @@ struct CMUXCLI {
         let listed = try client.sendV2(method: "window.list")
         let windows = listed["windows"] as? [[String: Any]] ?? []
         let found = windows.contains { item in
-            (item["id"] as? String) == normalized || (item["ref"] as? String) == normalized
+            windowHandleMatches(normalized, item: item)
         }
         guard found else {
             throw CLIError(message: "Window not found: \(raw)")
