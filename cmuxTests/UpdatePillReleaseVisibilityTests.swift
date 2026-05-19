@@ -330,6 +330,7 @@ final class AppIconAppearanceObserverTests: XCTestCase {
         XCTAssertEqual(harness.currentAppearanceIsDarkCallCount, 2)
         XCTAssertEqual(harness.imageRequests, ["AppIconLight"])
         XCTAssertEqual(harness.appliedIconCount, 1)
+        XCTAssertEqual(harness.dockTileNotificationCount, 2)
     }
 
     func testAutomaticAppearanceChangeAppliesNewIcon() {

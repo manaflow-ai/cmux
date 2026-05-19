@@ -4449,7 +4449,6 @@ enum AppIconSettings {
         switch mode {
         case .automatic:
             environment.startAppearanceObservation()
-            environment.notifyDockTilePlugin()
         case .light:
             environment.stopAppearanceObservation()
             guard let icon = environment.imageForMode(.light) else { return }
@@ -4618,8 +4617,11 @@ final class AppIconAppearanceObserver: NSObject {
         guard environment.isApplicationFinishedLaunching() else { return }
         guard let isDark = environment.currentAppearanceIsDark() else { return }
         let imageName = isDark ? "AppIconDark" : "AppIconLight"
-        guard imageName != lastAppliedImageName,
-              let icon = environment.imageForName(imageName) else { return }
+        if imageName == lastAppliedImageName {
+            environment.notifyDockTilePlugin()
+            return
+        }
+        guard let icon = environment.imageForName(imageName) else { return }
         AppIconSettings.setRuntimeBaseIcon(icon, environment: AppIconSettings.Environment(
             isApplicationFinishedLaunching: environment.isApplicationFinishedLaunching,
             imageForMode: { _ in nil },

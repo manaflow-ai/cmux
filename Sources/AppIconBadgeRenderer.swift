@@ -8,6 +8,7 @@ enum AppIconBadgeRenderer {
         return label
     }
 
+    @MainActor
     static func image(baseIcon: NSImage, badgeLabel rawBadgeLabel: String?) -> NSImage {
         guard let badgeLabel = normalizedBadgeLabel(rawBadgeLabel) else {
             return baseIcon
@@ -29,6 +30,7 @@ enum AppIconBadgeRenderer {
         return result
     }
 
+    @MainActor
     private static func normalizedIconSize(_ size: NSSize) -> NSSize {
         guard size.width > 0, size.height > 0 else {
             return NSSize(width: 128, height: 128)
@@ -36,6 +38,7 @@ enum AppIconBadgeRenderer {
         return size
     }
 
+    @MainActor
     private static func drawBadge(_ label: String, in bounds: NSRect) {
         guard bounds.width > 0, bounds.height > 0 else { return }
 
@@ -76,6 +79,7 @@ enum AppIconBadgeRenderer {
         label.draw(in: textRect, withAttributes: attributes)
     }
 
+    @MainActor
     private static func badgeFont(
         fitting label: String,
         badgeHeight: CGFloat,

@@ -280,6 +280,11 @@ final class TerminalNotificationPolicyEngineTests: XCTestCase {
 
 @MainActor
 final class AppIconSettingsTests: XCTestCase {
+    override func tearDown() {
+        AppIconSettings.resetLiveEnvironmentProviderForTesting()
+        super.tearDown()
+    }
+
     func testApplyDarkSetsRuntimeIconAndNotifiesDockTilePlugin() {
         let expectedIcon = NSImage(size: NSSize(width: 16, height: 16))
         var receivedRuntimeIcon: NSImage?
@@ -368,7 +373,7 @@ final class AppIconSettingsTests: XCTestCase {
         )
     }
 
-    func testApplyAutomaticStartsObservationAndNotifiesDockTilePlugin() {
+    func testApplyAutomaticDelegatesBadgeNotificationToAppearanceObserver() {
         var dockTileNotificationCount = 0
         var startObservationCallCount = 0
         var stopObservationCallCount = 0
@@ -395,7 +400,7 @@ final class AppIconSettingsTests: XCTestCase {
 
         AppIconSettings.applyIcon(.automatic, environment: environment)
 
-        XCTAssertEqual(dockTileNotificationCount, 1)
+        XCTAssertEqual(dockTileNotificationCount, 0)
         XCTAssertEqual(startObservationCallCount, 1)
         XCTAssertEqual(stopObservationCallCount, 0)
     }

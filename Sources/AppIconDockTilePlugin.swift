@@ -177,7 +177,9 @@ private extension NSDockTile {
 
         let iconView = NSImageView(frame: CGRect(origin: .zero, size: size))
         iconView.wantsLayer = true
-        iconView.image = AppIconBadgeRenderer.image(baseIcon: newIcon, badgeLabel: badgeLabel)
+        iconView.image = MainActor.assumeIsolated {
+            AppIconBadgeRenderer.image(baseIcon: newIcon, badgeLabel: badgeLabel)
+        }
         contentView = iconView
         self.badgeLabel = nil
         display()
