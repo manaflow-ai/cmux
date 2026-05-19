@@ -39,7 +39,7 @@ enum RightSidebarChromeMetrics {
     static let controlCornerRadius: CGFloat = 5
     static let headerControlSize: CGFloat = HeaderChromeControlMetrics.buttonSize
     static let headerIconSize: CGFloat = HeaderChromeControlMetrics.iconSize
-    static let headerIconFrameSize: CGFloat = HeaderChromeControlMetrics.iconFrameSize
+    static let headerIconFrameSize: CGFloat = HeaderChromeControlMetrics.iconSize
     static let headerControlSpacing: CGFloat = 4
     static let headerControlCornerRadius: CGFloat = HeaderChromeControlMetrics.cornerRadius
     static let headerControlCenterAlignmentAdjustment: CGFloat = 0
