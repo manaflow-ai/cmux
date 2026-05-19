@@ -29,6 +29,16 @@ private final class EventScopeWorkspaceIds: @unchecked Sendable {
 }
 
 final class CmuxEventBusTests: XCTestCase {
+    override func setUp() {
+        super.setUp()
+        CmuxEventWindowWorkspaceIndex.shared.resetForTesting()
+    }
+
+    override func tearDown() {
+        CmuxEventWindowWorkspaceIndex.shared.resetForTesting()
+        super.tearDown()
+    }
+
     func testSubscribeReplaysEventsAfterSequenceAndReportsAck() throws {
         let bus = CmuxEventBus(retainedEventLimit: 4)
         bus.publish(
@@ -493,6 +503,77 @@ final class CmuxEventBusTests: XCTestCase {
         XCTAssertEqual(
             windowReplay.replay.compactMap { $0["name"] as? String },
             ["pane.broken", "feed.item.received"]
+        )
+    }
+
+    func testWindowRefsDoNotIndexWorkspaceMembership() throws {
+        let bus = CmuxEventBus(retainedEventLimit: 8)
+        let workspaceId = UUID().uuidString
+
+        bus.publish(
+            name: "browser.interaction",
+            category: "browser",
+            source: "socket.v2",
+            workspaceId: workspaceId,
+            windowId: "window:1",
+            payload: [
+                "params": [
+                    "workspace_id": workspaceId,
+                    "window_id": "window:1"
+                ]
+            ]
+        )
+        bus.publish(
+            name: "feed.item.received",
+            category: "feed",
+            source: "socket-worker",
+            workspaceId: workspaceId,
+            payload: ["workspace_id": workspaceId]
+        )
+
+        XCTAssertNil(bus.retainedSnapshot().last?["window_id"] as? String)
+    }
+
+    func testWorkspaceClosedRemovesIndexedMembership() throws {
+        let bus = CmuxEventBus(retainedEventLimit: 8)
+        let windowId = UUID().uuidString
+        let workspaceId = UUID().uuidString
+
+        bus.publish(
+            name: "workspace.created",
+            category: "workspace",
+            source: "workspace.lifecycle",
+            workspaceId: workspaceId,
+            windowId: windowId
+        )
+        bus.publish(
+            name: "workspace.closed",
+            category: "workspace",
+            source: "workspace.lifecycle",
+            workspaceId: workspaceId,
+            windowId: windowId
+        )
+        bus.publish(
+            name: "feed.item.received",
+            category: "feed",
+            source: "socket-worker",
+            workspaceId: workspaceId,
+            payload: ["workspace_id": workspaceId]
+        )
+
+        let retained = bus.retainedSnapshot()
+        XCTAssertNil(retained.last?["window_id"] as? String)
+
+        let windowReplay = bus.subscribe(
+            afterSequence: 0,
+            names: [],
+            categories: [],
+            scope: CmuxEventScope(kind: .window, windowId: windowId)
+        )
+        defer { bus.unsubscribe(windowReplay.subscription) }
+        XCTAssertEqual(
+            windowReplay.replay.compactMap { $0["name"] as? String },
+            ["workspace.created", "workspace.closed"]
         )
     }
 

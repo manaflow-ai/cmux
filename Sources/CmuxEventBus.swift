@@ -37,6 +37,9 @@ final class CmuxEventWindowWorkspaceIndex: @unchecked Sendable {
         }
         workspaceIdsByWindowId[windowId] = normalizedWorkspaceIds
         for workspaceId in normalizedWorkspaceIds {
+            for existingWindowId in Array(workspaceIdsByWindowId.keys) where existingWindowId != windowId {
+                workspaceIdsByWindowId[existingWindowId]?.remove(workspaceId)
+            }
             windowIdByWorkspaceId[workspaceId] = windowId
         }
         lock.unlock()
@@ -72,6 +75,16 @@ final class CmuxEventWindowWorkspaceIndex: @unchecked Sendable {
         lock.unlock()
     }
 
+    func forgetWorkspace(workspaceId: String?) {
+        guard let workspaceId = Self.normalizedId(workspaceId) else { return }
+        lock.lock()
+        windowIdByWorkspaceId.removeValue(forKey: workspaceId)
+        for windowId in Array(workspaceIdsByWindowId.keys) {
+            workspaceIdsByWindowId[windowId]?.remove(workspaceId)
+        }
+        lock.unlock()
+    }
+
     func rememberSurface(surfaceId: String?, workspaceId: String?, windowId: String?, paneId: String?) {
         guard let surfaceId = Self.normalizedId(surfaceId) else { return }
         lock.lock()
@@ -102,6 +115,16 @@ final class CmuxEventWindowWorkspaceIndex: @unchecked Sendable {
         defer { lock.unlock() }
         return surfaceLocationBySurfaceId[surfaceId]
     }
+
+    #if DEBUG
+    func resetForTesting() {
+        lock.lock()
+        workspaceIdsByWindowId.removeAll()
+        windowIdByWorkspaceId.removeAll()
+        surfaceLocationBySurfaceId.removeAll()
+        lock.unlock()
+    }
+    #endif
 
     private static func normalizedId(_ value: String?) -> String? {
         guard let trimmed = value?.trimmingCharacters(in: .whitespacesAndNewlines),
@@ -479,7 +502,9 @@ final class CmuxEventBus: @unchecked Sendable {
         let resolvedWindowId = windowId ??
             CmuxEventWindowWorkspaceIndex.shared.windowId(workspaceId: resolvedWorkspaceId) ??
             indexedSurfaceLocation?.windowId
-        if windowId != nil {
+        if name == "workspace.closed" {
+            CmuxEventWindowWorkspaceIndex.shared.forgetWorkspace(workspaceId: resolvedWorkspaceId)
+        } else if Self.isAuthoritativeWorkspaceMembership(workspaceId: resolvedWorkspaceId, windowId: windowId) {
             CmuxEventWindowWorkspaceIndex.shared.rememberWorkspace(
                 windowId: resolvedWindowId,
                 workspaceId: resolvedWorkspaceId
@@ -832,6 +857,14 @@ final class CmuxEventBus: @unchecked Sendable {
                 paneId: sourcePaneId
             )
         }
+    }
+
+    private static func isAuthoritativeWorkspaceMembership(workspaceId: String?, windowId: String?) -> Bool {
+        guard let workspaceId, UUID(uuidString: workspaceId) != nil,
+              let windowId, UUID(uuidString: windowId) != nil else {
+            return false
+        }
+        return true
     }
 
     private static func payloadString(_ payload: Any, key: String) -> String? {
