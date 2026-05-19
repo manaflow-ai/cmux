@@ -312,9 +312,14 @@ extension CMUXCLI {
         // Codex also had older top-level codex-hook/feed-hook commands.
         // Other generic agents can have stale `cmux hooks ...` files from
         // earlier integration attempts, and setup should be able to prune them.
-        let tokens = legacyCmuxCommandTokens(from: command, for: def)
+        return legacyCmuxCommandTokenLists(from: command, for: def).contains { tokens in
+            isLegacyCmuxOwnedHookTokens(tokens, for: def)
+        }
+    }
+
+    private static func isLegacyCmuxOwnedHookTokens(_ tokens: [String], for def: AgentHookDef) -> Bool {
         guard !tokens.isEmpty,
-              URL(fileURLWithPath: String(tokens[0])).lastPathComponent == "cmux"
+              URL(fileURLWithPath: tokens[0]).lastPathComponent == "cmux"
         else {
             return false
         }
@@ -329,20 +334,24 @@ extension CMUXCLI {
            tokens[3] == def.name {
             return true
         }
-        if tokens.count >= 3, tokens[1] == "hooks", String(tokens[2]) == def.name {
+        if tokens.count >= 3, tokens[1] == "hooks", tokens[2] == def.name {
             return true
         }
         if tokens.count >= 5,
            tokens[1] == "hooks",
            tokens[2] == "feed",
            tokens[3] == "--source",
-           String(tokens[4]) == def.name {
+           tokens[4] == def.name {
             return true
         }
         return false
     }
 
-    private static func legacyCmuxCommandTokens(from command: String, for def: AgentHookDef) -> [Substring] {
+    private static func legacyCmuxCommandTokenLists(from command: String, for def: AgentHookDef) -> [[String]] {
+        if let bundledTokens = bundledCLICmuxCommandTokenLists(from: command), !bundledTokens.isEmpty {
+            return bundledTokens
+        }
+
         let guardedPrefixes = [
             "[ -n \"$CMUX_SURFACE_ID\" ] && [ \"$\(def.disableEnvVar)\" != \"1\" ] && command -v cmux >/dev/null 2>&1 && ",
             "[ \"$\(def.disableEnvVar)\" != \"1\" ] && command -v cmux >/dev/null 2>&1 && ",
@@ -358,7 +367,7 @@ extension CMUXCLI {
                 guard !body.contains(";"), !body.contains("|"), !body.contains("&"), !body.contains("`") else {
                     return []
                 }
-                return body.split(whereSeparator: { $0 == " " || $0 == "\t" })
+                return [body.split(whereSeparator: { $0 == " " || $0 == "\t" }).map(String.init)]
             }
         }
         for guardedPrefix in guardedPrefixes where body.hasPrefix(guardedPrefix) {
@@ -371,7 +380,46 @@ extension CMUXCLI {
         guard !body.contains(";"), !body.contains("|"), !body.contains("&"), !body.contains("`") else {
             return []
         }
-        return body.split(whereSeparator: { $0 == " " || $0 == "\t" })
+        return [body.split(whereSeparator: { $0 == " " || $0 == "\t" }).map(String.init)]
+    }
+
+    private static func bundledCLICmuxCommandTokenLists(from command: String) -> [[String]]? {
+        guard command.contains("CMUX_BUNDLED_CLI_PATH"),
+              command.contains("cmux_cli="),
+              command.contains("command -v cmux") else {
+            return nil
+        }
+
+        let invocationPrefixes = [
+            "\"$cmux_cli\" --socket \"$CMUX_SOCKET_PATH\" ",
+            "\"$cmux_cli\" ",
+        ]
+        var tokenLists: [[String]] = []
+        for prefix in invocationPrefixes {
+            var searchStart = command.startIndex
+            while let prefixRange = command.range(of: prefix, range: searchStart..<command.endIndex) {
+                let argsStart = prefixRange.upperBound
+                let tail = command[argsStart..<command.endIndex]
+                let argsEnd = [
+                    tail.range(of: ";")?.lowerBound,
+                    tail.range(of: " ||")?.lowerBound,
+                    tail.range(of: " &&")?.lowerBound,
+                    tail.range(of: " }")?.lowerBound,
+                ].compactMap { $0 }.min() ?? command.endIndex
+                let args = command[argsStart..<argsEnd].trimmingCharacters(in: .whitespacesAndNewlines)
+                if !args.isEmpty,
+                   !args.contains(";"),
+                   !args.contains("|"),
+                   !args.contains("&"),
+                   !args.contains("`") {
+                    tokenLists.append(
+                        ["cmux"] + args.split(whereSeparator: { $0 == " " || $0 == "\t" }).map(String.init)
+                    )
+                }
+                searchStart = prefixRange.upperBound
+            }
+        }
+        return tokenLists
     }
 
     static func hookMarkers(for def: AgentHookDef) -> [String] {
