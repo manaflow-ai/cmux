@@ -132,7 +132,8 @@ enum CLISocketPathResolver {
             return requestedPath
         }
 
-        if source == .environment, canConnect(to: requestedPath) {
+        let environmentRequestedPathReachable = source == .environment && canConnect(to: requestedPath)
+        if environmentRequestedPathReachable {
             return requestedPath
         }
 
@@ -141,7 +142,7 @@ enum CLISocketPathResolver {
             environment: environment,
             bundleIdentifier: bundleIdentifier
         )
-        if source == .environment, resolved.path != requestedPath {
+        if source == .environment, !environmentRequestedPathReachable {
             emitEnvironmentSocketFallbackWarning(
                 requestedPath: requestedPath,
                 resolved: resolved,

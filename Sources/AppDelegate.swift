@@ -2463,8 +2463,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             }
 
             self.writeUITestDiagnosticsIfNeeded(stage: "socketSanityRestart")
-            self.scheduleSocketListenerRestartIfEnabled(source: "uiTest.socketSanity")
-            DispatchQueue.main.asyncAfter(deadline: .now() + 0.75) { [weak self] in
+            let restartTask = self.scheduleSocketListenerRestartIfEnabled(source: "uiTest.socketSanity")
+            Task { @MainActor [weak self] in
+                await restartTask.value
                 self?.writeUITestDiagnosticsIfNeeded(stage: "socketSanityPostRestart")
             }
         }
@@ -3406,9 +3407,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         TerminalController.shared.start(tabManager: tabManager, socketPath: path, accessMode: config.mode)
     }
 
-    private func scheduleSocketListenerRestartIfEnabled(source: String) {
+    @discardableResult
+    private func scheduleSocketListenerRestartIfEnabled(source: String) -> Task<Void, Never> {
         Task { @MainActor [weak self] in
-            await self?.restartSocketListenerIfEnabled(source: source)
+            guard let self else { return }
+            await self.restartSocketListenerIfEnabled(source: source)
         }
     }
 
@@ -10720,8 +10723,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         timeoutWorkItem = timeout
         DispatchQueue.main.asyncAfter(deadline: .now() + 20.0, execute: timeout)
 
-        scheduleSocketListenerRestartIfEnabled(source: "uiTest.multiWindowNotifications.setup")
-        publishCurrentState(isTimedOut: false)
+        let restartTask = scheduleSocketListenerRestartIfEnabled(source: "uiTest.multiWindowNotifications.setup")
+        Task { @MainActor in
+            await restartTask.value
+            publishCurrentState(isTimedOut: false)
+        }
     }
 
     private func writeMultiWindowNotificationTestData(_ updates: [String: String], at path: String) {
