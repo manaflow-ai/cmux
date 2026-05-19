@@ -80,9 +80,12 @@ private final class VNCSessionController: NSObject, VNCConnectionDelegate, @unch
     private let termination = DispatchSemaphore(value: 0)
     private let connectionLock = NSLock()
     private let stateLock = NSLock()
+    private let inputLock = NSLock()
     private var connection: VNCConnection?
     private var sequence: UInt64 = 0
     private var isClosed = false
+    private var isRemoteInputReady = false
+    private var pendingInputMessages: [VNCControlMessage] = []
 
     init(channel: SocketChannel, request: VNCConnectRequest) {
         self.channel = channel
@@ -97,7 +100,7 @@ private final class VNCSessionController: NSObject, VNCConnectionDelegate, @unch
             isShared: true,
             isScalingEnabled: true,
             useDisplayLink: false,
-            inputMode: .none,
+            inputMode: .forwardKeyboardShortcutsIfNotInUseLocally,
             isClipboardRedirectionEnabled: false,
             colorDepth: .depth24Bit,
             frameEncodings: .default
@@ -116,13 +119,49 @@ private final class VNCSessionController: NSObject, VNCConnectionDelegate, @unch
         switch message.kind {
         case "close":
             close()
+        case "text", "key", "pointer":
+            processInputWhenReady(message)
+        case "visibility":
+            break
+        default:
+            break
+        }
+    }
+
+    private func processInputWhenReady(_ message: VNCControlMessage) {
+        let shouldProcess = inputLock.withLock { () -> Bool in
+            guard isRemoteInputReady else {
+                pendingInputMessages.append(message)
+                return false
+            }
+            return true
+        }
+        if shouldProcess {
+            processInput(message)
+        }
+    }
+
+    private func processInput(_ message: VNCControlMessage) {
+        switch message.kind {
         case "text":
             guard let text = message.text else { return }
-            let keys = VNCKeyCode.keyCodesFrom(characters: text)
             withConnection { connection in
-                for key in keys {
-                    connection.keyDown(key)
-                    connection.keyUp(key)
+                for character in text {
+                    let keys: [VNCKeyCode]
+                    switch character {
+                    case "\n", "\r":
+                        keys = [.return]
+                    case "\t":
+                        keys = [.tab]
+                    case "\u{7f}", "\u{8}":
+                        keys = [.delete]
+                    default:
+                        keys = VNCKeyCode.keyCodesFrom(characters: String(character))
+                    }
+                    for key in keys {
+                        connection.keyDown(key)
+                        connection.keyUp(key)
+                    }
                 }
             }
         case "key":
@@ -154,8 +193,6 @@ private final class VNCSessionController: NSObject, VNCConnectionDelegate, @unch
                     connection.mouseMove(x: clampedX, y: clampedY)
                 }
             }
-        case "visibility":
-            break
         default:
             break
         }
@@ -163,6 +200,10 @@ private final class VNCSessionController: NSObject, VNCConnectionDelegate, @unch
 
     func close() {
         guard markClosed() else { return }
+        inputLock.withLock {
+            isRemoteInputReady = false
+            pendingInputMessages.removeAll(keepingCapacity: false)
+        }
         withConnection { $0.disconnect() }
         termination.signal()
     }
@@ -181,6 +222,10 @@ private final class VNCSessionController: NSObject, VNCConnectionDelegate, @unch
         }
         sendControl(VNCControlMessage(kind: "state", sessionName: request.sessionName, state: state))
         if connectionState.status == .disconnected {
+            inputLock.withLock {
+                isRemoteInputReady = false
+                pendingInputMessages.removeAll(keepingCapacity: false)
+            }
             termination.signal()
         }
     }
@@ -206,6 +251,7 @@ private final class VNCSessionController: NSObject, VNCConnectionDelegate, @unch
             width: Int(framebuffer.size.width),
             height: Int(framebuffer.size.height)
         ))
+        flushPendingInputMessages()
     }
 
     func connection(_ connection: VNCConnection, didResizeFramebuffer framebuffer: VNCFramebuffer) {
@@ -287,6 +333,18 @@ private final class VNCSessionController: NSObject, VNCConnectionDelegate, @unch
             try channel.send(try VNCIPCCodec.encodeControl(message))
         } catch {
             close()
+        }
+    }
+
+    private func flushPendingInputMessages() {
+        let messages = inputLock.withLock { () -> [VNCControlMessage] in
+            isRemoteInputReady = true
+            let messages = pendingInputMessages
+            pendingInputMessages.removeAll(keepingCapacity: false)
+            return messages
+        }
+        for message in messages {
+            processInput(message)
         }
     }
 

@@ -20,6 +20,7 @@ final class VNCPanelConnection {
     private var process: Process?
     private var listenerFileDescriptor: Int32 = -1
     private var clientFileDescriptor: Int32 = -1
+    private var pendingControlMessages: [Data] = []
     private var isClosed = false
 
     init(
@@ -80,7 +81,7 @@ final class VNCPanelConnection {
         do {
             let message = try VNCIPCCodec.encodeControl(control)
             writeQueue.async { [weak self] in
-                guard let fileDescriptor = self?.clientFileDescriptorForWrite() else { return }
+                guard let fileDescriptor = self?.clientFileDescriptorForWrite(orQueue: message) else { return }
                 Self.write(message, to: fileDescriptor)
             }
         } catch {
@@ -99,6 +100,7 @@ final class VNCPanelConnection {
             )
             clientFileDescriptor = -1
             listenerFileDescriptor = -1
+            pendingControlMessages.removeAll(keepingCapacity: false)
             self.process = nil
             return state
         }
@@ -154,26 +156,31 @@ final class VNCPanelConnection {
             return
         }
 
-        let listenerToClose = stateLock.withLock { () -> Int32? in
+        let acceptedState = stateLock.withLock { () -> (listener: Int32, pending: [Data])? in
             if isClosed {
                 return nil
             }
             clientFileDescriptor = accepted
             let currentListener = listenerFileDescriptor
             listenerFileDescriptor = -1
-            return currentListener
+            let pending = pendingControlMessages
+            pendingControlMessages.removeAll(keepingCapacity: false)
+            return (listener: currentListener, pending: pending)
         }
-        guard let listenerToClose else {
+        guard let acceptedState else {
             Darwin.close(accepted)
             return
         }
-        if listenerToClose >= 0 {
-            Darwin.close(listenerToClose)
+        if acceptedState.listener >= 0 {
+            Darwin.close(acceptedState.listener)
         }
 
         do {
             let connectMessage = try VNCIPCCodec.encodeControl(.connect(connectRequest))
             Self.write(connectMessage, to: accepted)
+            for message in acceptedState.pending {
+                Self.write(message, to: accepted)
+            }
             readMessages(from: accepted)
         } catch {
             notifyExit(VNCPanelText.helperProtocolFailed(error.localizedDescription), shouldRestart: true)
@@ -241,10 +248,14 @@ final class VNCPanelConnection {
         stateLock.withLock { isClosed }
     }
 
-    private func clientFileDescriptorForWrite() -> Int32? {
+    private func clientFileDescriptorForWrite(orQueue message: Data) -> Int32? {
         stateLock.withLock {
-            guard !isClosed, clientFileDescriptor >= 0 else { return nil }
-            return clientFileDescriptor
+            guard !isClosed else { return nil }
+            if clientFileDescriptor >= 0 {
+                return clientFileDescriptor
+            }
+            pendingControlMessages.append(message)
+            return nil
         }
     }
 

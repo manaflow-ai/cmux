@@ -103,15 +103,26 @@ final class VNCPanel: Panel, ObservableObject {
 
     func sendText(_ text: String) {
         guard !text.isEmpty else { return }
+        startIfNeeded()
         connection?.sendControl(VNCControlMessage(kind: "text", text: text))
     }
 
     func sendKey(keyCode: UInt16, isDown: Bool) {
+        startIfNeeded()
         connection?.sendControl(VNCControlMessage(kind: "key", isDown: isDown, keyCode: Int(keyCode)))
     }
 
     func sendPointer(x: Int, y: Int, button: Int, isDown: Bool) {
+        startIfNeeded()
         connection?.sendControl(VNCControlMessage(kind: "pointer", x: x, y: y, button: button, isDown: isDown))
+    }
+
+    @discardableResult
+    func sendNamedKey(_ keyName: String) -> Bool {
+        guard let keyCode = Self.keyCode(for: keyName) else { return false }
+        sendKey(keyCode: keyCode, isDown: true)
+        sendKey(keyCode: keyCode, isDown: false)
+        return true
     }
 
     func close() {
@@ -169,6 +180,41 @@ final class VNCPanel: Panel, ObservableObject {
         connectionState = .connecting
         startIfNeeded()
         return true
+    }
+
+    private static func keyCode(for keyName: String) -> UInt16? {
+        switch keyName.lowercased() {
+        case "enter", "return":
+            return 36
+        case "tab":
+            return 48
+        case "escape", "esc":
+            return 53
+        case "backspace":
+            return 51
+        case "delete", "del", "forward_delete":
+            return 117
+        case "space":
+            return 49
+        case "left", "arrow_left", "arrowleft":
+            return 123
+        case "right", "arrow_right", "arrowright":
+            return 124
+        case "down", "arrow_down", "arrowdown":
+            return 125
+        case "up", "arrow_up", "arrowup":
+            return 126
+        case "home":
+            return 115
+        case "end":
+            return 119
+        case "pageup", "page_up":
+            return 116
+        case "pagedown", "page_down":
+            return 121
+        default:
+            return nil
+        }
     }
 }
 

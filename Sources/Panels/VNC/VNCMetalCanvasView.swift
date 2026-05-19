@@ -93,6 +93,10 @@ final class VNCMetalCanvasView: NSView {
 
     override var acceptsFirstResponder: Bool { true }
 
+    override func acceptsFirstMouse(for event: NSEvent?) -> Bool {
+        true
+    }
+
     override func viewDidMoveToWindow() {
         super.viewDidMoveToWindow()
         metalLayer.contentsScale = window?.backingScaleFactor ?? NSScreen.main?.backingScaleFactor ?? 2
@@ -147,6 +151,35 @@ final class VNCMetalCanvasView: NSView {
         super.keyUp(with: event)
     }
 
+    override func insertText(_ insertString: Any) {
+        let text: String
+        if let value = insertString as? NSAttributedString {
+            text = value.string
+        } else if let value = insertString as? String {
+            text = value
+        } else {
+            text = String(describing: insertString)
+        }
+        guard !text.isEmpty else { return }
+        onText?(text)
+    }
+
+    override func doCommand(by selector: Selector) {
+        switch selector {
+        case #selector(insertNewline(_:)):
+            onText?("\n")
+        case #selector(insertTab(_:)):
+            onText?("\t")
+        case #selector(deleteBackward(_:)):
+            onText?("\u{7f}")
+        case #selector(cancelOperation(_:)):
+            onKey?(53, true)
+            onKey?(53, false)
+        default:
+            super.doCommand(by: selector)
+        }
+    }
+
     override func flagsChanged(with event: NSEvent) {
         guard isModifierKeyCode(event.keyCode) else {
             super.flagsChanged(with: event)
@@ -156,6 +189,7 @@ final class VNCMetalCanvasView: NSView {
     }
 
     override func mouseDown(with event: NSEvent) {
+        window?.makeFirstResponder(self)
         sendPointer(event, button: 0, isDown: true)
     }
 
