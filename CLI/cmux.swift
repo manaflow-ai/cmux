@@ -21060,7 +21060,7 @@ export default function cmuxPiSessionExtension(pi: ExtensionAPI) {
         let oldString = try readAgentHookConfig(filePath: filePath, displayName: def.displayName)
         let newString = try rovoDevHooksContent(existing: oldString, def: def, shouldInstall: false)
         guard oldString != newString else {
-            print("Removed 0 cmux hook(s) from \(filePath)")
+            print(Self.localizedHookRemovalMessage(count: 0, path: filePath))
             return
         }
         try newString.write(toFile: filePath, atomically: true, encoding: .utf8)
@@ -21425,7 +21425,7 @@ export default function cmuxPiSessionExtension(pi: ExtensionAPI) {
         }
         let newData = try JSONSerialization.data(withJSONObject: json, options: [.prettyPrinted, .sortedKeys])
         try newData.write(to: legacyURL, options: .atomic)
-        print(String(format: String(localized: "cli.hooks.legacy.removedEntries", defaultValue: "Removed %lld legacy %@ cmux hook(s) from %@"), Int64(removed), def.displayName, legacyURL.path))
+        print(Self.localizedLegacyHookRemovalMessage(count: removed, displayName: def.displayName, path: legacyURL.path))
     }
 
     private func pruneLegacyCopilotConfigHooksIfNeeded(
@@ -21460,7 +21460,7 @@ export default function cmuxPiSessionExtension(pi: ExtensionAPI) {
             }
         }
         try newData.write(to: legacyURL, options: .atomic)
-        print(String(format: String(localized: "cli.hooks.legacy.removedEntries", defaultValue: "Removed %lld legacy %@ cmux hook(s) from %@"), Int64(removed), def.displayName, legacyURL.path))
+        print(Self.localizedLegacyHookRemovalMessage(count: removed, displayName: def.displayName, path: legacyURL.path))
     }
 
     private func printCopilotHookStorageNoteIfNeeded(def: AgentHookDef, filePath: String) {
@@ -21568,14 +21568,14 @@ export default function cmuxPiSessionExtension(pi: ExtensionAPI) {
             let remainingKeys = Set(json.keys).subtracting(["version"])
             if remainingKeys.isEmpty {
                 try fm.removeItem(atPath: filePath)
-                print("Removed \(removed) cmux hook(s) from \(filePath)")
+                print(Self.localizedHookRemovalMessage(count: removed, path: filePath))
                 try pruneLegacyCopilotConfigHooksIfNeeded(def: def, configDir: configDir, primaryFilePath: filePath)
                 return
             }
         }
         let newData = try JSONSerialization.data(withJSONObject: json, options: [.prettyPrinted, .sortedKeys])
         try newData.write(to: URL(fileURLWithPath: filePath), options: .atomic)
-        print("Removed \(removed) cmux hook(s) from \(filePath)")
+        print(Self.localizedHookRemovalMessage(count: removed, path: filePath))
         try pruneLegacyCopilotConfigHooksIfNeeded(def: def, configDir: configDir, primaryFilePath: filePath)
 
         // Post-uninstall actions
@@ -21611,6 +21611,30 @@ export default function cmuxPiSessionExtension(pi: ExtensionAPI) {
     ) {
         if indexes[event]?.isEmpty == false { return }
         indexes[event, default: []].append(index)
+    }
+
+    private static func localizedLegacyHookRemovalMessage(
+        count: Int,
+        displayName: String,
+        path: String
+    ) -> String {
+        let format: String
+        if count == 1 {
+            format = String(localized: "cli.hooks.legacy.removedEntry.one", defaultValue: "Removed %lld legacy %@ cmux hook from %@")
+        } else {
+            format = String(localized: "cli.hooks.legacy.removedEntry.other", defaultValue: "Removed %lld legacy %@ cmux hooks from %@")
+        }
+        return String(format: format, Int64(count), displayName, path)
+    }
+
+    private static func localizedHookRemovalMessage(count: Int, path: String) -> String {
+        let format: String
+        if count == 1 {
+            format = String(localized: "cli.hooks.removedEntry.one", defaultValue: "Removed %lld cmux hook from %@")
+        } else {
+            format = String(localized: "cli.hooks.removedEntry.other", defaultValue: "Removed %lld cmux hooks from %@")
+        }
+        return String(format: format, Int64(count), path)
     }
 
     private static func hookCommandValue(in entry: [String: Any]) -> String? {
