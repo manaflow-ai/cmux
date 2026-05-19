@@ -1235,7 +1235,8 @@ final class TerminalNotificationStore: ObservableObject {
                     body: enrichedNotification.body,
                     cwd: cwd,
                     now: now,
-                    cooldownReservation: cooldownReservation
+                    cooldownReservation: cooldownReservation,
+                    clickAction: clickAction
                 )
             }
             return
@@ -1249,7 +1250,8 @@ final class TerminalNotificationStore: ObservableObject {
             body: body,
             cwd: cwd,
             now: now,
-            cooldownReservation: cooldownReservation
+            cooldownReservation: cooldownReservation,
+            clickAction: clickAction
         )
     }
 
@@ -1261,7 +1263,8 @@ final class TerminalNotificationStore: ObservableObject {
         body: String,
         cwd: String,
         now: Date,
-        cooldownReservation: NotificationCooldownReservation?
+        cooldownReservation: NotificationCooldownReservation?,
+        clickAction: TerminalNotificationClickAction?
     ) {
         let policyContext = makeNotificationPolicyContext(
             tabId: tabId,
