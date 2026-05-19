@@ -1,4 +1,6 @@
 import Testing
+import Darwin
+import Foundation
 @testable import CMUXSocketPathDomain
 
 @Test func markerFilesAreVariantAware() {
@@ -49,4 +51,38 @@ import Testing
         isDebugBuild: false,
         stableSocketPath: "/stable/cmux.sock"
     ) == "/tmp/cmux-debug-issue-3542.sock")
+}
+
+@Test func unlinkPathIfPresentTreatsMissingPathAsSuccess() throws {
+    let root = try makeTemporaryDirectory()
+    defer { try? FileManager.default.removeItem(at: root) }
+
+    let path = root.appendingPathComponent("missing.sock").path
+    #expect(SocketPathProbe.unlinkPathIfPresent(path) == 0)
+}
+
+@Test func unlinkPathIfPresentRemovesExistingFile() throws {
+    let root = try makeTemporaryDirectory()
+    defer { try? FileManager.default.removeItem(at: root) }
+
+    let pathURL = root.appendingPathComponent("replacement")
+    try Data("replacement".utf8).write(to: pathURL)
+
+    #expect(SocketPathProbe.unlinkPathIfPresent(pathURL.path) == 0)
+    #expect(!FileManager.default.fileExists(atPath: pathURL.path))
+}
+
+@Test func unlinkIfNoLiveOtherOwnerTreatsMissingPathAsSuccess() throws {
+    let root = try makeTemporaryDirectory()
+    defer { try? FileManager.default.removeItem(at: root) }
+
+    let path = root.appendingPathComponent("missing.sock").path
+    #expect(SocketPathProbe.unlinkIfNoLiveOtherOwner(path, expectedOwnerPID: getpid(), timeout: 0) == 0)
+}
+
+private func makeTemporaryDirectory() throws -> URL {
+    let url = FileManager.default.temporaryDirectory
+        .appendingPathComponent("CMUXSocketPathDomainTests-\(UUID().uuidString)", isDirectory: true)
+    try FileManager.default.createDirectory(at: url, withIntermediateDirectories: true)
+    return url
 }

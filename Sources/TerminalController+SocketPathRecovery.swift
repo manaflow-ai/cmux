@@ -230,7 +230,7 @@ extension TerminalController {
 
         stop()
         if shouldUnlinkNonSocketReplacement {
-            SocketPathProbe.unlinkIfStillNotSocket(recoveryPath)
+            SocketPathProbe.unlinkPathIfPresent(recoveryPath)
         }
         start(
             tabManager: tabManager,

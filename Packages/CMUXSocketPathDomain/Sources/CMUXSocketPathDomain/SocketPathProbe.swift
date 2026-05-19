@@ -121,21 +121,6 @@ public enum SocketPathProbe {
         return SocketPathIdentity(pathStat)
     }
 
-    @discardableResult
-    public static func unlinkIfStillNotSocket(_ path: String) -> Int32 {
-        var pathStat = stat()
-        guard lstat(path, &pathStat) == 0 else {
-            return 0
-        }
-
-        let fileType = pathStat.st_mode & mode_t(S_IFMT)
-        guard fileType != mode_t(S_IFSOCK) else {
-            return 0
-        }
-
-        return unlink(path)
-    }
-
     public static func ownershipStatus(
         path: String,
         expectedOwnerPID: pid_t,
@@ -174,9 +159,9 @@ public enum SocketPathProbe {
         let pathStatus = ownershipStatus(path: path, expectedOwnerPID: expectedOwnerPID, timeout: timeout)
         switch pathStatus {
         case .ownedByThisProcess, .missing:
-            return unlink(path)
+            return unlinkPathIfPresent(path)
         case .connectFailed(let errnoCode) where errnoCode == ECONNREFUSED || errnoCode == ENOENT:
-            return unlink(path)
+            return unlinkPathIfPresent(path)
         case .connectFailed, .notSocket, .socketFileChanged, .ownerUnknown, .ownedByOtherProcess:
             return 0
         }
@@ -193,7 +178,7 @@ public enum SocketPathProbe {
 
         var pathStat = stat()
         guard lstat(path, &pathStat) == 0 else {
-            return errno == ENOENT ? 0 : -1
+            return errno == ENOENT ? 0 : errno
         }
 
         let fileType = pathStat.st_mode & mode_t(S_IFMT)
@@ -202,7 +187,7 @@ public enum SocketPathProbe {
             return 0
         }
 
-        return unlink(path)
+        return unlinkPathIfPresent(path)
     }
 
     public static func ensureParentDirectoryExists(path: String) -> Int32? {
@@ -224,6 +209,14 @@ public enum SocketPathProbe {
 
     public static func parentDirectory(path: String) -> String {
         URL(fileURLWithPath: path).deletingLastPathComponent().path
+    }
+
+    @discardableResult
+    public static func unlinkPathIfPresent(_ path: String) -> Int32 {
+        if unlink(path) == 0 {
+            return 0
+        }
+        return errno == ENOENT ? 0 : errno
     }
 
     private enum POSIXResult<Value: Sendable>: Sendable {
