@@ -661,8 +661,8 @@ struct TitlebarControlButton<Content: View>: View {
         }
         .disabled(!isEnabled)
         .buttonStyle(TitlebarControlButtonStyle(config: config))
-        .background(TitlebarChromeGeometryReporter(keyPrefix: accessibilityIdentifier.replacingOccurrences(of: ".", with: "_")))
         .frame(width: config.buttonSize, height: config.buttonSize)
+        .background(TitlebarChromeGeometryReporter(keyPrefix: accessibilityIdentifier.replacingOccurrences(of: ".", with: "_")))
         .contentShape(Rectangle())
         .accessibilityElement(children: .ignore)
         .accessibilityIdentifier(accessibilityIdentifier)
@@ -1117,8 +1117,8 @@ struct TitlebarControlsView: View {
                 titlebarShortcutHintPill(shortcut: item.shortcut, config: config)
                     .accessibilityIdentifier("titlebarShortcutHint.\(item.action.rawValue)")
                     .frame(width: item.width, alignment: .leading)
-                    .background(TitlebarChromeGeometryReporter(keyPrefix: "titlebarShortcutHint_\(item.action.rawValue)"))
                     .offset(x: item.leftEdge, y: yOffset)
+                    .background(TitlebarChromeGeometryReporter(keyPrefix: "titlebarShortcutHint_\(item.action.rawValue)"))
                     .shortcutHintTransition()
             }
         }
