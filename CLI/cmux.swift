@@ -2395,8 +2395,13 @@ struct CMUXCLI {
             return
         }
 
+        let parsedRightSidebarArgs: RightSidebarCLIArguments?
         if command == "right-sidebar" {
-            _ = try rightSidebarSocketArguments(from: parseRightSidebarCLIArguments(commandArgs))
+            let parsed = try parseRightSidebarCLIArguments(commandArgs)
+            _ = try rightSidebarSocketArguments(from: parsed)
+            parsedRightSidebarArgs = parsed
+        } else {
+            parsedRightSidebarArgs = nil
         }
 
         let client = SocketClient(path: resolvedSocketPath)
@@ -3795,6 +3800,7 @@ struct CMUXCLI {
         case "right-sidebar":
             try forwardRightSidebarCommand(
                 commandArgs: commandArgs,
+                parsedArgs: parsedRightSidebarArgs,
                 client: client,
                 windowOverride: globalWindowOverride
             )
@@ -4434,7 +4440,7 @@ struct CMUXCLI {
     }
 
     func parseBoolString(_ raw: String) -> Bool? {
-        switch raw.trimmingCharacters(in: .whitespacesAndNewlines).lowercased() {
+        switch raw.lowercased() {
         case "1", "true", "yes", "on":
             return true
         case "0", "false", "no", "off":
@@ -11271,10 +11277,11 @@ struct CMUXCLI {
 
     private func forwardRightSidebarCommand(
         commandArgs: [String],
+        parsedArgs: RightSidebarCLIArguments? = nil,
         client: SocketClient,
         windowOverride: String?
     ) throws {
-        let parsed = try parseRightSidebarCLIArguments(commandArgs)
+        let parsed = try parsedArgs ?? parseRightSidebarCLIArguments(commandArgs)
         let socketArgs = try rightSidebarSocketArguments(from: parsed)
         let windowId = try resolveRightSidebarWindowId(parsed.window ?? windowOverride, client: client)
         let workspaceId = try resolveRightSidebarWorkspaceId(parsed.workspace, windowId: windowId, client: client)
