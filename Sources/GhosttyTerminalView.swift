@@ -1864,6 +1864,7 @@ class GhosttyApp {
     private var lastAppearanceColorScheme: GhosttyConfig.ColorSchemePreference?
     private var singletonConstructionPhase: SingletonConstructionPhase = .constructing
     private var pendingInitialRuntimeColorSchemeSync: RuntimeColorSchemeSync?
+    private var isSynchronizingGhosttyRuntimeColorScheme = false
     private lazy var defaultBackgroundNotificationDispatcher: GhosttyDefaultBackgroundNotificationDispatcher =
         // Theme chrome should track terminal theme changes in the same frame.
         // Keep coalescing semantics, but flush in the next main turn instead of waiting ~1 frame.
@@ -3296,6 +3297,11 @@ class GhosttyApp {
         source: String
     ) {
         guard let app else { return }
+        let wasSynchronizingRuntimeColorScheme = isSynchronizingGhosttyRuntimeColorScheme
+        isSynchronizingGhosttyRuntimeColorScheme = true
+        defer {
+            isSynchronizingGhosttyRuntimeColorScheme = wasSynchronizingRuntimeColorScheme
+        }
         ghostty_app_set_color_scheme(app, runtimeColorScheme)
         if backgroundLogEnabled {
             let schemeLabel = colorScheme == .dark ? "dark" : "light"
@@ -3907,6 +3913,7 @@ class GhosttyApp {
                     self.reloadConfiguration(
                         soft: soft,
                         source: "action.reload_config.app",
+                        reloadSettingsFromFile: !self.isSynchronizingGhosttyRuntimeColorScheme,
                         preferredColorScheme: reloadColorScheme
                     )
                 }
