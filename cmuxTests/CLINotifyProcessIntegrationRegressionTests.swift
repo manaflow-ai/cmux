@@ -1644,7 +1644,7 @@ final class CLINotifyProcessIntegrationRegressionTests: XCTestCase {
         )
     }
 
-    func testMoveSurfaceWindowFlagResolvesIndexedSourceInTargetWindowWorkspace() throws {
+    func testMoveSurfaceWindowFlagKeepsIndexedSourceInCallerContext() throws {
         let cliPath = try bundledCLIPath()
         let socketPath = makeSocketPath("move-surface-window")
         let listenerFD = try bindUnixSocket(at: socketPath)
@@ -1668,8 +1668,8 @@ final class CLINotifyProcessIntegrationRegressionTests: XCTestCase {
 
             switch method {
             case "surface.list":
-                XCTAssertEqual(params["window_id"] as? String, targetWindowId)
-                XCTAssertEqual(params["workspace_id"] as? String, targetWorkspaceId)
+                XCTAssertNil(params["window_id"])
+                XCTAssertNil(params["workspace_id"])
                 return self.v2Response(
                     id: id,
                     ok: true,
