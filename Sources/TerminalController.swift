@@ -7205,11 +7205,15 @@ class TerminalController {
                     let hostedView = terminalSurface.hostedView
                     let readiness = terminalSurface.runtimeReadinessSnapshot(reason: "surface.health")
                     let ttyName = v2NonEmptyString(ws.surfaceTTYNames[panel.id]) ?? readiness.ttyName
+                    let terminalReady = readiness.runtimeSurfaceReady &&
+                        readiness.processExited == false &&
+                        readiness.foregroundPID != nil &&
+                        ttyName != nil
                     let shellActivity = ws.panelShellActivityStates[panel.id] ?? .unknown
                     item["in_window"] = terminalSurface.isViewInWindow
-                    item["hosted_view_in_window"] = terminalSurface.isViewInWindow
+                    item["hosted_view_in_window"] = hostedView.window != nil
                     item["runtime_surface_ready"] = readiness.runtimeSurfaceReady
-                    item["terminal_ready"] = readiness.terminalReady
+                    item["terminal_ready"] = terminalReady
                     item["process_exited"] = v2OrNull(readiness.processExited)
                     item["foreground_pid"] = v2OrNull(readiness.foregroundPID)
                     item["tty"] = v2OrNull(ttyName)

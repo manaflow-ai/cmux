@@ -4559,7 +4559,7 @@ final class TerminalSurface: Identifiable, ObservableObject {
             runtimeSurfaceReady &&
                 processExited == false &&
                 foregroundPID != nil &&
-                ttyName?.isEmpty == false
+                ttyName != nil
         }
     }
 

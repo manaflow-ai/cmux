@@ -18,6 +18,7 @@ from cmux import cmux, cmuxError
 
 
 SOCKET_PATH = os.environ.get("CMUX_SOCKET_PATH", "/tmp/cmux-debug.sock")
+CLI_TIMEOUT_SECONDS = 15.0
 
 
 def _must(cond: bool, msg: str) -> None:
@@ -26,9 +27,10 @@ def _must(cond: bool, msg: str) -> None:
 
 
 def _find_cli_binary() -> str:
-    env_cli = os.environ.get("CMUXTERM_CLI")
-    if env_cli and os.path.isfile(env_cli) and os.access(env_cli, os.X_OK):
-        return env_cli
+    for env_name in ("CMUXTERM_CLI", "CMUX_BUNDLED_CLI_PATH"):
+        env_cli = os.environ.get(env_name)
+        if env_cli and os.path.isfile(env_cli) and os.access(env_cli, os.X_OK):
+            return env_cli
 
     fixed = os.path.expanduser("~/Library/Developer/Xcode/DerivedData/cmux-tests-v2/Build/Products/Debug/cmux")
     if os.path.isfile(fixed) and os.access(fixed, os.X_OK):
@@ -53,7 +55,20 @@ def _run_cli(cli: str, args: List[str]) -> str:
     env.pop("CMUX_TAB_ID", None)
 
     cmd = [cli, "--socket", SOCKET_PATH] + args
-    proc = subprocess.run(cmd, capture_output=True, text=True, check=False, env=env)
+    try:
+        proc = subprocess.run(
+            cmd,
+            capture_output=True,
+            text=True,
+            check=False,
+            env=env,
+            timeout=CLI_TIMEOUT_SECONDS,
+        )
+    except subprocess.TimeoutExpired as exc:
+        stdout = exc.stdout or ""
+        stderr = exc.stderr or ""
+        merged = f"{stdout}\n{stderr}".strip()
+        raise cmuxError(f"CLI timed out after {CLI_TIMEOUT_SECONDS:.0f}s ({' '.join(cmd)}): {merged}") from exc
     if proc.returncode != 0:
         merged = f"{proc.stdout}\n{proc.stderr}".strip()
         raise cmuxError(f"CLI failed ({' '.join(cmd)}): {merged}")
@@ -84,11 +99,16 @@ def _current_workspace(c: cmux) -> str:
 
 
 def _surface_ref_by_index(c: cmux, workspace_ref: str, index: int = 0) -> str:
-    rows = c.surface_health(workspace_ref)
-    _must(len(rows) > index, f"surface health missing index {index}: {rows}")
-    surface_ref = str(rows[index].get("ref") or rows[index].get("id") or "")
-    _must(bool(surface_ref), f"surface row has no ref/id: {rows[index]}")
-    return surface_ref
+    deadline = time.time() + 5.0
+    rows: list[dict] = []
+    while time.time() < deadline:
+        rows = c.surface_health(workspace_ref)
+        if len(rows) > index:
+            surface_ref = str(rows[index].get("ref") or rows[index].get("id") or "")
+            if surface_ref:
+                return surface_ref
+        time.sleep(0.1)
+    raise cmuxError(f"surface health missing index {index}: {rows}")
 
 
 def _wait_for_terminal_ready(c: cmux, workspace_ref: str, surface_ref: str, label: str) -> dict:
