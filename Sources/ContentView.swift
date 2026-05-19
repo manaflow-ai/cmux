@@ -4790,13 +4790,13 @@ struct ContentView: View {
         }
 #endif
         var seenCommandIDs: Set<String> = []
-        let entries = rawEntries
+        let entries = Array(rawEntries
             .reversed()
-            .compactMap { entry in
+            .compactMap { (entry: CommandPaletteCommand) -> CommandPaletteCommand? in
                 guard seenCommandIDs.insert(entry.id).inserted else { return nil }
                 return entry
             }
-            .reversed()
+            .reversed())
         commandPaletteSearchCommandsByID = Dictionary(uniqueKeysWithValues: entries.map { ($0.id, $0) })
         let searchCorpus = entries.map { entry in
             CommandPaletteSearchCorpusEntry(
