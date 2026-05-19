@@ -1,6 +1,12 @@
 import CoreGraphics
 import Foundation
 import Bonsplit
+#if canImport(CryptoKit)
+import CryptoKit
+#endif
+#if canImport(Security)
+import Security
+#endif
 
 enum SessionSnapshotSchema {
     static let currentVersion = 1
@@ -221,12 +227,778 @@ struct SessionGitBranchSnapshot: Codable, Sendable {
     var isDirty: Bool
 }
 
+enum SurfaceResumeApprovalPolicy: String, Codable, CaseIterable, Sendable {
+    case manual
+    case prompt
+    case auto
+}
+
+nonisolated struct SurfaceResumeBindingSnapshot: Codable, Equatable, Sendable {
+    var name: String?
+    var kind: String?
+    var command: String
+    var cwd: String?
+    var checkpointId: String?
+    var source: String?
+    var environment: [String: String]?
+    var autoResume: Bool?
+    var approvalPolicy: SurfaceResumeApprovalPolicy?
+    var approvalRecordId: String?
+    var updatedAt: TimeInterval
+
+    init(
+        name: String? = nil,
+        kind: String? = nil,
+        command: String,
+        cwd: String? = nil,
+        checkpointId: String? = nil,
+        source: String? = nil,
+        environment: [String: String]? = nil,
+        autoResume: Bool? = nil,
+        approvalPolicy: SurfaceResumeApprovalPolicy? = nil,
+        approvalRecordId: String? = nil,
+        updatedAt: TimeInterval = Date().timeIntervalSince1970
+    ) {
+        self.name = Self.normalized(name)
+        self.kind = Self.normalized(kind)
+        self.command = command.trimmingCharacters(in: .whitespacesAndNewlines)
+        self.cwd = Self.normalized(cwd)
+        self.checkpointId = Self.normalized(checkpointId)
+        self.source = Self.normalized(source)
+        self.environment = Self.normalizedEnvironment(environment)
+        self.autoResume = autoResume
+        self.approvalPolicy = approvalPolicy
+        self.approvalRecordId = Self.normalized(approvalRecordId)
+        self.updatedAt = updatedAt
+    }
+
+    var isProcessDetected: Bool {
+        source == "process-detected"
+    }
+
+    var isAgentHookBinding: Bool {
+        source == "agent-hook"
+    }
+
+    var allowsAutomaticResume: Bool {
+        autoResume == true
+    }
+
+    func shouldYieldToDetectedSurfaceResumeBinding(_ detectedBinding: SurfaceResumeBindingSnapshot) -> Bool {
+        detectedBinding.isProcessDetected && (isProcessDetected || isAgentHookBinding)
+    }
+
+    static let maxInlineStartupInputBytes = SessionRestorableAgentSnapshot.maxInlineStartupInputBytes
+
+    var startupInput: String? {
+        inlineStartupInput
+    }
+
+    var inlineStartupInput: String? {
+        let trimmed = command.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmed.isEmpty else { return nil }
+        guard let environment, !environment.isEmpty else {
+            return trimmed + "\n"
+        }
+        let assignments = environment.keys.sorted().compactMap { key -> String? in
+            guard let value = environment[key] else { return nil }
+            return "\(key)=\(value)"
+        }
+        let argv = ["/usr/bin/env"] + assignments + ["/bin/zsh", "-lc", trimmed]
+        return argv.map(Self.shellSingleQuoted).joined(separator: " ") + "\n"
+    }
+
+    func startupInputWithLauncherScript(
+        fileManager: FileManager = .default,
+        temporaryDirectory: URL = FileManager.default.temporaryDirectory,
+        allowLauncherScript: Bool = true
+    ) -> String? {
+        guard let inlineInput = inlineStartupInput else { return nil }
+        guard inlineInput.utf8.count > Self.maxInlineStartupInputBytes else {
+            return inlineInput
+        }
+        guard allowLauncherScript else { return inlineInput }
+        guard let scriptURL = SurfaceResumeBindingScriptStore.writeLauncherScript(
+            inlineInput: inlineInput,
+            binding: self,
+            fileManager: fileManager,
+            temporaryDirectory: temporaryDirectory
+        ) else {
+            return nil
+        }
+
+        let scriptInput = "/bin/zsh \(Self.shellSingleQuoted(scriptURL.path))\n"
+        return scriptInput.utf8.count <= Self.maxInlineStartupInputBytes ? scriptInput : nil
+    }
+
+    private static func normalized(_ rawValue: String?) -> String? {
+        guard let rawValue = rawValue?.trimmingCharacters(in: .whitespacesAndNewlines),
+              !rawValue.isEmpty else {
+            return nil
+        }
+        return rawValue
+    }
+
+    private static func normalizedEnvironment(_ environment: [String: String]?) -> [String: String]? {
+        guard let environment else { return nil }
+        let normalized = environment.reduce(into: [String: String]()) { result, item in
+            let key = item.key.trimmingCharacters(in: .whitespacesAndNewlines)
+            guard !key.isEmpty, !isSensitiveEnvironmentKey(key) else { return }
+            guard isSafeEnvironmentValue(item.value) else { return }
+            result[key] = item.value
+        }
+        return normalized.isEmpty ? nil : normalized
+    }
+
+    private static func isSafeEnvironmentValue(_ value: String) -> Bool {
+        !value.unicodeScalars.contains { $0.value < 0x20 || $0.value == 0x7F }
+    }
+
+    private static func isSensitiveEnvironmentKey(_ key: String) -> Bool {
+        let uppercasedKey = key.uppercased()
+        let sensitiveFragments = [
+            "API_KEY",
+            "ACCESS_KEY",
+            "AUTH_TOKEN",
+            "BEARER_TOKEN",
+            "PRIVATE_KEY",
+            "PASSWORD",
+            "PASSWD",
+            "SECRET",
+            "TOKEN",
+            "CREDENTIAL",
+            "COOKIE",
+        ]
+        return sensitiveFragments.contains { uppercasedKey.contains($0) }
+    }
+
+    private static func shellSingleQuoted(_ value: String) -> String {
+        "'" + value.replacingOccurrences(of: "'", with: "'\\''") + "'"
+    }
+}
+
+nonisolated struct SurfaceResumeApprovalRecord: Codable, Equatable, Identifiable, Sendable {
+    var version: Int
+    var id: String
+    var name: String?
+    var commandPrefix: [String]
+    var cwd: String?
+    var environment: [String: String]?
+    var environmentKeys: [String]
+    var source: String?
+    var policy: SurfaceResumeApprovalPolicy
+    var createdAt: TimeInterval
+    var updatedAt: TimeInterval
+    var lastUsedAt: TimeInterval?
+    var signature: String?
+
+    init(
+        id: String = UUID().uuidString.lowercased(),
+        name: String? = nil,
+        commandPrefix: [String],
+        cwd: String? = nil,
+        environment: [String: String]? = nil,
+        environmentKeys: [String] = [],
+        source: String? = nil,
+        policy: SurfaceResumeApprovalPolicy,
+        createdAt: TimeInterval = Date().timeIntervalSince1970,
+        updatedAt: TimeInterval = Date().timeIntervalSince1970,
+        lastUsedAt: TimeInterval? = nil,
+        signature: String? = nil
+    ) {
+        self.version = 1
+        self.id = id
+        self.name = Self.normalized(name)
+        self.commandPrefix = commandPrefix.filter { !$0.isEmpty }
+        self.cwd = SurfaceResumeCommandCanonicalizer.normalizedCWD(cwd)
+        self.environment = Self.normalizedEnvironment(environment)
+        self.environmentKeys = Self.normalizedEnvironmentKeys(environmentKeys, environment: self.environment)
+        self.source = Self.normalized(source)
+        self.policy = policy
+        self.createdAt = createdAt
+        self.updatedAt = updatedAt
+        self.lastUsedAt = lastUsedAt
+        self.signature = Self.normalized(signature)
+    }
+
+    var commandPrefixText: String {
+        commandPrefix.map(SurfaceResumeCommandCanonicalizer.shellQuoted).joined(separator: " ")
+    }
+
+    func matches(_ binding: SurfaceResumeBindingSnapshot) -> Bool {
+        guard !commandPrefix.isEmpty,
+              let tokens = SurfaceResumeCommandCanonicalizer.tokens(from: binding.command),
+              tokens.count >= commandPrefix.count,
+              Array(tokens.prefix(commandPrefix.count)) == commandPrefix else {
+            return false
+        }
+        if let cwd {
+            guard SurfaceResumeCommandCanonicalizer.normalizedCWD(binding.cwd) == cwd else {
+                return false
+            }
+        }
+        let bindingEnvironment = binding.environment ?? [:]
+        guard let environment, !environment.isEmpty else {
+            return bindingEnvironment.isEmpty
+        }
+        return bindingEnvironment == environment
+    }
+
+    func signingPayloadData() -> Data {
+        let encodedPrefix = commandPrefix
+            .map { Data($0.utf8).base64EncodedString() }
+            .joined(separator: ",")
+        let encodedEnvironmentKeys = environmentKeys
+            .map { Data($0.utf8).base64EncodedString() }
+            .joined(separator: ",")
+        let encodedEnvironment = (environment ?? [:])
+            .keys
+            .sorted()
+            .map { key in
+                let value = environment?[key] ?? ""
+                return "\(Data(key.utf8).base64EncodedString())=\(Data(value.utf8).base64EncodedString())"
+            }
+            .joined(separator: ",")
+        let fields = [
+            "version=\(version)",
+            "id=\(id)",
+            "name=\(name.map { Data($0.utf8).base64EncodedString() } ?? "")",
+            "commandPrefix=\(encodedPrefix)",
+            "cwd=\(cwd.map { Data($0.utf8).base64EncodedString() } ?? "")",
+            "environment=\(encodedEnvironment)",
+            "environmentKeys=\(encodedEnvironmentKeys)",
+            "source=\(source.map { Data($0.utf8).base64EncodedString() } ?? "")",
+            "policy=\(policy.rawValue)",
+            "createdAt=\(createdAt)",
+            "updatedAt=\(updatedAt)",
+            "lastUsedAt=\(lastUsedAt.map { String($0) } ?? "")",
+        ]
+        return fields.joined(separator: "\n").data(using: .utf8) ?? Data()
+    }
+
+    func signed(secret: Data) -> SurfaceResumeApprovalRecord {
+        var copy = self
+        copy.signature = SurfaceResumeApprovalSignature.sign(copy.signingPayloadData(), secret: secret)
+        return copy
+    }
+
+    func hasValidSignature(secret: Data) -> Bool {
+        guard let signature else { return false }
+        return SurfaceResumeApprovalSignature.sign(signingPayloadData(), secret: secret) == signature
+    }
+
+    private static func normalized(_ rawValue: String?) -> String? {
+        guard let rawValue = rawValue?.trimmingCharacters(in: .whitespacesAndNewlines),
+              !rawValue.isEmpty else {
+            return nil
+        }
+        return rawValue
+    }
+
+    private static func normalizedEnvironment(_ environment: [String: String]?) -> [String: String]? {
+        guard let environment else { return nil }
+        let normalized = environment.reduce(into: [String: String]()) { result, item in
+            let key = item.key.trimmingCharacters(in: .whitespacesAndNewlines)
+            guard !key.isEmpty else { return }
+            guard isSafeEnvironmentValue(item.value) else { return }
+            result[key] = item.value
+        }
+        return normalized.isEmpty ? nil : normalized
+    }
+
+    private static func isSafeEnvironmentValue(_ value: String) -> Bool {
+        !value.unicodeScalars.contains { $0.value < 0x20 || $0.value == 0x7F }
+    }
+
+    private static func normalizedEnvironmentKeys(
+        _ environmentKeys: [String],
+        environment: [String: String]?
+    ) -> [String] {
+        let explicitKeys = environmentKeys
+            .map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }
+            .filter { !$0.isEmpty }
+        let environmentDerivedKeys: [String] = environment.map { Array($0.keys) } ?? []
+        return Array(Set(explicitKeys + environmentDerivedKeys)).sorted()
+    }
+}
+
+enum SurfaceResumeCommandCanonicalizer {
+    static func tokens(from command: String) -> [String]? {
+        let scalars = Array(command.unicodeScalars)
+        var tokens: [String] = []
+        var token = String.UnicodeScalarView()
+        var index = 0
+        var quote: UnicodeScalar?
+
+        func flushToken() {
+            guard !token.isEmpty else { return }
+            tokens.append(String(token))
+            token.removeAll(keepingCapacity: true)
+        }
+
+        while index < scalars.count {
+            let scalar = scalars[index]
+            if let activeQuote = quote {
+                if scalar == activeQuote {
+                    quote = nil
+                } else if activeQuote == "\"", scalar == "\\", index + 1 < scalars.count {
+                    index += 1
+                    token.append(scalars[index])
+                } else {
+                    token.append(scalar)
+                }
+            } else if scalar == "'" || scalar == "\"" {
+                quote = scalar
+            } else if CharacterSet.whitespacesAndNewlines.contains(scalar) {
+                flushToken()
+            } else if scalar == "\\", index + 1 < scalars.count {
+                index += 1
+                token.append(scalars[index])
+            } else {
+                token.append(scalar)
+            }
+            index += 1
+        }
+
+        guard quote == nil else { return nil }
+        flushToken()
+        return tokens.isEmpty ? nil : tokens
+    }
+
+    static func normalizedCWD(_ rawValue: String?) -> String? {
+        guard let rawValue = rawValue?.trimmingCharacters(in: .whitespacesAndNewlines),
+              !rawValue.isEmpty else {
+            return nil
+        }
+        return ((rawValue as NSString).expandingTildeInPath as NSString).standardizingPath
+    }
+
+    static func shellQuoted(_ value: String) -> String {
+        guard !value.isEmpty else { return "''" }
+        let allowed = CharacterSet(charactersIn: "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789_+-=./:@%")
+        if value.unicodeScalars.allSatisfy({ allowed.contains($0) }) {
+            return value
+        }
+        return "'" + value.replacingOccurrences(of: "'", with: "'\\''") + "'"
+    }
+}
+
+enum SurfaceResumeApprovalSignature {
+    static func sign(_ payload: Data, secret: Data) -> String {
+#if canImport(CryptoKit)
+        let key = SymmetricKey(data: secret)
+        let code = HMAC<SHA256>.authenticationCode(for: payload, using: key)
+        return Data(code).base64EncodedString()
+#else
+        return ""
+#endif
+    }
+}
+
+enum SurfaceResumeApprovalStore {
+    static let didChangeNotification = Notification.Name("cmux.surfaceResumeApprovalsDidChange")
+    private static let defaultFileName = "resume-commands.json"
+    private static let secretFileName = ".surface-resume-approval-secret"
+    private static let keychainService = "com.cmuxterm.app.surface-resume-approvals"
+    private static let keychainAccount = "hmac-secret-v1"
+
+    struct StoredFile: Codable {
+        var version: Int
+        var records: [SurfaceResumeApprovalRecord]
+    }
+
+    static func defaultURL(environment: [String: String] = ProcessInfo.processInfo.environment) -> URL {
+        if let override = environment["CMUX_SURFACE_RESUME_APPROVAL_STORE_PATH"]?.trimmingCharacters(in: .whitespacesAndNewlines),
+           !override.isEmpty {
+            return URL(fileURLWithPath: (override as NSString).expandingTildeInPath, isDirectory: false)
+        }
+        return FileManager.default.homeDirectoryForCurrentUser
+            .appendingPathComponent(".config/cmux", isDirectory: true)
+            .appendingPathComponent(defaultFileName, isDirectory: false)
+    }
+
+    static func loadRecords(
+        fileURL: URL = defaultURL(),
+        fileManager: FileManager = .default
+    ) -> [SurfaceResumeApprovalRecord] {
+        guard let data = try? Data(contentsOf: fileURL) else { return [] }
+        if let file = try? JSONDecoder().decode(StoredFile.self, from: data) {
+            return file.records
+        }
+        return (try? JSONDecoder().decode([SurfaceResumeApprovalRecord].self, from: data)) ?? []
+    }
+
+    static func validRecords(
+        fileURL: URL = defaultURL(),
+        fileManager: FileManager = .default,
+        signingSecret: Data? = nil
+    ) -> [SurfaceResumeApprovalRecord] {
+        let signingSecret = signingSecret ?? defaultSigningSecret(fileManager: fileManager)
+        guard let signingSecret else { return [] }
+        return loadRecords(fileURL: fileURL, fileManager: fileManager)
+            .filter { $0.hasValidSignature(secret: signingSecret) }
+    }
+
+    static func matchingRecord(
+        for binding: SurfaceResumeBindingSnapshot,
+        fileURL: URL = defaultURL(),
+        fileManager: FileManager = .default,
+        signingSecret: Data? = nil
+    ) -> SurfaceResumeApprovalRecord? {
+        validRecords(fileURL: fileURL, fileManager: fileManager, signingSecret: signingSecret)
+            .filter { $0.matches(binding) }
+            .sorted { lhs, rhs in
+                if lhs.commandPrefix.count != rhs.commandPrefix.count {
+                    return lhs.commandPrefix.count > rhs.commandPrefix.count
+                }
+                return lhs.updatedAt > rhs.updatedAt
+            }
+            .first
+    }
+
+    static func applyingStoredApproval(
+        to binding: SurfaceResumeBindingSnapshot,
+        fileURL: URL = defaultURL(),
+        fileManager: FileManager = .default,
+        signingSecret: Data? = nil
+    ) -> SurfaceResumeBindingSnapshot {
+        if binding.isProcessDetected {
+            var trustedBinding = binding
+            trustedBinding.autoResume = true
+            trustedBinding.approvalPolicy = .auto
+            trustedBinding.approvalRecordId = nil
+            return trustedBinding
+        }
+
+        if binding.isAgentHookBinding {
+            var trustedBinding = binding
+            trustedBinding.autoResume = binding.autoResume == true
+            trustedBinding.approvalPolicy = trustedBinding.autoResume == true ? .auto : .manual
+            trustedBinding.approvalRecordId = nil
+            return trustedBinding
+        }
+
+        var effective = binding
+        guard let record = matchingRecord(
+            for: binding,
+            fileURL: fileURL,
+            fileManager: fileManager,
+            signingSecret: signingSecret
+        ) else {
+            effective.autoResume = false
+            effective.approvalPolicy = .manual
+            effective.approvalRecordId = nil
+            return effective
+        }
+
+        effective.approvalPolicy = record.policy
+        effective.approvalRecordId = record.id
+        effective.autoResume = record.policy == .auto
+        return effective
+    }
+
+    @discardableResult
+    static func approve(
+        binding: SurfaceResumeBindingSnapshot,
+        policy: SurfaceResumeApprovalPolicy,
+        commandPrefix: [String]? = nil,
+        fileURL: URL = defaultURL(),
+        fileManager: FileManager = .default,
+        signingSecret: Data? = nil
+    ) -> SurfaceResumeApprovalRecord? {
+        let signingSecret = signingSecret ?? defaultSigningSecret(fileManager: fileManager)
+        guard let signingSecret,
+              let tokens = SurfaceResumeCommandCanonicalizer.tokens(from: binding.command) else {
+            return nil
+        }
+        let prefix = commandPrefix ?? tokens
+        guard !prefix.isEmpty, tokens.count >= prefix.count, Array(tokens.prefix(prefix.count)) == prefix else {
+            return nil
+        }
+        let now = Date().timeIntervalSince1970
+        let existing = matchingRecord(
+            for: binding,
+            fileURL: fileURL,
+            fileManager: fileManager,
+            signingSecret: signingSecret
+        )
+        let record = SurfaceResumeApprovalRecord(
+            id: existing?.id ?? UUID().uuidString.lowercased(),
+            name: binding.name,
+            commandPrefix: prefix,
+            cwd: binding.cwd,
+            environment: binding.environment,
+            environmentKeys: Array((binding.environment ?? [:]).keys),
+            source: binding.source,
+            policy: policy,
+            createdAt: existing?.createdAt ?? now,
+            updatedAt: now,
+            lastUsedAt: existing?.lastUsedAt,
+            signature: nil
+        ).signed(secret: signingSecret)
+        writeReplacing(record: record, fileURL: fileURL, fileManager: fileManager)
+        return record
+    }
+
+    @discardableResult
+    static func update(
+        recordId: String,
+        policy: SurfaceResumeApprovalPolicy? = nil,
+        commandPrefix: [String]? = nil,
+        fileURL: URL = defaultURL(),
+        fileManager: FileManager = .default,
+        signingSecret: Data? = nil
+    ) -> Bool {
+        let signingSecret = signingSecret ?? defaultSigningSecret(fileManager: fileManager)
+        guard let signingSecret else { return false }
+        var records = loadRecords(fileURL: fileURL, fileManager: fileManager)
+        guard let index = records.firstIndex(where: { $0.id == recordId }) else { return false }
+        var record = records[index]
+        guard record.hasValidSignature(secret: signingSecret) else { return false }
+        if let policy {
+            record.policy = policy
+        }
+        if let commandPrefix {
+            guard !commandPrefix.isEmpty else { return false }
+            record.commandPrefix = commandPrefix
+        }
+        record.updatedAt = Date().timeIntervalSince1970
+        records[index] = record.signed(secret: signingSecret)
+        return write(records: records, fileURL: fileURL, fileManager: fileManager)
+    }
+
+    @discardableResult
+    static func delete(
+        recordId: String,
+        fileURL: URL = defaultURL(),
+        fileManager: FileManager = .default
+    ) -> Bool {
+        let records = loadRecords(fileURL: fileURL, fileManager: fileManager)
+            .filter { $0.id != recordId }
+        return write(records: records, fileURL: fileURL, fileManager: fileManager)
+    }
+
+    @discardableResult
+    static func removeAll(
+        fileURL: URL = defaultURL(),
+        fileManager: FileManager = .default
+    ) -> Bool {
+        try? fileManager.removeItem(at: fileURL)
+        NotificationCenter.default.post(name: didChangeNotification, object: nil)
+        return true
+    }
+
+    static func isValid(_ record: SurfaceResumeApprovalRecord, signingSecret: Data? = defaultSigningSecret()) -> Bool {
+        guard let signingSecret else { return false }
+        return record.hasValidSignature(secret: signingSecret)
+    }
+
+    static func defaultSigningSecret(fileManager: FileManager = .default) -> Data? {
+        let env = ProcessInfo.processInfo.environment
+        if let encoded = env["CMUX_SURFACE_RESUME_APPROVAL_SECRET_B64"],
+           let data = Data(base64Encoded: encoded),
+           !data.isEmpty {
+            return data
+        }
+        if let data = keychainSecret(), !data.isEmpty {
+            return data
+        }
+        let generated = randomSecret()
+        if storeKeychainSecret(generated) {
+            return generated
+        }
+        return fileBackedSecret(fileManager: fileManager, generated: generated)
+    }
+
+    private static func writeReplacing(
+        record: SurfaceResumeApprovalRecord,
+        fileURL: URL,
+        fileManager: FileManager
+    ) {
+        var records = loadRecords(fileURL: fileURL, fileManager: fileManager)
+        if let index = records.firstIndex(where: { $0.id == record.id }) {
+            records[index] = record
+        } else {
+            records.append(record)
+        }
+        _ = write(records: records, fileURL: fileURL, fileManager: fileManager)
+    }
+
+    @discardableResult
+    private static func write(
+        records: [SurfaceResumeApprovalRecord],
+        fileURL: URL,
+        fileManager: FileManager
+    ) -> Bool {
+        do {
+            try fileManager.createDirectory(
+                at: fileURL.deletingLastPathComponent(),
+                withIntermediateDirectories: true
+            )
+            try? fileManager.setAttributes([.posixPermissions: 0o700], ofItemAtPath: fileURL.deletingLastPathComponent().path)
+            let encoder = JSONEncoder()
+            encoder.outputFormatting = [.prettyPrinted, .sortedKeys]
+            let data = try encoder.encode(StoredFile(version: 1, records: records))
+            try data.write(to: fileURL, options: [.atomic])
+            try? fileManager.setAttributes([.posixPermissions: 0o600], ofItemAtPath: fileURL.path)
+            NotificationCenter.default.post(name: didChangeNotification, object: nil)
+            return true
+        } catch {
+            return false
+        }
+    }
+
+    private static func randomSecret() -> Data {
+        var bytes = [UInt8](repeating: 0, count: 32)
+#if canImport(Security)
+        if SecRandomCopyBytes(kSecRandomDefault, bytes.count, &bytes) == errSecSuccess {
+            return Data(bytes)
+        }
+#endif
+        for index in bytes.indices {
+            bytes[index] = UInt8.random(in: UInt8.min...UInt8.max)
+        }
+        return Data(bytes)
+    }
+
+    private static func fileBackedSecret(fileManager: FileManager, generated: Data) -> Data? {
+        let url = defaultURL().deletingLastPathComponent().appendingPathComponent(secretFileName, isDirectory: false)
+        if let existing = try? Data(contentsOf: url), !existing.isEmpty {
+            return existing
+        }
+        do {
+            try fileManager.createDirectory(at: url.deletingLastPathComponent(), withIntermediateDirectories: true)
+            try generated.write(to: url, options: [.atomic])
+            try? fileManager.setAttributes([.posixPermissions: 0o600], ofItemAtPath: url.path)
+            return generated
+        } catch {
+            return nil
+        }
+    }
+
+#if canImport(Security)
+    private static func keychainSecret() -> Data? {
+        let query: [String: Any] = [
+            kSecClass as String: kSecClassGenericPassword,
+            kSecAttrService as String: keychainService,
+            kSecAttrAccount as String: keychainAccount,
+            kSecUseDataProtectionKeychain as String: true,
+            kSecReturnData as String: true,
+            kSecMatchLimit as String: kSecMatchLimitOne,
+        ]
+        var result: CFTypeRef?
+        let status = SecItemCopyMatching(query as CFDictionary, &result)
+        guard status == errSecSuccess else { return nil }
+        return result as? Data
+    }
+
+    private static func storeKeychainSecret(_ secret: Data) -> Bool {
+        let query: [String: Any] = [
+            kSecClass as String: kSecClassGenericPassword,
+            kSecAttrService as String: keychainService,
+            kSecAttrAccount as String: keychainAccount,
+            kSecUseDataProtectionKeychain as String: true,
+        ]
+        let updateStatus = SecItemUpdate(
+            query as CFDictionary,
+            [kSecValueData as String: secret] as CFDictionary
+        )
+        if updateStatus == errSecSuccess { return true }
+        if updateStatus != errSecItemNotFound { return false }
+        var insert = query
+        insert[kSecValueData as String] = secret
+        insert[kSecAttrAccessible as String] = kSecAttrAccessibleAfterFirstUnlock
+        return SecItemAdd(insert as CFDictionary, nil) == errSecSuccess
+    }
+#else
+    private static func keychainSecret() -> Data? { nil }
+    private static func storeKeychainSecret(_ secret: Data) -> Bool { false }
+#endif
+}
+
+private enum SurfaceResumeBindingScriptStore {
+    private static let directoryName = "cmux-surface-resume"
+    private static let scriptTTL: TimeInterval = 24 * 60 * 60
+
+    static func writeLauncherScript(
+        inlineInput: String,
+        binding: SurfaceResumeBindingSnapshot,
+        fileManager: FileManager,
+        temporaryDirectory: URL
+    ) -> URL? {
+        let directoryURL = temporaryDirectory.appendingPathComponent(directoryName, isDirectory: true)
+        do {
+            try fileManager.createDirectory(at: directoryURL, withIntermediateDirectories: true)
+            try? fileManager.setAttributes([.posixPermissions: 0o700], ofItemAtPath: directoryURL.path)
+            pruneOldScripts(in: directoryURL, fileManager: fileManager)
+
+            let prefix = safeFilenamePrefix(binding: binding)
+            let scriptURL = directoryURL.appendingPathComponent(
+                "\(prefix)-\(UUID().uuidString).zsh",
+                isDirectory: false
+            )
+            let contents = "#!/bin/zsh\nrm -f -- \"$0\" 2>/dev/null || true\n\(inlineInput)"
+            try contents.write(to: scriptURL, atomically: true, encoding: .utf8)
+            try? fileManager.setAttributes([.posixPermissions: 0o700], ofItemAtPath: scriptURL.path)
+            return scriptURL
+        } catch {
+            return nil
+        }
+    }
+
+    private static func safeFilenamePrefix(binding: SurfaceResumeBindingSnapshot) -> String {
+        let rawPrefix = binding.kind ?? binding.source ?? "surface-resume"
+        let safePrefix = rawPrefix
+            .prefix(24)
+            .map { character -> Character in
+                character.isLetter || character.isNumber || character == "-" ? character : "_"
+            }
+        return safePrefix.isEmpty ? "surface-resume" : String(safePrefix)
+    }
+
+    private static func pruneOldScripts(in directoryURL: URL, fileManager: FileManager) {
+        guard let scriptURLs = try? fileManager.contentsOfDirectory(
+            at: directoryURL,
+            includingPropertiesForKeys: [.contentModificationDateKey],
+            options: [.skipsHiddenFiles]
+        ) else {
+            return
+        }
+        let cutoff = Date().addingTimeInterval(-scriptTTL)
+        for scriptURL in scriptURLs where scriptURL.pathExtension == "zsh" {
+            guard let values = try? scriptURL.resourceValues(forKeys: [.contentModificationDateKey]),
+                  let modifiedAt = values.contentModificationDate,
+                  modifiedAt < cutoff else {
+                continue
+            }
+            try? fileManager.removeItem(at: scriptURL)
+        }
+    }
+}
+
 struct SessionTerminalPanelSnapshot: Codable, Sendable {
     var workingDirectory: String?
     var scrollback: String?
     var agent: SessionRestorableAgentSnapshot?
     var tmuxStartCommand: String?
     var ephemeralWorktree: EphemeralWorktreeRecord?
+    var resumeBinding: SurfaceResumeBindingSnapshot?
+
+    init(
+        workingDirectory: String? = nil,
+        scrollback: String? = nil,
+        agent: SessionRestorableAgentSnapshot? = nil,
+        tmuxStartCommand: String? = nil,
+        ephemeralWorktree: EphemeralWorktreeRecord? = nil,
+        resumeBinding: SurfaceResumeBindingSnapshot? = nil
+    ) {
+        self.workingDirectory = workingDirectory
+        self.scrollback = scrollback
+        self.agent = agent
+        self.tmuxStartCommand = tmuxStartCommand
+        self.ephemeralWorktree = ephemeralWorktree
+        self.resumeBinding = resumeBinding
+    }
 }
 struct SessionBrowserPanelSnapshot: Codable, Sendable {
     var urlString: String?
