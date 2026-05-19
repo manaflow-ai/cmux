@@ -2912,8 +2912,8 @@ struct CMUXCLI {
             let (layoutOpt, rem4) = parseOption(rem3, name: "--layout")
             let (windowOpt, rem5) = parseOption(rem4, name: "--window")
             let (focusOpt, rem6) = parseOption(rem5, name: "--focus")
-            let (worktreeCleanupOpt, rem7) = parseOption(rem6, name: "--worktree-cleanup")
-            let (worktreeOpt, remaining) = parseFlag(rem7, name: "--worktree")
+            let (worktreeOpt, rem7) = parseFlag(rem6, name: "--worktree")
+            let (worktreeCleanupOpt, remaining) = parseOption(rem7, name: "--worktree-cleanup")
             if let unknown = remaining.first(where: { $0.hasPrefix("--") }) {
                 throw CLIError(message: "new-workspace: unknown flag '\(unknown)'. Known flags: --name <title>, --description <text>, --command <text>, --cwd <path>, --layout <json>, --window <id|ref|index>, --focus <true|false>, --worktree, --worktree-cleanup <snapshot|block>")
             }
@@ -2954,8 +2954,8 @@ struct CMUXCLI {
             let (focusOpt, rem3) = parseOption(rem2, name: "--focus")
             let (cwdOpt, rem4) = parseOption(rem3, name: "--cwd")
             let (commandOpt, rem5) = parseOption(rem4, name: "--command")
-            let (worktreeCleanupOpt, rem6) = parseOption(rem5, name: "--worktree-cleanup")
-            let (worktreeOpt, rem7) = parseFlag(rem6, name: "--worktree")
+            let (worktreeOpt, rem6) = parseFlag(rem5, name: "--worktree")
+            let (worktreeCleanupOpt, rem7) = parseOption(rem6, name: "--worktree-cleanup")
             let workspaceArg = wsArg ?? (windowId == nil ? ProcessInfo.processInfo.environment["CMUX_WORKSPACE_ID"] : nil)
             let surfaceRaw = sfArg ?? panelArg ?? (wsArg == nil && windowId == nil ? ProcessInfo.processInfo.environment["CMUX_SURFACE_ID"] : nil)
             let direction = try validatedSplitDirection(rem7.first, commandName: "new-split")
@@ -3052,8 +3052,8 @@ struct CMUXCLI {
             let (focusOpt, rem4) = parseOption(rem3, name: "--focus")
             let (cwdOpt, rem5) = parseOption(rem4, name: "--cwd")
             let (commandOpt, rem6) = parseOption(rem5, name: "--command")
-            let (worktreeCleanupOpt, rem7) = parseOption(rem6, name: "--worktree-cleanup")
-            let (worktreeOpt, remFinal) = parseFlag(rem7, name: "--worktree")
+            let (worktreeOpt, rem7) = parseFlag(rem6, name: "--worktree")
+            let (worktreeCleanupOpt, remFinal) = parseOption(rem7, name: "--worktree-cleanup")
             if let unknown = remFinal.first {
                 throw CLIError(message: "new-pane: unknown argument '\(unknown)'")
             }
@@ -3079,8 +3079,8 @@ struct CMUXCLI {
             let (focusOpt, rem4) = parseOption(rem3, name: "--focus")
             let (cwdOpt, rem5) = parseOption(rem4, name: "--cwd")
             let (commandOpt, rem6) = parseOption(rem5, name: "--command")
-            let (worktreeCleanupOpt, rem7) = parseOption(rem6, name: "--worktree-cleanup")
-            let (worktreeOpt, remFinal) = parseFlag(rem7, name: "--worktree")
+            let (worktreeOpt, rem7) = parseFlag(rem6, name: "--worktree")
+            let (worktreeCleanupOpt, remFinal) = parseOption(rem7, name: "--worktree-cleanup")
             if let unknown = remFinal.first {
                 throw CLIError(message: "new-surface: unknown argument '\(unknown)'")
             }
