@@ -49,7 +49,8 @@ enum WorkspaceIconValue: Equatable, Sendable {
         if trimmed.hasPrefix(Self.emojiPrefix) {
             let emoji = String(trimmed.dropFirst(Self.emojiPrefix.count))
                 .trimmingCharacters(in: .whitespacesAndNewlines)
-            return emoji.isEmpty ? nil : Self.emojiPrefix + emoji
+            guard !emoji.isEmpty, emoji.allSatisfy(Self.isEmojiCluster) else { return nil }
+            return Self.emojiPrefix + emoji
         }
 
         let expanded = NSString(string: trimmed).expandingTildeInPath
@@ -59,6 +60,12 @@ enum WorkspaceIconValue: Equatable, Sendable {
     }
 
     private static let emojiPrefix = "emoji:"
+
+    private static func isEmojiCluster(_ character: Character) -> Bool {
+        character.unicodeScalars.contains { scalar in
+            scalar.properties.isEmojiPresentation || scalar.value == 0xFE0F
+        }
+    }
 }
 
 enum WorkspaceIconDetector {

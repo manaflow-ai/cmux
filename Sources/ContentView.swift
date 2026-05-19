@@ -12859,165 +12859,177 @@ private struct TabItemView: View, Equatable {
         let detailVisibility = visibleAuxiliaryDetails
         let workspaceIconPath = workspaceSnapshot.workspaceIconPath
 
-        HStack(alignment: .top, spacing: workspaceIconPath == nil ? 0 : 10) {
-            workspaceIconSection(
-                path: workspaceIconPath,
-                reloadToken: workspaceSnapshot.workspaceIconReloadToken
+        let visualRow = AnyView(
+            HStack(alignment: .top, spacing: workspaceIconPath == nil ? 0 : 10) {
+                workspaceIconSection(
+                    path: workspaceIconPath,
+                    reloadToken: workspaceSnapshot.workspaceIconReloadToken
+                )
+                workspaceDetailsContent(
+                    workspaceSnapshot: workspaceSnapshot,
+                    effectiveSubtitle: effectiveSubtitle,
+                    detailVisibility: detailVisibility,
+                    protectedWorkspaceTooltip: protectedWorkspaceTooltip
+                )
+            }
+            .animation(.easeInOut(duration: 0.2), value: workspaceSnapshot.latestLog)
+            .animation(.easeInOut(duration: 0.2), value: workspaceSnapshot.progress != nil)
+            .animation(.easeInOut(duration: 0.2), value: workspaceSnapshot.metadataBlocks.count)
+            .padding(.leading, workspaceIconPath == nil ? 10 : 6)
+            .padding(.trailing, 10)
+            .padding(.vertical, 8)
+            .background(
+                RoundedRectangle(cornerRadius: 6)
+                    .fill(backgroundColor)
+                    .overlay {
+                        RoundedRectangle(cornerRadius: 6)
+                            .strokeBorder(activeBorderColor, lineWidth: activeBorderLineWidth)
+                    }
+                    .overlay(alignment: .leading) {
+                        if showsLeadingRail {
+                            Capsule(style: .continuous)
+                                .fill(railColor)
+                                .frame(width: 3)
+                                .padding(.leading, 4)
+                                .padding(.vertical, 5)
+                                .offset(x: -1)
+                        }
+                    }
             )
-            workspaceDetailsContent(
-                workspaceSnapshot: workspaceSnapshot,
-                effectiveSubtitle: effectiveSubtitle,
-                detailVisibility: detailVisibility,
-                protectedWorkspaceTooltip: protectedWorkspaceTooltip
-            )
-        }
-        .animation(.easeInOut(duration: 0.2), value: workspaceSnapshot.latestLog)
-        .animation(.easeInOut(duration: 0.2), value: workspaceSnapshot.progress != nil)
-        .animation(.easeInOut(duration: 0.2), value: workspaceSnapshot.metadataBlocks.count)
-        .padding(.leading, workspaceIconPath == nil ? 10 : 6)
-        .padding(.trailing, 10)
-        .padding(.vertical, 8)
-        .background(
-            RoundedRectangle(cornerRadius: 6)
-                .fill(backgroundColor)
-                .overlay {
-                    RoundedRectangle(cornerRadius: 6)
-                        .strokeBorder(activeBorderColor, lineWidth: activeBorderLineWidth)
+            .overlay(alignment: .topTrailing) {
+                if showsWorkspaceShortcutHint, let workspaceShortcutLabel {
+                    ShortcutHintPill(text: workspaceShortcutLabel, fontSize: 10, emphasis: shortcutHintEmphasis)
+                        .offset(
+                            x: ShortcutHintDebugSettings.clamped(sidebarShortcutHintXOffset),
+                            y: ShortcutHintDebugSettings.clamped(sidebarShortcutHintYOffset)
+                        )
+                        .padding(.top, 6)
+                        .padding(.trailing, 10)
+                        .shortcutHintTransition()
+                } else if showCloseButton {
+                    Button(action: {
+                        #if DEBUG
+                        cmuxDebugLog("sidebar.close workspace=\(tab.id.uuidString.prefix(5)) method=button")
+                        #endif
+                        tabManager.closeWorkspaceWithConfirmation(tab)
+                    }) {
+                        Image(systemName: "xmark")
+                            .font(.system(size: 9, weight: .medium))
+                            .foregroundColor(activeSecondaryColor(0.7))
+                    }
+                    .buttonStyle(.plain)
+                    .safeHelp(closeButtonTooltip)
+                    .frame(width: SidebarTrailingAccessoryWidthPolicy.closeButtonWidth, height: 16, alignment: .center)
+                    .padding(.top, 8)
+                    .padding(.trailing, 10)
                 }
-                .overlay(alignment: .leading) {
-                    if showsLeadingRail {
-                        Capsule(style: .continuous)
-                            .fill(railColor)
-                            .frame(width: 3)
-                            .padding(.leading, 4)
-                            .padding(.vertical, 5)
-                            .offset(x: -1)
+            }
+        )
+
+        let measuredRow = AnyView(
+            visualRow
+                .shortcutHintVisibilityAnimation(value: showsWorkspaceShortcutHint)
+                .padding(.horizontal, 6)
+                .background {
+                    GeometryReader { proxy in
+                        Color.clear
+                            .onAppear {
+                                rowHeight = max(proxy.size.height, 1)
+                            }
+                            .onChange(of: proxy.size.height) { newHeight in
+                                rowHeight = max(newHeight, 1)
+                            }
+                    }
+                }
+                .contentShape(Rectangle())
+                .opacity(isBeingDragged ? 0.6 : 1)
+                .overlay {
+                    SidebarWorkspaceRowHoverTracker(rowInteractionState: $rowInteractionState)
+                }
+                .overlay {
+                    MiddleClickCapture {
+                        #if DEBUG
+                        cmuxDebugLog("sidebar.close workspace=\(tab.id.uuidString.prefix(5)) method=middleClick")
+                        #endif
+                        tabManager.closeWorkspaceWithConfirmation(tab)
+                    }
+                }
+                .overlay(alignment: .top) {
+                    if showsCenteredTopDropIndicator {
+                        Rectangle()
+                            .fill(cmuxAccentColor())
+                            .frame(height: 2)
+                            .padding(.horizontal, 8)
+                            .offset(y: index == 0 ? 0 : -(rowSpacing / 2))
                     }
                 }
         )
-        .overlay(alignment: .topTrailing) {
-            if showsWorkspaceShortcutHint, let workspaceShortcutLabel {
-                ShortcutHintPill(text: workspaceShortcutLabel, fontSize: 10, emphasis: shortcutHintEmphasis)
-                    .offset(
-                        x: ShortcutHintDebugSettings.clamped(sidebarShortcutHintXOffset),
-                        y: ShortcutHintDebugSettings.clamped(sidebarShortcutHintYOffset)
-                    )
-                    .padding(.top, 6)
-                    .padding(.trailing, 10)
-                    .shortcutHintTransition()
-            } else if showCloseButton {
-                Button(action: {
-                    #if DEBUG
-                    cmuxDebugLog("sidebar.close workspace=\(tab.id.uuidString.prefix(5)) method=button")
-                    #endif
-                    tabManager.closeWorkspaceWithConfirmation(tab)
-                }) {
-                    Image(systemName: "xmark")
-                        .font(.system(size: 9, weight: .medium))
-                        .foregroundColor(activeSecondaryColor(0.7))
+
+        let observedRow = AnyView(
+            measuredRow
+                .onAppear {
+                    refreshWorkspaceIconDetection(force: true)
+                    refreshWorkspaceSnapshot(force: true)
                 }
-                .buttonStyle(.plain)
-                .safeHelp(closeButtonTooltip)
-                .frame(width: SidebarTrailingAccessoryWidthPolicy.closeButtonWidth, height: 16, alignment: .center)
-                .padding(.top, 8)
-                .padding(.trailing, 10)
-            }
-        }
-        .shortcutHintVisibilityAnimation(value: showsWorkspaceShortcutHint)
-        .padding(.horizontal, 6)
-        .background {
-            GeometryReader { proxy in
-                Color.clear
-                    .onAppear {
-                        rowHeight = max(proxy.size.height, 1)
-                    }
-                    .onChange(of: proxy.size.height) { newHeight in
-                        rowHeight = max(newHeight, 1)
-                    }
-            }
-        }
-        .contentShape(Rectangle())
-        .opacity(isBeingDragged ? 0.6 : 1)
-        .overlay {
-            SidebarWorkspaceRowHoverTracker(rowInteractionState: $rowInteractionState)
-        }
-        .overlay {
-            MiddleClickCapture {
-                #if DEBUG
-                cmuxDebugLog("sidebar.close workspace=\(tab.id.uuidString.prefix(5)) method=middleClick")
-                #endif
-                tabManager.closeWorkspaceWithConfirmation(tab)
-            }
-        }
-        .overlay(alignment: .top) {
-            if showsCenteredTopDropIndicator {
-                Rectangle()
-                    .fill(cmuxAccentColor())
-                    .frame(height: 2)
-                    .padding(.horizontal, 8)
-                    .offset(y: index == 0 ? 0 : -(rowSpacing / 2))
-            }
-        }
-        .onAppear {
-            refreshWorkspaceIconDetection(force: true)
-            refreshWorkspaceSnapshot(force: true)
-        }
-        .task(id: finderDirectoryCacheKey) {
-            let cache = await WorkspaceFinderDirectoryResolver.cache(for: finderDirectoryCacheKey)
-            guard !Task.isCancelled else { return }
-            workspaceFinderDirectoryCache = cache
-        }
-        .task(id: workspaceFinderDirectoryOpenRequest) {
-            guard let request = workspaceFinderDirectoryOpenRequest else { return }
-            await WorkspaceFinderDirectoryOpener.openInFinder(request.directoryURL)
-            guard !Task.isCancelled, workspaceFinderDirectoryOpenRequest == request else { return }
-            workspaceFinderDirectoryOpenRequest = nil
-        }
-        .onReceive(
-            tab.sidebarImmediateObservationPublisher
-                .receive(on: RunLoop.main)
-        ) { _ in
+                .task(id: finderDirectoryCacheKey) {
+                    let cache = await WorkspaceFinderDirectoryResolver.cache(for: finderDirectoryCacheKey)
+                    guard !Task.isCancelled else { return }
+                    workspaceFinderDirectoryCache = cache
+                }
+                .task(id: workspaceFinderDirectoryOpenRequest) {
+                    guard let request = workspaceFinderDirectoryOpenRequest else { return }
+                    await WorkspaceFinderDirectoryOpener.openInFinder(request.directoryURL)
+                    guard !Task.isCancelled, workspaceFinderDirectoryOpenRequest == request else { return }
+                    workspaceFinderDirectoryOpenRequest = nil
+                }
+                .onReceive(
+                    tab.sidebarImmediateObservationPublisher
+                        .receive(on: RunLoop.main)
+                ) { _ in
 #if DEBUG
-            let description = tab.customDescription ?? ""
-            cmuxDebugLog(
-                "sidebar.row.invalidate workspace=\(tab.id.uuidString.prefix(8)) " +
-                "source=immediate " +
-                "title=\"\(debugCommandPaletteTextPreview(tab.title))\" " +
-                "descLen=\((description as NSString).length) " +
-                "desc=\"\(debugCommandPaletteTextPreview(description))\""
-            )
+                    let description = tab.customDescription ?? ""
+                    cmuxDebugLog(
+                        "sidebar.row.invalidate workspace=\(tab.id.uuidString.prefix(8)) " +
+                        "source=immediate " +
+                        "title=\"\(debugCommandPaletteTextPreview(tab.title))\" " +
+                        "descLen=\((description as NSString).length) " +
+                        "desc=\"\(debugCommandPaletteTextPreview(description))\""
+                    )
 #endif
-            refreshWorkspaceIconDetection()
-            refreshWorkspaceSnapshot()
-        }
-        .onReceive(
-            tab.sidebarObservationPublisher
-                .receive(on: RunLoop.main)
-                // Prompt-time sidebar telemetry can arrive as a short burst
-                // (pwd, branch, PR, shell state). Coalesce that burst so the
-                // row redraws once with the settled state instead of blinking.
-                .debounce(for: Self.workspaceObservationCoalesceInterval, scheduler: RunLoop.main)
-        ) { _ in
+                    refreshWorkspaceIconDetection()
+                    refreshWorkspaceSnapshot()
+                }
+                .onReceive(
+                    tab.sidebarObservationPublisher
+                        .receive(on: RunLoop.main)
+                        // Prompt-time sidebar telemetry can arrive as a short burst
+                        // (pwd, branch, PR, shell state). Coalesce that burst so the
+                        // row redraws once with the settled state instead of blinking.
+                        .debounce(for: Self.workspaceObservationCoalesceInterval, scheduler: RunLoop.main)
+                ) { _ in
 #if DEBUG
-            let description = tab.customDescription ?? ""
-            cmuxDebugLog(
-                "sidebar.row.invalidate workspace=\(tab.id.uuidString.prefix(8)) " +
-                "source=debounced " +
-                "title=\"\(debugCommandPaletteTextPreview(tab.title))\" " +
-                "descLen=\((description as NSString).length) " +
-                "desc=\"\(debugCommandPaletteTextPreview(description))\""
-            )
+                    let description = tab.customDescription ?? ""
+                    cmuxDebugLog(
+                        "sidebar.row.invalidate workspace=\(tab.id.uuidString.prefix(8)) " +
+                        "source=debounced " +
+                        "title=\"\(debugCommandPaletteTextPreview(tab.title))\" " +
+                        "descLen=\((description as NSString).length) " +
+                        "desc=\"\(debugCommandPaletteTextPreview(description))\""
+                    )
 #endif
-            refreshWorkspaceIconDetection()
-            refreshWorkspaceSnapshot()
-        }
-        .onChange(of: settings.autoDetectWorkspaceIcon) {
-            refreshWorkspaceIconDetection(force: true)
-        }
-        .onChange(of: settings) {
-            refreshWorkspaceSnapshot(force: true)
-        }
-        .onDrag {
+                    refreshWorkspaceIconDetection()
+                    refreshWorkspaceSnapshot()
+                }
+                .onChange(of: settings.autoDetectWorkspaceIcon) {
+                    refreshWorkspaceIconDetection(force: true)
+                }
+                .onChange(of: settings) {
+                    refreshWorkspaceSnapshot(force: true)
+                }
+        )
+
+        observedRow
+            .onDrag {
             #if DEBUG
             cmuxDebugLog("sidebar.onDrag tab=\(tab.id.uuidString.prefix(5))")
             #endif
@@ -14060,34 +14072,36 @@ private struct TabItemView: View, Equatable {
     }
 
     private func promptEmojiIcon(targetIds: [UUID]) {
-        let alert = NSAlert()
-        alert.messageText = String(localized: "alert.emojiIcon.title", defaultValue: "Emoji Workspace Icon")
-        alert.informativeText = String(localized: "alert.emojiIcon.message", defaultValue: "Enter an emoji to use as the workspace icon.")
+        while true {
+            let alert = NSAlert()
+            alert.messageText = String(localized: "alert.emojiIcon.title", defaultValue: "Emoji Workspace Icon")
+            alert.informativeText = String(localized: "alert.emojiIcon.message", defaultValue: "Enter an emoji to use as the workspace icon.")
 
-        let input = NSTextField(string: "")
-        input.placeholderString = String(localized: "alert.emojiIcon.placeholder", defaultValue: "🚀")
-        input.frame = NSRect(x: 0, y: 0, width: 240, height: 22)
-        alert.accessoryView = input
-        alert.addButton(withTitle: String(localized: "alert.emojiIcon.apply", defaultValue: "Apply"))
-        alert.addButton(withTitle: String(localized: "alert.emojiIcon.cancel", defaultValue: "Cancel"))
-        alert.window.initialFirstResponder = input
+            let input = NSTextField(string: "")
+            input.placeholderString = String(localized: "alert.emojiIcon.placeholder", defaultValue: "🚀")
+            input.frame = NSRect(x: 0, y: 0, width: 240, height: 22)
+            alert.accessoryView = input
+            alert.addButton(withTitle: String(localized: "alert.emojiIcon.apply", defaultValue: "Apply"))
+            alert.addButton(withTitle: String(localized: "alert.emojiIcon.cancel", defaultValue: "Cancel"))
+            alert.window.initialFirstResponder = input
 
-        let response = alert.runModal()
-        guard response == .alertFirstButtonReturn else {
+            let response = alert.runModal()
+            guard response == .alertFirstButtonReturn else {
+                return
+            }
+            guard let normalized = WorkspaceIconValue.normalizedStorageValue("emoji:\(input.stringValue)") else {
+                showInvalidEmojiIconAlert()
+                continue
+            }
+            applyTabIcon(normalized, targetIds: targetIds)
             return
         }
-        guard let normalized = WorkspaceIconValue.normalizedStorageValue("emoji:\(input.stringValue)") else {
-            showInvalidEmojiIconAlert()
-            promptEmojiIcon(targetIds: targetIds)
-            return
-        }
-        applyTabIcon(normalized, targetIds: targetIds)
     }
 
     private func showInvalidEmojiIconAlert() {
         let alert = NSAlert()
         alert.messageText = String(localized: "alert.emojiIcon.invalid.title", defaultValue: "Emoji Required")
-        alert.informativeText = String(localized: "alert.emojiIcon.invalid.message", defaultValue: "Enter at least one emoji to use as the workspace icon.")
+        alert.informativeText = String(localized: "alert.emojiIcon.invalid.message", defaultValue: "Enter one or more emoji to use as the workspace icon.")
         alert.addButton(withTitle: String(localized: "alert.ok", defaultValue: "OK"))
         alert.runModal()
     }

@@ -201,7 +201,10 @@ final class SidebarSelectedWorkspaceColorTests: XCTestCase {
 final class WorkspaceIconTests: XCTestCase {
     func testIconStorageNormalizesEmojiAndFilePaths() {
         XCTAssertEqual(WorkspaceIconValue.normalizedStorageValue(" emoji: 🚀 "), "emoji:🚀")
+        XCTAssertEqual(WorkspaceIconValue.normalizedStorageValue("emoji:👨‍💻"), "emoji:👨‍💻")
         XCTAssertNil(WorkspaceIconValue.normalizedStorageValue("emoji:   "))
+        XCTAssertNil(WorkspaceIconValue.normalizedStorageValue("emoji:abc"))
+        XCTAssertNil(WorkspaceIconValue.normalizedStorageValue("emoji:🚀 app"))
         XCTAssertNil(WorkspaceIconValue.normalizedStorageValue("   "))
 
         let rawPath = "~/Desktop/cmux-icon.png"

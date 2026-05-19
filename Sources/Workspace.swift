@@ -8742,7 +8742,8 @@ final class Workspace: Identifiable, ObservableObject {
             guard !Task.isCancelled else { return }
 
             await MainActor.run { [weak self] in
-                guard let self,
+                guard !Task.isCancelled,
+                      let self,
                       self.workspaceIconDetectionDirectory == directory,
                       WorkspaceIconValue.normalizedStorageValue(self.currentDirectory) == directory else {
                     return

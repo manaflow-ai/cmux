@@ -4657,7 +4657,7 @@ struct CMUXCLI {
         let icon = (
             iconOpt ?? (action == "set_icon" ? (inferredPositional.isEmpty ? nil : inferredPositional) : nil)
         )?.trimmingCharacters(in: .whitespacesAndNewlines)
-        if action == "set_icon", (icon?.isEmpty ?? true) {
+        if action == "set_icon", (icon?.isEmpty ?? true) || iconOpt?.hasPrefix("--") == true {
             throw CLIError(message: String(
                 localized: "cli.error.workspaceActionSetIconRequiresIcon",
                 defaultValue: "workspace-action set-icon requires --icon <path|emoji:🚀> (or a trailing icon)"
