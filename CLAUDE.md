@@ -71,6 +71,12 @@ After making code changes, always use `reload.sh --tag` to build. **Never run ba
 ./scripts/reload.sh --tag <your-branch-slug>
 ```
 
+Tagged reloads are allowed to build in parallel. `reload.sh` isolates Xcode temp, package, and module-cache roots per tag, then takes one of five shared build slots before running `xcodebuild`. Override only when you are intentionally benchmarking or debugging build capacity:
+
+```bash
+CMUX_XCODEBUILD_MAX_CONCURRENCY=5 CMUX_XCODEBUILD_JOBS=3 ./scripts/reload.sh --tag <your-branch-slug>
+```
+
 If you only need to verify the build compiles (no launch), use a tagged derivedDataPath:
 
 ```bash

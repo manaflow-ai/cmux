@@ -221,6 +221,24 @@ is_positive_integer() {
   (( numeric > 0 ))
 }
 
+choose_xcodebuild_concurrency() {
+  local value="${CMUX_XCODEBUILD_MAX_CONCURRENCY:-5}"
+  if ! is_positive_integer "$value"; then
+    echo "error: CMUX_XCODEBUILD_MAX_CONCURRENCY must be a positive integer" >&2
+    exit 1
+  fi
+  echo "$((10#$value))"
+}
+
+choose_xcodebuild_jobs() {
+  local value="${CMUX_XCODEBUILD_JOBS:-3}"
+  if ! is_positive_integer "$value"; then
+    echo "error: CMUX_XCODEBUILD_JOBS must be a positive integer" >&2
+    exit 1
+  fi
+  echo "$((10#$value))"
+}
+
 choose_cmux_dev_port() {
   if is_valid_port "${CMUX_PORT:-}"; then
     echo "$CMUX_PORT"
@@ -485,6 +503,8 @@ XCODEBUILD_ARGS=(
 if [[ -n "$DERIVED_DATA" ]]; then
   XCODEBUILD_ARGS+=(-derivedDataPath "$DERIVED_DATA")
 fi
+XCODEBUILD_JOBS="$(choose_xcodebuild_jobs)"
+XCODEBUILD_ARGS+=(-jobs "$XCODEBUILD_JOBS")
 if [[ -z "$TAG" ]]; then
   XCODEBUILD_ARGS+=(
     INFOPLIST_KEY_CFBundleName="$APP_NAME"
@@ -496,57 +516,94 @@ fi
 if [[ "${CMUX_SKIP_ZIG_BUILD:-}" == "1" ]]; then
   XCODEBUILD_ARGS+=(CMUX_SKIP_ZIG_BUILD=1)
 fi
+if [[ -n "$DERIVED_DATA" ]]; then
+  XCODEBUILD_PACKAGE_DIR="${CMUX_XCODEBUILD_PACKAGE_DIR:-$DERIVED_DATA/SourcePackages}"
+  XCODEBUILD_ISOLATION_DIR="${CMUX_XCODEBUILD_ISOLATION_DIR:-$DERIVED_DATA/Build/CMUXBuildIsolation}"
+  XCODEBUILD_TMPDIR="${CMUX_XCODEBUILD_TMPDIR:-$XCODEBUILD_ISOLATION_DIR/tmp}"
+  XCODEBUILD_CLANG_MODULE_CACHE="${CMUX_XCODEBUILD_CLANG_MODULE_CACHE:-$XCODEBUILD_ISOLATION_DIR/clang-modules}"
+  XCODEBUILD_SWIFT_MODULE_CACHE="${CMUX_XCODEBUILD_SWIFT_MODULE_CACHE:-$XCODEBUILD_ISOLATION_DIR/swift-modules}"
+  XCODEBUILD_SHARED_PRECOMPS_DIR="${CMUX_XCODEBUILD_SHARED_PRECOMPS_DIR:-$XCODEBUILD_ISOLATION_DIR/precompiled-headers}"
+  mkdir -p \
+    "$XCODEBUILD_PACKAGE_DIR" \
+    "$XCODEBUILD_TMPDIR" \
+    "$XCODEBUILD_CLANG_MODULE_CACHE" \
+    "$XCODEBUILD_SWIFT_MODULE_CACHE" \
+    "$XCODEBUILD_SHARED_PRECOMPS_DIR"
+  XCODEBUILD_ARGS+=(
+    -clonedSourcePackagesDirPath "$XCODEBUILD_PACKAGE_DIR"
+    COMPILER_INDEX_STORE_ENABLE=NO
+    INDEX_ENABLE_DATA_STORE=NO
+    CLANG_MODULE_CACHE_PATH="$XCODEBUILD_CLANG_MODULE_CACHE"
+    SWIFT_MODULE_CACHE_PATH="$XCODEBUILD_SWIFT_MODULE_CACHE"
+    SHARED_PRECOMPS_DIR="$XCODEBUILD_SHARED_PRECOMPS_DIR"
+  )
+fi
 XCODEBUILD_ARGS+=(build)
 
-XCODEBUILD_LOCK="${TMPDIR:-/tmp}/cmux-xcodebuild-$(id -u).lock"
-# Xcode 26's SWBBuildService is a per-user singleton. Concurrent xcodebuild
-# invocations (even with separate -derivedDataPath) share that daemon and can
-# crash it, SIGTERMing in-flight builds. Serialize via a per-user lock so
-# parallel reload.sh runs queue instead of trampling each other.
-python3 -c '
+XCODEBUILD_MAX_CONCURRENCY="$(choose_xcodebuild_concurrency)"
+XCODEBUILD_SLOT_DIR="${CMUX_XCODEBUILD_SLOT_DIR:-/tmp/cmux-xcodebuild-$(id -u).slots}"
+# Keep tagged reloads parallel but bounded. Each build gets isolated temp,
+# package, and module-cache roots above, while this slot lease limits aggregate
+# Xcode pressure on the per-user SWBBuildService.
+mkdir -p "$XCODEBUILD_SLOT_DIR"
+(
+  if [[ -n "${XCODEBUILD_TMPDIR:-}" ]]; then
+    export TMPDIR="${XCODEBUILD_TMPDIR%/}/"
+  fi
+  python3 -c '
 import fcntl
 import os
 import sys
+import time
 
-lock_path = sys.argv[1]
-command = sys.argv[2:]
+max_concurrency = int(sys.argv[1])
+slot_dir = sys.argv[2]
+command = sys.argv[3:]
 
-try:
-    fd = os.open(lock_path, os.O_CREAT | os.O_RDWR, 0o600)
-except OSError as exc:
-    raise SystemExit(f"error: open lock: {exc}")
-
-try:
-    flags = fcntl.fcntl(fd, fcntl.F_GETFD)
-    fcntl.fcntl(fd, fcntl.F_SETFD, flags & ~fcntl.FD_CLOEXEC)
-except OSError as exc:
-    raise SystemExit(f"error: fcntl lock fd: {exc}")
-
-try:
-    fcntl.flock(fd, fcntl.LOCK_EX | fcntl.LOCK_NB)
-except BlockingIOError:
-    msg = f"==> Another xcodebuild is running; waiting for {lock_path}...\n"
-    # reload.sh saves the original stderr on fd 4 before redirecting to the
-    # log file. Surface the wait notice to the terminal so the user knows
-    # they are queued, not hung. Fall back to stderr (the log) if fd 4 is
-    # unavailable (e.g. when this script is run standalone).
+def surface(message):
+    data = message.encode()
     try:
-        os.write(4, msg.encode())
+        os.write(4, data)
+        return
     except OSError:
-        sys.stderr.write(msg)
-        sys.stderr.flush()
-    try:
-        fcntl.flock(fd, fcntl.LOCK_EX)
-    except OSError as exc:
-        raise SystemExit(f"error: flock: {exc}")
-except OSError as exc:
-    raise SystemExit(f"error: flock: {exc}")
+        pass
+    os.write(2, data)
 
-try:
-    os.execvp(command[0], command)
-except OSError as exc:
-    raise SystemExit(f"error: exec: {exc}")
-' "$XCODEBUILD_LOCK" xcodebuild "${XCODEBUILD_ARGS[@]}"
+waited = False
+while True:
+    for slot in range(1, max_concurrency + 1):
+        lock_path = os.path.join(slot_dir, f"slot-{slot}.lock")
+        try:
+            fd = os.open(lock_path, os.O_CREAT | os.O_RDWR, 0o600)
+        except OSError as exc:
+            raise SystemExit(f"error: open xcodebuild slot: {exc}")
+
+        try:
+            fcntl.flock(fd, fcntl.LOCK_EX | fcntl.LOCK_NB)
+        except BlockingIOError:
+            os.close(fd)
+            continue
+        except OSError as exc:
+            os.close(fd)
+            raise SystemExit(f"error: acquire xcodebuild slot: {exc}")
+
+        try:
+            flags = fcntl.fcntl(fd, fcntl.F_GETFD)
+            fcntl.fcntl(fd, fcntl.F_SETFD, flags & ~fcntl.FD_CLOEXEC)
+        except OSError as exc:
+            raise SystemExit(f"error: fcntl xcodebuild slot fd: {exc}")
+
+        try:
+            os.execvp(command[0], command)
+        except OSError as exc:
+            raise SystemExit(f"error: exec: {exc}")
+
+    if not waited:
+        surface(f"==> All {max_concurrency} xcodebuild slots are busy; waiting for {slot_dir}...\n")
+        waited = True
+    time.sleep(2)
+' "$XCODEBUILD_MAX_CONCURRENCY" "$XCODEBUILD_SLOT_DIR" xcodebuild "${XCODEBUILD_ARGS[@]}"
+)
 sleep 0.2
 
 FALLBACK_APP_NAME="$BASE_APP_NAME"
