@@ -4974,13 +4974,14 @@ struct CMUXCLI {
         let splitArgs = splitAtArgumentTerminator(args)
         let (_, rem1) = parseOption(splitArgs.options, name: "--workspace")
         let (_, rem2) = parseOption(rem1, name: "--surface")
-        let (_, rem3) = parseOption(rem2, name: "--name")
-        let (_, rem4) = parseOption(rem3, name: "--kind")
-        let (_, rem5) = parseOption(rem4, name: "--checkpoint")
-        let (_, rem6) = parseOption(rem5, name: "--checkpoint-id")
-        let (_, rem7) = parseOption(rem6, name: "--source")
-        let (_, rem8) = parseOption(rem7, name: "--cwd")
-        let (shellCommand, remaining) = parseOption(rem8, name: "--shell")
+        let (_, rem3) = parseOption(rem2, name: "--window")
+        let (_, rem4) = parseOption(rem3, name: "--name")
+        let (_, rem5) = parseOption(rem4, name: "--kind")
+        let (_, rem6) = parseOption(rem5, name: "--checkpoint")
+        let (_, rem7) = parseOption(rem6, name: "--checkpoint-id")
+        let (_, rem8) = parseOption(rem7, name: "--source")
+        let (_, rem9) = parseOption(rem8, name: "--cwd")
+        let (shellCommand, remaining) = parseOption(rem9, name: "--shell")
 
         if shellCommand != nil, let unexpected = (remaining + (splitArgs.argv ?? [])).first {
             throw CLIError(message: "surface resume set: unexpected argument '\(unexpected)' after --shell. Quote the full shell command or use -- <argv...>")
@@ -4990,7 +4991,7 @@ struct CMUXCLI {
         }
     }
 
-    private static let surfaceResumeTargetValueOptions: Set<String> = ["--workspace", "--surface"]
+    private static let surfaceResumeTargetValueOptions: Set<String> = ["--workspace", "--surface", "--window"]
     private static let surfaceResumeSetValueOptions: Set<String> = surfaceResumeTargetValueOptions.union([
         "--name", "--kind", "--checkpoint", "--checkpoint-id", "--source", "--cwd", "--shell",
     ])
@@ -5045,18 +5046,20 @@ struct CMUXCLI {
     ) throws -> SurfaceResumeTarget {
         let splitArgs = splitAtArgumentTerminator(args)
         let (workspaceOpt, rem1) = parseOption(splitArgs.options, name: "--workspace")
-        let (surfaceOpt, remaining) = parseOption(rem1, name: "--surface")
+        let (surfaceOpt, rem2) = parseOption(rem1, name: "--surface")
+        let (windowOpt, remaining) = parseOption(rem2, name: "--window")
+        let windowRaw = windowOpt ?? windowOverride
         let env = ProcessInfo.processInfo.environment
         let usesImplicitSurface = surfaceOpt == nil
-            && windowOverride == nil
+            && windowRaw == nil
             && env["CMUX_SURFACE_ID"]?.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty == false
         let shouldUseEnvWorkspace = surfaceOpt == nil
             && !usesImplicitSurface
-            && windowOverride == nil
+            && windowRaw == nil
         let workspaceRaw = workspaceOpt ?? (shouldUseEnvWorkspace ? env["CMUX_WORKSPACE_ID"] : nil)
-        let surfaceRaw = surfaceOpt ?? (workspaceOpt == nil && windowOverride == nil ? env["CMUX_SURFACE_ID"] : nil)
+        let surfaceRaw = surfaceOpt ?? (workspaceOpt == nil && windowRaw == nil ? env["CMUX_SURFACE_ID"] : nil)
         var params: [String: Any] = [:]
-        let windowHandle = try normalizeWindowHandle(windowOverride, client: client)
+        let windowHandle = try normalizeWindowHandle(windowRaw, client: client)
         if let windowHandle { params["window_id"] = windowHandle }
         let workspaceId = try normalizeWorkspaceHandle(workspaceRaw, client: client, windowHandle: windowHandle)
         if let workspaceId { params["workspace_id"] = workspaceId }

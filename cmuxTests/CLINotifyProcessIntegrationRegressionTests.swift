@@ -3387,6 +3387,80 @@ final class CLINotifyProcessIntegrationRegressionTests: XCTestCase {
         XCTAssertEqual(request["surface_id"] as? String, surfaceId)
     }
 
+    func testSurfaceResumeClearCLIParsesLocalWindowOption() throws {
+        let cliPath = try bundledCLIPath()
+        let socketPath = makeSocketPath("resume-clear-local-window")
+        let listenerFD = try bindUnixSocket(at: socketPath)
+        let state = MockSocketServerState()
+        defer {
+            Darwin.close(listenerFD)
+            unlink(socketPath)
+        }
+
+        let windowId = "aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa"
+        let surfaceId = "bbbbbbbb-bbbb-bbbb-bbbb-bbbbbbbbbbbb"
+        let serverHandled = startMockServer(listenerFD: listenerFD, state: state) { line in
+            guard let payload = self.jsonObject(line),
+                  let id = payload["id"] as? String,
+                  let method = payload["method"] as? String else {
+                return self.malformedRequestResponse(raw: line)
+            }
+            switch method {
+            case "window.list":
+                return self.v2Response(
+                    id: id,
+                    ok: true,
+                    result: ["windows": [["id": windowId, "ref": "window:1", "index": 0]]]
+                )
+            case "surface.list":
+                let params = payload["params"] as? [String: Any] ?? [:]
+                XCTAssertEqual(params["window_id"] as? String, windowId)
+                return self.v2Response(
+                    id: id,
+                    ok: true,
+                    result: ["surfaces": [["id": surfaceId, "ref": "surface:7", "index": 0]]]
+                )
+            case "surface.resume.clear":
+                return self.v2Response(id: id, ok: true, result: ["cleared": true])
+            default:
+                return self.v2Response(id: id, ok: false, error: ["code": "unrecognized_method", "message": "unexpected method: \(method)"])
+            }
+        }
+
+        var environment = ProcessInfo.processInfo.environment
+        environment["CMUX_SOCKET_PATH"] = socketPath
+        environment["CMUX_CLI_SENTRY_DISABLED"] = "1"
+
+        let result = runProcess(
+            executablePath: cliPath,
+            arguments: ["surface", "resume", "clear", "--window", "0", "--surface", "0"],
+            environment: environment,
+            timeout: 5
+        )
+
+        wait(for: [serverHandled], timeout: 5)
+        XCTAssertFalse(result.timedOut, result.stderr)
+        XCTAssertEqual(result.status, 0, result.stderr)
+        XCTAssertEqual(result.stdout, "OK\n")
+        XCTAssertFalse(
+            state.commands.contains { command in
+                jsonObject(command)?["method"] as? String == "window.focus"
+            },
+            "local --window should route surface resume metadata without focusing the window"
+        )
+
+        let clearRequests = state.commands.compactMap { command -> [String: Any]? in
+            guard let payload = jsonObject(command),
+                  payload["method"] as? String == "surface.resume.clear" else {
+                return nil
+            }
+            return payload["params"] as? [String: Any]
+        }
+        let request = try XCTUnwrap(clearRequests.first)
+        XCTAssertEqual(request["window_id"] as? String, windowId)
+        XCTAssertEqual(request["surface_id"] as? String, surfaceId)
+    }
+
     private struct ClaudeHookContext {
         let cliPath: String
         let socketPath: String
