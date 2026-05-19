@@ -690,7 +690,12 @@ extension CMUXCLI {
             if raw == "false" { return false }
             if raw == "null" { return NSNull() }
             if let int = Int(raw) { return int }
-            if let double = Double(raw) { return double }
+            if let double = Double(raw) {
+                guard double.isFinite else {
+                    throw CLIError(message: "Unsupported TOML non-finite number on line \(lineNumber)")
+                }
+                return double
+            }
             if raw.hasPrefix("[") || raw.hasPrefix("{") {
                 guard let data = raw.data(using: .utf8),
                       let value = try? JSONSerialization.jsonObject(with: data, options: [.fragmentsAllowed]) else {

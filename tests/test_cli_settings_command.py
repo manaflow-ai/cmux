@@ -876,6 +876,23 @@ def main() -> int:
                 f"before={before_bad_toml_collision} after={after_bad_toml_collision}"
             )
 
+        before_bad_non_finite_import = read_config(home)
+        bad_non_finite_toml_path = home / "bad-non-finite-number.toml"
+        bad_non_finite_toml_path.write_text("automation.portBase = infinity\n", encoding="utf-8")
+        bad_non_finite_toml = run_cli(cli_path, ["settings", "import", str(bad_non_finite_toml_path)], home)
+        assert_fails(
+            failures,
+            "settings import rejects non-finite TOML number",
+            bad_non_finite_toml,
+            "Unsupported TOML non-finite number",
+        )
+        after_bad_non_finite_import = read_config(home)
+        if after_bad_non_finite_import != before_bad_non_finite_import:
+            failures.append(
+                "failed non-finite TOML import changed cmux.json: "
+                f"before={before_bad_non_finite_import} after={after_bad_non_finite_import}"
+            )
+
         sectioned_toml_path = home / "sectioned-settings.toml"
         sectioned_toml_path.write_text(
             """
