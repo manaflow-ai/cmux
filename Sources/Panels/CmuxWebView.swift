@@ -398,6 +398,30 @@ final class CmuxWebView: WKWebView {
         )
     }
 
+    func cmuxPrepareForReleaseTeardown() {
+        onContextMenuDownloadStateChanged = nil
+        onContextMenuOpenLinkInNewTab = nil
+        contextMenuLinkURLProvider = nil
+        contextMenuDefaultBrowserOpener = nil
+        contextMenuCanMoveTabToNewWorkspace = nil
+        contextMenuMoveTabToNewWorkspace = nil
+        let userContentController = configuration.userContentController
+        if objc_getAssociatedObject(
+            userContentController,
+            &Self.pasteAsPlainTextFocusHandlerInstalledKey
+        ) != nil {
+            userContentController.removeScriptMessageHandler(
+                forName: Self.pasteAsPlainTextFocusMessageHandlerName
+            )
+            objc_setAssociatedObject(
+                userContentController,
+                &Self.pasteAsPlainTextFocusHandlerInstalledKey,
+                nil,
+                .OBJC_ASSOCIATION_RETAIN_NONATOMIC
+            )
+        }
+    }
+
     private func updatePasteAsPlainTextTargetAvailable(_ available: Bool) {
         guard pasteAsPlainTextTargetAvailable != available else { return }
         pasteAsPlainTextTargetAvailable = available

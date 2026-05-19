@@ -18637,7 +18637,7 @@ struct CMUXCLI {
     private static let codexMonitorLeaseDirectoryName = "codex-monitor-leases"
     private static let codexMonitorLeaseMaxAgeSeconds: TimeInterval = 4 * 60 * 60
     private static let codexMonitorRetiredLeaseMaxAgeSeconds: TimeInterval = 2 * 60
-    private static let codexMonitorOwnerCheckIntervalSeconds: TimeInterval = 60
+    private static let codexMonitorOwnerCheckIntervalSeconds: TimeInterval = 10
     private static let codexMonitorOwnerCheckTimeoutSeconds: TimeInterval = 1
 
     private func codexMonitorLeaseDirectory(env: [String: String]) -> URL {
@@ -18799,6 +18799,109 @@ struct CMUXCLI {
         return ownerFound ? .alive : .gone
     }
 
+    private func codexMonitorOwnerPID(client: SocketClient) -> Int? {
+        guard let payload = try? client.sendV2(
+            method: "system.identify",
+            responseTimeout: Self.codexMonitorOwnerCheckTimeoutSeconds
+        ) else {
+            return nil
+        }
+        if let pid = payload["app_pid"] as? Int, pid > 0 {
+            return pid
+        }
+        if let pid = (payload["app_pid"] as? NSNumber)?.intValue, pid > 0 {
+            return pid
+        }
+        return nil
+    }
+
+    private final class CodexMonitorOwnerExitWatcher {
+        private let lock = NSLock()
+        private var processSource: DispatchSourceProcess?
+        private var didExit = false
+        private var waiters: [DispatchSemaphore] = []
+
+        init?(ownerPID: Int?) {
+            guard let ownerPID, ownerPID > 0 else { return nil }
+            guard Self.processExists(ownerPID) else {
+                didExit = true
+                return
+            }
+
+            let source = DispatchSource.makeProcessSource(
+                identifier: pid_t(ownerPID),
+                eventMask: .exit,
+                queue: DispatchQueue.global(qos: .utility)
+            )
+            source.setEventHandler { [weak self] in
+                self?.markExited()
+            }
+            processSource = source
+            source.resume()
+        }
+
+        deinit {
+            let sourceToCancel: DispatchSourceProcess?
+            lock.lock()
+            sourceToCancel = processSource
+            processSource = nil
+            waiters.removeAll()
+            lock.unlock()
+            sourceToCancel?.cancel()
+        }
+
+        var hasExited: Bool {
+            lock.lock()
+            let value = didExit
+            lock.unlock()
+            return value
+        }
+
+        func registerWaiter(_ semaphore: DispatchSemaphore) -> Bool {
+            lock.lock()
+            if didExit {
+                lock.unlock()
+                semaphore.signal()
+                return false
+            }
+            waiters.append(semaphore)
+            lock.unlock()
+            return true
+        }
+
+        func unregisterWaiter(_ semaphore: DispatchSemaphore) {
+            lock.lock()
+            waiters.removeAll { $0 === semaphore }
+            lock.unlock()
+        }
+
+        private func markExited() {
+            let waitersToSignal: [DispatchSemaphore]
+            let sourceToCancel: DispatchSourceProcess?
+            lock.lock()
+            guard !didExit else {
+                lock.unlock()
+                return
+            }
+            didExit = true
+            waitersToSignal = waiters
+            waiters.removeAll()
+            sourceToCancel = processSource
+            processSource = nil
+            lock.unlock()
+
+            waitersToSignal.forEach { $0.signal() }
+            sourceToCancel?.cancel()
+        }
+
+        private static func processExists(_ pid: Int) -> Bool {
+            if kill(pid_t(pid), 0) == 0 {
+                return true
+            }
+            return errno == EPERM
+        }
+    }
+
     private func startCodexTranscriptMonitor(
         sessionId: String,
         turnId: String?,
@@ -18806,6 +18909,7 @@ struct CMUXCLI {
         cwd: String?,
         workspaceId: String,
         surfaceId: String?,
+        ownerPID: Int?,
         leasePath: String?,
         env: [String: String],
         telemetry: CLISocketSentryTelemetry
@@ -18846,6 +18950,9 @@ struct CMUXCLI {
         if let cwd, !cwd.isEmpty {
             monitorArgs += ["--cwd", cwd]
         }
+        if let ownerPID, ownerPID > 0 {
+            monitorArgs += ["--owner-pid", String(ownerPID)]
+        }
         if let leasePath, !leasePath.isEmpty {
             monitorArgs += ["--lease", leasePath]
         }
@@ -18874,17 +18981,34 @@ struct CMUXCLI {
         let turnId = optionValue(commandArgs, name: "--turn")
         var transcriptPath = optionValue(commandArgs, name: "--transcript")
         let leasePath = optionValue(commandArgs, name: "--lease")
+        defer { removeCodexMonitorLease(path: leasePath) }
+        let ownerPIDRaw = optionValue(commandArgs, name: "--owner-pid")
+        let ownerPID: Int?
+        if let ownerPIDRaw {
+            guard let parsedOwnerPID = Int(ownerPIDRaw), parsedOwnerPID > 0 else {
+                throw CLIError(
+                    message: "cmux hooks codex monitor: Invalid --owner-pid; provide a positive integer PID and retry",
+                    exitCode: 2
+                )
+            }
+            ownerPID = parsedOwnerPID
+        } else {
+            ownerPID = nil
+        }
 
         guard !workspaceId.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty,
               !sessionId.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else {
             return
         }
 
-        defer { removeCodexMonitorLease(path: leasePath) }
         let deadline = Date().addingTimeInterval(4 * 60 * 60)
+        let ownerExitWatcher = CodexMonitorOwnerExitWatcher(ownerPID: ownerPID)
         var nextOwnerCheck = Date.distantPast
         var publishedUserInputCallIds = Set<String>()
         while Date() < deadline {
+            if ownerExitWatcher?.hasExited == true {
+                return
+            }
             if isCodexMonitorLeaseRetired(path: leasePath) {
                 return
             }
@@ -18946,7 +19070,12 @@ struct CMUXCLI {
 
             let remaining = deadline.timeIntervalSinceNow
             guard remaining > 0 else { return }
-            waitForCodexTranscriptChange(path: transcriptPath, leasePath: leasePath, timeout: min(30, remaining))
+            waitForCodexTranscriptChange(
+                path: transcriptPath,
+                leasePath: leasePath,
+                ownerExitWatcher: ownerExitWatcher,
+                timeout: min(30, remaining)
+            )
         }
     }
 
@@ -18989,11 +19118,23 @@ struct CMUXCLI {
         )
     }
 
-    private func waitForCodexTranscriptChange(path: String?, leasePath: String?, timeout: TimeInterval) {
+    private func waitForCodexTranscriptChange(
+        path: String?,
+        leasePath: String?,
+        ownerExitWatcher: CodexMonitorOwnerExitWatcher?,
+        timeout: TimeInterval
+    ) {
         guard timeout > 0 else { return }
 
         let semaphore = DispatchSemaphore(value: 0)
+        let registeredOwnerWaiter = ownerExitWatcher?.registerWaiter(semaphore) ?? false
         var sources: [DispatchSourceFileSystemObject] = []
+        defer {
+            if registeredOwnerWaiter {
+                ownerExitWatcher?.unregisterWaiter(semaphore)
+            }
+            sources.forEach { $0.cancel() }
+        }
 
         func addFileSource(path: String?, eventMask: DispatchSource.FileSystemEvent) {
             guard let path, !path.isEmpty else { return }
@@ -19018,13 +19159,12 @@ struct CMUXCLI {
         addFileSource(path: path, eventMask: [.write, .extend, .delete, .rename])
         addFileSource(path: leasePath, eventMask: [.write, .delete, .rename])
 
-        guard !sources.isEmpty else {
-            _ = DispatchSemaphore(value: 0).wait(timeout: .now() + timeout)
+        guard !sources.isEmpty || ownerExitWatcher != nil else {
+            _ = semaphore.wait(timeout: .now() + timeout)
             return
         }
 
         _ = semaphore.wait(timeout: .now() + timeout)
-        sources.forEach { $0.cancel() }
     }
 
     private func extractMessageText(from message: [String: Any]) -> String? {
@@ -21564,37 +21704,66 @@ export default function cmuxPiSessionExtension(pi: ExtensionAPI) {
                 client: client
             )
             if def.name == "codex", !sessionId.isEmpty {
-                let leasePath = createCodexMonitorLease(
-                    sessionId: sessionId,
-                    turnId: input.turnId,
-                    workspaceId: workspaceId,
-                    surfaceId: surfaceId,
-                    env: env
-                )
-                if leasePath == nil {
+                let shouldUseOwnerPID = !client.isRelayBacked
+                let ownerPID = shouldUseOwnerPID ? codexMonitorOwnerPID(client: client) : nil
+                if shouldUseOwnerPID && ownerPID == nil {
                     telemetry.breadcrumb(
-                        "codex-hook.monitor.lease-unavailable",
-                        data: ["has_turn_id": normalizedHookValue(input.turnId) != nil]
-                    )
-                } else {
-                    retireCodexMonitorLeases(
-                        sessionId: sessionId,
-                        turnId: nil,
-                        preservingLeasePath: leasePath,
-                        env: env
+                        "codex-hook.monitor.owner-unavailable",
+                        data: [
+                            "has_turn_id": normalizedHookValue(input.turnId) != nil,
+                            "has_transcript": normalizedHookValue(input.transcriptPath) != nil,
+                            "has_surface_id": normalizedHookValue(surfaceId) != nil,
+                        ]
                     )
                 }
-                startCodexTranscriptMonitor(
-                    sessionId: sessionId,
-                    turnId: input.turnId,
-                    transcriptPath: normalizedHookValue(input.transcriptPath),
-                    cwd: hookCwd ?? mapped?.cwd,
-                    workspaceId: workspaceId,
-                    surfaceId: surfaceId,
-                    leasePath: leasePath,
-                    env: env,
-                    telemetry: telemetry
-                )
+                if !shouldUseOwnerPID {
+                    telemetry.breadcrumb(
+                        "codex-hook.monitor.owner-pid-skipped",
+                        data: [
+                            "reason": "relay_socket",
+                            "has_turn_id": normalizedHookValue(input.turnId) != nil,
+                            "has_transcript": normalizedHookValue(input.transcriptPath) != nil,
+                            "has_surface_id": normalizedHookValue(surfaceId) != nil,
+                        ]
+                    )
+                }
+                if !shouldUseOwnerPID || ownerPID != nil {
+                    if let leasePath = createCodexMonitorLease(
+                        sessionId: sessionId,
+                        turnId: input.turnId,
+                        workspaceId: workspaceId,
+                        surfaceId: surfaceId,
+                        env: env
+                    ) {
+                        retireCodexMonitorLeases(
+                            sessionId: sessionId,
+                            turnId: nil,
+                            preservingLeasePath: leasePath,
+                            env: env
+                        )
+                        startCodexTranscriptMonitor(
+                            sessionId: sessionId,
+                            turnId: input.turnId,
+                            transcriptPath: normalizedHookValue(input.transcriptPath),
+                            cwd: hookCwd ?? mapped?.cwd,
+                            workspaceId: workspaceId,
+                            surfaceId: surfaceId,
+                            ownerPID: shouldUseOwnerPID ? ownerPID : nil,
+                            leasePath: leasePath,
+                            env: env,
+                            telemetry: telemetry
+                        )
+                    } else {
+                        telemetry.breadcrumb(
+                            "codex-hook.monitor.lease-unavailable",
+                            data: [
+                                "has_turn_id": normalizedHookValue(input.turnId) != nil,
+                                "has_owner_pid": ownerPID != nil,
+                                "relay_socket": !shouldUseOwnerPID,
+                            ]
+                        )
+                    }
+                }
             }
 
         case .stop:

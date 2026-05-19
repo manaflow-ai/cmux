@@ -1,5 +1,6 @@
 import CryptoKit
 import Foundation
+import ObjectiveC.runtime
 import WebKit
 
 #if DEBUG
@@ -144,6 +145,7 @@ enum ReactGrabScriptLoader {
 // MARK: - WKScriptMessageHandler
 
 private let reactGrabMessageHandlerName = "cmuxReactGrab"
+private var reactGrabMessageHandlerInstalledKey: UInt8 = 0
 
 enum ReactGrabBridgeMessage {
     case stateChange(isActive: Bool)
@@ -223,7 +225,35 @@ extension BrowserPanel {
             self?.handleReactGrabBridgeMessage(message)
         }
         reactGrabMessageHandler = handler
-        webView.configuration.userContentController.add(handler, name: reactGrabMessageHandlerName)
+        let userContentController = webView.configuration.userContentController
+        Self.removeReactGrabMessageHandler(from: webView)
+        userContentController.add(handler, name: reactGrabMessageHandlerName)
+        objc_setAssociatedObject(
+            userContentController,
+            &reactGrabMessageHandlerInstalledKey,
+            NSNumber(value: true),
+            .OBJC_ASSOCIATION_RETAIN_NONATOMIC
+        )
+    }
+
+    static func removeReactGrabMessageHandler(from webView: WKWebView) {
+        let userContentController = webView.configuration.userContentController
+        guard objc_getAssociatedObject(userContentController, &reactGrabMessageHandlerInstalledKey) != nil else {
+            return
+        }
+        userContentController.removeScriptMessageHandler(forName: reactGrabMessageHandlerName)
+        objc_setAssociatedObject(
+            userContentController,
+            &reactGrabMessageHandlerInstalledKey,
+            nil,
+            .OBJC_ASSOCIATION_RETAIN_NONATOMIC
+        )
+    }
+
+    func tearDownReactGrabStateForWebViewRelease() {
+        guard reactGrabMessageHandler != nil else { return }
+        reactGrabMessageHandler = nil
+        resetReactGrabState(reason: "webViewTeardown")
     }
 
     func armReactGrabRoundTrip(returnTo panelId: UUID) {

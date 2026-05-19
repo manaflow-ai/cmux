@@ -14,6 +14,27 @@ import CommonCrypto
 import Security
 #endif
 
+func cmuxResponderChainContains(_ start: NSResponder?, target: NSResponder) -> Bool {
+    var responder = start
+    var hops = 0
+    while let current = responder, hops < 64 {
+        if current === target { return true }
+        responder = current.nextResponder
+        hops += 1
+    }
+    return false
+}
+
+func cmuxViewTreeContains(_ root: NSView, target: NSView) -> Bool {
+    if root === target {
+        return true
+    }
+    for subview in root.subviews where cmuxViewTreeContains(subview, target: target) {
+        return true
+    }
+    return false
+}
+
 fileprivate func dedupedCanonicalURLs(_ urls: [URL]) -> [URL] {
     var seen = Set<String>()
     var result: [URL] = []
@@ -2420,6 +2441,7 @@ final class BrowserPanel: Panel, ObservableObject {
     /// The underlying web view
     private(set) var webView: WKWebView
     private var websiteDataStore: WKWebsiteDataStore
+    private var didTearDownWebViewForRelease = false
     var webViewDidRequestClose: (() -> Void)?
 
     /// Monotonic identity for the current WKWebView instance.
@@ -3382,6 +3404,38 @@ final class BrowserPanel: Panel, ObservableObject {
         setupReactGrabMessageHandler(for: webView)
     }
 
+    private func tearDownCurrentWebViewForRelease(_ webView: WKWebView, reason: String) {
+        guard !didTearDownWebViewForRelease else { return }
+        didTearDownWebViewForRelease = true
+        tearDownReactGrabStateForWebViewRelease()
+        Self.tearDownWebViewForRelease(webView, reason: reason)
+    }
+
+    private static func tearDownWebViewForRelease(_ webView: WKWebView, reason: String) {
+#if DEBUG
+        cmuxDebugLog(
+            "browser.webview.teardown panelReason=\(reason) " +
+            "web=\(ObjectIdentifier(webView)) url=\(webView.url?.absoluteString ?? "nil")"
+        )
+#endif
+        WebViewInspectorTeardown.closeInspector(for: webView)
+        if let window = webView.window,
+           cmuxResponderChainContains(window.firstResponder, target: webView) {
+            window.makeFirstResponder(nil)
+        }
+        BrowserWindowPortalRegistry.detach(webView: webView)
+        webView.stopLoading()
+        Self.removeReactGrabMessageHandler(from: webView)
+        webView.configuration.userContentController.removeAllUserScripts()
+        if let cmuxWebView = webView as? CmuxWebView {
+            cmuxWebView.cmuxPrepareForReleaseTeardown()
+        }
+        webView.navigationDelegate = nil
+        webView.uiDelegate = nil
+        webView.loadHTMLString("", baseURL: URL(string: "about:blank"))
+        webView.removeFromSuperview()
+    }
+
     private func configureNavigationDelegateCallbacks() {
         guard let navigationDelegate else { return }
         let boundWebViewInstanceID = webViewInstanceID
@@ -3713,13 +3767,7 @@ final class BrowserPanel: Panel, ObservableObject {
         faviconTask?.cancel()
         faviconTask = nil
         faviconRefreshGeneration &+= 1
-        BrowserWindowPortalRegistry.detach(webView: previousWebView)
-        previousWebView.stopLoading()
-        previousWebView.navigationDelegate = nil
-        previousWebView.uiDelegate = nil
-        if let previousCmuxWebView = previousWebView as? CmuxWebView {
-            previousCmuxWebView.onContextMenuDownloadStateChanged = nil
-        }
+        tearDownCurrentWebViewForRelease(previousWebView, reason: "profileSwitch")
 
         profileID = resolvedProfileID
         historyStore = BrowserProfileStore.shared.historyStore(for: resolvedProfileID)
@@ -3737,6 +3785,7 @@ final class BrowserPanel: Panel, ObservableObject {
         webViewInstanceID = UUID()
         resetWebViewLifecycleMetadata(resetVisibility: false)
         webView = replacement
+        didTearDownWebViewForRelease = false
         currentURL = restoreURL
         shouldRenderWebView = wasRenderable
         refreshWebViewLifecycleState()
@@ -4077,13 +4126,7 @@ final class BrowserPanel: Panel, ObservableObject {
         faviconTask?.cancel()
         faviconTask = nil
         faviconRefreshGeneration &+= 1
-        BrowserWindowPortalRegistry.detach(webView: oldWebView)
-        oldWebView.stopLoading()
-        oldWebView.navigationDelegate = nil
-        oldWebView.uiDelegate = nil
-        if let oldCmuxWebView = oldWebView as? CmuxWebView {
-            oldCmuxWebView.onContextMenuDownloadStateChanged = nil
-        }
+        tearDownCurrentWebViewForRelease(oldWebView, reason: reason)
 
         let replacement = Self.makeWebView(
             profileID: profileID,
@@ -4093,6 +4136,7 @@ final class BrowserPanel: Panel, ObservableObject {
         webViewInstanceID = UUID()
         resetWebViewLifecycleMetadata(resetVisibility: false)
         webView = replacement
+        didTearDownWebViewForRelease = false
         shouldRenderWebView = wasRenderable
         refreshWebViewLifecycleState()
 
@@ -4154,7 +4198,7 @@ final class BrowserPanel: Panel, ObservableObject {
             }
         }
 
-        if Self.responderChainContains(window.firstResponder, target: webView) {
+        if cmuxResponderChainContains(window.firstResponder, target: webView) {
             noteWebViewFocused()
             return
         }
@@ -4173,7 +4217,7 @@ final class BrowserPanel: Panel, ObservableObject {
 
         guard let window = webView.window, !webView.isHiddenOrHasHiddenAncestor else { return false }
 
-        if Self.responderChainContains(window.firstResponder, target: webView) {
+        if cmuxResponderChainContains(window.firstResponder, target: webView) {
             // Prevent omnibar auto-focus from immediately stealing first responder back.
             suppressOmnibarAutofocus(for: 1.5)
             noteWebViewFocused()
@@ -4188,7 +4232,7 @@ final class BrowserPanel: Panel, ObservableObject {
         DispatchQueue.main.async { [weak self, weak window, weak webView] in
             guard let self, let window, let webView else { return }
             guard webView.window === window else { return }
-            if !Self.responderChainContains(window.firstResponder, target: webView),
+            if !cmuxResponderChainContains(window.firstResponder, target: webView),
                window.makeFirstResponder(webView) {
                 self.suppressOmnibarAutofocus(for: 1.5)
                 self.noteWebViewFocused()
@@ -4201,7 +4245,7 @@ final class BrowserPanel: Panel, ObservableObject {
     func unfocus() {
         invalidateSearchFocusRequests(reason: "panelUnfocus")
         guard let window = webView.window else { return }
-        if Self.responderChainContains(window.firstResponder, target: webView) {
+        if cmuxResponderChainContains(window.firstResponder, target: webView) {
             window.makeFirstResponder(nil)
         }
     }
@@ -4227,16 +4271,16 @@ final class BrowserPanel: Panel, ObservableObject {
             popup.closePopup()
         }
 
-        webView.stopLoading()
-        webView.navigationDelegate = nil
-        webView.uiDelegate = nil
+        webViewObservers.removeAll()
+        webViewCancellables.removeAll()
+        loadingEndWorkItem?.cancel()
+        loadingEndWorkItem = nil
+        faviconTask?.cancel()
+        faviconTask = nil
+        tearDownCurrentWebViewForRelease(webView, reason: "panelClose")
         navigationDelegate = nil
         uiDelegate = nil
         webViewDidRequestClose = nil
-        webViewObservers.removeAll()
-        webViewCancellables.removeAll()
-        faviconTask?.cancel()
-        faviconTask = nil
     }
 
     // MARK: - Popup window management
@@ -4880,8 +4924,11 @@ final class BrowserPanel: Panel, ObservableObject {
         webViewObservers.removeAll()
         webViewCancellables.removeAll()
         let webView = webView
-        Task { @MainActor in
-            BrowserWindowPortalRegistry.detach(webView: webView)
+        let shouldTearDownWebView = !didTearDownWebViewForRelease
+        if shouldTearDownWebView {
+            Task { @MainActor in
+                Self.tearDownWebViewForRelease(webView, reason: "panelDeinit")
+            }
         }
     }
 }
@@ -5016,13 +5063,7 @@ extension BrowserPanel {
         let oldWebView = webView
         webViewObservers.removeAll()
         webViewCancellables.removeAll()
-        BrowserWindowPortalRegistry.detach(webView: oldWebView)
-        oldWebView.stopLoading()
-        oldWebView.navigationDelegate = nil
-        oldWebView.uiDelegate = nil
-        if let oldCmuxWebView = oldWebView as? CmuxWebView {
-            oldCmuxWebView.onContextMenuDownloadStateChanged = nil
-        }
+        tearDownCurrentWebViewForRelease(oldWebView, reason: reason)
 
         let replacement = Self.makeWebView(
             profileID: profileID,
@@ -5030,6 +5071,7 @@ extension BrowserPanel {
         )
         webViewInstanceID = UUID()
         webView = replacement
+        didTearDownWebViewForRelease = false
         shouldRenderWebView = false
         refreshWebViewLifecycleState()
         bindWebView(replacement)
@@ -5279,6 +5321,10 @@ extension BrowserPanel {
         return windowContainsInspectorViews(contentView)
     }
 
+    private static func isWebInspectorWindowTitle(_ window: NSWindow) -> Bool {
+        window.title.hasPrefix("Web Inspector")
+    }
+
     private func detachedDeveloperToolsWindows() -> [NSWindow] {
         let mainWindow = webView.window
         return NSApp.windows.filter { candidate in
@@ -5286,6 +5332,16 @@ extension BrowserPanel {
                 return false
             }
             return Self.isDetachedInspectorWindow(candidate)
+        }
+    }
+
+    private func webInspectorTitledWindows() -> [NSWindow] {
+        guard let mainWindow = webView.window else { return [] }
+        return NSApp.windows.filter { candidate in
+            if candidate === mainWindow {
+                return false
+            }
+            return Self.isWebInspectorWindowTitle(candidate)
         }
     }
 
@@ -5399,17 +5455,52 @@ extension BrowserPanel {
 
     private func dismissDetachedDeveloperToolsWindowsIfNeeded() {
         guard shouldDismissDetachedDeveloperToolsWindows() else { return }
-        guard preferredDeveloperToolsVisible || isDeveloperToolsVisible(),
-              let mainWindow = webView.window else { return }
-        for window in NSApp.windows where window !== mainWindow && Self.isDetachedInspectorWindow(window) {
-#if DEBUG
-            cmuxDebugLog(
-                "browser.devtools strayWindow.close panel=\(id.uuidString.prefix(5)) " +
-                "title=\(window.title) frame=\(NSStringFromRect(window.frame))"
-            )
-#endif
-            window.close()
+        guard preferredDeveloperToolsVisible || isDeveloperToolsVisible() else { return }
+        for window in webInspectorTitledWindows() {
+            orderOutStaleWebInspectorWindowIfNeeded(window, reason: "attachedDismissal")
         }
+    }
+
+    func ownsLiveDetachedWebInspectorWindow(_ window: NSWindow) -> Bool {
+        guard Self.isWebInspectorWindowTitle(window) else { return false }
+        if let inspectorFrontend = webView.cmuxInspectorFrontendWebView() {
+            if inspectorFrontend.window === window {
+                return true
+            }
+            if let contentView = window.contentView,
+               cmuxViewTreeContains(contentView, target: inspectorFrontend) {
+                return true
+            }
+        }
+        return popupControllers.contains { $0.ownsLiveDetachedWebInspectorWindow(window) }
+    }
+
+    func hasLiveDetachedWebInspectorWindow(_ window: NSWindow) -> Bool {
+        guard Self.isWebInspectorWindowTitle(window) else { return false }
+        if ownsLiveDetachedWebInspectorWindow(window) { return true }
+        return preferredDeveloperToolsPresentation == .detached && Self.isDetachedInspectorWindow(window)
+    }
+
+    @discardableResult
+    func orderOutStaleWebInspectorWindowIfNeeded(_ window: NSWindow, reason: String) -> Bool {
+        guard Self.isWebInspectorWindowTitle(window) else { return false }
+        guard !hasLiveDetachedWebInspectorWindow(window) else { return false }
+        guard preferredDeveloperToolsVisible || isDeveloperToolsVisible() else { return false }
+        guard preferredDeveloperToolsPresentation == .attached || hasAttachedDeveloperToolsLayout() else {
+            return false
+        }
+        guard let mainWindow = webView.window, window !== mainWindow else {
+            return false
+        }
+#if DEBUG
+        cmuxDebugLog(
+            "browser.devtools strayWindow.orderOut panel=\(id.uuidString.prefix(5)) " +
+            "reason=\(reason) title=\(window.title) frame=\(NSStringFromRect(window.frame))"
+        )
+#endif
+        window.isExcludedFromWindowsMenu = true
+        window.orderOut(nil)
+        return true
     }
 
     private func scheduleDetachedDeveloperToolsWindowDismissal() {
@@ -6201,7 +6292,7 @@ extension BrowserPanel {
         }
 
         if let window,
-           Self.responderChainContains(window.firstResponder, target: webView) {
+           cmuxResponderChainContains(window.firstResponder, target: webView) {
             return .browser(.webView)
         }
 
@@ -6276,7 +6367,7 @@ extension BrowserPanel {
             return .browser(.findField)
         }
 
-        if Self.responderChainContains(responder, target: webView) {
+        if cmuxResponderChainContains(responder, target: webView) {
             return .browser(.webView)
         }
 
@@ -6310,7 +6401,7 @@ extension BrowserPanel {
 #endif
             return true
         case .webView:
-            guard Self.responderChainContains(window.firstResponder, target: webView) else { return false }
+            guard cmuxResponderChainContains(window.firstResponder, target: webView) else { return false }
             return window.makeFirstResponder(nil)
         }
     }
@@ -6695,17 +6786,6 @@ private extension BrowserPanel {
         }
         webView.pageZoom = clamped
         return true
-    }
-
-    static func responderChainContains(_ start: NSResponder?, target: NSResponder) -> Bool {
-        var r = start
-        var hops = 0
-        while let cur = r, hops < 64 {
-            if cur === target { return true }
-            r = cur.nextResponder
-            hops += 1
-        }
-        return false
     }
 
     func hasSideDockedDeveloperToolsLayout() -> Bool {
