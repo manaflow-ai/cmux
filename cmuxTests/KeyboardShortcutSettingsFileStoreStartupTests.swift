@@ -200,6 +200,61 @@ final class KeyboardShortcutSettingsFileStoreStartupTests: XCTestCase {
         XCTAssertEqual(dockTileNotificationCount, 0)
     }
 
+    func testSettingsFileStoreAppliesIgnoredClaudeNotificationTypes() throws {
+        let defaults = UserDefaults.standard
+        let key = ClaudeCodeIntegrationSettings.ignoredNotificationTypesKey
+        let previousValue = defaults.object(forKey: key)
+        let previousBackups = defaults.data(forKey: settingsFileBackupsDefaultsKey)
+        let previousImportedDefaults = defaults.data(forKey: importedManagedDefaultsKey)
+        defer {
+            if let previousValue {
+                defaults.set(previousValue, forKey: key)
+            } else {
+                defaults.removeObject(forKey: key)
+            }
+            if let previousBackups {
+                defaults.set(previousBackups, forKey: settingsFileBackupsDefaultsKey)
+            } else {
+                defaults.removeObject(forKey: settingsFileBackupsDefaultsKey)
+            }
+            if let previousImportedDefaults {
+                defaults.set(previousImportedDefaults, forKey: importedManagedDefaultsKey)
+            } else {
+                defaults.removeObject(forKey: importedManagedDefaultsKey)
+            }
+        }
+
+        defaults.removeObject(forKey: key)
+        defaults.removeObject(forKey: settingsFileBackupsDefaultsKey)
+        defaults.removeObject(forKey: importedManagedDefaultsKey)
+
+        let directoryURL = try makeTemporaryDirectory()
+        defer { try? FileManager.default.removeItem(at: directoryURL) }
+
+        let settingsURL = directoryURL.appendingPathComponent("settings.json", isDirectory: false)
+        try writeSettingsFile(
+            """
+            {
+              "notifications": {
+                "ignoredClaudeNotificationTypes": ["idle_prompt", "idle-prompt", " permission_prompt ", ""]
+              }
+            }
+            """,
+            to: settingsURL
+        )
+
+        _ = KeyboardShortcutSettingsFileStore(
+            primaryPath: settingsURL.path,
+            fallbackPath: nil,
+            startWatching: false
+        )
+
+        XCTAssertEqual(
+            ClaudeCodeIntegrationSettings.ignoredNotificationTypes(defaults: defaults),
+            ["idle_prompt", "permission_prompt"]
+        )
+    }
+
     func testSidebarMatchTerminalBackgroundUserDefaultSurvivesSettingsFileReapply() throws {
         let defaults = UserDefaults.standard
         let key = SidebarMatchTerminalBackgroundSettings.userDefaultsKey

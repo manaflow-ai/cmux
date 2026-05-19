@@ -10,6 +10,7 @@ import Carbon.HIToolbox
 import Sentry
 import Bonsplit
 import CMUXAgentLaunch
+import CMUXClaudeNotifications
 import CMUXPasteboardFidelity
 import IOSurface
 import UniformTypeIdentifiers
@@ -5535,6 +5536,10 @@ final class TerminalSurface: Identifiable, ObservableObject {
         if !claudeHooksEnabled {
             setManagedEnvironmentValue("CMUX_CLAUDE_HOOKS_DISABLED", "1")
         }
+        setManagedEnvironmentValue(
+            ClaudeNotificationTypeNormalization.ignoredTypesEnvironmentKey,
+            ClaudeCodeIntegrationSettings.ignoredNotificationTypes().joined(separator: ",")
+        )
         if let customClaudePath = ClaudeCodeIntegrationSettings.customClaudePath() {
             setManagedEnvironmentValue("CMUX_CUSTOM_CLAUDE_PATH", customClaudePath)
         }

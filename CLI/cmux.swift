@@ -1,5 +1,6 @@
 import Foundation
 import CMUXAgentLaunch
+import CMUXClaudeNotifications
 import CoreFoundation
 import CryptoKit
 import Darwin
@@ -332,6 +333,7 @@ private struct ClaudeHookParsedInput {
     let rawObject: [String: Any]?
     let object: [String: Any]?
     let rawFallback: String?
+    let rawFallbackNotificationTypeValues: [String]
     let sessionId: String?
     let turnId: String?
     let cwd: String?
@@ -17063,6 +17065,16 @@ struct CMUXCLI {
 
         case "notification", "notify":
             telemetry.breadcrumb("claude-hook.notification")
+            let notificationTypes = Self.claudeNotificationTypes(parsedInput: parsedInput)
+            let suppressedNotificationTypes = Self.suppressedClaudeNotificationTypes(for: notificationTypes)
+            if !suppressedNotificationTypes.isEmpty {
+                telemetry.breadcrumb(
+                    "claude-hook.notification.suppressed",
+                    data: ["types": suppressedNotificationTypes.sorted().joined(separator: ",")]
+                )
+                print("OK")
+                return
+            }
             var summary = summarizeClaudeHookNotification(parsedInput: parsedInput)
 
             let mappedSession = parsedInput.sessionId.flatMap { try? sessionStore.lookup(sessionId: $0) }
@@ -17685,7 +17697,7 @@ struct CMUXCLI {
         guard !trimmed.isEmpty,
               let data = trimmed.data(using: .utf8),
               let json = try? JSONSerialization.jsonObject(with: data, options: []),
-              let object = json as? [String: Any] else {
+              let object = Self.claudeHookObject(fromJSONValue: json) else {
             let fallback = trimmed.isEmpty ? nil : truncate(
                 normalizedSingleLine(redactClaudeSensitiveSpans(trimmed)),
                 maxLength: 180
@@ -17694,6 +17706,7 @@ struct CMUXCLI {
                 rawObject: nil,
                 object: nil,
                 rawFallback: fallback,
+                rawFallbackNotificationTypeValues: ClaudeNotificationTypeExtractor.values(inRawFallback: trimmed),
                 sessionId: nil,
                 turnId: nil,
                 cwd: nil,
@@ -17710,11 +17723,25 @@ struct CMUXCLI {
             rawObject: object,
             object: compactObject,
             rawFallback: nil,
+            rawFallbackNotificationTypeValues: [],
             sessionId: sessionId,
             turnId: turnId,
             cwd: cwd,
             transcriptPath: transcriptPath
         )
+    }
+
+    private static func claudeHookObject(fromJSONValue value: Any) -> [String: Any]? {
+        if let object = value as? [String: Any] {
+            return object
+        }
+        guard let string = value as? String,
+              let data = string.trimmingCharacters(in: .whitespacesAndNewlines).data(using: .utf8),
+              let nested = try? JSONSerialization.jsonObject(with: data, options: []),
+              let object = nested as? [String: Any] else {
+            return nil
+        }
+        return object
     }
 
     private func compactClaudeHookObject(_ object: [String: Any]) -> [String: Any] {
@@ -19093,6 +19120,78 @@ struct CMUXCLI {
             return ("Attention", message)
         }
         return ("Attention", "Claude needs your attention")
+    }
+
+    private static let claudeIgnoredNotificationTypesDefaultsKey =
+        ClaudeNotificationTypeNormalization.ignoredTypesDefaultsKey
+    private static let claudeIgnoredNotificationTypesEnvKey =
+        ClaudeNotificationTypeNormalization.ignoredTypesEnvironmentKey
+
+    private static func suppressedClaudeNotificationTypes(for types: Set<String>) -> Set<String> {
+        ClaudeNotificationSuppression.suppressedTypes(
+            notificationTypes: types,
+            ignoredTypes: ignoredClaudeNotificationTypes()
+        )
+    }
+
+    private static func ignoredClaudeNotificationTypes() -> Set<String> {
+        // Hook subprocess environments are immutable after terminal launch; read cmux.json first
+        // so existing terminals follow live settings changes.
+        if let settingsTypes = ignoredClaudeNotificationTypesFromSettingsFiles() {
+            return settingsTypes
+        }
+
+        if let env = ProcessInfo.processInfo.environment[claudeIgnoredNotificationTypesEnvKey] {
+            return normalizedClaudeNotificationTypes(
+                env.components(separatedBy: CharacterSet(charactersIn: ", \n\t"))
+            )
+        }
+
+        if let stored = UserDefaults.standard.array(forKey: claudeIgnoredNotificationTypesDefaultsKey) as? [String] {
+            return normalizedClaudeNotificationTypes(stored)
+        }
+        if let stored = UserDefaults.standard.string(forKey: claudeIgnoredNotificationTypesDefaultsKey) {
+            return normalizedClaudeNotificationTypes(
+                stored.components(separatedBy: CharacterSet(charactersIn: ", \n\t"))
+            )
+        }
+        return []
+    }
+
+    private static func ignoredClaudeNotificationTypesFromSettingsFiles(
+        fileManager: FileManager = .default,
+        environment: [String: String] = ProcessInfo.processInfo.environment
+    ) -> Set<String>? {
+        let paths = ClaudeIgnoredNotificationSettings.settingsPaths(
+            primaryDisplayPath: primarySettingsDisplayPath,
+            legacyDisplayPath: legacySettingsDisplayPath,
+            appSupportDirectories: CmuxApplicationSupportDirectories.userDirectories(
+                environment: environment,
+                fileManager: fileManager
+            ),
+            fileManager: fileManager,
+            environment: environment
+        )
+
+        return ClaudeIgnoredNotificationSettings.ignoredTypesFromSettingsFiles(
+            paths: paths,
+            fileManager: fileManager
+        ) { data in
+            try JSONCParser.preprocess(data: data)
+        }
+    }
+
+    private static func claudeNotificationTypes(parsedInput: ClaudeHookParsedInput) -> Set<String> {
+        var rawValues: [String] = []
+        if let object = parsedInput.rawObject ?? parsedInput.object {
+            rawValues.append(contentsOf: ClaudeNotificationTypeExtractor.values(inJSONValue: object))
+        }
+        rawValues.append(contentsOf: parsedInput.rawFallbackNotificationTypeValues)
+        return normalizedClaudeNotificationTypes(rawValues)
+    }
+
+    private static func normalizedClaudeNotificationTypes(_ values: [String]) -> Set<String> {
+        ClaudeNotificationTypeNormalization.normalizedSet(values)
     }
 
     private func firstString(in object: [String: Any], keys: [String]) -> String? {

@@ -452,6 +452,13 @@ final class CmuxSettingsFileStore {
         if let raw = jsonString(section["command"]) {
             snapshot.managedUserDefaults[NotificationSoundSettings.customCommandKey] = .string(raw)
         }
+        if let values = jsonStringArray(section["ignoredClaudeNotificationTypes"]) {
+            snapshot.managedUserDefaults[ClaudeCodeIntegrationSettings.ignoredNotificationTypesKey] = .stringArray(
+                ClaudeCodeIntegrationSettings.normalizedIgnoredNotificationTypes(values)
+            )
+        } else if section.keys.contains("ignoredClaudeNotificationTypes") {
+            logInvalid("notifications.ignoredClaudeNotificationTypes", sourcePath: sourcePath)
+        }
     }
 
     private func parseTerminalSection(

@@ -70,6 +70,7 @@ extension CmuxSettingsFileStore {
         "notifications.sound",
         "notifications.customSoundFilePath",
         "notifications.command",
+        "notifications.ignoredClaudeNotificationTypes",
         "notifications.hooks",
         "notifications.hooksMode",
         "sidebar.hideAllDetails",

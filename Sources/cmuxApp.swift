@@ -2,6 +2,7 @@ import AppKit
 import SwiftUI
 import Darwin
 import Bonsplit
+import CMUXClaudeNotifications
 import UniformTypeIdentifiers
 @main
 struct cmuxApp: App {
@@ -4666,6 +4667,8 @@ enum ClaudeCodeIntegrationSettings {
     static let hooksEnabledKey = "claudeCodeHooksEnabled"
     static let defaultHooksEnabled = true
     static let customClaudePathKey = "claudeCodeCustomClaudePath"
+    static let ignoredNotificationTypesKey = ClaudeNotificationTypeNormalization.ignoredTypesDefaultsKey
+    static let defaultIgnoredNotificationTypes = ClaudeNotificationTypeNormalization.defaultIgnoredTypes
 
     static func hooksEnabled(defaults: UserDefaults = .standard) -> Bool {
         if defaults.object(forKey: hooksEnabledKey) == nil {
@@ -4678,6 +4681,17 @@ enum ClaudeCodeIntegrationSettings {
         let value = defaults.string(forKey: customClaudePathKey)?
             .trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
         return value.isEmpty ? nil : value
+    }
+
+    static func ignoredNotificationTypes(defaults: UserDefaults = .standard) -> [String] {
+        guard let stored = defaults.array(forKey: ignoredNotificationTypesKey) as? [String] else {
+            return defaultIgnoredNotificationTypes
+        }
+        return normalizedIgnoredNotificationTypes(stored)
+    }
+
+    static func normalizedIgnoredNotificationTypes(_ values: [String]) -> [String] {
+        ClaudeNotificationTypeNormalization.normalizedUniqueList(values)
     }
 }
 
