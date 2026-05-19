@@ -111,6 +111,23 @@ def _surface_ref_by_index(c: cmux, workspace_ref: str, index: int = 0) -> str:
     raise cmuxError(f"surface health missing index {index}: {rows}")
 
 
+def _terminal_surface_refs(c: cmux, workspace_ref: str, expected_count: int) -> list[str]:
+    deadline = time.time() + 5.0
+    rows: list[dict] = []
+    while time.time() < deadline:
+        rows = c.surface_health(workspace_ref)
+        refs = [
+            str(row.get("ref") or row.get("id") or "")
+            for row in rows
+            if row.get("type") == "terminal"
+        ]
+        refs = [ref for ref in refs if ref]
+        if len(refs) >= expected_count:
+            return refs
+        time.sleep(0.1)
+    raise cmuxError(f"surface health missing {expected_count} terminal refs: {rows}")
+
+
 def _wait_for_terminal_ready(c: cmux, workspace_ref: str, surface_ref: str, label: str) -> dict:
     deadline = time.time() + 10.0
     last_row: dict = {}
@@ -227,6 +244,37 @@ def main() -> int:
             pane_surface_ref = _extract_ref(pane_created, "surface")
             row = _wait_for_terminal_ready(c, workspace_ref, pane_surface_ref, "background new-pane")
             _assert_not_visible_ready(row, "background new-pane")
+
+            layout = {
+                "pane": {
+                    "surfaces": [
+                        {"type": "terminal", "name": "layout-a"},
+                        {"type": "terminal", "name": "layout-b"},
+                        {"type": "terminal", "name": "layout-c"},
+                    ]
+                }
+            }
+            layout_created = _run_cli(
+                cli,
+                [
+                    "new-workspace",
+                    "--layout",
+                    json.dumps(layout),
+                    "--focus",
+                    "false",
+                ],
+            )
+            layout_workspace = layout_created.removeprefix("OK ").strip()
+            _must(bool(layout_workspace), f"layout new-workspace returned no workspace ref: {layout_created!r}")
+            cleanup_workspaces.append(layout_workspace)
+            for index, layout_surface_ref in enumerate(_terminal_surface_refs(c, layout_workspace, 3), start=1):
+                row = _wait_for_terminal_ready(
+                    c,
+                    layout_workspace,
+                    layout_surface_ref,
+                    f"background layout terminal {index}",
+                )
+                _assert_not_visible_ready(row, f"background layout terminal {index}")
 
             other_window = c.new_window()
             cleanup_windows.append(other_window)
