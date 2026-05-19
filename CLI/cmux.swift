@@ -9023,7 +9023,7 @@ struct CMUXCLI {
             Print server capabilities as JSON.
             """
         case "events":
-            return """
+            return String(localized: "cli.help.events", defaultValue: """
             Usage: cmux events [options]
 
             Stream cmux events as newline-delimited JSON.
@@ -9037,7 +9037,7 @@ struct CMUXCLI {
               --window <id|ref|idx>  Scope to a window
               --workspace <id|ref|idx>
                                       Scope to a workspace
-              --surface <id|ref|idx> Scope to a surface
+              --surface <id|ref|idx> Scope to a surface (aliases: --tab, --panel)
               --pane <id|ref|idx>    Scope to a pane
               --reconnect            Reconnect forever and resume from the last received sequence
               --limit <n>            Exit after printing n event frames
@@ -9050,7 +9050,7 @@ struct CMUXCLI {
               cmux events --workspace workspace:1
               cmux events --cursor-file ~/.cache/cmux/events.seq --reconnect
               cmux events --after 42 --name feed.item.received
-            """
+            """)
         case "auth":
             return """
             Usage: cmux auth <status|login|logout>
@@ -24199,7 +24199,7 @@ export default function cmuxPiSessionExtension(pi: ExtensionAPI) {
           ping
           version
           capabilities
-          events [--after <seq>] [--cursor-file <path>] [--name <event>] [--category <category>] [--scope <scope>] [--window <id|ref|index>] [--workspace <id|ref|index>] [--surface <id|ref|index>] [--pane <id|ref|index>] [--reconnect] [--limit <n>] [--no-ack] [--no-heartbeat]
+          events [--after <seq>] [--cursor-file <path>] [--name <event>] [--category <category>] [--scope <scope>] [--window <id|ref|idx>] [--workspace <id|ref|idx>] [--surface <id|ref|idx>] [--pane <id|ref|idx>] [--reconnect] [--limit <n>] [--no-ack] [--no-heartbeat]
           auth <status|login|logout>
           login | logout                                      (aliases for auth login/logout)
           vm <new|ls|rm|exec|shell|ssh> [args...]    (alias: cloud)

@@ -316,7 +316,14 @@ extension CMUXCLI {
         case "pane":
             return "pane"
         default:
-            throw CLIError(message: "Unknown events scope: \(raw)")
+            let message = String(
+                format: String(
+                    localized: "cli.error.eventsUnknownScope",
+                    defaultValue: "Unknown events scope: %@. Use one of: global, window, workspace, surface, pane. Run `cmux events --help` for more info."
+                ),
+                raw
+            )
+            throw CLIError(message: message)
         }
     }
 

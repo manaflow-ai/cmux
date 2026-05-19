@@ -344,7 +344,7 @@ Events command:
 | `--scope <scope>` | Scope events to `global`, `window`, `workspace`, `surface`, or `pane`. Defaults to `global`. |
 | `--window <id\|ref\|index>` | Scope to a window. Implies `--scope window` unless `--scope` is set. |
 | `--workspace <id\|ref\|index>` | Scope to a workspace. Implies `--scope workspace` unless `--scope` is set. |
-| `--surface <id\|ref\|index>` | Scope to a surface. Implies `--scope surface` unless `--scope` is set. |
+| `--surface <id\|ref\|index>`, `--tab <id\|ref\|index>`, `--panel <id\|ref\|index>` | Scope to a surface. Implies `--scope surface` unless `--scope` is set. |
 | `--pane <id\|ref\|index>` | Scope to a pane. Implies `--scope pane` unless `--scope` is set. |
 | `--reconnect` | Reconnect and resume from the last received sequence until interrupted. |
 | `--limit <n>` | Exit after printing `n` event frames. |
