@@ -280,6 +280,10 @@ nonisolated struct SurfaceResumeBindingSnapshot: Codable, Equatable, Sendable {
         source == "agent-hook"
     }
 
+    var isCLIBinding: Bool {
+        source == "cli"
+    }
+
     var allowsAutomaticResume: Bool {
         autoResume == true
     }
@@ -695,6 +699,62 @@ enum SurfaceResumeApprovalStore {
         effective.approvalRecordId = record.id
         effective.autoResume = record.policy == .auto
         return effective
+    }
+
+    static func shouldPromptForProposal(
+        binding: SurfaceResumeBindingSnapshot,
+        existingRecord: SurfaceResumeApprovalRecord?,
+        isMainThread: Bool,
+        isRunningTests: Bool
+    ) -> Bool {
+        guard isMainThread else {
+            return false
+        }
+        guard !isRunningTests else {
+            return false
+        }
+        guard !binding.isCLIBinding else {
+            return false
+        }
+        guard !binding.isProcessDetected, !binding.isAgentHookBinding else {
+            return false
+        }
+        guard SurfaceResumeCommandCanonicalizer.tokens(from: binding.command) != nil else {
+            return false
+        }
+        guard let existingRecord else { return true }
+        return existingRecord.policy == .prompt
+    }
+
+    static func applyingPromptlessCLIManualApprovalIfNeeded(
+        to binding: SurfaceResumeBindingSnapshot,
+        existingRecord: SurfaceResumeApprovalRecord?,
+        fileURL: URL = defaultURL(),
+        fileManager: FileManager = .default,
+        signingSecret: Data? = nil
+    ) -> SurfaceResumeBindingSnapshot? {
+        guard binding.isCLIBinding, existingRecord == nil else {
+            return nil
+        }
+        guard let record = approve(
+            binding: binding,
+            policy: .manual,
+            fileURL: fileURL,
+            fileManager: fileManager,
+            signingSecret: signingSecret
+        ) else {
+            return nil
+        }
+        var effectiveBinding = applyingStoredApproval(
+            to: binding,
+            fileURL: fileURL,
+            fileManager: fileManager,
+            signingSecret: signingSecret
+        )
+        effectiveBinding.approvalPolicy = record.policy
+        effectiveBinding.approvalRecordId = record.id
+        effectiveBinding.autoResume = record.policy == .auto
+        return effectiveBinding
     }
 
     @discardableResult
