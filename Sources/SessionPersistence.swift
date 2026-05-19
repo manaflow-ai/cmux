@@ -697,6 +697,28 @@ enum SurfaceResumeApprovalStore {
         return effective
     }
 
+    static func shouldPromptForProposal(
+        binding: SurfaceResumeBindingSnapshot,
+        existingRecord: SurfaceResumeApprovalRecord?,
+        isMainThread: Bool,
+        isRunningTests: Bool
+    ) -> Bool {
+        guard isMainThread else {
+            return false
+        }
+        guard !isRunningTests else {
+            return false
+        }
+        guard !binding.isProcessDetected, !binding.isAgentHookBinding else {
+            return false
+        }
+        guard SurfaceResumeCommandCanonicalizer.tokens(from: binding.command) != nil else {
+            return false
+        }
+        guard let existingRecord else { return true }
+        return existingRecord.policy == .prompt
+    }
+
     @discardableResult
     static func approve(
         binding: SurfaceResumeBindingSnapshot,
