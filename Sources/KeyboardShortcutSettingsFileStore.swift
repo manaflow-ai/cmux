@@ -84,7 +84,10 @@ final class CmuxSettingsFileStore {
         importedManagedDefaults = Self.loadImportedManagedDefaults()
 
         bootstrapPrimaryTemplateIfNeeded()
-        reload()
+        // The app init path loads cmux.json before applying language/appearance
+        // itself. Running live default side effects here can initialize UI/runtime
+        // singletons while this store singleton is still in its dispatch_once.
+        reload(applyLiveDefaultSideEffects: false)
         guard startWatching else { return }
 
         primaryWatcher = ShortcutSettingsFileWatcher(path: primaryPath, fileManager: fileManager) { [weak self] in
@@ -115,7 +118,7 @@ final class CmuxSettingsFileStore {
         }
     }
 
-    func reload() {
+    func reload(applyLiveDefaultSideEffects: Bool = true) {
         let previousState = synchronized {
             (
                 shortcuts: shortcutsByAction,
@@ -130,7 +133,8 @@ final class CmuxSettingsFileStore {
             changedManagedDefaultKeys: newOrChangedManagedDefaultKeys(
                 previous: previousState.importedManagedDefaults,
                 next: resolved.managedUserDefaults
-            )
+            ),
+            applyLiveDefaultSideEffects: applyLiveDefaultSideEffects
         )
         synchronized {
             shortcutsByAction = resolved.shortcuts
@@ -221,7 +225,8 @@ final class CmuxSettingsFileStore {
             snapshot: managedState.snapshot,
             importedManagedDefaults: managedState.importedManagedDefaults,
             changedManagedDefaultKeys: [],
-            updateBackups: false
+            updateBackups: false,
+            applyLiveDefaultSideEffects: true
         )
     }
 
@@ -861,7 +866,8 @@ final class CmuxSettingsFileStore {
         snapshot: ResolvedSettingsSnapshot,
         importedManagedDefaults: [String: ManagedSettingsValue],
         changedManagedDefaultKeys: Set<String>,
-        updateBackups: Bool = true
+        updateBackups: Bool = true,
+        applyLiveDefaultSideEffects: Bool = true
     ) {
         var backups = loadBackups()
         var sideEffects = ManagedDefaultBatchSideEffects()
@@ -889,7 +895,13 @@ final class CmuxSettingsFileStore {
 
         for identifier in currentManagedIdentifiers.subtracting(nextManagedIdentifiers) {
             guard let backup = backups[identifier] else { continue }
-            sideEffects.merge(restoreBackup(backup, for: identifier))
+            sideEffects.merge(
+                restoreBackup(
+                    backup,
+                    for: identifier,
+                    applyLiveDefaultSideEffects: applyLiveDefaultSideEffects
+                )
+            )
             backups.removeValue(forKey: identifier)
         }
 
@@ -899,7 +911,8 @@ final class CmuxSettingsFileStore {
                     value,
                     for: defaultsKey,
                     importedDefault: importedManagedDefaults[defaultsKey],
-                    forceApply: changedManagedDefaultKeys.contains(defaultsKey)
+                    forceApply: changedManagedDefaultKeys.contains(defaultsKey),
+                    applyLiveDefaultSideEffects: applyLiveDefaultSideEffects
                 )
             )
         }
@@ -907,7 +920,9 @@ final class CmuxSettingsFileStore {
         if updateBackups {
             saveBackups(backups)
         }
-        applyManagedDefaultBatchSideEffects(sideEffects)
+        if applyLiveDefaultSideEffects {
+            applyManagedDefaultBatchSideEffects(sideEffects)
+        }
     }
 
     private func applyManagedCustomSettings(_ settings: ManagedCustomSettings) {
@@ -927,7 +942,11 @@ final class CmuxSettingsFileStore {
         }
     }
 
-    private func restoreBackup(_ backup: BackupValue, for identifier: String) -> ManagedDefaultBatchSideEffects {
+    private func restoreBackup(
+        _ backup: BackupValue,
+        for identifier: String,
+        applyLiveDefaultSideEffects: Bool
+    ) -> ManagedDefaultBatchSideEffects {
         switch identifier {
         case Self.socketPasswordBackupIdentifier:
             switch backup {
@@ -940,7 +959,11 @@ final class CmuxSettingsFileStore {
             }
             return ManagedDefaultBatchSideEffects()
         default:
-            return restoreUserDefaultsBackup(backup, for: identifier)
+            return restoreUserDefaultsBackup(
+                backup,
+                for: identifier,
+                applyLiveDefaultSideEffects: applyLiveDefaultSideEffects
+            )
         }
     }
 
@@ -985,7 +1008,8 @@ final class CmuxSettingsFileStore {
 
     private func restoreUserDefaultsBackup(
         _ backup: BackupValue,
-        for defaultsKey: String
+        for defaultsKey: String,
+        applyLiveDefaultSideEffects: Bool
     ) -> ManagedDefaultBatchSideEffects {
         let defaults = UserDefaults.standard
         if defaultsKey == WorkspaceTabColorSettings.paletteKey {
@@ -1039,7 +1063,7 @@ final class CmuxSettingsFileStore {
             }
         }
 
-        if didMutateStoredValue {
+        if didMutateStoredValue && applyLiveDefaultSideEffects {
             return applyManagedDefaultSideEffects(
                 for: defaultsKey,
                 source: "cmuxConfig.restoreUserDefault"
@@ -1052,7 +1076,8 @@ final class CmuxSettingsFileStore {
         _ value: ManagedSettingsValue,
         for defaultsKey: String,
         importedDefault: ManagedSettingsValue?,
-        forceApply: Bool
+        forceApply: Bool,
+        applyLiveDefaultSideEffects: Bool
     ) -> ManagedDefaultBatchSideEffects {
         let defaults = UserDefaults.standard
         guard shouldApplyManagedUserDefaultsValue(
@@ -1124,7 +1149,7 @@ final class CmuxSettingsFileStore {
             }
         }
 
-        if didMutateStoredValue {
+        if didMutateStoredValue && applyLiveDefaultSideEffects {
             return applyManagedDefaultSideEffects(
                 for: defaultsKey,
                 source: "cmuxConfig.applyManagedDefault"
