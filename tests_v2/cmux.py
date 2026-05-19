@@ -138,8 +138,9 @@ def _socket_variant() -> Tuple[str, Optional[str]]:
         return ("dev", _sanitize_tag_slug(suffix))
 
     tag = os.environ.get("CMUX_TAG", "").strip()
-    if tag:
-        return ("dev", _sanitize_tag_slug(tag))
+    slug = _sanitize_tag_slug(tag) if tag else None
+    if slug:
+        return ("dev", slug)
     return ("stable", None)
 
 

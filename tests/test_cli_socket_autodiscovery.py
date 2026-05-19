@@ -686,9 +686,9 @@ def test_python_clients_default_to_stable_without_context() -> bool:
     return True
 
 
-def test_python_v2_client_matches_empty_swift_tag_slug() -> bool:
+def test_python_v2_client_ignores_unsanitizable_tag_without_context() -> bool:
     with temporary_socket_home("cmux-v2-empty-tag-") as home:
-        expected_socket = socket_path_for_home(home, "com.cmuxterm.app.dev.sock")
+        expected_socket = socket_path_for_home(home, "com.cmuxterm.app.sock")
         actual = python_v2_client_default_socket_path({
             "HOME": home,
             "CFFIXED_USER_HOME": home,
@@ -696,12 +696,12 @@ def test_python_v2_client_matches_empty_swift_tag_slug() -> bool:
         })
 
     if actual != expected_socket:
-        print("FAIL: tests_v2 client diverged from Swift empty tag slug handling")
+        print("FAIL: tests_v2 client used unsanitizable CMUX_TAG without bundle context")
         print(f"expected={expected_socket!r}")
         print(f"actual={actual!r}")
         return False
 
-    print("PASS: tests_v2 client matches Swift empty tag slug handling")
+    print("PASS: tests_v2 client ignores unsanitizable CMUX_TAG without bundle context")
     return True
 
 
@@ -1475,7 +1475,7 @@ def main() -> int:
     if not test_python_clients_default_to_stable_without_context():
         return 1
 
-    if not test_python_v2_client_matches_empty_swift_tag_slug():
+    if not test_python_v2_client_ignores_unsanitizable_tag_without_context():
         return 1
 
     if not test_python_v2_client_treats_stable_override_as_implicit():
