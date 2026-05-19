@@ -128,16 +128,17 @@ extension CMUXCLI {
 
     func topMemoryProcessNames(in workspace: [String: Any]) -> [String] {
         var residentBytesByName: [String: Int64] = [:]
-        collectMemoryProcessNames(fromProcessesIn: workspace, into: &residentBytesByName)
+        var seenPIDs = Set<Int>()
+        collectMemoryProcessNames(fromProcessesIn: workspace, into: &residentBytesByName, seenPIDs: &seenPIDs)
         for tag in workspace["tags"] as? [[String: Any]] ?? [] {
-            collectMemoryProcessNames(fromProcessesIn: tag, into: &residentBytesByName)
+            collectMemoryProcessNames(fromProcessesIn: tag, into: &residentBytesByName, seenPIDs: &seenPIDs)
         }
         for pane in workspace["panes"] as? [[String: Any]] ?? [] {
-            collectMemoryProcessNames(fromProcessesIn: pane, into: &residentBytesByName)
+            collectMemoryProcessNames(fromProcessesIn: pane, into: &residentBytesByName, seenPIDs: &seenPIDs)
             for surface in pane["surfaces"] as? [[String: Any]] ?? [] {
-                collectMemoryProcessNames(fromProcessesIn: surface, into: &residentBytesByName)
+                collectMemoryProcessNames(fromProcessesIn: surface, into: &residentBytesByName, seenPIDs: &seenPIDs)
                 for webview in surface["webviews"] as? [[String: Any]] ?? [] {
-                    collectMemoryProcessNames(fromProcessesIn: webview, into: &residentBytesByName)
+                    collectMemoryProcessNames(fromProcessesIn: webview, into: &residentBytesByName, seenPIDs: &seenPIDs)
                 }
             }
         }
@@ -152,25 +153,29 @@ extension CMUXCLI {
 
     func collectMemoryProcessNames(
         fromProcessesIn node: [String: Any],
-        into residentBytesByName: inout [String: Int64]
+        into residentBytesByName: inout [String: Int64],
+        seenPIDs: inout Set<Int>
     ) {
         let processes = node["processes"] as? [[String: Any]] ?? []
         for process in processes {
-            collectMemoryProcessName(from: process, into: &residentBytesByName)
+            collectMemoryProcessName(from: process, into: &residentBytesByName, seenPIDs: &seenPIDs)
         }
     }
 
     func collectMemoryProcessName(
         from process: [String: Any],
-        into residentBytesByName: inout [String: Int64]
+        into residentBytesByName: inout [String: Int64],
+        seenPIDs: inout Set<Int>
     ) {
+        let pid = CMUXCLI.topIntValue(process["pid"])
+        let alreadyCounted = pid.map { !seenPIDs.insert($0).inserted } ?? false
         let name = topLabelText(process["name"] as? String)
-        if !name.isEmpty {
+        if !alreadyCounted, !name.isEmpty {
             let resources = process["resources"] as? [String: Any] ?? [:]
             residentBytesByName[name, default: 0] += topInt64(resources["resident_bytes"])
         }
         for child in process["children"] as? [[String: Any]] ?? [] {
-            collectMemoryProcessName(from: child, into: &residentBytesByName)
+            collectMemoryProcessName(from: child, into: &residentBytesByName, seenPIDs: &seenPIDs)
         }
     }
 }

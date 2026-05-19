@@ -10083,7 +10083,9 @@ struct CMUXCLI {
               cmux --json top --all
             """
         case "memory", "memory-snapshot", "memory-list", "memory-top", "memory-trim":
-            return """
+            return String(
+                localized: "cli.help.memory",
+                defaultValue: """
             Usage: cmux memory <snapshot|list|top|trim> [flags]
 
             Persist and inspect approximate per-workspace memory telemetry.
@@ -10124,6 +10126,7 @@ struct CMUXCLI {
               cmux memory top --since 1d --sort avg
               cmux memory trim --workspace workspace:2 --agent codex
             """
+            )
         case "focus-pane":
             return """
             Usage: cmux focus-pane [--pane <id|ref> | <id|ref>] [flags]
@@ -11460,7 +11463,20 @@ struct CMUXCLI {
             if jsonOutput || options.jsonOutput {
                 print(jsonString(formatIDs(payload, mode: idFormat)))
             } else {
-                print("Recorded \(allSamples.count) workspace memory sample\(allSamples.count == 1 ? "" : "s") in \(database.path)")
+                if allSamples.count == 1 {
+                    print(String(
+                        localized: "cli.memory.snapshot.recorded.one",
+                        defaultValue: "Recorded 1 workspace memory sample"
+                    ))
+                } else {
+                    print(String(
+                        format: String(
+                            localized: "cli.memory.snapshot.recorded.many",
+                            defaultValue: "Recorded %@ workspace memory samples"
+                        ),
+                        String(allSamples.count)
+                    ))
+                }
                 if !samples.isEmpty {
                     print(renderMemorySamples(samples, idFormat: idFormat))
                 }
