@@ -147,6 +147,13 @@ def write_cmux_config(home: str, notifications: dict[str, object]) -> None:
         json.dump({"notifications": notifications}, handle)
 
 
+def write_raw_cmux_config(home: str, content: str) -> None:
+    config_dir = os.path.join(home, ".config", "cmux")
+    os.makedirs(config_dir, exist_ok=True)
+    with open(os.path.join(config_dir, "cmux.json"), "w", encoding="utf-8") as handle:
+        handle.write(content)
+
+
 def main() -> int:
     try:
         cli_path = resolve_cmux_cli()
@@ -449,6 +456,35 @@ def main() -> int:
         if not any(line.startswith("notify_target_async ") for line in removed_idle_commands):
             print("FAIL: stale hook env suppressed after cmux.json ignored types were removed")
             print(f"removed_idle_commands={removed_idle_commands!r}")
+            return 1
+
+        write_raw_cmux_config(home, "{")
+        before_invalid_count = len(server.commands)
+        invalid_config_idle = run_notification_hook(
+            cli_path,
+            server,
+            stale_env,
+            {
+                "session_id": f"sess-{uuid.uuid4().hex}",
+                "hook_event_name": "Notification",
+                "notification_type": "idle_prompt",
+                "message": "Invalid cmux.json should fall back to hook env",
+            },
+        )
+        if invalid_config_idle.returncode != 0 or invalid_config_idle.stdout.strip() != "OK":
+            print("FAIL: invalid cmux.json did not fall back to hook env")
+            print(f"stdout={invalid_config_idle.stdout!r}")
+            print(f"stderr={invalid_config_idle.stderr!r}")
+            print(f"commands={server.commands!r}")
+            return 1
+
+        invalid_config_commands = server.commands[before_invalid_count:]
+        if any(
+            line.startswith("notify_target_async ") or line.startswith("set_status claude_code Needs input ")
+            for line in invalid_config_commands
+        ):
+            print("FAIL: invalid cmux.json blocked hook env ignored types")
+            print(f"invalid_config_commands={invalid_config_commands!r}")
             return 1
 
     print("PASS: Claude ignored notification types suppress only matching hook notifications")

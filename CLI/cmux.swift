@@ -18801,14 +18801,12 @@ struct CMUXCLI {
         )
         var foundSettingsFile = false
 
-        for (index, path) in paths.enumerated() {
+        for path in paths {
             switch loadIgnoredClaudeNotificationTypes(at: path, fileManager: fileManager) {
             case .missing:
                 continue
             case .invalid:
-                if index == 0 {
-                    return []
-                }
+                continue
             case .parsed(let values):
                 foundSettingsFile = true
                 if let values {
