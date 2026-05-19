@@ -904,6 +904,13 @@ jobs:
             sleep 3
           done
 
+      - name: Reset UI automation services
+        run: |
+          set -euo pipefail
+          sudo pkill -9 testmanagerd 2>/dev/null || true
+          sudo pkill -9 automationmode-writer 2>/dev/null || true
+          sudo launchctl kickstart -k system/com.apple.dt.automationmode-writer 2>/dev/null || true
+
       - name: Run browser find focus UI regression
         run: |
           set -euo pipefail
