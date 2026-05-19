@@ -2468,7 +2468,18 @@ private struct WorkspaceCanvasOverviewView<Content: View, EmptyContent: View>: V
     private func canvasPreviewPaneContent(item: CanvasItem, selected: SurfaceTab, paneID: PaneID) -> some View {
         ZStack(alignment: .topLeading) {
             canvasContentBackgroundColor
-            if let image = canvasPreviewImages[selected.id] {
+            if let terminalPanel = workspace.panel(for: selected.id) as? TerminalPanel,
+               let surface = terminalPanel.hostedView.currentCanvasIOSurface() {
+                CanvasIOSurfacePreview(
+                    surface: surface,
+                    backgroundColor: appearance.backgroundColor,
+                    contentMode: .fit,
+                    preferredFramesPerSecond: 120
+                )
+                .frame(maxWidth: .infinity, maxHeight: .infinity)
+                .clipped()
+                .allowsHitTesting(false)
+            } else if let image = canvasPreviewImages[selected.id] {
                 Image(nsImage: image)
                     .resizable()
                     .aspectRatio(contentMode: .fit)

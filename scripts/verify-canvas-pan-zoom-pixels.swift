@@ -150,13 +150,20 @@ func run(_ executable: String, _ args: [String], environment: [String: String] =
     }
     process.environment = env
 
-    let pipe = Pipe()
-    process.standardOutput = pipe
-    process.standardError = pipe
+    let outputURL = outDirectory.appendingPathComponent("command-output-\(UUID().uuidString).log")
+    FileManager.default.createFile(atPath: outputURL.path, contents: nil)
+    let outputHandle = try FileHandle(forWritingTo: outputURL)
+    defer {
+        try? outputHandle.close()
+        try? FileManager.default.removeItem(at: outputURL)
+    }
+    process.standardOutput = outputHandle
+    process.standardError = outputHandle
     try process.run()
     process.waitUntilExit()
+    try? outputHandle.close()
 
-    let data = pipe.fileHandleForReading.readDataToEndOfFile()
+    let data = (try? Data(contentsOf: outputURL)) ?? Data()
     let output = String(data: data, encoding: .utf8) ?? ""
     guard process.terminationStatus == 0 else {
         throw CommandError(

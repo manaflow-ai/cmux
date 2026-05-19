@@ -9766,6 +9766,10 @@ final class GhosttySurfaceScrollView: NSView {
         surfaceView.keyDown(with: event)
     }
 
+    func currentCanvasIOSurface() -> IOSurfaceRef? {
+        surfaceView.layer?.contents as? IOSurfaceRef
+    }
+
     private var lastFlashStyle: FlashStyle = .navigation
     private let keyboardCopyModeBadgeContainerView: GhosttyFlashOverlayView
     private let keyboardCopyModeBadgeView: GhosttyPassthroughVisualEffectView
