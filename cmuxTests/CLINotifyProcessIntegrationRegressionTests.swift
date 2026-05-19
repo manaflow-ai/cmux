@@ -2335,7 +2335,7 @@ final class CLINotifyProcessIntegrationRegressionTests: XCTestCase {
                             "id": workspaceId,
                             "ref": "workspace:7",
                             "index": 7,
-                            "title": "Build",
+                            "title": "Build #S",
                         ]],
                     ]
                 )
@@ -2358,7 +2358,7 @@ final class CLINotifyProcessIntegrationRegressionTests: XCTestCase {
                             "id": surfaceId,
                             "ref": "surface:3",
                             "index": 3,
-                            "title": "Codex",
+                            "title": "Codex #P",
                             "focused": true,
                         ]],
                     ]
@@ -2397,7 +2397,7 @@ final class CLINotifyProcessIntegrationRegressionTests: XCTestCase {
                 "__tmux-compat",
                 "display-message",
                 "-p",
-                "#S:#I:#W:#P:#{session_attached}:#{pane_id}",
+                "#S:#I:#W:#P:#T:##S:#{session_attached}:#{pane_id}",
             ],
             environment: environment,
             timeout: 5
@@ -2406,7 +2406,7 @@ final class CLINotifyProcessIntegrationRegressionTests: XCTestCase {
         wait(for: [serverHandled], timeout: 5)
         XCTAssertFalse(result.timedOut, result.stderr)
         XCTAssertEqual(result.status, 0, result.stderr)
-        XCTAssertEqual(result.stdout, "cmux:7:Build:2:1:%\(paneId)\n")
+        XCTAssertEqual(result.stdout, "cmux:7:Build #S:2:Codex #P:#S:1:%\(paneId)\n")
         XCTAssertTrue(
             state.commands.contains { $0.contains(#""method":"surface.current""#) },
             "Expected display-message to resolve tmux context through the socket, saw \(state.commands)"
@@ -2420,6 +2420,7 @@ final class CLINotifyProcessIntegrationRegressionTests: XCTestCase {
 
         let cases: [(arguments: [String], expected: String)] = [
             (["__tmux-compat", "show-options", "-sv", "default-terminal"], "tmux-256color\n"),
+            (["__tmux-compat", "show-options", "-sv", "extended-keys"], "on\n"),
             (["__tmux-compat", "show-option", "-sv", "extended-keys-format"], "csi-u\n"),
             (["__tmux-compat", "show", "-sv", "status"], "on\n"),
         ]

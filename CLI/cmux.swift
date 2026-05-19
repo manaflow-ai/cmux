@@ -13224,28 +13224,55 @@ struct CMUXCLI {
         fallback: String
     ) -> String {
         guard let format, !format.isEmpty else { return fallback }
-        var rendered = format
-        for (key, value) in context {
-            rendered = rendered.replacingOccurrences(of: "#{\(key)}", with: value)
-        }
-        rendered = rendered.replacingOccurrences(
-            of: "#\\{[^}]+\\}",
-            with: "",
-            options: .regularExpression
-        )
-        let shortAliases: [(alias: String, key: String)] = [
-            ("S", "session_name"),
-            ("I", "window_index"),
-            ("W", "window_name"),
-            ("P", "pane_index"),
-            ("T", "pane_title"),
-            ("D", "pane_id"),
+        let shortAliases: [Character: String] = [
+            "S": "session_name",
+            "I": "window_index",
+            "W": "window_name",
+            "P": "pane_index",
+            "T": "pane_title",
+            "D": "pane_id",
         ]
-        for entry in shortAliases {
-            rendered = rendered.replacingOccurrences(
-                of: "#\(entry.alias)",
-                with: context[entry.key] ?? ""
-            )
+        var rendered = ""
+        var index = format.startIndex
+        while index < format.endIndex {
+            let character = format[index]
+            guard character == "#" else {
+                rendered.append(character)
+                index = format.index(after: index)
+                continue
+            }
+
+            let nextIndex = format.index(after: index)
+            guard nextIndex < format.endIndex else {
+                rendered.append(character)
+                index = nextIndex
+                continue
+            }
+
+            let next = format[nextIndex]
+            if next == "#" {
+                rendered.append("#")
+                index = format.index(after: nextIndex)
+                continue
+            }
+
+            if next == "{",
+               let closeIndex = format[nextIndex...].firstIndex(of: "}") {
+                let keyStart = format.index(after: nextIndex)
+                let key = String(format[keyStart..<closeIndex])
+                rendered += context[key] ?? ""
+                index = format.index(after: closeIndex)
+                continue
+            }
+
+            if let key = shortAliases[next] {
+                rendered += context[key] ?? ""
+                index = format.index(after: nextIndex)
+                continue
+            }
+
+            rendered.append(character)
+            index = nextIndex
         }
         let trimmed = rendered.trimmingCharacters(in: .whitespacesAndNewlines)
         return trimmed.isEmpty ? fallback : trimmed
