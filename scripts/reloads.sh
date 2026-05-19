@@ -10,13 +10,27 @@ BUNDLE_SET=0
 DERIVED_SET=0
 TAG=""
 LAST_SOCKET_PATH_DIR="$HOME/Library/Application Support/cmux"
-LAST_SOCKET_PATH_FILE="${LAST_SOCKET_PATH_DIR}/last-socket-path"
 
 write_last_socket_path() {
   local socket_path="$1"
+  local marker_name="staging-last-socket-path"
+  local tmp_marker="/tmp/cmux-staging-last-socket-path"
+  if [[ -n "${STAGING_SLUG:-}" ]]; then
+    marker_name="staging-${STAGING_SLUG}-last-socket-path"
+    tmp_marker="/tmp/cmux-staging-${STAGING_SLUG}-last-socket-path"
+  fi
   mkdir -p "$LAST_SOCKET_PATH_DIR"
-  echo "$socket_path" > "$LAST_SOCKET_PATH_FILE" || true
-  echo "$socket_path" > /tmp/cmux-last-socket-path || true
+  echo "$socket_path" > "${LAST_SOCKET_PATH_DIR}/${marker_name}" || true
+  echo "$socket_path" > "$tmp_marker" || true
+}
+
+staging_slug_from_bundle_id() {
+  local bundle_id="$1"
+  local suffix=""
+  if [[ "$bundle_id" == "com.cmuxterm.app.staging."* ]]; then
+    suffix="${bundle_id#com.cmuxterm.app.staging.}"
+  fi
+  sanitize_path "$suffix"
 }
 
 usage() {
@@ -50,9 +64,6 @@ sanitize_path() {
   local raw="$1"
   local cleaned
   cleaned="$(echo "$raw" | tr '[:upper:]' '[:lower:]' | sed -E 's/[^a-z0-9]+/-/g; s/^-+//; s/-+$//; s/-+/-/g')"
-  if [[ -z "$cleaned" ]]; then
-    cleaned="agent"
-  fi
   echo "$cleaned"
 }
 
@@ -108,6 +119,10 @@ done
 if [[ -n "$TAG" ]]; then
   TAG_ID="$(sanitize_bundle "$TAG")"
   TAG_SLUG="$(sanitize_path "$TAG")"
+  if [[ -z "$TAG_SLUG" ]]; then
+    echo "error: --tag must contain at least one alphanumeric character" >&2
+    exit 1
+  fi
   if [[ "$NAME_SET" -eq 0 ]]; then
     APP_NAME="cmux STAGING ${TAG}"
   fi
@@ -196,12 +211,19 @@ if [[ -f "$INFO_PLIST" ]]; then
 
   # Inject staging socket paths via LSEnvironment so the Release binary
   # (which defaults to the per-user stable socket) uses isolated sockets instead.
-  STAGING_SLUG="${TAG_SLUG:-staging}"
+  STAGING_SLUG="$(staging_slug_from_bundle_id "$BUNDLE_ID")"
   APP_SUPPORT_DIR="$HOME/Library/Application Support/cmux"
-  CMUXD_SOCKET="${APP_SUPPORT_DIR}/cmuxd-${STAGING_SLUG}.sock"
-  CMUX_SOCKET_PATH_VALUE="/tmp/cmux-${STAGING_SLUG}.sock"
+  if [[ -n "$STAGING_SLUG" ]]; then
+    CMUXD_SOCKET="${APP_SUPPORT_DIR}/cmuxd-${STAGING_SLUG}.sock"
+    CMUX_SOCKET_PATH_VALUE="/tmp/cmux-staging-${STAGING_SLUG}.sock"
+  else
+    CMUXD_SOCKET="${APP_SUPPORT_DIR}/cmuxd-staging.sock"
+    CMUX_SOCKET_PATH_VALUE="/tmp/cmux-staging.sock"
+  fi
   write_last_socket_path "$CMUX_SOCKET_PATH_VALUE"
   /usr/libexec/PlistBuddy -c "Add :LSEnvironment dict" "$INFO_PLIST" 2>/dev/null || true
+  /usr/libexec/PlistBuddy -c "Set :LSEnvironment:CMUX_BUNDLE_ID \"${BUNDLE_ID}\"" "$INFO_PLIST" 2>/dev/null \
+    || /usr/libexec/PlistBuddy -c "Add :LSEnvironment:CMUX_BUNDLE_ID string \"${BUNDLE_ID}\"" "$INFO_PLIST"
   /usr/libexec/PlistBuddy -c "Set :LSEnvironment:CMUXD_UNIX_PATH \"${CMUXD_SOCKET}\"" "$INFO_PLIST" 2>/dev/null \
     || /usr/libexec/PlistBuddy -c "Add :LSEnvironment:CMUXD_UNIX_PATH string \"${CMUXD_SOCKET}\"" "$INFO_PLIST"
   /usr/libexec/PlistBuddy -c "Set :LSEnvironment:CMUX_SOCKET_PATH \"${CMUX_SOCKET_PATH_VALUE}\"" "$INFO_PLIST" 2>/dev/null \
@@ -260,7 +282,7 @@ OPEN_CLEAN_ENV=(
 
 # Always inject staging socket paths via env to ensure they take effect
 # (LSEnvironment requires app restart to pick up plist changes).
-"${OPEN_CLEAN_ENV[@]}" CMUX_SOCKET_PATH="$CMUX_SOCKET_PATH_VALUE" CMUXD_UNIX_PATH="$CMUXD_SOCKET" open -g "$APP_PATH"
+"${OPEN_CLEAN_ENV[@]}" CMUX_BUNDLE_ID="$BUNDLE_ID" CMUX_SOCKET_PATH="$CMUX_SOCKET_PATH_VALUE" CMUXD_UNIX_PATH="$CMUXD_SOCKET" open -g "$APP_PATH"
 
 # Safety: ensure only one instance is running.
 sleep 0.2

@@ -155,12 +155,14 @@ struct CmuxTaskManagerSnapshot {
     private struct ProgramAggregate {
         let title: String
         var cpuPercent: Double = 0
+        var memoryBytes: Int64 = 0
         var residentBytes: Int64 = 0
         var processIds: [Int] = []
 
         mutating func append(_ row: CmuxTaskManagerRow) {
             guard let processId = row.processId else { return }
             cpuPercent += row.resources.cpuPercent
+            memoryBytes = Self.clampedAdd(memoryBytes, row.resources.memoryBytes)
             residentBytes = Self.clampedAdd(residentBytes, row.resources.residentBytes)
             processIds.append(processId)
         }
@@ -202,6 +204,7 @@ struct CmuxTaskManagerSnapshot {
                     resources: CmuxTaskManagerResources(
                         cpuPercent: aggregate.cpuPercent,
                         residentBytes: aggregate.residentBytes,
+                        memoryBytes: aggregate.memoryBytes,
                         processCount: processIds.count,
                         processIds: processIds
                     ),
@@ -268,6 +271,12 @@ struct CmuxTaskManagerSnapshot {
             title: String(localized: "taskManager.row.window", defaultValue: "Window \(handle)"),
             detail: detailParts.joined(separator: " / ")
         ))
+
+        let processes = window["processes"] as? [[String: Any]] ?? []
+        let context = rowID(window, kind: .window)
+        for process in processes {
+            appendProcess(process, level: 1, context: context, workspaceId: nil, terminalSurfaceId: nil, to: &rows)
+        }
 
         let workspaces = window["workspaces"] as? [[String: Any]] ?? []
         for workspace in workspaces {

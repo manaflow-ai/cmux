@@ -330,6 +330,7 @@ jobs:
           xcrun stapler staple "$APP_PATH"
           xcrun stapler validate "$APP_PATH"
           spctl -a -vv --type execute "$APP_PATH"
+          ./scripts/smoke-launch-macos-app.sh "$APP_PATH"
           rm -f "$ZIP_SUBMIT"
           # create-dmg generates a styled drag-to-install DMG
           create-dmg \

@@ -68,6 +68,9 @@ extension TerminalController {
             windows[index]["top_level_pids"] = windowTopLevelPIDs.sorted()
             windows[index]["foreground_pgids"] = windowForegroundProcessGroupIDs.sorted()
             windows[index]["resources"] = processSnapshot.summaryPayload(for: windowPIDs, rootPIDs: appProcessPIDs)
+            windows[index]["processes"] = includeProcesses
+                ? processSnapshot.processTreePayload(for: appProcessPIDs, rootPIDs: appProcessPIDs)
+                : []
             allPIDs.formUnion(windowPIDs)
         }
         return allPIDs
@@ -282,7 +285,16 @@ extension TerminalController {
         return nil
     }
 
-    nonisolated func v2AttachTopApplicationProcess(to windows: inout [[String: Any]]) {
+    nonisolated func v2AttachTopApplicationProcess(
+        to windows: inout [[String: Any]],
+        workspaceFilter: UUID? = nil
+    ) {
+        guard workspaceFilter == nil else {
+            for index in windows.indices {
+                windows[index]["app_process_pids"] = []
+            }
+            return
+        }
         guard let firstIndex = windows.indices.first else { return }
 
         let appProcessID = Int(Darwin.getpid())

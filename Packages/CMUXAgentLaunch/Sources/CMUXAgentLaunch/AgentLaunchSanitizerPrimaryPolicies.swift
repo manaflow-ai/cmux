@@ -75,6 +75,7 @@ extension AgentLaunchSanitizer {
         droppedOptions: [
             "--continue",
             "-c",
+            "--file",
             "--fork-session",
             "--from-pr",
             "--resume",
@@ -85,6 +86,7 @@ extension AgentLaunchSanitizer {
             "-w"
         ],
         droppedOptionPrefixes: [
+            "--file=",
             "--fork-session=",
             "--from-pr=",
             "--resume=",
@@ -150,6 +152,8 @@ extension AgentLaunchSanitizer {
         ],
         droppedOptions: [
             "--last",
+            "--image",
+            "-i",
             "--remote",
             "--remote-auth-token-env",
             "--all"
@@ -422,6 +426,8 @@ extension AgentLaunchSanitizer {
             "--hostname",
             "--mdns-domain",
             "--cors",
+            "--file",
+            "-f",
             "--model",
             "-m",
             "--session",
@@ -460,12 +466,16 @@ extension AgentLaunchSanitizer {
         droppedOptions: [
             "--continue",
             "-c",
+            "--file",
+            "-f",
             "--fork",
             "--session",
             "-s",
             "--prompt"
         ],
         droppedOptionPrefixes: [
+            "--file=",
+            "-f=",
             "--fork=",
             "--session=",
             "--prompt="

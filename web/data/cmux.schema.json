@@ -702,6 +702,18 @@
           "default": "system",
           "description": "Embedded browser theme."
         },
+        "discardHiddenWebViews": {
+          "type": "boolean",
+          "default": true,
+          "description": "Allow hidden browser tabs to release page memory and restore when shown again."
+        },
+        "hiddenWebViewDiscardDelaySeconds": {
+          "type": "number",
+          "minimum": 0,
+          "maximum": 3600,
+          "default": 300,
+          "description": "Seconds a browser tab must stay hidden before cmux frees its page memory."
+        },
         "openTerminalLinksInCmuxBrowser": {
           "type": "boolean",
           "default": true,

@@ -59,7 +59,7 @@ struct CmuxTaskManagerView: View {
             )
             metric(
                 title: String(localized: "taskManager.summary.memory", defaultValue: "Memory"),
-                value: CmuxTaskManagerFormat.bytes(model.snapshot.total.residentBytes)
+                value: CmuxTaskManagerFormat.bytes(model.snapshot.total.memoryBytes)
             )
             metric(
                 title: String(localized: "taskManager.summary.processes", defaultValue: "Processes"),
@@ -365,7 +365,7 @@ private struct CmuxTaskManagerRowView: View {
 
             Text(CmuxTaskManagerFormat.cpu(row.resources.cpuPercent))
                 .frame(width: 82, alignment: .trailing)
-            Text(CmuxTaskManagerFormat.bytes(row.resources.residentBytes))
+            Text(CmuxTaskManagerFormat.bytes(row.resources.memoryBytes))
                 .frame(width: 96, alignment: .trailing)
             Text("\(row.resources.processCount)")
                 .frame(width: 70, alignment: .trailing)

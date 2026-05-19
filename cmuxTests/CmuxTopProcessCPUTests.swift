@@ -21,6 +21,145 @@ final class CmuxTopProcessCPUTests: XCTestCase {
         XCTAssertEqual(CmuxTopProcessSnapshot.cpuPercent(current: current, previous: previous), 0)
     }
 
+    func testCPUPercentagesHoldPreviousValueUntilFixedWindowElapses() {
+        let key = CmuxTopProcessScopeCacheKey(
+            pid: 4_129_001,
+            startSeconds: 1_000,
+            startMicroseconds: 0
+        )
+        let activeKeys: Set<CmuxTopProcessScopeCacheKey> = [key]
+
+        _ = CmuxTopProcessSnapshot.cpuPercentages(
+            for: [
+                key: CmuxTopProcessCPUSample(
+                    totalTimeTicks: 1_000,
+                    sampledAtNanoseconds: 1_000_000_000
+                )
+            ],
+            activeKeys: activeKeys,
+            sampledAtNanoseconds: 1_000_000_000
+        )
+
+        let rapidPercentages = CmuxTopProcessSnapshot.cpuPercentages(
+            for: [
+                key: CmuxTopProcessCPUSample(
+                    totalTimeTicks: 1_000_001_000,
+                    sampledAtNanoseconds: 1_100_000_000
+                )
+            ],
+            activeKeys: activeKeys,
+            sampledAtNanoseconds: 1_100_000_000
+        )
+
+        XCTAssertEqual(rapidPercentages[key], 0)
+
+        let fixedWindowPercentages = CmuxTopProcessSnapshot.cpuPercentages(
+            for: [
+                key: CmuxTopProcessCPUSample(
+                    totalTimeTicks: 1_000_002_000,
+                    sampledAtNanoseconds: 2_000_000_000
+                )
+            ],
+            activeKeys: activeKeys,
+            sampledAtNanoseconds: 2_000_000_000
+        )
+
+        XCTAssertGreaterThan(fixedWindowPercentages[key] ?? 0, 0)
+    }
+
+    func testExitedChildCPUPercentCarriesIntoActiveParentForOneSample() {
+        let parentKey = CmuxTopProcessScopeCacheKey(
+            pid: 4_129_100,
+            startSeconds: 1_000,
+            startMicroseconds: 0
+        )
+        let childKey = CmuxTopProcessScopeCacheKey(
+            pid: 4_129_101,
+            startSeconds: 1_000,
+            startMicroseconds: 1
+        )
+        let activeParentAndChild: Set<CmuxTopProcessScopeCacheKey> = [parentKey, childKey]
+
+        _ = CmuxTopProcessSnapshot.cpuPercentages(
+            for: [
+                parentKey: CmuxTopProcessCPUSample(totalTimeTicks: 1_000, sampledAtNanoseconds: 10_000_000_000),
+                childKey: CmuxTopProcessCPUSample(totalTimeTicks: 1_000, sampledAtNanoseconds: 10_000_000_000),
+            ],
+            activeKeys: activeParentAndChild,
+            parentKeysByKey: [childKey: parentKey],
+            sampledAtNanoseconds: 10_000_000_000
+        )
+        let activePercentages = CmuxTopProcessSnapshot.cpuPercentages(
+            for: [
+                parentKey: CmuxTopProcessCPUSample(totalTimeTicks: 1_000, sampledAtNanoseconds: 11_000_000_000),
+                childKey: CmuxTopProcessCPUSample(totalTimeTicks: 1_000_001_000, sampledAtNanoseconds: 11_000_000_000),
+            ],
+            activeKeys: activeParentAndChild,
+            parentKeysByKey: [childKey: parentKey],
+            sampledAtNanoseconds: 11_000_000_000
+        )
+
+        XCTAssertGreaterThan(activePercentages[childKey] ?? 0, 0)
+
+        let parentOnlyPercentages = CmuxTopProcessSnapshot.cpuPercentages(
+            for: [
+                parentKey: CmuxTopProcessCPUSample(totalTimeTicks: 1_000, sampledAtNanoseconds: 12_000_000_000),
+            ],
+            activeKeys: [parentKey],
+            sampledAtNanoseconds: 12_000_000_000
+        )
+
+        XCTAssertGreaterThan(parentOnlyPercentages[parentKey] ?? 0, 0)
+        XCTAssertNil(parentOnlyPercentages[childKey])
+    }
+
+    func testExitedChildCPUPercentDoesNotInflateHeldParentSample() {
+        let parentKey = CmuxTopProcessScopeCacheKey(
+            pid: 4_129_200,
+            startSeconds: 1_000,
+            startMicroseconds: 0
+        )
+        let childKey = CmuxTopProcessScopeCacheKey(
+            pid: 4_129_201,
+            startSeconds: 1_000,
+            startMicroseconds: 1
+        )
+        let activeParentAndChild: Set<CmuxTopProcessScopeCacheKey> = [parentKey, childKey]
+
+        _ = CmuxTopProcessSnapshot.cpuPercentages(
+            for: [
+                parentKey: CmuxTopProcessCPUSample(totalTimeTicks: 1_000, sampledAtNanoseconds: 20_000_000_000),
+                childKey: CmuxTopProcessCPUSample(totalTimeTicks: 1_000, sampledAtNanoseconds: 20_000_000_000),
+            ],
+            activeKeys: activeParentAndChild,
+            parentKeysByKey: [childKey: parentKey],
+            sampledAtNanoseconds: 20_000_000_000
+        )
+        let activePercentages = CmuxTopProcessSnapshot.cpuPercentages(
+            for: [
+                parentKey: CmuxTopProcessCPUSample(totalTimeTicks: 1_000, sampledAtNanoseconds: 21_000_000_000),
+                childKey: CmuxTopProcessCPUSample(totalTimeTicks: 1_000_001_000, sampledAtNanoseconds: 21_000_000_000),
+            ],
+            activeKeys: activeParentAndChild,
+            parentKeysByKey: [childKey: parentKey],
+            sampledAtNanoseconds: 21_000_000_000
+        )
+
+        XCTAssertEqual(activePercentages[parentKey], 0)
+        XCTAssertGreaterThan(activePercentages[childKey] ?? 0, 0)
+
+        let heldParentOnlyPercentages = CmuxTopProcessSnapshot.cpuPercentages(
+            for: [
+                parentKey: CmuxTopProcessCPUSample(totalTimeTicks: 1_000, sampledAtNanoseconds: 21_100_000_000),
+            ],
+            activeKeys: [parentKey],
+            sampledAtNanoseconds: 21_100_000_000
+        )
+
+        XCTAssertEqual(heldParentOnlyPercentages[parentKey], 0)
+        XCTAssertNil(heldParentOnlyPercentages[childKey])
+    }
+
     func testBusyChildProcessReportsNonZeroCPUPercent() throws {
         let process = Process()
         process.executableURL = URL(fileURLWithPath: "/bin/sh")

@@ -56,31 +56,65 @@ final class SessionIndexViewTests: XCTestCase {
         )
     }
 
-    func testClaudeResumeCommandPinsConfigDirectoryFromFileURL() {
+    func testClaudeResumeCommandPinsSnapshotConfigDirectory() throws {
+        let root = FileManager.default.temporaryDirectory
+            .appendingPathComponent("cmux-session-index-\(UUID().uuidString)", isDirectory: true)
+        defer { try? FileManager.default.removeItem(at: root) }
+
+        let configDir = root.appendingPathComponent("claude config", isDirectory: true)
+        let transcriptURL = configDir
+            .appendingPathComponent("projects", isDirectory: true)
+            .appendingPathComponent("-tmp", isDirectory: true)
+            .appendingPathComponent("claude-session-123.jsonl", isDirectory: false)
+        try FileManager.default.createDirectory(
+            at: transcriptURL.deletingLastPathComponent(),
+            withIntermediateDirectories: true
+        )
+        try Data(#"{"oauthAccount":{"email":"user@example.com"}}"#.utf8)
+            .write(to: configDir.appendingPathComponent(".claude.json", isDirectory: false))
+
         let entry = makeEntry(
             sessionId: "claude-session-123",
             title: "resume me",
-            fileURL: URL(fileURLWithPath: "/tmp/claude config/projects/-tmp/claude-session-123.jsonl")
+            fileURL: transcriptURL,
+            claudeConfigDirectoryForResume: configDir.path
         )
 
         XCTAssertEqual(
             entry.resumeCommand,
-            "env CLAUDE_CONFIG_DIR='/tmp/claude config' CMUX_PRESERVE_CLAUDE_AUTH_SELECTION_ENV=1 CMUX_PRESERVE_CLAUDE_AUTH_SELECTION_ENV_KEYS=CLAUDE_CONFIG_DIR claude --resume claude-session-123"
+            "env CLAUDE_CONFIG_DIR='\(configDir.path)' CMUX_PRESERVE_CLAUDE_AUTH_SELECTION_ENV=1 CMUX_PRESERVE_CLAUDE_AUTH_SELECTION_ENV_KEYS=CLAUDE_CONFIG_DIR claude --resume claude-session-123"
         )
     }
 
-    func testClaudeResumeCommandUsesNearestProjectsDirectory() {
+    func testClaudeResumeCommandUsesSnapshotConfigDirectoryWithNestedProjectsPath() throws {
+        let root = FileManager.default.temporaryDirectory
+            .appendingPathComponent("cmux-session-index-\(UUID().uuidString)", isDirectory: true)
+        defer { try? FileManager.default.removeItem(at: root) }
+
+        let configDir = root
+            .appendingPathComponent("projects", isDirectory: true)
+            .appendingPathComponent("claude config", isDirectory: true)
+        let transcriptURL = configDir
+            .appendingPathComponent("projects", isDirectory: true)
+            .appendingPathComponent("-tmp", isDirectory: true)
+            .appendingPathComponent("claude-session-123.jsonl", isDirectory: false)
+        try FileManager.default.createDirectory(
+            at: transcriptURL.deletingLastPathComponent(),
+            withIntermediateDirectories: true
+        )
+        try Data(#"{"oauthAccount":{"email":"user@example.com"}}"#.utf8)
+            .write(to: configDir.appendingPathComponent(".claude.json", isDirectory: false))
+
         let entry = makeEntry(
             sessionId: "claude-session-123",
             title: "resume me",
-            fileURL: URL(
-                fileURLWithPath: "/tmp/projects/claude config/projects/-tmp/claude-session-123.jsonl"
-            )
+            fileURL: transcriptURL,
+            claudeConfigDirectoryForResume: configDir.path
         )
 
         XCTAssertEqual(
             entry.resumeCommand,
-            "env CLAUDE_CONFIG_DIR='/tmp/projects/claude config' CMUX_PRESERVE_CLAUDE_AUTH_SELECTION_ENV=1 CMUX_PRESERVE_CLAUDE_AUTH_SELECTION_ENV_KEYS=CLAUDE_CONFIG_DIR claude --resume claude-session-123"
+            "env CLAUDE_CONFIG_DIR='\(configDir.path)' CMUX_PRESERVE_CLAUDE_AUTH_SELECTION_ENV=1 CMUX_PRESERVE_CLAUDE_AUTH_SELECTION_ENV_KEYS=CLAUDE_CONFIG_DIR claude --resume claude-session-123"
         )
     }
 
@@ -233,7 +267,8 @@ final class SessionIndexViewTests: XCTestCase {
         agent: SessionAgent = .claude,
         sessionId: String = UUID().uuidString,
         title: String,
-        fileURL: URL? = nil
+        fileURL: URL? = nil,
+        claudeConfigDirectoryForResume: String? = nil
     ) -> SessionEntry {
         SessionEntry(
             id: UUID().uuidString,
@@ -245,7 +280,9 @@ final class SessionIndexViewTests: XCTestCase {
             pullRequest: nil,
             modified: Date(timeIntervalSince1970: 0),
             fileURL: fileURL,
-            specifics: agent.defaultSpecificsForTesting
+            specifics: agent.defaultSpecificsForTesting(
+                claudeConfigDirectoryForResume: claudeConfigDirectoryForResume
+            )
         )
     }
 
@@ -328,10 +365,16 @@ final class SessionIndexViewTests: XCTestCase {
 }
 
 private extension SessionAgent {
-    var defaultSpecificsForTesting: AgentSpecifics {
+    func defaultSpecificsForTesting(
+        claudeConfigDirectoryForResume: String? = nil
+    ) -> AgentSpecifics {
         switch self {
         case .claude:
-            return .claude(model: nil, permissionMode: nil)
+            return .claude(
+                model: nil,
+                permissionMode: nil,
+                configDirectoryForResume: claudeConfigDirectoryForResume
+            )
         case .codex:
             return .codex(model: nil, approvalPolicy: nil, sandboxMode: nil, effort: nil)
         case .opencode:

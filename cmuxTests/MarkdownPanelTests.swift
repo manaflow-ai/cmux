@@ -83,6 +83,71 @@ final class MarkdownPanelTests: XCTestCase {
         XCTAssertEqual(payload["display_mode"] as? String, MarkdownPanelDisplayMode.preview.rawValue)
     }
 
+    func testExternalFileOpenRoutesMarkdownFilesToPreviewMarkdownPanel() throws {
+        let fileManager = FileManager.default
+        let directoryURL = fileManager.temporaryDirectory
+            .appendingPathComponent("cmux-markdown-external-open-\(UUID().uuidString)", isDirectory: true)
+        try fileManager.createDirectory(at: directoryURL, withIntermediateDirectories: true)
+        defer {
+            try? fileManager.removeItem(at: directoryURL)
+        }
+
+        let fileURL = directoryURL.appendingPathComponent("README.md")
+        try "# Title\n\nBody.\n".write(to: fileURL, atomically: true, encoding: .utf8)
+
+        let previousShared = AppDelegate.shared
+        let appDelegate = AppDelegate()
+        defer {
+            AppDelegate.shared = previousShared
+        }
+
+        let manager = TabManager()
+        let workspace = manager.addWorkspace(
+            workingDirectory: directoryURL.path,
+            select: true,
+            eagerLoadTerminal: false
+        )
+        defer {
+            TerminalController.shared.setActiveTabManager(nil)
+            for panel in workspace.panels.values {
+                panel.close()
+            }
+        }
+        TerminalController.shared.setActiveTabManager(manager)
+
+#if DEBUG
+        appDelegate.registerMainWindowContextForTesting(tabManager: manager)
+#else
+        XCTFail("registerMainWindowContextForTesting is only available in DEBUG")
+        return
+#endif
+
+        XCTAssertTrue(
+            appDelegate.openFilePreviewInPreferredMainWindow(
+                filePath: fileURL.path,
+                debugSource: "unit-test"
+            )
+        )
+
+        let markdownPanels = workspace.panels.values.compactMap { $0 as? MarkdownPanel }
+        XCTAssertEqual(markdownPanels.count, 1)
+        let originalMarkdownPanel = try XCTUnwrap(markdownPanels.first)
+        let originalMarkdownPanelID = ObjectIdentifier(originalMarkdownPanel)
+        XCTAssertEqual(originalMarkdownPanel.filePath, fileURL.path)
+        XCTAssertEqual(originalMarkdownPanel.displayMode, .preview)
+        XCTAssertTrue(workspace.panels.values.compactMap { $0 as? FilePreviewPanel }.isEmpty)
+
+        XCTAssertTrue(
+            appDelegate.openFilePreviewInPreferredMainWindow(
+                filePath: fileURL.path,
+                debugSource: "unit-test-reopen"
+            )
+        )
+        let reopenedMarkdownPanels = workspace.panels.values.compactMap { $0 as? MarkdownPanel }
+        XCTAssertEqual(reopenedMarkdownPanels.count, 1)
+        XCTAssertTrue(reopenedMarkdownPanels.contains { ObjectIdentifier($0) == originalMarkdownPanelID })
+    }
+
     func testOpenMarkdownPanelReloadsWhenFileChangesOnDisk() async throws {
         let fileManager = FileManager.default
         let directoryURL = fileManager.temporaryDirectory
@@ -115,6 +180,187 @@ final class MarkdownPanelTests: XCTestCase {
         XCTAssertEqual(panel.content, updatedContent)
         XCTAssertEqual(panel.textContent, updatedContent)
         XCTAssertFalse(panel.isDirty)
+    }
+
+    func testMarkdownRendererSessionReusesCoordinatorAcrossViewRecreation() {
+        let session = MarkdownRendererSession()
+        let panelId = UUID()
+        let workspaceId = UUID()
+        let filePath = FileManager.default.temporaryDirectory
+            .appendingPathComponent("stable-renderer.md")
+            .path
+        let theme = MarkdownWebTheme.resolve(backgroundColor: .windowBackgroundColor)
+
+        let firstRenderer = MarkdownWebRenderer(
+            markdown: "# Existing\n",
+            theme: theme,
+            backgroundColor: .windowBackgroundColor,
+            panelId: panelId,
+            workspaceId: workspaceId,
+            filePath: filePath,
+            session: session,
+            onRequestPanelFocus: {}
+        )
+        let firstCoordinator = firstRenderer.makeCoordinator()
+
+        let recreatedRenderer = MarkdownWebRenderer(
+            markdown: "# Existing\n",
+            theme: theme,
+            backgroundColor: .windowBackgroundColor,
+            panelId: panelId,
+            workspaceId: workspaceId,
+            filePath: filePath,
+            session: session,
+            onRequestPanelFocus: {}
+        )
+        let recreatedCoordinator = recreatedRenderer.makeCoordinator()
+
+        XCTAssertTrue(
+            firstCoordinator === recreatedCoordinator,
+            "Markdown renderer should keep its coordinator across SwiftUI view recreation so existing previews do not reload and blink during drops."
+        )
+    }
+
+    func testMarkdownRendererDismantleKeepsPointerHandlerForReusedWebView() {
+        let coordinator = MarkdownWebRenderer.Coordinator()
+        let reusedWebView = MarkdownWebView(frame: .zero, configuration: WKWebViewConfiguration())
+        coordinator.webView = reusedWebView
+
+        var reusedPointerDownCount = 0
+        reusedWebView.onPointerDown = {
+            reusedPointerDownCount += 1
+        }
+
+        MarkdownWebRenderer.dismantleNSView(reusedWebView, coordinator: coordinator)
+        reusedWebView.onPointerDown?()
+
+        XCTAssertEqual(
+            reusedPointerDownCount,
+            1,
+            "SwiftUI teardown for an old renderer wrapper must not clear the pointer handler on the reused markdown web view."
+        )
+
+        let discardedWebView = MarkdownWebView(frame: .zero, configuration: WKWebViewConfiguration())
+        var discardedPointerDownCount = 0
+        discardedWebView.onPointerDown = {
+            discardedPointerDownCount += 1
+        }
+
+        MarkdownWebRenderer.dismantleNSView(discardedWebView, coordinator: coordinator)
+        discardedWebView.onPointerDown?()
+
+        XCTAssertEqual(discardedPointerDownCount, 0)
+    }
+
+    func testMarkdownRendererKeepsRecoveryBudgetAfterShellReload() {
+        let coordinator = MarkdownWebRenderer.Coordinator()
+        let webView = MarkdownWebView(frame: .zero, configuration: WKWebViewConfiguration())
+        let theme = MarkdownWebTheme.resolve(backgroundColor: .windowBackgroundColor)
+        coordinator.webView = webView
+        defer { coordinator.close() }
+
+        coordinator.loadShell(theme: theme, initialMarkdown: "# Existing\n")
+        coordinator.webViewWebContentProcessDidTerminate(webView)
+
+        XCTAssertEqual(coordinator.webContentProcessRecoveryAttemptsForTesting, 1)
+        XCTAssertTrue(coordinator.isShellLoadingForTesting)
+
+        coordinator.webView(webView, didFinish: nil)
+
+        XCTAssertEqual(coordinator.webContentProcessRecoveryAttemptsForTesting, 1)
+        XCTAssertFalse(coordinator.isShellLoadingForTesting)
+    }
+
+    func testMarkdownRendererRestartsShellWhenContentChangesAfterRecoveryBudgetExhausted() {
+        let coordinator = MarkdownWebRenderer.Coordinator()
+        let webView = MarkdownWebView(frame: .zero, configuration: WKWebViewConfiguration())
+        let theme = MarkdownWebTheme.resolve(backgroundColor: .windowBackgroundColor)
+        coordinator.webView = webView
+        defer { coordinator.close() }
+
+        coordinator.loadShell(theme: theme, initialMarkdown: "# Existing\n")
+        for _ in 0...2 {
+            coordinator.webViewWebContentProcessDidTerminate(webView)
+        }
+
+        XCTAssertEqual(coordinator.webContentProcessRecoveryAttemptsForTesting, 2)
+        XCTAssertFalse(coordinator.isShellLoadingForTesting)
+
+        coordinator.update(markdown: "# Replacement\n", theme: theme)
+
+        XCTAssertEqual(coordinator.webContentProcessRecoveryAttemptsForTesting, 0)
+        XCTAssertTrue(coordinator.isShellLoadingForTesting)
+    }
+
+    func testMarkdownRendererCapsRecoveryWhenPayloadCrashesAfterShellFinish() {
+        let coordinator = MarkdownWebRenderer.Coordinator()
+        let webView = MarkdownWebView(frame: .zero, configuration: WKWebViewConfiguration())
+        let theme = MarkdownWebTheme.resolve(backgroundColor: .windowBackgroundColor)
+        coordinator.webView = webView
+        defer { coordinator.close() }
+
+        coordinator.loadShell(theme: theme, initialMarkdown: "# Existing\n")
+
+        for expectedAttempt in 1...2 {
+            coordinator.webViewWebContentProcessDidTerminate(webView)
+            XCTAssertEqual(coordinator.webContentProcessRecoveryAttemptsForTesting, expectedAttempt)
+            XCTAssertTrue(coordinator.isShellLoadingForTesting)
+
+            coordinator.webView(webView, didFinish: nil)
+            XCTAssertEqual(coordinator.webContentProcessRecoveryAttemptsForTesting, expectedAttempt)
+        }
+
+        coordinator.webViewWebContentProcessDidTerminate(webView)
+
+        XCTAssertEqual(coordinator.webContentProcessRecoveryAttemptsForTesting, 2)
+        XCTAssertFalse(coordinator.isShellLoadingForTesting)
+
+        coordinator.update(markdown: "# Existing\n", theme: theme)
+
+        XCTAssertEqual(coordinator.webContentProcessRecoveryAttemptsForTesting, 2)
+        XCTAssertFalse(coordinator.isShellLoadingForTesting)
+    }
+
+    func testMarkdownRendererNavigationFailureUnblocksFutureShellReload() {
+        let coordinator = MarkdownWebRenderer.Coordinator()
+        let webView = MarkdownWebView(frame: .zero, configuration: WKWebViewConfiguration())
+        let theme = MarkdownWebTheme.resolve(backgroundColor: .windowBackgroundColor)
+        coordinator.webView = webView
+        defer { coordinator.close() }
+
+        coordinator.loadShell(theme: theme, initialMarkdown: "# Existing\n")
+        XCTAssertTrue(coordinator.isShellLoadingForTesting)
+
+        let error = NSError(domain: NSURLErrorDomain, code: NSURLErrorCannotLoadFromNetwork)
+        coordinator.webView(webView, didFail: nil, withError: error)
+
+        XCTAssertFalse(coordinator.isShellLoadingForTesting)
+
+        coordinator.update(markdown: "# Replacement\n", theme: theme)
+
+        XCTAssertTrue(coordinator.isShellLoadingForTesting)
+    }
+
+    func testMarkdownRendererNavigationFailureReloadsSameContentUpdate() {
+        let coordinator = MarkdownWebRenderer.Coordinator()
+        let webView = MarkdownWebView(frame: .zero, configuration: WKWebViewConfiguration())
+        let theme = MarkdownWebTheme.resolve(backgroundColor: .windowBackgroundColor)
+        coordinator.webView = webView
+        defer { coordinator.close() }
+
+        coordinator.loadShell(theme: theme, initialMarkdown: "# Existing\n")
+        coordinator.webView(webView, didFinish: nil)
+        XCTAssertFalse(coordinator.isShellLoadingForTesting)
+
+        let error = NSError(domain: NSURLErrorDomain, code: NSURLErrorCannotLoadFromNetwork)
+        coordinator.loadShell(theme: theme, initialMarkdown: "# Existing\n")
+        coordinator.webView(webView, didFail: nil, withError: error)
+
+        XCTAssertFalse(coordinator.isShellLoadingForTesting)
+
+        coordinator.update(markdown: "# Existing\n", theme: theme)
+
+        XCTAssertTrue(coordinator.isShellLoadingForTesting)
     }
 
     func testMarkdownRenderKeepsVisibleHeadingPositionAfterContentUpdate() async throws {
