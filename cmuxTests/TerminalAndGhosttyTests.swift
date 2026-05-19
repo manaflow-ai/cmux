@@ -5067,7 +5067,7 @@ final class TerminalControllerSocketListenerHealthTests: XCTestCase {
         terminate(process)
         throw NSError(
             domain: "TerminalControllerSocketListenerHealthTests",
-            code: ETIMEDOUT,
+            code: Int(ETIMEDOUT),
             userInfo: [NSLocalizedDescriptionKey: "Timed out waiting for foreign socket owner helper"]
         )
     }
