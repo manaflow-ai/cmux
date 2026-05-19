@@ -236,15 +236,34 @@ public enum SocketPathMarkerFiles {
         )
         let availableSlugBytes = maxSocketPathLength - fixedBytes
         guard availableSlugBytes > 0 else {
-            return "\(filePrefix).\(hash).sock"
+            return shortenedSocketFileName(
+                filePrefix: filePrefix,
+                hashSource: slug,
+                directoryPath: directoryPath,
+                maxSocketPathLength: maxSocketPathLength
+            )
         }
 
         let prefix = String(decoding: slug.utf8.prefix(availableSlugBytes), as: UTF8.self)
             .trimmingCharacters(in: CharacterSet(charactersIn: "-"))
         guard !prefix.isEmpty else {
-            return "\(filePrefix).\(hash).sock"
+            return shortenedSocketFileName(
+                filePrefix: filePrefix,
+                hashSource: slug,
+                directoryPath: directoryPath,
+                maxSocketPathLength: maxSocketPathLength
+            )
         }
-        return "\(filePrefix).\(prefix)-\(hash).sock"
+        let candidate = "\(filePrefix).\(prefix)-\(hash).sock"
+        if socketPathLength(directoryPath: directoryPath, fileName: candidate) <= maxSocketPathLength {
+            return candidate
+        }
+        return shortenedSocketFileName(
+            filePrefix: filePrefix,
+            hashSource: slug,
+            directoryPath: directoryPath,
+            maxSocketPathLength: maxSocketPathLength
+        )
     }
 
     private static func shortenedSocketFileName(

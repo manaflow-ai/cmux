@@ -77,3 +77,18 @@ import Testing
     #expect(fileName.hasSuffix(".sock"))
     #expect(path.utf8.count <= 103)
 }
+
+@Test func slugSocketFileNamesFallbackToHashOnlyWhenNeeded() {
+    let directoryPath = "/tmp"
+    let fileName = SocketPathMarkerFiles.socketFileName(
+        filePrefix: "com.cmuxterm.app.dev",
+        slug: "issue-3993-cli-socket-stolen-by-tmux-dev",
+        directoryPath: directoryPath,
+        maxSocketPathLength: 40
+    )
+    let path = "\(directoryPath)/\(fileName)"
+
+    #expect(fileName.hasSuffix(".sock"))
+    #expect(!fileName.hasPrefix("com.cmuxterm.app.dev."))
+    #expect(path.utf8.count <= 40)
+}
