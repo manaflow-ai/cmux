@@ -49,6 +49,35 @@ final class TerminalControllerSocketSecurityTests: XCTestCase {
         XCTAssertEqual(try socketMode(at: restrictedPath), 0o600)
     }
 
+    func testSocketListenerRecreatesSocketFileAfterExternalRemoval() throws {
+        let socketPath = makeSocketPath("missing-file")
+        let tabManager = TabManager()
+
+        TerminalController.shared.start(
+            tabManager: tabManager,
+            socketPath: socketPath,
+            accessMode: .allowAll
+        )
+        try waitForSocket(at: socketPath)
+        XCTAssertEqual(try sendCommands(["ping"], to: socketPath), ["PONG"])
+
+        XCTAssertEqual(Darwin.unlink(socketPath), 0)
+        XCTAssertFalse(FileManager.default.fileExists(atPath: socketPath))
+
+        let recovered = XCTNSPredicateExpectation(
+            predicate: NSPredicate { [weak self] _, _ in
+                guard FileManager.default.fileExists(atPath: socketPath) else { return false }
+                return (try? self?.sendCommands(["ping"], to: socketPath)) == ["PONG"]
+            },
+            object: NSObject()
+        )
+        XCTAssertEqual(
+            XCTWaiter().wait(for: [recovered], timeout: 5.0),
+            .completed,
+            "Listener should recreate and serve \(socketPath) after the socket file is removed"
+        )
+    }
+
     func testPasswordModeRejectsUnauthenticatedCommands() throws {
         let socketPath = makeSocketPath("password-mode")
         let tabManager = TabManager()
