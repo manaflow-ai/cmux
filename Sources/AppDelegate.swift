@@ -13429,7 +13429,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
                 )
                 if didSplit { onExecuted?() }
                 return didSplit
-            default:
+            case .rightSidebarToggle, .rightSidebarShow, .rightSidebarHide, .rightSidebarFocus,
+                 .rightSidebarFiles, .rightSidebarFind, .rightSidebarVault, .rightSidebarSessions,
+                 .rightSidebarFeed, .rightSidebarDock:
                 return false
             }
         case .command, .agent, .workspaceCommand:

@@ -14530,9 +14530,10 @@ extension Workspace: BonsplitDelegate {
                     preferredWindow: presentingWindow,
                     debugSource: "surfaceTabBar.cloudVM"
                 )
-            case .newTerminal, .newBrowser, .splitRight, .splitDown:
-                break
-            default:
+            case .newTerminal, .newBrowser, .splitRight, .splitDown,
+                 .rightSidebarToggle, .rightSidebarShow, .rightSidebarHide, .rightSidebarFocus,
+                 .rightSidebarFiles, .rightSidebarFind, .rightSidebarVault, .rightSidebarSessions,
+                 .rightSidebarFeed, .rightSidebarDock:
                 break
             }
             return
