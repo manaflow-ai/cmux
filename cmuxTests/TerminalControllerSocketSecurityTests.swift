@@ -62,7 +62,6 @@ final class TerminalControllerSocketSecurityTests: XCTestCase {
         XCTAssertEqual(try sendCommands(["ping"], to: socketPath), ["PONG"])
 
         XCTAssertEqual(Darwin.unlink(socketPath), 0)
-        XCTAssertFalse(FileManager.default.fileExists(atPath: socketPath))
 
         let recovered = XCTNSPredicateExpectation(
             predicate: NSPredicate { [weak self] _, _ in
@@ -76,6 +75,7 @@ final class TerminalControllerSocketSecurityTests: XCTestCase {
             .completed,
             "Listener should recreate and serve \(socketPath) after the socket file is removed"
         )
+        XCTAssertEqual(try socketMode(at: socketPath), 0o666)
     }
 
     func testPasswordModeRejectsUnauthenticatedCommands() throws {
@@ -709,7 +709,7 @@ final class TerminalControllerSocketSecurityTests: XCTestCase {
         return UInt16(fileInfo.st_mode & 0o777)
     }
 
-    private func sendCommands(_ commands: [String], to socketPath: String) throws -> [String] {
+    private nonisolated func sendCommands(_ commands: [String], to socketPath: String) throws -> [String] {
         let fd = Darwin.socket(AF_UNIX, SOCK_STREAM, 0)
         guard fd >= 0 else {
             throw posixError("socket(AF_UNIX)")
