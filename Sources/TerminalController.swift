@@ -37,8 +37,20 @@ class TerminalController {
             if !isRunning { signals.append("not_running") }
             if !acceptLoopAlive { signals.append("accept_loop_dead") }
             if !socketPathMatches { signals.append("socket_path_mismatch") }
-            if !socketPathExists { signals.append("socket_missing") }
-            if socketPathExists && !socketPathOwnedByThisProcess { signals.append("socket_owner_mismatch") }
+            if !socketPathExists {
+                signals.append(socketPathStatus == "not_socket" ? "socket_not_socket" : "socket_missing")
+            } else if !socketPathOwnedByThisProcess {
+                switch socketPathStatus {
+                case "owner_unknown":
+                    signals.append("socket_owner_unknown")
+                case "connect_failed":
+                    signals.append("socket_connect_failed")
+                case "socket_file_changed":
+                    signals.append("socket_file_changed")
+                default:
+                    signals.append("socket_owner_mismatch")
+                }
+            }
             return signals
         }
 
@@ -80,6 +92,8 @@ class TerminalController {
     private nonisolated static let socketProbePollAttempts = 3
     private nonisolated static let socketProbePollRetryBackoffUs: useconds_t = 50_000
     private nonisolated static let socketClientWriteTimeout: TimeInterval = 5
+    // Binding runs on the main actor; classify only immediately-ready sockets there.
+    private nonisolated static let socketBindOwnershipProbeTimeout: TimeInterval = 0
     nonisolated static let socketFileHealthProbeTimeout: TimeInterval = 0.2
     nonisolated static let socketFileRecoveryRetryBaseDelay: TimeInterval = 1
     nonisolated static let socketFileRecoveryRetryMaxDelay: TimeInterval = 30
@@ -1026,7 +1040,7 @@ class TerminalController {
         let existingPathStatus = SocketPathProbe.ownershipStatus(
             path: path,
             expectedOwnerPID: getpid(),
-            timeout: socketFileHealthProbeTimeout
+            timeout: socketBindOwnershipProbeTimeout
         )
         switch existingPathStatus {
         case .ownedByThisProcess, .missing:

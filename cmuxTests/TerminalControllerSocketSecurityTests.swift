@@ -828,20 +828,29 @@ final class TerminalControllerSocketSecurityTests: XCTestCase {
         XCTAssertEqual(fcntl(listenerFD, F_SETFL, existingFlags | O_NONBLOCK), 0, file: file, line: line)
         defer { _ = fcntl(listenerFD, F_SETFL, existingFlags) }
 
-        var clientAddr = sockaddr_un()
-        var clientAddrLen = socklen_t(MemoryLayout<sockaddr_un>.size)
-        let clientFD = withUnsafeMutablePointer(to: &clientAddr) { ptr in
-            ptr.withMemoryRebound(to: sockaddr.self, capacity: 1) { sockaddrPtr in
-                Darwin.accept(listenerFD, sockaddrPtr, &clientAddrLen)
+        let deadline = Date().addingTimeInterval(0.2)
+        var lastErrno: Int32 = 0
+        while Date() < deadline {
+            var clientAddr = sockaddr_un()
+            var clientAddrLen = socklen_t(MemoryLayout<sockaddr_un>.size)
+            let clientFD = withUnsafeMutablePointer(to: &clientAddr) { ptr in
+                ptr.withMemoryRebound(to: sockaddr.self, capacity: 1) { sockaddrPtr in
+                    Darwin.accept(listenerFD, sockaddrPtr, &clientAddrLen)
+                }
             }
+            if clientFD >= 0 {
+                Darwin.close(clientFD)
+                XCTFail("Stopping the listener should not connect to a replacement socket", file: file, line: line)
+                return
+            }
+            lastErrno = errno
+            guard lastErrno == EAGAIN || lastErrno == EWOULDBLOCK else {
+                XCTFail("Unexpected accept errno \(lastErrno)", file: file, line: line)
+                return
+            }
+            usleep(10_000)
         }
-        if clientFD >= 0 {
-            Darwin.close(clientFD)
-            XCTFail("Stopping the listener should not connect to a replacement socket", file: file, line: line)
-            return
-        }
-
-        XCTAssertTrue(errno == EAGAIN || errno == EWOULDBLOCK, file: file, line: line)
+        XCTAssertTrue(lastErrno == EAGAIN || lastErrno == EWOULDBLOCK, file: file, line: line)
     }
 
     private nonisolated func sendCommands(_ commands: [String], to socketPath: String) throws -> [String] {

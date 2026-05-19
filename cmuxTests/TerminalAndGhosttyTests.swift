@@ -4980,19 +4980,78 @@ final class TerminalControllerSocketListenerHealthTests: XCTestCase {
     @MainActor
     func testSocketListenerHealthRecognizesForeignSocketPath() throws {
         let path = makeTempSocketPath()
-        let fd = try bindUnixSocket(at: path)
+        let helper = try launchForeignSocketBinder(at: path)
         defer {
-            Darwin.close(fd)
+            terminate(helper)
             unlink(path)
         }
 
         let health = TerminalController.shared.socketListenerHealth(expectedSocketPath: path)
         XCTAssertTrue(health.socketPathExists)
+        XCTAssertFalse(health.socketPathOwnedByThisProcess)
         XCTAssertTrue(
-            ["owned_by_this_process", "owner_unknown"].contains(health.socketPathStatus),
+            ["owned_by_other_process", "owner_unknown"].contains(health.socketPathStatus),
             "Unexpected socket path status: \(health.socketPathStatus)"
         )
         XCTAssertFalse(health.isHealthy)
+    }
+
+    private func launchForeignSocketBinder(at path: String) throws -> Process {
+        let pythonPath = "/usr/bin/python3"
+        guard FileManager.default.isExecutableFile(atPath: pythonPath) else {
+            throw XCTSkip("python3 is unavailable for the foreign socket owner helper")
+        }
+
+        let process = Process()
+        process.executableURL = URL(fileURLWithPath: pythonPath)
+        process.arguments = [
+            "-c",
+            """
+            import os, socket, sys, time
+            path = sys.argv[1]
+            try:
+                os.unlink(path)
+            except FileNotFoundError:
+                pass
+            sock = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
+            sock.bind(path)
+            sock.listen(8)
+            while True:
+                time.sleep(60)
+            """,
+            path
+        ]
+        process.standardOutput = Pipe()
+        process.standardError = Pipe()
+        try process.run()
+
+        let deadline = Date().addingTimeInterval(2.0)
+        while Date() < deadline {
+            if FileManager.default.fileExists(atPath: path) {
+                return process
+            }
+            if !process.isRunning {
+                throw NSError(
+                    domain: "TerminalControllerSocketListenerHealthTests",
+                    code: Int(process.terminationStatus),
+                    userInfo: [NSLocalizedDescriptionKey: "Foreign socket owner helper exited before binding"]
+                )
+            }
+            usleep(10_000)
+        }
+
+        terminate(process)
+        throw NSError(
+            domain: "TerminalControllerSocketListenerHealthTests",
+            code: ETIMEDOUT,
+            userInfo: [NSLocalizedDescriptionKey: "Timed out waiting for foreign socket owner helper"]
+        )
+    }
+
+    private func terminate(_ process: Process) {
+        guard process.isRunning else { return }
+        process.terminate()
+        process.waitUntilExit()
     }
 
     @MainActor
@@ -5083,5 +5142,27 @@ final class TerminalControllerSocketListenerHealthTests: XCTestCase {
             health.failureSignals,
             ["not_running", "accept_loop_dead", "socket_path_mismatch", "socket_missing"]
         )
+    }
+
+    func testSocketListenerHealthFailureSignalsDistinguishOwnershipStates() {
+        let unknownOwner = TerminalController.SocketListenerHealth(
+            isRunning: true,
+            acceptLoopAlive: true,
+            socketPathMatches: true,
+            socketPathExists: true,
+            socketPathOwnedByThisProcess: false,
+            socketPathStatus: "owner_unknown"
+        )
+        XCTAssertEqual(unknownOwner.failureSignals, ["socket_owner_unknown"])
+
+        let wrongType = TerminalController.SocketListenerHealth(
+            isRunning: true,
+            acceptLoopAlive: true,
+            socketPathMatches: true,
+            socketPathExists: false,
+            socketPathOwnedByThisProcess: false,
+            socketPathStatus: "not_socket"
+        )
+        XCTAssertEqual(wrongType.failureSignals, ["socket_not_socket"])
     }
 }
