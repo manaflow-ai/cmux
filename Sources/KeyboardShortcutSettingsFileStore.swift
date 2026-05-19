@@ -66,6 +66,7 @@ final class CmuxSettingsFileStore {
     private var importedManagedDefaults: [String: ManagedSettingsValue] = [:]
     private var activeManagedCustomSettings = ManagedCustomSettings()
     private var isApplyingManagedSettings = false
+    private var deferredManagedDefaultSideEffects = ManagedDefaultBatchSideEffects()
     private(set) var activeSourcePath: String?
 
     init(
@@ -126,6 +127,15 @@ final class CmuxSettingsFileStore {
             applyLiveDefaultSideEffects: true,
             synchronizeManagedAppearanceTerminalTheme: true
         )
+    }
+
+    func applyDeferredManagedDefaultSideEffects() {
+        let sideEffects = synchronized {
+            let deferred = deferredManagedDefaultSideEffects
+            deferredManagedDefaultSideEffects = ManagedDefaultBatchSideEffects()
+            return deferred
+        }
+        applyManagedDefaultBatchSideEffects(sideEffects)
     }
 
     private func reload(
@@ -915,7 +925,6 @@ final class CmuxSettingsFileStore {
                 restoreBackup(
                     backup,
                     for: identifier,
-                    applyLiveDefaultSideEffects: applyLiveDefaultSideEffects,
                     synchronizeManagedAppearanceTerminalTheme: synchronizeManagedAppearanceTerminalTheme
                 )
             )
@@ -929,7 +938,6 @@ final class CmuxSettingsFileStore {
                     for: defaultsKey,
                     importedDefault: importedManagedDefaults[defaultsKey],
                     forceApply: changedManagedDefaultKeys.contains(defaultsKey),
-                    applyLiveDefaultSideEffects: applyLiveDefaultSideEffects,
                     synchronizeManagedAppearanceTerminalTheme: synchronizeManagedAppearanceTerminalTheme
                 )
             )
@@ -939,7 +947,25 @@ final class CmuxSettingsFileStore {
             saveBackups(backups)
         }
         if applyLiveDefaultSideEffects {
+            sideEffects.merge(drainDeferredManagedDefaultSideEffects())
             applyManagedDefaultBatchSideEffects(sideEffects)
+        } else {
+            deferManagedDefaultSideEffects(sideEffects)
+        }
+    }
+
+    private func deferManagedDefaultSideEffects(_ sideEffects: ManagedDefaultBatchSideEffects) {
+        guard !sideEffects.isEmpty else { return }
+        synchronized {
+            deferredManagedDefaultSideEffects.merge(sideEffects)
+        }
+    }
+
+    private func drainDeferredManagedDefaultSideEffects() -> ManagedDefaultBatchSideEffects {
+        synchronized {
+            let deferred = deferredManagedDefaultSideEffects
+            deferredManagedDefaultSideEffects = ManagedDefaultBatchSideEffects()
+            return deferred
         }
     }
 
@@ -963,7 +989,6 @@ final class CmuxSettingsFileStore {
     private func restoreBackup(
         _ backup: BackupValue,
         for identifier: String,
-        applyLiveDefaultSideEffects: Bool,
         synchronizeManagedAppearanceTerminalTheme: Bool
     ) -> ManagedDefaultBatchSideEffects {
         switch identifier {
@@ -981,7 +1006,6 @@ final class CmuxSettingsFileStore {
             return restoreUserDefaultsBackup(
                 backup,
                 for: identifier,
-                applyLiveDefaultSideEffects: applyLiveDefaultSideEffects,
                 synchronizeManagedAppearanceTerminalTheme: synchronizeManagedAppearanceTerminalTheme
             )
         }
@@ -1029,7 +1053,6 @@ final class CmuxSettingsFileStore {
     private func restoreUserDefaultsBackup(
         _ backup: BackupValue,
         for defaultsKey: String,
-        applyLiveDefaultSideEffects: Bool,
         synchronizeManagedAppearanceTerminalTheme: Bool
     ) -> ManagedDefaultBatchSideEffects {
         let defaults = UserDefaults.standard
@@ -1084,8 +1107,8 @@ final class CmuxSettingsFileStore {
             }
         }
 
-        if didMutateStoredValue && applyLiveDefaultSideEffects {
-            return applyManagedDefaultSideEffects(
+        if didMutateStoredValue {
+            return managedDefaultSideEffects(
                 for: defaultsKey,
                 source: "cmuxConfig.restoreUserDefault",
                 synchronizeAppearanceTerminalTheme: synchronizeManagedAppearanceTerminalTheme
@@ -1099,7 +1122,6 @@ final class CmuxSettingsFileStore {
         for defaultsKey: String,
         importedDefault: ManagedSettingsValue?,
         forceApply: Bool,
-        applyLiveDefaultSideEffects: Bool,
         synchronizeManagedAppearanceTerminalTheme: Bool
     ) -> ManagedDefaultBatchSideEffects {
         let defaults = UserDefaults.standard
@@ -1172,8 +1194,8 @@ final class CmuxSettingsFileStore {
             }
         }
 
-        if didMutateStoredValue && applyLiveDefaultSideEffects {
-            return applyManagedDefaultSideEffects(
+        if didMutateStoredValue {
+            return managedDefaultSideEffects(
                 for: defaultsKey,
                 source: "cmuxConfig.applyManagedDefault",
                 synchronizeAppearanceTerminalTheme: synchronizeManagedAppearanceTerminalTheme
@@ -1254,52 +1276,53 @@ final class CmuxSettingsFileStore {
         }
     }
 
-    private func applyManagedDefaultSideEffects(
+    private func managedDefaultSideEffects(
         for defaultsKey: String,
         source: String,
         synchronizeAppearanceTerminalTheme: Bool
     ) -> ManagedDefaultBatchSideEffects {
-        let notificationCenter = notificationCenter
-        let notifyScrollBar = defaultsKey == TerminalScrollBarSettings.showScrollBarKey
         var sideEffects = ManagedDefaultBatchSideEffects()
-        sideEffects.agentSessionAutoResumeDidChange =
-            defaultsKey == AgentSessionAutoResumeSettings.autoResumeAgentSessionsKey
-        let language = defaultsKey == LanguageSettings.languageKey ? AppLanguage(rawValue: UserDefaults.standard.string(forKey: defaultsKey) ?? "") ?? .system : nil
-        let shouldApplyAppearance = defaultsKey == AppearanceSettings.appearanceModeKey
-        let appearanceRawValue = shouldApplyAppearance ? UserDefaults.standard.string(forKey: defaultsKey) : nil
-        let appIconMode = defaultsKey == AppIconSettings.modeKey ? AppIconSettings.resolvedMode() : nil
-        let apply = {
-            if notifyScrollBar {
-                TerminalScrollBarSettings.notifyDidChange(notificationCenter: notificationCenter)
-            }
-
-            if let language {
-                LanguageSettings.apply(language)
-            } else if shouldApplyAppearance {
-                AppearanceSettings.applyStoredMode(
-                    rawValue: appearanceRawValue,
-                    source: source,
-                    duringLaunch: !synchronizeAppearanceTerminalTheme,
-                    synchronizeTerminalTheme: synchronizeAppearanceTerminalTheme
-                )
-            } else if let appIconMode {
-                AppIconSettings.applyIcon(appIconMode)
-            }
-        }
-
-        if Thread.isMainThread {
-            apply()
-        } else {
-            DispatchQueue.main.async { apply() }
-        }
+        sideEffects.append(
+            defaultsKey: defaultsKey,
+            source: source,
+            synchronizeAppearanceTerminalTheme: synchronizeAppearanceTerminalTheme
+        )
         return sideEffects
     }
 
     private func applyManagedDefaultBatchSideEffects(_ sideEffects: ManagedDefaultBatchSideEffects) {
-        guard sideEffects.agentSessionAutoResumeDidChange else { return }
+        guard !sideEffects.isEmpty else { return }
         let notificationCenter = notificationCenter
+        let changes = sideEffects.changes
         let apply = {
-            AgentSessionAutoResumeSettings.notifyDidChange(notificationCenter: notificationCenter)
+            var agentSessionAutoResumeDidChange = false
+            for change in changes {
+                if change.defaultsKey == TerminalScrollBarSettings.showScrollBarKey {
+                    TerminalScrollBarSettings.notifyDidChange(notificationCenter: notificationCenter)
+                }
+
+                if change.defaultsKey == AgentSessionAutoResumeSettings.autoResumeAgentSessionsKey {
+                    agentSessionAutoResumeDidChange = true
+                }
+
+                if change.defaultsKey == LanguageSettings.languageKey {
+                    let rawValue = UserDefaults.standard.string(forKey: change.defaultsKey) ?? ""
+                    LanguageSettings.apply(AppLanguage(rawValue: rawValue) ?? .system)
+                } else if change.defaultsKey == AppearanceSettings.appearanceModeKey {
+                    AppearanceSettings.applyStoredMode(
+                        rawValue: UserDefaults.standard.string(forKey: change.defaultsKey),
+                        source: change.source,
+                        duringLaunch: !change.synchronizeAppearanceTerminalTheme,
+                        synchronizeTerminalTheme: change.synchronizeAppearanceTerminalTheme
+                    )
+                } else if change.defaultsKey == AppIconSettings.modeKey {
+                    AppIconSettings.applyIcon(AppIconSettings.resolvedMode())
+                }
+            }
+
+            if agentSessionAutoResumeDidChange {
+                AgentSessionAutoResumeSettings.notifyDidChange(notificationCenter: notificationCenter)
+            }
         }
         if Thread.isMainThread {
             apply()
@@ -1422,12 +1445,35 @@ private struct ResolvedSettingsSnapshot {
     }
 }
 
+private struct ManagedDefaultSideEffect {
+    let defaultsKey: String
+    let source: String
+    let synchronizeAppearanceTerminalTheme: Bool
+}
+
 private struct ManagedDefaultBatchSideEffects {
-    var agentSessionAutoResumeDidChange = false
+    var changes: [ManagedDefaultSideEffect] = []
+
+    var isEmpty: Bool {
+        changes.isEmpty
+    }
 
     mutating func merge(_ other: ManagedDefaultBatchSideEffects) {
-        agentSessionAutoResumeDidChange =
-            agentSessionAutoResumeDidChange || other.agentSessionAutoResumeDidChange
+        changes.append(contentsOf: other.changes)
+    }
+
+    mutating func append(
+        defaultsKey: String,
+        source: String,
+        synchronizeAppearanceTerminalTheme: Bool
+    ) {
+        changes.append(
+            ManagedDefaultSideEffect(
+                defaultsKey: defaultsKey,
+                source: source,
+                synchronizeAppearanceTerminalTheme: synchronizeAppearanceTerminalTheme
+            )
+        )
     }
 }
 

@@ -1602,6 +1602,7 @@ final class QuitWarningSettingsTests: XCTestCase {
 
         defaults.set(false, forKey: QuitWarningSettings.warnBeforeQuitKey)
         XCTAssertFalse(QuitWarningSettings.shouldShowConfirmation(isQuitWarningConfirmed: false, defaults: defaults))
+        XCTAssertFalse(QuitWarningSettings.shouldShowConfirmation(isQuitWarningConfirmed: true, defaults: defaults))
     }
 }
 

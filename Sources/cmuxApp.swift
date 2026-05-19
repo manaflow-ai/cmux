@@ -44,6 +44,8 @@ struct cmuxApp: App {
         let startupAppearance = AppearanceSettings.resolvedMode()
         Self.applyAppearance(startupAppearance, duringLaunch: true)
         StartupBreadcrumbLog.append("app.init.appearance.applied", fields: ["mode": startupAppearance.rawValue])
+        KeyboardShortcutSettings.settingsFileStore.applyDeferredManagedDefaultSideEffects()
+        StartupBreadcrumbLog.append("app.init.keyboardShortcuts.sideEffectsApplied")
         StartupBreadcrumbLog.append("app.init.tabManager.begin")
         _tabManager = StateObject(wrappedValue: TabManager())
         StartupBreadcrumbLog.append("app.init.tabManager.complete")

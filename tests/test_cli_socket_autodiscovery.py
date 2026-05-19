@@ -80,7 +80,7 @@ class PingServer:
                 server.settimeout(min(0.2, remaining))
                 try:
                     conn, _ = server.accept()
-                except socket.timeout:
+                except TimeoutError:
                     continue
                 connection_thread = threading.Thread(
                     target=self._handle_connection,
@@ -108,7 +108,7 @@ class PingServer:
                     if not chunk:
                         break
                     data += chunk
-            except (ConnectionResetError, socket.timeout):
+            except (ConnectionResetError, TimeoutError):
                 return
 
             if b"ping" in data:

@@ -346,6 +346,7 @@ final class KeyboardShortcutSettingsFileStoreStartupTests: XCTestCase {
         }
     }
 
+    @MainActor
     func testSettingsFileStoreInitialAppearanceReplayDoesNotSynchronizeTerminalTheme() throws {
         let defaults = UserDefaults.standard
         let key = AppearanceSettings.appearanceModeKey
@@ -396,6 +397,12 @@ final class KeyboardShortcutSettingsFileStoreStartupTests: XCTestCase {
             )
 
             XCTAssertEqual(defaults.string(forKey: key), AppearanceMode.dark.rawValue)
+            XCTAssertNil(appliedAppearanceName)
+            XCTAssertNil(synchronizedAppearanceName)
+            XCTAssertTrue(synchronizedSources.isEmpty)
+
+            store.applyDeferredManagedDefaultSideEffects()
+
             XCTAssertEqual(appliedAppearanceName, .darkAqua)
             XCTAssertNil(synchronizedAppearanceName)
             XCTAssertTrue(synchronizedSources.isEmpty)
@@ -537,7 +544,7 @@ final class KeyboardShortcutSettingsFileStoreStartupTests: XCTestCase {
                 notificationCenter.removeObserver(autoResumeObserver)
             }
 
-            _ = KeyboardShortcutSettingsFileStore(
+            let store = KeyboardShortcutSettingsFileStore(
                 primaryPath: settingsFileURL.path,
                 fallbackPath: nil,
                 additionalFallbackPaths: [],
@@ -549,6 +556,11 @@ final class KeyboardShortcutSettingsFileStoreStartupTests: XCTestCase {
             XCTAssertEqual(defaults.object(forKey: autoResumeKey) as? Bool, false)
             XCTAssertEqual(scrollBarNotificationCount, 0)
             XCTAssertEqual(autoResumeNotificationCount, 0)
+
+            store.applyDeferredManagedDefaultSideEffects()
+
+            XCTAssertEqual(scrollBarNotificationCount, 1)
+            XCTAssertEqual(autoResumeNotificationCount, 1)
         }
     }
 
