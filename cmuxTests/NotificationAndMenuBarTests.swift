@@ -315,6 +315,43 @@ final class AppIconSettingsTests: XCTestCase {
         XCTAssertEqual(stopObservationCallCount, 1)
     }
 
+    func testApplyIconComposesExistingDockBadgeIntoRuntimeIcon() {
+        let baseIcon = NSImage(size: NSSize(width: 64, height: 64))
+        baseIcon.lockFocus()
+        NSColor.systemBlue.setFill()
+        NSBezierPath(rect: NSRect(origin: .zero, size: baseIcon.size)).fill()
+        baseIcon.unlockFocus()
+
+        var receivedRuntimeIcon: NSImage?
+        let previousBadgeLabel = NSApp.dockTile.badgeLabel
+        NSApp.dockTile.badgeLabel = "3"
+        defer {
+            NSApp.dockTile.badgeLabel = previousBadgeLabel
+        }
+
+        let environment = AppIconSettings.Environment(
+            isApplicationFinishedLaunching: { true },
+            imageForMode: { mode in
+                XCTAssertEqual(mode, .dark)
+                return baseIcon
+            },
+            setApplicationIconImage: { icon in
+                receivedRuntimeIcon = icon
+            },
+            startAppearanceObservation: {},
+            stopAppearanceObservation: {},
+            notifyDockTilePlugin: {}
+        )
+
+        AppIconSettings.applyIcon(.dark, environment: environment)
+
+        XCTAssertNotNil(receivedRuntimeIcon)
+        XCTAssertFalse(
+            receivedRuntimeIcon === baseIcon,
+            "Expected runtime app icon to include the current Dock badge for Cmd+Tab instead of reusing the unbadged base icon"
+        )
+    }
+
     func testApplyAutomaticStartsObservationAndNotifiesDockTilePlugin() {
         var dockTileNotificationCount = 0
         var startObservationCallCount = 0
