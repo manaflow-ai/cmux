@@ -23222,11 +23222,12 @@ export default function cmuxPiSessionExtension(pi: ExtensionAPI) {
     ]
 
     private func feedMatcher(rawObject: [String: Any]?, source: String, hookEventName: String) -> String? {
-        guard let rawObject else { return nil }
         if source == "claude", hookEventName == "SessionEnd" {
+            guard let rawObject else { return "other" }
             let rawMatcher = firstString(in: rawObject, keys: ["matcher", "reason"])
             return normalizedClaudeSessionEndMatcher(rawMatcher) ?? "other"
         }
+        guard let rawObject else { return nil }
         return firstString(in: rawObject, keys: ["matcher"])
     }
 
