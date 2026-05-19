@@ -107533,6 +107533,23 @@
         }
       }
     },
+    "sessionIndex.error.codexReadFallback": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Codex session history could not be read. Falling back to file scan."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Codex のセッション履歴を読み込めませんでした。ファイルスキャンにフォールバックします。"
+          }
+        }
+      }
+    },
     "sessionIndex.error.openCodeSnapshot": {
       "extractionState": "manual",
       "localizations": {

@@ -139,10 +139,13 @@ public enum SessionIndexCore {
     ) async -> [URL]? {
         guard let rg = cachedRipgrepPath else { return nil }
         let processBox = CancellableProcessBox()
+        let process = Process()
+        processBox.set(process)
 
         return await withTaskCancellationHandler {
-            let process = Process()
-            processBox.set(process)
+            defer { processBox.clear(process) }
+            guard !Task.isCancelled else { return nil as [URL]? }
+
             process.executableURL = URL(fileURLWithPath: rg)
             process.arguments = [
                 "--files-with-matches",
@@ -161,7 +164,9 @@ public enum SessionIndexCore {
             process.standardError = FileHandle.nullDevice
 
             do {
-                try process.run()
+                guard try processBox.run(process) else {
+                    return nil as [URL]?
+                }
             } catch {
                 return nil as [URL]?
             }
@@ -169,7 +174,6 @@ public enum SessionIndexCore {
             // Drain stdout before waiting; otherwise rg can fill the pipe buffer and deadlock before exit.
             let data = outPipe.fileHandleForReading.readDataToEndOfFile()
             process.waitUntilExit()
-            processBox.clear(process)
 
             switch process.terminationStatus {
             case 0:
@@ -215,11 +219,20 @@ public enum SessionIndexCore {
 private nonisolated final class CancellableProcessBox: @unchecked Sendable {
     private let lock = NSLock()
     private var process: Process?
+    private var cancelled = false
 
     func set(_ process: Process) {
         lock.lock()
         defer { lock.unlock() }
         self.process = process
+    }
+
+    func run(_ process: Process) throws -> Bool {
+        lock.lock()
+        defer { lock.unlock() }
+        guard !cancelled, self.process === process else { return false }
+        try process.run()
+        return true
     }
 
     func clear(_ process: Process) {
@@ -232,6 +245,7 @@ private nonisolated final class CancellableProcessBox: @unchecked Sendable {
 
     func terminate() {
         lock.lock()
+        cancelled = true
         let process = process
         lock.unlock()
         process?.terminate()

@@ -31,6 +31,25 @@ extension SessionIndexStore {
         dbPath: String = ("~/.codex/state_5.sqlite" as NSString).expandingTildeInPath,
         sessionsRoot: String = defaultCodexSessionsRoot()
     ) async -> [SessionEntry]? {
+        await runSessionIndexBackgroundScan {
+            await loadCodexEntriesViaSQLOnBackground(
+                needle: needle,
+                cwdFilter: cwdFilter,
+                offset: offset,
+                limit: limit,
+                errorBag: errorBag,
+                dbPath: dbPath,
+                sessionsRoot: sessionsRoot
+            )
+        }
+    }
+
+    nonisolated private static func loadCodexEntriesViaSQLOnBackground(
+        needle: String, cwdFilter: String?, offset: Int, limit: Int,
+        errorBag: ErrorBag,
+        dbPath: String,
+        sessionsRoot: String
+    ) async -> [SessionEntry]? {
         let fm = FileManager.default
         guard fm.fileExists(atPath: dbPath) else { return nil }
 
@@ -49,7 +68,10 @@ extension SessionIndexStore {
 
         var db: OpaquePointer?
         guard sqlite3_open_v2(snapshotDB.path, &db, SQLITE_OPEN_READONLY, nil) == SQLITE_OK, let db else {
-            errorBag.add("Codex: cannot open state_5.sqlite (\(sqliteMessage(db) ?? "unknown error"))")
+            errorBag.add(String(
+                localized: "sessionIndex.error.codexReadFallback",
+                defaultValue: "Codex session history could not be read. Falling back to file scan."
+            ))
             sqlite3_close(db)
             return nil
         }
@@ -77,7 +99,10 @@ extension SessionIndexStore {
 
         var stmt: OpaquePointer?
         guard sqlite3_prepare_v2(db, sql, -1, &stmt, nil) == SQLITE_OK, let stmt else {
-            errorBag.add("Codex: schema unsupported — \(sqliteMessage(db) ?? "prepare failed"). Falling back to file scan.")
+            errorBag.add(String(
+                localized: "sessionIndex.error.codexReadFallback",
+                defaultValue: "Codex session history could not be read. Falling back to file scan."
+            ))
             sqlite3_finalize(stmt)
             return nil
         }
