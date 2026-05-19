@@ -1118,7 +1118,7 @@ openSettings = "cmd+option+,"
             failures,
             "settings import rejects non-finite integer",
             nonfinite_int_import,
-            "automation.portBase expects an integer",
+            "Unsupported TOML non-finite number",
         )
         after_nonfinite_int_import = read_config(home)
         if after_nonfinite_int_import != before_import:
