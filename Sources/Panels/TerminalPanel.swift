@@ -188,6 +188,14 @@ final class TerminalPanel: Panel, ObservableObject {
 #endif
     }
 
+    func textBoxInputViewDidMoveToWindow(_ view: TextBoxInputTextView) {
+        guard textBoxInputView === view else { return }
+        focusTextBoxIfNeeded()
+#if DEBUG
+        applyPendingDebugTextBoxInlineFixtureIfNeeded()
+#endif
+    }
+
     @discardableResult
     func toggleTextBoxInput() -> Bool {
         if isTextBoxActive {
@@ -218,10 +226,6 @@ final class TerminalPanel: Panel, ObservableObject {
         shouldOpenTextBoxFilePickerWhenAvailable = true
         shouldHideTextBoxOnNextEscape = false
         focusTextBoxIfNeeded()
-        Task { @MainActor [weak self] in
-            await Task.yield()
-            self?.focusTextBoxIfNeeded()
-        }
         return true
     }
 
@@ -287,8 +291,6 @@ final class TerminalPanel: Panel, ObservableObject {
 
     func sessionTextBoxDraftSnapshot() -> SessionTextBoxInputDraftSnapshot? {
         if let textBoxInputView {
-            textBoxContent = textBoxInputView.plainText()
-            textBoxAttachments = textBoxInputView.inlineAttachments()
             return textBoxInputView.sessionDraftSnapshot(isActive: isTextBoxActive)
         }
 
@@ -359,10 +361,6 @@ final class TerminalPanel: Panel, ObservableObject {
         shouldFocusTextBoxWhenAvailable = true
         shouldHideTextBoxOnNextEscape = false
         focusTextBoxIfNeeded()
-        Task { @MainActor [weak self] in
-            await Task.yield()
-            self?.focusTextBoxIfNeeded()
-        }
         return true
     }
 
@@ -385,10 +383,6 @@ final class TerminalPanel: Panel, ObservableObject {
 
         pendingDebugTextBoxInlineFixture = fixture
         applyPendingDebugTextBoxInlineFixtureIfNeeded()
-        Task { @MainActor [weak self] in
-            await Task.yield()
-            self?.applyPendingDebugTextBoxInlineFixtureIfNeeded()
-        }
         return true
     }
 

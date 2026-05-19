@@ -11620,8 +11620,13 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         if isPlainEscape {
             let escapeWindow = resolvedShortcutEventWindow(event) ?? NSApp.keyWindow ?? NSApp.mainWindow
             let textBoxShortcutTabManager = preferredMainWindowContextForShortcutRouting(event: event)?.tabManager ?? tabManager
-            if textBoxShortcutTabManager?.consumeFocusedTerminalTextBoxHideEscapeIfArmed() == true {
-                return true
+            if let escapeWindow,
+               isMainTerminalWindow(escapeWindow) {
+                if textBoxShortcutTabManager?.consumeFocusedTerminalTextBoxHideEscapeIfArmed() == true {
+                    return true
+                }
+            } else {
+                textBoxShortcutTabManager?.clearFocusedTerminalTextBoxHideEscapeArm()
             }
             if escapeWindow?.firstResponder is TextBoxInputTextView {
                 return false

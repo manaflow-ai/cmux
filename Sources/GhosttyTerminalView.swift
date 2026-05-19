@@ -1724,12 +1724,9 @@ class GhosttyApp {
     ) -> String {
         switch preparedContent {
         case .insertText(let text):
-            let compact = text
-                .replacingOccurrences(of: "\n", with: "\\n")
-                .replacingOccurrences(of: "\r", with: "\\r")
-            return "insertText(\(compact.prefix(80)))"
+            return "insertText(length:\(text.utf8.count),hasNewlines:\(text.contains(where: \.isNewline) ? 1 : 0))"
         case .fileURLs(let fileURLs):
-            return "fileURLs(\(fileURLs.map(\.path).joined(separator: ",")))"
+            return "fileURLs(count:\(fileURLs.count))"
         case .reject:
             return "reject"
         }
@@ -4024,9 +4021,6 @@ class GhosttyApp {
                 return tabManager.toggleSplitZoom(tabId: tabId, surfaceId: surfaceId)
             }
         case GHOSTTY_ACTION_RENDER:
-            DispatchQueue.main.async {
-                surfaceView.enqueueRenderedFrameUpdate()
-            }
             return false
         case GHOSTTY_ACTION_SCROLLBAR:
             let scrollbar = GhosttyScrollbar(c: action.action.scrollbar)
@@ -6015,7 +6009,10 @@ final class TerminalSurface: Identifiable, ObservableObject {
     func sendKeyText(_ text: String) {
         guard !text.isEmpty else { return }
         guard surface != nil else {
-            _ = sendText(text)
+            guard allowsRuntimeSurfaceCreation() else { return }
+            if enqueuePendingSocketInput(.inputText(text)) {
+                requestBackgroundSurfaceStartIfNeeded()
+            }
             return
         }
         guard let liveSurface = liveSurfaceForSocketWrite(reason: "socket.sendKeyText") else {
@@ -6054,8 +6051,9 @@ final class TerminalSurface: Identifiable, ObservableObject {
         return .sent
     }
 
+    @MainActor
     func visibleText() -> String? {
-        guard let surface else { return nil }
+        guard let surface = liveSurfaceForGhosttyAccess(reason: "visibleText") else { return nil }
         return Self.readText(surface: surface, pointTag: GHOSTTY_POINT_VIEWPORT)
     }
 

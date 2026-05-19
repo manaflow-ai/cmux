@@ -74,6 +74,9 @@ struct TerminalPanelView: View {
                     onTextViewCreated: { view in
                         panel.registerTextBoxInputView(view)
                     },
+                    onTextViewMovedToWindow: { view in
+                        panel.textBoxInputViewDidMoveToWindow(view)
+                    },
                     onTextViewDismantled: { view in
                         panel.preserveTextBoxContentForUnmount(from: view)
                     }

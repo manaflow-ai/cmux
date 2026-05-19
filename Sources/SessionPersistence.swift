@@ -1012,6 +1012,12 @@ struct SessionTextBoxInputDraftPart: Codable, Equatable, Sendable {
         case attachment
     }
 
+    private enum CodingKeys: String, CodingKey {
+        case kind
+        case text
+        case attachment
+    }
+
     var kind: Kind
     var text: String?
     var attachment: SessionTextBoxInputAttachmentSnapshot?
@@ -1020,6 +1026,46 @@ struct SessionTextBoxInputDraftPart: Codable, Equatable, Sendable {
         self.kind = kind
         self.text = text
         self.attachment = attachment
+    }
+
+    init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        let kind = try container.decode(Kind.self, forKey: .kind)
+        let text = try container.decodeIfPresent(String.self, forKey: .text)
+        let attachment = try container.decodeIfPresent(
+            SessionTextBoxInputAttachmentSnapshot.self,
+            forKey: .attachment
+        )
+
+        switch kind {
+        case .text:
+            guard text != nil, attachment == nil else {
+                throw DecodingError.dataCorruptedError(
+                    forKey: .text,
+                    in: container,
+                    debugDescription: "Text draft parts must contain text and no attachment."
+                )
+            }
+        case .attachment:
+            guard attachment != nil, text == nil else {
+                throw DecodingError.dataCorruptedError(
+                    forKey: .attachment,
+                    in: container,
+                    debugDescription: "Attachment draft parts must contain an attachment and no text."
+                )
+            }
+        }
+
+        self.kind = kind
+        self.text = text
+        self.attachment = attachment
+    }
+
+    func encode(to encoder: Encoder) throws {
+        var container = encoder.container(keyedBy: CodingKeys.self)
+        try container.encode(kind, forKey: .kind)
+        try container.encodeIfPresent(text, forKey: .text)
+        try container.encodeIfPresent(attachment, forKey: .attachment)
     }
 
     static func text(_ text: String) -> SessionTextBoxInputDraftPart {

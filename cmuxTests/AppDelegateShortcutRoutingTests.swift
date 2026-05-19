@@ -6178,7 +6178,8 @@ final class AppDelegateShortcutRoutingTests: XCTestCase {
         let windowId = appDelegate.createMainWindow()
         defer { closeWindow(withId: windowId) }
 
-        guard let manager = appDelegate.tabManagerFor(windowId: windowId),
+        guard let window = window(withId: windowId),
+              let manager = appDelegate.tabManagerFor(windowId: windowId),
               let workspace = manager.selectedWorkspace,
               let panelId = workspace.focusedPanelId,
               let terminalPanel = workspace.terminalPanel(for: panelId) else {
@@ -6186,6 +6187,8 @@ final class AppDelegateShortcutRoutingTests: XCTestCase {
             return
         }
 
+        window.makeKeyAndOrderFront(nil)
+        window.displayIfNeeded()
         XCTAssertTrue(terminalPanel.focusTextBoxInputOrTerminal())
 #if DEBUG
         XCTAssertTrue(terminalPanel.debugHasPendingTextBoxFocusRequest)
@@ -6196,6 +6199,52 @@ final class AppDelegateShortcutRoutingTests: XCTestCase {
             terminalPanel.debugHasPendingTextBoxFocusRequest,
             "Panel unfocus must cancel stale pending TextBox focus and file picker requests"
         )
+#endif
+    }
+
+    func testTextBoxPendingFocusRunsWhenTextViewMovesToWindow() {
+        let terminalPanel = TerminalPanel(workspaceId: UUID())
+        defer { terminalPanel.surface.teardownSurface() }
+
+        XCTAssertTrue(terminalPanel.focusTextBoxInputOrTerminal())
+#if DEBUG
+        XCTAssertTrue(terminalPanel.debugHasPendingTextBoxFocusRequest)
+#endif
+
+        let textView = TextBoxInputTextView(frame: NSRect(x: 0, y: 0, width: 240, height: 30))
+        textView.onMoveToWindow = { [weak terminalPanel] view in
+            terminalPanel?.textBoxInputViewDidMoveToWindow(view)
+        }
+        terminalPanel.registerTextBoxInputView(textView)
+#if DEBUG
+        XCTAssertTrue(terminalPanel.debugHasPendingTextBoxFocusRequest)
+#endif
+
+        let textBoxScrollView = NSScrollView(frame: NSRect(x: 0, y: 0, width: 240, height: 30))
+        let hostWindow = NSWindow(
+            contentRect: NSRect(x: 0, y: 0, width: 240, height: 30),
+            styleMask: [.borderless],
+            backing: .buffered,
+            defer: false
+        )
+        hostWindow.contentView = NSView(frame: NSRect(x: 0, y: 0, width: 240, height: 30))
+        hostWindow.contentView?.addSubview(textBoxScrollView)
+        hostWindow.makeKeyAndOrderFront(nil)
+        defer { hostWindow.close() }
+        textBoxScrollView.documentView = textView
+        XCTAssertTrue(textView.window === hostWindow)
+
+#if DEBUG
+        waitFor(timeout: 1.0, until: {
+            hostWindow.firstResponder === textView
+                && !terminalPanel.debugHasPendingTextBoxFocusRequest
+        })
+#else
+        waitFor(timeout: 1.0, until: { hostWindow.firstResponder === textView })
+#endif
+        XCTAssertTrue(hostWindow.firstResponder === textView)
+#if DEBUG
+        XCTAssertFalse(terminalPanel.debugHasPendingTextBoxFocusRequest)
 #endif
     }
 
@@ -6716,6 +6765,30 @@ final class AppDelegateShortcutRoutingTests: XCTestCase {
             submissionPartSummaries(textView.submissionParts())
         )
         XCTAssertEqual(restoredTextView.submissionText(), textView.submissionText())
+    }
+
+    func testTextBoxSessionDraftRejectsInvalidPartPayloads() throws {
+        let invalidTextPart = Data("""
+        {
+          "kind": "text",
+          "attachment": {
+            "displayName": "moon.png",
+            "submissionText": "/tmp/moon.png",
+            "submissionPath": "/tmp/moon.png",
+            "localPath": "/tmp/moon.png",
+            "cleanupLocalPathWhenDisposed": false
+          }
+        }
+        """.utf8)
+        XCTAssertThrowsError(try JSONDecoder().decode(SessionTextBoxInputDraftPart.self, from: invalidTextPart))
+
+        let invalidAttachmentPart = Data("""
+        {
+          "kind": "attachment",
+          "text": "moon"
+        }
+        """.utf8)
+        XCTAssertThrowsError(try JSONDecoder().decode(SessionTextBoxInputDraftPart.self, from: invalidAttachmentPart))
     }
 
     func testTextBoxImageAttachmentInsertionAddsTrailingEditorSpace() throws {
@@ -7304,6 +7377,93 @@ final class AppDelegateShortcutRoutingTests: XCTestCase {
         XCTFail("debugHandleCustomShortcut is only available in DEBUG")
 #endif
         XCTAssertTrue(secondTerminalPanel.isTextBoxActive, "Non-Escape in the event window must clear the second-Escape arm")
+    }
+
+    func testTextBoxEscapeArmClearsWhenEscapeTargetsAuxiliaryWindow() {
+        guard let appDelegate = AppDelegate.shared else {
+            XCTFail("Expected AppDelegate.shared")
+            return
+        }
+
+        let windowId = appDelegate.createMainWindow()
+        defer { closeWindow(withId: windowId) }
+
+        guard let window = window(withId: windowId),
+              let contentView = window.contentView,
+              let manager = appDelegate.tabManagerFor(windowId: windowId),
+              let workspace = manager.selectedWorkspace,
+              let panelId = workspace.focusedPanelId,
+              let terminalPanel = workspace.terminalPanel(for: panelId) else {
+            XCTFail("Expected a main window with a focused terminal")
+            return
+        }
+
+        let textBoxView = TextBoxInputTextView(frame: NSRect(x: 0, y: 0, width: 240, height: 30))
+        textBoxView.onFocusTextBox = { terminalPanel.textBoxDidBecomeFocused() }
+        let textBoxScrollView = NSScrollView(frame: NSRect(x: 0, y: 0, width: 240, height: 30))
+        textBoxScrollView.documentView = textBoxView
+        contentView.addSubview(textBoxScrollView)
+        defer { textBoxScrollView.removeFromSuperview() }
+
+        window.makeKeyAndOrderFront(nil)
+        window.displayIfNeeded()
+        terminalPanel.hostedView.setVisibleInUI(true)
+        terminalPanel.hostedView.setActive(true)
+        terminalPanel.registerTextBoxInputView(textBoxView)
+        XCTAssertTrue(terminalPanel.toggleTextBoxInput())
+        waitFor(timeout: 1.0, until: { window.firstResponder === textBoxView })
+        XCTAssertTrue(window.firstResponder === textBoxView)
+
+        terminalPanel.handleTextBoxEscape()
+        XCTAssertTrue(terminalPanel.isTextBoxActive)
+
+        let auxiliaryWindow = NSWindow(
+            contentRect: NSRect(x: 0, y: 0, width: 360, height: 240),
+            styleMask: [.titled, .closable, .miniaturizable],
+            backing: .buffered,
+            defer: false
+        )
+        auxiliaryWindow.isReleasedWhenClosed = false
+        auxiliaryWindow.identifier = NSUserInterfaceItemIdentifier("cmux.about")
+        auxiliaryWindow.makeKeyAndOrderFront(nil)
+
+        defer {
+            if auxiliaryWindow.isVisible {
+                auxiliaryWindow.performClose(nil)
+            }
+        }
+
+        guard let auxiliaryEscape = makeKeyDownEvent(
+            key: "\u{1b}",
+            modifiers: [],
+            keyCode: UInt16(kVK_Escape),
+            windowNumber: auxiliaryWindow.windowNumber
+        ), let terminalEscape = makeKeyDownEvent(
+            key: "\u{1b}",
+            modifiers: [],
+            keyCode: UInt16(kVK_Escape),
+            windowNumber: window.windowNumber
+        ) else {
+            XCTFail("Failed to construct Escape events")
+            return
+        }
+
+#if DEBUG
+        XCTAssertFalse(appDelegate.debugHandleCustomShortcut(event: auxiliaryEscape))
+#else
+        XCTFail("debugHandleCustomShortcut is only available in DEBUG")
+#endif
+        XCTAssertTrue(terminalPanel.isTextBoxActive, "Auxiliary-window Escape must not hide the terminal TextBox")
+
+        window.makeKeyAndOrderFront(nil)
+        appDelegate.setActiveMainWindow(window)
+
+#if DEBUG
+        XCTAssertFalse(appDelegate.debugHandleCustomShortcut(event: terminalEscape))
+#else
+        XCTFail("debugHandleCustomShortcut is only available in DEBUG")
+#endif
+        XCTAssertTrue(terminalPanel.isTextBoxActive, "Auxiliary-window Escape must clear the pending second-Escape hide arm")
     }
 
     func testFocusedTextBoxFirstEscapeBypassesTerminalFindShortcutHandling() {

@@ -1,6 +1,5 @@
 import AppKit
 import Carbon.HIToolbox
-import CoreVideo
 import SwiftUI
 import UniformTypeIdentifiers
 
@@ -1700,53 +1699,6 @@ enum TextBoxSubmit {
     }
 }
 
-private final class TextBoxDisplayLinkPulse {
-    private var displayLink: CVDisplayLink?
-    private var retainedSelf: Unmanaged<TextBoxDisplayLinkPulse>?
-    private let onPulse: () -> Void
-
-    init(onPulse: @escaping () -> Void) {
-        self.onPulse = onPulse
-
-        var link: CVDisplayLink?
-        guard CVDisplayLinkCreateWithActiveCGDisplays(&link) == kCVReturnSuccess,
-              let link else {
-            return
-        }
-
-        let retained = Unmanaged.passRetained(self)
-        retainedSelf = retained
-        CVDisplayLinkSetOutputCallback(link, { _, _, _, _, _, userInfo in
-            guard let userInfo else { return kCVReturnSuccess }
-            let pulse = Unmanaged<TextBoxDisplayLinkPulse>
-                .fromOpaque(userInfo)
-                .takeUnretainedValue()
-            DispatchQueue.main.async { [weak pulse] in
-                pulse?.fire()
-            }
-            return kCVReturnSuccess
-        }, retained.toOpaque())
-        displayLink = link
-        CVDisplayLinkStart(link)
-    }
-
-    deinit {
-        invalidate()
-    }
-
-    func invalidate() {
-        guard let link = displayLink else { return }
-        CVDisplayLinkStop(link)
-        displayLink = nil
-        retainedSelf?.release()
-        retainedSelf = nil
-    }
-
-    private func fire() {
-        onPulse()
-    }
-}
-
 @MainActor
 private final class TextBoxSubmitEventRunner {
     private static var active: [UUID: TextBoxSubmitEventRunner] = [:]
@@ -1761,7 +1713,6 @@ private final class TextBoxSubmitEventRunner {
     private var filePasteFallbackSatisfiedClipboardRead = false
     private var observers: [NSObjectProtocol] = []
     private var releaseRenderedFrameNotifications: (() -> Void)?
-    private var displayLinkPulse: TextBoxDisplayLinkPulse?
     private var originalPasteboardItems: [PasteboardItemSnapshot]?
     private var observationToken = UUID()
 
@@ -1963,14 +1914,6 @@ private final class TextBoxSubmitEventRunner {
             GhosttyApp.shared.scheduleTick()
         }
 
-        displayLinkPulse = TextBoxDisplayLinkPulse { [weak self] in
-            guard let self,
-                  self.observationToken == token else {
-                return
-            }
-            checkIfCurrent(scheduleFollowupTick: false)
-        }
-
         observers.append(center.addObserver(
             forName: .ghosttyDidTick,
             object: nil,
@@ -2169,8 +2112,6 @@ private final class TextBoxSubmitEventRunner {
         observers.removeAll(keepingCapacity: false)
         releaseRenderedFrameNotifications?()
         releaseRenderedFrameNotifications = nil
-        displayLinkPulse?.invalidate()
-        displayLinkPulse = nil
     }
 }
 
@@ -2187,6 +2128,7 @@ struct TextBoxInputContainer: View {
     let onToggleFocus: () -> Void
     let onEscape: () -> Void
     let onTextViewCreated: (TextBoxInputTextView) -> Void
+    let onTextViewMovedToWindow: (TextBoxInputTextView) -> Void
     let onTextViewDismantled: (TextBoxInputTextView) -> Void
 
     @State private var textViewHeight: CGFloat = 0
@@ -2256,6 +2198,7 @@ struct TextBoxInputContainer: View {
                     onInsertFileURLs: insertSelectedFileURLs(_:into:),
                     onChooseFiles: chooseFiles,
                     onTextViewCreated: registerTextView(_:),
+                    onTextViewMovedToWindow: onTextViewMovedToWindow,
                     onTextViewDismantled: onTextViewDismantled
                 )
 
@@ -2611,6 +2554,7 @@ private struct TextBoxInputView: NSViewRepresentable {
     let onInsertFileURLs: ([URL], TextBoxInputTextView) -> Bool
     let onChooseFiles: () -> Void
     let onTextViewCreated: (TextBoxInputTextView) -> Void
+    let onTextViewMovedToWindow: (TextBoxInputTextView) -> Void
     let onTextViewDismantled: (TextBoxInputTextView) -> Void
 
     func makeCoordinator() -> Coordinator {
@@ -2620,6 +2564,7 @@ private struct TextBoxInputView: NSViewRepresentable {
     func makeNSView(context: Context) -> NSScrollView {
         let textView = TextBoxInputTextView()
         textView.delegate = context.coordinator
+        textView.onMoveToWindow = onTextViewMovedToWindow
         textView.isRichText = true
         textView.isAutomaticQuoteSubstitutionEnabled = false
         textView.isAutomaticDashSubstitutionEnabled = false
@@ -2667,12 +2612,14 @@ private struct TextBoxInputView: NSViewRepresentable {
         coordinator.parent.attachments = textView.inlineAttachments()
         coordinator.parent.hasPendingAttachmentUpload = false
         coordinator.parent.onTextViewDismantled(textView)
+        textView.onMoveToWindow = { _ in }
         textView.invalidatePendingAttachmentUploads()
     }
 
     func updateNSView(_ scrollView: NSScrollView, context: Context) {
         context.coordinator.parent = self
         guard let textView = scrollView.documentView as? TextBoxInputTextView else { return }
+        textView.onMoveToWindow = onTextViewMovedToWindow
         let contentSize = scrollView.contentView.bounds.size
         if contentSize.width > 0 {
             textView.frame.size.width = contentSize.width
@@ -2804,6 +2751,7 @@ final class TextBoxInputTextView: NSTextView {
     var onPaste: (NSPasteboard, TextBoxInputTextView) -> Bool = { _, _ in false }
     var onInsertFileURLs: ([URL], TextBoxInputTextView) -> Bool = { _, _ in false }
     var onChooseFiles: () -> Void = {}
+    var onMoveToWindow: (TextBoxInputTextView) -> Void = { _ in }
 
     private static let localControlKeys: Set<String> = ["a", "e", "f", "b", "n", "p", "k", "h"]
     private static let pendingAttachmentUploadPlaceholderCharacter = "\u{200B}"
@@ -2840,8 +2788,18 @@ final class TextBoxInputTextView: NSTextView {
         super.viewDidMoveToWindow()
         if window == nil {
             invalidatePendingAttachmentUploads()
+        } else {
+            notifyMovedToWindowIfAttached()
         }
         layer?.borderColor = textColor?.withAlphaComponent(0.24).cgColor
+    }
+
+    private func notifyMovedToWindowIfAttached() {
+        DispatchQueue.main.async { [weak self] in
+            guard let self,
+                  self.window != nil else { return }
+            self.onMoveToWindow(self)
+        }
     }
 
     override func becomeFirstResponder() -> Bool {

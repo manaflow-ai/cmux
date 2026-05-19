@@ -12779,11 +12779,20 @@ class TerminalController {
         guard let tabManager else {
             return .err(code: "unavailable", message: "TabManager not available", data: nil)
         }
-        let rawPath = (params["path"] as? String)?.trimmingCharacters(in: .whitespacesAndNewlines)
+        let rawPathValue = params["path"] as? String
+        let rawPath = rawPathValue?.trimmingCharacters(in: .whitespacesAndNewlines)
+        if let rawPathValue, rawPathValue.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+            return .err(code: "invalid_params", message: "path cannot be empty", data: nil)
+        }
         let hasAttachment = rawPath?.isEmpty == false
         let beforeText = (params["before_text"] as? String) ?? (hasAttachment ? "hello " : "")
         let afterText = (params["after_text"] as? String) ?? (hasAttachment ? "world" : "")
-        let target = v2String(params, "surface_id")?.trimmingCharacters(in: .whitespacesAndNewlines)
+        let rawSurfaceID = params["surface_id"] as? String
+        let target = rawSurfaceID?.trimmingCharacters(in: .whitespacesAndNewlines)
+        if let rawSurfaceID,
+           rawSurfaceID.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+            return .err(code: "invalid_params", message: "surface_id cannot be empty", data: nil)
+        }
 
         var result: V2CallResult = .err(code: "not_found", message: "Terminal panel not found", data: nil)
         v2MainSync {
@@ -12830,7 +12839,12 @@ class TerminalController {
               !action.isEmpty else {
             return .err(code: "invalid_params", message: "Missing action", data: nil)
         }
-        let target = v2String(params, "surface_id")?.trimmingCharacters(in: .whitespacesAndNewlines)
+        let rawSurfaceID = params["surface_id"] as? String
+        let target = rawSurfaceID?.trimmingCharacters(in: .whitespacesAndNewlines)
+        if let rawSurfaceID,
+           rawSurfaceID.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+            return .err(code: "invalid_params", message: "surface_id cannot be empty", data: nil)
+        }
 
         var result: V2CallResult = .err(code: "not_found", message: "Terminal text box not found", data: nil)
         v2MainSync {
