@@ -545,6 +545,50 @@ final class GhosttyConfigTests: XCTestCase {
         XCTAssertFalse(GhosttyApp.shouldReloadConfigurationForAppearanceChange(previousColorScheme: .dark, currentColorScheme: .dark))
     }
 
+    func testAppearanceSynchronizationPlanSkipsRuntimeUpdateWhenColorSchemeIsUnchanged() {
+        let plan = GhosttyApp.appearanceSynchronizationPlan(
+            previousColorScheme: .light,
+            currentColorScheme: .light
+        )
+
+        switch plan {
+        case .unchanged:
+            XCTAssertFalse(plan.shouldReloadConfiguration)
+        case .reload:
+            XCTFail("Unchanged appearance should not produce a reload plan")
+        }
+    }
+
+    func testAppearanceSynchronizationPlanUpdatesGhosttyRuntimeWhenReloading() {
+        let cases: [
+            (
+                previous: GhosttyConfig.ColorSchemePreference?,
+                current: GhosttyConfig.ColorSchemePreference,
+                runtime: ghostty_color_scheme_e
+            )
+        ] = [
+            (nil, .dark, GHOSTTY_COLOR_SCHEME_DARK),
+            (.dark, .light, GHOSTTY_COLOR_SCHEME_LIGHT),
+            (.light, .dark, GHOSTTY_COLOR_SCHEME_DARK),
+        ]
+
+        for testCase in cases {
+            let plan = GhosttyApp.appearanceSynchronizationPlan(
+                previousColorScheme: testCase.previous,
+                currentColorScheme: testCase.current
+            )
+
+            switch plan {
+            case .unchanged:
+                XCTFail("Changed appearance should produce a reload plan")
+            case let .reload(colorScheme, runtimeColorScheme):
+                XCTAssertEqual(colorScheme, testCase.current)
+                XCTAssertEqual(runtimeColorScheme, testCase.runtime)
+                XCTAssertTrue(plan.shouldReloadConfiguration)
+            }
+        }
+    }
+
     func testScrollLagCaptureRequiresSustainedLag() {
         let cases: [(samples: Int, averageMs: Double, maxMs: Double, expected: Bool)] = [
             (4, 18, 85, false),
@@ -1320,6 +1364,54 @@ final class BrowserPanelPopupContextTests: XCTestCase {
 
 @MainActor
 final class BrowserPanelWebViewLifecycleTests: XCTestCase {
+    func testHiddenDiscardPolicyReadsUserDefaults() throws {
+        let suiteName = "cmux.browserHiddenDiscardPolicyTests.\(UUID().uuidString)"
+        let defaults = try XCTUnwrap(UserDefaults(suiteName: suiteName))
+        defer {
+            defaults.removePersistentDomain(forName: suiteName)
+        }
+        let hasEnabledEnvironmentOverride =
+            ProcessInfo.processInfo.environment["CMUX_BROWSER_HIDDEN_WEBVIEW_DISCARD_ENABLED"] != nil
+        let hasDelayEnvironmentOverride =
+            ProcessInfo.processInfo.environment["CMUX_BROWSER_HIDDEN_WEBVIEW_DISCARD_DELAY_SECONDS"] != nil
+
+        if !hasEnabledEnvironmentOverride {
+            XCTAssertEqual(
+                BrowserHiddenWebViewDiscardPolicy.isEnabled(defaults: defaults),
+                BrowserHiddenWebViewDiscardPolicy.defaultEnabled
+            )
+        }
+        if !hasDelayEnvironmentOverride {
+            XCTAssertEqual(
+                BrowserHiddenWebViewDiscardPolicy.hiddenDelay(defaults: defaults),
+                BrowserHiddenWebViewDiscardPolicy.defaultHiddenDelay
+            )
+        }
+
+        defaults.set(false, forKey: BrowserHiddenWebViewDiscardPolicy.enabledKey)
+        defaults.set(42.5, forKey: BrowserHiddenWebViewDiscardPolicy.hiddenDelayKey)
+
+        if !hasEnabledEnvironmentOverride {
+            XCTAssertEqual(defaults.object(forKey: BrowserHiddenWebViewDiscardPolicy.enabledKey) as? Bool, false)
+            XCTAssertFalse(BrowserHiddenWebViewDiscardPolicy.isEnabled(defaults: defaults))
+        }
+        if !hasDelayEnvironmentOverride {
+            XCTAssertEqual(BrowserHiddenWebViewDiscardPolicy.hiddenDelay(defaults: defaults), 42.5)
+
+            defaults.set(7200, forKey: BrowserHiddenWebViewDiscardPolicy.hiddenDelayKey)
+            XCTAssertEqual(
+                BrowserHiddenWebViewDiscardPolicy.hiddenDelay(defaults: defaults),
+                BrowserHiddenWebViewDiscardPolicy.maximumHiddenDelay
+            )
+
+            defaults.set(-1, forKey: BrowserHiddenWebViewDiscardPolicy.hiddenDelayKey)
+            XCTAssertEqual(
+                BrowserHiddenWebViewDiscardPolicy.hiddenDelay(defaults: defaults),
+                BrowserHiddenWebViewDiscardPolicy.defaultHiddenDelay
+            )
+        }
+    }
+
     func testLifecycleStartsAsNewTabUntilRenderable() {
         let panel = BrowserPanel(
             workspaceId: UUID(),
