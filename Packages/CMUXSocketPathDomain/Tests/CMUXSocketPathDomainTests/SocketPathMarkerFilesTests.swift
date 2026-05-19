@@ -80,6 +80,13 @@ import Foundation
     #expect(SocketPathProbe.unlinkIfNoLiveOtherOwner(path, expectedOwnerPID: getpid(), timeout: 0) == 0)
 }
 
+@Test func socketRecoveryOnlyAttemptsDefinitiveStaleConnectFailures() {
+    #expect(SocketPathOwnershipStatus.connectFailed(errnoCode: ECONNREFUSED).shouldAttemptListenerRecovery)
+    #expect(SocketPathOwnershipStatus.connectFailed(errnoCode: ENOENT).shouldAttemptListenerRecovery)
+    #expect(!SocketPathOwnershipStatus.connectFailed(errnoCode: ETIMEDOUT).shouldAttemptListenerRecovery)
+    #expect(!SocketPathOwnershipStatus.connectFailed(errnoCode: EAGAIN).shouldAttemptListenerRecovery)
+}
+
 private func makeTemporaryDirectory() throws -> URL {
     let url = FileManager.default.temporaryDirectory
         .appendingPathComponent("CMUXSocketPathDomainTests-\(UUID().uuidString)", isDirectory: true)

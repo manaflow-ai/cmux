@@ -78,6 +78,7 @@ extension TerminalController {
         }
         let recoveryPath: String
         let shouldUnlinkNonSocketReplacement: Bool
+        let nonSocketReplacementIdentity: SocketPathIdentity?
         let ownerPid = pathStatus.ownerPid
         if case .ownedByOtherProcess(let ownerPid) = pathStatus {
             let configuredPath = SocketControlSettings.socketPath()
@@ -89,9 +90,11 @@ extension TerminalController {
                 fallbackPath != snapshot.socketPath {
                 recoveryPath = fallbackPath
                 shouldUnlinkNonSocketReplacement = false
+                nonSocketReplacementIdentity = nil
             } else if configuredPath != snapshot.socketPath {
                 recoveryPath = configuredPath
                 shouldUnlinkNonSocketReplacement = false
+                nonSocketReplacementIdentity = nil
             } else {
                 reportSocketListenerFailure(
                     message: "socket.listener.path.owned_by_other_process",
@@ -127,6 +130,7 @@ extension TerminalController {
             }
             recoveryPath = fallbackPath
             shouldUnlinkNonSocketReplacement = false
+            nonSocketReplacementIdentity = nil
         } else {
             guard pathStatus.shouldAttemptListenerRecovery else {
                 return
@@ -134,8 +138,10 @@ extension TerminalController {
             recoveryPath = snapshot.socketPath
             if case .notSocket = pathStatus {
                 shouldUnlinkNonSocketReplacement = true
+                nonSocketReplacementIdentity = SocketPathProbe.fileIdentity(path: snapshot.socketPath)
             } else {
                 shouldUnlinkNonSocketReplacement = false
+                nonSocketReplacementIdentity = nil
             }
         }
 
@@ -173,7 +179,8 @@ extension TerminalController {
             self?.recoverSocketListenerAfterSocketFileLoss(
                 generation: snapshot.activeGeneration,
                 recoveryPath: recoveryPath,
-                shouldUnlinkNonSocketReplacement: shouldUnlinkNonSocketReplacement
+                shouldUnlinkNonSocketReplacement: shouldUnlinkNonSocketReplacement,
+                nonSocketReplacementIdentity: nonSocketReplacementIdentity
             )
         }
     }
@@ -181,7 +188,8 @@ extension TerminalController {
     func recoverSocketListenerAfterSocketFileLoss(
         generation: UInt64,
         recoveryPath: String,
-        shouldUnlinkNonSocketReplacement: Bool
+        shouldUnlinkNonSocketReplacement: Bool,
+        nonSocketReplacementIdentity: SocketPathIdentity?
     ) {
         guard let tabManager else {
             withListenerState {
@@ -219,7 +227,23 @@ extension TerminalController {
 
         stop()
         if shouldUnlinkNonSocketReplacement {
-            SocketPathProbe.unlinkPathIfPresent(recoveryPath)
+            let replacementStatus = SocketPathProbe.observedStatus(path: recoveryPath, expectedIdentity: nil)
+            if case .notSocket = replacementStatus,
+               let nonSocketReplacementIdentity,
+               SocketPathProbe.fileIdentity(path: recoveryPath) == nonSocketReplacementIdentity {
+                SocketPathProbe.unlinkPathIfPresent(recoveryPath)
+            } else {
+                reportSocketListenerFailure(
+                    message: "socket.listener.path.recovery.unlink_skipped",
+                    stage: "socket_file_recovery_restart",
+                    errnoCode: replacementStatus.errnoCode,
+                    extra: [
+                        "generation": generation,
+                        "path": recoveryPath,
+                        "pathStatus": replacementStatus.debugLabel
+                    ]
+                )
+            }
         }
         start(
             tabManager: tabManager,

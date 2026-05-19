@@ -61,8 +61,10 @@ public enum SocketPathOwnershipStatus: Equatable, Sendable {
         switch self {
         case .ownedByThisProcess, .ownerUnknown, .ownedByOtherProcess:
             return false
-        case .missing, .notSocket, .socketFileChanged, .connectFailed:
+        case .missing, .notSocket, .socketFileChanged:
             return true
+        case .connectFailed(let errnoCode):
+            return errnoCode == ECONNREFUSED || errnoCode == ENOENT
         }
     }
 
@@ -120,6 +122,15 @@ public enum SocketPathProbe {
 
         let fileType = pathStat.st_mode & mode_t(S_IFMT)
         guard fileType == mode_t(S_IFSOCK) else {
+            return nil
+        }
+
+        return SocketPathIdentity(pathStat)
+    }
+
+    public static func fileIdentity(path: String) -> SocketPathIdentity? {
+        var pathStat = stat()
+        guard lstat(path, &pathStat) == 0 else {
             return nil
         }
 

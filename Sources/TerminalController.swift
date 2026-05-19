@@ -1091,10 +1091,6 @@ class TerminalController {
             if unlink(path) != 0, errno != ENOENT {
                 return .failure(path: path, stage: "unlink", errnoCode: errno)
             }
-        case .connectFailed(let errnoCode) where errnoCode == ECONNREFUSED || errnoCode == ENOENT:
-            if unlink(path) != 0, errno != ENOENT {
-                return .failure(path: path, stage: "unlink", errnoCode: errno)
-            }
         case .connectFailed(let errnoCode):
             return .failure(path: path, stage: "existing_socket_connect_failed", errnoCode: errnoCode)
         case .notSocket:
