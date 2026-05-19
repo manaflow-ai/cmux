@@ -68,22 +68,25 @@ class PingServer:
             self.ready.set()
 
             # The CLI may probe candidate sockets with a connect-only check before
-            # issuing the actual command, so handle more than one connection.
-            for _ in range(4):
+            # issuing the actual command, so keep accepting until the ping arrives
+            # or the test socket times out.
+            while True:
                 conn, _ = server.accept()
                 with conn:
                     conn.settimeout(2.0)
                     data = b""
-                    while b"\n" not in data:
-                        chunk = conn.recv(4096)
-                        if not chunk:
-                            break
-                        data += chunk
+                    try:
+                        while b"\n" not in data:
+                            chunk = conn.recv(4096)
+                            if not chunk:
+                                break
+                            data += chunk
+                    except (ConnectionResetError, socket.timeout):
+                        continue
 
                     if b"ping" in data:
                         conn.sendall(self.response)
                         return
-            raise RuntimeError("Did not receive ping command on test socket")
         except Exception as exc:  # pragma: no cover - explicit surface on failure
             self.error = exc
             self.ready.set()
