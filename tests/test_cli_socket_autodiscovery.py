@@ -768,6 +768,8 @@ def test_dead_environment_socket_path_without_candidate_reports_no_fallback(cli_
                 home,
                 extra_env={
                     "CMUX_SOCKET_PATH": dead_socket,
+                    "LANG": "en_US_POSIX",
+                    "LC_ALL": "en_US_POSIX",
                 },
             )
     except Exception as exc:
