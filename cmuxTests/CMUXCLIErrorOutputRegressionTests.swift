@@ -394,7 +394,11 @@ final class CMUXCLIErrorOutputRegressionTests: XCTestCase {
         let timedOut = exitSignal.wait(timeout: .now() + timeout) == .timedOut
         if timedOut {
             process.terminate()
-            _ = exitSignal.wait(timeout: .now() + 1)
+            if exitSignal.wait(timeout: .now() + 1) == .timedOut,
+               process.isRunning {
+                kill(process.processIdentifier, SIGKILL)
+                _ = exitSignal.wait(timeout: .now() + 1)
+            }
         }
 
         return ProcessRunResult(
@@ -434,7 +438,11 @@ final class CMUXCLIErrorOutputRegressionTests: XCTestCase {
         let timedOut = exitSignal.wait(timeout: .now() + timeout) == .timedOut
         if timedOut {
             process.terminate()
-            _ = exitSignal.wait(timeout: .now() + 1)
+            if exitSignal.wait(timeout: .now() + 1) == .timedOut,
+               process.isRunning {
+                kill(process.processIdentifier, SIGKILL)
+                _ = exitSignal.wait(timeout: .now() + 1)
+            }
         }
 
         return ProcessRunResult(
