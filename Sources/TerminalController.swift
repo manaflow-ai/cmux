@@ -1652,14 +1652,12 @@ class TerminalController {
         case .failure:
             return false
         }
-        for token in tokens where token.hasPrefix("--type=") {
-            let rawType = String(token.dropFirst(7))
-            guard case .success(let panelType) = panelTypeForSocketArgument(rawType) else {
-                return false
-            }
+        switch panelTypeForSocketArguments(tokens) {
+        case .success(let panelType):
             return panelType == .extensionPane
+        case .failure:
+            return false
         }
-        return false
     }
 
     private nonisolated func socketWorkerV1ResponseIfNeeded(for command: String) -> String? {
@@ -16282,6 +16280,22 @@ class TerminalController {
         return .success(panelType)
     }
 
+    private nonisolated func panelTypeForSocketArguments(
+        _ tokens: [String]
+    ) -> Result<PanelType, SocketArgumentParseError> {
+        var panelType: PanelType = .terminal
+        for token in tokens where token.hasPrefix("--type=") {
+            let rawType = String(token.dropFirst(7))
+            switch panelTypeForSocketArgument(rawType) {
+            case .success(let parsedType):
+                panelType = parsedType
+            case .failure(let error):
+                return .failure(error)
+            }
+        }
+        return .success(panelType)
+    }
+
     private enum SocketArgumentParseError: LocalizedError {
         case unterminatedQuote
         case unterminatedEscape
@@ -16376,7 +16390,7 @@ class TerminalController {
 
     private nonisolated func newPane(_ args: String) -> String {
         // Parse arguments: --type=terminal|browser|extension --direction=left|right|up|down --url=... --bundle=...
-        var panelType: PanelType = .terminal
+        let panelType: PanelType
         var direction: SplitDirection = .right
         var urlRaw: String? = nil
         var url: URL? = nil
@@ -16390,15 +16404,15 @@ class TerminalController {
         case .failure(let error):
             return "ERROR: \(error.localizedDescription)"
         }
+        switch panelTypeForSocketArguments(parts) {
+        case .success(let parsedType):
+            panelType = parsedType
+        case .failure(let error):
+            return "ERROR: \(error.localizedDescription)"
+        }
         for partStr in parts {
             if partStr.hasPrefix("--type=") {
-                let typeStr = String(partStr.dropFirst(7))
-                switch panelTypeForSocketArgument(typeStr) {
-                case .success(let parsedType):
-                    panelType = parsedType
-                case .failure(let error):
-                    return "ERROR: \(error.localizedDescription)"
-                }
+                continue
             } else if partStr.hasPrefix("--direction=") {
                 let dirStr = String(partStr.dropFirst(12))
                 if let parsed = parseSplitDirection(dirStr) {
@@ -18030,7 +18044,7 @@ class TerminalController {
 
     private nonisolated func newSurface(_ args: String) -> String {
         // Parse arguments: --type=terminal|browser|extension --pane=<pane_id> --url=... --bundle=...
-        var panelType: PanelType = .terminal
+        let panelType: PanelType
         var paneArg: String? = nil
         var urlRaw: String? = nil
         var url: URL? = nil
@@ -18043,15 +18057,15 @@ class TerminalController {
         case .failure(let error):
             return "ERROR: \(error.localizedDescription)"
         }
+        switch panelTypeForSocketArguments(parts) {
+        case .success(let parsedType):
+            panelType = parsedType
+        case .failure(let error):
+            return "ERROR: \(error.localizedDescription)"
+        }
         for partStr in parts {
             if partStr.hasPrefix("--type=") {
-                let typeStr = String(partStr.dropFirst(7))
-                switch panelTypeForSocketArgument(typeStr) {
-                case .success(let parsedType):
-                    panelType = parsedType
-                case .failure(let error):
-                    return "ERROR: \(error.localizedDescription)"
-                }
+                continue
             } else if partStr.hasPrefix("--pane=") {
                 paneArg = String(partStr.dropFirst(7))
             } else if partStr.hasPrefix("--url=") {
