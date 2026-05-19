@@ -2194,6 +2194,78 @@ final class FilePreviewDragPasteboardWriterTests: XCTestCase {
 
 @MainActor
 final class FilePreviewPanelTextSavingTests: XCTestCase {
+    func testNativePreviewSessionsDetachAndReuseViewsAcrossRecreation() throws {
+        let url = try temporaryTextFile(contents: "preview", encoding: .utf8)
+        defer { try? FileManager.default.removeItem(at: url) }
+
+        let panel = FilePreviewPanel(workspaceId: UUID(), filePath: url.path)
+        defer { panel.close() }
+        let sessions = panel.nativeViewSessions
+
+        let pdfView = sessions.pdf.view(
+            panel: panel,
+            isVisibleInUI: true,
+            backgroundColor: NSColor.textBackgroundColor,
+            drawsBackground: true
+        )
+        let imageView = sessions.image.view(
+            panel: panel,
+            isVisibleInUI: true,
+            backgroundColor: NSColor.textBackgroundColor,
+            drawsBackground: true
+        )
+        let mediaView = sessions.media.view(
+            panel: panel,
+            isVisibleInUI: true,
+            backgroundColor: NSColor.textBackgroundColor,
+            drawsBackground: true
+        )
+        let quickLookView = sessions.quickLook.view(
+            panel: panel,
+            isVisibleInUI: true,
+            backgroundColor: NSColor.textBackgroundColor,
+            drawsBackground: true
+        )
+
+        let host = NSView()
+        host.addSubview(pdfView)
+        host.addSubview(imageView)
+        host.addSubview(mediaView)
+        host.addSubview(quickLookView)
+
+        XCTAssertTrue(pdfView === sessions.pdf.view(
+            panel: panel,
+            isVisibleInUI: true,
+            backgroundColor: NSColor.textBackgroundColor,
+            drawsBackground: true
+        ))
+        XCTAssertNil(pdfView.superview)
+
+        XCTAssertTrue(imageView === sessions.image.view(
+            panel: panel,
+            isVisibleInUI: true,
+            backgroundColor: NSColor.textBackgroundColor,
+            drawsBackground: true
+        ))
+        XCTAssertNil(imageView.superview)
+
+        XCTAssertTrue(mediaView === sessions.media.view(
+            panel: panel,
+            isVisibleInUI: true,
+            backgroundColor: NSColor.textBackgroundColor,
+            drawsBackground: true
+        ))
+        XCTAssertNil(mediaView.superview)
+
+        XCTAssertTrue(quickLookView === sessions.quickLook.view(
+            panel: panel,
+            isVisibleInUI: true,
+            backgroundColor: NSColor.textBackgroundColor,
+            drawsBackground: true
+        ))
+        XCTAssertNil(quickLookView.superview)
+    }
+
     func testSaveTextContentWritesLiveTextViewContent() async throws {
         let url = try temporaryTextFile(contents: "original", encoding: .utf8)
         defer { try? FileManager.default.removeItem(at: url) }
