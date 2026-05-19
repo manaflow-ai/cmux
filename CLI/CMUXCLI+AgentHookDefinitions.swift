@@ -139,7 +139,6 @@ extension CMUXCLI {
             createConfigDirIfMissing: true,
             sessionStoreSuffix: "grok", disableEnvVar: "CMUX_GROK_HOOKS_DISABLED",
             hookMarker: "cmux hooks grok", format: .nested(timeoutMs: 5000),
-            publishesStopNotification: false,
             events: [
                 .init(agentEvent: "SessionStart", cmuxSubcommand: "session-start"),
                 .init(agentEvent: "UserPromptSubmit", cmuxSubcommand: "prompt-submit"),
@@ -147,6 +146,7 @@ extension CMUXCLI {
                 .init(agentEvent: "Notification", cmuxSubcommand: "notification"),
                 .init(agentEvent: "SessionEnd", cmuxSubcommand: "session-end"),
             ],
+            publishesStopNotification: false,
             feedHookEvents: ["PreToolUse"]
         ),
         AgentHookDef(
