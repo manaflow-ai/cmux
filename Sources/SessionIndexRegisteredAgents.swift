@@ -1,4 +1,5 @@
 import Foundation
+import CMUXAgentVault
 
 extension SessionIndexStore {
     private struct RegisteredAgentJSONLMetadata {
@@ -15,6 +16,24 @@ extension SessionIndexStore {
         offset: Int,
         limit: Int
     ) async -> [SessionEntry] {
+        await runSessionIndexBackgroundScan {
+            await loadRegisteredAgentEntriesOnBackground(
+                registration: registration,
+                needle: needle,
+                cwdFilter: cwdFilter,
+                offset: offset,
+                limit: limit
+            )
+        }
+    }
+
+    nonisolated private static func loadRegisteredAgentEntriesOnBackground(
+        registration: CmuxVaultAgentRegistration,
+        needle: String,
+        cwdFilter: String?,
+        offset: Int,
+        limit: Int
+    ) async -> [SessionEntry] {
         let roots = registeredSessionRoots(registration: registration, cwdFilter: cwdFilter)
         guard !roots.isEmpty else { return [] }
         let fm = FileManager.default
@@ -22,7 +41,7 @@ extension SessionIndexStore {
         var candidates: [(url: URL, modified: Date, prefilteredByRipgrep: Bool)] = []
         if !needle.isEmpty {
             for root in roots {
-                guard let rgPaths = await ripgrepMatchingPaths(needle: needle, root: root, fileGlob: "*.jsonl") else {
+                guard let rgPaths = await SessionIndexCore.ripgrepMatchingPaths(needle: needle, root: root, fileGlob: "*.jsonl") else {
                     candidates.append(
                         contentsOf: enumerateRegisteredJSONLCandidates(root: root).map {
                             (url: $0.0, modified: $0.1, prefilteredByRipgrep: false)
@@ -55,11 +74,11 @@ extension SessionIndexStore {
         for candidate in candidates {
             if Task.isCancelled { break }
             if matches.count >= target { break }
-            if scanned >= searchMaxFiles { break }
+            if scanned >= SessionIndexCore.searchMaxFiles { break }
             scanned += 1
 
             if !needle.isEmpty && !candidate.prefilteredByRipgrep {
-                guard fileContains(candidate.url, needle: needle) else { continue }
+                guard SessionIndexCore.fileContainsNeedle(url: candidate.url, needle: needle) else { continue }
             }
 
             let metadata = extractRegisteredJSONLMetadata(
@@ -68,7 +87,14 @@ extension SessionIndexStore {
                 fallbackCWD: cwdFilter
             )
             if let cwdFilter, metadata.cwd != cwdFilter { continue }
-            let sessionId = metadata.sessionId ?? candidate.url.path
+            let sessionId: String
+            switch registration.sessionIdSource {
+            case .argvOption:
+                guard let nativeSessionId = metadata.sessionId else { continue }
+                sessionId = nativeSessionId
+            case .piSessionFile:
+                sessionId = metadata.sessionId ?? candidate.url.path
+            }
             matches.append(SessionEntry(
                 id: "\(registration.id):\(sessionId)",
                 agent: .registered(RegisteredSessionAgent(registration: registration)),
@@ -134,7 +160,7 @@ extension SessionIndexStore {
         case .piSessionFile:
             needsNativeSessionID = false
         }
-        forEachJSONLine(url: url, maxBytes: 512 * 1024) { object in
+        SessionIndexCore.forEachJSONLine(url: url, maxBytes: 512 * 1024) { object in
             if metadata.sessionId == nil {
                 metadata.sessionId = firstString(in: object, keys: ["sessionId", "session_id", "id"])
             }
@@ -174,31 +200,6 @@ extension SessionIndexStore {
             metadata.cwd = fallbackCWD ?? piCWDInferred(from: url)
         }
         return metadata
-    }
-
-    nonisolated private static func fileContains(_ url: URL, needle: String) -> Bool {
-        guard !needle.isEmpty,
-              let handle = try? FileHandle(forReadingFrom: url) else {
-            return false
-        }
-        defer { try? handle.close() }
-
-        let chunkSize = 64 * 1024
-        let overlapLimit = max(needle.utf8.count * 4, 4 * 1024)
-        var carry = Data()
-        while !Task.isCancelled {
-            let chunk = (try? handle.read(upToCount: chunkSize)) ?? Data()
-            if chunk.isEmpty { break }
-
-            var buffer = carry
-            buffer.append(chunk)
-            let text = String(decoding: buffer, as: UTF8.self)
-            if text.range(of: needle, options: [.caseInsensitive, .literal]) != nil {
-                return true
-            }
-            carry = buffer.count > overlapLimit ? Data(buffer.suffix(overlapLimit)) : buffer
-        }
-        return false
     }
 
     nonisolated private static func firstString(in object: [String: Any], keys: [String]) -> String? {

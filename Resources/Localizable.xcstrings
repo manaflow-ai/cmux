@@ -108231,19 +108231,478 @@
         }
       }
     },
-    "sessionIndex.error.openCodeSnapshot": {
+    "sessionIndex.error.codexReadFallback": {
       "extractionState": "manual",
       "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "تعذّر قراءة سجل الجلسات. سيتم الرجوع إلى فحص الملفات؛ أعد تشغيل cmux إذا بدت النتائج غير مكتملة."
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Historija sesija se nije mogla pročitati. Vraćamo se na skeniranje datoteka; ponovo pokrenite cmux ako rezultati izgledaju nepotpuni."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Sessionshistorik kunne ikke læses. Falder tilbage til filscanning; genstart cmux, hvis resultaterne virker ufuldstændige."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Der Sitzungsverlauf konnte nicht gelesen werden. Es wird auf Dateisuche zurückgegriffen; starten Sie cmux neu, wenn die Ergebnisse unvollständig wirken."
+          }
+        },
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "OpenCode: cannot snapshot opencode.db (%@)"
+            "value": "Session history could not be read. Falling back to file scan; restart cmux if results look incomplete."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "No se pudo leer el historial de sesiones. Se usará el escaneo de archivos; reinicia cmux si los resultados parecen incompletos."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Impossible de lire l’historique des sessions. Repli sur l’analyse des fichiers ; redémarrez cmux si les résultats semblent incomplets."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Impossibile leggere la cronologia delle sessioni. Verrà usata la scansione dei file; riavvia cmux se i risultati sembrano incompleti."
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "OpenCode: opencode.db のスナップショットを作成できません (%@)"
+            "value": "セッション履歴を読み込めませんでした。ファイルスキャンにフォールバックします。結果が不完全に見える場合は cmux を再起動してください。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "세션 기록을 읽을 수 없습니다. 파일 스캔으로 대체합니다. 결과가 불완전해 보이면 cmux를 다시 시작하세요."
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Kunne ikke lese økthistorikken. Går tilbake til filskanning; start cmux på nytt hvis resultatene virker ufullstendige."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Nie można odczytać historii sesji. Zostanie użyte skanowanie plików; uruchom ponownie cmux, jeśli wyniki wyglądają na niepełne."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Não foi possível ler o histórico de sessões. Usando varredura de arquivos; reinicie o cmux se os resultados parecerem incompletos."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Не удалось прочитать историю сеансов. Будет выполнено сканирование файлов; перезапустите cmux, если результаты выглядят неполными."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ไม่สามารถอ่านประวัติเซสชันได้ กำลังใช้การสแกนไฟล์แทน หากผลลัพธ์ดูไม่ครบถ้วน ให้รีสตาร์ท cmux"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Oturum geçmişi okunamadı. Dosya taramasına dönülüyor; sonuçlar eksik görünüyorsa cmux’i yeniden başlatın."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Не вдалося прочитати історію сеансів. Буде використано сканування файлів; перезапустіть cmux, якщо результати виглядають неповними."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "无法读取会话历史。将回退到文件扫描；如果结果看起来不完整，请重新启动 cmux。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "無法讀取工作階段歷史記錄。將改用檔案掃描；如果結果看起來不完整，請重新啟動 cmux。"
+          }
+        }
+      }
+    },
+    "sessionIndex.error.openCodeSnapshot": {
+      "extractionState": "manual",
+      "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "سجل الجلسات غير متاح مؤقتًا. حاول مرة أخرى لاحقًا أو أعد تشغيل cmux."
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Historija sesija je privremeno nedostupna. Pokušajte ponovo kasnije ili ponovo pokrenite cmux."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Sessionshistorik er midlertidigt utilgængelig. Prøv igen senere, eller genstart cmux."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Der Sitzungsverlauf ist vorübergehend nicht verfügbar. Versuchen Sie es später erneut oder starten Sie cmux neu."
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Session history is temporarily unavailable. Try again later or restart cmux."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "El historial de sesiones no está disponible temporalmente. Inténtalo más tarde o reinicia cmux."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "L’historique des sessions est temporairement indisponible. Réessayez plus tard ou redémarrez cmux."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "La cronologia delle sessioni è temporaneamente non disponibile. Riprova più tardi o riavvia cmux."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "セッション履歴は一時的に利用できません。後でもう一度試すか、cmux を再起動してください。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "세션 기록을 일시적으로 사용할 수 없습니다. 나중에 다시 시도하거나 cmux를 다시 시작하세요."
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Økthistorikken er midlertidig utilgjengelig. Prøv igjen senere eller start cmux på nytt."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Historia sesji jest tymczasowo niedostępna. Spróbuj ponownie później lub uruchom ponownie cmux."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "O histórico de sessões está temporariamente indisponível. Tente novamente mais tarde ou reinicie o cmux."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "История сеансов временно недоступна. Повторите попытку позже или перезапустите cmux."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ประวัติเซสชันไม่พร้อมใช้งานชั่วคราว ลองอีกครั้งภายหลังหรือรีสตาร์ท cmux"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Oturum geçmişi geçici olarak kullanılamıyor. Daha sonra tekrar deneyin veya cmux’i yeniden başlatın."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Історія сеансів тимчасово недоступна. Спробуйте пізніше або перезапустіть cmux."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "会话历史暂时不可用。请稍后重试或重新启动 cmux。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "工作階段歷史記錄暫時無法使用。請稍後再試或重新啟動 cmux。"
+          }
+        }
+      }
+    },
+    "sessionIndex.error.openCodeRead": {
+      "extractionState": "manual",
+      "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "تعذّر قراءة سجل الجلسات. أعد تشغيل cmux أو صدّر السجلات وتواصل مع الدعم."
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Historija sesija se nije mogla pročitati. Ponovo pokrenite cmux ili izvezite zapise i kontaktirajte podršku."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Sessionshistorik kunne ikke læses. Genstart cmux, eller eksportér logfiler og kontakt support."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Der Sitzungsverlauf konnte nicht gelesen werden. Starten Sie cmux neu oder exportieren Sie Protokolle und kontaktieren Sie den Support."
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Session history could not be read. Restart cmux or export logs and contact support."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "No se pudo leer el historial de sesiones. Reinicia cmux o exporta los registros y contacta con soporte."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Impossible de lire l’historique des sessions. Redémarrez cmux ou exportez les journaux et contactez le support."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Impossibile leggere la cronologia delle sessioni. Riavvia cmux oppure esporta i log e contatta il supporto."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "セッション履歴を読み込めませんでした。cmux を再起動するか、ログを書き出してサポートにお問い合わせください。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "세션 기록을 읽을 수 없습니다. cmux를 다시 시작하거나 로그를 내보낸 뒤 지원팀에 문의하세요."
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Kunne ikke lese økthistorikken. Start cmux på nytt, eller eksporter logger og kontakt kundestøtte."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Nie można odczytać historii sesji. Uruchom ponownie cmux albo wyeksportuj logi i skontaktuj się z pomocą techniczną."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Não foi possível ler o histórico de sessões. Reinicie o cmux ou exporte os logs e contate o suporte."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Не удалось прочитать историю сеансов. Перезапустите cmux или экспортируйте журналы и обратитесь в поддержку."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ไม่สามารถอ่านประวัติเซสชันได้ รีสตาร์ท cmux หรือส่งออกบันทึกแล้วติดต่อฝ่ายสนับสนุน"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Oturum geçmişi okunamadı. cmux’i yeniden başlatın veya günlükleri dışa aktarıp destekle iletişime geçin."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Не вдалося прочитати історію сеансів. Перезапустіть cmux або експортуйте журнали й зверніться до підтримки."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "无法读取会话历史。请重新启动 cmux，或导出日志并联系支持。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "無法讀取工作階段歷史記錄。請重新啟動 cmux，或匯出記錄並聯絡支援。"
+          }
+        }
+      }
+    },
+    "sessionIndex.error.openCodeSchemaUnsupported": {
+      "extractionState": "manual",
+      "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "هذا الإصدار لا يدعم سجل الجلسات. حدّث cmux ثم حاول مرة أخرى."
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Historija sesija nije podržana u ovoj verziji. Ažurirajte cmux i pokušajte ponovo."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Sessionshistorik understøttes ikke i denne version. Opdater cmux, og prøv igen."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Der Sitzungsverlauf wird in dieser Version nicht unterstützt. Aktualisieren Sie cmux und versuchen Sie es erneut."
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Session history is unsupported in this version. Update cmux and try again."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "El historial de sesiones no es compatible con esta versión. Actualiza cmux e inténtalo de nuevo."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "L’historique des sessions n’est pas pris en charge dans cette version. Mettez cmux à jour puis réessayez."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "La cronologia delle sessioni non è supportata in questa versione. Aggiorna cmux e riprova."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "このバージョンではセッション履歴を利用できません。cmux をアップデートしてからもう一度試してください。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "이 버전에서는 세션 기록이 지원되지 않습니다. cmux를 업데이트한 뒤 다시 시도하세요."
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Økthistorikk støttes ikke i denne versjonen. Oppdater cmux og prøv igjen."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Historia sesji nie jest obsługiwana w tej wersji. Zaktualizuj cmux i spróbuj ponownie."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "O histórico de sessões não é compatível com esta versão. Atualize o cmux e tente novamente."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "История сеансов не поддерживается в этой версии. Обновите cmux и повторите попытку."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "เวอร์ชันนี้ไม่รองรับประวัติเซสชัน อัปเดต cmux แล้วลองอีกครั้ง"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Oturum geçmişi bu sürümde desteklenmiyor. cmux’i güncelleyin ve tekrar deneyin."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Історія сеансів не підтримується в цій версії. Оновіть cmux і спробуйте ще раз."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "此版本不支持会话历史。请更新 cmux 后重试。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "此版本不支援工作階段歷史記錄。請更新 cmux 後再試。"
           }
         }
       }

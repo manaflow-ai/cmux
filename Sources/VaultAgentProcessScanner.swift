@@ -1,5 +1,6 @@
 import Foundation
 import CMUXAgentLaunch
+import CMUXAgentVault
 import SQLite3
 
 extension AgentLaunchCommandSnapshot {
