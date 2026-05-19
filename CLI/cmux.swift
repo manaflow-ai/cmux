@@ -21619,11 +21619,21 @@ export default function cmuxPiSessionExtension(pi: ExtensionAPI) {
 
             let notificationCwd = hookCwd ?? mapped?.cwd
             if def.name == "grok",
-               let notificationMessage = normalizedAgentHookNotificationMessage(parsedInput: input),
-               isGrokInternalSessionNotification(notificationMessage),
-               latestGrokAssistantMessage(cwd: notificationCwd, sessionId: input.sessionId ?? sessionId, env: env) == nil {
-                print("{}")
-                return
+               let notificationMessage = normalizedAgentHookNotificationMessage(parsedInput: input) {
+                let needsTranscriptBackedBody = isGrokInternalSessionNotification(notificationMessage)
+                    || isGrokGenericTurnCompletion(notificationMessage)
+                if needsTranscriptBackedBody,
+                   latestGrokAssistantMessage(cwd: notificationCwd, sessionId: input.sessionId ?? sessionId, env: env) == nil {
+                    if isGrokGenericTurnCompletion(notificationMessage) {
+                        let idleStatus = String(localized: "agent.generic.notification.status.idle", defaultValue: "Idle")
+                        _ = try? sendV1Command(
+                            "set_status \(def.statusKey) \(idleStatus) --icon=pause.circle.fill --color=#8E8E93 --tab=\(workspaceId)\(socketPanelOption(surfaceId))",
+                            client: client
+                        )
+                    }
+                    print("{}")
+                    return
+                }
             }
 
             var summary = summarizeAgentHookNotification(

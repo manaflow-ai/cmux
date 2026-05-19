@@ -3,6 +3,23 @@ import Darwin
 import Foundation
 
 extension Workspace {
+    private static let structuredAgentHookStatusKeys: Set<String> = [
+        "amp",
+        "claude_code",
+        "codebuddy",
+        "codex",
+        "copilot",
+        "cursor",
+        "factory",
+        "gemini",
+        "grok",
+        "hermes-agent",
+        "opencode",
+        "pi",
+        "qoder",
+        "rovodev",
+    ]
+
     func agentRuntimeState(forPanelId panelId: UUID) -> DetachedAgentRuntimeState? {
         let pidKeys = agentPIDKeysByPanelId[panelId] ?? []
 
@@ -74,6 +91,19 @@ extension Workspace {
         if refreshPorts {
             refreshTrackedAgentPorts()
         }
+    }
+
+    func suppressesRawTerminalNotification(panelId: UUID?) -> Bool {
+        if let panelId {
+            let panelKeys = agentPIDKeysByPanelId[panelId] ?? []
+            return panelKeys.contains { isStructuredAgentHookPIDKey($0) }
+        }
+
+        return agentPIDs.keys.contains { isStructuredAgentHookPIDKey($0) }
+    }
+
+    private func isStructuredAgentHookPIDKey(_ key: String) -> Bool {
+        Self.structuredAgentHookStatusKeys.contains(agentStatusKey(forAgentPIDKey: key))
     }
 
     @discardableResult

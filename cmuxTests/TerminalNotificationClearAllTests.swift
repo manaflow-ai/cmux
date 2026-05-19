@@ -231,6 +231,36 @@ final class TerminalNotificationClearAllTests: XCTestCase {
         XCTAssertEqual(workspace.statusEntries["codex"]?.value, "Running")
     }
 
+    func testStructuredAgentHookRuntimeSuppressesRawTerminalNotificationsForOwnedPanelOnly() throws {
+        let appDelegate = AppDelegate.shared ?? AppDelegate()
+        let manager = TabManager()
+        let originalTabManager = appDelegate.tabManager
+        appDelegate.tabManager = manager
+
+        let workspace = manager.addWorkspace(select: true)
+        defer {
+            if manager.tabs.contains(where: { $0.id == workspace.id }) {
+                manager.closeWorkspace(workspace)
+            }
+            appDelegate.tabManager = originalTabManager
+        }
+
+        let firstPanelId = try XCTUnwrap(workspace.focusedPanelId)
+        let secondPanel = try XCTUnwrap(
+            workspace.newTerminalSplit(from: firstPanelId, orientation: .horizontal)
+        )
+
+        workspace.recordAgentPID(key: "grok.grok-session-123", pid: pid_t(12345), panelId: firstPanelId)
+
+        XCTAssertTrue(workspace.suppressesRawTerminalNotification(panelId: firstPanelId))
+        XCTAssertFalse(workspace.suppressesRawTerminalNotification(panelId: secondPanel.id))
+        XCTAssertTrue(workspace.suppressesRawTerminalNotification(panelId: nil))
+
+        workspace.recordAgentPID(key: "custom-tool.session", pid: pid_t(12346), panelId: secondPanel.id)
+
+        XCTAssertFalse(workspace.suppressesRawTerminalNotification(panelId: secondPanel.id))
+    }
+
     func testDetachingSurfaceRebindsNotificationContributionToDestinationWorkspace() throws {
         let store = TerminalNotificationStore.shared
         let appDelegate = AppDelegate.shared ?? AppDelegate()

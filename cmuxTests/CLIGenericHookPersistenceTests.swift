@@ -362,6 +362,25 @@ extension CLINotifyProcessIntegrationRegressionTests {
             "Grok internal session notifications should not notify before there is an assistant response, saw \(preAssistantInternalCommands)"
         )
 
+        let preAssistantGenericCommandStart = state.commands.count
+        let preAssistantGeneric = runGrokHook(
+            "notification",
+            input: #"{"sessionId":"grok-generic-before-assistant","cwd":"\#(root.path)","hookEventName":"Notification","message":"Turn complete in 3.8s."}"#
+        )
+        XCTAssertFalse(preAssistantGeneric.timedOut, preAssistantGeneric.stderr)
+        XCTAssertEqual(preAssistantGeneric.status, 0, preAssistantGeneric.stderr)
+        XCTAssertEqual(preAssistantGeneric.stdout, "{}\n")
+
+        let preAssistantGenericCommands = Array(state.commands.dropFirst(preAssistantGenericCommandStart))
+        XCTAssertFalse(
+            preAssistantGenericCommands.contains { $0.hasPrefix("notify_target_async ") },
+            "Grok generic completion notifications should not show the placeholder body before there is an assistant response, saw \(preAssistantGenericCommands)"
+        )
+        XCTAssertTrue(
+            preAssistantGenericCommands.contains { $0.contains("set_status grok Idle") },
+            "Expected generic completion without an assistant response to leave Grok idle, saw \(preAssistantGenericCommands)"
+        )
+
         let assistantMessage = "**42.** That's the answer, according to Deep Thought."
         try writeGrokAssistantTranscript(
             grokHome: grokHome,
@@ -454,15 +473,17 @@ extension CLINotifyProcessIntegrationRegressionTests {
         XCTAssertEqual(scopedMiss.stdout, "{}\n")
 
         let scopedMissCommands = Array(state.commands.dropFirst(scopedMissCommandStart))
-        XCTAssertTrue(
-            scopedMissCommands.contains {
-                $0.contains("notify_target_async \(workspaceId) \(surfaceId) Grok|Completed|Turn complete in 4.0s.")
-            },
-            "Expected Grok completion without a cwd-scoped transcript to keep the hook payload, saw \(scopedMissCommands)"
+        XCTAssertFalse(
+            scopedMissCommands.contains { $0.hasPrefix("notify_target_async ") },
+            "Grok completion without a cwd-scoped transcript should not show the placeholder body, saw \(scopedMissCommands)"
         )
         XCTAssertFalse(
             scopedMissCommands.contains { $0.contains(otherProjectMessage) },
             "Grok completion notifications must not read another cwd's latest session, saw \(scopedMissCommands)"
+        )
+        XCTAssertTrue(
+            scopedMissCommands.contains { $0.contains("set_status grok Idle") },
+            "Expected scoped completion without transcript to leave Grok idle, saw \(scopedMissCommands)"
         )
 
         let waitingMessage = "Choose docs section"
