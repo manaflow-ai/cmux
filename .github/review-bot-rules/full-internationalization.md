@@ -8,14 +8,14 @@ Report a failure when the diff introduces or materially changes:
 - A new Swift localization key that is not backed by a matching `Resources/*.xcstrings` entry with translated values for every locale already supported by that catalog.
 - A new or changed `Resources/*.xcstrings` key that does not include translated entries for every locale already supported by that string catalog.
 - A new app locale, language file, or string catalog entry that is only wired for English or a subset of existing app locales.
-- Web UI text, user-facing web data, metadata, route copy, or message keys that are not represented across all locales in `web/i18n/routing.ts` and every matching file in `web/messages/`.
+- Web UI text, user-facing web data, metadata, route copy, rendered markdown, changelog copy, or message keys that are not represented across all locales in `web/i18n/routing.ts` and every matching file in `web/messages/`.
 - Placeholder, copied English, machine marker, TODO, or empty translations used to satisfy a locale slot.
 
 Expected shape:
 
 - New user-facing Swift text uses a stable localization key, an English `defaultValue`, and a matching string-catalog entry.
 - `Resources/Localizable.xcstrings` and `Resources/InfoPlist.xcstrings` additions include complete translations for all existing locale codes in the touched catalog.
-- Web message and user-facing data changes update all locale entries consistently and keep the locale registry aligned with available messages.
+- Web message, rendered markdown, changelog, and user-facing data changes update all locale entries consistently and keep the locale registry aligned with available messages.
 - If a locale is intentionally removed or added, the PR updates the canonical locale list and every affected message/catalog file in the same change.
 
 Allowed cases:
