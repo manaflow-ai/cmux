@@ -150,6 +150,30 @@ final class UIScaleSettingsTests: XCTestCase {
         waitForPersistedUIScale(1.4, in: settingsFileURL)
     }
 
+    func testSupersededUIScaleFileWriteIsSkipped() async throws {
+        let settingsFileURL = FileManager.default.temporaryDirectory
+            .appendingPathComponent("cmux-ui-scale-superseded-\(UUID().uuidString).json", isDirectory: false)
+        try #"{"schemaVersion":1,"app":{"uiScale":1.0}}"#.write(
+            to: settingsFileURL,
+            atomically: true,
+            encoding: .utf8
+        )
+        let store = KeyboardShortcutSettingsFileStore(
+            primaryPath: settingsFileURL.path,
+            fallbackPath: nil,
+            additionalFallbackPaths: [],
+            startWatching: false
+        )
+
+        do {
+            try await store.writeAppUIScaleOffMain(1.4, shouldWrite: { false })
+            XCTFail("Superseded app.uiScale writes should be cancelled before touching cmux.json")
+        } catch is CancellationError {
+        }
+
+        XCTAssertEqual(try XCTUnwrap(persistedUIScale(in: settingsFileURL)), 1.0, accuracy: 0.001)
+    }
+
     func testWritingAppUIScalePreservesJSONCTemplateComments() throws {
         let settingsFileURL = FileManager.default.temporaryDirectory
             .appendingPathComponent("cmux-ui-scale-template-\(UUID().uuidString).json", isDirectory: false)

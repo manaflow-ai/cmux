@@ -215,7 +215,12 @@ private actor UIScaleSettingsPersistenceCoordinator {
                     )
                 }
                 guard shouldWrite else { return }
-                try await settingsFileStore.writeAppUIScaleOffMain(value)
+                try await settingsFileStore.writeAppUIScaleOffMain(value) {
+                    UIScaleSettings.isPendingPersistenceCurrent(
+                        identifier: identifier,
+                        defaults: defaults.defaults
+                    )
+                }
                 try Task.checkCancellation()
                 await MainActor.run {
                     UIScaleSettings.completePendingPersistence(

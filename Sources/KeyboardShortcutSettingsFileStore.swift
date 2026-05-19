@@ -26,6 +26,11 @@ final class CmuxSettingsFileStore {
     private static let backupsDefaultsKey = "cmux.settingsFile.backups.v1"
     private static let importedManagedDefaultsDefaultsKey = "cmux.settingsFile.importedManagedDefaults.v1"
     fileprivate static let socketPasswordBackupIdentifier = "automation.socketPassword"
+    // Keep debounced app.uiScale writes ordered after they leave the main actor.
+    private static let appUIScaleWriteQueue = DispatchQueue(
+        label: "ai.manaflow.cmux.app-ui-scale-writes",
+        qos: .utility
+    )
 
     static var defaultPrimaryPath: String {
         let home = FileManager.default.homeDirectoryForCurrentUser.path
@@ -163,22 +168,45 @@ final class CmuxSettingsFileStore {
         (primaryPath as NSString).abbreviatingWithTildeInPath
     }
 
-    func writeAppUIScaleOffMain(_ uiScale: Double) async throws {
+    func writeAppUIScaleOffMain(
+        _ uiScale: Double,
+        shouldWrite: @escaping @Sendable () -> Bool = { true }
+    ) async throws {
         let primaryPath = primaryPath
         let fileManager = fileManager
-        try await Task.detached(priority: .utility) {
-            try Self.writeAppUIScale(uiScale, primaryPath: primaryPath, fileManager: fileManager)
-        }.value
+        try await withCheckedThrowingContinuation { (continuation: CheckedContinuation<Void, Error>) in
+            Self.appUIScaleWriteQueue.async {
+                do {
+                    guard shouldWrite() else {
+                        throw CancellationError()
+                    }
+                    try Self.writeAppUIScale(
+                        uiScale,
+                        primaryPath: primaryPath,
+                        fileManager: fileManager,
+                        shouldWrite: shouldWrite
+                    )
+                    continuation.resume(returning: ())
+                } catch {
+                    continuation.resume(throwing: error)
+                }
+            }
+        }
     }
 
     func writeAppUIScale(_ uiScale: Double) throws {
-        try Self.writeAppUIScale(uiScale, primaryPath: primaryPath, fileManager: fileManager)
+        try Self.writeAppUIScale(
+            uiScale,
+            primaryPath: primaryPath,
+            fileManager: fileManager
+        )
     }
 
     private static func writeAppUIScale(
         _ uiScale: Double,
         primaryPath: String,
-        fileManager: FileManager
+        fileManager: FileManager,
+        shouldWrite: () -> Bool = { true }
     ) throws {
         let fileURL = URL(fileURLWithPath: primaryPath)
         try fileManager.createDirectory(
@@ -194,6 +222,9 @@ final class CmuxSettingsFileStore {
             keyPath: ["app", "uiScale"],
             valueText: String(UIScaleSettings.roundedForPersistence(uiScale))
         )
+        guard shouldWrite() else {
+            throw CancellationError()
+        }
         try Data(updated.utf8).write(to: fileURL, options: [.atomic])
         try? fileManager.setAttributes([.posixPermissions: 0o600], ofItemAtPath: fileURL.path)
     }
