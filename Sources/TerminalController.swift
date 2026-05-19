@@ -1685,7 +1685,10 @@ class TerminalController {
         guard command.hasPrefix("{"),
               let data = command.data(using: .utf8),
               let dict = (try? JSONSerialization.jsonObject(with: data, options: [])) as? [String: Any] else {
-            return "ERROR: Authentication required — send auth <password> first"
+            return String(
+                localized: "socket.auth.required.v1",
+                defaultValue: "ERROR: Authentication required — send auth <password> first"
+            )
         }
         let id = dict["id"]
         let usesJSONRPC = CMUXSocketProtocol.usesJSONRPC(dict)
@@ -1695,9 +1698,15 @@ class TerminalController {
 
     private nonisolated func passwordAuthRequiredMessage(usesJSONRPC: Bool) -> String {
         if usesJSONRPC {
-            return "Authentication required. For JSON-RPC call auth.login with params.password."
+            return String(
+                localized: "socket.auth.required.jsonrpc",
+                defaultValue: "Authentication required. For JSON-RPC call auth.login with params.password."
+            )
         }
-        return "Authentication required. Send auth <password> first."
+        return String(
+            localized: "socket.auth.required.legacy",
+            defaultValue: "Authentication required. Send auth <password> first."
+        )
     }
 
     private nonisolated func passwordLoginV1ResponseIfNeeded(for command: String, authenticated: inout Bool) -> String? {
@@ -1738,7 +1747,10 @@ class TerminalController {
                 id: request.id,
                 jsonRPC: request.usesJSONRPC,
                 code: "invalid_params",
-                message: "auth.login requires params.password"
+                message: String(
+                    localized: "socket.auth.login.requiresPassword",
+                    defaultValue: "auth.login requires params.password"
+                )
             )
         }
 
@@ -1747,12 +1759,20 @@ class TerminalController {
                 id: request.id,
                 jsonRPC: request.usesJSONRPC,
                 code: "auth_unconfigured",
-                message: "Password mode is enabled but no socket password is configured in Settings."
+                message: String(
+                    localized: "socket.auth.passwordModeUnconfigured",
+                    defaultValue: "Password mode is enabled but no socket password is configured in Settings."
+                )
             )
         }
 
         guard SocketControlPasswordStore.verify(password: provided, allowLazyKeychainFallback: true) else {
-            return v2Error(id: request.id, jsonRPC: request.usesJSONRPC, code: "auth_failed", message: "Invalid password")
+            return v2Error(
+                id: request.id,
+                jsonRPC: request.usesJSONRPC,
+                code: "auth_failed",
+                message: String(localized: "socket.auth.invalidPassword", defaultValue: "Invalid password")
+            )
         }
         authenticated = true
         return v2Ok(id: request.id, jsonRPC: request.usesJSONRPC, result: ["authenticated": true])
@@ -1788,7 +1808,7 @@ class TerminalController {
             return .response(CMUXSocketProtocol.malformedRequestError(
                 command: trimmed,
                 code: "invalid_utf8",
-                message: "Invalid UTF-8"
+                message: String(localized: "socket.error.invalidUTF8", defaultValue: "Invalid UTF-8")
             ))
         }
 
@@ -1799,7 +1819,7 @@ class TerminalController {
             return .response(CMUXSocketProtocol.malformedRequestError(
                 command: trimmed,
                 code: "parse_error",
-                message: "Invalid JSON"
+                message: String(localized: "socket.error.invalidJSON", defaultValue: "Invalid JSON")
             ))
         }
 
@@ -1807,7 +1827,7 @@ class TerminalController {
             return .response(CMUXSocketProtocol.malformedRequestError(
                 command: trimmed,
                 code: "invalid_request",
-                message: "Expected JSON object"
+                message: String(localized: "socket.error.expectedJSONObject", defaultValue: "Expected JSON object")
             ))
         }
 
@@ -1820,7 +1840,7 @@ class TerminalController {
                 id: dict["id"],
                 jsonRPC: CMUXSocketProtocol.usesJSONRPC(dict),
                 code: "invalid_request",
-                message: "Invalid request"
+                message: String(localized: "socket.error.invalidRequest", defaultValue: "Invalid request")
             ))
         }
     }
@@ -1837,28 +1857,28 @@ class TerminalController {
                 id: responseID,
                 jsonRPC: usesJSONRPC,
                 code: "invalid_params",
-                message: "params must be a JSON object"
+                message: String(localized: "socket.error.paramsMustBeObject", defaultValue: "params must be a JSON object")
             )
         case .missingMethod:
             return v2Error(
                 id: responseID,
                 jsonRPC: usesJSONRPC,
                 code: "invalid_request",
-                message: "Missing method"
+                message: String(localized: "socket.error.missingMethod", defaultValue: "Missing method")
             )
         case .malformedID:
             return v2Error(
                 id: nil,
                 jsonRPC: usesJSONRPC,
                 code: "invalid_request",
-                message: "id must be a string, number, or null"
+                message: String(localized: "socket.error.idMustBeScalar", defaultValue: "id must be a string, number, or null")
             )
         case .invalidJSONRPCVersion:
             return v2Error(
                 id: nil,
                 jsonRPC: true,
                 code: "invalid_request",
-                message: "jsonrpc must be \"2.0\""
+                message: String(localized: "socket.error.jsonrpcMustBe2", defaultValue: "jsonrpc must be \"2.0\"")
             )
         }
     }
@@ -2983,7 +3003,7 @@ class TerminalController {
             return CMUXSocketProtocol.malformedRequestError(
                 command: jsonLine,
                 code: "invalid_utf8",
-                message: "Invalid UTF-8"
+                message: String(localized: "socket.error.invalidUTF8", defaultValue: "Invalid UTF-8")
             )
         }
 
@@ -2994,7 +3014,7 @@ class TerminalController {
             return CMUXSocketProtocol.malformedRequestError(
                 command: jsonLine,
                 code: "parse_error",
-                message: "Invalid JSON"
+                message: String(localized: "socket.error.invalidJSON", defaultValue: "Invalid JSON")
             )
         }
 
@@ -3002,7 +3022,7 @@ class TerminalController {
             return CMUXSocketProtocol.malformedRequestError(
                 command: jsonLine,
                 code: "invalid_request",
-                message: "Expected JSON object"
+                message: String(localized: "socket.error.expectedJSONObject", defaultValue: "Expected JSON object")
             )
         }
 
@@ -3016,7 +3036,7 @@ class TerminalController {
                 id: dict["id"],
                 jsonRPC: CMUXSocketProtocol.usesJSONRPC(dict),
                 code: "invalid_request",
-                message: "Invalid request"
+                message: String(localized: "socket.error.invalidRequest", defaultValue: "Invalid request")
             )
         }
         return processV2Command(request)

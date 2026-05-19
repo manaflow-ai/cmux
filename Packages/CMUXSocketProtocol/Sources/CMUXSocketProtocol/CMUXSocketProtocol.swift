@@ -28,7 +28,10 @@ nonisolated public enum V2CallResult {
 
 nonisolated public enum CMUXSocketProtocol {
     public static let invalidDispatchMessage =
-        "Request cannot be performed on the main thread; retry the operation asynchronously or use the async API."
+        String(
+            localized: "socket.error.invalidDispatch",
+            defaultValue: "cmux cannot perform this request in the current socket context. Perform it asynchronously and retry."
+        )
 
     public static func usesJSONRPC(_ dict: [String: Any]) -> Bool {
         (dict["jsonrpc"] as? String) == "2.0"
@@ -64,9 +67,7 @@ nonisolated public enum CMUXSocketProtocol {
         guard trimmedCommand.hasPrefix("{"),
               let data = trimmedCommand.data(using: .utf8),
               let dict = (try? JSONSerialization.jsonObject(with: data, options: [])) as? [String: Any],
-              usesJSONRPC(dict),
-              let method = dict["method"] as? String,
-              !method.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else {
+              usesJSONRPC(dict) else {
             return false
         }
         return !dict.keys.contains("id")
@@ -148,11 +149,23 @@ nonisolated public enum CMUXSocketProtocol {
     }
 
     public static func unknownMethodMessage(_ method: String) -> String {
-        "Unknown method: \(method). Call system.capabilities to list supported methods."
+        String.localizedStringWithFormat(
+            String(
+                localized: "socket.error.unknownMethod",
+                defaultValue: "Unknown method: %@. Call system.capabilities to list supported methods."
+            ),
+            method
+        )
     }
 
     public static func unknownVMMethodMessage(_ method: String) -> String {
-        "Unknown VM method: \(method). Call system.capabilities to list supported methods, then use a vm.* method from that list."
+        String.localizedStringWithFormat(
+            String(
+                localized: "socket.error.unknownVMMethod",
+                defaultValue: "Unknown VM method: %@. Call system.capabilities to list supported methods, then use a vm.* method from that list."
+            ),
+            method
+        )
     }
 
     private static func topLevelObjectDeclaresJSONRPC2(_ command: String) -> Bool {
@@ -319,18 +332,19 @@ nonisolated public enum CMUXSocketProtocol {
     }
 
     private static func encodeFailure(for object: Any) -> String {
+        let message = String(localized: "socket.error.encodeJSON", defaultValue: "Failed to encode JSON")
         if let responseObject = object as? [String: Any], usesJSONRPC(responseObject) {
             return fallbackJSONString([
                 "jsonrpc": "2.0",
                 "id": validJSONValueOrNull(responseObject["id"]),
                 "error": [
                     "code": -32603,
-                    "message": "Failed to encode JSON",
+                    "message": message,
                     "data": ["cmux_code": "encode_error"]
                 ]
             ])
         }
-        return "{\"ok\":false,\"error\":{\"code\":\"encode_error\",\"message\":\"Failed to encode JSON\"}}"
+        return "{\"ok\":false,\"error\":{\"code\":\"encode_error\",\"message\":\"\(escapeJSONString(message))\"}}"
     }
 
     private static func validJSONValueOrNull(_ value: Any?) -> Any {
@@ -344,7 +358,8 @@ nonisolated public enum CMUXSocketProtocol {
     private static func fallbackJSONString(_ object: [String: Any]) -> String {
         guard let data = try? JSONSerialization.data(withJSONObject: object, options: []),
               var string = String(data: data, encoding: .utf8) else {
-            return "{\"ok\":false,\"error\":{\"code\":\"encode_error\",\"message\":\"Failed to encode JSON\"}}"
+            let message = String(localized: "socket.error.encodeJSON", defaultValue: "Failed to encode JSON")
+            return "{\"ok\":false,\"error\":{\"code\":\"encode_error\",\"message\":\"\(escapeJSONString(message))\"}}"
         }
         string = string.replacingOccurrences(of: "\n", with: "\\n")
         return string
