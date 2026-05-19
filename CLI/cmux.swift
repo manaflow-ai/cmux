@@ -16713,12 +16713,15 @@ struct CMUXCLI {
             printV2Payload(payload, jsonOutput: jsonOutput, idFormat: idFormat, fallbackText: v2OKSummary(payload, idFormat: idFormat, kinds: ["pane"]))
 
         case "pipe-pane":
-            let workspaceArg = workspaceFromArgsOrEnv(commandArgs, windowOverride: windowOverride)
-            let surfaceArg = optionValue(commandArgs, name: "--surface")
-            let (cmdOpt, rem0) = parseOption(commandArgs, name: "--command")
+            let (workspaceOpt, pipeRem0) = parseOption(commandArgs, name: "--workspace")
+            let (surfaceArg, pipeRem1) = parseOption(pipeRem0, name: "--surface")
+            let (windowOpt, pipeRem2) = parseOption(pipeRem1, name: "--window")
+            let (cmdOpt, pipeRem3) = parseOption(pipeRem2, name: "--command")
+            let effectiveWindowRaw = windowOpt ?? windowOverride
+            let workspaceArg = workspaceOpt ?? (effectiveWindowRaw == nil ? ProcessInfo.processInfo.environment["CMUX_WORKSPACE_ID"] : nil)
             let commandText: String = {
                 if let cmdOpt { return cmdOpt }
-                let trimmed = rem0.dropFirst(rem0.first == "--" ? 1 : 0).joined(separator: " ").trimmingCharacters(in: .whitespacesAndNewlines)
+                let trimmed = pipeRem3.dropFirst(pipeRem3.first == "--" ? 1 : 0).joined(separator: " ").trimmingCharacters(in: .whitespacesAndNewlines)
                 return trimmed
             }()
             guard !commandText.isEmpty else {
@@ -16726,7 +16729,7 @@ struct CMUXCLI {
             }
 
             var params: [String: Any] = ["scrollback": true]
-            let winId = try normalizeWindowHandle(windowFromArgsOrOverride(commandArgs, windowOverride: windowOverride), client: client)
+            let winId = try normalizeWindowHandle(effectiveWindowRaw, client: client)
             if let winId { params["window_id"] = winId }
             let wsId = try normalizeWorkspaceHandle(workspaceArg, client: client, windowHandle: winId, allowCurrent: winId == nil)
             if let wsId { params["workspace_id"] = wsId }
@@ -17036,13 +17039,16 @@ struct CMUXCLI {
             printV2Payload(payload, jsonOutput: jsonOutput, idFormat: idFormat, fallbackText: "OK")
 
         case "respawn-pane":
-            let workspaceArg = workspaceFromArgsOrEnv(commandArgs, windowOverride: windowOverride)
-            let surfaceArg = optionValue(commandArgs, name: "--surface")
-            let (commandOpt, rem0) = parseOption(commandArgs, name: "--command")
-            let commandText = (commandOpt ?? rem0.dropFirst(rem0.first == "--" ? 1 : 0).joined(separator: " ")).trimmingCharacters(in: .whitespacesAndNewlines)
+            let (workspaceOpt, respawnRem0) = parseOption(commandArgs, name: "--workspace")
+            let (surfaceArg, respawnRem1) = parseOption(respawnRem0, name: "--surface")
+            let (windowOpt, respawnRem2) = parseOption(respawnRem1, name: "--window")
+            let (commandOpt, respawnRem3) = parseOption(respawnRem2, name: "--command")
+            let effectiveWindowRaw = windowOpt ?? windowOverride
+            let workspaceArg = workspaceOpt ?? (effectiveWindowRaw == nil ? ProcessInfo.processInfo.environment["CMUX_WORKSPACE_ID"] : nil)
+            let commandText = (commandOpt ?? respawnRem3.dropFirst(respawnRem3.first == "--" ? 1 : 0).joined(separator: " ")).trimmingCharacters(in: .whitespacesAndNewlines)
             let finalCommand = commandText.isEmpty ? "exec ${SHELL:-/bin/zsh} -l" : commandText
             var params: [String: Any] = ["text": finalCommand + "\n"]
-            let winId = try normalizeWindowHandle(windowFromArgsOrOverride(commandArgs, windowOverride: windowOverride), client: client)
+            let winId = try normalizeWindowHandle(effectiveWindowRaw, client: client)
             if let winId { params["window_id"] = winId }
             let wsId = try normalizeWorkspaceHandle(workspaceArg, client: client, windowHandle: winId, allowCurrent: winId == nil)
             if let wsId { params["workspace_id"] = wsId }
