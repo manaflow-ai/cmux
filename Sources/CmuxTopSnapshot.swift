@@ -94,6 +94,8 @@ nonisolated struct CmuxTopProcessInfo: Sendable {
         cmuxAttributionReason: String?,
         processGroupID: Int?,
         terminalProcessGroupID: Int?,
+        startSeconds: Int = 0,
+        startMicroseconds: Int = 0,
         cpuPercent: Double,
         memoryBytes: Int64? = nil,
         memorySource: CmuxTopProcessMemorySource? = nil,
@@ -112,6 +114,8 @@ nonisolated struct CmuxTopProcessInfo: Sendable {
         self.cmuxAttributionReason = cmuxAttributionReason
         self.processGroupID = processGroupID
         self.terminalProcessGroupID = terminalProcessGroupID
+        self.startSeconds = startSeconds
+        self.startMicroseconds = startMicroseconds
         self.cpuPercent = cpuPercent
         self.memoryBytes = memoryBytes ?? residentBytes
         self.memorySource = memorySource
