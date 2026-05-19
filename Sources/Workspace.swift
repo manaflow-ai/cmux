@@ -8837,8 +8837,18 @@ final class Workspace: Identifiable, ObservableObject {
     }
 
     func applyProcessTitle(_ title: String) {
-        processTitle = title
+        if processTitle != title {
+            processTitle = title
+        }
         guard customTitle == nil else { return }
+        guard self.title != title else { return }
+#if DEBUG
+        cmuxDebugLog(
+            "workspace.title.applyProcess workspace=\(id.uuidString.prefix(5)) " +
+            "from=\"\(debugWorkspaceDescriptionPreview(self.title, limit: 80))\" " +
+            "to=\"\(debugWorkspaceDescriptionPreview(title, limit: 80))\""
+        )
+#endif
         self.title = title
     }
 
@@ -9215,10 +9225,13 @@ final class Workspace: Identifiable, ObservableObject {
         let trimmed = title.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !trimmed.isEmpty else { return false }
         var didMutate = false
+        var didMutatePanelTitle = false
+        var didMutateWorkspaceTitle = false
 
         if panelTitles[panelId] != trimmed {
             panelTitles[panelId] = trimmed
             didMutate = true
+            didMutatePanelTitle = true
         }
 
         // Update bonsplit tab title only when this panel's title changed.
@@ -9239,12 +9252,23 @@ final class Workspace: Identifiable, ObservableObject {
             if self.title != trimmed {
                 self.title = trimmed
                 didMutate = true
+                didMutateWorkspaceTitle = true
             }
             if processTitle != trimmed {
                 processTitle = trimmed
             }
         }
 
+#if DEBUG
+        if didMutate {
+            cmuxDebugLog(
+                "workspace.title.updatePanel workspace=\(id.uuidString.prefix(5)) " +
+                "panel=\(panelId.uuidString.prefix(5)) panels=\(panels.count) custom=\(customTitle == nil ? 0 : 1) " +
+                "panelChanged=\(didMutatePanelTitle ? 1 : 0) workspaceChanged=\(didMutateWorkspaceTitle ? 1 : 0) " +
+                "title=\"\(debugWorkspaceDescriptionPreview(trimmed, limit: 80))\""
+            )
+        }
+#endif
         return didMutate
     }
 
@@ -9458,7 +9482,7 @@ final class Workspace: Identifiable, ObservableObject {
     }
 
     func sidebarStatusEntriesInDisplayOrder() -> [SidebarStatusEntry] {
-        statusEntries.values.sorted { lhs, rhs in
+        sidebarStatusEntriesVisibleForDisplay().sorted { lhs, rhs in
             if lhs.priority != rhs.priority { return lhs.priority > rhs.priority }
             if lhs.timestamp != rhs.timestamp { return lhs.timestamp > rhs.timestamp }
             return lhs.key < rhs.key
