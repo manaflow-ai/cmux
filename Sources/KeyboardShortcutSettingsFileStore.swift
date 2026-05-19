@@ -1228,7 +1228,9 @@ final class CmuxSettingsFileStore {
             } else if shouldApplyAppearance {
                 AppearanceSettings.applyStoredMode(rawValue: appearanceRawValue, source: source)
             } else if let appIconMode {
-                AppIconSettings.applyIcon(appIconMode)
+                MainActor.assumeIsolated {
+                    AppIconSettings.applyIcon(appIconMode)
+                }
             }
         }
 

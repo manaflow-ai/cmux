@@ -280,6 +280,11 @@ final class TerminalNotificationPolicyEngineTests: XCTestCase {
 
 @MainActor
 final class AppIconSettingsTests: XCTestCase {
+    override func tearDown() {
+        AppIconSettings.resetLiveEnvironmentProviderForTesting()
+        super.tearDown()
+    }
+
     func testApplyDarkSetsRuntimeIconAndNotifiesDockTilePlugin() {
         let expectedIcon = NSImage(size: NSSize(width: 16, height: 16))
         var receivedRuntimeIcon: NSImage?
@@ -315,7 +320,71 @@ final class AppIconSettingsTests: XCTestCase {
         XCTAssertEqual(stopObservationCallCount, 1)
     }
 
-    func testApplyAutomaticStartsObservationAndNotifiesDockTilePlugin() {
+    func testApplyIconComposesCurrentBadgeIntoRuntimeIcon() {
+        let baseIcon = NSImage(size: NSSize(width: 64, height: 64))
+        baseIcon.lockFocus()
+        NSColor.systemBlue.setFill()
+        NSBezierPath(rect: NSRect(origin: .zero, size: baseIcon.size)).fill()
+        baseIcon.unlockFocus()
+
+        var receivedRuntimeIcon: NSImage?
+        var dockTileNotificationCount = 0
+
+        let environment = AppIconSettings.Environment(
+            isApplicationFinishedLaunching: { true },
+            imageForMode: { mode in
+                XCTAssertEqual(mode, .dark)
+                return baseIcon
+            },
+            setApplicationIconImage: { icon in
+                receivedRuntimeIcon = icon
+            },
+            startAppearanceObservation: {},
+            stopAppearanceObservation: {},
+            notifyDockTilePlugin: {
+                dockTileNotificationCount += 1
+            }
+        )
+
+        AppIconSettings.updateRuntimeBadgeLabel("3", environment: environment)
+        AppIconSettings.applyIcon(.dark, environment: environment)
+
+        XCTAssertNotNil(receivedRuntimeIcon)
+        XCTAssertFalse(
+            receivedRuntimeIcon === baseIcon,
+            "Expected runtime app icon to include the current Dock badge for Cmd+Tab instead of reusing the unbadged base icon"
+        )
+        XCTAssertEqual(dockTileNotificationCount, 2)
+    }
+
+    func testNativeDockBadgeLabelClearsWhenRuntimeIconIncludesBadge() {
+        XCTAssertNil(
+            NotificationBadgeSettings.nativeDockBadgeLabel("3", runtimeIconIncludesBadge: true),
+            "Expected native Dock badge to clear when the runtime app icon already includes the badge"
+        )
+        XCTAssertEqual(
+            NotificationBadgeSettings.nativeDockBadgeLabel("3", runtimeIconIncludesBadge: false),
+            "3"
+        )
+    }
+
+    func testBadgeRendererDoesNotDrawWhiteHaloAroundBadge() throws {
+        let baseIcon = NSImage(size: NSSize(width: 64, height: 64))
+        baseIcon.lockFocus()
+        NSColor.systemBlue.setFill()
+        NSBezierPath(rect: NSRect(origin: .zero, size: baseIcon.size)).fill()
+        baseIcon.unlockFocus()
+
+        let badgedIcon = AppIconBadgeRenderer.image(baseIcon: baseIcon, badgeLabel: "1")
+
+        XCTAssertLessThan(
+            try whitePixelCount(in: badgedIcon),
+            90,
+            "Badge should use white only for the label, not a visible halo around the red badge"
+        )
+    }
+
+    func testApplyAutomaticDelegatesBadgeNotificationToAppearanceObserver() {
         var dockTileNotificationCount = 0
         var startObservationCallCount = 0
         var stopObservationCallCount = 0
@@ -342,7 +411,7 @@ final class AppIconSettingsTests: XCTestCase {
 
         AppIconSettings.applyIcon(.automatic, environment: environment)
 
-        XCTAssertEqual(dockTileNotificationCount, 1)
+        XCTAssertEqual(dockTileNotificationCount, 0)
         XCTAssertEqual(startObservationCallCount, 1)
         XCTAssertEqual(stopObservationCallCount, 0)
     }
@@ -381,6 +450,24 @@ final class AppIconSettingsTests: XCTestCase {
         XCTAssertEqual(dockTileNotificationCount, 0)
         XCTAssertEqual(startObservationCallCount, 0)
         XCTAssertEqual(stopObservationCallCount, 0)
+    }
+
+    private func whitePixelCount(in image: NSImage) throws -> Int {
+        let tiffData = try XCTUnwrap(image.tiffRepresentation)
+        let bitmap = try XCTUnwrap(NSBitmapImageRep(data: tiffData))
+        var count = 0
+        for x in 0..<bitmap.pixelsWide {
+            for y in 0..<bitmap.pixelsHigh {
+                guard let color = bitmap.colorAt(x: x, y: y)?.usingColorSpace(.sRGB) else { continue }
+                if color.alphaComponent > 0.8,
+                   color.redComponent > 0.9,
+                   color.greenComponent > 0.9,
+                   color.blueComponent > 0.9 {
+                    count += 1
+                }
+            }
+        }
+        return count
     }
 }
 

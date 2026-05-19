@@ -3,6 +3,7 @@ import CoreServices
 
 private let cmuxAppIconDidChangeNotification = Notification.Name("com.cmuxterm.appIconDidChange")
 private let cmuxAppIconModeKey = "appIconMode"
+private let cmuxNotificationDockBadgeLabelKey = "notificationDockBadgeLabel"
 
 private enum DockTileAppIconMode: String {
     case automatic
@@ -102,9 +103,12 @@ final class CmuxDockTilePlugin: NSObject, NSDockTilePlugIn {
         Self.assertMainQueue()
 
         let mode = DockTileAppIconMode(defaultsValue: appDefaults?.string(forKey: cmuxAppIconModeKey))
+        let badgeLabel = AppIconBadgeRenderer.normalizedBadgeLabel(
+            appDefaults?.string(forKey: cmuxNotificationDockBadgeLabelKey)
+        )
         let isDarkAppearance = NSApp?.effectiveAppearance.bestMatch(from: [.darkAqua, .aqua]) == .darkAqua
         guard let appBundleURL else {
-            dockTile.showDefaultAppIcon()
+            dockTile.showDefaultAppIcon(badgeLabel: badgeLabel)
             return
         }
 
@@ -115,7 +119,7 @@ final class CmuxDockTilePlugin: NSObject, NSDockTilePlugIn {
                 NSWorkspace.shared.noteFileSystemChanged(appBundleURL.path)
                 _ = LSRegisterURL(appBundleURL as CFURL, true)
             }
-            dockTile.showDefaultAppIcon()
+            dockTile.showDefaultAppIcon(badgeLabel: badgeLabel)
             return
         }
 
@@ -124,7 +128,7 @@ final class CmuxDockTilePlugin: NSObject, NSDockTilePlugIn {
             NSWorkspace.shared.noteFileSystemChanged(appBundleURL.path)
             _ = LSRegisterURL(appBundleURL as CFURL, true)
         }
-        dockTile.showIcon(icon)
+        dockTile.showIcon(icon, badgeLabel: badgeLabel)
     }
 
     private static func performOnMain(_ work: @escaping () -> Void) {
@@ -160,20 +164,24 @@ final class CmuxDockTilePlugin: NSObject, NSDockTilePlugIn {
 }
 
 private extension NSDockTile {
-    func showDefaultAppIcon() {
+    func showDefaultAppIcon(badgeLabel: String?) {
         CmuxDockTilePlugin.assertMainQueue()
 
         contentView = nil
+        self.badgeLabel = badgeLabel
         display()
     }
 
-    func showIcon(_ newIcon: NSImage) {
+    func showIcon(_ newIcon: NSImage, badgeLabel: String?) {
         CmuxDockTilePlugin.assertMainQueue()
 
         let iconView = NSImageView(frame: CGRect(origin: .zero, size: size))
         iconView.wantsLayer = true
-        iconView.image = newIcon
+        iconView.image = MainActor.assumeIsolated {
+            AppIconBadgeRenderer.image(baseIcon: newIcon, badgeLabel: badgeLabel)
+        }
         contentView = iconView
+        self.badgeLabel = nil
         display()
     }
 }

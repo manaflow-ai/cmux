@@ -700,6 +700,7 @@ final class WorkspaceRenameShortcutDefaultsTests: XCTestCase {
     }
 }
 
+@MainActor
 final class KeyboardShortcutSettingsFileStoreTests: XCTestCase {
     private var originalSettingsFileStore: KeyboardShortcutSettingsFileStore!
     private let settingsFileBackupsDefaultsKey = "cmux.settingsFile.backups.v1"

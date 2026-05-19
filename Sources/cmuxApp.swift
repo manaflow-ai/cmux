@@ -4372,10 +4372,15 @@ enum AppIconLaunchState {
 enum AppIconSettings {
     static let modeKey = "appIconMode"
     static let defaultMode: AppIconMode = .automatic
-    private static let dockTileIconDidChangeNotification = Notification.Name("com.cmuxterm.appIconDidChange")
+    fileprivate static let dockTileIconDidChangeNotification = Notification.Name("com.cmuxterm.appIconDidChange")
+    @MainActor
     private static var liveEnvironmentProvider: () -> Environment = { .live() }
+    @MainActor
+    private static var runtimeBaseIcon: NSImage?
+    @MainActor
+    private static var runtimeBadgeLabel: String?
 
-    private static func isRunningUnderXCTest(_ env: [String: String] = ProcessInfo.processInfo.environment) -> Bool {
+    fileprivate static func isRunningUnderXCTest(_ env: [String: String] = ProcessInfo.processInfo.environment) -> Bool {
         if env["XCTestConfigurationFilePath"] != nil { return true }
         if env["XCTestBundlePath"] != nil { return true }
         if env["XCTestSessionIdentifier"] != nil { return true }
@@ -4389,10 +4394,10 @@ enum AppIconSettings {
     struct Environment {
         let isApplicationFinishedLaunching: () -> Bool
         let imageForMode: (AppIconMode) -> NSImage?
-        let setApplicationIconImage: (NSImage) -> Void
-        let startAppearanceObservation: () -> Void
-        let stopAppearanceObservation: () -> Void
-        let notifyDockTilePlugin: () -> Void
+        let setApplicationIconImage: @MainActor (NSImage) -> Void
+        let startAppearanceObservation: @MainActor () -> Void
+        let stopAppearanceObservation: @MainActor () -> Void
+        let notifyDockTilePlugin: @MainActor () -> Void
 
         static func live() -> Self {
             Self(
@@ -4433,6 +4438,7 @@ enum AppIconSettings {
         return mode
     }
 
+    @MainActor
     static func applyIcon(_ mode: AppIconMode, environment: Environment? = nil) {
         let environment = environment ?? liveEnvironmentProvider()
         // Tahoe can crash or wedge when app icon work runs during App.init(),
@@ -4446,22 +4452,52 @@ enum AppIconSettings {
         case .light:
             environment.stopAppearanceObservation()
             guard let icon = environment.imageForMode(.light) else { return }
-            environment.setApplicationIconImage(icon)
+            setRuntimeBaseIcon(icon, environment: environment)
         case .dark:
             environment.stopAppearanceObservation()
             guard let icon = environment.imageForMode(.dark) else { return }
-            environment.setApplicationIconImage(icon)
+            setRuntimeBaseIcon(icon, environment: environment)
         }
+    }
 
+    @MainActor
+    @discardableResult
+    static func updateRuntimeBadgeLabel(_ label: String?, environment: Environment? = nil) -> Bool {
+        runtimeBadgeLabel = AppIconBadgeRenderer.normalizedBadgeLabel(label)
+        let environment = environment ?? liveEnvironmentProvider()
+        guard environment.isApplicationFinishedLaunching() else { return false }
+        if let runtimeBaseIcon {
+            environment.setApplicationIconImage(runtimeIcon(for: runtimeBaseIcon))
+            environment.notifyDockTilePlugin()
+            return true
+        }
+        environment.notifyDockTilePlugin()
+        return false
+    }
+
+    @MainActor
+    static func setRuntimeBaseIcon(_ icon: NSImage, environment: Environment? = nil) {
+        runtimeBaseIcon = icon
+        let environment = environment ?? liveEnvironmentProvider()
+        environment.setApplicationIconImage(runtimeIcon(for: icon))
         environment.notifyDockTilePlugin()
     }
 
+    @MainActor
+    private static func runtimeIcon(for baseIcon: NSImage) -> NSImage {
+        AppIconBadgeRenderer.image(baseIcon: baseIcon, badgeLabel: runtimeBadgeLabel)
+    }
+
+    @MainActor
     static func setLiveEnvironmentProviderForTesting(_ provider: @escaping () -> Environment) {
         liveEnvironmentProvider = provider
     }
 
+    @MainActor
     static func resetLiveEnvironmentProviderForTesting() {
         liveEnvironmentProvider = { .live() }
+        runtimeBaseIcon = nil
+        runtimeBadgeLabel = nil
     }
 }
 
@@ -4471,6 +4507,7 @@ protocol AppIconAppearanceObservation: AnyObject {
 
 extension NSKeyValueObservation: AppIconAppearanceObservation {}
 
+@MainActor
 final class AppIconAppearanceObserver: NSObject {
     struct Environment {
         let isApplicationFinishedLaunching: () -> Bool
@@ -4480,6 +4517,7 @@ final class AppIconAppearanceObserver: NSObject {
         let currentAppearanceIsDark: () -> Bool?
         let imageForName: (String) -> NSImage?
         let setApplicationIconImage: (NSImage) -> Void
+        let notifyDockTilePlugin: () -> Void
 
         static func live() -> Self {
             Self(
@@ -4515,6 +4553,15 @@ final class AppIconAppearanceObserver: NSObject {
                 },
                 setApplicationIconImage: { icon in
                     NSApplication.shared.applicationIconImage = icon
+                },
+                notifyDockTilePlugin: {
+                    guard !AppIconSettings.isRunningUnderXCTest() else { return }
+                    DistributedNotificationCenter.default().postNotificationName(
+                        AppIconSettings.dockTileIconDidChangeNotification,
+                        object: nil,
+                        userInfo: nil,
+                        deliverImmediately: true
+                    )
                 }
             )
         }
@@ -4574,9 +4621,19 @@ final class AppIconAppearanceObserver: NSObject {
         guard environment.isApplicationFinishedLaunching() else { return }
         guard let isDark = environment.currentAppearanceIsDark() else { return }
         let imageName = isDark ? "AppIconDark" : "AppIconLight"
-        guard imageName != lastAppliedImageName,
-              let icon = environment.imageForName(imageName) else { return }
-        environment.setApplicationIconImage(icon)
+        if imageName == lastAppliedImageName {
+            environment.notifyDockTilePlugin()
+            return
+        }
+        guard let icon = environment.imageForName(imageName) else { return }
+        AppIconSettings.setRuntimeBaseIcon(icon, environment: AppIconSettings.Environment(
+            isApplicationFinishedLaunching: environment.isApplicationFinishedLaunching,
+            imageForMode: { _ in nil },
+            setApplicationIconImage: environment.setApplicationIconImage,
+            startAppearanceObservation: {},
+            stopAppearanceObservation: {},
+            notifyDockTilePlugin: environment.notifyDockTilePlugin
+        ))
         lastAppliedImageName = imageName
     }
 }
