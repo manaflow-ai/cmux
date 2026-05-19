@@ -1,4 +1,5 @@
 import Darwin
+import Foundation
 import XCTest
 
 final class CMUXCLIErrorOutputRegressionTests: XCTestCase {
@@ -145,6 +146,29 @@ final class CMUXCLIErrorOutputRegressionTests: XCTestCase {
         let socketPath = "/tmp/cmux-theme-\(UUID().uuidString.prefix(8)).sock"
         let responder = try UnixSocketResponder(path: socketPath, response: "OK")
         defer { responder.stop() }
+        let bundleIdentifier = "com.cmuxterm.app.debug.issue-4355-test"
+        let reloadExpectation = expectation(description: "cmux themes set posts final reload notifications")
+        reloadExpectation.expectedFulfillmentCount = 3
+        let notificationQueue = OperationQueue()
+        notificationQueue.maxConcurrentOperationCount = 1
+        let notificationLock = NSLock()
+        var observedReloads: [(bundleIdentifier: String?, phase: String?)] = []
+        let observer = DistributedNotificationCenter.default().addObserver(
+            forName: Notification.Name("com.cmuxterm.themes.reload-config"),
+            object: nil,
+            queue: notificationQueue
+        ) { notification in
+            let observedBundleIdentifier = notification.userInfo?["bundleIdentifier"] as? String
+            guard observedBundleIdentifier == bundleIdentifier else { return }
+            let observedPhase = notification.userInfo?["phase"] as? String
+            notificationLock.lock()
+            observedReloads.append((bundleIdentifier: observedBundleIdentifier, phase: observedPhase))
+            notificationLock.unlock()
+            reloadExpectation.fulfill()
+        }
+        defer {
+            DistributedNotificationCenter.default().removeObserver(observer)
+        }
 
         var environment = ProcessInfo.processInfo.environment
         for key in Array(environment.keys) where key.hasPrefix("CMUX_") {
@@ -154,7 +178,7 @@ final class CMUXCLIErrorOutputRegressionTests: XCTestCase {
         environment["HOME"] = root.path
         environment["GHOSTTY_RESOURCES_DIR"] = resourcesURL.path
         environment["CMUX_SOCKET_PATH"] = socketPath
-        environment["CMUX_BUNDLE_ID"] = "com.cmuxterm.app.debug.issue-4355-test"
+        environment["CMUX_BUNDLE_ID"] = bundleIdentifier
         environment["CMUX_CLI_SENTRY_DISABLED"] = "1"
 
         let configURL = root
@@ -176,17 +200,19 @@ final class CMUXCLIErrorOutputRegressionTests: XCTestCase {
             XCTAssertEqual(result.status, 0, result.stdout)
             observedThemeValues.append(try managedThemeValue(in: configURL))
         }
+        wait(for: [reloadExpectation], timeout: 5)
 
         XCTAssertEqual(observedThemeValues, [
             "light:Theme A,dark:Theme A",
             "light:Theme B,dark:Theme B",
             "light:Theme C,dark:Theme C",
         ])
-        XCTAssertEqual(responder.receivedRequests, [
-            "reload_config",
-            "reload_config",
-            "reload_config",
-        ])
+        notificationLock.lock()
+        let reloads = observedReloads
+        notificationLock.unlock()
+        XCTAssertEqual(reloads.map { $0.bundleIdentifier }, Array(repeating: bundleIdentifier, count: 3))
+        XCTAssertEqual(reloads.map { $0.phase }, Array(repeating: "final", count: 3))
+        XCTAssertEqual(responder.receivedRequests, [])
     }
 
     func testBareInteractiveThemesReloadsRunningAppAfterPickerExits() throws {
@@ -232,6 +258,28 @@ final class CMUXCLIErrorOutputRegressionTests: XCTestCase {
         let socketPath = "/tmp/cmux-theme-picker-\(UUID().uuidString.prefix(8)).sock"
         let responder = try UnixSocketResponder(path: socketPath, response: "OK")
         defer { responder.stop() }
+        let bundleIdentifier = "com.cmuxterm.app.debug.theme-picker.\(UUID().uuidString.lowercased())"
+        let reloadExpectation = expectation(description: "bare cmux themes posts final reload notification")
+        let notificationQueue = OperationQueue()
+        notificationQueue.maxConcurrentOperationCount = 1
+        let notificationLock = NSLock()
+        var observedReloads: [(bundleIdentifier: String?, phase: String?)] = []
+        let observer = DistributedNotificationCenter.default().addObserver(
+            forName: Notification.Name("com.cmuxterm.themes.reload-config"),
+            object: nil,
+            queue: notificationQueue
+        ) { notification in
+            let observedBundleIdentifier = notification.userInfo?["bundleIdentifier"] as? String
+            guard observedBundleIdentifier == bundleIdentifier else { return }
+            let observedPhase = notification.userInfo?["phase"] as? String
+            notificationLock.lock()
+            observedReloads.append((bundleIdentifier: observedBundleIdentifier, phase: observedPhase))
+            notificationLock.unlock()
+            reloadExpectation.fulfill()
+        }
+        defer {
+            DistributedNotificationCenter.default().removeObserver(observer)
+        }
 
         let command = [
             "env",
@@ -239,6 +287,7 @@ final class CMUXCLIErrorOutputRegressionTests: XCTestCase {
             "HOME=\(shellSingleQuote(root.path))",
             "CFFIXED_USER_HOME=\(shellSingleQuote(root.path))",
             "CMUX_SOCKET_PATH=\(shellSingleQuote(socketPath))",
+            "CMUX_BUNDLE_ID=\(shellSingleQuote(bundleIdentifier))",
             "CMUX_CLI_SENTRY_DISABLED=1",
             "PATH=/usr/bin:/bin",
             "/usr/bin/script",
@@ -251,7 +300,13 @@ final class CMUXCLIErrorOutputRegressionTests: XCTestCase {
 
         XCTAssertFalse(result.timedOut, result.stdout)
         XCTAssertEqual(result.status, 0, result.stdout)
-        XCTAssertEqual(responder.receivedRequests, ["reload_config"])
+        wait(for: [reloadExpectation], timeout: 5)
+        notificationLock.lock()
+        let reloads = observedReloads
+        notificationLock.unlock()
+        XCTAssertEqual(reloads.map { $0.bundleIdentifier }, [bundleIdentifier])
+        XCTAssertEqual(reloads.map { $0.phase }, ["final"])
+        XCTAssertEqual(responder.receivedRequests, [])
     }
 
     func testBareInteractiveThemesTreatsSigintAsSilentCancel() throws {
