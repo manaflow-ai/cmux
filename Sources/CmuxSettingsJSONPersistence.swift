@@ -224,8 +224,16 @@ nonisolated enum CmuxSettingsJSONPersistence {
                 defaultValue: GeminiIntegrationSettings.defaultHooksEnabled,
                 defaults: defaults
             )),
-            "automation.portBase": .int(intValue("cmuxPortBase", defaultValue: 9100, defaults: defaults)),
-            "automation.portRange": .int(intValue("cmuxPortRange", defaultValue: 10, defaults: defaults)),
+            "automation.portBase": .int(intValue(
+                AutomationSettings.portBaseKey,
+                defaultValue: AutomationSettings.defaultPortBase,
+                defaults: defaults
+            )),
+            "automation.portRange": .int(intValue(
+                AutomationSettings.portRangeKey,
+                defaultValue: AutomationSettings.defaultPortRange,
+                defaults: defaults
+            )),
             "browser.defaultSearchEngine": .string(stringValue(
                 BrowserSearchSettings.searchEngineKey,
                 defaultValue: BrowserSearchSettings.defaultSearchEngine.rawValue,

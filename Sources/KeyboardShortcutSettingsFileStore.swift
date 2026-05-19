@@ -847,14 +847,14 @@ final class CmuxSettingsFileStore: @unchecked Sendable {
                 logInvalid("automation.portBase", sourcePath: sourcePath)
                 return
             }
-            snapshot.managedUserDefaults["cmuxPortBase"] = .int(value)
+            snapshot.managedUserDefaults[AutomationSettings.portBaseKey] = .int(value)
         }
         if let value = jsonInt(section["portRange"]) {
             guard value > 0 else {
                 logInvalid("automation.portRange", sourcePath: sourcePath)
                 return
             }
-            snapshot.managedUserDefaults["cmuxPortRange"] = .int(value)
+            snapshot.managedUserDefaults[AutomationSettings.portRangeKey] = .int(value)
         }
     }
 
