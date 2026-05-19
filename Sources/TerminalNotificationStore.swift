@@ -874,8 +874,8 @@ final class TerminalNotificationStore: ObservableObject {
     private static let notificationHookFailureThrottle: TimeInterval = 300
     private var lastNotificationDateByCooldownKey: [String: Date] = [:]
     private var lastNotificationHookFailureDateByKey: [NotificationHookFailureThrottleKey: Date] = [:]
-    private var notificationEnrichmentGeneration: UInt64 = 0
-    private var latestNotificationEnrichmentGenerationByTabSurface: [TabSurfaceKey: UInt64] = [:]
+    private var notificationRecordGeneration: UInt64 = 0
+    private var latestRecordedNotificationGenerationByTabSurface: [TabSurfaceKey: UInt64] = [:]
     private var indexes = NotificationIndexes()
 
     private init() {
@@ -1230,7 +1230,7 @@ final class TerminalNotificationStore: ObservableObject {
         }
 
         let cwd = notificationCWD(forTabId: tabId, surfaceId: surfaceId)
-        let enrichmentGeneration = advanceNotificationEnrichmentGeneration(
+        let recordGeneration = currentRecordedNotificationGeneration(
             tabId: tabId,
             surfaceId: surfaceId
         )
@@ -1244,8 +1244,8 @@ final class TerminalNotificationStore: ObservableObject {
                     cwd: cwd,
                     reader: reader
                 )
-                guard self?.isCurrentNotificationEnrichmentGeneration(
-                    enrichmentGeneration,
+                guard self?.isCurrentRecordedNotificationGeneration(
+                    recordGeneration,
                     tabId: tabId,
                     surfaceId: surfaceId
                 ) == true else {
@@ -1262,7 +1262,7 @@ final class TerminalNotificationStore: ObservableObject {
                     now: now,
                     cooldownReservation: cooldownReservation,
                     clickAction: clickAction,
-                    freshnessGeneration: enrichmentGeneration
+                    recordGeneration: recordGeneration
                 )
             }
             return
@@ -1278,30 +1278,35 @@ final class TerminalNotificationStore: ObservableObject {
             now: now,
             cooldownReservation: cooldownReservation,
             clickAction: clickAction,
-            freshnessGeneration: enrichmentGeneration
+            recordGeneration: recordGeneration
         )
     }
 
-    private func advanceNotificationEnrichmentGeneration(
+    private func currentRecordedNotificationGeneration(
         tabId: UUID,
         surfaceId: UUID?
     ) -> UInt64 {
-        notificationEnrichmentGeneration &+= 1
-        let generation = notificationEnrichmentGeneration
-        latestNotificationEnrichmentGenerationByTabSurface[
+        latestRecordedNotificationGenerationByTabSurface[
             TabSurfaceKey(tabId: tabId, surfaceId: surfaceId)
-        ] = generation
-        return generation
+        ] ?? 0
     }
 
-    private func isCurrentNotificationEnrichmentGeneration(
+    private func advanceRecordedNotificationGeneration(
+        tabId: UUID,
+        surfaceId: UUID?
+    ) {
+        notificationRecordGeneration &+= 1
+        latestRecordedNotificationGenerationByTabSurface[
+            TabSurfaceKey(tabId: tabId, surfaceId: surfaceId)
+        ] = notificationRecordGeneration
+    }
+
+    private func isCurrentRecordedNotificationGeneration(
         _ generation: UInt64,
         tabId: UUID,
         surfaceId: UUID?
     ) -> Bool {
-        latestNotificationEnrichmentGenerationByTabSurface[
-            TabSurfaceKey(tabId: tabId, surfaceId: surfaceId)
-        ] == generation
+        currentRecordedNotificationGeneration(tabId: tabId, surfaceId: surfaceId) == generation
     }
 
     private func addNotificationAfterEnrichment(
@@ -1314,7 +1319,7 @@ final class TerminalNotificationStore: ObservableObject {
         now: Date,
         cooldownReservation: NotificationCooldownReservation?,
         clickAction: TerminalNotificationClickAction?,
-        freshnessGeneration: UInt64?
+        recordGeneration: UInt64?
     ) {
         let policyContext = makeNotificationPolicyContext(
             tabId: tabId,
@@ -1324,9 +1329,9 @@ final class TerminalNotificationStore: ObservableObject {
             body: body,
             cwd: cwd
         )
-        if let freshnessGeneration,
-           !isCurrentNotificationEnrichmentGeneration(
-                freshnessGeneration,
+        if let recordGeneration,
+           !isCurrentRecordedNotificationGeneration(
+                recordGeneration,
                 tabId: tabId,
                 surfaceId: surfaceId
            ) {
@@ -1350,9 +1355,9 @@ final class TerminalNotificationStore: ObservableObject {
                 policyContext.hooks,
                 globalConfigPath: policyContext.globalConfigPath
             )
-            if let freshnessGeneration,
-               !self.isCurrentNotificationEnrichmentGeneration(
-                    freshnessGeneration,
+            if let recordGeneration,
+               !self.isCurrentRecordedNotificationGeneration(
+                    recordGeneration,
                     tabId: tabId,
                     surfaceId: surfaceId
                ) {
@@ -1374,9 +1379,9 @@ final class TerminalNotificationStore: ObservableObject {
                 request: policyContext.request,
                 hooks: authorizedHooks
             )
-            if let freshnessGeneration,
-               !self.isCurrentNotificationEnrichmentGeneration(
-                    freshnessGeneration,
+            if let recordGeneration,
+               !self.isCurrentRecordedNotificationGeneration(
+                    recordGeneration,
                     tabId: tabId,
                     surfaceId: surfaceId
                ) {
@@ -1635,6 +1640,7 @@ final class TerminalNotificationStore: ObservableObject {
         updated.insert(notification, at: 0)
         setWorkspaceManualUnread(false, forTabId: notification.tabId)
         notifications = updated
+        advanceRecordedNotificationGeneration(tabId: notification.tabId, surfaceId: notification.surfaceId)
         commitCooldownReservation(cooldownReservation, at: now)
 #if DEBUG
         cmuxDebugLog(
