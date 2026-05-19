@@ -3861,9 +3861,9 @@ class GhosttyApp {
 
             if action.tag == GHOSTTY_ACTION_RELOAD_CONFIG {
                 let soft = action.action.reload_config.soft
-                let reloadColorScheme = lastAppearanceColorScheme
                 logThemeAction("reload request target=app soft=\(soft)")
                 performOnMain {
+                    let reloadColorScheme = self.lastAppearanceColorScheme
                     self.reloadConfiguration(
                         soft: soft,
                         source: "action.reload_config.app",
@@ -4167,11 +4167,11 @@ class GhosttyApp {
             return true
         case GHOSTTY_ACTION_RELOAD_CONFIG:
             let soft = action.action.reload_config.soft
-            let reloadColorScheme = lastAppearanceColorScheme
             logThemeAction(
                 "reload request target=surface tab=\(surfaceView.tabId?.uuidString ?? "nil") surface=\(surfaceView.terminalSurface?.id.uuidString ?? "nil") soft=\(soft)"
             )
             return performOnMain {
+                let reloadColorScheme = self.lastAppearanceColorScheme
                 self.reloadSurfaceConfiguration(
                     target.target.surface,
                     soft: soft,
