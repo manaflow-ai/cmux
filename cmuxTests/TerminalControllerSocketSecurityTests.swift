@@ -113,6 +113,31 @@ final class TerminalControllerSocketSecurityTests: XCTestCase {
         XCTAssertEqual(try socketMode(at: socketPath), 0o666)
     }
 
+    func testStopDoesNotProbeReplacementSocketAtListenerPath() throws {
+        let socketPath = makeSocketPath("stop-replacement")
+        let tabManager = TabManager()
+
+        TerminalController.shared.start(
+            tabManager: tabManager,
+            socketPath: socketPath,
+            accessMode: .allowAll
+        )
+        try waitForSocket(at: socketPath)
+        XCTAssertEqual(try sendCommands(["ping"], to: socketPath), ["PONG"])
+
+        XCTAssertEqual(Darwin.unlink(socketPath), 0)
+        let replacementFD = try bindUnixSocket(at: socketPath)
+        defer {
+            Darwin.close(replacementFD)
+            unlink(socketPath)
+        }
+
+        TerminalController.shared.stop()
+
+        XCTAssertTrue(FileManager.default.fileExists(atPath: socketPath))
+        assertNoPendingClient(on: replacementFD)
+    }
+
     func testPasswordModeRejectsUnauthenticatedCommands() throws {
         let socketPath = makeSocketPath("password-mode")
         let tabManager = TabManager()
@@ -742,6 +767,81 @@ final class TerminalControllerSocketSecurityTests: XCTestCase {
             throw posixError("lstat(\(path))")
         }
         return UInt16(fileInfo.st_mode & 0o777)
+    }
+
+    private func bindUnixSocket(at path: String) throws -> Int32 {
+        unlink(path)
+
+        let fd = Darwin.socket(AF_UNIX, SOCK_STREAM, 0)
+        guard fd >= 0 else {
+            throw posixError("socket(AF_UNIX)")
+        }
+
+        var addr = sockaddr_un()
+        addr.sun_family = sa_family_t(AF_UNIX)
+
+        let bytes = Array(path.utf8)
+        let maxPathLen = MemoryLayout.size(ofValue: addr.sun_path)
+        guard bytes.count < maxPathLen else {
+            Darwin.close(fd)
+            throw NSError(domain: NSPOSIXErrorDomain, code: Int(ENAMETOOLONG))
+        }
+
+        withUnsafeMutablePointer(to: &addr.sun_path) { pathPtr in
+            let cPath = UnsafeMutableRawPointer(pathPtr).assumingMemoryBound(to: CChar.self)
+            cPath.initialize(repeating: 0, count: maxPathLen)
+            for (index, byte) in bytes.enumerated() {
+                cPath[index] = CChar(bitPattern: byte)
+            }
+        }
+
+        let addrLen = socklen_t(MemoryLayout<sa_family_t>.size + bytes.count + 1)
+        let bindResult = withUnsafePointer(to: &addr) { ptr -> Int32 in
+            ptr.withMemoryRebound(to: sockaddr.self, capacity: 1) { sockaddrPtr in
+                Darwin.bind(fd, sockaddrPtr, addrLen)
+            }
+        }
+        guard bindResult == 0 else {
+            let error = posixError("bind(\(path))")
+            Darwin.close(fd)
+            throw error
+        }
+
+        guard Darwin.listen(fd, 1) == 0 else {
+            let error = posixError("listen(\(path))")
+            Darwin.close(fd)
+            throw error
+        }
+
+        return fd
+    }
+
+    private func assertNoPendingClient(
+        on listenerFD: Int32,
+        file: StaticString = #filePath,
+        line: UInt = #line
+    ) {
+        let existingFlags = fcntl(listenerFD, F_GETFL)
+        XCTAssertNotEqual(existingFlags, -1, file: file, line: line)
+        guard existingFlags >= 0 else { return }
+
+        XCTAssertEqual(fcntl(listenerFD, F_SETFL, existingFlags | O_NONBLOCK), 0, file: file, line: line)
+        defer { _ = fcntl(listenerFD, F_SETFL, existingFlags) }
+
+        var clientAddr = sockaddr_un()
+        var clientAddrLen = socklen_t(MemoryLayout<sockaddr_un>.size)
+        let clientFD = withUnsafeMutablePointer(to: &clientAddr) { ptr in
+            ptr.withMemoryRebound(to: sockaddr.self, capacity: 1) { sockaddrPtr in
+                Darwin.accept(listenerFD, sockaddrPtr, &clientAddrLen)
+            }
+        }
+        if clientFD >= 0 {
+            Darwin.close(clientFD)
+            XCTFail("Stopping the listener should not connect to a replacement socket", file: file, line: line)
+            return
+        }
+
+        XCTAssertTrue(errno == EAGAIN || errno == EWOULDBLOCK, file: file, line: line)
     }
 
     private nonisolated func sendCommands(_ commands: [String], to socketPath: String) throws -> [String] {

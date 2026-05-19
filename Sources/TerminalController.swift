@@ -1240,6 +1240,29 @@ class TerminalController {
         }
     }
 
+    @discardableResult
+    private nonisolated static func unlinkSocketPathIfIdentityMatches(
+        _ path: String,
+        expectedIdentity: SocketPathIdentity?
+    ) -> Int32 {
+        guard let expectedIdentity else {
+            return 0
+        }
+
+        var pathStat = stat()
+        guard lstat(path, &pathStat) == 0 else {
+            return errno == ENOENT ? 0 : -1
+        }
+
+        let fileType = pathStat.st_mode & mode_t(S_IFMT)
+        guard fileType == mode_t(S_IFSOCK),
+              SocketPathIdentity(pathStat) == expectedIdentity else {
+            return 0
+        }
+
+        return unlink(path)
+    }
+
     private nonisolated static func configureAcceptedClientSocket(_ fd: Int32) -> (stage: String, errnoCode: Int32)? {
         if let errnoCode = configureBlocking(fd) {
             return ("accept_client_configure_blocking", errnoCode)
@@ -1334,6 +1357,8 @@ class TerminalController {
         case "bind" where errnoCode == EACCES || errnoCode == EPERM || errnoCode == EADDRINUSE:
             return SocketControlSettings.userScopedStableSocketPath(currentUserID: currentUserID)
         case "existing_socket_owned_by_other_process":
+            return SocketControlSettings.userScopedStableSocketPath(currentUserID: currentUserID)
+        case "existing_socket_connect_failed":
             return SocketControlSettings.userScopedStableSocketPath(currentUserID: currentUserID)
         default:
             return nil
@@ -1619,7 +1644,18 @@ class TerminalController {
         let ownerPid = pathStatus.ownerPid
         if case .ownedByOtherProcess(let ownerPid) = pathStatus {
             let configuredPath = SocketControlSettings.socketPath()
-            guard configuredPath != snapshot.socketPath else {
+            if let fallbackPath = Self.fallbackSocketPathAfterBindFailure(
+                requestedPath: snapshot.socketPath,
+                stage: "existing_socket_owned_by_other_process",
+                errnoCode: EADDRINUSE
+            ),
+                fallbackPath != snapshot.socketPath {
+                recoveryPath = fallbackPath
+                shouldUnlinkNonSocketReplacement = false
+            } else if configuredPath != snapshot.socketPath {
+                recoveryPath = configuredPath
+                shouldUnlinkNonSocketReplacement = false
+            } else {
                 reportSocketListenerFailure(
                     message: "socket.listener.path.owned_by_other_process",
                     stage: "socket_file_health_check",
@@ -1631,7 +1667,28 @@ class TerminalController {
                 )
                 return
             }
-            recoveryPath = configuredPath
+        } else if case .connectFailed(let errnoCode) = pathStatus,
+                  errnoCode != ECONNREFUSED,
+                  errnoCode != ENOENT {
+            guard let fallbackPath = Self.fallbackSocketPathAfterBindFailure(
+                requestedPath: snapshot.socketPath,
+                stage: "existing_socket_connect_failed",
+                errnoCode: errnoCode
+            ),
+                fallbackPath != snapshot.socketPath else {
+                reportSocketListenerFailure(
+                    message: "socket.listener.path.recovery.skipped",
+                    stage: "socket_file_health_check",
+                    errnoCode: errnoCode,
+                    extra: [
+                        "pathStatus": pathStatus.debugLabel,
+                        "generation": snapshot.activeGeneration,
+                        "reason": "no_safe_recovery_path"
+                    ]
+                )
+                return
+            }
+            recoveryPath = fallbackPath
             shouldUnlinkNonSocketReplacement = false
         } else {
             guard pathStatus.shouldAttemptListenerRecovery else {
@@ -1823,7 +1880,8 @@ class TerminalController {
             timerToCancel,
             socketToShutdown,
             socketToClose,
-            socketPathToUnlink
+            socketPathToUnlink,
+            socketPathIdentityToUnlink
         ) = withListenerState {
             isRunning = false
             acceptLoopAlive = false
@@ -1840,6 +1898,7 @@ class TerminalController {
             listenerHealthTimer = nil
             let socketToClose = serverSocket
             serverSocket = -1
+            let socketPathIdentityToUnlink = socketPathIdentity
             socketPathIdentity = nil
             return (
                 sourceToCancel,
@@ -1847,7 +1906,8 @@ class TerminalController {
                 timerToCancel,
                 socketToClose,
                 sourceToCancel == nil ? socketToClose : Int32(-1),
-                socketPath
+                socketPath,
+                socketPathIdentityToUnlink
             )
         }
         if socketToShutdown >= 0 {
@@ -1861,7 +1921,10 @@ class TerminalController {
             close(socketToClose)
         }
         timerToCancel?.cancel()
-        Self.unlinkSocketPathIfNoLiveOtherOwner(socketPathToUnlink)
+        Self.unlinkSocketPathIfIdentityMatches(
+            socketPathToUnlink,
+            expectedIdentity: socketPathIdentityToUnlink
+        )
     }
 
     private nonisolated func unlinkSocketPathIfListenerStillInactive(_ path: String) {

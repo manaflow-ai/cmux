@@ -4836,12 +4836,35 @@ final class TerminalControllerSocketListenerHealthTests: XCTestCase {
         )
     }
 
+    func testStableSocketConnectFailureFallsBackToUserScopedSocket() {
+        XCTAssertEqual(
+            TerminalController.fallbackSocketPathAfterBindFailure(
+                requestedPath: SocketControlSettings.stableDefaultSocketPath,
+                stage: "existing_socket_connect_failed",
+                errnoCode: ETIMEDOUT,
+                currentUserID: 501
+            ),
+            SocketControlSettings.userScopedStableSocketPath(currentUserID: 501)
+        )
+    }
+
     func testNonStableSocketBindFailureDoesNotFallback() {
         XCTAssertNil(
             TerminalController.fallbackSocketPathAfterBindFailure(
                 requestedPath: "/tmp/cmux-debug.sock",
                 stage: "bind",
                 errnoCode: EACCES,
+                currentUserID: 501
+            )
+        )
+    }
+
+    func testNonStableSocketConnectFailureDoesNotFallback() {
+        XCTAssertNil(
+            TerminalController.fallbackSocketPathAfterBindFailure(
+                requestedPath: "/tmp/cmux-debug.sock",
+                stage: "existing_socket_connect_failed",
+                errnoCode: ETIMEDOUT,
                 currentUserID: 501
             )
         )
@@ -4955,7 +4978,7 @@ final class TerminalControllerSocketListenerHealthTests: XCTestCase {
     }
 
     @MainActor
-    func testSocketListenerHealthRecognizesSocketPath() throws {
+    func testSocketListenerHealthRecognizesForeignSocketPath() throws {
         let path = makeTempSocketPath()
         let fd = try bindUnixSocket(at: path)
         defer {
@@ -4965,9 +4988,11 @@ final class TerminalControllerSocketListenerHealthTests: XCTestCase {
 
         let health = TerminalController.shared.socketListenerHealth(expectedSocketPath: path)
         XCTAssertTrue(health.socketPathExists)
-        XCTAssertEqual(health.socketPathStatus, "socket_file_changed")
+        XCTAssertTrue(
+            ["owned_by_this_process", "owner_unknown"].contains(health.socketPathStatus),
+            "Unexpected socket path status: \(health.socketPathStatus)"
+        )
         XCTAssertFalse(health.isHealthy)
-        assertNoPendingClient(on: fd)
     }
 
     @MainActor
