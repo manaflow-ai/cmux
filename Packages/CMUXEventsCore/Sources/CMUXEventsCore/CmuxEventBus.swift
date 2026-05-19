@@ -313,7 +313,7 @@ public final class CmuxEventBus: @unchecked Sendable {
 
     public func heartbeat(subscription: CmuxEventSubscription) -> [String: Any] {
         guard subscription.ownerBusId == busId else {
-            return [
+            let error: [String: Any] = [
                 "type": "error",
                 "ok": false,
                 "protocol": Self.protocolName,
@@ -324,9 +324,10 @@ public final class CmuxEventBus: @unchecked Sendable {
                     "message": "subscription does not belong to this event bus"
                 ]
             ]
+            return error
         }
 
-        [
+        let heartbeat: [String: Any] = [
             "type": "heartbeat",
             "protocol": Self.protocolName,
             "version": Self.protocolVersion,
@@ -335,6 +336,7 @@ public final class CmuxEventBus: @unchecked Sendable {
             "latest_seq": NSNumber(value: latestSequence),
             "occurred_at": Self.isoTimestamp(Date())
         ]
+        return heartbeat
     }
 
     public func retainedSnapshot() -> [[String: Any]] {
