@@ -218,25 +218,28 @@ final class SessionIndexStore: ObservableObject {
     private var sectionsCacheRevision: UInt64 = 0
     private var cachedSectionsRevision: UInt64?
     private var cachedSections: [IndexSection] = []
-    private var codexSessionHomesTask: Task<Void, Never>?
+    private var codexSessionHomesObserver: NSObjectProtocol?
 
     init() {
         self.agentOrder = Self.loadAgentOrder()
         self.directoryOrder = Self.loadDirectoryOrder()
         let storedGrouping = UserDefaults.standard.string(forKey: Self.groupingKey)
         self.grouping = SessionGrouping(rawValue: storedGrouping ?? "") ?? .directory
-        codexSessionHomesTask = Task { @MainActor [weak self] in
-            let notifications = NotificationCenter.default.notifications(
-                named: CodexSessionHomeSettings.didChangeNotification
-            )
-            for await _ in notifications {
+        codexSessionHomesObserver = NotificationCenter.default.addObserver(
+            forName: CodexSessionHomeSettings.didChangeNotification,
+            object: nil,
+            queue: .main
+        ) { [weak self] _ in
+            MainActor.assumeIsolated {
                 self?.reload()
             }
         }
     }
 
     deinit {
-        codexSessionHomesTask?.cancel()
+        if let codexSessionHomesObserver {
+            NotificationCenter.default.removeObserver(codexSessionHomesObserver)
+        }
     }
 
     /// Returns the sections for the current grouping mode, in the user-saved order.
