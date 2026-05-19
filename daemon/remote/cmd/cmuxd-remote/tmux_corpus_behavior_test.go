@@ -21,6 +21,7 @@ type tmuxCorpusRPCRecorder struct {
 	mu         sync.Mutex
 	requests   []tmuxCorpusRPCRequest
 	workspaces []map[string]any
+	readText   string
 }
 
 func startTmuxCorpusRPCRecorder(t *testing.T) *tmuxCorpusRPCRecorder {
@@ -122,15 +123,22 @@ func (r *tmuxCorpusRPCRecorder) serveConn(conn net.Conn) {
 			"surface_ref":  "surface:1",
 		}
 	case "surface.read_text":
-		resp["result"] = map[string]any{"text": "\x1b[31mRED\x1b[0m\nplain\n"}
+		text := r.readText
+		if text == "" {
+			text = "\x1b[31mRED\x1b[0m\nplain\n"
+		}
+		resp["result"] = map[string]any{"text": text}
 	case "surface.send_text":
 		resp["result"] = map[string]any{"ok": true}
 	case "pane.list":
 		resp["result"] = map[string]any{"panes": []map[string]any{{
-			"id":      "33333333-3333-4333-8333-333333333333",
-			"ref":     "pane:1",
-			"index":   1,
-			"focused": true,
+			"id":            "33333333-3333-4333-8333-333333333333",
+			"ref":           "pane:1",
+			"index":         1,
+			"focused":       true,
+			"columns":       80,
+			"rows":          24,
+			"cell_width_px": 8,
 		}}}
 	case "pane.surfaces":
 		resp["result"] = map[string]any{"surfaces": []map[string]any{{
@@ -138,6 +146,8 @@ func (r *tmuxCorpusRPCRecorder) serveConn(conn net.Conn) {
 			"ref":      "surface:1",
 			"selected": true,
 		}}}
+	case "pane.resize":
+		resp["result"] = map[string]any{"ok": true}
 	default:
 		resp["ok"] = false
 		resp["error"] = map[string]any{"code": "unsupported", "message": method}
@@ -171,6 +181,12 @@ func (r *tmuxCorpusRPCRecorder) requestsFor(method string) []tmuxCorpusRPCReques
 		}
 	}
 	return out
+}
+
+func (r *tmuxCorpusRPCRecorder) setReadText(text string) {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	r.readText = text
 }
 
 func cloneMap(input map[string]any) map[string]any {
@@ -228,6 +244,16 @@ func TestTmuxCorpusNewSessionAndNewWindowCommandsDispatchShellText(t *testing.T)
 	}
 	if got := sendRequests[1].Params["text"]; got != "echo two\r" {
 		t.Fatalf("new-window send text = %q", got)
+	}
+
+	createRequests := recorder.requestsFor("workspace.create")
+	if len(createRequests) != 2 {
+		t.Fatalf("workspace.create requests = %d, want 2", len(createRequests))
+	}
+	for _, req := range createRequests {
+		if got := req.Params["focus"]; got != false {
+			t.Fatalf("tmux detached/no-client creation should use focus=false, got %v in %+v", got, req.Params)
+		}
 	}
 }
 
@@ -325,5 +351,126 @@ func TestTmuxCorpusCapturePanePreservesTruecolorEscapeBytesInBuffers(t *testing.
 	})
 	if output != "\x1b[31mRED\x1b[0m\nplain\n" {
 		t.Fatalf("captured buffer = %q", output)
+	}
+}
+
+func TestTmuxCorpusCapturePanePreservesTerminalByteFixtures(t *testing.T) {
+	origHome := os.Getenv("HOME")
+	home := t.TempDir()
+	os.Setenv("HOME", home)
+	defer os.Setenv("HOME", origHome)
+
+	tests := []struct {
+		name string
+		text string
+	}{
+		{
+			name: "capture-pane-sgr0",
+			text: "\x1b[38;2;255;0;0mred\x1b[0mplain\n",
+		},
+		{
+			name: "capture-pane-hyperlink",
+			text: "\x1b]8;;https://example.test\x1b\\linked\x1b]8;;\x1b\\\n",
+		},
+		{
+			name: "osc-11colours-truecolor",
+			text: "\x1b]11;rgb:12/34/56\x1b\\background\n\x1b]111\x1b\\reset\n",
+		},
+		{
+			name: "utf8-combining-and-width-bytes",
+			text: "e\u0301 cafe\u0301 \u26A1\uFE0F\n",
+		},
+		{
+			name: "decrqm-sync-response-bytes",
+			text: "\x1b[?2026;1$ysync-enabled\n",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			recorder := startTmuxCorpusRPCRecorder(t)
+			recorder.setReadText(tt.text)
+			rc := &rpcContext{socketPath: recorder.socketPath}
+
+			printed := captureStdout(t, func() {
+				if err := dispatchTmuxCommand(rc, "capture-pane", []string{"-p"}); err != nil {
+					t.Fatalf("capture-pane -p: %v", err)
+				}
+			})
+			if printed != tt.text {
+				t.Fatalf("capture-pane -p output = %q, want %q", printed, tt.text)
+			}
+
+			buffered := captureStdout(t, func() {
+				if err := dispatchTmuxCommand(rc, "capture-pane", nil); err != nil {
+					t.Fatalf("capture-pane buffer: %v", err)
+				}
+				if err := dispatchTmuxCommand(nil, "show-buffer", nil); err != nil {
+					t.Fatalf("show-buffer: %v", err)
+				}
+			})
+			if buffered != tt.text {
+				t.Fatalf("show-buffer output = %q, want %q", buffered, tt.text)
+			}
+		})
+	}
+}
+
+func TestTmuxCorpusResizePaneDispatchesAbsoluteAndDirectionalResize(t *testing.T) {
+	recorder := startTmuxCorpusRPCRecorder(t)
+	rc := &rpcContext{socketPath: recorder.socketPath}
+
+	if err := dispatchTmuxCommand(rc, "resize-pane", []string{"-t", "pane:1", "-x", "100"}); err != nil {
+		t.Fatalf("resize-pane absolute width: %v", err)
+	}
+	if err := dispatchTmuxCommand(rc, "resize-pane", []string{"-t", "pane:1", "-L", "-x", "7"}); err != nil {
+		t.Fatalf("resize-pane directional: %v", err)
+	}
+
+	resizeRequests := recorder.requestsFor("pane.resize")
+	if len(resizeRequests) != 2 {
+		t.Fatalf("pane.resize requests = %d, want 2", len(resizeRequests))
+	}
+	if got := resizeRequests[0].Params["direction"]; got != "right" {
+		t.Fatalf("absolute resize direction = %v, want right", got)
+	}
+	if got := resizeRequests[0].Params["amount"]; got != 160 {
+		t.Fatalf("absolute resize amount = %v, want 160", got)
+	}
+	if got := resizeRequests[1].Params["direction"]; got != "left" {
+		t.Fatalf("directional resize direction = %v, want left", got)
+	}
+	if got := resizeRequests[1].Params["amount"]; got != 7 {
+		t.Fatalf("directional resize amount = %v, want 7", got)
+	}
+}
+
+func TestTmuxCorpusTmuxOnlyFeaturesFailExplicitlyOrNoOpDeliberately(t *testing.T) {
+	unsupported := []string{
+		"copy-mode",
+		"if-shell",
+		"run-shell",
+		"choose-tree",
+		"display-popup",
+	}
+	for _, command := range unsupported {
+		t.Run(command, func(t *testing.T) {
+			err := dispatchTmuxCommand(nil, command, nil)
+			if err == nil {
+				t.Fatalf("%s should not be silently treated as supported", command)
+			}
+			if !strings.Contains(err.Error(), "unsupported") {
+				t.Fatalf("%s error = %q, want unsupported", command, err.Error())
+			}
+		})
+	}
+
+	deliberateNoOps := []string{"source-file", "set-option", "set-window-option", "refresh-client"}
+	for _, command := range deliberateNoOps {
+		t.Run(command, func(t *testing.T) {
+			if err := dispatchTmuxCommand(nil, command, []string{"ignored"}); err != nil {
+				t.Fatalf("%s should remain a deliberate compatibility no-op: %v", command, err)
+			}
+		})
 	}
 }
