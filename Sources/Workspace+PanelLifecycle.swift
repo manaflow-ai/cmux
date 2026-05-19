@@ -198,6 +198,7 @@ extension Workspace {
         manualUnreadMarkedAt.removeValue(forKey: panelId)
         panelShellActivityStates.removeValue(forKey: panelId)
         surfaceTTYNames.removeValue(forKey: panelId)
+        surfaceResumeBindingsByPanelId.removeValue(forKey: panelId)
         surfaceListeningPorts.removeValue(forKey: panelId)
         restoredTerminalScrollbackByPanelId.removeValue(forKey: panelId)
 #if DEBUG

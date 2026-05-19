@@ -236,15 +236,33 @@ Skróty narzędzi deweloperskich przeglądarki odpowiadają domyślnym ustawieni
 
 cmux NIGHTLY to osobna aplikacja z własnym identyfikatorem pakietu, więc działa obok wersji stabilnej. Budowana automatycznie z najnowszego commitu `main` i aktualizuje się automatycznie przez własny kanał Sparkle.
 
-## Przywracanie sesji (obecne zachowanie)
+## Przywracanie sesji
 
-Przy ponownym uruchomieniu cmux obecnie przywraca tylko układ aplikacji i metadane:
+Po zamknięciu cmux zapisuje bieżącą sesję. Po ponownym uruchomieniu cmux przywraca stan należący do aplikacji:
 - Układ okien/przestrzeni roboczych/paneli
 - Katalogi robocze
 - Scrollback terminala (najlepsza próba)
 - URL przeglądarki i historia nawigacji
 
-cmux **nie** przywraca stanu żywych procesów wewnątrz aplikacji terminalowych. Na przykład aktywne sesje Claude Code/tmux/vim nie są jeszcze wznawiane po restarcie.
+cmux nie tworzy checkpointów dowolnego stanu działających procesów. tmux, vim, powłoki i nieobsługiwane aplikacje terminalowe otwierają się ponownie jako zwykłe terminale.
+
+Obsługiwane sesje agentów mogą zostać wznowione, gdy hooks zapiszą natywny ID sesji:
+
+```bash
+cmux hooks setup
+cmux hooks setup codex
+cmux hooks setup --agent opencode
+```
+
+Zaawansowani użytkownicy i integracje mogą przypiąć własne polecenie wznowienia do bieżącej terminal surface. Przydaje się to narzędziom z własnym trwałym stanem, takim jak sesje tmux lub niestandardowe agent CLI:
+
+```bash
+cmux surface resume set --kind tmux --checkpoint work --shell "tmux attach -t work"
+cmux surface resume show --json
+cmux surface resume clear --checkpoint work
+```
+
+Binding pozostaje powiązany z cmux surface. Bindingi utworzone przez publiczny CLI lub socket są zapisywane do inspekcji i ręcznego wznowienia. cmux automatycznie uruchamia tylko bindingi wznowienia oznaczone jako zaufane, na przykład bindingi tmux wykryte z działających procesów. Wrażliwe klucze środowiska, takie jak tokeny, hasła, sekrety i klucze API, są odrzucane przed zapisaniem bindingu wznowienia.
 
 ## Historia Gwiazdek
 
