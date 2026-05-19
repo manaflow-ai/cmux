@@ -4926,6 +4926,34 @@ final class TerminalControllerSocketListenerHealthTests: XCTestCase {
         return handled
     }
 
+    private func assertNoPendingClient(
+        on listenerFD: Int32,
+        file: StaticString = #filePath,
+        line: UInt = #line
+    ) {
+        let existingFlags = fcntl(listenerFD, F_GETFL)
+        XCTAssertNotEqual(existingFlags, -1, file: file, line: line)
+        guard existingFlags >= 0 else { return }
+
+        XCTAssertEqual(fcntl(listenerFD, F_SETFL, existingFlags | O_NONBLOCK), 0, file: file, line: line)
+        defer { _ = fcntl(listenerFD, F_SETFL, existingFlags) }
+
+        var clientAddr = sockaddr_un()
+        var clientAddrLen = socklen_t(MemoryLayout<sockaddr_un>.size)
+        let clientFD = withUnsafeMutablePointer(to: &clientAddr) { ptr in
+            ptr.withMemoryRebound(to: sockaddr.self, capacity: 1) { sockaddrPtr in
+                Darwin.accept(listenerFD, sockaddrPtr, &clientAddrLen)
+            }
+        }
+        if clientFD >= 0 {
+            Darwin.close(clientFD)
+            XCTFail("Socket health observation should not connect to the observed listener", file: file, line: line)
+            return
+        }
+
+        XCTAssertTrue(errno == EAGAIN || errno == EWOULDBLOCK, file: file, line: line)
+    }
+
     @MainActor
     func testSocketListenerHealthRecognizesSocketPath() throws {
         let path = makeTempSocketPath()
@@ -4937,7 +4965,9 @@ final class TerminalControllerSocketListenerHealthTests: XCTestCase {
 
         let health = TerminalController.shared.socketListenerHealth(expectedSocketPath: path)
         XCTAssertTrue(health.socketPathExists)
+        XCTAssertEqual(health.socketPathStatus, "socket_file_changed")
         XCTAssertFalse(health.isHealthy)
+        assertNoPendingClient(on: fd)
     }
 
     @MainActor
