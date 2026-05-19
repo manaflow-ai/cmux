@@ -28,6 +28,7 @@ class TerminalController {
         let acceptLoopAlive: Bool
         let socketPathMatches: Bool
         let socketPathExists: Bool
+        let socketPathOwnedByListener: Bool
 
         var failureSignals: [String] {
             var signals: [String] = []
@@ -35,6 +36,9 @@ class TerminalController {
             if !acceptLoopAlive { signals.append("accept_loop_dead") }
             if !socketPathMatches { signals.append("socket_path_mismatch") }
             if !socketPathExists { signals.append("socket_missing") }
+            if isRunning && socketPathExists && !socketPathOwnedByListener {
+                signals.append("socket_path_replaced")
+            }
             return signals
         }
 
@@ -46,6 +50,7 @@ class TerminalController {
     static let shared = TerminalController()
 
     private nonisolated(unsafe) var socketPath = SocketControlSettings.stableDefaultSocketPath
+    private nonisolated(unsafe) var activeSocketPathIdentity: SocketPathIdentity?
     private nonisolated(unsafe) var serverSocket: Int32 = -1
     private nonisolated(unsafe) var isRunning = false
     private nonisolated(unsafe) var acceptLoopAlive = false
@@ -56,6 +61,8 @@ class TerminalController {
     private nonisolated let listenerStateLock = NSLock()
     private nonisolated let socketListenerQueue = DispatchQueue(label: "com.cmux.socket.listener")
     private nonisolated(unsafe) var listenerReadSource: DispatchSourceRead?
+    private nonisolated(unsafe) var socketDirectoryMonitorSource: DispatchSourceFileSystemObject?
+    private nonisolated(unsafe) var beforeSocketDirectoryMonitorRegistrationForTesting: ((String) -> Void)?
     private nonisolated(unsafe) var listenerReadSourceSuspended = false
     private nonisolated(unsafe) var acceptSourceConsecutiveFailures = 0
     private var clientHandlers: [Int32: Thread] = [:]
@@ -116,12 +123,18 @@ class TerminalController {
 
     private struct ListenerStateSnapshot {
         let socketPath: String
+        let socketPathIdentity: SocketPathIdentity?
         let serverSocket: Int32
         let isRunning: Bool
         let acceptLoopAlive: Bool
         let activeGeneration: UInt64
         let pendingRearmGeneration: UInt64?
         let listenerStartInProgress: Bool
+    }
+
+    private struct SocketPathIdentity: Equatable, Sendable {
+        let device: dev_t
+        let inode: ino_t
     }
 
     enum AcceptFailureRecoveryAction: Equatable {
@@ -290,6 +303,7 @@ class TerminalController {
         withListenerState {
             ListenerStateSnapshot(
                 socketPath: socketPath,
+                socketPathIdentity: activeSocketPathIdentity,
                 serverSocket: serverSocket,
                 isRunning: isRunning,
                 acceptLoopAlive: acceptLoopAlive,
@@ -1067,18 +1081,33 @@ class TerminalController {
         }
 
         if existing.isRunning && existing.socketPath == socketPath {
-            self.accessMode = accessMode
-            applySocketPermissions()
-            return
-        }
+            let health = socketListenerHealth(expectedSocketPath: socketPath)
+            if health.isHealthy {
+                self.accessMode = accessMode
+                applySocketPermissions()
+                return
+            }
 
-        if existing.isRunning {
+            sentryBreadcrumb(
+                "socket.listener.restart.unhealthy_existing",
+                category: "socket",
+                data: socketListenerEventData(
+                    stage: "start_same_path_health_check",
+                    extra: [
+                        "expectedPath": socketPath,
+                        "failureSignals": health.failureSignals.joined(separator: ",")
+                    ]
+                )
+            )
+            stop()
+        } else if existing.isRunning {
             stop()
         }
 
         var activeSocketPath = socketPath
         withListenerState {
             self.socketPath = activeSocketPath
+            activeSocketPathIdentity = nil
             listenerStartInProgress = true
         }
         var listenerActivated = false
@@ -1160,6 +1189,16 @@ class TerminalController {
         }
 
         applySocketPermissions()
+        guard let boundSocketPathIdentity = Self.socketPathIdentity(at: activeSocketPath) else {
+            close(newServerSocket)
+            reportSocketListenerFailure(
+                message: "socket.listener.start.failed",
+                stage: "bound_socket_identity",
+                errnoCode: ENOENT,
+                extra: ["path": activeSocketPath]
+            )
+            return
+        }
 
         if let errnoCode = Self.configureNonBlocking(newServerSocket) {
             print("TerminalController: Failed to configure socket")
@@ -1197,6 +1236,7 @@ class TerminalController {
             let generation = nextAcceptLoopGeneration
             activeAcceptLoopGeneration = generation
             serverSocket = newServerSocket
+            activeSocketPathIdentity = boundSocketPathIdentity
             listenerStartInProgress = false
             return generation
         }
@@ -1250,6 +1290,7 @@ class TerminalController {
         }
 
         startAcceptSource(listenerSocket: listenerSocket, generation: generation)
+        startSocketDirectoryMonitor(path: activeSocketPath, generation: generation)
     }
 
     nonisolated func socketListenerHealth(expectedSocketPath: String) -> SocketListenerHealth {
@@ -1258,13 +1299,25 @@ class TerminalController {
 
         var st = stat()
         let exists = lstat(expectedSocketPath, &st) == 0 && (st.st_mode & S_IFMT) == S_IFSOCK
+        let currentSocketIdentity = exists
+            ? SocketPathIdentity(device: st.st_dev, inode: st.st_ino)
+            : nil
 
         return SocketListenerHealth(
             isRunning: snapshot.isRunning,
             acceptLoopAlive: snapshot.acceptLoopAlive,
             socketPathMatches: pathMatches,
-            socketPathExists: exists
+            socketPathExists: exists,
+            socketPathOwnedByListener: currentSocketIdentity == snapshot.socketPathIdentity
         )
+    }
+
+    private nonisolated static func socketPathIdentity(at path: String) -> SocketPathIdentity? {
+        var st = stat()
+        guard lstat(path, &st) == 0 && (st.st_mode & S_IFMT) == S_IFSOCK else {
+            return nil
+        }
+        return SocketPathIdentity(device: st.st_dev, inode: st.st_ino)
     }
 
     nonisolated static func probeSocketCommand(
@@ -1349,21 +1402,32 @@ class TerminalController {
     }
 
     nonisolated func stop() {
-        let (sourceToCancel, sourceWasSuspended, socketToShutdown, socketToClose, socketPathToUnlink) = withListenerState {
+        let (
+            sourceToCancel,
+            directoryMonitorToCancel,
+            sourceWasSuspended,
+            socketToShutdown,
+            socketToClose,
+            socketPathToUnlink
+        ) = withListenerState {
             isRunning = false
             acceptLoopAlive = false
             pendingAcceptLoopRearmGeneration = nil
             listenerStartInProgress = false
             nextAcceptLoopGeneration &+= 1
             activeAcceptLoopGeneration = 0
+            activeSocketPathIdentity = nil
             let sourceToCancel = listenerReadSource
             let sourceWasSuspended = listenerReadSourceSuspended
             listenerReadSource = nil
+            let directoryMonitorToCancel = socketDirectoryMonitorSource
+            socketDirectoryMonitorSource = nil
             listenerReadSourceSuspended = false
             let socketToClose = serverSocket
             serverSocket = -1
             return (
                 sourceToCancel,
+                directoryMonitorToCancel,
                 sourceWasSuspended,
                 socketToClose,
                 sourceToCancel == nil ? socketToClose : Int32(-1),
@@ -1377,10 +1441,34 @@ class TerminalController {
             sourceToCancel?.resume()
         }
         sourceToCancel?.cancel()
+        directoryMonitorToCancel?.cancel()
         if socketToClose >= 0 {
             close(socketToClose)
         }
         unlink(socketPathToUnlink)
+    }
+
+    nonisolated func stopSocketDirectoryMonitorForTesting() {
+        let sourceToCancel = withListenerState {
+            let source = socketDirectoryMonitorSource
+            socketDirectoryMonitorSource = nil
+            return source
+        }
+        sourceToCancel?.cancel()
+    }
+
+    nonisolated func setBeforeSocketDirectoryMonitorRegistrationHookForTesting(_ hook: ((String) -> Void)?) {
+        withListenerState {
+            beforeSocketDirectoryMonitorRegistrationForTesting = hook
+        }
+    }
+
+    private nonisolated func takeBeforeSocketDirectoryMonitorRegistrationHookForTesting() -> ((String) -> Void)? {
+        withListenerState {
+            let hook = beforeSocketDirectoryMonitorRegistrationForTesting
+            beforeSocketDirectoryMonitorRegistrationForTesting = nil
+            return hook
+        }
     }
 
     private nonisolated func unlinkSocketPathIfListenerStillInactive(_ path: String) {
@@ -1721,6 +1809,134 @@ class TerminalController {
         }
     }
 
+    private nonisolated func startSocketDirectoryMonitor(path: String, generation: UInt64) {
+        let directoryPath = (path as NSString).deletingLastPathComponent
+        let fd = open(directoryPath, O_EVTONLY)
+        guard fd >= 0 else {
+            let errnoCode = errno
+            reportSocketListenerFailure(
+                message: "socket.listener.directory_monitor.failed",
+                stage: "directory_monitor_open",
+                errnoCode: errnoCode,
+                extra: [
+                    "monitoredPath": path,
+                    "directoryPath": directoryPath,
+                    "generation": generation
+                ]
+            )
+            return
+        }
+
+        let source = DispatchSource.makeFileSystemObjectSource(
+            fileDescriptor: fd,
+            eventMask: [.write, .delete, .rename],
+            queue: socketListenerQueue
+        )
+        source.setEventHandler { [weak self, weak source] in
+            guard let source else { return }
+            self?.handleSocketDirectoryEvent(path: path, generation: generation, flags: source.data)
+        }
+        source.setCancelHandler {
+            close(fd)
+        }
+
+        takeBeforeSocketDirectoryMonitorRegistrationHookForTesting()?(path)
+
+        source.resume()
+
+        let registration = withListenerState {
+            guard isRunning, socketPath == path, activeAcceptLoopGeneration == generation else {
+                return (shouldResume: false, oldSource: nil as DispatchSourceFileSystemObject?)
+            }
+            let oldSource = socketDirectoryMonitorSource
+            socketDirectoryMonitorSource = source
+            return (shouldResume: true, oldSource: oldSource)
+        }
+
+        registration.oldSource?.cancel()
+        guard registration.shouldResume else {
+            source.cancel()
+            return
+        }
+
+        sentryBreadcrumb(
+            "socket.listener.directory_monitor.started",
+            category: "socket",
+            data: socketListenerEventData(
+                stage: "directory_monitor_start",
+                extra: [
+                    "monitoredPath": path,
+                    "directoryPath": directoryPath,
+                    "generation": generation
+                ]
+            )
+        )
+        restartSocketListenerIfUnhealthy(
+            path: path,
+            generation: generation,
+            flags: DispatchSource.FileSystemEvent(rawValue: 0),
+            stage: "directory_monitor_start_health_check",
+            breadcrumbName: "socket.listener.unhealthy_directory_monitor_start"
+        )
+    }
+
+    private nonisolated func handleSocketDirectoryEvent(
+        path: String,
+        generation: UInt64,
+        flags: DispatchSource.FileSystemEvent
+    ) {
+        restartSocketListenerIfUnhealthy(
+            path: path,
+            generation: generation,
+            flags: flags,
+            stage: "directory_monitor_event",
+            breadcrumbName: "socket.listener.unhealthy_directory_event"
+        )
+    }
+
+    private nonisolated func restartSocketListenerIfUnhealthy(
+        path: String,
+        generation: UInt64,
+        flags: DispatchSource.FileSystemEvent,
+        stage: String,
+        breadcrumbName: String
+    ) {
+        let health = socketListenerHealth(expectedSocketPath: path)
+        guard !health.isHealthy else { return }
+
+        let shouldRestart = withListenerState {
+            isRunning && socketPath == path && activeAcceptLoopGeneration == generation
+        }
+        guard shouldRestart else { return }
+
+        sentryBreadcrumb(
+            breadcrumbName,
+            category: "socket",
+            data: socketListenerEventData(
+                stage: stage,
+                extra: [
+                    "monitoredPath": path,
+                    "generation": generation,
+                    "eventFlags": Int(flags.rawValue),
+                    "failureSignals": health.failureSignals.joined(separator: ",")
+                ]
+            )
+        )
+
+        DispatchQueue.main.async { [weak self] in
+            guard let self, let tabManager = self.tabManager else { return }
+            guard !self.socketListenerHealth(expectedSocketPath: path).isHealthy else { return }
+            let shouldRestart = self.withListenerState {
+                self.isRunning && self.socketPath == path && self.activeAcceptLoopGeneration == generation
+            }
+            guard shouldRestart else { return }
+
+            let restartMode = self.accessMode
+            self.stop()
+            self.start(tabManager: tabManager, socketPath: path, accessMode: restartMode)
+        }
+    }
+
     private nonisolated func drainPendingSocketClients(listenerSocket: Int32, generation: UInt64) {
         while shouldContinueAcceptLoop(generation: generation) {
             let clientSocket = accept(listenerSocket, nil, nil)
@@ -1815,21 +2031,34 @@ class TerminalController {
         case .rearmAfterDelay(let delayMs):
             let cleanup = withListenerState {
                 guard activeAcceptLoopGeneration == generation, serverSocket == listenerSocket else {
-                    return (didCleanup: false, sourceToCancel: nil as DispatchSourceRead?, sourceWasSuspended: false)
+                    return (
+                        didCleanup: false,
+                        sourceToCancel: nil as DispatchSourceRead?,
+                        directoryMonitorToCancel: nil as DispatchSourceFileSystemObject?,
+                        sourceWasSuspended: false
+                    )
                 }
                 pendingAcceptLoopRearmGeneration = generation
                 isRunning = false
                 acceptLoopAlive = false
+                activeSocketPathIdentity = nil
                 let source = listenerReadSource
+                let directoryMonitorToCancel = socketDirectoryMonitorSource
                 let sourceWasSuspended = listenerReadSourceSuspended
                 listenerReadSource = nil
+                socketDirectoryMonitorSource = nil
                 listenerReadSourceSuspended = false
                 serverSocket = -1
                 shutdown(listenerSocket, SHUT_RDWR)
                 if source == nil {
                     close(listenerSocket)
                 }
-                return (didCleanup: true, sourceToCancel: source, sourceWasSuspended: sourceWasSuspended)
+                return (
+                    didCleanup: true,
+                    sourceToCancel: source,
+                    directoryMonitorToCancel: directoryMonitorToCancel,
+                    sourceWasSuspended: sourceWasSuspended
+                )
             }
             guard cleanup.didCleanup else {
                 return
@@ -1838,6 +2067,7 @@ class TerminalController {
                 cleanup.sourceToCancel?.resume()
             }
             cleanup.sourceToCancel?.cancel()
+            cleanup.directoryMonitorToCancel?.cancel()
 
             scheduleListenerRearm(
                 generation: generation,
