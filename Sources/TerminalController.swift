@@ -997,8 +997,13 @@ class TerminalController {
         if let errnoCode = ensureSocketParentDirectoryExists(path: path) {
             return .failure(path: path, stage: "create_directory", errnoCode: errnoCode)
         }
-        if socketPathHasLiveListener(path, timeout: 0.2) {
+        switch socketLiveListenerProbeResult(path, timeout: 0.2) {
+        case .liveListener:
             return .failure(path: path, stage: "live_listener", errnoCode: EADDRINUSE)
+        case .indeterminate(let errnoCode):
+            return .failure(path: path, stage: "live_listener_probe", errnoCode: errnoCode)
+        case .noListener:
+            break
         }
         if unlink(path) != 0, errno != ENOENT {
             return .failure(path: path, stage: "unlink", errnoCode: errno)

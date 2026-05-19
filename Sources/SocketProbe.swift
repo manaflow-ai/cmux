@@ -6,27 +6,43 @@ private let socketProbeUnixSocketPathMaxLength: Int = {
     return MemoryLayout.size(ofValue: addr.sun_path) - 1
 }()
 
+nonisolated enum SocketLiveListenerProbeResult: Equatable {
+    case liveListener
+    case noListener
+    case indeterminate(errnoCode: Int32)
+}
+
 /// Probes whether `path` is a Unix socket with an active listener.
 /// The timeout parameter is accepted for existing call sites but intentionally
 /// ignored because nonblocking local Unix socket connects complete immediately.
 nonisolated func socketPathHasLiveListener(_ path: String, timeout _: TimeInterval) -> Bool {
+    socketLiveListenerProbeResult(path, timeout: 0) == .liveListener
+}
+
+/// Probes whether `path` is a Unix socket with an active listener while keeping
+/// resource failures distinct from confirmed listener collisions.
+/// The timeout parameter is accepted for existing call sites but intentionally
+/// ignored because nonblocking local Unix socket connects complete immediately.
+nonisolated func socketLiveListenerProbeResult(_ path: String, timeout _: TimeInterval) -> SocketLiveListenerProbeResult {
     var st = stat()
     guard lstat(path, &st) == 0,
           (st.st_mode & mode_t(S_IFMT)) == mode_t(S_IFSOCK) else {
-        return false
+        return .noListener
     }
 
     let fd = socket(AF_UNIX, SOCK_STREAM, 0)
-    guard fd >= 0 else { return true }
+    guard fd >= 0 else { return .indeterminate(errnoCode: errno) }
     defer { close(fd) }
     _ = configureSocketProbeNoSigPipe(fd)
 
     let originalFlags = fcntl(fd, F_GETFL, 0)
-    guard originalFlags >= 0 else { return true }
-    guard fcntl(fd, F_SETFL, originalFlags | O_NONBLOCK) >= 0 else { return true }
+    guard originalFlags >= 0 else { return .indeterminate(errnoCode: errno) }
+    guard fcntl(fd, F_SETFL, originalFlags | O_NONBLOCK) >= 0 else {
+        return .indeterminate(errnoCode: errno)
+    }
     defer { _ = fcntl(fd, F_SETFL, originalFlags) }
 
-    guard var addr = socketProbeUnixSocketAddress(path: path) else { return false }
+    guard var addr = socketProbeUnixSocketAddress(path: path) else { return .noListener }
     var connectResult: Int32 = -1
     var connectErrno: Int32 = 0
     repeat {
@@ -40,12 +56,14 @@ nonisolated func socketPathHasLiveListener(_ path: String, timeout _: TimeInterv
     } while connectResult == -1 && connectErrno == EINTR
 
     if connectResult == 0 {
-        return true
+        return .liveListener
     }
     if connectErrno == EINPROGRESS || connectErrno == EAGAIN || connectErrno == EWOULDBLOCK {
-        return true
+        return .liveListener
     }
-    return !socketProbeErrorMeansNoListener(connectErrno)
+    return socketProbeErrorMeansNoListener(connectErrno)
+        ? .noListener
+        : .indeterminate(errnoCode: connectErrno)
 }
 
 private nonisolated func socketProbeUnixSocketAddress(path: String) -> sockaddr_un? {

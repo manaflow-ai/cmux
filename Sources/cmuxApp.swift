@@ -98,9 +98,21 @@ struct cmuxApp: App {
             return nil
         }
         let socketPath = config.path
-        return socketPathHasLiveListener(socketPath, timeout: 0.2)
-            ? socketPath
-            : nil
+        switch socketLiveListenerProbeResult(socketPath, timeout: 0.2) {
+        case .liveListener:
+            return socketPath
+        case .noListener:
+            return nil
+        case .indeterminate(let errnoCode):
+            StartupBreadcrumbLog.append(
+                "app.init.socketProbeIndeterminate",
+                fields: [
+                    "socket": socketCollisionLabel(for: socketPath),
+                    "errno": String(errnoCode)
+                ]
+            )
+            return nil
+        }
     }
 
     private static func terminateForSocketPathCollision(_ path: String) -> Never {
