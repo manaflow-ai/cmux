@@ -108,11 +108,7 @@ extension TerminalController {
             guard let windowId = try resolveEventsWindowId(params: params) else {
                 throw EventsScopeError(message: "Event scope window requires a resolvable window_id or caller/focused window")
             }
-            let workspaceIds = eventWorkspaceIds(windowId: windowId)
-            CmuxEventWindowWorkspaceIndex.shared.replace(
-                windowId: windowId.uuidString,
-                workspaceIds: workspaceIds
-            )
+            let workspaceIds = refreshEventWorkspaceIds(windowId: windowId)
             return CmuxEventScope(
                 kind: .window,
                 windowId: windowId.uuidString,
@@ -463,10 +459,19 @@ extension TerminalController {
         }
     }
 
-    private nonisolated func eventWorkspaceIds(windowId: UUID) -> Set<String> {
+    private nonisolated func refreshEventWorkspaceIds(windowId: UUID) -> Set<String> {
         v2MainSync {
-            guard let tabManager = AppDelegate.shared?.tabManagerFor(windowId: windowId) else { return [] }
-            return Set(tabManager.tabs.map { $0.id.uuidString })
+            let workspaceIds: Set<String>
+            if let tabManager = AppDelegate.shared?.tabManagerFor(windowId: windowId) {
+                workspaceIds = Set(tabManager.tabs.map { $0.id.uuidString })
+            } else {
+                workspaceIds = []
+            }
+            CmuxEventWindowWorkspaceIndex.shared.replace(
+                windowId: windowId.uuidString,
+                workspaceIds: workspaceIds
+            )
+            return workspaceIds
         }
     }
 

@@ -223,7 +223,10 @@ extension CMUXCLI {
         let hasSelector = options.window != nil || options.workspace != nil ||
             options.surface != nil || options.pane != nil
         if effectiveScope == "global", hasSelector {
-            throw CLIError(message: "--scope global cannot be combined with --window, --workspace, --surface, or --pane")
+            throw CLIError(message: String(
+                localized: "cli.error.eventsGlobalScopeWithSelectors",
+                defaultValue: "--scope global cannot be combined with --window, --workspace, --surface, or --pane."
+            ))
         }
         params["scope"] = effectiveScope
 
@@ -269,7 +272,8 @@ extension CMUXCLI {
             let surfaceHandle = try normalizeSurfaceHandle(
                 options.surface,
                 client: resolver,
-                workspaceHandle: workspaceHandle
+                workspaceHandle: workspaceHandle,
+                windowHandle: windowHandle
             )
             if let surfaceHandle {
                 params["surface_id"] = surfaceHandle
@@ -278,7 +282,8 @@ extension CMUXCLI {
             let paneHandle = try normalizePaneHandle(
                 options.pane,
                 client: resolver,
-                workspaceHandle: workspaceHandle
+                workspaceHandle: workspaceHandle,
+                windowHandle: windowHandle
             )
             if let paneHandle {
                 params["pane_id"] = paneHandle

@@ -8504,6 +8504,7 @@ class TerminalController {
             }
             let sourceIndex = sourceWorkspace.indexInPane(forPanelId: surfaceId)
             let sourcePaneForRollback = sourceWorkspace.paneId(forPanelId: surfaceId)
+            let sourceWindowId = v2ResolveWindowId(tabManager: tabManager)
 
             guard let detached = sourceWorkspace.detachSurface(panelId: surfaceId) else {
                 result = .err(code: "internal_error", message: "Failed to detach source surface", data: nil)
@@ -8542,6 +8543,12 @@ class TerminalController {
                 "window_ref": v2Ref(kind: .window, uuid: windowId),
                 "workspace_id": destinationWorkspace.id.uuidString,
                 "workspace_ref": v2Ref(kind: .workspace, uuid: destinationWorkspace.id),
+                "source_window_id": v2OrNull(sourceWindowId?.uuidString),
+                "source_window_ref": v2Ref(kind: .window, uuid: sourceWindowId),
+                "source_workspace_id": sourceWorkspace.id.uuidString,
+                "source_workspace_ref": v2Ref(kind: .workspace, uuid: sourceWorkspace.id),
+                "source_pane_id": v2OrNull(sourcePaneForRollback?.id.uuidString),
+                "source_pane_ref": v2Ref(kind: .pane, uuid: sourcePaneForRollback?.id),
                 "pane_id": destinationPaneId.uuidString,
                 "pane_ref": v2Ref(kind: .pane, uuid: destinationPaneId),
                 "surface_id": surfaceId.uuidString,

@@ -4275,6 +4275,7 @@ struct CMUXCLI {
         _ raw: String?,
         client: SocketClient,
         workspaceHandle: String? = nil,
+        windowHandle: String? = nil,
         allowFocused: Bool = false
     ) throws -> String? {
         guard let raw else {
@@ -4294,6 +4295,9 @@ struct CMUXCLI {
         }
 
         var params: [String: Any] = [:]
+        if let windowHandle {
+            params["window_id"] = windowHandle
+        }
         if let workspaceHandle {
             params["workspace_id"] = workspaceHandle
         }

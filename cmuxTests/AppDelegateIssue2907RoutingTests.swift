@@ -663,6 +663,45 @@ final class AppDelegateIssue2907RoutingTests: XCTestCase {
         XCTAssertEqual(result["surface_id"] as? String, movedPanel.id.uuidString)
     }
 
+    func testPaneBreakResponseIncludesSourceScopeContext() throws {
+        _ = NSApplication.shared
+        let previousAppDelegate = AppDelegate.shared
+        let app = AppDelegate()
+        defer {
+            AppDelegate.shared = previousAppDelegate
+        }
+
+        let windowId = UUID()
+        let manager = TabManager()
+        defer {
+            TerminalController.shared.setActiveTabManager(nil)
+            app.unregisterMainWindowContextForTesting(windowId: windowId)
+        }
+
+        app.registerMainWindowContextForTesting(windowId: windowId, tabManager: manager)
+        TerminalController.shared.setActiveTabManager(manager)
+
+        let sourceWorkspace = try XCTUnwrap(manager.selectedWorkspace)
+        let sourcePaneId = try XCTUnwrap(sourceWorkspace.bonsplitController.allPaneIds.first)
+        let brokenPanel = try XCTUnwrap(sourceWorkspace.newTerminalSurface(inPane: sourcePaneId, focus: false))
+
+        let result = try v2Result(
+            method: "pane.break",
+            params: [
+                "surface_id": brokenPanel.id.uuidString,
+                "focus": false
+            ]
+        )
+
+        XCTAssertEqual(result["window_id"] as? String, windowId.uuidString)
+        XCTAssertEqual(result["source_window_id"] as? String, windowId.uuidString)
+        XCTAssertEqual(result["source_workspace_id"] as? String, sourceWorkspace.id.uuidString)
+        XCTAssertEqual(result["source_pane_id"] as? String, sourcePaneId.id.uuidString)
+        XCTAssertEqual(result["surface_id"] as? String, brokenPanel.id.uuidString)
+        XCTAssertNotEqual(result["workspace_id"] as? String, sourceWorkspace.id.uuidString)
+        XCTAssertNotNil(result["pane_id"] as? String)
+    }
+
     func testIssue2907NoTargetCommandsPreferKeyRecoveredWindowOverRegisteredWindow() throws {
         _ = NSApplication.shared
         let previousAppDelegate = AppDelegate.shared

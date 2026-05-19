@@ -153,7 +153,7 @@ struct CmuxEventScope {
     let surfaceId: String?
     let paneId: String?
     let windowWorkspaceIds: Set<String>
-    private let currentWindowWorkspaceIdsProvider: (() -> Set<String>)?
+    private let currentWindowWorkspaceIdsProvider: (@Sendable () -> Set<String>)?
 
     static let global = CmuxEventScope(kind: .global)
 
@@ -164,7 +164,7 @@ struct CmuxEventScope {
         surfaceId: String? = nil,
         paneId: String? = nil,
         windowWorkspaceIds: Set<String> = [],
-        currentWindowWorkspaceIdsProvider: (() -> Set<String>)? = nil
+        currentWindowWorkspaceIdsProvider: (@Sendable () -> Set<String>)? = nil
     ) {
         self.kind = kind
         self.windowId = Self.normalizedId(windowId)

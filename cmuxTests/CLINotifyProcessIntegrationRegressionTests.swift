@@ -684,6 +684,7 @@ final class CLINotifyProcessIntegrationRegressionTests: XCTestCase {
                 )
             case "surface.list":
                 let params = payload["params"] as? [String: Any] ?? [:]
+                XCTAssertEqual(params["window_id"] as? String, windowId)
                 XCTAssertEqual(params["workspace_id"] as? String, workspaceId)
                 return self.v2Response(
                     id: id,
@@ -731,6 +732,92 @@ final class CLINotifyProcessIntegrationRegressionTests: XCTestCase {
         XCTAssertEqual(
             state.commands.compactMap { self.jsonObject($0)?["method"] as? String },
             ["workspace.current", "surface.list", "events.stream"]
+        )
+    }
+
+    func testEventPaneIndexResolutionPreservesWindowContext() throws {
+        let cliPath = try bundledCLIPath()
+        let socketPath = makeSocketPath("evt-pane-window")
+        let listenerFD = try bindUnixSocket(at: socketPath)
+        let state = MockSocketServerState()
+        let windowId = "11111111-1111-1111-1111-111111111111"
+        let workspaceId = "22222222-2222-2222-2222-222222222222"
+        let paneId = "33333333-3333-3333-3333-333333333333"
+
+        defer {
+            Darwin.close(listenerFD)
+            unlink(socketPath)
+        }
+
+        let serverHandled = startMultiConnectionMockServer(
+            listenerFD: listenerFD,
+            connectionCount: 2,
+            state: state
+        ) { line in
+            guard let payload = self.jsonObject(line),
+                  let id = payload["id"] as? String,
+                  let method = payload["method"] as? String else {
+                return self.malformedRequestResponse(raw: line)
+            }
+            switch method {
+            case "workspace.current":
+                let params = payload["params"] as? [String: Any] ?? [:]
+                XCTAssertEqual(params["window_id"] as? String, windowId)
+                return self.v2Response(
+                    id: id,
+                    ok: true,
+                    result: ["workspace_id": workspaceId]
+                )
+            case "pane.list":
+                let params = payload["params"] as? [String: Any] ?? [:]
+                XCTAssertEqual(params["window_id"] as? String, windowId)
+                XCTAssertEqual(params["workspace_id"] as? String, workspaceId)
+                return self.v2Response(
+                    id: id,
+                    ok: true,
+                    result: ["panes": [["id": paneId, "index": 1]]]
+                )
+            case "events.stream":
+                let params = payload["params"] as? [String: Any] ?? [:]
+                XCTAssertEqual(params["scope"] as? String, "pane")
+                XCTAssertEqual(params["window_id"] as? String, windowId)
+                XCTAssertEqual(params["workspace_id"] as? String, workspaceId)
+                XCTAssertEqual(params["pane_id"] as? String, paneId)
+                return #"{"type":"event","seq":1}"#
+            default:
+                return self.v2Response(
+                    id: id,
+                    ok: false,
+                    error: ["code": "unexpected_method", "message": "Unexpected method \(method)"]
+                )
+            }
+        }
+
+        var environment = ProcessInfo.processInfo.environment
+        environment["CMUX_SOCKET_PATH"] = socketPath
+        environment["CMUX_CLI_SENTRY_DISABLED"] = "1"
+
+        let result = runProcess(
+            executablePath: cliPath,
+            arguments: [
+                "events",
+                "--window", windowId,
+                "--pane", "1",
+                "--limit", "1",
+                "--no-ack",
+                "--no-heartbeat"
+            ],
+            environment: environment,
+            timeout: 5
+        )
+
+        wait(for: [serverHandled], timeout: 5)
+        XCTAssertFalse(result.timedOut, result.stderr)
+        XCTAssertEqual(result.status, 0, result.stderr)
+        XCTAssertTrue(result.stdout.contains(#""seq":1"#), result.stdout)
+        XCTAssertEqual(
+            state.commands.compactMap { self.jsonObject($0)?["method"] as? String },
+            ["workspace.current", "pane.list", "events.stream"]
         )
     }
 
