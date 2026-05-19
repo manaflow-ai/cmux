@@ -17,7 +17,7 @@ final class CMUXCLINodeOptionsShimWriterTests: XCTestCase {
         let canonicalScript = "module.exports = true\n"
         try (canonicalScript + "\n").write(to: shimURL, atomically: false, encoding: .utf8)
 
-        try CMUXCLI(args: []).writeShimIfChanged(canonicalScript, to: shimURL, mode: 0o600)
+        try CMUXCLIShimWriter.writeIfChanged(canonicalScript, to: shimURL, mode: 0o600)
 
         XCTAssertEqual(try String(contentsOf: shimURL, encoding: .utf8), canonicalScript)
         let mode = try FileManager.default.attributesOfItem(atPath: shimURL.path)[.posixPermissions] as? NSNumber
