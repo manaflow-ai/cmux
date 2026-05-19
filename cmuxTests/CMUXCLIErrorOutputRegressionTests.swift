@@ -285,6 +285,49 @@ final class CMUXCLIErrorOutputRegressionTests: XCTestCase {
         XCTAssertEqual(object["version"] as? String, "0.0.0-generated")
     }
 
+    func testUseCommandRemovesLaunchScriptWhenSocketConnectionFails() throws {
+        let cliPath = try bundledCLIPath()
+        let directory = try temporaryDirectory()
+        defer { try? FileManager.default.removeItem(at: directory) }
+
+        let tempURL = directory.appendingPathComponent("tmp", isDirectory: true)
+        try FileManager.default.createDirectory(at: tempURL, withIntermediateDirectories: true)
+
+        let fakeBinURL = directory.appendingPathComponent("bin", isDirectory: true)
+        try FileManager.default.createDirectory(at: fakeBinURL, withIntermediateDirectories: true)
+        let fakeGitURL = fakeBinURL.appendingPathComponent("git", isDirectory: false)
+        try """
+        #!/bin/sh
+        if [ "$1" = "clone" ]; then
+          mkdir -p "$3/.git"
+          cat > "$3/package.json" <<'JSON'
+        {"name":"Repo","version":"1.0.0"}
+        JSON
+          exit 0
+        fi
+        exit 1
+        """.write(to: fakeGitURL, atomically: true, encoding: .utf8)
+        try FileManager.default.setAttributes([.posixPermissions: 0o700], ofItemAtPath: fakeGitURL.path)
+
+        let homeURL = directory.appendingPathComponent("home", isDirectory: true)
+        try FileManager.default.createDirectory(at: homeURL, withIntermediateDirectories: true)
+
+        let result = runShell(
+            "HOME=\(shellSingleQuote(homeURL.path)) TMPDIR=\(shellSingleQuote(tempURL.path)) PATH=\(shellSingleQuote(fakeBinURL.path)):/usr/bin:/bin CMUX_CLI_SENTRY_DISABLED=1 \(shellSingleQuote(cliPath)) --socket cmux-missing.sock use owner/repo --command \"echo hello\" 2>&1",
+            timeout: 5
+        )
+
+        XCTAssertFalse(result.timedOut, result.stdout)
+        XCTAssertEqual(result.status, 1, result.stdout)
+        XCTAssertTrue(result.stdout.contains("Failed to connect to cmux socket at cmux-missing.sock"), result.stdout)
+
+        let leakedScripts = try FileManager.default.contentsOfDirectory(
+            at: tempURL,
+            includingPropertiesForKeys: nil
+        ).filter { $0.lastPathComponent.hasPrefix("cmux-use-launch-") }
+        XCTAssertTrue(leakedScripts.isEmpty, leakedScripts.map(\.path).joined(separator: "\n"))
+    }
+
     func testBrowserDownloadWaitUsesRequestedTimeoutForSocketResponse() throws {
         let cliPath = try bundledCLIPath()
         let socketPath = "/tmp/cmux-dw-\(UUID().uuidString.prefix(8)).sock"
