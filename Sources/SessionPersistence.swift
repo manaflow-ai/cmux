@@ -986,12 +986,14 @@ struct SessionTerminalPanelSnapshot: Codable, Sendable {
 
     init(
         workingDirectory: String? = nil,
+        terminalSessionId: UUID? = nil,
         scrollback: String? = nil,
         agent: SessionRestorableAgentSnapshot? = nil,
         tmuxStartCommand: String? = nil,
         resumeBinding: SurfaceResumeBindingSnapshot? = nil
     ) {
         self.workingDirectory = workingDirectory
+        self.terminalSessionId = terminalSessionId
         self.scrollback = scrollback
         self.agent = agent
         self.tmuxStartCommand = tmuxStartCommand
