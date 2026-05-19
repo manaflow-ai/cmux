@@ -21451,7 +21451,14 @@ export default function cmuxPiSessionExtension(pi: ExtensionAPI) {
         } else {
             json["hooks"] = hooks
         }
-        let newData = try JSONSerialization.data(withJSONObject: json, options: [.prettyPrinted, .sortedKeys])
+        var newData = try JSONSerialization.data(withJSONObject: json, options: [.prettyPrinted, .sortedKeys])
+        if let original = String(data: data, encoding: .utf8),
+           let serialized = String(data: newData, encoding: .utf8) {
+            let prefix = Self.leadingJSONLineCommentPrefix(from: original)
+            if !prefix.isEmpty, let prefixedData = (prefix + serialized).data(using: .utf8) {
+                newData = prefixedData
+            }
+        }
         try newData.write(to: legacyURL, options: .atomic)
         print(String(format: String(localized: "cli.hooks.legacy.removedEntries", defaultValue: "Removed %lld legacy %@ cmux hook(s) from %@"), Int64(removed), def.displayName, legacyURL.path))
     }
@@ -21677,6 +21684,21 @@ export default function cmuxPiSessionExtension(pi: ExtensionAPI) {
         }
 
         return result
+    }
+
+    private static func leadingJSONLineCommentPrefix(from string: String) -> String {
+        var prefix = ""
+        var index = string.startIndex
+        while index < string.endIndex {
+            let lineEnd = string[index...].firstIndex(of: "\n") ?? string.endIndex
+            let nextIndex = lineEnd < string.endIndex ? string.index(after: lineEnd) : lineEnd
+            let line = String(string[index..<lineEnd])
+            let trimmed = line.trimmingCharacters(in: .whitespaces)
+            guard trimmed.isEmpty || trimmed.hasPrefix("//") else { break }
+            prefix += String(string[index..<nextIndex])
+            index = nextIndex
+        }
+        return prefix
     }
 
     private static func removeCmuxOwnedFlatOrNestedHooks(

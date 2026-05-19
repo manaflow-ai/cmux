@@ -1894,6 +1894,10 @@ extension CLINotifyProcessIntegrationRegressionTests {
         XCTAssertEqual(preToolUse.first?["timeoutSec"] as? Int, 120)
 
         var configJSONC = try String(contentsOf: configURL, encoding: .utf8)
+        XCTAssertTrue(
+            configJSONC.hasPrefix("// Copilot CLI 1.0.49 writes comments at the top of config.json."),
+            configJSONC
+        )
         XCTAssertFalse(configJSONC.contains(#""hooks""#), configJSONC)
 
         try """
