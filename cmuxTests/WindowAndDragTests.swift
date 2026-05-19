@@ -2585,6 +2585,19 @@ final class FilePreviewPanelTextSavingTests: XCTestCase {
         XCTAssertEqual(FilePreviewKindResolver.tabIconName(for: url), "doc.richtext")
     }
 
+    func testTypeScriptExtensionResolvesToTextNotMediaPlayer() throws {
+        let url = FileManager.default.temporaryDirectory
+            .appendingPathComponent(UUID().uuidString)
+            .appendingPathExtension("ts")
+        defer { try? FileManager.default.removeItem(at: url) }
+
+        try Data("export const greeting: string = \"hi\"\n".utf8).write(to: url)
+
+        XCTAssertEqual(FilePreviewKindResolver.initialMode(for: url), .text)
+        XCTAssertEqual(FilePreviewKindResolver.mode(for: url), .text)
+        XCTAssertEqual(FilePreviewKindResolver.tabIconName(for: url), "doc.text")
+    }
+
     func testUTF16TextWithBOMStillResolvesAsText() throws {
         let url = try temporaryTextFile(contents: "hello", encoding: .utf16)
         defer { try? FileManager.default.removeItem(at: url) }
