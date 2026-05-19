@@ -42,8 +42,10 @@ SETTING_SAMPLE_VALUES: dict[str, tuple[str, Any]] = {
     "automation.socketControlMode": ("allow_all", "allowAll"),
     "automation.socketPassword": ("span-secret", "span-secret"),
     "browser.defaultSearchEngine": ("duckduckgo", "duckduckgo"),
+    "browser.discardHiddenWebViews": ("false", False),
     "browser.enabled": ("false", False),
     "browser.hostsToOpenInEmbeddedBrowser": ("example.com,*.internal", ["example.com", "*.internal"]),
+    "browser.hiddenWebViewDiscardDelaySeconds": ("42.5", 42.5),
     "browser.insecureHttpHostsAllowedInEmbeddedBrowser": (
         '["localhost","127.0.0.1","dev.local"]',
         ["localhost", "127.0.0.1", "dev.local"],
