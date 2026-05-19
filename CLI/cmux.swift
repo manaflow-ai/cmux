@@ -17385,6 +17385,7 @@ struct CMUXCLI {
                     markActive: true,
                     turnId: parsedInput.turnId
                 )
+                try? sessionStore.clearNotificationEmission(sessionId: sessionId)
                 publishAgentSurfaceResumeBinding(
                     client: client,
                     workspaceId: workspaceId,
@@ -17641,6 +17642,9 @@ struct CMUXCLI {
             }
 
             _ = try? sendV1Command("clear_notifications --tab=\(workspaceId)", client: client)
+            if let sessionId = parsedInput.sessionId {
+                try? sessionStore.clearNotificationEmission(sessionId: sessionId)
+            }
 
             let statusValue: String
             if UserDefaults.standard.bool(forKey: "claudeCodeVerboseStatus"),
