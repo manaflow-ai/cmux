@@ -22768,14 +22768,16 @@ export default function cmuxPiSessionExtension(pi: ExtensionAPI) {
                 )
             }
 
-            let shouldPublishStopNotification = def.publishesStopNotification
             let notificationFingerprint = notificationDedupeFingerprint(status: stopNotificationStatus)
-            if shouldPublishStopNotification, shouldSendNotification(fingerprint: notificationFingerprint) {
+            let shouldPublishStopNotification = def.publishesStopNotification
+            let shouldPublishGrokStopFallbackNotification = def.name == "grok" && stopNotificationStatus == .idle
+            let shouldPublishStopAlert = shouldPublishStopNotification || shouldPublishGrokStopFallbackNotification
+            if shouldPublishStopAlert, shouldSendNotification(fingerprint: notificationFingerprint) {
                 let payload = notificationPayload(title: def.displayName, subtitle: subtitle, body: body)
                 let notifyCommand = "notify_target_async \(workspaceId) \(surfaceId) \(payload)"
 #if DEBUG
                 agentHookDebugLog(
-                    "agentHook.stop.notify agent=\(def.name) session=\(agentHookDebugShort(sessionId)) workspace=\(agentHookDebugShort(workspaceId)) surface=\(agentHookDebugShort(surfaceId)) subtitleLen=\(subtitle.count) bodyLen=\(body.count)",
+                    "agentHook.stop.notify agent=\(def.name) session=\(agentHookDebugShort(sessionId)) fallback=\(shouldPublishGrokStopFallbackNotification ? 1 : 0) workspace=\(agentHookDebugShort(workspaceId)) surface=\(agentHookDebugShort(surfaceId)) subtitleLen=\(subtitle.count) bodyLen=\(body.count)",
                     socketPath: client.socketPath,
                     env: env
                 )
@@ -22799,10 +22801,10 @@ export default function cmuxPiSessionExtension(pi: ExtensionAPI) {
                     )
 #endif
                 }
-            } else if shouldPublishStopNotification {
+            } else if shouldPublishStopAlert {
 #if DEBUG
                 agentHookDebugLog(
-                    "agentHook.stop.notify.skipDuplicate agent=\(def.name) session=\(agentHookDebugShort(sessionId)) fingerprint=\(agentHookDebugShort(notificationFingerprint))",
+                    "agentHook.stop.notify.skipDuplicate agent=\(def.name) session=\(agentHookDebugShort(sessionId)) fallback=\(shouldPublishGrokStopFallbackNotification ? 1 : 0) fingerprint=\(agentHookDebugShort(notificationFingerprint))",
                     socketPath: client.socketPath,
                     env: env
                 )
