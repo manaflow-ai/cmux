@@ -463,6 +463,114 @@ final class CmuxWebViewKeyEquivalentTests: XCTestCase {
         XCTAssertFalse(spy.invoked)
     }
 
+    @MainActor
+    func testWindowCmdCCopyFallsBackToMainMenuWhenFocusedBrowserChildDoesNotHandleIt() {
+        _ = NSApplication.shared
+        AppDelegate.installWindowResponderSwizzlesForTesting()
+        installCmuxUnitTestWKWebViewPerformKeyEquivalentOverride()
+
+        let spy = ActionSpy()
+        installMenu(spy: spy, key: "c", modifiers: [.command])
+
+        let window = NSWindow(
+            contentRect: NSRect(x: 0, y: 0, width: 640, height: 420),
+            styleMask: [.titled, .closable],
+            backing: .buffered,
+            defer: false
+        )
+        let container = NSView(frame: window.contentRect(forFrameRect: window.frame))
+        window.contentView = container
+
+        let webView = CmuxWebView(frame: container.bounds, configuration: WKWebViewConfiguration())
+        webView.autoresizingMask = [.width, .height]
+        container.addSubview(webView)
+
+        let responder = FirstResponderView(frame: NSRect(x: 0, y: 0, width: 32, height: 20))
+        webView.addSubview(responder)
+
+        var forwardedEvents: [NSEvent] = []
+        cmuxUnitTestWKWebViewPerformKeyEquivalentHook = { currentWebView, event in
+            guard currentWebView === webView else { return nil }
+            forwardedEvents.append(event)
+            return false
+        }
+
+        window.makeKeyAndOrderFront(nil)
+        defer {
+            cmuxUnitTestWKWebViewPerformKeyEquivalentHook = nil
+            window.orderOut(nil)
+        }
+
+        XCTAssertTrue(window.makeFirstResponder(responder))
+        guard let event = makeKeyDownEvent(
+            key: "c",
+            modifiers: [.command],
+            keyCode: 8,
+            windowNumber: window.windowNumber
+        ) else {
+            XCTFail("Failed to construct Cmd+C event")
+            return
+        }
+
+        XCTAssertTrue(window.performKeyEquivalent(with: event))
+        XCTAssertEqual(forwardedEvents.count, 1)
+        XCTAssertEqual(forwardedEvents.first?.keyCode, 8)
+        XCTAssertTrue(spy.invoked)
+    }
+
+    @MainActor
+    func testWindowCmdCCopySuppressesSecondWebContentReplayWhenFocusedBrowserChildAndMenuDecline() {
+        _ = NSApplication.shared
+        AppDelegate.installWindowResponderSwizzlesForTesting()
+        installCmuxUnitTestWKWebViewPerformKeyEquivalentOverride()
+
+        NSApp.mainMenu = NSMenu(title: "Main")
+
+        let window = NSWindow(
+            contentRect: NSRect(x: 0, y: 0, width: 640, height: 420),
+            styleMask: [.titled, .closable],
+            backing: .buffered,
+            defer: false
+        )
+        let container = NSView(frame: window.contentRect(forFrameRect: window.frame))
+        window.contentView = container
+
+        let webView = CmuxWebView(frame: container.bounds, configuration: WKWebViewConfiguration())
+        webView.autoresizingMask = [.width, .height]
+        container.addSubview(webView)
+
+        let responder = FirstResponderView(frame: NSRect(x: 0, y: 0, width: 32, height: 20))
+        webView.addSubview(responder)
+
+        var forwardedEvents: [NSEvent] = []
+        cmuxUnitTestWKWebViewPerformKeyEquivalentHook = { currentWebView, event in
+            guard currentWebView === webView else { return nil }
+            forwardedEvents.append(event)
+            return false
+        }
+
+        window.makeKeyAndOrderFront(nil)
+        defer {
+            cmuxUnitTestWKWebViewPerformKeyEquivalentHook = nil
+            window.orderOut(nil)
+        }
+
+        XCTAssertTrue(window.makeFirstResponder(responder))
+        guard let event = makeKeyDownEvent(
+            key: "c",
+            modifiers: [.command],
+            keyCode: 8,
+            windowNumber: window.windowNumber
+        ) else {
+            XCTFail("Failed to construct Cmd+C event")
+            return
+        }
+
+        XCTAssertTrue(window.performKeyEquivalent(with: event))
+        XCTAssertEqual(forwardedEvents.count, 1)
+        XCTAssertEqual(forwardedEvents.first?.keyCode, 8)
+    }
+
     func testReturnDoesNotRouteToMainMenuWhenWebViewIsFirstResponder() {
         let spy = ActionSpy()
         installMenu(spy: spy, key: "\r", modifiers: [])
@@ -982,6 +1090,62 @@ final class CmuxWebViewKeyEquivalentTests: XCTestCase {
             [123],
             "A live omnibar field editor must receive plain arrows through keyDown so NSTextView can move the caret"
         )
+    }
+
+    @MainActor
+    func testWindowArrowForwardingRoutesFocusedMarkedTextOmnibarFieldEditorThroughKeyDown() {
+        _ = NSApplication.shared
+        AppDelegate.installWindowResponderSwizzlesForTesting()
+
+        let panelId = UUID()
+        let window = FieldEditorProbeWindow(
+            contentRect: NSRect(x: 0, y: 0, width: 640, height: 420),
+            styleMask: [.titled, .closable],
+            backing: .buffered,
+            defer: false
+        )
+        let container = NSView(frame: window.contentRect(forFrameRect: window.frame))
+        window.contentView = container
+
+        let field = OmnibarNativeTextField(frame: NSRect(x: 12, y: 380, width: 360, height: 24))
+        field.panelId = panelId
+        field.stringValue = "ㄉㄚˋ"
+        container.addSubview(field)
+
+        window.makeKeyAndOrderFront(nil)
+        defer {
+            NotificationCenter.default.post(name: .browserDidBlurAddressBar, object: panelId)
+            AppDelegate.clearWindowFirstResponderGuardTesting()
+            field.removeFromSuperview()
+            window.contentView = nil
+            window.orderOut(nil)
+        }
+
+        XCTAssertTrue(window.makeFirstResponder(field))
+        guard field.currentEditor() === window.testFieldEditor else {
+            XCTFail("Expected the omnibar to use the probe field editor")
+            return
+        }
+
+        NotificationCenter.default.post(name: .browserDidFocusAddressBar, object: panelId)
+        window.testFieldEditor.resetKeyDownKeyCodes()
+        window.testFieldEditor.reportsMarkedText = true
+
+        guard let downArrowEvent = makeKeyDownEvent(
+            key: String(UnicodeScalar(NSDownArrowFunctionKey)!),
+            modifiers: [],
+            keyCode: 125,
+            windowNumber: window.windowNumber
+        ) else {
+            XCTFail("Failed to construct Down Arrow event")
+            return
+        }
+
+        XCTAssertTrue(
+            window.performKeyEquivalent(with: downArrowEvent),
+            "Marked-text omnibar arrows must be delivered directly to the field editor instead of falling through to original key-equivalent handling"
+        )
+        XCTAssertEqual(window.testFieldEditor.keyDownKeyCodes, [125])
     }
 
     @MainActor
@@ -3777,6 +3941,51 @@ final class BrowserOmnibarKeyboardNavigationTests: XCTestCase {
                 hasFocusedAddressBar: true,
                 flags: [.command, .capsLock],
                 chars: "p"
+            )
+        )
+    }
+
+    func testMarkedTextBypassesOmnibarShortcutRoutingUnlessCommandModified() {
+        XCTAssertTrue(
+            browserOmnibarShouldBypassShortcutRoutingForMarkedText(
+                hasFocusedAddressBar: true,
+                firstResponderHasMarkedText: true,
+                flags: []
+            )
+        )
+        XCTAssertTrue(
+            browserOmnibarShouldBypassShortcutRoutingForMarkedText(
+                hasFocusedAddressBar: true,
+                firstResponderHasMarkedText: true,
+                flags: [.control]
+            )
+        )
+        XCTAssertTrue(
+            browserOmnibarShouldBypassShortcutRoutingForMarkedText(
+                hasFocusedAddressBar: true,
+                firstResponderHasMarkedText: true,
+                flags: [.function]
+            )
+        )
+        XCTAssertFalse(
+            browserOmnibarShouldBypassShortcutRoutingForMarkedText(
+                hasFocusedAddressBar: true,
+                firstResponderHasMarkedText: true,
+                flags: [.command]
+            )
+        )
+        XCTAssertFalse(
+            browserOmnibarShouldBypassShortcutRoutingForMarkedText(
+                hasFocusedAddressBar: false,
+                firstResponderHasMarkedText: true,
+                flags: []
+            )
+        )
+        XCTAssertFalse(
+            browserOmnibarShouldBypassShortcutRoutingForMarkedText(
+                hasFocusedAddressBar: true,
+                firstResponderHasMarkedText: false,
+                flags: []
             )
         )
     }
