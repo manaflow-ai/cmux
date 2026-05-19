@@ -32,7 +32,8 @@ extension CMUXCLI {
 
     private func runInteractiveThemes() throws {
         guard let helperURL = bundledHelperURL(named: "ghostty") else {
-            throw CLIError(message: "Bundled Ghostty theme picker helper not found")
+            try printThemesList(jsonOutput: false)
+            return
         }
 
         let selection = currentThemeSelection()
@@ -108,7 +109,21 @@ extension CMUXCLI {
             current = parent
         }
 
-        return candidates.first(where: { fileManager.isExecutableFile(atPath: $0.path) })
+        return candidates.first { candidate in
+            fileManager.isExecutableFile(atPath: candidate.path)
+                && !isSkippedGhosttyHelperStub(candidate)
+        }
+    }
+
+    private func isSkippedGhosttyHelperStub(_ helperURL: URL) -> Bool {
+        let fileManager = FileManager.default
+        guard let attributes = try? fileManager.attributesOfItem(atPath: helperURL.path),
+              let size = attributes[.size] as? NSNumber,
+              size.intValue <= 4096,
+              let contents = try? String(contentsOf: helperURL, encoding: .utf8) else {
+            return false
+        }
+        return contents.contains("ghostty CLI helper stub (zig build skipped)")
     }
 
     private func execInteractiveHelper(
