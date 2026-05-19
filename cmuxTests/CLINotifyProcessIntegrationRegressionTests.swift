@@ -122,6 +122,16 @@ final class CLINotifyProcessIntegrationRegressionTests: XCTestCase {
             },
             "Expected stale Stop from old session not to clobber the clear session, saw \(context.state.commands)"
         )
+        let resumeBindingRequests = context.state.commands.compactMap { command -> [String: Any]? in
+            guard let payload = jsonObject(command),
+                  payload["method"] as? String == "surface.resume.set" else {
+                return nil
+            }
+            return payload["params"] as? [String: Any]
+        }
+        XCTAssertEqual(resumeBindingRequests.count, 1, context.state.commands.joined(separator: "\n"))
+        XCTAssertEqual(resumeBindingRequests.first?["checkpoint_id"] as? String, "clear-session")
+        XCTAssertEqual(resumeBindingRequests.first?["auto_resume"] as? Bool, true)
     }
 
     func testClaudePromptSubmitFromNewSessionCanReplaceStoppedSession() throws {
@@ -176,6 +186,67 @@ final class CLINotifyProcessIntegrationRegressionTests: XCTestCase {
             },
             "Expected a new Claude session to replace a stopped idle owner on prompt-submit, saw \(newPromptCommands)"
         )
+    }
+
+    func testClaudePromptSubmitResumeBindingPersistsAuthSelectionMarkersWithoutValues() throws {
+        let context = try makeClaudeHookContext(name: "claude-resume-env-redaction")
+        defer { context.cleanup() }
+
+        let sessionId = "claude-redacted-env-session"
+        let launchEnvironment = [
+            "CMUX_AGENT_LAUNCH_KIND": "claude",
+            "CMUX_AGENT_LAUNCH_EXECUTABLE": "/usr/local/bin/claude",
+            "CMUX_AGENT_LAUNCH_CWD": context.root.path,
+            "CMUX_AGENT_LAUNCH_ARGV_B64": base64NULSeparated([
+                "/usr/local/bin/claude",
+                "--model",
+                "sonnet",
+            ]),
+            "ANTHROPIC_API_KEY": "should-not-persist",
+            "ANTHROPIC_BASE_URL": "https://api.example.test",
+            "ANTHROPIC_MODEL": "claude-sonnet-test",
+            "CLAUDE_CONFIG_DIR": context.root.appendingPathComponent("claude-config", isDirectory: true).path,
+        ]
+        let start = runClaudeHook(
+            context: context,
+            arguments: ["hooks", "claude", "session-start"],
+            standardInput: #"{"session_id":"\#(sessionId)","source":"startup","cwd":"\#(context.root.path)","hook_event_name":"SessionStart"}"#,
+            extraEnvironment: launchEnvironment
+        )
+        XCTAssertFalse(start.timedOut, start.stderr)
+        XCTAssertEqual(start.status, 0, start.stderr)
+
+        let commandStart = context.state.commands.count
+        let prompt = runClaudeHook(
+            context: context,
+            arguments: ["hooks", "claude", "prompt-submit"],
+            standardInput: #"{"session_id":"\#(sessionId)","turn_id":"turn-1","cwd":"\#(context.root.path)","hook_event_name":"UserPromptSubmit"}"#,
+            extraEnvironment: launchEnvironment
+        )
+        XCTAssertFalse(prompt.timedOut, prompt.stderr)
+        XCTAssertEqual(prompt.status, 0, prompt.stderr)
+
+        let promptCommands = Array(context.state.commands.dropFirst(commandStart))
+        let resumeBindingRequests = promptCommands.compactMap { command -> [String: Any]? in
+            guard let payload = jsonObject(command),
+                  payload["method"] as? String == "surface.resume.set" else {
+                return nil
+            }
+            return payload["params"] as? [String: Any]
+        }
+        XCTAssertEqual(resumeBindingRequests.count, 1, promptCommands.joined(separator: "\n"))
+        let request = try XCTUnwrap(resumeBindingRequests.first)
+        XCTAssertEqual(request["auto_resume"] as? Bool, true)
+        let environment = try XCTUnwrap(request["environment"] as? [String: Any])
+        XCTAssertEqual(environment["CMUX_PRESERVE_CLAUDE_AUTH_SELECTION_ENV"] as? String, "1")
+        XCTAssertEqual(
+            environment["CMUX_PRESERVE_CLAUDE_AUTH_SELECTION_ENV_KEYS"] as? String,
+            "ANTHROPIC_BASE_URL,ANTHROPIC_MODEL,CLAUDE_CONFIG_DIR"
+        )
+        XCTAssertNil(environment["ANTHROPIC_API_KEY"])
+        XCTAssertNil(environment["ANTHROPIC_BASE_URL"])
+        XCTAssertNil(environment["ANTHROPIC_MODEL"])
+        XCTAssertNil(environment["CLAUDE_CONFIG_DIR"])
     }
 
     func testClaudeSessionEndChecksConsumedWorkspaceBeforeClearingVisibleState() throws {
@@ -303,6 +374,51 @@ final class CLINotifyProcessIntegrationRegressionTests: XCTestCase {
         let activeSessions = try XCTUnwrap(savedState["activeSessionsByWorkspace"] as? [String: Any])
         let active = try XCTUnwrap(activeSessions[context.workspaceId] as? [String: Any])
         XCTAssertEqual(active["turnId"] as? String, "turn-2")
+    }
+
+    func testClaudeSessionEndClearsMatchingSurfaceResumeBinding() throws {
+        let context = try makeClaudeHookContext(name: "claude-session-end-resume-clear")
+        defer { context.cleanup() }
+
+        let sessionId = "ending-session"
+        let now = Date().timeIntervalSince1970
+        let store: [String: Any] = [
+            "version": 1,
+            "sessions": [
+                sessionId: [
+                    "sessionId": sessionId,
+                    "workspaceId": context.workspaceId,
+                    "surfaceId": context.surfaceId,
+                    "cwd": context.root.path,
+                    "startedAt": now,
+                    "updatedAt": now,
+                ],
+            ],
+        ]
+        let stateURL = context.root.appendingPathComponent("claude-hook-sessions.json")
+        try JSONSerialization.data(withJSONObject: store, options: [.prettyPrinted])
+            .write(to: stateURL, options: .atomic)
+
+        let result = runClaudeHook(
+            context: context,
+            arguments: ["hooks", "claude", "session-end"],
+            standardInput: #"{"session_id":"\#(sessionId)","cwd":"\#(context.root.path)","hook_event_name":"SessionEnd"}"#
+        )
+
+        XCTAssertFalse(result.timedOut, result.stderr)
+        XCTAssertEqual(result.status, 0, result.stderr)
+        let clearRequests = context.state.commands.compactMap { command -> [String: Any]? in
+            guard let payload = jsonObject(command),
+                  payload["method"] as? String == "surface.resume.clear" else {
+                return nil
+            }
+            return payload["params"] as? [String: Any]
+        }
+        let request = try XCTUnwrap(clearRequests.first)
+        XCTAssertNil(request["workspace_id"])
+        XCTAssertEqual(request["surface_id"] as? String, context.surfaceId)
+        XCTAssertEqual(request["checkpoint_id"] as? String, sessionId)
+        XCTAssertEqual(request["source"] as? String, "agent-hook")
     }
 
     func testRightSidebarCLIForwardsV1SocketCommandsQuietly() throws {
@@ -962,6 +1078,788 @@ final class CLINotifyProcessIntegrationRegressionTests: XCTestCase {
         )
     }
 
+    func testCodexTeamsForkPromptPublishesResumeBinding() throws {
+        let cliPath = try bundledCLIPath()
+        let socketPath = makeSocketPath("codex-team-resume")
+        let listenerFD = try bindUnixSocket(at: socketPath)
+        let state = MockSocketServerState()
+        let root = FileManager.default.temporaryDirectory
+            .appendingPathComponent("cmux-codex-teams-resume-\(UUID().uuidString)", isDirectory: true)
+        let workspaceId = "33333333-3333-3333-3333-333333333333"
+        let surfaceId = "44444444-4444-4444-4444-444444444444"
+        let sessionId = "019dad34-d218-7943-b81a-eddac5c87951"
+        let parentSessionId = "019dad34-d218-7943-b81a-parent-session"
+        let ttyName = "ttys-test-codex-teams-resume"
+
+        try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
+        defer {
+            Darwin.close(listenerFD)
+            unlink(socketPath)
+            try? FileManager.default.removeItem(at: root)
+        }
+
+        let storeURL = root.appendingPathComponent("codex-hook-sessions.json", isDirectory: false)
+        let now = Date().timeIntervalSince1970
+        let store: [String: Any] = [
+            "version": 1,
+            "sessions": [
+                sessionId: [
+                    "sessionId": sessionId,
+                    "workspaceId": workspaceId,
+                    "surfaceId": surfaceId,
+                    "cwd": root.path,
+                    "startedAt": now,
+                    "updatedAt": now,
+                    "launchCommand": [
+                        "launcher": "codexTeams",
+                        "executablePath": "/usr/local/bin/cmux",
+                        "arguments": [
+                            "/usr/local/bin/cmux",
+                            "codex-teams",
+                            "fork",
+                            parentSessionId,
+                            "--model",
+                            "gpt-5.4",
+                            "stale fork prompt",
+                            "--sandbox",
+                            "danger-full-access",
+                            "initial prompt should not replay"
+                        ],
+                        "workingDirectory": root.path,
+                        "environment": ["CODEX_HOME": root.appendingPathComponent("codex-home", isDirectory: true).path],
+                        "capturedAt": now,
+                        "source": "test",
+                    ],
+                ],
+            ],
+        ]
+        try JSONSerialization.data(withJSONObject: store, options: [.prettyPrinted]).write(to: storeURL, options: .atomic)
+
+        let serverHandled = startMockServer(listenerFD: listenerFD, state: state) { line in
+            guard let payload = self.jsonObject(line) else {
+                return line.trimmingCharacters(in: .whitespacesAndNewlines).hasPrefix("{")
+                    ? self.malformedRequestResponse(raw: line)
+                    : "OK"
+            }
+            guard let id = payload["id"] as? String, let method = payload["method"] as? String else {
+                return self.malformedRequestResponse(id: payload["id"] as? String, raw: line)
+            }
+            switch method {
+            case "surface.list":
+                let params = payload["params"] as? [String: Any] ?? [:]
+                if params["workspace_id"] as? String == workspaceId {
+                    return self.surfaceListResponse(id: id, surfaceId: surfaceId)
+                }
+                return self.v2Response(id: id, ok: false, error: ["code": "not_found", "message": "workspace not found"])
+            case "debug.terminals":
+                return self.v2Response(
+                    id: id,
+                    ok: true,
+                    result: ["terminals": [["tty": ttyName, "workspace_id": workspaceId, "surface_id": surfaceId]]]
+                )
+            case "workspace.current":
+                return self.v2Response(id: id, ok: true, result: ["workspace_id": workspaceId])
+            case "surface.resume.set":
+                return self.v2Response(id: id, ok: true, result: ["ok": true])
+            default:
+                return self.v2Response(id: id, ok: false, error: ["code": "unrecognized_method", "message": "unexpected method: \(method)"])
+            }
+        }
+
+        var environment = ProcessInfo.processInfo.environment
+        environment["CMUX_SOCKET_PATH"] = socketPath
+        environment["CMUX_WORKSPACE_ID"] = workspaceId
+        environment["CMUX_SURFACE_ID"] = surfaceId
+        environment["CMUX_CLI_TTY_NAME"] = ttyName
+        environment["CMUX_AGENT_HOOK_STATE_DIR"] = root.path
+        environment["CMUX_CLI_SENTRY_DISABLED"] = "1"
+        environment["CMUX_AGENT_LAUNCH_KIND"] = "codexTeams"
+        environment["CMUX_AGENT_LAUNCH_EXECUTABLE"] = "/usr/local/bin/cmux"
+        environment["CMUX_AGENT_LAUNCH_CWD"] = root.path
+        environment["CMUX_AGENT_LAUNCH_ARGV_B64"] = base64NULSeparated([
+            "/usr/local/bin/cmux",
+            "codex-teams",
+            "fork",
+            parentSessionId,
+            "--model",
+            "gpt-5.4",
+            "stale fork prompt",
+            "--sandbox",
+            "danger-full-access",
+            "initial prompt should not replay"
+        ])
+        environment["CODEX_HOME"] = root.appendingPathComponent("codex-home", isDirectory: true).path
+
+        let result = runProcess(
+            executablePath: cliPath,
+            arguments: ["hooks", "codex", "prompt-submit"],
+            environment: environment,
+            standardInput: #"{"session_id":"\#(sessionId)","cwd":"\#(root.path)","hook_event_name":"UserPromptSubmit","prompt":"continue"}"#,
+            timeout: 5
+        )
+
+        wait(for: [serverHandled], timeout: 5)
+        XCTAssertFalse(result.timedOut, result.stderr)
+        XCTAssertEqual(result.status, 0, result.stderr)
+
+        let resumeBindingRequests = state.commands.compactMap { command -> [String: Any]? in
+            guard let payload = jsonObject(command),
+                  payload["method"] as? String == "surface.resume.set" else {
+                return nil
+            }
+            return payload["params"] as? [String: Any]
+        }
+        XCTAssertEqual(resumeBindingRequests.count, 1, state.commands.joined(separator: "\n"))
+        let request = try XCTUnwrap(resumeBindingRequests.first)
+        XCTAssertEqual(request["checkpoint_id"] as? String, sessionId)
+        XCTAssertEqual(request["auto_resume"] as? Bool, true)
+        XCTAssertEqual(
+            request["command"] as? String,
+            "cd '\(root.path)' && '/usr/local/bin/cmux' 'codex-teams' 'resume' '\(sessionId)' '--model' 'gpt-5.4' '--sandbox' 'danger-full-access'"
+        )
+    }
+
+    func testAgentPromptClearsSurfaceResumeBindingWhenResumeCommandUnavailable() throws {
+        let cliPath = try bundledCLIPath()
+        let socketPath = makeSocketPath("agent-resume-unavailable")
+        let listenerFD = try bindUnixSocket(at: socketPath)
+        let state = MockSocketServerState()
+        let root = FileManager.default.temporaryDirectory
+            .appendingPathComponent("cmux-agent-resume-unavailable-\(UUID().uuidString)", isDirectory: true)
+        let workspaceId = "11111111-1111-1111-1111-111111111111"
+        let surfaceId = "22222222-2222-2222-2222-222222222222"
+        let sessionId = "nonresumable-agent-session"
+
+        try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
+        defer {
+            Darwin.close(listenerFD)
+            unlink(socketPath)
+            try? FileManager.default.removeItem(at: root)
+        }
+
+        let now = Date().timeIntervalSince1970
+        let store: [String: Any] = [
+            "version": 1,
+            "sessions": [
+                sessionId: [
+                    "sessionId": sessionId,
+                    "workspaceId": workspaceId,
+                    "surfaceId": surfaceId,
+                    "cwd": root.path,
+                    "startedAt": now,
+                    "updatedAt": now,
+                    "launchCommand": [
+                        "launcher": "omx",
+                        "executablePath": "/usr/local/bin/cmux",
+                        "arguments": ["/usr/local/bin/cmux", "omx", "hud"],
+                        "workingDirectory": root.path,
+                        "capturedAt": now,
+                        "source": "test",
+                    ],
+                ],
+            ],
+        ]
+        try JSONSerialization.data(withJSONObject: store, options: [.prettyPrinted])
+            .write(to: root.appendingPathComponent("claude-hook-sessions.json"), options: .atomic)
+
+        let serverHandled = startMockServer(listenerFD: listenerFD, state: state) { line in
+            guard let payload = self.jsonObject(line) else {
+                return "OK"
+            }
+            guard let id = payload["id"] as? String, let method = payload["method"] as? String else {
+                return self.malformedRequestResponse(id: payload["id"] as? String, raw: line)
+            }
+            switch method {
+            case "surface.list":
+                let params = payload["params"] as? [String: Any] ?? [:]
+                if params["workspace_id"] as? String == workspaceId {
+                    return self.surfaceListResponse(id: id, surfaceId: surfaceId)
+                }
+                return self.v2Response(id: id, ok: false, error: ["code": "not_found", "message": "workspace not found"])
+            case "surface.resume.clear":
+                return self.v2Response(id: id, ok: true, result: ["cleared": true])
+            case "surface.resume.set":
+                XCTFail("Non-resumable launcher should not publish a resume binding")
+                return self.v2Response(id: id, ok: true, result: ["ok": true])
+            case "feed.push":
+                return self.v2Response(id: id, ok: true, result: [:])
+            default:
+                return self.v2Response(id: id, ok: false, error: ["code": "unrecognized_method", "message": "unexpected method: \(method)"])
+            }
+        }
+
+        let environment = [
+            "HOME": root.path,
+            "PATH": "/usr/bin:/bin:/usr/sbin:/sbin",
+            "CMUX_SOCKET_PATH": socketPath,
+            "CMUX_WORKSPACE_ID": workspaceId,
+            "CMUX_SURFACE_ID": surfaceId,
+            "CMUX_AGENT_HOOK_STATE_DIR": root.path,
+            "CMUX_CLI_SENTRY_DISABLED": "1",
+            "CMUX_CLAUDE_HOOK_SENTRY_DISABLED": "1",
+        ]
+
+        let result = runProcess(
+            executablePath: cliPath,
+            arguments: ["hooks", "claude", "prompt-submit"],
+            environment: environment,
+            standardInput: #"{"session_id":"\#(sessionId)","cwd":"\#(root.path)","hook_event_name":"UserPromptSubmit"}"#,
+            timeout: 5
+        )
+
+        wait(for: [serverHandled], timeout: 5)
+        XCTAssertFalse(result.timedOut, result.stderr)
+        XCTAssertEqual(result.status, 0, result.stderr)
+
+        let clearRequests = state.commands.compactMap { command -> [String: Any]? in
+            guard let payload = jsonObject(command),
+                  payload["method"] as? String == "surface.resume.clear" else {
+                return nil
+            }
+            return payload["params"] as? [String: Any]
+        }
+        let request = try XCTUnwrap(clearRequests.first)
+        XCTAssertNil(request["workspace_id"])
+        XCTAssertEqual(request["surface_id"] as? String, surfaceId)
+        XCTAssertEqual(request["source"] as? String, "agent-hook")
+        XCTAssertEqual(request["checkpoint_id"] as? String, sessionId)
+    }
+
+    func testGenericAgentSessionEndClearsMatchingSurfaceResumeBinding() throws {
+        let cliPath = try bundledCLIPath()
+        let socketPath = makeSocketPath("agent-resume-clear")
+        let listenerFD = try bindUnixSocket(at: socketPath)
+        let state = MockSocketServerState()
+        let root = FileManager.default.temporaryDirectory
+            .appendingPathComponent("cmux-agent-resume-clear-\(UUID().uuidString)", isDirectory: true)
+        try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
+        defer {
+            Darwin.close(listenerFD)
+            unlink(socketPath)
+            try? FileManager.default.removeItem(at: root)
+        }
+
+        let workspaceId = "11111111-1111-1111-1111-111111111111"
+        let surfaceId = "22222222-2222-2222-2222-222222222222"
+        let sessionId = "codex-ending-session"
+        let now = Date().timeIntervalSince1970
+        let store: [String: Any] = [
+            "version": 1,
+            "sessions": [
+                sessionId: [
+                    "sessionId": sessionId,
+                    "workspaceId": workspaceId,
+                    "surfaceId": surfaceId,
+                    "cwd": root.path,
+                    "startedAt": now,
+                    "updatedAt": now,
+                ],
+            ],
+        ]
+        try JSONSerialization.data(withJSONObject: store, options: [.prettyPrinted])
+            .write(to: root.appendingPathComponent("codex-hook-sessions.json"), options: .atomic)
+
+        let serverHandled = startMockServer(listenerFD: listenerFD, state: state) { line in
+            guard let payload = self.jsonObject(line) else {
+                return "OK"
+            }
+            guard let id = payload["id"] as? String, let method = payload["method"] as? String else {
+                return self.malformedRequestResponse(id: payload["id"] as? String, raw: line)
+            }
+            switch method {
+            case "surface.resume.clear":
+                return self.v2Response(id: id, ok: true, result: ["cleared": true])
+            case "feed.push":
+                return self.v2Response(id: id, ok: true, result: [:])
+            default:
+                return self.v2Response(id: id, ok: false, error: ["code": "unrecognized_method", "message": "unexpected method: \(method)"])
+            }
+        }
+
+        var environment = ProcessInfo.processInfo.environment
+        environment["CMUX_SOCKET_PATH"] = socketPath
+        environment["CMUX_WORKSPACE_ID"] = workspaceId
+        environment["CMUX_SURFACE_ID"] = surfaceId
+        environment["CMUX_AGENT_HOOK_STATE_DIR"] = root.path
+        environment["CMUX_CLI_SENTRY_DISABLED"] = "1"
+
+        let result = runProcess(
+            executablePath: cliPath,
+            arguments: ["hooks", "codex", "session-end"],
+            environment: environment,
+            standardInput: #"{"session_id":"\#(sessionId)","cwd":"\#(root.path)","hook_event_name":"SessionEnd"}"#,
+            timeout: 5
+        )
+
+        wait(for: [serverHandled], timeout: 5)
+        XCTAssertFalse(result.timedOut, result.stderr)
+        XCTAssertEqual(result.status, 0, result.stderr)
+        let clearRequests = state.commands.compactMap { command -> [String: Any]? in
+            guard let payload = jsonObject(command),
+                  payload["method"] as? String == "surface.resume.clear" else {
+                return nil
+            }
+            return payload["params"] as? [String: Any]
+        }
+        let request = try XCTUnwrap(clearRequests.first)
+        XCTAssertNil(request["workspace_id"])
+        XCTAssertEqual(request["surface_id"] as? String, surfaceId)
+        XCTAssertEqual(request["checkpoint_id"] as? String, sessionId)
+        XCTAssertEqual(request["source"] as? String, "agent-hook")
+    }
+
+    func testSurfaceResumeClearCLIForwardsCheckpointAndSourceGuards() throws {
+        let cliPath = try bundledCLIPath()
+        let socketPath = makeSocketPath("resume-clear-guards")
+        let listenerFD = try bindUnixSocket(at: socketPath)
+        let state = MockSocketServerState()
+        defer {
+            Darwin.close(listenerFD)
+            unlink(socketPath)
+        }
+
+        let workspaceId = "11111111-1111-1111-1111-111111111111"
+        let surfaceId = "22222222-2222-2222-2222-222222222222"
+        let serverHandled = startMockServer(listenerFD: listenerFD, state: state) { line in
+            guard let payload = self.jsonObject(line),
+                  let id = payload["id"] as? String,
+                  let method = payload["method"] as? String else {
+                return self.malformedRequestResponse(raw: line)
+            }
+            XCTAssertEqual(method, "surface.resume.clear")
+            return self.v2Response(id: id, ok: true, result: ["cleared": false])
+        }
+
+        var environment = ProcessInfo.processInfo.environment
+        environment["CMUX_SOCKET_PATH"] = socketPath
+        environment["CMUX_CLI_SENTRY_DISABLED"] = "1"
+
+        let result = runProcess(
+            executablePath: cliPath,
+            arguments: [
+                "surface", "resume", "clear",
+                "--workspace", workspaceId,
+                "--surface", surfaceId,
+                "--checkpoint", "old-session",
+                "--checkpoint-id", "new-session",
+                "--source", "agent-hook",
+            ],
+            environment: environment,
+            timeout: 5
+        )
+
+        wait(for: [serverHandled], timeout: 5)
+        XCTAssertFalse(result.timedOut, result.stderr)
+        XCTAssertEqual(result.status, 0, result.stderr)
+        XCTAssertEqual(result.stdout, "OK\n")
+
+        let clearRequests = state.commands.compactMap { command -> [String: Any]? in
+            guard let payload = jsonObject(command),
+                  payload["method"] as? String == "surface.resume.clear" else {
+                return nil
+            }
+            return payload["params"] as? [String: Any]
+        }
+        let request = try XCTUnwrap(clearRequests.first)
+        XCTAssertEqual(request["workspace_id"] as? String, workspaceId)
+        XCTAssertEqual(request["surface_id"] as? String, surfaceId)
+        XCTAssertEqual(request["checkpoint_id"] as? String, "new-session")
+        XCTAssertEqual(request["source"] as? String, "agent-hook")
+    }
+
+    func testSurfaceResumeSetCLIPreservesQuotedShellCommand() throws {
+        let cliPath = try bundledCLIPath()
+        let socketPath = makeSocketPath("resume-set-shell")
+        let listenerFD = try bindUnixSocket(at: socketPath)
+        let state = MockSocketServerState()
+        defer {
+            Darwin.close(listenerFD)
+            unlink(socketPath)
+        }
+
+        let workspaceId = "11111111-1111-1111-1111-111111111111"
+        let surfaceId = "22222222-2222-2222-2222-222222222222"
+        let serverHandled = startMockServer(listenerFD: listenerFD, state: state) { line in
+            guard let payload = self.jsonObject(line),
+                  let id = payload["id"] as? String,
+                  let method = payload["method"] as? String else {
+                return self.malformedRequestResponse(raw: line)
+            }
+            XCTAssertEqual(method, "surface.resume.set")
+            return self.v2Response(id: id, ok: true, result: ["resume_binding": [:]])
+        }
+
+        var environment = ProcessInfo.processInfo.environment
+        environment["CMUX_SOCKET_PATH"] = socketPath
+        environment["CMUX_CLI_SENTRY_DISABLED"] = "1"
+
+        let result = runProcess(
+            executablePath: cliPath,
+            arguments: [
+                "surface", "resume", "set",
+                "--workspace", workspaceId,
+                "--surface", surfaceId,
+                "--kind", "tmux",
+                "--shell", "tmux attach -t work",
+            ],
+            environment: environment,
+            timeout: 5
+        )
+
+        wait(for: [serverHandled], timeout: 5)
+        XCTAssertFalse(result.timedOut, result.stderr)
+        XCTAssertEqual(result.status, 0, result.stderr)
+        XCTAssertEqual(result.stdout, "OK\n")
+
+        let setRequests = state.commands.compactMap { command -> [String: Any]? in
+            guard let payload = jsonObject(command),
+                  payload["method"] as? String == "surface.resume.set" else {
+                return nil
+            }
+            return payload["params"] as? [String: Any]
+        }
+        XCTAssertEqual(setRequests.count, 1)
+        let request = try XCTUnwrap(setRequests.first)
+        XCTAssertEqual(request["workspace_id"] as? String, workspaceId)
+        XCTAssertEqual(request["surface_id"] as? String, surfaceId)
+        XCTAssertEqual(request["kind"] as? String, "tmux")
+        XCTAssertEqual(request["command"] as? String, "tmux attach -t work")
+    }
+
+    func testSurfaceResumeSetCLIStopsParsingOptionsAfterTerminator() throws {
+        let cliPath = try bundledCLIPath()
+        let socketPath = makeSocketPath("resume-set-terminator")
+        let listenerFD = try bindUnixSocket(at: socketPath)
+        let state = MockSocketServerState()
+        defer {
+            Darwin.close(listenerFD)
+            unlink(socketPath)
+        }
+
+        let workspaceId = "11111111-1111-1111-1111-111111111111"
+        let surfaceId = "22222222-2222-2222-2222-222222222222"
+        let serverHandled = startMockServer(listenerFD: listenerFD, state: state) { line in
+            guard let payload = self.jsonObject(line),
+                  let id = payload["id"] as? String,
+                  let method = payload["method"] as? String else {
+                return self.malformedRequestResponse(raw: line)
+            }
+            XCTAssertEqual(method, "surface.resume.set")
+            return self.v2Response(id: id, ok: true, result: ["resume_binding": [:]])
+        }
+
+        var environment = ProcessInfo.processInfo.environment
+        environment["CMUX_SOCKET_PATH"] = socketPath
+        environment["CMUX_CLI_SENTRY_DISABLED"] = "1"
+
+        let result = runProcess(
+            executablePath: cliPath,
+            arguments: [
+                "surface", "resume", "set",
+                "--workspace", workspaceId,
+                "--surface", surfaceId,
+                "--",
+                "myapp",
+                "--name", "foo",
+                "--kind", "bar",
+                "--cwd", "/tmp/ignored",
+                "--surface", "not-a-target",
+            ],
+            environment: environment,
+            timeout: 5
+        )
+
+        wait(for: [serverHandled], timeout: 5)
+        XCTAssertFalse(result.timedOut, result.stderr)
+        XCTAssertEqual(result.status, 0, result.stderr)
+        XCTAssertEqual(result.stdout, "OK\n")
+
+        let setRequests = state.commands.compactMap { command -> [String: Any]? in
+            guard let payload = jsonObject(command),
+                  payload["method"] as? String == "surface.resume.set" else {
+                return nil
+            }
+            return payload["params"] as? [String: Any]
+        }
+        let request = try XCTUnwrap(setRequests.first)
+        XCTAssertEqual(request["workspace_id"] as? String, workspaceId)
+        XCTAssertEqual(request["surface_id"] as? String, surfaceId)
+        XCTAssertNil(request["name"])
+        XCTAssertNil(request["kind"])
+        XCTAssertEqual(
+            request["command"] as? String,
+            "'myapp' '--name' 'foo' '--kind' 'bar' '--cwd' '/tmp/ignored' '--surface' 'not-a-target'"
+        )
+    }
+
+    func testSurfaceResumeSetCLIDoesNotScopeExplicitSurfaceToEnvWorkspace() throws {
+        let cliPath = try bundledCLIPath()
+        let socketPath = makeSocketPath("resume-set-surface")
+        let listenerFD = try bindUnixSocket(at: socketPath)
+        let state = MockSocketServerState()
+        defer {
+            Darwin.close(listenerFD)
+            unlink(socketPath)
+        }
+
+        let staleWorkspaceId = "aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa"
+        let movedSurfaceId = "22222222-2222-2222-2222-222222222222"
+        let serverHandled = startMockServer(listenerFD: listenerFD, state: state) { line in
+            guard let payload = self.jsonObject(line),
+                  let id = payload["id"] as? String,
+                  let method = payload["method"] as? String else {
+                return self.malformedRequestResponse(raw: line)
+            }
+            XCTAssertEqual(method, "surface.resume.set")
+            return self.v2Response(id: id, ok: true, result: ["resume_binding": [:]])
+        }
+
+        var environment = ProcessInfo.processInfo.environment
+        environment["CMUX_SOCKET_PATH"] = socketPath
+        environment["CMUX_CLI_SENTRY_DISABLED"] = "1"
+        environment["CMUX_WORKSPACE_ID"] = staleWorkspaceId
+        environment["CMUX_SURFACE_ID"] = "bbbbbbbb-bbbb-bbbb-bbbb-bbbbbbbbbbbb"
+
+        let result = runProcess(
+            executablePath: cliPath,
+            arguments: [
+                "surface", "resume", "set",
+                "--surface", movedSurfaceId,
+                "--shell", "tmux attach -t moved",
+            ],
+            environment: environment,
+            timeout: 5
+        )
+
+        wait(for: [serverHandled], timeout: 5)
+        XCTAssertFalse(result.timedOut, result.stderr)
+        XCTAssertEqual(result.status, 0, result.stderr)
+
+        let setRequests = state.commands.compactMap { command -> [String: Any]? in
+            guard let payload = jsonObject(command),
+                  payload["method"] as? String == "surface.resume.set" else {
+                return nil
+            }
+            return payload["params"] as? [String: Any]
+        }
+        let request = try XCTUnwrap(setRequests.first)
+        XCTAssertNil(request["workspace_id"])
+        XCTAssertEqual(request["surface_id"] as? String, movedSurfaceId)
+    }
+
+    func testSurfaceResumeSetCLIRejectsTrailingShellTokens() throws {
+        let cliPath = try bundledCLIPath()
+        let missingSocketPath = "/tmp/cmux-test-missing-\(UUID().uuidString).sock"
+
+        var environment = ProcessInfo.processInfo.environment
+        environment["CMUX_SOCKET_PATH"] = missingSocketPath
+        environment["CMUX_CLI_SENTRY_DISABLED"] = "1"
+
+        let result = runProcess(
+            executablePath: cliPath,
+            arguments: [
+                "surface", "resume", "set",
+                "--workspace", "11111111-1111-1111-1111-111111111111",
+                "--surface", "22222222-2222-2222-2222-222222222222",
+                "--shell", "tmux",
+                "attach",
+                "-t",
+                "work",
+            ],
+            environment: environment,
+            timeout: 5
+        )
+
+        XCTAssertFalse(result.timedOut, result.stderr)
+        XCTAssertNotEqual(result.status, 0, result.stderr)
+        XCTAssertTrue(result.stderr.contains("surface resume set: unexpected argument 'attach' after --shell"))
+        XCTAssertFalse(result.stderr.contains("Socket"), result.stderr)
+    }
+
+    func testSurfaceResumeSetCLIRejectsPreTerminatorCommandTokens() throws {
+        let cliPath = try bundledCLIPath()
+        let missingSocketPath = "/tmp/cmux-test-missing-\(UUID().uuidString).sock"
+        var environment = ProcessInfo.processInfo.environment
+        environment["CMUX_SOCKET_PATH"] = missingSocketPath
+        environment["CMUX_CLI_SENTRY_DISABLED"] = "1"
+
+        let result = runProcess(
+            executablePath: cliPath,
+            arguments: [
+                "surface", "resume", "set",
+                "--workspace", "11111111-1111-1111-1111-111111111111",
+                "--surface", "22222222-2222-2222-2222-222222222222",
+                "myapp",
+                "--",
+                "--flag",
+            ],
+            environment: environment,
+            timeout: 5
+        )
+
+        XCTAssertFalse(result.timedOut, result.stderr)
+        XCTAssertEqual(result.status, 1, result.stderr)
+        XCTAssertTrue(result.stderr.contains("surface resume set: unexpected argument 'myapp' before --"))
+        XCTAssertFalse(result.stderr.contains("Socket"), result.stderr)
+    }
+
+    func testSurfaceResumeSetCLIRejectsDanglingValueOptionsBeforeSocketRequest() throws {
+        let cliPath = try bundledCLIPath()
+        let workspaceId = "11111111-1111-1111-1111-111111111111"
+        let surfaceId = "22222222-2222-2222-2222-222222222222"
+        let missingSocketPath = "/tmp/cmux-test-missing-\(UUID().uuidString).sock"
+        var environment = ProcessInfo.processInfo.environment
+        environment["CMUX_SOCKET_PATH"] = missingSocketPath
+        environment["CMUX_CLI_SENTRY_DISABLED"] = "1"
+
+        let cases: [(arguments: [String], expected: String)] = [
+            (
+                [
+                    "surface", "resume", "set",
+                    "--workspace", workspaceId,
+                    "--surface",
+                ],
+                "surface resume set: --surface requires a value"
+            ),
+            (
+                [
+                    "surface", "resume", "set",
+                    "--workspace", workspaceId,
+                    "--surface", surfaceId,
+                    "--shell",
+                ],
+                "surface resume set: --shell requires a value"
+            ),
+            (
+                [
+                    "surface", "resume", "set",
+                    "--workspace", workspaceId,
+                    "--surface", surfaceId,
+                    "--shell", "--",
+                ],
+                "surface resume set: --shell requires a value"
+            ),
+        ]
+
+        for item in cases {
+            let result = runProcess(
+                executablePath: cliPath,
+                arguments: item.arguments,
+                environment: environment,
+                timeout: 5
+            )
+
+            XCTAssertFalse(result.timedOut, result.stderr)
+            XCTAssertEqual(result.status, 1, result.stderr)
+            XCTAssertTrue(result.stdout.isEmpty, result.stdout)
+            XCTAssertTrue(result.stderr.contains(item.expected), result.stderr)
+            XCTAssertFalse(result.stderr.contains("Socket"), result.stderr)
+        }
+    }
+
+    func testSurfaceResumeClearCLIRejectsMalformedGuardsBeforeClearing() throws {
+        let cliPath = try bundledCLIPath()
+        let missingSocketPath = "/tmp/cmux-test-missing-\(UUID().uuidString).sock"
+
+        var environment = ProcessInfo.processInfo.environment
+        environment["CMUX_SOCKET_PATH"] = missingSocketPath
+        environment["CMUX_CLI_SENTRY_DISABLED"] = "1"
+
+        let result = runProcess(
+            executablePath: cliPath,
+            arguments: [
+                "surface", "resume", "clear",
+                "--workspace", "11111111-1111-1111-1111-111111111111",
+                "--surface", "22222222-2222-2222-2222-222222222222",
+                "--checkpoint",
+            ],
+            environment: environment,
+            timeout: 5
+        )
+
+        XCTAssertFalse(result.timedOut, result.stderr)
+        XCTAssertNotEqual(result.status, 0, result.stderr)
+        XCTAssertTrue(result.stderr.contains("surface resume clear: --checkpoint requires a value"))
+        XCTAssertFalse(result.stderr.contains("Socket"), result.stderr)
+    }
+
+    func testSurfaceResumeClearCLINormalizesWindowIndex() throws {
+        let cliPath = try bundledCLIPath()
+        let socketPath = makeSocketPath("resume-clear-window")
+        let listenerFD = try bindUnixSocket(at: socketPath)
+        let state = MockSocketServerState()
+        defer {
+            Darwin.close(listenerFD)
+            unlink(socketPath)
+        }
+
+        let windowId = "aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa"
+        let surfaceRef = "surface:7"
+        let serverHandled = startMockServer(listenerFD: listenerFD, state: state) { line in
+            guard let payload = self.jsonObject(line),
+                  let id = payload["id"] as? String,
+                  let method = payload["method"] as? String else {
+                return self.malformedRequestResponse(raw: line)
+            }
+            switch method {
+            case "window.list":
+                return self.v2Response(
+                    id: id,
+                    ok: true,
+                    result: ["windows": [["id": windowId, "ref": "window:1", "index": 0]]]
+                )
+            case "window.focus":
+                return self.v2Response(id: id, ok: true, result: ["window_id": windowId])
+            case "surface.list":
+                let params = payload["params"] as? [String: Any] ?? [:]
+                XCTAssertEqual(params["window_id"] as? String, "window:1")
+                return self.v2Response(
+                    id: id,
+                    ok: true,
+                    result: ["surfaces": [["id": "ignored-id", "ref": surfaceRef, "index": 0]]]
+                )
+            case "surface.resume.clear":
+                return self.v2Response(id: id, ok: true, result: ["cleared": true])
+            default:
+                return self.v2Response(id: id, ok: false, error: ["code": "unrecognized_method", "message": "unexpected method: \(method)"])
+            }
+        }
+
+        var environment = ProcessInfo.processInfo.environment
+        environment["CMUX_SOCKET_PATH"] = socketPath
+        environment["CMUX_CLI_SENTRY_DISABLED"] = "1"
+
+        let result = runProcess(
+            executablePath: cliPath,
+            arguments: ["--window", "0", "surface", "resume", "clear", "--surface", "0"],
+            environment: environment,
+            timeout: 5
+        )
+
+        wait(for: [serverHandled], timeout: 5)
+        XCTAssertFalse(result.timedOut, result.stderr)
+        XCTAssertEqual(result.status, 0, result.stderr)
+        XCTAssertEqual(result.stdout, "OK\n")
+
+        let clearRequests = state.commands.compactMap { command -> [String: Any]? in
+            guard let payload = jsonObject(command),
+                  payload["method"] as? String == "surface.resume.clear" else {
+                return nil
+            }
+            return payload["params"] as? [String: Any]
+        }
+        XCTAssertFalse(
+            state.commands.contains { command in
+                jsonObject(command)?["method"] as? String == "window.focus"
+            },
+            "surface resume metadata commands should route by window_id without focusing the window"
+        )
+        let request = try XCTUnwrap(clearRequests.first)
+        XCTAssertEqual(request["window_id"] as? String, "window:1")
+        XCTAssertNotEqual(request["window_id"] as? String, "0")
+        XCTAssertEqual(request["surface_id"] as? String, surfaceRef)
+    }
+
     private struct ClaudeHookContext {
         let cliPath: String
         let socketPath: String
@@ -997,7 +1895,8 @@ final class CLINotifyProcessIntegrationRegressionTests: XCTestCase {
     private func runClaudeHook(
         context: ClaudeHookContext,
         arguments: [String],
-        standardInput: String
+        standardInput: String,
+        extraEnvironment: [String: String] = [:]
     ) -> ProcessRunResult {
         let serverHandled = startMockServer(listenerFD: context.listenerFD, state: context.state) { line in
             guard let payload = self.jsonObject(line) else {
@@ -1011,24 +1910,31 @@ final class CLINotifyProcessIntegrationRegressionTests: XCTestCase {
                 return self.surfaceListResponse(id: id, surfaceId: context.surfaceId)
             case "feed.push":
                 return self.v2Response(id: id, ok: true, result: [:])
+            case "surface.resume.clear":
+                return self.v2Response(id: id, ok: true, result: ["cleared": true])
             default:
                 return self.v2Response(id: id, ok: false, error: ["code": "unrecognized_method", "message": "unexpected method: \(method)"])
             }
         }
 
+        var environment = [
+            "HOME": context.root.path,
+            "PATH": "/usr/bin:/bin:/usr/sbin:/sbin",
+            "CMUX_SOCKET_PATH": context.socketPath,
+            "CMUX_WORKSPACE_ID": context.workspaceId,
+            "CMUX_SURFACE_ID": context.surfaceId,
+            "CMUX_CLAUDE_HOOK_STATE_PATH": context.root.appendingPathComponent("claude-hook-sessions.json").path,
+            "CMUX_CLI_SENTRY_DISABLED": "1",
+            "CMUX_CLAUDE_HOOK_SENTRY_DISABLED": "1",
+        ]
+        for (key, value) in extraEnvironment {
+            environment[key] = value
+        }
+
         let result = runProcess(
             executablePath: context.cliPath,
             arguments: arguments,
-            environment: [
-                "HOME": context.root.path,
-                "PATH": "/usr/bin:/bin:/usr/sbin:/sbin",
-                "CMUX_SOCKET_PATH": context.socketPath,
-                "CMUX_WORKSPACE_ID": context.workspaceId,
-                "CMUX_SURFACE_ID": context.surfaceId,
-                "CMUX_CLAUDE_HOOK_STATE_PATH": context.root.appendingPathComponent("claude-hook-sessions.json").path,
-                "CMUX_CLI_SENTRY_DISABLED": "1",
-                "CMUX_CLAUDE_HOOK_SENTRY_DISABLED": "1",
-            ],
+            environment: environment,
             standardInput: standardInput,
             timeout: 5
         )
