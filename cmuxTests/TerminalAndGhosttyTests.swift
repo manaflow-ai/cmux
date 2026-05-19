@@ -5001,6 +5001,27 @@ final class TerminalControllerSocketListenerHealthTests: XCTestCase {
         wait(for: [handled], timeout: 1.0)
     }
 
+    func testCLISocketResolverFallsBackWhenEnvironmentSocketIsDead() throws {
+        let tag = "issue-4357-\(UUID().uuidString.lowercased())"
+        let livePath = "/tmp/cmux-debug-\(tag).sock"
+        let deadPath = "/tmp/cmux-dead-\(tag).sock"
+        let listenerFD = try bindUnixSocket(at: livePath)
+        defer {
+            Darwin.close(listenerFD)
+            unlink(livePath)
+            unlink(deadPath)
+        }
+
+        let resolved = CLISocketPathResolver.resolve(
+            requestedPath: deadPath,
+            source: .environment,
+            environment: ["CMUX_TAG": tag],
+            bundleIdentifier: "com.cmuxterm.app.debug"
+        )
+
+        XCTAssertEqual(resolved, livePath)
+    }
+
     func testSocketListenerHealthFailureSignalsAreEmptyWhenHealthy() {
         let health = TerminalController.SocketListenerHealth(
             isRunning: true,
