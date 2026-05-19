@@ -5012,14 +5012,41 @@ final class TerminalControllerSocketListenerHealthTests: XCTestCase {
             unlink(deadPath)
         }
 
+        var warnings: [String] = []
         let resolved = CLISocketPathResolver.resolve(
             requestedPath: deadPath,
             source: .environment,
             environment: ["CMUX_TAG": tag],
-            bundleIdentifier: "com.cmuxterm.app.debug"
+            bundleIdentifier: "com.cmuxterm.app.debug",
+            warningSink: { warnings.append($0) }
         )
 
         XCTAssertEqual(resolved, livePath)
+        XCTAssertEqual(warnings.count, 1)
+        XCTAssertTrue(warnings[0].contains("CMUX_SOCKET_PATH=\(deadPath) is unreachable"))
+        XCTAssertTrue(warnings[0].contains("using \(livePath) from default-path"))
+    }
+
+    func testCLISocketResolverKeepsReachableEnvironmentSocket() throws {
+        let tag = "issue-4357-\(UUID().uuidString.lowercased())"
+        let envPath = "/tmp/cmux-env-\(tag).sock"
+        let listenerFD = try bindUnixSocket(at: envPath)
+        defer {
+            Darwin.close(listenerFD)
+            unlink(envPath)
+        }
+
+        var warnings: [String] = []
+        let resolved = CLISocketPathResolver.resolve(
+            requestedPath: envPath,
+            source: .environment,
+            environment: ["CMUX_TAG": tag],
+            bundleIdentifier: "com.cmuxterm.app.debug",
+            warningSink: { warnings.append($0) }
+        )
+
+        XCTAssertEqual(resolved, envPath)
+        XCTAssertTrue(warnings.isEmpty)
     }
 
     func testSocketListenerHealthFailureSignalsAreEmptyWhenHealthy() {

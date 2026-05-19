@@ -87,6 +87,11 @@ enum CLISocketPathResolver {
     private static let nightlySocketPath = "/tmp/cmux-nightly.sock"
     private static let stagingSocketPath = "/tmp/cmux-staging.sock"
 
+    private struct SocketPathCandidate {
+        let path: String
+        let sourceDescription: String
+    }
+
     static func defaultSocketPath(
         bundleIdentifier: String?,
         environment: [String: String] = ProcessInfo.processInfo.environment
@@ -121,12 +126,37 @@ enum CLISocketPathResolver {
         requestedPath: String,
         source: CLISocketPathSource,
         environment: [String: String] = ProcessInfo.processInfo.environment,
-        bundleIdentifier: String? = currentAppBundleIdentifier()
+        bundleIdentifier: String? = currentAppBundleIdentifier(),
+        warningSink: ((String) -> Void)? = nil
     ) -> String {
-        guard source == .implicitDefault else {
+        if source == .explicitFlag {
             return requestedPath
         }
 
+        if source == .environment, canConnect(to: requestedPath) {
+            return requestedPath
+        }
+
+        let resolved = resolveFromCandidateChain(
+            requestedPath: requestedPath,
+            environment: environment,
+            bundleIdentifier: bundleIdentifier
+        )
+        if source == .environment, resolved.path != requestedPath {
+            emitEnvironmentSocketFallbackWarning(
+                requestedPath: requestedPath,
+                resolved: resolved,
+                warningSink: warningSink ?? writeStandardErrorLine
+            )
+        }
+        return resolved.path
+    }
+
+    private static func resolveFromCandidateChain(
+        requestedPath: String,
+        environment: [String: String],
+        bundleIdentifier: String?
+    ) -> SocketPathCandidate {
         let candidates = dedupe(candidatePaths(
             requestedPath: requestedPath,
             environment: environment,
@@ -134,45 +164,49 @@ enum CLISocketPathResolver {
         ))
 
         // Prefer sockets that are currently accepting connections.
-        for path in candidates where canConnect(to: path) {
-            return path
+        for candidate in candidates where canConnect(to: candidate.path) {
+            return candidate
         }
 
         // If the listener is still starting, prefer existing socket files.
-        for path in candidates where isSocketFile(path) {
-            return path
+        for candidate in candidates where isSocketFile(candidate.path) {
+            return candidate
         }
 
-        return requestedPath
+        return SocketPathCandidate(path: requestedPath, sourceDescription: "requested-path")
     }
 
     private static func candidatePaths(
         requestedPath: String,
         environment: [String: String],
         bundleIdentifier: String?
-    ) -> [String] {
-        var candidates: [String] = []
+    ) -> [SocketPathCandidate] {
+        var candidates: [SocketPathCandidate] = []
         let variant = SocketPathMarkerFiles.variant(bundleIdentifier: bundleIdentifier, environment: environment)
         let defaultPath = defaultSocketPath(bundleIdentifier: bundleIdentifier, environment: environment)
 
-        candidates.append(defaultPath)
+        candidates.append(SocketPathCandidate(path: defaultPath, sourceDescription: "default-path"))
         if let last = readLastSocketPath(bundleIdentifier: bundleIdentifier, environment: environment) {
-            candidates.append(last)
+            candidates.append(SocketPathCandidate(path: last, sourceDescription: "last-socket-path"))
         }
         if shouldIncludeImplicitRequestedPath(
             requestedPath,
             defaultPath: defaultPath,
             variant: variant
         ) {
-            candidates.append(requestedPath)
+            candidates.append(SocketPathCandidate(path: requestedPath, sourceDescription: "requested-path"))
         }
-        candidates.append(contentsOf: implicitFallbackCandidatePaths(for: variant))
+        candidates.append(contentsOf: implicitFallbackCandidatePaths(for: variant).map {
+            SocketPathCandidate(path: $0, sourceDescription: "variant-fallback")
+        })
         if shouldDiscoverTaggedSockets(
             variant: variant,
             bundleIdentifier: bundleIdentifier,
             environment: environment
         ) {
-            candidates.append(contentsOf: discoverTaggedSockets(limit: 12))
+            candidates.append(contentsOf: discoverTaggedSockets(limit: 12).map {
+                SocketPathCandidate(path: $0, sourceDescription: "tagged-socket-discovery")
+            })
         }
         return candidates
     }
@@ -403,5 +437,47 @@ enum CLISocketPathResolver {
             }
         }
         return ordered
+    }
+
+    private static func dedupe(_ candidates: [SocketPathCandidate]) -> [SocketPathCandidate] {
+        var seen: Set<String> = []
+        var ordered: [SocketPathCandidate] = []
+        ordered.reserveCapacity(candidates.count)
+        for candidate in candidates where !candidate.path.isEmpty {
+            if seen.insert(candidate.path).inserted {
+                ordered.append(candidate)
+            }
+        }
+        return ordered
+    }
+
+    private static func emitEnvironmentSocketFallbackWarning(
+        requestedPath: String,
+        resolved: SocketPathCandidate,
+        warningSink: (String) -> Void
+    ) {
+        let format = String(
+            localized: "cli.socketPath.environment.unreachable",
+            defaultValue: "cmux: CMUX_SOCKET_PATH=%@ is unreachable; using %@ from %@"
+        )
+        warningSink(String(format: format, requestedPath, resolved.path, resolved.sourceDescription) + "\n")
+    }
+
+    private static func writeStandardErrorLine(_ message: String) {
+        message.withCString { pointer in
+            var remaining = strlen(pointer)
+            var cursor = UnsafeRawPointer(pointer)
+            while remaining > 0 {
+                let written = Darwin.write(STDERR_FILENO, cursor, remaining)
+                if written > 0 {
+                    remaining -= written
+                    cursor = cursor.advanced(by: written)
+                } else if written == -1, errno == EINTR {
+                    continue
+                } else {
+                    return
+                }
+            }
+        }
     }
 }
