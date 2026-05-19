@@ -20,6 +20,30 @@ final class CMUXCLIErrorOutputRegressionTests: XCTestCase {
         XCTAssertTrue(result.stdout.contains("Usage:"), result.stdout)
     }
 
+    func testAgentTeamsHelpDoesNotLaunchExternalAgentCLI() throws {
+        let cliPath = try bundledCLIPath()
+        var environment = ProcessInfo.processInfo.environment
+        for key in Array(environment.keys) where key.hasPrefix("CMUX_") {
+            environment.removeValue(forKey: key)
+        }
+        environment["CMUX_CLI_SENTRY_DISABLED"] = "1"
+        environment["PATH"] = "/usr/bin:/bin"
+
+        for command in ["claude-teams", "codex-teams"] {
+            let result = runProcess(
+                executablePath: cliPath,
+                arguments: [command, "--help"],
+                environment: environment,
+                timeout: 5
+            )
+
+            XCTAssertFalse(result.timedOut, result.stdout)
+            XCTAssertEqual(result.status, 0, result.stdout)
+            XCTAssertTrue(result.stdout.contains("Usage: cmux \(command)"), result.stdout)
+            XCTAssertFalse(result.stdout.contains("Failed to launch"), result.stdout)
+        }
+    }
+
     func testBundledCLIInTaggedDebugAppPrefersItsOwnSocketWithoutEnvironmentOverride() throws {
         let cliPath = try bundledCLIPath()
         let tagSlug = "cli-socket-\(UUID().uuidString.lowercased())"
