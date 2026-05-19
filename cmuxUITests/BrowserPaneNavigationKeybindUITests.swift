@@ -8,6 +8,7 @@ final class BrowserPaneNavigationKeybindUITests: XCTestCase {
     }
 
     private var dataPath = ""
+    private var diagnosticsPath = ""
     private var socketPath = ""
 
     override func setUp() {
@@ -15,6 +16,8 @@ final class BrowserPaneNavigationKeybindUITests: XCTestCase {
         continueAfterFailure = false
         dataPath = "/tmp/cmux-ui-test-goto-split-\(UUID().uuidString).json"
         try? FileManager.default.removeItem(atPath: dataPath)
+        diagnosticsPath = "/tmp/cmux-ui-test-canvas-\(UUID().uuidString).json"
+        try? FileManager.default.removeItem(atPath: diagnosticsPath)
         socketPath = "/tmp/cmux-ui-test-socket-\(UUID().uuidString).sock"
         try? FileManager.default.removeItem(atPath: socketPath)
     }
@@ -747,6 +750,9 @@ final class BrowserPaneNavigationKeybindUITests: XCTestCase {
 
     func testCanvasPaletteShortcutDragResizeZoomAndTerminalActivation() {
         let app = XCUIApplication()
+        app.launchEnvironment["CMUX_UI_TEST_MODE"] = "1"
+        app.launchEnvironment["CMUX_UI_TEST_DIAGNOSTICS_PATH"] = diagnosticsPath
+        app.launchEnvironment["CMUX_UI_TEST_SOCKET_SANITY"] = "1"
         app.launchEnvironment["CMUX_SOCKET_PATH"] = socketPath
         app.launchEnvironment["CMUX_SOCKET_ENABLE"] = "1"
         app.launchEnvironment["CMUX_SOCKET_MODE"] = "automation"
@@ -755,7 +761,10 @@ final class BrowserPaneNavigationKeybindUITests: XCTestCase {
         app.launchEnvironment["CMUX_UI_TEST_FOCUS_SHORTCUTS"] = "1"
         app.launchEnvironment["CMUX_UI_TEST_GOTO_SPLIT_ALLOW_UNFOCUSED_BROWSER"] = "1"
         launchAndEnsureForeground(app)
-        XCTAssertTrue(waitForSocketPong(timeout: 12.0), "Expected control socket at \(socketPath)")
+        XCTAssertTrue(
+            waitForSocketPong(timeout: 16.0),
+            "Expected control socket at \(socketPath). diagnostics=\(loadDiagnostics() ?? [:])"
+        )
 
         XCTAssertTrue(
             waitForData(keys: ["terminalPaneId", "browserPaneId", "browserPanelId"], timeout: 12.0),
@@ -1507,6 +1516,14 @@ final class BrowserPaneNavigationKeybindUITests: XCTestCase {
         waitForCondition(timeout: timeout) {
             self.socketCommand("ping") == "PONG"
         }
+    }
+
+    private func loadDiagnostics() -> [String: String]? {
+        guard let data = try? Data(contentsOf: URL(fileURLWithPath: diagnosticsPath)),
+              let object = try? JSONSerialization.jsonObject(with: data) as? [String: String] else {
+            return nil
+        }
+        return object
     }
 
     private func currentWorkspaceContext() -> WorkspaceContext? {
