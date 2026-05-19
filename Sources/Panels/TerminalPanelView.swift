@@ -24,20 +24,24 @@ struct TerminalPanelView: View {
         // Layering contract: terminal find UI is mounted in GhosttySurfaceScrollView (AppKit portal layer)
         // via `searchState`. Rendering `SurfaceSearchOverlay` in this SwiftUI container can hide it.
         if let hibernationState = panel.agentHibernationState {
-            AgentHibernationPlaceholderView(
-                state: hibernationState,
-                appearance: appearance,
-                onResume: onResumeAgentHibernation
-            )
-            .id("hibernated-\(panel.id.uuidString)")
-            .onAppear {
-                if isVisibleInUI {
-                    onAutoResumeAgentHibernation()
-                }
-            }
-            .onChange(of: isVisibleInUI) { _, visible in
-                if visible {
-                    onAutoResumeAgentHibernation()
+            if isVisibleInUI {
+                Color(nsColor: appearance.contentBackgroundColor)
+                    .frame(maxWidth: .infinity, maxHeight: .infinity)
+                    .id("hibernated-resuming-\(panel.id.uuidString)")
+                    .onAppear {
+                        onAutoResumeAgentHibernation()
+                    }
+            } else {
+                AgentHibernationPlaceholderView(
+                    state: hibernationState,
+                    appearance: appearance,
+                    onResume: onResumeAgentHibernation
+                )
+                .id("hibernated-\(panel.id.uuidString)")
+                .onChange(of: isVisibleInUI) { _, visible in
+                    if visible {
+                        onAutoResumeAgentHibernation()
+                    }
                 }
             }
         } else {
