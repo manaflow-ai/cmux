@@ -254,6 +254,66 @@ final class CMUXCLIErrorOutputRegressionTests: XCTestCase {
         XCTAssertEqual(responder.receivedRequests, ["reload_config"])
     }
 
+    func testBareInteractiveThemesTreatsSigintAsSilentCancel() throws {
+        let cliPath = try bundledCLIPath()
+        let fileManager = FileManager.default
+        let root = fileManager.temporaryDirectory
+            .appendingPathComponent("cmux-themes-picker-cancel-\(UUID().uuidString)", isDirectory: true)
+        try fileManager.createDirectory(at: root, withIntermediateDirectories: true)
+        defer { try? fileManager.removeItem(at: root) }
+
+        let fakeCLIPath = try fakeTaggedBundledCLIPath(
+            sourceCLIPath: cliPath,
+            tagSlug: "theme-picker-cancel-\(UUID().uuidString.lowercased())"
+        )
+        let fakeGhosttyHelperURL = URL(fileURLWithPath: fakeCLIPath)
+            .deletingLastPathComponent()
+            .appendingPathComponent("ghostty", isDirectory: false)
+        try """
+        #!/usr/bin/env python3
+        import os
+        import signal
+        import time
+
+        deadline = time.time() + 2.0
+        while time.time() < deadline:
+            if os.isatty(0) and os.tcgetpgrp(0) == os.getpgrp():
+                signal.signal(signal.SIGINT, signal.SIG_DFL)
+                os.kill(os.getpid(), signal.SIGINT)
+            time.sleep(0.02)
+        sys.exit(42)
+        """.write(to: fakeGhosttyHelperURL, atomically: true, encoding: .utf8)
+        try fileManager.setAttributes(
+            [.posixPermissions: 0o755],
+            ofItemAtPath: fakeGhosttyHelperURL.path
+        )
+
+        let socketPath = "/tmp/cmux-theme-picker-cancel-\(UUID().uuidString.prefix(8)).sock"
+        let responder = try UnixSocketResponder(path: socketPath, response: "OK")
+        defer { responder.stop() }
+
+        let command = [
+            "env",
+            "-i",
+            "HOME=\(shellSingleQuote(root.path))",
+            "CFFIXED_USER_HOME=\(shellSingleQuote(root.path))",
+            "CMUX_SOCKET_PATH=\(shellSingleQuote(socketPath))",
+            "CMUX_CLI_SENTRY_DISABLED=1",
+            "PATH=/usr/bin:/bin",
+            "/usr/bin/script",
+            "-q",
+            "/dev/null",
+            shellSingleQuote(fakeCLIPath),
+            "themes",
+        ].joined(separator: " ")
+        let result = runShell(command, timeout: 5)
+
+        XCTAssertFalse(result.timedOut, result.stdout)
+        XCTAssertEqual(result.status, 0, result.stdout)
+        XCTAssertFalse(result.stdout.contains("Interactive theme picker exited"), result.stdout)
+        XCTAssertEqual(responder.receivedRequests, [])
+    }
+
     func testBrowserDownloadWaitUsesRequestedTimeoutForSocketResponse() throws {
         let cliPath = try bundledCLIPath()
         let socketPath = "/tmp/cmux-dw-\(UUID().uuidString.prefix(8)).sock"

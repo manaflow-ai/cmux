@@ -25,6 +25,11 @@ extension CMUXCLI {
         case dark
     }
 
+    private enum InteractiveHelperResult: Equatable {
+        case completed
+        case cancelled
+    }
+
     private func shouldUseInteractiveThemePicker(jsonOutput: Bool) -> Bool {
         guard !jsonOutput else { return false }
         return isatty(STDIN_FILENO) == 1 && isatty(STDOUT_FILENO) == 1
@@ -54,11 +59,12 @@ extension CMUXCLI {
             environment["GHOSTTY_RESOURCES_DIR"] = resourcesURL.path
         }
 
-        try runInteractiveHelper(
+        let result = try runInteractiveHelper(
             executablePath: helperURL.path,
             arguments: ["+list-themes"],
             environment: environment
         )
+        guard result == .completed else { return }
         _ = reloadThemesIfPossible(socketPath: socketPath, explicitPassword: explicitPassword)
     }
 
@@ -119,7 +125,7 @@ extension CMUXCLI {
         executablePath: String,
         arguments: [String],
         environment: [String: String]
-    ) throws {
+    ) throws -> InteractiveHelperResult {
         let process = Process()
         process.executableURL = URL(fileURLWithPath: executablePath)
         process.arguments = arguments
@@ -156,13 +162,26 @@ extension CMUXCLI {
 
         process.waitUntilExit()
         if process.terminationReason == .exit, process.terminationStatus == 0 {
-            return
+            return .completed
         }
 
-        if process.terminationReason == .uncaughtSignal {
+        if isInteractiveThemePickerCancellation(process) {
+            return .cancelled
+        } else if process.terminationReason == .uncaughtSignal {
             throw CLIError(message: "Interactive theme picker exited from signal \(process.terminationStatus)")
         }
         throw CLIError(message: "Interactive theme picker exited with status \(process.terminationStatus)")
+    }
+
+    private func isInteractiveThemePickerCancellation(_ process: Process) -> Bool {
+        switch process.terminationReason {
+        case .uncaughtSignal:
+            return process.terminationStatus == SIGINT || process.terminationStatus == SIGTERM
+        case .exit:
+            return process.terminationStatus == 130 || process.terminationStatus == 143
+        @unknown default:
+            return false
+        }
     }
 
     private func setInteractiveThemePickerForegroundProcessGroup(_ processGroup: pid_t) throws {
