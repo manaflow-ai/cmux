@@ -38,7 +38,7 @@ for install_name in "${install_names[@]}"; do
   fi
 done
 
-if /usr/bin/otool -L "$DYLIB" | grep -E '/Users/runner/work|/Native/CommandPaletteNucleoFFI/target|/target/(aarch64|x86_64)-apple-darwin/' >/dev/null; then
+if /usr/bin/otool -L "$DYLIB" | awk 'NR > 1 && NF { print $1 }' | grep -E '/Users/runner/work|/Native/CommandPaletteNucleoFFI/target|/target/(aarch64|x86_64)-apple-darwin/' >/dev/null; then
   echo "error: $LIB_NAME contains CI/source-tree absolute load paths" >&2
   /usr/bin/otool -L "$DYLIB" >&2
   exit 1
