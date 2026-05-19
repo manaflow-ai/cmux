@@ -84,7 +84,7 @@ final class CmuxSettingsFileStore {
         importedManagedDefaults = Self.loadImportedManagedDefaults()
 
         bootstrapPrimaryTemplateIfNeeded()
-        reload()
+        reload(synchronizeManagedAppearanceTerminalTheme: false)
         guard startWatching else { return }
 
         primaryWatcher = ShortcutSettingsFileWatcher(path: primaryPath, fileManager: fileManager) { [weak self] in
@@ -116,6 +116,10 @@ final class CmuxSettingsFileStore {
     }
 
     func reload() {
+        reload(synchronizeManagedAppearanceTerminalTheme: true)
+    }
+
+    private func reload(synchronizeManagedAppearanceTerminalTheme: Bool) {
         let previousState = synchronized {
             (
                 shortcuts: shortcutsByAction,
@@ -130,7 +134,8 @@ final class CmuxSettingsFileStore {
             changedManagedDefaultKeys: newOrChangedManagedDefaultKeys(
                 previous: previousState.importedManagedDefaults,
                 next: resolved.managedUserDefaults
-            )
+            ),
+            synchronizeManagedAppearanceTerminalTheme: synchronizeManagedAppearanceTerminalTheme
         )
         synchronized {
             shortcutsByAction = resolved.shortcuts
@@ -221,7 +226,8 @@ final class CmuxSettingsFileStore {
             snapshot: managedState.snapshot,
             importedManagedDefaults: managedState.importedManagedDefaults,
             changedManagedDefaultKeys: [],
-            updateBackups: false
+            updateBackups: false,
+            synchronizeManagedAppearanceTerminalTheme: true
         )
     }
 
@@ -861,7 +867,8 @@ final class CmuxSettingsFileStore {
         snapshot: ResolvedSettingsSnapshot,
         importedManagedDefaults: [String: ManagedSettingsValue],
         changedManagedDefaultKeys: Set<String>,
-        updateBackups: Bool = true
+        updateBackups: Bool = true,
+        synchronizeManagedAppearanceTerminalTheme: Bool
     ) {
         var backups = loadBackups()
         var sideEffects = ManagedDefaultBatchSideEffects()
@@ -889,7 +896,13 @@ final class CmuxSettingsFileStore {
 
         for identifier in currentManagedIdentifiers.subtracting(nextManagedIdentifiers) {
             guard let backup = backups[identifier] else { continue }
-            sideEffects.merge(restoreBackup(backup, for: identifier))
+            sideEffects.merge(
+                restoreBackup(
+                    backup,
+                    for: identifier,
+                    synchronizeManagedAppearanceTerminalTheme: synchronizeManagedAppearanceTerminalTheme
+                )
+            )
             backups.removeValue(forKey: identifier)
         }
 
@@ -899,7 +912,8 @@ final class CmuxSettingsFileStore {
                     value,
                     for: defaultsKey,
                     importedDefault: importedManagedDefaults[defaultsKey],
-                    forceApply: changedManagedDefaultKeys.contains(defaultsKey)
+                    forceApply: changedManagedDefaultKeys.contains(defaultsKey),
+                    synchronizeManagedAppearanceTerminalTheme: synchronizeManagedAppearanceTerminalTheme
                 )
             )
         }
@@ -927,7 +941,11 @@ final class CmuxSettingsFileStore {
         }
     }
 
-    private func restoreBackup(_ backup: BackupValue, for identifier: String) -> ManagedDefaultBatchSideEffects {
+    private func restoreBackup(
+        _ backup: BackupValue,
+        for identifier: String,
+        synchronizeManagedAppearanceTerminalTheme: Bool
+    ) -> ManagedDefaultBatchSideEffects {
         switch identifier {
         case Self.socketPasswordBackupIdentifier:
             switch backup {
@@ -940,7 +958,11 @@ final class CmuxSettingsFileStore {
             }
             return ManagedDefaultBatchSideEffects()
         default:
-            return restoreUserDefaultsBackup(backup, for: identifier)
+            return restoreUserDefaultsBackup(
+                backup,
+                for: identifier,
+                synchronizeManagedAppearanceTerminalTheme: synchronizeManagedAppearanceTerminalTheme
+            )
         }
     }
 
@@ -985,7 +1007,8 @@ final class CmuxSettingsFileStore {
 
     private func restoreUserDefaultsBackup(
         _ backup: BackupValue,
-        for defaultsKey: String
+        for defaultsKey: String,
+        synchronizeManagedAppearanceTerminalTheme: Bool
     ) -> ManagedDefaultBatchSideEffects {
         let defaults = UserDefaults.standard
         if defaultsKey == WorkspaceTabColorSettings.paletteKey {
@@ -1042,7 +1065,8 @@ final class CmuxSettingsFileStore {
         if didMutateStoredValue {
             return applyManagedDefaultSideEffects(
                 for: defaultsKey,
-                source: "cmuxConfig.restoreUserDefault"
+                source: "cmuxConfig.restoreUserDefault",
+                synchronizeAppearanceTerminalTheme: synchronizeManagedAppearanceTerminalTheme
             )
         }
         return ManagedDefaultBatchSideEffects()
@@ -1052,7 +1076,8 @@ final class CmuxSettingsFileStore {
         _ value: ManagedSettingsValue,
         for defaultsKey: String,
         importedDefault: ManagedSettingsValue?,
-        forceApply: Bool
+        forceApply: Bool,
+        synchronizeManagedAppearanceTerminalTheme: Bool
     ) -> ManagedDefaultBatchSideEffects {
         let defaults = UserDefaults.standard
         guard shouldApplyManagedUserDefaultsValue(
@@ -1127,7 +1152,8 @@ final class CmuxSettingsFileStore {
         if didMutateStoredValue {
             return applyManagedDefaultSideEffects(
                 for: defaultsKey,
-                source: "cmuxConfig.applyManagedDefault"
+                source: "cmuxConfig.applyManagedDefault",
+                synchronizeAppearanceTerminalTheme: synchronizeManagedAppearanceTerminalTheme
             )
         }
         return ManagedDefaultBatchSideEffects()
@@ -1207,7 +1233,8 @@ final class CmuxSettingsFileStore {
 
     private func applyManagedDefaultSideEffects(
         for defaultsKey: String,
-        source: String
+        source: String,
+        synchronizeAppearanceTerminalTheme: Bool
     ) -> ManagedDefaultBatchSideEffects {
         let notificationCenter = notificationCenter
         let notifyScrollBar = defaultsKey == TerminalScrollBarSettings.showScrollBarKey
@@ -1226,7 +1253,12 @@ final class CmuxSettingsFileStore {
             if let language {
                 LanguageSettings.apply(language)
             } else if shouldApplyAppearance {
-                AppearanceSettings.applyStoredMode(rawValue: appearanceRawValue, source: source)
+                AppearanceSettings.applyStoredMode(
+                    rawValue: appearanceRawValue,
+                    source: source,
+                    duringLaunch: !synchronizeAppearanceTerminalTheme,
+                    synchronizeTerminalTheme: synchronizeAppearanceTerminalTheme
+                )
             } else if let appIconMode {
                 AppIconSettings.applyIcon(appIconMode)
             }
