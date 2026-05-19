@@ -939,6 +939,242 @@ final class GhosttyPasteboardHelperTests: XCTestCase {
 }
 
 @MainActor
+final class TerminalOffscreenStartupTests: XCTestCase {
+    func testPlainSurfaceDoesNotStartRuntimeBeforeWindowAttachmentOrInput() {
+        let panel = TerminalPanel(workspaceId: UUID())
+
+        XCTAssertNil(panel.hostedView.window)
+        XCTAssertFalse(panel.surface.debugHasHeadlessStartupWindowForTesting())
+        XCTAssertEqual(
+            panel.surface.debugRuntimeSurfaceCreateAttemptCountForTesting(),
+            0,
+            "Empty terminal surfaces should stay lazy until they attach or receive input so tests and background helpers do not spawn idle PTYs."
+        )
+    }
+
+    func testPlainHostedViewWindowAttachmentCreatesRuntimeSurface() throws {
+        let panel = TerminalPanel(workspaceId: UUID())
+        XCTAssertEqual(panel.hostedView.debugSurfaceId, panel.surface.id)
+        XCTAssertNil(panel.surface.surface)
+        XCTAssertFalse(panel.surface.debugHasHeadlessStartupWindowForTesting())
+
+        let window = NSWindow(
+            contentRect: NSRect(x: 0, y: 0, width: 360, height: 240),
+            styleMask: [.titled, .closable],
+            backing: .buffered,
+            defer: false
+        )
+        defer {
+            panel.hostedView.removeFromSuperview()
+            panel.surface.teardownSurface()
+            window.orderOut(nil)
+        }
+
+        let contentView = try XCTUnwrap(window.contentView)
+        panel.hostedView.frame = contentView.bounds
+        panel.hostedView.autoresizingMask = [.width, .height]
+        contentView.addSubview(panel.hostedView)
+
+        window.makeKeyAndOrderFront(nil)
+        window.displayIfNeeded()
+        contentView.layoutSubtreeIfNeeded()
+        RunLoop.current.run(until: Date().addingTimeInterval(0.05))
+
+        XCTAssertNotNil(
+            panel.surface.surface,
+            "A direct AppKit-hosted terminal view must create its runtime surface once it enters a real window."
+        )
+        XCTAssertGreaterThan(panel.surface.debugRuntimeSurfaceCreateAttemptCountForTesting(), 0)
+    }
+
+    func testInitialInputSurfaceAttemptsRuntimeCreationBeforeWindowAttachment() {
+        let panel = TerminalPanel(
+            workspaceId: UUID(),
+            initialInput: "echo resume\n"
+        )
+
+        XCTAssertTrue(
+            panel.surface.debugHasHeadlessStartupWindowForTesting(),
+            "Restored auto-resume input should bootstrap through a hidden window rather than waiting for a user-focused portal."
+        )
+        XCTAssertGreaterThan(
+            panel.surface.debugRuntimeSurfaceCreateAttemptCountForTesting(),
+            0,
+            "Restored auto-resume input must start the terminal runtime without waiting for a window attach."
+        )
+    }
+
+    func testInitialCommandSurfaceAttemptsRuntimeCreationBeforeWindowAttachment() {
+        let panel = TerminalPanel(
+            workspaceId: UUID(),
+            initialCommand: "echo startup"
+        )
+
+        XCTAssertTrue(
+            panel.surface.debugHasHeadlessStartupWindowForTesting(),
+            "Command-launched offscreen terminals should bootstrap through a hidden window rather than waiting for a user-focused portal."
+        )
+        XCTAssertGreaterThan(
+            panel.surface.debugRuntimeSurfaceCreateAttemptCountForTesting(),
+            0,
+            "Offscreen command-launched terminals must start the runtime without waiting for a window attach."
+        )
+    }
+
+    func testHeadlessStartupWindowDoesNotCountAsViewInWindowForHealth() {
+        let panel = TerminalPanel(
+            workspaceId: UUID(),
+            initialCommand: "echo startup"
+        )
+
+        XCTAssertTrue(panel.surface.debugHasHeadlessStartupWindowForTesting())
+        XCTAssertNotNil(panel.hostedView.window)
+        XCTAssertNil(panel.surface.uiWindow)
+        XCTAssertFalse(panel.hostedView.debugPortalVisibleInUI)
+        XCTAssertFalse(panel.hostedView.debugPortalActive)
+        XCTAssertFalse(
+            panel.surface.isViewInWindow,
+            "surface.health must keep reporting offscreen bootstrap terminals as unhosted."
+        )
+    }
+
+    func testForceRefreshIgnoresHeadlessStartupWindow() throws {
+#if DEBUG
+        let panel = TerminalPanel(
+            workspaceId: UUID(),
+            initialCommand: "echo startup"
+        )
+        XCTAssertTrue(panel.surface.debugHasHeadlessStartupWindowForTesting())
+        XCTAssertNotNil(panel.hostedView.window)
+        XCTAssertNil(panel.surface.uiWindow)
+
+        panel.surface.resetDebugForceRefreshCount()
+        panel.surface.forceRefresh(reason: "test.headless")
+
+        XCTAssertEqual(
+            panel.surface.debugForceRefreshCount(),
+            0,
+            "forceRefresh should ignore hidden bootstrap windows and wait for a real UI host."
+        )
+#else
+        throw XCTSkip("Debug-only regression test")
+#endif
+    }
+
+    func testColdSocketInputQueuesInsteadOfDroppingWhenRuntimeSurfaceIsMissing() {
+        let panel = TerminalPanel(workspaceId: UUID())
+
+        panel.surface.releaseSurfaceForTesting()
+        XCTAssertNil(panel.surface.surface)
+        panel.surface.sendInput("touch /tmp/cmux-cold-send\n")
+
+        let pending = panel.surface.debugPendingSocketInputForTesting()
+        XCTAssertGreaterThan(
+            pending.items,
+            0,
+            "Socket input sent before runtime surface creation must be queued or the caller must receive an error."
+        )
+        XCTAssertGreaterThan(pending.bytes, 0)
+    }
+
+    func testColdSocketInputRejectsOversizedQueueInsteadOfDroppingExistingInput() {
+        let panel = TerminalPanel(workspaceId: UUID())
+
+        panel.surface.releaseSurfaceForTesting()
+        XCTAssertTrue(panel.surface.sendInput("echo keep-me\n"))
+
+        let oversizedInput = String(repeating: "x", count: 1_100_000)
+        XCTAssertFalse(
+            panel.surface.sendInput(oversizedInput),
+            "Cold socket input that cannot fit in the pending queue must be rejected instead of evicting previously accepted input."
+        )
+
+        let pending = panel.surface.debugPendingSocketInputForTesting()
+        XCTAssertGreaterThan(pending.items, 0)
+        XCTAssertLessThan(pending.bytes, 1_100_000)
+    }
+
+    func testColdSocketInputQueuesBackspaceControlCharacterAsKeyEvent() {
+        let panel = TerminalPanel(workspaceId: UUID())
+
+        panel.surface.releaseSurfaceForTesting()
+        XCTAssertTrue(panel.surface.sendInput("abc\u{08}"))
+
+        let pending = panel.surface.debugPendingSocketInputForTesting()
+        XCTAssertGreaterThan(
+            pending.keyEvents,
+            0,
+            "Backspace control input must be queued as a key event for cold terminals instead of being pasted as literal text."
+        )
+    }
+
+    func testTeardownClosesHeadlessStartupWindow() {
+        let panel = TerminalPanel(
+            workspaceId: UUID(),
+            initialCommand: "echo startup"
+        )
+        XCTAssertTrue(panel.surface.debugHasHeadlessStartupWindowForTesting())
+
+        panel.surface.teardownSurface()
+
+        XCTAssertFalse(
+            panel.surface.debugHasHeadlessStartupWindowForTesting(),
+            "Explicit terminal teardown should close the hidden bootstrap window immediately instead of waiting for deinit."
+        )
+    }
+
+    func testClosedSurfaceRejectsColdSocketInputInsteadOfQueueingIt() {
+        let panel = TerminalPanel(workspaceId: UUID())
+
+        panel.surface.releaseSurfaceForTesting()
+        panel.surface.beginPortalCloseLifecycle(reason: "test.closed")
+
+        XCTAssertFalse(panel.surface.sendInput("echo should-not-queue\n"))
+        XCTAssertEqual(
+            panel.surface.sendInputResult("echo should-not-queue\n"),
+            .surfaceUnavailable
+        )
+        XCTAssertEqual(panel.surface.sendNamedKey("enter"), .surfaceUnavailable)
+
+        let pending = panel.surface.debugPendingSocketInputForTesting()
+        XCTAssertEqual(
+            pending.items,
+            0,
+            "Socket input accepted after terminal lifecycle closure would be stranded because the surface cannot be restarted."
+        )
+        XCTAssertEqual(pending.bytes, 0)
+    }
+
+    func testDaemonSendWorkspaceQueuesColdControlInputInsteadOfReportingDroppedOK() throws {
+        let previousManager = TerminalController.shared.activeTabManagerForCallerNotification()
+        let manager = TabManager()
+        TerminalController.shared.setActiveTabManager(manager)
+        defer {
+            TerminalController.shared.setActiveTabManager(previousManager)
+        }
+
+        let workspace = try XCTUnwrap(manager.selectedWorkspace)
+        let panel = try XCTUnwrap(workspace.focusedTerminalPanel)
+        panel.surface.releaseSurfaceForTesting()
+        XCTAssertNil(panel.surface.surface)
+
+        let response = TerminalController.shared.handleSocketLine(
+            "send_workspace \(workspace.id.uuidString) touch /tmp/cmux-daemon-cold-send\\n"
+        )
+        XCTAssertEqual(response, "OK")
+        TerminalMutationBus.shared.drainForTesting()
+
+        let pending = panel.surface.debugPendingSocketInputForTesting()
+        XCTAssertGreaterThan(pending.items, 0)
+        XCTAssertGreaterThan(
+            pending.keyEvents,
+            0,
+            "A daemon send that accepts newline input for a cold terminal must queue the Return event instead of reporting OK for bytes that cannot execute."
+        )
+    }
+}
+
+@MainActor
 final class FeedbackComposerMessageEditorViewTests: XCTestCase {
     func testLongMessageCreatesScrollableDocumentContent() {
         let editor = FeedbackComposerMessageEditorView(
@@ -4448,40 +4684,6 @@ final class TerminalCmdClickPathPunctuationTrimmingTests: XCTestCase {
 }
 
 
-final class TerminalControllerSocketTextChunkTests: XCTestCase {
-    func testSocketTextChunksReturnsSingleChunkForPlainText() {
-        XCTAssertEqual(
-            TerminalController.socketTextChunks("echo hello"),
-            [.text("echo hello")]
-        )
-    }
-
-    func testSocketTextChunksSplitsControlScalars() {
-        XCTAssertEqual(
-            TerminalController.socketTextChunks("abc\rdef\tghi"),
-            [
-                .text("abc"),
-                .control("\r".unicodeScalars.first!),
-                .text("def"),
-                .control("\t".unicodeScalars.first!),
-                .text("ghi")
-            ]
-        )
-    }
-
-    func testSocketTextChunksDoesNotEmitEmptyTextChunksAroundConsecutiveControls() {
-        XCTAssertEqual(
-            TerminalController.socketTextChunks("\r\n\t"),
-            [
-                .control("\r".unicodeScalars.first!),
-                .control("\n".unicodeScalars.first!),
-                .control("\t".unicodeScalars.first!)
-            ]
-        )
-    }
-}
-
-
 final class GhosttyModifierFlagsChangedActionTests: XCTestCase {
     func testLeftShiftPressReturnsPress() {
         XCTAssertEqual(
@@ -4804,7 +5006,8 @@ final class TerminalControllerSocketListenerHealthTests: XCTestCase {
             isRunning: true,
             acceptLoopAlive: true,
             socketPathMatches: true,
-            socketPathExists: true
+            socketPathExists: true,
+            socketPathOwnedByListener: true
         )
         XCTAssertTrue(health.isHealthy)
         XCTAssertTrue(health.failureSignals.isEmpty)
@@ -4815,12 +5018,25 @@ final class TerminalControllerSocketListenerHealthTests: XCTestCase {
             isRunning: false,
             acceptLoopAlive: false,
             socketPathMatches: false,
-            socketPathExists: false
+            socketPathExists: false,
+            socketPathOwnedByListener: false
         )
         XCTAssertFalse(health.isHealthy)
         XCTAssertEqual(
             health.failureSignals,
             ["not_running", "accept_loop_dead", "socket_path_mismatch", "socket_missing"]
         )
+    }
+
+    func testSocketListenerHealthReportsIdentityMismatchSeparately() {
+        let health = TerminalController.SocketListenerHealth(
+            isRunning: true,
+            acceptLoopAlive: true,
+            socketPathMatches: true,
+            socketPathExists: true,
+            socketPathOwnedByListener: false
+        )
+        XCTAssertFalse(health.isHealthy)
+        XCTAssertEqual(health.failureSignals, ["socket_identity_mismatch"])
     }
 }

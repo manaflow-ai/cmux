@@ -86,7 +86,7 @@ enum SettingsNavigationTarget: String, CaseIterable, Identifiable {
         case .app:
             return "\(title) appearance language workspace notifications menu bar telemetry"
         case .terminal:
-            return "\(title) scrollbar auto resume restore reopen relaunch quit sessions agents claude codex opencode rovodev toggle"
+            return "\(title) scrollbar auto resume restore reopen relaunch quit sessions agents claude codex opencode rovodev commands approvals prefixes toggle"
         case .workspaceColors:
             return "\(title) palette tabs"
         case .sidebarAppearance:
@@ -319,6 +319,7 @@ enum SettingsSearchIndex {
         setting(.app, "palette-search-all", String(localized: "settings.app.commandPaletteSearchAllSurfaces", defaultValue: "Command Palette Searches All Surfaces"), "cmd p search terminal browser markdown"),
         setting(.terminal, "scrollbar", String(localized: "settings.terminal.scrollBar", defaultValue: "Show Terminal Scroll Bar"), "terminal shell scrollback"),
         setting(.terminal, "agent-auto-resume", String(localized: "settings.terminal.agentAutoResume", defaultValue: "Resume Agent Sessions on Reopen"), "terminal.autoResumeAgentSessions auto resume restore reopen relaunch quit sessions agents claude code codex opencode rovo dev rovodev toggle"),
+        setting(.terminal, "resume-commands", String(localized: "settings.terminal.resumeCommands", defaultValue: "Resume Commands"), "surface resume command approvals prefixes auto restore prompt manual tmux hibernation"),
         setting(.sidebarAppearance, "match-terminal", String(localized: "settings.sidebarAppearance.matchTerminalBackground", defaultValue: "Match Terminal Background"), "sidebar material transparency"),
         setting(.sidebarAppearance, "hide-sidebar-details", String(localized: "settings.app.hideAllSidebarDetails", defaultValue: "Hide All Sidebar Details"), "workspace sidebar compact"),
         setting(.sidebarAppearance, "show-workspace-description", String(localized: "settings.app.showWorkspaceDescription", defaultValue: "Show Workspace Description in Sidebar"), "workspace description notes markdown"),
@@ -347,6 +348,8 @@ enum SettingsSearchIndex {
         setting(.browser, "enable-browser", String(localized: "settings.browser.enabled", defaultValue: "Enable cmux Browser"), "webview tabs links"),
         setting(.browser, "search-suggestions", String(localized: "settings.browser.searchSuggestions", defaultValue: "Show Search Suggestions"), "browser address bar suggestions"),
         setting(.browser, "theme", String(localized: "settings.browser.theme", defaultValue: "Browser Theme"), "web appearance light dark system"),
+        setting(.browser, "hidden-webview-discard", String(localized: "settings.browser.hiddenWebViewDiscard", defaultValue: "Discard Hidden Browser WebViews"), "memory hidden tabs webview discard unload"),
+        setting(.browser, "hidden-webview-discard-delay", String(localized: "settings.browser.hiddenWebViewDiscardDelay", defaultValue: "Hidden WebView Discard Delay"), "memory hidden tabs delay seconds discard"),
         setting(.browser, "terminal-links", String(localized: "settings.browser.openTerminalLinks", defaultValue: "Open Terminal Links in cmux Browser"), "click links browser"),
         setting(.browser, "intercept-open", String(localized: "settings.browser.interceptOpen", defaultValue: "Intercept open http(s) in Terminal"), "open command urls"),
         setting(.browser, "host-whitelist", String(localized: "settings.browser.hostWhitelist", defaultValue: "Hosts to Open in Embedded Browser"), "hosts wildcard terminal links"),
@@ -438,6 +441,8 @@ enum SettingsSearchIndex {
         "browser.defaultSearchEngine": settingID(for: .browser, idSuffix: "search-engine"),
         "browser.showSearchSuggestions": settingID(for: .browser, idSuffix: "search-suggestions"),
         "browser.theme": settingID(for: .browser, idSuffix: "theme"),
+        "browser.discardHiddenWebViews": settingID(for: .browser, idSuffix: "hidden-webview-discard"),
+        "browser.hiddenWebViewDiscardDelaySeconds": settingID(for: .browser, idSuffix: "hidden-webview-discard-delay"),
         "browser.openTerminalLinksInCmuxBrowser": settingID(for: .browser, idSuffix: "terminal-links"),
         "browser.interceptTerminalOpenCommandInCmuxBrowser": settingID(for: .browser, idSuffix: "intercept-open"),
         "browser.hostsToOpenInEmbeddedBrowser": settingID(for: .browser, idSuffix: "host-whitelist"),

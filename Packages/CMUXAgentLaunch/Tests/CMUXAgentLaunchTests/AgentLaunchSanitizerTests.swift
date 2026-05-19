@@ -36,6 +36,307 @@ struct AgentLaunchSanitizerTests {
         )
     }
 
+    @Test("Preserves direct Codex fork launch context")
+    func preservesDirectCodexForkLaunchContext() {
+        #expect(
+            AgentLaunchSanitizer.sanitizedLaunchArguments(
+                [
+                    "codex",
+                    "--model",
+                    "gpt-5.4",
+                    "fork",
+                    "019dad34-d218-7943-b81a-eddac5c87951",
+                    "--sandbox",
+                    "danger-full-access",
+                    "--remote",
+                    "ws://127.0.0.1:1",
+                    "--remote-auth-token-env=OLD_CODEX_TOKEN",
+                    "prompt should not replay",
+                ],
+                launcher: "codex",
+                fallbackKind: "codex"
+            ) == [
+                "codex",
+                "--model",
+                "gpt-5.4",
+                "--sandbox",
+                "danger-full-access",
+            ]
+        )
+    }
+
+    @Test("Detects Codex fork after startup image options")
+    func detectsCodexForkAfterStartupImageOptions() {
+        #expect(
+            AgentLaunchSanitizer.sanitizedLaunchArguments(
+                [
+                    "codex",
+                    "--image",
+                    "/tmp/screenshot.png",
+                    "fork",
+                    "019dad34-d218-7943-b81a-eddac5c87951",
+                    "--sandbox",
+                    "danger-full-access",
+                    "--remote",
+                    "ws://127.0.0.1:1",
+                    "--remote-auth-token-env=OLD_CODEX_TOKEN",
+                    "prompt should not replay",
+                ],
+                launcher: "codex",
+                fallbackKind: "codex"
+            ) == [
+                "codex",
+                "--sandbox",
+                "danger-full-access",
+            ]
+        )
+    }
+
+    @Test("Drops Codex startup images and keeps following flags")
+    func dropsCodexStartupImagesAndKeepsFollowingFlags() {
+        #expect(
+            AgentLaunchSanitizer.sanitizedLaunchArguments(
+                [
+                    "codex",
+                    "--image",
+                    "fork",
+                    "019dad34-d218-7943-b81a-eddac5c87951",
+                    "--model",
+                    "gpt-5.4",
+                ],
+                launcher: "codex",
+                fallbackKind: "codex"
+            ) == [
+                "codex",
+                "--model",
+                "gpt-5.4",
+            ]
+        )
+    }
+
+    @Test("Drops Codex restored image placeholder and prompt")
+    func dropsCodexRestoredImagePlaceholderAndPrompt() {
+        #expect(
+            AgentLaunchSanitizer.sanitizedLaunchArguments(
+                [
+                    "codex",
+                    "--yolo",
+                    "--image",
+                    "[Image #1]",
+                    "[Image #1] cmd clicking this should open the crash file in finder",
+                    "--model",
+                    "gpt-5.4",
+                ],
+                launcher: "codex",
+                fallbackKind: "codex"
+            ) == [
+                "codex",
+                "--yolo",
+                "--model",
+                "gpt-5.4",
+            ]
+        )
+    }
+
+    @Test("Drops Claude startup files")
+    func dropsClaudeStartupFiles() {
+        #expect(
+            AgentLaunchSanitizer.sanitizedLaunchArguments(
+                [
+                    "claude",
+                    "--file",
+                    "file_123:screenshot.png",
+                    "initial prompt should not replay",
+                    "--model",
+                    "sonnet",
+                ],
+                launcher: "claude",
+                fallbackKind: "claude"
+            ) == [
+                "claude",
+                "--model",
+                "sonnet",
+            ]
+        )
+    }
+
+    @Test("Drops OpenCode startup files before preserving cwd")
+    func dropsOpenCodeStartupFilesBeforePreservingCwd() {
+        #expect(
+            AgentLaunchSanitizer.sanitizedLaunchArguments(
+                [
+                    "opencode",
+                    "--file",
+                    "/tmp/screenshot.png",
+                    "--model",
+                    "anthropic/claude-sonnet-4-6",
+                    "/tmp/worktree",
+                    "initial prompt should not replay",
+                ],
+                launcher: "opencode",
+                fallbackKind: "opencode"
+            ) == [
+                "opencode",
+                "--model",
+                "anthropic/claude-sonnet-4-6",
+                "/tmp/worktree",
+            ]
+        )
+    }
+
+    @Test("Drops OpenCode startup file when it appears before cwd")
+    func dropsOpenCodeStartupFileBeforeCwd() {
+        #expect(
+            AgentLaunchSanitizer.sanitizedLaunchArguments(
+                [
+                    "opencode",
+                    "--file",
+                    "/tmp/screenshot.png",
+                    "/tmp/worktree",
+                    "initial prompt should not replay",
+                ],
+                launcher: "opencode",
+                fallbackKind: "opencode"
+            ) == [
+                "opencode",
+                "/tmp/worktree",
+            ]
+        )
+    }
+
+    @Test("Drops repeated OpenCode startup files before preserving cwd")
+    func dropsRepeatedOpenCodeStartupFilesBeforeCwd() {
+        #expect(
+            AgentLaunchSanitizer.sanitizedLaunchArguments(
+                [
+                    "opencode",
+                    "--file",
+                    "/tmp/screenshot.png",
+                    "-f",
+                    "/tmp/transcript.txt",
+                    "--model",
+                    "anthropic/claude-sonnet-4-6",
+                    "/tmp/worktree",
+                    "initial prompt should not replay",
+                ],
+                launcher: "opencode",
+                fallbackKind: "opencode"
+            ) == [
+                "opencode",
+                "--model",
+                "anthropic/claude-sonnet-4-6",
+                "/tmp/worktree",
+            ]
+        )
+    }
+
+    @Test("Preserves generated Codex fork launch context")
+    func preservesGeneratedCodexForkLaunchContext() {
+        #expect(
+            AgentLaunchSanitizer.sanitizedLaunchArguments(
+                [
+                    "codex",
+                    "fork",
+                    "--model",
+                    "gpt-5.4",
+                    "--add-dir",
+                    "/tmp/extra repo",
+                    "--sandbox",
+                    "danger-full-access",
+                    "019dad34-d218-7943-b81a-eddac5c87951",
+                ],
+                launcher: "codex",
+                fallbackKind: "codex"
+            ) == [
+                "codex",
+                "--model",
+                "gpt-5.4",
+                "--add-dir",
+                "/tmp/extra repo",
+                "--sandbox",
+                "danger-full-access",
+            ]
+        )
+    }
+
+    @Test("Keeps Codex variadic values named fork")
+    func keepsCodexVariadicValuesNamedFork() {
+        #expect(
+            AgentLaunchSanitizer.sanitizedLaunchArguments(
+                [
+                    "codex",
+                    "--add-dir",
+                    "fork",
+                    "--model",
+                    "gpt-5.4",
+                ],
+                launcher: "codex",
+                fallbackKind: "codex"
+            ) == [
+                "codex",
+                "--add-dir",
+                "fork",
+                "--model",
+                "gpt-5.4",
+            ]
+        )
+    }
+
+    @Test("Preserves Codex Teams fork launch context")
+    func preservesCodexTeamsForkLaunchContext() {
+        #expect(
+            AgentLaunchSanitizer.sanitizedLaunchArguments(
+                [
+                    "/Applications/cmux.app/Contents/Resources/bin/cmux",
+                    "codex-teams",
+                    "--model",
+                    "gpt-5.4",
+                    "fork",
+                    "019dad34-d218-7943-b81a-eddac5c87951",
+                    "--ask-for-approval",
+                    "never",
+                    "--remote",
+                    "ws://127.0.0.1:1",
+                    "--remote-auth-token-env=OLD_CODEX_TOKEN",
+                    "prompt should not replay",
+                ],
+                launcher: "codexTeams",
+                fallbackKind: "codex"
+            ) == [
+                "/Applications/cmux.app/Contents/Resources/bin/cmux",
+                "codex-teams",
+                "--model",
+                "gpt-5.4",
+                "--ask-for-approval",
+                "never",
+            ]
+        )
+    }
+
+    @Test("Drops OpenCode fork prefix option while preserving fork context")
+    func dropsOpenCodeForkPrefixOptionWhilePreservingForkContext() {
+        #expect(
+            AgentLaunchSanitizer.sanitizedLaunchArguments(
+                [
+                    "opencode",
+                    "--session",
+                    "parent-session",
+                    "--fork=parent-session",
+                    "--model",
+                    "anthropic/claude-sonnet-4-6",
+                    "/tmp/opencode repo",
+                ],
+                launcher: "opencode",
+                fallbackKind: "opencode"
+            ) == [
+                "opencode",
+                "--model",
+                "anthropic/claude-sonnet-4-6",
+                "/tmp/opencode repo",
+            ]
+        )
+    }
+
     @Test("Consumes terminal optional values")
     func consumesTerminalOptionalValues() {
         #expect(

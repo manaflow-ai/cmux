@@ -162,10 +162,14 @@ extension Workspace {
 
     func sessionSnapshot(
         includeScrollback: Bool,
-        restorableAgentIndex: RestorableAgentSessionIndex? = nil
+        restorableAgentIndex: RestorableAgentSessionIndex? = nil,
+        surfaceResumeBindingIndex: SurfaceResumeBindingIndex? = nil
     ) -> SessionWorkspaceSnapshot {
         let tree = bonsplitController.treeSnapshot()
         let layout = sessionLayoutSnapshot(from: tree)
+        if let surfaceResumeBindingIndex {
+            reconcileSurfaceResumeBindings(using: surfaceResumeBindingIndex)
+        }
 
         let orderedPanelIds = sidebarOrderedPanelIds()
         var seen: Set<UUID> = []
@@ -183,7 +187,11 @@ extension Workspace {
                 sessionPanelSnapshot(
                     panelId: panelId,
                     includeScrollback: includeScrollback,
-                    restorableAgent: restorableAgentIndex?.snapshot(workspaceId: id, panelId: panelId)
+                    restorableAgent: restorableAgentIndex?.snapshot(workspaceId: id, panelId: panelId),
+                    resumeBinding: effectiveSurfaceResumeBinding(
+                        panelId: panelId,
+                        surfaceResumeBindingIndex: surfaceResumeBindingIndex
+                    )
                 )
             }
 
@@ -249,6 +257,7 @@ extension Workspace {
         restoredAgentSnapshotsByPanelId.removeAll(keepingCapacity: false)
         restoredAgentResumeStatesByPanelId.removeAll(keepingCapacity: false)
         invalidatedRestoredAgentFingerprintsByPanelId.removeAll(keepingCapacity: false)
+        surfaceResumeBindingsByPanelId.removeAll(keepingCapacity: false)
 
         let restoredRemoteConfiguration = snapshot.remote?.workspaceConfiguration()
         if let restoredRemoteConfiguration {
@@ -388,7 +397,8 @@ extension Workspace {
     private func sessionPanelSnapshot(
         panelId: UUID,
         includeScrollback: Bool,
-        restorableAgent: SessionRestorableAgentSnapshot?
+        restorableAgent: SessionRestorableAgentSnapshot?,
+        resumeBinding: SurfaceResumeBindingSnapshot?
     ) -> SessionPanelSnapshot? {
         guard let panel = panels[panelId] else { return nil }
 
@@ -453,12 +463,29 @@ extension Workspace {
             let restorableTmuxStartCommand = effectiveRestorableAgent == nil
                 ? Self.restorableTmuxStartCommand(terminalPanel.surface.debugTmuxStartCommand())
                 : nil
+            let agentWasRunning: Bool? = {
+                guard effectiveRestorableAgent != nil else { return nil }
+                switch panelShellActivityStates[panelId] {
+                case .some(.commandRunning):
+                    return true
+                case .some(.promptIdle):
+                    return false
+                case .some(.unknown), .none:
+                    return nil
+                }
+            }()
+            let resumeStartupInput = Self.surfaceResumeStartupInput(
+                resumeBinding,
+                autoResumeAgentSessions: AgentSessionAutoResumeSettings.isEnabled() && (agentWasRunning ?? true),
+                promptForApproval: false
+            )
             let shouldPersistScrollback = Self.shouldPersistSessionScrollback(
                 shellActivityState: panelShellActivityStates[panelId],
                 fallbackNeedsConfirmClose: terminalPanel.needsConfirmClose()
             ) && Self.shouldReplaySessionScrollback(
                 restorableAgent: effectiveRestorableAgent,
-                tmuxStartCommand: restorableTmuxStartCommand
+                tmuxStartCommand: restorableTmuxStartCommand,
+                resumeStartupInput: resumeStartupInput
             )
 #if DEBUG
             let allowDebugFallbackScrollback = debugSessionSnapshotScrollbackFallbackPanelIds.contains(panelId)
@@ -482,7 +509,9 @@ extension Workspace {
                 workingDirectory: directory,
                 scrollback: resolvedScrollback,
                 agent: effectiveRestorableAgent,
-                tmuxStartCommand: restorableTmuxStartCommand
+                tmuxStartCommand: restorableTmuxStartCommand,
+                resumeBinding: resumeBinding,
+                wasAgentRunning: agentWasRunning
             )
             browserSnapshot = nil
             markdownSnapshot = nil
@@ -561,12 +590,69 @@ extension Workspace {
 
     nonisolated static func shouldReplaySessionScrollback(
         restorableAgent: SessionRestorableAgentSnapshot?,
-        tmuxStartCommand: String? = nil
+        tmuxStartCommand: String? = nil,
+        resumeStartupInput: String? = nil
     ) -> Bool {
         // Agent restores relaunch from the provider's session ID. Replaying the
         // old TUI scrollback can print stale launch commands and race the resume input.
         // OMX HUD panes restore from their tmux start command for the same reason.
-        restorableAgent == nil && restorableTmuxStartCommand(tmuxStartCommand) == nil
+        restorableAgent == nil && restorableTmuxStartCommand(tmuxStartCommand) == nil && resumeStartupInput == nil
+    }
+
+    nonisolated static func surfaceResumeStartupInput(
+        _ resumeBinding: SurfaceResumeBindingSnapshot?,
+        autoResumeAgentSessions: Bool,
+        allowLauncherScript: Bool = false,
+        promptForApproval: Bool = true,
+        approvalStoreURL: URL = SurfaceResumeApprovalStore.defaultURL(),
+        approvalSigningSecret: Data? = nil
+    ) -> String? {
+        guard let resumeBinding else { return nil }
+        let effectiveBinding = SurfaceResumeApprovalStore.applyingStoredApproval(
+            to: resumeBinding,
+            fileURL: approvalStoreURL,
+            signingSecret: approvalSigningSecret
+        )
+        if effectiveBinding.source == "agent-hook", !autoResumeAgentSessions {
+            return nil
+        }
+        if effectiveBinding.approvalPolicy == .prompt {
+            guard promptForApproval else { return nil }
+            guard shouldRunPromptedSurfaceResume(effectiveBinding) else { return nil }
+            return effectiveBinding.startupInputWithLauncherScript(allowLauncherScript: allowLauncherScript)
+        }
+        guard effectiveBinding.allowsAutomaticResume else { return nil }
+        return effectiveBinding.startupInputWithLauncherScript(allowLauncherScript: allowLauncherScript)
+    }
+
+    nonisolated private static func shouldRunPromptedSurfaceResume(_ binding: SurfaceResumeBindingSnapshot) -> Bool {
+        guard Thread.isMainThread, ProcessInfo.processInfo.environment["XCTestConfigurationFilePath"] == nil else {
+            return false
+        }
+        return MainActor.assumeIsolated {
+            shouldRunPromptedSurfaceResumeOnMain(binding)
+        }
+    }
+
+    @MainActor
+    private static func shouldRunPromptedSurfaceResumeOnMain(_ binding: SurfaceResumeBindingSnapshot) -> Bool {
+        let alert = NSAlert()
+        alert.alertStyle = .informational
+        alert.messageText = String(
+            localized: "surfaceResumeApproval.runPrompt.title",
+            defaultValue: "Run Resume Command?"
+        )
+        alert.informativeText = String(
+            format: String(
+                localized: "surfaceResumeApproval.runPrompt.message",
+                defaultValue: "cmux is restoring a terminal with this resume command:\n\n%@\n\nWorking directory: %@"
+            ),
+            binding.command,
+            binding.cwd ?? String(localized: "surfaceResumeApproval.cwd.none", defaultValue: "None")
+        )
+        alert.addButton(withTitle: String(localized: "surfaceResumeApproval.runPrompt.run", defaultValue: "Run"))
+        alert.addButton(withTitle: String(localized: "surfaceResumeApproval.runPrompt.skip", defaultValue: "Skip"))
+        return alert.runModal() == .alertFirstButtonReturn
     }
 
     nonisolated static func restorableTmuxStartCommand(_ rawCommand: String?) -> String? {
@@ -762,17 +848,72 @@ extension Workspace {
         }
     }
 
+    func reconcileSurfaceResumeBindings(using surfaceResumeBindingIndex: SurfaceResumeBindingIndex) {
+        for panelId in panels.keys {
+            let storedBinding = surfaceResumeBindingsByPanelId[panelId]
+            let detectedBinding = surfaceResumeBindingIndex.binding(workspaceId: id, panelId: panelId)
+
+            guard let storedBinding else {
+                if let detectedBinding, detectedBinding.isProcessDetected {
+                    surfaceResumeBindingsByPanelId[panelId] = detectedBinding
+                }
+                continue
+            }
+            guard let detectedBinding else {
+                if storedBinding.isProcessDetected {
+                    surfaceResumeBindingsByPanelId.removeValue(forKey: panelId)
+                }
+                continue
+            }
+            if storedBinding.shouldYieldToDetectedSurfaceResumeBinding(detectedBinding) {
+                surfaceResumeBindingsByPanelId[panelId] = detectedBinding
+            } else if storedBinding.isProcessDetected {
+                surfaceResumeBindingsByPanelId.removeValue(forKey: panelId)
+            }
+        }
+    }
+
+    func effectiveSurfaceResumeBinding(
+        panelId: UUID,
+        surfaceResumeBindingIndex: SurfaceResumeBindingIndex?
+    ) -> SurfaceResumeBindingSnapshot? {
+        let storedBinding = surfaceResumeBindingsByPanelId[panelId]
+        guard let surfaceResumeBindingIndex else {
+            return storedBinding
+        }
+
+        let detectedBinding = surfaceResumeBindingIndex.binding(workspaceId: id, panelId: panelId)
+        guard let storedBinding else { return detectedBinding }
+        guard let detectedBinding else { return storedBinding.isProcessDetected ? nil : storedBinding }
+        if storedBinding.shouldYieldToDetectedSurfaceResumeBinding(detectedBinding) { return detectedBinding }
+        if storedBinding.isProcessDetected { return nil }
+        return storedBinding
+    }
+
     private func createPanel(from snapshot: SessionPanelSnapshot, inPane paneId: PaneID) -> UUID? {
         switch snapshot.type {
         case .terminal:
+            let resumeBinding = snapshot.terminal?.resumeBinding
+            let restorableAgent = snapshot.terminal?.agent
+            let autoResumeAgentSessions = AgentSessionAutoResumeSettings.isEnabled()
+            // Only auto-resume if the agent was actively running when the snapshot was saved.
+            // wasAgentRunning == nil means a legacy snapshot; treat as true for backwards compatibility.
+            let agentWasRunningAtQuit = snapshot.terminal?.wasAgentRunning ?? true
+            let shouldAutoResumeAgent = autoResumeAgentSessions && agentWasRunningAtQuit
+            let restoredBindingInput = Self.surfaceResumeStartupInput(
+                resumeBinding,
+                autoResumeAgentSessions: shouldAutoResumeAgent,
+                allowLauncherScript: true
+            )
+            let effectiveResumeBinding = restoredBindingInput == nil ? nil : resumeBinding
             let workingDirectory =
-                snapshot.terminal?.workingDirectory
-                ?? snapshot.terminal?.agent?.workingDirectory
+                effectiveResumeBinding?.cwd
+                ?? snapshot.terminal?.workingDirectory
+                ?? restorableAgent?.workingDirectory
                 ?? snapshot.directory
                 ?? currentDirectory
             let localWorkingDirectory = remoteTerminalStartupCommand() == nil ? workingDirectory : nil
-            let restorableAgent = snapshot.terminal?.agent
-            let restorableTmuxStartCommand = restorableAgent == nil
+            let restorableTmuxStartCommand = restorableAgent == nil && restoredBindingInput == nil
                 ? Self.restorableTmuxStartCommand(snapshot.terminal?.tmuxStartCommand)
                 : nil
             let restoredTmuxStartupScript = restorableTmuxStartCommand.flatMap {
@@ -784,12 +925,17 @@ extension Workspace {
             let restoredTmuxStartCommand = restoredTmuxStartupScript == nil ? nil : restorableTmuxStartCommand
             let shouldReplayScrollback = Self.shouldReplaySessionScrollback(
                 restorableAgent: restorableAgent,
-                tmuxStartCommand: restoredTmuxStartCommand
+                tmuxStartCommand: restoredTmuxStartCommand,
+                resumeStartupInput: restoredBindingInput
             )
-            let autoResumeAgentSessions = AgentSessionAutoResumeSettings.isEnabled()
-            let restoredAgentResumeInput = autoResumeAgentSessions
-                ? restorableAgent?.resumeStartupInput()
+            let restoredAgentResumeInput = shouldAutoResumeAgent
+                ? (restoredBindingInput == nil ? restorableAgent?.resumeStartupInput() : nil)
                 : nil
+            let restoredStartupInput = restoredBindingInput ?? restoredAgentResumeInput
+            let restoredAgentWillRunStartupInput = restorableAgent != nil && (
+                restoredAgentResumeInput != nil ||
+                (restoredBindingInput != nil && resumeBinding?.isAgentHookBinding == true)
+            )
 #if DEBUG
             if let restorableAgent {
                 let sessionPreview = String(restorableAgent.sessionId.prefix(8))
@@ -803,6 +949,14 @@ extension Workspace {
                     "replayScrollback=\(shouldReplayScrollback ? 1 : 0)"
                 )
             }
+            if let resumeBinding {
+                cmuxDebugLog(
+                    "session.restore.surfaceResume panel=\(snapshot.id.uuidString.prefix(5)) " +
+                    "kind=\(resumeBinding.kind ?? "unknown") source=\(resumeBinding.source ?? "unknown") " +
+                    "hasInput=\(restoredBindingInput == nil ? 0 : 1) " +
+                    "replayScrollback=\(shouldReplayScrollback ? 1 : 0)"
+                )
+            }
 #endif
             let replayEnvironment = SessionScrollbackReplayStore.replayEnvironment(
                 for: shouldReplayScrollback ? snapshot.terminal?.scrollback : nil
@@ -813,10 +967,15 @@ extension Workspace {
                 workingDirectory: localWorkingDirectory,
                 initialCommand: restoredTmuxStartupScript?.path,
                 tmuxStartCommand: restoredTmuxStartCommand,
-                initialInput: restoredAgentResumeInput,
+                initialInput: restoredStartupInput,
                 startupEnvironment: replayEnvironment
             ) else {
                 return nil
+            }
+            if let resumeBinding {
+                surfaceResumeBindingsByPanelId[terminalPanel.id] = resumeBinding
+            } else {
+                surfaceResumeBindingsByPanelId.removeValue(forKey: terminalPanel.id)
             }
             let fallbackScrollback = shouldReplayScrollback
                 ? SessionPersistencePolicy.truncatedScrollback(snapshot.terminal?.scrollback)
@@ -828,7 +987,7 @@ extension Workspace {
             }
             if let restorableAgent {
                 restoredAgentSnapshotsByPanelId[terminalPanel.id] = restorableAgent
-                if restoredAgentResumeInput != nil {
+                if restoredAgentWillRunStartupInput {
                     restoredAgentResumeStatesByPanelId[terminalPanel.id] = .awaitingAutoResumeCommand
                 } else {
                     restoredAgentResumeStatesByPanelId[terminalPanel.id] = .manualResumeAvailable
@@ -1212,6 +1371,7 @@ extension Workspace {
             }
         }
         pendingTerminalInputObserversByPanelId[panelId, default: []].append(registration)
+        panel.surface.requestBackgroundSurfaceStartIfNeeded()
 
         guard let timeout else { return }
         DispatchQueue.main.asyncAfter(deadline: .now() + timeout) { [weak self, registration] in
@@ -7348,6 +7508,7 @@ final class Workspace: Identifiable, ObservableObject {
     var debugSessionSnapshotSyntheticScrollbackByPanelId: [UUID: String] = [:]
 #endif
     var restoredAgentSnapshotsByPanelId: [UUID: SessionRestorableAgentSnapshot] = [:]
+    var surfaceResumeBindingsByPanelId: [UUID: SurfaceResumeBindingSnapshot] = [:]
     enum RestoredAgentResumeState: Equatable {
         case manualResumeAvailable
         case awaitingAutoResumeCommand
@@ -7876,6 +8037,11 @@ final class Workspace: Identifiable, ObservableObject {
         bonsplitController.onTabCloseRequest = { [weak self] tabId, _ in
             self?.markExplicitClose(surfaceId: tabId)
         }
+        bonsplitController.onTabZoomToggleRequest = { [weak self] tabId, _ in
+            guard let self,
+                  let panelId = self.panelIdFromSurfaceId(tabId) else { return false }
+            return self.toggleSplitZoom(panelId: panelId)
+        }
 
         // Set ourselves as delegate
         bonsplitController.delegate = self
@@ -8054,6 +8220,7 @@ final class Workspace: Identifiable, ObservableObject {
     private var layoutFollowUpAttemptScheduled = false
     private var layoutFollowUpAttemptVersion: Int = 0
     private var layoutFollowUpStalledAttemptCount = 0
+    private var pendingReparentFocusSuppressionViews: [ObjectIdentifier: GhosttySurfaceScrollView] = [:]
     private var portalRenderingEnabled = true
     private var isAttemptingLayoutFollowUp = false
     private var isNormalizingPinnedTabOrder = false
@@ -8462,8 +8629,36 @@ final class Workspace: Identifiable, ObservableObject {
             return panels[panelId] as? TerminalPanel
         }
     }
-    func requestBackgroundPrimeTerminalSurfaceStartIfNeeded() { backgroundPrimeTerminalPanels.forEach { $0.surface.requestBackgroundSurfaceStartIfNeeded() } }
-    func hasLoadedBackgroundPrimeTerminalSurface() -> Bool { backgroundPrimeTerminalPanels.allSatisfy { $0.surface.surface != nil } }
+
+    private func hasBackgroundSurfaceStartWork(for panel: TerminalPanel) -> Bool {
+        panel.surface.hasDeferredStartupWorkForBackgroundStart() ||
+            pendingTerminalInputObserversByPanelId[panel.id]?.isEmpty == false
+    }
+
+    private var backgroundPrimeTerminalPanelsNeedingSurfaceStart: [TerminalPanel] {
+        backgroundPrimeTerminalPanels.filter { panel in
+            panel.surface.surface == nil && hasBackgroundSurfaceStartWork(for: panel)
+        }
+    }
+
+    func hasBackgroundPrimeTerminalSurfaceStartWork() -> Bool {
+        backgroundPrimeTerminalPanels.contains {
+            hasBackgroundSurfaceStartWork(for: $0)
+        }
+    }
+
+    func requestBackgroundPrimeTerminalSurfaceStartIfNeeded() {
+        backgroundPrimeTerminalPanelsNeedingSurfaceStart.forEach {
+            $0.surface.requestBackgroundSurfaceStartIfNeeded()
+        }
+    }
+
+    func hasLoadedBackgroundPrimeTerminalSurface() -> Bool {
+        backgroundPrimeTerminalPanels.allSatisfy { panel in
+            panel.surface.surface != nil || !hasBackgroundSurfaceStartWork(for: panel)
+        }
+    }
+
     @discardableResult
     func preloadTerminalPanelForDebugStress(
         tabId: TabID,
@@ -8479,7 +8674,7 @@ final class Workspace: Identifiable, ObservableObject {
         let isVisibleSelection =
             bonsplitController.focusedPaneId == paneId &&
             bonsplitController.selectedTab(inPane: paneId)?.id == tabId &&
-            terminalPanel.hostedView.window != nil &&
+            terminalPanel.surface.isViewInWindow &&
             terminalPanel.hostedView.superview != nil
 
         if isVisibleSelection {
@@ -8796,6 +8991,7 @@ final class Workspace: Identifiable, ObservableObject {
     ) {
         let fingerprint = TabManager.restorableAgentSnapshotFingerprint(restoredAgent)
         invalidatedRestoredAgentFingerprintsByPanelId[panelId] = fingerprint
+        clearRestoredAgentResumeBinding(panelId: panelId, restoredAgent: restoredAgent)
         clearRestoredAgentSnapshot(panelId: panelId)
 #if DEBUG
         cmuxDebugLog(
@@ -8808,6 +9004,41 @@ final class Workspace: Identifiable, ObservableObject {
     private func clearRestoredAgentSnapshot(panelId: UUID) {
         restoredAgentSnapshotsByPanelId.removeValue(forKey: panelId)
         restoredAgentResumeStatesByPanelId.removeValue(forKey: panelId)
+    }
+
+    private func clearRestoredAgentResumeBinding(
+        panelId: UUID,
+        restoredAgent: SessionRestorableAgentSnapshot
+    ) {
+        guard let binding = surfaceResumeBindingsByPanelId[panelId],
+              binding.source == "agent-hook" else {
+            return
+        }
+        let checkpointId = binding.checkpointId?.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard checkpointId == nil || checkpointId == restoredAgent.sessionId else {
+            return
+        }
+        surfaceResumeBindingsByPanelId.removeValue(forKey: panelId)
+    }
+
+    @discardableResult
+    func setSurfaceResumeBinding(_ binding: SurfaceResumeBindingSnapshot, panelId: UUID) -> Bool {
+        guard terminalPanel(for: panelId) != nil,
+              let startupInput = binding.startupInput,
+              !startupInput.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else {
+            return false
+        }
+        surfaceResumeBindingsByPanelId[panelId] = binding
+        return true
+    }
+
+    @discardableResult
+    func clearSurfaceResumeBinding(panelId: UUID) -> Bool {
+        surfaceResumeBindingsByPanelId.removeValue(forKey: panelId) != nil
+    }
+
+    func surfaceResumeBinding(panelId: UUID) -> SurfaceResumeBindingSnapshot? {
+        surfaceResumeBindingsByPanelId[panelId]
     }
 
     func panelNeedsConfirmClose(panelId: UUID, fallbackNeedsConfirmClose: Bool) -> Bool {
@@ -9043,6 +9274,9 @@ final class Workspace: Identifiable, ObservableObject {
             refreshTrackedAgentPorts()
         }
         restoredAgentSnapshotsByPanelId = restoredAgentSnapshotsByPanelId.filter {
+            validSurfaceIds.contains($0.key)
+        }
+        surfaceResumeBindingsByPanelId = surfaceResumeBindingsByPanelId.filter {
             validSurfaceIds.contains($0.key)
         }
         restoredAgentResumeStatesByPanelId = restoredAgentResumeStatesByPanelId.filter {
@@ -10248,11 +10482,11 @@ final class Workspace: Identifiable, ObservableObject {
         // Without this, reparenting triggers onFocus + ghostty_surface_set_focus on the old view,
         // stealing focus from the new panel and creating model/surface divergence.
         if focus {
-            previousHostedView?.suppressReparentFocus()
+            suppressReparentFocusUntilLayoutFollowUp(
+                previousHostedView,
+                reason: "workspace.terminalSplitReparent"
+            )
             focusPanel(newPanel.id, previousHostedView: previousHostedView)
-            DispatchQueue.main.asyncAfter(deadline: .now() + 0.05) {
-                previousHostedView?.clearSuppressReparentFocus()
-            }
         } else {
             preserveFocusAfterNonFocusSplit(
                 preferredPanelId: previousFocusedPanelId,
@@ -10462,11 +10696,11 @@ final class Workspace: Identifiable, ObservableObject {
         // See newTerminalSplit: suppress old view's becomeFirstResponder during reparenting.
         let previousHostedView = focusedTerminalPanel?.hostedView
         if focus {
-            previousHostedView?.suppressReparentFocus()
+            suppressReparentFocusUntilLayoutFollowUp(
+                previousHostedView,
+                reason: "workspace.browserSplitReparent"
+            )
             focusPanel(browserPanel.id)
-            DispatchQueue.main.asyncAfter(deadline: .now() + 0.05) {
-                previousHostedView?.clearSuppressReparentFocus()
-            }
         } else {
             preserveFocusAfterNonFocusSplit(
                 preferredPanelId: previousFocusedPanelId,
@@ -10650,11 +10884,11 @@ final class Workspace: Identifiable, ObservableObject {
 
         let previousHostedView = focusedTerminalPanel?.hostedView
         if focus {
-            previousHostedView?.suppressReparentFocus()
+            suppressReparentFocusUntilLayoutFollowUp(
+                previousHostedView,
+                reason: "workspace.markdownSplitReparent"
+            )
             focusPanel(markdownPanel.id)
-            DispatchQueue.main.asyncAfter(deadline: .now() + 0.05) {
-                previousHostedView?.clearSuppressReparentFocus()
-            }
         } else {
             preserveFocusAfterNonFocusSplit(
                 preferredPanelId: previousFocusedPanelId,
@@ -11573,6 +11807,7 @@ final class Workspace: Identifiable, ObservableObject {
             panels.removeValue(forKey: detached.panelId)
             panelDirectories.removeValue(forKey: detached.panelId)
             surfaceTTYNames.removeValue(forKey: detached.panelId)
+            surfaceResumeBindingsByPanelId.removeValue(forKey: detached.panelId)
             syncRemotePortScanTTYs()
             panelTitles.removeValue(forKey: detached.panelId)
             panelCustomTitles.removeValue(forKey: detached.panelId)
@@ -11622,6 +11857,11 @@ final class Workspace: Identifiable, ObservableObject {
             }
         } else {
             restoredAgentResumeStatesByPanelId.removeValue(forKey: detached.panelId)
+        }
+        if let resumeBinding = detached.resumeBinding, !resumeBinding.isProcessDetected {
+            surfaceResumeBindingsByPanelId[detached.panelId] = resumeBinding
+        } else {
+            surfaceResumeBindingsByPanelId.removeValue(forKey: detached.panelId)
         }
         adoptDetachedAgentRuntimeState(detached.agentRuntime)
         if let markdownPanel = detached.panel as? MarkdownPanel,
@@ -11799,7 +12039,15 @@ final class Workspace: Identifiable, ObservableObject {
             return bonsplitController.focusedPaneId == targetPaneId &&
                 bonsplitController.selectedTab(inPane: targetPaneId)?.id == tabId
         }()
-        let shouldSuppressReentrantRefocus = trigger == .terminalFirstResponder && selectionAlreadyConverged
+        let targetHostedView = terminalPanel(for: panelId)?.hostedView
+        let targetHasPendingReparentSuppression = targetHostedView.map { hostedView in
+            hostedView.isSuppressingReparentFocusForLayoutFollowUp() ||
+                pendingReparentFocusSuppressionViews.values.contains { $0 === hostedView }
+        } ?? false
+        let shouldSuppressReentrantRefocus =
+            trigger == .terminalFirstResponder &&
+            selectionAlreadyConverged &&
+            targetHasPendingReparentSuppression
 #if DEBUG
         let targetPaneShort = targetPaneId.map { String($0.id.uuidString.prefix(5)) } ?? "nil"
         let focusedPaneShort = bonsplitController.focusedPaneId.map { String($0.id.uuidString.prefix(5)) } ?? "nil"
@@ -11815,7 +12063,23 @@ final class Workspace: Identifiable, ObservableObject {
             "currentPanel=\(currentPanelShort)"
         )
 #endif
-        if shouldSuppressReentrantRefocus, currentlyFocusedPanelId == panelId { return }
+        if shouldSuppressReentrantRefocus, currentlyFocusedPanelId == panelId {
+            if let targetPaneId, let panel = panels[panelId] {
+                let activationIntent = focusIntent ?? panel.preferredFocusIntentForActivation()
+                applyTabSelection(
+                    tabId: tabId,
+                    inPane: targetPaneId,
+                    reassertAppKitFocus: false,
+                    focusIntent: activationIntent,
+                    previousTerminalHostedView: previousTerminalHostedView
+                )
+            }
+            beginEventDrivenLayoutFollowUp(
+                reason: "workspace.focusPanel.terminal",
+                terminalFocusPanelId: panelId
+            )
+            return
+        }
 
         if let targetPaneId, !selectionAlreadyConverged {
 #if DEBUG
@@ -12336,6 +12600,69 @@ final class Workspace: Identifiable, ObservableObject {
         scheduleLayoutFollowUpAttempt()
     }
 
+    private func suppressReparentFocusUntilLayoutFollowUp(
+        _ hostedView: GhosttySurfaceScrollView?,
+        reason: String
+    ) {
+        guard let hostedView else { return }
+        hostedView.suppressReparentFocus()
+        pendingReparentFocusSuppressionViews[ObjectIdentifier(hostedView)] = hostedView
+#if DEBUG
+        cmuxDebugLog("focus.reparent.suppressPending reason=\(reason) count=\(pendingReparentFocusSuppressionViews.count)")
+#endif
+
+        guard portalRenderingEnabled else {
+            clearPendingReparentFocusSuppressions(reason: "\(reason).portalDisabled")
+            return
+        }
+
+        beginEventDrivenLayoutFollowUp(reason: reason, includeGeometry: true)
+    }
+
+    private func clearPendingReparentFocusSuppressions(reason: String) {
+        guard !pendingReparentFocusSuppressionViews.isEmpty else { return }
+        let hostedViews = Array(pendingReparentFocusSuppressionViews.values)
+        pendingReparentFocusSuppressionViews.removeAll()
+#if DEBUG
+        cmuxDebugLog("focus.reparent.clearPending reason=\(reason) count=\(hostedViews.count)")
+#endif
+        for hostedView in hostedViews {
+            hostedView.clearSuppressReparentFocus()
+        }
+    }
+
+    private func clearReadyPendingReparentFocusSuppressions(reason: String) {
+        guard !pendingReparentFocusSuppressionViews.isEmpty else { return }
+        let readyKeys = pendingReparentFocusSuppressionViews.compactMap { key, hostedView in
+            hostedView.canClearPendingReparentFocusSuppressionAfterLayoutAttempt() ? key : nil
+        }
+        guard !readyKeys.isEmpty else { return }
+        let hostedViews = readyKeys.compactMap { pendingReparentFocusSuppressionViews[$0] }
+        for key in readyKeys {
+            pendingReparentFocusSuppressionViews.removeValue(forKey: key)
+        }
+#if DEBUG
+        cmuxDebugLog("focus.reparent.clearReady reason=\(reason) count=\(hostedViews.count)")
+#endif
+        for hostedView in hostedViews {
+            hostedView.clearSuppressReparentFocus()
+        }
+    }
+
+#if DEBUG
+    func debugBeginReparentFocusSuppressionForTesting(_ hostedView: GhosttySurfaceScrollView, reason: String) {
+        suppressReparentFocusUntilLayoutFollowUp(hostedView, reason: reason)
+    }
+
+    func debugAttemptEventDrivenLayoutFollowUpForTesting() {
+        attemptEventDrivenLayoutFollowUp()
+    }
+
+    func debugHasPendingReparentFocusSuppressionsForTesting() -> Bool {
+        !pendingReparentFocusSuppressionViews.isEmpty
+    }
+#endif
+
     private func installLayoutFollowUpObservers() {
         guard layoutFollowUpTimeoutWorkItem == nil else { return }
 
@@ -12409,6 +12736,7 @@ final class Workspace: Identifiable, ObservableObject {
     }
 
     private func clearLayoutFollowUp() {
+        clearPendingReparentFocusSuppressions(reason: "workspace.layoutFollowUpEnd")
         layoutFollowUpTimeoutWorkItem?.cancel()
         layoutFollowUpTimeoutWorkItem = nil
         layoutFollowUpObservers.forEach { NotificationCenter.default.removeObserver($0) }
@@ -12522,6 +12850,7 @@ final class Workspace: Identifiable, ObservableObject {
         let terminalFocusPendingBefore = terminalFocusNeedsFollowUp()
         let browserPanelPendingBefore = browserPanelNeedsFollowUp()
         let browserExitPendingBefore = layoutFollowUpBrowserExitFocusPanelId != nil
+        let reparentFocusPendingBefore = !pendingReparentFocusSuppressionViews.isEmpty
 
         if layoutFollowUpNeedsGeometryPass {
             layoutFollowUpNeedsGeometryPass = reconcileTerminalGeometryPass()
@@ -12541,6 +12870,8 @@ final class Workspace: Identifiable, ObservableObject {
 
         reconcileTerminalPortalVisibilityForCurrentRenderedLayout()
         let terminalPortalPending = terminalPortalVisibilityNeedsFollowUp()
+        clearReadyPendingReparentFocusSuppressions(reason: "workspace.layoutAttempt")
+        let reparentFocusPending = !pendingReparentFocusSuppressionViews.isEmpty
 
         let reason = layoutFollowUpReason ?? "workspace.layout"
         reconcileBrowserPortalVisibilityForCurrentRenderedLayout(reason: reason)
@@ -12591,7 +12922,8 @@ final class Workspace: Identifiable, ObservableObject {
             browserVisibilityPending ||
             terminalFocusPending ||
             browserPanelPending ||
-            browserExitPending
+            browserExitPending ||
+            reparentFocusPending
 
         if !needsMoreWork {
             clearLayoutFollowUp()
@@ -12604,7 +12936,8 @@ final class Workspace: Identifiable, ObservableObject {
             (browserVisibilityPendingBefore && !browserVisibilityPending) ||
             (terminalFocusPendingBefore && !terminalFocusPending) ||
             (browserPanelPendingBefore && !browserPanelPending) ||
-            (browserExitPendingBefore && !browserExitPending)
+            (browserExitPendingBefore && !browserExitPending) ||
+            (reparentFocusPendingBefore && !reparentFocusPending)
 
         if didMakeProgress {
             layoutFollowUpStalledAttemptCount = 0
@@ -12631,7 +12964,7 @@ final class Workspace: Identifiable, ObservableObject {
             let hostedView = terminalPanel.hostedView
             let hasUsableBounds = hostedView.bounds.width > 1 && hostedView.bounds.height > 1
             let hasSurface = terminalPanel.surface.surface != nil
-            let isAttached = hostedView.window != nil && hostedView.superview != nil
+            let isAttached = terminalPanel.surface.isViewInWindow && hostedView.superview != nil
 
             // Split close/reparent churn can transiently detach a surviving terminal view.
             // Force one SwiftUI representable update so the portal binding reattaches it.
@@ -12745,7 +13078,7 @@ final class Workspace: Identifiable, ObservableObject {
             let hostedView = terminalPanel.hostedView
 
             if shouldBeVisible {
-                if hostedView.isHidden || hostedView.window == nil || hostedView.superview == nil {
+                if hostedView.isHidden || !terminalPanel.surface.isViewInWindow || hostedView.superview == nil {
                     return true
                 }
             } else if !hostedView.isHidden {
@@ -12912,17 +13245,20 @@ final class Workspace: Identifiable, ObservableObject {
         _ = reorderSurface(panelId: newPanel.id, toIndex: targetIndex)
     }
 
-    private func duplicateBrowserToRight(anchorTabId: TabID, inPane paneId: PaneID) {
-        guard let panelId = panelIdFromSurfaceId(anchorTabId),
-              let browser = browserPanel(for: panelId) else { return }
+    @discardableResult
+    func duplicateBrowserToRight(panelId: UUID, focus: Bool = true) -> BrowserPanel? {
+        guard let anchorTabId = surfaceIdFromPanelId(panelId),
+              let paneId = paneId(forPanelId: panelId),
+              let browser = browserPanel(for: panelId) else { return nil }
         let targetIndex = insertionIndexToRight(of: anchorTabId, inPane: paneId)
         guard let newPanel = newBrowserSurface(
             inPane: paneId,
-            url: browser.currentURL,
-            focus: true,
+            url: browser.currentURLForTabDuplication,
+            focus: focus,
             preferredProfileID: browser.profileID
-        ) else { return }
-        _ = reorderSurface(panelId: newPanel.id, toIndex: targetIndex)
+        ) else { return nil }
+        _ = reorderSurface(panelId: newPanel.id, toIndex: targetIndex, focus: focus)
+        return newPanel
     }
 
     private func promptRenamePanel(tabId: TabID) {
@@ -12957,11 +13293,7 @@ final class Workspace: Identifiable, ObservableObject {
         guard let panelId = panelIdFromSurfaceId(tabId),
               let app = AppDelegate.shared else { return [] }
 
-        let currentWindowId = app.tabManagerFor(tabId: id).flatMap { app.windowId(for: $0) }
-        let workspaceTargets = app.workspaceMoveTargets(
-            excludingWorkspaceId: id,
-            referenceWindowId: currentWindowId
-        )
+        let workspaceTargets = app.workspaceMoveTargets(forBonsplitTab: tabId.uuid)
         var destinations: [TabContextMoveDestination] = []
         if app.canMoveSurfaceToNewWorkspace(panelId: panelId) {
             destinations.append(TabContextMoveDestination(
@@ -13051,14 +13383,14 @@ final class Workspace: Identifiable, ObservableObject {
     ) -> Bool {
         switch destination {
         case .insert(let paneId, let index):
-            return openDroppedFileSurfaces(
+            return !openFileSurfaces(
                 inPane: paneId,
                 filePaths: [entry.filePath],
                 focus: true,
                 targetIndex: index
-            )
+            ).isEmpty
         case .split(let paneId, let orientation, let insertFirst):
-            return splitPaneWithDroppedFile(
+            return splitPaneWithFileSurface(
                 targetPane: paneId,
                 orientation: orientation,
                 insertFirst: insertFirst,
@@ -13080,16 +13412,16 @@ final class Workspace: Identifiable, ObservableObject {
 
         switch request.destination {
         case .insert(let paneId, let index):
-            return openDroppedFileSurfaces(
+            return !openFileSurfaces(
                 inPane: paneId,
                 filePaths: entries.map(\.filePath),
                 focus: true,
                 targetIndex: index
-            )
+            ).isEmpty
 
         case .split(let sourcePaneId, let orientation, let insertFirst):
             guard let first = entries.first,
-                  let firstPanel = splitPaneWithDroppedFile(
+                  let firstPanel = splitPaneWithFileSurface(
                     targetPane: sourcePaneId,
                     orientation: orientation,
                     insertFirst: insertFirst,
@@ -13099,59 +13431,17 @@ final class Workspace: Identifiable, ObservableObject {
             }
 
             let targetPane = paneId(forPanelId: firstPanel.id) ?? sourcePaneId
-            var openedAny = true
-            let openedRest = openDroppedFileSurfaces(
+            _ = openFileSurfaces(
                 inPane: targetPane,
                 filePaths: entries.dropFirst().map(\.filePath),
                 focus: true
             )
-            openedAny = openedAny || openedRest
-            return openedAny
+            return true
         }
     }
 
     @discardableResult
-    private func openDroppedFileSurfaces(
-        inPane paneId: PaneID,
-        filePaths: [String],
-        focus: Bool? = nil,
-        targetIndex: Int? = nil
-    ) -> Bool {
-        let shouldFocusNewTabs = focus ?? (bonsplitController.focusedPaneId == paneId)
-        var nextIndex = targetIndex
-        var openedAny = false
-
-        for filePath in filePaths {
-            let opened: Bool
-            if MarkdownPanelFileLinkResolver.isMarkdownPathLike(filePath) {
-                opened = newMarkdownSurface(
-                    inPane: paneId,
-                    filePath: filePath,
-                    focus: shouldFocusNewTabs,
-                    targetIndex: nextIndex
-                ) != nil
-            } else {
-                opened = newFilePreviewSurface(
-                    inPane: paneId,
-                    filePath: filePath,
-                    focus: shouldFocusNewTabs,
-                    targetIndex: nextIndex
-                ) != nil
-            }
-
-            if opened {
-                openedAny = true
-                if let index = nextIndex {
-                    nextIndex = index + 1
-                }
-            }
-        }
-
-        return openedAny
-    }
-
-    @discardableResult
-    private func splitPaneWithDroppedFile(
+    private func splitPaneWithFileSurface(
         targetPane paneId: PaneID,
         orientation: SplitOrientation,
         insertFirst: Bool,
@@ -13182,9 +13472,17 @@ final class Workspace: Identifiable, ObservableObject {
         orientation: SplitOrientation,
         insertFirst: Bool,
         workingDirectory: String?,
-        initialInput: String?
+        initialInput: String?,
+        remoteStartupCommand: String? = nil
     ) -> TerminalPanel? {
-        let inheritedConfig = inheritedTerminalConfig(inPane: paneId)
+        var inheritedConfig = inheritedTerminalConfig(inPane: paneId)
+        let requestedRemoteStartupCommand = remoteStartupCommand?.trimmingCharacters(in: .whitespacesAndNewlines)
+        let startupCommand = requestedRemoteStartupCommand?.isEmpty == false ? requestedRemoteStartupCommand : nil
+        if startupCommand != nil {
+            var template = inheritedConfig ?? CmuxSurfaceConfigTemplate()
+            template.waitAfterCommand = true
+            inheritedConfig = template
+        }
 
         let newPanel = TerminalPanel(
             workspaceId: id,
@@ -13192,11 +13490,15 @@ final class Workspace: Identifiable, ObservableObject {
             configTemplate: inheritedConfig,
             workingDirectory: workingDirectory,
             portOrdinal: portOrdinal,
+            initialCommand: startupCommand,
             initialInput: initialInput
         )
         configureTerminalPanel(newPanel)
         panels[newPanel.id] = newPanel
         panelTitles[newPanel.id] = newPanel.displayTitle
+        if startupCommand != nil {
+            trackRemoteTerminalSurface(newPanel.id)
+        }
         seedTerminalInheritanceFontPoints(panelId: newPanel.id, configTemplate: inheritedConfig)
 
         let newTab = Bonsplit.Tab(
@@ -13214,6 +13516,9 @@ final class Workspace: Identifiable, ObservableObject {
             panels.removeValue(forKey: newPanel.id)
             panelTitles.removeValue(forKey: newPanel.id)
             surfaceIdToPanelId.removeValue(forKey: newTab.id)
+            if startupCommand != nil {
+                untrackRemoteTerminalSurface(newPanel.id)
+            }
             terminalInheritanceFontPointsByPanelId.removeValue(forKey: newPanel.id)
             return nil
         }
@@ -13222,6 +13527,123 @@ final class Workspace: Identifiable, ObservableObject {
         bonsplitController.selectTab(newTab.id)
         newPanel.focus()
         return newPanel
+    }
+
+    struct AgentConversationForkWorkspaceLaunch: Equatable {
+        var workingDirectory: String?
+        var terminalWorkingDirectory: String?
+        var initialTerminalCommand: String?
+        var initialTerminalInput: String
+        var remoteConfiguration: WorkspaceRemoteConfiguration?
+        var autoConnectRemoteConfiguration: Bool
+    }
+
+    func forkAgentWorkspaceLaunch(
+        fromPanelId panelId: UUID,
+        snapshot: SessionRestorableAgentSnapshot,
+        fileManager: FileManager = .default,
+        temporaryDirectory: URL = FileManager.default.temporaryDirectory
+    ) -> AgentConversationForkWorkspaceLaunch? {
+        var launchSnapshot = snapshot
+        let workingDirectory = forkAgentWorkingDirectory(fromPanelId: panelId, snapshot: snapshot)
+        launchSnapshot.workingDirectory = workingDirectory
+        let remoteStartupCommand = forkAgentRemoteStartupCommand(fromPanelId: panelId)
+        let remoteConfiguration = forkAgentRemoteConfigurationForNewWorkspace(fromPanelId: panelId)
+        let isRemoteFork = remoteConfiguration?.terminalStartupCommand?.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty == false
+        guard panels[panelId] is TerminalPanel,
+              let startupInput = launchSnapshot.forkStartupInput(
+                  fileManager: fileManager,
+                  temporaryDirectory: temporaryDirectory,
+                  allowLauncherScript: !isRemoteFork
+              ) else {
+            return nil
+        }
+
+        return AgentConversationForkWorkspaceLaunch(
+            workingDirectory: workingDirectory,
+            terminalWorkingDirectory: isRemoteFork ? nil : workingDirectory,
+            initialTerminalCommand: remoteConfiguration?.terminalStartupCommand ?? remoteStartupCommand,
+            initialTerminalInput: startupInput,
+            remoteConfiguration: remoteConfiguration,
+            autoConnectRemoteConfiguration: remoteConfiguration != nil
+        )
+    }
+
+    @discardableResult
+    func forkAgentConversation(
+        fromPanelId panelId: UUID,
+        snapshot: SessionRestorableAgentSnapshot,
+        direction: SplitDirection,
+        fileManager: FileManager = .default,
+        temporaryDirectory: URL = FileManager.default.temporaryDirectory
+    ) -> TerminalPanel? {
+        var launchSnapshot = snapshot
+        let workingDirectory = forkAgentWorkingDirectory(fromPanelId: panelId, snapshot: snapshot)
+        launchSnapshot.workingDirectory = workingDirectory
+        let remoteStartupCommand = forkAgentRemoteStartupCommand(fromPanelId: panelId)
+        guard panels[panelId] is TerminalPanel,
+              let paneId = paneId(forPanelId: panelId),
+              let startupInput = launchSnapshot.forkStartupInput(
+                  fileManager: fileManager,
+                  temporaryDirectory: temporaryDirectory,
+                  allowLauncherScript: remoteStartupCommand == nil
+              ) else {
+            return nil
+        }
+
+        let zoomedPaneId = bonsplitController.zoomedPaneId
+        if zoomedPaneId != nil {
+            clearSplitZoom()
+        }
+        let forkedPanel = splitPaneWithNewTerminal(
+            targetPane: paneId,
+            orientation: direction.orientation,
+            insertFirst: direction.insertFirst,
+            workingDirectory: remoteStartupCommand == nil ? workingDirectory : nil,
+            initialInput: startupInput,
+            remoteStartupCommand: remoteStartupCommand
+        )
+        if let forkedPanel,
+           remoteStartupCommand != nil,
+           let workingDirectory {
+            updatePanelDirectory(panelId: forkedPanel.id, directory: workingDirectory)
+        }
+        if forkedPanel == nil, let zoomedPaneId {
+            _ = bonsplitController.togglePaneZoom(inPane: zoomedPaneId)
+        }
+        return forkedPanel
+    }
+
+    func forkAgentWorkingDirectory(
+        fromPanelId panelId: UUID,
+        snapshot: SessionRestorableAgentSnapshot
+    ) -> String? {
+        Self.firstNonEmptyPath([
+            snapshot.workingDirectory,
+            panelDirectories[panelId],
+            terminalPanel(for: panelId)?.requestedWorkingDirectory,
+            currentDirectory
+        ])
+    }
+
+    private func forkAgentRemoteStartupCommand(fromPanelId panelId: UUID) -> String? {
+        guard isRemoteTerminalSurface(panelId) else { return nil }
+        return remoteTerminalStartupCommand()
+    }
+
+    private func forkAgentRemoteConfigurationForNewWorkspace(fromPanelId panelId: UUID) -> WorkspaceRemoteConfiguration? {
+        guard forkAgentRemoteStartupCommand(fromPanelId: panelId) != nil else { return nil }
+        return remoteConfiguration?.sessionSnapshot()?.workspaceConfiguration() ?? remoteConfiguration
+    }
+
+    private static func firstNonEmptyPath(_ candidates: [String?]) -> String? {
+        for candidate in candidates {
+            let trimmed = candidate?.trimmingCharacters(in: .whitespacesAndNewlines)
+            if let trimmed, !trimmed.isEmpty {
+                return trimmed
+            }
+        }
+        return nil
     }
 
     func handleExternalTabDrop(_ request: BonsplitController.ExternalTabDropRequest) -> Bool {
@@ -13613,7 +14035,7 @@ extension Workspace: BonsplitDelegate {
 
     private func activationWindow(for panel: any Panel) -> NSWindow? {
         if let terminalPanel = panel as? TerminalPanel {
-            return terminalPanel.hostedView.window ?? NSApp.keyWindow ?? NSApp.mainWindow
+            return terminalPanel.surface.uiWindow ?? NSApp.keyWindow ?? NSApp.mainWindow
         }
         if let browserPanel = panel as? BrowserPanel {
             return browserPanel.webView.window ?? browserPanel.portalAnchorView.window ?? NSApp.keyWindow ?? NSApp.mainWindow
@@ -13866,6 +14288,10 @@ extension Workspace: BonsplitDelegate {
             let transferFallbackTitle = cachedTitle ?? panel.displayTitle
             let restorableAgent = restoredAgentSnapshotsByPanelId[panelId]
             let restorableAgentResumeState = restoredAgentResumeStatesByPanelId[panelId]
+            let resumeBinding = effectiveSurfaceResumeBinding(
+                panelId: panelId,
+                surfaceResumeBindingIndex: nil
+            )
             let agentRuntime = agentRuntimeState(forPanelId: panelId)
             pendingDetachedSurfaces[tabId] = DetachedSurfaceTransfer(
                 sourceWorkspaceId: id,
@@ -13885,6 +14311,7 @@ extension Workspace: BonsplitDelegate {
                 restoredUnread: restoredUnreadPanelIds.contains(panelId),
                 restorableAgent: restorableAgent,
                 restorableAgentResumeState: restorableAgentResumeState,
+                resumeBinding: resumeBinding,
                 agentRuntime: agentRuntime,
                 isRemoteTerminal: activeRemoteTerminalSurfaceIds.contains(panelId),
                 remoteRelayPort: activeRemoteTerminalSurfaceIds.contains(panelId)
@@ -14316,7 +14743,7 @@ extension Workspace: BonsplitDelegate {
         guard let executable = surfaceTabBarCommandButtons[identifier] else {
             return
         }
-        let presentingWindow = selectedTerminalPanel(inPane: pane)?.hostedView.window
+        let presentingWindow = selectedTerminalPanel(inPane: pane)?.surface.uiWindow
             ?? NSApp.keyWindow
             ?? NSApp.mainWindow
 
@@ -14460,7 +14887,8 @@ extension Workspace: BonsplitDelegate {
                   let browser = browserPanel(for: panelId) else { return }
             browser.reload()
         case .duplicate:
-            duplicateBrowserToRight(anchorTabId: tab.id, inPane: pane)
+            guard let panelId = panelIdFromSurfaceId(tab.id) else { return }
+            _ = duplicateBrowserToRight(panelId: panelId)
         case .togglePin:
             guard let panelId = panelIdFromSurfaceId(tab.id) else { return }
             let shouldPin = !pinnedPanelIds.contains(panelId)

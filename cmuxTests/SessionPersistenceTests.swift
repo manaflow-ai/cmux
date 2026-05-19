@@ -1,3 +1,4 @@
+import Darwin
 import XCTest
 
 #if canImport(cmux_DEV)
@@ -494,6 +495,37 @@ final class SessionPersistenceTests: XCTestCase {
     func testWindowUnregisterSnapshotPersistencePolicy() {
         XCTAssertTrue(AppDelegate.shouldPersistSnapshotOnWindowUnregister(isTerminatingApp: false))
         XCTAssertFalse(AppDelegate.shouldPersistSnapshotOnWindowUnregister(isTerminatingApp: true))
+    }
+
+    func testMainWindowRegistrationSnapshotSavePolicySkipsStartupRestore() {
+        XCTAssertTrue(
+            AppDelegate.shouldSaveSessionSnapshotAfterMainWindowRegistration(
+                isTerminatingApp: false,
+                didApplyStartupSessionRestore: false,
+                isApplyingSessionRestore: false
+            )
+        )
+        XCTAssertFalse(
+            AppDelegate.shouldSaveSessionSnapshotAfterMainWindowRegistration(
+                isTerminatingApp: true,
+                didApplyStartupSessionRestore: false,
+                isApplyingSessionRestore: false
+            )
+        )
+        XCTAssertFalse(
+            AppDelegate.shouldSaveSessionSnapshotAfterMainWindowRegistration(
+                isTerminatingApp: false,
+                didApplyStartupSessionRestore: true,
+                isApplyingSessionRestore: false
+            )
+        )
+        XCTAssertFalse(
+            AppDelegate.shouldSaveSessionSnapshotAfterMainWindowRegistration(
+                isTerminatingApp: false,
+                didApplyStartupSessionRestore: false,
+                isApplyingSessionRestore: true
+            )
+        )
     }
 
     func testShouldSkipSessionSaveDuringRestorePolicy() {
@@ -1273,7 +1305,8 @@ final class SessionPersistenceTests: XCTestCase {
                 includeScrollback: false,
                 restorableAgentIndex: staleIndex
             )
-            XCTAssertEqual(initialSnapshot.panels.first?.terminal?.agent?.kind, scenario.kind)
+            let expectedKind: RestorableAgentKind = scenario.kind == .pi ? .custom("pi") : scenario.kind
+            XCTAssertEqual(initialSnapshot.panels.first?.terminal?.agent?.kind, expectedKind)
 
             workspace.updatePanelShellActivityState(panelId: panelId, state: .promptIdle)
             workspace.updatePanelShellActivityState(panelId: panelId, state: .commandRunning)
@@ -1282,7 +1315,7 @@ final class SessionPersistenceTests: XCTestCase {
                 includeScrollback: false,
                 restorableAgentIndex: staleIndex
             )
-            XCTAssertNil(staleSnapshot.panels.first?.terminal?.agent, scenario.kind.rawValue)
+            XCTAssertNil(staleSnapshot.panels.first?.terminal?.agent, expectedKind.rawValue)
         }
     }
 
@@ -1443,6 +1476,12 @@ final class SessionPersistenceTests: XCTestCase {
                 "source": "process",
             ],
         ]
+        if kind == .claude {
+            let transcriptURL = home.appendingPathComponent("\(sessionId).jsonl", isDirectory: false)
+            try #"{"type":"assistant","message":{"content":[{"type":"text","text":"ok"}]}}"#
+                .write(to: transcriptURL, atomically: true, encoding: .utf8)
+            sessionRecord["transcriptPath"] = transcriptURL.path
+        }
         if let pid {
             sessionRecord["pid"] = pid
         }
@@ -1675,6 +1714,110 @@ final class SocketListenerAcceptPolicyTests: XCTestCase {
         )
     }
 
+    func testListenerStopUnlinkPolicyRequiresSameBoundSocketIdentity() {
+        let original = TerminalController.SocketPathIdentity(device: 1, inode: 10)
+        let recreated = TerminalController.SocketPathIdentity(device: 1, inode: 11)
+
+        XCTAssertTrue(
+            TerminalController.shouldUnlinkSocketPathAfterListenerStop(
+                currentIdentity: original,
+                boundIdentity: original
+            )
+        )
+        XCTAssertFalse(
+            TerminalController.shouldUnlinkSocketPathAfterListenerStop(
+                currentIdentity: recreated,
+                boundIdentity: original
+            )
+        )
+        XCTAssertFalse(
+            TerminalController.shouldUnlinkSocketPathAfterListenerStop(
+                currentIdentity: nil,
+                boundIdentity: original
+            )
+        )
+        XCTAssertFalse(
+            TerminalController.shouldUnlinkSocketPathAfterListenerStop(
+                currentIdentity: recreated,
+                boundIdentity: nil
+            )
+        )
+    }
+
+    func testSocketPathIdentityOnlyAcceptsUnixSocketFiles() throws {
+        let shortId = String(UUID().uuidString.replacingOccurrences(of: "-", with: "").prefix(8))
+        let directory = URL(fileURLWithPath: "/tmp/csid-\(shortId)", isDirectory: true)
+        try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: directory) }
+
+        let plainFile = directory.appendingPathComponent("plain-file")
+        XCTAssertTrue(FileManager.default.createFile(atPath: plainFile.path, contents: Data()))
+        XCTAssertNil(TerminalController.socketPathIdentity(at: plainFile.path))
+
+        let socketPath = directory.appendingPathComponent("s").path
+        let socketFD = try bindTestUnixSocket(at: socketPath)
+        defer {
+            Darwin.close(socketFD)
+            Darwin.unlink(socketPath)
+        }
+
+        let identity = try XCTUnwrap(TerminalController.socketPathIdentity(at: socketPath))
+        XCTAssertTrue(TerminalController.socketPathExists(socketPath, matching: identity))
+        XCTAssertFalse(
+            TerminalController.socketPathExists(
+                socketPath,
+                matching: TerminalController.SocketPathIdentity(
+                    device: identity.device,
+                    inode: identity.inode + 1
+                )
+            )
+        )
+        XCTAssertFalse(TerminalController.socketPathExists(socketPath, matching: nil))
+    }
+
+    private func bindTestUnixSocket(at path: String) throws -> Int32 {
+        let fd = Darwin.socket(AF_UNIX, SOCK_STREAM, 0)
+        guard fd >= 0 else {
+            throw NSError(domain: NSPOSIXErrorDomain, code: Int(errno))
+        }
+
+        var address = sockaddr_un()
+        address.sun_family = sa_family_t(AF_UNIX)
+        let maxLength = MemoryLayout.size(ofValue: address.sun_path)
+        let didFit = path.withCString { source -> Bool in
+            guard strlen(source) < maxLength else { return false }
+            withUnsafeMutablePointer(to: &address.sun_path) { pathPointer in
+                let destination = UnsafeMutableRawPointer(pathPointer).assumingMemoryBound(to: CChar.self)
+                memset(destination, 0, maxLength)
+                strncpy(destination, source, maxLength - 1)
+            }
+            return true
+        }
+        guard didFit else {
+            Darwin.close(fd)
+            throw NSError(domain: NSPOSIXErrorDomain, code: Int(ENAMETOOLONG))
+        }
+
+        Darwin.unlink(path)
+        let bindResult = withUnsafePointer(to: &address) { pointer in
+            pointer.withMemoryRebound(to: sockaddr.self, capacity: 1) { sockaddrPointer in
+                Darwin.bind(fd, sockaddrPointer, socklen_t(MemoryLayout<sockaddr_un>.size))
+            }
+        }
+        guard bindResult == 0 else {
+            let bindErrno = errno
+            Darwin.close(fd)
+            throw NSError(domain: NSPOSIXErrorDomain, code: Int(bindErrno))
+        }
+        guard Darwin.listen(fd, 1) == 0 else {
+            let listenErrno = errno
+            Darwin.close(fd)
+            Darwin.unlink(path)
+            throw NSError(domain: NSPOSIXErrorDomain, code: Int(listenErrno))
+        }
+        return fd
+    }
+
     func testClaudeResumeCommandPreservesLaunchFlagsAndDropsInjectedHookSettings() {
         let snapshot = SessionRestorableAgentSnapshot(
             kind: .claude,
@@ -1708,7 +1851,21 @@ final class SocketListenerAcceptPolicyTests: XCTestCase {
         )
     }
 
-    func testSessionEntryClaudeResumeCommandChangesToSessionCwdBeforeResume() {
+    func testSessionEntryClaudeResumeCommandChangesToSessionCwdBeforeResume() throws {
+        let root = FileManager.default.temporaryDirectory
+            .appendingPathComponent("cmux-claude-resume-\(UUID().uuidString)", isDirectory: true)
+        defer { try? FileManager.default.removeItem(at: root) }
+
+        let transcriptURL = root
+            .appendingPathComponent(".claude", isDirectory: true)
+            .appendingPathComponent("projects", isDirectory: true)
+            .appendingPathComponent("-Users-tiffanysun-fun", isDirectory: true)
+            .appendingPathComponent("a22293b7-bcef-4707-8439-2f538c8517a4.jsonl", isDirectory: false)
+        try FileManager.default.createDirectory(
+            at: transcriptURL.deletingLastPathComponent(),
+            withIntermediateDirectories: true
+        )
+
         let entry = SessionEntry(
             id: "claude:a22293b7-bcef-4707-8439-2f538c8517a4",
             agent: .claude,
@@ -1718,15 +1875,17 @@ final class SocketListenerAcceptPolicyTests: XCTestCase {
             gitBranch: nil,
             pullRequest: nil,
             modified: Date(timeIntervalSince1970: 0),
-            fileURL: URL(
-                fileURLWithPath: "/Users/tiffanysun/.claude/projects/-Users-tiffanysun-fun/a22293b7-bcef-4707-8439-2f538c8517a4.jsonl"
-            ),
-            specifics: .claude(model: nil, permissionMode: nil)
+            fileURL: transcriptURL,
+            specifics: .claude(
+                model: nil,
+                permissionMode: nil,
+                configDirectoryForResume: nil
+            )
         )
 
         XCTAssertEqual(
             entry.resumeCommand,
-            "cd /Users/tiffanysun/fun && env CLAUDE_CONFIG_DIR=/Users/tiffanysun/.claude CMUX_PRESERVE_CLAUDE_AUTH_SELECTION_ENV=1 CMUX_PRESERVE_CLAUDE_AUTH_SELECTION_ENV_KEYS=CLAUDE_CONFIG_DIR claude --resume a22293b7-bcef-4707-8439-2f538c8517a4"
+            "cd /Users/tiffanysun/fun && claude --resume a22293b7-bcef-4707-8439-2f538c8517a4"
         )
     }
 
@@ -1895,7 +2054,956 @@ final class SocketListenerAcceptPolicyTests: XCTestCase {
 
         XCTAssertEqual(
             snapshot.resumeCommand,
-            "cd '/Users/example/repo' && 'env' 'CODEX_HOME=/tmp/codex home' '/Users/example/.bun/bin/codex' 'resume' '--model' 'gpt-5.4' '--sandbox' 'danger-full-access' '--ask-for-approval' 'never' '--search' '--cd' '/Users/example/repo' '019dad34-d218-7943-b81a-eddac5c87951'"
+            "cd '/Users/example/repo' && 'env' 'CODEX_HOME=/tmp/codex home' '/Users/example/.bun/bin/codex' 'resume' '019dad34-d218-7943-b81a-eddac5c87951' '--model' 'gpt-5.4' '--sandbox' 'danger-full-access' '--ask-for-approval' 'never' '--search' '--cd' '/Users/example/repo'"
+        )
+    }
+
+    func testCodexResumeCommandDropsStartupImagesAndPlacesSessionBeforeFlags() {
+        let snapshot = SessionRestorableAgentSnapshot(
+            kind: .codex,
+            sessionId: "019e2bb9-5544-7201-a517-d77bb00d724f",
+            workingDirectory: "/Users/lawrence/fun/cmuxterm-hq",
+            launchCommand: AgentLaunchCommandSnapshot(
+                launcher: "codex",
+                executablePath: "/Users/lawrence/.bun/bin/codex",
+                arguments: [
+                    "/Users/lawrence/.bun/bin/codex",
+                    "resume",
+                    "--yolo",
+                    "--image",
+                    "[Image #1]",
+                    "[Image #1] cmd clicking this should open the crash file in finder",
+                    "--model",
+                    "gpt-5.4",
+                ],
+                workingDirectory: "/Users/lawrence/fun/cmuxterm-hq",
+                environment: nil,
+                capturedAt: 123,
+                source: "process"
+            )
+        )
+
+        XCTAssertEqual(
+            snapshot.resumeCommand,
+            "cd '/Users/lawrence/fun/cmuxterm-hq' && '/Users/lawrence/.bun/bin/codex' 'resume' '019e2bb9-5544-7201-a517-d77bb00d724f' '--yolo' '--model' 'gpt-5.4'"
+        )
+    }
+
+    func testCodexTeamsResumeCommandUsesWrapperSubcommand() {
+        let snapshot = SessionRestorableAgentSnapshot(
+            kind: .codex,
+            sessionId: "019dad34-d218-7943-b81a-eddac5c87951",
+            workingDirectory: "/Users/example/repo",
+            launchCommand: AgentLaunchCommandSnapshot(
+                launcher: "codexTeams",
+                executablePath: "/usr/local/bin/cmux",
+                arguments: [
+                    "/usr/local/bin/cmux",
+                    "codex-teams",
+                    "--model",
+                    "gpt-5.4",
+                    "--image",
+                    "/tmp/team screenshot.png",
+                    "--sandbox",
+                    "danger-full-access",
+                    "initial prompt should not replay"
+                ],
+                workingDirectory: "/Users/example/repo",
+                environment: ["CODEX_HOME": "/tmp/codex home"],
+                capturedAt: 123,
+                source: "environment"
+            )
+        )
+
+        XCTAssertEqual(
+            snapshot.resumeCommand,
+            "cd '/Users/example/repo' && 'env' 'CODEX_HOME=/tmp/codex home' '/usr/local/bin/cmux' 'codex-teams' 'resume' '019dad34-d218-7943-b81a-eddac5c87951' '--model' 'gpt-5.4' '--sandbox' 'danger-full-access'"
+        )
+    }
+
+    func testCodexTeamsResumeCommandDropsOriginalForkTarget() {
+        let snapshot = SessionRestorableAgentSnapshot(
+            kind: .codex,
+            sessionId: "019dad34-d218-7943-b81a-eddac5c87952",
+            workingDirectory: "/Users/example/repo",
+            launchCommand: AgentLaunchCommandSnapshot(
+                launcher: "codexTeams",
+                executablePath: "/usr/local/bin/cmux",
+                arguments: [
+                    "/usr/local/bin/cmux",
+                    "codex-teams",
+                    "fork",
+                    "019dad34-d218-7943-b81a-eddac5c87951",
+                    "--model",
+                    "gpt-5.4",
+                    "stale fork prompt",
+                    "--sandbox",
+                    "danger-full-access"
+                ],
+                workingDirectory: "/Users/example/repo",
+                environment: ["CODEX_HOME": "/tmp/codex home"],
+                capturedAt: 123,
+                source: "environment"
+            )
+        )
+
+        XCTAssertEqual(
+            snapshot.resumeCommand,
+            "cd '/Users/example/repo' && 'env' 'CODEX_HOME=/tmp/codex home' '/usr/local/bin/cmux' 'codex-teams' 'resume' '019dad34-d218-7943-b81a-eddac5c87952' '--model' 'gpt-5.4' '--sandbox' 'danger-full-access'"
+        )
+    }
+
+    func testForkCommandsUseVerifiedAgentForkSyntaxAndPreserveContext() {
+        let claude = SessionRestorableAgentSnapshot(
+            kind: .claude,
+            sessionId: "24ec0052-450c-4914-b1dd-2ee80d4bc84b",
+            workingDirectory: "/Users/lawrence/fun",
+            launchCommand: AgentLaunchCommandSnapshot(
+                launcher: "claude",
+                executablePath: "/Users/lawrence/.local/bin/claude",
+                arguments: [
+                    "/Users/lawrence/.local/bin/claude",
+                    "--dangerously-load-development-channels",
+                    "server:custom-dev-channel",
+                    "--dangerously-skip-permissions"
+                ],
+                workingDirectory: "/Users/lawrence/fun",
+                environment: [
+                    "CLAUDE_CONFIG_DIR": "/Users/lawrence/.codex-accounts/claude/_p1775010019397",
+                    "PATH": "/Users/lawrence/.local/bin:/usr/bin",
+                    "SHELL": "/bin/zsh"
+                ],
+                capturedAt: 123,
+                source: "environment"
+            )
+        )
+        let claudeFork = SessionRestorableAgentSnapshot(
+            kind: .claude,
+            sessionId: "claude-fork-child",
+            workingDirectory: "/Users/lawrence/fun",
+            launchCommand: AgentLaunchCommandSnapshot(
+                launcher: "claude",
+                executablePath: "/Users/lawrence/.local/bin/claude",
+                arguments: [
+                    "/Users/lawrence/.local/bin/claude",
+                    "--resume",
+                    "24ec0052-450c-4914-b1dd-2ee80d4bc84b",
+                    "--fork-session",
+                    "--model",
+                    "sonnet",
+                    "--dangerously-skip-permissions"
+                ],
+                workingDirectory: "/Users/lawrence/fun",
+                environment: [
+                    "CLAUDE_CONFIG_DIR": "/Users/lawrence/.codex-accounts/claude/_p1775010019397"
+                ],
+                capturedAt: 123,
+                source: "environment"
+            )
+        )
+        let codex = SessionRestorableAgentSnapshot(
+            kind: .codex,
+            sessionId: "019dad34-d218-7943-b81a-eddac5c87951",
+            workingDirectory: "/Users/example/repo",
+            launchCommand: AgentLaunchCommandSnapshot(
+                launcher: "codex",
+                executablePath: "/Users/example/.bun/bin/codex",
+                arguments: [
+                    "/Users/example/.bun/bin/codex",
+                    "--model",
+                    "gpt-5.4",
+                    "--sandbox",
+                    "danger-full-access",
+                    "--ask-for-approval",
+                    "never",
+                    "--search",
+                    "--cd",
+                    "/Users/example/repo",
+                    "initial prompt should not replay"
+                ],
+                workingDirectory: "/Users/example/repo",
+                environment: ["CODEX_HOME": "/tmp/codex home"],
+                capturedAt: 123,
+                source: "process"
+            )
+        )
+        let codexWithImage = SessionRestorableAgentSnapshot(
+            kind: .codex,
+            sessionId: "019image-session",
+            workingDirectory: "/Users/example/repo",
+            launchCommand: AgentLaunchCommandSnapshot(
+                launcher: "codex",
+                executablePath: "/Users/example/.bun/bin/codex",
+                arguments: [
+                    "/Users/example/.bun/bin/codex",
+                    "--image",
+                    "/tmp/screenshot.png",
+                    "--model",
+                    "gpt-5.4",
+                    "initial prompt should not replay"
+                ],
+                workingDirectory: "/Users/example/repo",
+                environment: ["CODEX_HOME": "/tmp/codex home"],
+                capturedAt: 123,
+                source: "process"
+            )
+        )
+        let codexFork = SessionRestorableAgentSnapshot(
+            kind: .codex,
+            sessionId: "019e1eca-ee32-7001-ab30-edcae57430bb",
+            workingDirectory: "/Users/example/repo",
+            launchCommand: AgentLaunchCommandSnapshot(
+                launcher: "codex",
+                executablePath: "/Users/example/.bun/bin/codex",
+                arguments: [
+                    "/Users/example/.bun/bin/codex",
+                    "fork",
+                    "019dad34-d218-7943-b81a-eddac5c87951",
+                    "--model",
+                    "gpt-5.4",
+                    "--sandbox",
+                    "danger-full-access",
+                    "stale fork prompt",
+                    "--search"
+                ],
+                workingDirectory: "/Users/example/repo",
+                environment: ["CODEX_HOME": "/tmp/codex home"],
+                capturedAt: 123,
+                source: "process"
+            )
+        )
+        let codexTeams = SessionRestorableAgentSnapshot(
+            kind: .codex,
+            sessionId: "codex-teams-session",
+            workingDirectory: "/Users/example/repo",
+            launchCommand: AgentLaunchCommandSnapshot(
+                launcher: "codexTeams",
+                executablePath: "/usr/local/bin/cmux",
+                arguments: [
+                    "/usr/local/bin/cmux",
+                    "codex-teams",
+                    "--model",
+                    "gpt-5.4",
+                    "--image",
+                    "/tmp/team screenshot.png",
+                    "--sandbox",
+                    "danger-full-access",
+                    "initial prompt should not replay"
+                ],
+                workingDirectory: "/Users/example/repo",
+                environment: ["CODEX_HOME": "/tmp/codex home"],
+                capturedAt: 123,
+                source: "environment"
+            )
+        )
+        let directOpenCode = SessionRestorableAgentSnapshot(
+            kind: .opencode,
+            sessionId: "direct-opencode-session-456",
+            workingDirectory: "/tmp/direct opencode repo",
+            launchCommand: AgentLaunchCommandSnapshot(
+                launcher: "opencode",
+                executablePath: "/opt/homebrew/bin/opencode",
+                arguments: [
+                    "/opt/homebrew/bin/opencode",
+                    "--model",
+                    "anthropic/claude-sonnet-4-6",
+                    "--session",
+                    "old-session",
+                    "--prompt",
+                    "old prompt",
+                    "--port",
+                    "4096",
+                    "/tmp/direct opencode repo",
+                    "initial prompt"
+                ],
+                workingDirectory: "/tmp/direct opencode repo",
+                environment: ["OPENCODE_CONFIG_DIR": "/tmp/opencode config"],
+                capturedAt: 123,
+                source: "environment"
+            )
+        )
+        let directOpenCodeFork = SessionRestorableAgentSnapshot(
+            kind: .opencode,
+            sessionId: "direct-opencode-child-session",
+            workingDirectory: "/tmp/direct opencode repo",
+            launchCommand: AgentLaunchCommandSnapshot(
+                launcher: "opencode",
+                executablePath: "/opt/homebrew/bin/opencode",
+                arguments: [
+                    "/opt/homebrew/bin/opencode",
+                    "--session",
+                    "direct-opencode-session-456",
+                    "--fork",
+                    "--model",
+                    "anthropic/claude-sonnet-4-6",
+                    "--port",
+                    "4096",
+                    "/tmp/direct opencode repo"
+                ],
+                workingDirectory: "/tmp/direct opencode repo",
+                environment: ["OPENCODE_CONFIG_DIR": "/tmp/opencode config"],
+                capturedAt: 123,
+                source: "environment"
+            )
+        )
+        let omoOpenCode = SessionRestorableAgentSnapshot(
+            kind: .opencode,
+            sessionId: "opencode-session-123",
+            workingDirectory: "/tmp/opencode repo",
+            launchCommand: AgentLaunchCommandSnapshot(
+                launcher: "omo",
+                executablePath: "/usr/local/bin/cmux",
+                arguments: [
+                    "/usr/local/bin/cmux",
+                    "omo",
+                    "--model",
+                    "anthropic/claude-sonnet-4-6",
+                    "/tmp/opencode repo",
+                    "initial prompt"
+                ],
+                workingDirectory: "/tmp/opencode repo",
+                environment: ["OPENCODE_CONFIG_DIR": "/tmp/opencode config"],
+                capturedAt: 123,
+                source: "environment"
+            )
+        )
+        let omoOpenCodeFork = SessionRestorableAgentSnapshot(
+            kind: .opencode,
+            sessionId: "opencode-child-session",
+            workingDirectory: "/tmp/opencode repo",
+            launchCommand: AgentLaunchCommandSnapshot(
+                launcher: "omo",
+                executablePath: "/usr/local/bin/cmux",
+                arguments: [
+                    "/usr/local/bin/cmux",
+                    "omo",
+                    "--session",
+                    "opencode-session-123",
+                    "--fork",
+                    "--model",
+                    "anthropic/claude-sonnet-4-6",
+                    "/tmp/opencode repo"
+                ],
+                workingDirectory: "/tmp/opencode repo",
+                environment: ["OPENCODE_CONFIG_DIR": "/tmp/opencode config"],
+                capturedAt: 123,
+                source: "environment"
+            )
+        )
+        let unsupported = SessionRestorableAgentSnapshot(
+            kind: .gemini,
+            sessionId: "gemini-session",
+            workingDirectory: "/tmp/gemini repo",
+            launchCommand: AgentLaunchCommandSnapshot(
+                launcher: "gemini",
+                executablePath: "gemini",
+                arguments: ["gemini"],
+                workingDirectory: "/tmp/gemini repo",
+                environment: nil,
+                capturedAt: nil,
+                source: nil
+            )
+        )
+
+        XCTAssertEqual(
+            claude.forkCommand,
+            "cd '/Users/lawrence/fun' && 'env' 'CLAUDE_CONFIG_DIR=/Users/lawrence/.codex-accounts/claude/_p1775010019397' 'CMUX_PRESERVE_CLAUDE_AUTH_SELECTION_ENV=1' 'CMUX_PRESERVE_CLAUDE_AUTH_SELECTION_ENV_KEYS=CLAUDE_CONFIG_DIR' '/Users/lawrence/.local/bin/claude' '--resume' '24ec0052-450c-4914-b1dd-2ee80d4bc84b' '--fork-session' '--dangerously-load-development-channels' 'server:custom-dev-channel' '--dangerously-skip-permissions'"
+        )
+        XCTAssertEqual(
+            claudeFork.forkCommand,
+            "cd '/Users/lawrence/fun' && 'env' 'CLAUDE_CONFIG_DIR=/Users/lawrence/.codex-accounts/claude/_p1775010019397' 'CMUX_PRESERVE_CLAUDE_AUTH_SELECTION_ENV=1' 'CMUX_PRESERVE_CLAUDE_AUTH_SELECTION_ENV_KEYS=CLAUDE_CONFIG_DIR' '/Users/lawrence/.local/bin/claude' '--resume' 'claude-fork-child' '--fork-session' '--model' 'sonnet' '--dangerously-skip-permissions'"
+        )
+        XCTAssertEqual(
+            codex.forkCommand,
+            "cd '/Users/example/repo' && 'env' 'CODEX_HOME=/tmp/codex home' '/Users/example/.bun/bin/codex' 'fork' '019dad34-d218-7943-b81a-eddac5c87951' '--model' 'gpt-5.4' '--sandbox' 'danger-full-access' '--ask-for-approval' 'never' '--search' '--cd' '/Users/example/repo'"
+        )
+        XCTAssertEqual(
+            codexWithImage.forkCommand,
+            "cd '/Users/example/repo' && 'env' 'CODEX_HOME=/tmp/codex home' '/Users/example/.bun/bin/codex' 'fork' '019image-session' '--model' 'gpt-5.4'"
+        )
+        XCTAssertEqual(
+            codexFork.forkCommand,
+            "cd '/Users/example/repo' && 'env' 'CODEX_HOME=/tmp/codex home' '/Users/example/.bun/bin/codex' 'fork' '019e1eca-ee32-7001-ab30-edcae57430bb' '--model' 'gpt-5.4' '--sandbox' 'danger-full-access' '--search'"
+        )
+        XCTAssertEqual(
+            codexTeams.forkCommand,
+            "cd '/Users/example/repo' && 'env' 'CODEX_HOME=/tmp/codex home' '/usr/local/bin/cmux' 'codex-teams' 'fork' 'codex-teams-session' '--model' 'gpt-5.4' '--sandbox' 'danger-full-access'"
+        )
+        XCTAssertEqual(
+            directOpenCode.forkCommand,
+            "cd '/tmp/direct opencode repo' && 'env' 'OPENCODE_CONFIG_DIR=/tmp/opencode config' '/opt/homebrew/bin/opencode' '--session' 'direct-opencode-session-456' '--fork' '--model' 'anthropic/claude-sonnet-4-6' '--port' '4096' '/tmp/direct opencode repo'"
+        )
+        XCTAssertEqual(
+            directOpenCodeFork.forkCommand,
+            "cd '/tmp/direct opencode repo' && 'env' 'OPENCODE_CONFIG_DIR=/tmp/opencode config' '/opt/homebrew/bin/opencode' '--session' 'direct-opencode-child-session' '--fork' '--model' 'anthropic/claude-sonnet-4-6' '--port' '4096' '/tmp/direct opencode repo'"
+        )
+        XCTAssertEqual(
+            omoOpenCode.forkCommand,
+            "cd '/tmp/opencode repo' && 'env' 'OPENCODE_CONFIG_DIR=/tmp/opencode config' '/usr/local/bin/cmux' 'omo' '--session' 'opencode-session-123' '--fork' '--model' 'anthropic/claude-sonnet-4-6' '/tmp/opencode repo'"
+        )
+        XCTAssertEqual(
+            omoOpenCodeFork.forkCommand,
+            "cd '/tmp/opencode repo' && 'env' 'OPENCODE_CONFIG_DIR=/tmp/opencode config' '/usr/local/bin/cmux' 'omo' '--session' 'opencode-child-session' '--fork' '--model' 'anthropic/claude-sonnet-4-6' '/tmp/opencode repo'"
+        )
+        XCTAssertNil(unsupported.forkCommand)
+    }
+
+    func testOpenCodeForkSupportRequiresVersionWithForkFix() {
+        XCTAssertFalse(AgentForkSupport.openCodeVersionSupportsFork("opencode 1.14.48"))
+        XCTAssertTrue(AgentForkSupport.openCodeVersionSupportsFork("opencode 1.14.50"))
+        XCTAssertTrue(AgentForkSupport.openCodeVersionSupportsFork("opencode version 1.15.0"))
+        XCTAssertFalse(AgentForkSupport.openCodeVersionSupportsFork("not a version"))
+    }
+
+    func testOpenCodeForkSupportProbesFromLaunchWorkingDirectory() async throws {
+        let fileManager = FileManager.default
+        let root = fileManager.temporaryDirectory
+            .appendingPathComponent("cmux-opencode-probe-\(UUID().uuidString)", isDirectory: true)
+        let executable = root.appendingPathComponent("opencode", isDirectory: false)
+        defer { try? fileManager.removeItem(at: root) }
+
+        try fileManager.createDirectory(at: root, withIntermediateDirectories: true)
+        try """
+        #!/bin/sh
+        echo 'opencode 1.14.50'
+        """.write(to: executable, atomically: true, encoding: .utf8)
+        try fileManager.setAttributes([.posixPermissions: 0o755], ofItemAtPath: executable.path)
+
+        let snapshot = SessionRestorableAgentSnapshot(
+            kind: .opencode,
+            sessionId: "opencode-session-123",
+            workingDirectory: root.path,
+            launchCommand: AgentLaunchCommandSnapshot(
+                launcher: "opencode",
+                executablePath: "opencode",
+                arguments: ["opencode"],
+                workingDirectory: root.path,
+                environment: ["PATH": ".:/usr/bin:/bin"],
+                capturedAt: 123,
+                source: "process"
+            )
+        )
+
+        let supportsFork = await AgentForkSupport.supportsFork(snapshot: snapshot)
+        XCTAssertTrue(supportsFork)
+    }
+
+    func testOpenCodeForkSupportSkipsLocalProbeForRemoteLikeContext() async {
+        let snapshot = SessionRestorableAgentSnapshot(
+            kind: .opencode,
+            sessionId: "opencode-session-remote",
+            workingDirectory: "/remote/cmux/project-\(UUID().uuidString)",
+            launchCommand: AgentLaunchCommandSnapshot(
+                launcher: "opencode",
+                executablePath: "/remote/bin/opencode",
+                arguments: ["/remote/bin/opencode"],
+                workingDirectory: "/remote/cmux/project-\(UUID().uuidString)",
+                environment: ["PATH": "/remote/bin:/usr/bin"],
+                capturedAt: 123,
+                source: "process"
+            )
+        )
+
+        let supportsFork = await AgentForkSupport.supportsFork(snapshot: snapshot)
+        XCTAssertTrue(supportsFork)
+    }
+
+    func testAgentForkSupportRejectsRemoteForksThatNeedLauncherScript() async {
+        let longPath = "/Users/cmux/" + String(repeating: "nested-project-", count: 120)
+        let snapshot = SessionRestorableAgentSnapshot(
+            kind: .codex,
+            sessionId: "019dad34-d218-7943-b81a-eddac5c87951",
+            workingDirectory: "/Users/cmux/project",
+            launchCommand: AgentLaunchCommandSnapshot(
+                launcher: "codex",
+                executablePath: "/Users/example/.bun/bin/codex",
+                arguments: [
+                    "/Users/example/.bun/bin/codex",
+                    "--model",
+                    "gpt-5.4",
+                    "--add-dir",
+                    longPath
+                ],
+                workingDirectory: "/Users/cmux/project",
+                environment: nil,
+                capturedAt: 123,
+                source: "process"
+            )
+        )
+
+        XCTAssertNotNil(snapshot.forkStartupInput(allowLauncherScript: true))
+        XCTAssertNil(snapshot.forkStartupInput(allowLauncherScript: false))
+        let supportsFork = await AgentForkSupport.supportsFork(
+            snapshot: snapshot,
+            isRemoteContext: true
+        )
+        XCTAssertFalse(supportsFork)
+    }
+
+    func testOpenCodeForkSupportRemoteContextBypassesLocalProbe() async {
+        let snapshot = SessionRestorableAgentSnapshot(
+            kind: .opencode,
+            sessionId: "opencode-session-remote-context",
+            workingDirectory: FileManager.default.temporaryDirectory.path,
+            launchCommand: AgentLaunchCommandSnapshot(
+                launcher: "opencode",
+                executablePath: "/bin/false",
+                arguments: ["/bin/false"],
+                workingDirectory: FileManager.default.temporaryDirectory.path,
+                environment: nil,
+                capturedAt: 123,
+                source: "process"
+            )
+        )
+
+        let supportsFork = await AgentForkSupport.supportsFork(
+            snapshot: snapshot,
+            isRemoteContext: true
+        )
+        XCTAssertTrue(supportsFork)
+    }
+
+    func testOpenCodeForkSupportRejectsMissingLocalExecutable() async throws {
+        let fileManager = FileManager.default
+        let root = fileManager.temporaryDirectory
+            .appendingPathComponent("cmux-opencode-missing-executable-\(UUID().uuidString)", isDirectory: true)
+        defer { try? fileManager.removeItem(at: root) }
+        try fileManager.createDirectory(at: root, withIntermediateDirectories: true)
+
+        let missingExecutable = root.appendingPathComponent("missing-opencode", isDirectory: false)
+        let snapshot = SessionRestorableAgentSnapshot(
+            kind: .opencode,
+            sessionId: "opencode-session-missing-executable",
+            workingDirectory: root.path,
+            launchCommand: AgentLaunchCommandSnapshot(
+                launcher: "opencode",
+                executablePath: missingExecutable.path,
+                arguments: [missingExecutable.path],
+                workingDirectory: root.path,
+                environment: nil,
+                capturedAt: 123,
+                source: "process"
+            )
+        )
+
+        let supportsFork = await AgentForkSupport.supportsFork(snapshot: snapshot)
+        XCTAssertFalse(supportsFork)
+    }
+
+    func testOpenCodeForkSupportCachesUnsupportedVersion() async throws {
+        let fileManager = FileManager.default
+        let root = fileManager.temporaryDirectory
+            .appendingPathComponent("cmux-opencode-probe-cache-\(UUID().uuidString)", isDirectory: true)
+        let executable = root.appendingPathComponent("opencode", isDirectory: false)
+        let versionFile = root.appendingPathComponent("version.txt", isDirectory: false)
+        defer { try? fileManager.removeItem(at: root) }
+
+        try fileManager.createDirectory(at: root, withIntermediateDirectories: true)
+        try """
+        #!/bin/sh
+        cat "\(versionFile.path)"
+        """.write(to: executable, atomically: true, encoding: .utf8)
+        try fileManager.setAttributes([.posixPermissions: 0o755], ofItemAtPath: executable.path)
+
+        let snapshot = SessionRestorableAgentSnapshot(
+            kind: .opencode,
+            sessionId: "opencode-session-cache",
+            workingDirectory: root.path,
+            launchCommand: AgentLaunchCommandSnapshot(
+                launcher: "opencode",
+                executablePath: "opencode",
+                arguments: ["opencode"],
+                workingDirectory: root.path,
+                environment: ["PATH": "\(root.path):/usr/bin:/bin"],
+                capturedAt: 123,
+                source: "process"
+            )
+        )
+
+        try "opencode 1.14.48\n".write(to: versionFile, atomically: true, encoding: .utf8)
+        let unsupportedVersionSupportsFork = await AgentForkSupport.supportsFork(snapshot: snapshot)
+        XCTAssertFalse(unsupportedVersionSupportsFork)
+
+        try "opencode 1.14.50\n".write(to: versionFile, atomically: true, encoding: .utf8)
+        let supportedVersionSupportsFork = await AgentForkSupport.supportsFork(snapshot: snapshot)
+        XCTAssertFalse(supportedVersionSupportsFork)
+    }
+
+    func testOpenCodeVersionProbeEnvironmentIsSanitized() {
+        let environment = AgentForkSupport.processEnvironmentForOpenCodeProbe(
+            environment: [
+                "PATH": "/tmp/project/bin:/usr/bin",
+                "OPENCODE_CONFIG_DIR": "/tmp/opencode-config",
+                "ANTHROPIC_API_KEY": "captured-secret",
+            ],
+            baseEnvironment: [
+                "PATH": "/usr/local/bin:/usr/bin",
+                "HOME": "/Users/example",
+                "TMPDIR": "/tmp/example",
+                "LANG": "en_US.UTF-8",
+                "AWS_SECRET_ACCESS_KEY": "app-secret",
+                "ANTHROPIC_API_KEY": "app-secret",
+            ]
+        )
+
+        XCTAssertEqual(environment["PATH"], "/tmp/project/bin:/usr/bin")
+        XCTAssertEqual(environment["HOME"], "/Users/example")
+        XCTAssertEqual(environment["TMPDIR"], "/tmp/example")
+        XCTAssertEqual(environment["LANG"], "en_US.UTF-8")
+        XCTAssertEqual(environment["OPENCODE_CONFIG_DIR"], "/tmp/opencode-config")
+        XCTAssertNil(environment["AWS_SECRET_ACCESS_KEY"])
+        XCTAssertNil(environment["ANTHROPIC_API_KEY"])
+    }
+
+    func testProcessDetectedLaunchCommandFiltersEnvironmentAndOmitsCapturedAt() {
+        let command = AgentLaunchCommandSnapshot(
+            processDetectedLauncher: "opencode",
+            executablePath: "/opt/homebrew/bin/opencode",
+            arguments: ["/opt/homebrew/bin/opencode"],
+            workingDirectory: "/tmp/repo",
+            environment: [
+                "OPENCODE_CONFIG_DIR": "/tmp/opencode config",
+                "ANTHROPIC_BASE_URL": "https://api.example.test",
+                "ANTHROPIC_API_KEY": "secret",
+                "AWS_SECRET_ACCESS_KEY": "secret",
+                "PATH": "/tmp/bin:/usr/bin"
+            ]
+        )
+
+        XCTAssertEqual(command.launcher, "opencode")
+        XCTAssertEqual(command.environment?["OPENCODE_CONFIG_DIR"], "/tmp/opencode config")
+        XCTAssertEqual(command.environment?["ANTHROPIC_BASE_URL"], "https://api.example.test")
+        XCTAssertEqual(command.environment?["PATH"], "/tmp/bin:/usr/bin")
+        XCTAssertNil(command.environment?["ANTHROPIC_API_KEY"])
+        XCTAssertNil(command.environment?["AWS_SECRET_ACCESS_KEY"])
+        XCTAssertNil(command.capturedAt)
+        XCTAssertEqual(command.source, "process")
+
+        let nonOpenCodeCommand = AgentLaunchCommandSnapshot(
+            processDetectedLauncher: "codex",
+            executablePath: "codex",
+            arguments: ["codex"],
+            workingDirectory: nil,
+            environment: ["CODEX_HOME": "/tmp/codex", "PATH": "/tmp/bin:/usr/bin"]
+        )
+        XCTAssertEqual(nonOpenCodeCommand.environment?["CODEX_HOME"], "/tmp/codex")
+        XCTAssertNil(nonOpenCodeCommand.environment?["PATH"])
+
+        let unsafeOnly = AgentLaunchCommandSnapshot(
+            processDetectedLauncher: "opencode",
+            executablePath: "opencode",
+            arguments: ["opencode"],
+            workingDirectory: nil,
+            environment: ["ANTHROPIC_API_KEY": "secret"]
+        )
+        XCTAssertNil(unsafeOnly.environment)
+        XCTAssertNil(unsafeOnly.capturedAt)
+    }
+
+    func testProcessDetectedOpenCodeRecognizesNodeWrapperAndNativeWorker() {
+        XCTAssertTrue(
+            RestorableAgentSessionIndex.processLooksLikeOpenCode(
+                processName: "node",
+                processPath: "/opt/homebrew/bin/node",
+                arguments: ["node", "/Users/lawrence/.bun/bin/opencode"]
+            )
+        )
+        XCTAssertTrue(
+            RestorableAgentSessionIndex.processLooksLikeOpenCode(
+                processName: ".opencode",
+                processPath: "/Users/lawrence/.bun/install/global/node_modules/opencode-ai/bin/.opencode",
+                arguments: ["/Users/lawrence/.bun/install/global/node_modules/opencode-ai/bin/.opencode"]
+            )
+        )
+        XCTAssertTrue(
+            RestorableAgentSessionIndex.processLooksLikeOpenCode(
+                processName: "open-code",
+                processPath: "/opt/homebrew/bin/open-code",
+                arguments: ["open-code"]
+            )
+        )
+        XCTAssertTrue(
+            RestorableAgentSessionIndex.processLooksLikeOpenCode(
+                processName: "node",
+                processPath: "/opt/homebrew/bin/node",
+                arguments: ["node", "/opt/homebrew/bin/open-code"]
+            )
+        )
+        XCTAssertFalse(
+            RestorableAgentSessionIndex.processLooksLikeOpenCode(
+                processName: "node",
+                processPath: "/opt/homebrew/bin/node",
+                arguments: ["node", "/tmp/not-opencode-ai-helper"]
+            )
+        )
+        XCTAssertFalse(
+            RestorableAgentSessionIndex.processLooksLikeOpenCode(
+                processName: "node",
+                processPath: "/opt/homebrew/bin/node",
+                arguments: [
+                    "node",
+                    "/Users/lawrence/.bun/install/global/node_modules/opencode-ai/src/cli/cmd/tui/worker.js"
+                ]
+            )
+        )
+        XCTAssertFalse(
+            RestorableAgentSessionIndex.processLooksLikeOpenCode(
+                processName: "node",
+                processPath: "/opt/homebrew/bin/node",
+                arguments: ["node", "/Users/lawrence/.bun/bin/codex"]
+            )
+        )
+        XCTAssertFalse(
+            RestorableAgentSessionIndex.processLooksLikeOpenCode(
+                processName: "tail",
+                processPath: "/usr/bin/tail",
+                arguments: ["tail", "-f", "/tmp/opencode"]
+            )
+        )
+        XCTAssertFalse(
+            RestorableAgentSessionIndex.processLooksLikeOpenCode(
+                processName: "node",
+                processPath: "/opt/homebrew/bin/node",
+                arguments: ["node", "/tmp/script.js", "/Users/lawrence/.bun/bin/opencode"]
+            )
+        )
+        XCTAssertTrue(
+            RestorableAgentSessionIndex.processLooksLikeOpenCode(
+                processName: "node",
+                processPath: "/opt/homebrew/bin/node",
+                arguments: ["node", "--require", "/tmp/hook.js", "/Users/lawrence/.bun/bin/opencode"]
+            )
+        )
+        XCTAssertEqual(
+            RestorableAgentSessionIndex.openCodeExecutablePathForProcess(
+                arguments: ["node", "/Users/lawrence/.bun/bin/opencode"],
+                environment: [:]
+            ),
+            "/Users/lawrence/.bun/bin/opencode"
+        )
+        XCTAssertNil(
+            RestorableAgentSessionIndex.openCodeLaunchArgumentsForProcess(
+                arguments: ["opencode", "run", "--session", "unsupported-session"],
+                environment: [:]
+            )
+        )
+    }
+
+    func testProcessDetectedOpenCodeResolvesBareExecutableWithCapturedPath() throws {
+        let fileManager = FileManager.default
+        let root = fileManager.temporaryDirectory
+            .appendingPathComponent("cmux-opencode-path-\(UUID().uuidString)", isDirectory: true)
+        let bin = root.appendingPathComponent("bin", isDirectory: true)
+        let executable = bin.appendingPathComponent("opencode", isDirectory: false)
+        defer { try? fileManager.removeItem(at: root) }
+
+        try fileManager.createDirectory(at: bin, withIntermediateDirectories: true)
+        XCTAssertTrue(fileManager.createFile(atPath: executable.path, contents: Data()))
+        try fileManager.setAttributes([.posixPermissions: 0o755], ofItemAtPath: executable.path)
+
+        XCTAssertEqual(
+            RestorableAgentSessionIndex.openCodeExecutablePathForProcess(
+                arguments: ["opencode"],
+                environment: ["PATH": "\(bin.path):/usr/bin"]
+            ),
+            executable.path
+        )
+        XCTAssertEqual(
+            RestorableAgentSessionIndex.openCodeExecutablePathForProcess(
+                arguments: [".opencode"],
+                environment: ["PATH": "\(bin.path):/usr/bin"]
+            ),
+            executable.path
+        )
+    }
+
+    func testProcessDetectedOpenCodeWorkingDirectoryUsesProjectPositional() {
+        XCTAssertEqual(
+            RestorableAgentSessionIndex.openCodeWorkingDirectoryForProcess(
+                arguments: [
+                    "opencode",
+                    "--model",
+                    "anthropic/claude-sonnet-4-6",
+                    "/tmp/opencode-project"
+                ],
+                environment: ["PWD": "/tmp/shell-cwd"]
+            ),
+            "/tmp/opencode-project"
+        )
+        XCTAssertEqual(
+            RestorableAgentSessionIndex.openCodeWorkingDirectoryForProcess(
+                arguments: [
+                    "node",
+                    "/Users/example/.bun/bin/opencode",
+                    "../opencode-project"
+                ],
+                environment: ["PWD": "/tmp/shell-cwd/nested"]
+            ),
+            "/tmp/shell-cwd/opencode-project"
+        )
+        XCTAssertEqual(
+            RestorableAgentSessionIndex.openCodeWorkingDirectoryForProcess(
+                arguments: ["opencode", "--session", "known-session"],
+                environment: ["CMUX_AGENT_LAUNCH_CWD": "/tmp/hook-cwd", "PWD": "/tmp/shell-cwd"]
+            ),
+            "/tmp/hook-cwd"
+        )
+    }
+
+    func testProcessDetectedOpenCodeLaunchArgumentsPreserveSafeForkContext() throws {
+        let fileManager = FileManager.default
+        let root = fileManager.temporaryDirectory
+            .appendingPathComponent("cmux-opencode-argv-\(UUID().uuidString)", isDirectory: true)
+        let bin = root.appendingPathComponent("bin", isDirectory: true)
+        let executable = bin.appendingPathComponent("opencode", isDirectory: false)
+        defer { try? fileManager.removeItem(at: root) }
+
+        try fileManager.createDirectory(at: bin, withIntermediateDirectories: true)
+        XCTAssertTrue(fileManager.createFile(atPath: executable.path, contents: Data()))
+        try fileManager.setAttributes([.posixPermissions: 0o755], ofItemAtPath: executable.path)
+
+        let arguments = try XCTUnwrap(RestorableAgentSessionIndex.openCodeLaunchArgumentsForProcess(
+            arguments: [
+                "node",
+                "opencode",
+                "--model",
+                "anthropic/claude-sonnet-4-6",
+                "--agent",
+                "build",
+                "--port",
+                "4096",
+                "--session",
+                "old-session",
+                "--prompt",
+                "old prompt",
+                "/tmp/opencode repo"
+            ],
+            environment: ["PATH": "\(bin.path):/usr/bin"]
+        ))
+        XCTAssertEqual(
+            arguments,
+            [
+                executable.path,
+                "--model",
+                "anthropic/claude-sonnet-4-6",
+                "--agent",
+                "build",
+                "--port",
+                "4096",
+                "/tmp/opencode repo"
+            ]
+        )
+
+        let snapshot = SessionRestorableAgentSnapshot(
+            kind: .opencode,
+            sessionId: "opencode-session-123",
+            workingDirectory: "/tmp/opencode repo",
+            launchCommand: AgentLaunchCommandSnapshot(
+                launcher: "opencode",
+                executablePath: executable.path,
+                arguments: arguments,
+                workingDirectory: "/tmp/opencode repo",
+                environment: nil,
+                capturedAt: 123,
+                source: "process"
+            )
+        )
+
+        XCTAssertEqual(
+            snapshot.forkCommand,
+            "cd '/tmp/opencode repo' && '\(executable.path)' '--session' 'opencode-session-123' '--fork' '--model' 'anthropic/claude-sonnet-4-6' '--agent' 'build' '--port' '4096' '/tmp/opencode repo'"
+        )
+    }
+
+    func testProcessDetectedOpenCodeSessionFallbackAvoidsAmbiguousSameDirectoryPanels() {
+        XCTAssertEqual(
+            RestorableAgentSessionIndex.openCodeFallbackSessionIdForProcess(
+                arguments: ["opencode", "--session", "ses-explicit"],
+                latestSessionIdForSolePanel: "ses-latest",
+                sameWorkingDirectoryPanelCount: 2
+            ),
+            "ses-explicit"
+        )
+        XCTAssertEqual(
+            RestorableAgentSessionIndex.openCodeFallbackSessionIdForProcess(
+                arguments: ["opencode", "--session", "ses-parent", "--fork"],
+                latestSessionIdForSolePanel: "ses-child",
+                sameWorkingDirectoryPanelCount: 1
+            ),
+            "ses-child"
+        )
+        XCTAssertEqual(
+            RestorableAgentSessionIndex.openCodeFallbackSessionIdForProcess(
+                arguments: ["opencode", "--fork=ses-parent"],
+                latestSessionIdForSolePanel: "ses-child",
+                sameWorkingDirectoryPanelCount: 1
+            ),
+            "ses-child"
+        )
+        XCTAssertNil(
+            RestorableAgentSessionIndex.openCodeFallbackSessionIdForProcess(
+                arguments: ["opencode", "--fork=ses-parent"],
+                latestSessionIdForSolePanel: "ses-parent",
+                sameWorkingDirectoryPanelCount: 1
+            )
+        )
+        XCTAssertEqual(
+            RestorableAgentSessionIndex.openCodeFallbackSessionIdForProcess(
+                arguments: ["opencode", "--session", "ses-child", "--fork=ses-parent"],
+                latestSessionIdForSolePanel: "ses-parent",
+                sameWorkingDirectoryPanelCount: 1
+            ),
+            "ses-child"
+        )
+        XCTAssertEqual(
+            RestorableAgentSessionIndex.openCodeFallbackSessionIdForProcess(
+                arguments: ["opencode", "--session", "ses-child", "--fork=ses-parent"],
+                latestSessionIdForSolePanel: nil,
+                sameWorkingDirectoryPanelCount: 2
+            ),
+            "ses-child"
+        )
+        XCTAssertNil(
+            RestorableAgentSessionIndex.openCodeFallbackSessionIdForProcess(
+                arguments: ["opencode", "--session", "ses-parent", "--fork"],
+                latestSessionIdForSolePanel: nil,
+                sameWorkingDirectoryPanelCount: 1
+            )
+        )
+        XCTAssertNil(
+            RestorableAgentSessionIndex.openCodeFallbackSessionIdForProcess(
+                arguments: ["opencode", "--session", "ses-parent", "--fork"],
+                latestSessionIdForSolePanel: "ses-parent",
+                sameWorkingDirectoryPanelCount: 1
+            )
+        )
+        XCTAssertNil(
+            RestorableAgentSessionIndex.openCodeFallbackSessionIdForProcess(
+                arguments: ["opencode"],
+                latestSessionIdForSolePanel: "ses-latest",
+                sameWorkingDirectoryPanelCount: 1
+            )
+        )
+        XCTAssertNil(
+            RestorableAgentSessionIndex.openCodeFallbackSessionIdForProcess(
+                arguments: ["opencode", "--fork"],
+                latestSessionIdForSolePanel: "ses-latest",
+                sameWorkingDirectoryPanelCount: 1
+            )
+        )
+        XCTAssertNil(
+            RestorableAgentSessionIndex.openCodeFallbackSessionIdForProcess(
+                arguments: ["opencode"],
+                latestSessionIdForSolePanel: "ses-latest",
+                sameWorkingDirectoryPanelCount: 2
+            )
+        )
+        XCTAssertNil(
+            RestorableAgentSessionIndex.openCodeFallbackSessionIdForProcess(
+                arguments: ["opencode"],
+                latestSessionIdForSolePanel: nil,
+                sameWorkingDirectoryPanelCount: 1
+            )
         )
     }
 
@@ -2209,8 +3317,150 @@ final class SocketListenerAcceptPolicyTests: XCTestCase {
         XCTAssertEqual(snapshot.launchCommand?.arguments.first, "/usr/local/bin/codex")
         XCTAssertEqual(
             snapshot.resumeCommand,
-            "cd '/tmp/repo' && 'env' 'CODEX_HOME=/tmp/codex' '/usr/local/bin/codex' 'resume' '--model' 'gpt-5.4' '--search' 'codex-session-123'"
+            "cd '/tmp/repo' && 'env' 'CODEX_HOME=/tmp/codex' '/usr/local/bin/codex' 'resume' 'codex-session-123' '--model' 'gpt-5.4' '--search'"
         )
+    }
+
+    func testRestorableAgentIndexUsesNewerProcessFallbackOverStaleOmoHookRecord() throws {
+        let fileManager = FileManager.default
+        let home = fileManager.temporaryDirectory
+            .appendingPathComponent("cmux-agent-hook-store-\(UUID().uuidString)", isDirectory: true)
+        let storeDir = home.appendingPathComponent(".cmuxterm", isDirectory: true)
+        try fileManager.createDirectory(at: storeDir, withIntermediateDirectories: true)
+        defer { try? fileManager.removeItem(at: home) }
+
+        let workspaceId = UUID()
+        let panelId = UUID()
+        let storeURL = storeDir.appendingPathComponent("opencode-hook-sessions.json", isDirectory: false)
+        let json = """
+        {
+          "version": 1,
+          "sessions": {
+            "hook-session": {
+              "sessionId": "hook-session",
+              "workspaceId": "\(workspaceId.uuidString)",
+              "surfaceId": "\(panelId.uuidString)",
+              "cwd": "/tmp/repo",
+              "updatedAt": 10,
+              "launchCommand": {
+                "launcher": "omo",
+                "executablePath": "/usr/local/bin/cmux",
+                "arguments": [
+                  "/usr/local/bin/cmux",
+                  "omo",
+                  "--model",
+                  "anthropic/claude-sonnet-4-6",
+                  "/tmp/repo",
+                  "old prompt"
+                ],
+                "workingDirectory": "/tmp/repo",
+                "environment": {
+                  "OPENCODE_CONFIG_DIR": "/tmp/opencode"
+                },
+                "capturedAt": 9,
+                "source": "environment"
+              }
+            }
+          }
+        }
+        """
+        try json.write(to: storeURL, atomically: true, encoding: .utf8)
+
+        let detectedSnapshot = SessionRestorableAgentSnapshot(
+            kind: .opencode,
+            sessionId: "process-session",
+            workingDirectory: "/tmp/repo",
+            launchCommand: AgentLaunchCommandSnapshot(
+                launcher: "opencode",
+                executablePath: "/opt/homebrew/bin/opencode",
+                arguments: ["/opt/homebrew/bin/opencode"],
+                workingDirectory: "/tmp/repo",
+                environment: ["PATH": "/opt/homebrew/bin:/usr/bin"],
+                capturedAt: 999,
+                source: "process"
+            )
+        )
+        let index = RestorableAgentSessionIndex.load(
+            homeDirectory: home.path,
+            fileManager: fileManager,
+            registry: CmuxVaultAgentRegistry(registrations: []),
+            detectedSnapshots: [
+                RestorableAgentSessionIndex.PanelKey(workspaceId: workspaceId, panelId: panelId): (
+                    snapshot: detectedSnapshot,
+                    updatedAt: 999
+                ),
+            ]
+        )
+        let snapshot = try XCTUnwrap(index.snapshot(workspaceId: workspaceId, panelId: panelId))
+
+        XCTAssertEqual(snapshot.sessionId, "process-session")
+        XCTAssertEqual(snapshot.launchCommand?.launcher, "opencode")
+        XCTAssertEqual(snapshot.launchCommand?.source, "process")
+    }
+
+    func testRestorableAgentIndexUsesNewerProcessFallbackForPlainHookRecord() throws {
+        let fileManager = FileManager.default
+        let home = fileManager.temporaryDirectory
+            .appendingPathComponent("cmux-agent-hook-store-\(UUID().uuidString)", isDirectory: true)
+        let storeDir = home.appendingPathComponent(".cmuxterm", isDirectory: true)
+        try fileManager.createDirectory(at: storeDir, withIntermediateDirectories: true)
+        defer { try? fileManager.removeItem(at: home) }
+
+        let workspaceId = UUID()
+        let panelId = UUID()
+        let storeURL = storeDir.appendingPathComponent("opencode-hook-sessions.json", isDirectory: false)
+        let json = """
+        {
+          "version": 1,
+          "sessions": {
+            "old-hook-session": {
+              "sessionId": "old-hook-session",
+              "workspaceId": "\(workspaceId.uuidString)",
+              "surfaceId": "\(panelId.uuidString)",
+              "cwd": "/tmp/repo",
+              "updatedAt": 10,
+              "launchCommand": {
+                "launcher": "opencode",
+                "executablePath": "/opt/homebrew/bin/opencode",
+                "arguments": ["/opt/homebrew/bin/opencode"],
+                "workingDirectory": "/tmp/repo",
+                "source": "environment"
+              }
+            }
+          }
+        }
+        """
+        try json.write(to: storeURL, atomically: true, encoding: .utf8)
+
+        let detectedSnapshot = SessionRestorableAgentSnapshot(
+            kind: .opencode,
+            sessionId: "live-process-session",
+            workingDirectory: "/tmp/repo",
+            launchCommand: AgentLaunchCommandSnapshot(
+                launcher: "opencode",
+                executablePath: "/opt/homebrew/bin/opencode",
+                arguments: ["/opt/homebrew/bin/opencode"],
+                workingDirectory: "/tmp/repo",
+                environment: nil,
+                capturedAt: nil,
+                source: "process"
+            )
+        )
+        let index = RestorableAgentSessionIndex.load(
+            homeDirectory: home.path,
+            fileManager: fileManager,
+            registry: CmuxVaultAgentRegistry(registrations: []),
+            detectedSnapshots: [
+                RestorableAgentSessionIndex.PanelKey(workspaceId: workspaceId, panelId: panelId): (
+                    snapshot: detectedSnapshot,
+                    updatedAt: 999
+                ),
+            ]
+        )
+        let snapshot = try XCTUnwrap(index.snapshot(workspaceId: workspaceId, panelId: panelId))
+
+        XCTAssertEqual(snapshot.sessionId, "live-process-session")
+        XCTAssertEqual(snapshot.launchCommand?.source, "process")
     }
 
 }
@@ -2244,6 +3494,1151 @@ final class SidebarDragFailsafePolicyTests: XCTestCase {
 }
 
 extension SessionPersistenceTests {
+    func testSurfaceResumeBindingStartupInputUsesExactCommand() {
+        let binding = SurfaceResumeBindingSnapshot(
+            name: "OpenCode",
+            kind: "opencode",
+            command: "opencode --session ses_123",
+            cwd: "/tmp/project",
+            checkpointId: "ses_123",
+            source: "cli",
+            updatedAt: 1_777_777_777
+        )
+
+        XCTAssertEqual(binding.startupInput, "opencode --session ses_123\n")
+    }
+
+    func testSurfaceResumeBindingStartupInputScopesEnvironmentToCommand() {
+        let binding = SurfaceResumeBindingSnapshot(
+            command: "cd '/tmp/project' && codex resume session",
+            environment: [
+                "SPACED": "  keep exact  ",
+                "CODEX_HOME": "/tmp/codex home",
+                "EMPTY": "",
+                "ANTHROPIC_API_KEY": "should-not-persist",
+            ]
+        )
+
+        XCTAssertEqual(
+            binding.startupInput,
+            "'/usr/bin/env' 'CODEX_HOME=/tmp/codex home' 'EMPTY=' 'SPACED=  keep exact  ' '/bin/zsh' '-lc' 'cd '\\''/tmp/project'\\'' && codex resume session'\n"
+        )
+    }
+
+    func testSurfaceResumeBindingStartupInputUsesLauncherScriptWhenLong() throws {
+        let tempDir = FileManager.default.temporaryDirectory
+            .appendingPathComponent("cmux-surface-resume-test-\(UUID().uuidString)", isDirectory: true)
+        try FileManager.default.createDirectory(at: tempDir, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: tempDir) }
+
+        let longPath = "/tmp/" + String(repeating: "nested-path-", count: 120)
+        let binding = SurfaceResumeBindingSnapshot(
+            kind: "codex",
+            command: "codex resume session --add-dir \(longPath)",
+            environment: [
+                "CODEX_HOME": "/tmp/codex home",
+            ]
+        )
+
+        let inlineInput = try XCTUnwrap(binding.inlineStartupInput)
+        XCTAssertGreaterThan(inlineInput.utf8.count, SurfaceResumeBindingSnapshot.maxInlineStartupInputBytes)
+
+        let input = try XCTUnwrap(binding.startupInputWithLauncherScript(temporaryDirectory: tempDir))
+        XCTAssertLessThanOrEqual(input.utf8.count, SurfaceResumeBindingSnapshot.maxInlineStartupInputBytes)
+        XCTAssertTrue(input.hasPrefix("/bin/zsh '"))
+        XCTAssertFalse(input.contains(longPath))
+
+        let trimmedInput = input.trimmingCharacters(in: .whitespacesAndNewlines)
+        let prefix = "/bin/zsh '"
+        let scriptPath = String(trimmedInput.dropFirst(prefix.count).dropLast())
+        let scriptContents = try String(contentsOfFile: scriptPath, encoding: .utf8)
+        XCTAssertTrue(scriptContents.contains(longPath))
+        XCTAssertTrue(scriptContents.contains("'CODEX_HOME=/tmp/codex home'"))
+        XCTAssertTrue(scriptContents.contains("codex resume session"))
+    }
+
+    @MainActor
+    func testSnapshotPrefersFreshProcessDetectedSurfaceResumeBinding() throws {
+        let workspace = Workspace()
+        let panelId = try XCTUnwrap(workspace.focusedPanelId)
+        XCTAssertTrue(
+            workspace.setSurfaceResumeBinding(
+                SurfaceResumeBindingSnapshot(
+                    name: "tmux",
+                    kind: "tmux",
+                    command: "tmux attach -t stale",
+                    cwd: "/tmp/old",
+                    checkpointId: "stale",
+                    source: "process-detected",
+                    updatedAt: 10
+                ),
+                panelId: panelId
+            )
+        )
+
+        let bindingIndex = SurfaceResumeBindingIndex(bindingsByPanel: [
+            SurfaceResumeBindingIndex.PanelKey(workspaceId: workspace.id, panelId: panelId): SurfaceResumeBindingSnapshot(
+                name: "tmux",
+                kind: "tmux",
+                command: "tmux attach -t fresh",
+                cwd: "/tmp/new",
+                checkpointId: "fresh",
+                source: "process-detected",
+                updatedAt: 20
+            ),
+        ])
+        let snapshot = workspace.sessionSnapshot(
+            includeScrollback: false,
+            surfaceResumeBindingIndex: bindingIndex
+        )
+
+        XCTAssertEqual(snapshot.panels.first?.terminal?.resumeBinding?.checkpointId, "fresh")
+        XCTAssertEqual(snapshot.panels.first?.terminal?.resumeBinding?.command, "tmux attach -t fresh")
+        XCTAssertEqual(
+            workspace.sessionSnapshot(includeScrollback: false).panels.first?.terminal?.resumeBinding?.checkpointId,
+            "fresh"
+        )
+    }
+
+    @MainActor
+    func testSnapshotUsesProcessDetectedSurfaceResumeBindingAfterWorkspaceMove() throws {
+        let originalWorkspaceId = UUID()
+        let workspace = Workspace()
+        let panelId = try XCTUnwrap(workspace.focusedPanelId)
+        let bindingIndex = SurfaceResumeBindingIndex(bindingsByPanel: [
+            SurfaceResumeBindingIndex.PanelKey(workspaceId: originalWorkspaceId, panelId: panelId): SurfaceResumeBindingSnapshot(
+                name: "tmux",
+                kind: "tmux",
+                command: "tmux attach -t moved",
+                cwd: "/tmp/moved",
+                checkpointId: "moved",
+                source: "process-detected",
+                updatedAt: 20
+            ),
+        ])
+        let snapshot = workspace.sessionSnapshot(
+            includeScrollback: false,
+            surfaceResumeBindingIndex: bindingIndex
+        )
+
+        XCTAssertEqual(snapshot.panels.first?.terminal?.resumeBinding?.checkpointId, "moved")
+        XCTAssertEqual(snapshot.panels.first?.terminal?.resumeBinding?.command, "tmux attach -t moved")
+        XCTAssertEqual(
+            workspace.sessionSnapshot(includeScrollback: false).panels.first?.terminal?.resumeBinding?.checkpointId,
+            "moved"
+        )
+    }
+
+    @MainActor
+    func testSnapshotKeepsExplicitSurfaceResumeBindingOverDetectedBinding() throws {
+        let workspace = Workspace()
+        let panelId = try XCTUnwrap(workspace.focusedPanelId)
+        XCTAssertTrue(
+            workspace.setSurfaceResumeBinding(
+                SurfaceResumeBindingSnapshot(
+                    name: "Codex",
+                    kind: "codex",
+                    command: "codex resume explicit",
+                    cwd: "/tmp/explicit",
+                    checkpointId: "explicit",
+                    source: "cli",
+                    updatedAt: 10
+                ),
+                panelId: panelId
+            )
+        )
+
+        let bindingIndex = SurfaceResumeBindingIndex(bindingsByPanel: [
+            SurfaceResumeBindingIndex.PanelKey(workspaceId: workspace.id, panelId: panelId): SurfaceResumeBindingSnapshot(
+                name: "tmux",
+                kind: "tmux",
+                command: "tmux attach -t detected",
+                cwd: "/tmp/detected",
+                checkpointId: "detected",
+                source: "process-detected",
+                updatedAt: 20
+            ),
+        ])
+        let snapshot = workspace.sessionSnapshot(
+            includeScrollback: false,
+            surfaceResumeBindingIndex: bindingIndex
+        )
+
+        XCTAssertEqual(snapshot.panels.first?.terminal?.resumeBinding?.checkpointId, "explicit")
+        XCTAssertEqual(snapshot.panels.first?.terminal?.resumeBinding?.command, "codex resume explicit")
+    }
+
+    @MainActor
+    func testSnapshotPrefersProcessDetectedTmuxOverAgentHookBinding() throws {
+        let workspace = Workspace()
+        let panelId = try XCTUnwrap(workspace.focusedPanelId)
+        XCTAssertTrue(
+            workspace.setSurfaceResumeBinding(
+                SurfaceResumeBindingSnapshot(
+                    name: "Codex",
+                    kind: "codex",
+                    command: "codex resume session",
+                    cwd: "/tmp/agent",
+                    checkpointId: "session",
+                    source: "agent-hook",
+                    updatedAt: 10
+                ),
+                panelId: panelId
+            )
+        )
+
+        let bindingIndex = SurfaceResumeBindingIndex(bindingsByPanel: [
+            SurfaceResumeBindingIndex.PanelKey(workspaceId: workspace.id, panelId: panelId): SurfaceResumeBindingSnapshot(
+                name: "tmux",
+                kind: "tmux",
+                command: "tmux attach -t detected",
+                cwd: "/tmp/detected",
+                checkpointId: "detected",
+                source: "process-detected",
+                autoResume: true,
+                updatedAt: 20
+            ),
+        ])
+        let snapshot = workspace.sessionSnapshot(
+            includeScrollback: false,
+            surfaceResumeBindingIndex: bindingIndex
+        )
+
+        XCTAssertEqual(snapshot.panels.first?.terminal?.resumeBinding?.checkpointId, "detected")
+        XCTAssertEqual(snapshot.panels.first?.terminal?.resumeBinding?.command, "tmux attach -t detected")
+        XCTAssertEqual(
+            workspace.sessionSnapshot(includeScrollback: false).panels.first?.terminal?.resumeBinding?.checkpointId,
+            "detected"
+        )
+    }
+
+    @MainActor
+    func testAutosaveFingerprintIgnoresSurfaceResumeBindingUpdatedAt() throws {
+        let manager = TabManager()
+        let workspace = try XCTUnwrap(manager.selectedWorkspace)
+        let panelId = try XCTUnwrap(workspace.focusedPanelId)
+        let key = SurfaceResumeBindingIndex.PanelKey(workspaceId: workspace.id, panelId: panelId)
+        let firstIndex = SurfaceResumeBindingIndex(bindingsByPanel: [
+            key: SurfaceResumeBindingSnapshot(
+                name: "tmux",
+                kind: "tmux",
+                command: "tmux attach -t work",
+                cwd: "/tmp/project",
+                checkpointId: "work",
+                source: "process-detected",
+                updatedAt: 10
+            ),
+        ])
+        let secondIndex = SurfaceResumeBindingIndex(bindingsByPanel: [
+            key: SurfaceResumeBindingSnapshot(
+                name: "tmux",
+                kind: "tmux",
+                command: "tmux attach -t work",
+                cwd: "/tmp/project",
+                checkpointId: "work",
+                source: "process-detected",
+                updatedAt: 20
+            ),
+        ])
+
+        XCTAssertEqual(
+            manager.sessionAutosaveFingerprint(surfaceResumeBindingIndex: firstIndex),
+            manager.sessionAutosaveFingerprint(surfaceResumeBindingIndex: secondIndex)
+        )
+    }
+
+    @MainActor
+    func testAutosaveFingerprintIncludesManualSurfaceResumeBindingUpdatedAt() throws {
+        let manager = TabManager()
+        let workspace = try XCTUnwrap(manager.selectedWorkspace)
+        let panelId = try XCTUnwrap(workspace.focusedPanelId)
+        let key = SurfaceResumeBindingIndex.PanelKey(workspaceId: workspace.id, panelId: panelId)
+        let firstIndex = SurfaceResumeBindingIndex(bindingsByPanel: [
+            key: SurfaceResumeBindingSnapshot(
+                name: "custom",
+                kind: "custom",
+                command: "echo one",
+                cwd: "/tmp/project",
+                checkpointId: "custom",
+                source: "cli",
+                updatedAt: 10
+            ),
+        ])
+        let secondIndex = SurfaceResumeBindingIndex(bindingsByPanel: [
+            key: SurfaceResumeBindingSnapshot(
+                name: "custom",
+                kind: "custom",
+                command: "echo one",
+                cwd: "/tmp/project",
+                checkpointId: "custom",
+                source: "cli",
+                updatedAt: 20
+            ),
+        ])
+
+        XCTAssertNotEqual(
+            manager.sessionAutosaveFingerprint(surfaceResumeBindingIndex: firstIndex),
+            manager.sessionAutosaveFingerprint(surfaceResumeBindingIndex: secondIndex)
+        )
+    }
+
+    @MainActor
+    func testAutosaveFingerprintUsesEffectiveSurfaceResumeBinding() throws {
+        let manager = TabManager()
+        let workspace = try XCTUnwrap(manager.selectedWorkspace)
+        let panelId = try XCTUnwrap(workspace.focusedPanelId)
+        XCTAssertTrue(
+            workspace.setSurfaceResumeBinding(
+                SurfaceResumeBindingSnapshot(
+                    name: "tmux",
+                    kind: "tmux",
+                    command: "tmux attach -t stale",
+                    cwd: "/tmp/stale",
+                    checkpointId: "stale",
+                    source: "process-detected",
+                    updatedAt: 10
+                ),
+                panelId: panelId
+            )
+        )
+
+        let key = SurfaceResumeBindingIndex.PanelKey(workspaceId: workspace.id, panelId: panelId)
+        let firstIndex = SurfaceResumeBindingIndex(bindingsByPanel: [
+            key: SurfaceResumeBindingSnapshot(
+                name: "tmux",
+                kind: "tmux",
+                command: "tmux attach -t first",
+                cwd: "/tmp/first",
+                checkpointId: "first",
+                source: "process-detected",
+                updatedAt: 20
+            ),
+        ])
+        let secondIndex = SurfaceResumeBindingIndex(bindingsByPanel: [
+            key: SurfaceResumeBindingSnapshot(
+                name: "tmux",
+                kind: "tmux",
+                command: "tmux attach -t second",
+                cwd: "/tmp/second",
+                checkpointId: "second",
+                source: "process-detected",
+                updatedAt: 30
+            ),
+        ])
+
+        XCTAssertNotEqual(
+            manager.sessionAutosaveFingerprint(surfaceResumeBindingIndex: firstIndex),
+            manager.sessionAutosaveFingerprint(surfaceResumeBindingIndex: secondIndex)
+        )
+    }
+
+    @MainActor
+    func testAutosaveFingerprintIncludesSurfaceResumeBindingEnvironment() throws {
+        let manager = TabManager()
+        let workspace = try XCTUnwrap(manager.selectedWorkspace)
+        let panelId = try XCTUnwrap(workspace.focusedPanelId)
+        let key = SurfaceResumeBindingIndex.PanelKey(workspaceId: workspace.id, panelId: panelId)
+        let firstIndex = SurfaceResumeBindingIndex(bindingsByPanel: [
+            key: SurfaceResumeBindingSnapshot(
+                name: "Codex",
+                kind: "codex",
+                command: "codex resume session",
+                cwd: "/tmp/project",
+                checkpointId: "session",
+                source: "agent-hook",
+                environment: ["CODEX_HOME": "/tmp/codex-a"],
+                updatedAt: 10
+            ),
+        ])
+        let secondIndex = SurfaceResumeBindingIndex(bindingsByPanel: [
+            key: SurfaceResumeBindingSnapshot(
+                name: "Codex",
+                kind: "codex",
+                command: "codex resume session",
+                cwd: "/tmp/project",
+                checkpointId: "session",
+                source: "agent-hook",
+                environment: ["CODEX_HOME": "/tmp/codex-b"],
+                updatedAt: 10
+            ),
+        ])
+
+        XCTAssertNotEqual(
+            manager.sessionAutosaveFingerprint(surfaceResumeBindingIndex: firstIndex),
+            manager.sessionAutosaveFingerprint(surfaceResumeBindingIndex: secondIndex)
+        )
+    }
+
+    @MainActor
+    func testAutosaveFingerprintIncludesSurfaceResumeBindingAutoResumeTrust() throws {
+        let manager = TabManager()
+        let workspace = try XCTUnwrap(manager.selectedWorkspace)
+        let panelId = try XCTUnwrap(workspace.focusedPanelId)
+        let key = SurfaceResumeBindingIndex.PanelKey(workspaceId: workspace.id, panelId: panelId)
+        let untrustedIndex = SurfaceResumeBindingIndex(bindingsByPanel: [
+            key: SurfaceResumeBindingSnapshot(
+                name: "tmux",
+                kind: "tmux",
+                command: "tmux attach -t work",
+                cwd: "/tmp/project",
+                checkpointId: "work",
+                source: "process-detected",
+                updatedAt: 10
+            ),
+        ])
+        let trustedIndex = SurfaceResumeBindingIndex(bindingsByPanel: [
+            key: SurfaceResumeBindingSnapshot(
+                name: "tmux",
+                kind: "tmux",
+                command: "tmux attach -t work",
+                cwd: "/tmp/project",
+                checkpointId: "work",
+                source: "process-detected",
+                autoResume: true,
+                updatedAt: 10
+            ),
+        ])
+
+        XCTAssertNotEqual(
+            manager.sessionAutosaveFingerprint(surfaceResumeBindingIndex: untrustedIndex),
+            manager.sessionAutosaveFingerprint(surfaceResumeBindingIndex: trustedIndex)
+        )
+    }
+
+    func testSurfaceResumeBindingPreservesExactNonSensitiveEnvironmentValues() {
+        let binding = SurfaceResumeBindingSnapshot(
+            command: "codex resume session",
+            environment: [
+                " EMPTY ": "",
+                "SPACED": "  keep exact  ",
+                "PLAIN": "value",
+                "MULTILINE": "line\nbreak",
+                "NULL_BYTE": "bad\u{0}value",
+                "ANTHROPIC_API_KEY": "should-not-persist",
+                "SERVICE_TOKEN": "should-not-persist",
+            ]
+        )
+
+        XCTAssertEqual(binding.environment?["EMPTY"], "")
+        XCTAssertEqual(binding.environment?["SPACED"], "  keep exact  ")
+        XCTAssertEqual(binding.environment?["PLAIN"], "value")
+        XCTAssertNil(binding.environment?["MULTILINE"])
+        XCTAssertNil(binding.environment?["NULL_BYTE"])
+        XCTAssertNil(binding.environment?["ANTHROPIC_API_KEY"])
+        XCTAssertNil(binding.environment?["SERVICE_TOKEN"])
+    }
+
+    func testSurfaceResumeApprovalAutoPolicyAppliesSignedPrefix() throws {
+        let storeURL = try makeSurfaceResumeApprovalStoreURL()
+        let secret = Data("approval-secret".utf8)
+        let binding = SurfaceResumeBindingSnapshot(
+            name: "tmux work",
+            kind: "tmux",
+            command: "tmux attach -t 'work session'",
+            cwd: "/tmp/project",
+            source: "cli",
+            environment: ["PATH": "/usr/bin:/bin"]
+        )
+
+        let record = try XCTUnwrap(SurfaceResumeApprovalStore.approve(
+            binding: binding,
+            policy: .auto,
+            commandPrefix: ["tmux", "attach"],
+            fileURL: storeURL,
+            signingSecret: secret
+        ))
+        XCTAssertTrue(record.hasValidSignature(secret: secret))
+
+        let effectiveBinding = SurfaceResumeApprovalStore.applyingStoredApproval(
+            to: binding,
+            fileURL: storeURL,
+            signingSecret: secret
+        )
+        XCTAssertEqual(effectiveBinding.approvalPolicy, .auto)
+        XCTAssertEqual(effectiveBinding.approvalRecordId, record.id)
+        XCTAssertTrue(effectiveBinding.allowsAutomaticResume)
+
+        let changedEnvironmentBinding = SurfaceResumeBindingSnapshot(
+            name: "tmux work",
+            kind: "tmux",
+            command: "tmux attach -t 'work session'",
+            cwd: "/tmp/project",
+            source: "cli",
+            environment: ["PATH": "/tmp/bin"]
+        )
+        let changedEnvironmentEffectiveBinding = SurfaceResumeApprovalStore.applyingStoredApproval(
+            to: changedEnvironmentBinding,
+            fileURL: storeURL,
+            signingSecret: secret
+        )
+        XCTAssertEqual(changedEnvironmentEffectiveBinding.approvalPolicy, .manual)
+        XCTAssertFalse(changedEnvironmentEffectiveBinding.allowsAutomaticResume)
+    }
+
+    func testSurfaceResumeApprovalRejectsTamperedRecord() throws {
+        let storeURL = try makeSurfaceResumeApprovalStoreURL()
+        let secret = Data("approval-secret".utf8)
+        let binding = SurfaceResumeBindingSnapshot(
+            command: "tmux attach -t work",
+            cwd: "/tmp/project",
+            source: "cli"
+        )
+
+        var record = try XCTUnwrap(SurfaceResumeApprovalStore.approve(
+            binding: binding,
+            policy: .manual,
+            fileURL: storeURL,
+            signingSecret: secret
+        ))
+        record.policy = .auto
+        let encoder = JSONEncoder()
+        let data = try encoder.encode(SurfaceResumeApprovalStore.StoredFile(version: 1, records: [record]))
+        try data.write(to: storeURL, options: [.atomic])
+
+        let effectiveBinding = SurfaceResumeApprovalStore.applyingStoredApproval(
+            to: binding,
+            fileURL: storeURL,
+            signingSecret: secret
+        )
+        XCTAssertEqual(effectiveBinding.approvalPolicy, .manual)
+        XCTAssertNil(effectiveBinding.approvalRecordId)
+        XCTAssertFalse(effectiveBinding.allowsAutomaticResume)
+    }
+
+    func testSurfaceResumeApprovalMissingRecordResetsStalePromptPolicy() throws {
+        let binding = SurfaceResumeBindingSnapshot(
+            command: "tmux attach -t work",
+            cwd: "/tmp/project",
+            source: "cli",
+            autoResume: false,
+            approvalPolicy: .prompt,
+            approvalRecordId: "deleted-record"
+        )
+
+        let effectiveBinding = SurfaceResumeApprovalStore.applyingStoredApproval(
+            to: binding,
+            fileURL: URL(fileURLWithPath: "/tmp/cmux-missing-\(UUID().uuidString).json"),
+            signingSecret: Data("approval-secret".utf8)
+        )
+        XCTAssertEqual(effectiveBinding.approvalPolicy, .manual)
+        XCTAssertNil(effectiveBinding.approvalRecordId)
+        XCTAssertFalse(effectiveBinding.allowsAutomaticResume)
+    }
+
+    func testSurfaceResumePromptPolicyDoesNotRunAutomaticallyUnderTest() throws {
+        let storeURL = try makeSurfaceResumeApprovalStoreURL()
+        let secret = Data("approval-secret".utf8)
+        let binding = SurfaceResumeBindingSnapshot(
+            command: "tmux attach -t work",
+            cwd: "/tmp/project",
+            source: "cli"
+        )
+
+        XCTAssertNotNil(SurfaceResumeApprovalStore.approve(
+            binding: binding,
+            policy: .prompt,
+            fileURL: storeURL,
+            signingSecret: secret
+        ))
+
+        let input = Workspace.surfaceResumeStartupInput(
+            binding,
+            autoResumeAgentSessions: true,
+            approvalStoreURL: storeURL,
+            approvalSigningSecret: secret
+        )
+        XCTAssertNil(input)
+    }
+
+    func testSurfaceResumePromptPolicyDoesNotPromptDuringSnapshot() throws {
+        let storeURL = try makeSurfaceResumeApprovalStoreURL()
+        let secret = Data("approval-secret".utf8)
+        let binding = SurfaceResumeBindingSnapshot(
+            command: "tmux attach -t work",
+            cwd: "/tmp/project",
+            source: "cli"
+        )
+
+        XCTAssertNotNil(SurfaceResumeApprovalStore.approve(
+            binding: binding,
+            policy: .prompt,
+            fileURL: storeURL,
+            signingSecret: secret
+        ))
+
+        let input = Workspace.surfaceResumeStartupInput(
+            binding,
+            autoResumeAgentSessions: true,
+            promptForApproval: false,
+            approvalStoreURL: storeURL,
+            approvalSigningSecret: secret
+        )
+        XCTAssertNil(input)
+    }
+
+    func testProcessDetectedSurfaceResumeRemainsTrustedWithoutApprovalRecord() {
+        let binding = SurfaceResumeBindingSnapshot(
+            command: "tmux attach -t work",
+            cwd: "/tmp/project",
+            source: "process-detected"
+        )
+
+        let effectiveBinding = SurfaceResumeApprovalStore.applyingStoredApproval(
+            to: binding,
+            fileURL: URL(fileURLWithPath: "/tmp/cmux-missing-\(UUID().uuidString).json"),
+            signingSecret: Data("approval-secret".utf8)
+        )
+        XCTAssertEqual(effectiveBinding.approvalPolicy, .auto)
+        XCTAssertTrue(effectiveBinding.allowsAutomaticResume)
+    }
+
+    func testAgentHookSurfaceResumeAutoResumeRemainsTrustedWithoutApprovalRecord() {
+        let binding = SurfaceResumeBindingSnapshot(
+            command: "codex resume session",
+            cwd: "/tmp/project",
+            source: "agent-hook",
+            autoResume: true
+        )
+
+        let effectiveBinding = SurfaceResumeApprovalStore.applyingStoredApproval(
+            to: binding,
+            fileURL: URL(fileURLWithPath: "/tmp/cmux-missing-\(UUID().uuidString).json"),
+            signingSecret: Data("approval-secret".utf8)
+        )
+        XCTAssertEqual(effectiveBinding.approvalPolicy, .auto)
+        XCTAssertTrue(effectiveBinding.allowsAutomaticResume)
+    }
+
+    private func makeSurfaceResumeApprovalStoreURL() throws -> URL {
+        let root = FileManager.default.temporaryDirectory
+            .appendingPathComponent("cmux-surface-resume-approvals-\(UUID().uuidString)", isDirectory: true)
+        try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
+        addTeardownBlock {
+            try? FileManager.default.removeItem(at: root)
+        }
+        return root.appendingPathComponent("resume-commands.json", isDirectory: false)
+    }
+
+    @MainActor
+    func testRestoreRunsSurfaceResumeBindingFromBindingCwd() throws {
+        let source = Workspace()
+        let sourcePanelId = try XCTUnwrap(source.focusedPanelId)
+        source.panelDirectories[sourcePanelId] = "/tmp/old"
+        let bindingIndex = SurfaceResumeBindingIndex(bindingsByPanel: [
+            SurfaceResumeBindingIndex.PanelKey(workspaceId: source.id, panelId: sourcePanelId): SurfaceResumeBindingSnapshot(
+                name: "script",
+                kind: "custom",
+                command: "./resume.sh",
+                cwd: "/tmp/new",
+                checkpointId: "script",
+                source: "process-detected",
+                autoResume: true,
+                updatedAt: 10
+            ),
+        ])
+        let snapshot = source.sessionSnapshot(
+            includeScrollback: false,
+            surfaceResumeBindingIndex: bindingIndex
+        )
+
+        let restored = Workspace()
+        restored.restoreSessionSnapshot(snapshot)
+        let restoredPanelId = try XCTUnwrap(restored.focusedPanelId)
+        let restoredPanel = try XCTUnwrap(restored.terminalPanel(for: restoredPanelId))
+
+        XCTAssertEqual(restoredPanel.requestedWorkingDirectory, "/tmp/new")
+        XCTAssertTrue(restoredPanel.surface.debugInitialInputMetadata().hasInitialInput)
+    }
+
+    @MainActor
+    func testRestoreDoesNotRunUntrustedSurfaceResumeBindingByDefault() throws {
+        let source = Workspace()
+        let sourcePanelId = try XCTUnwrap(source.focusedPanelId)
+        let bindingIndex = SurfaceResumeBindingIndex(bindingsByPanel: [
+            SurfaceResumeBindingIndex.PanelKey(workspaceId: source.id, panelId: sourcePanelId): SurfaceResumeBindingSnapshot(
+                name: "script",
+                kind: "custom",
+                command: "./resume.sh",
+                cwd: "/tmp/sticky",
+                checkpointId: "script",
+                source: "process-detected",
+                updatedAt: 10
+            ),
+        ])
+        let snapshot = source.sessionSnapshot(
+            includeScrollback: false,
+            surfaceResumeBindingIndex: bindingIndex
+        )
+
+        let restored = Workspace()
+        restored.restoreSessionSnapshot(snapshot)
+        let restoredPanelId = try XCTUnwrap(restored.focusedPanelId)
+        let restoredPanel = try XCTUnwrap(restored.terminalPanel(for: restoredPanelId))
+
+        XCTAssertFalse(restoredPanel.surface.debugInitialInputMetadata().hasInitialInput)
+        XCTAssertEqual(
+            restored.sessionSnapshot(includeScrollback: false).panels.first?.terminal?.resumeBinding?.command,
+            "./resume.sh"
+        )
+    }
+
+    @MainActor
+    func testRestoreScopesSurfaceResumeBindingEnvironmentToInitialInput() throws {
+        let source = Workspace()
+        let sourcePanelId = try XCTUnwrap(source.focusedPanelId)
+        let bindingIndex = SurfaceResumeBindingIndex(bindingsByPanel: [
+            SurfaceResumeBindingIndex.PanelKey(workspaceId: source.id, panelId: sourcePanelId): SurfaceResumeBindingSnapshot(
+                name: "Codex",
+                kind: "codex",
+                command: "codex resume session",
+                cwd: "/tmp/project",
+                checkpointId: "session",
+                source: "process-detected",
+                environment: [
+                    "CODEX_HOME": "/tmp/codex home",
+                    "EMPTY": "",
+                ],
+                autoResume: true,
+                updatedAt: 10
+            ),
+        ])
+        let snapshot = source.sessionSnapshot(
+            includeScrollback: false,
+            surfaceResumeBindingIndex: bindingIndex
+        )
+
+        let restored = Workspace()
+        restored.restoreSessionSnapshot(snapshot)
+        let restoredPanelId = try XCTUnwrap(restored.focusedPanelId)
+        let restoredPanel = try XCTUnwrap(restored.terminalPanel(for: restoredPanelId))
+
+        XCTAssertNil(restoredPanel.surface.debugAdditionalEnvironmentForTesting()["CODEX_HOME"])
+        XCTAssertNil(restoredPanel.surface.debugAdditionalEnvironmentForTesting()["EMPTY"])
+        XCTAssertEqual(
+            restoredPanel.surface.debugInitialInputForTesting(),
+            "'/usr/bin/env' 'CODEX_HOME=/tmp/codex home' 'EMPTY=' '/bin/zsh' '-lc' 'codex resume session'\n"
+        )
+    }
+
+    @MainActor
+    func testRestoreUsesLauncherScriptForLongSurfaceResumeBinding() throws {
+        let source = Workspace()
+        let sourcePanelId = try XCTUnwrap(source.focusedPanelId)
+        let longPath = "/tmp/" + String(repeating: "nested-project-", count: 120)
+        let bindingIndex = SurfaceResumeBindingIndex(bindingsByPanel: [
+            SurfaceResumeBindingIndex.PanelKey(workspaceId: source.id, panelId: sourcePanelId): SurfaceResumeBindingSnapshot(
+                name: "Codex",
+                kind: "codex",
+                command: "codex resume session --add-dir \(longPath)",
+                cwd: "/tmp/project",
+                checkpointId: "session",
+                source: "process-detected",
+                environment: [
+                    "CODEX_HOME": "/tmp/codex home",
+                ],
+                autoResume: true,
+                updatedAt: 10
+            ),
+        ])
+        let snapshot = source.sessionSnapshot(
+            includeScrollback: false,
+            surfaceResumeBindingIndex: bindingIndex
+        )
+
+        let restored = Workspace()
+        restored.restoreSessionSnapshot(snapshot)
+        let restoredPanelId = try XCTUnwrap(restored.focusedPanelId)
+        let restoredPanel = try XCTUnwrap(restored.terminalPanel(for: restoredPanelId))
+
+        XCTAssertNil(restoredPanel.surface.debugAdditionalEnvironmentForTesting()["CODEX_HOME"])
+        let input = try XCTUnwrap(restoredPanel.surface.debugInitialInputForTesting())
+        XCTAssertTrue(input.hasPrefix("/bin/zsh '"))
+        XCTAssertFalse(input.contains(longPath))
+
+        let trimmedInput = input.trimmingCharacters(in: .whitespacesAndNewlines)
+        let prefix = "/bin/zsh '"
+        let scriptPath = String(trimmedInput.dropFirst(prefix.count).dropLast())
+        defer { try? FileManager.default.removeItem(atPath: scriptPath) }
+        let scriptContents = try String(contentsOfFile: scriptPath, encoding: .utf8)
+        XCTAssertTrue(scriptContents.contains(longPath))
+        XCTAssertTrue(scriptContents.contains("'CODEX_HOME=/tmp/codex home'"))
+        XCTAssertTrue(scriptContents.contains("codex resume session"))
+    }
+
+    @MainActor
+    func testRestoreRetainsProcessDetectedSurfaceResumeBindingBeforeRedetection() throws {
+        let source = Workspace()
+        let sourcePanelId = try XCTUnwrap(source.focusedPanelId)
+        let bindingIndex = SurfaceResumeBindingIndex(bindingsByPanel: [
+            SurfaceResumeBindingIndex.PanelKey(workspaceId: source.id, panelId: sourcePanelId): SurfaceResumeBindingSnapshot(
+                name: "tmux",
+                kind: "tmux",
+                command: "tmux attach -t restored",
+                cwd: "/tmp/project",
+                checkpointId: "restored",
+                source: "process-detected",
+                updatedAt: 10
+            ),
+        ])
+        let snapshot = source.sessionSnapshot(
+            includeScrollback: false,
+            surfaceResumeBindingIndex: bindingIndex
+        )
+
+        let restored = Workspace()
+        restored.restoreSessionSnapshot(snapshot)
+        let immediateSnapshot = restored.sessionSnapshot(includeScrollback: false)
+
+        XCTAssertEqual(immediateSnapshot.panels.first?.terminal?.resumeBinding?.checkpointId, "restored")
+        XCTAssertEqual(immediateSnapshot.panels.first?.terminal?.resumeBinding?.command, "tmux attach -t restored")
+    }
+
+    @MainActor
+    func testSnapshotDropsStaleProcessDetectedSurfaceResumeBindingAfterCleanRedetection() throws {
+        let workspace = Workspace()
+        let panelId = try XCTUnwrap(workspace.focusedPanelId)
+        XCTAssertTrue(
+            workspace.setSurfaceResumeBinding(
+                SurfaceResumeBindingSnapshot(
+                    name: "tmux",
+                    kind: "tmux",
+                    command: "tmux attach -t stale",
+                    cwd: "/tmp/stale",
+                    checkpointId: "stale",
+                    source: "process-detected",
+                    updatedAt: 10
+                ),
+                panelId: panelId
+            )
+        )
+
+        let snapshot = workspace.sessionSnapshot(
+            includeScrollback: false,
+            surfaceResumeBindingIndex: .empty
+        )
+
+        XCTAssertNil(snapshot.panels.first?.terminal?.resumeBinding)
+        XCTAssertNil(workspace.sessionSnapshot(includeScrollback: false).panels.first?.terminal?.resumeBinding)
+    }
+
+    @MainActor
+    func testSnapshotCachesNewProcessDetectedSurfaceResumeBindingForLaterNoScanSave() throws {
+        let workspace = Workspace()
+        let panelId = try XCTUnwrap(workspace.focusedPanelId)
+        let bindingIndex = SurfaceResumeBindingIndex(bindingsByPanel: [
+            SurfaceResumeBindingIndex.PanelKey(workspaceId: workspace.id, panelId: panelId): SurfaceResumeBindingSnapshot(
+                name: "tmux",
+                kind: "tmux",
+                command: "tmux attach -t cached",
+                cwd: "/tmp/project",
+                checkpointId: "cached",
+                source: "process-detected",
+                updatedAt: 10
+            ),
+        ])
+
+        let scannedSnapshot = workspace.sessionSnapshot(
+            includeScrollback: false,
+            surfaceResumeBindingIndex: bindingIndex
+        )
+        let laterSnapshot = workspace.sessionSnapshot(includeScrollback: false)
+
+        XCTAssertEqual(scannedSnapshot.panels.first?.terminal?.resumeBinding?.checkpointId, "cached")
+        XCTAssertEqual(laterSnapshot.panels.first?.terminal?.resumeBinding?.checkpointId, "cached")
+    }
+
+    @MainActor
+    func testAppDelegateSnapshotPreservesRestoredProcessDetectedSurfaceResumeBindingBeforeScan() throws {
+        let previousAppDelegate = AppDelegate.shared
+        let app = AppDelegate()
+        AppDelegate.shared = app
+        defer {
+            AppDelegate.shared = previousAppDelegate
+        }
+
+        let manager = TabManager(autoWelcomeIfNeeded: false)
+        let windowId = app.registerMainWindowContextForTesting(tabManager: manager)
+        defer {
+            app.unregisterMainWindowContextForTesting(windowId: windowId)
+        }
+
+        let workspace = try XCTUnwrap(manager.selectedWorkspace)
+        let panelId = try XCTUnwrap(workspace.focusedPanelId)
+        XCTAssertTrue(
+            workspace.setSurfaceResumeBinding(
+                SurfaceResumeBindingSnapshot(
+                    name: "tmux",
+                    kind: "tmux",
+                    command: "tmux attach -t restored",
+                    cwd: "/tmp/project",
+                    checkpointId: "restored",
+                    source: "process-detected",
+                    updatedAt: 10
+                ),
+                panelId: panelId
+            )
+        )
+
+        let noScanSnapshot = try XCTUnwrap(app.debugBuildSessionSnapshotForTesting(includeScrollback: false))
+        let noScanBinding = noScanSnapshot.windows.first?.tabManager.workspaces.first?.panels
+            .first(where: { $0.id == panelId })?
+            .terminal?
+            .resumeBinding
+        XCTAssertEqual(noScanBinding?.checkpointId, "restored")
+
+        let cleanScanSnapshot = try XCTUnwrap(
+            app.debugBuildSessionSnapshotForTesting(
+                includeScrollback: false,
+                surfaceResumeBindingIndex: .empty
+            )
+        )
+        let cleanScanBinding = cleanScanSnapshot.windows.first?.tabManager.workspaces.first?.panels
+            .first(where: { $0.id == panelId })?
+            .terminal?
+            .resumeBinding
+        XCTAssertNil(cleanScanBinding)
+    }
+
+    func testTmuxProcessDetectedResumeBindingPreservesSocketFlags() throws {
+        let binding = try XCTUnwrap(
+            SurfaceResumeBindingIndex.tmuxResumeBindingForTesting(
+                processName: "tmux: client",
+                processPath: "/opt/homebrew/bin/tmux",
+                arguments: ["/opt/homebrew/bin/tmux", "-L", "dev", "attach-session", "-t", "work"],
+                environment: ["PWD": "/tmp/project"]
+            )
+        )
+
+        XCTAssertEqual(binding.kind, "tmux")
+        XCTAssertEqual(binding.source, "process-detected")
+        XCTAssertEqual(binding.allowsAutomaticResume, true)
+        XCTAssertEqual(binding.checkpointId, "work")
+        XCTAssertEqual(binding.cwd, "/tmp/project")
+        XCTAssertEqual(binding.command, "'/opt/homebrew/bin/tmux' '-L' 'dev' 'attach' '-t' 'work'")
+    }
+
+    func testTmuxProcessDetectedResumeBindingPreservesTmuxTmpdir() throws {
+        let binding = try XCTUnwrap(
+            SurfaceResumeBindingIndex.tmuxResumeBindingForTesting(
+                processName: "tmux: client",
+                processPath: "/opt/homebrew/bin/tmux",
+                arguments: ["/opt/homebrew/bin/tmux", "-L", "dev", "attach-session", "-t", "work"],
+                environment: [
+                    "PWD": "/tmp/project",
+                    "TMUX": "/tmp/tmux-current,123,0",
+                    "TMUX_TMPDIR": "/var/folders/custom-tmux",
+                ]
+            )
+        )
+
+        XCTAssertEqual(binding.command, "'/opt/homebrew/bin/tmux' '-L' 'dev' 'attach' '-t' 'work'")
+        XCTAssertEqual(binding.environment, ["TMUX_TMPDIR": "/var/folders/custom-tmux"])
+        let startupInput = try XCTUnwrap(binding.startupInput)
+        XCTAssertTrue(startupInput.contains("'TMUX_TMPDIR=/var/folders/custom-tmux'"), startupInput)
+        XCTAssertFalse(startupInput.contains("TMUX="), startupInput)
+    }
+
+    func testTmuxProcessDetectedResumeBindingParsesAttachAlias() throws {
+        let binding = try XCTUnwrap(
+            SurfaceResumeBindingIndex.tmuxResumeBindingForTesting(
+                processName: "tmux: client",
+                processPath: "/opt/homebrew/bin/tmux",
+                arguments: ["/opt/homebrew/bin/tmux", "a", "-t", "work"],
+                environment: [:]
+            )
+        )
+
+        XCTAssertEqual(binding.checkpointId, "work")
+        XCTAssertEqual(binding.command, "'/opt/homebrew/bin/tmux' 'attach' '-t' 'work'")
+    }
+
+    func testTmuxProcessDetectedResumeBindingDoesNotUseProcessTitleAsExecutable() throws {
+        let binding = try XCTUnwrap(
+            SurfaceResumeBindingIndex.tmuxResumeBindingForTesting(
+                processName: "tmux: client",
+                processPath: "/opt/homebrew/bin/tmux",
+                arguments: ["tmux: client", "attach-session", "-t", "work"],
+                environment: [:]
+            )
+        )
+
+        XCTAssertEqual(binding.command, "'/opt/homebrew/bin/tmux' 'attach' '-t' 'work'")
+    }
+
+    func testTmuxProcessDetectedResumeBindingDropsFullClientProcessTitle() throws {
+        let binding = try XCTUnwrap(
+            SurfaceResumeBindingIndex.tmuxResumeBindingForTesting(
+                processName: "tmux: client (/dev/ttys001)",
+                processPath: nil,
+                arguments: ["tmux: client (/dev/ttys001)", "attach-session", "-t", "work"],
+                environment: ["PWD": "/tmp/project"]
+            )
+        )
+
+        XCTAssertEqual(binding.checkpointId, "work")
+        XCTAssertEqual(binding.cwd, "/tmp/project")
+        XCTAssertEqual(binding.command, "'tmux' 'attach' '-t' 'work'")
+    }
+
+    func testTmuxProcessDetectedResumeBindingRejectsFullServerProcessTitle() {
+        let binding = SurfaceResumeBindingIndex.tmuxResumeBindingForTesting(
+            processName: "tmux: server (/private/tmp/tmux-501/default)",
+            processPath: nil,
+            arguments: ["tmux: server (/private/tmp/tmux-501/default)"],
+            environment: [:]
+        )
+
+        XCTAssertNil(binding)
+    }
+
+    func testTmuxProcessDetectedResumeBindingRejectsServerProcessTitle() {
+        let binding = SurfaceResumeBindingIndex.tmuxResumeBindingForTesting(
+            processName: "tmux: server",
+            processPath: "/opt/homebrew/bin/tmux",
+            arguments: ["tmux: server"],
+            environment: [:]
+        )
+
+        XCTAssertNil(binding)
+    }
+
+    func testTmuxAttachFlagParserTreatsConfigFlagAsValueTaking() {
+        let binding = SurfaceResumeBindingIndex.tmuxResumeBindingForTesting(
+            processName: "tmux",
+            processPath: nil,
+            arguments: ["tmux", "new", "-fA"],
+            environment: [:]
+        )
+
+        XCTAssertNil(binding)
+    }
+
+    func testTmuxAttachFlagParserTreatsShellCommandFlagAsValueTaking() throws {
+        let binding = try XCTUnwrap(
+            SurfaceResumeBindingIndex.tmuxResumeBindingForTesting(
+                processName: "tmux",
+                processPath: nil,
+                arguments: ["tmux", "-c", "/bin/zsh", "attach", "-t", "work"],
+                environment: [:]
+            )
+        )
+
+        XCTAssertEqual(binding.checkpointId, "work")
+        XCTAssertEqual(binding.command, "'tmux' 'attach' '-t' 'work'")
+    }
+
+    func testTmuxProcessDetectedResumeBindingRejectsUnnamedAttach() {
+        let attachBinding = SurfaceResumeBindingIndex.tmuxResumeBindingForTesting(
+            processName: "tmux",
+            processPath: nil,
+            arguments: ["tmux", "attach"],
+            environment: [:]
+        )
+        let aliasBinding = SurfaceResumeBindingIndex.tmuxResumeBindingForTesting(
+            processName: "tmux",
+            processPath: nil,
+            arguments: ["tmux", "a"],
+            environment: [:]
+        )
+
+        XCTAssertNil(attachBinding)
+        XCTAssertNil(aliasBinding)
+    }
+
+    func testTmuxProcessDetectedResumeBindingRejectsCommandlessClient() {
+        let executableOnlyBinding = SurfaceResumeBindingIndex.tmuxResumeBindingForTesting(
+            processName: "tmux",
+            processPath: nil,
+            arguments: ["tmux"],
+            environment: [:]
+        )
+        let processTitleBinding = SurfaceResumeBindingIndex.tmuxResumeBindingForTesting(
+            processName: "tmux: client",
+            processPath: nil,
+            arguments: ["tmux: client"],
+            environment: [:]
+        )
+
+        XCTAssertNil(executableOnlyBinding)
+        XCTAssertNil(processTitleBinding)
+    }
+
+    func testTmuxOptionValueDoesNotReadTargetFromConfigValue() {
+        let binding = SurfaceResumeBindingIndex.tmuxResumeBindingForTesting(
+            processName: "tmux",
+            processPath: nil,
+            arguments: ["tmux", "attach", "-factive-pane"],
+            environment: [:]
+        )
+
+        XCTAssertNil(binding)
+    }
+
+    func testTmuxOptionValueStopsAtValueTakingClusterOption() {
+        let binding = SurfaceResumeBindingIndex.tmuxResumeBindingForTesting(
+            processName: "tmux",
+            processPath: nil,
+            arguments: ["tmux", "new", "-Ans"],
+            environment: [:]
+        )
+
+        XCTAssertNil(binding)
+    }
+
+    func testTmuxOptionValueStopsAtCommandTerminator() {
+        let attachBinding = SurfaceResumeBindingIndex.tmuxResumeBindingForTesting(
+            processName: "tmux",
+            processPath: nil,
+            arguments: ["tmux", "attach", "--", "-t", "work"],
+            environment: [:]
+        )
+        let newBinding = SurfaceResumeBindingIndex.tmuxResumeBindingForTesting(
+            processName: "tmux",
+            processPath: nil,
+            arguments: ["tmux", "new", "-A", "--", "-s", "work"],
+            environment: [:]
+        )
+
+        XCTAssertNil(attachBinding)
+        XCTAssertNil(newBinding)
+    }
+
+    func testTmuxProcessDetectedResumeBindingRejectsUnnamedNewAttachSession() {
+        let binding = SurfaceResumeBindingIndex.tmuxResumeBindingForTesting(
+            processName: "tmux",
+            processPath: nil,
+            arguments: ["tmux", "new-session", "-A"],
+            environment: [:]
+        )
+
+        XCTAssertNil(binding)
+    }
+
+    func testTmuxProcessDetectedResumeBindingParsesNewAttachSession() throws {
+        let binding = try XCTUnwrap(
+            SurfaceResumeBindingIndex.tmuxResumeBindingForTesting(
+                processName: "tmux",
+                processPath: nil,
+                arguments: ["tmux", "new", "-As", "work"],
+                environment: [:]
+            )
+        )
+
+        XCTAssertEqual(binding.checkpointId, "work")
+        XCTAssertEqual(binding.command, "'tmux' 'attach' '-t' 'work'")
+    }
+
+    func testTmuxProcessDetectedResumeBindingRejectsSessionNameThatLooksLikeAttachFlag() {
+        let binding = SurfaceResumeBindingIndex.tmuxResumeBindingForTesting(
+            processName: "tmux",
+            processPath: nil,
+            arguments: ["tmux", "new", "-sA"],
+            environment: [:]
+        )
+
+        XCTAssertNil(binding)
+    }
+
     func testMarkdownFileLinkResolverRecognizesMarkdownPathLikeStrings() {
         XCTAssertTrue(MarkdownPanelFileLinkResolver.isMarkdownPathLike("other-markdown.md"))
         XCTAssertTrue(MarkdownPanelFileLinkResolver.isMarkdownPathLike("test/markdown.md"))
