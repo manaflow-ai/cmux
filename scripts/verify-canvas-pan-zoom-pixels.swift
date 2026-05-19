@@ -110,32 +110,32 @@ let terminalProbeBinaryURL = outDirectory.appendingPathComponent("cmux-size-tui-
 let fileManager = FileManager.default
 
 let terminalProbes = [
-    ProbeColor(name: "border", minimumPixels: 1_000, minimumInset: 12) { red, green, blue, _ in
-        blue > 0.64 && green > 0.44 && red < 0.36
+    ProbeColor(name: "border", minimumPixels: 150, minimumInset: 12) { red, green, blue, _ in
+        blue > 0.75 && green > 0.65 && red < 0.48
     },
     ProbeColor(name: "red", minimumPixels: 120, minimumInset: 12) { red, green, blue, _ in
-        red > 0.70 && green < 0.42 && blue < 0.36
+        red > 0.75 && green < 0.60 && blue < 0.50
     },
     ProbeColor(name: "green", minimumPixels: 120, minimumInset: 12) { red, green, blue, _ in
-        green > 0.70 && red < 0.35 && blue < 0.46
+        green > 0.60 && green > red + 0.20 && green > blue + 0.15
     },
     ProbeColor(name: "blue", minimumPixels: 120, minimumInset: 12) { red, green, blue, _ in
-        blue > 0.62 && red < 0.36 && green < 0.48
+        blue > 0.80 && red < 0.36 && green < 0.50
     }
 ]
 
 let browserProbes = [
-    ProbeColor(name: "border", minimumPixels: 1_000, minimumInset: 12) { red, green, blue, _ in
-        blue > 0.64 && green > 0.44 && red < 0.36
+    ProbeColor(name: "border", minimumPixels: 150, minimumInset: 12) { red, green, blue, _ in
+        blue > 0.75 && green > 0.65 && red < 0.48
     },
     ProbeColor(name: "red", minimumPixels: 300, minimumInset: 12) { red, green, blue, _ in
-        red > 0.78 && green < 0.42 && blue < 0.34
+        red > 0.75 && green < 0.60 && blue < 0.50
     },
     ProbeColor(name: "green", minimumPixels: 300, minimumInset: 12) { red, green, blue, _ in
-        green > 0.78 && red < 0.34 && blue < 0.46
+        green > 0.60 && green > red + 0.20 && green > blue + 0.15
     },
     ProbeColor(name: "blue", minimumPixels: 300, minimumInset: 12) { red, green, blue, _ in
-        blue > 0.78 && red < 0.40 && green < 0.48
+        blue > 0.80 && red < 0.36 && green < 0.50
     }
 ]
 
