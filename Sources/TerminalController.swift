@@ -75,6 +75,10 @@ class TerminalController {
     private nonisolated static let socketListenerFailureCaptureCooldown: TimeInterval = 60
     private nonisolated static let socketListenerFailureCaptureLock = NSLock()
     private nonisolated(unsafe) static var socketListenerFailureLastCapturedAt: [String: Date] = [:]
+#if DEBUG
+    private nonisolated static let socketCommandDebugLogEnvironmentKey = "CMUX_DEBUG_SOCKET_COMMAND_LOG"
+    private nonisolated static let socketCommandSlowThresholdMs: Double = 500
+#endif
     private nonisolated static let unixSocketPathMaxLength: Int = {
         var addr = sockaddr_un()
         // Reserve one byte for the null terminator.
@@ -2033,14 +2037,122 @@ class TerminalController {
         _ command: String,
         authenticated: Bool
     ) -> SocketLineProcessingResult {
+#if DEBUG
+        let debugInfo = Self.socketCommandDebugInfo(command)
+        let debugStart = DispatchTime.now().uptimeNanoseconds
+        let debugLoggingEnabled = Self.socketCommandDebugLoggingEnabled()
+        if debugLoggingEnabled {
+            Self.debugLogSocketCommand(
+                "socket.command.begin proto=\(debugInfo.protocolName) method=\(debugInfo.commandKey)"
+            )
+        }
+#endif
         var nextAuthenticated = authenticated
         if let response = authResponseIfNeeded(for: command, authenticated: &nextAuthenticated) {
+#if DEBUG
+            Self.debugLogSocketCommandEndIfNeeded(
+                debugInfo: debugInfo,
+                startedAt: debugStart,
+                response: response,
+                loggingEnabled: debugLoggingEnabled
+            )
+#endif
             return SocketLineProcessingResult(response: response, authenticated: nextAuthenticated)
         }
 
         let response = processCommandUsingSocketExecutionPolicy(command)
+#if DEBUG
+        Self.debugLogSocketCommandEndIfNeeded(
+            debugInfo: debugInfo,
+            startedAt: debugStart,
+            response: response,
+            loggingEnabled: debugLoggingEnabled
+        )
+#endif
         return SocketLineProcessingResult(response: response, authenticated: nextAuthenticated)
     }
+
+#if DEBUG
+    private struct SocketCommandDebugInfo {
+        let protocolName: String
+        let commandKey: String
+    }
+
+    private nonisolated static func socketCommandDebugLoggingEnabled(
+        environment: [String: String] = ProcessInfo.processInfo.environment
+    ) -> Bool {
+        guard let rawValue = environment[socketCommandDebugLogEnvironmentKey] else {
+            return false
+        }
+        switch rawValue.trimmingCharacters(in: .whitespacesAndNewlines).lowercased() {
+        case "1", "true", "yes", "on":
+            return true
+        default:
+            return false
+        }
+    }
+
+    private nonisolated static func socketCommandDebugInfo(_ command: String) -> SocketCommandDebugInfo {
+        let trimmed = command.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard trimmed.hasPrefix("{"),
+              let data = trimmed.data(using: .utf8),
+              let dict = (try? JSONSerialization.jsonObject(with: data, options: [])) as? [String: Any],
+              let method = dict["method"] as? String else {
+            let commandKey = trimmed.split(separator: " ", maxSplits: 1).first.map(String.init) ?? "<empty>"
+            return SocketCommandDebugInfo(protocolName: "v1", commandKey: sanitizedSocketDebugToken(commandKey))
+        }
+        return SocketCommandDebugInfo(protocolName: "v2", commandKey: sanitizedSocketDebugToken(method))
+    }
+
+    private nonisolated static func sanitizedSocketDebugToken(_ value: String) -> String {
+        let trimmed = value.trimmingCharacters(in: .whitespacesAndNewlines)
+        let allowed = CharacterSet(charactersIn: "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789._-:")
+        let scalars = trimmed.unicodeScalars.map { scalar -> Character in
+            allowed.contains(scalar) ? Character(scalar) : "_"
+        }
+        let sanitized = String(scalars).prefix(96)
+        return sanitized.isEmpty ? "<empty>" : String(sanitized)
+    }
+
+    private nonisolated static func socketCommandDebugStatus(response: String) -> String {
+        let trimmed = response.trimmingCharacters(in: .whitespacesAndNewlines)
+        if trimmed.hasPrefix("ERROR:") {
+            return "error"
+        }
+        if trimmed.hasPrefix("{"),
+           let data = trimmed.data(using: .utf8),
+           let dict = (try? JSONSerialization.jsonObject(with: data, options: [])) as? [String: Any] {
+            if let ok = dict["ok"] as? Bool {
+                return ok ? "ok" : "error"
+            }
+            if dict["error"] != nil {
+                return "error"
+            }
+        }
+        return "ok"
+    }
+
+    private nonisolated static func debugLogSocketCommandEndIfNeeded(
+        debugInfo: SocketCommandDebugInfo,
+        startedAt: UInt64,
+        response: String,
+        loggingEnabled: Bool
+    ) {
+        let elapsedMs = Double(DispatchTime.now().uptimeNanoseconds - startedAt) / 1_000_000
+        let status = socketCommandDebugStatus(response: response)
+        guard loggingEnabled || elapsedMs >= socketCommandSlowThresholdMs || status != "ok" else {
+            return
+        }
+        let elapsedText = String(format: "%.2f", elapsedMs)
+        debugLogSocketCommand(
+            "socket.command.end proto=\(debugInfo.protocolName) method=\(debugInfo.commandKey) status=\(status) ms=\(elapsedText) bytes=\(response.utf8.count)"
+        )
+    }
+
+    private nonisolated static func debugLogSocketCommand(_ message: @autoclosure () -> String) {
+        cmuxDebugLog(message())
+    }
+#endif
 
     private nonisolated func processCommandUsingSocketExecutionPolicy(_ command: String) -> String {
         if Thread.isMainThread,
@@ -8794,29 +8906,44 @@ class TerminalController {
     ) -> T? {
         if Thread.isMainThread {
             let runLoop = CFRunLoopGetCurrent()
+            let lock = NSLock()
+            let deadline = Date().addingTimeInterval(timeout)
             var resolved = false
             var timedOut = false
             var result: T?
 
             let finish: (T) -> Void = { value in
-                guard !resolved else { return }
+                lock.lock()
+                guard !resolved else {
+                    lock.unlock()
+                    return
+                }
                 resolved = true
                 result = value
+                lock.unlock()
                 CFRunLoopStop(runLoop)
             }
 
             start(finish)
-            guard !resolved else { return result }
+            while true {
+                lock.lock()
+                if resolved {
+                    let value = result
+                    let didTimeOut = timedOut
+                    lock.unlock()
+                    return didTimeOut ? nil : value
+                }
+                let remaining = deadline.timeIntervalSinceNow
+                if remaining <= 0 {
+                    resolved = true
+                    timedOut = true
+                    lock.unlock()
+                    return nil
+                }
+                lock.unlock()
 
-            DispatchQueue.main.asyncAfter(deadline: .now() + timeout) {
-                guard !resolved else { return }
-                resolved = true
-                timedOut = true
-                CFRunLoopStop(runLoop)
+                CFRunLoopRunInMode(.defaultMode, min(remaining, 0.05), false)
             }
-
-            CFRunLoopRun()
-            return timedOut ? nil : result
         }
 
         let semaphore = DispatchSemaphore(value: 0)
@@ -11377,23 +11504,30 @@ class TerminalController {
                 guard fd >= 0 else {
                     return .err(code: "internal_error", message: "Failed to watch download path", data: ["path": path])
                 }
-                defer { close(fd) }
 
+                let watcherQueue = DispatchQueue(label: "com.cmux.browser.download.wait.\(surfaceId.uuidString)")
+                var source: DispatchSourceFileSystemObject?
+                defer {
+                    source?.cancel()
+                }
                 let ready = v2AwaitCallback(timeout: timeout) { finish in
-                    var source: DispatchSourceFileSystemObject?
-                    var timeoutWorkItem: DispatchWorkItem?
+                    let finishLock = NSLock()
                     var finished = false
                     let finishOnce: (Bool) -> Void = { value in
-                        guard !finished else { return }
+                        finishLock.lock()
+                        guard !finished else {
+                            finishLock.unlock()
+                            return
+                        }
                         finished = true
-                        timeoutWorkItem?.cancel()
+                        finishLock.unlock()
                         source?.cancel()
                         finish(value)
                     }
                     source = DispatchSource.makeFileSystemObjectSource(
                         fileDescriptor: fd,
                         eventMask: [.write, .extend, .attrib, .link, .rename],
-                        queue: .main
+                        queue: watcherQueue
                     )
                     source?.setEventHandler {
                         if pathIsReady() {
@@ -11401,15 +11535,10 @@ class TerminalController {
                         }
                     }
                     source?.setCancelHandler {
+                        close(fd)
                         source = nil
                     }
                     source?.resume()
-                    timeoutWorkItem = DispatchWorkItem {
-                        finishOnce(pathIsReady())
-                    }
-                    if let timeoutWorkItem {
-                        DispatchQueue.main.asyncAfter(deadline: .now() + timeout, execute: timeoutWorkItem)
-                    }
                     if pathIsReady() {
                         finishOnce(true)
                     }
@@ -11440,12 +11569,12 @@ class TerminalController {
                 ])
             }
 
+            var observer: NSObjectProtocol?
             let downloadEvent = v2AwaitCallback(timeout: timeout) { finish in
-                var observer: NSObjectProtocol?
                 observer = NotificationCenter.default.addObserver(
                     forName: .browserDownloadEventDidArrive,
                     object: nil,
-                    queue: .main
+                    queue: nil
                 ) { note in
                     guard let candidateSurfaceId = note.userInfo?["surfaceId"] as? UUID,
                           candidateSurfaceId == surfaceId,
@@ -11457,6 +11586,9 @@ class TerminalController {
                     }
                     finish(event)
                 }
+            }
+            if let observer {
+                NotificationCenter.default.removeObserver(observer)
             }
             guard let downloadEvent else {
                 return .err(code: "timeout", message: "No download event observed", data: ["timeout_ms": timeoutMs])
