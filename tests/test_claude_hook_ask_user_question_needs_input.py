@@ -261,7 +261,7 @@ def main() -> int:
             return 1
 
         if not any(
-            line.startswith("set_status claude_code Needs input ")
+            line.startswith("set_status claude_code Claude Code needs input ")
             and f"--tab={workspace_id}" in line
             and f"--panel={surface_id}" in line
             for line in server.commands

@@ -358,6 +358,115 @@ private struct AgentHookNotificationSummary {
     let isFallback: Bool
 }
 
+private enum AgentNeedsInputSourceSignal: String {
+    case claudeAskUserQuestion
+    case claudeNotification
+    case codexOsc
+    case grokHook
+    case opencodeQuestion
+    case cursorHook
+    case geminiHook
+    case qwenHook
+    case unknown
+}
+
+private struct AgentNeedsInputEvent {
+    let agentKind: String
+    let statusKey: String
+    let title: String
+    let workspaceId: String
+    let surfaceId: String
+    let sessionId: String?
+    let subtitle: String
+    let body: String
+    let dedupKey: String?
+    let sourceSignal: AgentNeedsInputSourceSignal
+    let firstSeenAt: Date
+}
+
+private enum AgentNeedsInputPublishResult: Equatable {
+    case published(response: String)
+    case duplicateSuppressed
+    case targetUnavailable
+}
+
+private struct AgentNeedsInputPublisher {
+    let sessionStore: ClaudeHookSessionStore
+    let sendCommand: (String) throws -> String
+    let notificationPayload: (String, String, String) -> String
+    let surfaceOption: (String?) -> String
+    let redact: (String) -> String
+    var dedupInterval: TimeInterval = 60 * 60
+
+    func publish(_ event: AgentNeedsInputEvent) throws -> AgentNeedsInputPublishResult {
+        guard !event.workspaceId.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty,
+              !event.surfaceId.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else {
+            return .targetUnavailable
+        }
+
+        if isDuplicate(event) {
+            return .duplicateSuppressed
+        }
+
+        let statusValue = String.localizedStringWithFormat(
+            String(localized: "agent.generic.notification.status.needsInput", defaultValue: "%@ needs input"),
+            event.title
+        )
+        let redactedSubtitle = redact(event.subtitle)
+        let redactedBody = redact(event.body)
+        let statusCommand = "set_status \(event.statusKey) \(statusValue) --icon=bell.fill --color=#4C8DFF --priority=100 --tab=\(event.workspaceId)\(surfaceOption(event.surfaceId))"
+        _ = try? sendCommand(statusCommand)
+
+        let payload = notificationPayload(event.title, redactedSubtitle, redactedBody)
+        let response = try sendCommand("notify_target_async \(event.workspaceId) \(event.surfaceId) \(payload)")
+        markPublished(event)
+        return .published(response: response)
+    }
+
+    func isDuplicate(_ event: AgentNeedsInputEvent) -> Bool {
+        guard let sessionId = normalized(event.sessionId),
+              let dedupKey = normalized(event.dedupKey) else {
+            return false
+        }
+        return (try? sessionStore.recentlyEmittedNotification(
+            sessionId: sessionId,
+            fingerprint: dedupKey,
+            within: dedupInterval
+        )) == true
+    }
+
+    func markPublished(_ event: AgentNeedsInputEvent) {
+        guard let sessionId = normalized(event.sessionId),
+              let dedupKey = normalized(event.dedupKey) else {
+            return
+        }
+        try? sessionStore.markNotificationEmitted(sessionId: sessionId, fingerprint: dedupKey)
+    }
+
+    static func dedupKey(agentKind: String, sessionId: String?, body: String) -> String? {
+        guard let sessionId = normalized(sessionId) else { return nil }
+        let bodyFingerprint = normalizedSingleLineForNeedsInput(body).lowercased()
+        guard !bodyFingerprint.isEmpty else { return nil }
+        return "needs-input:\(agentKind):\(sessionId):\(bodyFingerprint)"
+    }
+
+    private static func normalized(_ value: String?) -> String? {
+        guard let value else { return nil }
+        let trimmed = value.trimmingCharacters(in: .whitespacesAndNewlines)
+        return trimmed.isEmpty ? nil : trimmed
+    }
+
+    private func normalized(_ value: String?) -> String? {
+        Self.normalized(value)
+    }
+
+    private static func normalizedSingleLineForNeedsInput(_ value: String) -> String {
+        value
+            .replacingOccurrences(of: "\\s+", with: " ", options: .regularExpression)
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+    }
+}
+
 #if DEBUG
 private func agentHookDebugLog(
     _ message: @autoclosure () -> String,
@@ -17336,7 +17445,6 @@ struct CMUXCLI {
                 localized: "cli.claude-hook.notification.title",
                 defaultValue: "Claude Code"
             )
-            let payload = notificationPayload(title: title, subtitle: summary.subtitle, body: summary.body)
 
             if let sessionId = parsedInput.sessionId {
                 try? sessionStore.upsert(
@@ -17346,20 +17454,37 @@ struct CMUXCLI {
                     cwd: parsedInput.cwd,
                     transcriptPath: parsedInput.transcriptPath,
                     lastSubtitle: summary.subtitle,
-                    lastBody: summary.body
+                    lastBody: summary.body,
+                    lastNotificationStatus: .needsInput,
+                    updateLastNotificationStatus: true,
+                    runtimeStatus: .needsInput,
+                    updateRuntimeStatus: true
                 )
             }
 
-            _ = try? setClaudeStatus(
-                client: client,
+            let event = AgentNeedsInputEvent(
+                agentKind: "claude",
+                statusKey: "claude_code",
+                title: title,
                 workspaceId: workspaceId,
                 surfaceId: surfaceId,
-                value: "Needs input",
-                icon: "bell.fill",
-                color: "#4C8DFF"
+                sessionId: parsedInput.sessionId,
+                subtitle: summary.subtitle,
+                body: summary.body,
+                dedupKey: AgentNeedsInputPublisher.dedupKey(
+                    agentKind: "claude",
+                    sessionId: parsedInput.sessionId,
+                    body: summary.body
+                ),
+                sourceSignal: .claudeNotification,
+                firstSeenAt: Date()
             )
-            let response = try sendV1Command("notify_target_async \(workspaceId) \(surfaceId) \(payload)", client: client)
-            print(response)
+            switch try agentNeedsInputPublisher(client: client, sessionStore: sessionStore).publish(event) {
+            case let .published(response):
+                print(response)
+            case .duplicateSuppressed, .targetUnavailable:
+                print("OK")
+            }
 
         case "session-end":
             telemetry.breadcrumb("claude-hook.session-end")
@@ -17465,17 +17590,52 @@ struct CMUXCLI {
                 // Preserve a non-empty surfaceId from SessionStart; passing ""
                 // would overwrite it and cause notifications to target the wrong workspace.
                 let existingSurfaceId = nonEmptyClaudeHookIdentifier(mappedSession?.surfaceId) ?? surfaceId
+                let waitingSubtitle = String(
+                    localized: "agent.generic.notification.subtitle.waiting",
+                    defaultValue: "Waiting"
+                )
                 try? sessionStore.upsert(
                     sessionId: sessionId,
                     workspaceId: workspaceId,
                     surfaceId: existingSurfaceId,
                     cwd: parsedInput.cwd,
                     transcriptPath: parsedInput.transcriptPath,
-                    lastSubtitle: "Waiting",
-                    lastBody: question
+                    lastSubtitle: waitingSubtitle,
+                    lastBody: question,
+                    lastNotificationStatus: .needsInput,
+                    updateLastNotificationStatus: true,
+                    runtimeStatus: .needsInput,
+                    updateRuntimeStatus: true
                 )
-                // Don't clear notifications or set status here.
-                // The Notification hook fires right after and will use the saved question.
+                let title = String(
+                    localized: "cli.claude-hook.notification.title",
+                    defaultValue: "Claude Code"
+                )
+                let event = AgentNeedsInputEvent(
+                    agentKind: "claude",
+                    statusKey: "claude_code",
+                    title: title,
+                    workspaceId: workspaceId,
+                    surfaceId: existingSurfaceId,
+                    sessionId: sessionId,
+                    subtitle: waitingSubtitle,
+                    body: question,
+                    dedupKey: AgentNeedsInputPublisher.dedupKey(
+                        agentKind: "claude",
+                        sessionId: sessionId,
+                        body: question
+                    ),
+                    sourceSignal: .claudeAskUserQuestion,
+                    firstSeenAt: Date()
+                )
+                do {
+                    _ = try agentNeedsInputPublisher(client: client, sessionStore: sessionStore).publish(event)
+                } catch {
+                    telemetry.breadcrumb(
+                        "claude-hook.pre-tool-use.needs-input-publish.error",
+                        data: ["error": String(describing: error)]
+                    )
+                }
                 print("OK")
                 return
             }
@@ -19773,6 +19933,27 @@ struct CMUXCLI {
 
     private func notificationPayload(title: String, subtitle: String, body: String) -> String {
         "\(sanitizeNotificationField(title))|\(sanitizeNotificationField(subtitle))|\(sanitizeNotificationField(body))"
+    }
+
+    private func agentNeedsInputPublisher(
+        client: SocketClient,
+        sessionStore: ClaudeHookSessionStore
+    ) -> AgentNeedsInputPublisher {
+        AgentNeedsInputPublisher(
+            sessionStore: sessionStore,
+            sendCommand: { command in
+                try sendV1Command(command, client: client)
+            },
+            notificationPayload: { title, subtitle, body in
+                notificationPayload(title: title, subtitle: subtitle, body: body)
+            },
+            surfaceOption: { surfaceId in
+                socketPanelOption(surfaceId)
+            },
+            redact: { value in
+                redactClaudeSensitiveSpans(value)
+            }
+        )
     }
 
     private func redactClaudeSensitiveSpans(_ value: String) -> String {
