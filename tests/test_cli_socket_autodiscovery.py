@@ -78,11 +78,14 @@ class PingServer:
                 with conn:
                     conn.settimeout(2.0)
                     data = b""
-                    while b"\n" not in data:
-                        chunk = conn.recv(4096)
-                        if not chunk:
-                            break
-                        data += chunk
+                    try:
+                        while b"\n" not in data:
+                            chunk = conn.recv(4096)
+                            if not chunk:
+                                break
+                            data += chunk
+                    except (ConnectionResetError, socket.timeout):
+                        continue
 
                     if b"ping" in data:
                         conn.sendall(self.response)
