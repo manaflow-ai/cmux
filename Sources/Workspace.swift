@@ -295,7 +295,7 @@ extension Workspace {
         agentPIDs.removeAll()
         agentPIDPanelIdsByKey.removeAll()
         agentPIDKeysByPanelId.removeAll()
-        agentLifecycleStatesByPanelId.removeAll()
+        clearAllAgentLifecycleStates()
         agentListeningPorts.removeAll()
         logEntries = snapshot.logEntries.map { entry in
             SidebarLogEntry(
@@ -8801,26 +8801,40 @@ final class Workspace: Identifiable, ObservableObject {
         let targetPanelId = panelId ?? focusedPanelId
         guard let targetPanelId, panels[targetPanelId] != nil else { return }
         agentLifecycleStatesByPanelId[targetPanelId, default: [:]][key] = lifecycle
-        AgentHibernationController.shared.recordAgentLifecycleChange(
-            workspaceId: id,
-            panelId: targetPanelId
-        )
+        recordAgentLifecycleChange(panelId: targetPanelId)
     }
 
     func clearAgentLifecycle(key: String, panelId: UUID? = nil) {
-        if let panelId {
+        let panelIds = panelId.map { [$0] } ?? Array(agentLifecycleStatesByPanelId.keys)
+        for panelId in panelIds {
+            guard agentLifecycleStatesByPanelId[panelId]?[key] != nil else { continue }
             agentLifecycleStatesByPanelId[panelId]?.removeValue(forKey: key)
             if agentLifecycleStatesByPanelId[panelId]?.isEmpty == true {
                 agentLifecycleStatesByPanelId.removeValue(forKey: panelId)
             }
-            return
+            recordAgentLifecycleChange(panelId: panelId)
         }
-        for panelId in Array(agentLifecycleStatesByPanelId.keys) {
-            agentLifecycleStatesByPanelId[panelId]?.removeValue(forKey: key)
-            if agentLifecycleStatesByPanelId[panelId]?.isEmpty == true {
-                agentLifecycleStatesByPanelId.removeValue(forKey: panelId)
-            }
+    }
+
+    func clearAgentLifecycleStates(panelId: UUID) {
+        guard agentLifecycleStatesByPanelId.removeValue(forKey: panelId) != nil else { return }
+        recordAgentLifecycleChange(panelId: panelId)
+    }
+
+    func clearAllAgentLifecycleStates() {
+        let panelIds = Array(agentLifecycleStatesByPanelId.keys)
+        guard !panelIds.isEmpty else { return }
+        agentLifecycleStatesByPanelId.removeAll()
+        for panelId in panelIds {
+            recordAgentLifecycleChange(panelId: panelId)
         }
+    }
+
+    private func recordAgentLifecycleChange(panelId: UUID) {
+        AgentHibernationController.shared.recordAgentLifecycleChange(
+            workspaceId: id,
+            panelId: panelId
+        )
     }
 
     func agentHibernationLifecycleState(
@@ -9070,7 +9084,7 @@ final class Workspace: Identifiable, ObservableObject {
         agentPIDs.removeAll()
         agentPIDPanelIdsByKey.removeAll()
         agentPIDKeysByPanelId.removeAll()
-        agentLifecycleStatesByPanelId.removeAll()
+        clearAllAgentLifecycleStates()
         agentListeningPorts.removeAll()
         latestConversationMessage = nil
         logEntries.removeAll()

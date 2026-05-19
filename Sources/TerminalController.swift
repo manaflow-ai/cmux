@@ -16625,7 +16625,8 @@ class TerminalController {
             return "ERROR: Usage: \(usage)"
         }
         let key = parsed.positional[0]
-        guard let lifecycle = AgentHibernationLifecycleState(rawValue: parsed.positional[1]) else {
+        let rawLifecycle = parsed.positional[1]
+        guard let lifecycle = AgentHibernationLifecycleState.parseCLIValue(rawLifecycle) else {
             return "ERROR: Invalid agent lifecycle '\(parsed.positional[1])' — usage: \(usage)"
         }
         let targetResolution = parseSidebarMutationTabTarget(options: parsed.options)

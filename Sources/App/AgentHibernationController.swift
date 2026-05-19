@@ -97,7 +97,7 @@ final class AgentHibernationController {
     func stop() {
         timer?.cancel()
         timer = nil
-        confirmations.removeAll(keepingCapacity: false)
+        clearTrackingState()
         if let settingsObserver {
             NotificationCenter.default.removeObserver(settingsObserver)
             self.settingsObserver = nil
@@ -134,7 +134,7 @@ final class AgentHibernationController {
         guard AgentHibernationSettings.isEnabled() else {
             timer?.cancel()
             timer = nil
-            confirmations.removeAll(keepingCapacity: false)
+            clearTrackingState()
             return
         }
         guard timer == nil else { return }
@@ -159,7 +159,7 @@ final class AgentHibernationController {
         now: Date
     ) {
         guard settings.enabled else {
-            confirmations.removeAll(keepingCapacity: false)
+            clearTrackingState()
             return
         }
         guard let appDelegate = AppDelegate.shared else { return }
@@ -188,9 +188,7 @@ final class AgentHibernationController {
             now: nowTime
         )
         let currentKeys = Set(records.map(\.key))
-        confirmations = confirmations.filter { key, _ in
-            currentKeys.contains(key) && selectedKeys.contains(key)
-        }
+        pruneTrackingState(currentKeys: currentKeys, selectedKeys: selectedKeys)
 
         for record in records where selectedKeys.contains(record.key) {
             evaluateConfirmation(record: record, settings: settings, now: nowTime)
@@ -246,6 +244,25 @@ final class AgentHibernationController {
             terminalPanel: terminalPanel,
             lineLimit: 12
         )
+    }
+
+    private func clearTrackingState() {
+        activityByPanel.removeAll(keepingCapacity: false)
+        terminalInputByPanel.removeAll(keepingCapacity: false)
+        lifecycleChangeByPanel.removeAll(keepingCapacity: false)
+        confirmations.removeAll(keepingCapacity: false)
+    }
+
+    private func pruneTrackingState(
+        currentKeys: Set<AgentHibernationPanelKey>,
+        selectedKeys: Set<AgentHibernationPanelKey>
+    ) {
+        activityByPanel = activityByPanel.filter { currentKeys.contains($0.key) }
+        terminalInputByPanel = terminalInputByPanel.filter { currentKeys.contains($0.key) }
+        lifecycleChangeByPanel = lifecycleChangeByPanel.filter { currentKeys.contains($0.key) }
+        confirmations = confirmations.filter { key, _ in
+            currentKeys.contains(key) && selectedKeys.contains(key)
+        }
     }
 }
 

@@ -8,6 +8,20 @@ import XCTest
 #endif
 
 final class AgentHibernationTests: XCTestCase {
+    func testLifecycleStateParsingAcceptsShellFriendlyAliases() throws {
+        XCTAssertEqual(AgentHibernationLifecycleState.parseCLIValue("IDLE"), .idle)
+        XCTAssertEqual(AgentHibernationLifecycleState.parseCLIValue("needsInput"), .needsInput)
+        XCTAssertEqual(AgentHibernationLifecycleState.parseCLIValue("needs-input"), .needsInput)
+        XCTAssertEqual(AgentHibernationLifecycleState.parseCLIValue("needs_input"), .needsInput)
+        XCTAssertNil(AgentHibernationLifecycleState.parseCLIValue("paused"))
+
+        let decoded = try JSONDecoder().decode(
+            AgentHibernationLifecycleState.self,
+            from: Data(#""paused""#.utf8)
+        )
+        XCTAssertEqual(decoded, .unknown)
+    }
+
     func testSettingsDefaultToOptInAndNotifyOnChanges() throws {
         let suiteName = "cmux-agent-hibernation-\(UUID().uuidString)"
         let defaults = try XCTUnwrap(UserDefaults(suiteName: suiteName))
@@ -147,6 +161,43 @@ final class AgentHibernationTests: XCTestCase {
 
         let index = RestorableAgentSessionIndex.load(homeDirectory: home.path)
         XCTAssertEqual(index.lifecycle(workspaceId: workspaceId, panelId: panelId), .idle)
+        XCTAssertEqual(index.snapshot(workspaceId: workspaceId, panelId: panelId)?.sessionId, sessionId)
+    }
+
+    func testSessionIndexDoesNotDropHookStoreForUnknownAgentLifecycle() throws {
+        let home = FileManager.default.temporaryDirectory
+            .appendingPathComponent("cmux-agent-hibernation-index-\(UUID().uuidString)", isDirectory: true)
+        let storeURL = RestorableAgentKind.codex.hookStoreFileURL(homeDirectory: home.path)
+        try FileManager.default.createDirectory(at: storeURL.deletingLastPathComponent(), withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: home) }
+
+        let workspaceId = UUID()
+        let panelId = UUID()
+        let sessionId = "codex-hibernation-future-lifecycle"
+        let jsonObject: [String: Any] = [
+            "version": 1,
+            "sessions": [
+                sessionId: [
+                    "sessionId": sessionId,
+                    "workspaceId": workspaceId.uuidString,
+                    "surfaceId": panelId.uuidString,
+                    "cwd": "/tmp/repo",
+                    "agentLifecycle": "paused",
+                    "updatedAt": Date().timeIntervalSince1970,
+                    "launchCommand": [
+                        "launcher": "codex",
+                        "executablePath": "/usr/local/bin/codex",
+                        "arguments": ["/usr/local/bin/codex"],
+                        "workingDirectory": "/tmp/repo",
+                    ],
+                ],
+            ],
+        ]
+        let data = try JSONSerialization.data(withJSONObject: jsonObject, options: [.prettyPrinted])
+        try data.write(to: storeURL, options: .atomic)
+
+        let index = RestorableAgentSessionIndex.load(homeDirectory: home.path)
+        XCTAssertEqual(index.lifecycle(workspaceId: workspaceId, panelId: panelId), .unknown)
         XCTAssertEqual(index.snapshot(workspaceId: workspaceId, panelId: panelId)?.sessionId, sessionId)
     }
 

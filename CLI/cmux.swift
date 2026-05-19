@@ -448,23 +448,11 @@ private final class ClaudeHookSessionStore {
     ) throws {
         let normalizedSessionId = normalizeSessionId(sessionId)
         guard !normalizedSessionId.isEmpty else { return }
-        let normalizedWorkspace = normalizeOptional(workspaceId)
-        let normalizedSurface = normalizeOptional(surfaceId)
         try withLockedState { state in
-            let recordKey: String?
-            if state.sessions[normalizedSessionId] != nil {
-                recordKey = normalizedSessionId
-            } else {
-                recordKey = fallbackRecord(
-                    sessions: Array(state.sessions.values),
-                    workspaceId: normalizedWorkspace,
-                    surfaceId: normalizedSurface
-                )?.sessionId
-            }
-            guard let recordKey, var record = state.sessions[recordKey] else { return }
+            guard var record = state.sessions[normalizedSessionId] else { return }
             record.agentLifecycle = .unknown
             record.updatedAt = Date().timeIntervalSince1970
-            state.sessions[recordKey] = record
+            state.sessions[normalizedSessionId] = record
         }
     }
 
