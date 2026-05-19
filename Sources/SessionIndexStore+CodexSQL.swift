@@ -70,7 +70,7 @@ extension SessionIndexStore {
         guard sqlite3_open_v2(snapshotDB.path, &db, SQLITE_OPEN_READONLY, nil) == SQLITE_OK, let db else {
             errorBag.add(String(
                 localized: "sessionIndex.error.codexReadFallback",
-                defaultValue: "Codex session history could not be read. Falling back to file scan."
+                defaultValue: "Session history could not be read. Falling back to file scan; restart cmux if results look incomplete."
             ))
             sqlite3_close(db)
             return nil
@@ -101,7 +101,7 @@ extension SessionIndexStore {
         guard sqlite3_prepare_v2(db, sql, -1, &stmt, nil) == SQLITE_OK, let stmt else {
             errorBag.add(String(
                 localized: "sessionIndex.error.codexReadFallback",
-                defaultValue: "Codex session history could not be read. Falling back to file scan."
+                defaultValue: "Session history could not be read. Falling back to file scan; restart cmux if results look incomplete."
             ))
             sqlite3_finalize(stmt)
             return nil
