@@ -185,6 +185,37 @@ final class AgentSessionAutoResumeSettingsTests: XCTestCase {
     }
 
     @MainActor
+    func testUnknownAgentShellStatePreservesLegacyAutoResumeBehavior() throws {
+        try withRestoredDefaults(key: AgentSessionAutoResumeSettings.autoResumeAgentSessionsKey) {
+            let defaults = UserDefaults.standard
+            defaults.removeObject(forKey: AgentSessionAutoResumeSettings.autoResumeAgentSessionsKey) // autoResumeAgentSessions = true (default)
+
+            let source = Workspace()
+            let sourcePanelId = try XCTUnwrap(source.focusedPanelId)
+            let sourceIndex = try makeRestorableAgentIndex(
+                workspaceId: source.id,
+                panelId: sourcePanelId,
+                sessionId: "codex-unknown-shell-state-session"
+            )
+            source.updatePanelShellActivityState(panelId: sourcePanelId, state: .unknown)
+            let snapshot = source.sessionSnapshot(includeScrollback: false, restorableAgentIndex: sourceIndex)
+
+            XCTAssertNil(snapshot.panels.first?.terminal?.wasAgentRunning,
+                         "unknown shell state should be persisted as nil for legacy auto-resume behavior")
+
+            let restored = Workspace()
+            restored.restoreSessionSnapshot(snapshot)
+            let restoredPanelId = try XCTUnwrap(restored.focusedPanelId)
+            let restoredPanel = try XCTUnwrap(restored.terminalPanel(for: restoredPanelId))
+            let restoredInput = restoredPanel.surface.debugInitialInputMetadata()
+
+            XCTAssertTrue(restoredInput.hasInitialInput,
+                          "unknown shell state should still auto-resume through the nil back-compat path")
+            XCTAssertGreaterThan(restoredInput.byteCount, 0)
+        }
+    }
+
+    @MainActor
     func testAgentHookBindingExitedBeforeSnapshotDoesNotAutoResumeEvenWhenTrusted() throws {
         try withRestoredDefaults(key: AgentSessionAutoResumeSettings.autoResumeAgentSessionsKey) {
             let defaults = UserDefaults.standard

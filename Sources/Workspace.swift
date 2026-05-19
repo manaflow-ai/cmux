@@ -463,9 +463,17 @@ extension Workspace {
             let restorableTmuxStartCommand = effectiveRestorableAgent == nil
                 ? Self.restorableTmuxStartCommand(terminalPanel.surface.debugTmuxStartCommand())
                 : nil
-            let agentWasRunning: Bool? = effectiveRestorableAgent != nil
-                ? panelShellActivityStates[panelId].map { $0 == .commandRunning }
-                : nil
+            let agentWasRunning: Bool? = {
+                guard effectiveRestorableAgent != nil else { return nil }
+                switch panelShellActivityStates[panelId] {
+                case .some(.commandRunning):
+                    return true
+                case .some(.promptIdle):
+                    return false
+                case .some(.unknown), .none:
+                    return nil
+                }
+            }()
             let resumeStartupInput = Self.surfaceResumeStartupInput(
                 resumeBinding,
                 autoResumeAgentSessions: AgentSessionAutoResumeSettings.isEnabled() && (agentWasRunning ?? true),
