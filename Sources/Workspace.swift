@@ -899,7 +899,10 @@ extension Workspace {
                 ?? snapshot.directory
                 ?? currentDirectory
             let restoredEphemeralWorktree = snapshot.terminal?.ephemeralWorktree
-            let restoredWorkingDirectory = restoredEphemeralWorktree?.worktreePath ?? workingDirectory
+            let restoredWorkingDirectory = ephemeralWorktreeManager.resolvedRestoredWorkingDirectory(
+                savedWorkingDirectory: workingDirectory,
+                worktree: restoredEphemeralWorktree
+            )
             let localWorkingDirectory = remoteTerminalStartupCommand() == nil
                 ? restoredWorkingDirectory
                 : nil
@@ -10369,30 +10372,13 @@ final class Workspace: Identifiable, ObservableObject {
         workingDirectory: String? = nil,
         ephemeralWorktree: EphemeralWorktreeRecord? = nil
     ) -> String? {
-        if let workingDirectory = workingDirectory?.trimmingCharacters(in: .whitespacesAndNewlines),
-           !workingDirectory.isEmpty {
-            return workingDirectory
-        }
-        if let worktreePath = ephemeralWorktree?.worktreePath.trimmingCharacters(in: .whitespacesAndNewlines),
-           !worktreePath.isEmpty {
-            return worktreePath
-        }
-        if let worktreePath = ephemeralWorktreesByPanelId[panelId]?.worktreePath.trimmingCharacters(in: .whitespacesAndNewlines),
-           !worktreePath.isEmpty {
-            return worktreePath
-        }
-        if let panelDirectory = panelDirectories[panelId]?.trimmingCharacters(in: .whitespacesAndNewlines),
-           !panelDirectory.isEmpty {
-            return panelDirectory
-        }
-        if let requestedWorkingDirectory = terminalPanel(for: panelId)?
-            .requestedWorkingDirectory?
-            .trimmingCharacters(in: .whitespacesAndNewlines),
-           !requestedWorkingDirectory.isEmpty {
-            return requestedWorkingDirectory
-        }
-        let workspaceDirectory = currentDirectory.trimmingCharacters(in: .whitespacesAndNewlines)
-        return workspaceDirectory.isEmpty ? nil : workspaceDirectory
+        ephemeralWorktreeManager.resolvedWorkingDirectory(
+            explicitWorkingDirectory: workingDirectory,
+            worktree: ephemeralWorktree ?? ephemeralWorktreesByPanelId[panelId],
+            panelDirectory: panelDirectories[panelId],
+            requestedWorkingDirectory: terminalPanel(for: panelId)?.requestedWorkingDirectory,
+            workspaceDirectory: currentDirectory
+        )
     }
 
     func resolvedWorkingDirectoryForNewTerminalSurface(
@@ -10400,33 +10386,23 @@ final class Workspace: Identifiable, ObservableObject {
         workingDirectory: String? = nil,
         ephemeralWorktree: EphemeralWorktreeRecord? = nil
     ) -> String? {
-        if let workingDirectory = workingDirectory?.trimmingCharacters(in: .whitespacesAndNewlines),
-           !workingDirectory.isEmpty {
-            return workingDirectory
-        }
-        if let worktreePath = ephemeralWorktree?.worktreePath.trimmingCharacters(in: .whitespacesAndNewlines),
-           !worktreePath.isEmpty {
-            return worktreePath
-        }
         if let selectedTabId = bonsplitController.selectedTab(inPane: paneId)?.id,
            let selectedPanelId = panelIdFromSurfaceId(selectedTabId) {
-            if let worktreePath = ephemeralWorktreesByPanelId[selectedPanelId]?.worktreePath.trimmingCharacters(in: .whitespacesAndNewlines),
-               !worktreePath.isEmpty {
-                return worktreePath
-            }
-            if let panelDirectory = panelDirectories[selectedPanelId]?.trimmingCharacters(in: .whitespacesAndNewlines),
-               !panelDirectory.isEmpty {
-                return panelDirectory
-            }
-            if let requestedWorkingDirectory = terminalPanel(for: selectedPanelId)?
-                .requestedWorkingDirectory?
-                .trimmingCharacters(in: .whitespacesAndNewlines),
-               !requestedWorkingDirectory.isEmpty {
-                return requestedWorkingDirectory
-            }
+            return ephemeralWorktreeManager.resolvedWorkingDirectory(
+                explicitWorkingDirectory: workingDirectory,
+                worktree: ephemeralWorktree ?? ephemeralWorktreesByPanelId[selectedPanelId],
+                panelDirectory: panelDirectories[selectedPanelId],
+                requestedWorkingDirectory: terminalPanel(for: selectedPanelId)?.requestedWorkingDirectory,
+                workspaceDirectory: currentDirectory
+            )
         }
-        let workspaceDirectory = currentDirectory.trimmingCharacters(in: .whitespacesAndNewlines)
-        return workspaceDirectory.isEmpty ? nil : workspaceDirectory
+        return ephemeralWorktreeManager.resolvedWorkingDirectory(
+            explicitWorkingDirectory: workingDirectory,
+            worktree: ephemeralWorktree,
+            panelDirectory: nil,
+            requestedWorkingDirectory: nil,
+            workspaceDirectory: currentDirectory
+        )
     }
 
     func activeEphemeralWorktreeSessionIds() -> Set<String> {
@@ -13794,35 +13770,6 @@ final class Workspace: Identifiable, ObservableObject {
         return nil
     }
 
-    static func ephemeralWorktreeCloseConfirmationCopy(affectedCount: Int) -> (title: String, message: String) {
-        let count = max(affectedCount, 1)
-        if count == 1 {
-            return (
-                String(
-                    localized: "dialog.ephemeralWorktree.close.title.one",
-                    defaultValue: "Close isolated worktree session?"
-                ),
-                String(
-                    localized: "dialog.ephemeralWorktree.close.message.one",
-                    defaultValue: "This isolated worktree is configured to preserve changes before cleanup. Close to preserve any uncommitted changes and remove the worktree, or cancel to keep the session open."
-                )
-            )
-        }
-
-        let titleFormat = String(
-            localized: "dialog.ephemeralWorktree.close.title.other",
-            defaultValue: "Close %lld isolated worktree sessions?"
-        )
-        let messageFormat = String(
-            localized: "dialog.ephemeralWorktree.close.message.other",
-            defaultValue: "These %lld isolated worktrees are configured to preserve changes before cleanup. Close to preserve any uncommitted changes and remove the worktrees, or cancel to keep the sessions open."
-        )
-        return (
-            String(format: titleFormat, locale: .current, Int64(count)),
-            String(format: messageFormat, locale: .current, Int64(count))
-        )
-    }
-
     func handleExternalTabDrop(_ request: BonsplitController.ExternalTabDropRequest) -> Bool {
         // Session-index drag → spawn a brand new terminal at the destination instead
         // of moving an existing tab.
@@ -13912,7 +13859,7 @@ extension Workspace: BonsplitDelegate {
         for tabId: TabID,
         affectedCount: Int = 1
     ) async -> Bool {
-        let copy = Self.ephemeralWorktreeCloseConfirmationCopy(affectedCount: affectedCount)
+        let copy = WorkspaceEphemeralWorktreeManager.closeConfirmationCopy(affectedCount: affectedCount)
 
         if let confirmCloseHandler = (
             owningTabManager

@@ -4704,7 +4704,7 @@ class TabManager: ObservableObject {
     }
 
     private func confirmEphemeralWorktreeClose(affectedCount: Int) -> Bool {
-        let copy = Workspace.ephemeralWorktreeCloseConfirmationCopy(affectedCount: affectedCount)
+        let copy = WorkspaceEphemeralWorktreeManager.closeConfirmationCopy(affectedCount: affectedCount)
         return confirmClose(
             title: copy.title,
             message: copy.message,
