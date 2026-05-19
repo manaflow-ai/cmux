@@ -75,6 +75,70 @@ func cmuxAccentColor() -> Color {
     Color(nsColor: cmuxAccentNSColor())
 }
 
+func cmuxReadableColorScheme(for backgroundColor: NSColor) -> ColorScheme {
+    let backgroundLuminance = cmuxRelativeLuminance(backgroundColor)
+    let whiteContrast = cmuxContrastRatio(backgroundLuminance, 1.0)
+    let blackContrast = cmuxContrastRatio(backgroundLuminance, 0.0)
+    return whiteContrast >= blackContrast ? .dark : .light
+}
+
+func cmuxReadableForegroundNSColor(on backgroundColor: NSColor, opacity: CGFloat) -> NSColor {
+    let clampedOpacity = max(0, min(opacity, 1))
+    return cmuxReadableForegroundBaseColor(on: backgroundColor)
+        .withAlphaComponent(clampedOpacity)
+}
+
+func cmuxReadableForegroundNSColor(
+    preferred preferredColor: NSColor,
+    on backgroundColor: NSColor,
+    minimumContrast: CGFloat = 4.5
+) -> NSColor {
+    guard cmuxContrastRatio(foreground: preferredColor, background: backgroundColor) < minimumContrast else {
+        return preferredColor
+    }
+    return cmuxReadableForegroundNSColor(on: backgroundColor, opacity: preferredColor.alphaComponent)
+}
+
+func cmuxContrastRatio(foreground: NSColor, background: NSColor) -> CGFloat {
+    cmuxContrastRatio(
+        cmuxRelativeLuminance(foreground),
+        cmuxRelativeLuminance(background)
+    )
+}
+
+private func cmuxReadableForegroundBaseColor(on backgroundColor: NSColor) -> NSColor {
+    let backgroundLuminance = cmuxRelativeLuminance(backgroundColor)
+    let whiteContrast = cmuxContrastRatio(backgroundLuminance, 1.0)
+    let blackContrast = cmuxContrastRatio(backgroundLuminance, 0.0)
+    return whiteContrast >= blackContrast ? .white : .black
+}
+
+private func cmuxRelativeLuminance(_ color: NSColor) -> CGFloat {
+    let srgb = color.usingColorSpace(.sRGB) ?? color
+    var red: CGFloat = 0
+    var green: CGFloat = 0
+    var blue: CGFloat = 0
+    var alpha: CGFloat = 0
+    srgb.getRed(&red, green: &green, blue: &blue, alpha: &alpha)
+    _ = alpha
+
+    func linearized(_ component: CGFloat) -> CGFloat {
+        component <= 0.03928
+            ? component / 12.92
+            : CGFloat(pow(Double((component + 0.055) / 1.055), 2.4))
+    }
+
+    return 0.2126 * linearized(red)
+        + 0.7152 * linearized(green)
+        + 0.0722 * linearized(blue)
+}
+
+private func cmuxContrastRatio(_ lhs: CGFloat, _ rhs: CGFloat) -> CGFloat {
+    let lighter = max(lhs, rhs)
+    let darker = min(lhs, rhs)
+    return (lighter + 0.05) / (darker + 0.05)
+}
+
 struct SidebarRemoteErrorCopyEntry: Equatable {
     let workspaceTitle: String
     let target: String
@@ -124,8 +188,14 @@ func sidebarSelectedWorkspaceBackgroundNSColor(
 }
 
 func sidebarSelectedWorkspaceForegroundNSColor(opacity: CGFloat) -> NSColor {
-    let clampedOpacity = max(0, min(opacity, 1))
-    return NSColor.white.withAlphaComponent(clampedOpacity)
+    sidebarSelectedWorkspaceForegroundNSColor(
+        on: sidebarSelectedWorkspaceBackgroundNSColor(for: .dark),
+        opacity: opacity
+    )
+}
+
+func sidebarSelectedWorkspaceForegroundNSColor(on backgroundColor: NSColor, opacity: CGFloat) -> NSColor {
+    cmuxReadableForegroundNSColor(on: backgroundColor, opacity: opacity)
 }
 
 struct SidebarWorkspaceRowBackgroundStyle {

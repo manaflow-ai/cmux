@@ -289,6 +289,34 @@ struct WindowAppearanceSnapshot {
         terminalBackgroundColor.withAlphaComponent(terminalBackgroundOpacity)
     }
 
+    var chromeColorScheme: ColorScheme {
+        cmuxReadableColorScheme(for: compositedTerminalBackgroundColor)
+    }
+
+    func sidebarContrastOverlayColor(for role: WindowBackdropRole) -> NSColor? {
+        guard unifySurfaceBackdrops,
+              role == .leftSidebar || role == .rightSidebar else {
+            return nil
+        }
+
+        let srgb = terminalBackgroundColor.usingColorSpace(.sRGB) ?? terminalBackgroundColor
+        var red: CGFloat = 0
+        var green: CGFloat = 0
+        var blue: CGFloat = 0
+        var alpha: CGFloat = 0
+        srgb.getRed(&red, green: &green, blue: &blue, alpha: &alpha)
+        _ = alpha
+
+        let isLight = terminalBackgroundColor.isLightColor
+        let adjustment: CGFloat = isLight ? -0.05 : 0.07
+        return NSColor(
+            srgbRed: min(1, max(0, red + adjustment)),
+            green: min(1, max(0, green + adjustment)),
+            blue: min(1, max(0, blue + adjustment)),
+            alpha: isLight ? 0.20 : 0.18
+        )
+    }
+
     func policy(for role: WindowBackdropRole) -> WindowBackdropPolicy {
         switch role {
         case .windowRoot:

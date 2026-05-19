@@ -65,12 +65,16 @@ struct PanelAppearance {
     }
 
     static func fromConfig(_ config: GhosttyConfig, usesTransparentWindow: Bool) -> PanelAppearance {
+        let backgroundColor = GhosttyBackgroundTheme.color(
+            backgroundColor: config.backgroundColor,
+            opacity: config.backgroundOpacity
+        )
         PanelAppearance(
-            backgroundColor: GhosttyBackgroundTheme.color(
-                backgroundColor: config.backgroundColor,
-                opacity: config.backgroundOpacity
+            backgroundColor: backgroundColor,
+            foregroundColor: cmuxReadableForegroundNSColor(
+                preferred: config.foregroundColor,
+                on: backgroundColor
             ),
-            foregroundColor: config.foregroundColor,
             dividerColor: Color(nsColor: config.resolvedSplitDividerColor),
             unfocusedOverlayNSColor: config.unfocusedSplitOverlayFill,
             unfocusedOverlayOpacity: config.unfocusedSplitOverlayOpacity,

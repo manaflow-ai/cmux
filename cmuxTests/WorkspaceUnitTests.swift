@@ -48,8 +48,26 @@ final class SidebarSelectedWorkspaceColorTests: XCTestCase {
         XCTAssertEqual(color.alphaComponent, 1.0, accuracy: 0.001)
     }
 
-    func testSelectedWorkspaceForegroundAlwaysUsesWhiteWithRequestedOpacity() {
-        guard let color = sidebarSelectedWorkspaceForegroundNSColor(opacity: 0.65).usingColorSpace(.sRGB) else {
+    func testSelectedWorkspaceForegroundUsesBlackOnLightSelectionBackground() {
+        guard let color = sidebarSelectedWorkspaceForegroundNSColor(
+            on: NSColor(hex: "#FFFFFF")!,
+            opacity: 0.65
+        ).usingColorSpace(.sRGB) else {
+            XCTFail("Expected sRGB-convertible color")
+            return
+        }
+
+        XCTAssertEqual(color.redComponent, 0.0, accuracy: 0.001)
+        XCTAssertEqual(color.greenComponent, 0.0, accuracy: 0.001)
+        XCTAssertEqual(color.blueComponent, 0.0, accuracy: 0.001)
+        XCTAssertEqual(color.alphaComponent, 0.65, accuracy: 0.001)
+    }
+
+    func testSelectedWorkspaceForegroundUsesWhiteOnDarkSelectionBackground() {
+        guard let color = sidebarSelectedWorkspaceForegroundNSColor(
+            on: NSColor(hex: "#123456")!,
+            opacity: 0.65
+        ).usingColorSpace(.sRGB) else {
             XCTFail("Expected sRGB-convertible color")
             return
         }
