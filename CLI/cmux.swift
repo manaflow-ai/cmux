@@ -4423,6 +4423,7 @@ struct CMUXCLI {
     ) throws -> String? {
         guard let raw else {
             if !allowFocused { return nil }
+            if workspaceHandle != nil { return nil }
             let params: [String: Any] = windowHandle.map { ["window_id": $0] } ?? [:]
             let ident = try client.sendV2(method: "system.identify", params: params)
             let focused = ident["focused"] as? [String: Any] ?? [:]
@@ -4545,6 +4546,7 @@ struct CMUXCLI {
     ) throws -> String? {
         guard let raw else {
             if !allowFocused { return nil }
+            if workspaceHandle != nil { return nil }
             let params: [String: Any] = windowHandle.map { ["window_id": $0] } ?? [:]
             let ident = try client.sendV2(method: "system.identify", params: params)
             let focused = ident["focused"] as? [String: Any] ?? [:]
