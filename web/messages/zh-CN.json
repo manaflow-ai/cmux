@@ -421,6 +421,7 @@
         "notifications": "通知",
         "find": "查找",
         "terminal": "终端",
+        "openWith": "打开方式",
         "window": "窗口"
       },
       "sc": {
