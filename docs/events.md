@@ -323,6 +323,7 @@ plugin bridge. The event stream publishes both agent and Feed events:
     "hook_event_name": "PermissionRequest",
     "_source": "codex",
     "tool_name": "exec_command",
+    "matcher": "exec_command",
     "_opencode_request_id": "request-456",
     "phase": "received"
   }
@@ -337,8 +338,8 @@ The `feed.item.completed` event contains the same workstream payload plus a
 `surface.input_sent`, `browser.input`, v1 terminal send commands, notification
 text fields, and large agent-hook fields redact local text and include only
 length metadata. Feed and agent-hook events keep operational identifiers such as
-hook name, tool name, request id, phase, and decision result so local consumers
-can correlate events without receiving prompt/tool payloads by default.
+hook name, tool name, matcher, request id, phase, and decision result so local
+consumers can correlate events without receiving prompt/tool payloads by default.
 
 Consumers should treat the stream as local-sensitive data and avoid forwarding
 it to third-party services without an explicit user opt-in.

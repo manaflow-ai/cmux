@@ -11006,8 +11006,8 @@ struct CMUXCLI {
             Trigger the app-active handler used by notification focus tests.
             """
         case "claude-hook":
-            return """
-            Usage: cmux claude-hook <session-start|active|stop|idle|notification|notify|prompt-submit> [flags]
+            return String(localized: "cli.help.claudeHook", defaultValue: """
+            Usage: cmux claude-hook <session-start|active|stop|idle|session-end|notification|notify|prompt-submit|pre-tool-use> [flags]
 
             Hook for Claude Code integration. Reads JSON from stdin.
 
@@ -11016,9 +11016,11 @@ struct CMUXCLI {
               active          Alias for session-start
               stop            Signal that a Claude session has stopped
               idle            Alias for stop
+              session-end     Signal that a Claude session has ended
               notification    Forward a Claude notification
               notify          Alias for notification
               prompt-submit   Clear notification and set Running on user prompt
+              pre-tool-use    Forward a Claude PreToolUse hook
 
             Flags:
               --workspace <id|ref>   Target workspace (default: $CMUX_WORKSPACE_ID)
@@ -11027,7 +11029,7 @@ struct CMUXCLI {
             Example:
               echo '{"session_id":"abc"}' | cmux claude-hook session-start
               echo '{}' | cmux claude-hook stop
-            """
+            """)
         case "codex":
             return """
             Usage: cmux codex <install-hooks|uninstall-hooks>
@@ -17031,14 +17033,15 @@ struct CMUXCLI {
         )
 
         var didSendFeedTelemetry = false
-        func sendClaudeFeedTelemetry(workspaceId: String? = nil) {
+        func sendClaudeFeedTelemetry(workspaceId: String? = nil, sessionIdOverride: String? = nil) {
             didSendFeedTelemetry = true
             sendFeedTelemetry(
                 client: client,
                 source: "claude",
                 subcommand: subcommand,
                 parsedInput: parsedInput,
-                workspaceId: workspaceId ?? workspaceArg
+                workspaceId: workspaceId ?? workspaceArg,
+                sessionIdOverride: sessionIdOverride
             )
         }
         defer {
@@ -17399,7 +17402,10 @@ struct CMUXCLI {
                     surfaceId: consumedSession.surfaceId,
                     sessionId: consumedSession.sessionId
                 )
-                sendClaudeFeedTelemetry(workspaceId: workspaceId)
+                sendClaudeFeedTelemetry(
+                    workspaceId: workspaceId,
+                    sessionIdOverride: consumedSession.sessionId
+                )
                 let shouldClearVisibleState = shouldApplyClaudeHookVisibleMutation(
                     sessionStore: sessionStore,
                     sessionId: consumedSession.sessionId,
@@ -17503,9 +17509,29 @@ struct CMUXCLI {
         case "help", "--help", "-h":
             telemetry.breadcrumb("claude-hook.help")
             print(
-                """
-                cmux claude-hook <session-start|stop|session-end|notification|prompt-submit|pre-tool-use> [--workspace <id|index>] [--surface <id|index>]
-                """
+                String(localized: "cli.help.claudeHook", defaultValue: """
+                Usage: cmux claude-hook <session-start|active|stop|idle|session-end|notification|notify|prompt-submit> [flags]
+
+                Hook for Claude Code integration. Reads JSON from stdin.
+
+                Subcommands:
+                  session-start   Signal that a Claude session has started
+                  active          Alias for session-start
+                  stop            Signal that a Claude session has stopped
+                  idle            Alias for stop
+                  session-end     Signal that a Claude session has ended
+                  notification    Forward a Claude notification
+                  notify          Alias for notification
+                  prompt-submit   Clear notification and set Running on user prompt
+
+                Flags:
+                  --workspace <id|ref>   Target workspace (default: $CMUX_WORKSPACE_ID)
+                  --surface <id|ref>     Target surface (default: $CMUX_SURFACE_ID)
+
+                Example:
+                  echo '{"session_id":"abc"}' | cmux claude-hook session-start
+                  echo '{}' | cmux claude-hook stop
+                """)
             )
 
         default:
@@ -22429,7 +22455,8 @@ export default function cmuxPiSessionExtension(pi: ExtensionAPI) {
                 source: def.name,
                 subcommand: subcommand,
                 parsedInput: input,
-                workspaceId: workspaceId ?? workspaceArg()
+                workspaceId: workspaceId ?? workspaceArg(),
+                sessionIdOverride: sessionId
             )
         }
         func notificationDedupeFingerprint(status: AgentHookNotificationStatus?) -> String? {
@@ -23027,14 +23054,17 @@ export default function cmuxPiSessionExtension(pi: ExtensionAPI) {
         source: String,
         subcommand: String,
         parsedInput: ClaudeHookParsedInput,
-        workspaceId: String? = nil
+        workspaceId: String? = nil,
+        sessionIdOverride: String? = nil
     ) {
         let hookEventName = Self.feedEventName(forClaudeSubcommand: subcommand)
         guard !hookEventName.isEmpty else { return }
         let promptText = hookEventName == "UserPromptSubmit"
             ? (feedPromptText(from: parsedInput.object) ?? parsedInput.rawFallback)
             : nil
-        let sessionId = parsedInput.sessionId ?? UUID().uuidString
+        let sessionId = normalizedHookValue(sessionIdOverride)
+            ?? parsedInput.sessionId
+            ?? UUID().uuidString
         var event: [String: Any] = [
             "session_id": "\(source)-\(sessionId)",
             "hook_event_name": hookEventName,
@@ -23048,6 +23078,13 @@ export default function cmuxPiSessionExtension(pi: ExtensionAPI) {
         let toolName = parsedInput.object?["tool_name"] as? String
         if let toolName, !toolName.isEmpty {
             event["tool_name"] = toolName
+        }
+        if let matcher = feedMatcher(
+            rawObject: parsedInput.object,
+            source: source,
+            hookEventName: hookEventName
+        ) {
+            event["matcher"] = matcher
         }
         if let toolInput = parsedInput.object?["tool_input"] {
             event["tool_input"] = toolInput
@@ -23067,7 +23104,7 @@ export default function cmuxPiSessionExtension(pi: ExtensionAPI) {
             hookEventName: hookEventName,
             promptText: promptText
         )
-        event["_opencode_request_id"] = "\(source)-\(sessionId)-\(hookEventName)-\(Int(Date().timeIntervalSince1970 * 1000))"
+        event["_opencode_request_id"] = "\(source)-\(sessionId)-\(hookEventName)-\(Int(Date.now.timeIntervalSince1970 * 1000))"
 
         let frame: [String: Any] = [
             "id": UUID().uuidString,
@@ -23182,6 +23219,34 @@ export default function cmuxPiSessionExtension(pi: ExtensionAPI) {
             return direct
         }
         return nil
+    }
+
+    private static let claudeSessionEndMatcherValues: Set<String> = [
+        "clear",
+        "resume",
+        "logout",
+        "prompt_input_exit",
+        "bypass_permissions_disabled",
+        "other",
+    ]
+
+    private func feedMatcher(rawObject: [String: Any]?, source: String, hookEventName: String) -> String? {
+        if source == "claude", hookEventName == "SessionEnd" {
+            guard let rawObject else { return "other" }
+            let rawMatcher = firstString(in: rawObject, keys: ["matcher", "reason"])
+            return normalizedClaudeSessionEndMatcher(rawMatcher) ?? "other"
+        }
+        guard let rawObject else { return nil }
+        return firstString(in: rawObject, keys: ["matcher"])
+    }
+
+    private func normalizedClaudeSessionEndMatcher(_ rawValue: String?) -> String? {
+        guard let rawValue = normalizedHookValue(rawValue) else { return nil }
+        let normalized = rawValue.lowercased().replacingOccurrences(of: "-", with: "_")
+        guard Self.claudeSessionEndMatcherValues.contains(normalized) else {
+            return "other"
+        }
+        return normalized
     }
 
     private func enrichUserPromptSubmitFeedEvent(
@@ -24948,6 +25013,9 @@ export default function cmuxPiSessionExtension(pi: ExtensionAPI) {
         }
         if let cwd = stdinObj["cwd"] as? String { eventDict["cwd"] = cwd }
         if !toolName.isEmpty { eventDict["tool_name"] = toolName }
+        if let matcher = feedMatcher(rawObject: stdinObj, source: source, hookEventName: hookEventName) {
+            eventDict["matcher"] = matcher
+        }
         let promptText = hookEventName == "UserPromptSubmit" ? feedPromptText(from: stdinObj) : nil
         if let toolInput = stdinObj["tool_input"] {
             eventDict["tool_input"] = toolInput
@@ -24969,7 +25037,7 @@ export default function cmuxPiSessionExtension(pi: ExtensionAPI) {
         )
         let requestId = stdinObj["_opencode_request_id"] as? String
             ?? firstString(in: stdinObj, keys: ["request_id", "tool_use_id", "toolUseID"])
-            ?? "\(source)-\(sessionId)-\(rawEvent)-\(toolName)-\(Int(Date().timeIntervalSince1970 * 1000))"
+            ?? "\(source)-\(sessionId)-\(rawEvent)-\(toolName)-\(Int(Date.now.timeIntervalSince1970 * 1000))"
         eventDict["_opencode_request_id"] = requestId
 
         // Sync. For actionable events we block up to 120s waiting

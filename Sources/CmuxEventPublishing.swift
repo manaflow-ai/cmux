@@ -385,6 +385,7 @@ extension CmuxEventBus {
             "workspace_id": event.workspaceId ?? NSNull(),
             "cwd": event.cwd ?? NSNull(),
             "tool_name": event.toolName ?? NSNull(),
+            "matcher": event.matcher ?? NSNull(),
             "_opencode_request_id": event.requestId ?? NSNull(),
             "_ppid": event.ppid ?? NSNull(),
             "_received_at": Self.isoTimestamp(event.receivedAt)

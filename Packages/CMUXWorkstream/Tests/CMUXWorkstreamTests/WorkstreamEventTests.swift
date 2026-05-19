@@ -14,6 +14,7 @@ struct WorkstreamEventTests {
           "workspace_id": "11111111-1111-1111-1111-111111111111",
           "cwd": "/tmp/proj",
           "tool_name": "Write",
+          "matcher": "prompt_input_exit",
           "tool_input": {"file_path": "/etc/passwd", "content": "x"},
           "context": {"lastUserMessage": "write a file", "permissionMode": "plan"},
           "_opencode_request_id": "req-1",
@@ -26,6 +27,7 @@ struct WorkstreamEventTests {
         #expect(event.source == "claude")
         #expect(event.workspaceId == "11111111-1111-1111-1111-111111111111")
         #expect(event.toolName == "Write")
+        #expect(event.matcher == "prompt_input_exit")
         #expect(event.context?.lastUserMessage == "write a file")
         #expect(event.context?.permissionMode == "plan")
         #expect(event.requestId == "req-1")
@@ -49,6 +51,7 @@ struct WorkstreamEventTests {
             workspaceId: "22222222-2222-2222-2222-222222222222",
             cwd: "/work",
             toolName: "ExitPlanMode",
+            matcher: "prompt_input_exit",
             toolInputJSON: "{\"plan\":\"step1\\nstep2\"}",
             context: WorkstreamContext(
                 lastUserMessage: "make a plan",
@@ -66,6 +69,7 @@ struct WorkstreamEventTests {
         #expect(back.sessionId == event.sessionId)
         #expect(back.hookEventName == event.hookEventName)
         #expect(back.workspaceId == event.workspaceId)
+        #expect(back.matcher == event.matcher)
         #expect(back.requestId == event.requestId)
         let rawPlan = try #require(back.toolInputJSON?.data(using: .utf8))
         let planDict = try #require(
@@ -91,6 +95,7 @@ struct WorkstreamEventTests {
         #expect(event.workspaceId == nil)
         #expect(event.requestId == nil)
         #expect(event.ppid == nil)
+        #expect(event.matcher == nil)
     }
 
     @Test("Unknown event fields round-trip for forward compatibility")
