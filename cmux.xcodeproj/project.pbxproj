@@ -49,6 +49,7 @@
 		51D800000000000000000001 /* SidebarIdentifierFormattingTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 51D800000000000000000002 /* SidebarIdentifierFormattingTests.swift */; };
 		571D7F6D699EEE9A6D28F77B /* CMUXVNC in Frameworks */ = {isa = PBXBuildFile; productRef = BFFF734A90051C78BFB05EED /* CMUXVNC */; };
 		57FD1E02E133F412A0ECE46E /* VNCPanelText.swift in Sources */ = {isa = PBXBuildFile; fileRef = C56084DB41FC2D0F650FCF18 /* VNCPanelText.swift */; };
+		5D4368135670A97F5EC9306C /* VNCMetalCanvasView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 3D71C4B7D4C84DB59513BE28 /* VNCMetalCanvasView.swift */; };
 		5C3E0454B6C24B02A2F091A8 /* ShortcutRoutingSupport.swift in Sources */ = {isa = PBXBuildFile; fileRef = B42A82C6AA614E74873D9A5F /* ShortcutRoutingSupport.swift */; };
 		5EDB6027B346C46521A93C74 /* CMUXAuthCore in Frameworks */ = {isa = PBXBuildFile; productRef = 29813FE5A6CBC1019289A251 /* CMUXAuthCore */; };
 		619D509BC9B1EA946CBD6A8A /* WorkspaceRuntimeSettings.swift in Sources */ = {isa = PBXBuildFile; fileRef = 9960CC3992F3C44489E7627C /* WorkspaceRuntimeSettings.swift */; };
@@ -596,6 +597,7 @@
 		3865B0063865B0063865B006 /* AppDelegate+GlobalSearch.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "Search/AppDelegate+GlobalSearch.swift"; sourceTree = "<group>"; };
 		3865B0073865B0073865B007 /* GlobalSearchDocuments.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Search/GlobalSearchDocuments.swift; sourceTree = "<group>"; };
 		3865B0083865B0083865B008 /* GlobalSearchPanelCaptureManager.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Search/GlobalSearchPanelCaptureManager.swift; sourceTree = "<group>"; };
+		3D71C4B7D4C84DB59513BE28 /* VNCMetalCanvasView.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; name = VNCMetalCanvasView.swift; path = Panels/VNC/VNCMetalCanvasView.swift; sourceTree = "<group>"; };
 		38A09EB2E92203B2E95923A7 /* CommandPaletteSearch.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CommandPalette/CommandPaletteSearch.swift; sourceTree = "<group>"; };
 		42092CDB2109E250F7F2A76E /* TabManagerUnitTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TabManagerUnitTests.swift; sourceTree = "<group>"; };
 		43430FA5929121E2EAAB3091 /* AuthEnvironment.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = AuthEnvironment.swift; sourceTree = "<group>"; };
@@ -1462,6 +1464,7 @@
 				C56084DB41FC2D0F650FCF18 /* VNCPanelText.swift */,
 				4AC1414788254EC6BDEBD92B /* VNCPanel.swift */,
 				C0111EF4ED4FA6C374B2ED3D /* VNCPanelView.swift */,
+				3D71C4B7D4C84DB59513BE28 /* VNCMetalCanvasView.swift */,
 			);
 			path = Sources;
 			sourceTree = "<group>";
@@ -2230,6 +2233,7 @@
 				57FD1E02E133F412A0ECE46E /* VNCPanelText.swift in Sources */,
 				043AD24268FA203F154068C8 /* VNCPanel.swift in Sources */,
 				FA42B6DD5B832428CF3C9595 /* VNCPanelView.swift in Sources */,
+				5D4368135670A97F5EC9306C /* VNCMetalCanvasView.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};

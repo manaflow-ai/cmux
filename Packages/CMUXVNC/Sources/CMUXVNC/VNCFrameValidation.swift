@@ -39,9 +39,12 @@ public struct VNCFrameHeader: Equatable, Codable, Sendable {
 
     public var expectedPayloadByteCount: Int? {
         guard width > 0, height > 0, stride > 0 else { return nil }
-        let rowBytes = width * 4
+        let (rowBytes, rowBytesOverflow) = width.multipliedReportingOverflow(by: 4)
+        guard !rowBytesOverflow else { return nil }
         guard rowBytes <= stride else { return nil }
-        return rowBytes * height
+        let (byteCount, byteCountOverflow) = rowBytes.multipliedReportingOverflow(by: height)
+        guard !byteCountOverflow else { return nil }
+        return byteCount
     }
 }
 
@@ -74,6 +77,10 @@ public enum VNCFrameValidator {
               header.height > 0 else {
             return .invalidRect
         }
+        guard header.width <= header.framebufferWidth,
+              header.height <= header.framebufferHeight else {
+            return .rectOutOfBounds
+        }
         guard header.x <= header.framebufferWidth - header.width,
               header.y <= header.framebufferHeight - header.height else {
             return .rectOutOfBounds
@@ -81,7 +88,8 @@ public enum VNCFrameValidator {
         guard header.pixelFormat == .bgra8 else {
             return .unsupportedPixelFormat
         }
-        guard header.stride >= header.width * 4 else {
+        let (rowBytes, rowBytesOverflow) = header.width.multipliedReportingOverflow(by: 4)
+        guard !rowBytesOverflow, header.stride >= rowBytes else {
             return .invalidStride
         }
         guard payloadByteCount <= maxPayloadByteCount else {

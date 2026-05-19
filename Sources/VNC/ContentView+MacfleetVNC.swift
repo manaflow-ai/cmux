@@ -19,9 +19,10 @@ extension ContentView {
         do {
             manifest = try MacfleetManifest.load(from: manifestURL)
         } catch {
+            _ = error
             presentMacfleetVNCAlert(
                 title: VNCPanelText.macfleetOpenFailedTitle,
-                message: VNCPanelText.macfleetManifestFailed(error.localizedDescription)
+                message: VNCPanelText.macfleetManifestFailedMessage
             )
             return
         }
@@ -64,9 +65,10 @@ extension ContentView {
                 autoWelcomeIfNeeded: false
             )
             workspace.setCustomDescription(VNCPanelText.workspaceDescription(sessionName: session.name))
-            openVNCSession(session, credential: credential, in: workspace)
-            firstWorkspace = firstWorkspace ?? workspace
-            openedCount += 1
+            if openVNCSession(session, credential: credential, in: workspace) {
+                firstWorkspace = firstWorkspace ?? workspace
+                openedCount += 1
+            }
         }
 
         if let firstWorkspace {
@@ -97,10 +99,10 @@ extension ContentView {
         _ session: MacfleetVNCSession,
         credential: VNCResolvedCredential,
         in workspace: Workspace
-    ) {
+    ) -> Bool {
         guard let paneId = workspace.bonsplitController.focusedPaneId
             ?? workspace.bonsplitController.allPaneIds.first else {
-            return
+            return false
         }
         let initialPanelId = workspace.focusedPanelId
         guard workspace.newVNCSurface(
@@ -109,11 +111,12 @@ extension ContentView {
             credential: credential,
             focus: true
         ) != nil else {
-            return
+            return false
         }
         if let initialPanelId {
             _ = workspace.closePanel(initialPanelId, force: true)
         }
+        return true
     }
 
     @MainActor

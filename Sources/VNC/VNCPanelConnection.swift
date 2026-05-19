@@ -14,6 +14,7 @@ final class VNCPanelConnection {
     private let onExit: ExitHandler
     private let socketPath: String
     private let ioQueue: DispatchQueue
+    private let stateLock = NSLock()
 
     private var process: Process?
     private var listenerFileDescriptor: Int32 = -1
@@ -59,11 +60,12 @@ final class VNCPanelConnection {
     }
 
     func sendControl(_ control: VNCControlMessage) {
-        guard !isClosed else { return }
+        guard !isCurrentlyClosed() else { return }
         do {
             let message = try VNCIPCCodec.encodeControl(control)
             ioQueue.async { [weak self] in
-                self?.write(message)
+                guard let fileDescriptor = self?.clientFileDescriptorForWrite() else { return }
+                Self.write(message, to: fileDescriptor)
             }
         } catch {
             notifyMainExit(VNCPanelText.helperProtocolFailed(error.localizedDescription))
@@ -71,23 +73,29 @@ final class VNCPanelConnection {
     }
 
     func close() {
-        guard !isClosed else { return }
-        isClosed = true
-        if clientFileDescriptor >= 0 {
-            let closeMessage = try? VNCIPCCodec.encodeControl(VNCControlMessage(kind: "close"))
-            if let closeMessage {
-                write(closeMessage)
-            }
-            Darwin.close(clientFileDescriptor)
+        let state = stateLock.withLock { () -> (client: Int32, listener: Int32, process: Process?)? in
+            guard !isClosed else { return nil }
+            isClosed = true
+            let state = (
+                client: clientFileDescriptor,
+                listener: listenerFileDescriptor,
+                process: process
+            )
             clientFileDescriptor = -1
-        }
-        if listenerFileDescriptor >= 0 {
-            Darwin.close(listenerFileDescriptor)
             listenerFileDescriptor = -1
+            self.process = nil
+            return state
+        }
+        guard let state else { return }
+        if state.client >= 0 {
+            _ = Darwin.shutdown(state.client, SHUT_RDWR)
+            Darwin.close(state.client)
+        }
+        if state.listener >= 0 {
+            Darwin.close(state.listener)
         }
         unlink(socketPath)
-        process?.terminate()
-        process = nil
+        state.process?.terminate()
     }
 
     private func launchHelper() throws {
@@ -101,38 +109,55 @@ final class VNCPanelConnection {
         process.arguments = arguments
         process.standardInput = FileHandle.nullDevice
         process.standardOutput = FileHandle.nullDevice
-        let standardError = Pipe()
-        process.standardError = standardError
+        process.standardError = FileHandle.nullDevice
         process.terminationHandler = { [weak self] process in
             Task { @MainActor in
-                guard let self, !self.isClosed else { return }
+                guard let self, !self.isCurrentlyClosed() else { return }
                 let status = process.terminationStatus
                 self.close()
                 self.onExit(VNCPanelText.helperExited(Int(status)))
             }
         }
         try process.run()
-        self.process = process
+        let shouldTerminate = stateLock.withLock { () -> Bool in
+            if isClosed { return true }
+            self.process = process
+            return false
+        }
+        if shouldTerminate {
+            process.terminate()
+        }
     }
 
     private func acceptAndRead(connectRequest: VNCConnectRequest) {
-        let accepted = Darwin.accept(listenerFileDescriptor, nil, nil)
+        let listener = stateLock.withLock { listenerFileDescriptor }
+        let accepted = Darwin.accept(listener, nil, nil)
         guard accepted >= 0 else {
+            if isCurrentlyClosed() { return }
             notifyExit(VNCPanelText.socketAcceptFailed(errno))
             return
         }
 
-        Task { @MainActor in
-            self.clientFileDescriptor = accepted
-            if self.listenerFileDescriptor >= 0 {
-                Darwin.close(self.listenerFileDescriptor)
-                self.listenerFileDescriptor = -1
+        let listenerToClose = stateLock.withLock { () -> Int32? in
+            if isClosed {
+                return nil
             }
+            clientFileDescriptor = accepted
+            let currentListener = listenerFileDescriptor
+            listenerFileDescriptor = -1
+            return currentListener
+        }
+        guard let listenerToClose else {
+            Darwin.close(accepted)
+            return
+        }
+        if listenerToClose >= 0 {
+            Darwin.close(listenerToClose)
         }
 
         do {
             let connectMessage = try VNCIPCCodec.encodeControl(.connect(connectRequest))
-            write(connectMessage, to: accepted)
+            Self.write(connectMessage, to: accepted)
             readMessages(from: accepted)
         } catch {
             notifyExit(VNCPanelText.helperProtocolFailed(error.localizedDescription))
@@ -171,7 +196,7 @@ final class VNCPanelConnection {
 
     private func publish(_ message: VNCIPCMessage) {
         Task { @MainActor in
-            guard !isClosed else { return }
+            guard !isCurrentlyClosed() else { return }
             switch message {
             case .control(let control):
                 onControl(control)
@@ -183,7 +208,7 @@ final class VNCPanelConnection {
 
     private func notifyExit(_ reason: String) {
         Task { @MainActor in
-            guard !isClosed else { return }
+            guard !isCurrentlyClosed() else { return }
             close()
             onExit(reason)
         }
@@ -195,12 +220,18 @@ final class VNCPanelConnection {
         }
     }
 
-    private func write(_ data: Data) {
-        guard clientFileDescriptor >= 0 else { return }
-        write(data, to: clientFileDescriptor)
+    private func isCurrentlyClosed() -> Bool {
+        stateLock.withLock { isClosed }
     }
 
-    private func write(_ data: Data, to fileDescriptor: Int32) {
+    private func clientFileDescriptorForWrite() -> Int32? {
+        stateLock.withLock {
+            guard !isClosed, clientFileDescriptor >= 0 else { return nil }
+            return clientFileDescriptor
+        }
+    }
+
+    private static func write(_ data: Data, to fileDescriptor: Int32) {
         data.withUnsafeBytes { bytes in
             guard var baseAddress = bytes.bindMemory(to: UInt8.self).baseAddress else { return }
             var remaining = data.count
@@ -288,6 +319,14 @@ final class VNCPanelConnection {
             throw VNCPanelConnectionError.socketListenFailed(capturedErrno)
         }
         return fileDescriptor
+    }
+}
+
+private extension NSLock {
+    func withLock<T>(_ body: () throws -> T) rethrows -> T {
+        lock()
+        defer { unlock() }
+        return try body()
     }
 }
 

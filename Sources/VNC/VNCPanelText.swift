@@ -78,9 +78,11 @@ enum VNCPanelText {
         return String(format: format, openedCount, missingCount)
     }
 
-    static func macfleetManifestFailed(_ detail: String) -> String {
-        let format = String(localized: "vnc.macfleet.manifestFailed.message", defaultValue: "Could not read ~/.config/macfleet/hosts.json: %@")
-        return String(format: format, detail)
+    static var macfleetManifestFailedMessage: String {
+        String(
+            localized: "vnc.macfleet.manifestFailed.message",
+            defaultValue: "Check that ~/.config/macfleet/hosts.json contains valid macfleet JSON."
+        )
     }
 
     static var helperDisconnected: String {

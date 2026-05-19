@@ -18,17 +18,30 @@ OUTPUT_DIR=""
 ARCH=""
 UNIVERSAL=0
 
+require_value() {
+  local flag="$1"
+  local value="${2:-}"
+  if [[ -z "$value" || "$value" == --* ]]; then
+    echo "error: $flag requires a value" >&2
+    usage
+    exit 2
+  fi
+}
+
 while [[ $# -gt 0 ]]; do
   case "$1" in
     --configuration|-c)
+      require_value "$1" "${2:-}"
       CONFIGURATION="${2:-}"
       shift 2
       ;;
     --output-dir)
+      require_value "$1" "${2:-}"
       OUTPUT_DIR="${2:-}"
       shift 2
       ;;
     --arch)
+      require_value "$1" "${2:-}"
       ARCH="${2:-}"
       shift 2
       ;;

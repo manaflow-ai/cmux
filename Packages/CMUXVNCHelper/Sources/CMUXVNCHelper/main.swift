@@ -78,6 +78,7 @@ private final class VNCSessionController: NSObject, VNCConnectionDelegate, @unch
     private let request: VNCConnectRequest
     private let termination = DispatchSemaphore(value: 0)
     private let connectionLock = NSLock()
+    private let stateLock = NSLock()
     private var connection: VNCConnection?
     private var sequence: UInt64 = 0
     private var isClosed = false
@@ -91,7 +92,7 @@ private final class VNCSessionController: NSObject, VNCConnectionDelegate, @unch
         let settings = VNCConnection.Settings(
             isDebugLoggingEnabled: false,
             hostname: request.host,
-            port: UInt16(max(1, min(65_535, request.port))),
+            port: UInt16(request.port),
             isShared: true,
             isScalingEnabled: true,
             useDisplayLink: false,
@@ -146,8 +147,7 @@ private final class VNCSessionController: NSObject, VNCConnectionDelegate, @unch
     }
 
     func close() {
-        guard !isClosed else { return }
-        isClosed = true
+        guard markClosed() else { return }
         withConnection { $0.disconnect() }
         termination.signal()
     }
@@ -216,10 +216,31 @@ private final class VNCSessionController: NSObject, VNCConnectionDelegate, @unch
         let rectHeight = Int(height)
         let rectX = Int(x)
         let rectY = Int(y)
-        let rowBytes = framebufferWidth * 4
-        let rectRowBytes = rectWidth * 4
-        let byteCount = rectRowBytes * rectHeight
+        let (rowBytes, rowBytesOverflow) = framebufferWidth.multipliedReportingOverflow(by: 4)
+        let (rectRowBytes, rectRowBytesOverflow) = rectWidth.multipliedReportingOverflow(by: 4)
+        let (byteCount, byteCountOverflow) = rectRowBytes.multipliedReportingOverflow(by: rectHeight)
+        guard !rowBytesOverflow, !rectRowBytesOverflow, !byteCountOverflow else {
+            close()
+            return
+        }
         guard byteCount > 0 else { return }
+
+        let nextSequence = sequence &+ 1
+        let header = VNCFrameHeader(
+            sequence: nextSequence,
+            x: rectX,
+            y: rectY,
+            width: rectWidth,
+            height: rectHeight,
+            framebufferWidth: framebufferWidth,
+            framebufferHeight: framebufferHeight,
+            stride: rectRowBytes,
+            pixelFormat: .bgra8
+        )
+        guard VNCFrameValidator.validate(header: header, payloadByteCount: byteCount) == nil else {
+            close()
+            return
+        }
 
         let sourceBase = framebuffer.surfaceAddress
         var payload = Data(count: byteCount)
@@ -232,18 +253,7 @@ private final class VNCSessionController: NSObject, VNCConnectionDelegate, @unch
             }
         }
 
-        sequence &+= 1
-        let header = VNCFrameHeader(
-            sequence: sequence,
-            x: rectX,
-            y: rectY,
-            width: rectWidth,
-            height: rectHeight,
-            framebufferWidth: framebufferWidth,
-            framebufferHeight: framebufferHeight,
-            stride: rectRowBytes,
-            pixelFormat: .bgra8
-        )
+        sequence = nextSequence
         do {
             try channel.send(try VNCIPCCodec.encodeFrame(header: header, payload: payload))
         } catch {
@@ -267,6 +277,14 @@ private final class VNCSessionController: NSObject, VNCConnectionDelegate, @unch
         connectionLock.withLock {
             guard let connection else { return }
             body(connection)
+        }
+    }
+
+    private func markClosed() -> Bool {
+        stateLock.withLock {
+            if isClosed { return false }
+            isClosed = true
+            return true
         }
     }
 }
@@ -382,7 +400,8 @@ do {
           let host = control.host,
           let port = control.port,
           let username = control.username,
-          let password = control.password else {
+          let password = control.password,
+          (1...65_535).contains(port) else {
         exit(HelperExit.protocolError.rawValue)
     }
     let request = VNCConnectRequest(
@@ -402,6 +421,7 @@ do {
                     if control.kind == "close" { break }
                 }
             }
+            controller.close()
         } catch {
             controller.close()
         }

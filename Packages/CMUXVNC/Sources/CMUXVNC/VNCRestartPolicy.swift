@@ -18,6 +18,9 @@ public struct VNCHelperRestartPolicy: Equatable, Sendable {
     }
 
     private func restartsWithinWindow(previousRestartDates: [Date], now: Date) -> [Date] {
-        previousRestartDates.filter { now.timeIntervalSince($0) <= windowSeconds }
+        previousRestartDates.filter {
+            let interval = now.timeIntervalSince($0)
+            return interval >= 0 && interval <= windowSeconds
+        }
     }
 }

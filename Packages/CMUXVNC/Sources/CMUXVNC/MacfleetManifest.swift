@@ -86,13 +86,12 @@ public struct MacfleetHost: Decodable, Equatable, Sendable {
         defaultPassword manifestDefaultPassword: String?,
         matchingTag requestedTag: String?
     ) -> [MacfleetVNCSession] {
-        if let requestedTag, tag != requestedTag {
-            return []
-        }
-
         let hostDefaultPassword = password ?? defaultPassword ?? manifestDefaultPassword
         switch sessions {
         case .count(let count):
+            if let requestedTag, tag != requestedTag {
+                return []
+            }
             guard count > 0 else { return [] }
             return (1...count).map { index in
                 MacfleetVNCSession(
@@ -108,9 +107,13 @@ public struct MacfleetHost: Decodable, Equatable, Sendable {
                 )
             }
         case .sessions(let sessionConfigs):
-            return sessionConfigs.enumerated().map { offset, config in
+            return sessionConfigs.enumerated().compactMap { offset, config in
                 let index = config.index ?? offset + 1
                 let sessionName = config.name ?? "\(prefix)-\(index)"
+                let sessionTag = config.tag ?? tag
+                if let requestedTag, sessionTag != requestedTag {
+                    return nil
+                }
                 return MacfleetVNCSession(
                     name: sessionName,
                     hostName: name,
@@ -119,7 +122,7 @@ public struct MacfleetHost: Decodable, Equatable, Sendable {
                     username: config.username ?? Self.defaultUsername(for: index),
                     sessionPassword: config.password ?? password,
                     defaultPassword: config.defaultPassword ?? hostDefaultPassword,
-                    tag: config.tag ?? tag,
+                    tag: sessionTag,
                     index: index
                 )
             }

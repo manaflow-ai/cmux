@@ -189,7 +189,13 @@ jobs:
         if: matrix.startup_smoke
         run: |
           set -euo pipefail
-          APP_PATH="$(find ~/Library/Developer/Xcode/DerivedData -path '*/Build/Products/Debug/cmux DEV.app' -type d -print -quit)"
+          APP_PATH="$(
+            find ~/Library/Developer/Xcode/DerivedData -path '*/Build/Products/Debug/cmux DEV.app' -type d -print0 |
+              xargs -0 stat -f '%m %N' 2>/dev/null |
+              sort -nr |
+              head -n 1 |
+              sed 's/^[0-9][0-9]* //'
+          )"
           [ -n "$APP_PATH" ] || { echo "cmux DEV.app not found" >&2; exit 1; }
           CMUX_APP_PATH="$APP_PATH" ./tests/test_bundled_vnc_helper.sh
 

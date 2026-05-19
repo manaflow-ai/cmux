@@ -544,11 +544,7 @@ extension Workspace {
             filePreviewSnapshot = nil
             rightSidebarToolSnapshot = SessionRightSidebarToolPanelSnapshot(mode: toolPanel.mode)
         case .vnc:
-            terminalSnapshot = nil
-            browserSnapshot = nil
-            markdownSnapshot = nil
-            filePreviewSnapshot = nil
-            rightSidebarToolSnapshot = nil
+            return nil
         }
 
         return SessionPanelSnapshot(

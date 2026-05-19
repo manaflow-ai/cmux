@@ -19,22 +19,13 @@ enum VNCKeychainCredentialProvider {
             }
         }
 
-        return internetPassword(server: session.address, account: session.username)
-            ?? internetPassword(server: session.name, account: session.username)
+        return nil
     }
 
     private static func genericPassword(service: String, account: String) -> String? {
         password(query: [
             kSecClass as String: kSecClassGenericPassword,
             kSecAttrService as String: service,
-            kSecAttrAccount as String: account
-        ])
-    }
-
-    private static func internetPassword(server: String, account: String) -> String? {
-        password(query: [
-            kSecClass as String: kSecClassInternetPassword,
-            kSecAttrServer as String: server,
             kSecAttrAccount as String: account
         ])
     }

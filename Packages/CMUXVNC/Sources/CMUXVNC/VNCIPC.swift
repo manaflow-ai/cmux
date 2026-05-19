@@ -106,29 +106,38 @@ public enum VNCIPCCodec {
         let json = try JSONEncoder().encode(message)
         var payload = Data([VNCIPCMessageType.control.rawValue])
         payload.append(json)
-        return framed(payload)
+        return try framed(payload)
     }
 
     public static func encodeFrame(header: VNCFrameHeader, payload framePayload: Data) throws -> Data {
         if VNCFrameValidator.validate(header: header, payloadByteCount: framePayload.count) != nil {
             throw VNCIPCError.invalidFrameHeader
         }
+        guard let x = UInt32(exactly: header.x),
+              let y = UInt32(exactly: header.y),
+              let width = UInt32(exactly: header.width),
+              let height = UInt32(exactly: header.height),
+              let framebufferWidth = UInt32(exactly: header.framebufferWidth),
+              let framebufferHeight = UInt32(exactly: header.framebufferHeight),
+              let stride = UInt32(exactly: header.stride) else {
+            throw VNCIPCError.invalidFrameHeader
+        }
         var payload = Data([VNCIPCMessageType.frame.rawValue])
         payload.appendUInt64BE(header.sequence)
-        payload.appendUInt32BE(UInt32(header.x))
-        payload.appendUInt32BE(UInt32(header.y))
-        payload.appendUInt32BE(UInt32(header.width))
-        payload.appendUInt32BE(UInt32(header.height))
-        payload.appendUInt32BE(UInt32(header.framebufferWidth))
-        payload.appendUInt32BE(UInt32(header.framebufferHeight))
-        payload.appendUInt32BE(UInt32(header.stride))
+        payload.appendUInt32BE(x)
+        payload.appendUInt32BE(y)
+        payload.appendUInt32BE(width)
+        payload.appendUInt32BE(height)
+        payload.appendUInt32BE(framebufferWidth)
+        payload.appendUInt32BE(framebufferHeight)
+        payload.appendUInt32BE(stride)
         payload.appendUInt32BE(header.pixelFormat.rawValue)
         payload.append(framePayload)
-        return framed(payload)
+        return try framed(payload)
     }
 
     public static func decodePayload(_ payload: Data) throws -> VNCIPCMessage {
-        guard let typeByte = payload.first else { throw VNCIPCError.payloadTooLarge }
+        guard let typeByte = payload.first else { throw VNCIPCError.invalidFrameHeader }
         guard let type = VNCIPCMessageType(rawValue: typeByte) else {
             throw VNCIPCError.unknownMessageType(typeByte)
         }
@@ -170,7 +179,10 @@ public enum VNCIPCCodec {
         }
     }
 
-    private static func framed(_ payload: Data) -> Data {
+    private static func framed(_ payload: Data) throws -> Data {
+        guard payload.count <= maxMessageLength else {
+            throw VNCIPCError.payloadTooLarge
+        }
         var output = Data()
         output.appendUInt32BE(UInt32(payload.count))
         output.append(payload)

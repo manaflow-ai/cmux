@@ -31,6 +31,7 @@ final class VNCPanel: Panel, ObservableObject {
 
     private weak var focusView: NSView?
     private var connection: VNCPanelConnection?
+    private var connectionID: UUID?
 
     init(
         workspaceId: UUID,
@@ -53,18 +54,29 @@ final class VNCPanel: Panel, ObservableObject {
     func startIfNeeded() {
         guard connection == nil else { return }
         connectionState = .connecting
+        let nextConnectionID = UUID()
+        connectionID = nextConnectionID
         let nextConnection = VNCPanelConnection(
             session: session,
             credential: credential,
             onControl: { [weak self] control in
+                guard self?.connectionID == nextConnectionID else { return }
                 self?.handleControl(control)
             },
             onFrame: { [weak self] header, payload in
+                guard self?.connectionID == nextConnectionID else { return }
                 self?.latestFrame = VNCDisplayFrame(header: header, payload: payload)
             },
             onExit: { [weak self] reason in
-                self?.connectionState = .failed(reason)
-                self?.connection = nil
+                guard let self, self.connectionID == nextConnectionID else { return }
+                if case .disconnected = self.connectionState {
+                    self.connection = nil
+                    self.connectionID = nil
+                    return
+                }
+                self.connectionState = .failed(reason)
+                self.connection = nil
+                self.connectionID = nil
             }
         )
         connection = nextConnection
@@ -74,6 +86,7 @@ final class VNCPanel: Panel, ObservableObject {
     func reconnect() {
         connection?.close()
         connection = nil
+        connectionID = nil
         latestFrame = nil
         startIfNeeded()
     }
@@ -94,6 +107,7 @@ final class VNCPanel: Panel, ObservableObject {
     func close() {
         connection?.close()
         connection = nil
+        connectionID = nil
         focusView = nil
     }
 

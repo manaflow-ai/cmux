@@ -46,6 +46,27 @@ final class CMUXVNCTests: XCTestCase {
         XCTAssertEqual(session.sessionPassword, "session")
     }
 
+    func testExplicitSessionTagOverridesHostTag() throws {
+        let json = """
+        {
+          "hosts": [
+            {
+              "name": "mixed",
+              "prefix": "mixed",
+              "tag": "tag:macbuilder",
+              "sessions": [
+                { "name": "mixed-builder", "tag": "tag:macbuilder" },
+                { "name": "mixed-mini", "tag": "tag:mac-mini-cluster" }
+              ]
+            }
+          ]
+        }
+        """
+        let manifest = try JSONDecoder().decode(MacfleetManifest.self, from: Data(json.utf8))
+
+        XCTAssertEqual(manifest.expandedSessions().map(\.name), ["mixed-mini"])
+    }
+
     func testCredentialPrecedence() {
         let session = MacfleetVNCSession(
             name: "mac3-1",
@@ -93,6 +114,13 @@ final class CMUXVNCTests: XCTestCase {
             VNCFrameValidator.validate(header: valid, payloadByteCount: 4),
             .payloadByteCountMismatch(expected: 400, actual: 4)
         )
+
+        var hugeWidth = valid
+        hugeWidth.width = Int.max
+        XCTAssertEqual(
+            VNCFrameValidator.validate(header: hugeWidth, payloadByteCount: 400),
+            .rectOutOfBounds
+        )
     }
 
     func testIPCFrameRoundTrip() throws {
@@ -112,6 +140,29 @@ final class CMUXVNCTests: XCTestCase {
         XCTAssertEqual(try decoder.append(encoded), [.frame(header, payload)])
     }
 
+    func testIPCRejectsOutOfRangeFrameHeaderOnEncode() throws {
+        let header = VNCFrameHeader(
+            sequence: 7,
+            x: 0,
+            y: 0,
+            width: 1,
+            height: 1,
+            framebufferWidth: 1,
+            framebufferHeight: 1,
+            stride: Int(UInt32.max) + 1
+        )
+
+        XCTAssertThrowsError(try VNCIPCCodec.encodeFrame(header: header, payload: Data(repeating: 0xab, count: 4))) { error in
+            XCTAssertEqual(error as? VNCIPCError, .invalidFrameHeader)
+        }
+    }
+
+    func testIPCRejectsEmptyPayloadAsInvalidFrameHeader() {
+        XCTAssertThrowsError(try VNCIPCCodec.decodePayload(Data())) { error in
+            XCTAssertEqual(error as? VNCIPCError, .invalidFrameHeader)
+        }
+    }
+
     func testRestartPolicyCapsRestartsWithinWindow() {
         let policy = VNCHelperRestartPolicy(maxRestarts: 3, windowSeconds: 60)
         let now = Date(timeIntervalSince1970: 100)
@@ -123,5 +174,12 @@ final class CMUXVNCTests: XCTestCase {
 
         XCTAssertFalse(policy.canRestart(previousRestartDates: restarts, now: now))
         XCTAssertTrue(policy.canRestart(previousRestartDates: restarts, now: Date(timeIntervalSince1970: 121)))
+    }
+
+    func testRestartPolicyIgnoresFutureRestartDates() {
+        let policy = VNCHelperRestartPolicy(maxRestarts: 1, windowSeconds: 60)
+        let now = Date(timeIntervalSince1970: 100)
+
+        XCTAssertTrue(policy.canRestart(previousRestartDates: [Date(timeIntervalSince1970: 101)], now: now))
     }
 }
