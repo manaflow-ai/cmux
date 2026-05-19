@@ -10620,6 +10620,9 @@ final class Workspace: Identifiable, ObservableObject {
     ) -> BrowserPanel? {
         let browserEnabled = BrowserAvailabilitySettings.isEnabled()
         guard browserEnabled else {
+            if let url {
+                _ = NSWorkspace.shared.open(url)
+            }
             return nil
         }
 
@@ -11627,7 +11630,12 @@ final class Workspace: Identifiable, ObservableObject {
         }
 
         func discardPendingAttachState() {
-            removeBrowserOpenTabSuggestionIfNeeded(panel: detached.panel, panelId: detached.panelId)
+            let isDockOwnedBrowser = detached.panel is BrowserPanel
+                && adoptedDockBrowserPanels[detached.panelId] != nil
+            if !isDockOwnedBrowser {
+                removeBrowserOpenTabSuggestionIfNeeded(panel: detached.panel, panelId: detached.panelId)
+                panelSubscriptions.removeValue(forKey: detached.panelId)
+            }
             panels.removeValue(forKey: detached.panelId)
             panelDirectories.removeValue(forKey: detached.panelId)
             surfaceTTYNames.removeValue(forKey: detached.panelId)
@@ -11638,7 +11646,6 @@ final class Workspace: Identifiable, ObservableObject {
             manualUnreadPanelIds.remove(detached.panelId)
             restoredUnreadPanelIds.remove(detached.panelId)
             manualUnreadMarkedAt.removeValue(forKey: detached.panelId)
-            panelSubscriptions.removeValue(forKey: detached.panelId)
         }
 
         let newTabId: TabID
