@@ -3436,7 +3436,7 @@ struct ContentView: View {
         let commandPaletteListIdentity = Self.commandPaletteListIdentity(for: commandPaletteQuery)
         let shouldShowEmptyState = commandPaletteShouldShowEmptyState
         let commandPaletteListMaxHeight: CGFloat = 450
-        let commandPaletteRowHeight: CGFloat = 24
+        let commandPaletteRowHeight: CGFloat = 36
         let commandPaletteEmptyStateHeight: CGFloat = 44
         let commandPaletteListContentHeight = visibleResults.isEmpty ? commandPaletteEmptyStateHeight : CGFloat(visibleResults.count) * commandPaletteRowHeight
         let commandPaletteListHeight = min(commandPaletteListMaxHeight, commandPaletteListContentHeight)
@@ -3495,7 +3495,11 @@ struct ContentView: View {
                                 )
                                     .padding(.horizontal, 9)
                                     .padding(.vertical, 2)
-                                    .frame(maxWidth: .infinity, alignment: .leading)
+                                    .frame(
+                                        maxWidth: .infinity,
+                                        minHeight: commandPaletteRowHeight,
+                                        alignment: .leading
+                                    )
                                     .background(rowBackground)
                                     .contentShape(Rectangle())
                             }

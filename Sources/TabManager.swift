@@ -1960,15 +1960,44 @@ class TabManager: ObservableObject {
         selectedWorkspace?.focusedTerminalPanel
     }
 
+    private var focusedTerminalSidekickBrowserPanel: BrowserPanel? {
+        guard let panel = selectedTerminalPanel,
+              panel.sidekickState.isOpen,
+              let sidekickPanel = panel.sidekickBrowserPanel else {
+            return nil
+        }
+        let window = sidekickPanel.webView.window ?? NSApp.keyWindow ?? NSApp.mainWindow
+        guard let window,
+              let responder = window.firstResponder,
+              sidekickPanel.ownedFocusIntent(for: responder, in: window) != nil else {
+            return nil
+        }
+        return sidekickPanel
+    }
+
     var isFindVisible: Bool {
-        selectedTerminalPanel?.searchState != nil || focusedBrowserPanel?.searchState != nil
+        selectedTerminalPanel?.searchState != nil ||
+            focusedBrowserPanel?.searchState != nil ||
+            focusedTerminalSidekickBrowserPanel?.searchState != nil
     }
 
     var canUseSelectionForFind: Bool {
+        guard focusedTerminalSidekickBrowserPanel == nil,
+              focusedBrowserPanel == nil else {
+            return false
+        }
         selectedTerminalPanel?.hasSelection() == true
     }
 
     func startSearch() {
+        if let sidekickPanel = focusedTerminalSidekickBrowserPanel {
+            sidekickPanel.startFind()
+            return
+        }
+        if let browserPanel = focusedBrowserPanel {
+            browserPanel.startFind()
+            return
+        }
         if let panel = selectedTerminalPanel {
             let hadExistingSearch = panel.searchState != nil
             panel.hostedView.preparePanelFocusIntentForActivation(.findField)
@@ -1990,11 +2019,12 @@ class TabManager: ObservableObject {
 #endif
             return
         }
-        focusedBrowserPanel?.startFind()
     }
 
     func searchSelection() {
-        guard let panel = selectedTerminalPanel else { return }
+        guard focusedTerminalSidekickBrowserPanel == nil,
+              focusedBrowserPanel == nil,
+              let panel = selectedTerminalPanel else { return }
         if panel.searchState == nil {
             panel.searchState = TerminalSurface.SearchState()
         }
@@ -2009,6 +2039,10 @@ class TabManager: ObservableObject {
     }
 
     func findNext() {
+        if let sidekickPanel = focusedTerminalSidekickBrowserPanel {
+            sidekickPanel.findNext()
+            return
+        }
         if let panel = selectedTerminalPanel {
             _ = panel.performBindingAction("search:next")
             return
@@ -2018,6 +2052,10 @@ class TabManager: ObservableObject {
     }
 
     func findPrevious() {
+        if let sidekickPanel = focusedTerminalSidekickBrowserPanel {
+            sidekickPanel.findPrevious()
+            return
+        }
         if let panel = selectedTerminalPanel {
             _ = panel.performBindingAction("search:previous")
             return
@@ -2033,6 +2071,10 @@ class TabManager: ObservableObject {
     }
 
     func hideFind() {
+        if let sidekickPanel = focusedTerminalSidekickBrowserPanel {
+            sidekickPanel.hideFind()
+            return
+        }
         if let panel = selectedTerminalPanel {
             panel.searchState = nil
             return
