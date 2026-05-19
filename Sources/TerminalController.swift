@@ -1081,15 +1081,30 @@ class TerminalController {
             return .failure(path: path, stage: "create_directory", errnoCode: errnoCode)
         }
 
+        let existingPathIdentity = SocketPathProbe.fileIdentity(path: path)
         let existingPathStatus = SocketPathProbe.ownershipStatus(
             path: path,
             expectedOwnerPID: getpid(),
             timeout: socketBindOwnershipProbeTimeout
         )
         switch existingPathStatus {
-        case .ownedByThisProcess, .missing:
+        case .ownedByThisProcess:
             if unlink(path) != 0, errno != ENOENT {
                 return .failure(path: path, stage: "unlink", errnoCode: errno)
+            }
+        case .missing(let errnoCode) where errnoCode == ENOENT || errnoCode == ENOTDIR:
+            break
+        case .missing(let errnoCode):
+            return .failure(path: path, stage: "existing_socket_probe_failed", errnoCode: errnoCode)
+        case .connectFailed(let errnoCode) where SocketPathProbe.isDefinitiveStaleSocketErrno(errnoCode):
+            let unlinkResult = SocketPathProbe.unlinkIfStaleSocketIdentityStable(
+                path,
+                expectedIdentity: existingPathIdentity,
+                expectedOwnerPID: getpid(),
+                timeout: socketBindOwnershipProbeTimeout
+            )
+            if unlinkResult != 0 {
+                return .failure(path: path, stage: "existing_socket_connect_failed", errnoCode: errnoCode)
             }
         case .connectFailed(let errnoCode):
             return .failure(path: path, stage: "existing_socket_connect_failed", errnoCode: errnoCode)
@@ -1137,6 +1152,8 @@ class TerminalController {
         case "existing_socket_owned_by_other_process":
             return SocketControlSettings.userScopedStableSocketPath(currentUserID: currentUserID)
         case "existing_socket_connect_failed":
+            return SocketControlSettings.userScopedStableSocketPath(currentUserID: currentUserID)
+        case "existing_socket_probe_failed" where errnoCode == EACCES || errnoCode == EPERM:
             return SocketControlSettings.userScopedStableSocketPath(currentUserID: currentUserID)
         default:
             return nil

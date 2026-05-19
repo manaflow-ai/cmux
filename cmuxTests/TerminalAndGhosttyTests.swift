@@ -4849,6 +4849,18 @@ final class TerminalControllerSocketListenerHealthTests: XCTestCase {
         )
     }
 
+    func testStableSocketProbePermissionFailureFallsBackToUserScopedSocket() {
+        XCTAssertEqual(
+            TerminalController.fallbackSocketPathAfterBindFailure(
+                requestedPath: SocketControlSettings.stableDefaultSocketPath,
+                stage: "existing_socket_probe_failed",
+                errnoCode: EACCES,
+                currentUserID: 501
+            ),
+            SocketControlSettings.userScopedStableSocketPath(currentUserID: 501)
+        )
+    }
+
     func testNonStableSocketBindFailureDoesNotFallback() {
         XCTAssertNil(
             TerminalController.fallbackSocketPathAfterBindFailure(
@@ -4866,6 +4878,17 @@ final class TerminalControllerSocketListenerHealthTests: XCTestCase {
                 requestedPath: "/tmp/cmux-debug.sock",
                 stage: "existing_socket_connect_failed",
                 errnoCode: ETIMEDOUT,
+                currentUserID: 501
+            )
+        )
+    }
+
+    func testNonStableSocketProbePermissionFailureDoesNotFallback() {
+        XCTAssertNil(
+            TerminalController.fallbackSocketPathAfterBindFailure(
+                requestedPath: "/tmp/cmux-debug.sock",
+                stage: "existing_socket_probe_failed",
+                errnoCode: EACCES,
                 currentUserID: 501
             )
         )

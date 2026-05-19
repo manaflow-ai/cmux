@@ -66,7 +66,7 @@ public enum SocketPathOwnershipStatus: Equatable, Sendable {
         case .missing(let errnoCode):
             return errnoCode == ENOENT || errnoCode == ENOTDIR
         case .connectFailed(let errnoCode):
-            return errnoCode == ECONNREFUSED || errnoCode == ENOENT
+            return SocketPathProbe.isDefinitiveStaleSocketErrno(errnoCode)
         }
     }
 
@@ -176,12 +176,47 @@ public enum SocketPathProbe {
     ) -> Int32 {
         let pathStatus = ownershipStatus(path: path, expectedOwnerPID: expectedOwnerPID, timeout: timeout)
         switch pathStatus {
-        case .ownedByThisProcess, .missing:
+        case .ownedByThisProcess:
             return unlinkPathIfPresent(path)
-        case .connectFailed(let errnoCode) where errnoCode == ECONNREFUSED || errnoCode == ENOENT:
+        case .missing:
+            return 0
+        case .connectFailed(let errnoCode) where isDefinitiveStaleSocketErrno(errnoCode):
             return unlinkPathIfPresent(path)
         case .connectFailed, .notSocket, .socketFileChanged, .ownerUnknown, .ownedByOtherProcess:
             return 0
+        }
+    }
+
+    @discardableResult
+    public static func unlinkIfStaleSocketIdentityStable(
+        _ path: String,
+        expectedIdentity: SocketPathIdentity?,
+        expectedOwnerPID: pid_t,
+        timeout: TimeInterval
+    ) -> Int32 {
+        guard let expectedIdentity else {
+            return EBUSY
+        }
+
+        guard let currentIdentity = fileIdentity(path: path) else {
+            return 0
+        }
+        guard currentIdentity == expectedIdentity else {
+            return EBUSY
+        }
+
+        let currentStatus = ownershipStatus(path: path, expectedOwnerPID: expectedOwnerPID, timeout: timeout)
+        switch currentStatus {
+        case .missing(let errnoCode) where errnoCode == ENOENT || errnoCode == ENOTDIR:
+            return 0
+        case .connectFailed(let errnoCode) where isDefinitiveStaleSocketErrno(errnoCode):
+            guard fileIdentity(path: path) == expectedIdentity else {
+                return EBUSY
+            }
+            return unlinkPathIfPresent(path)
+        case .ownedByThisProcess, .missing, .notSocket, .socketFileChanged, .connectFailed, .ownerUnknown,
+             .ownedByOtherProcess:
+            return EBUSY
         }
     }
 
@@ -235,6 +270,10 @@ public enum SocketPathProbe {
             return 0
         }
         return errno == ENOENT ? 0 : errno
+    }
+
+    public static func isDefinitiveStaleSocketErrno(_ errnoCode: Int32) -> Bool {
+        errnoCode == ECONNREFUSED || errnoCode == ENOENT
     }
 
     private enum POSIXResult<Value: Sendable>: Sendable {
