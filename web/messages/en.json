@@ -673,7 +673,7 @@
       "workspaceIdDesc": "Auto-set: current workspace ID",
       "surfaceIdDesc": "Auto-set: current surface ID",
       "termProgramDesc": "Set to ghostty",
-      "termDesc": "Set to xterm-ghostty",
+      "termDesc": "Defaults to xterm-256color; set terminal.term for new tmux shells",
       "envCallout": "Legacy CMUX_SOCKET_MODE values full and notifications are still accepted for compatibility.",
       "detectingCmux": "Detecting cmux",
       "examples": "Examples",

@@ -5496,7 +5496,8 @@ final class TerminalSurface: Identifiable, ObservableObject {
         var protectedStartupEnvironmentKeys: Set<String> = []
         Self.applyManagedTerminalIdentityEnvironment(
             to: &env,
-            protectedKeys: &protectedStartupEnvironmentKeys
+            protectedKeys: &protectedStartupEnvironmentKeys,
+            configuredTerminalType: TerminalTermSettings.rawConfiguredTerm()
         )
         func setManagedEnvironmentValue(_ key: String, _ value: String) {
             env[key] = value

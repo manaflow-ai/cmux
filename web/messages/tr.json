@@ -539,7 +539,7 @@
       "workspaceIdDesc": "Otomatik ayarlı: geçerli çalışma alanı ID",
       "surfaceIdDesc": "Otomatik ayarlı: geçerli yüzey ID",
       "termProgramDesc": "ghostty olarak ayarlı",
-      "termDesc": "xterm-ghostty olarak ayarlı",
+      "termDesc": "Varsayılan xterm-256color; geçersiz kılmak için cmux.json içinde terminal.term ayarlayın",
       "envCallout": "Eski CMUX_SOCKET_MODE değerleri full ve notifications uyumluluk için hâlâ kabul edilir.",
       "detectingCmux": "cmux'u algılama",
       "examples": "Örnekler",

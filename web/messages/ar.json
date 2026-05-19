@@ -539,7 +539,7 @@
       "workspaceIdDesc": "يُعين تلقائياً: معرف مساحة العمل الحالية",
       "surfaceIdDesc": "يُعين تلقائياً: معرف السطح الحالي",
       "termProgramDesc": "مُعين إلى ghostty",
-      "termDesc": "مُعين إلى xterm-ghostty",
+      "termDesc": "الافتراضي xterm-256color؛ عيّن terminal.term في cmux.json لتجاوزه",
       "envCallout": "قيم CMUX_SOCKET_MODE القديمة full وnotifications لا تزال مقبولة للتوافق.",
       "detectingCmux": "كشف cmux",
       "examples": "أمثلة",

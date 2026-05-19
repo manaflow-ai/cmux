@@ -109,6 +109,14 @@ enum TerminalScrollBarSettings {
     }
 }
 
+enum TerminalTermSettings {
+    static let termKey = "terminal.term"
+
+    static func rawConfiguredTerm(defaults: UserDefaults = .standard) -> String? {
+        defaults.string(forKey: termKey)
+    }
+}
+
 enum AgentSessionAutoResumeSettings {
     static let autoResumeAgentSessionsKey = "terminal.autoResumeAgentSessions"
     static let defaultAutoResumeAgentSessions = true

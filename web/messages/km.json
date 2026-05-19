@@ -539,7 +539,7 @@
       "workspaceIdDesc": "កំណត់ស្វ័យប្រវត្តិ: ID workspace បច្ចុប្បន្ន",
       "surfaceIdDesc": "កំណត់ស្វ័យប្រវត្តិ: ID surface បច្ចុប្បន្ន",
       "termProgramDesc": "កំណត់ទៅ ghostty",
-      "termDesc": "កំណត់ទៅ xterm-ghostty",
+      "termDesc": "លំនាំដើមគឺ xterm-256color; កំណត់ terminal.term ក្នុង cmux.json ដើម្បីបដិសេធ",
       "envCallout": "តម្លៃ CMUX_SOCKET_MODE ចាស់ full និង notifications នៅតែទទួលបានសម្រាប់ភាពឆបគ្នា។",
       "detectingCmux": "កំណត់ cmux",
       "examples": "ឧទាហរណ៍",

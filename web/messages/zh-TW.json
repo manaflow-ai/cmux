@@ -539,7 +539,7 @@
       "workspaceIdDesc": "自動設定：目前工作區 ID",
       "surfaceIdDesc": "自動設定：目前 surface ID",
       "termProgramDesc": "設定為 ghostty",
-      "termDesc": "設定為 xterm-ghostty",
+      "termDesc": "預設為 xterm-256color；可在 cmux.json 中設定 terminal.term 覆寫",
       "envCallout": "舊版的 CMUX_SOCKET_MODE 值 full 和 notifications 仍然接受以保持相容性。",
       "detectingCmux": "偵測 cmux",
       "examples": "範例",

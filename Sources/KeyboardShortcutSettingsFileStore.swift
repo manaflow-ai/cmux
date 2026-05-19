@@ -84,7 +84,9 @@ final class CmuxSettingsFileStore {
         importedManagedDefaults = Self.loadImportedManagedDefaults()
 
         bootstrapPrimaryTemplateIfNeeded()
-        reload()
+        // The shared store is owned by KeyboardShortcutSettings. Publishing during
+        // construction reenters that static initializer on app startup.
+        reload(notifyChanges: false)
         guard startWatching else { return }
 
         primaryWatcher = ShortcutSettingsFileWatcher(path: primaryPath, fileManager: fileManager) { [weak self] in
@@ -115,7 +117,7 @@ final class CmuxSettingsFileStore {
         }
     }
 
-    func reload() {
+    func reload(notifyChanges: Bool = true) {
         let previousState = synchronized {
             (
                 shortcuts: shortcutsByAction,
@@ -141,7 +143,8 @@ final class CmuxSettingsFileStore {
         }
         saveImportedManagedDefaults(resolved.managedUserDefaults)
 
-        if previousState.shortcuts != resolved.shortcuts || previousState.sourcePath != resolved.path {
+        if notifyChanges,
+           previousState.shortcuts != resolved.shortcuts || previousState.sourcePath != resolved.path {
             KeyboardShortcutSettings.notifySettingsFileDidChange(center: notificationCenter)
         }
     }
@@ -463,6 +466,13 @@ final class CmuxSettingsFileStore {
             snapshot.managedUserDefaults[TerminalScrollBarSettings.showScrollBarKey] = .bool(value)
         } else if section.keys.contains("showScrollBar") {
             logInvalid("terminal.showScrollBar", sourcePath: sourcePath)
+        }
+
+        if let rawTerm = jsonString(section["term"]),
+           let term = TerminalSurface.normalizedTerminalType(rawTerm) {
+            snapshot.managedUserDefaults[TerminalTermSettings.termKey] = .string(term)
+        } else if section.keys.contains("term") {
+            logInvalid("terminal.term", sourcePath: sourcePath)
         }
 
         if let value = jsonBool(section["autoResumeAgentSessions"]) {

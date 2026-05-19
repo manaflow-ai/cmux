@@ -311,6 +311,12 @@
           "default": true,
           "description": "Show the right-edge terminal scroll bar when scrollback is available. cmux automatically suppresses it for alternate-screen style TUI surfaces."
         },
+        "term": {
+          "type": "string",
+          "default": "xterm-256color",
+          "pattern": "^\\s*\\S+\\s*$",
+          "description": "TERM value for new local terminal surfaces. Leading and trailing whitespace is trimmed; internal whitespace is rejected. Defaults to xterm-256color for compatibility; set to xterm-ghostty if your local terminfo and tmux configuration work better with Ghostty's native terminal identity. Existing shells and tmux servers must be restarted to observe changes."
+        },
         "autoResumeAgentSessions": {
           "type": "boolean",
           "default": true,

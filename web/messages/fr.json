@@ -539,7 +539,7 @@
       "workspaceIdDesc": "Auto-défini : ID de l'espace de travail actuel",
       "surfaceIdDesc": "Auto-défini : ID de la surface actuelle",
       "termProgramDesc": "Défini à ghostty",
-      "termDesc": "Défini à xterm-ghostty",
+      "termDesc": "Par défaut xterm-256color ; définissez terminal.term dans cmux.json pour remplacer",
       "envCallout": "Les anciennes valeurs CMUX_SOCKET_MODE full et notifications sont toujours acceptées pour compatibilité.",
       "detectingCmux": "Détecter cmux",
       "examples": "Exemples",
