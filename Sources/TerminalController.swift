@@ -1090,14 +1090,13 @@ class TerminalController {
         guard bindResult >= 0 else {
             return .failure(path: path, stage: "bind", errnoCode: errno)
         }
-        let identityResult = socketPathIdentityResult(at: path)
-        if let identity = identityResult.identity {
+        if let identity = SocketPathProbe.identity(path: path) {
             return .success(path: path, identity: identity)
         }
         return .failure(
             path: path,
             stage: "stat_bound_path",
-            errnoCode: identityResult.errnoCode ?? EIO
+            errnoCode: SocketPathProbe.observedStatus(path: path, expectedIdentity: nil).errnoCode ?? EIO
         )
     }
 
