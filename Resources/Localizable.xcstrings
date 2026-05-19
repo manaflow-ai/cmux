@@ -107125,7 +107125,49 @@
     "sessionIndex.codexHome.defaultLabel": {
       "extractionState": "manual",
       "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Default Codex"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Default Codex"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Default Codex"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Default Codex"
+          }
+        },
         "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Default Codex"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Default Codex"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Default Codex"
+          }
+        },
+        "it": {
           "stringUnit": {
             "state": "translated",
             "value": "Default Codex"
@@ -107136,13 +107178,115 @@
             "state": "translated",
             "value": "既定の Codex"
           }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "기본 Codex"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Default Codex"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Default Codex"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Default Codex"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Default Codex"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Default Codex"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Default Codex"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Default Codex"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Default Codex"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Default Codex"
+          }
         }
       }
     },
     "sessionIndex.codexHome.error.openDatabase": {
       "extractionState": "manual",
       "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@: Vault couldn't load sessions from this Codex home."
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@: Vault couldn't load sessions from this Codex home."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@: Vault couldn't load sessions from this Codex home."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@: Vault couldn't load sessions from this Codex home."
+          }
+        },
         "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@: Vault couldn't load sessions from this Codex home."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@: Vault couldn't load sessions from this Codex home."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@: Vault couldn't load sessions from this Codex home."
+          }
+        },
+        "it": {
           "stringUnit": {
             "state": "translated",
             "value": "%@: Vault couldn't load sessions from this Codex home."
@@ -107153,13 +107297,115 @@
             "state": "translated",
             "value": "%@: この Codex ホームから Vault のセッションを読み込めませんでした。"
           }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@: 이 Codex 홈에서 Vault 세션을 불러올 수 없습니다."
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@: Vault couldn't load sessions from this Codex home."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@: Vault couldn't load sessions from this Codex home."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@: Vault couldn't load sessions from this Codex home."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@: Vault couldn't load sessions from this Codex home."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@: Vault couldn't load sessions from this Codex home."
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@: Vault couldn't load sessions from this Codex home."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@: Vault couldn't load sessions from this Codex home."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@: Vault couldn't load sessions from this Codex home."
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@: Vault couldn't load sessions from this Codex home."
+          }
         }
       }
     },
     "sessionIndex.codexHome.error.unsupportedSchema": {
       "extractionState": "manual",
       "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@: Vault couldn't read sessions from this Codex home."
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@: Vault couldn't read sessions from this Codex home."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@: Vault couldn't read sessions from this Codex home."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@: Vault couldn't read sessions from this Codex home."
+          }
+        },
         "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@: Vault couldn't read sessions from this Codex home."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@: Vault couldn't read sessions from this Codex home."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@: Vault couldn't read sessions from this Codex home."
+          }
+        },
+        "it": {
           "stringUnit": {
             "state": "translated",
             "value": "%@: Vault couldn't read sessions from this Codex home."
@@ -107170,13 +107416,115 @@
             "state": "translated",
             "value": "%@: この Codex ホームから Vault のセッションを読み取れませんでした。"
           }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@: 이 Codex 홈에서 Vault 세션을 읽을 수 없습니다."
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@: Vault couldn't read sessions from this Codex home."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@: Vault couldn't read sessions from this Codex home."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@: Vault couldn't read sessions from this Codex home."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@: Vault couldn't read sessions from this Codex home."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@: Vault couldn't read sessions from this Codex home."
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@: Vault couldn't read sessions from this Codex home."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@: Vault couldn't read sessions from this Codex home."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@: Vault couldn't read sessions from this Codex home."
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@: Vault couldn't read sessions from this Codex home."
+          }
         }
       }
     },
     "sessionIndex.codexHome.warning.unavailable": {
       "extractionState": "manual",
       "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Codex home \"%@\" is unavailable and was skipped. Check that the folder exists and is readable, or update/remove that path in cmux.json."
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Codex home \"%@\" is unavailable and was skipped. Check that the folder exists and is readable, or update/remove that path in cmux.json."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Codex home \"%@\" is unavailable and was skipped. Check that the folder exists and is readable, or update/remove that path in cmux.json."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Codex home \"%@\" is unavailable and was skipped. Check that the folder exists and is readable, or update/remove that path in cmux.json."
+          }
+        },
         "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Codex home \"%@\" is unavailable and was skipped. Check that the folder exists and is readable, or update/remove that path in cmux.json."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Codex home \"%@\" is unavailable and was skipped. Check that the folder exists and is readable, or update/remove that path in cmux.json."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Codex home \"%@\" is unavailable and was skipped. Check that the folder exists and is readable, or update/remove that path in cmux.json."
+          }
+        },
+        "it": {
           "stringUnit": {
             "state": "translated",
             "value": "Codex home \"%@\" is unavailable and was skipped. Check that the folder exists and is readable, or update/remove that path in cmux.json."
@@ -107186,6 +107534,66 @@
           "stringUnit": {
             "state": "translated",
             "value": "Codex home \"%@\" は利用できないためスキップしました。フォルダが存在し読み取り可能であることを確認するか、cmux.json のパスを更新または削除してください。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Codex home \"%@\"을(를) 사용할 수 없어 건너뛰었습니다. 폴더가 존재하고 읽을 수 있는지 확인하거나 cmux.json에서 해당 경로를 업데이트/제거하세요."
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Codex home \"%@\" is unavailable and was skipped. Check that the folder exists and is readable, or update/remove that path in cmux.json."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Codex home \"%@\" is unavailable and was skipped. Check that the folder exists and is readable, or update/remove that path in cmux.json."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Codex home \"%@\" is unavailable and was skipped. Check that the folder exists and is readable, or update/remove that path in cmux.json."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Codex home \"%@\" is unavailable and was skipped. Check that the folder exists and is readable, or update/remove that path in cmux.json."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Codex home \"%@\" is unavailable and was skipped. Check that the folder exists and is readable, or update/remove that path in cmux.json."
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Codex home \"%@\" is unavailable and was skipped. Check that the folder exists and is readable, or update/remove that path in cmux.json."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Codex home \"%@\" is unavailable and was skipped. Check that the folder exists and is readable, or update/remove that path in cmux.json."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Codex home \"%@\" is unavailable and was skipped. Check that the folder exists and is readable, or update/remove that path in cmux.json."
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Codex home \"%@\" is unavailable and was skipped. Check that the folder exists and is readable, or update/remove that path in cmux.json."
           }
         }
       }
