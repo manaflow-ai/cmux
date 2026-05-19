@@ -406,9 +406,12 @@ extension CLINotifyProcessIntegrationRegressionTests {
         XCTAssertEqual(enrichedStop.stdout, "{}\n")
 
         let enrichedStopCommands = Array(state.commands.dropFirst(enrichedStopCommandStart))
-        XCTAssertFalse(
-            enrichedStopCommands.contains { $0.hasPrefix("notify_target_async ") },
-            "Grok Stop should persist completion state without notifying; Notification owns Grok completion alerts, saw \(enrichedStopCommands)"
+        XCTAssertTrue(
+            enrichedStopCommands.contains {
+                $0.contains("notify_target_async \(workspaceId) \(surfaceId) Grok|Completed in ")
+                    && $0.contains(assistantMessage)
+            },
+            "Expected Grok Stop fallback to publish the cwd-scoped assistant response when Grok only emits internal Notification events, saw \(enrichedStopCommands)"
         )
         XCTAssertTrue(
             enrichedStopCommands.contains { $0.contains("set_status grok Idle") },
@@ -425,11 +428,9 @@ extension CLINotifyProcessIntegrationRegressionTests {
         XCTAssertEqual(genericCompletion.stdout, "{}\n")
 
         let genericCompletionCommands = Array(state.commands.dropFirst(genericCompletionCommandStart))
-        XCTAssertTrue(
-            genericCompletionCommands.contains {
-                $0.contains("notify_target_async \(workspaceId) \(surfaceId) Grok|Completed|\(assistantMessage)")
-            },
-            "Expected generic Grok completion notification to use the cwd-scoped assistant response, saw \(genericCompletionCommands)"
+        XCTAssertFalse(
+            genericCompletionCommands.contains { $0.hasPrefix("notify_target_async ") },
+            "Grok completion Notification must not double-notify after Stop fallback already published the completion, saw \(genericCompletionCommands)"
         )
         XCTAssertTrue(
             genericCompletionCommands.contains { $0.contains("set_status grok Idle") },
@@ -695,7 +696,7 @@ extension CLINotifyProcessIntegrationRegressionTests {
         )
     }
 
-    func testGrokNotificationCompletionsFireForTwoConcurrentThreads() throws {
+    func testGrokStopFallbackCompletionsFireForTwoConcurrentThreads() throws {
         let cliPath = try bundledCLIPath()
         let socketPath = makeSocketPath("grok-two-threads")
         let listenerFD = try bindUnixSocket(at: socketPath)
@@ -835,9 +836,16 @@ extension CLINotifyProcessIntegrationRegressionTests {
             XCTAssertEqual(stop.stdout, "{}\n")
 
             let stopCommands = Array(state.commands.dropFirst(stopCommandStart))
-            XCTAssertFalse(
-                stopCommands.contains { $0.hasPrefix("notify_target_async ") },
-                "Grok Stop must not notify for thread \(thread.index); Notification owns completion alerts. Saw \(stopCommands)"
+            XCTAssertTrue(
+                stopCommands.contains {
+                    $0.contains("notify_target_async \(workspaceId) \(thread.surfaceId) Grok|Completed in ")
+                        && $0.contains(thread.assistantMessage)
+                },
+                "Expected Grok Stop fallback to notify for thread \(thread.index), saw \(stopCommands)"
+            )
+            XCTAssertTrue(
+                stopCommands.contains { $0.contains("set_status grok Idle") },
+                "Expected Grok Stop for thread \(thread.index) to leave Grok idle, saw \(stopCommands)"
             )
         }
 
@@ -845,7 +853,7 @@ extension CLINotifyProcessIntegrationRegressionTests {
             let notificationCommandStart = state.commands.count
             let notification = runGrokHook(
                 "notification",
-                input: #"{"sessionId":"\#(thread.sessionId)","cwd":"\#(root.path)","hookEventName":"Notification","message":"Turn complete in \#(thread.index).0s."}"#,
+                input: #"{"sessionId":"\#(thread.sessionId)","cwd":"\#(root.path)","hookEventName":"Notification","message":"SessionNotification { update: HookExecution { event_name: stop } }"}"#,
                 surfaceId: thread.surfaceId
             )
             XCTAssertFalse(notification.timedOut, notification.stderr)
@@ -853,15 +861,9 @@ extension CLINotifyProcessIntegrationRegressionTests {
             XCTAssertEqual(notification.stdout, "{}\n")
 
             let notificationCommands = Array(state.commands.dropFirst(notificationCommandStart))
-            XCTAssertTrue(
-                notificationCommands.contains {
-                    $0.contains("notify_target_async \(workspaceId) \(thread.surfaceId) Grok|Completed|\(thread.assistantMessage)")
-                },
-                "Expected Grok Notification to notify for thread \(thread.index), saw \(notificationCommands)"
-            )
-            XCTAssertTrue(
-                notificationCommands.contains { $0.contains("set_status grok Idle") },
-                "Expected Grok Notification for thread \(thread.index) to leave Grok idle, saw \(notificationCommands)"
+            XCTAssertFalse(
+                notificationCommands.contains { $0.hasPrefix("notify_target_async ") },
+                "Internal Grok Notification after Stop fallback must not double-notify thread \(thread.index), saw \(notificationCommands)"
             )
         }
     }
@@ -940,9 +942,11 @@ extension CLINotifyProcessIntegrationRegressionTests {
         XCTAssertEqual(stop.stdout, "{}\n")
 
         let stopCommands = Array(state.commands.dropFirst(stopCommandStart))
-        XCTAssertFalse(
-            stopCommands.contains { $0.hasPrefix("notify_target_async ") },
-            "Grok Stop without cwd should persist status without publishing a duplicate completion notification, saw \(stopCommands)"
+        XCTAssertTrue(
+            stopCommands.contains {
+                $0.contains("notify_target_async \(workspaceId) \(surfaceId) Grok|Completed|Grok session completed")
+            },
+            "Expected Grok Stop without cwd to notify with a generic completion body, saw \(stopCommands)"
         )
         XCTAssertTrue(
             stopCommands.contains { $0.contains("set_status grok Idle") },
