@@ -36,6 +36,11 @@ extension CMUXCLI {
         return NSHomeDirectory()
     }
 
+    private static func nodeOptionsMacOSSystemCachesRoot() -> URL? {
+        FileManager.default.urls(for: .cachesDirectory, in: .userDomainMask).first?
+            .appendingPathComponent("com.cmuxterm.app", isDirectory: true)
+    }
+
     func createClaudeNodeOptionsRestoreModule() throws -> URL {
         // Use the user's cache directory rather than NSTemporaryDirectory()
         // so the guard module survives macOS `periodic` cleanup of
@@ -66,6 +71,9 @@ extension CMUXCLI {
             .appendingPathComponent("com.cmuxterm.app", isDirectory: true)
         if !Self.pathIsUnsafeForNodeOptions(preferredRoot.path) {
             cacheRoot = preferredRoot
+        } else if let systemCachesRoot = Self.nodeOptionsMacOSSystemCachesRoot(),
+                  !Self.pathIsUnsafeForNodeOptions(systemCachesRoot.path) {
+            cacheRoot = systemCachesRoot
         } else {
             cacheRoot = try claudeNodeOptionsFallbackCacheRoot(appScoped: true)
         }
