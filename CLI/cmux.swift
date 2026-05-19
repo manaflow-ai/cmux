@@ -14643,6 +14643,30 @@ struct CMUXCLI {
         return process.terminationStatus
     }
 
+    private static func omoInstallingPluginMessage() -> String {
+        String(localized: "cli.omo.installingPlugin", defaultValue: "Installing \(Self.omoPluginName) plugin (this may take a minute on first run)...")
+    }
+
+    private static func omoRetryingInstallMessage() -> String {
+        String(localized: "cli.omo.retryingInstallCleanState", defaultValue: "Retrying \(Self.omoPluginName) install with a clean shadow package state...")
+    }
+
+    private static func omoInstallFailedMessage() -> String {
+        String(localized: "cli.omo.installFailed", defaultValue: "Failed to install \(Self.omoPluginName). Try manually: npm install -g \(Self.omoPluginName)")
+    }
+
+    private static func omoNoPackageManagerMessage() -> String {
+        String(localized: "cli.omo.noPackageManager", defaultValue: "Neither bun nor npm found in PATH. Install \(Self.omoPluginName) manually: bunx \(Self.omoPluginName) install")
+    }
+
+    private static func omoPluginInstalledMessage() -> String {
+        String(localized: "cli.omo.pluginInstalled", defaultValue: "\(Self.omoPluginName) plugin installed")
+    }
+
+    private func omoWriteStatus(_ message: String) {
+        FileHandle.standardError.write(Data((message + "\n").utf8))
+    }
+
     private func omoRequestedPort(from commandArgs: [String]) -> String? {
         for (index, arg) in commandArgs.enumerated() {
             if arg == "--port" {
@@ -14802,7 +14826,7 @@ struct CMUXCLI {
         if !fm.fileExists(atPath: pluginPackageDir.path) {
             let installDir = shadowDir
             if let bunPath = resolveExecutableInPath("bun") {
-                FileHandle.standardError.write("Installing \(Self.omoPluginName) plugin (this may take a minute on first run)...\n".data(using: .utf8)!)
+                omoWriteStatus(Self.omoInstallingPluginMessage())
                 let installArguments = ["add", Self.omoPluginName]
                 let firstAttemptStatus = try omoRunPackageInstall(
                     executablePath: bunPath,
@@ -14810,7 +14834,7 @@ struct CMUXCLI {
                     currentDirectoryURL: installDir
                 )
                 if firstAttemptStatus != 0 {
-                    FileHandle.standardError.write("Retrying \(Self.omoPluginName) install with a clean shadow package state...\n".data(using: .utf8)!)
+                    omoWriteStatus(Self.omoRetryingInstallMessage())
                     try? fm.removeItem(at: shadowBunLockURL)
                     try? fm.removeItem(at: shadowNodeModules)
                     try omoEnsureShadowNodeModulesSymlink(shadowNodeModules: shadowNodeModules, userNodeModules: userNodeModules)
@@ -14820,23 +14844,23 @@ struct CMUXCLI {
                         currentDirectoryURL: installDir
                     )
                     if retryStatus != 0 {
-                        throw CLIError(message: "Failed to install \(Self.omoPluginName). Try manually: npm install -g \(Self.omoPluginName)")
+                        throw CLIError(message: Self.omoInstallFailedMessage())
                     }
                 }
             } else if let npmPath = resolveExecutableInPath("npm") {
-                FileHandle.standardError.write("Installing \(Self.omoPluginName) plugin (this may take a minute on first run)...\n".data(using: .utf8)!)
+                omoWriteStatus(Self.omoInstallingPluginMessage())
                 let status = try omoRunPackageInstall(
                     executablePath: npmPath,
                     arguments: ["install", Self.omoPluginName],
                     currentDirectoryURL: installDir
                 )
                 if status != 0 {
-                    throw CLIError(message: "Failed to install \(Self.omoPluginName). Try manually: npm install -g \(Self.omoPluginName)")
+                    throw CLIError(message: Self.omoInstallFailedMessage())
                 }
             } else {
-                throw CLIError(message: "Neither bun nor npm found in PATH. Install \(Self.omoPluginName) manually: bunx \(Self.omoPluginName) install")
+                throw CLIError(message: Self.omoNoPackageManagerMessage())
             }
-            FileHandle.standardError.write("\(Self.omoPluginName) plugin installed\n".data(using: .utf8)!)
+            omoWriteStatus(Self.omoPluginInstalledMessage())
         }
 
         // Ensure tmux mode is enabled in oh-my-openagent config.
