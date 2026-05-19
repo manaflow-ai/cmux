@@ -305,6 +305,64 @@ final class CLINotifyProcessIntegrationRegressionTests: XCTestCase {
         XCTAssertEqual(active["turnId"] as? String, "turn-2")
     }
 
+    func testNestedCodexStopDoesNotTriggerVisibleNotificationOrIdleStatus() throws {
+        let context = try makeClaudeHookContext(name: "codex-nested-stop")
+        defer { context.cleanup() }
+        let serverHandled = startAgentHookMockServer(context: context)
+
+        let result = try runCodexStopHookInFakeAgentTree(
+            context: context,
+            nested: true,
+            standardInput: #"{"session_id":"nested-session","cwd":"\#(context.root.path)","hook_event_name":"Stop","last_assistant_message":"child done"}"#
+        )
+
+        wait(for: [serverHandled], timeout: 5)
+        XCTAssertFalse(result.timedOut, result.stderr)
+        XCTAssertEqual(result.status, 0, result.stderr)
+        XCTAssertEqual(result.stdout, "{}\n")
+        XCTAssertTrue(
+            context.state.commands.contains { $0.contains(#""method":"feed.push""#) && $0.contains(#""hook_event_name":"Stop""#) },
+            "Expected nested Codex Stop to remain feed telemetry, saw \(context.state.commands)"
+        )
+        XCTAssertFalse(
+            context.state.commands.contains { $0.hasPrefix("notify_target") },
+            "Nested Codex Stop should not notify, saw \(context.state.commands)"
+        )
+        XCTAssertFalse(
+            context.state.commands.contains { $0.hasPrefix("set_status codex ") },
+            "Nested Codex Stop should not clobber visible Codex status, saw \(context.state.commands)"
+        )
+        XCTAssertFalse(
+            context.state.commands.contains { $0.hasPrefix("set_agent_pid codex.") },
+            "Nested Codex Stop should not register the child PID as the visible owner, saw \(context.state.commands)"
+        )
+    }
+
+    func testDirectCodexStopStillTriggersVisibleNotification() throws {
+        let context = try makeClaudeHookContext(name: "codex-direct-stop")
+        defer { context.cleanup() }
+        let serverHandled = startAgentHookMockServer(context: context)
+
+        let result = try runCodexStopHookInFakeAgentTree(
+            context: context,
+            nested: false,
+            standardInput: #"{"session_id":"direct-session","cwd":"\#(context.root.path)","hook_event_name":"Stop","last_assistant_message":"parent done"}"#
+        )
+
+        wait(for: [serverHandled], timeout: 5)
+        XCTAssertFalse(result.timedOut, result.stderr)
+        XCTAssertEqual(result.status, 0, result.stderr)
+        XCTAssertEqual(result.stdout, "{}\n")
+        XCTAssertTrue(
+            context.state.commands.contains { $0.hasPrefix("notify_target_async \(context.workspaceId) \(context.surfaceId) Codex|") },
+            "Direct Codex Stop should notify, saw \(context.state.commands)"
+        )
+        XCTAssertTrue(
+            context.state.commands.contains { $0.hasPrefix("set_status codex ") && $0.contains(" Idle ") },
+            "Direct Codex Stop should mark Codex idle, saw \(context.state.commands)"
+        )
+    }
+
     func testRightSidebarCLIForwardsV1SocketCommandsQuietly() throws {
         let cliPath = try bundledCLIPath()
         let cases: [(name: String, arguments: [String], expectedCommand: String, response: String, stdout: String)] = [
@@ -976,6 +1034,67 @@ final class CLINotifyProcessIntegrationRegressionTests: XCTestCase {
             unlink(socketPath)
             try? FileManager.default.removeItem(at: root)
         }
+    }
+
+    private func startAgentHookMockServer(context: ClaudeHookContext) -> XCTestExpectation {
+        startMockServer(listenerFD: context.listenerFD, state: context.state) { line in
+            guard let payload = self.jsonObject(line) else {
+                return "OK"
+            }
+            guard let id = payload["id"] as? String, let method = payload["method"] as? String else {
+                return self.malformedRequestResponse(id: payload["id"] as? String, raw: line)
+            }
+            switch method {
+            case "surface.list":
+                return self.surfaceListResponse(id: id, surfaceId: context.surfaceId)
+            case "feed.push":
+                return self.v2Response(id: id, ok: true, result: [:])
+            default:
+                return self.v2Response(id: id, ok: false, error: ["code": "unrecognized_method", "message": "unexpected method: \(method)"])
+            }
+        }
+    }
+
+    private func runCodexStopHookInFakeAgentTree(
+        context: ClaudeHookContext,
+        nested: Bool,
+        standardInput: String
+    ) throws -> ProcessRunResult {
+        let fakeCodex = context.root.appendingPathComponent("codex", isDirectory: false)
+        try FileManager.default.createSymbolicLink(atPath: fakeCodex.path, withDestinationPath: "/bin/sh")
+
+        let hookCommand = "\(shellQuoteForTest(context.cliPath)) hooks codex stop; status=$?; exit $status"
+        let outerCommand: String
+        if nested {
+            outerCommand = "\(shellQuoteForTest(fakeCodex.path)) -c \(shellQuoteForTest(hookCommand)); status=$?; exit $status"
+        } else {
+            outerCommand = hookCommand
+        }
+
+        return runProcess(
+            executablePath: fakeCodex.path,
+            arguments: ["-c", outerCommand],
+            environment: [
+                "HOME": context.root.path,
+                "PATH": "/usr/bin:/bin:/usr/sbin:/sbin",
+                "PWD": context.root.path,
+                "CMUX_SOCKET_PATH": context.socketPath,
+                "CMUX_WORKSPACE_ID": context.workspaceId,
+                "CMUX_SURFACE_ID": context.surfaceId,
+                "CMUX_AGENT_HOOK_STATE_DIR": context.root.path,
+                "CMUX_CLI_SENTRY_DISABLED": "1",
+            ],
+            standardInput: standardInput,
+            timeout: 5
+        )
+    }
+
+    private func shellQuoteForTest(_ value: String) -> String {
+        let safePattern = "^[A-Za-z0-9_@%+=:,./-]+$"
+        if value.range(of: safePattern, options: .regularExpression) != nil {
+            return value
+        }
+        return "'" + value.replacingOccurrences(of: "'", with: "'\"'\"'") + "'"
     }
 
     private func makeClaudeHookContext(name: String) throws -> ClaudeHookContext {

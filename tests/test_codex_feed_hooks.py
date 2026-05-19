@@ -475,7 +475,7 @@ def test_codex_monitor_survives_transient_owner_rpc_timeout(cli_path: str, root:
             raise AssertionError(f"monitor exited before publishing transcript failure: {fake.frames!r}")
 
 
-def run_feed_hook(cli_path: str, socket_path: Path, payload: dict, decision: dict | None) -> tuple[dict, dict]:
+def run_feed_hook(cli_path: str, socket_path: Path, payload: dict, decision: dict | None, source: str = "codex") -> tuple[dict, dict]:
     env = os.environ.copy()
     env["CMUX_SURFACE_ID"] = FAKE_SURFACE_ID
     env["CMUX_WORKSPACE_ID"] = FAKE_WORKSPACE_ID
@@ -488,7 +488,7 @@ def run_feed_hook(cli_path: str, socket_path: Path, payload: dict, decision: dic
                 "hooks",
                 "feed",
                 "--source",
-                "codex",
+                source,
                 "--event",
                 payload.get("hook_event_name", ""),
             ],
@@ -2038,6 +2038,28 @@ def test_codex_pre_tool_use_is_telemetry_not_actionable(cli_path: str, root: Pat
         raise AssertionError(f"wrong PreToolUse event: {frame!r}")
 
 
+def test_claude_subagent_stop_stays_distinct_feed_telemetry(cli_path: str, root: Path) -> None:
+    stdout, frame = run_feed_hook(
+        cli_path,
+        root / "cmux-claude-subagent-stop.sock",
+        {
+            "session_id": "claude-session",
+            "cwd": "/tmp/project",
+            "hook_event_name": "SubagentStop",
+        },
+        None,
+        source="claude",
+    )
+    if stdout != {}:
+        raise AssertionError(f"SubagentStop telemetry should not emit a decision: {stdout!r}")
+    params = frame["params"]
+    if params.get("wait_timeout_seconds") != 0:
+        raise AssertionError(f"SubagentStop should not wait for Feed reply: {frame!r}")
+    event = params["event"]
+    if event.get("hook_event_name") != "SubagentStop" or event.get("_source") != "claude":
+        raise AssertionError(f"SubagentStop should stay distinct in Feed, got {event!r}")
+
+
 def main() -> int:
     try:
         cli_path = resolve_cmux_cli()
@@ -2045,7 +2067,7 @@ def main() -> int:
         print(f"FAIL: {exc}")
         return 1
 
-    with tempfile.TemporaryDirectory(prefix="cmux-codex-feed-hooks-") as td:
+    with tempfile.TemporaryDirectory(prefix="cmux-codex-feed-hooks-", dir="/tmp") as td:
         root = Path(td)
         try:
             test_codex_stop_reaps_transcript_monitor(cli_path, root)
@@ -2083,6 +2105,7 @@ def main() -> int:
             test_permission_reply_uses_codex_permission_request_schema(cli_path, root)
             test_codex_persistent_permission_modes_degrade_to_once(cli_path, root)
             test_codex_pre_tool_use_is_telemetry_not_actionable(cli_path, root)
+            test_claude_subagent_stop_stays_distinct_feed_telemetry(cli_path, root)
         except Exception as exc:
             print(f"FAIL: {exc}")
             return 1
