@@ -389,8 +389,21 @@ final class WorkspaceRenameShortcutDefaultsTests: XCTestCase {
         XCTAssertTrue(visibleActions.contains(.toggleRightSidebar))
         XCTAssertTrue(visibleActions.contains(.focusRightSidebar))
         XCTAssertTrue(visibleActions.contains(.findInDirectory))
+        XCTAssertTrue(visibleActions.contains(.toggleUnread))
         XCTAssertTrue(visibleActions.contains(.markOldestUnreadAndJumpNext))
         XCTAssertFalse(visibleActions.contains(.showHideAllWindows))
+    }
+
+    func testToggleUnreadUsesConfigurableCommandOptionUDefault() {
+        let shortcut = KeyboardShortcutSettings.Action.toggleUnread.defaultShortcut
+
+        XCTAssertEqual(shortcut.key, "u")
+        XCTAssertTrue(shortcut.command)
+        XCTAssertFalse(shortcut.shift)
+        XCTAssertTrue(shortcut.option)
+        XCTAssertFalse(shortcut.control)
+        XCTAssertTrue(KeyboardShortcutSettings.publicShortcutActions.contains(.toggleUnread))
+        XCTAssertTrue(KeyboardShortcutSettings.settingsVisibleActions.contains(.toggleUnread))
     }
 
     func testMarkOldestUnreadAndJumpNextUsesConfigurableCommandControlUDefault() {
@@ -761,6 +774,107 @@ final class KeyboardShortcutSettingsFileStoreTests: XCTestCase {
             StoredShortcut(key: "b", command: false, shift: false, option: false, control: true, chordKey: "1")
         )
         XCTAssertEqual(store.activeSourcePath, settingsFileURL.path)
+    }
+
+    func testSettingsFileStoreAppliesBrowserHiddenWebViewDiscardDelayAtMaximum() throws {
+        let defaults = UserDefaults.standard
+        let previousEnabled = defaults.object(forKey: BrowserHiddenWebViewDiscardPolicy.enabledKey)
+        let previousDelay = defaults.object(forKey: BrowserHiddenWebViewDiscardPolicy.hiddenDelayKey)
+        let previousBackups = defaults.data(forKey: settingsFileBackupsDefaultsKey)
+        defer {
+            if let previousEnabled {
+                defaults.set(previousEnabled, forKey: BrowserHiddenWebViewDiscardPolicy.enabledKey)
+            } else {
+                defaults.removeObject(forKey: BrowserHiddenWebViewDiscardPolicy.enabledKey)
+            }
+            if let previousDelay {
+                defaults.set(previousDelay, forKey: BrowserHiddenWebViewDiscardPolicy.hiddenDelayKey)
+            } else {
+                defaults.removeObject(forKey: BrowserHiddenWebViewDiscardPolicy.hiddenDelayKey)
+            }
+            if let previousBackups {
+                defaults.set(previousBackups, forKey: settingsFileBackupsDefaultsKey)
+            } else {
+                defaults.removeObject(forKey: settingsFileBackupsDefaultsKey)
+            }
+        }
+        defaults.removeObject(forKey: BrowserHiddenWebViewDiscardPolicy.enabledKey)
+        defaults.removeObject(forKey: BrowserHiddenWebViewDiscardPolicy.hiddenDelayKey)
+        defaults.removeObject(forKey: settingsFileBackupsDefaultsKey)
+
+        let directoryURL = try makeTemporaryDirectory()
+        defer { try? FileManager.default.removeItem(at: directoryURL) }
+
+        let settingsFileURL = directoryURL.appendingPathComponent("cmux.json", isDirectory: false)
+        try writeSettingsFile(
+            """
+            {
+              "browser": {
+                "discardHiddenWebViews": false,
+                "hiddenWebViewDiscardDelaySeconds": 3600
+              }
+            }
+            """,
+            to: settingsFileURL
+        )
+
+        _ = KeyboardShortcutSettingsFileStore(
+            primaryPath: settingsFileURL.path,
+            fallbackPath: nil,
+            startWatching: false
+        )
+
+        XCTAssertEqual(
+            defaults.object(forKey: BrowserHiddenWebViewDiscardPolicy.enabledKey) as? Bool,
+            false
+        )
+        XCTAssertEqual(
+            defaults.double(forKey: BrowserHiddenWebViewDiscardPolicy.hiddenDelayKey),
+            BrowserHiddenWebViewDiscardPolicy.maximumHiddenDelay
+        )
+    }
+
+    func testSettingsFileStoreIgnoresBrowserHiddenWebViewDiscardDelayAboveMaximum() throws {
+        let defaults = UserDefaults.standard
+        let previousDelay = defaults.object(forKey: BrowserHiddenWebViewDiscardPolicy.hiddenDelayKey)
+        let previousBackups = defaults.data(forKey: settingsFileBackupsDefaultsKey)
+        defer {
+            if let previousDelay {
+                defaults.set(previousDelay, forKey: BrowserHiddenWebViewDiscardPolicy.hiddenDelayKey)
+            } else {
+                defaults.removeObject(forKey: BrowserHiddenWebViewDiscardPolicy.hiddenDelayKey)
+            }
+            if let previousBackups {
+                defaults.set(previousBackups, forKey: settingsFileBackupsDefaultsKey)
+            } else {
+                defaults.removeObject(forKey: settingsFileBackupsDefaultsKey)
+            }
+        }
+        defaults.removeObject(forKey: BrowserHiddenWebViewDiscardPolicy.hiddenDelayKey)
+        defaults.removeObject(forKey: settingsFileBackupsDefaultsKey)
+
+        let directoryURL = try makeTemporaryDirectory()
+        defer { try? FileManager.default.removeItem(at: directoryURL) }
+
+        let settingsFileURL = directoryURL.appendingPathComponent("cmux.json", isDirectory: false)
+        try writeSettingsFile(
+            """
+            {
+              "browser": {
+                "hiddenWebViewDiscardDelaySeconds": 3601
+              }
+            }
+            """,
+            to: settingsFileURL
+        )
+
+        _ = KeyboardShortcutSettingsFileStore(
+            primaryPath: settingsFileURL.path,
+            fallbackPath: nil,
+            startWatching: false
+        )
+
+        XCTAssertNil(defaults.object(forKey: BrowserHiddenWebViewDiscardPolicy.hiddenDelayKey))
     }
 
     func testSettingsFileStoreParsesRightSidebarShortcutBindings() throws {
@@ -2442,6 +2556,34 @@ final class WorkspaceCreationWorkingDirectoryInheritanceTests: XCTestCase {
         }
     }
 
+    func testDetachedWorkspaceDoesNotPersistProcessDetectedResumeBinding() throws {
+        let manager = TabManager(
+            initialWorkingDirectory: "/tmp/cmux-source-\(UUID().uuidString)",
+            autoWelcomeIfNeeded: false
+        )
+        let source = try XCTUnwrap(manager.selectedWorkspace)
+        let binding = SurfaceResumeBindingSnapshot(
+            name: "tmux work",
+            kind: "tmux",
+            command: "tmux attach -t work",
+            cwd: "/tmp/cmux-source",
+            checkpointId: "work",
+            source: "process-detected",
+            updatedAt: 1_777_777_777
+        )
+        let detached = makeDetachedWorkspaceTestTransfer(
+            sourceWorkspaceId: source.id,
+            resumeBinding: binding
+        )
+
+        let inserted = try XCTUnwrap(manager.addWorkspace(
+            fromDetachedSurface: detached,
+            select: false
+        ))
+
+        XCTAssertNil(inserted.surfaceResumeBinding(panelId: detached.panelId))
+    }
+
     private func withWorkspaceWorkingDirectoryInheritanceSetting(
         _ value: Bool?,
         _ body: () throws -> Void
@@ -2468,7 +2610,8 @@ final class WorkspaceCreationWorkingDirectoryInheritanceTests: XCTestCase {
 
     private func makeDetachedWorkspaceTestTransfer(
         sourceWorkspaceId: UUID,
-        directory: String? = nil
+        directory: String? = nil,
+        resumeBinding: SurfaceResumeBindingSnapshot? = nil
     ) -> Workspace.DetachedSurfaceTransfer {
         let panel = DetachedWorkspaceTestPanel()
         return Workspace.DetachedSurfaceTransfer(
@@ -2489,6 +2632,7 @@ final class WorkspaceCreationWorkingDirectoryInheritanceTests: XCTestCase {
             restoredUnread: false,
             restorableAgent: nil,
             restorableAgentResumeState: nil,
+            resumeBinding: resumeBinding,
             agentRuntime: nil,
             isRemoteTerminal: false,
             remoteRelayPort: nil,
@@ -3741,7 +3885,6 @@ final class WorkspaceTerminalFocusRecoveryTests: XCTestCase {
             XCTFail("Expected split terminal panels")
             return
         }
-
         let window = makeWindow()
         defer { window.orderOut(nil) }
         guard let contentView = window.contentView else {
@@ -3782,6 +3925,9 @@ final class WorkspaceTerminalFocusRecoveryTests: XCTestCase {
         rightPanel.surface.setFocus(false)
         rightPanel.hostedView.setActive(false)
         rightPanel.hostedView.suppressReparentFocus()
+#if DEBUG
+        XCTAssertTrue(rightPanel.hostedView.debugIsSuppressingReparentFocusForTesting())
+#endif
 
         guard let rightSurfaceView = surfaceView(in: rightPanel.hostedView) else {
             XCTFail("Expected right terminal surface view")
@@ -3792,6 +3938,12 @@ final class WorkspaceTerminalFocusRecoveryTests: XCTestCase {
         let event = makeMouseEvent(type: .leftMouseDown, location: pointInWindow, window: window)
         rightSurfaceView.mouseDown(with: event)
         RunLoop.current.run(until: Date().addingTimeInterval(0.05))
+#if DEBUG
+        XCTAssertFalse(
+            rightPanel.hostedView.debugIsSuppressingReparentFocusForTesting(),
+            "Explicit pointer focus should clear reparent-only focus suppression"
+        )
+#endif
 
         XCTAssertFalse(
             leftPanel.hostedView.debugRenderStats().isActive,
@@ -3816,6 +3968,8 @@ final class WorkspaceTerminalFocusRecoveryTests: XCTestCase {
             XCTFail("Expected split terminal panels")
             return
         }
+        workspace.focusPanel(leftPanel.id, trigger: .terminalFirstResponder)
+        XCTAssertEqual(workspace.focusedPanelId, leftPanel.id)
 
         let window = makeWindow()
         defer { window.orderOut(nil) }
@@ -3841,12 +3995,18 @@ final class WorkspaceTerminalFocusRecoveryTests: XCTestCase {
             return
         }
 
+        window.makeFirstResponder(nil)
         leftPanel.surface.setFocus(false)
         rightPanel.surface.setFocus(true)
         leftPanel.hostedView.suppressReparentFocus()
 
+        window.orderFrontRegardless()
+        window.makeKeyAndOrderFront(nil)
+        window.displayIfNeeded()
         XCTAssertTrue(window.makeFirstResponder(leftSurfaceView))
-        RunLoop.current.run(until: Date().addingTimeInterval(0.05))
+        XCTAssertTrue(leftPanel.hostedView.isSurfaceViewFirstResponder())
+        XCTAssertTrue(leftPanel.hostedView.debugRenderStats().desiredFocus)
+        XCTAssertTrue(leftPanel.hostedView.debugPortalVisibleInUI)
 
         XCTAssertFalse(
             leftPanel.surface.debugDesiredFocusState(),
@@ -3854,13 +4014,32 @@ final class WorkspaceTerminalFocusRecoveryTests: XCTestCase {
         )
 
         leftPanel.hostedView.clearSuppressReparentFocus()
-        let focusRecovered = XCTNSPredicateExpectation(
-            predicate: NSPredicate { _, _ in
-                leftPanel.surface.debugDesiredFocusState()
-            },
-            object: NSObject()
+        XCTAssertTrue(leftPanel.surface.debugDesiredFocusState())
+#else
+        throw XCTSkip("Debug-only regression test")
+#endif
+    }
+
+    func testLayoutFollowUpClearsPendingReparentSuppressionWithoutResponderEvent() throws {
+#if DEBUG
+        let workspace = Workspace()
+        guard let panelId = workspace.focusedPanelId,
+              let panel = workspace.terminalPanel(for: panelId) else {
+            XCTFail("Expected initial terminal panel")
+            return
+        }
+
+        workspace.debugBeginReparentFocusSuppressionForTesting(
+            panel.hostedView,
+            reason: "workspace.testReparentSuppression"
         )
-        wait(for: [focusRecovered], timeout: 1.0)
+        XCTAssertTrue(workspace.debugHasPendingReparentFocusSuppressionsForTesting())
+        XCTAssertTrue(panel.hostedView.debugIsSuppressingReparentFocusForTesting())
+
+        workspace.debugAttemptEventDrivenLayoutFollowUpForTesting()
+
+        XCTAssertFalse(workspace.debugHasPendingReparentFocusSuppressionsForTesting())
+        XCTAssertFalse(panel.hostedView.debugIsSuppressingReparentFocusForTesting())
 #else
         throw XCTSkip("Debug-only regression test")
 #endif
