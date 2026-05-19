@@ -4208,10 +4208,22 @@ struct CMUXCLI {
     func parsePositiveInt(_ raw: String?, label: String) throws -> Int? {
         guard let raw else { return nil }
         guard let value = Int(raw) else {
-            throw CLIError(message: "\(label) must be an integer")
+            throw CLIError(message: String(
+                format: String(
+                    localized: "cli.error.optionMustBeInteger",
+                    defaultValue: "%@ must be an integer"
+                ),
+                label
+            ))
         }
         guard value > 0 else {
-            throw CLIError(message: "\(label) must be positive")
+            throw CLIError(message: String(
+                format: String(
+                    localized: "cli.error.optionMustBePositive",
+                    defaultValue: "%@ must be positive"
+                ),
+                label
+            ))
         }
         return value
     }
