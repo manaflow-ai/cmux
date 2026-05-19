@@ -3407,7 +3407,7 @@ final class BrowserPanel: Panel, ObservableObject {
     private func tearDownCurrentWebViewForRelease(_ webView: WKWebView, reason: String) {
         guard !didTearDownWebViewForRelease else { return }
         didTearDownWebViewForRelease = true
-        tearDownReactGrabMessageHandler(for: webView)
+        tearDownReactGrabStateForWebViewRelease()
         Self.tearDownWebViewForRelease(webView, reason: reason)
     }
 

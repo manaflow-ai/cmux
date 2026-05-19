@@ -250,9 +250,8 @@ extension BrowserPanel {
         )
     }
 
-    func tearDownReactGrabMessageHandler(for webView: WKWebView) {
+    func tearDownReactGrabStateForWebViewRelease() {
         guard reactGrabMessageHandler != nil else { return }
-        Self.removeReactGrabMessageHandler(from: webView)
         reactGrabMessageHandler = nil
         resetReactGrabState(reason: "webViewTeardown")
     }
