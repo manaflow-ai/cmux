@@ -34,18 +34,33 @@ enum AppearanceSettings {
         let systemAppearance: () -> NSAppearance?
 
         static var live: LiveApplyEnvironment {
-            LiveApplyEnvironment(
-                setApplicationAppearance: { appearance in
-                    NSApplication.shared.appearance = appearance
-                },
-                synchronizeTerminalThemeWithAppearance: { appearance, source in
-                    GhosttyApp.shared.synchronizeThemeWithAppearance(appearance, source: source)
-                },
-                systemAppearance: {
-                    AppearanceSettings.systemNSAppearance()
-                }
-            )
+            AppearanceSettings.currentLiveEnvironmentProvider()()
         }
+    }
+
+    private static let liveEnvironmentProviderLock = NSLock()
+    private static var liveEnvironmentProvider: () -> LiveApplyEnvironment = {
+        AppearanceSettings.defaultLiveEnvironment()
+    }
+
+    private static func currentLiveEnvironmentProvider() -> () -> LiveApplyEnvironment {
+        liveEnvironmentProviderLock.lock()
+        defer { liveEnvironmentProviderLock.unlock() }
+        return liveEnvironmentProvider
+    }
+
+    private static func defaultLiveEnvironment() -> LiveApplyEnvironment {
+        LiveApplyEnvironment(
+            setApplicationAppearance: { appearance in
+                NSApplication.shared.appearance = appearance
+            },
+            synchronizeTerminalThemeWithAppearance: { appearance, source in
+                GhosttyApp.shared.synchronizeThemeWithAppearance(appearance, source: source)
+            },
+            systemAppearance: {
+                AppearanceSettings.systemNSAppearance()
+            }
+        )
     }
 
     struct SystemAppearance {
@@ -190,6 +205,20 @@ enum AppearanceSettings {
             return NSAppearance(named: .darkAqua)
         case .auto:
             return nil
+        }
+    }
+
+    static func setLiveEnvironmentProviderForTesting(_ provider: @escaping () -> LiveApplyEnvironment) {
+        liveEnvironmentProviderLock.lock()
+        defer { liveEnvironmentProviderLock.unlock() }
+        liveEnvironmentProvider = provider
+    }
+
+    static func resetLiveEnvironmentProviderForTesting() {
+        liveEnvironmentProviderLock.lock()
+        defer { liveEnvironmentProviderLock.unlock() }
+        liveEnvironmentProvider = {
+            AppearanceSettings.defaultLiveEnvironment()
         }
     }
 }
