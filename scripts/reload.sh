@@ -632,8 +632,6 @@ except KeyboardInterrupt:
     raise SystemExit(130)
 except OSError as exc:
     raise SystemExit(f"error: run xcodebuild: {exc}")
-finally:
-    child = None
 
 elapsed = int(time.monotonic() - build_start)
 if returncode == 0 and terminating_signal is not None:
