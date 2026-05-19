@@ -28,6 +28,7 @@ class TerminalController {
         let acceptLoopAlive: Bool
         let socketPathMatches: Bool
         let socketPathExists: Bool
+        let socketPathOwnedByListener: Bool
 
         var failureSignals: [String] {
             var signals: [String] = []
@@ -35,6 +36,9 @@ class TerminalController {
             if !acceptLoopAlive { signals.append("accept_loop_dead") }
             if !socketPathMatches { signals.append("socket_path_mismatch") }
             if !socketPathExists { signals.append("socket_missing") }
+            if isRunning && socketPathExists && !socketPathOwnedByListener {
+                signals.append("socket_path_replaced")
+            }
             return signals
         }
 
@@ -46,6 +50,7 @@ class TerminalController {
     static let shared = TerminalController()
 
     private nonisolated(unsafe) var socketPath = SocketControlSettings.stableDefaultSocketPath
+    private nonisolated(unsafe) var activeSocketPathIdentity: SocketPathIdentity?
     private nonisolated(unsafe) var serverSocket: Int32 = -1
     private nonisolated(unsafe) var isRunning = false
     private nonisolated(unsafe) var acceptLoopAlive = false
@@ -117,12 +122,18 @@ class TerminalController {
 
     private struct ListenerStateSnapshot {
         let socketPath: String
+        let socketPathIdentity: SocketPathIdentity?
         let serverSocket: Int32
         let isRunning: Bool
         let acceptLoopAlive: Bool
         let activeGeneration: UInt64
         let pendingRearmGeneration: UInt64?
         let listenerStartInProgress: Bool
+    }
+
+    private struct SocketPathIdentity: Equatable, Sendable {
+        let device: dev_t
+        let inode: ino_t
     }
 
     enum AcceptFailureRecoveryAction: Equatable {
@@ -291,6 +302,7 @@ class TerminalController {
         withListenerState {
             ListenerStateSnapshot(
                 socketPath: socketPath,
+                socketPathIdentity: activeSocketPathIdentity,
                 serverSocket: serverSocket,
                 isRunning: isRunning,
                 acceptLoopAlive: acceptLoopAlive,
@@ -1094,6 +1106,7 @@ class TerminalController {
         var activeSocketPath = socketPath
         withListenerState {
             self.socketPath = activeSocketPath
+            activeSocketPathIdentity = nil
             listenerStartInProgress = true
         }
         var listenerActivated = false
@@ -1175,6 +1188,16 @@ class TerminalController {
         }
 
         applySocketPermissions()
+        guard let boundSocketPathIdentity = Self.socketPathIdentity(at: activeSocketPath) else {
+            close(newServerSocket)
+            reportSocketListenerFailure(
+                message: "socket.listener.start.failed",
+                stage: "bound_socket_identity",
+                errnoCode: ENOENT,
+                extra: ["path": activeSocketPath]
+            )
+            return
+        }
 
         if let errnoCode = Self.configureNonBlocking(newServerSocket) {
             print("TerminalController: Failed to configure socket")
@@ -1212,6 +1235,7 @@ class TerminalController {
             let generation = nextAcceptLoopGeneration
             activeAcceptLoopGeneration = generation
             serverSocket = newServerSocket
+            activeSocketPathIdentity = boundSocketPathIdentity
             listenerStartInProgress = false
             return generation
         }
@@ -1274,13 +1298,25 @@ class TerminalController {
 
         var st = stat()
         let exists = lstat(expectedSocketPath, &st) == 0 && (st.st_mode & S_IFMT) == S_IFSOCK
+        let currentSocketIdentity = exists
+            ? SocketPathIdentity(device: st.st_dev, inode: st.st_ino)
+            : nil
 
         return SocketListenerHealth(
             isRunning: snapshot.isRunning,
             acceptLoopAlive: snapshot.acceptLoopAlive,
             socketPathMatches: pathMatches,
-            socketPathExists: exists
+            socketPathExists: exists,
+            socketPathOwnedByListener: currentSocketIdentity == snapshot.socketPathIdentity
         )
+    }
+
+    private nonisolated static func socketPathIdentity(at path: String) -> SocketPathIdentity? {
+        var st = stat()
+        guard lstat(path, &st) == 0 && (st.st_mode & S_IFMT) == S_IFSOCK else {
+            return nil
+        }
+        return SocketPathIdentity(device: st.st_dev, inode: st.st_ino)
     }
 
     nonisolated static func probeSocketCommand(
@@ -1379,6 +1415,7 @@ class TerminalController {
             listenerStartInProgress = false
             nextAcceptLoopGeneration &+= 1
             activeAcceptLoopGeneration = 0
+            activeSocketPathIdentity = nil
             let sourceToCancel = listenerReadSource
             let sourceWasSuspended = listenerReadSourceSuspended
             listenerReadSource = nil
@@ -1408,6 +1445,15 @@ class TerminalController {
             close(socketToClose)
         }
         unlink(socketPathToUnlink)
+    }
+
+    nonisolated func stopSocketDirectoryMonitorForTesting() {
+        let sourceToCancel = withListenerState {
+            let source = socketDirectoryMonitorSource
+            socketDirectoryMonitorSource = nil
+            return source
+        }
+        sourceToCancel?.cancel()
     }
 
     private nonisolated func unlinkSocketPathIfListenerStillInactive(_ path: String) {
@@ -1771,12 +1817,15 @@ class TerminalController {
             eventMask: [.write, .delete, .rename],
             queue: socketListenerQueue
         )
-        source.setEventHandler { [weak self] in
+        source.setEventHandler { [weak self, weak source] in
+            guard let source else { return }
             self?.handleSocketDirectoryEvent(path: path, generation: generation, flags: source.data)
         }
         source.setCancelHandler {
             close(fd)
         }
+
+        source.resume()
 
         let registration = withListenerState {
             guard isRunning, socketPath == path, activeAcceptLoopGeneration == generation else {
@@ -1790,7 +1839,6 @@ class TerminalController {
         registration.oldSource?.cancel()
         guard registration.shouldResume else {
             source.cancel()
-            source.resume()
             return
         }
 
@@ -1806,7 +1854,6 @@ class TerminalController {
                 ]
             )
         )
-        source.resume()
     }
 
     private nonisolated func handleSocketDirectoryEvent(
@@ -1815,7 +1862,7 @@ class TerminalController {
         flags: DispatchSource.FileSystemEvent
     ) {
         let health = socketListenerHealth(expectedSocketPath: path)
-        guard !health.socketPathExists else { return }
+        guard !health.isHealthy else { return }
 
         let shouldRestart = withListenerState {
             isRunning && socketPath == path && activeAcceptLoopGeneration == generation
@@ -1823,7 +1870,7 @@ class TerminalController {
         guard shouldRestart else { return }
 
         sentryBreadcrumb(
-            "socket.listener.socket_path_missing",
+            "socket.listener.unhealthy_directory_event",
             category: "socket",
             data: socketListenerEventData(
                 stage: "directory_monitor_event",
@@ -1838,7 +1885,7 @@ class TerminalController {
 
         DispatchQueue.main.async { [weak self] in
             guard let self, let tabManager = self.tabManager else { return }
-            guard !self.socketListenerHealth(expectedSocketPath: path).socketPathExists else { return }
+            guard !self.socketListenerHealth(expectedSocketPath: path).isHealthy else { return }
             let shouldRestart = self.withListenerState {
                 self.isRunning && self.socketPath == path && self.activeAcceptLoopGeneration == generation
             }
@@ -1954,6 +2001,7 @@ class TerminalController {
                 pendingAcceptLoopRearmGeneration = generation
                 isRunning = false
                 acceptLoopAlive = false
+                activeSocketPathIdentity = nil
                 let source = listenerReadSource
                 let directoryMonitorToCancel = socketDirectoryMonitorSource
                 let sourceWasSuspended = listenerReadSourceSuspended
