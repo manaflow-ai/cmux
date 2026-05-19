@@ -23,11 +23,18 @@ public enum VNCFrameBlitter {
         let rowBytes = header.width * 4
         let payloadByteCount = payload.count
         let framebufferByteCount = framebuffer.count
+        var didCopy = true
 
         payload.withUnsafeBytes { sourceBytes in
-            guard let source = sourceBytes.bindMemory(to: UInt8.self).baseAddress else { return }
+            guard let source = sourceBytes.bindMemory(to: UInt8.self).baseAddress else {
+                didCopy = false
+                return
+            }
             framebuffer.withUnsafeMutableBytes { destinationBytes in
-                guard let destination = destinationBytes.bindMemory(to: UInt8.self).baseAddress else { return }
+                guard let destination = destinationBytes.bindMemory(to: UInt8.self).baseAddress else {
+                    didCopy = false
+                    return
+                }
                 for row in 0..<header.height {
                     let sourceOffset = row * rowBytes
                     let destinationOffset = ((header.y + row) * framebufferWidth + header.x) * 4
@@ -35,6 +42,7 @@ public enum VNCFrameBlitter {
                           destinationOffset + rowBytes <= framebufferByteCount,
                           sourceOffset >= 0,
                           sourceOffset + rowBytes <= payloadByteCount else {
+                        didCopy = false
                         return
                     }
                     destination.advanced(by: destinationOffset)
@@ -42,6 +50,6 @@ public enum VNCFrameBlitter {
                 }
             }
         }
-        return true
+        return didCopy
     }
 }

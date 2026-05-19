@@ -38,6 +38,8 @@ struct VNCMetalCanvasRepresentable: NSViewRepresentable {
         }
         if let frame = panel.latestFrame {
             view.apply(frame)
+        } else {
+            view.resetFrameSequence()
         }
     }
 
@@ -121,6 +123,10 @@ final class VNCMetalCanvasView: NSView {
         drawFramebuffer()
     }
 
+    func resetFrameSequence() {
+        lastSequence = nil
+    }
+
     override func keyDown(with event: NSEvent) {
         if isDirectKeyEvent(event) {
             onKey?(event.keyCode, true)
@@ -154,19 +160,23 @@ final class VNCMetalCanvasView: NSView {
     }
 
     override func mouseDragged(with event: NSEvent) {
-        sendPointer(event, button: 0, isDown: true)
+        sendPointer(event, button: 0, isDown: true, clampOutside: true)
     }
 
     override func mouseUp(with event: NSEvent) {
-        sendPointer(event, button: 0, isDown: false)
+        sendPointer(event, button: 0, isDown: false, clampOutside: true)
     }
 
     override func rightMouseDown(with event: NSEvent) {
         sendPointer(event, button: 2, isDown: true)
     }
 
+    override func rightMouseDragged(with event: NSEvent) {
+        sendPointer(event, button: 2, isDown: true, clampOutside: true)
+    }
+
     override func rightMouseUp(with event: NSEvent) {
-        sendPointer(event, button: 2, isDown: false)
+        sendPointer(event, button: 2, isDown: false, clampOutside: true)
     }
 
     private func resizeFramebufferIfNeeded(width: Int, height: Int) -> Bool {
@@ -224,8 +234,8 @@ final class VNCMetalCanvasView: NSView {
         commandBuffer?.commit()
     }
 
-    private func sendPointer(_ event: NSEvent, button: Int, isDown: Bool) {
-        guard let remotePoint = remotePointerPoint(for: event) else { return }
+    private func sendPointer(_ event: NSEvent, button: Int, isDown: Bool, clampOutside: Bool = false) {
+        guard let remotePoint = remotePointerPoint(for: event, clampOutside: clampOutside) else { return }
         onPointer?(remotePoint.x, remotePoint.y, button, isDown)
     }
 
@@ -276,15 +286,22 @@ final class VNCMetalCanvasView: NSView {
         }
     }
 
-    private func remotePointerPoint(for event: NSEvent) -> (x: Int, y: Int)? {
+    private func remotePointerPoint(for event: NSEvent, clampOutside: Bool) -> (x: Int, y: Int)? {
         guard framebufferWidth > 0, framebufferHeight > 0 else { return nil }
         let point = convert(event.locationInWindow, from: nil)
         let drawRect = aspectFittedFramebufferRect()
-        guard drawRect.width > 0, drawRect.height > 0, drawRect.contains(point) else {
+        guard drawRect.width > 0, drawRect.height > 0 else {
             return nil
         }
-        let normalizedX = max(0, min(1, (point.x - drawRect.minX) / drawRect.width))
-        let normalizedY = max(0, min(1, (drawRect.maxY - point.y) / drawRect.height))
+        if !clampOutside, !drawRect.contains(point) {
+            return nil
+        }
+        let clampedPoint = CGPoint(
+            x: max(drawRect.minX, min(drawRect.maxX, point.x)),
+            y: max(drawRect.minY, min(drawRect.maxY, point.y))
+        )
+        let normalizedX = max(0, min(1, (clampedPoint.x - drawRect.minX) / drawRect.width))
+        let normalizedY = max(0, min(1, (drawRect.maxY - clampedPoint.y) / drawRect.height))
         return (
             Int((normalizedX * CGFloat(framebufferWidth - 1)).rounded()),
             Int((normalizedY * CGFloat(framebufferHeight - 1)).rounded())

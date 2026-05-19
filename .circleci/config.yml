@@ -328,7 +328,7 @@ jobs:
           name: Validate bundled universal VNC helper
           no_output_timeout: 15m
           command: |
-            CMUX_APP_PATH="build-universal/Build/Products/Release/cmux DEV.app" \
+            CMUX_APP_PATH="build-universal/Build/Products/Release/cmux.app" \
               CMUX_EXPECT_UNIVERSAL=1 \
               ./tests/test_bundled_vnc_helper.sh
       - save-swift-package-cache:

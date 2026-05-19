@@ -28,6 +28,11 @@ if ! grep -q 'test_bundled_vnc_helper.sh' .github/workflows/release.yml; then
   exit 1
 fi
 
+if ! grep -q 'CMUX_APP_PATH="build-universal/Build/Products/Release/cmux.app"' .circleci/config.yml; then
+  echo "FAIL: CircleCI release VNC helper check must target the Release cmux.app bundle" >&2
+  exit 1
+fi
+
 if ! grep -q 'CMUXVNC' cmux.xcodeproj/project.pbxproj; then
   echo "FAIL: cmux app target is missing the CMUXVNC package dependency" >&2
   exit 1

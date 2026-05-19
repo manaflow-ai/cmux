@@ -14,6 +14,7 @@ final class VNCPanelConnection {
     private let onExit: ExitHandler
     private let socketPath: String
     private let ioQueue: DispatchQueue
+    private let writeQueue: DispatchQueue
     private let stateLock = NSLock()
 
     private var process: Process?
@@ -37,11 +38,28 @@ final class VNCPanelConnection {
             .appendingPathComponent("cmux-vnc-\(UUID().uuidString).sock")
             .path
         self.ioQueue = DispatchQueue(label: "dev.cmux.vnc.\(session.name)")
+        self.writeQueue = DispatchQueue(label: "dev.cmux.vnc.\(session.name).write")
     }
 
     func start() {
+        ioQueue.async { [weak self] in
+            self?.startOnIOQueue()
+        }
+    }
+
+    private func startOnIOQueue() {
         do {
-            listenerFileDescriptor = try Self.createListeningSocket(path: socketPath)
+            let listener = try Self.createListeningSocket(path: socketPath)
+            let shouldCloseListener = stateLock.withLock { () -> Bool in
+                if isClosed { return true }
+                listenerFileDescriptor = listener
+                return false
+            }
+            if shouldCloseListener {
+                Darwin.close(listener)
+                unlink(socketPath)
+                return
+            }
             try launchHelper()
             let request = VNCConnectRequest(
                 sessionName: session.name,
@@ -50,9 +68,7 @@ final class VNCPanelConnection {
                 username: credential.username,
                 password: credential.password
             )
-            ioQueue.async { [weak self] in
-                self?.acceptAndRead(connectRequest: request)
-            }
+            acceptAndRead(connectRequest: request)
         } catch {
             close()
             notifyMainExit(VNCPanelText.helperLaunchFailed(error.localizedDescription), shouldRestart: false)
@@ -63,7 +79,7 @@ final class VNCPanelConnection {
         guard !isCurrentlyClosed() else { return }
         do {
             let message = try VNCIPCCodec.encodeControl(control)
-            ioQueue.async { [weak self] in
+            writeQueue.async { [weak self] in
                 guard let fileDescriptor = self?.clientFileDescriptorForWrite() else { return }
                 Self.write(message, to: fileDescriptor)
             }
