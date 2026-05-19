@@ -202,7 +202,7 @@ extension CMUXCLI {
             guard let workspaceHandle, !workspaceHandle.isEmpty else {
                 throw CLIError(message: String(
                     localized: "cli.use.error.workspaceCreateMissingID",
-                    defaultValue: "workspace.create did not return workspace_id or workspace_ref"
+                    defaultValue: "Failed to open workspace"
                 ))
             }
             shouldRemoveLaunchScriptOnFailure = false
