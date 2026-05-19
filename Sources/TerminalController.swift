@@ -1658,6 +1658,54 @@ class TerminalController {
         }
     }
 
+    nonisolated func socketWorkerAsyncV2Response(
+        id: Any?,
+        jsonRPC: Bool,
+        timeoutSeconds: TimeInterval = 17 * 60,
+        _ work: @escaping @Sendable () async throws -> [String: Any]
+    ) -> String {
+        guard !Thread.isMainThread else {
+            return v2Error(
+                id: id,
+                jsonRPC: jsonRPC,
+                code: "invalid_dispatch",
+                message: CMUXSocketProtocol.invalidDispatchMessage
+            )
+        }
+
+        let semaphore = DispatchSemaphore(value: 0)
+        nonisolated(unsafe) var result: Result<[String: Any], Error>?
+        let task = Task {
+            do {
+                result = .success(try await work())
+            } catch {
+                result = .failure(error)
+            }
+            semaphore.signal()
+        }
+        if semaphore.wait(timeout: .now() + timeoutSeconds) == .timedOut {
+            task.cancel()
+            return v2Error(
+                id: id,
+                jsonRPC: jsonRPC,
+                code: "timeout",
+                message: "VM request timed out after \(Int(timeoutSeconds)) seconds"
+            )
+        }
+
+        switch result {
+        case .success(let payload):
+            return v2Ok(id: id, jsonRPC: jsonRPC, result: payload)
+        case .failure, nil:
+            return v2Error(
+                id: id,
+                jsonRPC: jsonRPC,
+                code: "vm_error",
+                message: "The VM request could not be completed."
+            )
+        }
+    }
+
     private nonisolated func socketWorkerV2Response(_ request: V2SocketRequest) -> String {
         switch request.method {
         case "auth.status":
@@ -1699,27 +1747,27 @@ class TerminalController {
         case "feed.exit_plan.reply":
             return v2Result(id: request.id, jsonRPC: request.usesJSONRPC, v2FeedExitPlanReply(params: request.params))
         case "browser.profiles.list":
-            return v2VmCall(id: request.id, jsonRPC: request.usesJSONRPC, timeoutSeconds: 30) {
+            return socketWorkerAsyncV2Response(id: request.id, jsonRPC: request.usesJSONRPC, timeoutSeconds: 30) {
                 try await BrowserProfileAutomation.list(params: request.params)
             }
         case "browser.profiles.create":
-            return v2VmCall(id: request.id, jsonRPC: request.usesJSONRPC, timeoutSeconds: 30) {
+            return socketWorkerAsyncV2Response(id: request.id, jsonRPC: request.usesJSONRPC, timeoutSeconds: 30) {
                 try await BrowserProfileAutomation.create(params: request.params)
             }
         case "browser.profiles.rename":
-            return v2VmCall(id: request.id, jsonRPC: request.usesJSONRPC, timeoutSeconds: 30) {
+            return socketWorkerAsyncV2Response(id: request.id, jsonRPC: request.usesJSONRPC, timeoutSeconds: 30) {
                 try await BrowserProfileAutomation.rename(params: request.params)
             }
         case "browser.profiles.clear":
-            return v2VmCall(id: request.id, jsonRPC: request.usesJSONRPC, timeoutSeconds: 120) {
+            return socketWorkerAsyncV2Response(id: request.id, jsonRPC: request.usesJSONRPC, timeoutSeconds: 120) {
                 try await BrowserProfileAutomation.clear(params: request.params)
             }
         case "browser.profiles.delete":
-            return v2VmCall(id: request.id, jsonRPC: request.usesJSONRPC, timeoutSeconds: 120) {
+            return socketWorkerAsyncV2Response(id: request.id, jsonRPC: request.usesJSONRPC, timeoutSeconds: 120) {
                 try await BrowserProfileAutomation.delete(params: request.params)
             }
         case "browser.import.cookies":
-            return v2VmCall(id: request.id, jsonRPC: request.usesJSONRPC, timeoutSeconds: 10 * 60) {
+            return socketWorkerAsyncV2Response(id: request.id, jsonRPC: request.usesJSONRPC, timeoutSeconds: 10 * 60) {
                 let outcome = try await BrowserImportAutomation.importCookies(params: request.params)
                 return outcome.socketPayload
             }
@@ -2211,7 +2259,7 @@ class TerminalController {
         case .request(let request):
             return CMUXSocketProtocol.shouldWriteResponse(for: request)
         case .response, nil:
-            return CMUXSocketProtocol.shouldWriteResponse(for: command)
+            return true
         }
     }
 

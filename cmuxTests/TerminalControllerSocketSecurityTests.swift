@@ -15,6 +15,31 @@ final class TerminalControllerSocketSecurityTests: XCTestCase {
             .path
     }
 
+    private func retainedEvent(named name: String, source: String) -> [String: Any]? {
+        CmuxEventBus.shared.retainedSnapshot().last {
+            ($0["name"] as? String) == name &&
+                ($0["source"] as? String) == source
+        }
+    }
+
+    private func waitForRetainedEvent(
+        named name: String,
+        source: String,
+        timeout: TimeInterval = 1.0
+    ) async throws -> [String: Any] {
+        let deadline = Date.now.addingTimeInterval(timeout)
+        while Date.now < deadline {
+            if let event = retainedEvent(named: name, source: source) {
+                return event
+            }
+            try await Task.sleep(nanoseconds: 25_000_000)
+        }
+        return try XCTUnwrap(
+            retainedEvent(named: name, source: source),
+            "Timed out waiting for retained event \(name) from \(source)"
+        )
+    }
+
     override func setUp() {
         super.setUp()
         TerminalController.shared.stop()
@@ -142,7 +167,10 @@ final class TerminalControllerSocketSecurityTests: XCTestCase {
             to: socketPath
         )
 
-        let event = try XCTUnwrap(CmuxEventBus.shared.retainedSnapshot().last)
+        let event = try await waitForRetainedEvent(
+            named: "app.focus_override.changed",
+            source: "socket.v2"
+        )
         XCTAssertEqual(event["name"] as? String, "app.focus_override.changed")
         XCTAssertEqual(event["category"] as? String, "app")
         XCTAssertEqual(event["source"] as? String, "socket.v2")

@@ -1,22 +1,5 @@
 import Foundation
 
-nonisolated private final class VMCallResultBox: @unchecked Sendable {
-    private let lock = NSLock()
-    private var storage: Result<[String: Any], Error>?
-
-    func set(_ result: Result<[String: Any], Error>) {
-        lock.lock()
-        storage = result
-        lock.unlock()
-    }
-
-    func get() -> Result<[String: Any], Error>? {
-        lock.lock()
-        defer { lock.unlock() }
-        return storage
-    }
-}
-
 nonisolated public enum SocketCommandExecutionPolicy: Equatable {
     case mainActor
     case socketWorker
@@ -435,60 +418,6 @@ nonisolated public enum CMUXSocketProtocol {
         }
     }
 
-    fileprivate static func vmCall(
-        id: Any?,
-        jsonRPC: Bool,
-        timeoutSeconds: TimeInterval = 17 * 60,
-        _ work: @escaping @Sendable () async throws -> [String: Any]
-    ) -> String {
-        guard !Thread.isMainThread else {
-            return error(
-                id: id,
-                jsonRPC: jsonRPC,
-                code: "invalid_dispatch",
-                message: invalidDispatchMessage
-            )
-        }
-
-        let semaphore = DispatchSemaphore(value: 0)
-        let resultBox = VMCallResultBox()
-        let task = Task {
-            do {
-                resultBox.set(.success(try await work()))
-            } catch {
-                resultBox.set(.failure(error))
-            }
-            semaphore.signal()
-        }
-        if semaphore.wait(timeout: .now() + timeoutSeconds) == .timedOut {
-            task.cancel()
-            return error(
-                id: id,
-                jsonRPC: jsonRPC,
-                code: "timeout",
-                message: "VM request timed out after \(Int(timeoutSeconds)) seconds"
-            )
-        }
-        switch resultBox.get() {
-        case .success(let payload):
-            return ok(id: id, jsonRPC: jsonRPC, result: payload)
-        case .failure:
-            return error(
-                id: id,
-                jsonRPC: jsonRPC,
-                code: "vm_error",
-                message: "The VM request could not be completed."
-            )
-        case nil:
-            return error(
-                id: id,
-                jsonRPC: jsonRPC,
-                code: "vm_error",
-                message: "The VM request could not be completed."
-            )
-        }
-    }
-
     public static func eventStreamFrame(_ object: [String: Any], responseId: Any?) -> [String: Any] {
         if object["type"] as? String == "ack" {
             return [
@@ -533,15 +462,4 @@ nonisolated public func v2Error(id: Any?, jsonRPC: Bool, code: String, message: 
 
 nonisolated public func v2Result(id: Any?, jsonRPC: Bool, _ result: V2CallResult) -> String {
     CMUXSocketProtocol.result(id: id, jsonRPC: jsonRPC, result)
-}
-
-/// Blocking bridge for the existing synchronous socket-worker dispatch path.
-/// Do not call from main-actor socket handlers.
-nonisolated public func v2VmCall(
-    id: Any?,
-    jsonRPC: Bool,
-    timeoutSeconds: TimeInterval = 17 * 60,
-    _ work: @escaping @Sendable () async throws -> [String: Any]
-) -> String {
-    CMUXSocketProtocol.vmCall(id: id, jsonRPC: jsonRPC, timeoutSeconds: timeoutSeconds, work)
 }
