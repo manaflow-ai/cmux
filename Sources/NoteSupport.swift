@@ -87,6 +87,19 @@ enum NoteSupport {
             .appendingPathComponent("\(slug).md")
     }
 
+    /// Returns true only when the note path exists as a regular file. Directories,
+    /// symlinks, and other special files are not note files.
+    static func noteFileExists(forSlug slug: String, projectRoot: String) throws -> Bool {
+        let path = notePath(forSlug: try validateSlug(slug), projectRoot: projectRoot)
+        let fs = FileManager.default
+        guard fs.fileExists(atPath: path) else { return false }
+        guard isRegularFile(atPath: path) else {
+            guard fs.fileExists(atPath: path) else { return false }
+            throw NoteError.notRegularFile
+        }
+        return true
+    }
+
     /// If `path` looks like a note (lives under `<root>/.cmux/notes/`), return
     /// the validated slug. Otherwise nil.
     static func slug(forNotePath path: String) -> String? {
@@ -107,15 +120,31 @@ enum NoteSupport {
     static func ensureNoteFile(slug: String, projectRoot: String) throws -> String {
         let validatedSlug = try validateSlug(slug)
         let dir = notesDirectory(forProjectRoot: projectRoot)
-        try FileManager.default.createDirectory(
+        let fs = FileManager.default
+        try fs.createDirectory(
             atPath: dir,
             withIntermediateDirectories: true,
             attributes: nil
         )
         let path = (dir as NSString).appendingPathComponent("\(validatedSlug).md")
-        if !FileManager.default.fileExists(atPath: path) {
-            let created = FileManager.default.createFile(atPath: path, contents: Data(), attributes: nil)
-            guard created || FileManager.default.fileExists(atPath: path) else {
+        if fs.fileExists(atPath: path) {
+            if isRegularFile(atPath: path) {
+                return path
+            }
+            guard fs.fileExists(atPath: path) else {
+                let created = fs.createFile(atPath: path, contents: Data(), attributes: nil)
+                guard created || isRegularFile(atPath: path) else {
+                    throw CocoaError(.fileWriteUnknown, userInfo: [NSFilePathErrorKey: path])
+                }
+                return path
+            }
+            throw NoteError.notRegularFile
+        } else {
+            let created = fs.createFile(atPath: path, contents: Data(), attributes: nil)
+            guard created || isRegularFile(atPath: path) else {
+                if fs.fileExists(atPath: path) {
+                    throw NoteError.notRegularFile
+                }
                 throw CocoaError(.fileWriteUnknown, userInfo: [NSFilePathErrorKey: path])
             }
         }
@@ -137,7 +166,7 @@ enum NoteSupport {
         let fs = FileManager.default
         guard let entries = try? fs.contentsOfDirectory(
             at: URL(fileURLWithPath: dir),
-            includingPropertiesForKeys: [.fileSizeKey, .contentModificationDateKey],
+            includingPropertiesForKeys: [.isRegularFileKey, .fileSizeKey, .contentModificationDateKey],
             options: [.skipsHiddenFiles, .skipsSubdirectoryDescendants]
         ) else {
             return []
@@ -146,10 +175,15 @@ enum NoteSupport {
         for url in entries {
             let path = url.path
             guard path.hasSuffix(".md") else { continue }
+            let values = try? url.resourceValues(forKeys: [
+                .isRegularFileKey,
+                .fileSizeKey,
+                .contentModificationDateKey
+            ])
+            guard values?.isRegularFile == true else { continue }
             let filename = (path as NSString).lastPathComponent
             let slug = String(filename.dropLast(3))
             guard (try? validateSlug(slug)) != nil else { continue }
-            let values = try? url.resourceValues(forKeys: [.fileSizeKey, .contentModificationDateKey])
             notes.append(NoteListEntry(
                 slug: slug,
                 path: path,
@@ -168,6 +202,10 @@ enum NoteSupport {
         let path = notePath(forSlug: try validateSlug(slug), projectRoot: projectRoot)
         let fs = FileManager.default
         guard fs.fileExists(atPath: path) else { return false }
+        guard isRegularFile(atPath: path) else {
+            guard fs.fileExists(atPath: path) else { return false }
+            throw NoteError.notRegularFile
+        }
         do {
             try fs.removeItem(atPath: path)
             return true
@@ -180,13 +218,25 @@ enum NoteSupport {
         }
     }
 
-    enum NoteError: Error, CustomStringConvertible {
+    private static func isRegularFile(atPath path: String) -> Bool {
+        let url = URL(fileURLWithPath: path)
+        guard let values = try? url.resourceValues(forKeys: [.isRegularFileKey]) else {
+            return false
+        }
+        return values.isRegularFile == true
+    }
+
+    enum NoteError: Error, CustomStringConvertible, LocalizedError {
         case invalidSlug(String)
+        case notRegularFile
 
         var description: String {
             switch self {
             case .invalidSlug(let reason): return "Invalid note slug: \(reason)"
+            case .notRegularFile: return "Note path is not a regular file"
             }
         }
+
+        var errorDescription: String? { description }
     }
 }

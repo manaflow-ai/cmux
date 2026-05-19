@@ -11,7 +11,7 @@ extension TerminalController {
             do {
                 slug = try NoteSupport.validateSlug(providedSlug)
             } catch {
-                return .err(code: "invalid_params", message: String(describing: error), data: nil)
+                return .err(code: "invalid_params", message: error.localizedDescription, data: nil)
             }
         } else {
             slug = NoteSupport.autoSlug()
@@ -27,7 +27,7 @@ extension TerminalController {
         do {
             slug = try NoteSupport.validateSlug(rawSlug)
         } catch {
-            return .err(code: "invalid_params", message: String(describing: error), data: nil)
+            return .err(code: "invalid_params", message: error.localizedDescription, data: nil)
         }
         return v2NoteOpenSplit(slug: slug, params: params, createIfMissing: false)
     }
@@ -55,7 +55,22 @@ extension TerminalController {
 
             let projectRoot = ws.noteProjectRoot()
             let notePath = NoteSupport.notePath(forSlug: slug, projectRoot: projectRoot)
-            let fileExistedBeforeCall = FileManager.default.fileExists(atPath: notePath)
+            let fileExistedBeforeCall: Bool
+            do {
+                fileExistedBeforeCall = try NoteSupport.noteFileExists(forSlug: slug, projectRoot: projectRoot)
+            } catch {
+                result = .err(
+                    code: "io_error",
+                    message: error.localizedDescription,
+                    data: [
+                        "slug": slug,
+                        "path": notePath,
+                        "project_root": projectRoot,
+                        "error_description": error.localizedDescription
+                    ]
+                )
+                return
+            }
             if !createIfMissing {
                 guard fileExistedBeforeCall else {
                     result = .err(
@@ -198,26 +213,30 @@ extension TerminalController {
             return .err(code: "unavailable", message: "TabManager not available", data: nil)
         }
         var result: V2CallResult = .err(code: "internal_error", message: "Failed to list notes", data: nil)
+        var projectRoot: String?
         v2MainSync {
             guard let ws = v2ResolveWorkspace(params: params, tabManager: tabManager) else {
                 result = .err(code: "not_found", message: "Workspace not found", data: nil)
                 return
             }
-            let projectRoot = ws.noteProjectRoot()
-            let entries = NoteSupport.listNotes(forProjectRoot: projectRoot)
-            let payload: [[String: Any]] = entries.map { entry in
-                [
-                    "slug": entry.slug,
-                    "path": entry.path,
-                    "size_bytes": entry.sizeBytes,
-                    "mtime": entry.mtime.timeIntervalSince1970
-                ]
-            }
-            result = .ok([
-                "project_root": projectRoot,
-                "notes": payload
-            ])
+            projectRoot = ws.noteProjectRoot()
         }
+        guard let projectRoot else {
+            return result
+        }
+        let entries = NoteSupport.listNotes(forProjectRoot: projectRoot)
+        let payload: [[String: Any]] = entries.map { entry in
+            [
+                "slug": entry.slug,
+                "path": entry.path,
+                "size_bytes": entry.sizeBytes,
+                "mtime": entry.mtime.timeIntervalSince1970
+            ]
+        }
+        result = .ok([
+            "project_root": projectRoot,
+            "notes": payload
+        ])
         return result
     }
 
@@ -232,7 +251,7 @@ extension TerminalController {
         do {
             slug = try NoteSupport.validateSlug(rawSlug)
         } catch {
-            return .err(code: "invalid_params", message: String(describing: error), data: nil)
+            return .err(code: "invalid_params", message: error.localizedDescription, data: nil)
         }
         var result: V2CallResult = .err(code: "internal_error", message: "Failed to resolve note path", data: nil)
         v2MainSync {
@@ -242,10 +261,26 @@ extension TerminalController {
             }
             let projectRoot = ws.noteProjectRoot()
             let path = NoteSupport.notePath(forSlug: slug, projectRoot: projectRoot)
+            let exists: Bool
+            do {
+                exists = try NoteSupport.noteFileExists(forSlug: slug, projectRoot: projectRoot)
+            } catch {
+                result = .err(
+                    code: "io_error",
+                    message: error.localizedDescription,
+                    data: [
+                        "slug": slug,
+                        "path": path,
+                        "project_root": projectRoot,
+                        "error_description": error.localizedDescription
+                    ]
+                )
+                return
+            }
             result = .ok([
                 "slug": slug,
                 "path": path,
-                "exists": FileManager.default.fileExists(atPath: path),
+                "exists": exists,
                 "project_root": projectRoot
             ])
         }
@@ -263,7 +298,7 @@ extension TerminalController {
         do {
             slug = try NoteSupport.validateSlug(rawSlug)
         } catch {
-            return .err(code: "invalid_params", message: String(describing: error), data: nil)
+            return .err(code: "invalid_params", message: error.localizedDescription, data: nil)
         }
         var result: V2CallResult = .err(code: "internal_error", message: "Failed to delete note", data: nil)
         v2MainSync {

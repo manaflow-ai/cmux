@@ -261,6 +261,8 @@ extension Workspace {
         restoredAgentResumeStatesByPanelId.removeAll(keepingCapacity: false)
         invalidatedRestoredAgentFingerprintsByPanelId.removeAll(keepingCapacity: false)
         surfaceResumeBindingsByPanelId.removeAll(keepingCapacity: false)
+        sessionRestoreNoteProjectRoot = noteProjectRoot()
+        defer { sessionRestoreNoteProjectRoot = nil }
 
         let restoredRemoteConfiguration = snapshot.remote?.workspaceConfiguration()
         if let restoredRemoteConfiguration {
@@ -1026,9 +1028,9 @@ extension Workspace {
             let restorePath: String
             if let rawSlug = snapshotMarkdown.noteSlug,
                let slug = try? NoteSupport.validateSlug(rawSlug) {
-                let projectRootCandidate = noteProjectRoot()
+                let projectRootCandidate = sessionRestoreNoteProjectRoot ?? noteProjectRoot()
                 let resolved = NoteSupport.notePath(forSlug: slug, projectRoot: projectRootCandidate)
-                if FileManager.default.fileExists(atPath: resolved) {
+                if (try? NoteSupport.noteFileExists(forSlug: slug, projectRoot: projectRootCandidate)) == true {
                     restorePath = resolved
                 } else {
                     restorePath = snapshotMarkdown.filePath
@@ -7599,6 +7601,7 @@ final class Workspace: Identifiable, ObservableObject {
 #endif
     var restoredAgentSnapshotsByPanelId: [UUID: SessionRestorableAgentSnapshot] = [:]
     var surfaceResumeBindingsByPanelId: [UUID: SurfaceResumeBindingSnapshot] = [:]
+    private var sessionRestoreNoteProjectRoot: String?
     enum RestoredAgentResumeState: Equatable {
         case manualResumeAvailable
         case awaitingAutoResumeCommand
@@ -11148,20 +11151,36 @@ final class Workspace: Identifiable, ObservableObject {
         createIfMissing: Bool = true,
         focus: Bool? = nil
     ) -> MarkdownPanel? {
+        let validatedSlug: String
+        do {
+            validatedSlug = try NoteSupport.validateSlug(slug)
+        } catch {
+            workspaceLogger.error(
+                "Invalid note slug for config note slug=\(slug, privacy: .private) error=\(error.localizedDescription, privacy: .private)"
+            )
+            return nil
+        }
         let root = noteProjectRoot()
         let filePath: String
         if createIfMissing {
             do {
-                filePath = try NoteSupport.ensureNoteFile(slug: slug, projectRoot: root)
+                filePath = try NoteSupport.ensureNoteFile(slug: validatedSlug, projectRoot: root)
             } catch {
                 workspaceLogger.error(
-                    "Failed to create note file for config note slug=\(slug, privacy: .private) error=\(error.localizedDescription, privacy: .private)"
+                    "Failed to create note file for config note slug=\(validatedSlug, privacy: .private) error=\(error.localizedDescription, privacy: .private)"
                 )
                 return nil
             }
         } else {
-            let candidate = NoteSupport.notePath(forSlug: slug, projectRoot: root)
-            guard FileManager.default.fileExists(atPath: candidate) else { return nil }
+            let candidate = NoteSupport.notePath(forSlug: validatedSlug, projectRoot: root)
+            do {
+                guard try NoteSupport.noteFileExists(forSlug: validatedSlug, projectRoot: root) else { return nil }
+            } catch {
+                workspaceLogger.error(
+                    "Failed to resolve existing config note slug=\(validatedSlug, privacy: .private) error=\(error.localizedDescription, privacy: .private)"
+                )
+                return nil
+            }
             filePath = candidate
         }
         return openOrFocusMarkdownSurface(inPane: paneId, filePath: filePath, focus: focus ?? false)
