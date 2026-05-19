@@ -1134,11 +1134,9 @@ extension Workspace {
     ) {
         let rawBundlePath = bundlePath
         let roots = allowedRoots
-        Self.extensionBundleRestoreQueue.async { [weak self] in
+        Task.detached(priority: .userInitiated) { [weak self] in
             let outcome = Self.resolveTrustedExtensionBundle(path: rawBundlePath, allowedRoots: roots)
-            DispatchQueue.main.async { [weak self] in
-                self?.completeExtensionBundleRestore(panelId: panelId, outcome: outcome)
-            }
+            await self?.completeExtensionBundleRestore(panelId: panelId, outcome: outcome)
         }
     }
 
@@ -7528,11 +7526,6 @@ final class Workspace: Identifiable, ObservableObject {
 
     static let terminalScrollBarHiddenDidChangeNotification = Notification.Name(
         "cmux.workspaceTerminalScrollBarHiddenDidChange"
-    )
-    private static let extensionBundleRestoreQueue = DispatchQueue(
-        label: "com.cmux.extension-bundle-restore",
-        qos: .userInitiated,
-        attributes: .concurrent
     )
 
     let id: UUID
