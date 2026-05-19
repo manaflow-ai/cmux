@@ -1853,7 +1853,6 @@ private struct WorkspaceCanvasOverviewView<Content: View, EmptyContent: View>: V
     var body: some View {
         let scene = controller.canvasSceneSnapshot()
         let document = scene.document
-        let renderModes = Dictionary(uniqueKeysWithValues: scene.items.map { ($0.id, $0.renderMode) })
         let items = document.items.sorted { lhs, rhs in
             if lhs.zIndex != rhs.zIndex {
                 return lhs.zIndex < rhs.zIndex
@@ -1907,7 +1906,7 @@ private struct WorkspaceCanvasOverviewView<Content: View, EmptyContent: View>: V
                 .padding(.top, 10)
                 .padding(.bottom, 8)
 
-                canvasViewport(items, renderModes: renderModes)
+                canvasViewport(items, activeItemID: scene.activeItemID)
             }
         }
         .accessibilityIdentifier("WorkspaceCanvasOverview")
@@ -1979,7 +1978,7 @@ private struct WorkspaceCanvasOverviewView<Content: View, EmptyContent: View>: V
         .accessibilityLabel(label)
     }
 
-    private func canvasViewport(_ items: [CanvasItem], renderModes: [LayoutItemID: CanvasRenderMode]) -> some View {
+    private func canvasViewport(_ items: [CanvasItem], activeItemID: LayoutItemID?) -> some View {
         GeometryReader { proxy in
             let scale = freeformScale
             let renderedItems = items.map { item in
@@ -1992,6 +1991,12 @@ private struct WorkspaceCanvasOverviewView<Content: View, EmptyContent: View>: V
                 }
                 return renderedItem
             }
+            let renderModes = canvasRenderModes(
+                for: renderedItems,
+                viewportSize: proxy.size,
+                scale: scale,
+                activeItemID: activeItemID
+            )
             let documentBounds = CanvasGeometryEngine.visibleDocumentRect(
                 viewport: controller.canvasViewport,
                 viewportSize: proxy.size,
@@ -2130,6 +2135,64 @@ private struct WorkspaceCanvasOverviewView<Content: View, EmptyContent: View>: V
             }
             .coordinateSpace(name: workspaceCanvasFreeformCoordinateSpace)
             .clipped()
+        }
+    }
+
+    private func canvasRenderModes(
+        for items: [CanvasItem],
+        viewportSize: CGSize,
+        scale: CGFloat,
+        activeItemID: LayoutItemID?
+    ) -> [LayoutItemID: CanvasRenderMode] {
+        let surfaceDescriptors = items.map { item in
+            CanvasSurfaceDescriptor(
+                id: item.id,
+                kind: canvasSurfaceKind(for: item),
+                frame: item.frame,
+                zIndex: item.zIndex,
+                isFocused: controller.focusedCanvasItemID == item.id,
+                renderMode: .nativeOverlay
+            )
+        }
+        let scene = CanvasScene(
+            viewport: controller.canvasViewport,
+            viewportSize: viewportSize,
+            scale: scale,
+            padding: canvasPadding,
+            grid: .freeformDefault,
+            surfaces: surfaceDescriptors
+        )
+        let plan = NativeSurfaceOverlayManager(
+            configuration: CanvasNativeOverlayConfiguration(
+                minimumNativeScale: 0.99,
+                activeSurfaceID: activeItemID
+            )
+        ).plan(scene: scene)
+        let nativeItemIDs = Set(plan.nativeOverlays.map(\.id))
+        let textureItemIDs = Set(plan.textureSurfaces.map(\.id))
+
+        return Dictionary(uniqueKeysWithValues: items.map { item in
+            if nativeItemIDs.contains(item.id) {
+                return (item.id, .liveNative1x)
+            }
+            if textureItemIDs.contains(item.id) {
+                return (item.id, .previewTexture)
+            }
+            return (item.id, .unmounted)
+        })
+    }
+
+    private func canvasSurfaceKind(for item: CanvasItem) -> CanvasSurfaceKind {
+        guard let selected = selectedTab(for: item) else {
+            return .generic
+        }
+        switch selected.kind {
+        case "terminal":
+            return .terminal
+        case "browser":
+            return .browser
+        default:
+            return .generic
         }
     }
 
