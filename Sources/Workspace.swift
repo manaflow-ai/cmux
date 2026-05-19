@@ -8307,6 +8307,12 @@ final class Workspace: Identifiable, ObservableObject {
 
     // MARK: - Panel Access
 
+    private static func workspace(for workspaceId: UUID) -> Workspace? {
+        AppDelegate.shared?.tabManagerFor(tabId: workspaceId)?
+            .tabs
+            .first(where: { $0.id == workspaceId })
+    }
+
     func panel(for surfaceId: TabID) -> (any Panel)? {
         guard let panelId = panelIdFromSurfaceId(surfaceId) else { return nil }
         return panels[panelId]
@@ -11708,6 +11714,11 @@ final class Workspace: Identifiable, ObservableObject {
         if let terminalPanel = detached.panel as? TerminalPanel {
             terminalPanel.updateWorkspaceId(id)
         } else if let browserPanel = detached.panel as? BrowserPanel {
+            if detached.sourceWorkspaceId != id,
+               let sourceWorkspace = Self.workspace(for: detached.sourceWorkspaceId),
+               sourceWorkspace !== self {
+                sourceWorkspace.releaseDockBrowserPanel(browserPanel, closePanel: false)
+            }
             adoptedDockBrowserPanels.removeValue(forKey: browserPanel.id)
             browserPanel.reattachToWorkspace(
                 id,
