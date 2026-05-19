@@ -9479,12 +9479,10 @@ class TerminalController {
                 0,
                 { _ in
                     lock.lock()
-                    guard !resolved else {
-                        lock.unlock()
-                        return
+                    if !resolved {
+                        resolved = true
+                        timedOut = true
                     }
-                    resolved = true
-                    timedOut = true
                     lock.unlock()
                     CFRunLoopStop(runLoop)
                 }
