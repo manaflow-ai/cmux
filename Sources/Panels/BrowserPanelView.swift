@@ -5319,13 +5319,14 @@ struct WebViewRepresentable: NSViewRepresentable {
         func pinHostedWebView(_ webView: WKWebView, in container: NSView) {
             guard webView.superview === container || webView.isDescendant(of: container) else { return }
 
-            let hasCompanionWKSubviews = Self.hasWebKitCompanionSubview(
-                in: container,
-                primaryWebView: webView
-            )
+            let hasVisibleInspectorCompanion = BrowserWebInspectorCompanionDetector
+                .containsVisibleInspectorCompanion(
+                    in: container,
+                    primaryWebView: webView
+                )
             let needsPlainWebViewFrameReset =
                 webView.superview === container &&
-                !hasCompanionWKSubviews &&
+                !hasVisibleInspectorCompanion &&
                 Self.frameDiffersFromBounds(webView.frame, bounds: container.bounds)
             let needsFrameHosting =
                 hostedWebView !== webView ||
@@ -5348,7 +5349,7 @@ struct WebViewRepresentable: NSViewRepresentable {
             // preserve WebKit-managed split frames when docked DevTools siblings exist.
             webView.translatesAutoresizingMaskIntoConstraints = true
             webView.autoresizingMask = [.width, .height]
-            if webView.superview === container && !hasCompanionWKSubviews {
+            if webView.superview === container && !hasVisibleInspectorCompanion {
                 webView.frame = container.bounds
             }
             needsLayout = true
@@ -5360,28 +5361,6 @@ struct WebViewRepresentable: NSViewRepresentable {
                 abs(frame.minY - bounds.minY) > epsilon ||
                 abs(frame.width - bounds.width) > epsilon ||
                 abs(frame.height - bounds.height) > epsilon
-        }
-
-        private static func hasWebKitCompanionSubview(in host: NSView, primaryWebView: WKWebView) -> Bool {
-            var stack = host.subviews.filter { $0 !== primaryWebView }
-            while let current = stack.popLast() {
-                if current.isDescendant(of: primaryWebView) {
-                    continue
-                }
-                if current.isHidden || current.alphaValue <= 0 {
-                    continue
-                }
-                if String(describing: type(of: current)).contains("WK") {
-                    let width = max(current.frame.width, current.bounds.width)
-                    let height = max(current.frame.height, current.bounds.height)
-                    if width > 1, height > 1 {
-                        return true
-                    }
-                    continue
-                }
-                stack.append(contentsOf: current.subviews)
-            }
-            return false
         }
 
         private func ensureHostedInspectorSideDockContainerView() -> HostedInspectorSideDockContainerView {

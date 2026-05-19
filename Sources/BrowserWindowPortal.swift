@@ -1466,6 +1466,32 @@ enum BrowserPaneDropRouting {
     }
 }
 
+enum BrowserWebInspectorCompanionDetector {
+    static func containsVisibleInspectorCompanion(in host: NSView, primaryWebView: WKWebView) -> Bool {
+        var stack = host.subviews.filter { $0 !== primaryWebView }
+        while let current = stack.popLast() {
+            if current.isDescendant(of: primaryWebView) {
+                continue
+            }
+            guard isVisibleCompanionCandidate(current) else {
+                continue
+            }
+            if cmuxIsWebInspectorObject(current) {
+                return true
+            }
+            stack.append(contentsOf: current.subviews)
+        }
+        return false
+    }
+
+    private static func isVisibleCompanionCandidate(_ view: NSView) -> Bool {
+        guard !view.isHidden, view.alphaValue > 0 else { return false }
+        let width = max(view.frame.width, view.bounds.width)
+        let height = max(view.frame.height, view.bounds.height)
+        return width > 1 && height > 1
+    }
+}
+
 final class WindowBrowserSlotView: NSView {
     override var isOpaque: Bool { false }
     override var isHidden: Bool {
@@ -1811,9 +1837,10 @@ final class WindowBrowserSlotView: NSView {
     func pinHostedWebView(_ webView: WKWebView) {
         guard webView.superview === self else { return }
 
-        let hasCompanionWKSubviews = Self.hasWebKitCompanionSubview(in: self, primaryWebView: webView)
+        let hasVisibleInspectorCompanion = BrowserWebInspectorCompanionDetector
+            .containsVisibleInspectorCompanion(in: self, primaryWebView: webView)
         let needsPlainWebViewFrameReset =
-            !hasCompanionWKSubviews &&
+            !hasVisibleInspectorCompanion &&
             Self.frameDiffersFromBounds(webView.frame, bounds: bounds)
         let needsFrameHosting =
             hostedWebView !== webView ||
@@ -1835,7 +1862,7 @@ final class WindowBrowserSlotView: NSView {
         // WebKit-managed split frame when docked DevTools siblings are present.
         webView.translatesAutoresizingMaskIntoConstraints = true
         webView.autoresizingMask = [.width, .height]
-        if !hasCompanionWKSubviews {
+        if !hasVisibleInspectorCompanion {
             webView.frame = bounds
         }
         needsLayout = true
@@ -1847,28 +1874,6 @@ final class WindowBrowserSlotView: NSView {
             abs(frame.minY - bounds.minY) > epsilon ||
             abs(frame.width - bounds.width) > epsilon ||
             abs(frame.height - bounds.height) > epsilon
-    }
-
-    private static func hasWebKitCompanionSubview(in host: NSView, primaryWebView: WKWebView) -> Bool {
-        var stack = host.subviews.filter { $0 !== primaryWebView }
-        while let current = stack.popLast() {
-            if current.isDescendant(of: primaryWebView) {
-                continue
-            }
-            if current.isHidden || current.alphaValue <= 0 {
-                continue
-            }
-            if String(describing: type(of: current)).contains("WK") {
-                let width = max(current.frame.width, current.bounds.width)
-                let height = max(current.frame.height, current.bounds.height)
-                if width > 1, height > 1 {
-                    return true
-                }
-                continue
-            }
-            stack.append(contentsOf: current.subviews)
-        }
-        return false
     }
 
     func effectivePaneTopChromeHeight() -> CGFloat {
