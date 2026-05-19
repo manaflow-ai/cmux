@@ -3023,6 +3023,80 @@ final class CLINotifyProcessIntegrationTests: XCTestCase {
         )
     }
 
+    func testCodexHookMonitorSetsIdleStatusFromHealthyTerminalCompletionWithoutStopHook() throws {
+        let cliPath = try bundledCLIPath()
+        let socketPath = makeSocketPath("codex")
+        let listenerFD = try bindUnixSocket(at: socketPath)
+        let state = MockSocketServerState()
+        let root = FileManager.default.temporaryDirectory
+            .appendingPathComponent("cmux-codex-monitor-\(UUID().uuidString)", isDirectory: true)
+        let workspaceId = "11111111-1111-1111-1111-111111111111"
+        let surfaceId = "22222222-2222-2222-2222-222222222222"
+        let sessionId = "codex-session-monitor-healthy"
+        let turnId = "turn-monitor-healthy"
+
+        try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
+        defer {
+            Darwin.close(listenerFD)
+            unlink(socketPath)
+            try? FileManager.default.removeItem(at: root)
+        }
+
+        let transcriptURL = root.appendingPathComponent("rollout-\(sessionId).jsonl")
+        try """
+        {"timestamp":"2026-04-25T07:55:29.462Z","type":"session_meta","payload":{"id":"\(sessionId)","cwd":"\(root.path)"}}
+        {"timestamp":"2026-04-25T07:55:29.500Z","type":"event_msg","payload":{"type":"task_started","turn_id":"\(turnId)","started_at":1777107522}}
+        {"timestamp":"2026-04-25T07:55:29.600Z","type":"response_item","payload":{"type":"message","role":"assistant","content":[{"type":"output_text","text":"Done"}]}}
+        {"timestamp":"2026-04-25T07:55:29.804Z","type":"event_msg","payload":{"type":"task_complete","turn_id":"\(turnId)","last_agent_message":"Done"}}
+        """.write(to: transcriptURL, atomically: true, encoding: .utf8)
+
+        startMockServerAccepting(listenerFD: listenerFD, state: state, connectionLimit: 4) { line in
+            if let data = line.data(using: .utf8),
+               let payload = try? JSONSerialization.jsonObject(with: data, options: []) as? [String: Any],
+               let id = payload["id"] as? String {
+                return self.v2Response(id: id, ok: true, result: ["surfaces": [["id": surfaceId, "ref": surfaceId]]])
+            }
+            return "OK"
+        }
+
+        var environment = ProcessInfo.processInfo.environment
+        environment["CMUX_SOCKET_PATH"] = socketPath
+        environment["CMUX_AGENT_HOOK_STATE_DIR"] = root.path
+        environment["CMUX_CLI_SENTRY_DISABLED"] = "1"
+
+        let result = runProcess(
+            executablePath: cliPath,
+            arguments: [
+                "hooks", "codex", "monitor",
+                "--workspace",
+                workspaceId,
+                "--surface",
+                surfaceId,
+                "--session",
+                sessionId,
+                "--turn",
+                turnId,
+                "--transcript",
+                transcriptURL.path,
+            ],
+            environment: environment,
+            timeout: 5
+        )
+
+        XCTAssertFalse(result.timedOut, result.stderr)
+        XCTAssertEqual(result.status, 0, result.stderr)
+        XCTAssertEqual(result.stdout, "")
+        XCTAssertTrue(
+            state.commands.contains { command in
+                command.contains("set_status codex Idle") &&
+                    command.contains("--icon=pause.circle.fill") &&
+                    command.contains("--color=#8E8E93") &&
+                    command.contains("--tab=\(workspaceId)")
+            },
+            "Expected monitor to clear Running when a Codex turn completes without Stop, saw \(state.commands)"
+        )
+    }
+
     func testCodexHookMonitorReportsExplicitErrorBeforeTerminalCompletion() throws {
         let cliPath = try bundledCLIPath()
         let socketPath = makeSocketPath("codex")
