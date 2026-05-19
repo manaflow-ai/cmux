@@ -7,6 +7,7 @@ import WebKit
 import ObjectiveC.runtime
 import Bonsplit
 import UserNotifications
+import Network
 
 #if canImport(cmux_DEV)
 @testable import cmux_DEV
@@ -2438,6 +2439,137 @@ final class BrowserJavaScriptDialogDelegateTests: XCTestCase {
 
 @MainActor
 final class BrowserSessionHistoryRestoreTests: XCTestCase {
+    private final class ProvisionalNavigationRaceServer {
+        enum ServerError: Error {
+            case listenerDidNotBecomeReady
+            case listenerPortUnavailable
+        }
+
+        private let listener: NWListener
+        private let queue = DispatchQueue(label: "cmux.browser.provisional-navigation-race-server")
+        private let lock = NSLock()
+        private var heldBConnections: [NWConnection] = []
+        private var receivedBRequest = false
+        private(set) var port: UInt16 = 0
+
+        init() throws {
+            let parameters = NWParameters.tcp
+            parameters.requiredLocalEndpoint = .hostPort(
+                host: NWEndpoint.Host("127.0.0.1"),
+                port: .any
+            )
+            listener = try NWListener(using: parameters)
+
+            let ready = DispatchSemaphore(value: 0)
+            listener.stateUpdateHandler = { state in
+                if case .ready = state {
+                    ready.signal()
+                }
+            }
+            listener.newConnectionHandler = { [weak self] connection in
+                self?.handle(connection)
+            }
+            listener.start(queue: queue)
+
+            guard ready.wait(timeout: .now() + 2.0) == .success else {
+                throw ServerError.listenerDidNotBecomeReady
+            }
+            guard let port = listener.port?.rawValue else {
+                throw ServerError.listenerPortUnavailable
+            }
+            self.port = port
+        }
+
+        var didReceiveBRequest: Bool {
+            lock.lock()
+            defer { lock.unlock() }
+            return receivedBRequest
+        }
+
+        func url(path: String) -> URL {
+            URL(string: "http://127.0.0.1:\(port)\(path)")!
+        }
+
+        func releaseHeldBResponses() {
+            let connections: [NWConnection]
+            lock.lock()
+            connections = heldBConnections
+            heldBConnections.removeAll()
+            lock.unlock()
+
+            for connection in connections {
+                sendPage("B", on: connection)
+            }
+        }
+
+        func stop() {
+            listener.cancel()
+            releaseHeldBResponses()
+        }
+
+        private func handle(_ connection: NWConnection) {
+            connection.start(queue: queue)
+            receiveRequest(on: connection)
+        }
+
+        private func receiveRequest(on connection: NWConnection, buffer: Data = Data()) {
+            connection.receive(minimumIncompleteLength: 1, maximumLength: 4096) { [weak self] data, _, _, error in
+                guard let self else { return }
+                if error != nil {
+                    connection.cancel()
+                    return
+                }
+
+                var nextBuffer = buffer
+                if let data {
+                    nextBuffer.append(data)
+                }
+
+                guard let requestText = String(data: nextBuffer, encoding: .utf8),
+                      requestText.contains("\r\n\r\n") else {
+                    self.receiveRequest(on: connection, buffer: nextBuffer)
+                    return
+                }
+
+                let requestLine = requestText.split(separator: "\r\n", maxSplits: 1).first ?? ""
+                let path = requestLine.split(separator: " ").dropFirst().first.map(String.init) ?? "/"
+                if path == "/b" {
+                    self.lock.lock()
+                    self.receivedBRequest = true
+                    self.heldBConnections.append(connection)
+                    self.lock.unlock()
+                    return
+                }
+
+                self.sendPage("A", on: connection)
+            }
+        }
+
+        private func sendPage(_ marker: String, on connection: NWConnection) {
+            let body = """
+            <!doctype html>
+            <html>
+            <head><title>Race \(marker)</title></head>
+            <body>
+            <script>window.__cmuxRacePage = "\(marker)";</script>
+            <main id="page">Race \(marker)</main>
+            </body>
+            </html>
+            """
+            let response = """
+            HTTP/1.1 200 OK\r
+            Content-Type: text/html; charset=utf-8\r
+            Content-Length: \(body.utf8.count)\r
+            Connection: close\r
+            \r
+            \(body)
+            """
+            connection.send(content: Data(response.utf8), completion: .contentProcessed { _ in
+                connection.cancel()
+            })
+        }
+    }
+
     private func writeBrowserFixturePage(
         at url: URL,
         title: String,
@@ -2457,6 +2589,26 @@ final class BrowserSessionHistoryRestoreTests: XCTestCase {
             XCTFail("Failed to write browser fixture page: \(error)", file: file, line: line)
             throw error
         }
+    }
+
+    @discardableResult
+    private func waitUntil(
+        _ description: String,
+        timeout: TimeInterval = 5.0,
+        file: StaticString = #filePath,
+        line: UInt = #line,
+        predicate: () -> Bool
+    ) -> Bool {
+        let deadline = Date().addingTimeInterval(timeout)
+        while Date() < deadline {
+            if predicate() {
+                return true
+            }
+            RunLoop.current.run(mode: .default, before: Date().addingTimeInterval(0.01))
+        }
+
+        XCTFail("Timed out waiting for \(description)", file: file, line: line)
+        return false
     }
 
     private func waitForBrowserPanel(
@@ -2583,6 +2735,65 @@ final class BrowserSessionHistoryRestoreTests: XCTestCase {
 
         panel.goBack()
         waitForBrowserPanel(panel, url: pageA)
+    }
+
+    func testBackDuringProvisionalNavigationDoesNotDesyncPublishedURLFromRenderedPage() throws {
+        let server = try ProvisionalNavigationRaceServer()
+        defer { server.stop() }
+
+        let pageA = server.url(path: "/a")
+        let pageB = server.url(path: "/b")
+        let panel = BrowserPanel(workspaceId: UUID(), initialURL: pageA)
+        defer { panel.close() }
+
+        waitForBrowserPanel(panel, url: pageA)
+        XCTAssertEqual(panel.pageTitle, "Race A")
+
+        panel.navigate(to: pageB)
+        waitUntil("server to receive provisional page B request") {
+            server.didReceiveBRequest
+        }
+        waitUntil("browser back availability during provisional page B navigation") {
+            panel.canGoBack && panel.webView.isLoading
+        }
+
+        panel.goBack()
+        waitUntil("published URL to remain or return to page A before page B commits") {
+            panel.currentURL?.path == pageA.path
+        }
+
+        server.releaseHeldBResponses()
+        waitUntil("browser navigation to settle after racing back against page B") {
+            !panel.webView.isLoading && (panel.pageTitle == "Race A" || panel.pageTitle == "Race B")
+        }
+
+        let renderedMarker: String
+        switch panel.pageTitle {
+        case "Race A":
+            renderedMarker = "A"
+        case "Race B":
+            renderedMarker = "B"
+        default:
+            XCTFail("Unexpected rendered page title after navigation race: \(panel.pageTitle)")
+            return
+        }
+        let publishedURL = try XCTUnwrap(panel.currentURL)
+        let expectedMarker: String
+        switch publishedURL.path {
+        case pageA.path:
+            expectedMarker = "A"
+        case pageB.path:
+            expectedMarker = "B"
+        default:
+            XCTFail("Unexpected published URL after navigation race: \(publishedURL.absoluteString)")
+            return
+        }
+
+        XCTAssertEqual(
+            renderedMarker,
+            expectedMarker,
+            "Published URL \(publishedURL.absoluteString) disagrees with rendered page marker \(renderedMarker)"
+        )
     }
 
     func testWebViewReplacementAfterProcessTerminationUpdatesInstanceIdentity() {
