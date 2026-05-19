@@ -110,7 +110,10 @@ extension TerminalController {
             return CmuxEventScope(
                 kind: .window,
                 windowId: windowId.uuidString,
-                windowWorkspaceIds: eventWorkspaceIds(windowId: windowId)
+                windowWorkspaceIds: eventWorkspaceIds(windowId: windowId),
+                currentWindowWorkspaceIdsProvider: { [weak self] in
+                    self?.eventWorkspaceIds(windowId: windowId) ?? []
+                }
             )
         case .workspace:
             guard let workspaceId = try resolveEventsWorkspaceId(params: params) else {
@@ -192,7 +195,15 @@ extension TerminalController {
             }
             return workspaceId
         }
+        if Self.hasNonNullParam(params, "surface_id") || Self.hasNonNullParam(params, "tab_id") {
+            guard let surfaceId = try resolveEventsSurfaceId(params: params) else { return nil }
+            return eventWorkspaceId(surfaceId: surfaceId)
+        }
         if let callerWorkspaceId = eventCallerUUID(params: params, key: "workspace_id") { return callerWorkspaceId }
+        if let callerSurfaceId = eventCallerUUID(params: params, key: "surface_id") ??
+            eventCallerUUID(params: params, key: "tab_id") {
+            return eventWorkspaceId(surfaceId: callerSurfaceId)
+        }
         return eventFocusedContext(params: params).workspaceId
     }
 
@@ -288,6 +299,10 @@ extension TerminalController {
             guard let tabManager = AppDelegate.shared?.tabManagerFor(tabId: workspaceId) else { return nil }
             return AppDelegate.shared?.windowId(for: tabManager)
         }
+    }
+
+    private nonisolated func eventWorkspaceId(surfaceId: UUID) -> UUID? {
+        v2MainSync { AppDelegate.shared?.locateSurface(surfaceId: surfaceId)?.workspaceId }
     }
 
     private nonisolated func eventWorkspaceIds(windowId: UUID) -> Set<String> {

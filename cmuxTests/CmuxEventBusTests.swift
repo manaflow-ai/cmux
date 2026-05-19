@@ -7,6 +7,27 @@ import CMUXWorkstream
 @testable import cmux
 #endif
 
+private final class EventScopeWorkspaceIds: @unchecked Sendable {
+    private let lock = NSLock()
+    private var ids: Set<String>
+
+    init(_ ids: Set<String>) {
+        self.ids = ids
+    }
+
+    func snapshot() -> Set<String> {
+        lock.lock()
+        defer { lock.unlock() }
+        return ids
+    }
+
+    func update(_ ids: Set<String>) {
+        lock.lock()
+        self.ids = ids
+        lock.unlock()
+    }
+}
+
 final class CmuxEventBusTests: XCTestCase {
     func testSubscribeReplaysEventsAfterSequenceAndReportsAck() throws {
         let bus = CmuxEventBus(retainedEventLimit: 4)
@@ -157,6 +178,47 @@ final class CmuxEventBusTests: XCTestCase {
         defer { bus.unsubscribe(snapshot.subscription) }
 
         XCTAssertEqual(snapshot.replay.compactMap { $0["workspace_id"] as? String }, ["workspace-a"])
+    }
+
+    func testWindowScopeUsesDynamicWorkspaceMembershipForLiveWorkspaceOnlyEvents() {
+        let bus = CmuxEventBus(retainedEventLimit: 8)
+        let workspaceIds = EventScopeWorkspaceIds(["workspace-a"])
+        let snapshot = bus.subscribe(
+            afterSequence: nil,
+            names: [],
+            categories: [],
+            scope: CmuxEventScope(
+                kind: .window,
+                windowId: "window-a",
+                windowWorkspaceIds: ["workspace-a"],
+                currentWindowWorkspaceIdsProvider: { workspaceIds.snapshot() }
+            )
+        )
+        defer { bus.unsubscribe(snapshot.subscription) }
+
+        bus.publish(
+            name: "notification.created",
+            category: "notification",
+            source: "test",
+            workspaceId: "workspace-a"
+        )
+        workspaceIds.update(["workspace-c"])
+        bus.publish(
+            name: "notification.created",
+            category: "notification",
+            source: "test",
+            workspaceId: "workspace-a"
+        )
+        bus.publish(
+            name: "notification.created",
+            category: "notification",
+            source: "test",
+            workspaceId: "workspace-c"
+        )
+
+        XCTAssertEqual(snapshot.subscription.next(timeout: 0.2)?["workspace_id"] as? String, "workspace-a")
+        XCTAssertEqual(snapshot.subscription.next(timeout: 0.2)?["workspace_id"] as? String, "workspace-c")
+        XCTAssertNil(snapshot.subscription.next(timeout: 0.05))
     }
 
     func testSubscriptionFiltersByWorkspaceSurfaceAndPaneScopes() {

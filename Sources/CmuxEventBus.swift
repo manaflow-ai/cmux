@@ -6,7 +6,7 @@ struct CmuxEventSubscriptionSnapshot {
     let ack: [String: Any]
 }
 
-struct CmuxEventScope: Equatable {
+struct CmuxEventScope {
     enum Kind: String {
         case global
         case window
@@ -21,6 +21,7 @@ struct CmuxEventScope: Equatable {
     let surfaceId: String?
     let paneId: String?
     let windowWorkspaceIds: Set<String>
+    private let currentWindowWorkspaceIdsProvider: (() -> Set<String>)?
 
     static let global = CmuxEventScope(kind: .global)
 
@@ -30,7 +31,8 @@ struct CmuxEventScope: Equatable {
         workspaceId: String? = nil,
         surfaceId: String? = nil,
         paneId: String? = nil,
-        windowWorkspaceIds: Set<String> = []
+        windowWorkspaceIds: Set<String> = [],
+        currentWindowWorkspaceIdsProvider: (() -> Set<String>)? = nil
     ) {
         self.kind = kind
         self.windowId = Self.normalizedId(windowId)
@@ -38,20 +40,25 @@ struct CmuxEventScope: Equatable {
         self.surfaceId = Self.normalizedId(surfaceId)
         self.paneId = Self.normalizedId(paneId)
         self.windowWorkspaceIds = Set(windowWorkspaceIds.compactMap(Self.normalizedId))
+        self.currentWindowWorkspaceIdsProvider = currentWindowWorkspaceIdsProvider
     }
 
-    func accepts(_ event: [String: Any]) -> Bool {
+    func accepts(_ event: [String: Any], allowDynamicWindowWorkspaceIds: Bool = true) -> Bool {
         switch kind {
         case .global:
             return true
         case .window:
             guard let windowId else { return false }
             if Self.stringValue(event["window_id"]) == windowId { return true }
-            if let workspaceId = Self.stringValue(event["workspace_id"]),
-               windowWorkspaceIds.contains(workspaceId) {
-                return true
+            if Self.payloadString(event, key: "window_id") == windowId { return true }
+            let eventWorkspaceIds = Self.workspaceIds(event)
+            let scopedWorkspaceIds: Set<String>
+            if allowDynamicWindowWorkspaceIds, let currentWindowWorkspaceIdsProvider {
+                scopedWorkspaceIds = Set(currentWindowWorkspaceIdsProvider().compactMap(Self.normalizedId))
+            } else {
+                scopedWorkspaceIds = windowWorkspaceIds
             }
-            return Self.payloadString(event, key: "window_id") == windowId
+            return eventWorkspaceIds.contains(where: { scopedWorkspaceIds.contains($0) })
         case .workspace:
             guard let workspaceId else { return false }
             return Self.stringValue(event["workspace_id"]) == workspaceId ||
@@ -118,6 +125,19 @@ struct CmuxEventScope: Equatable {
         }
         return []
     }
+
+    private static func workspaceIds(_ event: [String: Any]) -> [String] {
+        var ids: [String] = []
+        if let workspaceId = stringValue(event["workspace_id"]) {
+            ids.append(workspaceId)
+        }
+        for key in ["workspace_id", "previous_workspace_id", "source_workspace_id", "destination_workspace_id", "created_workspace_id"] {
+            if let workspaceId = payloadString(event, key: key) {
+                ids.append(workspaceId)
+            }
+        }
+        return ids
+    }
 }
 
 // Sendable safety: every mutable field is protected by `lock`; `semaphore` only wakes `next(timeout:)`.
@@ -148,14 +168,14 @@ final class CmuxEventSubscription: @unchecked Sendable {
         self.maxPendingEvents = max(1, maxPendingEvents)
     }
 
-    func accepts(_ event: [String: Any]) -> Bool {
+    func accepts(_ event: [String: Any], allowDynamicWindowWorkspaceIds: Bool = true) -> Bool {
         if !names.isEmpty {
             guard let name = event["name"] as? String, names.contains(name) else { return false }
         }
         if !categories.isEmpty {
             guard let category = event["category"] as? String, categories.contains(category) else { return false }
         }
-        return scope.accepts(event)
+        return scope.accepts(event, allowDynamicWindowWorkspaceIds: allowDynamicWindowWorkspaceIds)
     }
 
     var isClosed: Bool {
@@ -355,7 +375,7 @@ final class CmuxEventBus: @unchecked Sendable {
         let replay = retained.filter { event in
             let seq = Self.int64(event["seq"]) ?? 0
             let after = afterSequence ?? latestSequence
-            return seq > after && subscription.accepts(event)
+            return seq > after && subscription.accepts(event, allowDynamicWindowWorkspaceIds: false)
         }
         let requestedAfter = afterSequence ?? latestSequence
         let gapReason: String? = afterSequence.flatMap { after in
