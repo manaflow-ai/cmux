@@ -228,6 +228,9 @@ nonisolated enum CmuxUseSupport {
             let trimmed = command.trimmingCharacters(in: .whitespacesAndNewlines)
             return trimmed.isEmpty ? nil : CmuxUseLaunchCommand(command: trimmed, source: source)
         }
+        if manifest?.generated == true {
+            return nil
+        }
 
         return runtimeLaunchCommand(in: checkoutURL)
     }
