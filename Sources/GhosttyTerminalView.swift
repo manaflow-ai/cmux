@@ -3334,14 +3334,7 @@ class GhosttyApp {
         guard decision == .apply else {
             if backgroundLogEnabled {
                 let schemeLabel = colorScheme == .dark ? "dark" : "light"
-                let reason: String
-                switch decision {
-                case .apply:
-                    reason = "apply"
-                case .skipReentrant:
-                    reason = "reentrant"
-                }
-                logBackground("app color scheme skipped source=\(source) scheme=\(schemeLabel) reason=\(reason)")
+                logBackground("app color scheme skipped source=\(source) scheme=\(schemeLabel) reason=reentrant")
             }
             return
         }
