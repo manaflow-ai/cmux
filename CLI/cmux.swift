@@ -25644,6 +25644,8 @@ export default function cmuxPiSessionExtension(pi: ExtensionAPI) {
                 // channel for AskUserQuestion answers. Deny the tool call and
                 // pass the selected answer as the denial reason so the model
                 // receives it as context instead of re-asking the question.
+                // Revisit this when Grok exposes a first-class answer/context
+                // injection API for question hooks.
                 return encode([
                     "decision": "deny",
                     "reason": "[cmux Feed] \(body). Treat this as the user's response and continue without asking the same question again.",
