@@ -5,6 +5,10 @@ on:
     branches:
       - main
   pull_request:
+    paths-ignore:
+      - 'linux/**'
+      - 'packaging/arch/**'
+      - 'docs/linux-port/**'
   workflow_dispatch:
     inputs:
       run_warpbuild_macos:
@@ -98,7 +102,14 @@ jobs:
         uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2
 
       - name: Install dependencies
-        run: bun install --frozen-lockfile
+        run: |
+          for attempt in 1 2 3; do
+            if bun install --frozen-lockfile; then
+              exit 0
+            fi
+            sleep $((attempt * 5))
+          done
+          bun install --frozen-lockfile
 
       - name: Typecheck
         run: bun tsc --noEmit
@@ -133,7 +144,14 @@ jobs:
         uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2
 
       - name: Install dependencies
-        run: bun install --frozen-lockfile
+        run: |
+          for attempt in 1 2 3; do
+            if bun install --frozen-lockfile; then
+              exit 0
+            fi
+            sleep $((attempt * 5))
+          done
+          bun install --frozen-lockfile
 
       - name: Apply migrations
         env:

@@ -2,6 +2,10 @@ name: Activation performance
 
 on:
   pull_request:
+    paths-ignore:
+      - 'linux/**'
+      - 'packaging/arch/**'
+      - 'docs/linux-port/**'
   workflow_dispatch:
     inputs:
       ref:
