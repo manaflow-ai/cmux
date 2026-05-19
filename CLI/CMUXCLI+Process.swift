@@ -48,6 +48,10 @@ func withCLIDefaultSIGPIPEForChildLaunch<T>(
     inheritedNoSIGPIPEFDs: [Int32] = [STDOUT_FILENO, STDERR_FILENO],
     body: () throws -> T
 ) rethrows -> T {
+    guard !inheritedNoSIGPIPEFDs.isEmpty else {
+        return try body()
+    }
+
     cliStdioDispositionLock.lock()
     defer { cliStdioDispositionLock.unlock() }
 
