@@ -126,6 +126,8 @@
 		D35450010000000000000001 /* SidebarWorkspaceRowHoverTracker.swift in Sources */ = {isa = PBXBuildFile; fileRef = D35450020000000000000002 /* SidebarWorkspaceRowHoverTracker.swift */; };
 		A11EAB000000000000000000 /* AppearanceSettings.swift in Sources */ = {isa = PBXBuildFile; fileRef = A11EAB000000000000000001 /* AppearanceSettings.swift */; };
 		A5001001 /* cmuxApp.swift in Sources */ = {isa = PBXBuildFile; fileRef = A5001011 /* cmuxApp.swift */; };
+		D3F00D100000000000000001 /* GeminiVoice.swift in Sources */ = {isa = PBXBuildFile; fileRef = D3F00D100000000000000002 /* GeminiVoice.swift */; };
+		D3F00D100000000000000003 /* GeminiVoiceTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = D3F00D100000000000000004 /* GeminiVoiceTests.swift */; };
 		C0DE34020000000000000001 /* CmuxHelpCommands.swift in Sources */ = {isa = PBXBuildFile; fileRef = C0DE34020000000000000003 /* CmuxHelpCommands.swift */; };
 		C0DE34020000000000000002 /* CmuxHelpResource.swift in Sources */ = {isa = PBXBuildFile; fileRef = C0DE34020000000000000004 /* CmuxHelpResource.swift */; };
 		A50019A0 /* SettingsNavigation.swift in Sources */ = {isa = PBXBuildFile; fileRef = A50019A1 /* SettingsNavigation.swift */; };
@@ -640,6 +642,8 @@
 		A11EB0000000000000000001 /* GhosttyConfigPathResolverTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = GhosttyConfigPathResolverTests.swift; sourceTree = "<group>"; };
 		A5001000 /* cmux.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = cmux.app; sourceTree = BUILT_PRODUCTS_DIR; };
 		A5001011 /* cmuxApp.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = cmuxApp.swift; sourceTree = "<group>"; };
+		D3F00D100000000000000002 /* GeminiVoice.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = GeminiVoice.swift; sourceTree = "<group>"; };
+		D3F00D100000000000000004 /* GeminiVoiceTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = GeminiVoiceTests.swift; sourceTree = "<group>"; };
 		E3309A08 /* cmuxApp+EqualizeSplitsMenu.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "cmuxApp+EqualizeSplitsMenu.swift"; sourceTree = "<group>"; };
 		C0DE34020000000000000003 /* CmuxHelpCommands.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = App/CmuxHelpCommands.swift; sourceTree = "<group>"; };
 		C0DE34020000000000000004 /* CmuxHelpResource.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = App/CmuxHelpResource.swift; sourceTree = "<group>"; };
@@ -1188,6 +1192,7 @@
 				A11EAC000000000000000001 /* GhosttyTerminalAppearance.swift */,
 				A11EAD000000000000000001 /* WorkspaceAppearanceResolution.swift */,
 				A5001011 /* cmuxApp.swift */,
+				D3F00D100000000000000002 /* GeminiVoice.swift */,
 				E3309A08 /* cmuxApp+EqualizeSplitsMenu.swift */,
 				C0DE34020000000000000003 /* CmuxHelpCommands.swift */,
 				C0DE34020000000000000004 /* CmuxHelpResource.swift */,
@@ -1506,6 +1511,7 @@
 				A11EAE000000000000000001 /* WorkspaceAppearanceConfigResolutionTests.swift */,
 				A11EAF000000000000000001 /* GhosttyNotificationDispatcherTests.swift */,
 				F4200001A1B2C3D4E5F60718 /* WindowAppearanceSnapshotTests.swift */,
+				D3F00D100000000000000004 /* GeminiVoiceTests.swift */,
 					F4100001A1B2C3D4E5F60718 /* PortScannerTests.swift */,
 					F5000001A1B2C3D4E5F60718 /* SessionPersistenceTests.swift */,
 					B35750000000000000000009 /* PiVaultAgentPersistenceTests.swift */,
@@ -1921,6 +1927,7 @@
 				A11EAC000000000000000000 /* GhosttyTerminalAppearance.swift in Sources */,
 				A11EAD000000000000000000 /* WorkspaceAppearanceResolution.swift in Sources */,
 				A5001001 /* cmuxApp.swift in Sources */,
+				D3F00D100000000000000001 /* GeminiVoice.swift in Sources */,
 				E3309A07 /* cmuxApp+EqualizeSplitsMenu.swift in Sources */,
 				C0DE34020000000000000001 /* CmuxHelpCommands.swift in Sources */,
 				C0DE34020000000000000002 /* CmuxHelpResource.swift in Sources */,
@@ -2279,6 +2286,7 @@
 				A11EAE000000000000000000 /* WorkspaceAppearanceConfigResolutionTests.swift in Sources */,
 				A11EAF000000000000000000 /* GhosttyNotificationDispatcherTests.swift in Sources */,
 				F4200000A1B2C3D4E5F60718 /* WindowAppearanceSnapshotTests.swift in Sources */,
+				D3F00D100000000000000003 /* GeminiVoiceTests.swift in Sources */,
 					F4100000A1B2C3D4E5F60718 /* PortScannerTests.swift in Sources */,
 					F5000000A1B2C3D4E5F60718 /* SessionPersistenceTests.swift in Sources */,
 					B3575000000000000000000A /* PiVaultAgentPersistenceTests.swift in Sources */,

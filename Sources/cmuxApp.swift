@@ -644,10 +644,23 @@ struct cmuxApp: App {
             ConfigSettingsView()
                 .cmuxAppearanceColorScheme(appearanceMode)
         }
+
+        Window(String(localized: "geminiVoice.window.title", defaultValue: "Gemini Voice"), id: GeminiVoiceWindow.windowID) {
+            GeminiVoiceView()
+                .cmuxAppearanceColorScheme(appearanceMode)
+        }
+        .defaultSize(width: 920, height: 620)
+        .windowResizability(.contentMinSize)
     }
 
     @CommandsBuilder
     private var windowAndViewCommands: some Commands {
+        CommandMenu(String(localized: "menu.voice.title", defaultValue: "Voice")) {
+            Button(String(localized: "menu.voice.geminiVoice", defaultValue: "Gemini Voice...")) {
+                openWindow(id: GeminiVoiceWindow.windowID)
+            }
+        }
+
         CommandGroup(after: .windowArrangement) {
             Button(String(localized: "menu.window.taskManager", defaultValue: "Task Manager...")) {
                 TaskManagerWindowController.shared.show()
