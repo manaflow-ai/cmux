@@ -13,6 +13,18 @@ Xvfb ":$DISPLAY_NUMBER" -screen 0 "$DISPLAY_SIZE" &
 XVFB_PID=$!
 export DISPLAY=":$DISPLAY_NUMBER"
 
+for _ in $(seq 1 50); do
+  if xset q >/dev/null 2>&1; then
+    break
+  fi
+  sleep 0.1
+done
+
+if ! xset q >/dev/null 2>&1; then
+  echo "error: Xvfb did not become ready on $DISPLAY" >&2
+  exit 1
+fi
+
 fluxbox >/tmp/fluxbox.log 2>&1 &
 xsetroot -solid "#1f2937" || true
 xclock -geometry 120x120+24+24 >/tmp/xclock.log 2>&1 &

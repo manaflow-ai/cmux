@@ -9,6 +9,7 @@ RUN apt-get update && \
         fluxbox \
         netcat-openbsd \
         x11-apps \
+        x11-xserver-utils \
         x11vnc \
         xterm \
         xvfb && \
