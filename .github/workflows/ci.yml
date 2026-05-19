@@ -22,6 +22,7 @@ on:
           - cmux-aws-macos-15
           - cmux-aws-m4pro
           - cmux-aws-m4pro-gui
+          - cmux-aws-m4pro-bench
           - cmux-aws-m1ultra
       release_macos_runner:
         description: Runner for the optional macOS release build
@@ -34,6 +35,7 @@ on:
           - cmux-aws-macos-15
           - cmux-aws-m4pro
           - cmux-aws-m4pro-gui
+          - cmux-aws-m4pro-bench
           - cmux-aws-m1ultra
 
 concurrency:
