@@ -290,7 +290,46 @@ def main() -> int:
             print(f"commands={server.commands!r}")
             return 1
 
-        before_loop_count = len(notify_after_duplicate)
+        resume_proc = run_claude_hook(
+            cli_path,
+            server.socket_path,
+            "prompt-submit",
+            {
+                "session_id": session_id,
+                "hook_event_name": "UserPromptSubmit",
+                "cwd": "/Users/example/project",
+                "prompt": "answered the previous question; continue",
+            },
+            env,
+        )
+        if resume_proc.returncode != 0:
+            print("FAIL: claude-hook prompt-submit failed")
+            print(f"stdout={resume_proc.stdout!r}")
+            print(f"stderr={resume_proc.stderr!r}")
+            print(f"commands={server.commands!r}")
+            return 1
+
+        repeated_proc = run_claude_hook(
+            cli_path,
+            server.socket_path,
+            "pre-tool-use",
+            ask_user_question_payload(session_id, 0),
+            env,
+        )
+        if repeated_proc.returncode != 0:
+            print("FAIL: repeated claude-hook pre-tool-use failed")
+            print(f"stdout={repeated_proc.stdout!r}")
+            print(f"stderr={repeated_proc.stderr!r}")
+            print(f"commands={server.commands!r}")
+            return 1
+        notify_after_repeat = [line for line in server.commands if line.startswith("notify_target_async ")]
+        if len(notify_after_repeat) != 2:
+            print("FAIL: prompt-submit should clear the needs-input dedup fingerprint")
+            print(f"notify_commands={notify_after_repeat!r}")
+            print(f"commands={server.commands!r}")
+            return 1
+
+        before_loop_count = len(notify_after_repeat)
         for index in range(1, 101):
             proc = run_claude_hook(
                 cli_path,
