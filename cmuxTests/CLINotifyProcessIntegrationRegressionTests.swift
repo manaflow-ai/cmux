@@ -1723,13 +1723,13 @@ final class CLINotifyProcessIntegrationRegressionTests: XCTestCase {
         )
     }
 
-    func testMoveSurfaceWindowFlagAllowsSourceSurfaceFromOtherWindow() throws {
+    func testMoveSurfaceWindowFlagAllowsSourceSurfaceRefFromOtherWindow() throws {
         let cliPath = try bundledCLIPath()
         let socketPath = makeSocketPath("move-surface-cross-window")
         let listenerFD = try bindUnixSocket(at: socketPath)
         let state = MockSocketServerState()
         let targetWindowId = "11111111-1111-1111-1111-111111111111"
-        let sourceSurfaceId = "22222222-2222-2222-2222-222222222222"
+        let sourceSurfaceRef = "surface:1"
 
         defer {
             Darwin.close(listenerFD)
@@ -1747,13 +1747,13 @@ final class CLINotifyProcessIntegrationRegressionTests: XCTestCase {
             guard method == "surface.move" else {
                 return self.v2Response(id: id, ok: false, error: ["code": "unexpected", "message": "unexpected method: \(method)"])
             }
-            XCTAssertEqual(params["surface_id"] as? String, sourceSurfaceId)
+            XCTAssertEqual(params["surface_id"] as? String, sourceSurfaceRef)
             XCTAssertEqual(params["window_id"] as? String, targetWindowId)
             return self.v2Response(
                 id: id,
                 ok: true,
                 result: [
-                    "surface_id": sourceSurfaceId,
+                    "surface_ref": sourceSurfaceRef,
                     "window_id": targetWindowId,
                 ]
             )
@@ -1766,7 +1766,7 @@ final class CLINotifyProcessIntegrationRegressionTests: XCTestCase {
 
         let result = runProcess(
             executablePath: cliPath,
-            arguments: ["move-surface", "--surface", sourceSurfaceId, "--window", targetWindowId],
+            arguments: ["move-surface", "--surface", sourceSurfaceRef, "--window", targetWindowId],
             environment: environment,
             timeout: 5
         )
