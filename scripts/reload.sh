@@ -830,9 +830,7 @@ if [[ "$LAUNCH" -eq 1 ]]; then
     for ENV_VAR in "${TAG_LAUNCH_ENV[@]}"; do
       LAUNCH_CMD+=(--env "$ENV_VAR")
     done
-    if [[ -n "${CMUX_SOCKET_PATH_VALUE:-}" ]]; then
-      LAUNCH_CMD+=(--env "CMUXD_UNIX_PATH=$CMUXD_SOCKET")
-    fi
+    LAUNCH_CMD+=(--env "CMUXD_UNIX_PATH=$CMUXD_SOCKET")
     LAUNCH_CMD+=("$APP_PATH")
     LAUNCH_RETRY_CMD=("${LAUNCH_CMD[@]}")
   else
