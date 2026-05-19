@@ -1365,14 +1365,31 @@ enum TerminalKeyboardCopyModeAction: Equatable {
     case adjustSelection(TerminalKeyboardCopyModeSelectionMove)
 
     var shouldTreatScrollbarUpdatesAsKeyboardInitiated: Bool {
+        scrollbarUpdateIntent.contains(.keyboardInitiated)
+    }
+
+    var scrollbarUpdateIntent: GhosttyScrollbarUpdateIntent {
         switch self {
         case .scrollLines, .scrollPage, .scrollHalfPage, .scrollToTop, .scrollToBottom, .jumpToPrompt:
-            return true
-        case .exit, .startSelection, .clearSelection, .copyAndExit, .copyLineAndExit, .startSearch, .searchNext,
-             .searchPrevious, .adjustSelection:
-            return false
+            return [.keyboardInitiated, .explicitSync]
+        case .searchNext, .searchPrevious:
+            return [.explicitSync]
+        case .exit, .startSelection, .clearSelection, .copyAndExit, .copyLineAndExit, .startSearch,
+             .adjustSelection:
+            return []
         }
     }
+
+    var shouldCarryScrollbarUpdateIntentAfterBindingAction: Bool {
+        shouldTreatScrollbarUpdatesAsKeyboardInitiated
+    }
+}
+
+struct GhosttyScrollbarUpdateIntent: OptionSet {
+    let rawValue: Int
+
+    static let keyboardInitiated = GhosttyScrollbarUpdateIntent(rawValue: 1 << 0)
+    static let explicitSync = GhosttyScrollbarUpdateIntent(rawValue: 1 << 1)
 }
 
 struct TerminalKeyboardCopyModeInputState: Equatable {
@@ -6625,10 +6642,10 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
     /// Access is guarded by `_scrollbarLock` because the action callback
     /// fires on Ghostty's I/O thread while the flush runs on main.
     private var _pendingScrollbar: GhosttyScrollbar?
-    private var _pendingScrollbarWasKeyboardInitiated = false
+    private var _pendingScrollbarIntent: GhosttyScrollbarUpdateIntent = []
     private var _scrollbarFlushScheduled = false
-    private var _pendingKeyboardInitiatedScrollAction = false
-    private var _keyboardInitiatedScrollActionDepth = 0
+    private var _pendingScrollbarActionIntent: GhosttyScrollbarUpdateIntent = []
+    private var _scrollbarActionIntentStack: [GhosttyScrollbarUpdateIntent] = []
     private let _scrollbarLock = NSLock()
     var cellSize: CGSize = .zero
     private var lastKnownMousePointInView: NSPoint?
@@ -6637,13 +6654,12 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
     /// dispatch.  The action callback (which may fire thousands of times per
     /// second during bulk output like `seq 1 100000`) stores the latest value
     /// and schedules exactly one async flush.
-    func enqueueScrollbarUpdate(_ newValue: GhosttyScrollbar, wasKeyboardInitiated: Bool = false) {
+    func enqueueScrollbarUpdate(_ newValue: GhosttyScrollbar, intent: GhosttyScrollbarUpdateIntent = []) {
         _scrollbarLock.lock()
         defer { _scrollbarLock.unlock() }
         // Store the latest value (always overwrites — only the newest matters).
         _pendingScrollbar = newValue
-        _pendingScrollbarWasKeyboardInitiated =
-            _pendingScrollbarWasKeyboardInitiated || wasKeyboardInitiated
+        _pendingScrollbarIntent.formUnion(intent)
         let needsSchedule = !_scrollbarFlushScheduled
         if needsSchedule { _scrollbarFlushScheduled = true }
 
@@ -6655,17 +6671,24 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
         }
     }
 
+    func enqueueScrollbarUpdate(_ newValue: GhosttyScrollbar, wasKeyboardInitiated: Bool) {
+        enqueueScrollbarUpdate(
+            newValue,
+            intent: wasKeyboardInitiated ? [.keyboardInitiated, .explicitSync] : []
+        )
+    }
+
     func enqueueScrollbarActionUpdate(_ newValue: GhosttyScrollbar) {
-        enqueueScrollbarUpdate(newValue, wasKeyboardInitiated: consumeKeyboardInitiatedScrollAction())
+        enqueueScrollbarUpdate(newValue, intent: consumeScrollbarActionIntent())
     }
 
     private func flushPendingScrollbar() {
         _scrollbarLock.lock()
         _scrollbarFlushScheduled = false
         let pending = _pendingScrollbar
-        let pendingWasKeyboardInitiated = _pendingScrollbarWasKeyboardInitiated
+        let pendingIntent = _pendingScrollbarIntent
         _pendingScrollbar = nil
-        _pendingScrollbarWasKeyboardInitiated = false
+        _pendingScrollbarIntent = []
         _scrollbarLock.unlock()
 
         guard let pending else { return }
@@ -6675,45 +6698,72 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
             object: self,
             userInfo: [
                 GhosttyNotificationKey.scrollbar: pending,
-                GhosttyNotificationKey.scrollbarWasKeyboardInitiated: pendingWasKeyboardInitiated,
+                GhosttyNotificationKey.scrollbarUpdateIntent: pendingIntent,
+                GhosttyNotificationKey.scrollbarWasKeyboardInitiated:
+                    pendingIntent.contains(.keyboardInitiated),
             ]
         )
     }
 
-    private func beginKeyboardInitiatedScrollAction() {
+    private func beginScrollbarActionIntent(
+        _ intent: GhosttyScrollbarUpdateIntent,
+        carryAcrossAction: Bool
+    ) {
         _scrollbarLock.lock()
-        _keyboardInitiatedScrollActionDepth += 1
-        _pendingKeyboardInitiatedScrollAction = true
+        _scrollbarActionIntentStack.append(intent)
+        if carryAcrossAction {
+            _pendingScrollbarActionIntent.formUnion(intent)
+        }
         _scrollbarLock.unlock()
+    }
+
+    private func endScrollbarActionIntent() {
+        _scrollbarLock.lock()
+        if !_scrollbarActionIntentStack.isEmpty {
+            _ = _scrollbarActionIntentStack.removeLast()
+        }
+        _scrollbarLock.unlock()
+    }
+
+    private func beginKeyboardInitiatedScrollAction() {
+        beginScrollbarActionIntent([.keyboardInitiated, .explicitSync], carryAcrossAction: true)
     }
 
     private func endKeyboardInitiatedScrollAction() {
+        endScrollbarActionIntent()
+    }
+
+    func consumeScrollbarActionIntent() -> GhosttyScrollbarUpdateIntent {
         _scrollbarLock.lock()
-        _keyboardInitiatedScrollActionDepth = max(0, _keyboardInitiatedScrollActionDepth - 1)
-        _scrollbarLock.unlock()
+        defer { _scrollbarLock.unlock() }
+        var intent = _pendingScrollbarActionIntent
+        for activeIntent in _scrollbarActionIntentStack {
+            intent.formUnion(activeIntent)
+        }
+        if !intent.isEmpty {
+            _pendingScrollbarActionIntent = []
+        }
+        return intent
     }
 
     func consumeKeyboardInitiatedScrollAction() -> Bool {
-        _scrollbarLock.lock()
-        defer { _scrollbarLock.unlock() }
-        let wasKeyboardInitiated =
-            _keyboardInitiatedScrollActionDepth > 0 || _pendingKeyboardInitiatedScrollAction
-        if wasKeyboardInitiated {
-            _pendingKeyboardInitiatedScrollAction = false
-        }
-        return wasKeyboardInitiated
+        consumeScrollbarActionIntent().contains(.keyboardInitiated)
     }
 
-    private func withKeyboardInitiatedScrollAction<T>(_ body: () -> T) -> T {
-        beginKeyboardInitiatedScrollAction()
-        defer { endKeyboardInitiatedScrollAction() }
+    private func withScrollbarActionIntent<T>(
+        _ intent: GhosttyScrollbarUpdateIntent,
+        carryAcrossAction: Bool,
+        _ body: () -> T
+    ) -> T {
+        beginScrollbarActionIntent(intent, carryAcrossAction: carryAcrossAction)
+        defer { endScrollbarActionIntent() }
         return body()
     }
 
 #if DEBUG
     func debugEnqueueScrollbarUpdateAfterKeyboardScrollIntent(_ newValue: GhosttyScrollbar) {
-        beginKeyboardInitiatedScrollAction()
-        endKeyboardInitiatedScrollAction()
+        beginScrollbarActionIntent([.keyboardInitiated, .explicitSync], carryAcrossAction: true)
+        endScrollbarActionIntent()
         enqueueScrollbarActionUpdate(newValue)
     }
 #endif
@@ -7381,7 +7431,7 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
     }
 
     private func performKeyboardInitiatedScrollBindingAction(_ action: String) -> Bool {
-        withKeyboardInitiatedScrollAction {
+        withScrollbarActionIntent([.keyboardInitiated, .explicitSync], carryAcrossAction: true) {
             performBindingAction(action)
         }
     }
@@ -7434,8 +7484,17 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
         copyModeAction: TerminalKeyboardCopyModeAction,
         repeatCount: Int = 1
     ) {
-        if copyModeAction.shouldTreatScrollbarUpdatesAsKeyboardInitiated {
-            performKeyboardInitiatedScrollBindingAction(bindingAction, repeatCount: repeatCount)
+        let intent = copyModeAction.scrollbarUpdateIntent
+        if !intent.isEmpty {
+            let count = terminalKeyboardCopyModeClampCount(repeatCount)
+            for _ in 0 ..< count {
+                _ = withScrollbarActionIntent(
+                    intent,
+                    carryAcrossAction: copyModeAction.shouldCarryScrollbarUpdateIntentAfterBindingAction
+                ) {
+                    performBindingAction(bindingAction)
+                }
+            }
         } else {
             performBindingAction(bindingAction, repeatCount: repeatCount)
         }
@@ -13527,16 +13586,23 @@ final class GhosttySurfaceScrollView: NSView {
             return
         }
         let wasVisible = scrollView.hasVerticalScroller
-        let isKeyboardInitiatedScroll =
+        let legacyKeyboardInitiated =
             notification.userInfo?[GhosttyNotificationKey.scrollbarWasKeyboardInitiated] as? Bool ?? false
-        let isUserInitiatedScroll = pendingExplicitWheelScroll || isKeyboardInitiatedScroll || isLiveScrolling
+        var scrollbarIntent =
+            notification.userInfo?[GhosttyNotificationKey.scrollbarUpdateIntent] as? GhosttyScrollbarUpdateIntent
+            ?? []
+        if legacyKeyboardInitiated {
+            scrollbarIntent.formUnion([.keyboardInitiated, .explicitSync])
+        }
+        let shouldExplicitlySyncScrollbar = pendingExplicitWheelScroll || scrollbarIntent.contains(.explicitSync)
+        let isUserInitiatedScroll = shouldExplicitlySyncScrollbar || isLiveScrolling
         let shouldMarkVisibleTimestampRows = !isUserInitiatedScroll && !userScrolledAwayFromBottom
         timestampStore.record(
             scrollbar: TerminalTimestampScrollbarState(scrollbar),
             at: .now,
             markVisibleRows: shouldMarkVisibleTimestampRows
         )
-        if pendingExplicitWheelScroll || isKeyboardInitiatedScroll {
+        if shouldExplicitlySyncScrollbar {
             userScrolledAwayFromBottom = scrollbar.offset + scrollbar.len < scrollbar.total
             allowExplicitScrollbarSync = true
             pendingExplicitWheelScroll = false

@@ -1623,6 +1623,8 @@ final class TerminalKeyboardCopyModeResolveTests: XCTestCase {
 
         XCTAssertFalse(TerminalKeyboardCopyModeAction.searchNext.shouldTreatScrollbarUpdatesAsKeyboardInitiated)
         XCTAssertFalse(TerminalKeyboardCopyModeAction.searchPrevious.shouldTreatScrollbarUpdatesAsKeyboardInitiated)
+        XCTAssertTrue(TerminalKeyboardCopyModeAction.searchNext.scrollbarUpdateIntent.contains(.explicitSync))
+        XCTAssertTrue(TerminalKeyboardCopyModeAction.searchPrevious.scrollbarUpdateIntent.contains(.explicitSync))
         XCTAssertFalse(
             TerminalKeyboardCopyModeAction
                 .adjustSelection(.down)
@@ -3176,6 +3178,73 @@ final class GhosttySurfaceOverlayTests: XCTestCase {
                 .debugTimestampVisibleRows(for: makeScrollbar(total: 100, offset: 30, len: 10))
                 .map(\.row),
             []
+        )
+    }
+
+    func testSearchScrollbarUpdateSyncsAfterKeyboardBackscroll() {
+        let window = NSWindow(
+            contentRect: NSRect(x: 0, y: 0, width: 360, height: 240),
+            styleMask: [.titled, .closable],
+            backing: .buffered,
+            defer: false
+        )
+        defer { window.orderOut(nil) }
+
+        guard let contentView = window.contentView else {
+            XCTFail("Expected content view")
+            return
+        }
+
+        let surfaceView = GhosttyNSView(frame: NSRect(x: 0, y: 0, width: 160, height: 120))
+        surfaceView.cellSize = CGSize(width: 10, height: 10)
+        let hostedView = GhosttySurfaceScrollView(surfaceView: surfaceView)
+        hostedView.frame = contentView.bounds
+        hostedView.autoresizingMask = [.width, .height]
+        contentView.addSubview(hostedView)
+
+        window.makeKeyAndOrderFront(nil)
+        window.displayIfNeeded()
+        contentView.layoutSubtreeIfNeeded()
+        hostedView.layoutSubtreeIfNeeded()
+        RunLoop.current.run(until: Date().addingTimeInterval(0.05))
+
+        guard let scrollView = hostedView.subviews.first(where: { $0 is NSScrollView }) as? NSScrollView else {
+            XCTFail("Expected hosted terminal scroll view")
+            return
+        }
+
+        NotificationCenter.default.post(
+            name: .ghosttyDidUpdateScrollbar,
+            object: surfaceView,
+            userInfo: [GhosttyNotificationKey.scrollbar: makeScrollbar(total: 100, offset: 90, len: 10)]
+        )
+        RunLoop.current.run(until: Date().addingTimeInterval(0.01))
+        XCTAssertEqual(scrollView.contentView.bounds.origin.y, 0, accuracy: 0.01)
+
+        surfaceView.debugEnqueueScrollbarUpdateAfterKeyboardScrollIntent(
+            makeScrollbar(total: 100, offset: 40, len: 10)
+        )
+        RunLoop.current.run(until: Date().addingTimeInterval(0.01))
+        XCTAssertEqual(scrollView.contentView.bounds.origin.y, 500, accuracy: 0.01)
+
+        surfaceView.enqueueScrollbarUpdate(
+            makeScrollbar(total: 100, offset: 20, len: 10),
+            intent: [.explicitSync]
+        )
+        RunLoop.current.run(until: Date().addingTimeInterval(0.01))
+
+        XCTAssertEqual(
+            scrollView.contentView.bounds.origin.y,
+            700,
+            accuracy: 0.01,
+            "Search navigation should sync the wrapper viewport even after keyboard backscroll disabled passive auto-scroll"
+        )
+        XCTAssertEqual(
+            hostedView
+                .debugTimestampVisibleRows(for: makeScrollbar(total: 100, offset: 20, len: 10))
+                .map(\.row),
+            [],
+            "Search-driven scrollback navigation should not backfill timestamps for manually revealed rows"
         )
     }
 
