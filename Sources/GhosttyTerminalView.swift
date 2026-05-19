@@ -5007,6 +5007,21 @@ final class TerminalSurface: Identifiable, ObservableObject {
         portalLifecycleState == .live
     }
 
+    private var hasDeferredStartupWork: Bool {
+        let inheritedCommand = configTemplate?.command?.trimmingCharacters(in: .whitespacesAndNewlines)
+        let inheritedInput = configTemplate?.initialInput
+        return initialCommand != nil ||
+            tmuxStartCommand != nil ||
+            initialInput != nil ||
+            inheritedCommand?.isEmpty == false ||
+            inheritedInput?.isEmpty == false ||
+            pendingSocketInputBytes > 0
+    }
+
+    func hasDeferredStartupWorkForBackgroundStart() -> Bool {
+        hasDeferredStartupWork
+    }
+
     func beginPortalCloseLifecycle(reason: String) {
         guard portalLifecycleState != .closed else { return }
         guard portalLifecycleState != .closing else { return }
@@ -5082,6 +5097,11 @@ final class TerminalSurface: Identifiable, ObservableObject {
 
     func debugDesiredFocusState() -> Bool {
         desiredFocusState
+    }
+
+    @MainActor
+    func debugAdditionalEnvironmentForTesting() -> [String: String] {
+        additionalEnvironment
     }
 
     func debugForceRefreshCount() -> Int {

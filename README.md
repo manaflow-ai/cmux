@@ -271,6 +271,25 @@ OpenCode, Pi, Amp, Cursor CLI, Gemini, Rovo Dev, Copilot, CodeBuddy, Factory,
 and Qoder. Claude Code is handled by the cmux Claude wrapper when Claude
 integration is enabled in Settings.
 
+Advanced users and integrations can attach a custom resume command to the
+current terminal surface. This is useful for tools with their own durable state,
+such as tmux sessions or custom agent CLIs:
+
+```bash
+cmux surface resume set --kind tmux --checkpoint work --shell "tmux attach -t work"
+cmux surface resume show --json
+cmux surface resume clear --checkpoint work
+```
+
+The binding stays attached to the cmux surface. Public CLI or socket-created
+bindings are stored for inspection and manual restore unless you approve a
+signed command prefix for automatic restore. Approved prefixes are also bound to
+the working directory and exact environment values, when present. Review or edit
+approvals in **Settings > Terminal > Resume Commands**. cmux only auto-runs
+resume bindings it marks trusted, such as live process-detected tmux bindings or
+user-approved prefixes. Sensitive environment keys such as tokens, passwords,
+secrets, and API keys are dropped before a resume binding is stored.
+
 To keep restored agent terminals idle instead of automatically running their resume commands,
 turn off **Settings > Terminal > Resume Agent Sessions on Reopen** or set this in
 `~/.config/cmux/cmux.json`:

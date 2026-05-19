@@ -49,6 +49,12 @@
       "severity": "high"
     },
     {
+      "id": "cmux-full-internationalization",
+      "rule": "Flag production user-facing text that is not fully internationalized across every locale supported by the affected surface: Swift UI/menu/alert/tooltip/error/command text must use String(localized:defaultValue:) or an equivalent localized API with a matching translated string-catalog entry, app string catalog or Info.plist changes must include translated entries for every locale already supported by the touched catalog, and web UI, metadata, API response, rendered markdown, changelog, or user-facing data changes must read from next-intl or another locale-specific source and update every locale listed in web/i18n/routing.ts with matching web/messages entries. Pass for tests, operational docs not shown to end users, developer-only comments, debug-only logs, literal protocol/config tokens, and existing untranslated strings not worsened by the PR.",
+      "scope": ["**/*.swift", "CHANGELOG.md", "Resources/Info.plist", "Resources/*.xcstrings", "web/*.ts", "web/*.tsx", "web/*.js", "web/*.jsx", "web/*.mjs", "web/*.cjs", "web/**/*.ts", "web/**/*.tsx", "web/**/*.js", "web/**/*.jsx", "web/**/*.mjs", "web/**/*.cjs", "web/messages/**/*.json", "web/data/**/*.json", "web/app/**/*.md", "web/app/**/*.mdx"],
+      "severity": "high"
+    },
+    {
       "id": "cmux-swiftui-state-layout",
       "rule": "Flag SwiftUI changes that can cause stale state, broad invalidation, layout instability, or main-thread churn: new ObservableObject/@Published state where @Observable is correct, GeometryReader measurement that changes layout, lazy/list row subtrees holding store references, or state mutation during body rendering.",
       "scope": ["**/*.swift"],
