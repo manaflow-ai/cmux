@@ -29,24 +29,37 @@ import Testing
         bundleIdentifier: "com.cmuxterm.app",
         environment: [:],
         isDebugBuild: false,
-        stableSocketPath: "/stable/cmux.sock"
-    ) == "/stable/cmux.sock")
+        stableSocketPath: "/stable/com.cmuxterm.app.sock"
+    ) == "/stable/com.cmuxterm.app.sock")
     #expect(SocketPathMarkerFiles.defaultSocketPath(
         bundleIdentifier: "com.cmuxterm.app.nightly",
         environment: [:],
         isDebugBuild: false,
-        stableSocketPath: "/stable/cmux.sock"
-    ) == "/tmp/cmux-nightly.sock")
+        stableSocketPath: "/stable/com.cmuxterm.app.sock"
+    ) == "/stable/com.cmuxterm.app.nightly.sock")
     #expect(SocketPathMarkerFiles.defaultSocketPath(
         bundleIdentifier: "com.cmuxterm.app.staging.my-feature",
         environment: [:],
         isDebugBuild: false,
-        stableSocketPath: "/stable/cmux.sock"
-    ) == "/tmp/cmux-staging-my-feature.sock")
+        stableSocketPath: "/stable/com.cmuxterm.app.sock"
+    ) == "/stable/com.cmuxterm.app.staging.my-feature.sock")
     #expect(SocketPathMarkerFiles.defaultSocketPath(
         bundleIdentifier: "com.cmuxterm.app.debug",
         environment: ["CMUX_TAG": "Issue 3542"],
         isDebugBuild: false,
-        stableSocketPath: "/stable/cmux.sock"
-    ) == "/tmp/cmux-debug-issue-3542.sock")
+        stableSocketPath: "/stable/com.cmuxterm.app.sock"
+    ) == "/stable/com.cmuxterm.app.dev.issue-3542.sock")
+}
+
+@Test func longDevSocketPathsAreBoundedForUnixSockets() {
+    let path = SocketPathMarkerFiles.defaultSocketPath(
+        bundleIdentifier: "com.cmuxterm.app.debug.issue.3993.cli.socket.stolen.by.tmux.dev",
+        environment: [:],
+        isDebugBuild: false,
+        stableSocketPath: "/Users/austinwang/Library/Application Support/cmux/com.cmuxterm.app.sock"
+    )
+
+    #expect(path.hasPrefix("/Users/austinwang/Library/Application Support/cmux/com.cmuxterm.app.dev.issue-3993"))
+    #expect(path.hasSuffix(".sock"))
+    #expect(path.utf8.count <= 103)
 }

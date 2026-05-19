@@ -62,6 +62,10 @@ public enum SocketPathMarkerFiles {
     public static let nightlyBundleIdentifier = "com.cmuxterm.app.nightly"
     public static let stagingBundleIdentifier = "com.cmuxterm.app.staging"
     public static let defaultBaseDebugBundleIdentifier = "com.cmuxterm.app.debug"
+    public static let stableSocketFileName = "com.cmuxterm.app.sock"
+    public static let nightlySocketFilePrefix = "com.cmuxterm.app.nightly"
+    public static let stagingSocketFilePrefix = "com.cmuxterm.app.staging"
+    public static let devSocketFilePrefix = "com.cmuxterm.app.dev"
     public static let defaultDebugSocketPath = "/tmp/cmux-debug.sock"
     public static let defaultNightlySocketPath = "/tmp/cmux-nightly.sock"
     public static let defaultStagingSocketPath = "/tmp/cmux-staging.sock"
@@ -136,31 +140,106 @@ public enum SocketPathMarkerFiles {
         baseDebugBundleIdentifier: String = defaultBaseDebugBundleIdentifier,
         debugSocketPath: String = defaultDebugSocketPath,
         nightlySocketPath: String = defaultNightlySocketPath,
-        stagingSocketPath: String = defaultStagingSocketPath
+        stagingSocketPath: String = defaultStagingSocketPath,
+        maxSocketPathLength: Int = 103
     ) -> String {
-        switch variant(
+        let resolvedVariant = variant(
             bundleIdentifier: bundleIdentifier,
             environment: environment,
             baseDebugBundleIdentifier: baseDebugBundleIdentifier
-        ) {
-        case .stable:
-            return isDebugBuild ? debugSocketPath : stableSocketPath
-        case .nightly(let slug):
-            if let slug {
-                return "/tmp/cmux-nightly-\(slug).sock"
-            }
-            return nightlySocketPath
-        case .staging(let slug):
-            if let slug {
-                return "/tmp/cmux-staging-\(slug).sock"
-            }
-            return stagingSocketPath
-        case .dev(let slug):
-            if let slug {
-                return "/tmp/cmux-debug-\(slug).sock"
-            }
-            return debugSocketPath
         }
+        return bundleScopedSocketPath(
+            for: resolvedVariant,
+            stableSocketPath: stableSocketPath,
+            isDebugBuild: isDebugBuild,
+            debugSocketPath: debugSocketPath,
+            nightlySocketPath: nightlySocketPath,
+            stagingSocketPath: stagingSocketPath,
+            maxSocketPathLength: maxSocketPathLength
+        )
+    }
+
+    public static func bundleScopedSocketPath(
+        for variant: SocketPathVariant,
+        stableSocketPath: String,
+        isDebugBuild: Bool,
+        debugSocketPath: String = defaultDebugSocketPath,
+        nightlySocketPath: String = defaultNightlySocketPath,
+        stagingSocketPath: String = defaultStagingSocketPath,
+        maxSocketPathLength: Int = 103
+    ) -> String {
+        let directoryPath = URL(fileURLWithPath: stableSocketPath)
+            .deletingLastPathComponent()
+            .path
+        switch variant {
+        case .stable:
+            return isDebugBuild
+                ? socketPath(
+                    directoryPath: directoryPath,
+                    filePrefix: devSocketFilePrefix,
+                    slug: nil,
+                    fallbackPath: debugSocketPath,
+                    maxSocketPathLength: maxSocketPathLength
+                )
+                : stableSocketPath
+        case .nightly(let slug):
+            return socketPath(
+                directoryPath: directoryPath,
+                filePrefix: nightlySocketFilePrefix,
+                slug: slug,
+                fallbackPath: slug.map { _ in nightlySocketPath } ?? nightlySocketPath,
+                maxSocketPathLength: maxSocketPathLength
+            )
+        case .staging(let slug):
+            return socketPath(
+                directoryPath: directoryPath,
+                filePrefix: stagingSocketFilePrefix,
+                slug: slug,
+                fallbackPath: slug.map { _ in stagingSocketPath } ?? stagingSocketPath,
+                maxSocketPathLength: maxSocketPathLength
+            )
+        case .dev(let slug):
+            return socketPath(
+                directoryPath: directoryPath,
+                filePrefix: devSocketFilePrefix,
+                slug: slug,
+                fallbackPath: slug.map { _ in debugSocketPath } ?? debugSocketPath,
+                maxSocketPathLength: maxSocketPathLength
+            )
+        }
+    }
+
+    public static func socketFileName(
+        filePrefix: String,
+        slug: String?,
+        directoryPath: String,
+        maxSocketPathLength: Int = 103
+    ) -> String {
+        let baseName = slug.map { "\(filePrefix).\($0).sock" } ?? "\(filePrefix).sock"
+        if socketPathLength(directoryPath: directoryPath, fileName: baseName) <= maxSocketPathLength {
+            return baseName
+        }
+
+        guard let slug else {
+            return baseName
+        }
+
+        let hash = stableSlugHash(slug)
+        let fixedBytes = socketPathLength(
+            directoryPath: directoryPath,
+            fileName: "\(filePrefix).-.\(hash).sock"
+        )
+        let availableSlugBytes = maxSocketPathLength - fixedBytes
+        guard availableSlugBytes > 0 else {
+            return "\(filePrefix).\(hash).sock"
+        }
+
+        let prefix = String(decoding: slug.utf8.prefix(availableSlugBytes), as: UTF8.self)
+            .trimmingCharacters(in: CharacterSet(charactersIn: "-"))
+        guard !prefix.isEmpty else {
+            return "\(filePrefix).\(hash).sock"
+        }
+        return "\(filePrefix).\(prefix)-\(hash).sock"
     }
 
     public static func sanitizeSocketSlug(_ raw: String) -> String? {
@@ -174,6 +253,44 @@ public enum SocketPathMarkerFiles {
     private static func bundleSuffixSlug(_ bundleIdentifier: String, prefix: String) -> String? {
         let suffix = String(bundleIdentifier.dropFirst(prefix.count))
         return sanitizeSocketSlug(suffix)
+    }
+
+    private static func socketPath(
+        directoryPath: String,
+        filePrefix: String,
+        slug: String?,
+        fallbackPath: String,
+        maxSocketPathLength: Int
+    ) -> String {
+        guard !directoryPath.isEmpty else {
+            return fallbackPath
+        }
+        let fileName = socketFileName(
+            filePrefix: filePrefix,
+            slug: slug,
+            directoryPath: directoryPath,
+            maxSocketPathLength: maxSocketPathLength
+        )
+        return URL(fileURLWithPath: directoryPath)
+            .appendingPathComponent(fileName, isDirectory: false)
+            .path
+    }
+
+    private static func socketPathLength(directoryPath: String, fileName: String) -> Int {
+        URL(fileURLWithPath: directoryPath)
+            .appendingPathComponent(fileName, isDirectory: false)
+            .path
+            .utf8
+            .count
+    }
+
+    private static func stableSlugHash(_ value: String) -> String {
+        var hash: UInt64 = 0xcbf29ce484222325
+        for byte in value.utf8 {
+            hash ^= UInt64(byte)
+            hash &*= 0x100000001b3
+        }
+        return String(format: "%016llx", hash)
     }
 
     private static func normalized(_ value: String?) -> String? {

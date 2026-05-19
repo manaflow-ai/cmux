@@ -4824,15 +4824,14 @@ final class GhosttyModifierFlagsChangedActionTests: XCTestCase {
 
 
 final class TerminalControllerSocketListenerHealthTests: XCTestCase {
-    func testStableSocketBindPermissionFailureFallsBackToUserScopedSocket() {
-        XCTAssertEqual(
+    func testStableSocketBindPermissionFailureDoesNotFallback() {
+        XCTAssertNil(
             TerminalController.fallbackSocketPathAfterBindFailure(
                 requestedPath: SocketControlSettings.stableDefaultSocketPath,
                 stage: "bind",
                 errnoCode: EACCES,
                 currentUserID: 501
-            ),
-            SocketControlSettings.userScopedStableSocketPath(currentUserID: 501)
+            )
         )
     }
 
@@ -4938,6 +4937,26 @@ final class TerminalControllerSocketListenerHealthTests: XCTestCase {
         let health = TerminalController.shared.socketListenerHealth(expectedSocketPath: path)
         XCTAssertTrue(health.socketPathExists)
         XCTAssertFalse(health.isHealthy)
+    }
+
+    func testSocketPathHasLiveListenerRecognizesListeningSocket() throws {
+        let path = makeTempSocketPath()
+        let fd = try bindUnixSocket(at: path)
+        defer {
+            Darwin.close(fd)
+            unlink(path)
+        }
+
+        XCTAssertTrue(TerminalController.socketPathHasLiveListener(path, timeout: 0.2))
+    }
+
+    func testSocketPathHasLiveListenerRejectsStaleSocketFile() throws {
+        let path = makeTempSocketPath()
+        let fd = try bindUnixSocket(at: path)
+        Darwin.close(fd)
+        defer { unlink(path) }
+
+        XCTAssertFalse(TerminalController.socketPathHasLiveListener(path, timeout: 0.2))
     }
 
     @MainActor

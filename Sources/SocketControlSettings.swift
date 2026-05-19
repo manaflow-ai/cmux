@@ -298,7 +298,7 @@ struct SocketControlSettings {
     static let launchTagEnvKey = "CMUX_TAG"
     static let baseDebugBundleIdentifier = "com.cmuxterm.app.debug"
     private static let socketDirectoryName = "cmux"
-    private static let stableSocketFileName = "cmux.sock"
+    private static let stableSocketFileName = SocketPathMarkerFiles.stableSocketFileName
     static let legacyStableDefaultSocketPath = "/tmp/cmux.sock"
 
     static var stableDefaultSocketPath: String {
@@ -477,14 +477,9 @@ struct SocketControlSettings {
         currentUserID: uid_t = getuid(),
         probeStableDefaultPathEntry: (String) -> StableDefaultSocketPathEntry = inspectStableDefaultSocketPathEntry
     ) -> String {
-        switch probeStableDefaultPathEntry(stableDefaultSocketPath) {
-        case .missing:
-            return stableDefaultSocketPath
-        case .socket(let ownerUserID) where ownerUserID == currentUserID:
-            return stableDefaultSocketPath
-        case .socket, .other, .inaccessible:
-            return userScopedStableSocketPath(currentUserID: currentUserID)
-        }
+        _ = currentUserID
+        _ = probeStableDefaultPathEntry
+        return stableDefaultSocketPath
     }
 
     static func shouldHonorSocketPathOverride(

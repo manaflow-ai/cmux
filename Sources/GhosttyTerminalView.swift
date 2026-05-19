@@ -5508,8 +5508,6 @@ final class TerminalSurface: Identifiable, ObservableObject {
         // Backward-compatible shell integration keys used by existing scripts/tests.
         setManagedEnvironmentValue("CMUX_PANEL_ID", id.uuidString)
         setManagedEnvironmentValue("CMUX_TAB_ID", tabId.uuidString)
-        let socketPath = SocketControlSettings.socketPath()
-        setManagedEnvironmentValue("CMUX_SOCKET_PATH", socketPath)
         setManagedEnvironmentValue("CMUX_SOCKET", "")
         if let inheritedClaudeConfigDir = ProcessInfo.processInfo.environment["CLAUDE_CONFIG_DIR"],
            !inheritedClaudeConfigDir.isEmpty {

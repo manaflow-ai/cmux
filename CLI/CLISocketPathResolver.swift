@@ -81,7 +81,8 @@ enum CLISocketPathSource {
 
 enum CLISocketPathResolver {
     private static let appSupportDirectoryName = "cmux"
-    private static let stableSocketFileName = "cmux.sock"
+    private static let stableSocketFileName = SocketPathMarkerFiles.stableSocketFileName
+    private static let legacyAppSupportSocketFileName = "cmux.sock"
     static let legacyDefaultSocketPath = "/tmp/cmux.sock"
     private static let fallbackSocketPath = "/tmp/cmux-debug.sock"
     private static let nightlySocketPath = "/tmp/cmux-nightly.sock"
@@ -123,7 +124,18 @@ enum CLISocketPathResolver {
         environment: [String: String] = ProcessInfo.processInfo.environment,
         bundleIdentifier: String? = currentAppBundleIdentifier()
     ) -> String {
-        guard source == .implicitDefault else {
+        if source == .explicitFlag {
+            return requestedPath
+        }
+
+        if source == .environment && canConnect(to: requestedPath) {
+            return requestedPath
+        }
+
+        if source == .environment && !shouldRecoverEnvironmentSocketPath(
+            environment: environment,
+            bundleIdentifier: bundleIdentifier
+        ) {
             return requestedPath
         }
 
@@ -239,7 +251,7 @@ enum CLISocketPathResolver {
                 continue
             }
             discovered.reserveCapacity(min(limit, discovered.count + entries.count))
-            for name in entries where name.hasPrefix("cmux-debug-") && name.hasSuffix(".sock") {
+            for name in entries where isDiscoveredTaggedSocketFileName(name) {
                 let path = URL(fileURLWithPath: directory)
                     .appendingPathComponent(name, isDirectory: false)
                     .path
@@ -256,6 +268,14 @@ enum CLISocketPathResolver {
 
         discovered.sort { $0.mtime > $1.mtime }
         return dedupe(discovered.prefix(limit).map(\.path))
+    }
+
+    private static func isDiscoveredTaggedSocketFileName(_ name: String) -> Bool {
+        if name.hasPrefix("cmux-debug-") && name.hasSuffix(".sock") {
+            return true
+        }
+        return name.hasPrefix("\(SocketPathMarkerFiles.devSocketFilePrefix).")
+            && name.hasSuffix(".sock")
     }
 
     private static func isSocketFile(_ path: String) -> Bool {
@@ -327,6 +347,7 @@ enum CLISocketPathResolver {
     private static func stableImplicitDefaultPaths() -> [String] {
         dedupe([
             stableDefaultSocketPath,
+            legacyAppSupportSocketPath,
             legacyDefaultSocketPath,
         ])
     }
@@ -334,11 +355,29 @@ enum CLISocketPathResolver {
     private static func allKnownDefaultSocketPaths() -> Set<String> {
         Set(dedupe([
             stableDefaultSocketPath,
+            legacyAppSupportSocketPath,
             legacyDefaultSocketPath,
             fallbackSocketPath,
             nightlySocketPath,
             stagingSocketPath,
         ]))
+    }
+
+    private static func shouldRecoverEnvironmentSocketPath(
+        environment: [String: String],
+        bundleIdentifier: String?
+    ) -> Bool {
+        _ = bundleIdentifier
+        let cmuxContextKeys = [
+            "CMUX_BUNDLE_ID",
+            "CMUX_BUNDLED_CLI_PATH",
+            "CMUX_TAG",
+            "CMUX_WORKSPACE_ID",
+            "CMUX_SURFACE_ID",
+            "CMUX_PANEL_ID",
+            "CMUX_TAB_ID",
+        ]
+        return cmuxContextKeys.contains { normalized(environment[$0]) != nil }
     }
 
     private static func lastSocketPathFiles(
@@ -354,6 +393,12 @@ enum CLISocketPathResolver {
 
     static func currentAppBundleIdentifier() -> String? {
         if let bundleIdentifier = CLIExecutableLocator.enclosingAppBundle()?.bundleIdentifier?
+            .trimmingCharacters(in: .whitespacesAndNewlines),
+           !bundleIdentifier.isEmpty {
+            return bundleIdentifier
+        }
+
+        if let bundleIdentifier = ProcessInfo.processInfo.environment["CMUX_BUNDLE_ID"]?
             .trimmingCharacters(in: .whitespacesAndNewlines),
            !bundleIdentifier.isEmpty {
             return bundleIdentifier
@@ -383,6 +428,12 @@ enum CLISocketPathResolver {
             return nil
         }
         return appSupportDirectory.appendingPathComponent(appSupportDirectoryName, isDirectory: true)
+    }
+
+    private static var legacyAppSupportSocketPath: String {
+        stableSocketDirectoryURL()?
+            .appendingPathComponent(legacyAppSupportSocketFileName, isDirectory: false)
+            .path ?? legacyDefaultSocketPath
     }
 
     private static func socketDiscoveryDirectories() -> [String] {

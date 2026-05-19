@@ -971,6 +971,57 @@ class TerminalController {
 #endif
     }
 
+    nonisolated static func socketPathHasLiveListener(_ path: String, timeout: TimeInterval) -> Bool {
+        var st = stat()
+        guard lstat(path, &st) == 0,
+              (st.st_mode & mode_t(S_IFMT)) == mode_t(S_IFSOCK) else {
+            return false
+        }
+
+        let fd = socket(AF_UNIX, SOCK_STREAM, 0)
+        guard fd >= 0 else { return false }
+        defer { close(fd) }
+        _ = configureNoSigPipe(fd)
+
+        let originalFlags = fcntl(fd, F_GETFL, 0)
+        guard originalFlags >= 0 else { return false }
+        guard fcntl(fd, F_SETFL, originalFlags | O_NONBLOCK) >= 0 else { return false }
+        defer { _ = fcntl(fd, F_SETFL, originalFlags) }
+
+        guard var addr = unixSocketAddress(path: path) else { return false }
+        let connectResult = withUnsafePointer(to: &addr) { ptr in
+            ptr.withMemoryRebound(to: sockaddr.self, capacity: 1) { sockaddrPtr in
+                connect(fd, sockaddrPtr, socklen_t(MemoryLayout<sockaddr_un>.size))
+            }
+        }
+        if connectResult == 0 {
+            return true
+        }
+
+        let connectErrno = errno
+        guard connectErrno == EINPROGRESS || connectErrno == EAGAIN || connectErrno == EWOULDBLOCK else {
+            return false
+        }
+
+        let timeoutMs = max(1, Int32((max(timeout, 0.001) * 1_000).rounded()))
+        var pollFD = pollfd(fd: fd, events: Int16(POLLOUT), revents: 0)
+        guard poll(&pollFD, 1, timeoutMs) > 0 else {
+            return false
+        }
+        guard (pollFD.revents & Int16(POLLOUT)) != 0 else {
+            return false
+        }
+
+        var socketError: Int32 = 0
+        var socketErrorLength = socklen_t(MemoryLayout<Int32>.size)
+        let optionResult = withUnsafeMutablePointer(to: &socketError) { errorPointer in
+            withUnsafeMutablePointer(to: &socketErrorLength) { lengthPointer in
+                getsockopt(fd, SOL_SOCKET, SO_ERROR, errorPointer, lengthPointer)
+            }
+        }
+        return optionResult == 0 && socketError == 0
+    }
+
     private nonisolated static func configureAcceptedClientSocket(_ fd: Int32) -> (stage: String, errnoCode: Int32)? {
         if let errnoCode = configureBlocking(fd) {
             return ("accept_client_configure_blocking", errnoCode)
@@ -999,6 +1050,9 @@ class TerminalController {
     private nonisolated static func bindListenerSocket(_ socket: Int32, path: String) -> SocketBindAttemptResult {
         if let errnoCode = ensureSocketParentDirectoryExists(path: path) {
             return .failure(path: path, stage: "create_directory", errnoCode: errnoCode)
+        }
+        if socketPathHasLiveListener(path, timeout: 0.2) {
+            return .failure(path: path, stage: "live_listener", errnoCode: EADDRINUSE)
         }
         if unlink(path) != 0, errno != ENOENT {
             return .failure(path: path, stage: "unlink", errnoCode: errno)
@@ -1036,18 +1090,11 @@ class TerminalController {
         errnoCode: Int32,
         currentUserID: uid_t = getuid()
     ) -> String? {
-        guard requestedPath == SocketControlSettings.stableDefaultSocketPath else {
-            return nil
-        }
-
-        switch stage {
-        case "unlink" where errnoCode == EACCES || errnoCode == EPERM:
-            return SocketControlSettings.userScopedStableSocketPath(currentUserID: currentUserID)
-        case "bind" where errnoCode == EACCES || errnoCode == EPERM || errnoCode == EADDRINUSE:
-            return SocketControlSettings.userScopedStableSocketPath(currentUserID: currentUserID)
-        default:
-            return nil
-        }
+        _ = requestedPath
+        _ = stage
+        _ = errnoCode
+        _ = currentUserID
+        return nil
     }
 
     func start(

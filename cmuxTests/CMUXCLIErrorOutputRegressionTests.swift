@@ -1,4 +1,5 @@
 import Darwin
+import CMUXSocketPathDomain
 import XCTest
 
 final class CMUXCLIErrorOutputRegressionTests: XCTestCase {
@@ -23,7 +24,7 @@ final class CMUXCLIErrorOutputRegressionTests: XCTestCase {
     func testBundledCLIInTaggedDebugAppPrefersItsOwnSocketWithoutEnvironmentOverride() throws {
         let cliPath = try bundledCLIPath()
         let tagSlug = "cli-socket-\(UUID().uuidString.lowercased())"
-        let taggedSocketPath = "/tmp/cmux-debug-\(tagSlug).sock"
+        let taggedSocketPath = try taggedSocketURL(tagSlug: tagSlug).path
         let stableSocketURL = try stableSocketURL()
 
         if FileManager.default.fileExists(atPath: stableSocketURL.path) {
@@ -64,7 +65,7 @@ final class CMUXCLIErrorOutputRegressionTests: XCTestCase {
     func testBundledCLISkipsIdentifierlessNestedAppWhenResolvingTaggedSocket() throws {
         let cliPath = try bundledCLIPath()
         let tagSlug = "cli-nested-\(UUID().uuidString.lowercased())"
-        let taggedSocketPath = "/tmp/cmux-debug-\(tagSlug).sock"
+        let taggedSocketPath = try taggedSocketURL(tagSlug: tagSlug).path
         let stableSocketURL = try stableSocketURL()
 
         if FileManager.default.fileExists(atPath: stableSocketURL.path) {
@@ -103,6 +104,43 @@ final class CMUXCLIErrorOutputRegressionTests: XCTestCase {
         )
     }
 
+    func testBundledCLIRecoversFromStaleInheritedCmuxSocketPath() throws {
+        let cliPath = try bundledCLIPath()
+        let tagSlug = "cli-stale-\(UUID().uuidString.lowercased())"
+        let taggedSocketPath = try taggedSocketURL(tagSlug: tagSlug).path
+
+        let taggedResponder = try UnixSocketResponder(path: taggedSocketPath, response: "TAGGED")
+        defer { taggedResponder.stop() }
+
+        let fakeCLIPath = try fakeTaggedBundledCLIPath(
+            sourceCLIPath: cliPath,
+            tagSlug: tagSlug
+        )
+        var environment = ProcessInfo.processInfo.environment
+        for key in Array(environment.keys) where key.hasPrefix("CMUX_") {
+            environment.removeValue(forKey: key)
+        }
+        environment["CMUX_CLI_SENTRY_DISABLED"] = "1"
+        environment["CMUX_BUNDLE_ID"] = "com.cmuxterm.app.debug.\(tagSlug.replacingOccurrences(of: "-", with: "."))"
+        environment["CMUX_WORKSPACE_ID"] = UUID().uuidString
+        environment["CMUX_SOCKET_PATH"] = "/tmp/cmux-stale-\(UUID().uuidString).sock"
+
+        let result = runProcess(
+            executablePath: fakeCLIPath,
+            arguments: ["ping"],
+            environment: environment,
+            timeout: 5
+        )
+
+        XCTAssertFalse(result.timedOut, result.stdout)
+        XCTAssertEqual(result.status, 0, result.stdout)
+        XCTAssertEqual(
+            result.stdout.trimmingCharacters(in: .whitespacesAndNewlines),
+            "TAGGED",
+            result.stdout
+        )
+    }
+
     private func bundledCLIPath() throws -> String {
         let fileManager = FileManager.default
         let appBundleURL = Bundle(for: Self.self)
@@ -124,12 +162,27 @@ final class CMUXCLIErrorOutputRegressionTests: XCTestCase {
     }
 
     private func stableSocketURL() throws -> URL {
+        try appSupportSocketURL(fileName: "com.cmuxterm.app.sock")
+    }
+
+    private func taggedSocketURL(tagSlug: String) throws -> URL {
+        let stablePath = try stableSocketURL().path
+        let socketPath = SocketPathMarkerFiles.defaultSocketPath(
+            bundleIdentifier: "com.cmuxterm.app.debug.\(tagSlug.replacingOccurrences(of: "-", with: "."))",
+            environment: [:],
+            isDebugBuild: false,
+            stableSocketPath: stablePath
+        )
+        return URL(fileURLWithPath: socketPath)
+    }
+
+    private func appSupportSocketURL(fileName: String) throws -> URL {
         let appSupport = try XCTUnwrap(
             FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask).first
         )
         let directory = appSupport.appendingPathComponent("cmux", isDirectory: true)
         try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
-        return directory.appendingPathComponent("cmux.sock", isDirectory: false)
+        return directory.appendingPathComponent(fileName, isDirectory: false)
     }
 
     private func fakeTaggedBundledCLIPath(

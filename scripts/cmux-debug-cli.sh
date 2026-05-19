@@ -47,11 +47,22 @@ sanitize_path() {
 tag_slug="$(sanitize_path "$CMUX_TAG")"
 tag_bundle_id="$(sanitize_bundle "$CMUX_TAG")"
 
-socket_path="/tmp/cmux-debug-${tag_slug}.sock"
-if [[ ! -S "$socket_path" ]]; then
+socket_marker="${HOME}/Library/Application Support/cmux/dev-${tag_slug}-last-socket-path"
+tmp_socket_marker="/tmp/cmux-dev-${tag_slug}-last-socket-path"
+socket_path=""
+for marker in "$socket_marker" "$tmp_socket_marker"; do
+  if [[ -r "$marker" ]]; then
+    socket_path="$(tr -d '\r\n' < "$marker" 2>/dev/null || true)"
+    if [[ -n "$socket_path" ]]; then
+      break
+    fi
+  fi
+done
+
+if [[ -z "$socket_path" || ! -S "$socket_path" ]]; then
   cat >&2 <<EOF
 Tagged cmux socket not found:
-  $socket_path
+  ${socket_path:-$socket_marker}
 
 Launch the tagged app first:
   ./scripts/reload.sh --tag $CMUX_TAG --launch
@@ -79,7 +90,7 @@ unset CMUX_TAB_ID
 unset CMUX_PANEL_ID
 unset CMUXD_UNIX_PATH
 unset CMUX_DEBUG_LOG
-export CMUX_SOCKET_PATH="$socket_path"
+unset CMUX_SOCKET_PATH
 export CMUX_TAG="$tag_slug"
 export CMUX_BUNDLE_ID="com.cmuxterm.app.debug.${tag_bundle_id}"
 export CMUX_BUNDLED_CLI_PATH="$cli_path"

@@ -58,6 +58,13 @@ struct cmuxApp: App {
             defaults.set(legacy ? SocketControlMode.cmuxOnly.rawValue : SocketControlMode.off.rawValue,
                          forKey: SocketControlSettings.appStorageKey)
         }
+        if let occupiedSocketPath = Self.startupSocketCollisionPath(defaults: defaults) {
+            StartupBreadcrumbLog.append(
+                "app.init.socketCollision",
+                fields: ["path": occupiedSocketPath]
+            )
+            Self.terminateForSocketPathCollision(occupiedSocketPath)
+        }
         // Skip keychain migration for DEV/staging builds. Each tagged build gets a
         // unique bundle ID with its own UserDefaults domain, so migration would run
         // on every launch and trigger a macOS keychain access prompt (the legacy
@@ -85,6 +92,33 @@ struct cmuxApp: App {
         fflush(stderr)
         NSLog("%@", message)
         Darwin.exit(64)
+    }
+
+    private static func startupSocketCollisionPath(defaults: UserDefaults) -> String? {
+        let storedMode = defaults.string(forKey: SocketControlSettings.appStorageKey)
+            ?? SocketControlSettings.defaultMode.rawValue
+        let mode = SocketControlSettings.effectiveMode(
+            userMode: SocketControlSettings.migrateMode(storedMode)
+        )
+        guard mode != .off else {
+            return nil
+        }
+        let socketPath = SocketControlSettings.socketPath()
+        return TerminalController.socketPathHasLiveListener(socketPath, timeout: 0.2)
+            ? socketPath
+            : nil
+    }
+
+    private static func terminateForSocketPathCollision(_ path: String) -> Never {
+        let format = String(
+            localized: "socket.startup.collision",
+            defaultValue: "error: refusing to launch cmux because another process is already listening on the socket at %@. Quit that process or use a different cmux build tag, then reopen cmux."
+        )
+        let message = String(format: format, path)
+        fputs("\(message)\n", stderr)
+        fflush(stderr)
+        NSLog("%@", message)
+        Darwin.exit(73)
     }
 
     private static func configureGhosttyEnvironment() {

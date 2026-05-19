@@ -316,14 +316,18 @@ print_tag_cleanup_reminder() {
     echo "Cleanup stale tags only:"
     for tag in "${stale_tags[@]}"; do
       echo "  pkill -f \"cmux DEV ${tag}.app/Contents/MacOS/cmux DEV\""
-      echo "  rm -rf \"$(tagged_derived_data_path "$tag")\" \"/tmp/cmux-${tag}\" \"/tmp/cmux-debug-${tag}.sock\""
+      echo "  socket_path=\$(cat \"$HOME/Library/Application Support/cmux/dev-${tag}-last-socket-path\" 2>/dev/null || true); [[ -n \"\$socket_path\" ]] && rm -f \"\$socket_path\""
+      echo "  rm -rf \"$(tagged_derived_data_path "$tag")\" \"/tmp/cmux-${tag}\""
+      echo "  rm -f \"$HOME/Library/Application Support/cmux/dev-${tag}-last-socket-path\" \"/tmp/cmux-dev-${tag}-last-socket-path\""
       echo "  rm -f \"/tmp/cmux-debug-${tag}.log\""
       echo "  rm -f \"$HOME/Library/Application Support/cmux/cmuxd-dev-${tag}.sock\""
     done
   fi
   echo "After you verify current tag, cleanup command:"
   echo "  pkill -f \"cmux DEV ${current_slug}.app/Contents/MacOS/cmux DEV\""
-  echo "  rm -rf \"$(tagged_derived_data_path "$current_slug")\" \"/tmp/cmux-${current_slug}\" \"/tmp/cmux-debug-${current_slug}.sock\""
+  echo "  socket_path=\$(cat \"$HOME/Library/Application Support/cmux/dev-${current_slug}-last-socket-path\" 2>/dev/null || true); [[ -n \"\$socket_path\" ]] && rm -f \"\$socket_path\""
+  echo "  rm -rf \"$(tagged_derived_data_path "$current_slug")\" \"/tmp/cmux-${current_slug}\""
+  echo "  rm -f \"$HOME/Library/Application Support/cmux/dev-${current_slug}-last-socket-path\" \"/tmp/cmux-dev-${current_slug}-last-socket-path\""
   echo "  rm -f \"/tmp/cmux-debug-${current_slug}.log\""
   echo "  rm -f \"$HOME/Library/Application Support/cmux/cmuxd-dev-${current_slug}.sock\""
 }
@@ -612,14 +616,11 @@ if [[ -n "$TAG" && "$APP_NAME" != "$SEARCH_APP_NAME" ]]; then
     if [[ -n "${TAG_SLUG:-}" ]]; then
       APP_SUPPORT_DIR="$HOME/Library/Application Support/cmux"
       CMUXD_SOCKET="${APP_SUPPORT_DIR}/cmuxd-dev-${TAG_SLUG}.sock"
-      CMUX_SOCKET_PATH_VALUE="/tmp/cmux-debug-${TAG_SLUG}.sock"
       CMUX_DEBUG_LOG="/tmp/cmux-debug-${TAG_SLUG}.log"
-      write_last_socket_path "$CMUX_SOCKET_PATH_VALUE"
       echo "$CMUX_DEBUG_LOG" > /tmp/cmux-last-debug-log-path || true
       /usr/libexec/PlistBuddy -c "Add :LSEnvironment dict" "$INFO_PLIST" 2>/dev/null || true
       set_plist_env "$INFO_PLIST" CMUX_BUNDLE_ID "$BUNDLE_ID"
       set_plist_env "$INFO_PLIST" CMUXD_UNIX_PATH "$CMUXD_SOCKET"
-      set_plist_env "$INFO_PLIST" CMUX_SOCKET_PATH "$CMUX_SOCKET_PATH_VALUE"
       set_plist_env "$INFO_PLIST" CMUX_DEBUG_LOG "$CMUX_DEBUG_LOG"
       set_plist_env "$INFO_PLIST" CMUX_SOCKET_ENABLE "1"
       set_plist_env "$INFO_PLIST" CMUX_SOCKET_MODE "allowAll"
@@ -639,9 +640,6 @@ if [[ -n "$TAG" && "$APP_NAME" != "$SEARCH_APP_NAME" ]]; then
           kill "$PID" 2>/dev/null || true
         done
         rm -f "$CMUXD_SOCKET"
-      fi
-      if [[ -S "$CMUX_SOCKET_PATH_VALUE" ]]; then
-        rm -f "$CMUX_SOCKET_PATH_VALUE"
       fi
     fi
   fi
@@ -784,11 +782,7 @@ if [[ "$LAUNCH" -eq 1 ]]; then
       exit 1
     fi
     TAG_LAUNCH_LOG="/tmp/cmux-launch-${TAG_SLUG}.out"
-    if [[ -n "${CMUX_SOCKET_PATH_VALUE:-}" ]]; then
-      nohup "${OPEN_CLEAN_ENV[@]}" "${TAG_LAUNCH_ENV[@]}" CMUX_SOCKET_PATH="$CMUX_SOCKET_PATH_VALUE" CMUXD_UNIX_PATH="$CMUXD_SOCKET" "$APP_EXECUTABLE" >"$TAG_LAUNCH_LOG" 2>&1 &
-    else
-      nohup "${OPEN_CLEAN_ENV[@]}" "${TAG_LAUNCH_ENV[@]}" "$APP_EXECUTABLE" >"$TAG_LAUNCH_LOG" 2>&1 &
-    fi
+    nohup "${OPEN_CLEAN_ENV[@]}" "${TAG_LAUNCH_ENV[@]}" CMUXD_UNIX_PATH="$CMUXD_SOCKET" "$APP_EXECUTABLE" >"$TAG_LAUNCH_LOG" 2>&1 &
   else
     echo "/tmp/cmux-debug.sock" > /tmp/cmux-last-socket-path || true
     echo "/tmp/cmux-debug.log" > /tmp/cmux-last-debug-log-path || true
@@ -834,20 +828,39 @@ if [[ "$LAUNCH" -eq 1 ]]; then
       fi
     done
   fi
-  if [[ -n "${TAG_SLUG:-}" && -n "${CMUX_SOCKET_PATH_VALUE:-}" ]]; then
+  if [[ -n "${TAG_SLUG:-}" ]]; then
+    SOCKET_MARKER="${LAST_SOCKET_PATH_DIR}/dev-${TAG_SLUG}-last-socket-path"
+    TMP_SOCKET_MARKER="/tmp/cmux-dev-${TAG_SLUG}-last-socket-path"
     SOCKET_READY=0
+    CMUX_SOCKET_PATH_VALUE=""
     for _ in {1..80}; do
-      if [[ -S "$CMUX_SOCKET_PATH_VALUE" ]]; then
-        SOCKET_READY=1
-        break
-      fi
       if ! pgrep -f "${APP_PATH}/Contents/MacOS/" >/dev/null 2>&1; then
         break
       fi
+      for marker in "$SOCKET_MARKER" "$TMP_SOCKET_MARKER"; do
+        if [[ -r "$marker" ]]; then
+          CMUX_SOCKET_PATH_VALUE="$(tr -d '\r\n' < "$marker" 2>/dev/null || true)"
+          if [[ -n "$CMUX_SOCKET_PATH_VALUE" && -S "$CMUX_SOCKET_PATH_VALUE" ]]; then
+            if CMUXTERM_CLI_RESPONSE_TIMEOUT_SEC=0.5 \
+              "${OPEN_CLEAN_ENV[@]}" \
+              CMUX_TAG="${TAG_SLUG:-}" \
+              CMUX_BUNDLE_ID="$BUNDLE_ID" \
+              CMUX_BUNDLED_CLI_PATH="$CLI_PATH" \
+              "$CLI_PATH" ping >/dev/null 2>&1; then
+              SOCKET_READY=1
+              break 2
+            fi
+          fi
+        fi
+      done
       sleep 0.1
     done
     if [[ "$SOCKET_READY" -ne 1 ]]; then
-      echo "error: tagged app did not create socket: $CMUX_SOCKET_PATH_VALUE" >&2
+      if [[ -n "$CMUX_SOCKET_PATH_VALUE" ]]; then
+        echo "error: tagged app did not create socket: $CMUX_SOCKET_PATH_VALUE" >&2
+      else
+        echo "error: tagged app did not create socket marker: $SOCKET_MARKER" >&2
+      fi
       if [[ -n "${TAG_LAUNCH_LOG:-}" && -f "$TAG_LAUNCH_LOG" ]]; then
         echo "Launch log: $TAG_LAUNCH_LOG" >&2
         tail -n 80 "$TAG_LAUNCH_LOG" >&2 || true

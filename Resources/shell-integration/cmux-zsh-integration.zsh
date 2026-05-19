@@ -11,6 +11,7 @@ fi
 
 _cmux_send() {
     local payload="$1"
+    _cmux_refresh_socket_path_from_marker
     if (( _CMUX_HAS_ZSOCKET )); then
         local fd
         zsocket "$CMUX_SOCKET_PATH" 2>/dev/null || return 1
@@ -43,6 +44,7 @@ _cmux_send_bg() {
 }
 
 _cmux_socket_is_unix() {
+    _cmux_refresh_socket_path_from_marker
     [[ -n "$CMUX_SOCKET_PATH" && -S "$CMUX_SOCKET_PATH" ]]
 }
 
@@ -54,7 +56,74 @@ _cmux_relay_cli_path() {
     command -v cmux 2>/dev/null
 }
 
+_cmux_sanitize_socket_slug() {
+    local raw="$1"
+    print -r -- "$raw" | tr '[:upper:]' '[:lower:]' | sed -E 's/[^a-z0-9]+/-/g; s/^-+//; s/-+$//; s/-+/-/g'
+}
+
+_cmux_refresh_socket_path_from_marker() {
+    [[ -n "${CMUX_BUNDLE_ID:-}${CMUX_TAG:-}" ]] || return 0
+    local bundle="${CMUX_BUNDLE_ID:-com.cmuxterm.app}"
+    local marker_name="last-socket-path"
+    local tmp_marker="/tmp/cmux-last-socket-path"
+    local slug=""
+
+    case "$bundle" in
+        com.cmuxterm.app.nightly)
+            marker_name="nightly-last-socket-path"
+            tmp_marker="/tmp/cmux-nightly-last-socket-path"
+            ;;
+        com.cmuxterm.app.nightly.*)
+            slug="$(_cmux_sanitize_socket_slug "${bundle#com.cmuxterm.app.nightly.}")"
+            marker_name="nightly-${slug}-last-socket-path"
+            tmp_marker="/tmp/cmux-nightly-${slug}-last-socket-path"
+            ;;
+        com.cmuxterm.app.staging)
+            marker_name="staging-last-socket-path"
+            tmp_marker="/tmp/cmux-staging-last-socket-path"
+            ;;
+        com.cmuxterm.app.staging.*)
+            slug="$(_cmux_sanitize_socket_slug "${bundle#com.cmuxterm.app.staging.}")"
+            marker_name="staging-${slug}-last-socket-path"
+            tmp_marker="/tmp/cmux-staging-${slug}-last-socket-path"
+            ;;
+        com.cmuxterm.app.debug)
+            slug="$(_cmux_sanitize_socket_slug "${CMUX_TAG:-}")"
+            if [[ -n "$slug" ]]; then
+                marker_name="dev-${slug}-last-socket-path"
+                tmp_marker="/tmp/cmux-dev-${slug}-last-socket-path"
+            else
+                marker_name="dev-last-socket-path"
+                tmp_marker="/tmp/cmux-dev-last-socket-path"
+            fi
+            ;;
+        com.cmuxterm.app.debug.*)
+            slug="$(_cmux_sanitize_socket_slug "${bundle#com.cmuxterm.app.debug.}")"
+            marker_name="dev-${slug}-last-socket-path"
+            tmp_marker="/tmp/cmux-dev-${slug}-last-socket-path"
+            ;;
+    esac
+
+    local marker_dir="${HOME}/Library/Application Support/cmux"
+    local marker_path path
+    for marker_path in "${marker_dir}/${marker_name}" "$tmp_marker"; do
+        [[ -r "$marker_path" ]] || continue
+        path="$(<"$marker_path")"
+        path="${path//$'\r'/}"
+        path="${path//$'\n'/}"
+        [[ -n "$path" ]] || continue
+        if [[ "$CMUX_SOCKET_PATH" != "$path" ]]; then
+            export CMUX_SOCKET_PATH="$path"
+            if [[ -n "$TMUX" ]] && command -v tmux >/dev/null 2>&1; then
+                tmux set-environment -g CMUX_SOCKET_PATH "$path" >/dev/null 2>&1 || true
+            fi
+        fi
+        return 0
+    done
+}
+
 _cmux_socket_uses_remote_relay() {
+    _cmux_refresh_socket_path_from_marker
     [[ -n "$CMUX_SOCKET_PATH" ]] || return 1
     [[ "$CMUX_SOCKET_PATH" == /* ]] && return 1
     [[ "$CMUX_SOCKET_PATH" == *:* ]] || return 1
@@ -347,11 +416,13 @@ _cmux_tmux_refresh_cmux_environment() {
 }
 
 _cmux_tmux_sync_cmux_environment() {
+    _cmux_refresh_socket_path_from_marker
     if [[ -n "$TMUX" ]]; then
         _cmux_tmux_refresh_cmux_environment
     else
         _cmux_tmux_publish_cmux_environment
     fi
+    _cmux_refresh_socket_path_from_marker
 }
 
 _cmux_ensure_ghostty_preexec_strips_both_marks() {
