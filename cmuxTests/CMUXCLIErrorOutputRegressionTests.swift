@@ -273,6 +273,7 @@ final class CMUXCLIErrorOutputRegressionTests: XCTestCase {
         #!/usr/bin/env python3
         import os
         import signal
+        import sys
         import time
 
         deadline = time.time() + 2.0
