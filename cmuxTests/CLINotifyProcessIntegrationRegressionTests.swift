@@ -1520,6 +1520,90 @@ final class CLINotifyProcessIntegrationRegressionTests: XCTestCase {
         )
     }
 
+    func testMemoryTrimKillExitObservationOverridesStaleTelemetry() throws {
+        let cliPath = try bundledCLIPath()
+        let socketPath = makeSocketPath("mem-trim-kill-exit")
+        let listenerFD = try bindUnixSocket(at: socketPath)
+        let state = MockSocketServerState()
+        let workspaceId = "45454545-4545-4545-4545-454545454545"
+        let surfaceId = "55555555-5555-5555-5555-555555555555"
+        let stubborn = Process()
+        stubborn.executableURL = URL(fileURLWithPath: "/bin/sh")
+        stubborn.arguments = ["-c", "trap '' TERM; while :; do sleep 1; done"]
+        try stubborn.run()
+
+        defer {
+            terminateProcess(stubborn)
+            Darwin.close(listenerFD)
+            unlink(socketPath)
+        }
+
+        let serverHandled = startMockServer(listenerFD: listenerFD, state: state) { line in
+            guard let payload = self.jsonObject(line),
+                  let id = payload["id"] as? String,
+                  let method = payload["method"] as? String else {
+                return self.malformedRequestResponse(raw: line)
+            }
+            guard method == "system.top" else {
+                return self.v2Response(
+                    id: id,
+                    ok: false,
+                    error: ["code": "unexpected_method", "message": "Unexpected method \(method)"]
+                )
+            }
+            return self.v2Response(
+                id: id,
+                ok: true,
+                result: self.memorySystemTopFixture(
+                    workspaceId: workspaceId,
+                    workspaceRef: "workspace:14",
+                    surfaceId: surfaceId,
+                    agentKey: "opencode",
+                    agentPID: Int(stubborn.processIdentifier),
+                    secretCommandLine: "/opt/homebrew/bin/opencode --secret ignored"
+                )
+            )
+        }
+
+        var environment = ProcessInfo.processInfo.environment
+        environment["CMUX_SOCKET_PATH"] = socketPath
+        environment["CMUX_CLI_SENTRY_DISABLED"] = "1"
+
+        let result = runProcess(
+            executablePath: cliPath,
+            arguments: [
+                "memory",
+                "trim",
+                "--workspace",
+                "workspace:14",
+                "--agent",
+                "opencode",
+                "--grace-seconds",
+                "0",
+                "--json",
+                "--id-format",
+                "uuids",
+            ],
+            environment: environment,
+            timeout: 5
+        )
+
+        wait(for: [serverHandled], timeout: 5)
+        XCTAssertFalse(result.timedOut, result.stderr)
+        XCTAssertEqual(result.status, 0, result.stderr)
+        XCTAssertTrue(result.stderr.isEmpty, result.stderr)
+
+        let payload = try jsonPayload(from: result.stdout)
+        XCTAssertEqual(payload["attempted_shutdown"] as? Bool, true)
+        XCTAssertEqual(payload["terminated"] as? Bool, true)
+        XCTAssertEqual(payload["killed"] as? Bool, true)
+        XCTAssertEqual(payload["still_running"] as? Bool, false)
+        XCTAssertEqual(
+            state.commands.compactMap { self.jsonObject($0)?["method"] as? String },
+            ["system.top", "system.top", "system.top"]
+        )
+    }
+
     func testMemoryTrimAutoRejectsProcessNameFallbackWithoutOwnedTag() throws {
         let cliPath = try bundledCLIPath()
         let socketPath = makeSocketPath("mem-trim-auto")

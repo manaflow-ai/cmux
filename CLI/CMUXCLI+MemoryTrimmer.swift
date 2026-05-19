@@ -98,6 +98,16 @@ extension CMUXCLI {
         private let parser: MemoryAgentParser
         private let signaler: MemoryProcessSignaler
 
+        private enum MemorySignalKind {
+            case terminate
+            case kill
+        }
+
+        private struct MemorySignalAttempt {
+            let delivered: Bool
+            let processExited: Bool
+        }
+
         init(cli: CMUXCLI, client: SocketClient) {
             self.init(
                 cli: cli,
@@ -172,10 +182,9 @@ extension CMUXCLI {
                         tolerateMissingRevalidation: attemptedShutdown
                     ) {
                         attemptedShutdown = true
-                        if signaler.sendTerminateSignal(pid: liveCandidate.pid) {
-                            terminated = true
-                        }
-                        processExited = signaler.waitForExit(pid: liveCandidate.pid, timeout: Self.postSignalWaitSeconds)
+                        let attempt = attemptSignal(.terminate, pid: liveCandidate.pid)
+                        terminated = attempt.delivered
+                        processExited = attempt.processExited
                     } else {
                         processExited = !signaler.isRunning(pid: candidate.pid)
                         canEscalateSignals = false
@@ -189,10 +198,9 @@ extension CMUXCLI {
                         tolerateMissingRevalidation: attemptedShutdown
                     ) {
                         attemptedShutdown = true
-                        if signaler.sendKillSignal(pid: liveCandidate.pid) {
-                            killed = true
-                        }
-                        _ = signaler.waitForExit(pid: liveCandidate.pid, timeout: Self.postSignalWaitSeconds)
+                        let attempt = attemptSignal(.kill, pid: liveCandidate.pid)
+                        killed = attempt.delivered
+                        processExited = attempt.processExited
                     } else {
                         processExited = !signaler.isRunning(pid: candidate.pid)
                         canEscalateSignals = false
@@ -226,6 +234,18 @@ extension CMUXCLI {
                 stillRunning: stillRunning,
                 dryRun: options.dryRun
             )
+        }
+
+        private func attemptSignal(_ kind: MemorySignalKind, pid: Int) -> MemorySignalAttempt {
+            let delivered: Bool
+            switch kind {
+            case .terminate:
+                delivered = signaler.sendTerminateSignal(pid: pid)
+            case .kill:
+                delivered = signaler.sendKillSignal(pid: pid)
+            }
+            let processExited = signaler.waitForExit(pid: pid, timeout: Self.postSignalWaitSeconds)
+            return MemorySignalAttempt(delivered: delivered, processExited: processExited)
         }
 
         private func revalidatedSignalCandidate(
