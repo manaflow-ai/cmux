@@ -53152,6 +53152,108 @@
             "state": "translated",
             "value": "新規サーフェスの配置"
           }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "新 Surface 位置"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "新增 Surface 位置"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "새 화면 위치"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Platzierung neuer Oberflächen"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ubicación de nueva superficie"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Emplacement des nouvelles surfaces"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Posizionamento nuova superficie"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Placering af ny overflade"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Umieszczenie nowej powierzchni"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Расположение новой поверхности"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Pozicija nove površine"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "موضع السطح الجديد"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Plassering av ny flate"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Posição da Nova Superfície"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ตำแหน่งพื้นผิวใหม่"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Yeni Yüzey Konumu"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Розташування нової поверхні"
+          }
         }
       }
     },
@@ -72934,21 +73036,123 @@
         }
     },
     "settings.search.alias.setting.app.new-surface-placement": {
-        "extractionState": "manual",
-        "localizations": {
-            "en": {
-                "stringUnit": {
-                    "state": "translated",
-                    "value": "app.newSurfacePlacement surface tab insert position order start end after current"
-                }
-            },
-            "ja": {
-                "stringUnit": {
-                    "state": "translated",
-                    "value": "app.newSurfacePlacement surface tab insert position order start end after current 新規サーフェス 新しいタブ 挿入位置 並び順 先頭 末尾 現在の後"
-                }
-            }
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "app.newSurfacePlacement surface tab insert position order start end after current"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "app.newSurfacePlacement surface tab insert position order start end after current 新規サーフェス 新しいタブ 挿入位置 並び順 先頭 末尾 現在の後"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "app.newSurfacePlacement surface tab insert position order start end after current 应用 通用 偏好设置 Surface 标签页 插入 位置 顺序 开头 末尾 当前之后 新 Surface 位置"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "app.newSurfacePlacement surface tab insert position order start end after current 應用程式 一般 偏好設定 Surface 分頁 插入 位置 順序 開頭 末尾 目前之後 新增 Surface 位置"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "app.newSurfacePlacement surface tab insert position order start end after current 앱 일반 환경설정 화면 탭 삽입 위치 순서 시작 끝 현재 다음 새 화면 위치"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "app.newSurfacePlacement surface tab insert position order start end after current app allgemein einstellungen Oberfläche Tab einfügen Position Reihenfolge Anfang Ende nach aktuellem Platzierung neuer Oberflächen"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "app.newSurfacePlacement surface tab insert position order start end after current aplicación general preferencias superficie pestaña insertar posición orden inicio final después del actual ubicación de nueva superficie"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "app.newSurfacePlacement surface tab insert position order start end after current application général préférences surface onglet insertion position ordre début fin après l'actuel emplacement des nouvelles surfaces"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "app.newSurfacePlacement surface tab insert position order start end after current app generale preferenze superficie scheda inserisci posizione ordine inizio fine dopo la corrente posizionamento nuova superficie"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "app.newSurfacePlacement surface tab insert position order start end after current app generelt indstillinger overflade fane indsæt placering rækkefølge start sidst efter nuværende placering af ny overflade"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "app.newSurfacePlacement surface tab insert position order start end after current aplikacja ogólne preferencje powierzchnia karta wstaw pozycja kolejność początek koniec po bieżącej umieszczenie nowej powierzchni"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "app.newSurfacePlacement surface tab insert position order start end after current приложение общие настройки поверхность вкладка вставить позиция порядок начало конец после текущего расположение новой поверхности"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "app.newSurfacePlacement surface tab insert position order start end after current aplikacija opće postavke površina kartica umetni pozicija redoslijed početak kraj poslije trenutnog pozicija nove površine"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "app.newSurfacePlacement surface tab insert position order start end after current تطبيق عام تفضيلات سطح تبويب إدراج موضع ترتيب بداية نهاية بعد الحالي موضع السطح الجديد"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "app.newSurfacePlacement surface tab insert position order start end after current app generelt innstillinger flate fane sett inn plassering rekkefølge start slutt etter gjeldende plassering av ny flate"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "app.newSurfacePlacement surface tab insert position order start end after current app geral preferências superfície aba inserir posição ordem início final após a atual posição da nova superfície"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "app.newSurfacePlacement surface tab insert position order start end after current แอป ทั่วไป ค่ากำหนด พื้นผิว แท็บ แทรก ตำแหน่ง ลำดับ เริ่มต้น ท้ายสุด หลังรายการปัจจุบัน ตำแหน่งพื้นผิวใหม่"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "app.newSurfacePlacement surface tab insert position order start end after current uygulama genel tercihler yüzey sekme ekle konum sıra başlangıç son geçerli sonrasına yeni yüzey konumu"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "app.newSurfacePlacement surface tab insert position order start end after current програма загальні параметри поверхня вкладка вставити позиція порядок початок кінець після поточної розташування нової поверхні"
+          }
         }
+      }
     },
     "settings.search.alias.setting.app.workspace-inherit-working-directory": {
         "extractionState": "manual",
@@ -101011,6 +101215,108 @@
             "state": "translated",
             "value": "現在の後"
           }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "当前之后"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "目前之後"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "현재 다음"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Nach aktuellem"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Después del actual"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Après l'actuel"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Dopo la corrente"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Efter nuværende"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Po bieżącej"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "После текущего"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Poslije trenutnog"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "بعد الحالي"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Etter gjeldende"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Após a atual"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "หลังรายการปัจจุบัน"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Geçerli sonrasına"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Після поточної"
+          }
         }
       }
     },
@@ -101027,6 +101333,108 @@
           "stringUnit": {
             "state": "translated",
             "value": "アクティブなサーフェスの直後に新しいサーフェスを挿入します。"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "在活动 Surface 之后插入新 Surface。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "將新 Surface 插入目前使用中 Surface 的後方。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "활성 화면 바로 다음에 새 화면을 삽입합니다."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Neue Oberflächen direkt nach der aktiven Oberfläche einfügen."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Insertar nuevas superficies justo después de la superficie activa."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Insérer les nouvelles surfaces juste après la surface active."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Inserisci le nuove superfici subito dopo quella attiva."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Indsæt nye overflader direkte efter den aktive overflade."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Wstaw nowe powierzchnie bezpośrednio po aktywnej."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Вставлять новые поверхности сразу после активной."
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Umetnite nove površine odmah nakon aktivne površine."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "إدراج الأسطح الجديدة مباشرة بعد السطح النشط."
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Sett inn nye flater rett etter den aktive flaten."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Inserir novas superfícies diretamente após a superfície ativa."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "แทรกพื้นผิวใหม่หลังพื้นผิวที่ใช้งานอยู่โดยตรง"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Yeni yüzeyleri etkin yüzeyin hemen sonrasına ekle."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Вставляти нові поверхні одразу після активної."
           }
         }
       }
@@ -101045,6 +101453,108 @@
             "state": "translated",
             "value": "末尾"
           }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "末尾"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "底部"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "끝"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ende"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Final"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Fin"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Fine"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Sidst"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Na końcu"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "В конец"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Kraj"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "النهاية"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Slutt"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Final"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ท้ายสุด"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Sona"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "В кінці"
+          }
         }
       }
     },
@@ -101061,6 +101571,108 @@
           "stringUnit": {
             "state": "translated",
             "value": "新しいサーフェスをペインのタブ列の末尾に追加します。"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "将新 Surface 添加到窗格标签栏末尾。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "將新 Surface 附加到窗格分頁列末尾。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "새 화면을 창의 탭 표시줄 끝에 추가합니다."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Neue Oberflächen am Ende der Tab-Leiste des Bereichs anfügen."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Agregar nuevas superficies al final de la barra de pestañas del panel."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ajouter les nouvelles surfaces à la fin de la barre d'onglets du panneau."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Aggiungi le nuove superfici alla fine della barra delle schede del riquadro."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Tilføj nye overflader sidst på rudens fanelinje."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Dodaj nowe powierzchnie na końcu paska kart panelu."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Добавлять новые поверхности в конец панели вкладок области."
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Dodajte nove površine na kraj trake kartica panela."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "إلحاق الأسطح الجديدة بنهاية شريط تبويبات اللوحة."
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Legg til nye flater på slutten av faneraden i ruten."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Adicionar novas superfícies ao final da barra de abas do painel."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "เพิ่มพื้นผิวใหม่ที่ท้ายแถบแท็บของบานหน้าต่าง"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Yeni yüzeyleri bölmenin sekme çubuğunun sonuna ekle."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Додавати нові поверхні в кінець панелі вкладок області."
           }
         }
       }
@@ -101079,6 +101691,108 @@
             "state": "translated",
             "value": "先頭"
           }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "开头"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "開頭"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "시작"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Anfang"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Inicio"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Début"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Inizio"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Start"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Początek"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "В начало"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Početak"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "البداية"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Start"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Início"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "เริ่มต้น"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Başlangıç"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "На початку"
+          }
         }
       }
     },
@@ -101095,6 +101809,108 @@
           "stringUnit": {
             "state": "translated",
             "value": "新しいサーフェスをペインのタブ列の先頭に挿入します。"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "在窗格标签栏开头插入新 Surface。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "將新 Surface 插入窗格分頁列開頭。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "새 화면을 창의 탭 표시줄 시작 부분에 삽입합니다."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Neue Oberflächen am Anfang der Tab-Leiste des Bereichs einfügen."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Insertar nuevas superficies al inicio de la barra de pestañas del panel."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Insérer les nouvelles surfaces au début de la barre d'onglets du panneau."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Inserisci le nuove superfici all'inizio della barra delle schede del riquadro."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Indsæt nye overflader først på rudens fanelinje."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Wstaw nowe powierzchnie na początku paska kart panelu."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Вставлять новые поверхности в начало панели вкладок области."
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Umetnite nove površine na početak trake kartica panela."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "إدراج الأسطح الجديدة في بداية شريط تبويبات اللوحة."
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Sett inn nye flater ved starten av faneraden i ruten."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Inserir novas superfícies no início da barra de abas do painel."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "แทรกพื้นผิวใหม่ที่จุดเริ่มต้นของแถบแท็บของบานหน้าต่าง"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Yeni yüzeyleri bölmenin sekme çubuğunun başına ekle."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Вставляти нові поверхні на початок панелі вкладок області."
           }
         }
       }
