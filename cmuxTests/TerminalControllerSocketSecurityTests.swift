@@ -108,6 +108,21 @@ final class TerminalControllerSocketSecurityTests: XCTestCase {
         XCTAssertTrue(triggerFlash.insideSuppressed)
         XCTAssertFalse(triggerFlash.insideAllowsFocus)
 
+        let fileOpenDefault = TerminalController.debugSocketCommandPolicySnapshot(
+            commandKey: "file.open",
+            isV2: true
+        )
+        XCTAssertTrue(fileOpenDefault.insideSuppressed)
+        XCTAssertFalse(fileOpenDefault.insideAllowsFocus)
+
+        let fileOpenFocusOptIn = TerminalController.debugSocketCommandPolicySnapshot(
+            commandKey: "file.open",
+            isV2: true,
+            params: ["focus": true]
+        )
+        XCTAssertTrue(fileOpenFocusOptIn.insideSuppressed)
+        XCTAssertTrue(fileOpenFocusOptIn.insideAllowsFocus)
+
         let simulateShortcut = TerminalController.debugSocketCommandPolicySnapshot(
             commandKey: "simulate_shortcut",
             isV2: false
@@ -256,6 +271,18 @@ final class TerminalControllerSocketSecurityTests: XCTestCase {
             ),
             (
                 "right_sidebar set find",
+                RightSidebarRemoteRequest(command: .setMode(.find, focus: false), target: RightSidebarRemoteTarget())
+            ),
+            (
+                "right_sidebar set find --focus",
+                RightSidebarRemoteRequest(command: .setMode(.find, focus: true), target: RightSidebarRemoteTarget())
+            ),
+            (
+                "right_sidebar --focus set find",
+                RightSidebarRemoteRequest(command: .setMode(.find, focus: true), target: RightSidebarRemoteTarget())
+            ),
+            (
+                "right_sidebar set find --focus true",
                 RightSidebarRemoteRequest(command: .setMode(.find, focus: true), target: RightSidebarRemoteTarget())
             ),
             (
@@ -264,6 +291,10 @@ final class TerminalControllerSocketSecurityTests: XCTestCase {
             ),
             (
                 "right_sidebar sessions",
+                RightSidebarRemoteRequest(command: .setMode(.sessions, focus: false), target: RightSidebarRemoteTarget())
+            ),
+            (
+                "right_sidebar sessions --focus",
                 RightSidebarRemoteRequest(command: .setMode(.sessions, focus: true), target: RightSidebarRemoteTarget())
             ),
             (
@@ -286,7 +317,8 @@ final class TerminalControllerSocketSecurityTests: XCTestCase {
             ("right_sidebar set", "Usage: right_sidebar set"),
             ("right_sidebar set unknown", "Unknown right sidebar mode"),
             ("right_sidebar show --no-focus", "Usage: right_sidebar show"),
-            ("right_sidebar files --no-focus", "--no-focus is only valid"),
+            ("right_sidebar set find --focus maybe", "--focus must be true or false"),
+            ("right_sidebar set find --focus --no-focus", "--focus and --no-focus cannot be used together"),
             ("right_sidebar --bad", "Unknown right sidebar option"),
             ("right_sidebar show --tab not-a-uuid", "Invalid right sidebar --tab id"),
             ("right_sidebar show --window", "--window requires an id"),
@@ -311,11 +343,14 @@ final class TerminalControllerSocketSecurityTests: XCTestCase {
     func testRightSidebarV1FocusPolicyIsCommandSpecific() throws {
 #if DEBUG
         let cases: [(String, Bool)] = [
-            ("right_sidebar toggle", true),
-            ("right_sidebar show", true),
+            ("right_sidebar toggle", false),
+            ("right_sidebar show", false),
             ("right_sidebar focus", true),
-            ("right_sidebar set find", true),
-            ("right_sidebar sessions", true),
+            ("right_sidebar set find", false),
+            ("right_sidebar set find --focus", true),
+            ("right_sidebar --focus set find", true),
+            ("right_sidebar sessions", false),
+            ("right_sidebar sessions --focus", true),
             ("right_sidebar set vault --no-focus", false),
             ("right_sidebar hide", false),
             ("right_sidebar mode", false),
@@ -411,24 +446,34 @@ final class TerminalControllerSocketSecurityTests: XCTestCase {
         XCTAssertFalse(stateB.isVisible)
         XCTAssertTrue(stateA.isVisible)
 
-        switch appDelegate.applyRightSidebarRemoteCommand(
-            .toggle,
-            target: RightSidebarRemoteTarget(windowId: nil, workspaceId: workspaceB.id)
-        ) {
-        case .failure(let message):
-            XCTAssertTrue(message.contains("target not found"), message)
-        case .ok, .state:
-            XCTFail("Expected targeted toggle without a window to fail")
-        }
-        XCTAssertFalse(stateB.isVisible)
+        appDelegate.tabManager = managerA
+        XCTAssertEqual(
+            appDelegate.applyRightSidebarRemoteCommand(
+                .toggle,
+                target: RightSidebarRemoteTarget(windowId: nil, workspaceId: workspaceB.id)
+            ),
+            .ok
+        )
+        XCTAssertTrue(stateB.isVisible)
+        XCTAssertTrue(appDelegate.tabManager === managerA)
 
         XCTAssertEqual(
             appDelegate.applyRightSidebarRemoteCommand(
                 .getState,
                 target: RightSidebarRemoteTarget(windowId: nil, workspaceId: workspaceB.id)
             ),
-            .state(.init(visible: false, mode: .sessions))
+            .state(.init(visible: true, mode: .sessions))
         )
+
+        XCTAssertEqual(
+            appDelegate.applyRightSidebarRemoteCommand(
+                .toggle,
+                target: RightSidebarRemoteTarget(windowId: nil, workspaceId: workspaceB.id)
+            ),
+            .ok
+        )
+        XCTAssertFalse(stateB.isVisible)
+        XCTAssertTrue(appDelegate.tabManager === managerA)
 
         switch appDelegate.applyRightSidebarRemoteCommand(
             .getState,
@@ -448,6 +493,49 @@ final class TerminalControllerSocketSecurityTests: XCTestCase {
             XCTAssertTrue(message.contains("target not found"), message)
         case .ok, .state:
             XCTFail("Expected missing workspace target to fail")
+        }
+    }
+
+    func testSystemTreeAndTopRejectUnknownWindowWhenAllWindowsRequested() async throws {
+        let socketPath = makeSocketPath("tree-top-window")
+        let previousAppDelegate = AppDelegate.shared
+        let appDelegate = AppDelegate()
+        defer {
+            TerminalController.shared.stop()
+            unlink(socketPath)
+            AppDelegate.shared = previousAppDelegate
+        }
+
+        let manager = TabManager()
+        TerminalController.shared.setActiveTabManager(manager)
+        TerminalController.shared.start(
+            tabManager: manager,
+            socketPath: socketPath,
+            accessMode: .allowAll
+        )
+        try waitForSocket(at: socketPath)
+        defer {
+            TerminalController.shared.setActiveTabManager(nil)
+            _ = appDelegate
+        }
+
+        let unknownWindowId = UUID()
+        for method in ["system.tree", "system.top"] {
+            let response = try await sendV2RequestAsync(
+                method: method,
+                params: [
+                    "window_id": unknownWindowId.uuidString,
+                    "all_windows": true
+                ],
+                to: socketPath
+            )
+
+            XCTAssertEqual(response["ok"] as? Bool, false, "Unexpected JSON-RPC response for \(method): \(response)")
+            let error = try XCTUnwrap(response["error"] as? [String: Any], "Unexpected JSON-RPC response for \(method): \(response)")
+            XCTAssertEqual(error["code"] as? String, "not_found", method)
+            XCTAssertEqual(error["message"] as? String, "Window not found", method)
+            let data = try XCTUnwrap(error["data"] as? [String: Any], "Expected error data payload for \(method)")
+            XCTAssertEqual(data["window_id"] as? String, unknownWindowId.uuidString, method)
         }
     }
 

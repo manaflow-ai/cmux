@@ -32,6 +32,7 @@ struct CmuxSSHURLRequest: Equatable {
     let title: String?
     let sshOptions: [String]
     let noFocus: Bool
+    let focusRequested: Bool
 
     var cliArguments: [String] {
         var parts = ["ssh"]
@@ -46,6 +47,8 @@ struct CmuxSSHURLRequest: Equatable {
         }
         if noFocus {
             parts.append("--no-focus")
+        } else if focusRequested {
+            parts.append("--focus")
         }
         parts.append(destination)
         return parts
@@ -192,7 +195,8 @@ struct CmuxSSHURLRequest: Equatable {
                 port: parsedPort,
                 title: title,
                 sshOptions: sshOptions,
-                noFocus: noFocus
+                noFocus: noFocus,
+                focusRequested: !noFocus
             )
         )
     }

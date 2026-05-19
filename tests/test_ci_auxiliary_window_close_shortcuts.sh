@@ -92,6 +92,8 @@ import AppKit
 func makeWindow() {
     let window = NSWindow()
     window.identifier = NSUserInterfaceItemIdentifier("cmux.bootstrap")
+    let keepaliveWindow = NSWindow()
+    keepaliveWindow.identifier = NSUserInterfaceItemIdentifier("cmux.xctest.keepalive")
 }
 SWIFT
 

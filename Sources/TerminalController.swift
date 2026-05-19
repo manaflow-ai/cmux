@@ -177,7 +177,6 @@ class TerminalController {
         "surface.focus",
         "pane.focus",
         "pane.last",
-        "file.open",
         "browser.focus_webview",
         "browser.focus",
         "browser.tab.switch",
@@ -363,11 +362,11 @@ class TerminalController {
         let parsed = RightSidebarRemoteRequest.parse(tokens: Self.tokenizeArgs(args))
         guard case .success(let request) = parsed else { return false }
         switch request.command {
-        case .toggle, .show, .focus:
+        case .focus:
             return true
         case .setMode(_, let focus):
             return focus
-        case .hide, .getState:
+        case .toggle, .show, .hide, .getState:
             return false
         }
     }
@@ -2432,7 +2431,7 @@ class TerminalController {
             return reloadConfig(args)
 
         case "refresh_surfaces":
-            return refreshSurfaces()
+            return refreshSurfaces(args)
 
             case "surface_health":
                 return surfaceHealth(args)
@@ -2666,7 +2665,7 @@ class TerminalController {
         case "notification.open":
             return v2Result(id: id, self.v2NotificationOpen(params: params))
         case "notification.jump_to_unread":
-            return v2Result(id: id, self.v2NotificationJumpToUnread())
+            return v2Result(id: id, self.v2NotificationJumpToUnread(params: params))
 
         // App focus
         case "app.focus_override.set":
@@ -3256,6 +3255,10 @@ class TerminalController {
     }
 
     private func v2SystemTree(params: [String: Any]) -> V2CallResult {
+        let windowFilter = v2UUID(params, "window_id")
+        if params["window_id"] != nil && windowFilter == nil {
+            return .err(code: "invalid_params", message: "Missing or invalid window_id", data: nil)
+        }
         let workspaceFilter = v2UUID(params, "workspace_id")
         if params["workspace_id"] != nil && workspaceFilter == nil {
             return .err(code: "invalid_params", message: "Missing or invalid workspace_id", data: nil)
@@ -3266,13 +3269,17 @@ class TerminalController {
         if let caller = params["caller"] as? [String: Any], !caller.isEmpty {
             identifyParams["caller"] = caller
         }
+        if let windowFilter {
+            identifyParams["window_id"] = windowFilter.uuidString
+        }
         let identifyPayload = v2Identify(params: identifyParams)
         let focused = identifyPayload["focused"] as? [String: Any] ?? [:]
         let caller = identifyPayload["caller"] as? [String: Any] ?? [:]
-        let focusedWindowId = v2UUIDAny(focused["window_id"]) ?? v2UUIDAny(focused["window_ref"])
+        let focusedWindowId = windowFilter ?? v2UUIDAny(focused["window_id"]) ?? v2UUIDAny(focused["window_ref"])
 
         var windowNodes: [[String: Any]] = []
         var workspaceFound = (workspaceFilter == nil)
+        var windowFound = (windowFilter == nil)
 
         v2MainSync {
             guard let app = AppDelegate.shared else { return }
@@ -3281,8 +3288,14 @@ class TerminalController {
 
             for (windowIndex, summary) in summaries.enumerated() {
                 guard let manager = app.tabManagerFor(windowId: summary.windowId) else { continue }
+                if let windowFilter, summary.windowId == windowFilter {
+                    windowFound = true
+                }
 
                 if let workspaceFilter {
+                    if let windowFilter, summary.windowId != windowFilter {
+                        continue
+                    }
                     guard let workspaceIndex = manager.tabs.firstIndex(where: { $0.id == workspaceFilter }) else {
                         continue
                     }
@@ -3332,6 +3345,16 @@ class TerminalController {
                 data: [
                     "workspace_id": workspaceFilter.uuidString,
                     "workspace_ref": v2Ref(kind: .workspace, uuid: workspaceFilter)
+                ]
+            )
+        }
+        if let windowFilter, !windowFound {
+            return .err(
+                code: "not_found",
+                message: "Window not found",
+                data: [
+                    "window_id": windowFilter.uuidString,
+                    "window_ref": v2Ref(kind: .window, uuid: windowFilter)
                 ]
             )
         }
@@ -3483,6 +3506,10 @@ class TerminalController {
     }
 
     private func v2SystemTopBasePayload(params: [String: Any]) -> V2CallResult {
+        let windowFilter = v2UUID(params, "window_id")
+        if params["window_id"] != nil && windowFilter == nil {
+            return .err(code: "invalid_params", message: "Missing or invalid window_id", data: nil)
+        }
         let workspaceFilter = v2UUID(params, "workspace_id")
         if params["workspace_id"] != nil && workspaceFilter == nil {
             return .err(code: "invalid_params", message: "Missing or invalid workspace_id", data: nil)
@@ -3496,13 +3523,17 @@ class TerminalController {
         if let caller = params["caller"] as? [String: Any], !caller.isEmpty {
             identifyParams["caller"] = caller
         }
+        if let windowFilter {
+            identifyParams["window_id"] = windowFilter.uuidString
+        }
         let identifyPayload = v2Identify(params: identifyParams)
         let focused = identifyPayload["focused"] as? [String: Any] ?? [:]
         let caller = identifyPayload["caller"] as? [String: Any] ?? [:]
-        let focusedWindowId = v2UUIDAny(focused["window_id"]) ?? v2UUIDAny(focused["window_ref"])
+        let focusedWindowId = windowFilter ?? v2UUIDAny(focused["window_id"]) ?? v2UUIDAny(focused["window_ref"])
 
         var windowNodes: [[String: Any]] = []
         var workspaceFound = (workspaceFilter == nil)
+        var windowFound = (windowFilter == nil)
 
         if let app = AppDelegate.shared {
             let summaries = app.listMainWindowSummaries()
@@ -3510,8 +3541,14 @@ class TerminalController {
 
             for (windowIndex, summary) in summaries.enumerated() {
                 guard let manager = app.tabManagerFor(windowId: summary.windowId) else { continue }
+                if let windowFilter, summary.windowId == windowFilter {
+                    windowFound = true
+                }
 
                 if let workspaceFilter {
+                    if let windowFilter, summary.windowId != windowFilter {
+                        continue
+                    }
                     guard let workspaceIndex = manager.tabs.firstIndex(where: { $0.id == workspaceFilter }) else {
                         continue
                     }
@@ -3563,6 +3600,16 @@ class TerminalController {
                 data: [
                     "workspace_id": workspaceFilter.uuidString,
                     "workspace_ref": v2Ref(kind: .workspace, uuid: workspaceFilter)
+                ]
+            )
+        }
+        if let windowFilter, !windowFound {
+            return .err(
+                code: "not_found",
+                message: "Window not found",
+                data: [
+                    "window_id": windowFilter.uuidString,
+                    "window_ref": v2Ref(kind: .window, uuid: windowFilter)
                 ]
             )
         }
@@ -4175,7 +4222,8 @@ class TerminalController {
     func v2ResolveTabManager(params: [String: Any]) -> TabManager? {
         // Prefer explicit window_id routing. Fall back to global lookup by workspace_id/surface_id/tab_id,
         // and finally to the active window's TabManager.
-        if let windowId = v2UUID(params, "window_id") {
+        if v2HasNonNullParam(params, "window_id") {
+            guard let windowId = v2UUID(params, "window_id") else { return nil }
             return v2MainSync { AppDelegate.shared?.tabManagerFor(windowId: windowId) }
         }
         if let wsId = v2UUID(params, "workspace_id") {
@@ -8246,11 +8294,27 @@ class TerminalController {
         return .ok(payload)
     }
 
-    private func v2NotificationJumpToUnread() -> V2CallResult {
+    private func v2NotificationJumpToUnread(params: [String: Any]) -> V2CallResult {
+        let allowedWorkspaceIds: Set<UUID>?
+        if v2HasNonNullParam(params, "window_id") {
+            guard let targetTabManager = v2ResolveTabManager(params: params) else {
+                return .err(
+                    code: "not_found",
+                    message: String(localized: "socket.window.notFound", defaultValue: "Window not found"),
+                    data: nil
+                )
+            }
+            allowedWorkspaceIds = v2MainSync {
+                Set(targetTabManager.tabs.map(\.id))
+            }
+        } else {
+            allowedWorkspaceIds = nil
+        }
+
         var openedNotification: TerminalNotification?
         var payload: [String: Any] = [:]
         v2MainSync {
-            openedNotification = AppDelegate.shared?.jumpToLatestUnread()
+            openedNotification = AppDelegate.shared?.jumpToLatestUnread(allowedWorkspaceIds: allowedWorkspaceIds)
             if let openedNotification {
                 let store = TerminalNotificationStore.shared
                 let current = store.notifications.first(where: { $0.id == openedNotification.id }) ?? openedNotification
@@ -13301,7 +13365,7 @@ class TerminalController {
           report_pr_action <merge|close|reopen|create|checkout|ready|edit|view> [--target=X] [--tab=X] [--panel=Y] - Hint that a PR-affecting command completed in the panel
           report_pwd <path> [--tab=X] [--panel=Y] - Report current working directory
           clear_ports [--tab=X] [--panel=Y] - Clear listening ports
-          right_sidebar <toggle|show|hide|focus|set|mode> [mode] [--tab=X] [--window=Y] [--no-focus] - Control right sidebar visibility, mode, and focus
+          right_sidebar <toggle|show|hide|focus|set|mode> [mode] [--tab=X] [--window=Y] [--focus] [--no-focus] - Control right sidebar visibility, mode, and focus
           sidebar_state [--tab=X] - Dump sidebar metadata
           reset_sidebar [--tab=X] - Clear sidebar metadata
 
@@ -17571,8 +17635,31 @@ class TerminalController {
         return "OK Reloaded config"
     }
 
-    private func refreshSurfaces() -> String {
-        guard let tabManager = tabManager else { return "ERROR: TabManager not available" }
+    private func refreshSurfaces(_ args: String) -> String {
+        let parsed = parseOptions(args)
+        if let unknown = parsed.options.keys.first(where: { $0 != "window" }) {
+            return "ERROR: refresh_surfaces: unknown flag --\(unknown)"
+        }
+        guard parsed.positional.isEmpty else {
+            return "ERROR: Usage: refresh_surfaces [--window <id|ref>]"
+        }
+
+        let targetTabManager: TabManager?
+        if let windowRaw = parsed.options["window"] {
+            guard !windowRaw.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else {
+                return "ERROR: --window requires an id"
+            }
+            v2RefreshKnownRefs()
+            guard let windowId = v2UUID(["window_id": windowRaw], "window_id"),
+                  let windowTabManager = v2MainSync({ AppDelegate.shared?.tabManagerFor(windowId: windowId) }) else {
+                return "ERROR: Window not found"
+            }
+            targetTabManager = windowTabManager
+        } else {
+            targetTabManager = tabManager
+        }
+
+        guard let tabManager = targetTabManager else { return "ERROR: TabManager not available" }
 
         var refreshedCount = 0
         v2MainSync {

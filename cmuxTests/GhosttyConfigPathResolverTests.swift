@@ -27,6 +27,54 @@ final class GhosttyConfigPathResolverTests: XCTestCase {
         }
     }
 
+    func testCmuxAppSupportRuntimeConfigURLsSkipUserConfigUnderAutomatedTests() throws {
+        try withTemporaryAppSupportDirectory { appSupportDirectory in
+            let releaseConfigURL = try writeAppSupportConfig(
+                appSupportDirectory: appSupportDirectory,
+                bundleIdentifier: "com.cmuxterm.app",
+                filename: "config.ghostty",
+                contents: "background = #000000\n"
+            )
+
+            XCTAssertEqual(
+                GhosttyApp.cmuxAppSupportConfigURLsForRuntimeLoad(
+                    currentBundleIdentifier: "com.cmuxterm.app.debug",
+                    appSupportDirectory: appSupportDirectory,
+                    environment: [:]
+                ),
+                [releaseConfigURL]
+            )
+            XCTAssertTrue(
+                GhosttyApp.cmuxAppSupportConfigURLsForRuntimeLoad(
+                    currentBundleIdentifier: "com.cmuxterm.app.debug",
+                    appSupportDirectory: appSupportDirectory,
+                    environment: ["XCTestSessionIdentifier": UUID().uuidString]
+                ).isEmpty
+            )
+        }
+    }
+
+    func testUserGhosttyConfigLoadsForUITestModeButNotAppHostedXCTest() {
+        XCTAssertTrue(
+            GhosttyApp.shouldLoadUserGhosttyConfig(
+                environment: ["CMUX_UI_TEST_MODE": "1"]
+            )
+        )
+        XCTAssertFalse(
+            GhosttyApp.shouldLoadUserGhosttyConfig(
+                environment: ["XCTestSessionIdentifier": UUID().uuidString]
+            )
+        )
+        XCTAssertTrue(
+            GhosttyApp.shouldLoadUserGhosttyConfig(
+                environment: [
+                    "XCTestSessionIdentifier": UUID().uuidString,
+                    "CFFIXED_USER_HOME": "/tmp/cmux-ghostty-fixture",
+                ]
+            )
+        )
+    }
+
     func testCmuxAppSupportConfigURLsPreferConfigGhosttyOverLegacyConfigWhenBothExist() throws {
         try withTemporaryAppSupportDirectory { appSupportDirectory in
             _ = try writeAppSupportConfig(
@@ -327,7 +375,8 @@ final class GhosttyConfigPathResolverTests: XCTestCase {
 
             let paths = GhosttyApp.loadedGhosttyConfigScanPaths(
                 currentBundleIdentifier: "com.cmuxterm.app.debug.issue-3478",
-                appSupportDirectory: appSupportDirectory
+                appSupportDirectory: appSupportDirectory,
+                environment: [:]
             )
 
             XCTAssertTrue(paths.contains(preferredConfigURL.path))

@@ -31,7 +31,8 @@ final class CmuxSSHURLRequestTests: XCTestCase {
             XCTAssertEqual(request.destination, "alice@dev.example.com")
             XCTAssertEqual(request.port, 2222)
             XCTAssertEqual(request.title, "Dev SSH")
-            XCTAssertEqual(request.cliArguments, ["ssh", "--port", "2222", "--name", "Dev SSH", "alice@dev.example.com"])
+            XCTAssertTrue(request.focusRequested)
+            XCTAssertEqual(request.cliArguments, ["ssh", "--port", "2222", "--name", "Dev SSH", "--focus", "alice@dev.example.com"])
         case .success(nil):
             XCTFail("Expected SSH URL request")
         case .failure(let error):
@@ -96,7 +97,7 @@ final class CmuxSSHURLRequestTests: XCTestCase {
         case .success(.some(let request)):
             XCTAssertEqual(
                 request.cliPreview(socketPath: "/tmp/cmux-urlcmd.sock"),
-                "cmux --socket /tmp/cmux-urlcmd.sock ssh --name \"Dev SSH\" dev.example.com"
+                "cmux --socket /tmp/cmux-urlcmd.sock ssh --name \"Dev SSH\" --focus dev.example.com"
             )
         case .success(nil):
             XCTFail("Expected SSH URL request")
@@ -125,7 +126,8 @@ final class CmuxSSHURLRequestTests: XCTestCase {
         switch CmuxSSHURLRequest.parse(url) {
         case .success(.some(let request)):
             XCTAssertFalse(request.noFocus)
-            XCTAssertEqual(request.cliArguments, ["ssh", "dev.example.com"])
+            XCTAssertTrue(request.focusRequested)
+            XCTAssertEqual(request.cliArguments, ["ssh", "--focus", "dev.example.com"])
         case .success(nil):
             XCTFail("Expected SSH URL request")
         case .failure(let error):
@@ -249,7 +251,7 @@ final class CmuxSSHURLRequestTests: XCTestCase {
         switch CmuxSSHURLRequest.parse(url) {
         case .success(.some(let request)):
             XCTAssertEqual(request.title, "Dev SSH")
-            XCTAssertEqual(request.cliArguments, ["ssh", "--name", "Dev SSH", "dev.example.com"])
+            XCTAssertEqual(request.cliArguments, ["ssh", "--name", "Dev SSH", "--focus", "dev.example.com"])
         case .success(nil):
             XCTFail("Expected SSH URL request")
         case .failure(let error):

@@ -44,6 +44,8 @@ extension CLINotifyProcessIntegrationRegressionTests {
                     ]
                 )
             case "workspace.create":
+                let params = payload["params"] as? [String: Any] ?? [:]
+                XCTAssertEqual(params["focus"] as? Bool, false)
                 return self.v2Response(
                     id: id,
                     ok: true,
@@ -67,8 +69,6 @@ extension CLINotifyProcessIntegrationRegressionTests {
                         ],
                     ]
                 )
-            case "workspace.select":
-                return self.v2Response(id: id, ok: true, result: ["workspace_id": workspaceID])
             default:
                 return self.v2Response(
                     id: id,
@@ -102,7 +102,7 @@ extension CLINotifyProcessIntegrationRegressionTests {
         }
         XCTAssertEqual(
             requests.compactMap { $0["method"] as? String },
-            ["vm.attach_info", "workspace.create", "workspace.rename", "workspace.remote.configure", "workspace.select"]
+            ["vm.attach_info", "workspace.create", "workspace.rename", "workspace.remote.configure"]
         )
 
         let configureRequest = try XCTUnwrap(

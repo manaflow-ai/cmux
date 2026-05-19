@@ -18,6 +18,9 @@ OWNER_LIST_NAME = "cmuxAuxiliaryWindowIdentifiers"
 # closable.
 IGNORED_IDENTIFIERS = {
     "cmux.bootstrap",
+    # XCTest keepalive exists only to prevent app-hosted tests from exiting; it
+    # must not own Cmd+W or be closed by close-shortcut routing.
+    "cmux.xctest.keepalive",
 }
 
 IDENTIFIER_ASSIGNMENT_RE = re.compile(

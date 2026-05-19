@@ -692,6 +692,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
     private var ghosttyGotoSplitRightShortcut: StoredShortcut?
     private var ghosttyGotoSplitUpShortcut: StoredShortcut?
     private var ghosttyGotoSplitDownShortcut: StoredShortcut?
+    private var appHostedXCTestKeepaliveWindow: NSWindow?
     private var browserAddressBarFocusedPanelId: UUID?
     private var browserOmnibarRepeatStartWorkItem: DispatchWorkItem?
     private var browserOmnibarRepeatTickWorkItem: DispatchWorkItem?
@@ -1009,6 +1010,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
     func applicationDidFinishLaunching(_ notification: Notification) {
         let env = ProcessInfo.processInfo.environment
         let isRunningUnderXCTest = isRunningUnderXCTest(env)
+        let isRunningUnderAppHostedXCTest = SessionRestorePolicy.isRunningUnderAppHostedXCTest(environment: env)
+        let isRunningUnderUITest = env.keys.contains { $0.hasPrefix("CMUX_UI_TEST_") }
         let telemetryEnabled = TelemetrySettings.enabledForCurrentLaunch
         StartupBreadcrumbLog.append(
             "appDelegate.didFinish.begin",
@@ -1020,6 +1023,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         AppIconLaunchState.markDidFinishLaunching()
         if isRunningUnderXCTest {
             NSApp.setActivationPolicy(.regular)
+            installAppHostedXCTestKeepaliveWindowIfNeeded()
         } else {
             syncActivationPolicy()
         }
@@ -1167,8 +1171,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         titlebarAccessoryController.start()
         windowDecorationsController.start()
         installMainWindowKeyObserver()
-        refreshGhosttyGotoSplitShortcuts()
-        installGhosttyConfigObserver()
+        if !isRunningUnderAppHostedXCTest {
+            refreshGhosttyGotoSplitShortcuts()
+            installGhosttyConfigObserver()
+        }
         installWindowResponderSwizzles()
         installBrowserAddressBarFocusObservers()
         installShortcutMonitor()
@@ -1180,7 +1186,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         NSApp.servicesProvider = self
 
         StartupBreadcrumbLog.append("appDelegate.didFinish.bootstrap.begin")
-        scheduleInitialMainWindowBootstrap(debugSource: "didFinishLaunching")
+        if !isRunningUnderAppHostedXCTest || isRunningUnderUITest || hasMainTerminalWindow() {
+            scheduleInitialMainWindowBootstrap(debugSource: "didFinishLaunching")
+        }
         StartupBreadcrumbLog.append("appDelegate.didFinish.complete")
 #if DEBUG
         UpdateTestSupport.applyIfNeeded(to: updateController.viewModel)
@@ -1225,7 +1233,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             }
             DispatchQueue.main.asyncAfter(deadline: .now() + 0.25) { [weak self] in
                 guard let self else { return }
-                if NSApp.windows.isEmpty {
+                if (!isRunningUnderAppHostedXCTest || isRunningUnderUITest), !hasMainTerminalWindow() {
                     self.openNewMainWindow(nil)
                 }
                 self.moveUITestWindowToTargetDisplayIfNeeded()
@@ -1258,6 +1266,25 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             }
         }
 #endif
+    }
+
+    private func installAppHostedXCTestKeepaliveWindowIfNeeded() {
+        guard SessionRestorePolicy.isRunningUnderAppHostedXCTest() else { return }
+        guard appHostedXCTestKeepaliveWindow == nil else { return }
+
+        let window = NSWindow(
+            contentRect: NSRect(x: -10_000, y: -10_000, width: 1, height: 1),
+            styleMask: [.borderless],
+            backing: .buffered,
+            defer: false
+        )
+        window.identifier = NSUserInterfaceItemIdentifier("cmux.xctest.keepalive")
+        window.isReleasedWhenClosed = false
+        window.isRestorable = false
+        window.alphaValue = 0.01
+        window.ignoresMouseEvents = true
+        window.orderFrontRegardless()
+        appHostedXCTestKeepaliveWindow = window
     }
 
 #if DEBUG
@@ -1463,7 +1490,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             return
         }
 
-        guard let window = NSApp.windows.first else {
+        guard let window = NSApp.windows.first(where: { isMainTerminalWindow($0) }) else {
             if attempt < 20 {
                 DispatchQueue.main.asyncAfter(deadline: .now() + 0.25) { [weak self] in
                     self?.moveUITestWindowToTargetDisplayIfNeeded(attempt: attempt + 1)
@@ -5773,8 +5800,13 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
 
         switch command {
         case .toggle:
-            guard target.isActiveTarget || preferredWindow != nil else {
-                return .failure(String(localized: "rightSidebar.remote.error.targetNotFound", defaultValue: "ERROR: Right sidebar target not found"))
+            if !target.isActiveTarget {
+                let wasVisible = state.isVisible
+                state.toggle()
+                if wasVisible, !state.isVisible {
+                    _ = context?.keyboardFocusCoordinator.restoreTerminalFocusAfterRightSidebarHiddenIfNeeded()
+                }
+                return .ok
             }
             guard toggleRightSidebarInActiveMainWindow(preferredWindow: preferredWindow) else {
                 return .failure(String(localized: "rightSidebar.remote.error.unavailable", defaultValue: "ERROR: Right sidebar not available"))
@@ -5785,8 +5817,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             guard !state.isVisible else {
                 return .ok
             }
-            guard target.isActiveTarget || preferredWindow != nil else {
-                return .failure(String(localized: "rightSidebar.remote.error.targetNotFound", defaultValue: "ERROR: Right sidebar target not found"))
+            if !target.isActiveTarget {
+                state.setVisible(true)
+                return .ok
             }
             guard toggleRightSidebarInActiveMainWindow(preferredWindow: preferredWindow) else {
                 return .failure(String(localized: "rightSidebar.remote.error.unavailable", defaultValue: "ERROR: Right sidebar not available"))
@@ -10649,7 +10682,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
     }
 
     @discardableResult
-    func jumpToLatestUnread(excludingNotificationId excludedNotificationId: UUID? = nil) -> TerminalNotification? {
+    func jumpToLatestUnread(
+        excludingNotificationId excludedNotificationId: UUID? = nil,
+        allowedWorkspaceIds: Set<UUID>? = nil
+    ) -> TerminalNotification? {
         guard let notificationStore else { return nil }
 #if DEBUG
         if ProcessInfo.processInfo.environment["CMUX_UI_TEST_JUMP_UNREAD_SETUP"] == "1" {
@@ -10663,12 +10699,15 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         // the window-context registry can lag behind model initialization, so fall back to whatever
         // tab manager currently owns the tab.
         for notification in notificationStore.notifications
-            where Self.shouldOpenFromJumpToLatestUnread(notification, excludingNotificationId: excludedNotificationId) {
+            where Self.shouldOpenFromJumpToLatestUnread(notification, excludingNotificationId: excludedNotificationId)
+                && (allowedWorkspaceIds?.contains(notification.tabId) ?? true) {
             if openTerminalNotification(notification) {
                 return notificationStore.notifications.first(where: { $0.id == notification.id }) ?? notification
             }
         }
-        _ = openLatestWorkspaceUnread()
+        if allowedWorkspaceIds == nil {
+            _ = openLatestWorkspaceUnread()
+        }
         return nil
     }
 
@@ -14234,6 +14273,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         }
         guard let raw = window.identifier?.rawValue else { return false }
         return raw == "cmux.main" || raw.hasPrefix("cmux.main.")
+    }
+
+    private func hasMainTerminalWindow() -> Bool {
+        NSApp.windows.contains { isMainTerminalWindow($0) }
     }
 
     private func workspaceForMainActor(tabId: UUID) -> Workspace? {

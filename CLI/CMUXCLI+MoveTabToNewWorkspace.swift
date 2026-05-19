@@ -91,7 +91,8 @@ extension CMUXCLI {
         commandArgs: [String],
         client: SocketClient,
         jsonOutput: Bool,
-        idFormat: CLIIDFormat
+        idFormat: CLIIDFormat,
+        windowOverride: String?
     ) throws {
         let surfaceRaw = optionValue(commandArgs, name: "--surface")
             ?? commandArgs.first.flatMap { $0.hasPrefix("--") ? nil : $0 }
@@ -105,12 +106,12 @@ extension CMUXCLI {
         let beforeRaw = optionValue(commandArgs, name: "--before") ?? optionValue(commandArgs, name: "--before-surface")
         let afterRaw = optionValue(commandArgs, name: "--after") ?? optionValue(commandArgs, name: "--after-surface")
 
-        let windowHandle = try normalizeWindowHandle(windowRaw, client: client)
+        let windowHandle = try normalizeWindowHandle(windowRaw ?? windowOverride, client: client)
         let workspaceHandle = try normalizeWorkspaceHandle(workspaceRaw, client: client, windowHandle: windowHandle)
-        let surfaceHandle = try normalizeSurfaceHandle(surfaceRaw, client: client, workspaceHandle: workspaceHandle, allowFocused: false)
-        let paneHandle = try normalizePaneHandle(paneRaw, client: client, workspaceHandle: workspaceHandle)
-        let beforeHandle = try normalizeSurfaceHandle(beforeRaw, client: client, workspaceHandle: workspaceHandle)
-        let afterHandle = try normalizeSurfaceHandle(afterRaw, client: client, workspaceHandle: workspaceHandle)
+        let surfaceHandle = try normalizeSurfaceHandle(surfaceRaw, client: client, workspaceHandle: workspaceHandle, windowHandle: windowHandle, allowFocused: false)
+        let paneHandle = try normalizePaneHandle(paneRaw, client: client, workspaceHandle: workspaceHandle, windowHandle: windowHandle)
+        let beforeHandle = try normalizeSurfaceHandle(beforeRaw, client: client, workspaceHandle: workspaceHandle, windowHandle: windowHandle)
+        let afterHandle = try normalizeSurfaceHandle(afterRaw, client: client, workspaceHandle: workspaceHandle, windowHandle: windowHandle)
 
         var params: [String: Any] = [:]
         if let surfaceHandle { params["surface_id"] = surfaceHandle }
@@ -143,7 +144,8 @@ extension CMUXCLI {
         commandArgs: [String],
         client: SocketClient,
         jsonOutput: Bool,
-        idFormat: CLIIDFormat
+        idFormat: CLIIDFormat,
+        windowOverride: String?
     ) throws {
         let (surfaceArg, rem0) = parseOption(commandArgs, name: "--surface")
         let (panelArg, rem1) = parseOption(rem0, name: "--panel")
@@ -159,10 +161,11 @@ extension CMUXCLI {
         }
 
         var params: [String: Any] = ["direction": direction]
-        let workspaceHandle = try normalizeWorkspaceHandle(workspaceArg, client: client)
+        let workspaceHandle = try normalizeWorkspaceHandle(workspaceArg, client: client, windowHandle: windowOverride)
         if let workspaceHandle { params["workspace_id"] = workspaceHandle }
-        let surfaceHandle = try normalizeSurfaceHandle(surfaceRaw, client: client, workspaceHandle: workspaceHandle)
+        let surfaceHandle = try normalizeSurfaceHandle(surfaceRaw, client: client, workspaceHandle: workspaceHandle, windowHandle: windowOverride)
         if let surfaceHandle { params["surface_id"] = surfaceHandle }
+        applyWindowOverrideIfUntargeted(windowOverride, to: &params, workspaceId: workspaceHandle, surfaceId: surfaceHandle)
         try applyFocusOption(focusOpt, defaultValue: false, to: &params)
 
         let payload = try client.sendV2(method: "surface.split_off", params: params)
@@ -174,7 +177,8 @@ extension CMUXCLI {
         commandArgs: [String],
         client: SocketClient,
         jsonOutput: Bool,
-        idFormat: CLIIDFormat
+        idFormat: CLIIDFormat,
+        windowOverride: String?
     ) throws {
         let surfaceRaw = optionValue(commandArgs, name: "--surface")
             ?? commandArgs.first.flatMap { $0.hasPrefix("--") ? nil : $0 }
@@ -183,19 +187,20 @@ extension CMUXCLI {
         }
 
         let workspaceRaw = optionValue(commandArgs, name: "--workspace")
-        let workspaceHandle = try normalizeWorkspaceHandle(workspaceRaw, client: client)
-        let surfaceHandle = try normalizeSurfaceHandle(surfaceRaw, client: client, workspaceHandle: workspaceHandle)
+        let workspaceHandle = try normalizeWorkspaceHandle(workspaceRaw, client: client, windowHandle: windowOverride)
+        let surfaceHandle = try normalizeSurfaceHandle(surfaceRaw, client: client, workspaceHandle: workspaceHandle, windowHandle: windowOverride)
 
         let beforeRaw = optionValue(commandArgs, name: "--before") ?? optionValue(commandArgs, name: "--before-surface")
         let afterRaw = optionValue(commandArgs, name: "--after") ?? optionValue(commandArgs, name: "--after-surface")
         let focusRaw = optionValue(commandArgs, name: "--focus")
-        let beforeHandle = try normalizeSurfaceHandle(beforeRaw, client: client, workspaceHandle: workspaceHandle)
-        let afterHandle = try normalizeSurfaceHandle(afterRaw, client: client, workspaceHandle: workspaceHandle)
+        let beforeHandle = try normalizeSurfaceHandle(beforeRaw, client: client, workspaceHandle: workspaceHandle, windowHandle: windowOverride)
+        let afterHandle = try normalizeSurfaceHandle(afterRaw, client: client, workspaceHandle: workspaceHandle, windowHandle: windowOverride)
 
         var params: [String: Any] = [:]
         if let surfaceHandle { params["surface_id"] = surfaceHandle }
         if let beforeHandle { params["before_surface_id"] = beforeHandle }
         if let afterHandle { params["after_surface_id"] = afterHandle }
+        applyWindowOverrideIfUntargeted(windowOverride, to: &params, workspaceId: workspaceHandle, surfaceId: surfaceHandle)
         if let indexRaw = optionValue(commandArgs, name: "--index") {
             guard let index = Int(indexRaw) else {
                 throw CLIError(message: "--index must be an integer")

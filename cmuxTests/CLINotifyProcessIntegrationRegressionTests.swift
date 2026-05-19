@@ -312,15 +312,17 @@ final class CLINotifyProcessIntegrationRegressionTests: XCTestCase {
             ("show", ["right-sidebar", "show"], "right_sidebar show", "OK", ""),
             ("hide", ["right-sidebar", "hide"], "right_sidebar hide", "OK", ""),
             ("focus", ["right-sidebar", "focus"], "right_sidebar focus", "OK", ""),
-            ("set-find", ["right-sidebar", "set", "find"], "right_sidebar set find", "OK", ""),
+            ("set-find", ["right-sidebar", "set", "find"], "right_sidebar set find --no-focus", "OK", ""),
+            ("set-focus", ["right-sidebar", "set", "find", "--focus"], "right_sidebar set find --focus", "OK", ""),
+            ("set-prefix-focus", ["right-sidebar", "--focus", "set", "find"], "right_sidebar set find --focus", "OK", ""),
             ("set-no-focus", ["right-sidebar", "set", "vault", "--no-focus"], "right_sidebar set vault --no-focus", "OK", ""),
-            ("set-sessions", ["right-sidebar", "set", "sessions"], "right_sidebar set sessions", "OK", ""),
-            ("files-alias", ["right-sidebar", "files"], "right_sidebar set files", "OK", ""),
-            ("find-alias", ["right-sidebar", "find"], "right_sidebar set find", "OK", ""),
-            ("vault-alias", ["right-sidebar", "vault"], "right_sidebar set vault", "OK", ""),
-            ("sessions-alias", ["right-sidebar", "sessions"], "right_sidebar set sessions", "OK", ""),
-            ("feed-alias", ["right-sidebar", "feed"], "right_sidebar set feed", "OK", ""),
-            ("dock-alias", ["right-sidebar", "dock"], "right_sidebar set dock", "OK", ""),
+            ("set-sessions", ["right-sidebar", "set", "sessions"], "right_sidebar set sessions --no-focus", "OK", ""),
+            ("files-alias", ["right-sidebar", "files"], "right_sidebar set files --no-focus", "OK", ""),
+            ("find-alias", ["right-sidebar", "find"], "right_sidebar set find --no-focus", "OK", ""),
+            ("vault-alias", ["right-sidebar", "vault"], "right_sidebar set vault --no-focus", "OK", ""),
+            ("sessions-alias", ["right-sidebar", "sessions"], "right_sidebar set sessions --no-focus", "OK", ""),
+            ("feed-alias", ["right-sidebar", "feed"], "right_sidebar set feed --no-focus", "OK", ""),
+            ("dock-alias", ["right-sidebar", "dock"], "right_sidebar set dock --no-focus", "OK", ""),
             ("mode", ["right-sidebar", "mode"], "right_sidebar mode", #"{"visible":true,"mode":"find"}"#, #"{"visible":true,"mode":"find"}"# + "\n"),
         ]
 
@@ -400,6 +402,34 @@ final class CLINotifyProcessIntegrationRegressionTests: XCTestCase {
         XCTAssertFalse(result.stderr.contains("Socket"), result.stderr)
     }
 
+    func testRightSidebarInvalidFocusFlagsValidateBeforeTargetResolution() throws {
+        let cliPath = try bundledCLIPath()
+        let missingSocketPath = "/tmp/cmux-test-missing-\(UUID().uuidString).sock"
+        var environment = ProcessInfo.processInfo.environment
+        environment["CMUX_SOCKET_PATH"] = missingSocketPath
+        environment["CMUX_CLI_SENTRY_DISABLED"] = "1"
+
+        let cases: [(arguments: [String], expectedError: String)] = [
+            (["right-sidebar", "set", "find", "--focus", "maybe"], "--focus must be true or false"),
+            (["right-sidebar", "set", "find", "--focus", "--no-focus"], "--focus and --no-focus cannot be used together"),
+        ]
+
+        for testCase in cases {
+            let result = runProcess(
+                executablePath: cliPath,
+                arguments: testCase.arguments,
+                environment: environment,
+                timeout: 5
+            )
+
+            XCTAssertFalse(result.timedOut, result.stderr)
+            XCTAssertEqual(result.status, 1, result.stderr)
+            XCTAssertTrue(result.stdout.isEmpty, result.stdout)
+            XCTAssertTrue(result.stderr.contains(testCase.expectedError), result.stderr)
+            XCTAssertFalse(result.stderr.contains("Socket"), result.stderr)
+        }
+    }
+
     func testRightSidebarCLIResolvesWindowAndWorkspaceHandlesBeforeForwarding() throws {
         let cliPath = try bundledCLIPath()
         let socketPath = makeSocketPath("rs-target")
@@ -451,7 +481,7 @@ final class CLINotifyProcessIntegrationRegressionTests: XCTestCase {
                 }
             }
 
-            XCTAssertEqual(line, "right_sidebar set find --tab=\(workspaceId) --window=\(windowId)")
+            XCTAssertEqual(line, "right_sidebar set find --no-focus --tab=\(workspaceId) --window=\(windowId)")
             return "OK"
         }
 
@@ -475,7 +505,7 @@ final class CLINotifyProcessIntegrationRegressionTests: XCTestCase {
             state.commands.compactMap { self.jsonObject($0)?["method"] as? String },
             ["window.list", "workspace.list"]
         )
-        XCTAssertEqual(state.commands.last, "right_sidebar set find --tab=\(workspaceId) --window=\(windowId)")
+        XCTAssertEqual(state.commands.last, "right_sidebar set find --no-focus --tab=\(workspaceId) --window=\(windowId)")
     }
 
     func testRightSidebarCLIRejectsUnresolvedWorkspaceHandleBeforeForwarding() throws {

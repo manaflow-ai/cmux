@@ -92,6 +92,7 @@ extension TerminalController {
         "pane.break",
         "pane.join",
         "markdown.open",
+        "file.open",
         "browser.open_split"
     ]
 

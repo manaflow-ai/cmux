@@ -1104,14 +1104,17 @@ class TabManager: ObservableObject {
         initialWorkspaceTitle: String? = nil,
         initialWorkingDirectory: String? = nil,
         initialTerminalInput: String? = nil,
-        autoWelcomeIfNeeded: Bool = true
+        autoWelcomeIfNeeded: Bool = true,
+        createInitialWorkspace: Bool = true
     ) {
-        addWorkspace(
-            title: initialWorkspaceTitle,
-            workingDirectory: initialWorkingDirectory,
-            initialTerminalInput: initialTerminalInput,
-            autoWelcomeIfNeeded: autoWelcomeIfNeeded
-        )
+        if createInitialWorkspace {
+            addWorkspace(
+                title: initialWorkspaceTitle,
+                workingDirectory: initialWorkingDirectory,
+                initialTerminalInput: initialTerminalInput,
+                autoWelcomeIfNeeded: autoWelcomeIfNeeded
+            )
+        }
         observers.append(NotificationCenter.default.addObserver(
             forName: .ghosttyDidSetTitle,
             object: nil,

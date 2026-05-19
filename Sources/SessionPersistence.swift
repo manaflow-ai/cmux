@@ -86,15 +86,9 @@ enum SessionPersistencePolicy {
 }
 
 enum SessionRestorePolicy {
-    static func isRunningUnderAutomatedTests(
+    static func isRunningUnderAppHostedXCTest(
         environment: [String: String] = ProcessInfo.processInfo.environment
     ) -> Bool {
-        if environment["CMUX_UI_TEST_MODE"] == "1" {
-            return true
-        }
-        if environment.keys.contains(where: { $0.hasPrefix("CMUX_UI_TEST_") }) {
-            return true
-        }
         if environment["XCTestConfigurationFilePath"] != nil {
             return true
         }
@@ -111,6 +105,21 @@ enum SessionRestorePolicy {
             return true
         }
         if environment["DYLD_INSERT_LIBRARIES"]?.contains("libXCTest") == true {
+            return true
+        }
+        return false
+    }
+
+    static func isRunningUnderAutomatedTests(
+        environment: [String: String] = ProcessInfo.processInfo.environment
+    ) -> Bool {
+        if environment["CMUX_UI_TEST_MODE"] == "1" {
+            return true
+        }
+        if environment.keys.contains(where: { $0.hasPrefix("CMUX_UI_TEST_") }) {
+            return true
+        }
+        if isRunningUnderAppHostedXCTest(environment: environment) {
             return true
         }
         return false

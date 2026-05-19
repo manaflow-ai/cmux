@@ -22,7 +22,8 @@ extension CMUXCLI {
         socketPath: String,
         explicitPassword: String?,
         jsonOutput: Bool,
-        idFormat: CLIIDFormat
+        idFormat: CLIIDFormat,
+        windowOverride: String? = nil
     ) throws {
         let parsedArgs = try parseOpenArguments(commandArgs)
 
@@ -35,11 +36,11 @@ extension CMUXCLI {
             focus = false
         } else if let focusOpt = parsedArgs.focus {
             guard let parsed = parseBoolString(focusOpt) else {
-                throw CLIError(message: "--focus must be true|false")
+                throw CLIError(message: "--focus must be true or false")
             }
             focus = parsed
         } else {
-            focus = true
+            focus = false
         }
 
         let targets = try parsedArgs.targets.map(resolveOpenTarget)
@@ -54,12 +55,16 @@ extension CMUXCLI {
         )
         defer { client.close() }
 
-        let windowHandle = try normalizeWindowHandle(parsedArgs.window, client: client)
-        let workspaceRaw = parsedArgs.workspace ?? (parsedArgs.window == nil ? ProcessInfo.processInfo.environment["CMUX_WORKSPACE_ID"] : nil)
+        let shouldApplyWindowOverride = parsedArgs.workspace == nil
+            && parsedArgs.surface == nil
+            && parsedArgs.pane == nil
+        let effectiveWindowRaw = parsedArgs.window ?? (shouldApplyWindowOverride ? windowOverride : nil)
+        let windowHandle = try normalizeWindowHandle(effectiveWindowRaw, client: client)
+        let workspaceRaw = parsedArgs.workspace ?? (effectiveWindowRaw == nil ? ProcessInfo.processInfo.environment["CMUX_WORKSPACE_ID"] : nil)
         let workspaceHandle = try normalizeWorkspaceHandle(workspaceRaw, client: client, windowHandle: windowHandle)
-        let surfaceRaw = parsedArgs.surface ?? (parsedArgs.window == nil ? ProcessInfo.processInfo.environment["CMUX_SURFACE_ID"] : nil)
-        let surfaceHandle = try normalizeSurfaceHandle(surfaceRaw, client: client, workspaceHandle: workspaceHandle)
-        let paneHandle = try normalizePaneHandle(parsedArgs.pane, client: client, workspaceHandle: workspaceHandle)
+        let surfaceRaw = parsedArgs.surface ?? (effectiveWindowRaw == nil ? ProcessInfo.processInfo.environment["CMUX_SURFACE_ID"] : nil)
+        let surfaceHandle = try normalizeSurfaceHandle(surfaceRaw, client: client, workspaceHandle: workspaceHandle, windowHandle: windowHandle)
+        let paneHandle = try normalizePaneHandle(parsedArgs.pane, client: client, workspaceHandle: workspaceHandle, windowHandle: windowHandle)
 
         var payloads: [[String: Any]] = []
 
@@ -85,7 +90,7 @@ extension CMUXCLI {
                 pendingFiles.append(path)
             case .directory(let directory):
                 try flushPendingFiles()
-                var params: [String: Any] = ["cwd": directory]
+                var params: [String: Any] = ["cwd": directory, "focus": focus]
                 if let windowHandle { params["window_id"] = windowHandle }
                 let payload = try client.sendV2(method: "workspace.create", params: params)
                 payloads.append(["kind": "workspace", "payload": payload, "path": directory])
@@ -149,8 +154,14 @@ extension CMUXCLI {
                     index += 2
                     continue
                 case "--focus":
-                    parsed.focus = try openOptionValue(commandArgs, index: index, name: arg)
-                    index += 2
+                    if index + 1 < commandArgs.count,
+                       let parsedFocus = parseBoolString(commandArgs[index + 1]) {
+                        parsed.focus = parsedFocus ? "true" : "false"
+                        index += 2
+                    } else {
+                        parsed.focus = "true"
+                        index += 1
+                    }
                     continue
                 case "--no-focus":
                     parsed.noFocus = true
@@ -158,13 +169,17 @@ extension CMUXCLI {
                     continue
                 default:
                     if arg.hasPrefix("-") {
-                        throw CLIError(message: "open: unknown flag '\(arg)'. Usage: cmux open <path-or-url>... [--workspace <id|ref|index>] [--surface <id|ref|index>] [--pane <id|ref|index>] [--window <id|ref|index>] [--focus true|false] [--no-focus]")
+                        throw CLIError(message: "open: unknown flag '\(arg)'. Usage: cmux open <path-or-url>... [--workspace <id|ref|index>] [--surface <id|ref|index>] [--pane <id|ref|index>] [--window <id|ref|index>] [--focus [true|false]] [--no-focus]")
                     }
                 }
             }
 
             parsed.targets.append(arg)
             index += 1
+        }
+
+        if parsed.focus != nil, parsed.noFocus {
+            throw CLIError(message: "--focus and --no-focus cannot be used together")
         }
 
         return parsed
@@ -209,8 +224,8 @@ extension CMUXCLI {
           --surface <id|ref|index>     Target surface whose pane should receive file tabs (default: $CMUX_SURFACE_ID)
           --pane <id|ref|index>        Target pane for file tabs
           --window <id|ref|index>      Target window
-          --focus <true|false>         Focus opened file previews (default: true)
-          --no-focus                   Do not focus opened file previews
+          --focus [true|false]         Focus opened targets (default: false; no value means true)
+          --no-focus                   Do not focus opened targets
 
         Examples:
           cmux open report.pdf
