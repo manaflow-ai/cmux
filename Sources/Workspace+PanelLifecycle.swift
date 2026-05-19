@@ -77,6 +77,17 @@ extension Workspace {
         if let previousPanelId = agentPIDPanelIdsByKey[key], previousPanelId != panelId {
             removeAgentPIDOwnership(key: key)
         }
+        if isStructuredAgentHookPIDKey(key) {
+            let statusKey = agentStatusKey(forAgentPIDKey: key)
+            let stalePanelKeys = agentPIDKeysByPanelId[panelId]?.filter {
+                $0 != key &&
+                isStructuredAgentHookPIDKey($0) &&
+                agentStatusKey(forAgentPIDKey: $0) != statusKey
+            } ?? []
+            for staleKey in stalePanelKeys {
+                _ = clearAgentPID(key: staleKey, panelId: panelId, clearStatus: true, refreshPorts: false)
+            }
+        }
         agentPIDPanelIdsByKey[key] = panelId
         agentPIDKeysByPanelId[panelId, default: []].insert(key)
     }
@@ -121,23 +132,67 @@ extension Workspace {
         return false
     }
 
-    func shouldDisplaySidebarStatusEntry(_ entry: SidebarStatusEntry) -> Bool {
+    func sidebarStatusEntriesVisibleForDisplay() -> [SidebarStatusEntry] {
+        let visibleStructuredStatusKeys = visibleStructuredAgentStatusKeysByPanel()
+        return statusEntries.values.filter { entry in
+            shouldDisplaySidebarStatusEntry(entry, visibleStructuredStatusKeys: visibleStructuredStatusKeys)
+        }
+    }
+
+    private func shouldDisplaySidebarStatusEntry(
+        _ entry: SidebarStatusEntry,
+        visibleStructuredStatusKeys: Set<String>
+    ) -> Bool {
         guard Self.structuredAgentHookStatusKeys.contains(entry.key) else {
             return true
         }
-        return hasLivePanelAgentRuntime(forStatusKey: entry.key)
+        return visibleStructuredStatusKeys.contains(entry.key)
     }
 
-    private func hasLivePanelAgentRuntime(forStatusKey statusKey: String) -> Bool {
+    private func visibleStructuredAgentStatusKeysByPanel() -> Set<String> {
+        var statusKeysByPanelId: [UUID: Set<String>] = [:]
         for (key, panelId) in agentPIDPanelIdsByKey
-        where agentStatusKey(forAgentPIDKey: key) == statusKey && panels[panelId] != nil {
-            return true
+        where panels[panelId] != nil {
+            let statusKey = agentStatusKey(forAgentPIDKey: key)
+            guard Self.structuredAgentHookStatusKeys.contains(statusKey),
+                  statusEntries[statusKey] != nil else {
+                continue
+            }
+            statusKeysByPanelId[panelId, default: []].insert(statusKey)
         }
-        for key in agentPIDs.keys
-        where agentStatusKey(forAgentPIDKey: key) == statusKey && agentPIDPanelIdsByKey[key] == nil {
-            return true
+        var visibleStatusKeys = Set<String>()
+        for statusKeys in statusKeysByPanelId.values {
+            let winningEntry = statusKeys.compactMap { statusEntries[$0] }.max {
+                isSidebarStatusEntryLessCurrent($0, than: $1)
+            }
+            if let winningEntry {
+                visibleStatusKeys.insert(winningEntry.key)
+            }
         }
-        return false
+
+        for key in agentPIDs.keys where agentPIDPanelIdsByKey[key] == nil {
+            let statusKey = agentStatusKey(forAgentPIDKey: key)
+            guard Self.structuredAgentHookStatusKeys.contains(statusKey),
+                  statusEntries[statusKey] != nil else {
+                continue
+            }
+            visibleStatusKeys.insert(statusKey)
+        }
+
+        return visibleStatusKeys
+    }
+
+    private func isSidebarStatusEntryLessCurrent(
+        _ lhs: SidebarStatusEntry,
+        than rhs: SidebarStatusEntry
+    ) -> Bool {
+        if lhs.timestamp != rhs.timestamp {
+            return lhs.timestamp < rhs.timestamp
+        }
+        if lhs.priority != rhs.priority {
+            return lhs.priority < rhs.priority
+        }
+        return lhs.key > rhs.key
     }
 
     private func isStructuredAgentHookPIDKey(_ key: String) -> Bool {

@@ -9477,7 +9477,7 @@ final class Workspace: Identifiable, ObservableObject {
     }
 
     func sidebarStatusEntriesInDisplayOrder() -> [SidebarStatusEntry] {
-        statusEntries.values.filter { shouldDisplaySidebarStatusEntry($0) }.sorted { lhs, rhs in
+        sidebarStatusEntriesVisibleForDisplay().sorted { lhs, rhs in
             if lhs.priority != rhs.priority { return lhs.priority > rhs.priority }
             if lhs.timestamp != rhs.timestamp { return lhs.timestamp > rhs.timestamp }
             return lhs.key < rhs.key

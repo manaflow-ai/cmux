@@ -352,6 +352,61 @@ final class TerminalNotificationClearAllTests: XCTestCase {
         XCTAssertEqual(workspace.agentPIDs[newPIDKey].map(Int.init), 12346)
     }
 
+    func testSidebarStatusShowsOnlyNewestStructuredAgentStatusPerPanel() throws {
+        let appDelegate = AppDelegate.shared ?? AppDelegate()
+        let manager = TabManager()
+        let originalTabManager = appDelegate.tabManager
+        appDelegate.tabManager = manager
+
+        let workspace = manager.addWorkspace(select: true)
+        defer {
+            if manager.tabs.contains(where: { $0.id == workspace.id }) {
+                manager.closeWorkspace(workspace)
+            }
+            appDelegate.tabManager = originalTabManager
+        }
+
+        let firstPanelId = try XCTUnwrap(workspace.focusedPanelId)
+        let secondPanel = try XCTUnwrap(
+            workspace.newTerminalSplit(from: firstPanelId, orientation: .horizontal)
+        )
+
+        workspace.statusEntries["codex"] = SidebarStatusEntry(
+            key: "codex",
+            value: "Idle",
+            timestamp: Date(timeIntervalSince1970: 10)
+        )
+        workspace.statusEntries["grok"] = SidebarStatusEntry(
+            key: "grok",
+            value: "Idle",
+            timestamp: Date(timeIntervalSince1970: 20)
+        )
+        workspace.statusEntries["amp"] = SidebarStatusEntry(
+            key: "amp",
+            value: "Running",
+            timestamp: Date(timeIntervalSince1970: 15)
+        )
+        workspace.statusEntries["build"] = SidebarStatusEntry(
+            key: "build",
+            value: "Compiling",
+            timestamp: Date(timeIntervalSince1970: 5)
+        )
+
+        let codexKey = "codex.codex-session-old"
+        workspace.recordAgentPID(key: codexKey, pid: pid_t(12345), panelId: firstPanelId)
+        workspace.recordAgentPID(key: "grok.grok-session-new", pid: pid_t(12346), panelId: firstPanelId)
+        workspace.recordAgentPID(key: "amp.amp-session-split", pid: pid_t(12347), panelId: secondPanel.id)
+
+        let displayedKeys = Set(workspace.sidebarStatusEntriesInDisplayOrder().map(\.key))
+
+        XCTAssertTrue(displayedKeys.contains("grok"))
+        XCTAssertTrue(displayedKeys.contains("amp"))
+        XCTAssertTrue(displayedKeys.contains("build"))
+        XCTAssertFalse(displayedKeys.contains("codex"))
+        XCTAssertNil(workspace.statusEntries["codex"])
+        XCTAssertNil(workspace.agentPIDs[codexKey])
+    }
+
     func testDetachingSurfaceRebindsNotificationContributionToDestinationWorkspace() throws {
         let store = TerminalNotificationStore.shared
         let appDelegate = AppDelegate.shared ?? AppDelegate()
