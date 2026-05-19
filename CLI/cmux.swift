@@ -4925,9 +4925,10 @@ struct CMUXCLI {
         let (actionOpt, rem1) = parseOption(rem0, name: "--action")
         let (titleOpt, rem2) = parseOption(rem1, name: "--title")
         let (colorOpt, rem3) = parseOption(rem2, name: "--color")
-        let (descriptionOpt, rem4) = parseOption(rem3, name: "--description")
+        let (iconOpt, rem4) = parseOption(rem3, name: "--icon")
+        let (descriptionOpt, rem5) = parseOption(rem4, name: "--description")
 
-        var positional = rem4
+        var positional = rem5
         let actionRaw: String
         if let actionOpt {
             actionRaw = actionOpt
@@ -4961,6 +4962,16 @@ struct CMUXCLI {
             throw CLIError(message: "workspace-action set-color requires --color <name|#hex> (or a trailing color)")
         }
 
+        let icon = (
+            iconOpt ?? (action == "set_icon" ? (inferredPositional.isEmpty ? nil : inferredPositional) : nil)
+        )?.trimmingCharacters(in: .whitespacesAndNewlines)
+        if action == "set_icon", (icon?.isEmpty ?? true) || iconOpt?.hasPrefix("--") == true {
+            throw CLIError(message: String(
+                localized: "cli.error.workspaceActionSetIconRequiresIcon",
+                defaultValue: "workspace-action set-icon requires --icon <path|emoji:🚀> (or a trailing icon)"
+            ))
+        }
+
         let description = (
             descriptionOpt ?? (action == "set_description" && !inferredPositional.isEmpty ? inferredPositionalRaw : nil)
         )?.trimmingCharacters(in: .whitespacesAndNewlines)
@@ -4977,6 +4988,9 @@ struct CMUXCLI {
         }
         if let color, !color.isEmpty {
             params["color"] = color
+        }
+        if let icon, !icon.isEmpty {
+            params["icon"] = icon
         }
         if let description, !description.isEmpty {
             params["description"] = description
@@ -4998,6 +5012,9 @@ struct CMUXCLI {
         }
         if let color = payload["color"] as? String {
             summaryParts.append("color=\(color)")
+        }
+        if let icon = payload["custom_icon"] as? String {
+            summaryParts.append("icon=\(icon)")
         }
         printV2Payload(payload, jsonOutput: jsonOutput, idFormat: idFormat, fallbackText: summaryParts.joined(separator: " "))
     }
@@ -9804,7 +9821,7 @@ struct CMUXCLI {
               cmux reorder-workspace --workspace workspace:3 --after workspace:1
             """
         case "workspace-action":
-            return """
+            return String(localized: "cli.help.workspaceAction", defaultValue: """
             Usage: cmux workspace-action --action <name> [flags]
 
             Perform workspace context-menu actions from CLI/socket.
@@ -9817,12 +9834,14 @@ struct CMUXCLI {
               close-others | close-above | close-below
               mark-read | mark-unread
               set-color | clear-color
+              set-icon | clear-icon
 
             Flags:
               --action <name>              Action name (required if not positional)
               --workspace <id|ref|index>   Target workspace (default: current/$CMUX_WORKSPACE_ID)
               --title <text>               Title for rename
               --color <name|#hex>          Color for set-color (name or #RRGGBB hex)
+              --icon <path|emoji:🚀>        Icon for set-icon
               --description <text>         Description for set-description
 
             Named colors:
@@ -9836,10 +9855,13 @@ struct CMUXCLI {
               cmux workspace-action --action set-color --color blue
               cmux workspace-action --action set-color --color "#C0392B"
               cmux workspace-action set-color Amber
+              cmux workspace-action --action set-icon --icon emoji:🚀
+              cmux workspace-action set-icon ~/Desktop/icon.png
               cmux workspace-action --action set-description --description "Ship checklist"
               cmux workspace-action --action set-description $'Ship checklist\n- verify build\n- post notes'
               cmux workspace-action clear-color
-            """
+              cmux workspace-action clear-icon
+            """)
         case "tab-action":
             return """
             Usage: cmux tab-action --action <name> [flags]
@@ -24861,7 +24883,7 @@ export default function cmuxPiSessionExtension(pi: ExtensionAPI) {
           close-window --window <id>
           move-workspace-to-window --workspace <id|ref> --window <id|ref>
           reorder-workspace --workspace <id|ref|index> (--index <n> | --before <id|ref|index> | --after <id|ref|index>) [--window <id|ref|index>]
-          workspace-action --action <name> [--workspace <id|ref|index>] [--title <text>] [--color <name|#hex>] [--description <text>]
+          workspace-action --action <name> [--workspace <id|ref|index>] [--title <text>] [--color <name|#hex>] [--icon <path|emoji:🚀>] [--description <text>]
           move-tab-to-new-workspace [--tab <id|ref|index>] [--surface <id|ref|index>] [--workspace <id|ref|index>] [--title <text>] [--focus <true|false>]
           list-workspaces
           new-workspace [--name <title>] [--description <text>] [--cwd <path>] [--command <text>] [--layout <json>] [--window <id|ref|index>] [--focus <true|false>]

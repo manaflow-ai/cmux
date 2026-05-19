@@ -232,6 +232,7 @@ extension Workspace {
             customTitle: customTitle,
             customDescription: customDescription,
             customColor: customColor,
+            customIconPath: customIconPath,
             isPinned: isPinned,
             isManuallyUnread: isWorkspaceManuallyUnread,
             hasUnreadIndicator: hasWorkspaceUnreadIndicator,
@@ -294,6 +295,7 @@ extension Workspace {
         setCustomTitle(snapshot.customTitle)
         setCustomDescription(snapshot.customDescription)
         setCustomColor(snapshot.customColor)
+        setCustomIcon(snapshot.customIconPath)
         isPinned = snapshot.isPinned
         setTerminalScrollBarHidden(snapshot.terminalScrollBarHidden ?? false)
 
@@ -7313,10 +7315,24 @@ final class Workspace: Identifiable, ObservableObject {
     @Published var customDescription: String?
     @Published var isPinned: Bool = false
     @Published var customColor: String?  // hex string, e.g. "#C0392B"
+    @Published private(set) var customIconPath: String?
+    @Published private(set) var detectedIconPath: String?
+    @Published private(set) var customIconRevision = 0
+    @Published private(set) var detectedIconRevision = 0
     @Published private(set) var terminalScrollBarHidden: Bool = false
-    @Published var currentDirectory: String
+    @Published var currentDirectory: String {
+        didSet {
+            guard currentDirectory != oldValue else { return }
+            refreshDetectedWorkspaceIcon(
+                autoDetectEnabled: SidebarWorkspaceIconSettings.autoDetectsWorkspaceIcon()
+            )
+        }
+    }
     @Published private(set) var surfaceTabBarDirectory: String?
     private(set) var preferredBrowserProfileID: UUID?
+    private var workspaceIconDetectionTask: Task<Void, Never>?
+    private var workspaceIconDetectionDirectory: String?
+    private var detectedIconSignature: WorkspaceIconFileSignature?
 
     /// Ordinal for CMUX_PORT range assignment (monotonically increasing per app session)
     var portOrdinal: Int = 0
@@ -7519,6 +7535,10 @@ final class Workspace: Identifiable, ObservableObject {
             sidebarObservationSignal($customDescription),
             sidebarObservationSignal($isPinned),
             sidebarObservationSignal($customColor),
+            sidebarObservationSignal($customIconPath),
+            sidebarObservationSignal($detectedIconPath),
+            sidebarObservationSignal($customIconRevision),
+            sidebarObservationSignal($detectedIconRevision),
             sidebarObservationSignal($terminalScrollBarHidden),
             sidebarObservationSignal($latestConversationMessage),
         ]
@@ -7917,6 +7937,10 @@ final class Workspace: Identifiable, ObservableObject {
         self.title = title
         self.customTitle = nil
         self.customDescription = nil
+        self.customIconPath = nil
+        self.detectedIconPath = nil
+        self.customIconRevision = 0
+        self.detectedIconRevision = 0
 
         let trimmedWorkingDirectory = workingDirectory?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
         let hasWorkingDirectory = !trimmedWorkingDirectory.isEmpty
@@ -8049,6 +8073,7 @@ final class Workspace: Identifiable, ObservableObject {
             bonsplitController.selectTab(initialTabId)
         }
         tmuxLayoutSnapshot = bonsplitController.layoutSnapshot()
+        refreshDetectedWorkspaceIcon(autoDetectEnabled: SidebarWorkspaceIconSettings.autoDetectsWorkspaceIcon())
     }
 
     deinit {
@@ -8061,6 +8086,7 @@ final class Workspace: Identifiable, ObservableObject {
         }
         activeRemoteSessionControllerID = nil
         remoteSessionController?.stop()
+        workspaceIconDetectionTask?.cancel()
     }
 
     func refreshSplitButtonTooltips() {
@@ -8827,6 +8853,79 @@ final class Workspace: Identifiable, ObservableObject {
         } else {
             customColor = nil
         }
+    }
+
+    func setCustomIcon(_ iconPath: String?) {
+        let normalized = WorkspaceIconValue.normalizedStorageValue(iconPath)
+        if customIconPath != normalized || normalized != nil {
+            customIconRevision &+= 1
+        }
+        customIconPath = normalized
+    }
+
+    func effectiveIconPath(autoDetectEnabled: Bool) -> String? {
+        customIconPath ?? (autoDetectEnabled ? detectedIconPath : nil)
+    }
+
+    func effectiveIconReloadToken(autoDetectEnabled: Bool) -> String? {
+        if let customIconPath {
+            return "\(customIconPath)\u{0}custom:\(customIconRevision)"
+        }
+        guard autoDetectEnabled, let detectedIconPath else { return nil }
+        return "\(detectedIconPath)\u{0}detected:\(detectedIconRevision)"
+    }
+
+    @discardableResult
+    func refreshDetectedWorkspaceIcon(autoDetectEnabled: Bool, force: Bool = false) -> Task<Void, Never>? {
+        guard autoDetectEnabled else {
+            workspaceIconDetectionTask?.cancel()
+            workspaceIconDetectionTask = nil
+            workspaceIconDetectionDirectory = nil
+            detectedIconSignature = nil
+            if detectedIconPath != nil {
+                detectedIconPath = nil
+                detectedIconRevision &+= 1
+            }
+            return nil
+        }
+
+        let directory = WorkspaceIconValue.normalizedStorageValue(currentDirectory)
+        guard let directory else {
+            workspaceIconDetectionTask?.cancel()
+            workspaceIconDetectionTask = nil
+            workspaceIconDetectionDirectory = nil
+            detectedIconSignature = nil
+            if detectedIconPath != nil {
+                detectedIconPath = nil
+                detectedIconRevision &+= 1
+            }
+            return nil
+        }
+
+        guard force || workspaceIconDetectionDirectory != directory else { return nil }
+        workspaceIconDetectionDirectory = directory
+        workspaceIconDetectionTask?.cancel()
+        let task = Task.detached(priority: .utility) { [weak self, directory] in
+            let result = WorkspaceIconDetectionResult.detect(in: directory)
+            guard !Task.isCancelled else { return }
+
+            await MainActor.run { [weak self] in
+                guard !Task.isCancelled,
+                      let self,
+                      self.workspaceIconDetectionDirectory == directory,
+                      WorkspaceIconValue.normalizedStorageValue(self.currentDirectory) == directory else {
+                    return
+                }
+                let didChange = self.detectedIconPath != result.path || self.detectedIconSignature != result.signature
+                if didChange {
+                    self.detectedIconPath = result.path
+                    self.detectedIconSignature = result.signature
+                    self.detectedIconRevision &+= 1
+                }
+            }
+        }
+        workspaceIconDetectionTask = task
+        return task
     }
 
     func setTerminalScrollBarHidden(_ hidden: Bool) {

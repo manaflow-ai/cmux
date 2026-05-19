@@ -1113,6 +1113,7 @@ struct SessionWorkspaceSnapshot: Codable, Sendable {
     var customTitle: String?
     var customDescription: String?
     var customColor: String?
+    var customIconPath: String?
     var isPinned: Bool
     var isManuallyUnread: Bool? = nil
     var hasUnreadIndicator: Bool? = nil

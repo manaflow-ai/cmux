@@ -197,6 +197,105 @@ final class SidebarSelectedWorkspaceColorTests: XCTestCase {
     }
 }
 
+@MainActor
+final class WorkspaceIconTests: XCTestCase {
+    func testIconStorageNormalizesEmojiAndFilePaths() {
+        XCTAssertEqual(WorkspaceIconValue.normalizedStorageValue(" emoji: 🚀 "), "emoji:🚀")
+        XCTAssertEqual(WorkspaceIconValue.normalizedStorageValue("emoji:👨‍💻"), "emoji:👨‍💻")
+        XCTAssertNil(WorkspaceIconValue.normalizedStorageValue("emoji:   "))
+        XCTAssertNil(WorkspaceIconValue.normalizedStorageValue("emoji:abc"))
+        XCTAssertNil(WorkspaceIconValue.normalizedStorageValue("emoji:🚀 app"))
+        XCTAssertNil(WorkspaceIconValue.normalizedStorageValue("   "))
+
+        let rawPath = "~/Desktop/cmux-icon.png"
+        let expectedPath = NSString(
+            string: NSString(string: rawPath).expandingTildeInPath
+        ).standardizingPath
+        XCTAssertEqual(WorkspaceIconValue.normalizedStorageValue(rawPath), expectedPath)
+    }
+
+    func testWorkspaceCustomIconAffectsAutosaveFingerprint() {
+        let manager = TabManager()
+        guard let workspace = manager.tabs.first else {
+            XCTFail("Expected TabManager to initialise with a workspace")
+            return
+        }
+
+        let cleanFingerprint = manager.sessionAutosaveFingerprint()
+        manager.setTabIcon(tabId: workspace.id, iconPath: "emoji:🚀")
+
+        XCTAssertEqual(workspace.customIconPath, "emoji:🚀")
+        XCTAssertNotEqual(cleanFingerprint, manager.sessionAutosaveFingerprint())
+    }
+
+    func testSettingSameCustomIconRefreshesReloadToken() {
+        let manager = TabManager()
+        guard let workspace = manager.tabs.first else {
+            XCTFail("Expected TabManager to initialise with a workspace")
+            return
+        }
+
+        manager.setTabIcon(tabId: workspace.id, iconPath: "~/Desktop/cmux-icon.png")
+        let firstToken = workspace.effectiveIconReloadToken(autoDetectEnabled: false)
+        manager.setTabIcon(tabId: workspace.id, iconPath: "~/Desktop/cmux-icon.png")
+
+        XCTAssertNotNil(firstToken)
+        XCTAssertNotEqual(firstToken, workspace.effectiveIconReloadToken(autoDetectEnabled: false))
+    }
+
+    func testWorkspaceIconDetectorFindsRootFavicon() throws {
+        let directory = FileManager.default.temporaryDirectory
+            .appendingPathComponent("cmux-workspace-icon-\(UUID().uuidString)", isDirectory: true)
+        try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: directory) }
+
+        let iconURL = directory.appendingPathComponent("favicon.png")
+        try Data([0x89, 0x50, 0x4E, 0x47]).write(to: iconURL)
+
+        XCTAssertEqual(
+            WorkspaceIconDetector.detectedIconPath(in: directory.path),
+            iconURL.path
+        )
+    }
+
+    func testWorkspaceIconDetectionForceRescansSameDirectory() async throws {
+        let directory = FileManager.default.temporaryDirectory
+            .appendingPathComponent("cmux-workspace-icon-\(UUID().uuidString)", isDirectory: true)
+        try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: directory) }
+
+        let iconURL = directory.appendingPathComponent("favicon.png")
+        try Data([0x89, 0x50, 0x4E, 0x47]).write(to: iconURL)
+
+        let manager = TabManager()
+        guard let workspace = manager.tabs.first else {
+            XCTFail("Expected TabManager to initialise with a workspace")
+            return
+        }
+        workspace.currentDirectory = directory.path
+
+        let initialTask = workspace.refreshDetectedWorkspaceIcon(autoDetectEnabled: true, force: true)
+        if let initialTask {
+            await initialTask.value
+        }
+        XCTAssertEqual(workspace.detectedIconPath, iconURL.path)
+
+        let firstToken = workspace.effectiveIconReloadToken(autoDetectEnabled: true)
+        XCTAssertNotNil(firstToken)
+
+        try Data([0x89, 0x50, 0x4E, 0x47, 0x01]).write(to: iconURL)
+        let skippedTask = workspace.refreshDetectedWorkspaceIcon(autoDetectEnabled: true)
+        XCTAssertNil(skippedTask)
+        XCTAssertEqual(firstToken, workspace.effectiveIconReloadToken(autoDetectEnabled: true))
+
+        let rescanTask = workspace.refreshDetectedWorkspaceIcon(autoDetectEnabled: true, force: true)
+        if let rescanTask {
+            await rescanTask.value
+        }
+        XCTAssertNotEqual(firstToken, workspace.effectiveIconReloadToken(autoDetectEnabled: true))
+    }
+}
+
 
 final class WorkspaceRenameShortcutDefaultsTests: XCTestCase {
     func testRenameTabShortcutDefaultsAndMetadata() {

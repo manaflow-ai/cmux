@@ -71,6 +71,32 @@ final class SidebarWorkspaceSnapshotRefreshPolicyTests: XCTestCase {
         XCTAssertFalse(decision.hasDeferredWorkspaceObservationInvalidation)
     }
 
+    func testContextMenuIconChangeUpdatesDisplayedFieldsAndDefersNoisyFields() {
+        let current = Self.snapshot(
+            workspaceIconPath: nil,
+            latestConversationMessage: "old message",
+            listeningPorts: [3000]
+        )
+        let next = Self.snapshot(
+            workspaceIconPath: "emoji:🚀",
+            latestConversationMessage: "new message",
+            listeningPorts: [3000, 4000]
+        )
+
+        let decision = SidebarWorkspaceSnapshotRefreshPolicy.decision(
+            current: current,
+            next: next,
+            force: false,
+            contextMenuVisible: true
+        )
+
+        XCTAssertEqual(decision.workspaceSnapshotStorage?.workspaceIconPath, "emoji:🚀")
+        XCTAssertEqual(decision.workspaceSnapshotStorage?.latestConversationMessage, "old message")
+        XCTAssertEqual(decision.workspaceSnapshotStorage?.listeningPorts, [3000])
+        XCTAssertEqual(decision.pendingWorkspaceSnapshot, next)
+        XCTAssertTrue(decision.hasDeferredWorkspaceObservationInvalidation)
+    }
+
     func testClosedContextMenuStoresNextAndClearsPending() {
         let current = Self.snapshot(title: "old", isPinned: false)
         let next = Self.snapshot(title: "new", isPinned: true)
@@ -93,6 +119,8 @@ final class SidebarWorkspaceSnapshotRefreshPolicyTests: XCTestCase {
         customDescription: String? = nil,
         isPinned: Bool = false,
         customColorHex: String? = nil,
+        workspaceIconPath: String? = nil,
+        workspaceIconReloadToken: String? = nil,
         remoteConnectionStatusText: String = "Disconnected",
         latestConversationMessage: String? = nil,
         listeningPorts: [Int] = []
@@ -103,6 +131,8 @@ final class SidebarWorkspaceSnapshotRefreshPolicyTests: XCTestCase {
             customDescription: customDescription,
             isPinned: isPinned,
             customColorHex: customColorHex,
+            workspaceIconPath: workspaceIconPath,
+            workspaceIconReloadToken: workspaceIconReloadToken,
             remoteWorkspaceSidebarText: nil,
             remoteConnectionStatusText: remoteConnectionStatusText,
             remoteStateHelpText: "",

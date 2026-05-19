@@ -75,6 +75,7 @@ extension CmuxSettingsFileStore {
         "sidebar.hideAllDetails",
         "sidebar.showWorkspaceDescription",
         "sidebar.branchLayout",
+        "sidebar.autoDetectWorkspaceIcon",
         "sidebar.showNotificationMessage",
         "sidebar.showBranchDirectory",
         "sidebar.showPullRequests",

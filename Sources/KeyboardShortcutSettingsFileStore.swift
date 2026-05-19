@@ -493,6 +493,11 @@ final class CmuxSettingsFileStore {
                 logInvalid("sidebar.branchLayout", sourcePath: sourcePath)
             }
         }
+        if let value = jsonBool(section["autoDetectWorkspaceIcon"]) {
+            snapshot.managedUserDefaults[SidebarWorkspaceIconSettings.autoDetectKey] = .bool(value)
+        } else if section.keys.contains("autoDetectWorkspaceIcon") {
+            logInvalid("sidebar.autoDetectWorkspaceIcon", sourcePath: sourcePath)
+        }
         if let value = jsonBool(section["showNotificationMessage"]) {
             snapshot.managedUserDefaults[SidebarWorkspaceDetailSettings.showNotificationMessageKey] = .bool(value)
         }

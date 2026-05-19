@@ -5079,6 +5079,8 @@ struct SettingsView: View {
     private var sidebarShowWorkspaceDescription = SidebarWorkspaceDetailSettings.defaultShowWorkspaceDescription
     @AppStorage(SidebarWorkspaceDetailSettings.showNotificationMessageKey)
     private var sidebarShowNotificationMessage = SidebarWorkspaceDetailSettings.defaultShowNotificationMessage
+    @AppStorage(SidebarWorkspaceIconSettings.autoDetectKey)
+    private var sidebarAutoDetectWorkspaceIcon = SidebarWorkspaceIconSettings.defaultAutoDetect
     @AppStorage(SidebarBranchLayoutSettings.key) private var sidebarBranchVerticalLayout = SidebarBranchLayoutSettings.defaultVerticalLayout
     @AppStorage(SidebarActiveTabIndicatorSettings.styleKey)
     private var sidebarActiveTabIndicatorStyle = SidebarActiveTabIndicatorSettings.defaultStyle.rawValue
@@ -6364,6 +6366,18 @@ struct SettingsView: View {
                         SettingsCardDivider()
 
                         SettingsCardRow(
+                            configurationReview: .json("sidebar.autoDetectWorkspaceIcon"),
+                            String(localized: "settings.app.autoDetectWorkspaceIcon", defaultValue: "Auto-Detect Workspace Icons"),
+                            subtitle: String(localized: "settings.app.autoDetectWorkspaceIcon.subtitle", defaultValue: "Use favicon, app icon, or logo files from each workspace directory when no custom icon is set.")
+                        ) {
+                            Toggle("", isOn: $sidebarAutoDetectWorkspaceIcon)
+                                .labelsHidden()
+                                .controlSize(.small)
+                        }
+
+                        SettingsCardDivider()
+
+                        SettingsCardRow(
                             configurationReview: .json("sidebar.showNotificationMessage"),
                             String(localized: "settings.app.showNotificationMessage", defaultValue: "Show Notification Message in Sidebar"),
                             subtitle: String(localized: "settings.app.showNotificationMessage.subtitle", defaultValue: "Display the latest notification message below the workspace title.")
@@ -7469,6 +7483,7 @@ struct SettingsView: View {
         sidebarHideAllDetails = SidebarWorkspaceDetailSettings.defaultHideAllDetails
         sidebarShowWorkspaceDescription = SidebarWorkspaceDetailSettings.defaultShowWorkspaceDescription
         sidebarShowNotificationMessage = SidebarWorkspaceDetailSettings.defaultShowNotificationMessage
+        sidebarAutoDetectWorkspaceIcon = SidebarWorkspaceIconSettings.defaultAutoDetect
         sidebarBranchVerticalLayout = SidebarBranchLayoutSettings.defaultVerticalLayout
         sidebarActiveTabIndicatorStyle = SidebarActiveTabIndicatorSettings.defaultStyle.rawValue
         sidebarSelectionColorHex = nil
