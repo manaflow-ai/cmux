@@ -9,9 +9,16 @@ struct CmuxEventSubscriptionSnapshot {
 final class CmuxEventWindowWorkspaceIndex: @unchecked Sendable {
     static let shared = CmuxEventWindowWorkspaceIndex()
 
+    struct SurfaceLocation {
+        let workspaceId: String?
+        let windowId: String?
+        let paneId: String?
+    }
+
     private let lock = NSLock()
     private var workspaceIdsByWindowId: [String: Set<String>] = [:]
     private var windowIdByWorkspaceId: [String: String] = [:]
+    private var surfaceLocationBySurfaceId: [String: SurfaceLocation] = [:]
 
     func replace(windowId: UUID?, workspaceIds: [UUID]) {
         replace(
@@ -47,6 +54,37 @@ final class CmuxEventWindowWorkspaceIndex: @unchecked Sendable {
         lock.lock()
         defer { lock.unlock() }
         return windowIdByWorkspaceId[workspaceId]
+    }
+
+    func rememberSurface(surfaceId: String?, workspaceId: String?, windowId: String?, paneId: String?) {
+        guard let surfaceId = Self.normalizedId(surfaceId) else { return }
+        lock.lock()
+        let existing = surfaceLocationBySurfaceId[surfaceId]
+        let normalizedWorkspaceId = Self.normalizedId(workspaceId) ?? existing?.workspaceId
+        let normalizedWindowId = Self.normalizedId(windowId) ??
+            normalizedWorkspaceId.flatMap { windowIdByWorkspaceId[$0] } ??
+            existing?.windowId
+        let normalizedPaneId = Self.normalizedId(paneId) ?? existing?.paneId
+        surfaceLocationBySurfaceId[surfaceId] = SurfaceLocation(
+            workspaceId: normalizedWorkspaceId,
+            windowId: normalizedWindowId,
+            paneId: normalizedPaneId
+        )
+        lock.unlock()
+    }
+
+    func forgetSurface(surfaceId: String?) {
+        guard let surfaceId = Self.normalizedId(surfaceId) else { return }
+        lock.lock()
+        surfaceLocationBySurfaceId.removeValue(forKey: surfaceId)
+        lock.unlock()
+    }
+
+    func surfaceLocation(surfaceId: String?) -> SurfaceLocation? {
+        guard let surfaceId = Self.normalizedId(surfaceId) else { return nil }
+        lock.lock()
+        defer { lock.unlock() }
+        return surfaceLocationBySurfaceId[surfaceId]
     }
 
     private static func normalizedId(_ value: String?) -> String? {
@@ -419,7 +457,20 @@ final class CmuxEventBus: @unchecked Sendable {
     ) {
         let occurredAt = Self.isoTimestamp(Date())
         let cleanPayload = Self.sanitizedJSONValue(payload)
-        let resolvedWindowId = windowId ?? CmuxEventWindowWorkspaceIndex.shared.windowId(workspaceId: workspaceId)
+        let indexedSurfaceLocation = CmuxEventWindowWorkspaceIndex.shared.surfaceLocation(surfaceId: surfaceId)
+        let resolvedWorkspaceId = workspaceId ?? indexedSurfaceLocation?.workspaceId
+        let resolvedPaneId = paneId ?? indexedSurfaceLocation?.paneId
+        let resolvedWindowId = windowId ??
+            CmuxEventWindowWorkspaceIndex.shared.windowId(workspaceId: resolvedWorkspaceId) ??
+            indexedSurfaceLocation?.windowId
+        if surfaceId != nil, resolvedWorkspaceId != nil || resolvedWindowId != nil || resolvedPaneId != nil {
+            CmuxEventWindowWorkspaceIndex.shared.rememberSurface(
+                surfaceId: surfaceId,
+                workspaceId: resolvedWorkspaceId,
+                windowId: resolvedWindowId,
+                paneId: resolvedPaneId
+            )
+        }
 
         lock.lock()
         let sequence = nextSequence
@@ -436,9 +487,9 @@ final class CmuxEventBus: @unchecked Sendable {
             "category": category,
             "source": source,
             "occurred_at": occurredAt,
-            "workspace_id": workspaceId ?? NSNull(),
+            "workspace_id": resolvedWorkspaceId ?? NSNull(),
             "surface_id": surfaceId ?? NSNull(),
-            "pane_id": paneId ?? NSNull(),
+            "pane_id": resolvedPaneId ?? NSNull(),
             "window_id": resolvedWindowId ?? NSNull(),
             "payload": cleanPayload
         ]
@@ -458,6 +509,10 @@ final class CmuxEventBus: @unchecked Sendable {
             if !subscription.enqueue(event) {
                 removeSubscriptionIfStillActive(subscription)
             }
+        }
+
+        for closedSurfaceId in Self.closedSurfaceIds(name: name, payload: cleanPayload) {
+            CmuxEventWindowWorkspaceIndex.shared.forgetSurface(surfaceId: closedSurfaceId)
         }
     }
 
@@ -698,6 +753,34 @@ final class CmuxEventBus: @unchecked Sendable {
             "max_bytes": maxBytes
         ]
         return compact
+    }
+
+    private static func closedSurfaceIds(name: String, payload: Any) -> [String] {
+        if name == "surface.closed", let payload = payload as? [String: Any] {
+            return [payload["surface_id"]].compactMap { normalizedString($0) }
+        }
+        guard name == "pane.closed",
+              let payload = payload as? [String: Any] else {
+            return []
+        }
+        if let values = payload["closed_surface_ids"] as? [String] {
+            return values.compactMap(normalizedString)
+        }
+        if let values = payload["closed_surface_ids"] as? [Any] {
+            return values.compactMap(normalizedString)
+        }
+        return []
+    }
+
+    private static func normalizedString(_ value: Any?) -> String? {
+        guard let trimmed = (value as? String)?.trimmingCharacters(in: .whitespacesAndNewlines),
+              !trimmed.isEmpty else {
+            return nil
+        }
+        if let uuid = UUID(uuidString: trimmed) {
+            return uuid.uuidString
+        }
+        return trimmed
     }
 
     private static func truncatedString(_ value: String, maxUTF8Bytes: Int) -> String {

@@ -114,7 +114,8 @@ enum CmuxSocketEventMapper {
         let name = rawName.lowercased()
         guard response == "OK" || response.hasPrefix("OK ") || response.hasPrefix("OK\n") || response.hasPrefix("OK:") else { return }
         let args = parts.count > 1 ? parts[1] : ""
-        let payload: [String: Any] = ["command": name, "args": redactedV1Args(name: name, args: args)]
+        let explicitSurfaceId = firstUUIDArgument(in: args)
+        var payload: [String: Any] = ["command": name, "args": redactedV1Args(name: name, args: args)]
 
         switch name {
         case "new_window", "focus_window", "close_window":
@@ -125,13 +126,35 @@ enum CmuxSocketEventMapper {
             break
         case "close_surface":
             break
-        case "send", "send_surface":
+        case "send":
             CmuxEventBus.shared.publish(name: "surface.input_sent", category: "surface", source: "socket.v1", payload: payload)
-        case "send_key", "send_key_surface":
+        case "send_surface":
+            if let explicitSurfaceId {
+                payload["surface_id"] = explicitSurfaceId
+            }
+            CmuxEventBus.shared.publish(
+                name: "surface.input_sent",
+                category: "surface",
+                source: "socket.v1",
+                surfaceId: explicitSurfaceId,
+                payload: payload
+            )
+        case "send_key":
             CmuxEventBus.shared.publish(name: "surface.key_sent", category: "surface", source: "socket.v1", payload: payload)
+        case "send_key_surface":
+            if let explicitSurfaceId {
+                payload["surface_id"] = explicitSurfaceId
+            }
+            CmuxEventBus.shared.publish(
+                name: "surface.key_sent",
+                category: "surface",
+                source: "socket.v1",
+                surfaceId: explicitSurfaceId,
+                payload: payload
+            )
         case "notify_surface":
             var payloadWithSurface = payload
-            let surfaceId = firstUUID(in: args)
+            let surfaceId = explicitSurfaceId
             payloadWithSurface["surface_id"] = surfaceId ?? NSNull()
             CmuxEventBus.shared.publish(
                 name: "notification.requested",
@@ -167,6 +190,13 @@ enum CmuxSocketEventMapper {
         default:
             break
         }
+    }
+
+    private static func firstUUIDArgument(in text: String) -> String? {
+        guard let first = text.split(separator: " ", maxSplits: 1).first else { return nil }
+        let cleaned = first.trimmingCharacters(in: CharacterSet(charactersIn: "\"'"))
+        guard UUID(uuidString: cleaned) != nil else { return nil }
+        return cleaned
     }
 
     private static func publishResult(name: String, category: String, method: String, params: [String: Any], result: [String: Any]) {
