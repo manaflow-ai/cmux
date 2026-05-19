@@ -229,6 +229,78 @@ final class CMUXOpenCommandTests: XCTestCase {
         XCTAssertFalse(result.stderr.contains("Socket"), result.stderr)
     }
 
+    func testPathShorthandFocusOptInIsPreserved() throws {
+        let cliPath = try bundledCLIPath()
+        let socketPath = makeSocketPath("path-focus")
+        let listenerFD = try bindUnixSocket(at: socketPath)
+        let rootURL = FileManager.default.temporaryDirectory
+            .appendingPathComponent(UUID().uuidString, isDirectory: true)
+        try FileManager.default.createDirectory(at: rootURL, withIntermediateDirectories: true)
+        let state = MockSocketServerState()
+
+        defer {
+            Darwin.close(listenerFD)
+            unlink(socketPath)
+            try? FileManager.default.removeItem(at: rootURL)
+        }
+
+        let serverHandled = startMockServer(listenerFD: listenerFD, state: state) { line in
+            guard let payload = Self.v2Payload(from: line),
+                  let id = payload["id"] as? String,
+                  let method = payload["method"] as? String else {
+                return Self.v2Response(id: "unknown", ok: false, error: ["code": "unexpected"])
+            }
+
+            let params = payload["params"] as? [String: Any] ?? [:]
+            guard method == "workspace.create",
+                  params["cwd"] as? String == rootURL.path,
+                  params["focus"] as? Bool == true,
+                  params["window_id"] == nil else {
+                return Self.v2Response(id: id, ok: false, error: [
+                    "code": "unexpected-path-open",
+                    "message": "\(method) params=\(params)"
+                ])
+            }
+            return Self.v2Response(id: id, ok: true, result: ["workspace_ref": "workspace:focused"])
+        }
+
+        let result = runCLI(
+            cliPath: cliPath,
+            socketPath: socketPath,
+            arguments: [rootURL.path, "--focus"]
+        )
+
+        wait(for: [serverHandled], timeout: 5)
+        XCTAssertFalse(result.timedOut, result.stderr)
+        XCTAssertEqual(result.status, 0, result.stderr)
+        XCTAssertEqual(state.commands.compactMap { Self.v2Payload(from: $0)?["method"] as? String }, ["workspace.create"])
+    }
+
+    func testPathShorthandRejectsInvalidFocusValueBeforeConnecting() throws {
+        let cliPath = try bundledCLIPath()
+        let socketPath = makeSocketPath("path-bad-focus")
+        let rootURL = FileManager.default.temporaryDirectory
+            .appendingPathComponent(UUID().uuidString, isDirectory: true)
+        try FileManager.default.createDirectory(at: rootURL, withIntermediateDirectories: true)
+
+        defer {
+            unlink(socketPath)
+            try? FileManager.default.removeItem(at: rootURL)
+        }
+
+        let result = runCLI(
+            cliPath: cliPath,
+            socketPath: socketPath,
+            arguments: [rootURL.path, "--focus", "maybe"]
+        )
+
+        XCTAssertFalse(result.timedOut, result.stderr)
+        XCTAssertEqual(result.status, 1, result.stderr)
+        XCTAssertTrue(result.stdout.isEmpty, result.stdout)
+        XCTAssertTrue(result.stderr.contains("path open: --focus must be true or false"), result.stderr)
+        XCTAssertFalse(result.stderr.contains("Socket"), result.stderr)
+    }
+
     func testGlobalWindowOptionRoutesWithoutFocusingWindow() throws {
         let cliPath = try bundledCLIPath()
         let socketPath = makeSocketPath("win-nf")
@@ -377,6 +449,63 @@ final class CMUXOpenCommandTests: XCTestCase {
         XCTAssertFalse(result.timedOut, result.stderr)
         XCTAssertEqual(result.status, 0, result.stderr)
         XCTAssertEqual(state.commands.compactMap { Self.v2Payload(from: $0)?["method"] as? String }, ["browser.open_split"])
+    }
+
+    func testGlobalWindowOptionDoesNotOverrideExplicitOpenSurfaceTarget() throws {
+        let cliPath = try bundledCLIPath()
+        let socketPath = makeSocketPath("win-open-surface")
+        let listenerFD = try bindUnixSocket(at: socketPath)
+        let rootURL = FileManager.default.temporaryDirectory
+            .appendingPathComponent(UUID().uuidString, isDirectory: true)
+        let fileURL = rootURL.appendingPathComponent("targeted.txt")
+        try FileManager.default.createDirectory(at: rootURL, withIntermediateDirectories: true)
+        try "targeted\n".write(to: fileURL, atomically: true, encoding: .utf8)
+        let state = MockSocketServerState()
+
+        defer {
+            Darwin.close(listenerFD)
+            unlink(socketPath)
+            try? FileManager.default.removeItem(at: rootURL)
+        }
+
+        let serverHandled = startMockServer(listenerFD: listenerFD, state: state) { line in
+            guard let payload = Self.v2Payload(from: line),
+                  let id = payload["id"] as? String,
+                  let method = payload["method"] as? String else {
+                return Self.v2Response(id: "unknown", ok: false, error: ["code": "unexpected"])
+            }
+            if method == "window.focus" {
+                return Self.v2Response(id: id, ok: false, error: ["code": "unexpected-focus"])
+            }
+            guard method == "file.open" else {
+                return Self.v2Response(id: id, ok: false, error: ["code": "unexpected-method", "message": method])
+            }
+            let params = payload["params"] as? [String: Any] ?? [:]
+            guard params["paths"] as? [String] == [fileURL.path],
+                  params["surface_id"] as? String == "surface:7",
+                  params["window_id"] == nil,
+                  params["focus"] as? Bool == false else {
+                return Self.v2Response(id: id, ok: false, error: [
+                    "code": "unexpected-routing",
+                    "message": "\(params)"
+                ])
+            }
+            return Self.v2Response(id: id, ok: true, result: [
+                "surface_id": "surface-id",
+                "pane_id": "pane-id",
+            ])
+        }
+
+        let result = runCLI(
+            cliPath: cliPath,
+            socketPath: socketPath,
+            arguments: ["--window", "window:2", "open", "--surface", "surface:7", fileURL.path]
+        )
+
+        wait(for: [serverHandled], timeout: 5)
+        XCTAssertFalse(result.timedOut, result.stderr)
+        XCTAssertEqual(result.status, 0, result.stderr)
+        XCTAssertEqual(state.commands.compactMap { Self.v2Payload(from: $0)?["method"] as? String }, ["file.open"])
     }
 
     func testGlobalWindowOptionRoutesBrowserAndMarkdownWithoutFocusingWindow() throws {

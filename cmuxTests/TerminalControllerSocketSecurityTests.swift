@@ -496,6 +496,49 @@ final class TerminalControllerSocketSecurityTests: XCTestCase {
         }
     }
 
+    func testSystemTreeAndTopRejectUnknownWindowWhenAllWindowsRequested() async throws {
+        let socketPath = makeSocketPath("tree-top-window")
+        let previousAppDelegate = AppDelegate.shared
+        let appDelegate = AppDelegate()
+        defer {
+            TerminalController.shared.stop()
+            unlink(socketPath)
+            AppDelegate.shared = previousAppDelegate
+        }
+
+        let manager = TabManager()
+        TerminalController.shared.setActiveTabManager(manager)
+        TerminalController.shared.start(
+            tabManager: manager,
+            socketPath: socketPath,
+            accessMode: .allowAll
+        )
+        try waitForSocket(at: socketPath)
+        defer {
+            TerminalController.shared.setActiveTabManager(nil)
+            _ = appDelegate
+        }
+
+        let unknownWindowId = UUID()
+        for method in ["system.tree", "system.top"] {
+            let response = try await sendV2RequestAsync(
+                method: method,
+                params: [
+                    "window_id": unknownWindowId.uuidString,
+                    "all_windows": true
+                ],
+                to: socketPath
+            )
+
+            XCTAssertEqual(response["ok"] as? Bool, false, "Unexpected JSON-RPC response for \(method): \(response)")
+            let error = try XCTUnwrap(response["error"] as? [String: Any], "Unexpected JSON-RPC response for \(method): \(response)")
+            XCTAssertEqual(error["code"] as? String, "not_found", method)
+            XCTAssertEqual(error["message"] as? String, "Window not found", method)
+            let data = try XCTUnwrap(error["data"] as? [String: Any], "Expected error data payload for \(method)")
+            XCTAssertEqual(data["window_id"] as? String, unknownWindowId.uuidString, method)
+        }
+    }
+
     func testNotificationCreateUsesExplicitSurfaceIDWhenProvided() async throws {
         let socketPath = makeSocketPath("notify-surface")
         let store = TerminalNotificationStore.shared
