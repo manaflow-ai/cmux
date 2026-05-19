@@ -3591,9 +3591,7 @@ class TerminalController {
             }
         }
 
-        if workspaceFilter == nil {
-            v2AttachTopApplicationProcess(to: &windowNodes)
-        }
+        v2AttachTopApplicationProcess(to: &windowNodes, workspaceFilter: workspaceFilter)
 
         if let workspaceFilter, !workspaceFound {
             return .err(
