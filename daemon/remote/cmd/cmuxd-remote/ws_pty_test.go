@@ -399,6 +399,40 @@ func TestWebSocketPTYDropsBackpressuredAttachment(t *testing.T) {
 	}
 }
 
+func TestWebSocketPTYReapsDetachedIdleSession(t *testing.T) {
+	leasePath := filepath.Join(t.TempDir(), "lease.json")
+	stderr := &bytes.Buffer{}
+	hub := newWebSocketPTYHub(wsPTYServerConfig{
+		Shell:           "/bin/sh",
+		ScrollbackLimit: 4096,
+		SessionIdleTTL:  20 * time.Millisecond,
+	}, stderr)
+	server := httptest.NewServer(newWebSocketPTYHandler(wsPTYServerConfig{
+		PTYAuthLeaseFile: leasePath,
+		Shell:            "/bin/sh",
+		PTYHub:           hub,
+		ScrollbackLimit:  4096,
+		SessionIdleTTL:   20 * time.Millisecond,
+	}, stderr))
+	defer server.Close()
+	defer hub.closeAll()
+
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancel()
+
+	writeTestLease(t, leasePath, "idle-token", "sess-idle", true, time.Now().Add(time.Minute))
+	conn := dialPTY(t, ctx, server.URL)
+	sendAuth(t, ctx, conn, "idle-token", "sess-idle", 80, 24)
+	readReady(t, ctx, conn)
+	if err := conn.Write(ctx, websocket.MessageBinary, []byte("printf 'IDLE_READY\\n'\r")); err != nil {
+		t.Fatalf("write idle marker: %v", err)
+	}
+	waitForBinaryContains(t, ctx, conn, "IDLE_READY", 5*time.Second)
+	_ = conn.Close(websocket.StatusNormalClosure, "detach")
+
+	waitForHubSessionCount(t, hub, 0, 5*time.Second)
+}
+
 func TestWebSocketPTYScrollbackDoesNotRetainOversizedChunks(t *testing.T) {
 	hub := newWebSocketPTYHub(wsPTYServerConfig{
 		Shell:           "/bin/sh",

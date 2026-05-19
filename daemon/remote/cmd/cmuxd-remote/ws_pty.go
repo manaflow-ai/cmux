@@ -31,6 +31,7 @@ type wsPTYServerConfig struct {
 	Shell            string
 	PTYHub           *wsPTYHub
 	ScrollbackLimit  int
+	SessionIdleTTL   time.Duration
 }
 
 type wsLease struct {
@@ -74,12 +75,13 @@ var (
 )
 
 const (
-	defaultPTYCols                = 80
-	defaultPTYRows                = 24
-	maxPTYDimension               = 65535
-	defaultWebSocketScrollbackCap = 1 << 20
-	defaultWebSocketWriteQueueCap = 256
-	defaultWebSocketWriteTimeout  = 10 * time.Second
+	defaultPTYCols                 = 80
+	defaultPTYRows                 = 24
+	maxPTYDimension                = 65535
+	defaultWebSocketScrollbackCap  = 1 << 20
+	defaultWebSocketWriteQueueCap  = 256
+	defaultWebSocketWriteTimeout   = 10 * time.Second
+	defaultWebSocketSessionIdleTTL = 5 * time.Minute
 )
 
 type wsPTYOutgoingFrame struct {
@@ -110,6 +112,7 @@ type wsPTYSession struct {
 	resizeConfirms int
 	scrollback     []byte
 	done           chan struct{}
+	idleTimer      *time.Timer
 	closed         bool
 	ptyWriteMu     sync.Mutex
 	closeTTYOnce   sync.Once
@@ -123,6 +126,7 @@ type wsPTYHub struct {
 	shell            string
 	stderr           io.Writer
 	scrollbackLimit  int
+	sessionIdleTTL   time.Duration
 }
 
 func newWebSocketPTYHub(cfg wsPTYServerConfig, stderr io.Writer) *wsPTYHub {
@@ -130,11 +134,16 @@ func newWebSocketPTYHub(cfg wsPTYServerConfig, stderr io.Writer) *wsPTYHub {
 	if limit <= 0 {
 		limit = defaultWebSocketScrollbackCap
 	}
+	idleTTL := cfg.SessionIdleTTL
+	if idleTTL <= 0 {
+		idleTTL = defaultWebSocketSessionIdleTTL
+	}
 	return &wsPTYHub{
 		sessions:        map[string]*wsPTYSession{},
 		shell:           strings.TrimSpace(cfg.Shell),
 		stderr:          stderr,
 		scrollbackLimit: limit,
+		sessionIdleTTL:  idleTTL,
 	}
 }
 
@@ -532,9 +541,11 @@ func (h *wsPTYHub) attach(ctx context.Context, conn *websocket.Conn, auth wsAuth
 		attachmentID = fmt.Sprintf("att-%d", h.nextAttachmentID)
 		h.nextAttachmentID++
 	}
+	var superseded *wsPTYAttachment
 	if old := session.attachments[attachmentID]; old != nil {
 		old.cancel()
 		delete(session.attachments, attachmentID)
+		superseded = old
 	}
 
 	attachmentCtx, cancel := context.WithCancel(ctx)
@@ -551,12 +562,18 @@ func (h *wsPTYHub) attach(ctx context.Context, conn *websocket.Conn, auth wsAuth
 	if ok := attachment.enqueueReady(sessionID); !ok {
 		cancel()
 		h.mu.Unlock()
+		if superseded != nil {
+			superseded.closeNow()
+		}
 		return nil, errors.New("failed to queue ready frame")
 	}
 	if len(replay) > 0 {
 		if ok := attachment.enqueueBinary(replay); !ok {
 			cancel()
 			h.mu.Unlock()
+			if superseded != nil {
+				superseded.closeNow()
+			}
 			return nil, errors.New("failed to queue replay frame")
 		}
 	}
@@ -565,6 +582,9 @@ func (h *wsPTYHub) attach(ctx context.Context, conn *websocket.Conn, auth wsAuth
 	sessionDone := session.done
 	h.mu.Unlock()
 
+	if superseded != nil {
+		superseded.closeNow()
+	}
 	if shouldApplySize {
 		h.applyCurrentPTYSize(session)
 	}
@@ -667,6 +687,9 @@ func (h *wsPTYHub) detach(attachment *wsPTYAttachment) bool {
 }
 
 func (h *wsPTYHub) dropAttachment(attachment *wsPTYAttachment) {
+	if attachment == nil {
+		return
+	}
 	h.detach(attachment)
 	attachment.closeNow()
 }
@@ -676,6 +699,7 @@ func (h *wsPTYHub) closeAll() {
 	sessions := make([]*wsPTYSession, 0, len(h.sessions))
 	for id, session := range h.sessions {
 		delete(h.sessions, id)
+		h.cancelIdleReapLocked(session)
 		sessions = append(sessions, session)
 	}
 	h.mu.Unlock()
@@ -764,6 +788,7 @@ func (h *wsPTYHub) finishSession(session *wsPTYSession) {
 	if h.sessions[session.id] == session {
 		delete(h.sessions, session.id)
 	}
+	h.cancelIdleReapLocked(session)
 	session.closed = true
 	for id := range session.attachments {
 		delete(session.attachments, id)
@@ -825,8 +850,10 @@ func (h *wsPTYHub) recomputeSessionSizeLocked(session *wsPTYSession) bool {
 	if len(session.attachments) == 0 {
 		session.effectiveCols = session.lastKnownCols
 		session.effectiveRows = session.lastKnownRows
+		h.scheduleIdleReapLocked(session)
 		return false
 	}
+	h.cancelIdleReapLocked(session)
 
 	minCols := 0
 	minRows := 0
@@ -845,6 +872,40 @@ func (h *wsPTYHub) recomputeSessionSizeLocked(session *wsPTYSession) bool {
 	session.resizeConfirms = 4
 
 	return true
+}
+
+func (h *wsPTYHub) scheduleIdleReapLocked(session *wsPTYSession) {
+	if h.sessionIdleTTL <= 0 || session.closed || len(session.attachments) > 0 {
+		return
+	}
+	h.cancelIdleReapLocked(session)
+	session.idleTimer = time.AfterFunc(h.sessionIdleTTL, func() {
+		h.reapIdleSession(session)
+	})
+}
+
+func (h *wsPTYHub) cancelIdleReapLocked(session *wsPTYSession) {
+	if session.idleTimer == nil {
+		return
+	}
+	session.idleTimer.Stop()
+	session.idleTimer = nil
+}
+
+func (h *wsPTYHub) reapIdleSession(session *wsPTYSession) {
+	h.mu.Lock()
+	if h.sessions[session.id] != session || session.closed || len(session.attachments) > 0 {
+		h.mu.Unlock()
+		return
+	}
+	delete(h.sessions, session.id)
+	session.idleTimer = nil
+	h.mu.Unlock()
+
+	if session.cmd != nil && session.cmd.Process != nil {
+		_ = session.cmd.Process.Kill()
+	}
+	session.closePTYFiles()
 }
 
 func (h *wsPTYHub) confirmPTYSizeAfterOutput(session *wsPTYSession) {
