@@ -55,6 +55,7 @@ private final class CLISocketSentryTelemetry {
     private let subcommand: String
     private let socketPath: String
     private let envSocketPath: String?
+    private let processEnv: [String: String]
     private let workspaceId: String?
     private let surfaceId: String?
     private let disabledByEnv: Bool
@@ -108,58 +109,13 @@ private final class CLISocketSentryTelemetry {
             return Bundle.main
         }
 
-        guard let executableURL = currentExecutableURL() else {
-            return Bundle.main
-        }
-
-        var current = executableURL.deletingLastPathComponent().standardizedFileURL
-        while true {
-            if current.pathExtension == "app", let bundle = Bundle(url: current) {
-                return bundle
-            }
-
-            if current.lastPathComponent == "Contents" {
-                let appURL = current.deletingLastPathComponent().standardizedFileURL
-                if appURL.pathExtension == "app", let bundle = Bundle(url: appURL) {
-                    return bundle
-                }
-            }
-
-            guard let parent = parentSearchURL(for: current) else {
-                break
-            }
-            current = parent
+        if let bundle = CLIExecutableLocator.enclosingAppBundle() {
+            return bundle
         }
 
         return Bundle.main
     }
 
-    private static func currentExecutableURL() -> URL? {
-        var size: UInt32 = 0
-        _ = _NSGetExecutablePath(nil, &size)
-        if size > 0 {
-            var buffer = Array<CChar>(repeating: 0, count: Int(size))
-            if _NSGetExecutablePath(&buffer, &size) == 0 {
-                return URL(fileURLWithPath: String(cString: buffer)).standardizedFileURL
-            }
-        }
-
-        return Bundle.main.executableURL?.standardizedFileURL
-    }
-
-    private static func parentSearchURL(for url: URL) -> URL? {
-        let standardized = url.standardizedFileURL
-        let path = standardized.path
-        guard !path.isEmpty, path != "/" else {
-            return nil
-        }
-
-        let parent = standardized.deletingLastPathComponent().standardizedFileURL
-        guard parent.path != path else {
-            return nil
-        }
-        return parent
-    }
 #endif
 
     init(command: String, commandArgs: [String], socketPath: String, processEnv: [String: String]) {
@@ -167,6 +123,7 @@ private final class CLISocketSentryTelemetry {
         self.subcommand = commandArgs.first?.lowercased() ?? "help"
         self.socketPath = socketPath
         self.envSocketPath = CLISocketEnvironment.socketPathForTelemetry(in: processEnv)
+        self.processEnv = processEnv
         self.workspaceId = processEnv["CMUX_WORKSPACE_ID"]
         self.surfaceId = processEnv["CMUX_SURFACE_ID"]
         self.disabledByEnv =
@@ -274,7 +231,11 @@ private final class CLISocketSentryTelemetry {
             context["tmp_cmux_sockets"] = tmpSockets
         }
         let taggedSockets = tmpSockets.filter { $0 != CLISocketPathResolver.legacyDefaultSocketPath }
-        if CLISocketPathResolver.isImplicitDefaultPath(socketPath),
+        if CLISocketPathResolver.isImplicitDefaultPath(
+            socketPath,
+            bundleIdentifier: CLISocketPathResolver.currentAppBundleIdentifier(),
+            environment: processEnv
+        ),
            (envSocketPath?.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ?? true),
            !taggedSockets.isEmpty {
             context["possible_root_cause"] = "CMUX_SOCKET_PATH missing while tagged sockets exist"
@@ -766,7 +727,7 @@ enum CLIIDFormat: String {
 
 private enum TopSortKey: Equatable {
     case cpu
-    case rss
+    case memory
     case proc
 }
 
@@ -897,192 +858,6 @@ enum SocketPasswordResolver {
             return password
         }
         return nil
-    }
-}
-
-private enum CLISocketPathSource {
-    case explicitFlag
-    case environment
-    case implicitDefault
-}
-
-private enum CLISocketPathResolver {
-    private static let appSupportDirectoryName = "cmux"
-    private static let stableSocketFileName = "cmux.sock"
-    private static let lastSocketPathFileName = "last-socket-path"
-    static let legacyDefaultSocketPath = "/tmp/cmux.sock"
-    private static let fallbackSocketPath = "/tmp/cmux-debug.sock"
-    private static let stagingSocketPath = "/tmp/cmux-staging.sock"
-    private static let legacyLastSocketPathFile = "/tmp/cmux-last-socket-path"
-
-    static var defaultSocketPath: String {
-        let stablePath: String? = stableSocketDirectoryURL()?
-            .appendingPathComponent(stableSocketFileName, isDirectory: false)
-            .path
-        return stablePath ?? legacyDefaultSocketPath
-    }
-
-    static func isImplicitDefaultPath(_ path: String) -> Bool {
-        path == defaultSocketPath || path == legacyDefaultSocketPath
-    }
-
-    static func resolve(
-        requestedPath: String,
-        source: CLISocketPathSource,
-        environment: [String: String] = ProcessInfo.processInfo.environment
-    ) -> String {
-        guard source == .implicitDefault else {
-            return requestedPath
-        }
-
-        let candidates = dedupe(candidatePaths(requestedPath: requestedPath, environment: environment))
-
-        // Prefer sockets that are currently accepting connections.
-        for path in candidates where canConnect(to: path) {
-            return path
-        }
-
-        // If the listener is still starting, prefer existing socket files.
-        for path in candidates where isSocketFile(path) {
-            return path
-        }
-
-        return requestedPath
-    }
-
-    private static func candidatePaths(requestedPath: String, environment: [String: String]) -> [String] {
-        var candidates: [String] = []
-
-        if let tag = normalized(environment["CMUX_TAG"]) {
-            let slug = sanitizeTagSlug(tag)
-            candidates.append("/tmp/cmux-debug-\(slug).sock")
-            candidates.append("/tmp/cmux-\(slug).sock")
-        }
-
-        candidates.append(requestedPath)
-        candidates.append(defaultSocketPath)
-        candidates.append(legacyDefaultSocketPath)
-        candidates.append(fallbackSocketPath)
-        candidates.append(stagingSocketPath)
-        candidates.append(contentsOf: discoverTaggedSockets(limit: 12))
-        if let last = readLastSocketPath() {
-            candidates.append(last)
-        }
-        return candidates
-    }
-
-    private static func readLastSocketPath() -> String? {
-        let primaryCandidate: String? = stableSocketDirectoryURL()?
-            .appendingPathComponent(lastSocketPathFileName, isDirectory: false)
-            .path
-        let candidates = [primaryCandidate, legacyLastSocketPathFile].compactMap { $0 }
-
-        for candidate in candidates {
-            guard let data = try? String(contentsOfFile: candidate, encoding: .utf8) else {
-                continue
-            }
-            if let value = normalized(data) {
-                return value
-            }
-        }
-        return nil
-    }
-
-    private static func discoverTaggedSockets(limit: Int) -> [String] {
-        var discovered: [(path: String, mtime: TimeInterval)] = []
-        for directory in socketDiscoveryDirectories() {
-            guard let entries = try? FileManager.default.contentsOfDirectory(atPath: directory) else {
-                continue
-            }
-            discovered.reserveCapacity(min(limit, discovered.count + entries.count))
-            for name in entries where name.hasPrefix("cmux") && name.hasSuffix(".sock") {
-                let path = URL(fileURLWithPath: directory)
-                    .appendingPathComponent(name, isDirectory: false)
-                    .path
-                var st = stat()
-                guard lstat(path, &st) == 0 else { continue }
-                guard (st.st_mode & mode_t(S_IFMT)) == mode_t(S_IFSOCK) else { continue }
-                if path == defaultSocketPath || path == legacyDefaultSocketPath || path == fallbackSocketPath || path == stagingSocketPath {
-                    continue
-                }
-                let modified = TimeInterval(st.st_mtimespec.tv_sec) + TimeInterval(st.st_mtimespec.tv_nsec) / 1_000_000_000
-                discovered.append((path: path, mtime: modified))
-            }
-        }
-
-        discovered.sort { $0.mtime > $1.mtime }
-        return dedupe(discovered.prefix(limit).map(\.path))
-    }
-
-    private static func isSocketFile(_ path: String) -> Bool {
-        var st = stat()
-        return lstat(path, &st) == 0 && (st.st_mode & mode_t(S_IFMT)) == mode_t(S_IFSOCK)
-    }
-
-    private static func canConnect(to path: String) -> Bool {
-        guard isSocketFile(path) else { return false }
-        let fd = socket(AF_UNIX, SOCK_STREAM, 0)
-        guard fd >= 0 else { return false }
-        defer { Darwin.close(fd) }
-
-        var addr = sockaddr_un()
-        addr.sun_family = sa_family_t(AF_UNIX)
-        let maxLength = MemoryLayout.size(ofValue: addr.sun_path)
-        path.withCString { ptr in
-            withUnsafeMutablePointer(to: &addr.sun_path) { pathPtr in
-                let buf = UnsafeMutableRawPointer(pathPtr).assumingMemoryBound(to: CChar.self)
-                strncpy(buf, ptr, maxLength - 1)
-            }
-        }
-
-        let result = withUnsafePointer(to: &addr) { ptr in
-            ptr.withMemoryRebound(to: sockaddr.self, capacity: 1) { sockaddrPtr in
-                Darwin.connect(fd, sockaddrPtr, socklen_t(MemoryLayout<sockaddr_un>.size))
-            }
-        }
-        return result == 0
-    }
-
-    private static func sanitizeTagSlug(_ raw: String) -> String {
-        let trimmed = raw.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
-        let slug = trimmed
-            .replacingOccurrences(of: "[^a-z0-9]+", with: "-", options: .regularExpression)
-            .replacingOccurrences(of: "-+", with: "-", options: .regularExpression)
-            .trimmingCharacters(in: CharacterSet(charactersIn: "-"))
-        return slug.isEmpty ? "agent" : slug
-    }
-
-    private static func normalized(_ value: String?) -> String? {
-        guard let value else { return nil }
-        let trimmed = value.trimmingCharacters(in: .whitespacesAndNewlines)
-        return trimmed.isEmpty ? nil : trimmed
-    }
-
-    private static func stableSocketDirectoryURL() -> URL? {
-        guard let appSupportDirectory = FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask).first else {
-            return nil
-        }
-        return appSupportDirectory.appendingPathComponent(appSupportDirectoryName, isDirectory: true)
-    }
-
-    private static func socketDiscoveryDirectories() -> [String] {
-        let appSupportSocketDirectory: String = stableSocketDirectoryURL()?.path ?? ""
-        return dedupe([
-            "/tmp",
-            appSupportSocketDirectory,
-        ])
-    }
-
-    private static func dedupe(_ paths: [String]) -> [String] {
-        var seen: Set<String> = []
-        var ordered: [String] = []
-        ordered.reserveCapacity(paths.count)
-        for path in paths where !path.isEmpty {
-            if seen.insert(path).inserted {
-                ordered.append(path)
-            }
-        }
-        return ordered
     }
 }
 
@@ -1980,7 +1755,6 @@ final class SocketClient {
 struct CMUXCLI {
     let args: [String]
 
-    private static let debugLastSocketHintPath = "/tmp/cmux-last-socket-path"
     private static let vmCreateIdempotencyTTLSeconds: TimeInterval = 10 * 60
     private static let vmCreateResponseTimeoutSeconds: TimeInterval = 16 * 60
     private static let vmAttachResponseTimeoutSeconds: TimeInterval = 16 * 60
@@ -2126,84 +1900,11 @@ struct CMUXCLI {
         try? saveVMCreateIdempotencyStore(store, to: url)
     }
 
-    private static func pathIsSocket(_ path: String) -> Bool {
-        var st = stat()
-        guard lstat(path, &st) == 0 else { return false }
-        return (st.st_mode & S_IFMT) == S_IFSOCK
-    }
-
-    private static func debugSocketPathFromHintFile() -> String? {
-#if DEBUG
-        guard let raw = try? String(contentsOfFile: debugLastSocketHintPath, encoding: .utf8) else {
-            return nil
-        }
-        guard let hinted = normalizedEnvValue(raw),
-              hinted.hasPrefix("/tmp/cmux-debug"),
-              hinted.hasSuffix(".sock"),
-              pathIsSocket(hinted) else {
-            return nil
-        }
-        return hinted
-#else
-        return nil
-#endif
-    }
-
-    private static func defaultSocketPath(environment: [String: String]) -> String {
-        if let explicit = normalizedEnvValue(environment["CMUX_SOCKET_PATH"]) {
-            return explicit
-        }
-#if DEBUG
-        if let hinted = debugSocketPathFromHintFile() {
-            return hinted
-        }
-        return "/tmp/cmux-debug.sock"
-#else
-        return "/tmp/cmux.sock"
-#endif
-    }
-
     private static let browserDisabledDefaultsKey = "browserDisabledOverride"
     private static let defaultBrowserSettingsDomain = "com.cmuxterm.app"
 
-    private static func currentExecutableURL() -> URL? {
-        var size: UInt32 = 0
-        _ = _NSGetExecutablePath(nil, &size)
-        guard size > 0 else {
-            return Bundle.main.executableURL?.standardizedFileURL
-        }
-
-        var buffer = Array<CChar>(repeating: 0, count: Int(size))
-        guard _NSGetExecutablePath(&buffer, &size) == 0 else {
-            return Bundle.main.executableURL?.standardizedFileURL
-        }
-        return URL(fileURLWithPath: String(cString: buffer)).standardizedFileURL
-    }
-
     private static func containingAppBundleIdentifier() -> String? {
-        guard let executableURL = currentExecutableURL() else { return nil }
-        var current = executableURL.deletingLastPathComponent().standardizedFileURL
-        while current.path != "/" {
-            if current.pathExtension == "app",
-               let bundle = Bundle(url: current),
-               let bundleIdentifier = normalizedEnvValue(bundle.bundleIdentifier) {
-                return bundleIdentifier
-            }
-
-            if current.lastPathComponent == "Contents" {
-                let appURL = current.deletingLastPathComponent().standardizedFileURL
-                if appURL.pathExtension == "app",
-                   let bundle = Bundle(url: appURL),
-                   let bundleIdentifier = normalizedEnvValue(bundle.bundleIdentifier) {
-                    return bundleIdentifier
-                }
-            }
-
-            let parent = current.deletingLastPathComponent().standardizedFileURL
-            guard parent.path != current.path else { break }
-            current = parent
-        }
-        return nil
+        normalizedEnvValue(CLIExecutableLocator.enclosingAppBundle()?.bundleIdentifier)
     }
 
     private static func browserSettingsDomain(environment: [String: String]) -> String {
@@ -2337,6 +2038,7 @@ struct CMUXCLI {
 
     func run() throws {
         let processEnv = ProcessInfo.processInfo.environment
+        let cliBundleIdentifier = CLISocketPathResolver.currentAppBundleIdentifier()
         var explicitSocketPath: String? = nil
         var jsonOutput = false
         var idFormatArg: String? = nil
@@ -2440,7 +2142,10 @@ struct CMUXCLI {
            settingsCommandDoesNotNeedSocket(commandArgs) {
             try runSettings(
                 commandArgs: commandArgs,
-                socketPath: CLISocketPathResolver.defaultSocketPath,
+                socketPath: CLISocketPathResolver.defaultSocketPath(
+                    bundleIdentifier: cliBundleIdentifier,
+                    environment: processEnv
+                ),
                 explicitPassword: socketPasswordArg,
                 jsonOutput: jsonOutput
             )
@@ -2463,12 +2168,19 @@ struct CMUXCLI {
         let envSocketPath = explicitSocketPath == nil
             ? try CLISocketEnvironment.socketPath(in: processEnv)
             : CLISocketEnvironment.socketPathForTelemetry(in: processEnv)
-        let socketPath = explicitSocketPath ?? envSocketPath ?? CLISocketPathResolver.defaultSocketPath
+        let socketPath = explicitSocketPath ?? envSocketPath ?? CLISocketPathResolver.defaultSocketPath(
+            bundleIdentifier: cliBundleIdentifier,
+            environment: processEnv
+        )
         let socketPathSource: CLISocketPathSource
         if explicitSocketPath != nil {
             socketPathSource = .explicitFlag
         } else if let envSocketPath {
-            socketPathSource = CLISocketPathResolver.isImplicitDefaultPath(envSocketPath) ? .implicitDefault : .environment
+            socketPathSource = CLISocketPathResolver.isImplicitDefaultPath(
+                envSocketPath,
+                bundleIdentifier: cliBundleIdentifier,
+                environment: processEnv
+            ) ? .implicitDefault : .environment
         } else {
             socketPathSource = .implicitDefault
         }
@@ -2481,7 +2193,8 @@ struct CMUXCLI {
         let resolvedSocketPath = CLISocketPathResolver.resolve(
             requestedPath: socketPath,
             source: socketPathSource,
-            environment: processEnv
+            environment: processEnv,
+            bundleIdentifier: cliBundleIdentifier
         )
 
         // If the argument looks like a path (not a known command), open a workspace there.
@@ -6295,7 +6008,9 @@ struct CMUXCLI {
             "CMUX_SSH_PENDING_SIGNAL=",
             "cmux_ssh_note() { if [ -t 2 ]; then printf \"$@\" >&2 || true; fi; }",
             "cmux_ssh_session_end() { if [ \"${CMUX_SSH_SESSION_ENDED:-0}\" = 1 ]; then return; fi; CMUX_SSH_SESSION_ENDED=1; \(lifecycleCleanup); }",
-            "cmux_ssh_signal_exit() { cmux_ssh_signal_status=\"$1\"; if [ -z \"${CMUX_SSH_CHILD_PID:-}\" ]; then CMUX_SSH_PENDING_SIGNAL=\"$cmux_ssh_signal_status\"; return; fi; CMUX_SSH_SESSION_ENDED=1; trap - EXIT HUP INT TERM; kill -TERM \"$CMUX_SSH_CHILD_PID\" 2>/dev/null || true; exit \"$cmux_ssh_signal_status\"; }",
+            // Pane-close signals are terminal lifecycle, not SSH transport lifecycle.
+            // Avoid sending an extra TERM to a child that may own the shared ControlMaster path.
+            "cmux_ssh_signal_exit() { cmux_ssh_signal_status=\"$1\"; if [ -z \"${CMUX_SSH_CHILD_PID:-}\" ]; then CMUX_SSH_PENDING_SIGNAL=\"$cmux_ssh_signal_status\"; return; fi; CMUX_SSH_SESSION_ENDED=1; trap - EXIT HUP INT TERM; exit \"$cmux_ssh_signal_status\"; }",
             "trap 'cmux_ssh_session_end' EXIT",
             "trap 'cmux_ssh_signal_exit 129' HUP",
             "trap 'cmux_ssh_signal_exit 130' INT",
@@ -10015,17 +9730,17 @@ struct CMUXCLI {
             Flags:
               --all                         Include all windows (default: current window only)
               --workspace <id|ref|index>   Show only one workspace
-              --processes                  Include process trees under surfaces, webviews, and tags
-              --sort <cpu|rss|proc>         Sort sibling rows by CPU, memory, or process count
+              --processes                  Include process trees under windows, surfaces, webviews, and tags
+              --sort <cpu|mem|proc>         Sort sibling rows by CPU, memory, or process count
               --flat                        Print independent rows for shell sorting
               --format <tree|tsv>           Text output format (tsv implies --flat)
               --json                        Structured JSON output
 
             Output:
               CPU comes from macOS process accounting and can exceed 100% across cores.
-              RSS is summed across the unique process IDs attributed to each tree node.
+              Memory is summed from macOS physical footprint across the unique process IDs attributed to each tree node.
               Browser webviews are attributed through their WebKit content process PID.
-              TSV columns are: cpu_percent, rss_bytes, process_count, kind, ref, parent_ref, title.
+              TSV columns are: cpu_percent, memory_bytes, process_count, kind, ref, parent_ref, title.
 
             Example:
               cmux top
@@ -11416,7 +11131,7 @@ struct CMUXCLI {
         }
         let (sortOpt, rem1) = parseOption(rem0, name: "--sort")
         if rem1.contains("--sort") {
-            throw CLIError(message: "top requires --sort <cpu|rss|proc>")
+            throw CLIError(message: "top requires --sort <cpu|mem|proc>")
         }
         let (formatOpt, rem2) = parseOption(rem1, name: "--format")
         if rem2.contains("--format") {
@@ -11449,7 +11164,7 @@ struct CMUXCLI {
         }
 
         if let unknown = remaining.first(where: { $0.hasPrefix("--") }) {
-            throw CLIError(message: "top: unknown flag '\(unknown)'. Known flags: --all --workspace <id|ref|index> --processes --sort <cpu|rss|proc> --flat --format <tree|tsv> --json")
+            throw CLIError(message: "top: unknown flag '\(unknown)'. Known flags: --all --workspace <id|ref|index> --processes --sort <cpu|mem|proc> --flat --format <tree|tsv> --json")
         }
         if let extra = remaining.first {
             throw CLIError(message: "top: unexpected argument '\(extra)'")
@@ -11478,11 +11193,11 @@ struct CMUXCLI {
         case "cpu", "cpu%":
             return .cpu
         case "rss", "mem", "memory", "ram":
-            return .rss
+            return .memory
         case "proc", "process", "processes", "count":
             return .proc
         default:
-            throw CLIError(message: "top: invalid --sort value '\(raw)'. Use cpu, rss, or proc")
+            throw CLIError(message: "top: invalid --sort value '\(raw)'. Use cpu, mem, or proc")
         }
     }
 
@@ -12007,7 +11722,7 @@ struct CMUXCLI {
         let windows = payload["windows"] as? [[String: Any]] ?? []
         guard !windows.isEmpty else { return "No windows" }
 
-        var lines: [String] = ["  CPU%       RSS  PROC  NODE"]
+        var lines: [String] = ["  CPU%    MEMORY  PROC  NODE"]
         if let totals = payload["totals"] as? [String: Any] {
             lines.append("\(topResourceColumns(resources: totals))total")
         }
@@ -12015,76 +11730,101 @@ struct CMUXCLI {
         for window in topSortedItems(windows, sortKey: sortKey, node: { $0 }) {
             lines.append("\(topResourceColumns(node: window))\(topWindowLabel(window, idFormat: idFormat))")
 
-            let workspaces = topSortedItems(window["workspaces"] as? [[String: Any]] ?? [], sortKey: sortKey, node: { $0 })
-            for (workspaceIndex, workspace) in workspaces.enumerated() {
-                let workspaceIsLast = workspaceIndex == workspaces.count - 1
-                let workspaceBranch = workspaceIsLast ? "└── " : "├── "
-                let workspaceIndent = workspaceIsLast ? "    " : "│   "
-                lines.append("\(topResourceColumns(node: workspace))\(workspaceBranch)\(topWorkspaceLabel(workspace, idFormat: idFormat))")
+            let windowProcesses = showProcesses ? (window["processes"] as? [[String: Any]] ?? []) : []
+            let workspaces = window["workspaces"] as? [[String: Any]] ?? []
+            let windowChildren = topSortedItems(
+                windowProcesses.map { TopWindowChild.process($0) } + workspaces.map { TopWindowChild.workspace($0) },
+                sortKey: sortKey,
+                node: { $0.node }
+            )
+            for (windowChildIndex, windowChild) in windowChildren.enumerated() {
+                let windowChildIsLast = windowChildIndex == windowChildren.count - 1
+                let windowChildBranch = windowChildIsLast ? "└── " : "├── "
+                let windowChildIndent = windowChildIsLast ? "    " : "│   "
 
-                let tags = workspace["tags"] as? [[String: Any]] ?? []
-                let panes = workspace["panes"] as? [[String: Any]] ?? []
-                let workspaceChildren = topSortedItems(
-                    tags.map { TopWorkspaceChild.tag($0) } + panes.map { TopWorkspaceChild.pane($0) },
-                    sortKey: sortKey,
-                    node: { $0.node }
-                )
+                switch windowChild {
+                case .process(let process):
+                    lines.append("\(topResourceColumns(node: process))\(windowChildBranch)\(topProcessLabel(process))")
+                    appendTopProcessLines(
+                        process["children"] as? [[String: Any]] ?? [],
+                        to: &lines,
+                        indent: windowChildIndent,
+                        sortKey: sortKey
+                    )
+                case .workspace(let workspace):
+                    lines.append("\(topResourceColumns(node: workspace))\(windowChildBranch)\(topWorkspaceLabel(workspace, idFormat: idFormat))")
 
-                for (workspaceChildIndex, workspaceChild) in workspaceChildren.enumerated() {
-                    let childIsLast = workspaceChildIndex == workspaceChildren.count - 1
-                    switch workspaceChild {
-                    case .tag(let tag):
-                        let tagIsLast = childIsLast
-                        let tagBranch = tagIsLast ? "└── " : "├── "
-                        let tagIndent = tagIsLast ? "    " : "│   "
-                        lines.append("\(topResourceColumns(node: tag))\(workspaceIndent)\(tagBranch)\(topTagLabel(tag))")
-                        if showProcesses {
-                            appendTopProcessLines(
-                                tag["processes"] as? [[String: Any]] ?? [],
-                                to: &lines,
-                                indent: workspaceIndent + tagIndent,
-                                sortKey: sortKey
-                            )
-                        }
-                    case .pane(let pane):
-                        let paneIsLast = childIsLast
-                        let paneBranch = paneIsLast ? "└── " : "├── "
-                        let paneIndent = paneIsLast ? "    " : "│   "
-                        lines.append("\(topResourceColumns(node: pane))\(workspaceIndent)\(paneBranch)\(topPaneLabel(pane, idFormat: idFormat))")
+                    let tags = workspace["tags"] as? [[String: Any]] ?? []
+                    let panes = workspace["panes"] as? [[String: Any]] ?? []
+                    let workspaceChildren = topSortedItems(
+                        tags.map { TopWorkspaceChild.tag($0) } + panes.map { TopWorkspaceChild.pane($0) },
+                        sortKey: sortKey,
+                        node: { $0.node }
+                    )
 
-                        let surfaces = topSortedItems(pane["surfaces"] as? [[String: Any]] ?? [], sortKey: sortKey, node: { $0 })
-                        for (surfaceIndex, surface) in surfaces.enumerated() {
-                            let surfaceIsLast = surfaceIndex == surfaces.count - 1
-                            let surfaceBranch = surfaceIsLast ? "└── " : "├── "
-                            let surfaceIndent = surfaceIsLast ? "    " : "│   "
-                            lines.append("\(topResourceColumns(node: surface))\(workspaceIndent)\(paneIndent)\(surfaceBranch)\(topSurfaceLabel(surface, idFormat: idFormat))")
+                    for (workspaceChildIndex, workspaceChild) in workspaceChildren.enumerated() {
+                        let childIsLast = workspaceChildIndex == workspaceChildren.count - 1
+                        switch workspaceChild {
+                        case .tag(let tag):
+                            let tagIsLast = childIsLast
+                            let tagBranch = tagIsLast ? "└── " : "├── "
+                            let tagIndent = tagIsLast ? "    " : "│   "
+                            lines.append("\(topResourceColumns(node: tag))\(windowChildIndent)\(tagBranch)\(topTagLabel(tag))")
+                            if showProcesses {
+                                appendTopProcessLines(
+                                    tag["processes"] as? [[String: Any]] ?? [],
+                                    to: &lines,
+                                    indent: windowChildIndent + tagIndent,
+                                    sortKey: sortKey
+                                )
+                            }
+                        case .pane(let pane):
+                            let paneIsLast = childIsLast
+                            let paneBranch = paneIsLast ? "└── " : "├── "
+                            let paneIndent = paneIsLast ? "    " : "│   "
+                            lines.append("\(topResourceColumns(node: pane))\(windowChildIndent)\(paneBranch)\(topPaneLabel(pane, idFormat: idFormat))")
 
-                            let webviews = topSortedItems(surface["webviews"] as? [[String: Any]] ?? [], sortKey: sortKey, node: { $0 })
-                            let surfaceProcesses = surface["processes"] as? [[String: Any]] ?? []
-                            let hasSurfaceProcesses = showProcesses && !surfaceProcesses.isEmpty
-                            if !webviews.isEmpty {
-                                for (webviewIndex, webview) in webviews.enumerated() {
-                                    let webviewIsLast = webviewIndex == webviews.count - 1 && !hasSurfaceProcesses
-                                    let webviewBranch = webviewIsLast ? "└── " : "├── "
-                                    let webviewIndent = webviewIsLast ? "    " : "│   "
-                                    lines.append("\(topResourceColumns(node: webview))\(workspaceIndent)\(paneIndent)\(surfaceIndent)\(webviewBranch)\(topWebViewLabel(webview))")
-                                    if showProcesses {
-                                        appendTopProcessLines(
-                                            webview["processes"] as? [[String: Any]] ?? [],
+                            let surfaces = topSortedItems(pane["surfaces"] as? [[String: Any]] ?? [], sortKey: sortKey, node: { $0 })
+                            for (surfaceIndex, surface) in surfaces.enumerated() {
+                                let surfaceIsLast = surfaceIndex == surfaces.count - 1
+                                let surfaceBranch = surfaceIsLast ? "└── " : "├── "
+                                let surfaceIndent = surfaceIsLast ? "    " : "│   "
+                                lines.append("\(topResourceColumns(node: surface))\(windowChildIndent)\(paneIndent)\(surfaceBranch)\(topSurfaceLabel(surface, idFormat: idFormat))")
+
+                                let webviews = surface["webviews"] as? [[String: Any]] ?? []
+                                let surfaceProcesses = showProcesses ? (surface["processes"] as? [[String: Any]] ?? []) : []
+                                let surfaceChildren = topSortedItems(
+                                    webviews.map { TopSurfaceChild.webview($0) } + surfaceProcesses.map { TopSurfaceChild.process($0) },
+                                    sortKey: sortKey,
+                                    node: { $0.node }
+                                )
+                                for (surfaceChildIndex, surfaceChild) in surfaceChildren.enumerated() {
+                                    let surfaceChildIsLast = surfaceChildIndex == surfaceChildren.count - 1
+                                    let surfaceChildBranch = surfaceChildIsLast ? "└── " : "├── "
+                                    let surfaceChildIndent = surfaceChildIsLast ? "    " : "│   "
+
+                                    switch surfaceChild {
+                                    case .webview(let webview):
+                                        lines.append("\(topResourceColumns(node: webview))\(windowChildIndent)\(paneIndent)\(surfaceIndent)\(surfaceChildBranch)\(topWebViewLabel(webview))")
+                                        if showProcesses {
+                                            appendTopProcessLines(
+                                                webview["processes"] as? [[String: Any]] ?? [],
+                                                to: &lines,
+                                                indent: windowChildIndent + paneIndent + surfaceIndent + surfaceChildIndent,
+                                                sortKey: sortKey
+                                            )
+                                        }
+                                    case .process(let process):
+                                        appendTopProcessLine(
+                                            process,
                                             to: &lines,
-                                            indent: workspaceIndent + paneIndent + surfaceIndent + webviewIndent,
+                                            indent: windowChildIndent + paneIndent + surfaceIndent,
+                                            branch: surfaceChildBranch,
+                                            childIndent: surfaceChildIndent,
                                             sortKey: sortKey
                                         )
                                     }
                                 }
-                            }
-                            if showProcesses {
-                                appendTopProcessLines(
-                                    surfaceProcesses,
-                                    to: &lines,
-                                    indent: workspaceIndent + paneIndent + surfaceIndent,
-                                    sortKey: sortKey
-                                )
                             }
                         }
                     }
@@ -12095,6 +11835,18 @@ struct CMUXCLI {
         return lines.joined(separator: "\n")
     }
 
+    private enum TopWindowChild {
+        case process([String: Any])
+        case workspace([String: Any])
+
+        var node: [String: Any] {
+            switch self {
+            case .process(let node), .workspace(let node):
+                return node
+            }
+        }
+    }
+
     private enum TopWorkspaceChild {
         case tag([String: Any])
         case pane([String: Any])
@@ -12102,6 +11854,18 @@ struct CMUXCLI {
         var node: [String: Any] {
             switch self {
             case .tag(let node), .pane(let node):
+                return node
+            }
+        }
+    }
+
+    private enum TopSurfaceChild {
+        case webview([String: Any])
+        case process([String: Any])
+
+        var node: [String: Any] {
+            switch self {
+            case .webview(let node), .process(let node):
                 return node
             }
         }
@@ -12127,8 +11891,8 @@ struct CMUXCLI {
         case .cpu:
             let value = topDouble(resources["cpu_percent"])
             return value.isFinite ? value : 0
-        case .rss:
-            return Double(topInt64(resources["resident_bytes"]))
+        case .memory:
+            return Double(topMemoryBytes(resources))
         case .proc:
             return Double(topInt(resources["process_count"]) ?? 0)
         }
@@ -12178,105 +11942,129 @@ struct CMUXCLI {
                 to: &rows
             )
 
-            let workspaces = topSortedItems(window["workspaces"] as? [[String: Any]] ?? [], sortKey: sortKey, node: { $0 })
-            for workspace in workspaces {
-                let workspaceRef = topFlatHandle(workspace, fallback: "workspace", idFormat: idFormat)
-                appendTopFlatNode(
-                    workspace,
-                    kind: "workspace",
-                    ref: workspaceRef,
-                    parentRef: windowRef,
-                    title: workspace["title"] as? String ?? "",
-                    ordinal: &ordinal,
-                    to: &rows
-                )
+            let windowProcesses = showProcesses ? (window["processes"] as? [[String: Any]] ?? []) : []
+            let workspaces = window["workspaces"] as? [[String: Any]] ?? []
+            let windowChildren = topSortedItems(
+                windowProcesses.map { TopWindowChild.process($0) } + workspaces.map { TopWindowChild.workspace($0) },
+                sortKey: sortKey,
+                node: { $0.node }
+            )
+            for windowChild in windowChildren {
+                switch windowChild {
+                case .process(let process):
+                    appendTopFlatProcesses(
+                        [process],
+                        parentRef: windowRef,
+                        ordinal: &ordinal,
+                        to: &rows,
+                        sortKey: sortKey
+                    )
+                case .workspace(let workspace):
+                    let workspaceRef = topFlatHandle(workspace, fallback: "workspace", idFormat: idFormat)
+                    appendTopFlatNode(
+                        workspace,
+                        kind: "workspace",
+                        ref: workspaceRef,
+                        parentRef: windowRef,
+                        title: workspace["title"] as? String ?? "",
+                        ordinal: &ordinal,
+                        to: &rows
+                    )
 
-                let tags = workspace["tags"] as? [[String: Any]] ?? []
-                let panes = workspace["panes"] as? [[String: Any]] ?? []
-                let workspaceChildren = topSortedItems(
-                    tags.map { TopWorkspaceChild.tag($0) } + panes.map { TopWorkspaceChild.pane($0) },
-                    sortKey: sortKey,
-                    node: { $0.node }
-                )
-                for workspaceChild in workspaceChildren {
-                    switch workspaceChild {
-                    case .tag(let tag):
-                        let tagRef = topFlatHandle(tag, fallback: topLabelText(tag["key"] as? String), idFormat: idFormat)
-                        appendTopFlatNode(
-                            tag,
-                            kind: "tag",
-                            ref: tagRef,
-                            parentRef: workspaceRef,
-                            title: tag["value"] as? String ?? "",
-                            ordinal: &ordinal,
-                            to: &rows
-                        )
-                        if showProcesses {
-                            appendTopFlatProcesses(
-                                tag["processes"] as? [[String: Any]] ?? [],
-                                parentRef: tagRef,
-                                ordinal: &ordinal,
-                                to: &rows,
-                                sortKey: sortKey
-                            )
-                        }
-                    case .pane(let pane):
-                        let paneRef = topFlatHandle(pane, fallback: "pane", idFormat: idFormat)
-                        appendTopFlatNode(
-                            pane,
-                            kind: "pane",
-                            ref: paneRef,
-                            parentRef: workspaceRef,
-                            title: "",
-                            ordinal: &ordinal,
-                            to: &rows
-                        )
-
-                        let surfaces = topSortedItems(pane["surfaces"] as? [[String: Any]] ?? [], sortKey: sortKey, node: { $0 })
-                        for surface in surfaces {
-                            let surfaceRef = topFlatHandle(surface, fallback: "surface", idFormat: idFormat)
+                    let tags = workspace["tags"] as? [[String: Any]] ?? []
+                    let panes = workspace["panes"] as? [[String: Any]] ?? []
+                    let workspaceChildren = topSortedItems(
+                        tags.map { TopWorkspaceChild.tag($0) } + panes.map { TopWorkspaceChild.pane($0) },
+                        sortKey: sortKey,
+                        node: { $0.node }
+                    )
+                    for workspaceChild in workspaceChildren {
+                        switch workspaceChild {
+                        case .tag(let tag):
+                            let tagRef = topFlatHandle(tag, fallback: topLabelText(tag["key"] as? String), idFormat: idFormat)
                             appendTopFlatNode(
-                                surface,
-                                kind: "surface",
-                                ref: surfaceRef,
-                                parentRef: paneRef,
-                                title: surface["title"] as? String ?? "",
+                                tag,
+                                kind: "tag",
+                                ref: tagRef,
+                                parentRef: workspaceRef,
+                                title: tag["value"] as? String ?? "",
                                 ordinal: &ordinal,
                                 to: &rows
                             )
-
-                            let webviews = topSortedItems(surface["webviews"] as? [[String: Any]] ?? [], sortKey: sortKey, node: { $0 })
-                            for webview in webviews {
-                                let fallback = topInt(webview["pid"]).map { "pid:\($0)" } ?? "webview"
-                                let webviewRef = topFlatHandle(webview, fallback: fallback, idFormat: idFormat)
-                                appendTopFlatNode(
-                                    webview,
-                                    kind: "webview",
-                                    ref: webviewRef,
-                                    parentRef: surfaceRef,
-                                    title: webview["title"] as? String ?? "",
-                                    ordinal: &ordinal,
-                                    to: &rows
-                                )
-                                if showProcesses {
-                                    appendTopFlatProcesses(
-                                        webview["processes"] as? [[String: Any]] ?? [],
-                                        parentRef: webviewRef,
-                                        ordinal: &ordinal,
-                                        to: &rows,
-                                        sortKey: sortKey
-                                    )
-                                }
-                            }
-
                             if showProcesses {
                                 appendTopFlatProcesses(
-                                    surface["processes"] as? [[String: Any]] ?? [],
-                                    parentRef: surfaceRef,
+                                    tag["processes"] as? [[String: Any]] ?? [],
+                                    parentRef: tagRef,
                                     ordinal: &ordinal,
                                     to: &rows,
                                     sortKey: sortKey
                                 )
+                            }
+                        case .pane(let pane):
+                            let paneRef = topFlatHandle(pane, fallback: "pane", idFormat: idFormat)
+                            appendTopFlatNode(
+                                pane,
+                                kind: "pane",
+                                ref: paneRef,
+                                parentRef: workspaceRef,
+                                title: "",
+                                ordinal: &ordinal,
+                                to: &rows
+                            )
+
+                            let surfaces = topSortedItems(pane["surfaces"] as? [[String: Any]] ?? [], sortKey: sortKey, node: { $0 })
+                            for surface in surfaces {
+                                let surfaceRef = topFlatHandle(surface, fallback: "surface", idFormat: idFormat)
+                                appendTopFlatNode(
+                                    surface,
+                                    kind: "surface",
+                                    ref: surfaceRef,
+                                    parentRef: paneRef,
+                                    title: surface["title"] as? String ?? "",
+                                    ordinal: &ordinal,
+                                    to: &rows
+                                )
+
+                                let webviews = surface["webviews"] as? [[String: Any]] ?? []
+                                let surfaceProcesses = showProcesses ? (surface["processes"] as? [[String: Any]] ?? []) : []
+                                let surfaceChildren = topSortedItems(
+                                    webviews.map { TopSurfaceChild.webview($0) } + surfaceProcesses.map { TopSurfaceChild.process($0) },
+                                    sortKey: sortKey,
+                                    node: { $0.node }
+                                )
+                                for surfaceChild in surfaceChildren {
+                                    switch surfaceChild {
+                                    case .webview(let webview):
+                                        let fallback = topInt(webview["pid"]).map { "pid:\($0)" } ?? "webview"
+                                        let webviewRef = topFlatHandle(webview, fallback: fallback, idFormat: idFormat)
+                                        appendTopFlatNode(
+                                            webview,
+                                            kind: "webview",
+                                            ref: webviewRef,
+                                            parentRef: surfaceRef,
+                                            title: webview["title"] as? String ?? "",
+                                            ordinal: &ordinal,
+                                            to: &rows
+                                        )
+                                        if showProcesses {
+                                            appendTopFlatProcesses(
+                                                webview["processes"] as? [[String: Any]] ?? [],
+                                                parentRef: webviewRef,
+                                                ordinal: &ordinal,
+                                                to: &rows,
+                                                sortKey: sortKey
+                                            )
+                                        }
+                                    case .process(let process):
+                                        appendTopFlatProcesses(
+                                            [process],
+                                            parentRef: surfaceRef,
+                                            ordinal: &ordinal,
+                                            to: &rows,
+                                            sortKey: sortKey
+                                        )
+                                    }
+                                }
                             }
                         }
                     }
@@ -12368,7 +12156,7 @@ struct CMUXCLI {
     private func topFlatTSVLine(_ row: TopFlatRow) -> String {
         [
             topFlatCPU(row.resources),
-            String(topInt64(row.resources["resident_bytes"])),
+            String(topMemoryBytes(row.resources)),
             String(topInt(row.resources["process_count"]) ?? 0),
             topTSVField(row.kind),
             topTSVField(row.ref),
@@ -12398,14 +12186,32 @@ struct CMUXCLI {
             let isLast = index == sortedProcesses.count - 1
             let branch = isLast ? "└── " : "├── "
             let childIndent = isLast ? "    " : "│   "
-            lines.append("\(topResourceColumns(node: process))\(indent)\(branch)\(topProcessLabel(process))")
-            appendTopProcessLines(
-                process["children"] as? [[String: Any]] ?? [],
+            appendTopProcessLine(
+                process,
                 to: &lines,
-                indent: indent + childIndent,
+                indent: indent,
+                branch: branch,
+                childIndent: childIndent,
                 sortKey: sortKey
             )
         }
+    }
+
+    private func appendTopProcessLine(
+        _ process: [String: Any],
+        to lines: inout [String],
+        indent: String,
+        branch: String,
+        childIndent: String,
+        sortKey: TopSortKey?
+    ) {
+        lines.append("\(topResourceColumns(node: process))\(indent)\(branch)\(topProcessLabel(process))")
+        appendTopProcessLines(
+            process["children"] as? [[String: Any]] ?? [],
+            to: &lines,
+            indent: indent + childIndent,
+            sortKey: sortKey
+        )
     }
 
     private func topWindowLabel(_ window: [String: Any], idFormat: CLIIDFormat) -> String {
@@ -12522,12 +12328,19 @@ struct CMUXCLI {
 
     private func topResourceColumns(resources: [String: Any]) -> String {
         let cpu = topDouble(resources["cpu_percent"])
-        let rss = topInt64(resources["resident_bytes"])
+        let memory = topMemoryBytes(resources)
         let count = topInt(resources["process_count"]) ?? 0
         let cpuText = String(format: "%6.1f%%", cpu)
-        let rssText = padLeft(formatBytes(rss), width: 9)
+        let memoryText = padLeft(formatBytes(memory), width: 9)
         let countText = padLeft(String(count), width: 5)
-        return "\(cpuText) \(rssText) \(countText)  "
+        return "\(cpuText) \(memoryText) \(countText)  "
+    }
+
+    private func topMemoryBytes(_ resources: [String: Any]) -> Int64 {
+        if resources["memory_bytes"] != nil {
+            return topInt64(resources["memory_bytes"])
+        }
+        return topInt64(resources["resident_bytes"])
     }
 
     private func formatBytes(_ bytes: Int64) -> String {
@@ -13184,11 +12997,19 @@ struct CMUXCLI {
 
     private func tmuxCompatResolvedSocketPath(processEnvironment: [String: String]) throws -> String {
         let envSocketPath = try CLISocketEnvironment.socketPath(in: processEnvironment)
+        let bundleIdentifier = CLISocketPathResolver.currentAppBundleIdentifier()
 
-        let requestedSocketPath = envSocketPath ?? CLISocketPathResolver.defaultSocketPath
+        let requestedSocketPath = envSocketPath ?? CLISocketPathResolver.defaultSocketPath(
+            bundleIdentifier: bundleIdentifier,
+            environment: processEnvironment
+        )
         let source: CLISocketPathSource
         if let envSocketPath {
-            source = CLISocketPathResolver.isImplicitDefaultPath(envSocketPath) ? .implicitDefault : .environment
+            source = CLISocketPathResolver.isImplicitDefaultPath(
+                envSocketPath,
+                bundleIdentifier: bundleIdentifier,
+                environment: processEnvironment
+            ) ? .implicitDefault : .environment
         } else {
             source = .implicitDefault
         }
@@ -13196,7 +13017,8 @@ struct CMUXCLI {
         return CLISocketPathResolver.resolve(
             requestedPath: requestedSocketPath,
             source: source,
-            environment: processEnvironment
+            environment: processEnvironment,
+            bundleIdentifier: bundleIdentifier
         )
     }
 
@@ -24369,18 +24191,12 @@ export default function cmuxPiSessionExtension(pi: ExtensionAPI) {
     }
 
     private func currentExecutablePath() -> String? {
-        var size: UInt32 = 0
-        _ = _NSGetExecutablePath(nil, &size)
-        if size > 0 {
-            var buffer = Array<CChar>(repeating: 0, count: Int(size))
-            if _NSGetExecutablePath(&buffer, &size) == 0 {
-                let path = String(cString: buffer).trimmingCharacters(in: .whitespacesAndNewlines)
-                if !path.isEmpty {
-                    return path
-                }
-            }
+        if let path = CLIExecutableLocator.currentExecutableURL()?.path
+            .trimmingCharacters(in: .whitespacesAndNewlines),
+           !path.isEmpty {
+            return path
         }
-        return Bundle.main.executableURL?.path ?? args.first
+        return args.first
     }
 
     func resolvedExecutableURL() -> URL? {
@@ -24466,7 +24282,7 @@ export default function cmuxPiSessionExtension(pi: ExtensionAPI) {
           list-panes [--workspace <id|ref>]
           list-pane-surfaces [--workspace <id|ref>] [--pane <id|ref>]
           tree [--all] [--workspace <id|ref|index>]
-          top [--all] [--workspace <id|ref|index>] [--processes] [--sort <cpu|rss|proc>] [--flat] [--format <tree|tsv>]
+          top [--all] [--workspace <id|ref|index>] [--processes] [--sort <cpu|mem|proc>] [--flat] [--format <tree|tsv>]
           focus-pane --pane <id|ref> [--workspace <id|ref>]
           new-pane [--type <terminal|browser>] [--direction <left|right|up|down>] [--workspace <id|ref>] [--url <url>] [--focus <true|false>]
           new-surface [--type <terminal|browser>] [--pane <id|ref>] [--workspace <id|ref>] [--url <url>] [--focus <true|false>]
