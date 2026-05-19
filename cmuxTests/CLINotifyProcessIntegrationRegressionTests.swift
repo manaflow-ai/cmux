@@ -1466,6 +1466,102 @@ final class CLINotifyProcessIntegrationRegressionTests: XCTestCase {
         )
     }
 
+    func testPipePaneWindowWorkspaceOmittedSurfaceDoesNotUseSelectedWorkspaceSurface() throws {
+        let cliPath = try bundledCLIPath()
+        let socketPath = makeSocketPath("pipe-window-workspace")
+        let listenerFD = try bindUnixSocket(at: socketPath)
+        let state = MockSocketServerState()
+        let windowId = "11111111-1111-1111-1111-111111111111"
+        let workspaceId = "22222222-2222-2222-2222-222222222222"
+        let selectedWorkspaceSurfaceId = "33333333-3333-3333-3333-333333333333"
+
+        defer {
+            Darwin.close(listenerFD)
+            unlink(socketPath)
+        }
+
+        let serverHandled = startMockServer(listenerFD: listenerFD, state: state) { line in
+            guard let payload = self.jsonObject(line),
+                  let id = payload["id"] as? String,
+                  let method = payload["method"] as? String else {
+                return self.malformedRequestResponse(raw: line)
+            }
+            let params = payload["params"] as? [String: Any] ?? [:]
+
+            switch method {
+            case "window.list":
+                return self.v2Response(
+                    id: id,
+                    ok: true,
+                    result: [
+                        "windows": [
+                            [
+                                "id": windowId,
+                                "ref": "window:2",
+                                "index": 2,
+                            ],
+                        ],
+                    ]
+                )
+            case "workspace.list":
+                XCTAssertEqual(params["window_id"] as? String, windowId)
+                return self.v2Response(
+                    id: id,
+                    ok: true,
+                    result: [
+                        "workspaces": [
+                            [
+                                "id": workspaceId,
+                                "ref": "workspace:2",
+                                "index": 2,
+                            ],
+                        ],
+                    ]
+                )
+            case "system.identify":
+                return self.v2Response(
+                    id: id,
+                    ok: true,
+                    result: [
+                        "focused": [
+                            "window_id": windowId,
+                            "workspace_id": "44444444-4444-4444-4444-444444444444",
+                            "surface_id": selectedWorkspaceSurfaceId,
+                        ],
+                    ]
+                )
+            case "surface.read_text":
+                XCTAssertEqual(params["window_id"] as? String, windowId)
+                XCTAssertEqual(params["workspace_id"] as? String, workspaceId)
+                XCTAssertNil(params["surface_id"], line)
+                return self.v2Response(id: id, ok: true, result: ["text": "workspace text\n"])
+            default:
+                return self.v2Response(id: id, ok: false, error: ["code": "unexpected", "message": "unexpected method: \(method)"])
+            }
+        }
+
+        var environment = ProcessInfo.processInfo.environment
+        environment["CMUX_SOCKET_PATH"] = socketPath
+        environment["CMUX_CLI_SENTRY_DISABLED"] = "1"
+        environment["CMUX_CLAUDE_HOOK_SENTRY_DISABLED"] = "1"
+
+        let result = runProcess(
+            executablePath: cliPath,
+            arguments: ["pipe-pane", "--window", "window:2", "--workspace", "workspace:2", "cat"],
+            environment: environment,
+            timeout: 5
+        )
+
+        wait(for: [serverHandled], timeout: 5)
+        XCTAssertFalse(result.timedOut, result.stderr)
+        XCTAssertEqual(result.status, 0, result.stderr)
+        XCTAssertEqual(result.stdout, "workspace text\nOK\n")
+        XCTAssertEqual(
+            state.commands.compactMap { self.jsonObject($0)?["method"] as? String },
+            ["window.list", "workspace.list", "surface.read_text"]
+        )
+    }
+
     func testRespawnPaneWindowFlagDoesNotBecomePositionalCommandText() throws {
         let cliPath = try bundledCLIPath()
         let socketPath = makeSocketPath("respawn-window")
