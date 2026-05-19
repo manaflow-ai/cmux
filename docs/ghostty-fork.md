@@ -12,18 +12,22 @@ When we change the fork, update this document and the parent submodule SHA.
 
 ## Current fork changes
 
-The fork was refreshed from upstream `main` again on May 13, 2026.
-Current cmux pinned fork head: `aee4cb8e8`, with the manual embedded IO patch in
+The fork was refreshed from upstream `main` again on May 19, 2026.
+Current cmux pinned fork head: `5b0b60b95`, with the manual embedded IO patch in
 https://github.com/manaflow-ai/ghostty/pull/53, the stationary link-click fix in
 https://github.com/manaflow-ai/ghostty/pull/54, the Metal renderer row rebuild
-guard for cmux issue #3369, and the crash report subdirectory override. This
-head keeps the cmux theme picker hooks, exposes the manual surface IO needed by
-libghostty iOS clients, refreshes embedded mouse modifiers for stationary OSC 8
-hyperlink clicks, bounds shaped glyph iteration during IME/preedit row rebuilds,
-and places embedded cmux Ghostty crash reports under `cmux/crash`.
-The corresponding prebuilt archive is published at
-https://github.com/manaflow-ai/ghostty/releases/tag/xcframework-aee4cb8e850c4f2055dbd7952959267525670680-crashsubdir-cmux-crash-v1
-and pinned in `scripts/ghosttykit-checksums.txt`.
+guard for https://github.com/manaflow-ai/cmux/issues/3369, the URL/path regex
+bound for spaced file paths followed by prose, the cursor line selection API,
+and the crash report subdirectory override. This head keeps the cmux theme
+picker hooks, exposes the manual surface IO needed by libghostty iOS clients,
+refreshes embedded mouse modifiers for stationary OSC 8 hyperlink clicks, bounds
+shaped glyph iteration during IME/preedit row rebuilds, prevents Cmd-hover from
+highlighting normal sentence text after a file path, exposes cursor line
+selection to embedded clients, and places embedded cmux Ghostty crash reports
+under `cmux/crash`.
+The corresponding prebuilt archive tag is
+`xcframework-5b0b60b95113cc848cf0c08dbc2cc85e65a4cfc3-crashsubdir-cmux-crash-v1`
+and must be pinned in `scripts/ghosttykit-checksums.txt`.
 
 ### 1) macOS display link restart on display changes
 
@@ -206,9 +210,27 @@ tend to conflict together during rebases.
     `GenericRenderer(Metal).rebuildRow` no longer assumes terminal cells and
     shaped glyph cells have one-to-one cardinality.
   - The first commit intentionally preserves the panic so cmux can keep the
-    required failing-test-then-fix history for issue #3369.
+    required failing-test-then-fix history for https://github.com/manaflow-ai/cmux/issues/3369.
 
-### 13) Crash report subdirectory override
+### 13) URL/path regex bounds for spaced file paths
+
+- Commits:
+  - `6e10706a7` (test: cover spaced file path link bounds)
+  - `6eed7af92` (fix: bound spaced file path links)
+  - `ff6e1260d` (fix: handle dotted spaced path prefixes)
+- Files:
+  - `src/config/url.zig`
+- Summary:
+  - Adds coverage for a path with spaces ending in `.mp4` followed by a normal sentence.
+  - Routes dotted paths with spaced directory names through the stricter dotted-path branch.
+  - Keeps single-space path components such as `Recovered Screen Recordings` while preserving
+    the existing double-space stop case.
+  - Trims trailing sentence punctuation when more text follows, without breaking dotted paths
+    that end at end-of-line.
+  - Preserves versioned or dotted path components before the first space, such as
+    `/tmp/v1.2 captures/video.mp4`.
+
+### 14) Crash report subdirectory override
 
 - Commit: `aef980e27` (Allow crash report subdirectory override)
 - Files:
@@ -221,13 +243,25 @@ tend to conflict together during rebases.
   - The current cmux GhosttyKit prebuilds use the `crashsubdir-cmux-crash-v1`
     flavor in their release tag and checksum pin.
 
-The current cmux pin is `aee4cb8e8`. It is reachable from the fork branch in
-https://github.com/manaflow-ai/ghostty/pull/54 and merges the branches
-`issue-3369-metal-renderer-crash` and `cmux-crash-report-subdir`.
-Published `xcframework-aee4cb8e850c4f2055dbd7952959267525670680-crashsubdir-cmux-crash-v1`
-and pinned its archive checksum in `scripts/ghosttykit-checksums.txt`. The release
-and checksum pin must be regenerated whenever this commit changes, even for
-comment-only amends, because the release tag is keyed by the Ghostty commit SHA.
+### 15) Cursor line selection API
+
+- Commit: `7e4cf8a2f` (Expose cursor line selection API)
+- Files:
+  - `include/ghostty.h`
+  - `src/Surface.zig`
+  - `src/apprt/embedded.zig`
+- Summary:
+  - Exposes the current cursor line selection through the embedded C API.
+  - Lets cmux query the cursor-line selection without duplicating terminal
+    selection state outside Ghostty.
+
+The current cmux pin is `5b0b60b95`. It is reachable from fork `main` and the
+fork branch in https://github.com/manaflow-ai/ghostty/pull/54, and merges the
+branches `issue-3369-metal-renderer-crash`,
+`issue-cmd-hover-path-range`, and `cmux-crash-report-subdir`.
+The release and checksum pin must be regenerated whenever this commit changes,
+even for comment-only amends, because the release tag is keyed by the Ghostty
+commit SHA.
 
 ## Upstreamed fork changes
 
