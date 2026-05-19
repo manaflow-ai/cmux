@@ -394,12 +394,16 @@ extension CMUXCLI {
         socketPath: String?,
         statusExpression: String? = nil
     ) -> String {
+#if DEBUG
         let logPath = shellSingleQuote(grokHookShellTraceLogPath(socketPath: socketPath))
         let event = shellSingleQuote(routedArguments)
         let socket = shellSingleQuote(socketPath.map { URL(fileURLWithPath: $0).lastPathComponent } ?? "nil")
         let statusField = statusExpression == nil ? "" : " status=%s"
         let statusArgument = statusExpression.map { " \($0)" } ?? ""
         return "printf '%s grokHook.shell phase=%s event=%s pid=%s ppid=%s socket=%s\(statusField)\\n' \"$(date +%s)\" \(shellSingleQuote(phase)) \(event) \"$$\" \"${PPID:-}\" \(socket)\(statusArgument) >> \(logPath) 2>/dev/null || true"
+#else
+        return ":"
+#endif
     }
 
     private static func grokHookShellTraceLogPath(socketPath: String?) -> String {

@@ -778,6 +778,92 @@ extension CLINotifyProcessIntegrationRegressionTests {
         }
     }
 
+    func testGrokStopNotificationFallsBackWhenTranscriptCwdIsUnavailable() throws {
+        let cliPath = try bundledCLIPath()
+        let socketPath = makeSocketPath("grok-stop-without-cwd")
+        let listenerFD = try bindUnixSocket(at: socketPath)
+        let state = MockSocketServerState()
+        let root = FileManager.default.temporaryDirectory
+            .appendingPathComponent("cmux-grok-stop-without-cwd-\(UUID().uuidString)", isDirectory: true)
+        let workspaceId = "11111111-1111-1111-1111-111111111111"
+        let surfaceId = "22222222-2222-2222-2222-222222222222"
+        let sessionId = "grok-session-without-cwd"
+
+        try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
+        defer {
+            Darwin.close(listenerFD)
+            unlink(socketPath)
+            try? FileManager.default.removeItem(at: root)
+        }
+
+        let environment: [String: String] = [
+            "HOME": root.path,
+            "PATH": "/usr/bin:/bin:/usr/sbin:/sbin",
+            "CMUX_SOCKET_PATH": socketPath,
+            "CMUX_WORKSPACE_ID": workspaceId,
+            "CMUX_SURFACE_ID": surfaceId,
+            "CMUX_AGENT_HOOK_STATE_DIR": root.path,
+            "CMUX_CLI_SENTRY_DISABLED": "1",
+        ]
+
+        func runGrokHook(_ subcommand: String, input: String) -> ProcessRunResult {
+            let serverHandled = startMockServer(listenerFD: listenerFD, state: state) { line in
+                guard let payload = self.jsonObject(line) else {
+                    return "OK"
+                }
+                guard let id = payload["id"] as? String, let method = payload["method"] as? String else {
+                    return self.malformedRequestResponse(id: payload["id"] as? String, raw: line)
+                }
+                switch method {
+                case "surface.list":
+                    return self.surfaceListResponse(id: id, surfaceId: surfaceId)
+                case "feed.push":
+                    return self.v2Response(id: id, ok: true, result: [:])
+                default:
+                    return self.v2Response(id: id, ok: false, error: ["code": "unrecognized_method", "message": "unexpected method: \(method)"])
+                }
+            }
+            let result = runProcess(
+                executablePath: cliPath,
+                arguments: ["hooks", "grok", subcommand],
+                environment: environment,
+                standardInput: input,
+                timeout: 5
+            )
+            wait(for: [serverHandled], timeout: 5)
+            return result
+        }
+
+        let start = runGrokHook(
+            "session-start",
+            input: #"{"sessionId":"\#(sessionId)","hookEventName":"SessionStart"}"#
+        )
+        XCTAssertFalse(start.timedOut, start.stderr)
+        XCTAssertEqual(start.status, 0, start.stderr)
+        XCTAssertEqual(start.stdout, "{}\n")
+
+        let stopCommandStart = state.commands.count
+        let stop = runGrokHook(
+            "stop",
+            input: #"{"sessionId":"\#(sessionId)","hookEventName":"Stop"}"#
+        )
+        XCTAssertFalse(stop.timedOut, stop.stderr)
+        XCTAssertEqual(stop.status, 0, stop.stderr)
+        XCTAssertEqual(stop.stdout, "{}\n")
+
+        let stopCommands = Array(state.commands.dropFirst(stopCommandStart))
+        XCTAssertTrue(
+            stopCommands.contains {
+                $0.contains("notify_target_async \(workspaceId) \(surfaceId) Grok|Completed|Grok session completed")
+            },
+            "Expected Grok Stop without cwd to notify with a generic completion body, saw \(stopCommands)"
+        )
+        XCTAssertTrue(
+            stopCommands.contains { $0.contains("set_status grok Idle") },
+            "Expected Grok Stop without cwd to leave Grok idle, saw \(stopCommands)"
+        )
+    }
+
     func testGrokNotificationStillFiresOnRepeatedPromptWhenFeedTelemetryDoesNotReply() throws {
         let cliPath = try bundledCLIPath()
         let socketPath = makeSocketPath("grok-repeat")

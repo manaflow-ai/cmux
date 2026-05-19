@@ -118,7 +118,7 @@ extension Workspace {
             return panelKeys.contains { isStructuredAgentHookPIDKey($0) }
         }
 
-        return agentPIDs.keys.contains { isStructuredAgentHookPIDKey($0) }
+        return false
     }
 
     func shouldDisplaySidebarStatusEntry(_ entry: SidebarStatusEntry) -> Bool {
@@ -131,6 +131,10 @@ extension Workspace {
     private func hasLivePanelAgentRuntime(forStatusKey statusKey: String) -> Bool {
         for (key, panelId) in agentPIDPanelIdsByKey
         where agentStatusKey(forAgentPIDKey: key) == statusKey && panels[panelId] != nil {
+            return true
+        }
+        for key in agentPIDs.keys
+        where agentStatusKey(forAgentPIDKey: key) == statusKey && agentPIDPanelIdsByKey[key] == nil {
             return true
         }
         return false

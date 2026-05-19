@@ -254,7 +254,7 @@ final class TerminalNotificationClearAllTests: XCTestCase {
 
         XCTAssertTrue(workspace.suppressesRawTerminalNotification(panelId: firstPanelId))
         XCTAssertFalse(workspace.suppressesRawTerminalNotification(panelId: secondPanel.id))
-        XCTAssertTrue(workspace.suppressesRawTerminalNotification(panelId: nil))
+        XCTAssertFalse(workspace.suppressesRawTerminalNotification(panelId: nil))
 
         workspace.recordAgentPID(key: "custom-tool.session", pid: pid_t(12346), panelId: secondPanel.id)
 
@@ -292,6 +292,28 @@ final class TerminalNotificationClearAllTests: XCTestCase {
         XCTAssertTrue(displayedKeys.contains("build"))
         XCTAssertFalse(displayedKeys.contains("codex"))
         XCTAssertFalse(displayedKeys.contains("amp"))
+    }
+
+    func testSidebarStatusShowsStructuredAgentRuntimeWithoutPanelBinding() throws {
+        let appDelegate = AppDelegate.shared ?? AppDelegate()
+        let manager = TabManager()
+        let originalTabManager = appDelegate.tabManager
+        appDelegate.tabManager = manager
+
+        let workspace = manager.addWorkspace(select: true)
+        defer {
+            if manager.tabs.contains(where: { $0.id == workspace.id }) {
+                manager.closeWorkspace(workspace)
+            }
+            appDelegate.tabManager = originalTabManager
+        }
+
+        workspace.statusEntries["grok"] = SidebarStatusEntry(key: "grok", value: "Running")
+        workspace.recordAgentPID(key: "grok.grok-session-unbound", pid: pid_t(12345), panelId: nil)
+
+        let displayedKeys = Set(workspace.sidebarStatusEntriesInDisplayOrder().map(\.key))
+
+        XCTAssertTrue(displayedKeys.contains("grok"))
     }
 
     func testNewStructuredAgentRuntimeOnPanelClearsPreviousAgentStatusForThatPanel() throws {

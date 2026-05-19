@@ -22403,7 +22403,7 @@ export default function cmuxPiSessionExtension(pi: ExtensionAPI) {
             }
 
             let shouldPublishStopNotification = def.publishesStopNotification
-                || (def.name == "grok" && grokAssistantMessage != nil)
+                || def.name == "grok"
             if shouldPublishStopNotification {
                 let payload = notificationPayload(title: def.displayName, subtitle: subtitle, body: body)
                 let notifyCommand = "notify_target_async \(workspaceId) \(surfaceId) \(payload)"
