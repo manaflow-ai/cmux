@@ -404,7 +404,7 @@ extension CmuxButtonIcon {
         return .imagePath(Self.resolvePath(path, relativeToConfig: configSourcePath))
     }
 
-    private static let maxImageBytes = 1_000_000
+    static let maxImageBytes = 1_000_000
 
     private struct PreparedImageAsset {
         let data: Data

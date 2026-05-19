@@ -112,8 +112,13 @@ private enum SidebarWorkspaceIconImageCache {
     nonisolated static func decodedImage(forExpandedPath expandedPath: String) async -> DecodedImage? {
         let task = Task.detached(priority: .utility) { () throws -> DecodedImage? in
             try Task.checkCancellation()
+            let attributes = try FileManager.default.attributesOfItem(atPath: expandedPath)
+            let byteSize = (attributes[.size] as? NSNumber)?.int64Value ?? 0
+            guard byteSize <= Int64(CmuxButtonIcon.maxImageBytes) else { return nil }
+            try Task.checkCancellation()
             let url = URL(fileURLWithPath: expandedPath, isDirectory: false)
             let data = try Data(contentsOf: url)
+            guard data.count <= CmuxButtonIcon.maxImageBytes else { return nil }
             try Task.checkCancellation()
             guard let image = NSImage(data: data) else { return nil }
             try Task.checkCancellation()
