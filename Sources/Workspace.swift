@@ -11551,7 +11551,8 @@ final class Workspace: Identifiable, ObservableObject {
         inPane paneId: PaneID,
         atIndex index: Int? = nil,
         focus: Bool = true,
-        focusIntent: PanelFocusIntent? = nil
+        focusIntent: PanelFocusIntent? = nil,
+        splitTarget: (orientation: SplitOrientation, insertFirst: Bool)? = nil
     ) -> UUID? {
 #if DEBUG
         let attachStart = ProcessInfo.processInfo.systemUptime
@@ -11612,17 +11613,7 @@ final class Workspace: Identifiable, ObservableObject {
             restoredUnreadPanelIds.remove(detached.panelId)
         }
 
-        guard let newTabId = bonsplitController.createTab(
-            title: detached.title,
-            hasCustomTitle: detached.customTitle?.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty == false,
-            icon: detached.icon,
-            iconImageData: detached.iconImageData,
-            kind: detached.kind,
-            isDirty: detached.panel.isDirty,
-            isLoading: detached.isLoading,
-            isPinned: detached.isPinned,
-            inPane: paneId
-        ) else {
+        func discardPendingAttachState() {
             removeBrowserOpenTabSuggestionIfNeeded(panel: detached.panel, panelId: detached.panelId)
             panels.removeValue(forKey: detached.panelId)
             panelDirectories.removeValue(forKey: detached.panelId)
@@ -11635,13 +11626,61 @@ final class Workspace: Identifiable, ObservableObject {
             restoredUnreadPanelIds.remove(detached.panelId)
             manualUnreadMarkedAt.removeValue(forKey: detached.panelId)
             panelSubscriptions.removeValue(forKey: detached.panelId)
-#if DEBUG
-            cmuxDebugLog(
-                "split.attach.fail ws=\(id.uuidString.prefix(5)) panel=\(detached.panelId.uuidString.prefix(5)) " +
-                "reason=createTabFailed elapsedMs=\(debugElapsedMs(since: attachStart))"
+        }
+
+        let newTabId: TabID
+        let attachedPaneId: PaneID
+        if let splitTarget {
+            let newTab = Bonsplit.Tab(
+                title: detached.title,
+                hasCustomTitle: detached.customTitle?.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty == false,
+                icon: detached.icon,
+                iconImageData: detached.iconImageData,
+                kind: detached.kind,
+                isDirty: detached.panel.isDirty,
+                isLoading: detached.isLoading,
+                isPinned: detached.isPinned
             )
+            guard let newPaneId = bonsplitController.splitPane(
+                paneId,
+                orientation: splitTarget.orientation,
+                withTab: newTab,
+                insertFirst: splitTarget.insertFirst
+            ) else {
+                discardPendingAttachState()
+#if DEBUG
+                cmuxDebugLog(
+                    "split.attach.fail ws=\(id.uuidString.prefix(5)) panel=\(detached.panelId.uuidString.prefix(5)) " +
+                    "reason=splitFailed elapsedMs=\(debugElapsedMs(since: attachStart))"
+                )
 #endif
-            return nil
+                return nil
+            }
+            newTabId = newTab.id
+            attachedPaneId = newPaneId
+        } else {
+            guard let createdTabId = bonsplitController.createTab(
+                title: detached.title,
+                hasCustomTitle: detached.customTitle?.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty == false,
+                icon: detached.icon,
+                iconImageData: detached.iconImageData,
+                kind: detached.kind,
+                isDirty: detached.panel.isDirty,
+                isLoading: detached.isLoading,
+                isPinned: detached.isPinned,
+                inPane: paneId
+            ) else {
+                discardPendingAttachState()
+#if DEBUG
+                cmuxDebugLog(
+                    "split.attach.fail ws=\(id.uuidString.prefix(5)) panel=\(detached.panelId.uuidString.prefix(5)) " +
+                    "reason=createTabFailed elapsedMs=\(debugElapsedMs(since: attachStart))"
+                )
+#endif
+                return nil
+            }
+            newTabId = createdTabId
+            attachedPaneId = paneId
         }
 
         surfaceIdToPanelId[newTabId] = detached.panelId
@@ -11706,13 +11745,13 @@ final class Workspace: Identifiable, ObservableObject {
         }
         syncPinnedStateForTab(newTabId, panelId: detached.panelId)
         syncUnreadBadgeStateForPanel(detached.panelId)
-        normalizePinnedTabs(in: paneId)
-        publishCmuxSurfaceCreated(detached.panelId, paneId: paneId, kind: Self.cmuxEventSurfaceKind(detached.panel), origin: "detach_attach", focused: focus)
+        normalizePinnedTabs(in: attachedPaneId)
+        publishCmuxSurfaceCreated(detached.panelId, paneId: attachedPaneId, kind: Self.cmuxEventSurfaceKind(detached.panel), origin: "detach_attach", focused: focus)
 
         if focus {
-            bonsplitController.focusPane(paneId)
+            bonsplitController.focusPane(attachedPaneId)
             bonsplitController.selectTab(newTabId)
-            applyTabSelection(tabId: newTabId, inPane: paneId, focusIntent: focusIntent)
+            applyTabSelection(tabId: newTabId, inPane: attachedPaneId, focusIntent: focusIntent)
         } else {
             scheduleFocusReconcile()
         }
@@ -11721,7 +11760,7 @@ final class Workspace: Identifiable, ObservableObject {
 #if DEBUG
         cmuxDebugLog(
             "split.attach.end ws=\(id.uuidString.prefix(5)) panel=\(detached.panelId.uuidString.prefix(5)) " +
-            "tab=\(newTabId.uuid.uuidString.prefix(5)) pane=\(paneId.id.uuidString.prefix(5)) " +
+            "tab=\(newTabId.uuid.uuidString.prefix(5)) pane=\(attachedPaneId.id.uuidString.prefix(5)) " +
             "index=\(index.map(String.init) ?? "nil") focus=\(focus ? 1 : 0) " +
             "elapsedMs=\(debugElapsedMs(since: attachStart))"
         )
@@ -13567,26 +13606,14 @@ final class Workspace: Identifiable, ObservableObject {
             splitTarget = (orientation, insertFirst)
         }
 
-        let shouldFocusOnAttach = splitTarget == nil
         guard attachDetachedSurface(
             entry.transfer,
             inPane: targetPane,
             atIndex: targetIndex,
-            focus: shouldFocusOnAttach
+            focus: true,
+            splitTarget: splitTarget
         ) != nil else {
             return false
-        }
-
-        if let splitTarget {
-            if let movedTabId = surfaceIdFromPanelId(entry.transfer.panelId) {
-                _ = bonsplitController.splitPane(
-                    targetPane,
-                    orientation: splitTarget.orientation,
-                    movingTab: movedTabId,
-                    insertFirst: splitTarget.insertFirst
-                )
-            }
-            focusPanel(entry.transfer.panelId)
         }
 
         entry.onAttached()
