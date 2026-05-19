@@ -1837,6 +1837,7 @@ private struct WorkspaceCanvasOverviewView<Content: View, EmptyContent: View>: V
     @State private var activeCanvasDragItemID: LayoutItemID?
     @State private var activeAlignmentGuides: [CanvasAlignmentGuide] = []
     @State private var canvasPreviewImages: [SurfaceID: NSImage] = [:]
+    @State private var canvasPreviewSnapshotRequests: Set<SurfaceID> = []
 
     private let canvasPadding: CGFloat = 24
     private let canvasResizeEdgeHitSize: CGFloat = 8
@@ -2451,16 +2452,24 @@ private struct WorkspaceCanvasOverviewView<Content: View, EmptyContent: View>: V
     private func captureCanvasPreviewSnapshot(for selected: SurfaceTab) {
         guard canvasPreviewImages[selected.id] == nil else { return }
         guard let panel = workspace.panel(for: selected.id) else { return }
-        let image: NSImage?
         if let terminalPanel = panel as? TerminalPanel {
-            image = Self.snapshotImage(of: terminalPanel.hostedView)
-        } else if let browserPanel = panel as? BrowserPanel {
-            image = Self.snapshotImage(of: browserPanel.webView)
-        } else {
-            image = nil
+            guard let image = Self.snapshotImage(of: terminalPanel.hostedView) else { return }
+            canvasPreviewImages[selected.id] = image
+            return
         }
-        guard let image else { return }
-        canvasPreviewImages[selected.id] = image
+
+        if let browserPanel = panel as? BrowserPanel {
+            guard !canvasPreviewSnapshotRequests.contains(selected.id) else { return }
+            canvasPreviewSnapshotRequests.insert(selected.id)
+            let surfaceID = selected.id
+            browserPanel.takeSnapshot { image in
+                Task { @MainActor in
+                    canvasPreviewSnapshotRequests.remove(surfaceID)
+                    guard let image else { return }
+                    canvasPreviewImages[surfaceID] = image
+                }
+            }
+        }
     }
 
     private static func snapshotImage(of view: NSView) -> NSImage? {

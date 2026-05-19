@@ -160,19 +160,30 @@ func copyArtifact(_ source: URL, named name: String) throws -> URL {
 func waitForColor(
     label: String,
     threshold: (CGFloat, CGFloat, CGFloat, CGFloat) -> Bool,
-    minimumPixels: Int
+    minimumPixels: Int,
+    minimumInset: Int = 0
 ) throws -> URL {
     var lastPath: URL?
     for attempt in 0..<20 {
         let path = try screenshot(label: "\(label)_\(attempt)")
         lastPath = path
         if let bounds = try? detectBounds(in: path, threshold: threshold),
-           bounds.count >= minimumPixels {
+           bounds.count >= minimumPixels,
+           (try? boundsAreInset(bounds, in: path, minimumInset: minimumInset)) == true {
             return path
         }
         Thread.sleep(forTimeInterval: 0.15)
     }
     throw ProbeError(message: "Timed out waiting for colored probe in \(lastPath?.path ?? "no screenshot")")
+}
+
+func boundsAreInset(_ bounds: PixelBounds, in url: URL, minimumInset: Int) throws -> Bool {
+    guard minimumInset > 0 else { return true }
+    let size = try imageSize(url)
+    return bounds.minX >= minimumInset
+        && bounds.minY >= minimumInset
+        && bounds.maxX <= size.width - minimumInset
+        && bounds.maxY <= size.height - minimumInset
 }
 
 func detectBounds(
@@ -318,7 +329,8 @@ func terminalProbe() throws -> SurfaceResult {
     let beforeSource = try waitForColor(
         label: "terminal_before",
         threshold: terminalRedThreshold,
-        minimumPixels: 200
+        minimumPixels: 200,
+        minimumInset: 16
     )
     let beforeCopy = try copyArtifact(beforeSource, named: "terminal-before.png")
     let beforeBounds = try detectBounds(
@@ -395,7 +407,8 @@ func browserProbe() throws -> SurfaceResult {
     let beforeSource = try waitForColor(
         label: "browser_before",
         threshold: { red, green, blue, _ in green > 0.82 && red < 0.22 && blue < 0.22 },
-        minimumPixels: 1_000
+        minimumPixels: 1_000,
+        minimumInset: 16
     )
     let beforeCopy = try copyArtifact(beforeSource, named: "browser-before.png")
     let beforeBounds = try detectBounds(
