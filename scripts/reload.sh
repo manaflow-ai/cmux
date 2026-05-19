@@ -658,6 +658,7 @@ if [[ -n "$TAG" && "$APP_NAME" != "$SEARCH_APP_NAME" ]]; then
       write_last_socket_path "$CMUX_SOCKET_PATH_VALUE"
       echo "$CMUX_DEBUG_LOG" > /tmp/cmux-last-debug-log-path || true
       /usr/libexec/PlistBuddy -c "Add :LSEnvironment dict" "$INFO_PLIST" 2>/dev/null || true
+      set_plist_env "$INFO_PLIST" CMUX_TAG "$TAG_SLUG"
       set_plist_env "$INFO_PLIST" CMUX_BUNDLE_ID "$BUNDLE_ID"
       set_plist_env "$INFO_PLIST" CMUXD_UNIX_PATH "$CMUXD_SOCKET"
       set_plist_env "$INFO_PLIST" CMUX_DEBUG_LOG "$CMUX_DEBUG_LOG"
@@ -736,6 +737,10 @@ if ! /usr/bin/codesign --force --sign - --timestamp=none --generate-entitlement-
     echo "error: codesign failed for $APP_PATH" >&2
     exit 1
   fi
+fi
+if [[ -n "${TAG_SLUG:-}" ]]; then
+  /System/Library/Frameworks/CoreServices.framework/Versions/Current/Frameworks/LaunchServices.framework/Versions/Current/Support/lsregister \
+    -f -R -trusted "$APP_PATH" || true
 fi
 CLI_PATH="$APP_PATH/Contents/Resources/bin/cmux"
 if [[ -x "$CLI_PATH" ]]; then
@@ -816,19 +821,20 @@ if [[ "$LAUNCH" -eq 1 ]]; then
   LAUNCH_CMD=()
   LAUNCH_RETRY_CMD=()
   if [[ -n "${TAG_SLUG:-}" ]]; then
-    # Launch tagged apps directly so LaunchServices cannot reuse a stale
-    # LSEnvironment for the tag's bundle id.
-    APP_EXECUTABLE="$APP_PATH/Contents/MacOS/${BASE_APP_NAME}"
-    if [[ ! -x "$APP_EXECUTABLE" ]]; then
-      echo "error: tagged app executable not found: $APP_EXECUTABLE" >&2
-      exit 1
-    fi
+    # Launch tagged apps through LaunchServices so the GUI process survives
+    # after this reload command exits. Pass the tag environment explicitly to
+    # avoid reusing a stale LaunchServices environment for this bundle id.
     TAG_LAUNCH_LOG="/tmp/cmux-launch-${TAG_SLUG}.out"
+    : > "$TAG_LAUNCH_LOG"
+    LAUNCH_CMD=("${OPEN_CLEAN_ENV[@]}" open -n -g --stdout "$TAG_LAUNCH_LOG" --stderr "$TAG_LAUNCH_LOG")
+    for ENV_VAR in "${TAG_LAUNCH_ENV[@]}"; do
+      LAUNCH_CMD+=(--env "$ENV_VAR")
+    done
     if [[ -n "${CMUX_SOCKET_PATH_VALUE:-}" ]]; then
-      nohup "${OPEN_CLEAN_ENV[@]}" "${TAG_LAUNCH_ENV[@]}" CMUXD_UNIX_PATH="$CMUXD_SOCKET" "$APP_EXECUTABLE" >"$TAG_LAUNCH_LOG" 2>&1 &
-    else
-      nohup "${OPEN_CLEAN_ENV[@]}" "${TAG_LAUNCH_ENV[@]}" "$APP_EXECUTABLE" >"$TAG_LAUNCH_LOG" 2>&1 &
+      LAUNCH_CMD+=(--env "CMUXD_UNIX_PATH=$CMUXD_SOCKET")
     fi
+    LAUNCH_CMD+=("$APP_PATH")
+    LAUNCH_RETRY_CMD=("${LAUNCH_CMD[@]}")
   else
     echo "/tmp/cmux-debug.sock" > /tmp/cmux-last-socket-path || true
     echo "/tmp/cmux-debug.log" > /tmp/cmux-last-debug-log-path || true
