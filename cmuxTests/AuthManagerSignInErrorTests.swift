@@ -253,6 +253,50 @@ final class AuthManagerSignInErrorTests: XCTestCase {
         XCTAssertNil(manager.currentUser)
         XCTAssertNil(manager.lastSignInError)
     }
+
+    func testTimedOutBrowserSignInDoesNotAuthenticateFromInFlightCallback() async throws {
+        let suiteName = "AuthManagerSignInErrorTests.TimeoutSupersedesCallback.\(UUID().uuidString)"
+        guard let defaults = UserDefaults(suiteName: suiteName) else {
+            XCTFail("Failed to create isolated UserDefaults suite")
+            return
+        }
+        defer { defaults.removePersistentDomain(forName: suiteName) }
+
+        let tokenStore = BlockingSetTokenStore()
+        let manager = AuthManager(
+            client: TestAuthClient(),
+            tokenStore: tokenStore,
+            settingsStore: AuthSettingsStore(userDefaults: defaults)
+        )
+        await manager.awaitBootstrapped()
+
+        manager.markBrowserSignInLoadingForTesting()
+        let callbackURL = try XCTUnwrap(URL(
+            string: "cmux://auth-callback?stack_refresh=refresh-token&stack_access=access-token"
+        ))
+        let callbackTask = Task {
+            try await manager.handleCallbackURL(callbackURL)
+        }
+
+        await tokenStore.waitForBlockedSet()
+        manager.markBrowserSignInTimedOutForTesting()
+
+        XCTAssertFalse(manager.isAuthenticated)
+        XCTAssertFalse(manager.isLoading)
+        XCTAssertNotNil(manager.lastSignInError)
+
+        await tokenStore.releaseBlockedSet()
+        try await callbackTask.value
+
+        XCTAssertFalse(manager.isAuthenticated)
+        XCTAssertFalse(manager.isLoading)
+        XCTAssertNil(manager.currentUser)
+        XCTAssertNotNil(manager.lastSignInError)
+        let storedAccessToken = await tokenStore.currentAccessToken()
+        let storedRefreshToken = await tokenStore.currentRefreshToken()
+        XCTAssertNil(storedAccessToken)
+        XCTAssertNil(storedRefreshToken)
+    }
 }
 
 private struct TestAuthClient: AuthClientProtocol {

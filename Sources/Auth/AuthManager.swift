@@ -205,6 +205,16 @@ final class AuthManager: ObservableObject {
         case restore
         case signIn
         case signOut
+        case signInCancellation
+
+        var clearsSupersededAuthState: Bool {
+            switch self {
+            case .signOut, .signInCancellation:
+                return true
+            case .restore, .signIn:
+                return false
+            }
+        }
     }
 
     private struct AuthMutationSupersededError: Error, Sendable {}
@@ -217,6 +227,10 @@ final class AuthManager: ObservableObject {
     func markCredentialSignInLoadingForTesting() {
         _ = beginAuthMutation(.signIn)
         isLoading = true
+    }
+
+    func markBrowserSignInTimedOutForTesting() {
+        timeOutBrowserSignInAttempt()
     }
     #endif
 
@@ -299,14 +313,7 @@ final class AuthManager: ObservableObject {
         if !isLoading { return isAuthenticated }
         let signedIn = await waitForSignInSettled(timeout: timeout)
         if !signedIn && isLoading && !isAuthenticated {
-            lastSignInError = .message("auth.webauth sign-in attempt timed out")
-            webAuthSession?.cancel()
-            if let attemptID = activeBrowserSignInAttemptID {
-                finishBrowserSignInAttempt(attemptID)
-            } else {
-                webAuthSession = nil
-                isLoading = false
-            }
+            timeOutBrowserSignInAttempt()
         }
         return signedIn
     }
@@ -902,7 +909,9 @@ final class AuthManager: ObservableObject {
             accessToken: accessToken,
             refreshToken: refreshToken
         )
-        if cachedMatches || storedCleared || currentAuthMutationKind == .signOut {
+        let shouldClearSupersededAuthState =
+            currentAuthMutationKind?.clearsSupersededAuthState == true
+        if cachedMatches || storedCleared || shouldClearSupersededAuthState {
             clearSessionState(clearSelectedTeam: true)
         }
         return false
@@ -935,6 +944,18 @@ final class AuthManager: ObservableObject {
         activeBrowserSignInAttemptID = nil
         if signOutCancelledBrowserSignInAttemptID == attemptID {
             signOutCancelledBrowserSignInAttemptID = nil
+        }
+    }
+
+    private func timeOutBrowserSignInAttempt() {
+        lastSignInError = .message("auth.webauth sign-in attempt timed out")
+        _ = beginAuthMutation(.signInCancellation)
+        webAuthSession?.cancel()
+        if let attemptID = activeBrowserSignInAttemptID {
+            finishBrowserSignInAttempt(attemptID)
+        } else {
+            webAuthSession = nil
+            isLoading = false
         }
     }
 
