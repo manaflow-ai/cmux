@@ -1,6 +1,11 @@
 import Foundation
 
 enum JSONCParser {
+    struct SourceText {
+        var text: String
+        var encoding: String.Encoding
+    }
+
     static func preprocess(data: Data) throws -> Data {
         let source = try sourceString(from: data)
         let withoutBOM = source.hasPrefix("\u{feff}") ? String(source.dropFirst()) : source
@@ -9,13 +14,17 @@ enum JSONCParser {
         return Data(normalized.utf8)
     }
 
-    private static func sourceString(from data: Data) throws -> String {
+    static func sourceString(from data: Data) throws -> String {
+        try sourceText(from: data).text
+    }
+
+    static func sourceText(from data: Data) throws -> SourceText {
         if let encoding = detectedJSONEncoding(for: data),
            let source = String(data: data, encoding: encoding) {
-            return source
+            return SourceText(text: source, encoding: encoding)
         }
         if let source = String(data: data, encoding: .utf8) {
-            return source
+            return SourceText(text: source, encoding: .utf8)
         }
 
         var convertedString: NSString?
@@ -38,12 +47,15 @@ enum JSONCParser {
         )
 
         if let convertedString, !usedLossyConversion.boolValue {
-            return convertedString as String
+            return SourceText(
+                text: convertedString as String,
+                encoding: encoding == 0 ? .utf8 : String.Encoding(rawValue: encoding)
+            )
         }
         if encoding != 0, !usedLossyConversion.boolValue {
             let stringEncoding = String.Encoding(rawValue: encoding)
             if let source = String(data: data, encoding: stringEncoding) {
-                return source
+                return SourceText(text: source, encoding: stringEncoding)
             }
         }
         throw JSONCError.invalidTextEncoding

@@ -1,13 +1,17 @@
 import Combine
 import Foundation
+import Observation
 
 @MainActor
-final class KeyboardShortcutSettingsObserver: ObservableObject {
+@Observable
+final class KeyboardShortcutSettingsObserver {
     static let shared = KeyboardShortcutSettingsObserver()
 
-    @Published private(set) var revision: UInt64 = 0
+    private(set) var revision: UInt64 = 0
 
+    @ObservationIgnored
     private var settingsCancellable: AnyCancellable?
+    @ObservationIgnored
     private var recorderCancellable: AnyCancellable?
 
     private init(notificationCenter: NotificationCenter = .default) {
@@ -25,7 +29,8 @@ final class CmuxSettingsFileStore {
     private static let releaseBundleIdentifier = "com.cmuxterm.app"
     private static let backupsDefaultsKey = "cmux.settingsFile.backups.v1"
     private static let importedManagedDefaultsDefaultsKey = "cmux.settingsFile.importedManagedDefaults.v1"
-    fileprivate static let socketPasswordBackupIdentifier = "automation.socketPassword"
+    static let socketPasswordBackupIdentifier = "automation.socketPassword"
+    static let socketPasswordWriteBackIdentifier = "cmux.settingsFile.writeBack.automation.socketPassword"
 
     static var defaultPrimaryPath: String {
         let home = FileManager.default.homeDirectoryForCurrentUser.path
@@ -56,7 +61,7 @@ final class CmuxSettingsFileStore {
     private let notificationCenter: NotificationCenter
     private let appearanceEnvironment: AppearanceSettings.LiveApplyEnvironment
     private let stateLock = NSLock()
-
+    private let writeBackCoordinator = ManagedSettingsWriteBackCoordinator()
     private var primaryWatcher: ShortcutSettingsFileWatcher?
     private var fallbackWatchers: [ShortcutSettingsFileWatcher] = []
     private var defaultsCancellable: AnyCancellable?
@@ -64,9 +69,13 @@ final class CmuxSettingsFileStore {
 
     private var shortcutsByAction: [KeyboardShortcutSettings.Action: StoredShortcut] = [:]
     private var activeManagedUserDefaults: [String: ManagedSettingsValue] = [:]
+    private var activeEditableUserDefaults: [String: ManagedSettingsValue] = [:]
+    private var activeManagedUserDefaultSources: [String: ManagedUserDefaultSource] = [:]
     private var importedManagedDefaults: [String: ManagedSettingsValue] = [:]
     private var activeManagedCustomSettings = ManagedCustomSettings()
+    private var activeManagedCustomSettingSources: [String: ManagedCustomSettingSource] = [:]
     private var isApplyingManagedSettings = false
+    private var settingsStateRevision: UInt64 = 0
     private var deferredManagedDefaultSideEffects = ManagedDefaultBatchSideEffects()
     private(set) var activeSourcePath: String?
 
@@ -110,9 +119,19 @@ final class CmuxSettingsFileStore {
             }
         }
 
-        defaultsCancellable = notificationCenter.publisher(for: UserDefaults.didChangeNotification).receive(on: DispatchQueue.main).sink { [weak self] _ in self?.reapplyManagedSettingsIfNeeded() }
-        socketPasswordObserver = notificationCenter.addObserver(forName: SocketControlPasswordStore.didChangeNotification, object: nil, queue: .main) { [weak self] _ in
-            self?.reapplyManagedSettingsIfNeeded()
+        defaultsCancellable = notificationCenter.publisher(for: UserDefaults.didChangeNotification)
+            .receive(on: DispatchQueue.main)
+            .sink { [weak self] _ in
+                guard let self, self.shouldScheduleManagedSettingsReapply() else { return }
+                Task { @MainActor in self.reapplyManagedSettingsIfNeeded() }
+            }
+        socketPasswordObserver = notificationCenter.addObserver(
+            forName: SocketControlPasswordStore.didChangeNotification,
+            object: nil,
+            queue: .main
+        ) { [weak self] _ in
+            guard let self, self.shouldScheduleManagedSettingsReapply() else { return }
+            Task { @MainActor in self.reapplyManagedSettingsIfNeeded() }
         }
     }
 
@@ -141,10 +160,15 @@ final class CmuxSettingsFileStore {
         synchronizeManagedAppearanceTerminalTheme: Bool
     ) {
         let previousState = synchronized {
-            (
+            settingsStateRevision &+= 1
+            return (
                 shortcuts: shortcutsByAction,
-                importedManagedDefaults: importedManagedDefaults,
-                sourcePath: activeSourcePath
+                sourcePath: activeSourcePath,
+                managedUserDefaults: activeManagedUserDefaults,
+                managedUserDefaultSources: activeManagedUserDefaultSources,
+                managedCustomSettings: activeManagedCustomSettings,
+                managedCustomSettingSources: activeManagedCustomSettingSources,
+                importedManagedDefaults: importedManagedDefaults
             )
         }
         let resolved = resolveSettings()
@@ -161,13 +185,21 @@ final class CmuxSettingsFileStore {
         synchronized {
             shortcutsByAction = resolved.shortcuts
             activeManagedUserDefaults = resolved.managedUserDefaults
+            activeManagedUserDefaultSources = resolved.managedUserDefaultSources
+            activeEditableUserDefaults = resolved.editableUserDefaults
             importedManagedDefaults = resolved.managedUserDefaults
             activeManagedCustomSettings = resolved.managedCustomSettings
+            activeManagedCustomSettingSources = resolved.managedCustomSettingSources
             activeSourcePath = resolved.path
         }
         saveImportedManagedDefaults(resolved.managedUserDefaults)
 
-        if previousState.shortcuts != resolved.shortcuts || previousState.sourcePath != resolved.path {
+        if previousState.shortcuts != resolved.shortcuts ||
+            previousState.sourcePath != resolved.path ||
+            previousState.managedUserDefaults != resolved.managedUserDefaults ||
+            previousState.managedUserDefaultSources != resolved.managedUserDefaultSources ||
+            previousState.managedCustomSettings != resolved.managedCustomSettings ||
+            previousState.managedCustomSettingSources != resolved.managedCustomSettingSources {
             KeyboardShortcutSettings.notifySettingsFileDidChange(center: notificationCenter)
         }
     }
@@ -226,37 +258,102 @@ final class CmuxSettingsFileStore {
         return nil
     }
 
+    @MainActor
     private func reapplyManagedSettingsIfNeeded() {
-        let managedState: (snapshot: ResolvedSettingsSnapshot, importedManagedDefaults: [String: ManagedSettingsValue])? = synchronized {
+        let primaryConfigExists = fileManager.fileExists(atPath: primaryPath)
+        let managedState: (
+            snapshot: ResolvedSettingsSnapshot,
+            importedManagedDefaults: [String: ManagedSettingsValue],
+            stateRevision: UInt64
+        )? = synchronized {
             guard !isApplyingManagedSettings else { return nil }
-            if activeManagedUserDefaults.isEmpty && activeManagedCustomSettings.isEmpty {
+            var snapshot = ResolvedSettingsSnapshot(
+                path: activeSourcePath,
+                shortcuts: shortcutsByAction,
+                managedUserDefaults: activeManagedUserDefaults,
+                managedUserDefaultSources: activeManagedUserDefaultSources,
+                editableUserDefaults: activeEditableUserDefaults,
+                managedCustomSettings: activeManagedCustomSettings,
+                managedCustomSettingSources: activeManagedCustomSettingSources
+            )
+            if primaryConfigExists {
+                assignPrimaryWriteBackSources(to: &snapshot, captureStoredValues: false)
+            } else {
+                snapshot.clearWriteBackSources()
+            }
+            guard !snapshot.managedUserDefaults.isEmpty ||
+                !snapshot.editableUserDefaults.isEmpty ||
+                !snapshot.managedCustomSettings.isEmpty else {
                 return nil
             }
-            return (
-                ResolvedSettingsSnapshot(
-                    path: activeSourcePath,
-                    shortcuts: shortcutsByAction,
-                    managedUserDefaults: activeManagedUserDefaults,
-                    managedCustomSettings: activeManagedCustomSettings
-                ),
-                importedManagedDefaults
-            )
+            return (snapshot, importedManagedDefaults, settingsStateRevision)
         }
         guard let managedState else { return }
-        applyManagedSettings(
-            snapshot: managedState.snapshot,
-            importedManagedDefaults: managedState.importedManagedDefaults,
-            changedManagedDefaultKeys: [],
-            updateBackups: false,
-            applyLiveDefaultSideEffects: true,
-            synchronizeManagedAppearanceTerminalTheme: true
-        )
+        if let writeBackPlan = CmuxSettingsManagedEditWriter.makeWriteBackPlan(snapshot: managedState.snapshot) {
+            let fileIO = ManagedSettingsFileIO(fileManager: fileManager)
+            Task { [weak self, snapshot = managedState.snapshot, importedManagedDefaults = managedState.importedManagedDefaults, stateRevision = managedState.stateRevision, writeBackPlan, writeBackCoordinator, fileIO] in
+                let result = await writeBackCoordinator.schedule { shouldContinue in
+                    try await fileIO.write(writeBackPlan, shouldContinue: shouldContinue)
+                }
+                guard let result else { return }
+                await MainActor.run {
+                    switch result {
+                    case .success(.wroteChanges):
+                        self?.reload()
+                    case .success(.noChanges):
+                        guard self?.isCurrentSettingsStateRevision(stateRevision) == true else { return }
+                        self?.applyManagedSettings(
+                            snapshot: snapshot,
+                            importedManagedDefaults: importedManagedDefaults,
+                            changedManagedDefaultKeys: [],
+                            updateBackups: false,
+                            applyLiveDefaultSideEffects: true,
+                            synchronizeManagedAppearanceTerminalTheme: true
+                        )
+                    case .failure(let error):
+                        logManagedSettingsWriteBackFailure(error)
+                        guard self?.isCurrentSettingsStateRevision(stateRevision) == true else { return }
+                        self?.applyManagedSettings(
+                            snapshot: snapshot,
+                            importedManagedDefaults: importedManagedDefaults,
+                            changedManagedDefaultKeys: [],
+                            updateBackups: false,
+                            applyLiveDefaultSideEffects: true,
+                            synchronizeManagedAppearanceTerminalTheme: true
+                        )
+                    }
+                }
+            }
+            return
+        }
+        Task { [weak self, snapshot = managedState.snapshot, importedManagedDefaults = managedState.importedManagedDefaults, stateRevision = managedState.stateRevision, writeBackCoordinator] in
+            await writeBackCoordinator.invalidate()
+            await MainActor.run {
+                guard self?.isCurrentSettingsStateRevision(stateRevision) == true else { return }
+                self?.applyManagedSettings(
+                    snapshot: snapshot,
+                    importedManagedDefaults: importedManagedDefaults,
+                    changedManagedDefaultKeys: [],
+                    updateBackups: false,
+                    applyLiveDefaultSideEffects: true,
+                    synchronizeManagedAppearanceTerminalTheme: true
+                )
+            }
+        }
+    }
+
+    private func isCurrentSettingsStateRevision(_ revision: UInt64) -> Bool {
+        synchronized { settingsStateRevision == revision }
     }
 
     private func synchronized<T>(_ body: () -> T) -> T {
         stateLock.lock()
         defer { stateLock.unlock() }
         return body()
+    }
+
+    private func shouldScheduleManagedSettingsReapply() -> Bool {
+        synchronized { !isApplyingManagedSettings }
     }
 
     // Only keys present in the next snapshot can force-apply; removed keys restore backups instead.
@@ -273,6 +370,7 @@ final class CmuxSettingsFileStore {
         switch loadSettings(at: primaryPath) {
         case .parsed(var snapshot):
             mergeFallbackSettings(into: &snapshot)
+            assignPrimaryWriteBackSources(to: &snapshot)
             return snapshot
         case .invalid:
             return ResolvedSettingsSnapshot(path: primaryPath)
@@ -282,7 +380,27 @@ final class CmuxSettingsFileStore {
 
         var fallbackSnapshot = ResolvedSettingsSnapshot(path: nil)
         mergeFallbackSettings(into: &fallbackSnapshot)
+        fallbackSnapshot.clearWriteBackSources()
         return fallbackSnapshot
+    }
+
+    private func assignPrimaryWriteBackSources(
+        to snapshot: inout ResolvedSettingsSnapshot,
+        captureStoredValues: Bool = true
+    ) {
+        snapshot.assignWriteBackSources(Self.userDefaultWriteBackTargets, sourcePath: primaryPath)
+        snapshot.assignEditableWriteBackSources(
+            Self.userDefaultWriteBackTargets,
+            sourcePath: primaryPath,
+            captureStoredValues: captureStoredValues
+        )
+        if snapshot.managedCustomSettings.socketPassword != nil {
+            snapshot.managedCustomSettingSources[Self.socketPasswordWriteBackIdentifier] =
+                ManagedCustomSettingSource(
+                    sourcePath: primaryPath,
+                    jsonPath: "automation.socketPassword"
+                )
+        }
     }
 
     private func mergeFallbackSettings(into snapshot: inout ResolvedSettingsSnapshot) {
@@ -1426,28 +1544,6 @@ final class CmuxSettingsFileStore {
 
 typealias KeyboardShortcutSettingsFileStore = CmuxSettingsFileStore
 
-private struct ResolvedSettingsSnapshot {
-    var path: String?
-    var shortcuts: [KeyboardShortcutSettings.Action: StoredShortcut] = [:]
-    var managedUserDefaults: [String: ManagedSettingsValue] = [:]
-    var managedCustomSettings = ManagedCustomSettings()
-
-    mutating func fillMissingSettings(from fallback: ResolvedSettingsSnapshot) {
-        if path == nil && (!fallback.shortcuts.isEmpty ||
-            !fallback.managedUserDefaults.isEmpty ||
-            !fallback.managedCustomSettings.isEmpty) {
-            path = fallback.path
-        }
-        for (action, shortcut) in fallback.shortcuts where shortcuts[action] == nil {
-            shortcuts[action] = shortcut
-        }
-        for (key, value) in fallback.managedUserDefaults where managedUserDefaults[key] == nil {
-            managedUserDefaults[key] = value
-        }
-        managedCustomSettings.fillMissingSettings(from: fallback.managedCustomSettings)
-    }
-}
-
 private struct ManagedDefaultSideEffect {
     let defaultsKey: String
     let source: String
@@ -1486,44 +1582,6 @@ private struct ManagedDefaultBatchSideEffects {
         )
     }
 }
-
-private enum ManagedStringOverride: Equatable {
-    case set(String)
-    case clear
-}
-
-private struct ManagedCustomSettings: Equatable {
-    var socketPassword: ManagedStringOverride?
-
-    var isEmpty: Bool {
-        socketPassword == nil
-    }
-
-    var managedIdentifiers: Set<String> {
-        var identifiers: Set<String> = []
-        if socketPassword != nil {
-            identifiers.insert(CmuxSettingsFileStore.socketPasswordBackupIdentifier)
-        }
-        return identifiers
-    }
-
-    mutating func fillMissingSettings(from fallback: ManagedCustomSettings) {
-        if socketPassword == nil {
-            socketPassword = fallback.socketPassword
-        }
-    }
-}
-
-private enum ManagedSettingsValue: Codable, Equatable {
-    case bool(Bool)
-    case int(Int)
-    case double(Double)
-    case string(String)
-    case nullableString(String?)
-    case stringArray([String])
-    case stringDictionary([String: String])
-}
-
 private enum BackupValue: Codable, Equatable {
     case absent
     case bool(Bool)
