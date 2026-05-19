@@ -3403,7 +3403,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
     }
 
     private func restartSocketListenerIfEnabled(source: String) {
-        guard let manager = tabManager ?? preferredRegisteredMainWindowContext()?.tabManager,
+        guard let manager = tabManager
+            ?? preferredRegisteredMainWindowContext()?.tabManager
+            ?? mainWindowContexts.values.first?.tabManager,
               let config = socketListenerConfigurationIfEnabled() else { return }
         let restartPath = TerminalController.shared.activeSocketPath(preferredPath: config.path)
         sentryBreadcrumb("socket.listener.restart", category: "socket", data: [
@@ -6261,7 +6263,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         let windowId = ensureInitialMainWindowIfNeeded(shouldActivate: shouldActivate)
         if let manager = tabManagerFor(windowId: windowId)
             ?? mainWindowContexts.values.first(where: { $0.windowId == windowId })?.tabManager
-            ?? preferredRegisteredMainWindowContext()?.tabManager {
+            ?? preferredRegisteredMainWindowContext()?.tabManager
+            ?? mainWindowContexts.values.first?.tabManager {
             startSocketListenerIfEnabled(
                 tabManager: manager,
                 source: "bootstrapInitialMainWindow.\(debugSource)"
