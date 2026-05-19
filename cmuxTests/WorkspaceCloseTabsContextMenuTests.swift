@@ -9,6 +9,16 @@ import Bonsplit
 
 @MainActor
 final class WorkspaceCloseTabsContextMenuTests: XCTestCase {
+    override func setUp() {
+        super.setUp()
+        ClosedItemHistoryStore.shared.removeAll()
+    }
+
+    override func tearDown() {
+        ClosedItemHistoryStore.shared.removeAll()
+        super.tearDown()
+    }
+
     func testCloseOthersClosesAllTargetedTabsWhenEveryPanelNeedsConfirmation() throws {
         let fixture = try makeWorkspaceWithFourConfirmingTabs()
         let anchorTabId = fixture.tabIds[1]
@@ -16,6 +26,19 @@ final class WorkspaceCloseTabsContextMenuTests: XCTestCase {
         try invoke(.closeOthers, anchorTabId: anchorTabId, fixture: fixture)
 
         assertRemainingTabs([anchorTabId], in: fixture)
+    }
+
+    func testCloseOthersRecordsTargetedTabsInRecentlyClosedHistory() throws {
+        let fixture = try makeWorkspaceWithFourConfirmingTabs()
+        let anchorTabId = fixture.tabIds[1]
+
+        try invoke(.closeOthers, anchorTabId: anchorTabId, fixture: fixture)
+
+        let closedTitles = ClosedItemHistoryStore.shared.entries.compactMap { entry -> String? in
+            guard case .panel(let panelEntry) = entry else { return nil }
+            return panelEntry.snapshot.customTitle
+        }
+        XCTAssertEqual(closedTitles, ["Tab 1", "Tab 3", "Tab 4"])
     }
 
     func testCloseToRightClosesAllTargetedTabsWhenEveryPanelNeedsConfirmation() throws {
@@ -34,6 +57,20 @@ final class WorkspaceCloseTabsContextMenuTests: XCTestCase {
         try invoke(.closeToLeft, anchorTabId: anchorTabId, fixture: fixture)
 
         assertRemainingTabs([anchorTabId], in: fixture)
+    }
+
+    func testSharedCloseHistoryPathRecordsDirectTabActionCloses() throws {
+        let fixture = try makeWorkspaceWithFourConfirmingTabs()
+        let tabId = fixture.tabIds[2]
+
+        XCTAssertTrue(fixture.workspace.requestCloseTabRecordingHistory(tabId, force: true))
+        drainMainQueue()
+
+        let entry = try XCTUnwrap(ClosedItemHistoryStore.shared.entries.last)
+        guard case .panel(let panelEntry) = entry else {
+            return XCTFail("Expected a closed panel history entry")
+        }
+        XCTAssertEqual(panelEntry.snapshot.customTitle, "Tab 3")
     }
 
     private struct Fixture {
@@ -56,8 +93,9 @@ final class WorkspaceCloseTabsContextMenuTests: XCTestCase {
         let tabIds = workspace.bonsplitController.tabs(inPane: paneId).map(\.id)
         XCTAssertEqual(tabIds.count, 4, "Precondition: fixture should start with four tabs in one pane")
 
-        for tabId in tabIds {
+        for (index, tabId) in tabIds.enumerated() {
             let panelId = try XCTUnwrap(workspace.panelIdFromSurfaceId(tabId))
+            workspace.setPanelCustomTitle(panelId: panelId, title: "Tab \(index + 1)")
             let terminalPanel = try XCTUnwrap(workspace.terminalPanel(for: panelId))
             terminalPanel.surface.setNeedsConfirmCloseOverrideForTesting(true)
         }

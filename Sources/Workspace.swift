@@ -8261,6 +8261,20 @@ final class Workspace: Identifiable, ObservableObject {
         }
     }
 
+    @discardableResult
+    func requestCloseTabRecordingHistory(_ tabId: TabID, force: Bool) -> Bool {
+        let panelId = panelIdFromSurfaceId(tabId)
+        if let panelId {
+            markCloseHistoryEligible(panelId: panelId)
+        }
+
+        let closed = requestCloseTab(tabId, force: force)
+        if !closed, let panelId {
+            _ = consumeCloseHistoryEligibility(tabId: tabId, panelId: panelId)
+        }
+        return closed
+    }
+
     func withClosedPanelHistorySuppressed(_ body: () -> Void) {
         let previous = suppressClosedPanelHistory
         suppressClosedPanelHistory = true

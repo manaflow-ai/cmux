@@ -5752,7 +5752,7 @@ class TerminalController {
                     if workspace.panels.count <= 1 {
                         break
                     }
-                    if workspace.closePanel(panelId, force: true) {
+                    if workspace.requestCloseTabRecordingHistory(tabId, force: true) {
                         closed += 1
                     }
                 }
