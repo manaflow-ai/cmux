@@ -15,7 +15,7 @@ final class AppearanceSettingsTests: XCTestCase {
             AppBundleIconPersistencePolicy.shouldPersist(
                 bundleIdentifier: "com.cmuxterm.app",
                 appBundleLastPathComponent: "cmux.app",
-                launchArguments: []
+                persistenceDisabled: false
             )
         )
     }
@@ -25,14 +25,14 @@ final class AppearanceSettingsTests: XCTestCase {
             AppBundleIconPersistencePolicy.shouldPersist(
                 bundleIdentifier: "com.cmuxterm.app.nightly",
                 appBundleLastPathComponent: "cmux NIGHTLY.app",
-                launchArguments: []
+                persistenceDisabled: false
             )
         )
         XCTAssertFalse(
             AppBundleIconPersistencePolicy.shouldPersist(
                 bundleIdentifier: "com.cmuxterm.app.nightly.issue-4350",
                 appBundleLastPathComponent: "cmux NIGHTLY issue-4350.app",
-                launchArguments: []
+                persistenceDisabled: false
             )
         )
     }
@@ -42,7 +42,7 @@ final class AppearanceSettingsTests: XCTestCase {
             AppBundleIconPersistencePolicy.shouldPersist(
                 bundleIdentifier: "com.cmuxterm.app",
                 appBundleLastPathComponent: "cmux NIGHTLY.app",
-                launchArguments: []
+                persistenceDisabled: false
             )
         )
     }
@@ -52,26 +52,47 @@ final class AppearanceSettingsTests: XCTestCase {
             AppBundleIconPersistencePolicy.shouldPersist(
                 bundleIdentifier: "com.cmuxterm.app.debug",
                 appBundleLastPathComponent: "cmux DEV.app",
-                launchArguments: []
+                persistenceDisabled: false
             )
         )
         XCTAssertFalse(
             AppBundleIconPersistencePolicy.shouldPersist(
                 bundleIdentifier: "com.cmuxterm.app.debug.issue-4350",
                 appBundleLastPathComponent: "cmux DEV issue-4350.app",
-                launchArguments: []
+                persistenceDisabled: false
             )
         )
     }
 
-    func testBundleIconPersistenceHonorsSmokeLaunchDisableArgument() {
+    func testBundleIconPersistenceHonorsDisableDefault() {
         XCTAssertFalse(
             AppBundleIconPersistencePolicy.shouldPersist(
                 bundleIdentifier: "com.cmuxterm.app",
                 appBundleLastPathComponent: "cmux.app",
-                launchArguments: [AppBundleIconPersistencePolicy.disablePersistenceArgument]
+                persistenceDisabled: true
             )
         )
+    }
+
+    func testBundleIconPersistenceMirrorsSmokeLaunchArgumentToDefaults() {
+        let suiteName = "AppearanceSettingsTests.BundleIconPersistence.\(UUID().uuidString)"
+        guard let defaults = UserDefaults(suiteName: suiteName) else {
+            XCTFail("Failed to create isolated UserDefaults suite")
+            return
+        }
+        defer { defaults.removePersistentDomain(forName: suiteName) }
+
+        AppBundleIconPersistencePolicy.updateDisableDefault(
+            defaults: defaults,
+            launchArguments: [AppBundleIconPersistencePolicy.disablePersistenceArgument]
+        )
+        XCTAssertTrue(defaults.bool(forKey: AppBundleIconPersistencePolicy.disablePersistenceDefaultsKey))
+
+        AppBundleIconPersistencePolicy.updateDisableDefault(
+            defaults: defaults,
+            launchArguments: []
+        )
+        XCTAssertFalse(defaults.bool(forKey: AppBundleIconPersistencePolicy.disablePersistenceDefaultsKey))
     }
 
     func testAppConfigReloadRefreshUpdatesSurfaceConfigBeforeRedraw() throws {

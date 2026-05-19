@@ -90,7 +90,10 @@ final class CmuxDockTilePlugin: NSObject, NSDockTilePlugIn {
         guard let appBundleURL else { return false }
         return AppBundleIconPersistencePolicy.shouldPersist(
             bundleIdentifier: appBundle?.bundleIdentifier,
-            appBundleLastPathComponent: appBundleURL.lastPathComponent
+            appBundleLastPathComponent: appBundleURL.lastPathComponent,
+            persistenceDisabled: appDefaults?.bool(
+                forKey: AppBundleIconPersistencePolicy.disablePersistenceDefaultsKey
+            ) ?? false
         )
     }
 

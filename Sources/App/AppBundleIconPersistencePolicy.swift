@@ -4,13 +4,21 @@ enum AppBundleIconPersistencePolicy {
     private static let stableReleaseBundleIdentifier = "com.cmuxterm.app"
     private static let stableReleaseAppBundleName = "cmux.app"
     static let disablePersistenceArgument = "--cmux-disable-bundle-icon-persistence"
+    static let disablePersistenceDefaultsKey = "cmuxDisableBundleIconPersistence"
+
+    static func updateDisableDefault(defaults: UserDefaults, launchArguments: [String]) {
+        defaults.set(
+            launchArguments.contains(disablePersistenceArgument),
+            forKey: disablePersistenceDefaultsKey
+        )
+    }
 
     static func shouldPersist(
         bundleIdentifier: String?,
         appBundleLastPathComponent: String?,
-        launchArguments: [String] = ProcessInfo.processInfo.arguments
+        persistenceDisabled: Bool = false
     ) -> Bool {
-        guard !launchArguments.contains(disablePersistenceArgument) else {
+        guard !persistenceDisabled else {
             return false
         }
 
