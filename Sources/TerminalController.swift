@@ -4720,6 +4720,7 @@ class TerminalController {
 
         var newId: UUID?
         let shouldFocus = v2FocusAllowed(requested: v2Bool(params, "focus") ?? false)
+        let startTerminalForAutomation = v2Bool(params, "start_terminal_for_automation") ?? false
         v2MainSync {
             let ws = tabManager.addWorkspace(
                 title: title,
@@ -4734,7 +4735,9 @@ class TerminalController {
                 ws.applyCustomLayout(layoutNode, baseCwd: cwd ?? ws.currentDirectory)
             }
             if !shouldFocus {
-                ws.requestBackgroundPrimeTerminalSurfaceStartIfNeeded()
+                ws.requestBackgroundPrimeTerminalSurfaceStartIfNeeded(
+                    includeIdleTerminals: startTerminalForAutomation
+                )
             }
             newId = ws.id
         }

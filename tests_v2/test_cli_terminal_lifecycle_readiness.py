@@ -232,9 +232,18 @@ def main() -> int:
             cleanup_windows.append(other_window)
             c.focus_window(baseline_window)
             _must(_current_workspace(c) == baseline_ws, "test setup should restore original window/workspace before cross-window case")
-            other_payload = c._call("workspace.create", {"window_id": other_window, "focus": False}) or {}
-            other_workspace = str(other_payload.get("workspace_ref") or other_payload.get("workspace_id") or "")
-            _must(bool(other_workspace), f"workspace.create in another window returned no workspace: {other_payload}")
+            other_created = _run_cli(
+                cli,
+                [
+                    "new-workspace",
+                    "--window",
+                    other_window,
+                    "--focus",
+                    "false",
+                ],
+            )
+            other_workspace = other_created.removeprefix("OK ").strip()
+            _must(bool(other_workspace), f"new-workspace in another window returned no workspace ref: {other_created!r}")
             cleanup_workspaces.append(other_workspace)
             other_surface = _surface_ref_by_index(c, other_workspace, 0)
             row = _wait_for_terminal_ready(c, other_workspace, other_surface, "other window background workspace")

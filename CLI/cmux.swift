@@ -2949,6 +2949,9 @@ struct CMUXCLI {
                 params["layout"] = layoutObj
             }
             try applyFocusOption(focusOpt, defaultValue: false, to: &params)
+            if (params["focus"] as? Bool) != true {
+                params["start_terminal_for_automation"] = true
+            }
             let response = try client.sendV2(method: "workspace.create", params: params)
             let wsId = (response["workspace_ref"] as? String) ?? (response["workspace_id"] as? String) ?? ""
             print("OK \(wsId)")
