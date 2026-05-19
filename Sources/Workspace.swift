@@ -9590,8 +9590,10 @@ final class Workspace: Identifiable, ObservableObject {
             localized: "remote.state.targetFallback",
             defaultValue: "remote host"
         )
-        if remoteConnectionState != .reconnecting,
-           remoteProxyEndpoint != nil || remoteDaemonStatus.state == .ready {
+        let vmNoProxyConnectionReady = remoteConnectionState != .reconnecting &&
+            remoteConfiguration?.skipDaemonBootstrap == true &&
+            remoteConfiguration?.daemonWebSocketEndpoint == nil
+        if remoteProxyEndpoint != nil || remoteDaemonStatus.state == .ready || vmNoProxyConnectionReady {
             if remoteConnectionState != .connected {
                 applyRemoteConnectionStateUpdate(.connected, detail: nil, target: target)
             }
