@@ -3019,6 +3019,8 @@ class GhosttyApp {
     }
 
     static func runtimeColorSchemeSynchronizationDecision(
+        applied _: ghostty_color_scheme_e?,
+        requested _: ghostty_color_scheme_e,
         isSynchronizing: Bool
     ) -> RuntimeColorSchemeSynchronizationDecision {
         if isSynchronizing {
@@ -3059,6 +3061,21 @@ class GhosttyApp {
         forBackgroundColor backgroundColor: NSColor
     ) -> GhosttyConfig.ColorSchemePreference {
         cmuxReadableColorScheme(for: backgroundColor) == .light ? .light : .dark
+    }
+
+    static func runtimeColorSchemeForConfigLoad(
+        source: String,
+        requestedColorScheme: GhosttyConfig.ColorSchemePreference,
+        effectiveTerminalColorScheme: GhosttyConfig.ColorSchemePreference,
+        cmuxThemeValue: String?
+    ) -> GhosttyConfig.ColorSchemePreference {
+        guard GhosttySurfaceConfigurationRefresh.isCmuxThemeReloadSource(source),
+              let cmuxThemeValue,
+              GhosttyConfig.themeValueUsesSameResolvedThemeInBothColorSchemes(cmuxThemeValue) else {
+            return requestedColorScheme
+        }
+
+        return effectiveTerminalColorScheme
     }
 
     static func shouldCaptureScrollLagEvent(
@@ -3107,7 +3124,33 @@ class GhosttyApp {
         cmuxDebugLog(
             "loaded cmux app support ghostty config from: \(urls.map(\.path).joined(separator: ", "))"
         )
-#endif
+        #endif
+        #endif
+    }
+
+    private func currentCmuxAppSupportThemeValue() -> String? {
+        #if os(macOS)
+        let fm = FileManager.default
+        guard let appSupport = fm.urls(for: .applicationSupportDirectory, in: .userDomainMask).first else {
+            return nil
+        }
+        let urls = Self.cmuxAppSupportConfigURLs(
+            currentBundleIdentifier: Bundle.main.bundleIdentifier,
+            appSupportDirectory: appSupport,
+            fileManager: fm
+        )
+
+        var lastValue: String?
+        for url in urls {
+            guard let contents = try? String(contentsOf: url, encoding: .utf8),
+                  let value = GhosttyConfig.lastThemeDirective(in: contents) else {
+                continue
+            }
+            lastValue = value
+        }
+        return lastValue
+        #else
+        return nil
         #endif
     }
 
@@ -3203,10 +3246,16 @@ class GhosttyApp {
             logThemeAction("reload skipped source=\(source) soft=\(soft) reason=no_app")
             return
         }
-        // Use the appearance preference only while loading config so Ghostty can resolve
-        // conditional theme pairs. After the config resolves, rendering follows the
-        // terminal background itself; single explicit light themes can be used in dark app mode.
-        synchronizeGhosttyRuntimeColorScheme(reloadColorScheme, source: "reloadConfiguration:\(source):load")
+        // Use the appearance preference while loading conditional theme pairs. For cmux
+        // single-theme reloads, keep the resolved terminal scheme stable until the new
+        // background is known so same-scheme theme changes do not flash through app mode.
+        let loadColorScheme = Self.runtimeColorSchemeForConfigLoad(
+            source: source,
+            requestedColorScheme: reloadColorScheme,
+            effectiveTerminalColorScheme: effectiveTerminalColorSchemePreference,
+            cmuxThemeValue: currentCmuxAppSupportThemeValue()
+        )
+        synchronizeGhosttyRuntimeColorScheme(loadColorScheme, source: "reloadConfiguration:\(source):load")
         logThemeAction("reload begin source=\(source) soft=\(soft)")
         resetDefaultBackgroundUpdateScope(source: "reloadConfiguration(source=\(source))")
         if soft, let config {
@@ -3325,12 +3374,21 @@ class GhosttyApp {
     ) {
         guard let app else { return }
         let decision = Self.runtimeColorSchemeSynchronizationDecision(
+            applied: appliedGhosttyRuntimeColorScheme,
+            requested: runtimeColorScheme,
             isSynchronizing: runtimeColorSchemeSynchronizationDepth > 0
         )
         guard decision == .apply else {
             if backgroundLogEnabled {
                 let schemeLabel = colorScheme == .dark ? "dark" : "light"
-                logBackground("app color scheme skipped source=\(source) scheme=\(schemeLabel) reason=reentrant")
+                let reason: String
+                switch decision {
+                case .apply:
+                    reason = "apply"
+                case .skipReentrant:
+                    reason = "reentrant"
+                }
+                logBackground("app color scheme skipped source=\(source) scheme=\(schemeLabel) reason=\(reason)")
             }
             return
         }
