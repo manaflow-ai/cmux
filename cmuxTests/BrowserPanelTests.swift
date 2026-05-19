@@ -3538,10 +3538,12 @@ final class BrowserWindowPortalLifecycleTests: XCTestCase {
             reason: "visibleForcedRefresh",
             forceRenderingStateReattach: true
         )
+        advanceAnimations()
         let displayCountAfterVisibleRefresh = webView.displayIfNeededCount
         let reattachCountAfterVisibleRefresh = webView.reattachRenderingStateCount
 
         BrowserWindowPortalRegistry.refreshAfterNavigationDidFinish(webView: webView)
+        advanceAnimations()
 
         XCTAssertEqual(
             webView.displayIfNeededCount,
@@ -3615,21 +3617,31 @@ final class BrowserWindowPortalLifecycleTests: XCTestCase {
         BrowserWindowPortalRegistry.synchronizeForAnchor(anchor)
         advanceAnimations()
         XCTAssertFalse(slot.isPortalHidden)
+        XCTAssertGreaterThan(
+            webView.displayIfNeededCount,
+            hiddenDisplayCount,
+            "The queued navigation repair should repaint on first visible reveal"
+        )
+        XCTAssertGreaterThan(
+            webView.reattachRenderingStateCount,
+            hiddenReattachCount,
+            "The queued navigation repair should run once the portal is visible"
+        )
         let visibleReattachCount = webView.reattachRenderingStateCount
         let visibleDisplayCount = webView.displayIfNeededCount
 
         BrowserWindowPortalRegistry.refreshAfterNavigationDidFinish(webView: webView)
         advanceAnimations()
 
-        XCTAssertGreaterThan(
+        XCTAssertEqual(
             webView.displayIfNeededCount,
             visibleDisplayCount,
-            "Visible navigation completion should repaint the portal-hosted browser"
+            "Visible navigation completion should not repaint after the queued repair was handled on reveal"
         )
-        XCTAssertGreaterThan(
+        XCTAssertEqual(
             webView.reattachRenderingStateCount,
             visibleReattachCount,
-            "The queued navigation repair should run once the portal is visible"
+            "Visible navigation completion should not re-run private WebKit selectors after reveal consumed the queued repair"
         )
     }
 

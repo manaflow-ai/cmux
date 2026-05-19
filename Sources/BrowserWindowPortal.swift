@@ -3912,12 +3912,18 @@ final class WindowBrowserPortal: NSObject {
             containerOwnsWebView &&
             hostView.reapplyHostedInspectorDividerIfNeeded(in: containerView, reason: "portal.sync")
         let requiresRenderingStateReattach = webView.browserPortalRequiresRenderingStateReattach
+        let hasPendingNavigationRenderingStateReattach =
+            webView.browserPortalHasPendingNavigationRenderingStateReattach
         let presentationUpdateKind = HostedWebViewPresentationUpdateKind.resolve(
             reasons: refreshReasons
         )
         let shouldForceRenderingStateReattach =
             presentationUpdateKind == .refresh &&
-            (forceRenderingStateReattach || recoveredFromTransientGeometry)
+            (
+                forceRenderingStateReattach ||
+                recoveredFromTransientGeometry ||
+                (!containerView.isPortalHidden && hasPendingNavigationRenderingStateReattach)
+            )
         if presentationUpdateKind == .refresh,
            forceRenderingStateReattach,
            scheduleNavigationRenderingStateReattach,

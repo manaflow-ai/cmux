@@ -843,7 +843,14 @@ final class SplitCloseRightBlankRegressionUITests: XCTestCase {
         }
 
         var looksLikeLoadedLightBrowserPage: Bool {
-            meanLuma > 180.0 && brightFraction > 0.55 && darkFraction < 0.25
+            let hasVisibleStructure =
+                lumaStdDev > 6.0 &&
+                uniqueQuantized > 8 &&
+                modeFraction < 0.985
+            return meanLuma > 180.0 &&
+                brightFraction > 0.55 &&
+                darkFraction < 0.25 &&
+                hasVisibleStructure
         }
     }
 
@@ -1017,6 +1024,7 @@ final class SplitCloseRightBlankRegressionUITests: XCTestCase {
                 file: file,
                 line: line
             )
+            return
         }
     }
 
