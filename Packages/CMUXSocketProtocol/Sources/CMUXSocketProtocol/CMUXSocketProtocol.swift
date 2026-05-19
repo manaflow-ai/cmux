@@ -285,6 +285,7 @@ nonisolated public enum CMUXSocketProtocol {
         "feed.permission.reply",
         "feed.question.reply",
         "feed.exit_plan.reply",
+        "browser.download.wait",
         "browser.profiles.list",
         "browser.profiles.create",
         "browser.profiles.rename",
