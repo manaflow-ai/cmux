@@ -49,7 +49,10 @@ extension CmuxUseSupport {
               value != ".",
               value != "..",
               value.range(of: #"^[A-Za-z0-9._-]+$"#, options: .regularExpression) != nil else {
-            throw CLIError(message: "cmux.extension.json \(fieldName) must contain only letters, numbers, '.', '_' or '-'")
+            throw CLIError(message: String(
+                localized: "cli.use.error.manifestPathComponentInvalid",
+                defaultValue: "cmux.extension.json \(fieldName) must contain only letters, numbers, '.', '_' or '-'"
+            ))
         }
         return value
     }
@@ -57,7 +60,10 @@ extension CmuxUseSupport {
     static func manifestInstallPathURL(_ raw: String, homeURL: URL) throws -> URL {
         let trimmed = raw.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !trimmed.isEmpty else {
-            throw CLIError(message: "cmux.extension.json install.path must be non-empty")
+            throw CLIError(message: String(
+                localized: "cli.use.error.installPathNonEmpty",
+                defaultValue: "cmux.extension.json install.path must be non-empty"
+            ))
         }
 
         let relativePath: String
@@ -66,7 +72,10 @@ extension CmuxUseSupport {
         } else if trimmed.hasPrefix("$HOME/") {
             relativePath = String(trimmed.dropFirst("$HOME/".count))
         } else {
-            throw CLIError(message: "cmux.extension.json install.path must start with ~/ or $HOME/ and include a subdirectory")
+            throw CLIError(message: String(
+                localized: "cli.use.error.installPathHomeRelative",
+                defaultValue: "cmux.extension.json install.path must start with ~/ or $HOME/ and include a subdirectory"
+            ))
         }
 
         let parts = relativePath
@@ -74,10 +83,16 @@ extension CmuxUseSupport {
             .map(String.init)
         guard !parts.isEmpty,
               parts.allSatisfy({ !$0.isEmpty && $0 != "." && $0 != ".." }) else {
-            throw CLIError(message: "cmux.extension.json install.path must include a subdirectory and must not contain '.' or '..'")
+            throw CLIError(message: String(
+                localized: "cli.use.error.installPathNoDotSegments",
+                defaultValue: "cmux.extension.json install.path must include a subdirectory and must not contain '.' or '..'"
+            ))
         }
         if let sensitivePrefix = sensitiveHomeInstallPathPrefix(in: parts) {
-            throw CLIError(message: "cmux.extension.json install.path must not target sensitive home directory ~/\(sensitivePrefix)")
+            throw CLIError(message: String(
+                localized: "cli.use.error.installPathSensitiveHomeDirectory",
+                defaultValue: "cmux.extension.json install.path must not target sensitive home directory ~/\(sensitivePrefix)"
+            ))
         }
 
         let home = homeURL.standardizedFileURL.resolvingSymlinksInPath()
@@ -87,13 +102,22 @@ extension CmuxUseSupport {
         }
         let standardized = resolved.standardizedFileURL.resolvingSymlinksInPath()
         guard let resolvedParts = relativeHomePathComponents(for: standardized, home: home) else {
-            throw CLIError(message: "cmux.extension.json install.path must resolve inside the user's home directory")
+            throw CLIError(message: String(
+                localized: "cli.use.error.installPathResolveInsideHome",
+                defaultValue: "cmux.extension.json install.path must resolve inside the user's home directory"
+            ))
         }
         guard !resolvedParts.isEmpty else {
-            throw CLIError(message: "cmux.extension.json install.path must resolve to a subdirectory inside the user's home directory")
+            throw CLIError(message: String(
+                localized: "cli.use.error.installPathResolveToHomeSubdirectory",
+                defaultValue: "cmux.extension.json install.path must resolve to a subdirectory inside the user's home directory"
+            ))
         }
         if let sensitivePrefix = sensitiveHomeInstallPathPrefix(in: resolvedParts) {
-            throw CLIError(message: "cmux.extension.json install.path must not target sensitive home directory ~/\(sensitivePrefix)")
+            throw CLIError(message: String(
+                localized: "cli.use.error.installPathSensitiveHomeDirectory",
+                defaultValue: "cmux.extension.json install.path must not target sensitive home directory ~/\(sensitivePrefix)"
+            ))
         }
         return standardized
     }

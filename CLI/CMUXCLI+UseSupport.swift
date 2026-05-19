@@ -45,7 +45,10 @@ nonisolated enum CmuxUseSupport {
     static func parseGitHubRepository(_ raw: String) throws -> CmuxUseRepository {
         let trimmed = raw.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !trimmed.isEmpty else {
-            throw CLIError(message: "cmux use requires a GitHub repository")
+            throw CLIError(message: String(
+                localized: "cli.use.error.repositoryRequired",
+                defaultValue: "cmux use requires a GitHub repository"
+            ))
         }
 
         if let scpStylePath = gitHubSCPStylePath(trimmed) {
@@ -160,7 +163,10 @@ nonisolated enum CmuxUseSupport {
             guard FileManager.default.fileExists(atPath: manifestURL.path) else { continue }
             let data = try Data(contentsOf: manifestURL)
             guard let manifest = try JSONSerialization.jsonObject(with: data) as? [String: Any] else {
-                throw CLIError(message: "\(manifestName) must contain a JSON object")
+                throw CLIError(message: String(
+                    localized: "cli.use.error.manifestMustBeJSONObject",
+                    defaultValue: "\(manifestName) must contain a JSON object"
+                ))
             }
 
             let nestedCommand = manifestCommand(in: manifest)
@@ -244,13 +250,19 @@ nonisolated enum CmuxUseSupport {
             : cleanedPath
         let parts = withoutSuffix.split(separator: "/").map(String.init)
         guard parts.count >= 2 else {
-            throw CLIError(message: "Usage: cmux use <owner/repo|github-url>")
+            throw CLIError(message: String(
+                localized: "cli.use.error.usage",
+                defaultValue: "Usage: cmux use <owner/repo|github-url>"
+            ))
         }
 
         let owner = parts[0]
         let name = parts[1]
         guard isValidGitHubPathComponent(owner), isValidGitHubPathComponent(name) else {
-            throw CLIError(message: "Invalid GitHub repository. Use owner/repo or a github.com URL.")
+            throw CLIError(message: String(
+                localized: "cli.use.error.invalidRepository",
+                defaultValue: "Invalid GitHub repository. Use owner/repo or a github.com URL."
+            ))
         }
 
         return CmuxUseRepository(owner: owner, name: name, cloneURL: cloneURL)

@@ -19,10 +19,16 @@ extension CMUXCLI {
                 }
                 let v2Response = try client.sendV2(method: "auth.login", params: ["password": socketPassword])
                 guard v2Response["authenticated"] as? Bool == true else {
-                    throw CLIError(message: "Authentication failed")
+                    throw CLIError(message: String(
+                        localized: "cli.use.error.authenticationFailed",
+                        defaultValue: "Authentication failed"
+                    ))
                 }
             } else if authResponse.hasPrefix("ERROR:") {
-                throw CLIError(message: "Authentication failed")
+                throw CLIError(message: String(
+                    localized: "cli.use.error.authenticationFailed",
+                    defaultValue: "Authentication failed"
+                ))
             }
         }
     }
@@ -65,6 +71,9 @@ extension CMUXCLI {
         guard strictOpenExit, process.terminationStatus != 0 else {
             return
         }
-        throw CLIError(message: "Failed to launch cmux (exit \(process.terminationStatus))")
+        throw CLIError(message: String(
+            localized: "cli.use.error.launchFailed",
+            defaultValue: "Failed to launch cmux (exit \(process.terminationStatus))"
+        ))
     }
 }

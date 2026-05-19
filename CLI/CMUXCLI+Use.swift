@@ -1,4 +1,3 @@
-import Darwin
 import Foundation
 
 extension CMUXCLI {
@@ -22,22 +21,6 @@ extension CMUXCLI {
         }
     }
 
-    private struct CmuxUseCheckoutResult {
-        let url: URL
-        let action: String
-    }
-
-    private struct CmuxUseInstallResult {
-        let url: URL
-        let action: String
-        let mode: String
-    }
-
-    private struct CmuxUseLaunchScript {
-        let initialCommand: String
-        let url: URL
-    }
-
     private func parseUseOptions(_ commandArgs: [String]) throws -> CmuxUseOptions {
         var repositoryArg: String?
         var commandMode = CmuxUseCommandMode.automatic
@@ -48,42 +31,66 @@ extension CMUXCLI {
             switch arg {
             case "--command":
                 guard index + 1 < commandArgs.count else {
-                    throw CLIError(message: "cmux use: --command requires a value")
+                    throw CLIError(message: String(
+                        localized: "cli.use.error.commandRequiresValue",
+                        defaultValue: "cmux use: --command requires a value"
+                    ))
                 }
                 let command = commandArgs[index + 1].trimmingCharacters(in: .whitespacesAndNewlines)
                 guard !command.isEmpty else {
-                    throw CLIError(message: "cmux use: --command requires a non-empty value")
+                    throw CLIError(message: String(
+                        localized: "cli.use.error.commandRequiresNonEmptyValue",
+                        defaultValue: "cmux use: --command requires a non-empty value"
+                    ))
                 }
                 guard !command.hasPrefix("--") else {
-                    throw CLIError(message: "cmux use: --command requires a command, not another flag")
+                    throw CLIError(message: String(
+                        localized: "cli.use.error.commandValueCannotBeFlag",
+                        defaultValue: "cmux use: --command requires a command, not another flag"
+                    ))
                 }
                 if case .none = commandMode {
-                    throw CLIError(message: "cmux use: --command cannot be used with --no-run")
+                    throw CLIError(message: String(
+                        localized: "cli.use.error.commandCannotCombineNoRun",
+                        defaultValue: "cmux use: --command cannot be used with --no-run"
+                    ))
                 }
                 commandMode = .override(command)
                 index += 2
             case "--no-run":
                 if case .override = commandMode {
-                    throw CLIError(message: "cmux use: --command cannot be used with --no-run")
+                    throw CLIError(message: String(
+                        localized: "cli.use.error.commandCannotCombineNoRun",
+                        defaultValue: "cmux use: --command cannot be used with --no-run"
+                    ))
                 }
                 commandMode = .none
                 index += 1
             default:
                 if arg.hasPrefix("--") {
-                    throw CLIError(message: "cmux use: unknown flag '\(arg)'. Known flags: --command <cmd>, --no-run")
+                    throw CLIError(message: String(
+                        localized: "cli.use.error.unknownFlag",
+                        defaultValue: "cmux use: unknown flag '\(arg)'. Known flags: --command <cmd>, --no-run"
+                    ))
                 }
                 if repositoryArg == nil {
                     repositoryArg = arg
                     index += 1
                 } else {
-                    throw CLIError(message: "cmux use: unexpected argument '\(arg)'")
+                    throw CLIError(message: String(
+                        localized: "cli.use.error.unexpectedArgument",
+                        defaultValue: "cmux use: unexpected argument '\(arg)'"
+                    ))
                 }
             }
         }
 
         guard let repositoryArg,
               !repositoryArg.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else {
-            throw CLIError(message: "Usage: cmux use <owner/repo|github-url> [--command <cmd>] [--no-run]")
+            throw CLIError(message: String(
+                localized: "cli.use.error.usageWithFlags",
+                defaultValue: "Usage: cmux use <owner/repo|github-url> [--command <cmd>] [--no-run]"
+            ))
         }
 
         return CmuxUseOptions(
@@ -172,7 +179,10 @@ extension CMUXCLI {
             var params: [String: Any] = [
                 "cwd": install.url.path,
                 "title": manifest.name,
-                "description": "cmux extension: \(repository.fullName)",
+                "description": String(
+                    localized: "cli.use.workspaceDescription",
+                    defaultValue: "cmux extension: \(repository.fullName)"
+                ),
                 "initial_env": initialEnv,
             ]
             if let windowOverride,
@@ -190,7 +200,10 @@ extension CMUXCLI {
                 ?? (response["workspace_ref"] as? String)
                 ?? (response["workspace_id"] as? String)
             guard let workspaceHandle, !workspaceHandle.isEmpty else {
-                throw CLIError(message: "workspace.create did not return workspace_id or workspace_ref")
+                throw CLIError(message: String(
+                    localized: "cli.use.error.workspaceCreateMissingID",
+                    defaultValue: "workspace.create did not return workspace_id or workspace_ref"
+                ))
             }
             shouldRemoveLaunchScriptOnFailure = false
 
@@ -223,254 +236,29 @@ extension CMUXCLI {
                 return
             }
 
-            print("OK \(workspaceHandle)")
-            print("Repository: \(repository.fullName)")
-            print("Mode: \(install.mode)")
-            print("Extension: \(manifest.id) \(manifest.version)")
-            print("Manifest: \(manifest.sourceFile)")
+            print(String(localized: "cli.use.output.ok", defaultValue: "OK \(workspaceHandle)"))
+            print(String(localized: "cli.use.output.repository", defaultValue: "Repository: \(repository.fullName)"))
+            print(String(localized: "cli.use.output.mode", defaultValue: "Mode: \(install.mode)"))
+            print(String(localized: "cli.use.output.extension", defaultValue: "Extension: \(manifest.id) \(manifest.version)"))
+            print(String(localized: "cli.use.output.manifest", defaultValue: "Manifest: \(manifest.sourceFile)"))
             if let generatedManifestURL {
-                print("Generated manifest: \(generatedManifestURL.path)")
+                print(String(
+                    localized: "cli.use.output.generatedManifest",
+                    defaultValue: "Generated manifest: \(generatedManifestURL.path)"
+                ))
             }
-            print("Path: \(install.url.path)")
-            print("Source: \(sourceCheckout.url.path)")
-            print("Install: \(install.action)")
+            print(String(localized: "cli.use.output.path", defaultValue: "Path: \(install.url.path)"))
+            print(String(localized: "cli.use.output.source", defaultValue: "Source: \(sourceCheckout.url.path)"))
+            print(String(localized: "cli.use.output.install", defaultValue: "Install: \(install.action)"))
             if let detectedCommand {
-                print("Command: \(detectedCommand.command)")
-                print("Detected: \(detectedCommand.source)")
+                print(String(localized: "cli.use.output.command", defaultValue: "Command: \(detectedCommand.command)"))
+                print(String(localized: "cli.use.output.detected", defaultValue: "Detected: \(detectedCommand.source)"))
             } else {
-                print("Command: none detected; workspace opened at the checkout")
+                print(String(
+                    localized: "cli.use.output.noCommandDetected",
+                    defaultValue: "Command: none detected; workspace opened at the checkout"
+                ))
             }
         }
-    }
-
-    private func installManifestExtension(
-        checkoutURL: URL,
-        manifest: CmuxUseManifest
-    ) throws -> CmuxUseCheckoutResult {
-        let fm = FileManager.default
-        let installURL = try CmuxUseSupport.manifestInstallURL(for: manifest)
-        let parentURL = installURL.deletingLastPathComponent()
-        try fm.createDirectory(at: parentURL, withIntermediateDirectories: true, attributes: nil)
-
-        let existed = fm.fileExists(atPath: installURL.path)
-        let tempURL = parentURL.appendingPathComponent(".\(manifest.version).tmp.\(UUID().uuidString)", isDirectory: true)
-        defer { try? fm.removeItem(at: tempURL) }
-
-        try fm.copyItem(at: checkoutURL, to: tempURL)
-        try? fm.removeItem(at: tempURL.appendingPathComponent(".git", isDirectory: true))
-
-        var backupURLToFinalize: URL?
-        var shouldFinalizeBackup = true
-        defer {
-            if shouldFinalizeBackup, let backupURL = backupURLToFinalize {
-                if fm.fileExists(atPath: installURL.path) {
-                    try? fm.removeItem(at: backupURL)
-                } else if fm.fileExists(atPath: backupURL.path) {
-                    try? fm.moveItem(at: backupURL, to: installURL)
-                }
-            }
-        }
-
-        if existed {
-            let backupURL = parentURL.appendingPathComponent(".\(manifest.version).previous.\(UUID().uuidString)", isDirectory: true)
-            try fm.moveItem(at: installURL, to: backupURL)
-            backupURLToFinalize = backupURL
-            do {
-                try fm.moveItem(at: tempURL, to: installURL)
-            } catch {
-                let installError = error
-                if !fm.fileExists(atPath: installURL.path),
-                   fm.fileExists(atPath: backupURL.path) {
-                    do {
-                        try fm.moveItem(at: backupURL, to: installURL)
-                    } catch {
-                        shouldFinalizeBackup = false
-                        let message = "Failed to replace extension at \(installURL.path): \(installError.localizedDescription). "
-                            + "Previous installation remains at \(backupURL.path) because restore failed: \(error.localizedDescription)"
-                        throw CLIError(message: message)
-                    }
-                }
-                throw installError
-            }
-        } else {
-            try fm.moveItem(at: tempURL, to: installURL)
-        }
-        return CmuxUseCheckoutResult(url: installURL, action: existed ? "reinstalled" : "installed")
-    }
-
-    private func runUseInstallCommand(_ command: String, cwd: URL, jsonOutput: Bool) throws {
-        let process = Process()
-        process.executableURL = URL(fileURLWithPath: "/bin/zsh")
-        process.arguments = ["-lc", command]
-        process.currentDirectoryURL = cwd
-
-        process.standardOutput = jsonOutput ? FileHandle.standardError : FileHandle.standardOutput
-        process.standardError = FileHandle.standardError
-
-        try process.run()
-        process.waitUntilExit()
-
-        guard process.terminationStatus == 0 else {
-            throw CLIError(message: "cmux use install command failed: exit \(process.terminationStatus)")
-        }
-    }
-
-    private func writeUseLaunchCommandScript(_ command: String) throws -> CmuxUseLaunchScript {
-        let trimmedCommand = command.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !trimmedCommand.isEmpty else {
-            throw CLIError(message: "cmux use launch command is empty")
-        }
-
-        let scriptURL = FileManager.default.temporaryDirectory.appendingPathComponent(
-            "cmux-use-launch-\(UUID().uuidString.lowercased()).sh",
-            isDirectory: false
-        )
-        let encodedCommand = shellQuote(Data(trimmedCommand.utf8).base64EncodedString())
-        let script = """
-        #!/bin/sh
-        if ! cmux_use_command="$(printf %s \(encodedCommand) | base64 -d 2>/dev/null || printf %s \(encodedCommand) | base64 -D 2>/dev/null)"; then
-          printf '\\n[cmux] failed to decode launch command; starting a shell.\\n' >&2 || true
-          rm -f -- "$0" 2>/dev/null || true
-          exec "${SHELL:-/bin/zsh}" -l
-        fi
-        rm -f -- "$0" 2>/dev/null || true
-        /bin/zsh -lc "$cmux_use_command"
-        cmux_use_status=$?
-        printf '\\n[cmux] command exited with status %s; starting a shell.\\n' "$cmux_use_status" >&2 || true
-        unset cmux_use_command cmux_use_status
-        exec "${SHELL:-/bin/zsh}" -l
-        """
-        try script.appending("\n").write(to: scriptURL, atomically: true, encoding: .utf8)
-        try FileManager.default.setAttributes([.posixPermissions: 0o700], ofItemAtPath: scriptURL.path)
-        return CmuxUseLaunchScript(initialCommand: shellQuote(scriptURL.path), url: scriptURL)
-    }
-
-    private func ensureUseCheckout(
-        repository: CmuxUseRepository,
-        checkoutURL: URL
-    ) throws -> CmuxUseCheckoutResult {
-        let gitPath = try resolveGitExecutable()
-        let fm = FileManager.default
-        let parentURL = checkoutURL.deletingLastPathComponent()
-        try fm.createDirectory(at: parentURL, withIntermediateDirectories: true, attributes: nil)
-
-        var isDirectory: ObjCBool = false
-        let exists = fm.fileExists(atPath: checkoutURL.path, isDirectory: &isDirectory)
-        if !exists {
-            let result = CLIProcessRunner.runProcess(
-                executablePath: gitPath,
-                arguments: ["clone", repository.cloneURL, checkoutURL.path]
-            )
-            guard result.status == 0 else {
-                throw CLIError(message: processFailureMessage("Failed to download extension repository", result: result))
-            }
-            return CmuxUseCheckoutResult(url: checkoutURL, action: "cloned")
-        }
-
-        guard isDirectory.boolValue else {
-            throw CLIError(message: "Extension checkout path exists and is not a directory: \(checkoutURL.path)")
-        }
-
-        let gitDirectoryURL = checkoutURL.appendingPathComponent(".git", isDirectory: true)
-        guard fm.fileExists(atPath: gitDirectoryURL.path) else {
-            throw CLIError(message: "Extension checkout exists but is not a git repository: \(checkoutURL.path)")
-        }
-
-        let remoteResult = CLIProcessRunner.runProcess(
-            executablePath: gitPath,
-            arguments: ["-C", checkoutURL.path, "remote", "get-url", "origin"]
-        )
-        guard remoteResult.status == 0 else {
-            throw CLIError(message: processFailureMessage("Failed to inspect existing extension checkout", result: remoteResult))
-        }
-        let remoteURL = remoteResult.stdout.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard CmuxUseSupport.gitRemote(remoteURL, matches: repository) else {
-            throw CLIError(message: "Existing extension checkout origin does not match the requested repository")
-        }
-
-        let pullResult = CLIProcessRunner.runProcess(
-            executablePath: gitPath,
-            arguments: ["-C", checkoutURL.path, "pull", "--ff-only"]
-        )
-        guard pullResult.status == 0 else {
-            throw CLIError(message: processFailureMessage("Failed to update extension repository", result: pullResult))
-        }
-        return CmuxUseCheckoutResult(url: checkoutURL, action: "updated")
-    }
-
-    private func resolveGitExecutable() throws -> String {
-        if let gitPath = resolveExecutableInPath("git") {
-            return gitPath
-        }
-        if FileManager.default.isExecutableFile(atPath: "/usr/bin/git") {
-            return "/usr/bin/git"
-        }
-        throw CLIError(message: "cmux use requires git in PATH")
-    }
-
-    private func processFailureMessage(_ message: String, result: CLIProcessResult) -> String {
-        "\(message) (exit \(result.status))"
-    }
-
-    private func withUseSocketClient<T>(
-        socketPath: String,
-        explicitPassword: String?,
-        _ body: (SocketClient, Bool) throws -> T
-    ) throws -> T {
-        let client = SocketClient(path: socketPath)
-        do {
-            try client.connect()
-        } catch {
-            client.close()
-            guard shouldLaunchAppAfterSocketConnectFailure(socketPath: socketPath) else {
-                throw CLIError(message: "Failed to connect to cmux socket at \(socketPath): \(error)")
-            }
-
-            return try withLaunchedUseSocketClient(
-                socketPath: socketPath,
-                explicitPassword: explicitPassword,
-                body
-            )
-        }
-
-        defer { client.close() }
-        try authenticateClientIfNeeded(
-            client,
-            explicitPassword: explicitPassword,
-            socketPath: socketPath,
-            allowV2Fallback: true
-        )
-        return try body(client, false)
-    }
-
-    private func withLaunchedUseSocketClient<T>(
-        socketPath: String,
-        explicitPassword: String?,
-        _ body: (SocketClient, Bool) throws -> T
-    ) throws -> T {
-        try launchApp(strictOpenExit: true)
-        let launchedClient = try SocketClient.waitForConnectableSocket(path: socketPath, timeout: 10)
-        defer { launchedClient.close() }
-        try authenticateClientIfNeeded(
-            launchedClient,
-            explicitPassword: explicitPassword,
-            socketPath: socketPath,
-            allowV2Fallback: true
-        )
-        return try body(launchedClient, true)
-    }
-
-    private func shouldLaunchAppAfterSocketConnectFailure(socketPath: String) -> Bool {
-        guard socketPath.hasPrefix("/") else {
-            return false
-        }
-
-        var metadata = stat()
-        guard stat(socketPath, &metadata) == 0 else {
-            return true
-        }
-
-        let fileType = metadata.st_mode & mode_t(S_IFMT)
-        return fileType == mode_t(S_IFSOCK) && metadata.st_uid == getuid()
     }
 }
