@@ -367,6 +367,8 @@ extension AgentLaunchSanitizer {
             "--reasoning-effort",
             "--resume",
             "-r",
+            "--session-id",
+            "-s",
             "--rules",
             "--sandbox",
             "--single",

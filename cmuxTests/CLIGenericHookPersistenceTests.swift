@@ -1,5 +1,6 @@
 import XCTest
 import Darwin
+import CMUXAgentLaunch
 
 extension CLINotifyProcessIntegrationRegressionTests {
     struct GenericHookPersistenceScenario {
@@ -500,7 +501,7 @@ extension CLINotifyProcessIntegrationRegressionTests {
 
         let sessionDirectory = root
             .appendingPathComponent(".grok/sessions", isDirectory: true)
-            .appendingPathComponent(Self.grokEncodedSessionCWDForTest(workspace.path), isDirectory: true)
+            .appendingPathComponent(GrokSessionSummaryReader.encodedSessionCWD(workspace.path), isDirectory: true)
             .appendingPathComponent(sessionId, isDirectory: true)
         try FileManager.default.createDirectory(at: sessionDirectory, withIntermediateDirectories: true)
         try FileManager.default.createDirectory(at: workspace, withIntermediateDirectories: true)
@@ -558,11 +559,5 @@ extension CLINotifyProcessIntegrationRegressionTests {
         XCTAssertTrue(notificationCommand.contains("Inspected the hook payload"), notificationCommand)
         XCTAssertTrue(notificationCommand.contains("Completed in Grok Repo"), notificationCommand)
         XCTAssertFalse(notificationCommand.contains("turn complete in 4.9s"), notificationCommand)
-    }
-
-    private static func grokEncodedSessionCWDForTest(_ cwd: String) -> String {
-        var allowed = CharacterSet.alphanumerics
-        allowed.insert(charactersIn: "-._~")
-        return cwd.addingPercentEncoding(withAllowedCharacters: allowed) ?? cwd
     }
 }

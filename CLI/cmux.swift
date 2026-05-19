@@ -17536,7 +17536,7 @@ struct CMUXCLI {
 
         if let toolInput = (object["tool_input"] as? [String: Any]) ?? (object["toolInput"] as? [String: Any]) {
             var compactToolInput: [String: Any] = [:]
-            for key in ["file_path", "command", "pattern", "description", "query", "plan", "planFilePath"] {
+            for key in ["file_path", "filePath", "command", "pattern", "description", "query", "plan", "planFilePath"] {
                 if let value = compactClaudeHookToolInputValue(toolInput[key], key: key) {
                     compactToolInput[key] = value
                 }
@@ -17637,7 +17637,7 @@ struct CMUXCLI {
 
     private func compactClaudeHookToolInputValue(_ rawValue: Any?, key: String) -> String? {
         switch key {
-        case "file_path":
+        case "file_path", "filePath":
             return compactClaudeHookStringValue(rawValue, maxLength: 240, keepSuffix: true)
         case "planFilePath":
             return compactClaudeHookStringValue(rawValue, maxLength: 240, keepSuffix: true)
@@ -17747,152 +17747,27 @@ struct CMUXCLI {
         let cwd = parsedInput.cwd ?? sessionRecord?.cwd
         let projectName = projectName(fromCWD: cwd)
         let subtitle = completedSubtitle(projectName: projectName)
-        let sessionId = parsedInput.sessionId ?? sessionRecord?.sessionId
-        let sessionSummary = sessionId.flatMap {
-            readGrokSessionSummary(sessionId: $0, cwd: cwd, env: env)
-        }
-
         let hookAssistant = claudeAssistantMessageFromHookPayload(parsedInput.object)
         let genericMessage = grokHookMessage(from: parsedInput.object)
-        let body = hookAssistant
-            ?? sessionSummary?.lastAssistantMessage
-            ?? sessionSummary?.title
-            ?? genericMessage
+        let body: String? = {
+            if let hookAssistant { return hookAssistant }
+            guard let sessionId = parsedInput.sessionId ?? sessionRecord?.sessionId else {
+                return genericMessage
+            }
+            let sessionSummary = GrokSessionSummaryReader(env: env).summary(
+                sessionId: sessionId,
+                cwd: cwd
+            )
+            return sessionSummary?.lastAssistantMessage
+                ?? sessionSummary?.title
+                ?? genericMessage
+        }()
 
         guard let body, !body.isEmpty else { return nil }
         return AgentHookCompletionSummary(
             subtitle: subtitle,
             body: truncate(normalizedSingleLine(body), maxLength: 240)
         )
-    }
-
-    private struct GrokSessionSummary {
-        let title: String?
-        let lastAssistantMessage: String?
-    }
-
-    private func readGrokSessionSummary(
-        sessionId: String,
-        cwd: String?,
-        env: [String: String]
-    ) -> GrokSessionSummary? {
-        guard let sessionDirectory = grokSessionDirectory(sessionId: sessionId, cwd: cwd, env: env) else {
-            return nil
-        }
-
-        let title = grokSessionTitle(
-            at: sessionDirectory.appendingPathComponent("summary.json", isDirectory: false)
-        )
-        let assistantMessage = grokLastAssistantMessage(
-            at: sessionDirectory.appendingPathComponent("chat_history.jsonl", isDirectory: false)
-        )
-
-        guard title != nil || assistantMessage != nil else { return nil }
-        return GrokSessionSummary(title: title, lastAssistantMessage: assistantMessage)
-    }
-
-    private func grokSessionDirectory(
-        sessionId: String,
-        cwd: String?,
-        env: [String: String]
-    ) -> URL? {
-        let trimmedSessionId = sessionId.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !trimmedSessionId.isEmpty,
-              !trimmedSessionId.contains("/"),
-              !trimmedSessionId.contains("\0"),
-              !trimmedSessionId.contains("..")
-        else { return nil }
-
-        let sessionsRoot = grokHomeURL(env: env).appendingPathComponent("sessions", isDirectory: true)
-        if let cwd, !cwd.isEmpty {
-            let expandedCWD = NSString(string: cwd).expandingTildeInPath
-            let encodedCWD = grokEncodedSessionCWD(expandedCWD)
-            let candidate = sessionsRoot
-                .appendingPathComponent(encodedCWD, isDirectory: true)
-                .appendingPathComponent(trimmedSessionId, isDirectory: true)
-            if FileManager.default.fileExists(atPath: candidate.path) {
-                return candidate
-            }
-        }
-
-        guard let projects = try? FileManager.default.contentsOfDirectory(
-            at: sessionsRoot,
-            includingPropertiesForKeys: [.isDirectoryKey],
-            options: [.skipsHiddenFiles]
-        ) else { return nil }
-
-        for project in projects {
-            guard (try? project.resourceValues(forKeys: [.isDirectoryKey]).isDirectory) == true else {
-                continue
-            }
-            let candidate = project.appendingPathComponent(trimmedSessionId, isDirectory: true)
-            if FileManager.default.fileExists(atPath: candidate.path) {
-                return candidate
-            }
-        }
-        return nil
-    }
-
-    private func grokHomeURL(env: [String: String]) -> URL {
-        if let grokHome = normalizedHookValue(env["GROK_HOME"]) {
-            return URL(fileURLWithPath: NSString(string: grokHome).expandingTildeInPath, isDirectory: true)
-        }
-        if let home = normalizedHookValue(env["HOME"]) {
-            return URL(fileURLWithPath: NSString(string: home).expandingTildeInPath, isDirectory: true)
-                .appendingPathComponent(".grok", isDirectory: true)
-        }
-        return FileManager.default.homeDirectoryForCurrentUser
-            .appendingPathComponent(".grok", isDirectory: true)
-    }
-
-    private func grokEncodedSessionCWD(_ cwd: String) -> String {
-        var allowed = CharacterSet.alphanumerics
-        allowed.insert(charactersIn: "-._~")
-        return cwd.addingPercentEncoding(withAllowedCharacters: allowed) ?? cwd
-    }
-
-    private func grokSessionTitle(at url: URL) -> String? {
-        guard let data = try? Data(contentsOf: url),
-              let object = try? JSONSerialization.jsonObject(with: data) as? [String: Any]
-        else { return nil }
-        return firstString(in: object, keys: ["session_summary", "generated_title"])
-    }
-
-    private func grokLastAssistantMessage(at url: URL) -> String? {
-        guard let data = try? Data(contentsOf: url),
-              let content = String(data: data, encoding: .utf8)
-        else { return nil }
-
-        var lastAssistantMessage: String?
-        for line in content.components(separatedBy: "\n") {
-            let trimmed = line.trimmingCharacters(in: .whitespacesAndNewlines)
-            guard !trimmed.isEmpty,
-                  let lineData = trimmed.data(using: .utf8),
-                  let object = try? JSONSerialization.jsonObject(with: lineData) as? [String: Any],
-                  object["type"] as? String == "assistant",
-                  let text = grokAssistantText(from: object)
-            else { continue }
-            lastAssistantMessage = text
-        }
-        return lastAssistantMessage
-    }
-
-    private func grokAssistantText(from object: [String: Any]) -> String? {
-        if let text = object["content"] as? String {
-            let normalized = normalizedSingleLine(text)
-            return normalized.isEmpty ? nil : normalized
-        }
-        if let blocks = object["content"] as? [[String: Any]] {
-            let text = blocks.compactMap { block -> String? in
-                guard (block["type"] as? String) == "text",
-                      let text = block["text"] as? String else { return nil }
-                let normalized = normalizedSingleLine(text)
-                return normalized.isEmpty ? nil : normalized
-            }
-            .joined(separator: " ")
-            return text.isEmpty ? nil : text
-        }
-        return nil
     }
 
     private func grokHookMessage(from object: [String: Any]?) -> String? {
@@ -17904,10 +17779,10 @@ struct CMUXCLI {
 
     private func completedSubtitle(projectName: String?) -> String {
         guard let projectName, !projectName.isEmpty else {
-            return String(localized: "agent.codex.completion.subtitle.completed", defaultValue: "Completed")
+            return String(localized: "agent.grok.completion.subtitle.completed", defaultValue: "Completed")
         }
         return String.localizedStringWithFormat(
-            String(localized: "agent.codex.completion.subtitle.completedInProject", defaultValue: "Completed in %@"),
+            String(localized: "agent.grok.completion.subtitle.completedInProject", defaultValue: "Completed in %@"),
             projectName
         )
     }
@@ -19439,17 +19314,20 @@ struct CMUXCLI {
             case .nested(let timeoutMs):
                 var groups = result[event.agentEvent] as? [[String: Any]] ?? []
                 groups.append([
-                    "hooks": [["type": "command", "command": cmd, "timeout": timeoutMs] as [String: Any]]
+                    "hooks": [[
+                        "type": "command",
+                        "command": cmd,
+                        "timeout": Self.hookConfigTimeoutValue(timeoutMs: timeoutMs, for: def),
+                    ] as [String: Any]]
                 ] as [String: Any])
                 result[event.agentEvent] = groups
             case .rovoDevYAML, .hermesAgentYAML:
                 break
             }
         }
-        // Layer in Feed bridge entries with a long timeout so blocking user
-        // decisions don't trip the agent's default per-event timeout. Most
-        // nested-hook agents use milliseconds; Grok's hook files use seconds.
-        let feedTimeoutMs = def.name == "grok" ? 120 : 120_000
+        // Keep Feed bridge timeouts in milliseconds internally. Agents whose
+        // hook files use other units are converted only at serialization.
+        let feedTimeoutMs = 120_000
         for agentEvent in def.feedHookEvents {
             let feedCmd = feedHookCommand(for: def, agentEvent: agentEvent)
             switch def.format {
@@ -19460,7 +19338,11 @@ struct CMUXCLI {
             case .nested:
                 var groups = result[agentEvent] as? [[String: Any]] ?? []
                 groups.append([
-                    "hooks": [["type": "command", "command": feedCmd, "timeout": feedTimeoutMs] as [String: Any]]
+                    "hooks": [[
+                        "type": "command",
+                        "command": feedCmd,
+                        "timeout": Self.hookConfigTimeoutValue(timeoutMs: feedTimeoutMs, for: def),
+                    ] as [String: Any]]
                 ] as [String: Any])
                 result[agentEvent] = groups
             case .rovoDevYAML, .hermesAgentYAML:
@@ -19468,6 +19350,11 @@ struct CMUXCLI {
             }
         }
         return result
+    }
+
+    private static func hookConfigTimeoutValue(timeoutMs: Int, for def: AgentHookDef) -> Int {
+        guard def.name == "grok" else { return timeoutMs }
+        return max(1, timeoutMs / 1000)
     }
 
     private static let openCodeSessionPluginMarker = "cmux-opencode-session-plugin-marker"
@@ -20102,7 +19989,7 @@ export default function cmuxPiSessionExtension(pi: ExtensionAPI) {
 
         var configDirIsDirectory = ObjCBool(false)
         if !fm.fileExists(atPath: configDir, isDirectory: &configDirIsDirectory) {
-            if def.name == "grok" {
+            if def.name == "grok" || def.name == "rovodev" {
                 try fm.createDirectory(atPath: configDir, withIntermediateDirectories: true)
             } else {
                 print("~/\(def.configDir)/ does not exist. Install \(def.displayName) first.")
@@ -23737,6 +23624,10 @@ export default function cmuxPiSessionExtension(pi: ExtensionAPI) {
                 } else {
                     body = "The user answered: \(selections.joined(separator: ", "))"
                 }
+                // Grok's current hook decision schema has no updated-input
+                // channel for AskUserQuestion answers. Deny the tool call and
+                // pass the selected answer as the denial reason so the model
+                // receives it as context instead of re-asking the question.
                 return encode([
                     "decision": "deny",
                     "reason": "[cmux Feed] \(body). Treat this as the user's response and continue without asking the same question again.",

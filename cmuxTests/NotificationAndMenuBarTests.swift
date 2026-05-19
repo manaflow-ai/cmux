@@ -6,6 +6,7 @@ import WebKit
 import ObjectiveC.runtime
 import Bonsplit
 import UserNotifications
+import CMUXAgentLaunch
 
 #if canImport(cmux_DEV)
 @testable import cmux_DEV
@@ -949,7 +950,7 @@ final class NotificationDockBadgeTests: XCTestCase {
         XCTAssertEqual(localFeedbackNotificationIDs, [createdNotificationID])
     }
 
-    func testGrokOSCTurnCompleteNotificationUsesPersistedAssistantMessage() throws {
+    func testGrokOSCTurnCompleteNotificationUsesPersistedAssistantMessage() async throws {
         guard let appDelegate = AppDelegate.shared else {
             XCTFail("AppDelegate.shared must be set for this test")
             return
@@ -963,28 +964,25 @@ final class NotificationDockBadgeTests: XCTestCase {
 
         let originalTabManager = appDelegate.tabManager
         let originalNotificationStore = appDelegate.notificationStore
-        let originalGrokHomeOverride = GrokTerminalNotificationEnricher.grokHomeOverrideForTesting
+        let originalGrokHomeOverride = store.grokHomeOverrideForTesting
 
         store.replaceNotificationsForTesting([])
         store.configureNotificationDeliveryHandlerForTesting { _, _ in }
         appDelegate.tabManager = manager
         appDelegate.notificationStore = store
-        GrokTerminalNotificationEnricher.grokHomeOverrideForTesting = grokHome
+        store.grokHomeOverrideForTesting = grokHome
 
         defer {
             store.replaceNotificationsForTesting([])
             store.resetNotificationDeliveryHandlerForTesting()
             appDelegate.tabManager = originalTabManager
             appDelegate.notificationStore = originalNotificationStore
-            GrokTerminalNotificationEnricher.grokHomeOverrideForTesting = originalGrokHomeOverride
+            store.grokHomeOverrideForTesting = originalGrokHomeOverride
             try? FileManager.default.removeItem(at: root)
         }
 
         try FileManager.default.createDirectory(at: workspaceURL, withIntermediateDirectories: true)
-        var grokSessionAllowedCharacters = CharacterSet.alphanumerics
-        grokSessionAllowedCharacters.insert(charactersIn: "-._~")
-        let encodedSessionCWD = workspaceURL.path.addingPercentEncoding(withAllowedCharacters: grokSessionAllowedCharacters)
-            ?? workspaceURL.path
+        let encodedSessionCWD = GrokSessionSummaryReader.encodedSessionCWD(workspaceURL.path)
         let sessionDirectory = grokHome
             .appendingPathComponent("sessions", isDirectory: true)
             .appendingPathComponent(encodedSessionCWD, isDirectory: true)
@@ -1013,11 +1011,25 @@ final class NotificationDockBadgeTests: XCTestCase {
             body: "Turn complete in 4.1s."
         )
 
-        let notification = try XCTUnwrap(store.notifications.first)
+        let notification = try await waitForLatestNotification(in: store)
         XCTAssertEqual(notification.title, "Grok")
         XCTAssertEqual(notification.subtitle, "Completed in fun")
         XCTAssertTrue(notification.body.contains("Inspected the terminal notification path"), notification.body)
         XCTAssertFalse(notification.body.contains("Turn complete"), notification.body)
+    }
+
+    private func waitForLatestNotification(
+        in store: TerminalNotificationStore,
+        timeoutSeconds: TimeInterval = 2
+    ) async throws -> TerminalNotification {
+        let deadline = Date().addingTimeInterval(timeoutSeconds)
+        while Date() < deadline {
+            if let notification = store.notifications.first {
+                return notification
+            }
+            try await Task.sleep(nanoseconds: 10_000_000)
+        }
+        return try XCTUnwrap(store.notifications.first)
     }
 
     func testFocusedTerminalSuppressedNotificationRunsCustomCommand() throws {

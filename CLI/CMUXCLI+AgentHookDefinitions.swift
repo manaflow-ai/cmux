@@ -163,7 +163,7 @@ extension CMUXCLI {
             name: "grok", displayName: "Grok", statusKey: "grok",
             configDir: ".grok/hooks", configFile: "cmux.json",
             sessionStoreSuffix: "grok", disableEnvVar: "CMUX_GROK_HOOKS_DISABLED",
-            hookMarker: "cmux hooks grok", format: .nested(timeoutMs: 5),
+            hookMarker: "cmux hooks grok", format: .nested(timeoutMs: 5000),
             events: [
                 .init(agentEvent: "SessionStart", cmuxSubcommand: "session-start"),
                 .init(agentEvent: "UserPromptSubmit", cmuxSubcommand: "prompt-submit"),

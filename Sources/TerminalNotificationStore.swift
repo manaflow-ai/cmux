@@ -3,6 +3,7 @@ import Foundation
 import os
 import UserNotifications
 import Bonsplit
+import CMUXAgentLaunch
 
 nonisolated private let terminalNotificationLogger = Logger(
     subsystem: "com.cmuxterm.app",
@@ -674,18 +675,24 @@ struct TerminalNotification: Identifiable, Hashable {
 }
 
 struct GrokTerminalNotificationEnricher {
-    static var grokHomeOverrideForTesting: URL?
+    static func shouldEnrich(title: String, body: String) -> Bool {
+        isGrokTurnCompletion(title: title, body: body)
+    }
 
     static func enriched(
         title: String,
         subtitle: String,
         body: String,
-        cwd: String?
-    ) -> (title: String, subtitle: String, body: String) {
-        guard isGrokTurnCompletion(title: title, body: body) else {
+        cwd: String?,
+        reader: GrokSessionSummaryReader
+    ) async -> (title: String, subtitle: String, body: String) {
+        guard shouldEnrich(title: title, body: body) else {
             return (title, subtitle, body)
         }
-        guard let summary = latestSessionSummary(cwd: cwd) else {
+        let summary = await Task.detached(priority: .utility) {
+            reader.latestSummary(cwd: cwd)
+        }.value
+        guard let summary else {
             return (title, subtitle, body)
         }
 
@@ -701,11 +708,6 @@ struct GrokTerminalNotificationEnricher {
         )
     }
 
-    private struct SessionSummary {
-        let title: String?
-        let lastAssistantMessage: String?
-    }
-
     private static func isGrokTurnCompletion(title: String, body: String) -> Bool {
         guard title.range(of: "grok", options: [.caseInsensitive, .diacriticInsensitive]) != nil else {
             return false
@@ -717,159 +719,12 @@ struct GrokTerminalNotificationEnricher {
         ) != nil
     }
 
-    private static func latestSessionSummary(cwd: String?) -> SessionSummary? {
-        let sessionsRoot = grokHomeURL().appendingPathComponent("sessions", isDirectory: true)
-        guard let sessionDirectory = latestSessionDirectory(sessionsRoot: sessionsRoot, cwd: cwd) else {
-            return nil
-        }
-
-        let title = sessionTitle(
-            at: sessionDirectory.appendingPathComponent("summary.json", isDirectory: false)
-        )
-        let assistantMessage = lastAssistantMessage(
-            at: sessionDirectory.appendingPathComponent("chat_history.jsonl", isDirectory: false)
-        )
-
-        guard title != nil || assistantMessage != nil else { return nil }
-        return SessionSummary(title: title, lastAssistantMessage: assistantMessage)
-    }
-
-    private static func latestSessionDirectory(sessionsRoot: URL, cwd: String?) -> URL? {
-        if let cwd, !cwd.isEmpty {
-            let encodedCWD = encodedSessionCWD(NSString(string: cwd).expandingTildeInPath)
-            let projectDirectory = sessionsRoot.appendingPathComponent(encodedCWD, isDirectory: true)
-            if let sessionDirectory = newestSessionDirectory(in: projectDirectory) {
-                return sessionDirectory
-            }
-        }
-
-        guard let projectDirectories = try? FileManager.default.contentsOfDirectory(
-            at: sessionsRoot,
-            includingPropertiesForKeys: [.isDirectoryKey],
-            options: [.skipsHiddenFiles]
-        ) else { return nil }
-
-        return projectDirectories
-            .compactMap { newestSessionDirectory(in: $0) }
-            .max { sessionSortDate($0) < sessionSortDate($1) }
-    }
-
-    private static func newestSessionDirectory(in projectDirectory: URL) -> URL? {
-        guard (try? projectDirectory.resourceValues(forKeys: [.isDirectoryKey]).isDirectory) == true,
-              let sessionDirectories = try? FileManager.default.contentsOfDirectory(
-                at: projectDirectory,
-                includingPropertiesForKeys: [.isDirectoryKey],
-                options: [.skipsHiddenFiles]
-              )
-        else { return nil }
-
-        return sessionDirectories
-            .filter { (try? $0.resourceValues(forKeys: [.isDirectoryKey]).isDirectory) == true }
-            .max { sessionSortDate($0) < sessionSortDate($1) }
-    }
-
-    private static func sessionSortDate(_ sessionDirectory: URL) -> Date {
-        let candidates = [
-            sessionDirectory.appendingPathComponent("chat_history.jsonl", isDirectory: false),
-            sessionDirectory.appendingPathComponent("summary.json", isDirectory: false),
-            sessionDirectory,
-        ]
-        return candidates
-            .compactMap {
-                try? $0.resourceValues(forKeys: [.contentModificationDateKey]).contentModificationDate
-            }
-            .max()
-            ?? .distantPast
-    }
-
-    private static func grokHomeURL() -> URL {
-        if let grokHomeOverrideForTesting {
-            return grokHomeOverrideForTesting
-        }
-        return FileManager.default.homeDirectoryForCurrentUser
-            .appendingPathComponent(".grok", isDirectory: true)
-    }
-
-    private static func encodedSessionCWD(_ cwd: String) -> String {
-        var allowed = CharacterSet.alphanumerics
-        allowed.insert(charactersIn: "-._~")
-        return cwd.addingPercentEncoding(withAllowedCharacters: allowed) ?? cwd
-    }
-
-    private static func sessionTitle(at url: URL) -> String? {
-        guard let data = try? Data(contentsOf: url),
-              let object = try? JSONSerialization.jsonObject(with: data) as? [String: Any]
-        else { return nil }
-        return firstString(in: object, keys: ["session_summary", "generated_title"])
-    }
-
-    private static func lastAssistantMessage(at url: URL) -> String? {
-        guard let content = tailString(at: url, maxBytes: 128 * 1024) else { return nil }
-
-        var lastAssistantMessage: String?
-        for line in content.components(separatedBy: "\n") {
-            let trimmed = line.trimmingCharacters(in: .whitespacesAndNewlines)
-            guard !trimmed.isEmpty,
-                  let lineData = trimmed.data(using: .utf8),
-                  let object = try? JSONSerialization.jsonObject(with: lineData) as? [String: Any],
-                  object["type"] as? String == "assistant",
-                  let text = assistantText(from: object)
-            else { continue }
-            lastAssistantMessage = text
-        }
-        return lastAssistantMessage
-    }
-
-    private static func tailString(at url: URL, maxBytes: UInt64) -> String? {
-        guard let handle = try? FileHandle(forReadingFrom: url) else { return nil }
-        defer { try? handle.close() }
-
-        let size = (try? handle.seekToEnd()) ?? 0
-        let offset = size > maxBytes ? size - maxBytes : 0
-        do {
-            try handle.seek(toOffset: offset)
-            let data = try handle.readToEnd() ?? Data()
-            return String(data: data, encoding: .utf8)
-        } catch {
-            return nil
-        }
-    }
-
-    private static func assistantText(from object: [String: Any]) -> String? {
-        if let text = object["content"] as? String {
-            let normalized = normalizedSingleLine(text)
-            return normalized.isEmpty ? nil : normalized
-        }
-        if let blocks = object["content"] as? [[String: Any]] {
-            let text = blocks.compactMap { block -> String? in
-                guard (block["type"] as? String) == "text",
-                      let text = block["text"] as? String else { return nil }
-                let normalized = normalizedSingleLine(text)
-                return normalized.isEmpty ? nil : normalized
-            }
-            .joined(separator: " ")
-            return text.isEmpty ? nil : text
-        }
-        return nil
-    }
-
-    private static func firstString(in object: [String: Any], keys: [String]) -> String? {
-        for key in keys {
-            guard let value = object[key] as? String else { continue }
-            let normalized = normalizedSingleLine(value)
-            if !normalized.isEmpty {
-                return normalized
-            }
-        }
-        return nil
-    }
-
     private static func completedSubtitle(projectName: String?) -> String {
         guard let projectName, !projectName.isEmpty else {
-            return String(localized: "agent.codex.completion.subtitle.completed", defaultValue: "Completed")
+            return String(localized: "agent.grok.completion.subtitle.completed", defaultValue: "Completed")
         }
         return String.localizedStringWithFormat(
-            String(localized: "agent.codex.completion.subtitle.completedInProject", defaultValue: "Completed in %@"),
+            String(localized: "agent.grok.completion.subtitle.completedInProject", defaultValue: "Completed in %@"),
             projectName
         )
     }
@@ -913,6 +768,9 @@ final class TerminalNotificationStore: ObservableObject {
 
     static let categoryIdentifier = "com.cmuxterm.app.userNotification"
     static let actionShowIdentifier = "com.cmuxterm.app.userNotification.show"
+#if DEBUG
+    var grokHomeOverrideForTesting: URL?
+#endif
     private enum AuthorizationRequestOrigin: String {
         case notificationDelivery = "notification_delivery"
         case settingsButton = "settings_button"
@@ -1326,12 +1184,60 @@ final class TerminalNotificationStore: ObservableObject {
             lastNotificationDateByCooldownKey[cooldownReservation.key] = now
         }
 
+        let cwd = notificationCWD(forTabId: tabId)
+        if GrokTerminalNotificationEnricher.shouldEnrich(title: title, body: body) {
+            let reader = grokSessionSummaryReader()
+            Task { @MainActor [weak self] in
+                let enrichedNotification = await GrokTerminalNotificationEnricher.enriched(
+                    title: title,
+                    subtitle: subtitle,
+                    body: body,
+                    cwd: cwd,
+                    reader: reader
+                )
+                self?.addNotificationAfterEnrichment(
+                    tabId: tabId,
+                    surfaceId: surfaceId,
+                    title: enrichedNotification.title,
+                    subtitle: enrichedNotification.subtitle,
+                    body: enrichedNotification.body,
+                    cwd: cwd,
+                    now: now,
+                    cooldownReservation: cooldownReservation
+                )
+            }
+            return
+        }
+
+        addNotificationAfterEnrichment(
+            tabId: tabId,
+            surfaceId: surfaceId,
+            title: title,
+            subtitle: subtitle,
+            body: body,
+            cwd: cwd,
+            now: now,
+            cooldownReservation: cooldownReservation
+        )
+    }
+
+    private func addNotificationAfterEnrichment(
+        tabId: UUID,
+        surfaceId: UUID?,
+        title: String,
+        subtitle: String,
+        body: String,
+        cwd: String,
+        now: Date,
+        cooldownReservation: NotificationCooldownReservation?
+    ) {
         let policyContext = makeNotificationPolicyContext(
             tabId: tabId,
             surfaceId: surfaceId,
             title: title,
             subtitle: subtitle,
-            body: body
+            body: body,
+            cwd: cwd
         )
         guard !policyContext.hooks.isEmpty else {
             applyNotification(
@@ -1383,6 +1289,25 @@ final class TerminalNotificationStore: ObservableObject {
         }
     }
 
+    private func notificationCWD(forTabId tabId: UUID) -> String {
+        let appDelegate = AppDelegate.shared
+        let context = appDelegate?.contextContainingTabId(tabId)
+        let tabManager = context?.tabManager ?? appDelegate?.tabManagerFor(tabId: tabId) ?? appDelegate?.tabManager
+        let workspace = tabManager?.tabs.first(where: { $0.id == tabId })
+        return workspace?.surfaceTabBarDirectory
+            ?? workspace?.currentDirectory
+            ?? FileManager.default.homeDirectoryForCurrentUser.path
+    }
+
+    private func grokSessionSummaryReader() -> GrokSessionSummaryReader {
+#if DEBUG
+        if let grokHomeOverrideForTesting {
+            return GrokSessionSummaryReader(grokHome: grokHomeOverrideForTesting)
+        }
+#endif
+        return GrokSessionSummaryReader()
+    }
+
     private struct NotificationCooldownReservation: Sendable {
         let key: String
         let previousDate: Date?
@@ -1427,35 +1352,26 @@ final class TerminalNotificationStore: ObservableObject {
         surfaceId: UUID?,
         title: String,
         subtitle: String,
-        body: String
+        body: String,
+        cwd: String
     ) -> NotificationPolicyContext {
         let appDelegate = AppDelegate.shared
         let context = appDelegate?.contextContainingTabId(tabId)
         let tabManager = context?.tabManager ?? appDelegate?.tabManagerFor(tabId: tabId) ?? appDelegate?.tabManager
         let cmuxConfigStore = context?.cmuxConfigStore
-        let workspace = tabManager?.tabs.first(where: { $0.id == tabId })
         let focusedSurfaceId = tabManager?.focusedSurfaceId(for: tabId)
         let isActiveTab = tabManager?.selectedTabId == tabId
         let isFocusedSurface = surfaceId == nil || focusedSurfaceId == surfaceId
         let isFocusedPanel = isActiveTab && isFocusedSurface
         let isAppFocused = AppFocusState.isAppFocused()
-        let cwd = workspace?.surfaceTabBarDirectory
-            ?? workspace?.currentDirectory
-            ?? FileManager.default.homeDirectoryForCurrentUser.path
-        let enrichedNotification = GrokTerminalNotificationEnricher.enriched(
-            title: title,
-            subtitle: subtitle,
-            body: body,
-            cwd: cwd
-        )
 
         return NotificationPolicyContext(
             request: TerminalNotificationPolicyRequest(
                 tabId: tabId,
                 surfaceId: surfaceId,
-                title: enrichedNotification.title,
-                subtitle: enrichedNotification.subtitle,
-                body: enrichedNotification.body,
+                title: title,
+                subtitle: subtitle,
+                body: body,
                 cwd: cwd,
                 isAppFocused: isAppFocused,
                 isFocusedPanel: isFocusedPanel
