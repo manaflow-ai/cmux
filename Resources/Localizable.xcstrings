@@ -10,6 +10,7 @@
     "cli.help.jumpToUnread": { "extractionState": "manual", "localizations": { "en": { "stringUnit": { "state": "translated", "value": "Usage: cmux jump-to-unread\n\nFocus the latest unread notification, matching the Notifications page action.\n\nFlags:\n  --json                Print JSON\n  --id-format <mode>    refs, uuids, or both" } }, "ja": { "stringUnit": { "state": "translated", "value": "Usage: cmux jump-to-unread\n\n通知ページの操作と同じく、最新の未読通知へフォーカスします。\n\nFlags:\n  --json                JSON を出力\n  --id-format <mode>    refs、uuids、both のいずれか" } } } },
     "cli.help.markNotificationRead": { "extractionState": "manual", "localizations": { "en": { "stringUnit": { "state": "translated", "value": "Usage: cmux mark-notification-read (--id <uuid> | --workspace <id|ref> [--surface <id|ref>] | --all)\n\nMark notifications read without opening them. Exactly one selector is required.\n\nFlags:\n  --id <uuid>           Mark one notification read\n  --workspace <id|ref>  Mark notifications for a workspace\n  --surface <id|ref>    Narrow --workspace to one surface\n  --all                 Mark every notification read\n  --json                Print JSON\n  --id-format <mode>    refs, uuids, or both" } }, "ja": { "stringUnit": { "state": "translated", "value": "Usage: cmux mark-notification-read (--id <uuid> | --workspace <id|ref> [--surface <id|ref>] | --all)\n\n通知を開かずに既読にします。セレクタは1つだけ指定してください。\n\nFlags:\n  --id <uuid>           通知を1件既読にする\n  --workspace <id|ref>  ワークスペースの通知を既読にする\n  --surface <id|ref>    --workspace を1つのサーフェスに絞り込む\n  --all                 すべての通知を既読にする\n  --json                JSON を出力\n  --id-format <mode>    refs、uuids、both のいずれか" } } } },
     "cli.help.openNotification": { "extractionState": "manual", "localizations": { "en": { "stringUnit": { "state": "translated", "value": "Usage: cmux open-notification --id <uuid>\n\nFocus the notification's workspace and surface, then mark the row read.\n\nFlags:\n  --id <uuid>           Notification id to open\n  --json                Print JSON\n  --id-format <mode>    refs, uuids, or both" } }, "ja": { "stringUnit": { "state": "translated", "value": "Usage: cmux open-notification --id <uuid>\n\n通知のワークスペースとサーフェスへフォーカスし、その行を既読にします。\n\nFlags:\n  --id <uuid>           開く通知 ID\n  --json                JSON を出力\n  --id-format <mode>    refs、uuids、both のいずれか" } } } },
+    "cli.help.setStatus": { "extractionState": "manual", "localizations": { "en": { "stringUnit": { "state": "translated", "value": "Usage: cmux set-status <key> <value> [flags]\n\nSet a sidebar status entry for a workspace. Status entries appear as\npills in the sidebar tab row. Use a unique key so different tools\n(e.g. \"claude_code\", \"build\") can manage their own entries.\n\nFlags:\n  --icon <name>          Icon name (e.g. \"sparkle\", \"hammer\")\n  --color <#hex>         Pill color (e.g. \"#ff9500\")\n  --priority <n>         Sort priority; higher appears first (default: 0)\n  --workspace <id|ref>   Target workspace (default: $CMUX_WORKSPACE_ID)\n\nExample:\n  cmux set-status build \"compiling\" --icon hammer --color \"#ff9500\" --priority 80\n  cmux set-status deploy \"v1.2.3\" --workspace workspace:2" } }, "ja": { "stringUnit": { "state": "translated", "value": "Usage: cmux set-status <key> <value> [flags]\n\nワークスペースのサイドバーステータスエントリを設定します。ステータスエントリは\nサイドバーのタブ行にピルとして表示されます。異なるツール\n（例: \"claude_code\", \"build\"）がそれぞれのエントリを管理できるよう、一意のキーを使用してください。\n\nFlags:\n  --icon <name>          アイコン名（例: \"sparkle\", \"hammer\"）\n  --color <#hex>         ピルの色（例: \"#ff9500\"）\n  --priority <n>         並び順の優先度。大きい値ほど先に表示（デフォルト: 0）\n  --workspace <id|ref>   対象ワークスペース（デフォルト: $CMUX_WORKSPACE_ID）\n\nExample:\n  cmux set-status build \"compiling\" --icon hammer --color \"#ff9500\" --priority 80\n  cmux set-status deploy \"v1.2.3\" --workspace workspace:2" } } } },
     "socket.notification.dismissSelectorRequired": { "extractionState": "manual", "localizations": { "en": { "stringUnit": { "state": "translated", "value": "Select exactly one of id or all_read" } }, "ja": { "stringUnit": { "state": "translated", "value": "id または all_read のどちらか一つだけを選択してください" } } } },
     "socket.notification.idRequired": { "extractionState": "manual", "localizations": { "en": { "stringUnit": { "state": "translated", "value": "Missing or invalid notification id" } }, "ja": { "stringUnit": { "state": "translated", "value": "通知 ID が指定されていないか無効です" } } } },
     "socket.notification.markReadSelectorRequired": { "extractionState": "manual", "localizations": { "en": { "stringUnit": { "state": "translated", "value": "Select exactly one of id, tab_id, or all" } }, "ja": { "stringUnit": { "state": "translated", "value": "id、tab_id、all のいずれか一つだけを選択してください" } } } },
@@ -106820,6 +106821,533 @@
           "stringUnit": {
             "state": "translated",
             "value": "cmux を終了後に再度開いたとき、復元されたエージェント端末で再開コマンドを自動実行します。"
+          }
+        }
+      }
+    },
+    "surfaceResumeApproval.cwd.none": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "None"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "なし"
+          }
+        }
+      }
+    },
+    "surfaceResumeApproval.proposal.ask": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ask Each Time"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "毎回確認"
+          }
+        }
+      }
+    },
+    "surfaceResumeApproval.proposal.auto": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Auto-Restore"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "自動復元"
+          }
+        }
+      }
+    },
+    "surfaceResumeApproval.proposal.manual": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Keep Manual"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "手動で保持"
+          }
+        }
+      }
+    },
+    "surfaceResumeApproval.proposal.message": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "A process wants cmux to keep this resume command for the current terminal:\n\n%@\n\nWorking directory: %@"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "プロセスが現在のターミナルにこの復元コマンドを保持しようとしています:\n\n%@\n\n作業ディレクトリ: %@"
+          }
+        }
+      }
+    },
+    "surfaceResumeApproval.proposal.title": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Allow Resume Command?"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "復元コマンドを許可しますか?"
+          }
+        }
+      }
+    },
+    "surfaceResumeApproval.runPrompt.message": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux is restoring a terminal with this resume command:\n\n%@\n\nWorking directory: %@"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux はこの復元コマンドでターミナルを復元しようとしています:\n\n%@\n\n作業ディレクトリ: %@"
+          }
+        }
+      }
+    },
+    "surfaceResumeApproval.runPrompt.run": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Run"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "実行"
+          }
+        }
+      }
+    },
+    "surfaceResumeApproval.runPrompt.skip": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Skip"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "スキップ"
+          }
+        }
+      }
+    },
+    "surfaceResumeApproval.runPrompt.title": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Run Resume Command?"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "復元コマンドを実行しますか?"
+          }
+        }
+      }
+    },
+    "settings.terminal.resumeCommands": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Resume Commands"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "復元コマンド"
+          }
+        }
+      }
+    },
+    "settings.terminal.resumeCommands.cwdSummary": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Prefix: %@, cwd: %@"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "プレフィックス: %@、cwd: %@"
+          }
+        }
+      }
+    },
+    "settings.terminal.resumeCommands.cwdOnlySummary": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cwd: %@"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cwd: %@"
+          }
+        }
+      }
+    },
+    "settings.terminal.resumeCommands.delete": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Delete"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "削除"
+          }
+        }
+      }
+    },
+    "settings.terminal.resumeCommands.deleteFailed": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Could not delete the resume command approval."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "復元コマンドの承認を削除できませんでした。"
+          }
+        }
+      }
+    },
+    "settings.terminal.resumeCommands.deleted": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Resume command approval deleted."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "復元コマンドの承認を削除しました。"
+          }
+        }
+      }
+    },
+    "settings.terminal.resumeCommands.empty": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "No custom resume commands have been approved."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "承認済みのカスタム復元コマンドはありません。"
+          }
+        }
+      }
+    },
+    "settings.terminal.resumeCommands.envSummary": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "env: %@"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "環境変数: %@"
+          }
+        }
+      }
+    },
+    "settings.terminal.resumeCommands.invalidPrefix": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Enter a valid shell-style command prefix."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "有効なシェル形式のコマンドプレフィックスを入力してください。"
+          }
+        }
+      }
+    },
+    "settings.terminal.resumeCommands.invalidSignature": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Signature does not match. Delete this approval and approve the command again."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "署名が一致しません。この承認を削除してから、コマンドを再度承認してください。"
+          }
+        }
+      }
+    },
+    "settings.terminal.resumeCommands.policy.auto": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Auto"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "自動"
+          }
+        }
+      }
+    },
+    "settings.terminal.resumeCommands.policy.manual": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Manual"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "手動"
+          }
+        }
+      }
+    },
+    "settings.terminal.resumeCommands.policy.prompt": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ask"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "確認"
+          }
+        }
+      }
+    },
+    "settings.terminal.resumeCommands.prefixPlaceholder": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Command prefix"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "コマンドプレフィックス"
+          }
+        }
+      }
+    },
+    "settings.terminal.resumeCommands.prefixSummary": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Prefix: %@"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "プレフィックス: %@"
+          }
+        }
+      }
+    },
+    "settings.terminal.resumeCommands.save": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Save"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "保存"
+          }
+        }
+      }
+    },
+    "settings.terminal.resumeCommands.sourceUnknown": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Unknown source"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "不明なソース"
+          }
+        }
+      }
+    },
+    "settings.terminal.resumeCommands.subtitle": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Review signed command prefixes that can restore non-agent terminal surfaces."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "非エージェントのターミナルサーフェスを復元できる署名済みコマンドプレフィックスを確認します。"
+          }
+        }
+      }
+    },
+    "settings.terminal.resumeCommands.updateFailed": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Could not update the resume command approval."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "復元コマンドの承認を更新できませんでした。"
+          }
+        }
+      }
+    },
+    "settings.terminal.resumeCommands.updated": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Resume command approval updated."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "復元コマンドの承認を更新しました。"
+          }
+        }
+      }
+    },
+    "settings.search.alias.setting.terminal.resume-commands": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "surface resume commands approvals command prefixes auto restore ask manual tmux hibernation sticky process"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "surface resume commands approvals command prefixes auto restore ask manual tmux hibernation sticky process"
           }
         }
       }
