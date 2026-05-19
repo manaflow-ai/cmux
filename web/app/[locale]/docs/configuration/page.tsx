@@ -69,6 +69,7 @@ const settingsFileExample = `{
 
   // "browser": {
   //   "openTerminalLinksInCmuxBrowser": true,
+  //   "terminalLinkBrowserPlacement": "reuseOrSplit",
   //   "hostsToOpenInEmbeddedBrowser": ["localhost", "*.internal.example"]
   // },
 

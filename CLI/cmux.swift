@@ -8054,7 +8054,9 @@ struct CMUXCLI {
             if !url.isEmpty {
                 params["url"] = url
             }
-            if let sourceSurface = try normalizeSurfaceHandle(surfaceRaw, client: client) {
+            let placementSurfaceRaw = surfaceRaw
+                ?? (respectExternalOpenRules ? ProcessInfo.processInfo.environment["CMUX_SURFACE_ID"] : nil)
+            if let sourceSurface = try normalizeSurfaceHandle(placementSurfaceRaw, client: client) {
                 params["surface_id"] = sourceSurface
             }
             let workspaceRaw = workspaceOpt ?? (windowOpt == nil ? ProcessInfo.processInfo.environment["CMUX_WORKSPACE_ID"] : nil)
@@ -8065,6 +8067,9 @@ struct CMUXCLI {
             }
             if respectExternalOpenRules {
                 params["respect_external_open_rules"] = true
+                if params["surface_id"] != nil {
+                    params["use_terminal_link_browser_placement"] = true
+                }
             }
             if let windowRaw = windowOpt {
                 if let window = try normalizeWindowHandle(windowRaw, client: client) {
@@ -8075,7 +8080,8 @@ struct CMUXCLI {
             let payload = try client.sendV2(method: "browser.open_split", params: params)
             let surfaceText = formatHandle(payload, kind: "surface", idFormat: effectiveIDFormat) ?? "unknown"
             let paneText = formatHandle(payload, kind: "pane", idFormat: effectiveIDFormat) ?? "unknown"
-            let placement = ((payload["created_split"] as? Bool) == true) ? "split" : "reuse"
+            let placement = (payload["placement"] as? String)
+                ?? (((payload["created_split"] as? Bool) == true) ? "split" : "reuse")
             output(payload, fallback: "OK surface=\(surfaceText) pane=\(paneText) placement=\(placement)")
             return
         }

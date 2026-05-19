@@ -186,6 +186,45 @@ enum BrowserThemeMode: String, CaseIterable, Identifiable {
     }
 }
 
+enum TerminalLinkBrowserPlacement: String, CaseIterable, Identifiable {
+    case reuseOrSplit
+    case samePane
+    case split
+
+    var id: String { rawValue }
+
+    var displayName: String {
+        switch self {
+        case .reuseOrSplit:
+            return String(localized: "settings.browser.terminalLinkPlacement.reuseOrSplit", defaultValue: "Reuse or Split")
+        case .samePane:
+            return String(localized: "settings.browser.terminalLinkPlacement.samePane", defaultValue: "Same Pane")
+        case .split:
+            return String(localized: "settings.browser.terminalLinkPlacement.split", defaultValue: "New Split")
+        }
+    }
+
+    var settingsSubtitle: String {
+        switch self {
+        case .reuseOrSplit:
+            return String(
+                localized: "settings.browser.terminalLinkPlacement.subtitle.reuseOrSplit",
+                defaultValue: "Open terminal links in a nearby browser pane, or create a split when none is available."
+            )
+        case .samePane:
+            return String(
+                localized: "settings.browser.terminalLinkPlacement.subtitle.samePane",
+                defaultValue: "Open terminal links as browser tabs in the pane where the link was clicked."
+            )
+        case .split:
+            return String(
+                localized: "settings.browser.terminalLinkPlacement.subtitle.split",
+                defaultValue: "Always open terminal links in a new browser split."
+            )
+        }
+    }
+}
+
 enum BrowserThemeSettings {
     static let modeKey = "browserThemeMode"
     static let legacyForcedDarkModeEnabledKey = "browserForcedDarkModeEnabled"
@@ -604,6 +643,8 @@ final class BrowserProfileStore: ObservableObject {
 enum BrowserLinkOpenSettings {
     static let openTerminalLinksInCmuxBrowserKey = "browserOpenTerminalLinksInCmuxBrowser"
     static let defaultOpenTerminalLinksInCmuxBrowser: Bool = true
+    static let terminalLinkBrowserPlacementKey = "browserTerminalLinkBrowserPlacement"
+    static let defaultTerminalLinkBrowserPlacement: TerminalLinkBrowserPlacement = .reuseOrSplit
 
     static let openSidebarPullRequestLinksInCmuxBrowserKey = "browserOpenSidebarPullRequestLinksInCmuxBrowser"
     static let defaultOpenSidebarPullRequestLinksInCmuxBrowser: Bool = true
@@ -625,6 +666,17 @@ enum BrowserLinkOpenSettings {
             return defaultOpenTerminalLinksInCmuxBrowser
         }
         return defaults.bool(forKey: openTerminalLinksInCmuxBrowserKey)
+    }
+
+    static func terminalLinkBrowserPlacement(for rawValue: String?) -> TerminalLinkBrowserPlacement {
+        guard let rawValue, let placement = TerminalLinkBrowserPlacement(rawValue: rawValue) else {
+            return defaultTerminalLinkBrowserPlacement
+        }
+        return placement
+    }
+
+    static func terminalLinkBrowserPlacement(defaults: UserDefaults = .standard) -> TerminalLinkBrowserPlacement {
+        terminalLinkBrowserPlacement(for: defaults.string(forKey: terminalLinkBrowserPlacementKey))
     }
 
     static func openSidebarPullRequestLinksInCmuxBrowser(defaults: UserDefaults = .standard) -> Bool {

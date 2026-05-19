@@ -100,6 +100,7 @@ enum SettingsSearchAliasIndex {
         "browser:hidden-webview-discard": localized("settings.search.alias.setting.browser.hidden-webview-discard", defaultValue: "browser.discardHiddenWebViews memory hidden tabs webview discard unload reclaim"),
         "browser:hidden-webview-discard-delay": localized("settings.search.alias.setting.browser.hidden-webview-discard-delay", defaultValue: "browser.hiddenWebViewDiscardDelaySeconds memory hidden tabs delay seconds discard unload"),
         "browser:terminal-links": localized("settings.search.alias.setting.browser.terminal-links", defaultValue: "browser.openTerminalLinksInCmuxBrowser click url terminal links open in browser href"),
+        "browser:terminal-link-placement": localized("settings.search.alias.setting.browser.terminal-link-placement", defaultValue: "browser.terminalLinkBrowserPlacement click url terminal links browser pane split samePane reuseOrSplit"),
         "browser:intercept-open": localized("settings.search.alias.setting.browser.intercept-open", defaultValue: "browser.interceptTerminalOpenCommandInCmuxBrowser open command http https url terminal intercept"),
         "browser:host-whitelist": localized("settings.search.alias.setting.browser.host-whitelist", defaultValue: "browser.hostsToOpenInEmbeddedBrowser allowlist whitelist host wildcard domain embedded browser"),
         "browser:external-patterns": localized("settings.search.alias.setting.browser.external-patterns", defaultValue: "browser.urlsToAlwaysOpenExternally denylist blocklist regex rules external default browser"),

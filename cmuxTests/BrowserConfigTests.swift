@@ -4509,6 +4509,30 @@ final class BrowserLinkOpenSettingsTests: XCTestCase {
         defaults.set(true, forKey: BrowserLinkOpenSettings.openTerminalLinksInCmuxBrowserKey)
         XCTAssertTrue(BrowserLinkOpenSettings.openTerminalLinksInCmuxBrowser(defaults: defaults))
     }
+
+    func testTerminalLinkBrowserPlacementDefaultsToReuseOrSplit() {
+        XCTAssertEqual(BrowserLinkOpenSettings.terminalLinkBrowserPlacement(defaults: defaults), .reuseOrSplit)
+    }
+
+    func testTerminalLinkBrowserPlacementUsesStoredValue() {
+        defaults.set(
+            TerminalLinkBrowserPlacement.samePane.rawValue,
+            forKey: BrowserLinkOpenSettings.terminalLinkBrowserPlacementKey
+        )
+        XCTAssertEqual(BrowserLinkOpenSettings.terminalLinkBrowserPlacement(defaults: defaults), .samePane)
+
+        defaults.set(
+            TerminalLinkBrowserPlacement.split.rawValue,
+            forKey: BrowserLinkOpenSettings.terminalLinkBrowserPlacementKey
+        )
+        XCTAssertEqual(BrowserLinkOpenSettings.terminalLinkBrowserPlacement(defaults: defaults), .split)
+    }
+
+    func testInvalidTerminalLinkBrowserPlacementFallsBackToDefault() {
+        defaults.set("floatingOverlay", forKey: BrowserLinkOpenSettings.terminalLinkBrowserPlacementKey)
+        XCTAssertEqual(BrowserLinkOpenSettings.terminalLinkBrowserPlacement(defaults: defaults), .reuseOrSplit)
+    }
+
     func testSidebarPullRequestLinksDefaultToCmuxBrowser() {
         XCTAssertTrue(BrowserLinkOpenSettings.openSidebarPullRequestLinksInCmuxBrowser(defaults: defaults))
     }

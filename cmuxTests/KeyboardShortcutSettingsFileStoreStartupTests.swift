@@ -461,6 +461,60 @@ final class KeyboardShortcutSettingsFileStoreStartupTests: XCTestCase {
         XCTAssertEqual(defaults.object(forKey: key) as? Bool, false)
     }
 
+    func testInvalidTerminalLinkBrowserPlacementDoesNotDropLaterBrowserSettings() throws {
+        let defaults = UserDefaults.standard
+        let keys = [
+            BrowserLinkOpenSettings.terminalLinkBrowserPlacementKey,
+            BrowserLinkOpenSettings.interceptTerminalOpenCommandInCmuxBrowserKey,
+            BrowserLinkOpenSettings.browserHostWhitelistKey,
+            BrowserLinkOpenSettings.browserExternalOpenPatternsKey,
+            settingsFileBackupsDefaultsKey,
+            importedManagedDefaultsKey,
+        ]
+
+        try preservingDefaults(keys: keys) {
+            keys.forEach { defaults.removeObject(forKey: $0) }
+
+            let directoryURL = try makeTemporaryDirectory()
+            defer { try? FileManager.default.removeItem(at: directoryURL) }
+
+            let settingsFileURL = directoryURL.appendingPathComponent("cmux.json", isDirectory: false)
+            try writeSettingsFile(
+                """
+                {
+                  "browser": {
+                    "terminalLinkBrowserPlacement": "saemPane",
+                    "interceptTerminalOpenCommandInCmuxBrowser": false,
+                    "hostsToOpenInEmbeddedBrowser": ["localhost", "*.internal.example"],
+                    "urlsToAlwaysOpenExternally": ["https://external.example/*"]
+                  }
+                }
+                """,
+                to: settingsFileURL
+            )
+
+            _ = KeyboardShortcutSettingsFileStore(
+                primaryPath: settingsFileURL.path,
+                fallbackPath: nil,
+                startWatching: false
+            )
+
+            XCTAssertNil(defaults.object(forKey: BrowserLinkOpenSettings.terminalLinkBrowserPlacementKey))
+            XCTAssertEqual(
+                defaults.object(forKey: BrowserLinkOpenSettings.interceptTerminalOpenCommandInCmuxBrowserKey) as? Bool,
+                false
+            )
+            XCTAssertEqual(
+                defaults.string(forKey: BrowserLinkOpenSettings.browserHostWhitelistKey),
+                "localhost\n*.internal.example"
+            )
+            XCTAssertEqual(
+                defaults.string(forKey: BrowserLinkOpenSettings.browserExternalOpenPatternsKey),
+                "https://external.example/*"
+            )
+        }
+    }
+
     private func makeTemporaryDirectory() throws -> URL {
         let url = FileManager.default.temporaryDirectory.appendingPathComponent(
             "cmux-settings-startup-\(UUID().uuidString)",

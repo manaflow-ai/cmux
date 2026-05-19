@@ -59,6 +59,14 @@
     "mode.compact": { "localizations": { "en": { "stringUnit": { "state": "translated", "value": "Compact" } }, "ja": { "stringUnit": { "state": "translated", "value": "コンパクト" } } } },
     "mode.expanded": { "localizations": { "en": { "stringUnit": { "state": "translated", "value": "Expanded" } }, "ja": { "stringUnit": { "state": "translated", "value": "拡張" } } } },
     "mode.system": { "localizations": { "en": { "stringUnit": { "state": "translated", "value": "System" } }, "ja": { "stringUnit": { "state": "translated", "value": "システム" } } } },
+    "settings.browser.terminalLinkPlacement": { "localizations": { "en": { "stringUnit": { "state": "translated", "value": "Terminal Link Browser Placement" } }, "ja": { "stringUnit": { "state": "translated", "value": "ターミナルリンクのブラウザ配置" } } } },
+    "settings.browser.terminalLinkPlacement.reuseOrSplit": { "localizations": { "en": { "stringUnit": { "state": "translated", "value": "Reuse or Split" } }, "ja": { "stringUnit": { "state": "translated", "value": "再利用または分割" } } } },
+    "settings.browser.terminalLinkPlacement.samePane": { "localizations": { "en": { "stringUnit": { "state": "translated", "value": "Same Pane" } }, "ja": { "stringUnit": { "state": "translated", "value": "同じペイン" } } } },
+    "settings.browser.terminalLinkPlacement.split": { "localizations": { "en": { "stringUnit": { "state": "translated", "value": "New Split" } }, "ja": { "stringUnit": { "state": "translated", "value": "新しい分割" } } } },
+    "settings.browser.terminalLinkPlacement.subtitle.reuseOrSplit": { "localizations": { "en": { "stringUnit": { "state": "translated", "value": "Open terminal links in a nearby browser pane, or create a split when none is available." } }, "ja": { "stringUnit": { "state": "translated", "value": "ターミナルリンクを近くのブラウザペインで開き、利用できない場合は分割を作成します。" } } } },
+    "settings.browser.terminalLinkPlacement.subtitle.samePane": { "localizations": { "en": { "stringUnit": { "state": "translated", "value": "Open terminal links as browser tabs in the pane where the link was clicked." } }, "ja": { "stringUnit": { "state": "translated", "value": "クリックしたリンクと同じペイン内にブラウザタブとしてターミナルリンクを開きます。" } } } },
+    "settings.browser.terminalLinkPlacement.subtitle.split": { "localizations": { "en": { "stringUnit": { "state": "translated", "value": "Always open terminal links in a new browser split." } }, "ja": { "stringUnit": { "state": "translated", "value": "ターミナルリンクを常に新しいブラウザ分割で開きます。" } } } },
+    "settings.search.alias.setting.browser.terminal-link-placement": { "localizations": { "en": { "stringUnit": { "state": "translated", "value": "browser.terminalLinkBrowserPlacement click url terminal links browser pane split samePane reuseOrSplit" } }, "ja": { "stringUnit": { "state": "translated", "value": "browser.terminalLinkBrowserPlacement クリック url ターミナルリンク ブラウザ ペイン 分割 samePane reuseOrSplit" } } } },
     "about.appName": {
       "extractionState": "manual",
       "localizations": {
