@@ -7310,6 +7310,7 @@ final class Workspace: Identifiable, ObservableObject {
     /// Published directory for each panel
     @Published var panelDirectories: [UUID: String] = [:]
     var ephemeralWorktreesByPanelId: [UUID: EphemeralWorktreeRecord] = [:]
+    private var windowCloseEphemeralWorktreeCleanupAuthorizedPanelIds: Set<UUID> = []
     @Published var panelTitles: [UUID: String] = [:]
     @Published var panelCustomTitles: [UUID: String] = [:]
     @Published var pinnedPanelIds: Set<UUID> = []
@@ -10210,6 +10211,14 @@ final class Workspace: Identifiable, ObservableObject {
         Set(ephemeralWorktreesByPanelId.values.map(\.sessionId))
     }
 
+    func authorizeEphemeralWorktreeCleanupForWindowClose(panelIds: Set<UUID>) {
+        windowCloseEphemeralWorktreeCleanupAuthorizedPanelIds.formUnion(panelIds)
+    }
+
+    func cancelEphemeralWorktreeCleanupForWindowClose(panelIds: Set<UUID>) {
+        windowCloseEphemeralWorktreeCleanupAuthorizedPanelIds.subtract(panelIds)
+    }
+
     /// Create a new split with a terminal panel
     @discardableResult
     func newTerminalSplit(
@@ -11099,6 +11108,9 @@ final class Workspace: Identifiable, ObservableObject {
     /// Tear down all panels in this workspace, freeing their Ghostty surfaces.
     /// Called before TabManager removes the workspace so child processes receive SIGHUP even if ARC deallocation is delayed.
     func teardownAllPanels(ephemeralWorktreeCleanupAuthorizedPanelIds: Set<UUID> = []) {
+        let authorizedPanelIds = ephemeralWorktreeCleanupAuthorizedPanelIds
+            .union(windowCloseEphemeralWorktreeCleanupAuthorizedPanelIds)
+        windowCloseEphemeralWorktreeCleanupAuthorizedPanelIds.removeAll()
         portalRenderingEnabled = false
         clearLayoutFollowUp()
         hideAllTerminalPortalViews()
@@ -11116,7 +11128,7 @@ final class Workspace: Identifiable, ObservableObject {
                 clearSurfaceNotifications: true,
                 requestTransferredRemoteCleanup: true,
                 cleanupControllerSurfaceState: true,
-                ephemeralWorktreeCleanupAuthorized: ephemeralWorktreeCleanupAuthorizedPanelIds.contains(panelId)
+                ephemeralWorktreeCleanupAuthorized: authorizedPanelIds.contains(panelId)
             )
         }
         pruneSurfaceMetadata(validSurfaceIds: [])
@@ -14265,8 +14277,7 @@ extension Workspace: BonsplitDelegate {
                     let confirmed = await self.confirmClosePanel(for: tabId)
                     guard confirmed else { return }
 
-                    self.forceCloseTabIds.insert(tabId)
-                    self.bonsplitController.closeTab(tabId)
+                    _ = self.requestCloseTab(tabId, force: true)
                 }
             }
 
@@ -14580,10 +14591,14 @@ extension Workspace: BonsplitDelegate {
                     guard confirmed else { return }
 
                     self.ephemeralWorktreeCleanupAuthorizedPaneIds.insert(paneId.id)
-                    for tab in self.bonsplitController.tabs(inPane: paneId) {
-                        self.forceCloseTabIds.insert(tab.id)
+                    let forcedTabIds = self.bonsplitController.tabs(inPane: paneId).map(\.id)
+                    for tabId in forcedTabIds {
+                        self.forceCloseTabIds.insert(tabId)
                     }
                     let closed = self.bonsplitController.closePane(paneId)
+                    for tabId in forcedTabIds {
+                        self.forceCloseTabIds.remove(tabId)
+                    }
                     if !closed {
                         self.ephemeralWorktreeCleanupAuthorizedPaneIds.remove(paneId.id)
                     }

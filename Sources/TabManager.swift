@@ -4672,8 +4672,15 @@ class TabManager: ObservableObject {
         }
         if tabs.count <= 1 {
             // Last workspace in this window: match Close Workspace shortcut behavior.
+            let authorizedPanelIds = Set(blockPolicyPanelIds)
+            if !authorizedPanelIds.isEmpty {
+                workspace.authorizeEphemeralWorktreeCleanupForWindowClose(panelIds: authorizedPanelIds)
+            }
             if let window {
                 window.performClose(nil)
+                if window.isVisible, !authorizedPanelIds.isEmpty {
+                    workspace.cancelEphemeralWorktreeCleanupForWindowClose(panelIds: authorizedPanelIds)
+                }
             } else {
                 AppDelegate.shared?.closeMainWindowContainingTabId(workspace.id)
             }
