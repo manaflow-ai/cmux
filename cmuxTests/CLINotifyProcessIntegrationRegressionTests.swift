@@ -2111,6 +2111,89 @@ final class CLINotifyProcessIntegrationRegressionTests: XCTestCase {
         XCTAssertEqual(methods, ["window.list", "workspace.list", "surface.list", "surface.list"])
     }
 
+    func testNotifyWindowSurfaceIndexUsesCurrentWorkspaceInTargetWindow() throws {
+        let cliPath = try bundledCLIPath()
+        let socketPath = makeSocketPath("notify-window-surface-index")
+        let listenerFD = try bindUnixSocket(at: socketPath)
+        let state = MockSocketServerState()
+        let windowId = "11111111-1111-1111-1111-111111111111"
+        let selectedWorkspaceId = "22222222-2222-2222-2222-222222222222"
+        let selectedSurfaceId = "33333333-3333-3333-3333-333333333333"
+
+        defer {
+            Darwin.close(listenerFD)
+            unlink(socketPath)
+        }
+
+        let serverHandled = startMockServer(listenerFD: listenerFD, state: state) { line in
+            guard let payload = self.jsonObject(line),
+                  let id = payload["id"] as? String,
+                  let method = payload["method"] as? String else {
+                XCTAssertTrue(line.hasPrefix("notify_target \(selectedWorkspaceId) \(selectedSurfaceId) "), line)
+                XCTAssertTrue(line.contains("Window Indexed Notify"), line)
+                return "OK"
+            }
+            let params = payload["params"] as? [String: Any] ?? [:]
+
+            switch method {
+            case "window.list":
+                return self.v2Response(
+                    id: id,
+                    ok: true,
+                    result: [
+                        "windows": [
+                            [
+                                "id": windowId,
+                                "ref": "window:2",
+                                "index": 2,
+                            ],
+                        ],
+                    ]
+                )
+            case "workspace.current":
+                XCTAssertEqual(params["window_id"] as? String, windowId)
+                return self.v2Response(id: id, ok: true, result: ["workspace_id": selectedWorkspaceId])
+            case "surface.list":
+                XCTAssertEqual(params["window_id"] as? String, windowId)
+                XCTAssertEqual(params["workspace_id"] as? String, selectedWorkspaceId)
+                return self.v2Response(
+                    id: id,
+                    ok: true,
+                    result: [
+                        "surfaces": [
+                            [
+                                "id": selectedSurfaceId,
+                                "ref": "surface:8",
+                                "index": 0,
+                            ],
+                        ],
+                    ]
+                )
+            default:
+                return self.v2Response(id: id, ok: false, error: ["code": "unexpected", "message": "unexpected method: \(method)"])
+            }
+        }
+
+        var environment = ProcessInfo.processInfo.environment
+        environment["CMUX_SOCKET_PATH"] = socketPath
+        environment["CMUX_CLI_SENTRY_DISABLED"] = "1"
+        environment["CMUX_CLAUDE_HOOK_SENTRY_DISABLED"] = "1"
+
+        let result = runProcess(
+            executablePath: cliPath,
+            arguments: ["notify", "--window", "window:2", "--surface", "0", "--title", "Window Indexed Notify"],
+            environment: environment,
+            timeout: 5
+        )
+
+        wait(for: [serverHandled], timeout: 5)
+        XCTAssertFalse(result.timedOut, result.stderr)
+        XCTAssertEqual(result.status, 0, result.stderr)
+        XCTAssertEqual(result.stdout, "OK\n")
+        let methods = state.commands.compactMap { self.jsonObject($0)?["method"] as? String }
+        XCTAssertEqual(methods, ["window.list", "workspace.current", "surface.list"])
+    }
+
     func testWorkspaceActionWindowFlagResolvesCurrentWorkspaceInWindow() throws {
         let cliPath = try bundledCLIPath()
         let socketPath = makeSocketPath("action-window")

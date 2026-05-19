@@ -9450,6 +9450,28 @@ struct CMUXCLI {
             throw CLIError(message: "Invalid surface handle: \(trimmed) (expected UUID, ref like surface:1, or index)")
         }
 
+        if wantedIndex != nil {
+            let workspaceId = try requireCurrentWorkspaceId(
+                windowHandle: windowHandle,
+                client: client,
+                command: "notify"
+            )
+            let surfacePayload = try client.sendV2(
+                method: "surface.list",
+                params: [
+                    "workspace_id": workspaceId,
+                    "window_id": windowHandle,
+                ]
+            )
+            let surfaces = surfacePayload["surfaces"] as? [[String: Any]] ?? []
+            for surface in surfaces where intFromAny(surface["index"]) == wantedIndex {
+                if let surfaceId = surface["id"] as? String, !surfaceId.isEmpty {
+                    return (workspaceId, surfaceId)
+                }
+            }
+            throw CLIError(message: "Surface index not found in current workspace")
+        }
+
         let workspacePayload = try client.sendV2(method: "workspace.list", params: ["window_id": windowHandle])
         let workspaces = workspacePayload["workspaces"] as? [[String: Any]] ?? []
         for workspace in workspaces {
