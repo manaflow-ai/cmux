@@ -971,7 +971,7 @@ class TerminalController {
 #endif
     }
 
-    nonisolated static func socketPathHasLiveListener(_ path: String, timeout: TimeInterval) -> Bool {
+    nonisolated static func socketPathHasLiveListener(_ path: String, timeout _: TimeInterval) -> Bool {
         var st = stat()
         guard lstat(path, &st) == 0,
               (st.st_mode & mode_t(S_IFMT)) == mode_t(S_IFSOCK) else {
@@ -999,30 +999,10 @@ class TerminalController {
         }
 
         let connectErrno = errno
-        guard connectErrno == EINPROGRESS || connectErrno == EAGAIN || connectErrno == EWOULDBLOCK else {
-            return !socketProbeErrorMeansNoListener(connectErrno)
-        }
-
-        let timeoutMs = max(1, Int32((max(timeout, 0.001) * 1_000).rounded()))
-        var pollFD = pollfd(fd: fd, events: Int16(POLLOUT), revents: 0)
-        guard poll(&pollFD, 1, timeoutMs) > 0 else {
+        if connectErrno == EINPROGRESS || connectErrno == EAGAIN || connectErrno == EWOULDBLOCK {
             return true
         }
-
-        var socketError: Int32 = 0
-        var socketErrorLength = socklen_t(MemoryLayout<Int32>.size)
-        let optionResult = withUnsafeMutablePointer(to: &socketError) { errorPointer in
-            withUnsafeMutablePointer(to: &socketErrorLength) { lengthPointer in
-                getsockopt(fd, SOL_SOCKET, SO_ERROR, errorPointer, lengthPointer)
-            }
-        }
-        guard optionResult == 0 else {
-            return true
-        }
-        if socketError == 0 {
-            return true
-        }
-        return !socketProbeErrorMeansNoListener(socketError)
+        return !socketProbeErrorMeansNoListener(connectErrno)
     }
 
     private nonisolated static func socketProbeErrorMeansNoListener(_ errnoCode: Int32) -> Bool {

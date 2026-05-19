@@ -133,8 +133,7 @@ enum CLISocketPathResolver {
         }
 
         if source == .environment && !shouldRecoverEnvironmentSocketPath(
-            environment: environment,
-            bundleIdentifier: bundleIdentifier
+            environment: environment
         ) {
             return requestedPath
         }
@@ -364,10 +363,8 @@ enum CLISocketPathResolver {
     }
 
     private static func shouldRecoverEnvironmentSocketPath(
-        environment: [String: String],
-        bundleIdentifier: String?
+        environment: [String: String]
     ) -> Bool {
-        _ = bundleIdentifier
         let cmuxContextKeys = [
             "CMUX_BUNDLE_ID",
             "CMUX_BUNDLED_CLI_PATH",

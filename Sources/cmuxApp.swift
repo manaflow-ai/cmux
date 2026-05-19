@@ -90,7 +90,6 @@ struct cmuxApp: App {
         let message = "error: refusing to launch untagged cmux DEV; start with ./scripts/reload.sh --tag <name> (or set CMUX_TAG for test harnesses)"
         fputs("\(message)\n", stderr)
         fflush(stderr)
-        NSLog("%@", message)
         Darwin.exit(64)
     }
 
@@ -118,7 +117,6 @@ struct cmuxApp: App {
         let message = String(format: format, socketLabel)
         fputs("\(message)\n", stderr)
         fflush(stderr)
-        NSLog("%@", message)
         Darwin.exit(73)
     }
 
