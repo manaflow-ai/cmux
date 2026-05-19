@@ -10307,7 +10307,7 @@ struct CMUXCLI {
             Clear all queued notifications.
             """
         case "set-status":
-            return """
+            return String(localized: "cli.help.setStatus", defaultValue: """
             Usage: cmux set-status <key> <value> [flags]
 
             Set a sidebar status entry for a workspace. Status entries appear as
@@ -10317,12 +10317,13 @@ struct CMUXCLI {
             Flags:
               --icon <name>          Icon name (e.g. "sparkle", "hammer")
               --color <#hex>         Pill color (e.g. "#ff9500")
+              --priority <n>         Sort priority; higher appears first (default: 0)
               --workspace <id|ref>   Target workspace (default: $CMUX_WORKSPACE_ID)
 
             Example:
-              cmux set-status build "compiling" --icon hammer --color "#ff9500"
+              cmux set-status build "compiling" --icon hammer --color "#ff9500" --priority 80
               cmux set-status deploy "v1.2.3" --workspace workspace:2
-            """
+            """)
         case "clear-status":
             return """
             Usage: cmux clear-status <key> [flags]
@@ -24246,7 +24247,7 @@ export default function cmuxPiSessionExtension(pi: ExtensionAPI) {
           jump-to-unread
           clear-notifications
           right-sidebar <toggle|show|hide|focus|set|mode|files|find|vault|sessions|feed|dock> [--workspace <id|ref|index>] [--window <id|ref|index>] [--no-focus]
-          set-status <key> <value> [--workspace <id|ref>] [--icon <name>] [--color <#hex>]
+          set-status <key> <value> [--workspace <id|ref>] [--icon <name>] [--color <#hex>] [--priority <n>]
           clear-status <key> [--workspace <id|ref>]
           list-status [--workspace <id|ref>]
           set-progress <0.0-1.0> [--label <text>] [--workspace <id|ref>]
