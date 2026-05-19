@@ -62,6 +62,7 @@ class TerminalController {
     private nonisolated let socketListenerQueue = DispatchQueue(label: "com.cmux.socket.listener")
     private nonisolated(unsafe) var listenerReadSource: DispatchSourceRead?
     private nonisolated(unsafe) var socketDirectoryMonitorSource: DispatchSourceFileSystemObject?
+    private nonisolated(unsafe) var beforeSocketDirectoryMonitorRegistrationForTesting: ((String) -> Void)?
     private nonisolated(unsafe) var listenerReadSourceSuspended = false
     private nonisolated(unsafe) var acceptSourceConsecutiveFailures = 0
     private var clientHandlers: [Int32: Thread] = [:]
@@ -1456,6 +1457,20 @@ class TerminalController {
         sourceToCancel?.cancel()
     }
 
+    nonisolated func setBeforeSocketDirectoryMonitorRegistrationHookForTesting(_ hook: ((String) -> Void)?) {
+        withListenerState {
+            beforeSocketDirectoryMonitorRegistrationForTesting = hook
+        }
+    }
+
+    private nonisolated func takeBeforeSocketDirectoryMonitorRegistrationHookForTesting() -> ((String) -> Void)? {
+        withListenerState {
+            let hook = beforeSocketDirectoryMonitorRegistrationForTesting
+            beforeSocketDirectoryMonitorRegistrationForTesting = nil
+            return hook
+        }
+    }
+
     private nonisolated func unlinkSocketPathIfListenerStillInactive(_ path: String) {
         let shouldUnlink = withListenerState {
             Self.shouldUnlinkSocketPathAfterAcceptLoopCleanup(
@@ -1825,6 +1840,8 @@ class TerminalController {
             close(fd)
         }
 
+        takeBeforeSocketDirectoryMonitorRegistrationHookForTesting()?(path)
+
         source.resume()
 
         let registration = withListenerState {
@@ -1854,12 +1871,35 @@ class TerminalController {
                 ]
             )
         )
+        restartSocketListenerIfUnhealthy(
+            path: path,
+            generation: generation,
+            flags: DispatchSource.FileSystemEvent(rawValue: 0),
+            stage: "directory_monitor_start_health_check",
+            breadcrumbName: "socket.listener.unhealthy_directory_monitor_start"
+        )
     }
 
     private nonisolated func handleSocketDirectoryEvent(
         path: String,
         generation: UInt64,
         flags: DispatchSource.FileSystemEvent
+    ) {
+        restartSocketListenerIfUnhealthy(
+            path: path,
+            generation: generation,
+            flags: flags,
+            stage: "directory_monitor_event",
+            breadcrumbName: "socket.listener.unhealthy_directory_event"
+        )
+    }
+
+    private nonisolated func restartSocketListenerIfUnhealthy(
+        path: String,
+        generation: UInt64,
+        flags: DispatchSource.FileSystemEvent,
+        stage: String,
+        breadcrumbName: String
     ) {
         let health = socketListenerHealth(expectedSocketPath: path)
         guard !health.isHealthy else { return }
@@ -1870,10 +1910,10 @@ class TerminalController {
         guard shouldRestart else { return }
 
         sentryBreadcrumb(
-            "socket.listener.unhealthy_directory_event",
+            breadcrumbName,
             category: "socket",
             data: socketListenerEventData(
-                stage: "directory_monitor_event",
+                stage: stage,
                 extra: [
                     "monitoredPath": path,
                     "generation": generation,

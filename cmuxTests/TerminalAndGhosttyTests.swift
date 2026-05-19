@@ -5038,6 +5038,33 @@ final class TerminalControllerSocketListenerHealthTests: XCTestCase {
     }
 
     @MainActor
+    func testStartingListenerRecoversWhenSocketDisappearsBeforeDirectoryMonitorRegistration() throws {
+        let path = makeTempSocketPath()
+        let manager = TabManager(autoWelcomeIfNeeded: false)
+        var removedDuringRegistration = false
+        TerminalController.shared.stop()
+        TerminalController.shared.setBeforeSocketDirectoryMonitorRegistrationHookForTesting { registeredPath in
+            guard registeredPath == path else { return }
+            removedDuringRegistration = true
+            unlink(registeredPath)
+        }
+        defer {
+            TerminalController.shared.setBeforeSocketDirectoryMonitorRegistrationHookForTesting(nil)
+            TerminalController.shared.stop()
+            unlink(path)
+        }
+
+        TerminalController.shared.start(
+            tabManager: manager,
+            socketPath: path,
+            accessMode: .allowAll
+        )
+
+        XCTAssertTrue(removedDuringRegistration)
+        XCTAssertTrue(waitForPong(at: path), "Listener should recover when the socket disappears before monitor registration")
+    }
+
+    @MainActor
     func testRunningListenerRecreatesSocketPathWhenReplaced() throws {
         let path = makeTempSocketPath()
         let replacementPath = makeTempSocketPath()
