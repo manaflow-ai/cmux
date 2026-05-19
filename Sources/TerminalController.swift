@@ -82,6 +82,9 @@ class TerminalController {
     private nonisolated static let socketFileHealthCheckInterval: TimeInterval = 1
     private nonisolated static let socketFileHealthCheckLeeway: TimeInterval = 0.25
     private nonisolated static let socketFileHealthProbeTimeout: TimeInterval = 0.2
+    private nonisolated static let socketFileRecoveryRetryBaseDelay: TimeInterval = 1
+    private nonisolated static let socketFileRecoveryRetryMaxDelay: TimeInterval = 30
+    private nonisolated static let socketFileRecoveryRetryMaxAttempts = 6
     private nonisolated static let socketListenerFailureCaptureCooldown: TimeInterval = 60
     private nonisolated static let socketListenerFailureCaptureLock = NSLock()
     private nonisolated(unsafe) static var socketListenerFailureLastCapturedAt: [String: Date] = [:]
@@ -1608,6 +1611,12 @@ class TerminalController {
         return .milliseconds(milliseconds)
     }
 
+    private nonisolated static func socketFileRecoveryRetryDelay(attempt: Int) -> TimeInterval {
+        let exponent = Double(max(attempt - 1, 0))
+        let delay = socketFileRecoveryRetryBaseDelay * pow(2, exponent)
+        return min(delay, socketFileRecoveryRetryMaxDelay)
+    }
+
     private nonisolated func startSocketFileHealthCheckTimer() {
         let timer = DispatchSource.makeTimerSource(queue: socketListenerQueue)
         timer.schedule(
@@ -1802,7 +1811,8 @@ class TerminalController {
             scheduleSocketFileRecoveryRetry(
                 tabManager: tabManager,
                 recoveryPath: recoveryPath,
-                mode: restart.mode
+                mode: restart.mode,
+                attempt: 1
             )
         }
     }
@@ -1810,12 +1820,14 @@ class TerminalController {
     private func scheduleSocketFileRecoveryRetry(
         tabManager: TabManager,
         recoveryPath: String,
-        mode: SocketControlMode
+        mode: SocketControlMode,
+        attempt: Int
     ) {
         let retryToken = withListenerState { () -> UInt64 in
             socketFileRecoveryRetryToken &+= 1
             return socketFileRecoveryRetryToken
         }
+        let retryDelay = Self.socketFileRecoveryRetryDelay(attempt: attempt)
 
         sentryBreadcrumb(
             "socket.listener.path.recovery.retry_scheduled",
@@ -1824,20 +1836,24 @@ class TerminalController {
                 stage: "socket_file_recovery_retry",
                 extra: [
                     "path": recoveryPath,
-                    "mode": mode.rawValue
+                    "mode": mode.rawValue,
+                    "attempt": attempt,
+                    "maxAttempts": Self.socketFileRecoveryRetryMaxAttempts,
+                    "delaySeconds": retryDelay
                 ]
             )
         )
 
         DispatchQueue.main.asyncAfter(
-            deadline: .now() + Self.dispatchTimeInterval(seconds: Self.socketFileHealthCheckInterval)
+            deadline: .now() + Self.dispatchTimeInterval(seconds: retryDelay)
         ) { [weak self, weak tabManager] in
             guard let self, let tabManager else { return }
             self.performSocketFileRecoveryRetry(
                 retryToken: retryToken,
                 tabManager: tabManager,
                 recoveryPath: recoveryPath,
-                mode: mode
+                mode: mode,
+                attempt: attempt
             )
         }
     }
@@ -1846,7 +1862,8 @@ class TerminalController {
         retryToken: UInt64,
         tabManager: TabManager,
         recoveryPath: String,
-        mode: SocketControlMode
+        mode: SocketControlMode,
+        attempt: Int
     ) {
         let shouldRetry = withListenerState {
             socketFileRecoveryRetryToken == retryToken
@@ -1866,10 +1883,24 @@ class TerminalController {
             preserveAcceptFailureStreak: true
         )
         if !listenerStateSnapshot().isRunning {
+            guard attempt < Self.socketFileRecoveryRetryMaxAttempts else {
+                reportSocketListenerFailure(
+                    message: "socket.listener.path.recovery.retry_exhausted",
+                    stage: "socket_file_recovery_retry",
+                    extra: [
+                        "path": recoveryPath,
+                        "mode": mode.rawValue,
+                        "attempt": attempt,
+                        "maxAttempts": Self.socketFileRecoveryRetryMaxAttempts
+                    ]
+                )
+                return
+            }
             scheduleSocketFileRecoveryRetry(
                 tabManager: tabManager,
                 recoveryPath: recoveryPath,
-                mode: mode
+                mode: mode,
+                attempt: attempt + 1
             )
         }
     }
