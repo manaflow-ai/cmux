@@ -603,6 +603,27 @@ extension CLINotifyProcessIntegrationRegressionTests {
         XCTAssertEqual(session["lastBody"] as? String, waitingMessage)
         XCTAssertEqual(session["lastNotificationStatus"] as? String, "needsInput")
 
+        for neutralMessage in ["Invalid input format", "Question mark rendered"] {
+            let neutralCommandStart = state.commands.count
+            let neutral = runGrokHook(
+                "notification",
+                input: #"{"sessionId":"\#(sessionId)","cwd":"\#(root.path)","hookEventName":"Notification","message":"\#(neutralMessage)"}"#
+            )
+            XCTAssertFalse(neutral.timedOut, neutral.stderr)
+            XCTAssertEqual(neutral.status, 0, neutral.stderr)
+            XCTAssertEqual(neutral.stdout, "{}\n")
+
+            let neutralCommands = Array(state.commands.dropFirst(neutralCommandStart))
+            XCTAssertFalse(
+                neutralCommands.contains { $0.hasPrefix("notify_target_async ") },
+                "Neutral classifier text should not alert as needs-input, saw \(neutralCommands)"
+            )
+            XCTAssertFalse(
+                neutralCommands.contains { $0.contains("set_status grok ") },
+                "Neutral classifier text should not replace the saved status, saw \(neutralCommands)"
+            )
+        }
+
         let incompleteWaitingMessage = "Task incomplete and undone, waiting for input"
         let incompleteWaitingCommandStart = state.commands.count
         let incompleteWaiting = runGrokHook(

@@ -19586,7 +19586,7 @@ struct CMUXCLI {
                 isFallback: isFallback
             )
         }
-        if lower.contains("idle") || lower.contains("wait") || lower.contains("input") || lower.contains("question") || lower.contains("idle_prompt") {
+        if containsWaitingCue(lower) {
             let body = message.isEmpty
                 ? String(localized: "agent.generic.notification.body.waitingForInput", defaultValue: "Waiting for input")
                 : message
@@ -19631,7 +19631,7 @@ struct CMUXCLI {
             let body = message.isEmpty ? "Task completed" : message
             return ("Completed", body)
         }
-        if lower.contains("idle") || lower.contains("wait") || lower.contains("input") || lower.contains("idle_prompt") {
+        if containsWaitingCue(lower) {
             let body = message.isEmpty ? "Waiting for input" : message
             return ("Waiting", body)
         }
@@ -19643,7 +19643,7 @@ struct CMUXCLI {
     }
 
     private func containsCompletionCue(_ lowercasedText: String) -> Bool {
-        lowercasedText.split { !$0.isLetter && !$0.isNumber }.contains { token in
+        notificationCueTokens(lowercasedText).contains { token in
             token == "done"
                 || token == "succeed"
                 || token == "succeeded"
@@ -19651,6 +19651,44 @@ struct CMUXCLI {
                 || token.hasPrefix("finish")
                 || token.hasPrefix("success")
         }
+    }
+
+    private func containsWaitingCue(_ lowercasedText: String) -> Bool {
+        let tokens = notificationCueTokens(lowercasedText)
+        for (index, token) in tokens.enumerated() {
+            let previous = index > 0 ? tokens[index - 1] : nil
+            let next = index + 1 < tokens.count ? tokens[index + 1] : nil
+            if token == "idle" {
+                return true
+            }
+            if token == "wait" || token == "waiting" || token == "awaiting" {
+                return true
+            }
+            if token == "prompt", previous == "idle" || previous == "input" || previous == "user" {
+                return true
+            }
+            if token == "input" {
+                if previous == "need" || previous == "needs" || previous == "needed"
+                    || previous == "require" || previous == "requires" || previous == "required"
+                    || previous == "request" || previous == "requests" || previous == "requested"
+                    || previous == "wait" || previous == "waiting" || previous == "awaiting"
+                    || previous == "user" || previous == "your"
+                    || next == "needed" || next == "required" || next == "requested" {
+                    return true
+                }
+            }
+            if token == "question", lowercasedText.contains("?") || tokens.contains(where: {
+                $0 == "answer" || $0 == "respond" || $0 == "response" || $0 == "reply"
+                    || $0 == "choose" || $0 == "confirm" || $0 == "continue"
+            }) {
+                return true
+            }
+        }
+        return false
+    }
+
+    private func notificationCueTokens(_ lowercasedText: String) -> [Substring] {
+        lowercasedText.split { !$0.isLetter && !$0.isNumber }
     }
 
     private func firstString(in object: [String: Any], keys: [String]) -> String? {
