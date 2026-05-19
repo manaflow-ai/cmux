@@ -1019,6 +1019,104 @@ final class SidebarAgentPIDFallbackTests: XCTestCase {
     }
 
     @MainActor
+    func testCodexTitleFallbackRegistersPIDAndPublishesRunningWithoutHookStatus() throws {
+        let process = Process()
+        process.executableURL = URL(fileURLWithPath: "/bin/sleep")
+        process.arguments = ["60"]
+        try process.run()
+        defer {
+            if process.isRunning {
+                terminateAndWait(process)
+            }
+        }
+
+        let manager = TabManager(autoWelcomeIfNeeded: false)
+        let workspace = try XCTUnwrap(manager.selectedWorkspace)
+        let panelId = try XCTUnwrap(workspace.focusedPanelId)
+
+        NotificationCenter.default.post(
+            name: .ghosttyDidSetTitle,
+            object: nil,
+            userInfo: [
+                GhosttyNotificationKey.tabId: workspace.id,
+                GhosttyNotificationKey.surfaceId: panelId,
+                GhosttyNotificationKey.title: "codex-019dfc02-c"
+            ]
+        )
+        RunLoop.main.run(until: Date().addingTimeInterval(0.05))
+
+        let shellPID = Int(process.processIdentifier) + 10_000
+        let snapshot = CmuxTopProcessSnapshot(
+            processes: [
+                CmuxTopProcessInfo(
+                    pid: shellPID,
+                    parentPID: 1,
+                    name: "zsh",
+                    path: "/bin/zsh",
+                    ttyDevice: nil,
+                    cmuxWorkspaceID: workspace.id,
+                    cmuxSurfaceID: panelId,
+                    cmuxAttributionReason: "test",
+                    processGroupID: shellPID,
+                    terminalProcessGroupID: shellPID,
+                    cpuPercent: 0,
+                    residentBytes: 0,
+                    virtualBytes: 0,
+                    threadCount: 1
+                ),
+                CmuxTopProcessInfo(
+                    pid: Int(process.processIdentifier),
+                    parentPID: shellPID,
+                    name: "codex",
+                    path: "/usr/local/bin/codex",
+                    ttyDevice: nil,
+                    cmuxWorkspaceID: nil,
+                    cmuxSurfaceID: nil,
+                    cmuxAttributionReason: nil,
+                    processGroupID: Int(process.processIdentifier),
+                    terminalProcessGroupID: shellPID,
+                    cpuPercent: 0,
+                    residentBytes: 0,
+                    virtualBytes: 0,
+                    threadCount: 1
+                )
+            ],
+            sampledAt: Date(),
+            includesProcessDetails: true
+        )
+        let expectedRegistration = SidebarAgentTitleRegistration(
+            statusKey: "codex",
+            processNameNeedles: ["codex", "node"]
+        )
+        let runtimeKey = SidebarAgentStatusService.runtimeKey(
+            for: expectedRegistration,
+            panelId: panelId
+        )
+        let expectedRegistrationKey = SidebarAgentStatusService.registrationDeduplicationKey(
+            workspaceId: workspace.id,
+            panelId: panelId,
+            statusKey: expectedRegistration.statusKey
+        )
+
+        let registeredKeys = manager.registerAgentPIDsFromTerminalTitlesIfNeeded(
+            processSnapshot: snapshot
+        )
+
+        XCTAssertEqual(registeredKeys, Set([expectedRegistrationKey]))
+        XCTAssertNil(
+            workspace.statusEntries["codex"],
+            "This reproduces the missed-hook path: no hook-set status entry exists."
+        )
+        XCTAssertEqual(workspace.agentPIDs[runtimeKey], process.processIdentifier)
+        XCTAssertEqual(workspace.agentPIDPanelIdsByKey[runtimeKey], panelId)
+
+        let entries = workspace.sidebarStatusEntriesInDisplayOrder()
+        XCTAssertEqual(entries.map(\.key), ["codex"])
+        XCTAssertEqual(entries.first?.protocolValue, "running")
+        XCTAssertEqual(entries.first?.value, "Running")
+    }
+
+    @MainActor
     func testUnscopedPIDRefreshClearsPanelOwnership() {
         let workspace = Workspace()
         let panelId = UUID()
