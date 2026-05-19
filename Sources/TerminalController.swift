@@ -3554,9 +3554,7 @@ class TerminalController {
             }
         }
 
-        if workspaceFilter == nil {
-            v2AttachTopApplicationProcess(to: &windowNodes)
-        }
+        v2AttachTopApplicationProcess(to: &windowNodes, workspaceFilter: workspaceFilter)
 
         if let workspaceFilter, !workspaceFound {
             return .err(
@@ -8225,11 +8223,7 @@ class TerminalController {
             let store = TerminalNotificationStore.shared
             notification = store.notifications.first(where: { $0.id == id })
             if let notification {
-                opened = AppDelegate.shared?.openNotification(
-                    tabId: notification.tabId,
-                    surfaceId: notification.surfaceId,
-                    notificationId: notification.id
-                ) ?? false
+                opened = AppDelegate.shared?.openTerminalNotification(notification) ?? false
                 let current = store.notifications.first(where: { $0.id == notification.id }) ?? notification
                 payload = notificationPayload(current, opened: opened, includeReadState: true)
             }
