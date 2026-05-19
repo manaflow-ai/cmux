@@ -6,7 +6,6 @@ from __future__ import annotations
 import glob
 import json
 import os
-import shutil
 import socket
 import subprocess
 import tempfile
@@ -24,17 +23,12 @@ def resolve_cmux_cli() -> str:
 
     candidates: list[str] = []
     candidates.extend(glob.glob(os.path.expanduser("~/Library/Developer/Xcode/DerivedData/*/Build/Products/Debug/cmux")))
-    candidates.extend(glob.glob("/tmp/cmux-*/Build/Products/Debug/cmux"))
     candidates = [path for path in candidates if os.path.exists(path) and os.access(path, os.X_OK)]
     if candidates:
         candidates.sort(key=os.path.getmtime, reverse=True)
         return candidates[0]
 
-    in_path = shutil.which("cmux")
-    if in_path:
-        return in_path
-
-    raise RuntimeError("Unable to find cmux CLI binary. Set CMUX_CLI_BIN.")
+    raise RuntimeError("cmux CLI binary not found")
 
 
 class CapturingSocketServer:
@@ -144,6 +138,13 @@ def write_cmux_config(home: str, notifications: dict[str, object]) -> None:
     config_dir = os.path.join(home, ".config", "cmux")
     os.makedirs(config_dir, exist_ok=True)
     with open(os.path.join(config_dir, "cmux.json"), "w", encoding="utf-8") as handle:
+        json.dump({"notifications": notifications}, handle)
+
+
+def write_legacy_cmux_config(home: str, notifications: dict[str, object]) -> None:
+    config_dir = os.path.join(home, ".config", "cmux")
+    os.makedirs(config_dir, exist_ok=True)
+    with open(os.path.join(config_dir, "settings.json"), "w", encoding="utf-8") as handle:
         json.dump({"notifications": notifications}, handle)
 
 
@@ -485,6 +486,35 @@ def main() -> int:
         ):
             print("FAIL: invalid cmux.json blocked hook env ignored types")
             print(f"invalid_config_commands={invalid_config_commands!r}")
+            return 1
+
+        legacy_env = env.copy()
+        legacy_env.pop("CMUX_CLAUDE_IGNORED_NOTIFICATION_TYPES", None)
+        write_cmux_config(home, {})
+        write_legacy_cmux_config(home, {"ignoredClaudeNotificationTypes": ["idle_prompt"]})
+        before_legacy_count = len(server.commands)
+        removed_primary_idle = run_notification_hook(
+            cli_path,
+            server,
+            legacy_env,
+            {
+                "session_id": f"sess-{uuid.uuid4().hex}",
+                "hook_event_name": "Notification",
+                "notification_type": "idle_prompt",
+                "message": "Primary cmux.json removal should block legacy ignored types",
+            },
+        )
+        if removed_primary_idle.returncode != 0:
+            print("FAIL: primary removal with legacy config hook failed")
+            print(f"stdout={removed_primary_idle.stdout!r}")
+            print(f"stderr={removed_primary_idle.stderr!r}")
+            print(f"commands={server.commands!r}")
+            return 1
+
+        removed_primary_commands = server.commands[before_legacy_count:]
+        if not any(line.startswith("notify_target_async ") for line in removed_primary_commands):
+            print("FAIL: lower-precedence legacy ignored types overrode removed primary setting")
+            print(f"removed_primary_commands={removed_primary_commands!r}")
             return 1
 
     print("PASS: Claude ignored notification types suppress only matching hook notifications")

@@ -236,6 +236,7 @@ jobs:
             CMUX_CLI_BIN="$CLI_BIN" python3 tests/test_cli_socket_operation_deadline.py
             CMUX_CLI_BIN="$CLI_BIN" python3 tests/test_cli_socket_autodiscovery.py
             CMUX_CLI_BIN="$CLI_BIN" python3 tests/test_claude_hook_clear_running_status.py
+            CMUX_CLI_BIN="$CLI_BIN" python3 tests/test_claude_hook_ignored_notification_types.py
       - save-swift-package-cache:
           prefix: unit
       - save-zig-cache

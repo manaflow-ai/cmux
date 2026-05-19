@@ -18799,7 +18799,6 @@ struct CMUXCLI {
             fileManager: fileManager,
             environment: environment
         )
-        var foundSettingsFile = false
 
         for path in paths {
             switch loadIgnoredClaudeNotificationTypes(at: path, fileManager: fileManager) {
@@ -18808,14 +18807,14 @@ struct CMUXCLI {
             case .invalid:
                 continue
             case .parsed(let values):
-                foundSettingsFile = true
                 if let values {
                     return normalizedClaudeNotificationTypes(values)
                 }
+                return []
             }
         }
 
-        return foundSettingsFile ? [] : nil
+        return nil
     }
 
     private static func claudeIgnoredNotificationTypesSettingsPaths(
