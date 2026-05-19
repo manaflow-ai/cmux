@@ -2437,6 +2437,16 @@ final class CLINotifyProcessIntegrationRegressionTests: XCTestCase {
             XCTAssertEqual(result.status, 0, result.stderr)
             XCTAssertEqual(result.stdout, item.expected)
         }
+
+        let quietUnsupported = runProcess(
+            executablePath: cliPath,
+            arguments: ["__tmux-compat", "show-options", "-q", "-s", "-v", "unsupported-option"],
+            environment: environment,
+            timeout: 5
+        )
+        XCTAssertFalse(quietUnsupported.timedOut, quietUnsupported.stderr)
+        XCTAssertEqual(quietUnsupported.status, 0, quietUnsupported.stderr)
+        XCTAssertEqual(quietUnsupported.stdout, "")
     }
 
     private func notificationRows(from stdout: String) throws -> [[String: Any]] {

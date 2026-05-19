@@ -16130,6 +16130,9 @@ struct CMUXCLI {
             )
             let optionName = parsed.positional.last ?? ""
             guard let value = tmuxCompatOptionValue(optionName) else {
+                if parsed.hasFlag("-q") {
+                    return
+                }
                 throw CLIError(message: "Unsupported tmux compatibility command: \(command) \(optionName)")
             }
             if parsed.hasFlag("-v") {
