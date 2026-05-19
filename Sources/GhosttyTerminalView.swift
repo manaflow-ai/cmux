@@ -26,9 +26,12 @@ private func handleTerminalDesktopNotification(
 ) -> Bool {
     let owningManager =
         AppDelegate.shared?.tabManagerFor(tabId: tabId) ?? AppDelegate.shared?.tabManager
+    let workspace = owningManager?.tabs.first(where: { $0.id == tabId })
+    if workspace?.suppressesRawTerminalNotification(panelId: surfaceId) == true {
+        return true
+    }
     let tabTitle = owningManager?.titleForTab(tabId) ?? terminalNotificationFallbackTitle
-    let workspaceAgentPIDs =
-        owningManager?.tabs.first(where: { $0.id == tabId })?.agentPIDs ?? [:]
+    let workspaceAgentPIDs = workspace?.agentPIDs ?? [:]
     let route = TerminalDesktopNotificationBridge.route(
         claudeHooksEnabled: ClaudeCodeIntegrationSettings.hooksEnabled(),
         workspaceAgentPIDs: workspaceAgentPIDs,
@@ -5186,6 +5189,21 @@ final class TerminalSurface: Identifiable, ObservableObject {
         portalLifecycleState == .live
     }
 
+    private var hasDeferredStartupWork: Bool {
+        let inheritedCommand = configTemplate?.command?.trimmingCharacters(in: .whitespacesAndNewlines)
+        let inheritedInput = configTemplate?.initialInput
+        return initialCommand != nil ||
+            tmuxStartCommand != nil ||
+            initialInput != nil ||
+            inheritedCommand?.isEmpty == false ||
+            inheritedInput?.isEmpty == false ||
+            pendingSocketInputBytes > 0
+    }
+
+    func hasDeferredStartupWorkForBackgroundStart() -> Bool {
+        hasDeferredStartupWork
+    }
+
     func beginPortalCloseLifecycle(reason: String) {
         guard portalLifecycleState != .closed else { return }
         guard portalLifecycleState != .closing else { return }
@@ -5262,6 +5280,11 @@ final class TerminalSurface: Identifiable, ObservableObject {
 
     func debugDesiredFocusState() -> Bool {
         desiredFocusState
+    }
+
+    @MainActor
+    func debugAdditionalEnvironmentForTesting() -> [String: String] {
+        additionalEnvironment
     }
 
     func debugForceRefreshCount() -> Int {
