@@ -111982,19 +111982,19 @@
         "ar": {
           "stringUnit": {
             "state": "translated",
-            "value": "Reconnecting to %@ (attempt %lld/%lld)"
+            "value": "جارٍ إعادة الاتصال بـ %@ (المحاولة %lld/%lld)"
           }
         },
         "bs": {
           "stringUnit": {
             "state": "translated",
-            "value": "Reconnecting to %@ (attempt %lld/%lld)"
+            "value": "Ponovno povezivanje sa %@ (pokušaj %lld/%lld)"
           }
         },
         "da": {
           "stringUnit": {
             "state": "translated",
-            "value": "Reconnecting to %@ (attempt %lld/%lld)"
+            "value": "Genopretter forbindelse til %@ (forsøg %lld/%lld)"
           }
         },
         "de": {
@@ -112048,7 +112048,7 @@
         "pl": {
           "stringUnit": {
             "state": "translated",
-            "value": "Reconnecting to %@ (attempt %lld/%lld)"
+            "value": "Ponowne łączenie z %@ (próba %lld/%lld)"
           }
         },
         "pt-BR": {
@@ -112066,13 +112066,13 @@
         "th": {
           "stringUnit": {
             "state": "translated",
-            "value": "Reconnecting to %@ (attempt %lld/%lld)"
+            "value": "กำลังเชื่อมต่อกับ %@ อีกครั้ง (ครั้งที่ %lld/%lld)"
           }
         },
         "tr": {
           "stringUnit": {
             "state": "translated",
-            "value": "Reconnecting to %@ (attempt %lld/%lld)"
+            "value": "%@ ile yeniden bağlanılıyor (deneme %lld/%lld)"
           }
         },
         "uk": {
@@ -112101,19 +112101,19 @@
         "ar": {
           "stringUnit": {
             "state": "translated",
-            "value": "SSH session to %@ ended."
+            "value": "انتهت جلسة SSH مع %@."
           }
         },
         "bs": {
           "stringUnit": {
             "state": "translated",
-            "value": "SSH session to %@ ended."
+            "value": "SSH sesija sa %@ je završena."
           }
         },
         "da": {
           "stringUnit": {
             "state": "translated",
-            "value": "SSH session to %@ ended."
+            "value": "SSH-sessionen til %@ er afsluttet."
           }
         },
         "de": {
@@ -112167,7 +112167,7 @@
         "pl": {
           "stringUnit": {
             "state": "translated",
-            "value": "SSH session to %@ ended."
+            "value": "Sesja SSH z %@ zakończyła się."
           }
         },
         "pt-BR": {
@@ -112185,13 +112185,13 @@
         "th": {
           "stringUnit": {
             "state": "translated",
-            "value": "SSH session to %@ ended."
+            "value": "เซสชัน SSH ไปยัง %@ สิ้นสุดแล้ว"
           }
         },
         "tr": {
           "stringUnit": {
             "state": "translated",
-            "value": "SSH session to %@ ended."
+            "value": "%@ ile SSH oturumu sona erdi."
           }
         },
         "uk": {
@@ -112220,19 +112220,19 @@
         "ar": {
           "stringUnit": {
             "state": "translated",
-            "value": "remote host"
+            "value": "المضيف البعيد"
           }
         },
         "bs": {
           "stringUnit": {
             "state": "translated",
-            "value": "remote host"
+            "value": "udaljeni host"
           }
         },
         "da": {
           "stringUnit": {
             "state": "translated",
-            "value": "remote host"
+            "value": "fjernvært"
           }
         },
         "de": {
@@ -112286,7 +112286,7 @@
         "pl": {
           "stringUnit": {
             "state": "translated",
-            "value": "remote host"
+            "value": "host zdalny"
           }
         },
         "pt-BR": {
@@ -112304,13 +112304,13 @@
         "th": {
           "stringUnit": {
             "state": "translated",
-            "value": "remote host"
+            "value": "โฮสต์ระยะไกล"
           }
         },
         "tr": {
           "stringUnit": {
             "state": "translated",
-            "value": "remote host"
+            "value": "uzak ana makine"
           }
         },
         "uk": {
