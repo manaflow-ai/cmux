@@ -1918,7 +1918,7 @@ struct CMUXCLI {
         "--action", "--after-workspace", "--agent", "--amount", "--arch",
         "--attr", "--before-workspace", "--body", "--color", "--command",
         "--config", "--cwd", "--description", "--direction", "--domain",
-        "--dx", "--dy", "--email", "--event", "--expires", "--focus",
+        "--dx", "--dy", "--email", "--event", "--expires",
         "--function", "--id", "--image", "--index", "--key", "--layout",
         "--lines", "--load-state", "--max-depth", "--name", "--os",
         "--out", "--pane", "--panel", "--path", "--profile", "--property",
