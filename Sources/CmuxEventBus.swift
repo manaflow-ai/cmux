@@ -90,7 +90,12 @@ struct CmuxEventScope {
             guard let windowId else { return false }
             let explicitWindowIds = Self.windowIds(event)
             if !explicitWindowIds.isEmpty {
-                return explicitWindowIds.contains(windowId)
+                if explicitWindowIds.contains(windowId) {
+                    return true
+                }
+                if explicitWindowIds.contains(where: Self.isConcreteWindowId) {
+                    return false
+                }
             }
             let eventWorkspaceIds = Self.workspaceIds(event)
             let scopedWorkspaceIds: Set<String>
@@ -158,6 +163,12 @@ struct CmuxEventScope {
             return normalizedId(string)
         }
         return nil
+    }
+
+    private static func isConcreteWindowId(_ value: String) -> Bool {
+        !value.trimmingCharacters(in: .whitespacesAndNewlines)
+            .lowercased()
+            .hasPrefix("window:")
     }
 
     private static func payloadContains(_ event: [String: Any], key: String, id: String) -> Bool {

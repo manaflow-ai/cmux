@@ -246,6 +246,42 @@ final class CmuxEventBusTests: XCTestCase {
         XCTAssertEqual(snapshot.replay.compactMap { $0["name"] as? String }, [])
     }
 
+    func testWindowScopeUsesWorkspaceFallbackForWindowRefPayload() {
+        let bus = CmuxEventBus(retainedEventLimit: 8)
+        let windowId = UUID()
+        let workspaceId = UUID()
+        bus.publish(
+            name: "browser.action",
+            category: "browser",
+            source: "socket.v2",
+            workspaceId: workspaceId.uuidString,
+            payload: [
+                "method": "browser.click",
+                "params": [
+                    "window_id": "window:1",
+                    "workspace_id": workspaceId.uuidString
+                ],
+                "result": [
+                    "surface_id": UUID().uuidString
+                ]
+            ]
+        )
+
+        let snapshot = bus.subscribe(
+            afterSequence: 0,
+            names: [],
+            categories: [],
+            scope: CmuxEventScope(
+                kind: .window,
+                windowId: windowId.uuidString,
+                windowWorkspaceIds: [workspaceId.uuidString]
+            )
+        )
+        defer { bus.unsubscribe(snapshot.subscription) }
+
+        XCTAssertEqual(snapshot.replay.compactMap { $0["name"] as? String }, ["browser.action"])
+    }
+
     func testWindowScopeMatchesSourceWindowPayloadWhenWorkspaceLeavesWindow() {
         let bus = CmuxEventBus(retainedEventLimit: 8)
         let workspaceIds = EventScopeWorkspaceIds(["workspace-c"])
