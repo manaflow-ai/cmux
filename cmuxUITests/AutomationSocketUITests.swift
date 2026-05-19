@@ -25,7 +25,7 @@ final class AutomationSocketUITests: XCTestCase {
             "Expected app to launch for socket toggle test. state=\(app.state.rawValue)"
         )
 
-        guard let resolvedPath = resolveSocketPath(timeout: 5.0) else {
+        guard let resolvedPath = resolveSocketPath(timeout: 5.0, allowTmpFallback: false) else {
             XCTFail("Expected control socket to exist")
             return
         }
@@ -42,7 +42,7 @@ final class AutomationSocketUITests: XCTestCase {
             "Expected app to launch for socket path recreation test. state=\(app.state.rawValue)"
         )
 
-        guard let resolvedPath = resolveSocketPath(timeout: 5.0) else {
+        guard let resolvedPath = resolveSocketPath(timeout: 5.0, allowTmpFallback: false) else {
             XCTFail("Expected control socket to exist")
             return
         }
@@ -118,7 +118,7 @@ final class AutomationSocketUITests: XCTestCase {
         ControlSocketClient(path: socketPath, responseTimeout: 1.0).sendLine(command)
     }
 
-    private func resolveSocketPath(timeout: TimeInterval) -> String? {
+    private func resolveSocketPath(timeout: TimeInterval, allowTmpFallback: Bool = true) -> String? {
         var resolvedPath: String?
         let expectation = XCTNSPredicateExpectation(
             predicate: NSPredicate { _, _ in
@@ -126,6 +126,7 @@ final class AutomationSocketUITests: XCTestCase {
                     resolvedPath = self.socketPath
                     return true
                 }
+                guard allowTmpFallback else { return false }
                 if let found = self.findSocketInTmp() {
                     resolvedPath = found
                     return true

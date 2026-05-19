@@ -28,6 +28,7 @@ class TerminalController {
         let acceptLoopAlive: Bool
         let socketPathMatches: Bool
         let socketPathExists: Bool
+        let socketPathOwnedByListener: Bool
 
         var failureSignals: [String] {
             var signals: [String] = []
@@ -35,6 +36,9 @@ class TerminalController {
             if !acceptLoopAlive { signals.append("accept_loop_dead") }
             if !socketPathMatches { signals.append("socket_path_mismatch") }
             if !socketPathExists { signals.append("socket_missing") }
+            if socketPathMatches && socketPathExists && !socketPathOwnedByListener {
+                signals.append("socket_identity_mismatch")
+            }
             return signals
         }
 
@@ -1332,15 +1336,18 @@ class TerminalController {
     nonisolated func socketListenerHealth(expectedSocketPath: String) -> SocketListenerHealth {
         let snapshot = listenerStateSnapshot()
         let pathMatches = snapshot.socketPath == expectedSocketPath
+        let currentIdentity = Self.socketPathIdentity(at: expectedSocketPath)
+        let pathExists = currentIdentity != nil
+        let pathOwnedByListener = currentIdentity.map { current in
+            pathMatches && (snapshot.boundSocketPathIdentity.map { current == $0 } ?? false)
+        } ?? false
 
         return SocketListenerHealth(
             isRunning: snapshot.isRunning,
             acceptLoopAlive: snapshot.acceptLoopAlive,
             socketPathMatches: pathMatches,
-            socketPathExists: pathMatches && Self.socketPathExists(
-                expectedSocketPath,
-                matching: snapshot.boundSocketPathIdentity
-            )
+            socketPathExists: pathExists,
+            socketPathOwnedByListener: pathOwnedByListener
         )
     }
 
