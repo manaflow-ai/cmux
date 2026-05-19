@@ -90,8 +90,31 @@ echo "==> verifying"
 /usr/bin/codesign --verify --deep --strict --verbose=2 "$APP_PATH"
 "$SCRIPT_DIR/verify-command-palette-nucleo-ffi-artifact.sh" "$APP_PATH"
 
-APP_ID="$(/usr/libexec/PlistBuddy -c "Print :com.apple.application-identifier" \
-  /dev/stdin <<<"$(plutil -convert xml1 -o - "$APP_ENTITLEMENTS")" 2>/dev/null || true)"
+plist_print() {
+  local plist_xml="$1"
+  local key_path="$2"
+  /usr/libexec/PlistBuddy -c "Print :$key_path" /dev/stdin <<<"$plist_xml" 2>/dev/null || true
+}
+
+plist_array_contains_exact() {
+  local plist_xml="$1"
+  local key_path="$2"
+  local expected="$3"
+  local index=0
+  local value
+
+  while value="$(/usr/libexec/PlistBuddy -c "Print :${key_path}:${index}" /dev/stdin <<<"$plist_xml" 2>/dev/null)"; do
+    if [[ "$value" == "$expected" ]]; then
+      return 0
+    fi
+    index=$((index + 1))
+  done
+
+  return 1
+}
+
+APP_ENTITLEMENTS_XML="$(plutil -convert xml1 -o - "$APP_ENTITLEMENTS")"
+APP_ID="$(plist_print "$APP_ENTITLEMENTS_XML" "com.apple.application-identifier")"
 
 SIGNED_ENTITLEMENTS="$(
   /usr/bin/codesign -d --entitlements :- "$APP_PATH" 2>/dev/null \
@@ -99,22 +122,22 @@ SIGNED_ENTITLEMENTS="$(
 )"
 
 if [[ -n "$APP_ID" ]]; then
-  grep -Fq -- "$APP_ID" <<<"$SIGNED_ENTITLEMENTS" || {
+  SIGNED_APP_ID="$(plist_print "$SIGNED_ENTITLEMENTS" "com.apple.application-identifier")"
+  if [[ "$SIGNED_APP_ID" != "$APP_ID" ]]; then
     echo "error: signed app missing application-identifier $APP_ID" >&2
     exit 1
-  }
+  fi
   KEYCHAIN_ACCESS_GROUPS="$(
-    /usr/libexec/PlistBuddy -c "Print :keychain-access-groups" \
-      /dev/stdin <<<"$SIGNED_ENTITLEMENTS" 2>/dev/null || true
+    plist_print "$SIGNED_ENTITLEMENTS" "keychain-access-groups"
   )"
   if [[ -z "$KEYCHAIN_ACCESS_GROUPS" ]]; then
     echo "error: signed app missing keychain-access-groups entitlement" >&2
     exit 1
   fi
-  grep -Fq -- "$APP_ID" <<<"$KEYCHAIN_ACCESS_GROUPS" || {
+  if ! plist_array_contains_exact "$SIGNED_ENTITLEMENTS" "keychain-access-groups" "$APP_ID"; then
     echo "error: signed app missing keychain access group $APP_ID" >&2
     exit 1
-  }
+  fi
 fi
 grep -Fq -- "com.apple.developer.web-browser.public-key-credential" <<<"$SIGNED_ENTITLEMENTS" || {
     echo "error: signed app missing web-browser entitlement" >&2
