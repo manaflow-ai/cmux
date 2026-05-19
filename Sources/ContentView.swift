@@ -9369,15 +9369,11 @@ struct SidebarTabItemPresentationSnapshot: Equatable {
 struct SidebarTabItemPresentationResolutionPolicy {
     static func resolved(
         live: SidebarTabItemPresentationSnapshot,
-        frozen: SidebarTabItemPresentationSnapshot?
+        frozen: SidebarTabItemPresentationSnapshot?,
+        contextMenuVisible: Bool
     ) -> SidebarTabItemPresentationSnapshot {
-        guard let frozen, frozen.tabId == live.tabId else { return live }
-        return SidebarTabItemPresentationSnapshot(
-            tabId: live.tabId,
-            unreadCount: live.unreadCount,
-            latestNotificationText: live.latestNotificationText,
-            showsModifierShortcutHints: frozen.showsModifierShortcutHints
-        )
+        guard contextMenuVisible, let frozen, frozen.tabId == live.tabId else { return live }
+        return frozen
     }
 }
 
@@ -9865,14 +9861,9 @@ struct VerticalTabsSidebar: View {
             latestNotificationText: liveLatestNotificationText,
             showsModifierShortcutHints: liveShowsModifierShortcutHints
         )
-        let frozenPresentation = frozenTabItemPresentation?.tabId == tab.id
+        let frozenPresentationSnapshot = frozenTabItemPresentation?.tabId == tab.id
             ? frozenTabItemPresentation
             : nil
-        let resolvedPresentation = SidebarTabItemPresentationResolutionPolicy.resolved(
-            live: livePresentation,
-            frozen: frozenPresentation
-        )
-
         return TabItemView(
             tabManager: tabManager,
             notificationStore: notificationStore,
@@ -9886,13 +9877,13 @@ struct VerticalTabsSidebar: View {
             workspaceShortcutModifierSymbol: renderContext.workspaceNumberShortcut.numberedDigitHintPrefix,
             canCloseWorkspace: renderContext.canCloseWorkspace,
             accessibilityWorkspaceCount: renderContext.workspaceCount,
-            unreadCount: resolvedPresentation.unreadCount,
-            latestNotificationText: resolvedPresentation.latestNotificationText,
+            unreadCount: livePresentation.unreadCount,
+            latestNotificationText: livePresentation.latestNotificationText,
             rowSpacing: tabRowSpacing,
             setSelectionToTabs: { selection = .tabs },
             selectedTabIds: $selectedTabIds,
             lastSidebarSelectionIndex: $lastSidebarSelectionIndex,
-            showsModifierShortcutHints: resolvedPresentation.showsModifierShortcutHints,
+            showsModifierShortcutHints: livePresentation.showsModifierShortcutHints,
             dragAutoScrollController: dragAutoScrollController,
             draggedTabId: $draggedTabId,
             dropIndicator: $dropIndicator,
@@ -9904,6 +9895,7 @@ struct VerticalTabsSidebar: View {
             contextMenuPinState: contextMenuPinState,
             settings: renderContext.tabItemSettings,
             livePresentation: livePresentation,
+            frozenPresentationSnapshot: frozenPresentationSnapshot,
             frozenPresentation: $frozenTabItemPresentation
         )
         .equatable()
@@ -12304,8 +12296,9 @@ private struct TabItemView: View, Equatable {
     private static let workspaceObservationCoalesceInterval: RunLoop.SchedulerTimeType.Stride = .milliseconds(40)
     private static let legacyVMWebSocketDescription = "VM WebSocket PTY"
 
-    // Closures, Bindings, and object references are excluded from ==
-    // because they're recreated every parent eval but don't affect rendering.
+    // Closures, binding identities, and object references are excluded from ==
+    // because they're recreated every parent eval. Pass plain values for binding
+    // state read during body rendering so Equatable can compare them directly.
     nonisolated static func == (lhs: TabItemView, rhs: TabItemView) -> Bool {
         lhs.tab === rhs.tab &&
         lhs.index == rhs.index &&
@@ -12324,6 +12317,7 @@ private struct TabItemView: View, Equatable {
         lhs.allRemoteContextMenuTargetsDisconnected == rhs.allRemoteContextMenuTargetsDisconnected &&
         lhs.allContextMenuWorkspacesHideTerminalScrollBar == rhs.allContextMenuWorkspacesHideTerminalScrollBar &&
         lhs.contextMenuPinState == rhs.contextMenuPinState &&
+        lhs.frozenPresentationSnapshot == rhs.frozenPresentationSnapshot &&
         lhs.settings == rhs.settings
     }
 
@@ -12358,6 +12352,7 @@ private struct TabItemView: View, Equatable {
     let contextMenuPinState: WorkspaceActionDispatcher.PinState?
     let settings: SidebarTabItemSettingsSnapshot
     let livePresentation: SidebarTabItemPresentationSnapshot
+    let frozenPresentationSnapshot: SidebarTabItemPresentationSnapshot?
     @Binding var frozenPresentation: SidebarTabItemPresentationSnapshot?
     @State private var workspaceSnapshotStorage: SidebarWorkspaceSnapshotBuilder.Snapshot?
     @StateObject private var contextMenuState = SidebarTabItemContextMenuState()
@@ -12384,6 +12379,26 @@ private struct TabItemView: View, Equatable {
 
     private var alwaysShowShortcutHints: Bool {
         settings.alwaysShowShortcutHints
+    }
+
+    private var resolvedPresentation: SidebarTabItemPresentationSnapshot {
+        SidebarTabItemPresentationResolutionPolicy.resolved(
+            live: livePresentation,
+            frozen: frozenPresentationSnapshot,
+            contextMenuVisible: rowInteractionState.contextMenuVisible
+        )
+    }
+
+    private var resolvedUnreadCount: Int {
+        resolvedPresentation.unreadCount
+    }
+
+    private var resolvedLatestNotificationText: String? {
+        resolvedPresentation.latestNotificationText
+    }
+
+    private var resolvedShowsModifierShortcutHints: Bool {
+        resolvedPresentation.showsModifierShortcutHints
     }
 
     private var sidebarShowGitBranch: Bool {
@@ -12495,7 +12510,7 @@ private struct TabItemView: View, Equatable {
     private var showCloseButton: Bool {
         rowInteractionState.shouldShowCloseButton(
             canCloseWorkspace: canCloseWorkspace,
-            shortcutHintModeActive: showsModifierShortcutHints || alwaysShowShortcutHints
+            shortcutHintModeActive: resolvedShowsModifierShortcutHints || alwaysShowShortcutHints
         )
     }
 
@@ -12505,7 +12520,7 @@ private struct TabItemView: View, Equatable {
     }
 
     private var showsWorkspaceShortcutHint: Bool {
-        (showsModifierShortcutHints || alwaysShowShortcutHints) && workspaceShortcutLabel != nil
+        (resolvedShowsModifierShortcutHints || alwaysShowShortcutHints) && workspaceShortcutLabel != nil
     }
 
     private var remoteWorkspaceSidebarText: String? {
@@ -12579,7 +12594,7 @@ private struct TabItemView: View, Equatable {
                         .lineLimit(1)
                 }
             }
-            .padding(.top, latestNotificationText == nil ? 1 : 2)
+            .padding(.top, resolvedLatestNotificationText == nil ? 1 : 2)
             .safeHelp(workspaceSnapshot.remoteStateHelpText)
         }
     }
@@ -12616,7 +12631,7 @@ private struct TabItemView: View, Equatable {
         let moveDownActionText = String(localized: "sidebar.workspace.moveDownAction", defaultValue: "Move Down")
         let finderDirectoryPath = WorkspaceFinderDirectoryResolver.path(for: tab)
         let finderDirectoryCacheKey = WorkspaceFinderDirectoryCacheKey(path: finderDirectoryPath)
-        let latestNotificationSubtitle = latestNotificationText
+        let latestNotificationSubtitle = resolvedLatestNotificationText
         let conversationMessageSubtitle = !settings.hidesAllDetails && settings.iMessageModeEnabled
             ? workspaceSnapshot.latestConversationMessage?
                 .trimmingCharacters(in: .whitespacesAndNewlines)
@@ -12627,11 +12642,11 @@ private struct TabItemView: View, Equatable {
 
         VStack(alignment: .leading, spacing: 4) {
             HStack(spacing: 8) {
-                if unreadCount > 0 {
+                if resolvedUnreadCount > 0 {
                     ZStack {
                         Circle()
                             .fill(activeUnreadBadgeFillColor)
-                        Text("\(unreadCount)")
+                        Text("\(resolvedUnreadCount)")
                             .font(.system(size: 9, weight: .semibold))
                             .foregroundColor(.white)
                     }
@@ -12899,9 +12914,18 @@ private struct TabItemView: View, Equatable {
             }
         }
         .contentShape(Rectangle())
+        .onContinuousHover { phase in
+            switch phase {
+            case .active:
+                rowInteractionState.setPointerHovering(true)
+            case .ended:
+                rowInteractionState.setPointerHovering(false)
+            }
+        }
         .opacity(isBeingDragged ? 0.6 : 1)
         .overlay {
             SidebarWorkspaceRowHoverTracker(rowInteractionState: $rowInteractionState)
+                .frame(maxWidth: .infinity, maxHeight: .infinity)
         }
         .overlay {
             MiddleClickCapture {
@@ -13013,18 +13037,38 @@ private struct TabItemView: View, Equatable {
         }
         .contextMenu {
             workspaceContextMenu
-                .onAppear {
-                    rowInteractionState.contextMenuDidAppear()
-                    contextMenuState.hasDeferredWorkspaceObservationInvalidation = false
-                    contextMenuState.pendingWorkspaceSnapshot = nil
-                    frozenPresentation = livePresentation
-                }
-                .onDisappear {
-                    rowInteractionState.contextMenuDidDisappear()
-                    frozenPresentation = nil
-                    flushDeferredWorkspaceObservationInvalidation()
-                }
+                .onAppear(perform: contextMenuAppeared)
+                .onDisappear(perform: contextMenuDisappeared)
         }
+        .onChange(
+            of: rowInteractionState.contextMenuVisible,
+            perform: contextMenuVisibilityChanged
+        )
+    }
+
+    private func contextMenuAppeared() {
+        rowInteractionState.contextMenuDidAppear()
+        contextMenuState.hasDeferredWorkspaceObservationInvalidation = false
+        contextMenuState.pendingWorkspaceSnapshot = nil
+        frozenPresentation = livePresentation
+    }
+
+    private func contextMenuDisappeared() {
+        rowInteractionState.contextMenuDidDisappear()
+        clearFrozenPresentationForCurrentTab()
+        flushDeferredWorkspaceObservationInvalidation()
+    }
+
+    private func contextMenuVisibilityChanged(_ isVisible: Bool) {
+        guard !isVisible else { return }
+        guard frozenPresentation?.tabId == tab.id else { return }
+        clearFrozenPresentationForCurrentTab()
+        flushDeferredWorkspaceObservationInvalidation()
+    }
+
+    private func clearFrozenPresentationForCurrentTab() {
+        guard frozenPresentation?.tabId == tab.id else { return }
+        frozenPresentation = nil
     }
 
     private func refreshWorkspaceSnapshot(force: Bool = false) {
