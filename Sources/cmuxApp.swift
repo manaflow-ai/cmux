@@ -2,6 +2,7 @@ import AppKit
 import SwiftUI
 import Darwin
 import Bonsplit
+import OSLog
 import UniformTypeIdentifiers
 @main
 struct cmuxApp: App {
@@ -21,6 +22,8 @@ struct cmuxApp: App {
     private var browserToolbarAccessorySpacing: Int {
         BrowserToolbarAccessorySpacingDebugSettings.resolved(browserToolbarAccessorySpacingRaw)
     }
+
+    private static let startupLogger = Logger(subsystem: "com.cmuxterm.app", category: "startup")
 
     init() {
         StartupBreadcrumbLog.append("app.init.begin")
@@ -44,11 +47,17 @@ struct cmuxApp: App {
         let startupAppearance = AppearanceSettings.resolvedMode()
         Self.applyAppearance(startupAppearance, duringLaunch: true)
         StartupBreadcrumbLog.append("app.init.appearance.applied", fields: ["mode": startupAppearance.rawValue])
+        let defaults = UserDefaults.standard
+        AppBundleIconPersistencePolicy.updateDisableDefault(
+            defaults: defaults,
+            launchArguments: ProcessInfo.processInfo.arguments
+        )
+        KeyboardShortcutSettings.settingsFileStore.applyDeferredManagedDefaultSideEffects()
+        StartupBreadcrumbLog.append("app.init.keyboardShortcuts.sideEffectsApplied")
         StartupBreadcrumbLog.append("app.init.tabManager.begin")
         _tabManager = StateObject(wrappedValue: TabManager())
         StartupBreadcrumbLog.append("app.init.tabManager.complete")
         // Migrate legacy and old-format socket mode values to the new enum.
-        let defaults = UserDefaults.standard
         if let stored = defaults.string(forKey: SocketControlSettings.appStorageKey) {
             let migrated = SocketControlSettings.migrateMode(stored)
             if migrated.rawValue != stored {
@@ -90,6 +99,7 @@ struct cmuxApp: App {
         let message = "error: refusing to launch untagged cmux DEV; start with ./scripts/reload.sh --tag <name> (or set CMUX_TAG for test harnesses)"
         fputs("\(message)\n", stderr)
         fflush(stderr)
+        startupLogger.error("\(message, privacy: .public)")
         Darwin.exit(64)
     }
 
@@ -124,6 +134,7 @@ struct cmuxApp: App {
         let message = String(format: format, socketLabel)
         fputs("\(message)\n", stderr)
         fflush(stderr)
+        startupLogger.error("\(message, privacy: .public)")
         Darwin.exit(73)
     }
 
@@ -4636,6 +4647,13 @@ enum QuitWarningSettings {
         return defaults.bool(forKey: warnBeforeQuitKey)
     }
 
+    static func shouldShowConfirmation(
+        isQuitWarningConfirmed: Bool,
+        defaults: UserDefaults = .standard
+    ) -> Bool {
+        !isQuitWarningConfirmed && isEnabled(defaults: defaults)
+    }
+
     static func setEnabled(_ isEnabled: Bool, defaults: UserDefaults = .standard) {
         defaults.set(isEnabled, forKey: warnBeforeQuitKey)
     }
@@ -5056,6 +5074,8 @@ struct SettingsView: View {
     private var claudeCodeHooksEnabled = ClaudeCodeIntegrationSettings.defaultHooksEnabled
     @AppStorage(ClaudeCodeIntegrationSettings.customClaudePathKey)
     private var customClaudePath = ""
+    @AppStorage(RipgrepIntegrationSettings.customRipgrepPathKey)
+    private var customRipgrepPath = ""
     @AppStorage(CursorIntegrationSettings.hooksEnabledKey)
     private var cursorHooksEnabled = CursorIntegrationSettings.defaultHooksEnabled
     @AppStorage(GeminiIntegrationSettings.hooksEnabledKey)
@@ -6639,6 +6659,21 @@ struct SettingsView: View {
 
                     SettingsCard {
                         SettingsCardRow(
+                            configurationReview: .json("automation.ripgrepBinaryPath"),
+                            String(localized: "settings.automation.ripgrep.customPath", defaultValue: "Ripgrep Binary Path"),
+                            subtitle: String(localized: "settings.automation.ripgrep.customPath.subtitle", defaultValue: "Custom path to the rg binary used by Find. Leave empty to use common install locations and PATH.")
+                        ) {
+                            TextField(
+                                String(localized: "settings.automation.ripgrep.customPath.placeholder", defaultValue: "e.g. /etc/profiles/per-user/you/bin/rg"),
+                                text: $customRipgrepPath
+                            )
+                            .textFieldStyle(.roundedBorder)
+                            .frame(width: 200)
+                        }
+                    }
+
+                    SettingsCard {
+                        SettingsCardRow(
                             configurationReview: .json("automation.cursorIntegration"),
                             String(localized: "settings.automation.cursor", defaultValue: "Cursor Integration"),
                             subtitle: cursorHooksEnabled
@@ -7447,6 +7482,7 @@ struct SettingsView: View {
         socketControlMode = SocketControlSettings.defaultMode.rawValue
         claudeCodeHooksEnabled = ClaudeCodeIntegrationSettings.defaultHooksEnabled
         customClaudePath = ""
+        customRipgrepPath = ""
         cursorHooksEnabled = CursorIntegrationSettings.defaultHooksEnabled
         geminiHooksEnabled = GeminiIntegrationSettings.defaultHooksEnabled
         sendAnonymousTelemetry = TelemetrySettings.defaultSendAnonymousTelemetry

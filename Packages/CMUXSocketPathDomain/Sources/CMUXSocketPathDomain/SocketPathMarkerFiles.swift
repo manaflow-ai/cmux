@@ -232,7 +232,7 @@ public enum SocketPathMarkerFiles {
         let hash = stableSlugHash(slug)
         let fixedBytes = socketPathLength(
             directoryPath: directoryPath,
-            fileName: "\(filePrefix).-.\(hash).sock"
+            fileName: "\(filePrefix).-\(hash).sock"
         )
         let availableSlugBytes = maxSocketPathLength - fixedBytes
         guard availableSlugBytes > 0 else {

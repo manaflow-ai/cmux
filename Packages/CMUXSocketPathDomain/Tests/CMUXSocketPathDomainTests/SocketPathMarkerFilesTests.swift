@@ -59,7 +59,7 @@ import Testing
         stableSocketPath: "/Users/austinwang/Library/Application Support/cmux/com.cmuxterm.app.sock"
     )
 
-    #expect(path.hasPrefix("/Users/austinwang/Library/Application Support/cmux/com.cmuxterm.app.dev.issue-3993"))
+    #expect(path.hasPrefix("/Users/austinwang/Library/Application Support/cmux/com.cmuxterm.app.dev.issue-399"))
     #expect(path.hasSuffix(".sock"))
     #expect(path.utf8.count <= 103)
 }
