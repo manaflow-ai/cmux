@@ -22,9 +22,10 @@ def _must(cond: bool, msg: str) -> None:
 
 
 def _find_cli_binary() -> str:
-    env_cli = os.environ.get("CMUXTERM_CLI")
-    if env_cli and os.path.isfile(env_cli) and os.access(env_cli, os.X_OK):
-        return env_cli
+    for env_name in ("CMUX_BUNDLED_CLI_PATH", "CMUXTERM_CLI"):
+        env_cli = os.environ.get(env_name)
+        if env_cli and os.path.isfile(env_cli) and os.access(env_cli, os.X_OK):
+            return env_cli
 
     fixed = os.path.expanduser("~/Library/Developer/Xcode/DerivedData/cmux-tests-v2/Build/Products/Debug/cmux")
     if os.path.isfile(fixed) and os.access(fixed, os.X_OK):
@@ -34,7 +35,7 @@ def _find_cli_binary() -> str:
     candidates += glob.glob("/tmp/cmux-*/Build/Products/Debug/cmux")
     candidates = [p for p in candidates if os.path.isfile(p) and os.access(p, os.X_OK)]
     if not candidates:
-        raise cmuxError("Could not locate cmux CLI binary; set CMUXTERM_CLI")
+        raise cmuxError("Could not locate cmux CLI binary; set CMUX_BUNDLED_CLI_PATH or CMUXTERM_CLI")
     candidates.sort(key=os.path.getmtime, reverse=True)
     return candidates[0]
 

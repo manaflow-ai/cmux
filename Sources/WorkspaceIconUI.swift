@@ -110,12 +110,24 @@ private enum SidebarWorkspaceIconImageCache {
     }
 
     nonisolated static func decodedImage(forExpandedPath expandedPath: String) async -> DecodedImage? {
-        await Task.detached(priority: .utility) {
+        let task = Task.detached(priority: .utility) { () throws -> DecodedImage? in
+            try Task.checkCancellation()
             let url = URL(fileURLWithPath: expandedPath, isDirectory: false)
-            guard let data = try? Data(contentsOf: url),
-                  let image = NSImage(data: data) else { return nil }
+            let data = try Data(contentsOf: url)
+            try Task.checkCancellation()
+            guard let image = NSImage(data: data) else { return nil }
+            try Task.checkCancellation()
             return DecodedImage(image: image)
-        }.value
+        }
+        return await withTaskCancellationHandler {
+            do {
+                return try await task.value
+            } catch {
+                return nil
+            }
+        } onCancel: {
+            task.cancel()
+        }
     }
 
     nonisolated private static func cacheKey(forExpandedPath expandedPath: String) -> String {
