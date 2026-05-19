@@ -3402,6 +3402,25 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         TerminalController.shared.start(tabManager: tabManager, socketPath: path, accessMode: config.mode)
     }
 
+    private func ensureSocketListenerIfEnabled(tabManager: TabManager, source: String) {
+        guard let config = socketListenerConfigurationIfEnabled() else {
+            TerminalController.shared.stop()
+            return
+        }
+
+        let path = TerminalController.shared.activeSocketPath(preferredPath: config.path)
+        let health = TerminalController.shared.socketListenerHealth(expectedSocketPath: path)
+        guard !health.isHealthy else { return }
+
+        sentryBreadcrumb("socket.listener.ensure", category: "socket", data: [
+            "mode": config.mode.rawValue,
+            "path": path,
+            "source": source,
+            "failureSignals": health.failureSignals.joined(separator: ",")
+        ])
+        TerminalController.shared.start(tabManager: tabManager, socketPath: path, accessMode: config.mode)
+    }
+
     private func restartSocketListenerIfEnabled(source: String) {
         guard let manager = tabManager
             ?? preferredRegisteredMainWindowContext()?.tabManager
@@ -3981,6 +4000,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             "mainWindow.register windowId=\(String(windowId.uuidString.prefix(8))) window={\(debugWindowToken(window))} manager=\(debugManagerToken(tabManager)) priorActiveMgr=\(priorManagerToken) \(debugShortcutRouteSnapshot())"
         )
 #endif
+        ensureSocketListenerIfEnabled(tabManager: tabManager, source: "mainWindow.register")
         notifyMainWindowContextsDidChange()
         if window.isKeyWindow {
             setActiveMainWindow(window)
