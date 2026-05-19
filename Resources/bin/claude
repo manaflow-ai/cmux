@@ -35,12 +35,22 @@ cmux_socket_available() {
         "$cmux_bin" --socket "$socket" ping >/dev/null 2>&1
 }
 
+normalize_claude_config_dir() {
+    # Issue #4255: Claude treats CLAUDE_CONFIG_DIR being set to its default
+    # path differently from the variable being absent, so normalize that case.
+    if [[ "${CLAUDE_CONFIG_DIR:-}" == "$HOME/.claude" ]]; then
+        unset CLAUDE_CONFIG_DIR
+    fi
+}
+
 # Pass through if not in a cmux terminal, hooks are disabled, or the cmux
 # socket is unavailable (stale env / app not running).
 IN_CMUX=0
 if [[ -n "$CMUX_SURFACE_ID" ]]; then
     IN_CMUX=1
 fi
+
+normalize_claude_config_dir
 
 if [[ "$IN_CMUX" == "0" || "$CMUX_CLAUDE_HOOKS_DISABLED" == "1" ]] || ! cmux_socket_available; then
     # In cmux-launched shells, preserve old behavior and always clear nested
