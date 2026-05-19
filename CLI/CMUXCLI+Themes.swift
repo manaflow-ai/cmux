@@ -133,7 +133,7 @@ extension CMUXCLI {
         do {
             try process.run()
         } catch {
-            throw CLIError(message: "Failed to launch interactive theme picker: \(error.localizedDescription)")
+            throw CLIError(message: "Failed to launch interactive theme picker: \(String(describing: error))")
         }
         if originalForegroundProcessGroup > 0 {
             let childProcessGroup = getpgid(process.processIdentifier)
