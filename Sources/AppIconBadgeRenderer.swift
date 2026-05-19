@@ -64,12 +64,6 @@ enum AppIconBadgeRenderer {
             height: badgeHeight
         )
 
-        NSColor.white.setFill()
-        NSBezierPath(
-            roundedRect: badgeRect.insetBy(dx: -badgeHeight * 0.07, dy: -badgeHeight * 0.07),
-            xRadius: badgeHeight * 0.58,
-            yRadius: badgeHeight * 0.58
-        ).fill()
         NSColor(calibratedRed: 1.0, green: 0.12, blue: 0.16, alpha: 1.0).setFill()
         NSBezierPath(roundedRect: badgeRect, xRadius: badgeHeight / 2, yRadius: badgeHeight / 2).fill()
 

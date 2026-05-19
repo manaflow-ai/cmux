@@ -352,6 +352,22 @@ final class AppIconSettingsTests: XCTestCase {
         XCTAssertEqual(dockTileNotificationCount, 2)
     }
 
+    func testBadgeRendererDoesNotDrawWhiteHaloAroundBadge() throws {
+        let baseIcon = NSImage(size: NSSize(width: 64, height: 64))
+        baseIcon.lockFocus()
+        NSColor.systemBlue.setFill()
+        NSBezierPath(rect: NSRect(origin: .zero, size: baseIcon.size)).fill()
+        baseIcon.unlockFocus()
+
+        let badgedIcon = AppIconBadgeRenderer.image(baseIcon: baseIcon, badgeLabel: "1")
+
+        XCTAssertLessThan(
+            try whitePixelCount(in: badgedIcon),
+            90,
+            "Badge should use white only for the label, not a visible halo around the red badge"
+        )
+    }
+
     func testApplyAutomaticStartsObservationAndNotifiesDockTilePlugin() {
         var dockTileNotificationCount = 0
         var startObservationCallCount = 0
@@ -418,6 +434,24 @@ final class AppIconSettingsTests: XCTestCase {
         XCTAssertEqual(dockTileNotificationCount, 0)
         XCTAssertEqual(startObservationCallCount, 0)
         XCTAssertEqual(stopObservationCallCount, 0)
+    }
+
+    private func whitePixelCount(in image: NSImage) throws -> Int {
+        let tiffData = try XCTUnwrap(image.tiffRepresentation)
+        let bitmap = try XCTUnwrap(NSBitmapImageRep(data: tiffData))
+        var count = 0
+        for x in 0..<bitmap.pixelsWide {
+            for y in 0..<bitmap.pixelsHigh {
+                guard let color = bitmap.colorAt(x: x, y: y)?.usingColorSpace(.sRGB) else { continue }
+                if color.alphaComponent > 0.8,
+                   color.redComponent > 0.9,
+                   color.greenComponent > 0.9,
+                   color.blueComponent > 0.9 {
+                    count += 1
+                }
+            }
+        }
+        return count
     }
 }
 
