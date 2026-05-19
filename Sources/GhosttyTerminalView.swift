@@ -3015,20 +3015,16 @@ class GhosttyApp {
 
     enum RuntimeColorSchemeSynchronizationDecision: Equatable {
         case apply
-        case skipAlreadyApplied
         case skipReentrant
     }
 
     static func runtimeColorSchemeSynchronizationDecision(
-        applied: ghostty_color_scheme_e?,
-        requested: ghostty_color_scheme_e,
+        applied _: ghostty_color_scheme_e?,
+        requested _: ghostty_color_scheme_e,
         isSynchronizing: Bool
     ) -> RuntimeColorSchemeSynchronizationDecision {
         if isSynchronizing {
             return .skipReentrant
-        }
-        if applied == requested {
-            return .skipAlreadyApplied
         }
         return .apply
     }
@@ -3342,8 +3338,6 @@ class GhosttyApp {
                 switch decision {
                 case .apply:
                     reason = "apply"
-                case .skipAlreadyApplied:
-                    reason = "already_applied"
                 case .skipReentrant:
                     reason = "reentrant"
                 }
