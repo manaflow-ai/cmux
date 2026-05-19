@@ -328,9 +328,10 @@ extension CMUXCLI {
 
     private func requestThemeReloadOverSocket(socketPath: String, explicitPassword: String?) -> Bool {
         let client = SocketClient(path: socketPath)
+        defer { client.close() }
+
         do {
             try client.connect()
-            defer { client.close() }
             try authenticateClientIfNeeded(
                 client,
                 explicitPassword: explicitPassword,
@@ -339,7 +340,6 @@ extension CMUXCLI {
             let response = try client.send(command: "reload_config")
             return !response.hasPrefix("ERROR:")
         } catch {
-            client.close()
             return false
         }
     }
