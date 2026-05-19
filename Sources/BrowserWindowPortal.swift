@@ -1466,6 +1466,7 @@ enum BrowserPaneDropRouting {
     }
 }
 
+@MainActor
 enum BrowserWebInspectorCompanionDetector {
     static func containsVisibleInspectorCompanion(in host: NSView, primaryWebView: WKWebView) -> Bool {
         var stack = host.subviews.filter { $0 !== primaryWebView }
