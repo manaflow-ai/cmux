@@ -1138,6 +1138,22 @@ extension Workspace {
                 if let name = surface.name { setPanelCustomTitle(panelId: panel.id, title: name) }
                 if surface.focus == true { focusPanelId = panel.id }
             }
+
+        case .note:
+            // Config-declared notes use `name` as the slug. Auto-generates a
+            // slug when missing or invalid so a malformed cmux.json doesn't
+            // crash workspace creation.
+            let slug = noteSlugForConfigSurface(surface)
+            if let panel = newNoteSurface(
+                inPane: paneId,
+                slug: slug,
+                createIfMissing: true,
+                focus: false
+            ) {
+                _ = closePanel(panelId, force: true)
+                if let name = surface.name { setPanelCustomTitle(panelId: panel.id, title: name) }
+                if surface.focus == true { focusPanelId = panel.id }
+            }
         }
     }
 
@@ -1172,7 +1188,31 @@ extension Workspace {
                 if let name = surface.name { setPanelCustomTitle(panelId: panel.id, title: name) }
                 if surface.focus == true { focusPanelId = panel.id }
             }
+
+        case .note:
+            let slug = noteSlugForConfigSurface(surface)
+            if let panel = newNoteSurface(
+                inPane: paneId,
+                slug: slug,
+                createIfMissing: true,
+                focus: false
+            ) {
+                if let name = surface.name { setPanelCustomTitle(panelId: panel.id, title: name) }
+                if surface.focus == true { focusPanelId = panel.id }
+            }
         }
+    }
+
+    /// Resolve a note slug from a config-declared `note` surface. The slug
+    /// source-of-truth is `surface.name`; when missing or invalid we generate
+    /// a stable auto-slug so a malformed cmux.json doesn't fail workspace
+    /// creation.
+    private func noteSlugForConfigSurface(_ surface: CmuxSurfaceDefinition) -> String {
+        if let raw = surface.name,
+           let validated = try? NoteSupport.validateSlug(raw) {
+            return validated
+        }
+        return NoteSupport.autoSlug()
     }
 
     private func applyCustomDividerPositions(
