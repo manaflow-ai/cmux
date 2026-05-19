@@ -86789,6 +86789,23 @@
     "fileExplorer.contextMenu.downloadToLocal": {
       "extractionState": "manual",
       "localizations": {
+        "ar": { "stringUnit": { "state": "translated", "value": "تنزيل إلى الجهاز المحلي…" } },
+        "bs": { "stringUnit": { "state": "translated", "value": "Preuzmi lokalno…" } },
+        "da": { "stringUnit": { "state": "translated", "value": "Download lokalt…" } },
+        "de": { "stringUnit": { "state": "translated", "value": "Lokal herunterladen…" } },
+        "es": { "stringUnit": { "state": "translated", "value": "Descargar en local…" } },
+        "fr": { "stringUnit": { "state": "translated", "value": "Télécharger en local…" } },
+        "it": { "stringUnit": { "state": "translated", "value": "Scarica in locale…" } },
+        "ko": { "stringUnit": { "state": "translated", "value": "로컬로 다운로드…" } },
+        "nb": { "stringUnit": { "state": "translated", "value": "Last ned lokalt…" } },
+        "pl": { "stringUnit": { "state": "translated", "value": "Pobierz lokalnie…" } },
+        "pt-BR": { "stringUnit": { "state": "translated", "value": "Baixar localmente…" } },
+        "ru": { "stringUnit": { "state": "translated", "value": "Скачать локально…" } },
+        "th": { "stringUnit": { "state": "translated", "value": "ดาวน์โหลดไปยังเครื่องนี้…" } },
+        "tr": { "stringUnit": { "state": "translated", "value": "Yerel olarak indir…" } },
+        "uk": { "stringUnit": { "state": "translated", "value": "Завантажити локально…" } },
+        "zh-Hans": { "stringUnit": { "state": "translated", "value": "下载到本地…" } },
+        "zh-Hant": { "stringUnit": { "state": "translated", "value": "下載到本機…" } },
         "en": {
           "stringUnit": {
             "state": "translated",
@@ -86891,6 +86908,23 @@
     "fileExplorer.download.alertOK": {
       "extractionState": "manual",
       "localizations": {
+        "ar": { "stringUnit": { "state": "translated", "value": "حسنًا" } },
+        "bs": { "stringUnit": { "state": "translated", "value": "U redu" } },
+        "da": { "stringUnit": { "state": "translated", "value": "OK" } },
+        "de": { "stringUnit": { "state": "translated", "value": "OK" } },
+        "es": { "stringUnit": { "state": "translated", "value": "Aceptar" } },
+        "fr": { "stringUnit": { "state": "translated", "value": "OK" } },
+        "it": { "stringUnit": { "state": "translated", "value": "OK" } },
+        "ko": { "stringUnit": { "state": "translated", "value": "확인" } },
+        "nb": { "stringUnit": { "state": "translated", "value": "OK" } },
+        "pl": { "stringUnit": { "state": "translated", "value": "OK" } },
+        "pt-BR": { "stringUnit": { "state": "translated", "value": "OK" } },
+        "ru": { "stringUnit": { "state": "translated", "value": "ОК" } },
+        "th": { "stringUnit": { "state": "translated", "value": "ตกลง" } },
+        "tr": { "stringUnit": { "state": "translated", "value": "Tamam" } },
+        "uk": { "stringUnit": { "state": "translated", "value": "OK" } },
+        "zh-Hans": { "stringUnit": { "state": "translated", "value": "好" } },
+        "zh-Hant": { "stringUnit": { "state": "translated", "value": "好" } },
         "en": {
           "stringUnit": {
             "state": "translated",
@@ -86908,6 +86942,23 @@
     "fileExplorer.download.complete.body": {
       "extractionState": "manual",
       "localizations": {
+        "ar": { "stringUnit": { "state": "translated", "value": "تم الحفظ في %@" } },
+        "bs": { "stringUnit": { "state": "translated", "value": "Sačuvano u %@" } },
+        "da": { "stringUnit": { "state": "translated", "value": "Gemt i %@" } },
+        "de": { "stringUnit": { "state": "translated", "value": "Gespeichert unter %@" } },
+        "es": { "stringUnit": { "state": "translated", "value": "Guardado en %@" } },
+        "fr": { "stringUnit": { "state": "translated", "value": "Enregistré dans %@" } },
+        "it": { "stringUnit": { "state": "translated", "value": "Salvato in %@" } },
+        "ko": { "stringUnit": { "state": "translated", "value": "%@에 저장됨" } },
+        "nb": { "stringUnit": { "state": "translated", "value": "Lagret i %@" } },
+        "pl": { "stringUnit": { "state": "translated", "value": "Zapisano w %@" } },
+        "pt-BR": { "stringUnit": { "state": "translated", "value": "Salvo em %@" } },
+        "ru": { "stringUnit": { "state": "translated", "value": "Сохранено в %@" } },
+        "th": { "stringUnit": { "state": "translated", "value": "บันทึกไปยัง %@ แล้ว" } },
+        "tr": { "stringUnit": { "state": "translated", "value": "%@ konumuna kaydedildi" } },
+        "uk": { "stringUnit": { "state": "translated", "value": "Збережено в %@" } },
+        "zh-Hans": { "stringUnit": { "state": "translated", "value": "已保存到 %@" } },
+        "zh-Hant": { "stringUnit": { "state": "translated", "value": "已儲存到 %@" } },
         "en": {
           "stringUnit": {
             "state": "translated",
@@ -86925,6 +86976,23 @@
     "fileExplorer.download.complete.title": {
       "extractionState": "manual",
       "localizations": {
+        "ar": { "stringUnit": { "state": "translated", "value": "اكتمل التنزيل" } },
+        "bs": { "stringUnit": { "state": "translated", "value": "Preuzimanje završeno" } },
+        "da": { "stringUnit": { "state": "translated", "value": "Download fuldført" } },
+        "de": { "stringUnit": { "state": "translated", "value": "Download abgeschlossen" } },
+        "es": { "stringUnit": { "state": "translated", "value": "Descarga completada" } },
+        "fr": { "stringUnit": { "state": "translated", "value": "Téléchargement terminé" } },
+        "it": { "stringUnit": { "state": "translated", "value": "Download completato" } },
+        "ko": { "stringUnit": { "state": "translated", "value": "다운로드 완료" } },
+        "nb": { "stringUnit": { "state": "translated", "value": "Nedlasting fullført" } },
+        "pl": { "stringUnit": { "state": "translated", "value": "Pobieranie ukończone" } },
+        "pt-BR": { "stringUnit": { "state": "translated", "value": "Download concluído" } },
+        "ru": { "stringUnit": { "state": "translated", "value": "Загрузка завершена" } },
+        "th": { "stringUnit": { "state": "translated", "value": "ดาวน์โหลดเสร็จสมบูรณ์" } },
+        "tr": { "stringUnit": { "state": "translated", "value": "İndirme tamamlandı" } },
+        "uk": { "stringUnit": { "state": "translated", "value": "Завантаження завершено" } },
+        "zh-Hans": { "stringUnit": { "state": "translated", "value": "下载完成" } },
+        "zh-Hant": { "stringUnit": { "state": "translated", "value": "下載完成" } },
         "en": {
           "stringUnit": {
             "state": "translated",
@@ -86942,6 +87010,23 @@
     "fileExplorer.download.failed.title": {
       "extractionState": "manual",
       "localizations": {
+        "ar": { "stringUnit": { "state": "translated", "value": "فشل التنزيل" } },
+        "bs": { "stringUnit": { "state": "translated", "value": "Preuzimanje nije uspjelo" } },
+        "da": { "stringUnit": { "state": "translated", "value": "Download mislykkedes" } },
+        "de": { "stringUnit": { "state": "translated", "value": "Download fehlgeschlagen" } },
+        "es": { "stringUnit": { "state": "translated", "value": "Error al descargar" } },
+        "fr": { "stringUnit": { "state": "translated", "value": "Échec du téléchargement" } },
+        "it": { "stringUnit": { "state": "translated", "value": "Download non riuscito" } },
+        "ko": { "stringUnit": { "state": "translated", "value": "다운로드 실패" } },
+        "nb": { "stringUnit": { "state": "translated", "value": "Nedlasting mislyktes" } },
+        "pl": { "stringUnit": { "state": "translated", "value": "Pobieranie nie powiodło się" } },
+        "pt-BR": { "stringUnit": { "state": "translated", "value": "Falha no download" } },
+        "ru": { "stringUnit": { "state": "translated", "value": "Не удалось скачать" } },
+        "th": { "stringUnit": { "state": "translated", "value": "ดาวน์โหลดไม่สำเร็จ" } },
+        "tr": { "stringUnit": { "state": "translated", "value": "İndirme başarısız" } },
+        "uk": { "stringUnit": { "state": "translated", "value": "Не вдалося завантажити" } },
+        "zh-Hans": { "stringUnit": { "state": "translated", "value": "下载失败" } },
+        "zh-Hant": { "stringUnit": { "state": "translated", "value": "下載失敗" } },
         "en": {
           "stringUnit": {
             "state": "translated",
@@ -86959,6 +87044,23 @@
     "fileExplorer.download.panelMessage": {
       "extractionState": "manual",
       "localizations": {
+        "ar": { "stringUnit": { "state": "translated", "value": "اختر مكان تنزيل \"%@\"." } },
+        "bs": { "stringUnit": { "state": "translated", "value": "Odaberite gdje preuzeti \"%@\"." } },
+        "da": { "stringUnit": { "state": "translated", "value": "Vælg, hvor \"%@\" skal downloades." } },
+        "de": { "stringUnit": { "state": "translated", "value": "Wähle aus, wohin „%@“ heruntergeladen werden soll." } },
+        "es": { "stringUnit": { "state": "translated", "value": "Elige dónde descargar \"%@\"." } },
+        "fr": { "stringUnit": { "state": "translated", "value": "Choisissez où télécharger « %@ »." } },
+        "it": { "stringUnit": { "state": "translated", "value": "Scegli dove scaricare \"%@\"." } },
+        "ko": { "stringUnit": { "state": "translated", "value": "\"%@\"을(를) 다운로드할 위치를 선택하세요." } },
+        "nb": { "stringUnit": { "state": "translated", "value": "Velg hvor «%@» skal lastes ned." } },
+        "pl": { "stringUnit": { "state": "translated", "value": "Wybierz miejsce pobrania „%@”." } },
+        "pt-BR": { "stringUnit": { "state": "translated", "value": "Escolha onde baixar \"%@\"." } },
+        "ru": { "stringUnit": { "state": "translated", "value": "Выберите, куда скачать «%@»." } },
+        "th": { "stringUnit": { "state": "translated", "value": "เลือกตำแหน่งที่จะดาวน์โหลด \"%@\"" } },
+        "tr": { "stringUnit": { "state": "translated", "value": "\"%@\" öğesinin nereye indirileceğini seçin." } },
+        "uk": { "stringUnit": { "state": "translated", "value": "Виберіть, куди завантажити «%@»." } },
+        "zh-Hans": { "stringUnit": { "state": "translated", "value": "选择“%@”的下载位置。" } },
+        "zh-Hant": { "stringUnit": { "state": "translated", "value": "選擇「%@」的下載位置。" } },
         "en": {
           "stringUnit": {
             "state": "translated",
@@ -86976,6 +87078,23 @@
     "fileExplorer.download.panelPrompt": {
       "extractionState": "manual",
       "localizations": {
+        "ar": { "stringUnit": { "state": "translated", "value": "تنزيل" } },
+        "bs": { "stringUnit": { "state": "translated", "value": "Preuzmi" } },
+        "da": { "stringUnit": { "state": "translated", "value": "Download" } },
+        "de": { "stringUnit": { "state": "translated", "value": "Herunterladen" } },
+        "es": { "stringUnit": { "state": "translated", "value": "Descargar" } },
+        "fr": { "stringUnit": { "state": "translated", "value": "Télécharger" } },
+        "it": { "stringUnit": { "state": "translated", "value": "Scarica" } },
+        "ko": { "stringUnit": { "state": "translated", "value": "다운로드" } },
+        "nb": { "stringUnit": { "state": "translated", "value": "Last ned" } },
+        "pl": { "stringUnit": { "state": "translated", "value": "Pobierz" } },
+        "pt-BR": { "stringUnit": { "state": "translated", "value": "Baixar" } },
+        "ru": { "stringUnit": { "state": "translated", "value": "Скачать" } },
+        "th": { "stringUnit": { "state": "translated", "value": "ดาวน์โหลด" } },
+        "tr": { "stringUnit": { "state": "translated", "value": "İndir" } },
+        "uk": { "stringUnit": { "state": "translated", "value": "Завантажити" } },
+        "zh-Hans": { "stringUnit": { "state": "translated", "value": "下载" } },
+        "zh-Hant": { "stringUnit": { "state": "translated", "value": "下載" } },
         "en": {
           "stringUnit": {
             "state": "translated",
@@ -86993,6 +87112,23 @@
     "fileExplorer.download.panelTitle": {
       "extractionState": "manual",
       "localizations": {
+        "ar": { "stringUnit": { "state": "translated", "value": "تنزيل عنصر بعيد" } },
+        "bs": { "stringUnit": { "state": "translated", "value": "Preuzmi udaljenu stavku" } },
+        "da": { "stringUnit": { "state": "translated", "value": "Download fjernelement" } },
+        "de": { "stringUnit": { "state": "translated", "value": "Remote-Element herunterladen" } },
+        "es": { "stringUnit": { "state": "translated", "value": "Descargar elemento remoto" } },
+        "fr": { "stringUnit": { "state": "translated", "value": "Télécharger l’élément distant" } },
+        "it": { "stringUnit": { "state": "translated", "value": "Scarica elemento remoto" } },
+        "ko": { "stringUnit": { "state": "translated", "value": "원격 항목 다운로드" } },
+        "nb": { "stringUnit": { "state": "translated", "value": "Last ned eksternt objekt" } },
+        "pl": { "stringUnit": { "state": "translated", "value": "Pobierz element zdalny" } },
+        "pt-BR": { "stringUnit": { "state": "translated", "value": "Baixar item remoto" } },
+        "ru": { "stringUnit": { "state": "translated", "value": "Скачать удалённый элемент" } },
+        "th": { "stringUnit": { "state": "translated", "value": "ดาวน์โหลดรายการระยะไกล" } },
+        "tr": { "stringUnit": { "state": "translated", "value": "Uzak öğeyi indir" } },
+        "uk": { "stringUnit": { "state": "translated", "value": "Завантажити віддалений елемент" } },
+        "zh-Hans": { "stringUnit": { "state": "translated", "value": "下载远程项目" } },
+        "zh-Hant": { "stringUnit": { "state": "translated", "value": "下載遠端項目" } },
         "en": {
           "stringUnit": {
             "state": "translated",
@@ -87010,6 +87146,23 @@
     "fileExplorer.error.downloadDestinationInvalid": {
       "extractionState": "manual",
       "localizations": {
+        "ar": { "stringUnit": { "state": "translated", "value": "وجهة التنزيل ليست مجلدًا محليًا: %@" } },
+        "bs": { "stringUnit": { "state": "translated", "value": "Odredište preuzimanja nije lokalna mapa: %@" } },
+        "da": { "stringUnit": { "state": "translated", "value": "Downloaddestinationen er ikke en lokal mappe: %@" } },
+        "de": { "stringUnit": { "state": "translated", "value": "Das Downloadziel ist kein lokaler Ordner: %@" } },
+        "es": { "stringUnit": { "state": "translated", "value": "El destino de descarga no es una carpeta local: %@" } },
+        "fr": { "stringUnit": { "state": "translated", "value": "La destination de téléchargement n’est pas un dossier local : %@" } },
+        "it": { "stringUnit": { "state": "translated", "value": "La destinazione del download non è una cartella locale: %@" } },
+        "ko": { "stringUnit": { "state": "translated", "value": "다운로드 대상이 로컬 폴더가 아닙니다: %@" } },
+        "nb": { "stringUnit": { "state": "translated", "value": "Nedlastingsmålet er ikke en lokal mappe: %@" } },
+        "pl": { "stringUnit": { "state": "translated", "value": "Miejsce docelowe pobierania nie jest folderem lokalnym: %@" } },
+        "pt-BR": { "stringUnit": { "state": "translated", "value": "O destino do download não é uma pasta local: %@" } },
+        "ru": { "stringUnit": { "state": "translated", "value": "Место назначения не является локальной папкой: %@" } },
+        "th": { "stringUnit": { "state": "translated", "value": "ปลายทางการดาวน์โหลดไม่ใช่โฟลเดอร์ในเครื่อง: %@" } },
+        "tr": { "stringUnit": { "state": "translated", "value": "İndirme hedefi yerel bir klasör değil: %@" } },
+        "uk": { "stringUnit": { "state": "translated", "value": "Місце призначення не є локальною папкою: %@" } },
+        "zh-Hans": { "stringUnit": { "state": "translated", "value": "下载目标不是本地文件夹：%@" } },
+        "zh-Hant": { "stringUnit": { "state": "translated", "value": "下載目標不是本機資料夾：%@" } },
         "en": {
           "stringUnit": {
             "state": "translated",
@@ -87027,6 +87180,23 @@
     "fileExplorer.error.downloadTargetExists": {
       "extractionState": "manual",
       "localizations": {
+        "ar": { "stringUnit": { "state": "translated", "value": "يوجد عنصر محلي بالفعل في %@" } },
+        "bs": { "stringUnit": { "state": "translated", "value": "Lokalna stavka već postoji na %@" } },
+        "da": { "stringUnit": { "state": "translated", "value": "Der findes allerede et lokalt element på %@" } },
+        "de": { "stringUnit": { "state": "translated", "value": "Unter %@ ist bereits ein lokales Objekt vorhanden" } },
+        "es": { "stringUnit": { "state": "translated", "value": "Ya existe un elemento local en %@" } },
+        "fr": { "stringUnit": { "state": "translated", "value": "Un élément local existe déjà à %@" } },
+        "it": { "stringUnit": { "state": "translated", "value": "Esiste già un elemento locale in %@" } },
+        "ko": { "stringUnit": { "state": "translated", "value": "%@에 로컬 항목이 이미 있습니다" } },
+        "nb": { "stringUnit": { "state": "translated", "value": "Det finnes allerede et lokalt objekt på %@" } },
+        "pl": { "stringUnit": { "state": "translated", "value": "Element lokalny już istnieje w %@" } },
+        "pt-BR": { "stringUnit": { "state": "translated", "value": "Já existe um item local em %@" } },
+        "ru": { "stringUnit": { "state": "translated", "value": "Локальный объект уже существует в %@" } },
+        "th": { "stringUnit": { "state": "translated", "value": "มีรายการในเครื่องอยู่แล้วที่ %@" } },
+        "tr": { "stringUnit": { "state": "translated", "value": "%@ konumunda zaten yerel bir öğe var" } },
+        "uk": { "stringUnit": { "state": "translated", "value": "Локальний елемент уже існує в %@" } },
+        "zh-Hans": { "stringUnit": { "state": "translated", "value": "本地项目已存在于 %@" } },
+        "zh-Hant": { "stringUnit": { "state": "translated", "value": "本機項目已存在於 %@" } },
         "en": {
           "stringUnit": {
             "state": "translated",
@@ -87044,6 +87214,23 @@
     "fileExplorer.error.downloadFailed": {
       "extractionState": "manual",
       "localizations": {
+        "ar": { "stringUnit": { "state": "translated", "value": "فشل التنزيل: %@" } },
+        "bs": { "stringUnit": { "state": "translated", "value": "Preuzimanje nije uspjelo: %@" } },
+        "da": { "stringUnit": { "state": "translated", "value": "Download mislykkedes: %@" } },
+        "de": { "stringUnit": { "state": "translated", "value": "Download fehlgeschlagen: %@" } },
+        "es": { "stringUnit": { "state": "translated", "value": "Error al descargar: %@" } },
+        "fr": { "stringUnit": { "state": "translated", "value": "Échec du téléchargement : %@" } },
+        "it": { "stringUnit": { "state": "translated", "value": "Download non riuscito: %@" } },
+        "ko": { "stringUnit": { "state": "translated", "value": "다운로드 실패: %@" } },
+        "nb": { "stringUnit": { "state": "translated", "value": "Nedlasting mislyktes: %@" } },
+        "pl": { "stringUnit": { "state": "translated", "value": "Pobieranie nie powiodło się: %@" } },
+        "pt-BR": { "stringUnit": { "state": "translated", "value": "Falha no download: %@" } },
+        "ru": { "stringUnit": { "state": "translated", "value": "Не удалось скачать: %@" } },
+        "th": { "stringUnit": { "state": "translated", "value": "ดาวน์โหลดไม่สำเร็จ: %@" } },
+        "tr": { "stringUnit": { "state": "translated", "value": "İndirme başarısız: %@" } },
+        "uk": { "stringUnit": { "state": "translated", "value": "Не вдалося завантажити: %@" } },
+        "zh-Hans": { "stringUnit": { "state": "translated", "value": "下载失败：%@" } },
+        "zh-Hant": { "stringUnit": { "state": "translated", "value": "下載失敗：%@" } },
         "en": {
           "stringUnit": {
             "state": "translated",
@@ -87061,6 +87248,23 @@
     "fileExplorer.error.downloadHelperUnavailable": {
       "extractionState": "manual",
       "localizations": {
+        "ar": { "stringUnit": { "state": "translated", "value": "تعذر بدء مساعد التنزيل." } },
+        "bs": { "stringUnit": { "state": "translated", "value": "Nije moguće pokrenuti pomoćnik za preuzimanje." } },
+        "da": { "stringUnit": { "state": "translated", "value": "Downloadhjælperen kunne ikke startes." } },
+        "de": { "stringUnit": { "state": "translated", "value": "Der Download-Helfer konnte nicht gestartet werden." } },
+        "es": { "stringUnit": { "state": "translated", "value": "No se pudo iniciar el asistente de descarga." } },
+        "fr": { "stringUnit": { "state": "translated", "value": "Impossible de démarrer l’assistant de téléchargement." } },
+        "it": { "stringUnit": { "state": "translated", "value": "Impossibile avviare l’assistente per il download." } },
+        "ko": { "stringUnit": { "state": "translated", "value": "다운로드 도우미를 시작할 수 없습니다." } },
+        "nb": { "stringUnit": { "state": "translated", "value": "Kunne ikke starte nedlastingshjelperen." } },
+        "pl": { "stringUnit": { "state": "translated", "value": "Nie można uruchomić pomocnika pobierania." } },
+        "pt-BR": { "stringUnit": { "state": "translated", "value": "Não foi possível iniciar o auxiliar de download." } },
+        "ru": { "stringUnit": { "state": "translated", "value": "Не удалось запустить помощник загрузки." } },
+        "th": { "stringUnit": { "state": "translated", "value": "ไม่สามารถเริ่มตัวช่วยดาวน์โหลดได้" } },
+        "tr": { "stringUnit": { "state": "translated", "value": "İndirme yardımcısı başlatılamadı." } },
+        "uk": { "stringUnit": { "state": "translated", "value": "Не вдалося запустити помічник завантаження." } },
+        "zh-Hans": { "stringUnit": { "state": "translated", "value": "无法启动下载助手。" } },
+        "zh-Hant": { "stringUnit": { "state": "translated", "value": "無法啟動下載輔助程式。" } },
         "en": {
           "stringUnit": {
             "state": "translated",
@@ -87078,6 +87282,23 @@
     "fileExplorer.error.downloadTimedOut": {
       "extractionState": "manual",
       "localizations": {
+        "ar": { "stringUnit": { "state": "translated", "value": "انتهت مهلة التنزيل." } },
+        "bs": { "stringUnit": { "state": "translated", "value": "Vrijeme za preuzimanje je isteklo." } },
+        "da": { "stringUnit": { "state": "translated", "value": "Download fik timeout." } },
+        "de": { "stringUnit": { "state": "translated", "value": "Zeitüberschreitung beim Download." } },
+        "es": { "stringUnit": { "state": "translated", "value": "La descarga agotó el tiempo de espera." } },
+        "fr": { "stringUnit": { "state": "translated", "value": "Le téléchargement a expiré." } },
+        "it": { "stringUnit": { "state": "translated", "value": "Il download è scaduto." } },
+        "ko": { "stringUnit": { "state": "translated", "value": "다운로드 시간이 초과되었습니다." } },
+        "nb": { "stringUnit": { "state": "translated", "value": "Nedlastingen ble tidsavbrutt." } },
+        "pl": { "stringUnit": { "state": "translated", "value": "Upłynął limit czasu pobierania." } },
+        "pt-BR": { "stringUnit": { "state": "translated", "value": "O download excedeu o tempo limite." } },
+        "ru": { "stringUnit": { "state": "translated", "value": "Время ожидания загрузки истекло." } },
+        "th": { "stringUnit": { "state": "translated", "value": "การดาวน์โหลดหมดเวลา" } },
+        "tr": { "stringUnit": { "state": "translated", "value": "İndirme zaman aşımına uğradı." } },
+        "uk": { "stringUnit": { "state": "translated", "value": "Час очікування завантаження минув." } },
+        "zh-Hans": { "stringUnit": { "state": "translated", "value": "下载超时。" } },
+        "zh-Hant": { "stringUnit": { "state": "translated", "value": "下載逾時。" } },
         "en": {
           "stringUnit": {
             "state": "translated",
