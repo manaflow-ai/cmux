@@ -5169,9 +5169,13 @@ final class TerminalSurface: Identifiable, ObservableObject {
     }
 
     private var hasDeferredStartupWork: Bool {
+        let inheritedCommand = configTemplate?.command?.trimmingCharacters(in: .whitespacesAndNewlines)
+        let inheritedInput = configTemplate?.initialInput
         initialCommand != nil ||
             tmuxStartCommand != nil ||
             initialInput != nil ||
+            inheritedCommand?.isEmpty == false ||
+            inheritedInput?.isEmpty == false ||
             pendingSocketInputBytes > 0
     }
 
