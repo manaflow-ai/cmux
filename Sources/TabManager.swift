@@ -48,6 +48,45 @@ enum NewWorkspacePlacement: String, CaseIterable, Identifiable {
     }
 }
 
+enum NewSurfacePlacement: String, CaseIterable, Identifiable {
+    case top
+    case afterCurrent
+    case end
+
+    var id: String { rawValue }
+
+    var displayName: String {
+        switch self {
+        case .top:
+            return String(localized: "surface.placement.top", defaultValue: "Start")
+        case .afterCurrent:
+            return String(localized: "surface.placement.afterCurrent", defaultValue: "After current")
+        case .end:
+            return String(localized: "surface.placement.end", defaultValue: "End")
+        }
+    }
+
+    var description: String {
+        switch self {
+        case .top:
+            return String(
+                localized: "surface.placement.top.description",
+                defaultValue: "Insert new surfaces at the start of the pane's tab strip."
+            )
+        case .afterCurrent:
+            return String(
+                localized: "surface.placement.afterCurrent.description",
+                defaultValue: "Insert new surfaces directly after the active surface."
+            )
+        case .end:
+            return String(
+                localized: "surface.placement.end.description",
+                defaultValue: "Append new surfaces to the end of the pane's tab strip."
+            )
+        }
+    }
+}
+
 enum WorkspaceAutoReorderSettings {
     static let key = "workspaceAutoReorderOnNotification"
     static let defaultValue = true
@@ -276,6 +315,47 @@ enum WorkspacePlacementSettings {
                 return clampedPinnedCount
             }
             return min(clampedSelectedIndex + 1, clampedTotalCount)
+        }
+    }
+}
+
+enum SurfacePlacementSettings {
+    static let placementKey = "newSurfacePlacement"
+    static let defaultPlacement: NewSurfacePlacement = .afterCurrent
+
+    static func current(defaults: UserDefaults = .standard) -> NewSurfacePlacement {
+        guard let raw = defaults.string(forKey: placementKey),
+              let placement = NewSurfacePlacement(rawValue: raw) else {
+            return defaultPlacement
+        }
+        return placement
+    }
+
+    static func insertionIndex(
+        placement: NewSurfacePlacement,
+        selectedIndexBeforeCreation: Int?,
+        selectedWasPinned: Bool,
+        pinnedCount: Int,
+        totalCountAfterCreation: Int
+    ) -> Int {
+        let clampedTotalCount = max(0, totalCountAfterCreation)
+        let clampedPinnedCount = max(0, min(pinnedCount, clampedTotalCount))
+        let lastIndex = max(0, clampedTotalCount - 1)
+
+        switch placement {
+        case .top:
+            return clampedPinnedCount
+        case .end:
+            return lastIndex
+        case .afterCurrent:
+            guard let selectedIndexBeforeCreation, clampedTotalCount > 0 else {
+                return lastIndex
+            }
+            if selectedWasPinned {
+                return clampedPinnedCount
+            }
+            let clampedSelectedIndex = max(0, min(selectedIndexBeforeCreation, lastIndex))
+            return max(min(clampedSelectedIndex + 1, lastIndex), clampedPinnedCount)
         }
     }
 }

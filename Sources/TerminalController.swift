@@ -5735,20 +5735,6 @@ class TerminalController {
             }
 
             @MainActor
-            func insertionIndexToRight(anchorTabId: TabID, inPane paneId: PaneID) -> Int {
-                let tabs = workspace.bonsplitController.tabs(inPane: paneId)
-                guard let anchorIndex = tabs.firstIndex(where: { $0.id == anchorTabId }) else { return tabs.count }
-                let pinnedCount = tabs.reduce(into: 0) { count, tab in
-                    if let panelId = workspace.panelIdFromSurfaceId(tab.id),
-                       workspace.isPanelPinned(panelId) {
-                        count += 1
-                    }
-                }
-                let rawTarget = min(anchorIndex + 1, tabs.count)
-                return max(rawTarget, pinnedCount)
-            }
-
-            @MainActor
             func closeTabs(_ tabIds: [TabID]) -> (closed: Int, skippedPinned: Int) {
                 var closed = 0
                 var skippedPinned = 0
@@ -5840,12 +5826,15 @@ class TerminalController {
                     return
                 }
 
-                let targetIndex = insertionIndexToRight(anchorTabId: anchorTabId, inPane: paneId)
-                guard let newPanel = workspace.newTerminalSurface(inPane: paneId, focus: focus) else {
+                let targetIndex = workspace.insertionIndexToRight(of: anchorTabId, inPane: paneId)
+                guard let newPanel = workspace.newTerminalSurface(
+                    inPane: paneId,
+                    focus: focus,
+                    targetIndex: targetIndex
+                ) else {
                     result = .err(code: "internal_error", message: "Failed to create tab", data: nil)
                     return
                 }
-                _ = workspace.reorderSurface(panelId: newPanel.id, toIndex: targetIndex, focus: focus)
                 finish([
                     "created_surface_id": newPanel.id.uuidString,
                     "created_surface_ref": v2Ref(kind: .surface, uuid: newPanel.id),
@@ -5875,12 +5864,17 @@ class TerminalController {
                     return
                 }
 
-                let targetIndex = insertionIndexToRight(anchorTabId: anchorTabId, inPane: paneId)
-                guard let newPanel = workspace.newBrowserSurface(inPane: paneId, url: url, focus: focus) else {
+                let targetIndex = workspace.insertionIndexToRight(of: anchorTabId, inPane: paneId)
+                guard let newPanel = workspace.newBrowserSurface(
+                    inPane: paneId,
+                    url: url,
+                    focus: focus,
+                    preferredProfileID: workspace.browserPanel(for: surfaceId)?.profileID,
+                    targetIndex: targetIndex
+                ) else {
                     result = .err(code: "internal_error", message: "Failed to create tab", data: nil)
                     return
                 }
-                _ = workspace.reorderSurface(panelId: newPanel.id, toIndex: targetIndex, focus: focus)
                 finish([
                     "created_surface_id": newPanel.id.uuidString,
                     "created_surface_ref": v2Ref(kind: .surface, uuid: newPanel.id),
@@ -8055,14 +8049,14 @@ class TerminalController {
             var sourcePlaceholder: UUID?
             var targetPlaceholder: UUID?
             if workspace.bonsplitController.tabs(inPane: sourcePane).count <= 1 {
-                sourcePlaceholder = workspace.newTerminalSurface(inPane: sourcePane, focus: false)?.id
+                sourcePlaceholder = workspace.newTerminalSurface(inPane: sourcePane, focus: false, placementOverride: .end)?.id
                 if sourcePlaceholder == nil {
                     result = .err(code: "internal_error", message: "Failed to create source placeholder surface", data: nil)
                     return
                 }
             }
             if workspace.bonsplitController.tabs(inPane: targetPane).count <= 1 {
-                targetPlaceholder = workspace.newTerminalSurface(inPane: targetPane, focus: false)?.id
+                targetPlaceholder = workspace.newTerminalSurface(inPane: targetPane, focus: false, placementOverride: .end)?.id
                 if targetPlaceholder == nil {
                     result = .err(code: "internal_error", message: "Failed to create target placeholder surface", data: nil)
                     return

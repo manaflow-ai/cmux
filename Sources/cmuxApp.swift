@@ -5059,6 +5059,7 @@ struct SettingsView: View {
     @AppStorage(CommandPaletteSwitcherSearchSettings.searchAllSurfacesKey)
     private var commandPaletteSearchAllSurfaces = CommandPaletteSwitcherSearchSettings.defaultSearchAllSurfaces
     @AppStorage(WorkspacePlacementSettings.placementKey) private var newWorkspacePlacement = WorkspacePlacementSettings.defaultPlacement.rawValue
+    @AppStorage(SurfacePlacementSettings.placementKey) private var newSurfacePlacement = SurfacePlacementSettings.defaultPlacement.rawValue
     @AppStorage(WorkspaceWorkingDirectoryInheritanceSettings.key)
     private var workspaceInheritWorkingDirectory = WorkspaceWorkingDirectoryInheritanceSettings.defaultValue
     @AppStorage(LastSurfaceCloseShortcutSettings.key)
@@ -5128,6 +5129,10 @@ struct SettingsView: View {
 
     private var selectedWorkspacePlacement: NewWorkspacePlacement {
         NewWorkspacePlacement(rawValue: newWorkspacePlacement) ?? WorkspacePlacementSettings.defaultPlacement
+    }
+
+    private var selectedSurfacePlacement: NewSurfacePlacement {
+        NewSurfacePlacement(rawValue: newSurfacePlacement) ?? SurfacePlacementSettings.defaultPlacement
     }
 
     private var workspaceWorkingDirectoryInheritanceSubtitle: String {
@@ -5829,6 +5834,20 @@ struct SettingsView: View {
                             selection: $newWorkspacePlacement
                         ) {
                             ForEach(NewWorkspacePlacement.allCases) { placement in
+                                Text(placement.displayName).tag(placement.rawValue)
+                            }
+                        }
+
+                        SettingsCardDivider()
+
+                        SettingsPickerRow(
+                            configurationReview: .json("app.newSurfacePlacement"),
+                            String(localized: "settings.app.newSurfacePlacement", defaultValue: "New Surface Placement"),
+                            subtitle: selectedSurfacePlacement.description,
+                            controlWidth: pickerColumnWidth,
+                            selection: $newSurfacePlacement
+                        ) {
+                            ForEach(NewSurfacePlacement.allCases) { placement in
                                 Text(placement.displayName).tag(placement.rawValue)
                             }
                         }
@@ -7444,6 +7463,7 @@ struct SettingsView: View {
         commandPaletteRenameSelectAllOnFocus = CommandPaletteRenameSelectionSettings.defaultSelectAllOnFocus
         commandPaletteSearchAllSurfaces = CommandPaletteSwitcherSearchSettings.defaultSearchAllSurfaces
         newWorkspacePlacement = WorkspacePlacementSettings.defaultPlacement.rawValue
+        newSurfacePlacement = SurfacePlacementSettings.defaultPlacement.rawValue
         workspaceInheritWorkingDirectory = WorkspaceWorkingDirectoryInheritanceSettings.defaultValue
         workspacePresentationMode = WorkspacePresentationModeSettings.defaultMode.rawValue
         let defaults = UserDefaults.standard
