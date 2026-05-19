@@ -411,11 +411,13 @@ extension AgentLaunchSanitizer {
             "trace",
             "update",
             "version",
+            "v",
             "worktree"
         ],
         droppedOptions: [
             "--continue",
             "-c",
+            "--restore-code",
             "--resume",
             "-r",
             "--session-id",

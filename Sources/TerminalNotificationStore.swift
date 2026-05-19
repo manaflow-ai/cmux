@@ -1195,6 +1195,11 @@ final class TerminalNotificationStore: ObservableObject {
         cooldownInterval: TimeInterval? = nil,
         clickAction: TerminalNotificationClickAction? = nil
     ) {
+#if DEBUG
+        cmuxDebugLog(
+            "notification.store.add workspace=\(tabId.uuidString.prefix(8)) surface=\(surfaceId?.uuidString.prefix(8) ?? "nil") titleLen=\(title.count) subtitleLen=\(subtitle.count) bodyLen=\(body.count) cooldown=\(cooldownKey == nil ? 0 : 1)"
+        )
+#endif
         let now = Date()
         let resolvedCooldownInterval: TimeInterval?
         if let cooldownInterval, cooldownInterval.isFinite, cooldownInterval > 0 {
@@ -1206,6 +1211,11 @@ final class TerminalNotificationStore: ObservableObject {
            let resolvedCooldownInterval,
            let lastNotificationDate = lastNotificationDateByCooldownKey[cooldownKey],
            now.timeIntervalSince(lastNotificationDate) < resolvedCooldownInterval {
+#if DEBUG
+            cmuxDebugLog(
+                "notification.store.add.skip workspace=\(tabId.uuidString.prefix(8)) surface=\(surfaceId?.uuidString.prefix(8) ?? "nil") reason=cooldown"
+            )
+#endif
             return
         }
         let cooldownReservation = makeCooldownReservation(
@@ -1481,6 +1491,11 @@ final class TerminalNotificationStore: ObservableObject {
             return
         }
 
+#if DEBUG
+        cmuxDebugLog(
+            "notification.store.effectsOnly workspace=\(notification.tabId.uuidString.prefix(8)) surface=\(notification.surfaceId?.uuidString.prefix(8) ?? "nil") desktop=\(effects.desktop ? 1 : 0) sound=\(effects.sound ? 1 : 0) command=\(effects.command ? 1 : 0) suppressExternal=\(shouldSuppressExternalDelivery ? 1 : 0)"
+        )
+#endif
         if effects.reorderWorkspace, WorkspaceAutoReorderSettings.isEnabled() {
             AppDelegate.shared?.tabManagerFor(tabId: notification.tabId)?
                 .moveTabToTopForNotification(notification.tabId)
@@ -1530,6 +1545,11 @@ final class TerminalNotificationStore: ObservableObject {
         setWorkspaceManualUnread(false, forTabId: notification.tabId)
         notifications = updated
         commitCooldownReservation(cooldownReservation, at: now)
+#if DEBUG
+        cmuxDebugLog(
+            "notification.store.record workspace=\(notification.tabId.uuidString.prefix(8)) surface=\(notification.surfaceId?.uuidString.prefix(8) ?? "nil") removed=\(idsToClear.count) unread=\(!notification.isRead ? 1 : 0) paneFlash=\(notification.paneFlash ? 1 : 0) suppressExternal=\(shouldSuppressExternalDelivery ? 1 : 0) total=\(notifications.count)"
+        )
+#endif
         if !idsToClear.isEmpty {
             center.removeDeliveredNotificationsOffMain(withIdentifiers: idsToClear)
             center.removePendingNotificationRequestsOffMain(withIdentifiers: idsToClear)
@@ -1556,7 +1576,19 @@ final class TerminalNotificationStore: ObservableObject {
         shouldSuppressExternalDelivery: Bool,
         effects: TerminalNotificationPolicyEffects
     ) {
-        guard effects.desktop || effects.sound || effects.command else { return }
+        guard effects.desktop || effects.sound || effects.command else {
+#if DEBUG
+            cmuxDebugLog(
+                "notification.store.sideEffects.skip workspace=\(notification.tabId.uuidString.prefix(8)) surface=\(notification.surfaceId?.uuidString.prefix(8) ?? "nil") reason=noEffects"
+            )
+#endif
+            return
+        }
+#if DEBUG
+        cmuxDebugLog(
+            "notification.store.sideEffects workspace=\(notification.tabId.uuidString.prefix(8)) surface=\(notification.surfaceId?.uuidString.prefix(8) ?? "nil") desktop=\(effects.desktop ? 1 : 0) sound=\(effects.sound ? 1 : 0) command=\(effects.command ? 1 : 0) suppressExternal=\(shouldSuppressExternalDelivery ? 1 : 0)"
+        )
+#endif
         if shouldSuppressExternalDelivery {
             suppressedNotificationFeedbackHandler(self, notification, effects)
         } else {

@@ -1321,6 +1321,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             payload["socketAcceptLoopAlive"] = "0"
             payload["socketPathMatches"] = "0"
             payload["socketPathExists"] = "0"
+            payload["socketPathOwnedByListener"] = "0"
             payload["socketFailureSignals"] = "socket_disabled"
             return
         }
@@ -1344,6 +1345,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         payload["socketAcceptLoopAlive"] = health.acceptLoopAlive ? "1" : "0"
         payload["socketPathMatches"] = health.socketPathMatches ? "1" : "0"
         payload["socketPathExists"] = health.socketPathExists ? "1" : "0"
+        payload["socketPathOwnedByListener"] = health.socketPathOwnedByListener ? "1" : "0"
         payload["socketFailureSignals"] = failureSignals.joined(separator: ",")
     }
 
@@ -1538,26 +1540,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         isTerminatingApp = true
         _ = saveSessionSnapshotIncludingProcessDetectedIndexes(includeScrollback: true, removeWhenEmpty: false)
 
-        // Tagged DEV builds are ephemeral, skip quit confirmation entirely.
-        if SocketControlSettings.isTaggedDevBuild() {
+        // If the user already confirmed via the Cmd+Q shortcut warning dialog,
+        // or disabled the setting, skip the check to avoid a second alert.
+        if !QuitWarningSettings.shouldShowConfirmation(isQuitWarningConfirmed: isQuitWarningConfirmed) {
             closeAllWebInspectorsBeforeAppTeardown()
-            StartupBreadcrumbLog.append("appDelegate.shouldTerminate.terminateNow", fields: ["reason": "taggedDev"])
-            return .terminateNow
-        }
-
-        // If the user already confirmed via the Cmd+Q shortcut warning dialog
-        // (handleQuitShortcutWarning), skip the check to avoid a second alert.
-        if isQuitWarningConfirmed {
-            closeAllWebInspectorsBeforeAppTeardown()
-            StartupBreadcrumbLog.append("appDelegate.shouldTerminate.terminateNow", fields: ["reason": "confirmed"])
-            return .terminateNow
-        }
-
-        // Respect the "Warn Before Quit" setting even when Cmd+Q arrives via
-        // the Cmd+Tab app switcher, bypassing handleCustomShortcut.
-        guard QuitWarningSettings.isEnabled() else {
-            closeAllWebInspectorsBeforeAppTeardown()
-            StartupBreadcrumbLog.append("appDelegate.shouldTerminate.terminateNow", fields: ["reason": "warningDisabled"])
+            let reason = isQuitWarningConfirmed ? "confirmed" : "warningDisabled"
+            StartupBreadcrumbLog.append("appDelegate.shouldTerminate.terminateNow", fields: ["reason": reason])
             return .terminateNow
         }
 
@@ -10597,6 +10585,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
                 "socketAcceptLoopAlive": "0",
                 "socketPathMatches": "0",
                 "socketPathExists": "0",
+                "socketPathOwnedByListener": "0",
                 "socketFailureSignals": "socket_disabled",
             ], at: path)
             return
@@ -10641,6 +10630,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
                         "socketAcceptLoopAlive": health.acceptLoopAlive ? "1" : "0",
                         "socketPathMatches": health.socketPathMatches ? "1" : "0",
                         "socketPathExists": health.socketPathExists ? "1" : "0",
+                        "socketPathOwnedByListener": health.socketPathOwnedByListener ? "1" : "0",
                         "socketFailureSignals": failureSignals,
                     ], at: dataPath)
                     guard isReady || isTimedOut else { return }
@@ -11200,13 +11190,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
     }
 
     private func handleQuitShortcutWarning() -> Bool {
-        // Tagged DEV builds are ephemeral, skip quit confirmation entirely.
-        if SocketControlSettings.isTaggedDevBuild() {
-            NSApp.terminate(nil)
-            return true
-        }
-
-        if !QuitWarningSettings.isEnabled() {
+        if !QuitWarningSettings.shouldShowConfirmation(isQuitWarningConfirmed: false) {
             NSApp.terminate(nil)
             return true
         }

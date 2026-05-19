@@ -74,6 +74,8 @@ public enum AgentLaunchSanitizer {
             return preserveOptions(args, policy: claudePolicy)
         case "codex":
             return preserveOptions(args, policy: codexPolicy)
+        case "grok":
+            return preserveOptions(args, policy: grokPolicy)
         case "pi":
             return preserveOptions(args, policy: piPolicy)
         case "amp":
@@ -102,8 +104,6 @@ public enum AgentLaunchSanitizer {
             return preserveOptions(tail, policy: cursorPolicy)
         case "gemini":
             return preserveOptions(args, policy: geminiPolicy)
-        case "grok":
-            return preserveOptions(args, policy: grokPolicy)
         case "opencode":
             return preserveOptions(
                 args.filter { !isOpenCodeInternalWorkerArgument($0) },

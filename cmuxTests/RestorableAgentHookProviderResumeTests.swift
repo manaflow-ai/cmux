@@ -251,7 +251,7 @@ extension SocketListenerAcceptPolicyTests {
                 arguments: [
                     "/Users/example/.grok/bin/grok",
                     "--model",
-                    "grok-build",
+                    "grok-4",
                     "--resume",
                     "old-session",
                     "--sandbox",
@@ -259,14 +259,16 @@ extension SocketListenerAcceptPolicyTests {
                     "--allow",
                     "run_terminal_cmd",
                     "--permission-mode",
-                    "default",
-                    "--worktree",
-                    "scratch"
+                    "auto",
+                    "--cwd",
+                    "/tmp/grok repo",
+                    "initial prompt should not replay"
                 ],
                 workingDirectory: "/tmp/grok repo",
                 environment: [
+                    "GROK_HOME": "/tmp/grok home",
                     "GROK_SANDBOX": "danger-full-access",
-                    "GROK_CODE_XAI_API_KEY": "secret"
+                    "XAI_API_KEY": "secret"
                 ],
                 capturedAt: 123,
                 source: "process"
@@ -328,7 +330,7 @@ extension SocketListenerAcceptPolicyTests {
         )
         XCTAssertEqual(
             grok.resumeCommand,
-            "cd '/tmp/grok repo' && 'env' 'GROK_SANDBOX=danger-full-access' '/Users/example/.grok/bin/grok' '--resume' 'grok-session-123' '--model' 'grok-build' '--sandbox' 'danger-full-access' '--allow' 'run_terminal_cmd' '--permission-mode' 'default'"
+            "cd '/tmp/grok repo' && 'env' 'GROK_HOME=/tmp/grok home' 'GROK_SANDBOX=danger-full-access' '/Users/example/.grok/bin/grok' '-r' 'grok-session-123' '--model' 'grok-4' '--sandbox' 'danger-full-access' '--allow' 'run_terminal_cmd' '--permission-mode' 'auto' '--cwd' '/tmp/grok repo'"
         )
         XCTAssertEqual(pi.resumeCommand, "cd '/tmp/pi repo' && 'env' 'PI_CODING_AGENT_DIR=/tmp/pi home' '/Users/example/.bun/bin/pi' '--session' 'pi-session-123' '--model' 'anthropic/claude-sonnet-4-5' '--thinking' 'high'")
         XCTAssertEqual(
