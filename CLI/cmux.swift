@@ -17146,7 +17146,7 @@ struct CMUXCLI {
             }
             print("OK")
 
-        case "stop", "idle":
+        case "stop", "idle", "stop-failure":
             telemetry.breadcrumb("claude-hook.stop")
             do {
                 // Turn ended. Don't consume session or clear PID — Claude is still alive.
@@ -17176,8 +17176,8 @@ struct CMUXCLI {
                     return
                 }
 
-                // Update session with transcript summary and send completion notification.
-                let completion = summarizeClaudeHookStop(
+                // StopFailure is a terminal turn boundary, but it is not a completed response.
+                let completion = subcommand == "stop-failure" ? nil : summarizeClaudeHookStop(
                     parsedInput: parsedInput,
                     sessionRecord: mappedSession
                 )
@@ -17504,7 +17504,7 @@ struct CMUXCLI {
             telemetry.breadcrumb("claude-hook.help")
             print(
                 """
-                cmux claude-hook <session-start|stop|session-end|notification|prompt-submit|pre-tool-use> [--workspace <id|index>] [--surface <id|index>]
+                cmux claude-hook <session-start|stop|stop-failure|session-end|notification|prompt-submit|pre-tool-use> [--workspace <id|index>] [--surface <id|index>]
                 """
             )
 
@@ -19173,6 +19173,7 @@ struct CMUXCLI {
         let turnId = optionValue(commandArgs, name: "--turn")
         var transcriptPath = optionValue(commandArgs, name: "--transcript")
         let leasePath = optionValue(commandArgs, name: "--lease")
+        let cwd = optionValue(commandArgs, name: "--cwd")
 
         guard !workspaceId.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty,
               !sessionId.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else {
@@ -19208,8 +19209,11 @@ struct CMUXCLI {
                     publishedUserInputCallIds.insert(userInput.callId)
                     publishCodexMonitorUserInput(
                         userInput,
+                        sessionId: sessionId,
                         workspaceId: workspaceId,
                         surfaceId: surfaceId,
+                        cwd: cwd,
+                        env: env,
                         client: client
                     )
                 }
@@ -19222,12 +19226,23 @@ struct CMUXCLI {
                 case .failure(let failure):
                     publishCodexMonitorFailure(
                         failure,
+                        sessionId: sessionId,
                         workspaceId: workspaceId,
                         surfaceId: surfaceId,
+                        cwd: cwd,
+                        env: env,
                         client: client
                     )
                     return
                 case .healthy:
+                    publishCodexMonitorIdle(
+                        sessionId: sessionId,
+                        workspaceId: workspaceId,
+                        surfaceId: surfaceId,
+                        cwd: cwd,
+                        env: env,
+                        client: client
+                    )
                     return
                 case .pending:
                     break
@@ -19249,16 +19264,123 @@ struct CMUXCLI {
         }
     }
 
-    private func publishCodexMonitorUserInput(
-        _ userInput: CodexHookUserInputCandidate,
+    private func agentHookRuntimeStatus(for notificationStatus: AgentHookNotificationStatus?) -> AgentHookRuntimeStatus? {
+        switch notificationStatus {
+        case .idle?:
+            return .idle
+        case .needsInput?:
+            return .needsInput
+        case .error?:
+            return .error
+        case nil:
+            return nil
+        }
+    }
+
+    private func codexHookSessionStore(env: [String: String]) -> ClaudeHookSessionStore {
+        ClaudeHookSessionStore(
+            processEnv: env.merging(
+                ["CMUX_CLAUDE_HOOK_STATE_PATH": agentHookStatePath(sessionStoreSuffix: "codex", env: env)],
+                uniquingKeysWith: { _, new in new }
+            )
+        )
+    }
+
+    private func recordCodexMonitorRuntimeStatus(
+        sessionId: String,
         workspaceId: String,
         surfaceId: String?,
+        cwd: String?,
+        env: [String: String],
+        notificationStatus: AgentHookNotificationStatus,
+        subtitle: String? = nil,
+        body: String? = nil
+    ) {
+        let normalizedSessionId = sessionId.trimmingCharacters(in: .whitespacesAndNewlines)
+        let normalizedWorkspaceId = workspaceId.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !normalizedSessionId.isEmpty, !normalizedWorkspaceId.isEmpty else {
+            return
+        }
+        let normalizedSurfaceId = surfaceId?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+        try? codexHookSessionStore(env: env).upsert(
+            sessionId: normalizedSessionId,
+            workspaceId: normalizedWorkspaceId,
+            surfaceId: normalizedSurfaceId,
+            cwd: cwd,
+            lastSubtitle: subtitle,
+            lastBody: body,
+            lastNotificationStatus: notificationStatus,
+            updateLastNotificationStatus: true,
+            runtimeStatus: agentHookRuntimeStatus(for: notificationStatus),
+            updateRuntimeStatus: true
+        )
+    }
+
+    private func hasOtherRunningCodexMonitorSession(
+        sessionId: String,
+        workspaceId: String,
+        env: [String: String]
+    ) -> Bool {
+        let normalizedSessionId = sessionId.trimmingCharacters(in: .whitespacesAndNewlines)
+        let normalizedWorkspaceId = workspaceId.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !normalizedWorkspaceId.isEmpty else {
+            return false
+        }
+        return (try? codexHookSessionStore(env: env).hasRunningSession(
+            workspaceId: normalizedWorkspaceId,
+            excludingSessionId: normalizedSessionId
+        )) == true
+    }
+
+    private func publishCodexMonitorIdle(
+        sessionId: String,
+        workspaceId: String,
+        surfaceId: String?,
+        cwd: String?,
+        env: [String: String],
+        client: SocketClient
+    ) {
+        recordCodexMonitorRuntimeStatus(
+            sessionId: sessionId,
+            workspaceId: workspaceId,
+            surfaceId: surfaceId,
+            cwd: cwd,
+            env: env,
+            notificationStatus: .idle
+        )
+        guard !hasOtherRunningCodexMonitorSession(sessionId: sessionId, workspaceId: workspaceId, env: env) else {
+            return
+        }
+        let idleStatus = String(localized: "agent.generic.notification.status.idle", defaultValue: "Idle")
+        _ = try? sendV1Command(
+            "set_status codex \(idleStatus) --icon=pause.circle.fill --color=#8E8E93 --tab=\(workspaceId)\(socketPanelOption(surfaceId))",
+            client: client
+        )
+    }
+
+    private func publishCodexMonitorUserInput(
+        _ userInput: CodexHookUserInputCandidate,
+        sessionId: String,
+        workspaceId: String,
+        surfaceId: String?,
+        cwd: String?,
+        env: [String: String],
         client: SocketClient
     ) {
         let subtitle = String(localized: "agent.codex.input.subtitle.waiting", defaultValue: "Waiting")
         let body = userInput.question ?? String(
             localized: "agent.codex.input.body.needsInput",
             defaultValue: "Codex is asking a question"
+        )
+        recordCodexMonitorRuntimeStatus(
+            sessionId: sessionId,
+            workspaceId: workspaceId,
+            surfaceId: surfaceId,
+            cwd: cwd,
+            env: env,
+            notificationStatus: .needsInput,
+            subtitle: subtitle,
+            body: body
         )
         if let surfaceId, !surfaceId.isEmpty {
             let payload = "Codex|\(sanitizeNotificationField(subtitle))|\(sanitizeNotificationField(body))"
@@ -19273,11 +19395,24 @@ struct CMUXCLI {
 
     private func publishCodexMonitorFailure(
         _ failure: CodexHookFailureCandidate,
+        sessionId: String,
         workspaceId: String,
         surfaceId: String?,
+        cwd: String?,
+        env: [String: String],
         client: SocketClient
     ) {
         let summary = summarizeCodexHookFailureCandidate(failure)
+        recordCodexMonitorRuntimeStatus(
+            sessionId: sessionId,
+            workspaceId: workspaceId,
+            surfaceId: surfaceId,
+            cwd: cwd,
+            env: env,
+            notificationStatus: .error,
+            subtitle: summary.subtitle,
+            body: summary.body
+        )
         if let surfaceId, !surfaceId.isEmpty {
             let payload = "Codex|\(sanitizeNotificationField(summary.subtitle))|\(sanitizeNotificationField(summary.body))"
             _ = try? sendV1Command("notify_target \(workspaceId) \(surfaceId) \(payload)", client: client)
@@ -23495,7 +23630,7 @@ export default function cmuxPiSessionExtension(pi: ExtensionAPI) {
         case "prompt-submit": return "UserPromptSubmit"
         case "pre-tool-use", "cron-create-guard": return "PreToolUse"
         case "post-tool-use": return "PostToolUse"
-        case "stop", "idle": return "Stop"
+        case "stop", "idle", "stop-failure": return "Stop"
         case "session-end": return "SessionEnd"
         case "notification", "notify": return "Notification"
         default: return ""
@@ -25060,7 +25195,7 @@ export default function cmuxPiSessionExtension(pi: ExtensionAPI) {
                 return ("SessionStart", false)
             case "SessionEnd":
                 return ("SessionEnd", false)
-            case "Stop", "SubagentStop":
+            case "Stop", "StopFailure", "SubagentStop":
                 return ("Stop", false)
             case "Notification":
                 return ("Notification", false)
