@@ -482,7 +482,8 @@ extension Workspace {
                 workingDirectory: directory,
                 scrollback: resolvedScrollback,
                 agent: effectiveRestorableAgent,
-                tmuxStartCommand: restorableTmuxStartCommand
+                tmuxStartCommand: restorableTmuxStartCommand,
+                textBoxDraft: terminalPanel.sessionTextBoxDraftSnapshot()
             )
             browserSnapshot = nil
             markdownSnapshot = nil
@@ -838,6 +839,7 @@ extension Workspace {
                 clearRestoredAgentSnapshot(panelId: terminalPanel.id)
                 invalidatedRestoredAgentFingerprintsByPanelId.removeValue(forKey: terminalPanel.id)
             }
+            terminalPanel.restoreSessionTextBoxDraft(snapshot.terminal?.textBoxDraft)
             applySessionPanelMetadata(snapshot, toPanelId: terminalPanel.id)
             return terminalPanel.id
         case .browser:
@@ -13837,7 +13839,7 @@ extension Workspace: BonsplitDelegate {
 
     private func shouldMoveTerminalSurfaceFocus(for intent: PanelFocusIntent) -> Bool {
         switch intent {
-        case .terminal(.findField):
+        case .terminal(.findField), .terminal(.textBoxInput):
             return false
         default:
             return true
@@ -13864,7 +13866,7 @@ extension Workspace: BonsplitDelegate {
 
     private func shouldRestoreFocusIntentAfterActivation(_ intent: PanelFocusIntent) -> Bool {
         switch intent {
-        case .browser(.addressBar), .browser(.findField), .terminal(.findField):
+        case .browser(.addressBar), .browser(.findField), .terminal(.findField), .terminal(.textBoxInput):
             return true
         case .panel, .browser(.webView), .terminal(.surface), .filePreview:
             return false

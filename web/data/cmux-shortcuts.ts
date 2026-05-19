@@ -114,6 +114,8 @@ export const shortcutCategories: ShortcutCategory[] = [
       { id: "closeOtherTabsInPane", combos: [["⌥", "⌘", "T"]], description: { en: "Close other tabs in pane", ja: "ペイン内の他のタブを閉じる" } },
       { id: "reopenClosedBrowserPanel", combos: [["⌘", "⇧", "T"]], description: { en: "Reopen closed browser panel", ja: "閉じたブラウザパネルを再度開く" } },
       { id: "toggleTerminalCopyMode", combos: [["⌘", "⇧", "M"]], description: { en: "Toggle terminal copy mode", ja: "ターミナルコピーモードを切り替え" } },
+      { id: "focusTextBoxInput", combos: [["⌘", "⇧", "A"]], description: { en: "Switch focus between terminal and TextBox input", ja: "ターミナルとTextBox入力のフォーカスを切り替え" } },
+      { id: "attachTextBoxFile", combos: [["⌥", "⌘", "⇧", "A"]], description: { en: "Attach file to TextBox input", ja: "TextBox入力にファイルを添付" } },
       {
         id: "saveFilePreview",
         combos: [["⌘", "S"]],

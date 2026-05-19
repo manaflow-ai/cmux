@@ -8,6 +8,8 @@ struct TerminalPanelView: View {
     @ObservedObject var panel: TerminalPanel
     @AppStorage(NotificationPaneRingSettings.enabledKey)
     private var notificationPaneRingEnabled = NotificationPaneRingSettings.defaultEnabled
+    @AppStorage(TerminalTextBoxInputSettings.maxLinesKey)
+    private var textBoxMaxLines = TerminalTextBoxInputSettings.defaultMaxLines
     let paneId: PaneID
     let isFocused: Bool
     let isVisibleInUI: Bool
@@ -15,31 +17,69 @@ struct TerminalPanelView: View {
     let isSplit: Bool
     let appearance: PanelAppearance
     let hasUnreadNotification: Bool
+    let terminalAgentContext: String
     let onFocus: () -> Void
     let onTriggerFlash: () -> Void
 
     var body: some View {
-        // Layering contract: terminal find UI is mounted in GhosttySurfaceScrollView (AppKit portal layer)
-        // via `searchState`. Rendering `SurfaceSearchOverlay` in this SwiftUI container can hide it.
-        GhosttyTerminalView(
-            terminalSurface: panel.surface,
-            paneId: paneId,
-            isActive: isFocused,
-            isVisibleInUI: isVisibleInUI,
-            portalZPriority: portalPriority,
-            showsInactiveOverlay: isSplit && !isFocused,
-            showsUnreadNotificationRing: hasUnreadNotification && notificationPaneRingEnabled,
-            inactiveOverlayColor: appearance.unfocusedOverlayNSColor,
-            inactiveOverlayOpacity: appearance.unfocusedOverlayOpacity,
-            searchState: panel.searchState,
-            reattachToken: panel.viewReattachToken,
-            onFocus: { _ in onFocus() },
-            onTriggerFlash: onTriggerFlash
-        )
-        // Keep the NSViewRepresentable identity stable across bonsplit structural updates.
-        // This prevents transient teardown/recreate that can momentarily detach the hosted terminal view.
-        .id(panel.id)
-        .background(Color.clear)
+        VStack(spacing: 0) {
+            // Layering contract: terminal find UI is mounted in GhosttySurfaceScrollView (AppKit portal layer)
+            // via `searchState`. Rendering `SurfaceSearchOverlay` in this SwiftUI container can hide it.
+            GhosttyTerminalView(
+                terminalSurface: panel.surface,
+                paneId: paneId,
+                isActive: isFocused,
+                isVisibleInUI: isVisibleInUI,
+                portalZPriority: portalPriority,
+                showsInactiveOverlay: isSplit && !isFocused,
+                showsUnreadNotificationRing: hasUnreadNotification && notificationPaneRingEnabled,
+                inactiveOverlayColor: appearance.unfocusedOverlayNSColor,
+                inactiveOverlayOpacity: appearance.unfocusedOverlayOpacity,
+                searchState: panel.searchState,
+                reattachToken: panel.viewReattachToken,
+                onFocus: { _ in
+                    panel.terminalDidBecomeFocused()
+                    onFocus()
+                },
+                onTriggerFlash: onTriggerFlash
+            )
+            // Keep the NSViewRepresentable identity stable across bonsplit structural updates.
+            // This prevents transient teardown/recreate that can momentarily detach the hosted terminal view.
+            .id(panel.id)
+            .background(Color.clear)
+
+            if panel.isTextBoxActive {
+                TextBoxInputContainer(
+                    text: $panel.textBoxContent,
+                    attachments: $panel.textBoxAttachments,
+                    surface: panel.surface,
+                    terminalBackgroundColor: appearance.backgroundColor,
+                    terminalForegroundColor: appearance.foregroundColor,
+                    terminalFont: NSFont.monospacedSystemFont(
+                        ofSize: CGFloat(GhosttyConfig.load().fontSize),
+                        weight: .regular
+                    ),
+                    maxLines: TerminalTextBoxInputSettings.resolvedMaxLines(textBoxMaxLines),
+                    terminalAgentContext: terminalAgentContext,
+                    onFocusTextBox: {
+                        panel.textBoxDidBecomeFocused()
+                        onFocus()
+                    },
+                    onToggleFocus: {
+                        _ = panel.focusTextBoxInputOrTerminal()
+                    },
+                    onEscape: {
+                        panel.handleTextBoxEscape()
+                    },
+                    onTextViewCreated: { view in
+                        panel.registerTextBoxInputView(view)
+                    },
+                    onTextViewDismantled: { view in
+                        panel.preserveTextBoxContentForUnmount(from: view)
+                    }
+                )
+            }
+        }
     }
 }
 

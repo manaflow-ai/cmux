@@ -461,6 +461,83 @@ final class KeyboardShortcutSettingsFileStoreStartupTests: XCTestCase {
         XCTAssertEqual(defaults.object(forKey: key) as? Bool, false)
     }
 
+    func testSettingsFileStoreAppliesTerminalTextBoxMaxLinesSetting() throws {
+        let defaults = UserDefaults.standard
+        try preservingDefaults(keys: [
+            TerminalTextBoxInputSettings.maxLinesKey,
+            settingsFileBackupsDefaultsKey,
+            importedManagedDefaultsKey,
+        ]) {
+            defaults.removeObject(forKey: TerminalTextBoxInputSettings.maxLinesKey)
+            defaults.removeObject(forKey: settingsFileBackupsDefaultsKey)
+            defaults.removeObject(forKey: importedManagedDefaultsKey)
+
+            let directoryURL = try makeTemporaryDirectory()
+            defer { try? FileManager.default.removeItem(at: directoryURL) }
+
+            let settingsFileURL = directoryURL.appendingPathComponent("cmux.json", isDirectory: false)
+            try writeSettingsFile(
+                """
+                {
+                  "terminal": {
+                    "textBoxMaxLines": 14
+                  }
+                }
+                """,
+                to: settingsFileURL
+            )
+
+            _ = KeyboardShortcutSettingsFileStore(
+                primaryPath: settingsFileURL.path,
+                fallbackPath: nil,
+                startWatching: false
+            )
+
+            XCTAssertEqual(defaults.object(forKey: TerminalTextBoxInputSettings.maxLinesKey) as? Int, 14)
+            XCTAssertEqual(TerminalTextBoxInputSettings.maxLines(defaults: defaults), 14)
+        }
+    }
+
+    func testSettingsFileStoreRejectsInvalidTerminalTextBoxMaxLinesSetting() throws {
+        let defaults = UserDefaults.standard
+        try preservingDefaults(keys: [
+            TerminalTextBoxInputSettings.maxLinesKey,
+            settingsFileBackupsDefaultsKey,
+            importedManagedDefaultsKey,
+        ]) {
+            defaults.removeObject(forKey: TerminalTextBoxInputSettings.maxLinesKey)
+            defaults.removeObject(forKey: settingsFileBackupsDefaultsKey)
+            defaults.removeObject(forKey: importedManagedDefaultsKey)
+
+            let directoryURL = try makeTemporaryDirectory()
+            defer { try? FileManager.default.removeItem(at: directoryURL) }
+
+            let settingsFileURL = directoryURL.appendingPathComponent("cmux.json", isDirectory: false)
+            try writeSettingsFile(
+                """
+                {
+                  "terminal": {
+                    "textBoxMaxLines": 100
+                  }
+                }
+                """,
+                to: settingsFileURL
+            )
+
+            _ = KeyboardShortcutSettingsFileStore(
+                primaryPath: settingsFileURL.path,
+                fallbackPath: nil,
+                startWatching: false
+            )
+
+            XCTAssertNil(defaults.object(forKey: TerminalTextBoxInputSettings.maxLinesKey))
+            XCTAssertEqual(
+                TerminalTextBoxInputSettings.maxLines(defaults: defaults),
+                TerminalTextBoxInputSettings.defaultMaxLines
+            )
+        }
+    }
+
     private func makeTemporaryDirectory() throws -> URL {
         let url = FileManager.default.temporaryDirectory.appendingPathComponent(
             "cmux-settings-startup-\(UUID().uuidString)",

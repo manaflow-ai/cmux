@@ -106624,6 +106624,40 @@
         }
       }
     },
+    "settings.terminal.textBoxMaxLines": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "TextBox Max Lines"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "TextBox の最大行数"
+          }
+        }
+      }
+    },
+    "settings.terminal.textBoxMaxLines.subtitle": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Limits how tall the rich terminal input can grow before it scrolls."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "リッチなターミナル入力欄がスクロールする前に広がれる最大の高さを制限します。"
+          }
+        }
+      }
+    },
     "settings.app.preferredEditor.subtitle": {
       "extractionState": "manual",
       "localizations": {
@@ -112646,6 +112680,118 @@
     "rightSidebar.remote.error.modeUnavailable": { "extractionState": "manual", "localizations": { "en": { "stringUnit": { "state": "translated", "value": "ERROR: Right sidebar mode '%@' is not available" } }, "ja": { "stringUnit": { "state": "translated", "value": "ERROR: 右サイドバーのモード '%@' は利用できません" } } } },
     "rightSidebar.remote.error.appDelegateUnavailable": { "extractionState": "manual", "localizations": { "en": { "stringUnit": { "state": "translated", "value": "ERROR: App delegate not available" } }, "ja": { "stringUnit": { "state": "translated", "value": "ERROR: アプリデリゲートを利用できません" } } } },
     "notificationHook.failure.title": { "extractionState": "manual", "localizations": { "en": { "stringUnit": { "state": "translated", "value": "Notification Hook Failed" } }, "ja": { "stringUnit": { "state": "translated", "value": "通知フックに失敗しました" } } } },
-    "notificationHook.failure.body": { "extractionState": "manual", "localizations": { "en": { "stringUnit": { "state": "translated", "value": "cmux used default notification behavior because '%@' failed." } }, "ja": { "stringUnit": { "state": "translated", "value": "'%@' が失敗したため、cmux は既定の通知動作を使用しました。" } } } }
+    "notificationHook.failure.body": { "extractionState": "manual", "localizations": { "en": { "stringUnit": { "state": "translated", "value": "cmux used default notification behavior because '%@' failed." } }, "ja": { "stringUnit": { "state": "translated", "value": "'%@' が失敗したため、cmux は既定の通知動作を使用しました。" } } } },
+    "command.terminalToggleTextBoxInput.title": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Toggle TextBox Input" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "TextBox入力を切り替え" } }
+      }
+    },
+    "command.terminalFocusTextBoxInput.title": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Focus TextBox Input" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "TextBox入力にフォーカス" } }
+      }
+    },
+    "command.terminalAttachTextBoxFile.title": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Attach File to TextBox Input" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "TextBox入力にファイルを添付" } }
+      }
+    },
+    "shortcut.focusTextBoxInput.label": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Focus TextBox Input" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "TextBox入力にフォーカス" } }
+      }
+    },
+    "shortcut.attachTextBoxFile.label": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Attach File to TextBox Input" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "TextBox入力にファイルを添付" } }
+      }
+    },
+    "textbox.placeholder": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Prompt or command" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "プロンプトまたはコマンド" } }
+      }
+    },
+    "textbox.addImages.panel.prompt": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Add" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "追加" } }
+      }
+    },
+    "textbox.addImages.panel.title": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Add Images" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "画像を追加" } }
+      }
+    },
+    "textbox.addImages.tooltip": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Add Images" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "画像を追加" } }
+      }
+    },
+    "textbox.addFiles.panel.prompt": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Add" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "追加" } }
+      }
+    },
+    "textbox.addFiles.panel.title": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Add Files" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "ファイルを追加" } }
+      }
+    },
+    "textbox.addFiles.tooltip": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Add Files" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "ファイルを追加" } }
+      }
+    },
+    "textbox.removeAttachment.tooltip": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Remove Attachment" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "添付を削除" } }
+      }
+    },
+    "textbox.openInPreview.tooltip": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Open in Preview" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "プレビューで開く" } }
+      }
+    },
+    "textbox.openWithPreview.button": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Open with Preview" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "プレビューで開く" } }
+      }
+    },
+    "textbox.send.tooltip": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Send" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "送信" } }
+      }
+    }
   }
 }

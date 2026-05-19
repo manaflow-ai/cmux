@@ -315,6 +315,13 @@
           "type": "boolean",
           "default": true,
           "description": "Automatically run agent resume commands for restored terminal sessions when cmux reopens after quit. Set false to restore panes while keeping Claude Code, Codex, OpenCode, and other saved agent sessions idle until you resume them manually."
+        },
+        "textBoxMaxLines": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 20,
+          "default": 10,
+          "description": "Maximum number of lines the rich terminal TextBox input can grow to before it scrolls."
         }
       }
     },
@@ -822,6 +829,8 @@
               "reopenClosedBrowserPanel",
               "newSurface",
               "toggleTerminalCopyMode",
+              "focusTextBoxInput",
+              "attachTextBoxFile",
               "focusLeft",
               "focusRight",
               "focusUp",

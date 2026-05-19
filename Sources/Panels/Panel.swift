@@ -40,6 +40,7 @@ public enum PanelType: String, Codable, Sendable {
 public enum TerminalPanelFocusIntent: Equatable {
     case surface
     case findField
+    case textBoxInput
 }
 
 public enum BrowserPanelFocusIntent: Equatable {

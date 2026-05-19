@@ -226,6 +226,39 @@ struct SessionTerminalPanelSnapshot: Codable, Sendable {
     var scrollback: String?
     var agent: SessionRestorableAgentSnapshot?
     var tmuxStartCommand: String?
+    var textBoxDraft: SessionTextBoxInputDraftSnapshot? = nil
+}
+
+struct SessionTextBoxInputDraftSnapshot: Codable, Equatable, Sendable {
+    var isActive: Bool
+    var parts: [SessionTextBoxInputDraftPart]
+}
+
+struct SessionTextBoxInputDraftPart: Codable, Equatable, Sendable {
+    enum Kind: String, Codable, Sendable {
+        case text
+        case attachment
+    }
+
+    var kind: Kind
+    var text: String?
+    var attachment: SessionTextBoxInputAttachmentSnapshot?
+
+    static func text(_ text: String) -> SessionTextBoxInputDraftPart {
+        SessionTextBoxInputDraftPart(kind: .text, text: text, attachment: nil)
+    }
+
+    static func attachment(_ attachment: SessionTextBoxInputAttachmentSnapshot) -> SessionTextBoxInputDraftPart {
+        SessionTextBoxInputDraftPart(kind: .attachment, text: nil, attachment: attachment)
+    }
+}
+
+struct SessionTextBoxInputAttachmentSnapshot: Codable, Equatable, Sendable {
+    var displayName: String
+    var submissionText: String
+    var submissionPath: String
+    var localPath: String?
+    var cleanupLocalPathWhenDisposed: Bool
 }
 struct SessionBrowserPanelSnapshot: Codable, Sendable {
     var urlString: String?

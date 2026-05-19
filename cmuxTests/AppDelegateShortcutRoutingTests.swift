@@ -1,4 +1,6 @@
 import XCTest
+import AppKit
+import Carbon.HIToolbox
 
 #if canImport(cmux_DEV)
 @testable import cmux_DEV
@@ -45,6 +47,9 @@ private final class GhosttyCommandEquivalentProbeView: GhosttyNSView {
 
 @MainActor
 final class AppDelegateShortcutRoutingTests: XCTestCase {
+    private static var retainedTextBoxUndoWindows: [NSWindow] = []
+    private static var retainedTextBoxRenderScrollViews: [NSScrollView] = []
+    private static var retainedTextBoxRestoreViews: [TextBoxInputTextView] = []
     private var savedShortcutsByAction: [KeyboardShortcutSettings.Action: StoredShortcut] = [:]
     private var actionsWithPersistedShortcut: Set<KeyboardShortcutSettings.Action> = []
     private var originalSettingsFileStore: KeyboardShortcutSettingsFileStore!
@@ -493,6 +498,7 @@ final class AppDelegateShortcutRoutingTests: XCTestCase {
         defer { closeWindow(withId: windowId) }
 
         guard let window = window(withId: windowId),
+              let contentView = window.contentView,
               let manager = appDelegate.tabManagerFor(windowId: windowId),
               let workspace = manager.selectedWorkspace else {
             XCTFail("Expected test window and workspace")
@@ -1540,6 +1546,7 @@ final class AppDelegateShortcutRoutingTests: XCTestCase {
         defer { closeWindow(withId: windowId) }
 
         guard let window = window(withId: windowId),
+              let contentView = window.contentView,
               let manager = appDelegate.tabManagerFor(windowId: windowId),
               let workspace = manager.selectedWorkspace,
               let leftPanelId = workspace.focusedPanelId,
@@ -5860,6 +5867,2047 @@ final class AppDelegateShortcutRoutingTests: XCTestCase {
 #endif
     }
 
+    func testFocusTextBoxShortcutMovesFocusBackToTerminalWhenTextBoxIsFirstResponder() {
+        guard let appDelegate = AppDelegate.shared else {
+            XCTFail("Expected AppDelegate.shared")
+            return
+        }
+
+        let windowId = appDelegate.createMainWindow()
+        defer { closeWindow(withId: windowId) }
+
+        guard let window = window(withId: windowId),
+              let contentView = window.contentView,
+              let manager = appDelegate.tabManagerFor(windowId: windowId),
+              let workspace = manager.selectedWorkspace,
+              let panelId = workspace.focusedPanelId,
+              let terminalPanel = workspace.terminalPanel(for: panelId),
+              let terminalView = surfaceView(in: terminalPanel.hostedView) else {
+            XCTFail("Expected focused terminal surface")
+            return
+        }
+
+        let textBoxView = TextBoxInputTextView(frame: NSRect(x: 0, y: 0, width: 240, height: 30))
+        textBoxView.onFocusTextBox = { terminalPanel.textBoxDidBecomeFocused() }
+        textBoxView.onToggleFocus = { _ = terminalPanel.focusTextBoxInputOrTerminal() }
+        let textBoxScrollView = NSScrollView(frame: NSRect(x: 0, y: 0, width: 240, height: 30))
+        textBoxScrollView.documentView = textBoxView
+        contentView.addSubview(textBoxScrollView)
+        defer { textBoxScrollView.removeFromSuperview() }
+
+        window.makeKeyAndOrderFront(nil)
+        window.displayIfNeeded()
+        terminalPanel.hostedView.setVisibleInUI(true)
+        terminalPanel.hostedView.setActive(true)
+        terminalPanel.hostedView.moveFocus()
+        RunLoop.main.run(until: Date(timeIntervalSinceNow: 0.05))
+
+        XCTAssertTrue(
+            terminalPanel.hostedView.isSurfaceViewFirstResponder(),
+            "Expected terminal surface to own first responder before TextBox focus"
+        )
+
+        terminalPanel.registerTextBoxInputView(textBoxView)
+        XCTAssertTrue(terminalPanel.toggleTextBoxInput())
+        waitFor(
+            timeout: 1.0,
+            until: { window.firstResponder === textBoxView }
+        )
+
+        XCTAssertTrue(window.firstResponder === textBoxView, "Expected TextBox to own first responder")
+        XCTAssertEqual(
+            terminalPanel.captureFocusIntent(in: window),
+            .terminal(.textBoxInput),
+            "TextBox focus must be represented as a terminal panel focus intent"
+        )
+
+        let focusTextBoxShortcut = StoredShortcut(
+            key: "a",
+            command: true,
+            shift: true,
+            option: false,
+            control: false,
+            keyCode: 0
+        )
+        guard let event = makeKeyDownEvent(
+            shortcut: focusTextBoxShortcut,
+            windowNumber: window.windowNumber
+        ) else {
+            XCTFail("Failed to construct Cmd+Shift+A event")
+            return
+        }
+
+        withTemporaryShortcut(action: .focusTextBoxInput, shortcut: focusTextBoxShortcut) {
+            window.sendEvent(event)
+        }
+        waitFor(
+            timeout: 1.0,
+            until: { terminalPanel.hostedView.isSurfaceViewFirstResponder() }
+        )
+
+        XCTAssertTrue(
+            terminalPanel.hostedView.isSurfaceViewFirstResponder(),
+            "Cmd+Shift+A from TextBox must move AppKit first responder back to the terminal"
+        )
+        XCTAssertTrue(window.firstResponder === terminalView, "Terminal must be the only focused input endpoint")
+        XCTAssertEqual(terminalPanel.captureFocusIntent(in: window), .terminal(.surface))
+    }
+
+    func testFocusTextBoxShortcutRoutesToEventWindowWhenActiveManagerIsStale() {
+        guard let appDelegate = AppDelegate.shared else {
+            XCTFail("Expected AppDelegate.shared")
+            return
+        }
+
+        let firstWindowId = appDelegate.createMainWindow()
+        let secondWindowId = appDelegate.createMainWindow()
+
+        defer {
+            closeWindow(withId: firstWindowId)
+            closeWindow(withId: secondWindowId)
+        }
+
+        guard let firstManager = appDelegate.tabManagerFor(windowId: firstWindowId),
+              let secondManager = appDelegate.tabManagerFor(windowId: secondWindowId),
+              let secondWindow = window(withId: secondWindowId),
+              let firstPanel = firstManager.selectedWorkspace?.focusedTerminalPanel,
+              let secondPanel = secondManager.selectedWorkspace?.focusedTerminalPanel else {
+            XCTFail("Expected both window contexts to exist")
+            return
+        }
+
+        appDelegate.tabManager = firstManager
+        XCTAssertTrue(appDelegate.tabManager === firstManager)
+
+        let focusTextBoxShortcut = StoredShortcut(
+            key: "a",
+            command: true,
+            shift: true,
+            option: false,
+            control: false,
+            keyCode: 0
+        )
+        guard let event = makeKeyDownEvent(
+            shortcut: focusTextBoxShortcut,
+            windowNumber: secondWindow.windowNumber
+        ) else {
+            XCTFail("Failed to construct Cmd+Shift+A event")
+            return
+        }
+
+        withTemporaryShortcut(action: .focusTextBoxInput, shortcut: focusTextBoxShortcut) {
+#if DEBUG
+            XCTAssertTrue(appDelegate.debugHandleCustomShortcut(event: event))
+#else
+            XCTFail("debugHandleCustomShortcut is only available in DEBUG")
+#endif
+        }
+
+        XCTAssertFalse(firstPanel.isTextBoxActive, "Cmd+Shift+A must not activate TextBox in the stale active window")
+        XCTAssertTrue(secondPanel.isTextBoxActive, "Cmd+Shift+A should activate TextBox in the event window")
+    }
+
+    func testTextBoxFocusIntentRestoresAfterYieldToAnotherPanel() {
+        guard let appDelegate = AppDelegate.shared else {
+            XCTFail("Expected AppDelegate.shared")
+            return
+        }
+
+        let windowId = appDelegate.createMainWindow()
+        defer { closeWindow(withId: windowId) }
+
+        guard let window = window(withId: windowId),
+              let contentView = window.contentView,
+              let manager = appDelegate.tabManagerFor(windowId: windowId),
+              let workspace = manager.selectedWorkspace,
+              let panelId = workspace.focusedPanelId,
+              let terminalPanel = workspace.terminalPanel(for: panelId) else {
+            XCTFail("Expected focused terminal surface")
+            return
+        }
+
+        let textBoxView = TextBoxInputTextView(frame: NSRect(x: 0, y: 0, width: 240, height: 30))
+        textBoxView.onFocusTextBox = { terminalPanel.textBoxDidBecomeFocused() }
+        let textBoxScrollView = NSScrollView(frame: NSRect(x: 0, y: 0, width: 240, height: 30))
+        textBoxScrollView.documentView = textBoxView
+        contentView.addSubview(textBoxScrollView)
+        defer { textBoxScrollView.removeFromSuperview() }
+
+        window.makeKeyAndOrderFront(nil)
+        window.displayIfNeeded()
+        terminalPanel.hostedView.setVisibleInUI(true)
+        terminalPanel.hostedView.setActive(true)
+
+        terminalPanel.registerTextBoxInputView(textBoxView)
+        XCTAssertTrue(terminalPanel.toggleTextBoxInput())
+        waitFor(
+            timeout: 1.0,
+            until: { window.firstResponder === textBoxView }
+        )
+
+        XCTAssertTrue(window.firstResponder === textBoxView, "Expected TextBox focus before yielding")
+        XCTAssertTrue(terminalPanel.yieldFocusIntent(.terminal(.textBoxInput), in: window))
+        XCTAssertFalse(window.firstResponder === textBoxView, "Yielding to another panel must release AppKit first responder")
+        XCTAssertEqual(
+            terminalPanel.preferredFocusIntentForActivation(),
+            .terminal(.textBoxInput),
+            "Yielding TextBox focus should preserve the user's preferred left-pane input target"
+        )
+
+        XCTAssertTrue(terminalPanel.restoreFocusIntent(.terminal(.textBoxInput)))
+        waitFor(
+            timeout: 1.0,
+            until: { window.firstResponder === textBoxView }
+        )
+        XCTAssertTrue(window.firstResponder === textBoxView, "Returning to the panel should restore TextBox focus")
+        XCTAssertEqual(terminalPanel.captureFocusIntent(in: window), .terminal(.textBoxInput))
+    }
+
+    func testTextBoxShortcutReturnsToTextBoxAfterTerminalRegainsFocus() {
+        guard let appDelegate = AppDelegate.shared else {
+            XCTFail("Expected AppDelegate.shared")
+            return
+        }
+
+        let windowId = appDelegate.createMainWindow()
+        defer { closeWindow(withId: windowId) }
+
+        guard let window = window(withId: windowId),
+              let contentView = window.contentView,
+              let manager = appDelegate.tabManagerFor(windowId: windowId),
+              let workspace = manager.selectedWorkspace,
+              let panelId = workspace.focusedPanelId,
+              let terminalPanel = workspace.terminalPanel(for: panelId),
+              let terminalView = surfaceView(in: terminalPanel.hostedView) else {
+            XCTFail("Expected focused terminal surface")
+            return
+        }
+
+        let textBoxView = TextBoxInputTextView(frame: NSRect(x: 0, y: 0, width: 240, height: 30))
+        textBoxView.onFocusTextBox = { terminalPanel.textBoxDidBecomeFocused() }
+        let textBoxScrollView = NSScrollView(frame: NSRect(x: 0, y: 0, width: 240, height: 30))
+        textBoxScrollView.documentView = textBoxView
+        contentView.addSubview(textBoxScrollView)
+        defer { textBoxScrollView.removeFromSuperview() }
+
+        window.makeKeyAndOrderFront(nil)
+        window.displayIfNeeded()
+        terminalPanel.hostedView.setVisibleInUI(true)
+        terminalPanel.hostedView.setActive(true)
+        terminalPanel.registerTextBoxInputView(textBoxView)
+        XCTAssertTrue(terminalPanel.toggleTextBoxInput())
+        waitFor(timeout: 1.0, until: { window.firstResponder === textBoxView })
+
+        XCTAssertTrue(window.makeFirstResponder(terminalView))
+        terminalPanel.terminalDidBecomeFocused()
+        XCTAssertEqual(terminalPanel.captureFocusIntent(in: window), .terminal(.surface))
+
+        XCTAssertTrue(terminalPanel.focusTextBoxInputOrTerminal())
+        waitFor(timeout: 1.0, until: { window.firstResponder === textBoxView })
+        XCTAssertTrue(window.firstResponder === textBoxView, "Shortcut should focus the TextBox after terminal focus is recorded")
+        XCTAssertEqual(terminalPanel.captureFocusIntent(in: window), .terminal(.textBoxInput))
+    }
+
+    func testTextBoxFocusInNonFocusedSplitUpdatesFocusedPanel() {
+        guard let appDelegate = AppDelegate.shared else {
+            XCTFail("Expected AppDelegate.shared")
+            return
+        }
+
+        let windowId = appDelegate.createMainWindow()
+        defer { closeWindow(withId: windowId) }
+
+        guard let window = window(withId: windowId),
+              let contentView = window.contentView,
+              let manager = appDelegate.tabManagerFor(windowId: windowId),
+              let workspace = manager.selectedWorkspace,
+              let leftPanelId = workspace.focusedPanelId,
+              let leftPanel = workspace.terminalPanel(for: leftPanelId),
+              let rightPanel = workspace.newTerminalSplit(from: leftPanelId, orientation: .horizontal) else {
+            XCTFail("Expected split terminal panels")
+            return
+        }
+
+        window.makeKeyAndOrderFront(nil)
+        window.displayIfNeeded()
+        workspace.focusPanel(leftPanel.id)
+        waitFor(
+            timeout: 1.0,
+            until: { workspace.focusedPanelId == leftPanel.id }
+        )
+        XCTAssertEqual(workspace.focusedPanelId, leftPanel.id, "Test should start with the left split focused")
+
+        let rightTextBoxInputView = TextBoxInputTextView(frame: NSRect(x: 0, y: 0, width: 240, height: 30))
+        rightTextBoxInputView.onFocusTextBox = {
+            rightPanel.textBoxDidBecomeFocused()
+            workspace.focusPanel(rightPanel.id, trigger: .terminalFirstResponder)
+        }
+        let textBoxScrollView = NSScrollView(frame: NSRect(x: 0, y: 0, width: 240, height: 30))
+        textBoxScrollView.documentView = rightTextBoxInputView
+        contentView.addSubview(textBoxScrollView)
+        defer { textBoxScrollView.removeFromSuperview() }
+        rightPanel.registerTextBoxInputView(rightTextBoxInputView)
+
+        window.makeFirstResponder(rightTextBoxInputView)
+        waitFor(
+            timeout: 2.0,
+            until: {
+                return workspace.focusedPanelId == rightPanel.id &&
+                    window.firstResponder === rightTextBoxInputView
+            }
+        )
+
+        XCTAssertEqual(
+            workspace.focusedPanelId,
+            rightPanel.id,
+            "Focusing a TextBox in another split must move the workspace focus to its owning panel"
+        )
+        XCTAssertTrue(
+            window.firstResponder === rightPanel.textBoxInputView,
+            "The TextBox should remain the only focused input endpoint after the split focus update"
+        )
+        XCTAssertEqual(rightPanel.captureFocusIntent(in: window), .terminal(.textBoxInput))
+    }
+
+    func testTextBoxPendingFocusIsCanceledOnUnfocusBeforeViewRegisters() {
+        guard let appDelegate = AppDelegate.shared else {
+            XCTFail("Expected AppDelegate.shared")
+            return
+        }
+
+        let windowId = appDelegate.createMainWindow()
+        defer { closeWindow(withId: windowId) }
+
+        guard let manager = appDelegate.tabManagerFor(windowId: windowId),
+              let workspace = manager.selectedWorkspace,
+              let panelId = workspace.focusedPanelId,
+              let terminalPanel = workspace.terminalPanel(for: panelId) else {
+            XCTFail("Expected focused terminal surface")
+            return
+        }
+
+        XCTAssertTrue(terminalPanel.focusTextBoxInputOrTerminal())
+#if DEBUG
+        XCTAssertTrue(terminalPanel.debugHasPendingTextBoxFocusRequest)
+#endif
+        terminalPanel.unfocus()
+#if DEBUG
+        XCTAssertFalse(
+            terminalPanel.debugHasPendingTextBoxFocusRequest,
+            "Panel unfocus must cancel stale pending TextBox focus and file picker requests"
+        )
+#endif
+    }
+
+    func testTextBoxMentionCompletionDetectsFileAndSkillTokens() {
+        let filePrompt = "open @Sources/TextBox"
+        let fileQuery = TextBoxMentionCompletionDetector.query(
+            in: filePrompt,
+            selectedRange: NSRange(location: (filePrompt as NSString).length, length: 0)
+        )
+        XCTAssertEqual(fileQuery?.kind, .file)
+        XCTAssertEqual(fileQuery?.trigger, "@")
+        XCTAssertEqual(fileQuery?.query, "Sources/TextBox")
+        XCTAssertEqual(fileQuery?.range, NSRange(location: 5, length: 16))
+
+        let skillPrompt = "use /swift-guidance before editing"
+        let cursor = (skillPrompt as NSString).range(of: " before").location
+        let skillQuery = TextBoxMentionCompletionDetector.query(
+            in: skillPrompt,
+            selectedRange: NSRange(location: cursor, length: 0)
+        )
+        XCTAssertEqual(skillQuery?.kind, .skill)
+        XCTAssertEqual(skillQuery?.trigger, "/")
+        XCTAssertEqual(skillQuery?.query, "swift-guidance")
+        XCTAssertEqual(skillQuery?.range, NSRange(location: 4, length: 15))
+
+        let dollarSkillPrompt = "use $axiom-swift now"
+        let dollarCursor = (dollarSkillPrompt as NSString).range(of: " now").location
+        let dollarSkillQuery = TextBoxMentionCompletionDetector.query(
+            in: dollarSkillPrompt,
+            selectedRange: NSRange(location: dollarCursor, length: 0)
+        )
+        XCTAssertEqual(dollarSkillQuery?.kind, .skill)
+        XCTAssertEqual(dollarSkillQuery?.trigger, "$")
+        XCTAssertEqual(dollarSkillQuery?.query, "axiom-swift")
+        XCTAssertEqual(dollarSkillQuery?.range, NSRange(location: 4, length: 12))
+
+        let emailPrompt = "mail lawrence@example.com"
+        XCTAssertNil(TextBoxMentionCompletionDetector.query(
+            in: emailPrompt,
+            selectedRange: NSRange(location: (emailPrompt as NSString).length, length: 0)
+        ))
+    }
+
+    func testTextBoxMentionFileSuggestionsUseCommandPaletteSearchIndex() async throws {
+        let fileManager = FileManager.default
+        let root = fileManager.temporaryDirectory.appendingPathComponent(
+            "cmux-textbox-mentions-\(UUID().uuidString)",
+            isDirectory: true
+        )
+        defer { try? fileManager.removeItem(at: root) }
+
+        let sourceDirectory = root.appendingPathComponent("Sources", isDirectory: true)
+        try fileManager.createDirectory(at: sourceDirectory, withIntermediateDirectories: true)
+        try "struct TextBoxInput {}".write(
+            to: sourceDirectory.appendingPathComponent("TextBoxInput.swift"),
+            atomically: true,
+            encoding: .utf8
+        )
+        try "notes".write(
+            to: root.appendingPathComponent("README.md"),
+            atomically: true,
+            encoding: .utf8
+        )
+
+        let suggestions = await TextBoxMentionIndexStore.shared.suggestions(
+            for: TextBoxMentionQuery(
+                kind: .file,
+                range: NSRange(location: 0, length: 13),
+                query: "TextBoxInput",
+                trigger: "@"
+            ),
+            rootDirectory: root.path
+        )
+
+        XCTAssertEqual(suggestions.first?.title, "@Sources/TextBoxInput.swift")
+        XCTAssertEqual(suggestions.first?.systemImageName, "doc")
+        XCTAssertTrue(suggestions.first?.insertionText.hasPrefix("[@Sources/TextBoxInput.swift](") == true)
+    }
+
+    func testTextBoxMentionSkillSuggestionsUseTypedDollarTrigger() async throws {
+        let fileManager = FileManager.default
+        let root = fileManager.temporaryDirectory.appendingPathComponent(
+            "cmux-textbox-skills-\(UUID().uuidString)",
+            isDirectory: true
+        )
+        defer { try? fileManager.removeItem(at: root) }
+
+        let skillDirectory = root
+            .appendingPathComponent("skills", isDirectory: true)
+            .appendingPathComponent("sample-dollar-skill", isDirectory: true)
+        try fileManager.createDirectory(at: skillDirectory, withIntermediateDirectories: true)
+        try "name: sample-dollar-skill\n".write(
+            to: skillDirectory.appendingPathComponent("SKILL.md"),
+            atomically: true,
+            encoding: .utf8
+        )
+
+        let suggestions = await TextBoxMentionIndexStore.shared.suggestions(
+            for: TextBoxMentionQuery(
+                kind: .skill,
+                range: NSRange(location: 0, length: 20),
+                query: "sample-dollar",
+                trigger: "$"
+            ),
+            rootDirectory: root.path
+        )
+
+        XCTAssertEqual(suggestions.first?.title, "$sample-dollar-skill")
+        XCTAssertEqual(suggestions.first?.systemImageName, "sparkle.magnifyingglass")
+        XCTAssertTrue(suggestions.first?.insertionText.hasPrefix("[$sample-dollar-skill](") == true)
+    }
+
+    func testTextBoxMentionRefreshClearsStaleSuggestionsBeforeLookup() {
+        let textView = TextBoxInputTextView(frame: NSRect(x: 0, y: 0, width: 320, height: 30))
+        textView.string = "@a"
+        textView.setSelectedRange(NSRange(location: 2, length: 0))
+
+        textView.debugSetMentionCompletionState(
+            query: TextBoxMentionQuery(kind: .file, range: NSRange(location: 0, length: 2), query: "a"),
+            suggestions: [
+                TextBoxMentionSuggestion(
+                    id: "alpha",
+                    title: "@alpha.txt",
+                    subtitle: "alpha.txt",
+                    insertionText: "[@alpha.txt](/tmp/alpha.txt)",
+                    systemImageName: "doc"
+                )
+            ]
+        )
+        XCTAssertEqual(textView.debugMentionSuggestionCount(), 1)
+
+        textView.string = "@z"
+        textView.setSelectedRange(NSRange(location: 2, length: 0))
+        textView.refreshMentionCompletions()
+
+        XCTAssertEqual(textView.debugMentionSuggestionCount(), 0)
+    }
+
+    func testTextBoxSubmitUsesPastePayloadAndSeparateReturn() throws {
+        XCTAssertEqual(TextBoxSubmit.submittedPasteText(for: "hello"), "hello")
+        XCTAssertEqual(TextBoxSubmit.submittedPasteText(for: "hello\nworld"), "hello\nworld")
+        XCTAssertNil(TextBoxSubmit.submittedPasteText(for: "\n"))
+        XCTAssertNil(TextBoxSubmit.submittedPasteText(for: " \t\n"))
+        XCTAssertEqual(TextBoxSubmit.submittedPasteText(for: " echo hi "), " echo hi ")
+
+        let imageURL = try makeTemporaryPNGFile(named: "moon.png")
+        let attachment = TextBoxAttachment(
+            localURL: imageURL,
+            submissionText: TextBoxAttachment.submissionText(forLocalFileURL: imageURL)
+        )
+        let imageSubmissionText = TextBoxAttachment.submissionText(forLocalFileURL: imageURL)
+        XCTAssertEqual(
+            TextBoxSubmit.dispatchEvents(
+                for: [.text("what is "), .attachment(attachment), .text("now")],
+                terminalAgentContext: "Claude Code"
+            ),
+            [
+                .captureVisibleTextBaseline,
+                .pasteText("what is "),
+                .waitForVisibleText("what is "),
+                .captureClaudeImageTokenBaseline,
+                .captureClipboardReadBaseline,
+                .pasteFilePath(imageURL.path),
+                .waitForClipboardRead,
+                .waitForClaudeImageToken(imageSubmissionText),
+                .captureVisibleTextBaseline,
+                .pasteText(" now"),
+                .waitForVisibleText(" now"),
+                .namedKey("return")
+            ]
+        )
+        XCTAssertEqual(
+            TextBoxSubmit.dispatchEvents(
+                for: [.text("what is "), .attachment(attachment), .text(" now")],
+                terminalAgentContext: "Claude Code"
+            ),
+            [
+                .captureVisibleTextBaseline,
+                .pasteText("what is "),
+                .waitForVisibleText("what is "),
+                .captureClaudeImageTokenBaseline,
+                .captureClipboardReadBaseline,
+                .pasteFilePath(imageURL.path),
+                .waitForClipboardRead,
+                .waitForClaudeImageToken(imageSubmissionText),
+                .captureVisibleTextBaseline,
+                .pasteText(" now"),
+                .waitForVisibleText(" now"),
+                .namedKey("return")
+            ]
+        )
+        XCTAssertEqual(
+            TextBoxSubmit.dispatchEvents(
+                for: [.text("what is "), .attachment(attachment)],
+                terminalAgentContext: "Claude Code"
+            ),
+            [
+                .captureVisibleTextBaseline,
+                .pasteText("what is "),
+                .waitForVisibleText("what is "),
+                .captureClaudeImageTokenBaseline,
+                .captureClipboardReadBaseline,
+                .pasteFilePath(imageURL.path),
+                .waitForClipboardRead,
+                .waitForClaudeImageToken(imageSubmissionText),
+                .pasteText(" "),
+                .namedKey("return")
+            ]
+        )
+        XCTAssertEqual(
+            TextBoxSubmit.dispatchEvents(
+                for: [.text("what is "), .attachment(attachment), .text("now")],
+                terminalAgentContext: "Codex"
+            ),
+            [
+                .pasteText("what is \(imageSubmissionText) now"),
+                .namedKey("return")
+            ]
+        )
+        XCTAssertEqual(
+            TextBoxSubmit.dispatchEvents(
+                for: [.text("hello\nworld")],
+                terminalAgentContext: "Claude Code"
+            ),
+            [.pasteText("hello\nworld"), .namedKey("ctrl+enter")]
+        )
+    }
+
+    func testTextBoxSubmitStagesClaudeImagePromptWithMultilineTail() throws {
+        let imageURL = try makeTemporaryPNGFile(named: "moon.png")
+        let attachment = TextBoxAttachment(
+            localURL: imageURL,
+            submissionText: TextBoxAttachment.submissionText(forLocalFileURL: imageURL)
+        )
+        let imageSubmissionText = TextBoxAttachment.submissionText(forLocalFileURL: imageURL)
+
+        XCTAssertEqual(
+            TextBoxSubmit.dispatchEvents(
+                for: [
+                    .text("how are you "),
+                    .attachment(attachment),
+                    .text("what does this say?\n\n3+3")
+                ],
+                terminalAgentContext: "Claude Code"
+            ),
+            [
+                .captureVisibleTextBaseline,
+                .pasteText("how are you "),
+                .waitForVisibleText("how are you "),
+                .captureClaudeImageTokenBaseline,
+                .captureClipboardReadBaseline,
+                .pasteFilePath(imageURL.path),
+                .waitForClipboardRead,
+                .waitForClaudeImageToken(imageSubmissionText),
+                .captureVisibleTextBaseline,
+                .pasteText(" what does this say?\n\n3+3"),
+                .waitForVisibleText(" what does this say?\n\n3+3"),
+                .namedKey("ctrl+enter")
+            ]
+        )
+    }
+
+    func testTextBoxSubmitVisibleWaitAcceptsMultilinePromptRendering() {
+        let baseline = """
+        > how are you [Image #3]
+        """
+        let visible = """
+        > how are you [Image #3] what does this say?
+
+        3+3
+        """
+
+        XCTAssertTrue(
+            TextBoxSubmit.visibleTextReady(
+                expectedText: " what does this say?\n\n3+3",
+                visibleText: visible,
+                baseline: baseline
+            )
+        )
+        XCTAssertFalse(
+            TextBoxSubmit.visibleTextReady(
+                expectedText: " what does this say?\n\n3+3",
+                visibleText: baseline,
+                baseline: baseline
+            )
+        )
+    }
+
+    func testTextBoxSubmitStressMatrixKeepsClaudeImagesInterspersedWithText() throws {
+        let firstURL = try makeTemporaryPNGFile(named: "first.png")
+        let secondURL = try makeTemporaryPNGFile(named: "second.png")
+        let firstAttachment = TextBoxAttachment(
+            localURL: firstURL,
+            submissionText: TextBoxAttachment.submissionText(forLocalFileURL: firstURL)
+        )
+        let secondAttachment = TextBoxAttachment(
+            localURL: secondURL,
+            submissionText: TextBoxAttachment.submissionText(forLocalFileURL: secondURL)
+        )
+
+        let cases: [(parts: [TextBoxSubmissionPart], paths: [String], submitKey: String)] = [
+            (
+                [.attachment(firstAttachment), .text("describe this")],
+                [firstURL.path],
+                "return"
+            ),
+            (
+                [.text("compare "), .attachment(firstAttachment), .text(" and "), .attachment(secondAttachment)],
+                [firstURL.path, secondURL.path],
+                "return"
+            ),
+            (
+                [.text("first line\n"), .attachment(firstAttachment), .text("second line")],
+                [firstURL.path],
+                "ctrl+enter"
+            ),
+            (
+                [.attachment(firstAttachment), .attachment(secondAttachment), .text(" done")],
+                [firstURL.path, secondURL.path],
+                "return"
+            ),
+        ]
+
+        for testCase in cases {
+            let events = TextBoxSubmit.dispatchEvents(
+                for: testCase.parts,
+                terminalAgentContext: "Claude Code"
+            )
+            let pastedFilePaths = events.compactMap { event -> String? in
+                if case .pasteFilePath(let path) = event {
+                    return path
+                }
+                return nil
+            }
+            let imageWaitCount = events.filter { event in
+                if case .waitForClaudeImageToken = event {
+                    return true
+                }
+                return false
+            }.count
+
+            XCTAssertEqual(pastedFilePaths, testCase.paths)
+            XCTAssertEqual(imageWaitCount, testCase.paths.count)
+            XCTAssertEqual(events.last, .namedKey(testCase.submitKey))
+        }
+    }
+
+    func testTextBoxSubmissionPreservesNonBMPUnicode() {
+        let textView = TextBoxInputTextView(frame: NSRect(x: 0, y: 0, width: 320, height: 30))
+        textView.string = "hello 🙂 world"
+
+        XCTAssertEqual(textView.submissionText(), "hello 🙂 world")
+    }
+
+    func testTextBoxSubmissionPreservesInlineAttachmentOrder() throws {
+        let firstURL = try makeTemporaryPNGFile(named: "moon.png")
+        let secondURL = try makeTemporaryPNGFile(named: "sun.png")
+        let firstAttachment = TextBoxAttachment(
+            localURL: firstURL,
+            submissionText: TextBoxAttachment.submissionText(forLocalFileURL: firstURL)
+        )
+        let secondAttachment = TextBoxAttachment(
+            localURL: secondURL,
+            submissionText: TextBoxAttachment.submissionText(forLocalFileURL: secondURL)
+        )
+        let firstSubmissionText = TextBoxAttachment.submissionText(forLocalFileURL: firstURL)
+        let secondSubmissionText = TextBoxAttachment.submissionText(forLocalFileURL: secondURL)
+
+        let textView = TextBoxInputTextView(frame: NSRect(x: 0, y: 0, width: 320, height: 30))
+        textView.font = NSFont.systemFont(ofSize: 14)
+        textView.textColor = .labelColor
+        textView.string = "what is "
+        textView.setSelectedRange(NSRange(location: ("what is " as NSString).length, length: 0))
+        textView.insertAttachments([firstAttachment])
+        textView.insertText("and ", replacementRange: textView.selectedRange())
+        textView.insertAttachments([secondAttachment])
+
+        XCTAssertEqual(
+            textView.submissionText(),
+            "what is \(firstSubmissionText) and \(secondSubmissionText) "
+        )
+        XCTAssertEqual(
+            submissionPartSummaries(textView.submissionParts()),
+            [
+                .text("what is "),
+                .attachment(firstSubmissionText),
+                .text(" and "),
+                .attachment(secondSubmissionText),
+                .text(" ")
+            ]
+        )
+        XCTAssertEqual(
+            TextBoxSubmit.dispatchEvents(
+                for: textView.submissionParts(),
+                terminalAgentContext: "Claude Code"
+            ),
+            [
+                .captureVisibleTextBaseline,
+                .pasteText("what is "),
+                .waitForVisibleText("what is "),
+                .captureClaudeImageTokenBaseline,
+                .captureClipboardReadBaseline,
+                .pasteFilePath(firstURL.path),
+                .waitForClipboardRead,
+                .waitForClaudeImageToken(firstSubmissionText),
+                .captureVisibleTextBaseline,
+                .pasteText(" and "),
+                .waitForVisibleText(" and "),
+                .captureClaudeImageTokenBaseline,
+                .captureClipboardReadBaseline,
+                .pasteFilePath(secondURL.path),
+                .waitForClipboardRead,
+                .waitForClaudeImageToken(secondSubmissionText),
+                .pasteText(" "),
+                .namedKey("return")
+            ]
+        )
+    }
+
+    func testTextBoxSubmissionPreservesRepeatedAttachmentsInOrder() throws {
+        let imageURL = try makeTemporaryPNGFile(named: "moon.png")
+        let attachment = TextBoxAttachment(
+            localURL: imageURL,
+            submissionText: TextBoxAttachment.submissionText(forLocalFileURL: imageURL)
+        )
+
+        let textView = TextBoxInputTextView(frame: NSRect(x: 0, y: 0, width: 320, height: 30))
+        textView.font = NSFont.systemFont(ofSize: 14)
+        textView.textColor = .labelColor
+        textView.insertAttachments([attachment])
+        textView.insertText("what is this ", replacementRange: textView.selectedRange())
+        textView.insertAttachments([attachment])
+        textView.insertText("lol", replacementRange: textView.selectedRange())
+
+        XCTAssertEqual(
+            textView.submissionText(),
+            "\(TextBoxAttachment.submissionText(forLocalFileURL: imageURL)) what is this \(TextBoxAttachment.submissionText(forLocalFileURL: imageURL)) lol"
+        )
+    }
+
+    func testTextBoxSessionDraftRoundTripsInterspersedImages() throws {
+        let firstURL = try makeTemporaryPNGFile(named: "moon.png")
+        let secondURL = try makeTemporaryPNGFile(named: "sun.png")
+        let firstAttachment = TextBoxAttachment(
+            localURL: firstURL,
+            submissionText: TextBoxAttachment.submissionText(forLocalFileURL: firstURL)
+        )
+        let secondAttachment = TextBoxAttachment(
+            localURL: secondURL,
+            submissionText: TextBoxAttachment.submissionText(forLocalFileURL: secondURL)
+        )
+
+        let textView = makeRetainedTextBoxInputTextView()
+        textView.font = NSFont.systemFont(ofSize: 14)
+        textView.textColor = .labelColor
+        textView.string = "hello "
+        textView.setSelectedRange(NSRange(location: ("hello " as NSString).length, length: 0))
+        textView.insertAttachments([firstAttachment])
+        textView.insertText(" middle ", replacementRange: textView.selectedRange())
+        textView.insertAttachments([secondAttachment])
+        textView.insertText(" done", replacementRange: textView.selectedRange())
+
+        let draft = try XCTUnwrap(textView.sessionDraftSnapshot(isActive: true))
+        let terminalSnapshot = SessionTerminalPanelSnapshot(
+            workingDirectory: "/tmp",
+            scrollback: nil,
+            agent: nil,
+            tmuxStartCommand: nil,
+            textBoxDraft: draft
+        )
+
+        let data = try JSONEncoder().encode(terminalSnapshot)
+        let decoded = try JSONDecoder().decode(SessionTerminalPanelSnapshot.self, from: data)
+        let decodedDraft = try XCTUnwrap(decoded.textBoxDraft)
+        XCTAssertEqual(decodedDraft, draft)
+
+        let restoredTextView = makeRetainedTextBoxInputTextView()
+        restoredTextView.font = NSFont.systemFont(ofSize: 14)
+        restoredTextView.textColor = .labelColor
+        restoredTextView.installSessionDraft(decodedDraft)
+
+        XCTAssertEqual(restoredTextView.inlineAttachments().map(\.displayName), ["moon.png", "sun.png"])
+        XCTAssertEqual(
+            submissionPartSummaries(restoredTextView.submissionParts()),
+            submissionPartSummaries(textView.submissionParts())
+        )
+        XCTAssertEqual(restoredTextView.submissionText(), textView.submissionText())
+    }
+
+    func testTextBoxImageAttachmentInsertionAddsTrailingEditorSpace() throws {
+        let imageURL = try makeTemporaryPNGFile(named: "moon.png")
+        let attachment = TextBoxAttachment(
+            localURL: imageURL,
+            submissionText: TextBoxAttachment.submissionText(forLocalFileURL: imageURL)
+        )
+
+        let textView = TextBoxInputTextView(frame: NSRect(x: 0, y: 0, width: 320, height: 30))
+        textView.font = NSFont.systemFont(ofSize: 14)
+        textView.textColor = .labelColor
+        textView.string = "hello "
+        textView.setSelectedRange(NSRange(location: ("hello " as NSString).length, length: 0))
+        textView.insertAttachments([attachment])
+
+        XCTAssertEqual(textView.inlineAttachments().count, 1)
+        XCTAssertTrue(textView.attributedString().string.hasSuffix(" "))
+        XCTAssertEqual(textView.selectedRange(), NSRange(location: textView.attributedString().length, length: 0))
+    }
+
+    func testTextBoxImageAttachmentInsertionDoesNotDuplicateExistingFollowingSpace() throws {
+        let imageURL = try makeTemporaryPNGFile(named: "moon.png")
+        let attachment = TextBoxAttachment(
+            localURL: imageURL,
+            submissionText: TextBoxAttachment.submissionText(forLocalFileURL: imageURL)
+        )
+
+        let textView = TextBoxInputTextView(frame: NSRect(x: 0, y: 0, width: 320, height: 30))
+        textView.font = NSFont.systemFont(ofSize: 14)
+        textView.textColor = .labelColor
+        textView.string = "hello world"
+        textView.setSelectedRange(NSRange(location: ("hello" as NSString).length, length: 0))
+        textView.insertAttachments([attachment])
+
+        XCTAssertEqual(
+            submissionPartSummaries(textView.submissionParts()),
+            [
+                .text("hello "),
+                .attachment(TextBoxAttachment.submissionText(forLocalFileURL: imageURL)),
+                .text(" world")
+            ]
+        )
+    }
+
+    func testTextBoxImageAttachmentDoesNotMoveRenderedSingleLineText() throws {
+        let imageURL = try makeTemporaryPNGFile(named: "moon.png")
+        let attachment = TextBoxAttachment(
+            localURL: imageURL,
+            submissionText: TextBoxAttachment.submissionText(forLocalFileURL: imageURL)
+        )
+
+        let textView = makeRenderableTextBoxInput(width: 420, height: 30)
+        let text = "hello world"
+        textView.string = text
+        textView.normalizeTextBaselineOffsets()
+        textView.recenterSingleLineTextContainer()
+
+        let textRange = NSRange(location: 0, length: (text as NSString).length)
+        let scanRange = NSRange(location: 0, length: ("hello" as NSString).length)
+        let scanRect = try renderedTextScanRect(in: textView, characterRange: scanRange)
+        let beforeBounds = try renderedNonBackgroundPixelBounds(in: textView, scanRect: scanRect)
+
+        textView.setSelectedRange(NSRange(location: textRange.upperBound, length: 0))
+        textView.insertAttachments([attachment])
+
+        let afterBounds = try renderedNonBackgroundPixelBounds(in: textView, scanRect: scanRect)
+        assertRenderedVerticalBoundsUnchanged(beforeBounds, afterBounds, accuracy: 1)
+    }
+
+    func testTextBoxImageAttachmentDoesNotMoveRenderedMultilineText() throws {
+        let imageURL = try makeTemporaryPNGFile(named: "moon.png")
+        let attachment = TextBoxAttachment(
+            localURL: imageURL,
+            submissionText: TextBoxAttachment.submissionText(forLocalFileURL: imageURL)
+        )
+
+        let textView = makeRenderableTextBoxInput(width: 420, height: 64)
+        let firstLine = "hello world"
+        let secondLine = "second line"
+        let text = "\(firstLine)\n\(secondLine)"
+        textView.string = text
+        textView.normalizeTextBaselineOffsets()
+        textView.recenterSingleLineTextContainer()
+
+        let firstLineRange = NSRange(location: 0, length: (firstLine as NSString).length)
+        let firstScanRange = NSRange(location: 0, length: ("hello" as NSString).length)
+        let secondScanRange = NSRange(
+            location: firstLineRange.upperBound + 1,
+            length: ("second" as NSString).length
+        )
+        let firstScanRect = try renderedTextScanRect(in: textView, characterRange: firstScanRange)
+        let secondScanRect = try renderedTextScanRect(in: textView, characterRange: secondScanRange)
+        let beforeFirstBounds = try renderedNonBackgroundPixelBounds(in: textView, scanRect: firstScanRect)
+        let beforeSecondBounds = try renderedNonBackgroundPixelBounds(in: textView, scanRect: secondScanRect)
+
+        textView.setSelectedRange(NSRange(location: firstLineRange.upperBound, length: 0))
+        textView.insertAttachments([attachment])
+
+        let afterFirstBounds = try renderedNonBackgroundPixelBounds(in: textView, scanRect: firstScanRect)
+        let afterSecondBounds = try renderedNonBackgroundPixelBounds(in: textView, scanRect: secondScanRect)
+        assertRenderedVerticalBoundsUnchanged(beforeFirstBounds, afterFirstBounds, accuracy: 1)
+        assertRenderedVerticalBoundsUnchanged(beforeSecondBounds, afterSecondBounds, accuracy: 1)
+    }
+
+    func testTextBoxInlineAttachmentPixelsSitLowerThanTextPixelsWithoutChangingTextBaseline() throws {
+        let imageURL = try makeTemporaryPNGFile(named: "moon.png")
+        let attachment = TextBoxAttachment(
+            localURL: imageURL,
+            submissionText: TextBoxAttachment.submissionText(forLocalFileURL: imageURL)
+        )
+
+        let textView = makeRenderableTextBoxInput(width: 420, height: 30)
+        let text = "hello world"
+        textView.string = text
+        textView.normalizeTextBaselineOffsets()
+        textView.recenterSingleLineTextContainer()
+
+        let textRange = NSRange(location: 0, length: (text as NSString).length)
+
+        textView.setSelectedRange(NSRange(location: textRange.upperBound, length: 0))
+        textView.insertAttachments([attachment])
+
+        let textPixelBounds = try renderedNonBackgroundPixelBounds(
+            in: textView,
+            scanRect: renderedTextScanRect(
+                in: textView,
+                characterRange: NSRange(location: 0, length: ("hello" as NSString).length)
+            )
+        )
+        let attachmentPixelBounds = try renderedNonBackgroundPixelBounds(
+            in: textView,
+            scanRect: try visibleAttachmentCellFrame(in: textView).insetBy(dx: -2, dy: -10)
+        )
+
+        XCTAssertEqual(baselineOffsetsForTextRuns(in: textView), [0])
+        XCTAssertGreaterThan(
+            attachmentPixelBounds.midY,
+            textPixelBounds.midY + 1,
+            "Inline image pills should sit slightly lower than adjacent text without moving the text."
+        )
+        XCTAssertLessThan(
+            attachmentPixelBounds.midY - textPixelBounds.midY,
+            8,
+            "Inline image pills should not be pushed so low that they look detached from text."
+        )
+    }
+
+    func testTextBoxInlineAttachmentVerticalPaddingIsBalancedAcrossLineStates() throws {
+        let imageURL = try makeTemporaryPNGFile(named: "moon.png")
+        let attachment = TextBoxAttachment(
+            localURL: imageURL,
+            submissionText: TextBoxAttachment.submissionText(forLocalFileURL: imageURL)
+        )
+
+        let pillOnly = makeRenderableTextBoxInput(width: 420, height: 30)
+        pillOnly.insertAttachments([attachment])
+        let pillOnlyCell = try visibleAttachmentCellFrame(in: pillOnly)
+        let pillOnlyPixels = try renderedNonBackgroundPixelBounds(
+            in: pillOnly,
+            scanRect: pillOnlyCell.insetBy(dx: -2, dy: -12)
+        )
+
+        let inline = makeRenderableTextBoxInput(width: 420, height: 30)
+        inline.string = "hello "
+        inline.normalizeTextBaselineOffsets()
+        inline.recenterSingleLineTextContainer()
+        inline.setSelectedRange(NSRange(location: ("hello " as NSString).length, length: 0))
+        inline.insertAttachments([attachment])
+        inline.insertText(" world", replacementRange: inline.selectedRange())
+        let inlineCell = try visibleAttachmentCellFrame(in: inline)
+        let inlinePillPixels = try renderedNonBackgroundPixelBounds(
+            in: inline,
+            scanRect: inlineCell.insetBy(dx: -2, dy: -12)
+        )
+        let inlineTextPixels = try renderedNonBackgroundPixelBounds(
+            in: inline,
+            scanRect: renderedTextScanRect(
+                in: inline,
+                characterRange: NSRange(location: 0, length: ("hello" as NSString).length)
+            )
+        )
+
+        let multiline = makeRenderableTextBoxInput(width: 420, height: 64)
+        let multilinePrefix = "x\n          "
+        multiline.string = multilinePrefix
+        multiline.normalizeTextBaselineOffsets()
+        multiline.recenterSingleLineTextContainer()
+        multiline.setSelectedRange(NSRange(location: (multilinePrefix as NSString).length, length: 0))
+        multiline.insertAttachments([attachment])
+        multiline.insertText(" world", replacementRange: multiline.selectedRange())
+        let multilineCell = try visibleAttachmentCellFrame(in: multiline)
+        let multilinePillPixels = try renderedNonBackgroundPixelBounds(
+            in: multiline,
+            scanRect: multilineCell.insetBy(dx: -2, dy: -12)
+        )
+        XCTAssertLessThanOrEqual(
+            pillOnlyPixels.verticalPaddingDelta,
+            2,
+            "Pill-only TextBox padding should stay visually centered. Got \(pillOnlyPixels.debugDescription())."
+        )
+        XCTAssertLessThanOrEqual(
+            inlinePillPixels.verticalPaddingDelta,
+            1,
+            "Inline pill padding should stay centered inside the single-line TextBox. Got \(inlinePillPixels.debugDescription())."
+        )
+        XCTAssertLessThanOrEqual(
+            multilinePillPixels.verticalPaddingDelta,
+            1,
+            "Multiline pill padding should stay centered in the expanded TextBox. Got \(multilinePillPixels.debugDescription())."
+        )
+        XCTAssertEqual(baselineOffsetsForTextRuns(in: inline), [0])
+        XCTAssertEqual(baselineOffsetsForTextRuns(in: multiline), [0])
+        XCTAssertGreaterThan(
+            inlinePillPixels.midY,
+            inlineTextPixels.midY,
+            "The inline pill should remain slightly lower than adjacent text."
+        )
+    }
+
+    func testTextBoxArrowMovementUsesComposedCharacters() {
+        let textView = TextBoxInputTextView(frame: NSRect(x: 0, y: 0, width: 320, height: 30))
+        textView.string = "a🙂b"
+        textView.setSelectedRange(NSRange(location: ("a🙂" as NSString).length, length: 0))
+
+        guard let leftEvent = makeKeyDownEvent(
+            key: "",
+            modifiers: [],
+            keyCode: UInt16(kVK_LeftArrow),
+            windowNumber: 0
+        ), let rightEvent = makeKeyDownEvent(
+            key: "",
+            modifiers: [],
+            keyCode: UInt16(kVK_RightArrow),
+            windowNumber: 0
+        ) else {
+            XCTFail("Failed to construct arrow events")
+            return
+        }
+
+        textView.keyDown(with: leftEvent)
+        XCTAssertEqual(textView.selectedRange(), NSRange(location: ("a" as NSString).length, length: 0))
+
+        textView.keyDown(with: rightEvent)
+        XCTAssertEqual(textView.selectedRange(), NSRange(location: ("a🙂" as NSString).length, length: 0))
+    }
+
+    func testTextBoxPlainArrowsDeferDuringIMEComposition() {
+        XCTAssertFalse(shouldHandleTextBoxPlainArrowLocally(
+            keyCode: UInt16(kVK_LeftArrow),
+            firstResponderHasMarkedText: true,
+            flags: []
+        ))
+        XCTAssertTrue(shouldHandleTextBoxPlainArrowLocally(
+            keyCode: UInt16(kVK_LeftArrow),
+            firstResponderHasMarkedText: false,
+            flags: []
+        ))
+        XCTAssertFalse(shouldHandleTextBoxPlainArrowLocally(
+            keyCode: UInt16(kVK_LeftArrow),
+            firstResponderHasMarkedText: false,
+            flags: [.command]
+        ))
+    }
+
+    func testTextBoxReturnDoesNotSubmitWhileIMEHasMarkedText() {
+        let textView = TextBoxInputTextView(frame: NSRect(x: 0, y: 0, width: 320, height: 30))
+        var submitCount = 0
+        textView.onSubmit = {
+            submitCount += 1
+        }
+
+        textView.setMarkedText(
+            "かな",
+            selectedRange: NSRange(location: 2, length: 0),
+            replacementRange: NSRange(location: NSNotFound, length: 0)
+        )
+        XCTAssertTrue(textView.hasMarkedText())
+
+        guard let returnEvent = makeKeyDownEvent(
+            key: "\r",
+            modifiers: [],
+            keyCode: UInt16(kVK_Return),
+            windowNumber: 0
+        ) else {
+            XCTFail("Failed to construct Return event")
+            return
+        }
+
+        textView.keyDown(with: returnEvent)
+        XCTAssertEqual(submitCount, 0, "Return should let the input method commit marked text")
+
+        textView.unmarkText()
+        textView.keyDown(with: returnEvent)
+        XCTAssertEqual(submitCount, 1, "Return should submit after marked text is committed")
+    }
+
+    func testTextBoxReturnDoesNotSubmitWhileAttachmentUploadPending() {
+        let textView = TextBoxInputTextView(frame: NSRect(x: 0, y: 0, width: 320, height: 30))
+        textView.string = "hello world"
+        textView.setSelectedRange(NSRange(location: ("hello " as NSString).length, length: 0))
+        var submitCount = 0
+        textView.onSubmit = {
+            submitCount += 1
+        }
+
+        let uploadID = UUID()
+        textView.insertPendingAttachmentUploadPlaceholder(id: uploadID)
+        XCTAssertTrue(textView.hasPendingAttachmentUploadPlaceholder())
+
+        guard let returnEvent = makeKeyDownEvent(
+            key: "\r",
+            modifiers: [],
+            keyCode: UInt16(kVK_Return),
+            windowNumber: 0
+        ) else {
+            XCTFail("Failed to construct Return event")
+            return
+        }
+
+        textView.keyDown(with: returnEvent)
+        textView.doCommand(by: #selector(NSResponder.insertNewline(_:)))
+        XCTAssertEqual(submitCount, 0)
+
+        XCTAssertTrue(textView.removePendingAttachmentUploadPlaceholder(id: uploadID))
+        textView.keyDown(with: returnEvent)
+        XCTAssertEqual(submitCount, 1)
+    }
+
+    func testTextBoxEscapeDoesNotLeaveIMEComposition() {
+        let textView = TextBoxInputTextView(frame: NSRect(x: 0, y: 0, width: 320, height: 30))
+        var escapeCount = 0
+        textView.onEscape = {
+            escapeCount += 1
+        }
+
+        textView.setMarkedText(
+            "かな",
+            selectedRange: NSRange(location: 2, length: 0),
+            replacementRange: NSRange(location: NSNotFound, length: 0)
+        )
+        XCTAssertTrue(textView.hasMarkedText())
+
+        guard let escapeEvent = makeKeyDownEvent(
+            key: "\u{1b}",
+            modifiers: [],
+            keyCode: UInt16(kVK_Escape),
+            windowNumber: 0
+        ) else {
+            XCTFail("Failed to construct Escape event")
+            return
+        }
+
+        textView.keyDown(with: escapeEvent)
+        XCTAssertEqual(escapeCount, 0, "Escape should stay inside active IME composition")
+
+        textView.unmarkText()
+        textView.keyDown(with: escapeEvent)
+        XCTAssertEqual(escapeCount, 1, "Escape should leave TextBox only after IME composition is gone")
+    }
+
+    func testTextBoxMentionCompletionDoesNotConsumeIMECommands() {
+        let textView = TextBoxInputTextView(frame: NSRect(x: 0, y: 0, width: 320, height: 30))
+        textView.string = "@a"
+        textView.setSelectedRange(NSRange(location: 2, length: 0))
+        textView.debugSetMentionCompletionState(
+            query: TextBoxMentionQuery(kind: .file, range: NSRange(location: 0, length: 2), query: "a"),
+            suggestions: [
+                TextBoxMentionSuggestion(
+                    id: "alpha",
+                    title: "@alpha.txt",
+                    subtitle: "alpha.txt",
+                    insertionText: "[@alpha.txt](/tmp/alpha.txt)",
+                    systemImageName: "doc"
+                )
+            ]
+        )
+
+        var submitCount = 0
+        textView.onSubmit = {
+            submitCount += 1
+        }
+        textView.setMarkedText(
+            "かな",
+            selectedRange: NSRange(location: 2, length: 0),
+            replacementRange: NSRange(location: NSNotFound, length: 0)
+        )
+        XCTAssertTrue(textView.hasMarkedText())
+
+        guard let returnEvent = makeKeyDownEvent(
+            key: "\r",
+            modifiers: [],
+            keyCode: UInt16(kVK_Return),
+            windowNumber: 0
+        ) else {
+            XCTFail("Failed to construct Return event")
+            return
+        }
+
+        textView.keyDown(with: returnEvent)
+        XCTAssertEqual(submitCount, 0)
+        XCTAssertFalse(textView.submissionText().contains("alpha.txt"))
+
+        textView.setMarkedText(
+            "かな",
+            selectedRange: NSRange(location: 2, length: 0),
+            replacementRange: NSRange(location: NSNotFound, length: 0)
+        )
+        XCTAssertTrue(textView.hasMarkedText())
+
+        textView.doCommand(by: #selector(NSResponder.insertNewline(_:)))
+        XCTAssertEqual(submitCount, 0)
+        XCTAssertFalse(textView.submissionText().contains("alpha.txt"))
+    }
+
+    func testTextBoxShiftReturnInsertsNewlineWhenMentionCompletionOpen() {
+        let textView = TextBoxInputTextView(frame: NSRect(x: 0, y: 0, width: 320, height: 30))
+        textView.string = "@a"
+        textView.setSelectedRange(NSRange(location: 2, length: 0))
+        textView.debugSetMentionCompletionState(
+            query: TextBoxMentionQuery(kind: .file, range: NSRange(location: 0, length: 2), query: "a"),
+            suggestions: [
+                TextBoxMentionSuggestion(
+                    id: "alpha",
+                    title: "@alpha.txt",
+                    subtitle: "alpha.txt",
+                    insertionText: "[@alpha.txt](/tmp/alpha.txt)",
+                    systemImageName: "doc"
+                )
+            ]
+        )
+
+        var submitCount = 0
+        textView.onSubmit = {
+            submitCount += 1
+        }
+
+        guard let shiftReturnEvent = makeKeyDownEvent(
+            key: "\r",
+            modifiers: .shift,
+            keyCode: UInt16(kVK_Return),
+            windowNumber: 0
+        ) else {
+            XCTFail("Failed to construct Shift-Return event")
+            return
+        }
+
+        textView.keyDown(with: shiftReturnEvent)
+
+        XCTAssertEqual(submitCount, 0)
+        XCTAssertEqual(textView.attributedString().string, "@a\n")
+        XCTAssertFalse(textView.submissionText().contains("alpha.txt"))
+    }
+
+    func testTextBoxSecondEscapeRoutesToEventWindowWhenActiveManagerIsStale() {
+        guard let appDelegate = AppDelegate.shared else {
+            XCTFail("Expected AppDelegate.shared")
+            return
+        }
+
+        let firstWindowId = appDelegate.createMainWindow()
+        let secondWindowId = appDelegate.createMainWindow()
+
+        defer {
+            closeWindow(withId: firstWindowId)
+            closeWindow(withId: secondWindowId)
+        }
+
+        guard let firstWindow = window(withId: firstWindowId),
+              let secondWindow = window(withId: secondWindowId),
+              let secondContentView = secondWindow.contentView,
+              let secondManager = appDelegate.tabManagerFor(windowId: secondWindowId),
+              let secondWorkspace = secondManager.selectedWorkspace,
+              let secondPanelId = secondWorkspace.focusedPanelId,
+              let secondTerminalPanel = secondWorkspace.terminalPanel(for: secondPanelId) else {
+            XCTFail("Expected two main windows with a focused terminal in the second")
+            return
+        }
+
+        let textBoxView = TextBoxInputTextView(frame: NSRect(x: 0, y: 0, width: 240, height: 30))
+        textBoxView.onFocusTextBox = { secondTerminalPanel.textBoxDidBecomeFocused() }
+        let textBoxScrollView = NSScrollView(frame: NSRect(x: 0, y: 0, width: 240, height: 30))
+        textBoxScrollView.documentView = textBoxView
+        secondContentView.addSubview(textBoxScrollView)
+        defer { textBoxScrollView.removeFromSuperview() }
+
+        secondWindow.makeKeyAndOrderFront(nil)
+        secondWindow.displayIfNeeded()
+        secondTerminalPanel.hostedView.setVisibleInUI(true)
+        secondTerminalPanel.hostedView.setActive(true)
+        secondTerminalPanel.registerTextBoxInputView(textBoxView)
+        XCTAssertTrue(secondTerminalPanel.toggleTextBoxInput())
+        waitFor(timeout: 1.0, until: { secondWindow.firstResponder === textBoxView })
+        XCTAssertTrue(secondWindow.firstResponder === textBoxView)
+
+        secondTerminalPanel.handleTextBoxEscape()
+        XCTAssertTrue(secondTerminalPanel.isTextBoxActive)
+
+        firstWindow.makeKeyAndOrderFront(nil)
+        appDelegate.setActiveMainWindow(firstWindow)
+
+        guard let escapeEvent = makeKeyDownEvent(
+            key: "\u{1b}",
+            modifiers: [],
+            keyCode: UInt16(kVK_Escape),
+            windowNumber: secondWindow.windowNumber
+        ) else {
+            XCTFail("Failed to construct Escape event")
+            return
+        }
+
+#if DEBUG
+        XCTAssertTrue(appDelegate.debugHandleCustomShortcut(event: escapeEvent))
+#else
+        XCTFail("debugHandleCustomShortcut is only available in DEBUG")
+#endif
+        XCTAssertFalse(secondTerminalPanel.isTextBoxActive, "Second Escape should hide the TextBox in the event window")
+    }
+
+    func testTextBoxEscapeArmClearsInEventWindowWhenActiveManagerIsStale() {
+        guard let appDelegate = AppDelegate.shared else {
+            XCTFail("Expected AppDelegate.shared")
+            return
+        }
+
+        let firstWindowId = appDelegate.createMainWindow()
+        let secondWindowId = appDelegate.createMainWindow()
+
+        defer {
+            closeWindow(withId: firstWindowId)
+            closeWindow(withId: secondWindowId)
+        }
+
+        guard let firstWindow = window(withId: firstWindowId),
+              let secondWindow = window(withId: secondWindowId),
+              let secondContentView = secondWindow.contentView,
+              let secondManager = appDelegate.tabManagerFor(windowId: secondWindowId),
+              let secondWorkspace = secondManager.selectedWorkspace,
+              let secondPanelId = secondWorkspace.focusedPanelId,
+              let secondTerminalPanel = secondWorkspace.terminalPanel(for: secondPanelId) else {
+            XCTFail("Expected two main windows with a focused terminal in the second")
+            return
+        }
+
+        let textBoxView = TextBoxInputTextView(frame: NSRect(x: 0, y: 0, width: 240, height: 30))
+        textBoxView.onFocusTextBox = { secondTerminalPanel.textBoxDidBecomeFocused() }
+        let textBoxScrollView = NSScrollView(frame: NSRect(x: 0, y: 0, width: 240, height: 30))
+        textBoxScrollView.documentView = textBoxView
+        secondContentView.addSubview(textBoxScrollView)
+        defer { textBoxScrollView.removeFromSuperview() }
+
+        secondWindow.makeKeyAndOrderFront(nil)
+        secondWindow.displayIfNeeded()
+        secondTerminalPanel.hostedView.setVisibleInUI(true)
+        secondTerminalPanel.hostedView.setActive(true)
+        secondTerminalPanel.registerTextBoxInputView(textBoxView)
+        XCTAssertTrue(secondTerminalPanel.toggleTextBoxInput())
+        waitFor(timeout: 1.0, until: { secondWindow.firstResponder === textBoxView })
+        XCTAssertTrue(secondWindow.firstResponder === textBoxView)
+
+        secondTerminalPanel.handleTextBoxEscape()
+        XCTAssertTrue(secondTerminalPanel.isTextBoxActive)
+
+        firstWindow.makeKeyAndOrderFront(nil)
+        appDelegate.setActiveMainWindow(firstWindow)
+
+        guard let nonEscapeEvent = makeKeyDownEvent(
+            key: "x",
+            modifiers: [],
+            keyCode: UInt16(kVK_ANSI_X),
+            windowNumber: secondWindow.windowNumber
+        ), let escapeEvent = makeKeyDownEvent(
+            key: "\u{1b}",
+            modifiers: [],
+            keyCode: UInt16(kVK_Escape),
+            windowNumber: secondWindow.windowNumber
+        ) else {
+            XCTFail("Failed to construct key events")
+            return
+        }
+
+#if DEBUG
+        XCTAssertFalse(appDelegate.debugHandleCustomShortcut(event: nonEscapeEvent))
+        XCTAssertFalse(appDelegate.debugHandleCustomShortcut(event: escapeEvent))
+#else
+        XCTFail("debugHandleCustomShortcut is only available in DEBUG")
+#endif
+        XCTAssertTrue(secondTerminalPanel.isTextBoxActive, "Non-Escape in the event window must clear the second-Escape arm")
+    }
+
+    func testFocusedTextBoxFirstEscapeBypassesTerminalFindShortcutHandling() {
+        guard let appDelegate = AppDelegate.shared else {
+            XCTFail("Expected AppDelegate.shared")
+            return
+        }
+
+        let windowId = appDelegate.createMainWindow()
+        defer { closeWindow(withId: windowId) }
+
+        guard let window = window(withId: windowId),
+              let contentView = window.contentView,
+              let manager = appDelegate.tabManagerFor(windowId: windowId),
+              let workspace = manager.selectedWorkspace,
+              let panelId = workspace.focusedPanelId,
+              let terminalPanel = workspace.terminalPanel(for: panelId) else {
+            XCTFail("Expected a main window with a focused terminal")
+            return
+        }
+
+        let textBoxView = TextBoxInputTextView(frame: NSRect(x: 0, y: 0, width: 240, height: 30))
+        textBoxView.onFocusTextBox = { terminalPanel.textBoxDidBecomeFocused() }
+        let textBoxScrollView = NSScrollView(frame: NSRect(x: 0, y: 0, width: 240, height: 30))
+        textBoxScrollView.documentView = textBoxView
+        contentView.addSubview(textBoxScrollView)
+        defer { textBoxScrollView.removeFromSuperview() }
+
+        window.makeKeyAndOrderFront(nil)
+        window.displayIfNeeded()
+        terminalPanel.hostedView.setVisibleInUI(true)
+        terminalPanel.hostedView.setActive(true)
+        terminalPanel.registerTextBoxInputView(textBoxView)
+        XCTAssertTrue(terminalPanel.toggleTextBoxInput())
+        waitFor(timeout: 1.0, until: { window.firstResponder === textBoxView })
+        XCTAssertTrue(window.firstResponder === textBoxView)
+
+        terminalPanel.searchState = TerminalSurface.SearchState(needle: "")
+        defer { terminalPanel.searchState = nil }
+
+        guard let escapeEvent = makeKeyDownEvent(
+            key: "\u{1b}",
+            modifiers: [],
+            keyCode: UInt16(kVK_Escape),
+            windowNumber: window.windowNumber
+        ) else {
+            XCTFail("Failed to construct Escape event")
+            return
+        }
+
+#if DEBUG
+        XCTAssertFalse(appDelegate.debugHandleCustomShortcut(event: escapeEvent))
+#else
+        XCTFail("debugHandleCustomShortcut is only available in DEBUG")
+#endif
+        XCTAssertNotNil(terminalPanel.searchState, "First Escape should reach the TextBox instead of closing find")
+    }
+
+    func testTextBoxFocusedAttachmentCopyCutPasteUseFilePasteboard() throws {
+        let originalURL = try makeTemporaryPNGFile(named: "moon.png")
+        let replacementURL = try makeTemporaryPNGFile(named: "sun.png")
+        let originalAttachment = TextBoxAttachment(
+            localURL: originalURL,
+            submissionText: TextBoxAttachment.submissionText(forLocalFileURL: originalURL)
+        )
+
+        let textView = TextBoxInputTextView(frame: NSRect(x: 0, y: 0, width: 320, height: 30))
+        textView.font = NSFont.systemFont(ofSize: 14)
+        textView.textColor = .labelColor
+        textView.onPaste = { pasteboard, textView in
+            switch TerminalImageTransferPlanner.prepare(pasteboard: pasteboard, mode: .paste) {
+            case .fileURLs(let fileURLs):
+                textView.insertAttachments(
+                    fileURLs.map {
+                        TextBoxAttachment(
+                            localURL: $0,
+                            submissionText: TextBoxAttachment.submissionText(forLocalFileURL: $0)
+                        )
+                    }
+                )
+                return true
+            case .insertText(let text):
+                textView.insertText(text, replacementRange: textView.selectedRange())
+                return true
+            case .reject:
+                return false
+            }
+        }
+
+        guard let copyEvent = makeKeyDownEvent(
+            key: "c",
+            modifiers: .command,
+            keyCode: UInt16(kVK_ANSI_C),
+            windowNumber: 0
+        ), let cutEvent = makeKeyDownEvent(
+            key: "x",
+            modifiers: .command,
+            keyCode: UInt16(kVK_ANSI_X),
+            windowNumber: 0
+        ), let pasteEvent = makeKeyDownEvent(
+            key: "v",
+            modifiers: .command,
+            keyCode: UInt16(kVK_ANSI_V),
+            windowNumber: 0
+        ) else {
+            XCTFail("Failed to construct edit command events")
+            return
+        }
+
+        try withPreservedGeneralPasteboard {
+            textView.installDebugInlineFixture(originalAttachment, beforeText: "hello ", afterText: " world")
+            _ = textView.debugInteract(action: "select_first_attachment")
+
+            XCTAssertEqual(textView.selectedRange(), NSRange(location: 6, length: 1))
+            XCTAssertTrue(textView.performKeyEquivalent(with: copyEvent))
+            XCTAssertEqual(PasteboardFileURLReader.fileURLs(from: .general).map(\.path), [originalURL.path])
+            XCTAssertEqual(textView.inlineAttachments().map(\.displayName), ["moon.png"])
+
+            XCTAssertTrue(textView.performKeyEquivalent(with: cutEvent))
+            XCTAssertEqual(PasteboardFileURLReader.fileURLs(from: .general).map(\.path), [originalURL.path])
+            XCTAssertTrue(textView.inlineAttachments().isEmpty)
+
+            textView.installDebugInlineFixture(originalAttachment, beforeText: "hello ", afterText: " world")
+            _ = textView.debugInteract(action: "select_first_attachment")
+            writeFileURLs([replacementURL], to: .general)
+
+            XCTAssertTrue(textView.performKeyEquivalent(with: pasteEvent))
+            XCTAssertEqual(textView.inlineAttachments().map(\.displayName), ["sun.png"])
+            XCTAssertEqual(
+                textView.submissionText(),
+                expectedImageSubmission(before: "hello ", url: replacementURL, after: " world")
+            )
+        }
+    }
+
+    func testTextBoxFocusedAttachmentCopyFollowsSelectionAfterSelectionChanges() throws {
+        let originalURL = try makeTemporaryPNGFile(named: "moon.png")
+        let originalAttachment = TextBoxAttachment(
+            localURL: originalURL,
+            submissionText: TerminalImageTransferPlanner.escapeForShell(originalURL.path)
+        )
+
+        let textView = TextBoxInputTextView(frame: NSRect(x: 0, y: 0, width: 320, height: 30))
+        textView.font = NSFont.systemFont(ofSize: 14)
+        textView.textColor = .labelColor
+
+        let scrollView = NSScrollView(frame: NSRect(x: 0, y: 0, width: 320, height: 30))
+        scrollView.documentView = textView
+        let window = NSWindow(
+            contentRect: NSRect(x: 0, y: 0, width: 320, height: 30),
+            styleMask: [.borderless],
+            backing: .buffered,
+            defer: false
+        )
+        window.isReleasedWhenClosed = false
+        window.contentView = scrollView
+        window.makeFirstResponder(textView)
+        Self.retainedTextBoxUndoWindows.append(window)
+
+        guard let copyEvent = makeKeyDownEvent(
+            key: "c",
+            modifiers: .command,
+            keyCode: UInt16(kVK_ANSI_C),
+            windowNumber: window.windowNumber
+        ) else {
+            XCTFail("Failed to construct copy event")
+            return
+        }
+
+        try withPreservedGeneralPasteboard {
+            textView.installDebugInlineFixture(originalAttachment, beforeText: "hello ", afterText: " world")
+            _ = textView.debugInteract(action: "select_first_attachment")
+            XCTAssertEqual(textView.selectedRange(), NSRange(location: 6, length: 1))
+
+            textView.setSelectedRange(NSRange(location: 0, length: 5))
+            textView.refreshInlineAttachmentFocus()
+            NSPasteboard.general.clearContents()
+
+            XCTAssertTrue(textView.performKeyEquivalent(with: copyEvent))
+            XCTAssertTrue(PasteboardFileURLReader.fileURLs(from: .general).isEmpty)
+            XCTAssertEqual(NSPasteboard.general.string(forType: .string), "hello")
+        }
+    }
+
+    func testTextBoxFocusedAttachmentClearsWhenTextBoxLosesFocus() throws {
+        let originalURL = try makeTemporaryPNGFile(named: "moon.png")
+        let originalAttachment = TextBoxAttachment(
+            localURL: originalURL,
+            submissionText: TerminalImageTransferPlanner.escapeForShell(originalURL.path)
+        )
+
+        let contentView = NSView(frame: NSRect(x: 0, y: 0, width: 360, height: 60))
+        let textView = TextBoxInputTextView(frame: NSRect(x: 0, y: 0, width: 320, height: 30))
+        textView.font = NSFont.systemFont(ofSize: 14)
+        textView.textColor = .labelColor
+        let scrollView = NSScrollView(frame: NSRect(x: 0, y: 0, width: 320, height: 30))
+        scrollView.documentView = textView
+        let otherView = FocusableTestView(frame: NSRect(x: 0, y: 32, width: 24, height: 24))
+        contentView.addSubview(scrollView)
+        contentView.addSubview(otherView)
+
+        let window = NSWindow(
+            contentRect: NSRect(x: 0, y: 0, width: 360, height: 60),
+            styleMask: [.borderless],
+            backing: .buffered,
+            defer: false
+        )
+        window.isReleasedWhenClosed = false
+        window.contentView = contentView
+        window.makeFirstResponder(textView)
+        Self.retainedTextBoxUndoWindows.append(window)
+
+        textView.installDebugInlineFixture(originalAttachment, beforeText: "hello ", afterText: " world")
+        let focusedState = textView.debugInteract(action: "select_first_attachment")
+        XCTAssertEqual(focusedState["focused_attachment_index"] as? Int, 6)
+
+        XCTAssertTrue(window.makeFirstResponder(otherView))
+        let unfocusedState = textView.debugInteractionState()
+        XCTAssertEqual(unfocusedState["focused_attachment_index"] as? Int, -1)
+    }
+
+    func testTextBoxInlineAttachmentsSurviveViewRemount() throws {
+        guard let appDelegate = AppDelegate.shared else {
+            XCTFail("Expected AppDelegate.shared")
+            return
+        }
+
+        let windowId = appDelegate.createMainWindow()
+        defer { closeWindow(withId: windowId) }
+
+        guard let manager = appDelegate.tabManagerFor(windowId: windowId),
+              let workspace = manager.selectedWorkspace,
+              let panelId = workspace.focusedPanelId,
+              let terminalPanel = workspace.terminalPanel(for: panelId) else {
+            XCTFail("Expected focused terminal surface")
+            return
+        }
+
+        let originalURL = try makeTemporaryPNGFile(named: "moon.png")
+        let originalAttachment = TextBoxAttachment(
+            localURL: originalURL,
+            submissionText: TerminalImageTransferPlanner.escapeForShell(originalURL.path)
+        )
+
+        let originalTextView = TextBoxInputTextView(frame: NSRect(x: 0, y: 0, width: 320, height: 30))
+        originalTextView.font = NSFont.systemFont(ofSize: 14)
+        originalTextView.textColor = .labelColor
+        originalTextView.installDebugInlineFixture(originalAttachment, beforeText: "hello ", afterText: " world")
+
+        terminalPanel.preserveTextBoxContentForUnmount(from: originalTextView)
+
+        let remountedTextView = makeRetainedTextBoxInputTextView()
+        terminalPanel.registerTextBoxInputView(remountedTextView)
+
+        XCTAssertEqual(remountedTextView.inlineAttachments().map(\.displayName), ["moon.png"])
+        XCTAssertEqual(
+            remountedTextView.submissionText(),
+            expectedImageSubmission(before: "hello ", url: originalURL, after: " world")
+        )
+    }
+
+    func testWorkspaceSessionRestoreRestoresActiveTextBoxDraftWithImage() throws {
+        let workspace = Workspace()
+        guard let panelId = workspace.focusedPanelId,
+              let terminalPanel = workspace.terminalPanel(for: panelId) else {
+            XCTFail("Expected focused terminal surface")
+            return
+        }
+
+        let originalURL = try makeTemporaryPNGFile(named: "moon.png")
+        let originalAttachment = TextBoxAttachment(
+            localURL: originalURL,
+            submissionText: TextBoxAttachment.submissionText(forLocalFileURL: originalURL)
+        )
+        let originalTextView = makeRetainedTextBoxInputTextView()
+        originalTextView.font = NSFont.systemFont(ofSize: 14)
+        originalTextView.textColor = .labelColor
+        originalTextView.installDebugInlineFixture(originalAttachment, beforeText: "restore ", afterText: " now")
+
+        terminalPanel.preserveTextBoxContentForUnmount(from: originalTextView)
+        terminalPanel.isTextBoxActive = true
+
+        let snapshot = workspace.sessionSnapshot(includeScrollback: false)
+        let panelSnapshot = try XCTUnwrap(snapshot.panels.first { $0.id == panelId })
+        XCTAssertEqual(panelSnapshot.terminal?.textBoxDraft?.isActive, true)
+
+        let restoredWorkspace = Workspace()
+        restoredWorkspace.restoreSessionSnapshot(snapshot)
+
+        let restoredPanelId = try XCTUnwrap(restoredWorkspace.focusedPanelId)
+        let restoredPanel = try XCTUnwrap(restoredWorkspace.terminalPanel(for: restoredPanelId))
+        XCTAssertTrue(restoredPanel.isTextBoxActive)
+
+        let remountedTextView = makeRetainedTextBoxInputTextView()
+        remountedTextView.font = NSFont.systemFont(ofSize: 14)
+        remountedTextView.textColor = .labelColor
+        restoredPanel.registerTextBoxInputView(remountedTextView)
+
+        XCTAssertEqual(remountedTextView.inlineAttachments().map(\.displayName), ["moon.png"])
+        XCTAssertEqual(
+            remountedTextView.submissionText(),
+            expectedImageSubmission(before: "restore ", url: originalURL, after: " now")
+        )
+    }
+
+    func testWorkspaceSessionRestoreKeepsHiddenTextBoxDraftUntilOpened() throws {
+        let workspace = Workspace()
+        guard let panelId = workspace.focusedPanelId,
+              let terminalPanel = workspace.terminalPanel(for: panelId) else {
+            XCTFail("Expected focused terminal surface")
+            return
+        }
+
+        let originalURL = try makeTemporaryPNGFile(named: "moon.png")
+        let originalAttachment = TextBoxAttachment(
+            localURL: originalURL,
+            submissionText: TextBoxAttachment.submissionText(forLocalFileURL: originalURL)
+        )
+        let originalTextView = makeRetainedTextBoxInputTextView()
+        originalTextView.font = NSFont.systemFont(ofSize: 14)
+        originalTextView.textColor = .labelColor
+        originalTextView.installDebugInlineFixture(originalAttachment, beforeText: "hidden ", afterText: " draft")
+
+        terminalPanel.preserveTextBoxContentForUnmount(from: originalTextView)
+        terminalPanel.isTextBoxActive = false
+
+        let snapshot = workspace.sessionSnapshot(includeScrollback: false)
+        let panelSnapshot = try XCTUnwrap(snapshot.panels.first { $0.id == panelId })
+        XCTAssertEqual(panelSnapshot.terminal?.textBoxDraft?.isActive, false)
+
+        let restoredWorkspace = Workspace()
+        restoredWorkspace.restoreSessionSnapshot(snapshot)
+
+        let restoredPanelId = try XCTUnwrap(restoredWorkspace.focusedPanelId)
+        let restoredPanel = try XCTUnwrap(restoredWorkspace.terminalPanel(for: restoredPanelId))
+        XCTAssertFalse(restoredPanel.isTextBoxActive)
+
+        XCTAssertTrue(restoredPanel.focusTextBoxInputOrTerminal())
+        let remountedTextView = makeRetainedTextBoxInputTextView()
+        remountedTextView.font = NSFont.systemFont(ofSize: 14)
+        remountedTextView.textColor = .labelColor
+        restoredPanel.registerTextBoxInputView(remountedTextView)
+
+        XCTAssertEqual(remountedTextView.inlineAttachments().map(\.displayName), ["moon.png"])
+        XCTAssertEqual(
+            remountedTextView.submissionText(),
+            expectedImageSubmission(before: "hidden ", url: originalURL, after: " draft")
+        )
+    }
+
+    func testWorkspaceSessionRestoreRestoresTextBoxDraftsAcrossSplits() throws {
+        let workspace = Workspace()
+        let firstPanelId = try XCTUnwrap(workspace.focusedPanelId)
+        let firstPanel = try XCTUnwrap(workspace.terminalPanel(for: firstPanelId))
+        let secondPanel = try XCTUnwrap(workspace.newTerminalSplit(
+            from: firstPanelId,
+            orientation: .horizontal,
+            focus: false
+        ))
+
+        try installTextBoxSessionDraft(
+            on: firstPanel,
+            imageName: "left.png",
+            beforeText: "left split ",
+            afterText: " draft",
+            isActive: true
+        )
+        try installTextBoxSessionDraft(
+            on: secondPanel,
+            imageName: "right.png",
+            beforeText: "right split ",
+            afterText: " draft",
+            isActive: false
+        )
+
+        let snapshot = workspace.sessionSnapshot(includeScrollback: false)
+        XCTAssertEqual(snapshot.panels.compactMap { $0.terminal?.textBoxDraft }.count, 2)
+
+        let restoredWorkspace = Workspace()
+        restoredWorkspace.restoreSessionSnapshot(snapshot)
+
+        let restoredDrafts = restoredTextBoxDraftSummaries(in: restoredWorkspace)
+        XCTAssertEqual(Set(restoredDrafts), Set([
+            TextBoxSessionDraftSummary(isActive: true, parts: [.text("left split "), .attachment("left.png"), .text(" draft")]),
+            TextBoxSessionDraftSummary(isActive: false, parts: [.text("right split "), .attachment("right.png"), .text(" draft")])
+        ]))
+    }
+
+    func testTabManagerSessionRestoreRestoresTextBoxDraftsAcrossWorkspaces() throws {
+        let manager = TabManager(autoWelcomeIfNeeded: false)
+        let firstWorkspace = try XCTUnwrap(manager.tabs.first)
+        let secondWorkspace = manager.addWorkspace(
+            title: "Second",
+            inheritWorkingDirectory: false,
+            autoWelcomeIfNeeded: false
+        )
+
+        try installTextBoxSessionDraft(
+            on: XCTUnwrap(firstWorkspace.focusedTerminalPanel),
+            imageName: "first-workspace.png",
+            beforeText: "first workspace ",
+            afterText: " draft",
+            isActive: true
+        )
+        try installTextBoxSessionDraft(
+            on: XCTUnwrap(secondWorkspace.focusedTerminalPanel),
+            imageName: "second-workspace.png",
+            beforeText: "second workspace ",
+            afterText: " draft",
+            isActive: false
+        )
+
+        let snapshot = manager.sessionSnapshot(includeScrollback: false)
+        XCTAssertEqual(snapshot.workspaces.count, 2)
+        XCTAssertEqual(snapshot.selectedWorkspaceIndex, 1)
+
+        let restoredManager = TabManager(autoWelcomeIfNeeded: false)
+        restoredManager.restoreSessionSnapshot(snapshot)
+
+        XCTAssertEqual(restoredManager.tabs.count, 2)
+        XCTAssertEqual(restoredManager.selectedTabId, restoredManager.tabs.last?.id)
+        XCTAssertEqual(Set(restoredManager.tabs.flatMap(restoredTextBoxDraftSummaries(in:))), Set([
+            TextBoxSessionDraftSummary(isActive: true, parts: [.text("first workspace "), .attachment("first-workspace.png"), .text(" draft")]),
+            TextBoxSessionDraftSummary(isActive: false, parts: [.text("second workspace "), .attachment("second-workspace.png"), .text(" draft")])
+        ]))
+    }
+
+    func testAppSessionSnapshotRoundTripsTextBoxDraftsAcrossWindows() throws {
+        let firstManager = TabManager(autoWelcomeIfNeeded: false)
+        let secondManager = TabManager(autoWelcomeIfNeeded: false)
+
+        try installTextBoxSessionDraft(
+            on: XCTUnwrap(firstManager.selectedWorkspace?.focusedTerminalPanel),
+            imageName: "first-window.png",
+            beforeText: "first window ",
+            afterText: " draft",
+            isActive: true
+        )
+        try installTextBoxSessionDraft(
+            on: XCTUnwrap(secondManager.selectedWorkspace?.focusedTerminalPanel),
+            imageName: "second-window.png",
+            beforeText: "second window ",
+            afterText: " draft",
+            isActive: true
+        )
+
+        let snapshot = AppSessionSnapshot(
+            version: SessionSnapshotSchema.currentVersion,
+            createdAt: 1_700_000_000,
+            windows: [
+                sessionWindowSnapshot(tabManager: firstManager),
+                sessionWindowSnapshot(tabManager: secondManager)
+            ]
+        )
+
+        let data = try JSONEncoder().encode(snapshot)
+        let decoded = try JSONDecoder().decode(AppSessionSnapshot.self, from: data)
+        XCTAssertEqual(decoded.windows.count, 2)
+
+        let restoredFirstManager = TabManager(autoWelcomeIfNeeded: false)
+        let restoredSecondManager = TabManager(autoWelcomeIfNeeded: false)
+        restoredFirstManager.restoreSessionSnapshot(decoded.windows[0].tabManager)
+        restoredSecondManager.restoreSessionSnapshot(decoded.windows[1].tabManager)
+
+        let restoredDrafts = Set(
+            restoredFirstManager.tabs.flatMap(restoredTextBoxDraftSummaries(in:)) +
+            restoredSecondManager.tabs.flatMap(restoredTextBoxDraftSummaries(in:))
+        )
+
+        XCTAssertEqual(restoredDrafts, Set([
+            TextBoxSessionDraftSummary(isActive: true, parts: [.text("first window "), .attachment("first-window.png"), .text(" draft")]),
+            TextBoxSessionDraftSummary(isActive: true, parts: [.text("second window "), .attachment("second-window.png"), .text(" draft")])
+        ]))
+    }
+
+    func testTextBoxPendingAttachmentUploadIsStrippedWhenPreservedForRemount() {
+        guard let appDelegate = AppDelegate.shared else {
+            XCTFail("Expected AppDelegate.shared")
+            return
+        }
+
+        let windowId = appDelegate.createMainWindow()
+        defer { closeWindow(withId: windowId) }
+
+        guard let manager = appDelegate.tabManagerFor(windowId: windowId),
+              let workspace = manager.selectedWorkspace,
+              let panelId = workspace.focusedPanelId,
+              let terminalPanel = workspace.terminalPanel(for: panelId) else {
+            XCTFail("Expected focused terminal surface")
+            return
+        }
+
+        let originalTextView = TextBoxInputTextView(frame: NSRect(x: 0, y: 0, width: 320, height: 30))
+        let scrollView = NSScrollView(frame: NSRect(x: 0, y: 0, width: 320, height: 30))
+        scrollView.documentView = originalTextView
+        let textBoxWindow = NSWindow(
+            contentRect: NSRect(x: 0, y: 0, width: 320, height: 30),
+            styleMask: [.borderless],
+            backing: .buffered,
+            defer: false
+        )
+        textBoxWindow.isReleasedWhenClosed = false
+        textBoxWindow.contentView = scrollView
+        textBoxWindow.makeFirstResponder(originalTextView)
+        Self.retainedTextBoxUndoWindows.append(textBoxWindow)
+
+        originalTextView.string = "hello world"
+        originalTextView.setSelectedRange(NSRange(location: ("hello " as NSString).length, length: 0))
+
+        let uploadID = UUID()
+        originalTextView.insertPendingAttachmentUploadPlaceholder(id: uploadID)
+        let uploadToken = originalTextView.pendingAttachmentUploadValidationToken()
+        XCTAssertTrue(originalTextView.hasPendingAttachmentUploadPlaceholder())
+        XCTAssertTrue(originalTextView.canAcceptPendingAttachmentUpload(validationToken: uploadToken))
+
+        terminalPanel.preserveTextBoxContentForUnmount(from: originalTextView)
+
+        XCTAssertFalse(originalTextView.canAcceptPendingAttachmentUpload(validationToken: uploadToken))
+
+        let remountedTextView = TextBoxInputTextView(frame: NSRect(x: 0, y: 0, width: 320, height: 30))
+        terminalPanel.registerTextBoxInputView(remountedTextView)
+
+        XCTAssertFalse(remountedTextView.hasPendingAttachmentUploadPlaceholder())
+        XCTAssertEqual(remountedTextView.submissionText(), "hello world")
+    }
+
+    func testTextBoxPendingAttachmentUploadPreservesOriginalInsertionPoint() throws {
+        let originalURL = try makeTemporaryPNGFile(named: "moon.png")
+        let originalAttachment = TextBoxAttachment(
+            localURL: originalURL,
+            submissionText: TextBoxAttachment.submissionText(forPath: "/tmp/remote/moon.png"),
+            submissionPath: "/tmp/remote/moon.png"
+        )
+
+        let textView = TextBoxInputTextView(frame: NSRect(x: 0, y: 0, width: 320, height: 30))
+        textView.font = NSFont.systemFont(ofSize: 14)
+        textView.textColor = .labelColor
+        textView.string = "hello world"
+        textView.setSelectedRange(NSRange(location: ("hello " as NSString).length, length: 0))
+
+        let uploadID = UUID()
+        textView.insertPendingAttachmentUploadPlaceholder(id: uploadID)
+        XCTAssertEqual(textView.plainText(), "hello world")
+
+        textView.setSelectedRange(NSRange(location: 0, length: 0))
+        textView.insertText("say ", replacementRange: textView.selectedRange())
+
+        XCTAssertTrue(textView.replacePendingAttachmentUploadPlaceholder(id: uploadID, with: [originalAttachment]))
+        XCTAssertEqual(
+            textView.submissionText(),
+            "say hello /tmp/remote/moon.png world"
+        )
+    }
+
+    func testTextBoxPendingAttachmentUploadRemovalCleansPlaceholder() {
+        let textView = TextBoxInputTextView(frame: NSRect(x: 0, y: 0, width: 320, height: 30))
+        textView.font = NSFont.systemFont(ofSize: 14)
+        textView.textColor = .labelColor
+        textView.string = "hello world"
+        textView.setSelectedRange(NSRange(location: ("hello " as NSString).length, length: 0))
+
+        let uploadID = UUID()
+        textView.insertPendingAttachmentUploadPlaceholder(id: uploadID)
+        XCTAssertTrue(textView.hasPendingAttachmentUploadPlaceholder())
+
+        textView.setSelectedRange(NSRange(location: 0, length: 0))
+        textView.insertText("say ", replacementRange: textView.selectedRange())
+
+        XCTAssertTrue(textView.removePendingAttachmentUploadPlaceholder(id: uploadID))
+        XCTAssertFalse(textView.hasPendingAttachmentUploadPlaceholder())
+        XCTAssertEqual(textView.plainText(), "say hello world")
+        XCTAssertEqual(textView.submissionText(), "say hello world")
+    }
+
+    func testTextBoxAttachmentCloseIsUndoable() throws {
+        let originalURL = try makeTemporaryPNGFile(named: "moon.png")
+        let originalAttachment = TextBoxAttachment(
+            localURL: originalURL,
+            submissionText: TerminalImageTransferPlanner.escapeForShell(originalURL.path)
+        )
+
+        let textView = TextBoxInputTextView(frame: NSRect(x: 0, y: 0, width: 320, height: 30))
+        textView.font = NSFont.systemFont(ofSize: 14)
+        textView.textColor = .labelColor
+        textView.allowsUndo = true
+
+        let scrollView = NSScrollView(frame: NSRect(x: 0, y: 0, width: 320, height: 30))
+        scrollView.documentView = textView
+        let window = NSWindow(
+            contentRect: NSRect(x: 0, y: 0, width: 320, height: 30),
+            styleMask: [.borderless],
+            backing: .buffered,
+            defer: false
+        )
+        window.isReleasedWhenClosed = false
+        window.contentView = scrollView
+        window.makeFirstResponder(textView)
+        Self.retainedTextBoxUndoWindows.append(window)
+
+        textView.installDebugInlineFixture(originalAttachment, beforeText: "hello ", afterText: " world")
+        XCTAssertEqual(textView.inlineAttachments().map(\.displayName), ["moon.png"])
+
+        _ = textView.debugInteract(action: "close_first_attachment")
+        XCTAssertTrue(textView.inlineAttachments().isEmpty)
+        XCTAssertTrue(textView.undoManager?.canUndo == true)
+
+        textView.undoManager?.undo()
+        XCTAssertEqual(textView.inlineAttachments().map(\.displayName), ["moon.png"])
+        XCTAssertEqual(
+            textView.submissionText(),
+            expectedImageSubmission(before: "hello ", url: originalURL, after: " world")
+        )
+    }
+
+    func testTextBoxPendingAttachmentUploadInvalidatesOnClear() {
+        let textView = TextBoxInputTextView(frame: NSRect(x: 0, y: 0, width: 320, height: 30))
+        let scrollView = NSScrollView(frame: NSRect(x: 0, y: 0, width: 320, height: 30))
+        scrollView.documentView = textView
+        let window = NSWindow(
+            contentRect: NSRect(x: 0, y: 0, width: 320, height: 30),
+            styleMask: [.borderless],
+            backing: .buffered,
+            defer: false
+        )
+        window.isReleasedWhenClosed = false
+        window.contentView = scrollView
+        window.makeFirstResponder(textView)
+        Self.retainedTextBoxUndoWindows.append(window)
+
+        let token = textView.pendingAttachmentUploadValidationToken()
+        XCTAssertTrue(textView.canAcceptPendingAttachmentUpload(validationToken: token))
+
+        textView.clearContent()
+
+        XCTAssertFalse(textView.canAcceptPendingAttachmentUpload(validationToken: token))
+    }
+
     func testTerminalFirstResponderGuardBlocksMoveFocusWhenRightSidebarOwnsKeyboardFocus() {
         guard let appDelegate = AppDelegate.shared else {
             XCTFail("Expected AppDelegate.shared")
@@ -6191,6 +8239,382 @@ final class AppDelegateShortcutRoutingTests: XCTestCase {
         )
     }
 
+    private struct PasteboardItemSnapshot {
+        let representations: [(type: NSPasteboard.PasteboardType, data: Data)]
+    }
+
+    private func withPreservedGeneralPasteboard(_ body: () throws -> Void) throws {
+        let pasteboard = NSPasteboard.general
+        let snapshots = snapshotPasteboardItems(pasteboard)
+        defer {
+            restorePasteboardItems(snapshots, to: pasteboard)
+        }
+        try body()
+    }
+
+    private func snapshotPasteboardItems(_ pasteboard: NSPasteboard) -> [PasteboardItemSnapshot] {
+        pasteboard.pasteboardItems?.map { item in
+            PasteboardItemSnapshot(
+                representations: item.types.compactMap { type in
+                    item.data(forType: type).map { (type, $0) }
+                }
+            )
+        } ?? []
+    }
+
+    private func restorePasteboardItems(
+        _ snapshots: [PasteboardItemSnapshot],
+        to pasteboard: NSPasteboard
+    ) {
+        pasteboard.clearContents()
+        let items = snapshots.map { snapshot in
+            let item = NSPasteboardItem()
+            for representation in snapshot.representations {
+                item.setData(representation.data, forType: representation.type)
+            }
+            return item
+        }
+        if !items.isEmpty {
+            pasteboard.writeObjects(items)
+        }
+    }
+
+    private enum TextBoxSessionDraftPartSummary: Hashable {
+        case text(String)
+        case attachment(String)
+    }
+
+    private struct TextBoxSessionDraftSummary: Hashable {
+        let isActive: Bool
+        let parts: [TextBoxSessionDraftPartSummary]
+    }
+
+    private func installTextBoxSessionDraft(
+        on terminalPanel: TerminalPanel,
+        imageName: String,
+        beforeText: String,
+        afterText: String,
+        isActive: Bool
+    ) throws {
+        let imageURL = try makeTemporaryPNGFile(named: imageName)
+        let attachment = TextBoxAttachment(
+            localURL: imageURL,
+            submissionText: TextBoxAttachment.submissionText(forLocalFileURL: imageURL)
+        )
+        let textView = makeRetainedTextBoxInputTextView()
+        textView.font = NSFont.systemFont(ofSize: 14)
+        textView.textColor = .labelColor
+        textView.installDebugInlineFixture(attachment, beforeText: beforeText, afterText: afterText)
+
+        terminalPanel.preserveTextBoxContentForUnmount(from: textView)
+        terminalPanel.isTextBoxActive = isActive
+    }
+
+    private func restoredTextBoxDraftSummaries(in workspace: Workspace) -> [TextBoxSessionDraftSummary] {
+        workspace.panels.values
+            .compactMap { $0 as? TerminalPanel }
+            .compactMap { panel in
+                guard let draft = panel.sessionTextBoxDraftSnapshot() else { return nil }
+                return TextBoxSessionDraftSummary(
+                    isActive: draft.isActive,
+                    parts: textBoxSessionDraftPartSummaries(draft.parts)
+                )
+            }
+    }
+
+    private func textBoxSessionDraftPartSummaries(
+        _ parts: [SessionTextBoxInputDraftPart]
+    ) -> [TextBoxSessionDraftPartSummary] {
+        parts.compactMap { part in
+            switch part.kind {
+            case .text:
+                guard let text = part.text, !text.isEmpty else { return nil }
+                return .text(text)
+            case .attachment:
+                guard let attachment = part.attachment else { return nil }
+                return .attachment(attachment.displayName)
+            }
+        }
+    }
+
+    private func sessionWindowSnapshot(tabManager: TabManager) -> SessionWindowSnapshot {
+        SessionWindowSnapshot(
+            frame: nil,
+            display: nil,
+            tabManager: tabManager.sessionSnapshot(includeScrollback: false),
+            sidebar: SessionSidebarSnapshot(
+                isVisible: true,
+                selection: .tabs,
+                width: SessionPersistencePolicy.defaultSidebarWidth
+            )
+        )
+    }
+
+    private func makeRetainedTextBoxInputTextView() -> TextBoxInputTextView {
+        let textView = TextBoxInputTextView(frame: NSRect(x: 0, y: 0, width: 320, height: 30))
+        Self.retainedTextBoxRestoreViews.append(textView)
+        return textView
+    }
+
+    private func makeTemporaryPNGFile(named name: String) throws -> URL {
+        let directory = FileManager.default.temporaryDirectory
+            .appendingPathComponent("cmux-textbox-attachment-\(UUID().uuidString)", isDirectory: true)
+        try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+        addTeardownBlock {
+            try? FileManager.default.removeItem(at: directory)
+        }
+
+        let url = directory.appendingPathComponent(name)
+        let image = NSImage(size: NSSize(width: 1, height: 1))
+        image.lockFocus()
+        NSColor.white.setFill()
+        NSBezierPath(rect: NSRect(x: 0, y: 0, width: 1, height: 1)).fill()
+        image.unlockFocus()
+        let tiffData = try XCTUnwrap(image.tiffRepresentation)
+        let bitmap = try XCTUnwrap(NSBitmapImageRep(data: tiffData))
+        let data = try XCTUnwrap(bitmap.representation(using: .png, properties: [:]))
+        try data.write(to: url)
+        return url.standardizedFileURL
+    }
+
+    private enum TextBoxSubmissionPartSummary: Equatable {
+        case text(String)
+        case attachment(String)
+    }
+
+    private func submissionPartSummaries(_ parts: [TextBoxSubmissionPart]) -> [TextBoxSubmissionPartSummary] {
+        parts.map { part in
+            switch part {
+            case .text(let text):
+                return .text(text)
+            case .attachment(let attachment):
+                return .attachment(attachment.submissionText)
+            }
+        }
+    }
+
+    private func expectedImageSubmission(before: String, url: URL, after: String) -> String {
+        var result = "\(before)\(TextBoxAttachment.submissionText(forLocalFileURL: url))"
+        if result.last?.isWhitespace != true,
+           after.first?.isWhitespace != true {
+            result += " "
+        }
+        result += after
+        return result
+    }
+
+    private struct RenderedPixelBounds {
+        let minX: Int
+        let minY: Int
+        let maxX: Int
+        let maxY: Int
+        let rasterHeight: Int
+
+        var midY: CGFloat {
+            CGFloat(minY + maxY) / 2
+        }
+
+        var topPadding: Int { minY }
+
+        var bottomPadding: Int { max(0, rasterHeight - 1 - maxY) }
+
+        var verticalPaddingDelta: Int {
+            abs(topPadding - bottomPadding)
+        }
+
+        func debugDescription() -> String {
+            "(minY:\(minY), maxY:\(maxY), midY:\(midY), top:\(topPadding), bottom:\(bottomPadding))"
+        }
+    }
+
+    private func makeRenderableTextBoxInput(width: CGFloat, height: CGFloat) -> TextBoxInputTextView {
+        let textView = TextBoxInputTextView(frame: NSRect(x: 0, y: 0, width: width, height: height))
+        textView.font = NSFont.systemFont(ofSize: 16)
+        textView.textColor = .white
+        textView.drawsBackground = false
+        textView.isHorizontallyResizable = false
+        textView.isVerticallyResizable = true
+        textView.minSize = NSSize(width: 0, height: 30)
+        textView.maxSize = NSSize(width: CGFloat.greatestFiniteMagnitude, height: CGFloat.greatestFiniteMagnitude)
+        textView.autoresizingMask = [.width]
+        textView.textContainer?.widthTracksTextView = true
+        textView.textContainer?.containerSize = NSSize(width: width, height: CGFloat.greatestFiniteMagnitude)
+        textView.textContainer?.lineFragmentPadding = 0
+        textView.textContainerInset = NSSize(width: 1, height: height > 30 ? 4 : 5)
+
+        let scrollView = NSScrollView(frame: NSRect(x: 0, y: 0, width: width, height: height))
+        scrollView.drawsBackground = false
+        scrollView.hasVerticalScroller = true
+        scrollView.autohidesScrollers = true
+        scrollView.scrollerStyle = .overlay
+        scrollView.borderType = .noBorder
+        scrollView.documentView = textView
+        Self.retainedTextBoxRenderScrollViews.append(scrollView)
+        addTeardownBlock {
+            Self.retainedTextBoxRenderScrollViews.removeAll { $0 === scrollView }
+        }
+        return textView
+    }
+
+    private func renderedTextScanRect(
+        in textView: TextBoxInputTextView,
+        characterRange: NSRange
+    ) throws -> NSRect {
+        let glyphFrame = try visibleGlyphFrame(in: textView, characterRange: characterRange)
+        return NSRect(
+            x: max(0, floor(glyphFrame.minX) - 2),
+            y: max(0, floor(glyphFrame.minY) - 10),
+            width: ceil(glyphFrame.width) + 4,
+            height: ceil(glyphFrame.height) + 20
+        )
+    }
+
+    private func renderedNonBackgroundPixelBounds(
+        in textView: TextBoxInputTextView,
+        scanRect: NSRect
+    ) throws -> RenderedPixelBounds {
+        let bitmap = try XCTUnwrap(textView.bitmapImageRepForCachingDisplay(in: textView.bounds))
+        textView.cacheDisplay(in: textView.bounds, to: bitmap)
+
+        let width = bitmap.pixelsWide
+        let height = bitmap.pixelsHigh
+        let scaleX = CGFloat(width) / max(1, textView.bounds.width)
+        let scaleY = CGFloat(height) / max(1, textView.bounds.height)
+
+        let minScanX = max(0, Int(floor(scanRect.minX * scaleX)))
+        let minScanY = max(0, Int(floor(scanRect.minY * scaleY)))
+        let maxScanX = min(width - 1, Int(ceil(scanRect.maxX * scaleX)))
+        let maxScanY = min(height - 1, Int(ceil(scanRect.maxY * scaleY)))
+
+        var minX = Int.max
+        var minY = Int.max
+        var maxX = Int.min
+        var maxY = Int.min
+
+        guard minScanX <= maxScanX, minScanY <= maxScanY else {
+            XCTFail("Expected scan rect \(scanRect) inside text bounds \(textView.bounds)")
+            return RenderedPixelBounds(minX: 0, minY: 0, maxX: 0, maxY: 0, rasterHeight: height)
+        }
+
+        for y in minScanY...maxScanY {
+            for x in minScanX...maxScanX {
+                guard let color = bitmap.colorAt(x: x, y: y)?.usingColorSpace(.deviceRGB) else {
+                    continue
+                }
+                let brightness = max(color.redComponent, color.greenComponent, color.blueComponent)
+                guard brightness > 0.08 || color.alphaComponent > 0.08 else { continue }
+                minX = min(minX, x)
+                minY = min(minY, y)
+                maxX = max(maxX, x)
+                maxY = max(maxY, y)
+            }
+        }
+
+        guard minX != Int.max else {
+            XCTFail("Expected rendered text pixels inside \(scanRect)")
+            return RenderedPixelBounds(minX: 0, minY: 0, maxX: 0, maxY: 0, rasterHeight: height)
+        }
+
+        return RenderedPixelBounds(minX: minX, minY: minY, maxX: maxX, maxY: maxY, rasterHeight: height)
+    }
+
+    private func assertRenderedVerticalBoundsUnchanged(
+        _ before: RenderedPixelBounds,
+        _ after: RenderedPixelBounds,
+        accuracy: CGFloat,
+        file: StaticString = #filePath,
+        line: UInt = #line
+    ) {
+        XCTAssertEqual(CGFloat(after.minY), CGFloat(before.minY), accuracy: accuracy, file: file, line: line)
+        XCTAssertEqual(CGFloat(after.maxY), CGFloat(before.maxY), accuracy: accuracy, file: file, line: line)
+        XCTAssertEqual(after.midY, before.midY, accuracy: accuracy, file: file, line: line)
+    }
+
+    private func visibleGlyphFrame(
+        in textView: TextBoxInputTextView,
+        characterRange: NSRange
+    ) throws -> NSRect {
+        let layoutManager = try XCTUnwrap(textView.layoutManager)
+        let textContainer = try XCTUnwrap(textView.textContainer)
+        layoutManager.ensureLayout(for: textContainer)
+        let glyphRange = layoutManager.glyphRange(
+            forCharacterRange: characterRange,
+            actualCharacterRange: nil
+        )
+        let rect = layoutManager.boundingRect(forGlyphRange: glyphRange, in: textContainer)
+        return rect.offsetBy(dx: textView.textContainerInset.width, dy: textView.textContainerInset.height)
+    }
+
+    private func visibleAttachmentCellFrame(in textView: TextBoxInputTextView) throws -> NSRect {
+        let layoutManager = try XCTUnwrap(textView.layoutManager)
+        let textContainer = try XCTUnwrap(textView.textContainer)
+        let attributed = textView.attributedString()
+        let fullRange = NSRange(location: 0, length: attributed.length)
+        var attachmentRange: NSRange?
+        var attachmentCell: NSTextAttachmentCellProtocol?
+        attributed.enumerateAttribute(.attachment, in: fullRange, options: []) { value, range, stop in
+            guard let attachment = value as? NSTextAttachment,
+                  let cell = attachment.attachmentCell else { return }
+            attachmentRange = range
+            attachmentCell = cell
+            stop.pointee = true
+        }
+
+        let range = try XCTUnwrap(attachmentRange)
+        let cell = try XCTUnwrap(attachmentCell)
+        layoutManager.ensureLayout(for: textContainer)
+        let glyphRange = layoutManager.glyphRange(forCharacterRange: range, actualCharacterRange: nil)
+        let lineFragment = layoutManager.lineFragmentRect(forGlyphAt: glyphRange.location, effectiveRange: nil)
+        let glyphPosition = layoutManager.location(forGlyphAt: glyphRange.location)
+        return cell
+            .cellFrame(
+                for: textContainer,
+                proposedLineFragment: lineFragment,
+                glyphPosition: glyphPosition,
+                characterIndex: range.location
+            )
+            .offsetBy(dx: textView.textContainerInset.width, dy: textView.textContainerInset.height)
+    }
+
+    private func baselineOffsetsForTextRuns(in textView: TextBoxInputTextView) -> [CGFloat] {
+        let attributed = textView.attributedString()
+        let fullRange = NSRange(location: 0, length: attributed.length)
+        var offsets: [CGFloat] = []
+        attributed.enumerateAttributes(in: fullRange, options: []) { attributes, _, _ in
+            guard attributes[.attachment] == nil else { return }
+            if let value = attributes[.baselineOffset] as? CGFloat {
+                offsets.append(value)
+            } else if let number = attributes[.baselineOffset] as? NSNumber {
+                offsets.append(CGFloat(truncating: number))
+            } else {
+                offsets.append(0)
+            }
+        }
+        return Array(Set(offsets)).sorted()
+    }
+
+    private func writeFileURLs(
+        _ fileURLs: [URL],
+        to pasteboard: NSPasteboard
+    ) {
+        pasteboard.clearContents()
+        pasteboard.declareTypes(
+            [.fileURL, PasteboardFileURLReader.legacyFilenamesPboardType, .string],
+            owner: nil
+        )
+        if let firstURL = fileURLs.first {
+            pasteboard.setString(firstURL.absoluteString, forType: .fileURL)
+        }
+        pasteboard.setPropertyList(
+            fileURLs.map(\.path),
+            forType: PasteboardFileURLReader.legacyFilenamesPboardType
+        )
+        pasteboard.setString(
+            TerminalImageTransferPlanner.insertedText(forFileURLs: fileURLs),
+            forType: .string
+        )
+    }
+
     private func withTemporaryShortcut(
         action: KeyboardShortcutSettings.Action,
         shortcut: StoredShortcut? = nil,
@@ -6323,6 +8747,13 @@ final class AppDelegateShortcutRoutingTests: XCTestCase {
         guard let window = window(withId: windowId) else { return }
         window.performClose(nil)
         RunLoop.main.run(until: Date(timeIntervalSinceNow: 0.05))
+    }
+
+    private func waitFor(timeout: TimeInterval, until condition: () -> Bool) {
+        let deadline = Date(timeIntervalSinceNow: timeout)
+        while !condition(), Date() < deadline {
+            RunLoop.main.run(until: Date(timeIntervalSinceNow: 0.02))
+        }
     }
 
     private func restoreDefaultsValue(_ value: Any?, forKey key: String, defaults: UserDefaults) {

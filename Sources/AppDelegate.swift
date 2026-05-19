@@ -4871,13 +4871,23 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
 #if DEBUG
         let before = firstResponder.map { String(describing: type(of: $0)) } ?? "nil"
         let target = terminalPanel.hostedView.preferredPanelFocusIntentForActivation()
+        let targetLabel: String = {
+            switch target {
+            case .surface:
+                return "surface"
+            case .findField:
+                return "searchField"
+            case .textBoxInput:
+                return "textBoxInput"
+            }
+        }()
         let mode = normalizedFlags.contains(.command) ? "command" : "plain"
         cmuxDebugLog(
             "focus.keyRepair attempt window=\(ObjectIdentifier(window)) " +
             "workspace=\(String(workspace.id.uuidString.prefix(5))) " +
             "panel=\(String(panelId.uuidString.prefix(5))) " +
             "mode=\(mode) " +
-            "target=\(target == .findField ? "searchField" : "surface") " +
+            "target=\(targetLabel) " +
             "fr=\(before) keyCode=\(event.keyCode) mods=\(event.modifierFlags.rawValue)"
         )
 #endif
@@ -11266,6 +11276,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
 
         let normalizedFlags = flags.subtracting([.numericPad, .function, .capsLock])
         let commandPaletteTargetWindow = commandPaletteWindowForShortcutEvent(event)
+        let isPlainEscape = normalizedFlags.isEmpty && event.keyCode == 53
+        if !isPlainEscape {
+            let textBoxShortcutTabManager = preferredMainWindowContextForShortcutRouting(event: event)?.tabManager ?? tabManager
+            textBoxShortcutTabManager?.clearFocusedTerminalTextBoxHideEscapeArm()
+        }
         let commandPaletteShortcutWindow = shouldHandleCommandPaletteShortcutEvent(
             event,
             paletteWindow: commandPaletteTargetWindow
@@ -11306,7 +11321,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         }
 #endif
 
-        if normalizedFlags.isEmpty, event.keyCode == 53 {
+        if isPlainEscape {
             let activePaletteWindow = activeCommandPaletteWindow()
             let escapePaletteWindow: NSWindow? = {
                 if let targetWindow = commandPaletteTargetWindow {
@@ -11418,7 +11433,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             let paletteFieldEditorHasMarkedText = commandPaletteFieldEditorHasMarkedText(in: paletteWindow)
             let paletteSnapshot = mainWindowId(for: paletteWindow).map(commandPaletteSnapshot(windowId:)) ?? .empty
             let paletteUsesInlineReturnHandling = paletteUsesInlineTextHandling
-            if normalizedFlags.isEmpty, event.keyCode == 53 {
+            if isPlainEscape {
                 if paletteFieldEditorHasMarkedText {
                     return false
                 }
@@ -11513,6 +11528,17 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             keyCode: event.keyCode
         ) {
             return true
+        }
+
+        if isPlainEscape {
+            let escapeWindow = resolvedShortcutEventWindow(event) ?? NSApp.keyWindow ?? NSApp.mainWindow
+            let textBoxShortcutTabManager = preferredMainWindowContextForShortcutRouting(event: event)?.tabManager ?? tabManager
+            if textBoxShortcutTabManager?.consumeFocusedTerminalTextBoxHideEscapeIfArmed() == true {
+                return true
+            }
+            if escapeWindow?.firstResponder is TextBoxInputTextView {
+                return false
+            }
         }
 
         // When the terminal has active IME composition (e.g. Korean, Japanese, Chinese
@@ -11811,6 +11837,18 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
 #endif
             // Only consume when a focused terminal actually handled the toggle.
             // Otherwise allow the event to continue through the responder chain.
+            return handled
+        }
+
+        if matchConfiguredShortcut(event: event, action: .focusTextBoxInput) {
+            let routedManager = preferredMainWindowContextForShortcutRouting(event: event)?.tabManager ?? tabManager
+            let handled = routedManager?.focusFocusedTerminalTextBoxInputOrTerminal() ?? false
+            return handled
+        }
+
+        if matchConfiguredShortcut(event: event, action: .attachTextBoxFile) {
+            let routedManager = preferredMainWindowContextForShortcutRouting(event: event)?.tabManager ?? tabManager
+            let handled = routedManager?.attachFileToFocusedTerminalTextBoxInput() ?? false
             return handled
         }
 
@@ -14586,6 +14624,7 @@ private var cmuxBrowserReturnForwardingDepth = 0
 private var cmuxBrowserArrowForwardingDepth = 0
 private var cmuxBrowserOmnibarMarkedTextForwardingDepth = 0
 private var cmuxCommandPaletteArrowForwardingDepth = 0
+private var cmuxTextBoxInputArrowForwardingDepth = 0
 private var cmuxWindowFirstResponderBypassDepth = 0
 private var cmuxFieldEditorOwningWebViewAssociationKey: UInt8 = 0
 
@@ -15200,6 +15239,7 @@ private extension NSWindow {
             in: self
         )
         let firstResponderOmnibarPanelId = browserOmnibarPanelId(for: self.firstResponder)
+        let firstResponderIsTextBoxInput = self.firstResponder is TextBoxInputTextView
         if ShortcutRecorderEventRouter.dispatchActiveRecordingEvent(event, preferredWindow: self) {
             return true
         }
@@ -15325,6 +15365,21 @@ private extension NSWindow {
                 "panel=\(firstResponderOmnibarPanelId.map { String($0.uuidString.prefix(5)) } ?? "nil")"
             )
 #endif
+            self.firstResponder?.keyDown(with: event)
+            return true
+        }
+
+        if shouldDispatchTextBoxInputArrowViaFirstResponderKeyDown(
+            keyCode: event.keyCode,
+            firstResponderIsTextBoxInput: firstResponderIsTextBoxInput,
+            firstResponderHasMarkedText: firstResponderHasMarkedText,
+            flags: event.modifierFlags
+        ) {
+            if cmuxTextBoxInputArrowForwardingDepth > 0 {
+                return false
+            }
+            cmuxTextBoxInputArrowForwardingDepth += 1
+            defer { cmuxTextBoxInputArrowForwardingDepth = max(0, cmuxTextBoxInputArrowForwardingDepth - 1) }
             self.firstResponder?.keyDown(with: event)
             return true
         }

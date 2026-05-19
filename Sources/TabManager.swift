@@ -2031,6 +2031,34 @@ class TabManager: ObservableObject {
         return panel.surface.toggleKeyboardCopyMode()
     }
 
+    @discardableResult
+    func toggleFocusedTerminalTextBox() -> Bool {
+        guard let panel = selectedTerminalPanel else { return false }
+        return panel.toggleTextBoxInput()
+    }
+
+    @discardableResult
+    func focusFocusedTerminalTextBoxInputOrTerminal() -> Bool {
+        guard let panel = selectedTerminalPanel else { return false }
+        return panel.focusTextBoxInputOrTerminal()
+    }
+
+    @discardableResult
+    func attachFileToFocusedTerminalTextBoxInput() -> Bool {
+        guard let panel = selectedTerminalPanel else { return false }
+        return panel.attachFileToTextBoxInput()
+    }
+
+    @discardableResult
+    func consumeFocusedTerminalTextBoxHideEscapeIfArmed() -> Bool {
+        guard let panel = selectedTerminalPanel else { return false }
+        return panel.consumeTextBoxHideEscapeIfArmed()
+    }
+
+    func clearFocusedTerminalTextBoxHideEscapeArm() {
+        selectedTerminalPanel?.clearTextBoxHideEscapeArm()
+    }
+
     func hideFind() {
         if let panel = selectedTerminalPanel {
             panel.searchState = nil

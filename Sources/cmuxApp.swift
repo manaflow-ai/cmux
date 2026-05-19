@@ -5067,6 +5067,8 @@ struct SettingsView: View {
     private var paneFirstClickFocusEnabled = PaneFirstClickFocusSettings.defaultEnabled
     @AppStorage(TerminalScrollBarSettings.showScrollBarKey)
     private var showTerminalScrollBar = TerminalScrollBarSettings.defaultShowScrollBar
+    @AppStorage(TerminalTextBoxInputSettings.maxLinesKey)
+    private var textBoxMaxLines = TerminalTextBoxInputSettings.defaultMaxLines
     @AppStorage(FileDropBehaviorSettings.defaultBehaviorKey)
     private var fileDropDefaultBehavior = FileDropBehaviorSettings.defaultBehavior.rawValue
     @AppStorage(AgentSessionAutoResumeSettings.autoResumeAgentSessionsKey)
@@ -5210,6 +5212,17 @@ struct SettingsView: View {
 
     private var selectedFileDropDefaultBehavior: FileDropDefaultBehavior {
         FileDropBehaviorSettings.behavior(for: fileDropDefaultBehavior)
+    }
+
+    private var resolvedTextBoxMaxLines: Int {
+        TerminalTextBoxInputSettings.resolvedMaxLines(textBoxMaxLines)
+    }
+
+    private var textBoxMaxLinesBinding: Binding<Int> {
+        Binding(
+            get: { resolvedTextBoxMaxLines },
+            set: { textBoxMaxLines = TerminalTextBoxInputSettings.resolvedMaxLines($0) }
+        )
     }
 
     private var fileDropDefaultBehaviorSelection: Binding<String> {
@@ -6281,6 +6294,29 @@ struct SettingsView: View {
                                 .accessibilityLabel(
                                     String(localized: "settings.terminal.scrollBar", defaultValue: "Show Terminal Scroll Bar")
                                 )
+                        }
+
+                        SettingsCardDivider()
+
+                        SettingsCardRow(
+                            configurationReview: .json("terminal.textBoxMaxLines"),
+                            String(localized: "settings.terminal.textBoxMaxLines", defaultValue: "TextBox Max Lines"),
+                            subtitle: String(localized: "settings.terminal.textBoxMaxLines.subtitle", defaultValue: "Limits how tall the rich terminal input can grow before it scrolls."),
+                            controlWidth: pickerColumnWidth
+                        ) {
+                            Stepper(
+                                value: textBoxMaxLinesBinding,
+                                in: TerminalTextBoxInputSettings.minimumMaxLines...TerminalTextBoxInputSettings.maximumMaxLines
+                            ) {
+                                Text(verbatim: "\(resolvedTextBoxMaxLines)")
+                                    .monospacedDigit()
+                                    .frame(width: 28, alignment: .trailing)
+                            }
+                            .controlSize(.small)
+                            .accessibilityIdentifier("SettingsTerminalTextBoxMaxLinesStepper")
+                            .accessibilityLabel(
+                                String(localized: "settings.terminal.textBoxMaxLines", defaultValue: "TextBox Max Lines")
+                            )
                         }
 
                         SettingsCardDivider()
@@ -7456,6 +7492,7 @@ struct SettingsView: View {
         if previousShowTerminalScrollBar != showTerminalScrollBar {
             TerminalScrollBarSettings.notifyDidChange()
         }
+        textBoxMaxLines = TerminalTextBoxInputSettings.defaultMaxLines
         fileDropDefaultBehavior = FileDropBehaviorSettings.defaultBehavior.rawValue
         let previousAutoResumeAgentSessions = autoResumeAgentSessions
         autoResumeAgentSessions = AgentSessionAutoResumeSettings.defaultAutoResumeAgentSessions

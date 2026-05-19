@@ -247,6 +247,7 @@ struct WorkspaceContentView: View {
                     isSplit: isSplit,
                     appearance: appearance,
                     hasUnreadNotification: showsNotificationRing && !usesWorkspacePaneOverlay,
+                    terminalAgentContext: Self.terminalAgentContext(panel: panel, workspace: workspace),
                     onFocus: {
                         // Keep bonsplit focus in sync with the AppKit first responder for the
                         // active workspace. This prevents divergence between the blue focused-tab
@@ -682,6 +683,31 @@ struct WorkspaceContentView: View {
 }
 
 extension WorkspaceContentView {
+    static func terminalAgentContext(panel: any Panel, workspace: Workspace) -> String {
+        var parts: [String] = [panel.displayTitle]
+        if let panelTitle = workspace.panelTitle(panelId: panel.id) {
+            parts.append(panelTitle)
+        }
+        if let terminalPanel = panel as? TerminalPanel {
+            if let initialCommand = terminalPanel.surface.initialCommand {
+                parts.append(initialCommand)
+            }
+            if let tmuxStartCommand = terminalPanel.surface.tmuxStartCommand {
+                parts.append(tmuxStartCommand)
+            }
+        }
+        if let restoredAgent = workspace.restoredAgentSnapshotsByPanelId[panel.id] {
+            parts.append(restoredAgent.kind.rawValue)
+        }
+        if let agentPIDKeys = workspace.agentPIDKeysByPanelId[panel.id], !agentPIDKeys.isEmpty {
+            parts.append(agentPIDKeys.sorted().joined(separator: " "))
+        }
+        return parts
+            .map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }
+            .filter { !$0.isEmpty }
+            .joined(separator: "\n")
+    }
+
     #if DEBUG
     static func debugPanelLookup(tab: Bonsplit.Tab, workspace: Workspace) {
         let found = workspace.panel(for: tab.id) != nil
