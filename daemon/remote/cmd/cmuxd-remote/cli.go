@@ -595,11 +595,10 @@ func resolveBrowserCommand(args []string) (string, browserCommandSpec, int, []st
 			if isBrowserShortBooleanFlag(args[idx]) {
 				continue
 			}
-			second := normalizeBrowserToken(args[idx])
 			if strings.HasPrefix(args[idx], "--") {
 				break
 			}
-			if second != "new" && second != "list" && second != "switch" && second != "close" && (second == "-" || isIntegerString(second) || !strings.HasPrefix(second, "-")) {
+			if browserTabShortcutTargetCandidate(args[idx]) {
 				spec := browserCommands["tab switch"]
 				return "tab switch", spec, 1, nil, true
 			}
@@ -647,6 +646,16 @@ func browserCommandKey(tokens []string) string {
 
 func normalizeBrowserToken(token string) string {
 	return strings.ReplaceAll(strings.ToLower(strings.TrimSpace(token)), "_", "-")
+}
+
+func browserTabShortcutTargetCandidate(token string) bool {
+	trimmed := strings.TrimSpace(token)
+	normalized := normalizeBrowserToken(trimmed)
+	switch normalized {
+	case "new", "list", "switch", "close":
+		return false
+	}
+	return trimmed == "-" || isIntegerString(trimmed) || !strings.HasPrefix(trimmed, "-")
 }
 
 func isBrowserSurfaceTarget(token string) bool {
