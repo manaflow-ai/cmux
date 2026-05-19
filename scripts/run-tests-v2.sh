@@ -52,12 +52,12 @@ launch_and_wait() {
   defaults write com.cmuxterm.app.debug socketControlMode -string full >/dev/null 2>&1 || true
 
   # Launch directly with UI test mode enabled so startup follows deterministic test codepaths.
-  CMUX_TAG="$RUN_TAG" CMUX_UI_TEST_MODE=1 "$APP/Contents/MacOS/cmux DEV" >/dev/null 2>&1 &
+  SOCK="/tmp/cmux-debug-${RUN_TAG}.sock"
+  rm -f "$SOCK" || true
+  CMUX_TAG="$RUN_TAG" CMUX_SOCKET_PATH="$SOCK" CMUX_ALLOW_SOCKET_OVERRIDE=1 CMUX_UI_TEST_MODE=1 "$APP/Contents/MacOS/cmux DEV" >/dev/null 2>&1 &
 
-  SOCK=""
   for _ in {1..120}; do
-    SOCK=$(ls -t /tmp/cmux-debug*.sock /tmp/cmux*.sock 2>/dev/null | head -1 || true)
-    if [ -n "$SOCK" ] && [ -S "$SOCK" ]; then
+    if [ -S "$SOCK" ]; then
       break
     fi
     sleep 0.25
@@ -70,7 +70,7 @@ launch_and_wait() {
   export CMUX_SOCKET_PATH="$SOCK"
 
   # Ensure LaunchServices has a visible/main window attached for rendering checks.
-  CMUX_TAG="$RUN_TAG" open "$APP" >/dev/null 2>&1 || true
+  CMUX_TAG="$RUN_TAG" CMUX_SOCKET_PATH="$SOCK" CMUX_ALLOW_SOCKET_OVERRIDE=1 open "$APP" >/dev/null 2>&1 || true
   sleep 0.5
 
   echo "== wait ready =="

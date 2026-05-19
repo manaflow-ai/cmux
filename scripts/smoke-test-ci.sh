@@ -27,7 +27,7 @@ sleep 1
 
 # --- Launch the app directly (not via `open`, which can silently fail on CI) ---
 echo "Launching app..."
-CMUX_SOCKET_MODE=allowAll CMUX_UI_TEST_MODE=1 "$BINARY" > /tmp/cmux-smoke-stdout.log 2>&1 &
+CMUX_SOCKET_MODE=allowAll CMUX_SOCKET_PATH="$SOCKET_PATH" CMUX_ALLOW_SOCKET_OVERRIDE=1 CMUX_UI_TEST_MODE=1 "$BINARY" > /tmp/cmux-smoke-stdout.log 2>&1 &
 APP_PID=$!
 echo "App PID: $APP_PID"
 

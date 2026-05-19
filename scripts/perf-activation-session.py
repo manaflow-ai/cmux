@@ -130,6 +130,7 @@ class CmuxPerfRunner:
                 "CMUX_SOCKET": str(self.socket_path),
                 "CMUX_SOCKET_MODE": "automation",
                 "CMUX_SOCKET_PATH": str(self.socket_path),
+                "CMUX_ALLOW_SOCKET_OVERRIDE": "1",
                 "CMUXD_UNIX_PATH": str(self.cmuxd_socket_path),
                 "CMUX_DEBUG_LOG": str(self.debug_log_path),
             }
