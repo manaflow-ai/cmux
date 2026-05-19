@@ -1,3 +1,4 @@
+import Darwin
 import XCTest
 
 #if canImport(cmux_DEV)
@@ -1711,6 +1712,110 @@ final class SocketListenerAcceptPolicyTests: XCTestCase {
                 listenerStartInProgress: false
             )
         )
+    }
+
+    func testListenerStopUnlinkPolicyRequiresSameBoundSocketIdentity() {
+        let original = TerminalController.SocketPathIdentity(device: 1, inode: 10)
+        let recreated = TerminalController.SocketPathIdentity(device: 1, inode: 11)
+
+        XCTAssertTrue(
+            TerminalController.shouldUnlinkSocketPathAfterListenerStop(
+                currentIdentity: original,
+                boundIdentity: original
+            )
+        )
+        XCTAssertFalse(
+            TerminalController.shouldUnlinkSocketPathAfterListenerStop(
+                currentIdentity: recreated,
+                boundIdentity: original
+            )
+        )
+        XCTAssertFalse(
+            TerminalController.shouldUnlinkSocketPathAfterListenerStop(
+                currentIdentity: nil,
+                boundIdentity: original
+            )
+        )
+        XCTAssertFalse(
+            TerminalController.shouldUnlinkSocketPathAfterListenerStop(
+                currentIdentity: recreated,
+                boundIdentity: nil
+            )
+        )
+    }
+
+    func testSocketPathIdentityOnlyAcceptsUnixSocketFiles() throws {
+        let shortId = String(UUID().uuidString.replacingOccurrences(of: "-", with: "").prefix(8))
+        let directory = URL(fileURLWithPath: "/tmp/csid-\(shortId)", isDirectory: true)
+        try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: directory) }
+
+        let plainFile = directory.appendingPathComponent("plain-file")
+        XCTAssertTrue(FileManager.default.createFile(atPath: plainFile.path, contents: Data()))
+        XCTAssertNil(TerminalController.socketPathIdentity(at: plainFile.path))
+
+        let socketPath = directory.appendingPathComponent("s").path
+        let socketFD = try bindTestUnixSocket(at: socketPath)
+        defer {
+            Darwin.close(socketFD)
+            Darwin.unlink(socketPath)
+        }
+
+        let identity = try XCTUnwrap(TerminalController.socketPathIdentity(at: socketPath))
+        XCTAssertTrue(TerminalController.socketPathExists(socketPath, matching: identity))
+        XCTAssertFalse(
+            TerminalController.socketPathExists(
+                socketPath,
+                matching: TerminalController.SocketPathIdentity(
+                    device: identity.device,
+                    inode: identity.inode + 1
+                )
+            )
+        )
+        XCTAssertFalse(TerminalController.socketPathExists(socketPath, matching: nil))
+    }
+
+    private func bindTestUnixSocket(at path: String) throws -> Int32 {
+        let fd = Darwin.socket(AF_UNIX, SOCK_STREAM, 0)
+        guard fd >= 0 else {
+            throw NSError(domain: NSPOSIXErrorDomain, code: Int(errno))
+        }
+
+        var address = sockaddr_un()
+        address.sun_family = sa_family_t(AF_UNIX)
+        let maxLength = MemoryLayout.size(ofValue: address.sun_path)
+        let didFit = path.withCString { source -> Bool in
+            guard strlen(source) < maxLength else { return false }
+            withUnsafeMutablePointer(to: &address.sun_path) { pathPointer in
+                let destination = UnsafeMutableRawPointer(pathPointer).assumingMemoryBound(to: CChar.self)
+                memset(destination, 0, maxLength)
+                strncpy(destination, source, maxLength - 1)
+            }
+            return true
+        }
+        guard didFit else {
+            Darwin.close(fd)
+            throw NSError(domain: NSPOSIXErrorDomain, code: Int(ENAMETOOLONG))
+        }
+
+        Darwin.unlink(path)
+        let bindResult = withUnsafePointer(to: &address) { pointer in
+            pointer.withMemoryRebound(to: sockaddr.self, capacity: 1) { sockaddrPointer in
+                Darwin.bind(fd, sockaddrPointer, socklen_t(MemoryLayout<sockaddr_un>.size))
+            }
+        }
+        guard bindResult == 0 else {
+            let bindErrno = errno
+            Darwin.close(fd)
+            throw NSError(domain: NSPOSIXErrorDomain, code: Int(bindErrno))
+        }
+        guard Darwin.listen(fd, 1) == 0 else {
+            let listenErrno = errno
+            Darwin.close(fd)
+            Darwin.unlink(path)
+            throw NSError(domain: NSPOSIXErrorDomain, code: Int(listenErrno))
+        }
+        return fd
     }
 
     func testClaudeResumeCommandPreservesLaunchFlagsAndDropsInjectedHookSettings() {
