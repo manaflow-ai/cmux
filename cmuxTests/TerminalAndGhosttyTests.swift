@@ -4851,6 +4851,19 @@ final class TerminalControllerSocketListenerHealthTests: XCTestCase {
         "/tmp/cmux-socket-health-\(UUID().uuidString).sock"
     }
 
+    private func waitForSocketFile(at path: String, timeout: TimeInterval = 2.0) -> Bool {
+        let deadline = Date().addingTimeInterval(timeout)
+        while Date() < deadline {
+            var st = stat()
+            if lstat(path, &st) == 0 && (st.st_mode & S_IFMT) == S_IFSOCK {
+                return true
+            }
+            RunLoop.current.run(until: Date().addingTimeInterval(0.01))
+        }
+        var st = stat()
+        return lstat(path, &st) == 0 && (st.st_mode & S_IFMT) == S_IFSOCK
+    }
+
     private func bindUnixSocket(at path: String) throws -> Int32 {
         unlink(path)
 
@@ -4950,6 +4963,66 @@ final class TerminalControllerSocketListenerHealthTests: XCTestCase {
         let health = TerminalController.shared.socketListenerHealth(expectedSocketPath: path)
         XCTAssertFalse(health.socketPathExists)
         XCTAssertFalse(health.isHealthy)
+    }
+
+    @MainActor
+    func testStartingRunningListenerRecreatesMissingSocketPath() throws {
+        let path = makeTempSocketPath()
+        let manager = TabManager(autoWelcomeIfNeeded: false)
+        TerminalController.shared.stop()
+        defer {
+            TerminalController.shared.stop()
+            unlink(path)
+        }
+
+        TerminalController.shared.start(
+            tabManager: manager,
+            socketPath: path,
+            accessMode: .allowAll
+        )
+        XCTAssertTrue(waitForSocketFile(at: path), "Socket did not appear at \(path)")
+        XCTAssertEqual(TerminalController.probeSocketCommand("ping", at: path, timeout: 0.5), "PONG")
+
+        unlink(path)
+        let staleHealth = TerminalController.shared.socketListenerHealth(expectedSocketPath: path)
+        XCTAssertTrue(staleHealth.isRunning)
+        XCTAssertTrue(staleHealth.acceptLoopAlive)
+        XCTAssertTrue(staleHealth.socketPathMatches)
+        XCTAssertFalse(staleHealth.socketPathExists)
+        XCTAssertFalse(staleHealth.isHealthy)
+
+        TerminalController.shared.start(
+            tabManager: manager,
+            socketPath: path,
+            accessMode: .allowAll
+        )
+
+        XCTAssertTrue(waitForSocketFile(at: path), "Restart on the same path should recreate a missing socket")
+        XCTAssertEqual(TerminalController.probeSocketCommand("ping", at: path, timeout: 0.5), "PONG")
+    }
+
+    @MainActor
+    func testRunningListenerRecreatesSocketPathWhenUnlinked() throws {
+        let path = makeTempSocketPath()
+        let manager = TabManager(autoWelcomeIfNeeded: false)
+        TerminalController.shared.stop()
+        defer {
+            TerminalController.shared.stop()
+            unlink(path)
+        }
+
+        TerminalController.shared.start(
+            tabManager: manager,
+            socketPath: path,
+            accessMode: .allowAll
+        )
+        XCTAssertTrue(waitForSocketFile(at: path), "Socket did not appear at \(path)")
+        XCTAssertEqual(TerminalController.probeSocketCommand("ping", at: path, timeout: 0.5), "PONG")
+
+        unlink(path)
+
+        XCTAssertTrue(waitForSocketFile(at: path), "Listener should recreate the socket path after it is unlinked")
+        XCTAssertEqual(TerminalController.probeSocketCommand("ping", at: path, timeout: 0.5), "PONG")
     }
 
     func testProbeSocketCommandReturnsFirstLineResponse() throws {
