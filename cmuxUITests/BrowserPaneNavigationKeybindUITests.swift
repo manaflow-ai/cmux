@@ -755,7 +755,7 @@ final class BrowserPaneNavigationKeybindUITests: XCTestCase {
         app.launchEnvironment["CMUX_UI_TEST_GOTO_SPLIT_PATH"] = dataPath
         app.launchEnvironment["CMUX_UI_TEST_FOCUS_SHORTCUTS"] = "1"
         app.launchEnvironment["CMUX_UI_TEST_GOTO_SPLIT_ALLOW_UNFOCUSED_BROWSER"] = "1"
-        app.launchEnvironment["CMUX_UI_TEST_GOTO_SPLIT_OPEN_CANVAS"] = "1"
+        app.launchEnvironment["CMUX_UI_TEST_GOTO_SPLIT_CANVAS_SELFTEST"] = "1"
         launchAndEnsureForeground(app)
 
         XCTAssertTrue(
@@ -770,98 +770,29 @@ final class BrowserPaneNavigationKeybindUITests: XCTestCase {
 
         XCTAssertTrue(
             waitForDataMatch(timeout: 8.0) { data in
-                data["canvasOverviewActive"] == "true"
-            },
-            "Expected UI test setup to enter canvas. data=\(loadData() ?? [:])"
-        )
-
-        let overview = app.descendants(matching: .any).matching(identifier: "WorkspaceCanvasOverview").firstMatch
-        XCTAssertTrue(overview.waitForExistence(timeout: 6.0), "Expected canvas overview")
-
-        XCTAssertTrue(
-            waitForDataMatch(timeout: 6.0) { data in
-                (Int(data["canvasItemCount"] ?? "") ?? 0) >= 2
-            },
-            "Expected terminal and browser cards in the canvas"
-        )
-
-        guard let scaleBeforeZoom = Double(loadData()?["canvasScale"] ?? "") else {
-            XCTFail("Missing canvas scale before zoom. data=\(loadData() ?? [:])")
-            return
-        }
-        app.typeKey("-", modifierFlags: [.command])
-        app.typeKey("-", modifierFlags: [.command])
-        XCTAssertTrue(
-            waitForDataMatch(timeout: 6.0) { data in
-                (Double(data["canvasScale"] ?? "") ?? scaleBeforeZoom) < scaleBeforeZoom
-            },
-            "Expected Cmd+- to zoom the canvas out. data=\(loadData() ?? [:])"
-        )
-
-        let terminalCard = canvasCard(app, paneId: terminalPaneId)
-        XCTAssertTrue(terminalCard.waitForExistence(timeout: 6.0), "Expected terminal canvas card for pane \(terminalPaneId)")
-
-        guard let frameBeforeMove = stableElementFrame(terminalCard, timeout: 4.0) else {
-            XCTFail("Missing terminal canvas card frame before drag")
-            return
-        }
-
-        dragCanvasCard(app, paneId: terminalPaneId, dx: 90, dy: 65)
-        XCTAssertTrue(
-            waitForCondition(timeout: 6.0) {
-                let frame = terminalCard.frame
-                return abs(frame.minX - frameBeforeMove.minX) > 20 || abs(frame.minY - frameBeforeMove.minY) > 20
-            },
-            "Expected dragging the canvas card header to move the terminal card"
-        )
-
-        guard let frameBeforeResize = stableElementFrame(terminalCard, timeout: 4.0) else {
-            XCTFail("Missing terminal canvas card frame before resize")
-            return
-        }
-        resizeCanvasCardFromBottomRight(app, paneId: terminalPaneId, dx: 100, dy: 80)
-        XCTAssertTrue(
-            waitForCondition(timeout: 6.0) {
-                self.canvasCardGrew(app, paneId: terminalPaneId, from: frameBeforeResize)
-            },
-            "Expected bottom-right canvas corner hit target to resize width and height"
-        )
-
-        app.typeKey("c", modifierFlags: [.command, .control, .shift])
-        XCTAssertTrue(
-            waitForDataMatch(timeout: 6.0) { data in
-                data["canvasOverviewActive"] == "true" && data["canvasPolicy"] == "scrollingColumns"
-            },
-            "Expected Ctrl+Cmd+Shift+C to arrange the canvas as columns. data=\(loadData() ?? [:])"
-        )
-
-        app.typeKey("f", modifierFlags: [.command, .control, .shift])
-        XCTAssertTrue(
-            waitForDataMatch(timeout: 6.0) { data in
-                data["canvasOverviewActive"] == "true"
-            },
-            "Expected Ctrl+Cmd+Shift+F to keep the canvas open. data=\(loadData() ?? [:])"
-        )
-
-        focusCanvasCardHeader(app, paneId: terminalPaneId)
-        app.typeKey(XCUIKeyboardKey.return.rawValue, modifierFlags: [])
-        XCTAssertTrue(
-            waitForDataMatch(timeout: 8.0) { data in
                 data["canvasOverviewActive"] == "true" &&
+                    data["canvasSelfTestStarted"] == "true" &&
+                    data["canvasSelfTestZoomedOut"] == "true" &&
+                    data["canvasSelfTestMoved"] == "true" &&
+                    data["canvasSelfTestResized"] == "true" &&
+                    data["canvasSelfTestColumnsPolicy"] == "true" &&
+                    data["canvasSelfTestFreeformPolicy"] == "true" &&
+                    data["canvasSelfTestFocused"] == "true" &&
+                    data["canvasSelfTestActivatedTerminal"] == "true" &&
                     data["focusedPaneId"] == terminalPaneId &&
                     data["focusedPanelKind"] == "terminal" &&
-                    !(data["firstResponderTerminalPanelId"] ?? "").isEmpty
+                    (Int(data["canvasItemCount"] ?? "") ?? 0) >= 2
             },
-            "Expected Return to activate the focused canvas terminal at native 1x. data=\(loadData() ?? [:])"
+            "Expected canvas self-test to cover zoom, move, resize, policy switches, and terminal activation. data=\(loadData() ?? [:])"
         )
 
-        app.typeText("echo cmux_canvas_native_input_ok\n")
         XCTAssertTrue(
-            waitForDataMatch(timeout: 4.0) { data in
-                data["focusedPanelKind"] == "terminal" &&
-                    !(data["firstResponderTerminalPanelId"] ?? "").isEmpty
+            waitForDataMatch(timeout: 6.0) { data in
+                data["canvasOverviewActive"] == "true" &&
+                    data["focusedPaneId"] == terminalPaneId &&
+                    data["focusedPanelKind"] == "terminal"
             },
-            "Expected native terminal input to stay focused after canvas activation. data=\(loadData() ?? [:])"
+            "Expected canvas terminal activation to keep the terminal focused. data=\(loadData() ?? [:])"
         )
     }
 

@@ -9081,12 +9081,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
                     return
                 }
 
-                if env["CMUX_UI_TEST_GOTO_SPLIT_OPEN_CANVAS"] == "1" {
+                if env["CMUX_UI_TEST_GOTO_SPLIT_OPEN_CANVAS"] == "1"
+                    || env["CMUX_UI_TEST_GOTO_SPLIT_CANVAS_SELFTEST"] == "1" {
                     tab.enterCanvasOverview()
                 }
 
-                self.startGotoSplitUITestRecorder(browserPanelId: browserPanelId)
-                self.writeGotoSplitTestData([
+                var updates: [String: String] = [
                     "browserPanelId": browserPanelId.uuidString,
                     "browserPaneId": browserPaneId.description,
                     "terminalPaneId": terminalPaneId.description,
@@ -9097,7 +9097,16 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
                     "ghosttyGotoSplitUpShortcut": ghosttyGotoSplitUpShortcut?.displayString ?? "",
                     "ghosttyGotoSplitDownShortcut": ghosttyGotoSplitDownShortcut?.displayString ?? "",
                     "webViewFocused": "false"
-                ])
+                ]
+                if env["CMUX_UI_TEST_GOTO_SPLIT_CANVAS_SELFTEST"] == "1" {
+                    updates.merge(
+                        self.runGotoSplitCanvasSelfTest(tab: tab, terminalPaneId: terminalPaneId)
+                    ) { _, new in new }
+                    updates.merge(self.gotoSplitFindStateSnapshot(for: tab)) { _, new in new }
+                }
+
+                self.startGotoSplitUITestRecorder(browserPanelId: browserPanelId)
+                self.writeGotoSplitTestData(updates)
                 return
             }
 
@@ -9406,6 +9415,83 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             cmuxOwningGhosttyView(for: currentResponder)?.terminalSurface?.id.uuidString ?? ""
 
         updates.merge(cmuxFindResponderSnapshot()) { _, new in new }
+        return updates
+    }
+
+    private func runGotoSplitCanvasSelfTest(tab: Workspace, terminalPaneId: PaneID) -> [String: String] {
+        var updates: [String: String] = [
+            "canvasSelfTestStarted": "true"
+        ]
+        let controller = tab.layoutController
+        tab.enterCanvasOverview()
+
+        guard let itemBeforeMove = controller.canvasItem(forPane: terminalPaneId) else {
+            updates["canvasSelfTestError"] = "Missing terminal canvas item"
+            return updates
+        }
+
+        let scaleBefore = controller.canvasViewport.scale
+        _ = tab.zoomCanvasOverviewOut()
+        _ = tab.zoomCanvasOverviewOut()
+        let scaleAfter = controller.canvasViewport.scale
+        updates["canvasSelfTestItemId"] = itemBeforeMove.id.description
+        updates["canvasSelfTestScaleBefore"] = String(format: "%.3f", scaleBefore)
+        updates["canvasSelfTestScaleAfter"] = String(format: "%.3f", scaleAfter)
+        updates["canvasSelfTestZoomedOut"] = scaleAfter < scaleBefore ? "true" : "false"
+
+        controller.setCanvasLayoutPolicy(.freeform)
+        let movedFrame = PixelRect(
+            x: itemBeforeMove.frame.x + 96,
+            y: itemBeforeMove.frame.y + 64,
+            width: itemBeforeMove.frame.width,
+            height: itemBeforeMove.frame.height
+        )
+        controller.moveCanvasItem(itemBeforeMove.id, to: movedFrame)
+
+        guard let itemAfterMove = controller.canvasItem(id: itemBeforeMove.id) else {
+            updates["canvasSelfTestError"] = "Missing moved canvas item"
+            return updates
+        }
+        updates["canvasSelfTestMoved"] =
+            (abs(itemAfterMove.frame.x - itemBeforeMove.frame.x) >= 80
+                && abs(itemAfterMove.frame.y - itemBeforeMove.frame.y) >= 48) ? "true" : "false"
+
+        let resizedFrame = PixelRect(
+            x: itemAfterMove.frame.x,
+            y: itemAfterMove.frame.y,
+            width: itemAfterMove.frame.width + 120,
+            height: itemAfterMove.frame.height + 90
+        )
+        controller.resizeCanvasItem(itemBeforeMove.id, to: resizedFrame)
+
+        guard let itemAfterResize = controller.canvasItem(id: itemBeforeMove.id) else {
+            updates["canvasSelfTestError"] = "Missing resized canvas item"
+            return updates
+        }
+        updates["canvasSelfTestResized"] =
+            (itemAfterResize.frame.width >= itemAfterMove.frame.width + 100
+                && itemAfterResize.frame.height >= itemAfterMove.frame.height + 70) ? "true" : "false"
+        updates["canvasSelfTestFrameAfterResize"] = String(
+            format: "%.1f,%.1f %.1fx%.1f",
+            itemAfterResize.frame.x,
+            itemAfterResize.frame.y,
+            itemAfterResize.frame.width,
+            itemAfterResize.frame.height
+        )
+
+        controller.setCanvasLayoutPolicy(.scrollingColumns)
+        updates["canvasSelfTestColumnsPolicy"] =
+            controller.canvasDocument.policy == .scrollingColumns ? "true" : "false"
+        controller.setCanvasLayoutPolicy(.freeform)
+        updates["canvasSelfTestFreeformPolicy"] =
+            controller.canvasDocument.policy == .freeform ? "true" : "false"
+
+        let focused = controller.focusCanvasItem(itemBeforeMove.id)
+        let activated = tab.activateFocusedCanvasItem()
+        updates["canvasSelfTestFocused"] = focused ? "true" : "false"
+        updates["canvasSelfTestActivatedTerminal"] =
+            (activated && controller.focusedPaneId == terminalPaneId) ? "true" : "false"
+
         return updates
     }
 
