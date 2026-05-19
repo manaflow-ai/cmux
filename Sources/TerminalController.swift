@@ -7325,6 +7325,13 @@ class TerminalController {
         terminalPanel: TerminalPanel,
         lineLimit: Int
     ) -> MobileTerminalSnapshotText? {
+        if let vtText = readTerminalTextFromVTExportForSnapshot(
+            terminalPanel: terminalPanel,
+            lineLimit: lineLimit
+        ) {
+            return MobileTerminalSnapshotText(text: tailTerminalLines(vtText, maxLines: lineLimit), fidelity: "ansi_vt")
+        }
+
         guard let plainText = readPlainTerminalTextForSnapshot(
             terminalPanel: terminalPanel,
             includeScrollback: false,
