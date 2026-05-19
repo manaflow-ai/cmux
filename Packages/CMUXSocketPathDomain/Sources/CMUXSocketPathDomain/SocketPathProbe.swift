@@ -5,6 +5,11 @@ public struct SocketPathIdentity: Equatable, Sendable {
     public let device: UInt64
     public let inode: UInt64
 
+    public init(device: UInt64, inode: UInt64) {
+        self.device = device
+        self.inode = inode
+    }
+
     init(_ stat: stat) {
         device = UInt64(bitPattern: Int64(stat.st_dev))
         inode = UInt64(stat.st_ino)

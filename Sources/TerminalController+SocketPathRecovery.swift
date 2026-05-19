@@ -3,17 +3,6 @@ import Darwin
 import Foundation
 
 extension TerminalController {
-    nonisolated static func dispatchTimeInterval(seconds: TimeInterval) -> DispatchTimeInterval {
-        let milliseconds = Int((max(seconds, 0) * 1_000).rounded(.up))
-        return .milliseconds(milliseconds)
-    }
-
-    nonisolated static func socketFileRecoveryRetryDelay(attempt: Int) -> TimeInterval {
-        let exponent = Double(max(attempt - 1, 0))
-        let delay = socketFileRecoveryRetryBaseDelay * pow(2, exponent)
-        return min(delay, socketFileRecoveryRetryMaxDelay)
-    }
-
     nonisolated func startSocketFileHealthWatcher() {
         let snapshot = listenerStateSnapshot()
         guard snapshot.isRunning,
@@ -79,7 +68,7 @@ extension TerminalController {
 
         let observedPathStatus = SocketPathProbe.observedStatus(
             path: snapshot.socketPath,
-            expectedIdentity: snapshot.socketPathIdentity
+            expectedIdentity: snapshot.boundSocketPathIdentity
         )
         let pathStatus: SocketPathOwnershipStatus
         if observedPathStatus == .socketFileChanged {
@@ -180,7 +169,7 @@ extension TerminalController {
             extra: recoveryData
         )
 
-        DispatchQueue.main.async { [weak self, recoveryPath] in
+        Task { @MainActor [weak self, recoveryPath] in
             self?.recoverSocketListenerAfterSocketFileLoss(
                 generation: snapshot.activeGeneration,
                 recoveryPath: recoveryPath,
@@ -239,99 +228,14 @@ extension TerminalController {
             preserveAcceptFailureStreak: true
         )
         if !listenerStateSnapshot().isRunning {
-            scheduleSocketFileRecoveryRetry(
-                tabManager: tabManager,
-                recoveryPath: recoveryPath,
-                mode: restart.mode,
-                attempt: 1
-            )
-        }
-    }
-
-    func scheduleSocketFileRecoveryRetry(
-        tabManager: TabManager,
-        recoveryPath: String,
-        mode: SocketControlMode,
-        attempt: Int
-    ) {
-        let retryToken = withListenerState { () -> UInt64 in
-            socketFileRecoveryRetryToken &+= 1
-            return socketFileRecoveryRetryToken
-        }
-        let retryDelay = Self.socketFileRecoveryRetryDelay(attempt: attempt)
-
-        sentryBreadcrumb(
-            "socket.listener.path.recovery.retry_scheduled",
-            category: "socket",
-            data: socketListenerEventData(
-                stage: "socket_file_recovery_retry",
+            reportSocketListenerFailure(
+                message: "socket.listener.path.recovery.restart_failed",
+                stage: "socket_file_recovery_restart",
                 extra: [
                     "path": recoveryPath,
-                    "mode": mode.rawValue,
-                    "attempt": attempt,
-                    "maxAttempts": Self.socketFileRecoveryRetryMaxAttempts,
-                    "delaySeconds": retryDelay
+                    "mode": restart.mode.rawValue,
+                    "generation": generation
                 ]
-            )
-        )
-
-        DispatchQueue.main.asyncAfter(
-            deadline: .now() + Self.dispatchTimeInterval(seconds: retryDelay)
-        ) { [weak self, weak tabManager] in
-            guard let self, let tabManager else { return }
-            self.performSocketFileRecoveryRetry(
-                retryToken: retryToken,
-                tabManager: tabManager,
-                recoveryPath: recoveryPath,
-                mode: mode,
-                attempt: attempt
-            )
-        }
-    }
-
-    func performSocketFileRecoveryRetry(
-        retryToken: UInt64,
-        tabManager: TabManager,
-        recoveryPath: String,
-        mode: SocketControlMode,
-        attempt: Int
-    ) {
-        let shouldRetry = withListenerState {
-            socketFileRecoveryRetryToken == retryToken
-        }
-        guard shouldRetry else { return }
-
-        let snapshot = listenerStateSnapshot()
-        guard !snapshot.isRunning,
-              !snapshot.listenerStartInProgress else {
-            return
-        }
-
-        start(
-            tabManager: tabManager,
-            socketPath: recoveryPath,
-            accessMode: mode,
-            preserveAcceptFailureStreak: true
-        )
-        if !listenerStateSnapshot().isRunning {
-            guard attempt < Self.socketFileRecoveryRetryMaxAttempts else {
-                reportSocketListenerFailure(
-                    message: "socket.listener.path.recovery.retry_exhausted",
-                    stage: "socket_file_recovery_retry",
-                    extra: [
-                        "path": recoveryPath,
-                        "mode": mode.rawValue,
-                        "attempt": attempt,
-                        "maxAttempts": Self.socketFileRecoveryRetryMaxAttempts
-                    ]
-                )
-                return
-            }
-            scheduleSocketFileRecoveryRetry(
-                tabManager: tabManager,
-                recoveryPath: recoveryPath,
-                mode: mode,
-                attempt: attempt + 1
             )
         }
     }

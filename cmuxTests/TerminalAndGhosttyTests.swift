@@ -5165,4 +5165,17 @@ final class TerminalControllerSocketListenerHealthTests: XCTestCase {
         )
         XCTAssertEqual(wrongType.failureSignals, ["socket_not_socket"])
     }
+
+    func testSocketListenerHealthReportsSocketFileChangedSeparately() {
+        let health = TerminalController.SocketListenerHealth(
+            isRunning: true,
+            acceptLoopAlive: true,
+            socketPathMatches: true,
+            socketPathExists: true,
+            socketPathOwnedByThisProcess: false,
+            socketPathStatus: "socket_file_changed"
+        )
+        XCTAssertFalse(health.isHealthy)
+        XCTAssertEqual(health.failureSignals, ["socket_file_changed"])
+    }
 }
