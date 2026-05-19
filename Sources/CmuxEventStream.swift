@@ -292,16 +292,33 @@ extension TerminalController {
     private nonisolated func eventFocusedContext(
         params: [String: Any]
     ) -> (windowId: UUID?, workspaceId: UUID?, surfaceId: UUID?, paneId: UUID?) {
+        let contextSurfaceId = eventContextSurfaceId(params: params)
         let tabManager = eventTabManager(params: params)
         return v2MainSync {
-            guard let tabManager else {
+            let locatedSurface = contextSurfaceId.flatMap { AppDelegate.shared?.locateSurface(surfaceId: $0) }
+            if contextSurfaceId != nil, locatedSurface == nil {
                 return (nil, nil, nil, nil)
             }
-            let windowId = AppDelegate.shared?.windowId(for: tabManager)
-            let workspaceId = v2UUID(params, "workspace_id") ?? tabManager.selectedTabId
+
+            guard let tabManager = locatedSurface?.tabManager ?? tabManager else {
+                return (nil, nil, nil, nil)
+            }
+            let windowId = locatedSurface?.windowId ?? AppDelegate.shared?.windowId(for: tabManager)
+            let workspaceId = locatedSurface?.workspaceId ?? v2UUID(params, "workspace_id") ?? tabManager.selectedTabId
             guard let workspaceId,
                   let workspace = tabManager.tabs.first(where: { $0.id == workspaceId }) else {
                 return (windowId, nil, nil, nil)
+            }
+            if let contextSurfaceId {
+                guard workspace.panels[contextSurfaceId] != nil else {
+                    return (windowId, workspaceId, nil, nil)
+                }
+                return (
+                    windowId,
+                    workspaceId,
+                    contextSurfaceId,
+                    workspace.paneId(forPanelId: contextSurfaceId)?.id
+                )
             }
             return (
                 windowId,
@@ -310,6 +327,17 @@ extension TerminalController {
                 workspace.bonsplitController.focusedPaneId?.id
             )
         }
+    }
+
+    private nonisolated func eventContextSurfaceId(params: [String: Any]) -> UUID? {
+        if Self.hasNonNullParam(params, "surface_id") {
+            return eventUUID(params: params, key: "surface_id")
+        }
+        if Self.hasNonNullParam(params, "tab_id") {
+            return eventUUID(params: params, key: "tab_id")
+        }
+        return eventCallerUUID(params: params, key: "surface_id") ??
+            eventCallerUUID(params: params, key: "tab_id")
     }
 
     private nonisolated func eventTabManager(params: [String: Any]) -> TabManager? {
