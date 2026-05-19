@@ -698,6 +698,37 @@ final class GhosttyConfigTests: XCTestCase {
         XCTAssertFalse(AgentSubagentNotificationSettings.suppressNotifications(defaults: defaults))
     }
 
+    func testAgentManagedDesktopNotificationSuppressionCoversCodexHookSessions() {
+        XCTAssertTrue(
+            GhosttyApp.shouldSuppressAgentManagedDesktopNotification(
+                agentPIDs: ["codex.same-process-session": pid_t(123)],
+                claudeHooksEnabled: false,
+                suppressSubagentNotifications: true
+            )
+        )
+        XCTAssertFalse(
+            GhosttyApp.shouldSuppressAgentManagedDesktopNotification(
+                agentPIDs: ["codex.same-process-session": pid_t(123)],
+                claudeHooksEnabled: false,
+                suppressSubagentNotifications: false
+            )
+        )
+        XCTAssertTrue(
+            GhosttyApp.shouldSuppressAgentManagedDesktopNotification(
+                agentPIDs: ["claude_code": pid_t(456)],
+                claudeHooksEnabled: true,
+                suppressSubagentNotifications: false
+            )
+        )
+        XCTAssertFalse(
+            GhosttyApp.shouldSuppressAgentManagedDesktopNotification(
+                agentPIDs: ["custom": pid_t(789)],
+                claudeHooksEnabled: true,
+                suppressSubagentNotifications: true
+            )
+        )
+    }
+
     func testTelemetryDefaultsToEnabledWhenUnset() {
         let suiteName = "cmux.tests.telemetry.\(UUID().uuidString)"
         guard let defaults = UserDefaults(suiteName: suiteName) else {

@@ -349,6 +349,7 @@ private struct ClaudeHookSessionRecord: Codable {
     var isRestorable: Bool?
     var lastSubtitle: String?
     var lastBody: String?
+    var activePromptDepth: Int?
     var startedAt: TimeInterval
     var updatedAt: TimeInterval
 }
@@ -440,6 +441,88 @@ private final class ClaudeHookSessionStore {
         }
     }
 
+    @discardableResult
+    func recordPromptSubmit(
+        sessionId: String,
+        workspaceId: String,
+        surfaceId: String,
+        cwd: String?,
+        pid: Int?,
+        launchCommand: AgentHookLaunchCommandRecord?
+    ) throws -> Bool {
+        let normalized = normalizeSessionId(sessionId)
+        guard !normalized.isEmpty else { return false }
+        return try withLockedState { state in
+            let now = Date().timeIntervalSince1970
+            var record = makeSessionRecord(
+                state: state,
+                sessionId: normalized,
+                workspaceId: workspaceId,
+                surfaceId: surfaceId,
+                now: now
+            )
+            update(
+                &record,
+                workspaceId: workspaceId,
+                surfaceId: surfaceId,
+                cwd: cwd,
+                transcriptPath: nil,
+                pid: pid,
+                launchCommand: launchCommand,
+                isRestorable: nil,
+                lastSubtitle: nil,
+                lastBody: nil,
+                now: now
+            )
+            record.activePromptDepth = max(0, record.activePromptDepth ?? 0) + 1
+            state.sessions[normalized] = record
+            return (record.activePromptDepth ?? 0) > 1
+        }
+    }
+
+    @discardableResult
+    func recordPromptStop(
+        sessionId: String,
+        workspaceId: String,
+        surfaceId: String,
+        cwd: String?,
+        pid: Int?,
+        launchCommand: AgentHookLaunchCommandRecord?,
+        lastSubtitle: String?,
+        lastBody: String?
+    ) throws -> Bool {
+        let normalized = normalizeSessionId(sessionId)
+        guard !normalized.isEmpty else { return false }
+        return try withLockedState { state in
+            let now = Date().timeIntervalSince1970
+            var record = makeSessionRecord(
+                state: state,
+                sessionId: normalized,
+                workspaceId: workspaceId,
+                surfaceId: surfaceId,
+                now: now
+            )
+            let depthBeforeStop = max(0, record.activePromptDepth ?? 0)
+            update(
+                &record,
+                workspaceId: workspaceId,
+                surfaceId: surfaceId,
+                cwd: cwd,
+                transcriptPath: nil,
+                pid: pid,
+                launchCommand: launchCommand,
+                isRestorable: nil,
+                lastSubtitle: lastSubtitle,
+                lastBody: lastBody,
+                now: now
+            )
+            let depthAfterStop = max(0, depthBeforeStop - 1)
+            record.activePromptDepth = depthAfterStop == 0 ? nil : depthAfterStop
+            state.sessions[normalized] = record
+            return depthBeforeStop > 1
+        }
+    }
+
     func upsert(
         sessionId: String,
         workspaceId: String,
@@ -470,37 +553,23 @@ private final class ClaudeHookSessionStore {
                 isRestorable: nil,
                 lastSubtitle: nil,
                 lastBody: nil,
+                activePromptDepth: nil,
                 startedAt: now,
                 updatedAt: now
             )
-            record.workspaceId = workspaceId
-            if !surfaceId.isEmpty {
-                record.surfaceId = surfaceId
-            }
-            if let cwd = normalizeOptional(cwd) {
-                record.cwd = cwd
-            }
-            if let transcriptPath = normalizeOptional(transcriptPath) {
-                record.transcriptPath = transcriptPath
-            }
-            if let pid {
-                record.pid = pid
-            }
-            if let launchCommand, !launchCommand.arguments.isEmpty {
-                record.launchCommand = launchCommand
-            }
-            if let isRestorable {
-                // Preserve sticky true: a later isRestorable=false must not clear
-                // record.isRestorable=true from a transcript-backed event.
-                record.isRestorable = isRestorable || record.isRestorable == true
-            }
-            if let subtitle = normalizeOptional(lastSubtitle) {
-                record.lastSubtitle = subtitle
-            }
-            if let body = normalizeOptional(lastBody) {
-                record.lastBody = body
-            }
-            record.updatedAt = now
+            update(
+                &record,
+                workspaceId: workspaceId,
+                surfaceId: surfaceId,
+                cwd: cwd,
+                transcriptPath: transcriptPath,
+                pid: pid,
+                launchCommand: launchCommand,
+                isRestorable: isRestorable,
+                lastSubtitle: lastSubtitle,
+                lastBody: lastBody,
+                now: now
+            )
             state.sessions[normalized] = record
             if markActive, let normalizedWorkspace = normalizeOptional(workspaceId) {
                 state.activeSessionsByWorkspace[normalizedWorkspace] = ClaudeHookActiveSessionRecord(
@@ -511,6 +580,73 @@ private final class ClaudeHookSessionStore {
                 )
             }
         }
+    }
+
+    private func makeSessionRecord(
+        state: ClaudeHookSessionStoreFile,
+        sessionId: String,
+        workspaceId: String,
+        surfaceId: String,
+        now: TimeInterval
+    ) -> ClaudeHookSessionRecord {
+        state.sessions[sessionId] ?? ClaudeHookSessionRecord(
+            sessionId: sessionId,
+            workspaceId: workspaceId,
+            surfaceId: surfaceId,
+            cwd: nil,
+            transcriptPath: nil,
+            pid: nil,
+            launchCommand: nil,
+            isRestorable: nil,
+            lastSubtitle: nil,
+            lastBody: nil,
+            activePromptDepth: nil,
+            startedAt: now,
+            updatedAt: now
+        )
+    }
+
+    private func update(
+        _ record: inout ClaudeHookSessionRecord,
+        workspaceId: String,
+        surfaceId: String,
+        cwd: String?,
+        transcriptPath: String?,
+        pid: Int?,
+        launchCommand: AgentHookLaunchCommandRecord?,
+        isRestorable: Bool?,
+        lastSubtitle: String?,
+        lastBody: String?,
+        now: TimeInterval
+    ) {
+        record.workspaceId = workspaceId
+        if !surfaceId.isEmpty {
+            record.surfaceId = surfaceId
+        }
+        if let cwd = normalizeOptional(cwd) {
+            record.cwd = cwd
+        }
+        if let transcriptPath = normalizeOptional(transcriptPath) {
+            record.transcriptPath = transcriptPath
+        }
+        if let pid {
+            record.pid = pid
+        }
+        if let launchCommand, !launchCommand.arguments.isEmpty {
+            record.launchCommand = launchCommand
+        }
+        if let isRestorable {
+            // Preserve sticky true: a later isRestorable=false must not clear
+            // record.isRestorable=true from a transcript-backed event.
+            record.isRestorable = isRestorable || record.isRestorable == true
+        }
+        if let subtitle = normalizeOptional(lastSubtitle) {
+            record.lastSubtitle = subtitle
+        }
+        if let body = normalizeOptional(lastBody) {
+            record.lastBody = body
+        }
+        record.updatedAt = now
     }
 
     /// Returns true when an event belongs to the workspace's active Claude session.
@@ -18915,6 +19051,7 @@ struct CMUXCLI {
 
     private func shouldSuppressNestedAgentVisibleMutations(
         currentAgentPID: Int?,
+        nestedPromptEvent: Bool = false,
         env: [String: String]
     ) -> Bool {
         if let override = normalizedHookValue(env["CMUX_AGENT_HOOK_SUPPRESS_VISIBLE_MUTATIONS"])?.lowercased(),
@@ -18924,6 +19061,10 @@ struct CMUXCLI {
 
         guard subagentNotificationSuppressionEnabled(env: env) else {
             return false
+        }
+
+        if nestedPromptEvent {
+            return true
         }
 
         guard let currentAgentPID, currentAgentPID > 1 else {
@@ -21080,23 +21221,30 @@ export default function cmuxPiSessionExtension(pi: ExtensionAPI) {
             )
             sendAgentFeedTelemetry(workspaceId: workspaceId)
             let pid = mapped?.pid ?? inferredCodexAgentPID()
-            let suppressVisibleMutations = shouldSuppressNestedAgentVisibleMutations(currentAgentPID: pid, env: env)
             let launchCommand = agentLaunchCommandFromEnvironment(
                 env,
                 fallbackPID: pid,
                 fallbackKind: def.name,
                 cwd: hookCwd ?? mapped?.cwd
             )
+            let nestedPromptSubmit: Bool
             if !sessionId.isEmpty {
-                try? store.upsert(
+                nestedPromptSubmit = (try? store.recordPromptSubmit(
                     sessionId: sessionId,
                     workspaceId: workspaceId,
                     surfaceId: surfaceId,
                     cwd: hookCwd ?? mapped?.cwd,
                     pid: pid,
                     launchCommand: launchCommand
-                )
+                )) ?? false
+            } else {
+                nestedPromptSubmit = false
             }
+            let suppressVisibleMutations = shouldSuppressNestedAgentVisibleMutations(
+                currentAgentPID: pid,
+                nestedPromptEvent: nestedPromptSubmit,
+                env: env
+            )
             if let pid, !suppressVisibleMutations {
                 _ = try? sendV1Command(
                     "set_agent_pid \(pidKey) \(pid) --tab=\(workspaceId)\(socketPanelOption(surfaceId))",
@@ -21159,7 +21307,6 @@ export default function cmuxPiSessionExtension(pi: ExtensionAPI) {
                 let surfaceId = try resolvePreferredSurfaceIdForClaudeHook(preferred: surfaceArg, fallback: mapped?.surfaceId, workspaceId: workspaceId, client: client)
                 sendAgentFeedTelemetry(workspaceId: workspaceId)
                 let pid = mapped?.pid ?? inferredCodexAgentPID()
-                let suppressVisibleMutations = shouldSuppressNestedAgentVisibleMutations(currentAgentPID: pid, env: env)
                 let codexFailure: CodexHookFailureSummary?
                 if def.name == "codex" {
                     codexFailure = summarizeCodexHookFailure(parsedInput: input, sessionId: sessionId, env: env)
@@ -21197,18 +21344,33 @@ export default function cmuxPiSessionExtension(pi: ExtensionAPI) {
                         def.displayName
                     )
 
+                let launchCommand = agentLaunchCommandFromEnvironment(
+                    env,
+                    fallbackPID: pid,
+                    fallbackKind: def.name,
+                    cwd: cwd
+                )
+                let nestedPromptStop: Bool
                 if !sessionId.isEmpty {
-                    let launchCommand = agentLaunchCommandFromEnvironment(
-                        env,
-                        fallbackPID: pid,
-                        fallbackKind: def.name,
-                        cwd: cwd
-                    )
-                    try? store.upsert(sessionId: sessionId, workspaceId: workspaceId, surfaceId: surfaceId, cwd: cwd, pid: pid,
-                                      launchCommand: launchCommand,
-                                      lastSubtitle: subtitle,
-                                      lastBody: body)
+                    let recordedNestedPromptStop = (try? store.recordPromptStop(
+                        sessionId: sessionId,
+                        workspaceId: workspaceId,
+                        surfaceId: surfaceId,
+                        cwd: cwd,
+                        pid: pid,
+                        launchCommand: launchCommand,
+                        lastSubtitle: subtitle,
+                        lastBody: body
+                    )) ?? false
+                    nestedPromptStop = recordedNestedPromptStop
+                } else {
+                    nestedPromptStop = false
                 }
+                let suppressVisibleMutations = shouldSuppressNestedAgentVisibleMutations(
+                    currentAgentPID: pid,
+                    nestedPromptEvent: nestedPromptStop,
+                    env: env
+                )
                 if let pid, !suppressVisibleMutations {
                     _ = try? sendV1Command(
                         "set_agent_pid \(pidKey) \(pid) --tab=\(workspaceId)\(socketPanelOption(surfaceId))",

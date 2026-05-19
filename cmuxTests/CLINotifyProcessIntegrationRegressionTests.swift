@@ -338,6 +338,83 @@ final class CLINotifyProcessIntegrationRegressionTests: XCTestCase {
         )
     }
 
+    func testInProcessCodexSubagentStopDoesNotNotifyUntilParentStop() throws {
+        let context = try makeClaudeHookContext(name: "codex-same-process-subagent")
+        defer { context.cleanup() }
+
+        let sessionId = "same-process-session"
+        startAgentHookMockServerAccepting(context: context, connectionLimit: 32)
+        let parentPrompt = runCodexHook(
+            context: context,
+            subcommand: "prompt-submit",
+            standardInput: #"{"session_id":"\#(sessionId)","cwd":"\#(context.root.path)","hook_event_name":"UserPromptSubmit","prompt":"ask subagent"}"#
+        )
+        XCTAssertFalse(parentPrompt.timedOut, parentPrompt.stderr)
+        XCTAssertEqual(parentPrompt.status, 0, parentPrompt.stderr)
+        XCTAssertTrue(
+            context.state.commands.contains { $0.hasPrefix("set_status codex Running ") },
+            "Expected parent Codex prompt to mark Running, saw \(context.state.commands)"
+        )
+
+        let childPromptStart = context.state.commands.count
+        let childPrompt = runCodexHook(
+            context: context,
+            subcommand: "prompt-submit",
+            standardInput: #"{"session_id":"\#(sessionId)","cwd":"\#(context.root.path)","hook_event_name":"UserPromptSubmit","prompt":"Return exactly 1+1"}"#
+        )
+        XCTAssertFalse(childPrompt.timedOut, childPrompt.stderr)
+        XCTAssertEqual(childPrompt.status, 0, childPrompt.stderr)
+        let childPromptCommands = Array(context.state.commands.dropFirst(childPromptStart))
+        XCTAssertFalse(
+            childPromptCommands.contains { $0 == "clear_notifications --tab=\(context.workspaceId)" },
+            "Nested in-process Codex prompt should not clear parent notifications, saw \(childPromptCommands)"
+        )
+        XCTAssertFalse(
+            childPromptCommands.contains { $0.hasPrefix("set_status codex Running ") },
+            "Nested in-process Codex prompt should not rewrite parent Running status, saw \(childPromptCommands)"
+        )
+
+        let childStopStart = context.state.commands.count
+        let childStop = runCodexHook(
+            context: context,
+            subcommand: "stop",
+            standardInput: #"{"session_id":"\#(sessionId)","cwd":"\#(context.root.path)","hook_event_name":"Stop","last_assistant_message":"1+1"}"#
+        )
+        XCTAssertFalse(childStop.timedOut, childStop.stderr)
+        XCTAssertEqual(childStop.status, 0, childStop.stderr)
+        let childStopCommands = Array(context.state.commands.dropFirst(childStopStart))
+        XCTAssertTrue(
+            childStopCommands.contains { $0.contains(#""method":"feed.push""#) && $0.contains(#""hook_event_name":"Stop""#) },
+            "Nested in-process Codex Stop should remain feed telemetry, saw \(childStopCommands)"
+        )
+        XCTAssertFalse(
+            childStopCommands.contains { $0.hasPrefix("notify_target") },
+            "Nested in-process Codex Stop should not notify, saw \(childStopCommands)"
+        )
+        XCTAssertFalse(
+            childStopCommands.contains { $0.hasPrefix("set_status codex ") && $0.contains(" Idle ") },
+            "Nested in-process Codex Stop should not mark Codex idle, saw \(childStopCommands)"
+        )
+
+        let parentStopStart = context.state.commands.count
+        let parentStop = runCodexHook(
+            context: context,
+            subcommand: "stop",
+            standardInput: #"{"session_id":"\#(sessionId)","cwd":"\#(context.root.path)","hook_event_name":"Stop","last_assistant_message":"parent done"}"#
+        )
+        XCTAssertFalse(parentStop.timedOut, parentStop.stderr)
+        XCTAssertEqual(parentStop.status, 0, parentStop.stderr)
+        let parentStopCommands = Array(context.state.commands.dropFirst(parentStopStart))
+        XCTAssertTrue(
+            parentStopCommands.contains { $0.hasPrefix("notify_target_async \(context.workspaceId) \(context.surfaceId) Codex|") },
+            "Parent Codex Stop should still notify, saw \(parentStopCommands)"
+        )
+        XCTAssertTrue(
+            parentStopCommands.contains { $0.hasPrefix("set_status codex ") && $0.contains(" Idle ") },
+            "Parent Codex Stop should mark Codex idle, saw \(parentStopCommands)"
+        )
+    }
+
     func testDirectCodexStopStillTriggersVisibleNotification() throws {
         let context = try makeClaudeHookContext(name: "codex-direct-stop")
         defer { context.cleanup() }
@@ -1119,6 +1196,98 @@ final class CLINotifyProcessIntegrationRegressionTests: XCTestCase {
             standardInput: standardInput,
             timeout: 5
         )
+    }
+
+    private func runCodexHook(
+        context: ClaudeHookContext,
+        subcommand: String,
+        standardInput: String,
+        extraEnvironment: [String: String] = [:]
+    ) -> ProcessRunResult {
+        var environment = [
+            "HOME": context.root.path,
+            "PATH": "/usr/bin:/bin:/usr/sbin:/sbin",
+            "PWD": context.root.path,
+            "CMUX_SOCKET_PATH": context.socketPath,
+            "CMUX_WORKSPACE_ID": context.workspaceId,
+            "CMUX_SURFACE_ID": context.surfaceId,
+            "CMUX_AGENT_HOOK_STATE_DIR": context.root.path,
+            "CMUX_CLI_SENTRY_DISABLED": "1",
+        ]
+        environment.merge(extraEnvironment, uniquingKeysWith: { _, new in new })
+
+        return runProcess(
+            executablePath: context.cliPath,
+            arguments: ["hooks", "codex", subcommand],
+            environment: environment,
+            standardInput: standardInput,
+            timeout: 5
+        )
+    }
+
+    private func startAgentHookMockServerAccepting(
+        context: ClaudeHookContext,
+        connectionLimit: Int
+    ) {
+        DispatchQueue.global(qos: .userInitiated).async {
+            var accepted = 0
+            while accepted < connectionLimit {
+                var clientAddr = sockaddr_un()
+                var clientAddrLen = socklen_t(MemoryLayout<sockaddr_un>.size)
+                let clientFD = withUnsafeMutablePointer(to: &clientAddr) { ptr in
+                    ptr.withMemoryRebound(to: sockaddr.self, capacity: 1) { sockaddrPtr in
+                        Darwin.accept(context.listenerFD, sockaddrPtr, &clientAddrLen)
+                    }
+                }
+                if clientFD < 0 {
+                    if errno == EINTR { continue }
+                    return
+                }
+                accepted += 1
+
+                DispatchQueue.global(qos: .userInitiated).async {
+                    defer { Darwin.close(clientFD) }
+                    var pending = Data()
+                    var buffer = [UInt8](repeating: 0, count: 4096)
+                    while true {
+                        let count = Darwin.read(clientFD, &buffer, buffer.count)
+                        if count < 0 {
+                            if errno == EINTR { continue }
+                            return
+                        }
+                        if count == 0 { return }
+                        pending.append(buffer, count: count)
+                        while let newlineRange = pending.firstRange(of: Data([0x0A])) {
+                            let lineData = pending.subdata(in: 0..<newlineRange.lowerBound)
+                            pending.removeSubrange(0...newlineRange.lowerBound)
+                            guard let line = String(data: lineData, encoding: .utf8) else { continue }
+                            context.state.append(line)
+                            let response = self.agentHookMockResponse(line: line, context: context) + "\n"
+                            _ = response.withCString { ptr in
+                                Darwin.write(clientFD, ptr, strlen(ptr))
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    private func agentHookMockResponse(line: String, context: ClaudeHookContext) -> String {
+        guard let payload = jsonObject(line) else {
+            return "OK"
+        }
+        guard let id = payload["id"] as? String, let method = payload["method"] as? String else {
+            return malformedRequestResponse(id: payload["id"] as? String, raw: line)
+        }
+        switch method {
+        case "surface.list":
+            return surfaceListResponse(id: id, surfaceId: context.surfaceId)
+        case "feed.push":
+            return v2Response(id: id, ok: true, result: [:])
+        default:
+            return v2Response(id: id, ok: false, error: ["code": "unrecognized_method", "message": "unexpected method: \(method)"])
+        }
     }
 
     private func shellQuoteForTest(_ value: String) -> String {
