@@ -493,7 +493,7 @@ final class BrowserProfileStore: ObservableObject {
         )
     }
 
-    @concurrent private nonisolated static func removeItemIfExists(at url: URL) async {
+    @Sendable private nonisolated static func removeItemIfExists(at url: URL) async {
         await Task.detached(priority: .utility) {
             try? FileManager.default.removeItem(at: url)
         }.value
