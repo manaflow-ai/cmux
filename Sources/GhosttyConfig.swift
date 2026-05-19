@@ -683,6 +683,15 @@ struct GhosttyConfig {
         // 4) Common system/user fallback locations.
         appendUniquePath("/Applications/Ghostty.app/Contents/Resources/ghostty/themes/\(themeName)")
         appendUniquePath("~/.config/ghostty/themes/\(themeName)")
+        for appSupportDirectory in CmuxApplicationSupportDirectories.userDirectories(environment: environment) {
+            appendUniquePath(
+                appSupportDirectory
+                    .appendingPathComponent(CmuxGhosttyConfigPathResolver.releaseBundleIdentifier, isDirectory: true)
+                    .appendingPathComponent("themes", isDirectory: true)
+                    .appendingPathComponent(themeName, isDirectory: false)
+                    .path
+            )
+        }
         appendUniquePath("~/Library/Application Support/com.mitchellh.ghostty/themes/\(themeName)")
 
         return paths

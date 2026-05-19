@@ -8,11 +8,19 @@ nonisolated struct CmuxTopProcessCPUSample: Sendable {
 }
 
 private nonisolated struct CmuxTopProcessCPUTrackerState: Sendable {
-    var samples: [CmuxTopProcessScopeCacheKey: CmuxTopProcessCPUSample] = [:]
+    var entries: [CmuxTopProcessScopeCacheKey: CmuxTopProcessCPUTrackerEntry] = [:]
     var latestPrunedAtNanoseconds: UInt64 = 0
 }
 
+private nonisolated struct CmuxTopProcessCPUTrackerEntry: Sendable {
+    let sample: CmuxTopProcessCPUSample
+    let cpuPercent: Double
+    let parentKey: CmuxTopProcessScopeCacheKey?
+}
+
 private nonisolated final class CmuxTopProcessCPUTracker: @unchecked Sendable {
+    private static let minimumSampleWindowNanoseconds: UInt64 = 1_000_000_000
+
     private let state = OSAllocatedUnfairLock(initialState: CmuxTopProcessCPUTrackerState())
 
     // Snapshot capture is synchronous for the v2 socket path, so an actor would
@@ -21,31 +29,67 @@ private nonisolated final class CmuxTopProcessCPUTracker: @unchecked Sendable {
     func cpuPercentages(
         for currentSamples: [CmuxTopProcessScopeCacheKey: CmuxTopProcessCPUSample],
         activeKeys: Set<CmuxTopProcessScopeCacheKey>,
+        parentKeysByKey: [CmuxTopProcessScopeCacheKey: CmuxTopProcessScopeCacheKey],
         sampledAtNanoseconds: UInt64
     ) -> [CmuxTopProcessScopeCacheKey: Double] {
         state.withLock { state in
             var percentages: [CmuxTopProcessScopeCacheKey: Double] = [:]
             percentages.reserveCapacity(currentSamples.count)
+            var heldKeys: Set<CmuxTopProcessScopeCacheKey> = []
 
             for (key, sample) in currentSamples {
-                let existing = state.samples[key]
+                let parentKey = parentKeysByKey[key]
+                let existing = state.entries[key]
                 if let existing,
-                   existing.sampledAtNanoseconds > sample.sampledAtNanoseconds {
+                   existing.sample.sampledAtNanoseconds > sample.sampledAtNanoseconds {
+                    percentages[key] = existing.cpuPercent
+                    heldKeys.insert(key)
                     continue
                 }
 
-                percentages[key] = CmuxTopProcessSnapshot.cpuPercent(
+                if let existing {
+                    let elapsedNanoseconds = sample.sampledAtNanoseconds - existing.sample.sampledAtNanoseconds
+                    guard elapsedNanoseconds >= Self.minimumSampleWindowNanoseconds else {
+                        percentages[key] = existing.cpuPercent
+                        heldKeys.insert(key)
+                        if existing.parentKey != parentKey {
+                            state.entries[key] = CmuxTopProcessCPUTrackerEntry(
+                                sample: existing.sample,
+                                cpuPercent: existing.cpuPercent,
+                                parentKey: parentKey
+                            )
+                        }
+                        continue
+                    }
+                }
+
+                let cpuPercent = CmuxTopProcessSnapshot.cpuPercent(
                     current: sample,
-                    previous: existing
+                    previous: existing?.sample
                 )
-                state.samples[key] = sample
+                percentages[key] = cpuPercent
+                state.entries[key] = CmuxTopProcessCPUTrackerEntry(
+                    sample: sample,
+                    cpuPercent: cpuPercent,
+                    parentKey: parentKey
+                )
+            }
+
+            for (key, entry) in state.entries where entry.cpuPercent > 0 {
+                guard let parentKey = entry.parentKey,
+                      !activeKeys.contains(key),
+                      activeKeys.contains(parentKey),
+                      !heldKeys.contains(parentKey) else {
+                    continue
+                }
+                percentages[parentKey, default: 0] += entry.cpuPercent
             }
 
             // Overlapping captures can finish out of sample-time order; only
             // the newest completed capture is allowed to evict inactive keys.
             if sampledAtNanoseconds >= state.latestPrunedAtNanoseconds {
                 state.latestPrunedAtNanoseconds = sampledAtNanoseconds
-                state.samples = state.samples.filter { entry in
+                state.entries = state.entries.filter { entry in
                     activeKeys.contains(entry.key)
                 }
             }
@@ -72,11 +116,13 @@ nonisolated extension CmuxTopProcessSnapshot {
     static func cpuPercentages(
         for samples: [CmuxTopProcessScopeCacheKey: CmuxTopProcessCPUSample],
         activeKeys: Set<CmuxTopProcessScopeCacheKey>,
+        parentKeysByKey: [CmuxTopProcessScopeCacheKey: CmuxTopProcessScopeCacheKey] = [:],
         sampledAtNanoseconds: UInt64
     ) -> [CmuxTopProcessScopeCacheKey: Double] {
         cmuxTopProcessCPUTracker.cpuPercentages(
             for: samples,
             activeKeys: activeKeys,
+            parentKeysByKey: parentKeysByKey,
             sampledAtNanoseconds: sampledAtNanoseconds
         )
     }
