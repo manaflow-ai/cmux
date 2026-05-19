@@ -177,6 +177,13 @@ extension TerminalController {
             return v2MainSync { AppDelegate.shared?.locateSurface(surfaceId: surfaceId)?.windowId }
         }
 
+        if Self.hasNonNullParam(params, "pane_id") {
+            let context = eventFocusedContext(params: params)
+            if let windowId = context.windowId {
+                return windowId
+            }
+        }
+
         if let callerWorkspaceId = eventCallerUUID(params: params, key: "workspace_id") {
             return eventWindowId(workspaceId: callerWorkspaceId)
         }
@@ -199,6 +206,14 @@ extension TerminalController {
             guard let surfaceId = try resolveEventsSurfaceId(params: params) else { return nil }
             return eventWorkspaceId(surfaceId: surfaceId)
         }
+        let hasExplicitWorkspaceContext = Self.hasNonNullParam(params, "window_id") ||
+            Self.hasNonNullParam(params, "pane_id")
+        if hasExplicitWorkspaceContext {
+            let context = eventFocusedContext(params: params)
+            if let workspaceId = context.workspaceId {
+                return workspaceId
+            }
+        }
         if let callerWorkspaceId = eventCallerUUID(params: params, key: "workspace_id") { return callerWorkspaceId }
         if let callerSurfaceId = eventCallerUUID(params: params, key: "surface_id") ??
             eventCallerUUID(params: params, key: "tab_id") {
@@ -220,6 +235,15 @@ extension TerminalController {
             }
             return surfaceId
         }
+        let hasExplicitSurfaceContext = Self.hasNonNullParam(params, "window_id") ||
+            Self.hasNonNullParam(params, "workspace_id") ||
+            Self.hasNonNullParam(params, "pane_id")
+        if hasExplicitSurfaceContext {
+            let context = eventFocusedContext(params: params)
+            if let surfaceId = context.surfaceId {
+                return surfaceId
+            }
+        }
         if let callerSurfaceId = eventCallerUUID(params: params, key: "surface_id") ??
             eventCallerUUID(params: params, key: "tab_id") {
             return callerSurfaceId
@@ -233,6 +257,16 @@ extension TerminalController {
                 throw EventsScopeError(message: "Missing or invalid pane_id")
             }
             return paneId
+        }
+        let hasExplicitPaneContext = Self.hasNonNullParam(params, "window_id") ||
+            Self.hasNonNullParam(params, "workspace_id") ||
+            Self.hasNonNullParam(params, "surface_id") ||
+            Self.hasNonNullParam(params, "tab_id")
+        if hasExplicitPaneContext {
+            let context = eventFocusedContext(params: params)
+            if let paneId = context.paneId {
+                return paneId
+            }
         }
         if let callerPaneId = eventCallerUUID(params: params, key: "pane_id") { return callerPaneId }
         return eventFocusedContext(params: params).paneId
@@ -260,7 +294,8 @@ extension TerminalController {
                 return (nil, nil, nil, nil)
             }
             let windowId = AppDelegate.shared?.windowId(for: tabManager)
-            guard let workspaceId = tabManager.selectedTabId,
+            let workspaceId = v2UUID(params, "workspace_id") ?? tabManager.selectedTabId
+            guard let workspaceId,
                   let workspace = tabManager.tabs.first(where: { $0.id == workspaceId }) else {
                 return (windowId, nil, nil, nil)
             }

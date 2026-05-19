@@ -227,7 +227,8 @@ extension CMUXCLI {
         }
         params["scope"] = effectiveScope
 
-        if let caller = eventCallerContextFromEnvironment() {
+        let caller = eventCallerContextFromEnvironment()
+        if let caller {
             params["caller"] = caller
         }
 
@@ -252,8 +253,11 @@ extension CMUXCLI {
             let requiresWorkspaceContext = options.workspace != nil ||
                 options.surface != nil ||
                 options.pane != nil
+            let callerWorkspaceHandle = caller?["workspace_id"] as? String
+            let workspaceOption = options.workspace ??
+                (windowHandle == nil && requiresWorkspaceContext ? callerWorkspaceHandle : nil)
             let workspaceHandle = try normalizeWorkspaceHandle(
-                options.workspace,
+                workspaceOption,
                 client: resolver,
                 windowHandle: windowHandle,
                 allowCurrent: requiresWorkspaceContext
