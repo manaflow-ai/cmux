@@ -21642,9 +21642,28 @@ export default function cmuxPiSessionExtension(pi: ExtensionAPI) {
             return command
         }
         if let command = entry["command"] as? [Any] {
-            return command.map { String(describing: $0) }.joined(separator: " ")
+            let tokens = command.map { String(describing: $0) }
+            if tokens.count >= 3,
+               Self.isShellCommandToken(tokens[0]),
+               Self.isShellCommandFlag(tokens[1]) {
+                return tokens[2]
+            }
+            return tokens.joined(separator: " ")
         }
         return entry["bash"] as? String
+    }
+
+    private static func isShellCommandToken(_ token: String) -> Bool {
+        switch URL(fileURLWithPath: token).lastPathComponent {
+        case "sh", "bash", "zsh", "dash":
+            return true
+        default:
+            return false
+        }
+    }
+
+    private static func isShellCommandFlag(_ token: String) -> Bool {
+        token.hasPrefix("-") && token.contains("c")
     }
 
     private static func hookFormatUsesTopLevelVersion(_ format: AgentHookDef.HookFormat) -> Bool {

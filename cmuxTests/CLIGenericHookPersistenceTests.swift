@@ -1844,7 +1844,7 @@ extension CLINotifyProcessIntegrationRegressionTests {
                 "hooks": [
                   {
                     "type": "command",
-                    "command": ["sh", "-c", "cmux hooks copilot session-end"],
+                    "command": ["/bin/sh", "-lc", "cmux hooks copilot session-end"],
                     "timeout": 5000
                   }
                 ]
