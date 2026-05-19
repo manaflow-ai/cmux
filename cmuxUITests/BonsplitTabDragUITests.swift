@@ -328,8 +328,8 @@ final class BonsplitTabDragUITests: XCTestCase {
         let alphaTitle = ready["alphaTitle"] ?? "UITest Alpha"
         let alphaTab = app.buttons[alphaTitle]
         let betaTab = app.buttons[betaTitle]
-        let betaSurfaceId = ready["betaSurfaceId"] ?? ""
-        let betaTabContainer = app.descendants(matching: .any).matching(identifier: "paneTab.\(betaSurfaceId)").firstMatch
+        let betaPanelId = ready["betaPanelId"] ?? ""
+        let betaTabContainer = app.descendants(matching: .any).matching(identifier: "paneTab.\(betaPanelId)").firstMatch
 
         XCTAssertTrue(window.waitForExistence(timeout: 5.0), "Expected main window to exist")
         XCTAssertTrue(alphaTab.waitForExistence(timeout: 5.0), "Expected alpha tab to exist")
