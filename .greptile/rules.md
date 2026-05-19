@@ -13,9 +13,18 @@ Review production Swift and runtime changes for:
 - Incorrect `@concurrent` or `nonisolated async` behavior.
 - Swift file sprawl and missing SwiftPM package boundaries for independently testable feature logic.
 - Production logging that bypasses unified logging or leaks sensitive data.
+- User-facing text that is not fully internationalized across every supported app or web locale.
 - SwiftUI state and layout patterns that cause stale state, broad invalidation, or render-time mutation.
 - Architectural fixes that patch symptoms while leaving bad state representable.
 - User-facing errors, alerts, command output, API error bodies, and recovery copy that expose implementation details.
+
+## Full Internationalization
+
+For production user-facing text, require complete internationalization across every locale supported by the affected surface.
+
+Flag Swift UI, menu, alert, tooltip, error, recovery, or command text that is not routed through `String(localized:defaultValue:)` or an equivalent localized API with a matching translated string-catalog entry. Flag app string catalog or Info.plist additions and edits that do not include translated entries for every locale already supported by the touched catalog. Flag web UI text, API response copy, user-facing web data, metadata, route copy, rendered markdown, changelog copy, or message keys that are not consumed from `next-intl` or another locale-specific source and represented across all locales in `web/i18n/routing.ts` and every matching file in `web/messages/`.
+
+Pass for tests, operational docs not shown to end users, developer-only comments, debug-only logs, exact protocol/config tokens, and existing untranslated strings the PR does not introduce or worsen.
 
 ## User-Facing Error Messages
 
