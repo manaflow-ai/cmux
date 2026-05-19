@@ -296,7 +296,7 @@ class CmuxEventsStress:
             capture_output=True,
             timeout=self.args.build_timeout,
         )
-        sys.stdout.write(proc.stdout)
+        sys.stderr.write(proc.stdout)
         sys.stderr.write(proc.stderr)
         if proc.returncode != 0:
             raise StressFailure(f"reload.sh failed with exit {proc.returncode}")
@@ -507,7 +507,7 @@ class CmuxEventsStress:
                     if self.args.progress_interval and (index + 1) % self.args.progress_interval == 0:
                         elapsed = max(0.001, (now_ms() - started) / 1000.0)
                         rate = (index + 1) / elapsed
-                        print(f"published {index + 1}/{self.args.events} events ({rate:.0f}/s)")
+                        print(f"published {index + 1}/{self.args.events} events ({rate:.0f}/s)", file=sys.stderr)
         except Exception as exc:
             self.publisher_error = str(exc)
         finally:
@@ -559,6 +559,7 @@ class CmuxEventsStress:
         rotated_path = self.event_log_path.with_suffix(self.event_log_path.suffix + ".1")
         deadline = time.monotonic() + self.args.log_settle_timeout
         stable_samples = 0
+        required_stable_samples = 4
         previous: tuple[int, int] | None = None
         current = 0
         rotated = 0
@@ -568,12 +569,19 @@ class CmuxEventsStress:
             sizes = (current, rotated)
             if current > 0 and rotated > 0 and sizes == previous:
                 stable_samples += 1
-                if stable_samples >= 4:
+                if stable_samples >= required_stable_samples:
                     break
             else:
                 stable_samples = 0
             previous = sizes
             time.sleep(0.25)
+        if stable_samples < required_stable_samples:
+            raise StressFailure(
+                "event log sizes did not settle before timeout: "
+                f"current={self.event_log_path} ({current} bytes), "
+                f"rotated={rotated_path} ({rotated} bytes), "
+                f"timeout={self.args.log_settle_timeout}s"
+            )
         return {
             "current_path": str(self.event_log_path),
             "rotated_path": str(rotated_path),
