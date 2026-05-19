@@ -12,16 +12,16 @@ When we change the fork, update this document and the parent submodule SHA.
 
 ## Current fork changes
 
-The fork was refreshed from upstream `main` again on May 1, 2026.
-Current cmux pinned fork head: `ff6e1260d`, based on `aef980e27`, with the
-manual embedded IO patch in https://github.com/manaflow-ai/ghostty/pull/53,
+The fork was refreshed from upstream `main` again on May 19, 2026.
+Current cmux pinned fork head: `fffdaadcb`, based on upstream `3706abab0`, with
+the manual embedded IO patch in https://github.com/manaflow-ai/ghostty/pull/53,
 the Metal renderer row rebuild guard for https://github.com/manaflow-ai/cmux/issues/3369, and the URL/path
 regex bound for spaced file paths followed by prose. This head keeps the cmux
 theme picker hooks, exposes the manual surface IO needed by libghostty iOS
 clients, bounds shaped glyph iteration during IME/preedit row rebuilds, and
 prevents Cmd-hover from highlighting normal sentence text after a file path.
 The corresponding prebuilt archive is published at
-https://github.com/manaflow-ai/ghostty/releases/tag/xcframework-ff6e1260d2e7767de55b8d9307b328e4060545b7-crashsubdir-cmux-crash-v1
+https://github.com/manaflow-ai/ghostty/releases/tag/xcframework-fffdaadcb015057d5b70dc88ea4e52e6a159efd0-crashsubdir-cmux-crash-v1
 and pinned in `scripts/ghosttykit-checksums.txt`.
 
 ### 1) macOS display link restart on display changes
@@ -210,10 +210,12 @@ tend to conflict together during rebases.
     `/tmp/v1.2 captures/video.mp4`.
 
 The current cmux pin is the head listed above. It is reachable from
-`manaflow-ai/ghostty` through the
-`xcframework-ff6e1260d2e7767de55b8d9307b328e4060545b7-crashsubdir-cmux-crash-v1`
-release tag and branch `issue-cmd-hover-path-range`.
-Published `xcframework-ff6e1260d2e7767de55b8d9307b328e4060545b7-crashsubdir-cmux-crash-v1` and pinned its
+`manaflow-ai/ghostty` `main` through https://github.com/manaflow-ai/ghostty/pull/58
+and https://github.com/manaflow-ai/ghostty/pull/59
+and through the
+`xcframework-fffdaadcb015057d5b70dc88ea4e52e6a159efd0-crashsubdir-cmux-crash-v1`
+release tag.
+Published `xcframework-fffdaadcb015057d5b70dc88ea4e52e6a159efd0-crashsubdir-cmux-crash-v1` and pinned its
 archive checksum in `scripts/ghosttykit-checksums.txt`. The release and checksum
 pin must be regenerated whenever this commit changes, even for comment-only
 amends, because the release tag is keyed by the Ghostty commit SHA.
@@ -239,6 +241,30 @@ amends, because the release tag is keyed by the Ghostty commit SHA.
 ## Merge conflict notes
 
 These files change frequently upstream; be careful when rebasing the fork:
+
+- May 19, 2026, upstream merge:
+  - Merged upstream `3706abab0` into `ff6e1260d` without textual conflicts.
+  - Upstream TLDR:
+    - Added GTK `+toggle-quick-terminal` IPC plumbing.
+    - Fixed GTK split-tree resize ratio handling, invisible nested splits, and focus loss.
+    - Persisted macOS opacity-toggle state across tabs/windows and normalized macOS working-directory paths.
+    - Made `command-palette-entry` clearing behave like `keybind` clearing.
+    - Refreshed bundled iTerm2 themes, added Basque translation data, and updated libghostty-vt Nix/Darwin packaging.
+  - Preserved the cmux `cli-helper`, theme picker, embedded C API, config load,
+    manual IO, OSC 99, APC stream, and layer-background hooks.
+  - Updated `scripts/ensure-ghosttykit.sh` to pass `-Demit-macos-app=false`
+    because upstream now defaults `emit-macos-app` to true when
+    `emit-xcframework` is true.
+  - Fixed review catches in https://github.com/manaflow-ai/ghostty/pull/59:
+    `command-palette-entry = clear` now serializes back as `clear`, GTK
+    `+toggle-quick-terminal --class` is parsed and passed to IPC, and the
+    unsupported-platform stderr path flushes before returning.
+  - Verified with `CMUX_GHOSTTYKIT_NO_PREBUILT=1 ./scripts/ensure-ghosttykit.sh`.
+  - Verified cmux with `./scripts/reload.sh --tag gtyup`.
+  - Merged `7128cba84` into fork `main` with https://github.com/manaflow-ai/ghostty/pull/58.
+  - Merged `fffdaadcb` into fork `main` with https://github.com/manaflow-ai/ghostty/pull/59.
+  - Published `xcframework-fffdaadcb015057d5b70dc88ea4e52e6a159efd0-crashsubdir-cmux-crash-v1` and pinned
+    its archive checksum in `scripts/ghosttykit-checksums.txt`.
 
 - April 28, 2026, upstream merge:
   - Merged upstream `659019666` into `465a9a621` without textual conflicts.
