@@ -988,26 +988,7 @@ class TerminalController {
     }
 
     nonisolated static func socketPathIdentity(at path: String) -> SocketPathIdentity? {
-        socketPathIdentityResult(at: path).identity
-    }
-
-    private nonisolated static func socketPathIdentityResult(
-        at path: String
-    ) -> (identity: SocketPathIdentity?, errnoCode: Int32?) {
-        var st = stat()
-        guard lstat(path, &st) == 0 else {
-            return (nil, errno)
-        }
-        guard (st.st_mode & mode_t(S_IFMT)) == mode_t(S_IFSOCK) else {
-            return (nil, ENOTSOCK)
-        }
-        return (
-            SocketPathIdentity(
-                device: UInt64(bitPattern: Int64(st.st_dev)),
-                inode: UInt64(st.st_ino)
-            ),
-            nil
-        )
+        SocketPathProbe.identity(path: path)
     }
 
     private nonisolated static func configureNoSigPipe(_ fd: Int32) -> Int32? {
@@ -1371,17 +1352,6 @@ class TerminalController {
             socketPathOwnedByThisProcess: pathStatus.socketPathOwnedByThisProcess,
             socketPathStatus: pathStatus.debugLabel
         )
-    }
-
-    nonisolated static func socketPathExists(
-        _ path: String,
-        matching boundIdentity: SocketPathIdentity?
-    ) -> Bool {
-        guard let currentIdentity = socketPathIdentity(at: path),
-              let boundIdentity else {
-            return false
-        }
-        return currentIdentity == boundIdentity
     }
 
     nonisolated static func probeSocketCommand(
