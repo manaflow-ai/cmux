@@ -3554,9 +3554,7 @@ class TerminalController {
             }
         }
 
-        if workspaceFilter == nil {
-            v2AttachTopApplicationProcess(to: &windowNodes)
-        }
+        v2AttachTopApplicationProcess(to: &windowNodes, workspaceFilter: workspaceFilter)
 
         if let workspaceFilter, !workspaceFound {
             return .err(
@@ -3643,8 +3641,10 @@ class TerminalController {
             if panel.panelType == .browser, let browserPanel = panel as? BrowserPanel {
                 let webContentPID = CmuxWebContentProcessIdentifier.pid(for: browserPanel.webView)
                 let url = browserPanel.currentURL?.absoluteString ?? ""
+                let webViewLifecycle = browserPanel.webViewLifecycleTopPayload()
                 item["url"] = url
                 item["browser_web_content_pid"] = v2OrNull(webContentPID)
+                item["browser_webview_lifecycle_state"] = browserPanel.webViewLifecycleState.rawValue
                 item["webviews"] = [
                     [
                         "kind": "webview",
@@ -3655,7 +3655,8 @@ class TerminalController {
                         "surface_ref": v2Ref(kind: .surface, uuid: panel.id),
                         "title": browserPanel.displayTitle,
                         "url": url,
-                        "pid": v2OrNull(webContentPID)
+                        "pid": v2OrNull(webContentPID),
+                        "lifecycle": webViewLifecycle
                     ] as [String: Any]
                 ]
             } else {
@@ -5800,30 +5801,22 @@ class TerminalController {
                 finish()
 
             case "duplicate", "duplicate_tab":
-                guard let anchorTabId = workspace.surfaceIdFromPanelId(surfaceId),
-                      let paneId = workspace.paneId(forPanelId: surfaceId),
-                      let browserPanel = workspace.browserPanel(for: surfaceId) else {
+                guard let browserPanel = workspace.browserPanel(for: surfaceId) else {
                     result = .err(code: "invalid_state", message: "Duplicate is only available for browser tabs", data: nil)
                     return
                 }
                 guard BrowserAvailabilitySettings.isEnabled() else {
                     result = v2BrowserDisabledExternalOpenResult(
-                        url: browserPanel.currentURL,
+                        url: browserPanel.currentURLForTabDuplication,
                         tabManager: tabManager
                     )
                     return
                 }
 
-                let targetIndex = insertionIndexToRight(anchorTabId: anchorTabId, inPane: paneId)
-                guard let newPanel = workspace.newBrowserSurface(
-                    inPane: paneId,
-                    url: browserPanel.currentURL,
-                    focus: focus
-                ) else {
+                guard let newPanel = workspace.duplicateBrowserToRight(panelId: surfaceId, focus: focus) else {
                     result = .err(code: "internal_error", message: "Failed to duplicate tab", data: nil)
                     return
                 }
-                _ = workspace.reorderSurface(panelId: newPanel.id, toIndex: targetIndex, focus: focus)
                 finish([
                     "created_surface_id": newPanel.id.uuidString,
                     "created_surface_ref": v2Ref(kind: .surface, uuid: newPanel.id),
@@ -8230,11 +8223,7 @@ class TerminalController {
             let store = TerminalNotificationStore.shared
             notification = store.notifications.first(where: { $0.id == id })
             if let notification {
-                opened = AppDelegate.shared?.openNotification(
-                    tabId: notification.tabId,
-                    surfaceId: notification.surfaceId,
-                    notificationId: notification.id
-                ) ?? false
+                opened = AppDelegate.shared?.openTerminalNotification(notification) ?? false
                 let current = store.notifications.first(where: { $0.id == notification.id }) ?? notification
                 payload = notificationPayload(current, opened: opened, includeReadState: true)
             }
