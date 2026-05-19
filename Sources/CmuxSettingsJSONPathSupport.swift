@@ -102,6 +102,7 @@ extension CmuxSettingsFileStore {
         "automation.socketPassword",
         "automation.claudeCodeIntegration",
         "automation.claudeBinaryPath",
+        "automation.ripgrepBinaryPath",
         "automation.cursorIntegration",
         "automation.geminiIntegration",
         "automation.portBase",
