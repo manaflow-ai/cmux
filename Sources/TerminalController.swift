@@ -12147,6 +12147,7 @@ class TerminalController {
 
     private nonisolated func v2BrowserDownloadWaitSnapshot(params: [String: Any]) -> V2BrowserDownloadWaitSnapshot {
         v2MainSync {
+            v2RefreshKnownRefs()
             guard let tabManager = v2ResolveTabManager(params: params) else {
                 return V2BrowserDownloadWaitSnapshot(
                     workspaceId: UUID(),
