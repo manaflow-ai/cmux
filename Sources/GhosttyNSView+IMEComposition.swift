@@ -42,20 +42,24 @@ extension GhosttyNSView {
         after: (text: String, selection: NSRange),
         accumulatedText: [String],
         event: NSEvent? = nil,
+        textInputHandledEvent: Bool = false,
         inputSourceId: String? = nil
     ) -> Bool {
         guard accumulatedText.isEmpty else { return false }
 
         let hadMarkedTextBefore = !before.text.isEmpty
         let hasMarkedTextAfter = !after.text.isEmpty
-        guard hadMarkedTextBefore || hasMarkedTextAfter else { return false }
+        guard hadMarkedTextBefore || hasMarkedTextAfter else {
+            guard textInputHandledEvent else { return false }
+            return shouldKeepNoMarkedIMECommandInsideTextInput(event, inputSourceId: inputSourceId)
+        }
 
         if before.text != after.text {
             return true
         }
 
         if before.selection != after.selection {
-            return !shouldForwardKoreanMarkedSelectionArrowToTerminal(
+            return !shouldForwardMarkedSelectionCommandToTerminal(
                 event: event,
                 inputSourceId: inputSourceId
             )
@@ -64,7 +68,7 @@ extension GhosttyNSView {
         guard let event, isInputMethodSource(inputSourceId) else {
             return false
         }
-        guard !shouldForwardKoreanMarkedSelectionArrowToTerminal(
+        guard !shouldForwardMarkedSelectionCommandToTerminal(
             event: event,
             inputSourceId: inputSourceId
         ) else {
@@ -73,48 +77,51 @@ extension GhosttyNSView {
         return shouldKeepIMECompositionCommandInsideTextInput(event)
     }
 
-    private func shouldForwardKoreanMarkedSelectionArrowToTerminal(
+    private func isInputMethodSource(_ inputSourceId: String?) -> Bool {
+        IMECommandPolicy(inputSourceId: inputSourceId).isInputMethod
+    }
+
+    private func shouldForwardMarkedSelectionCommandToTerminal(
         event: NSEvent?,
         inputSourceId: String?
     ) -> Bool {
         guard let event else { return false }
-        guard isKorean2SetInputSource(inputSourceId) else { return false }
-        guard hasOnlyPlainTextInputModifiers(event) else { return false }
+        return IMECommandPolicy(inputSourceId: inputSourceId)
+            .forwardsMarkedSelectionCommandToTerminal(event)
+    }
 
-        switch Int(event.keyCode) {
-        case kVK_LeftArrow, kVK_RightArrow:
-            return true
-        default:
-            return false
+    private func shouldKeepNoMarkedIMECommandInsideTextInput(
+        _ event: NSEvent?,
+        inputSourceId: String?
+    ) -> Bool {
+        guard let event else { return false }
+        guard hasOnlyTextInputCommandModifiers(event) else { return false }
+
+        return IMECommandPolicy(inputSourceId: inputSourceId)
+            .keepsNoMarkedHandledCommandInsideTextInput(keyCode: Int(event.keyCode))
+    }
+
+    /// Returns true when a window-level key-equivalent probe should re-enter
+    /// the terminal's keyDown path so AppKit's text input context sees the key
+    /// before terminal bindings or cursor escape sequences do.
+    func shouldRouteTextInputKeyEquivalentToKeyDown(_ event: NSEvent) -> Bool {
+        shouldRouteTextInputKeyEquivalentToKeyDown(event, inputSourceId: nil)
+    }
+
+    func shouldRouteTextInputKeyEquivalentToKeyDown(
+        _ event: NSEvent,
+        inputSourceId: String?
+    ) -> Bool {
+        guard event.type == .keyDown else { return false }
+        let resolvedInputSourceId = inputSourceId ?? KeyboardLayout.id
+        if hasMarkedText() {
+            return isInputMethodSource(resolvedInputSourceId)
+                && shouldKeepIMECompositionCommandInsideTextInput(event)
         }
-    }
-
-    private func isKorean2SetInputSource(_ inputSourceId: String?) -> Bool {
-        guard let inputSourceId else { return false }
-        return Self.korean2SetInputSourceIDs.contains(inputSourceId)
-    }
-
-    private func isInputMethodSource(_ inputSourceId: String?) -> Bool {
-        guard let inputSourceId else { return false }
-        return inputSourceId.range(
-            of: ".inputmethod.",
-            options: .caseInsensitive,
-            locale: Locale(identifier: "en_US_POSIX")
-        ) != nil
-    }
-
-    private func isBopomofoInputSource(_ inputSourceId: String?) -> Bool {
-        guard let inputSourceId else { return false }
-        let comparisonLocale = Locale(identifier: "en_US_POSIX")
-        return inputSourceId.range(of: "Zhuyin", options: .caseInsensitive, locale: comparisonLocale) != nil
-            || inputSourceId.range(of: "Bopomofo", options: .caseInsensitive, locale: comparisonLocale) != nil
-    }
-
-    private func hasOnlyPlainTextInputModifiers(_ event: NSEvent) -> Bool {
-        let flags = event.modifierFlags
-            .intersection(.deviceIndependentFlagsMask)
-            .subtracting([.numericPad, .function, .capsLock])
-        return flags.isEmpty
+        return shouldKeepNoMarkedIMECommandInsideTextInput(
+            event,
+            inputSourceId: resolvedInputSourceId
+        )
     }
 
     /// Returns true for active-composition command keys that belong to AppKit's
@@ -141,19 +148,119 @@ extension GhosttyNSView {
     }
 
     func shouldBufferBopomofoInsertedPreedit(_ text: String, inputSourceId: String? = nil) -> Bool {
-        guard !text.isEmpty else { return false }
-        guard isBopomofoInputSource(inputSourceId ?? KeyboardLayout.id) else { return false }
-        return text.unicodeScalars.allSatisfy(isBopomofoPreeditScalar)
+        IMECommandPolicy(inputSourceId: inputSourceId ?? KeyboardLayout.id)
+            .buffersInsertedPreedit(text)
     }
 
-    private func isBopomofoPreeditScalar(_ scalar: UnicodeScalar) -> Bool {
-        switch scalar.value {
-        case 0x3100...0x312F, 0x31A0...0x31BF:
-            return true
-        case 0x02C7, 0x02C9, 0x02CA, 0x02CB, 0x02D9:
-            return true
-        default:
-            return false
+    private enum IMECommandPolicy {
+        case nonInputMethod
+        case otherInputMethod
+        case bopomofoCandidate
+        case applePinyinCandidate
+        case korean2Set
+
+        init(inputSourceId: String?) {
+            guard let inputSourceId else {
+                self = .nonInputMethod
+                return
+            }
+
+            if GhosttyNSView.korean2SetInputSourceIDs.contains(inputSourceId) {
+                self = .korean2Set
+                return
+            }
+
+            let comparisonLocale = Locale(identifier: "en_US_POSIX")
+            if inputSourceId.range(of: "Zhuyin", options: .caseInsensitive, locale: comparisonLocale) != nil
+                || inputSourceId.range(of: "Bopomofo", options: .caseInsensitive, locale: comparisonLocale) != nil {
+                self = .bopomofoCandidate
+                return
+            }
+
+            if inputSourceId == "com.apple.inputmethod.SCIM.ITABC"
+                || inputSourceId == "com.apple.inputmethod.TCIM.Pinyin" {
+                self = .applePinyinCandidate
+                return
+            }
+
+            if inputSourceId.range(
+                of: ".inputmethod.",
+                options: .caseInsensitive,
+                locale: comparisonLocale
+            ) != nil {
+                self = .otherInputMethod
+                return
+            }
+
+            self = .nonInputMethod
+        }
+
+        var isInputMethod: Bool {
+            switch self {
+            case .bopomofoCandidate, .applePinyinCandidate, .korean2Set, .otherInputMethod:
+                return true
+            case .nonInputMethod:
+                return false
+            }
+        }
+
+        func keepsNoMarkedHandledCommandInsideTextInput(keyCode: Int) -> Bool {
+            switch self {
+            case .nonInputMethod, .otherInputMethod, .korean2Set:
+                return false
+            case .bopomofoCandidate:
+                switch keyCode {
+                case kVK_LeftArrow, kVK_RightArrow, kVK_UpArrow, kVK_DownArrow,
+                     kVK_PageUp, kVK_PageDown, kVK_Space:
+                    return true
+                default:
+                    return false
+                }
+            case .applePinyinCandidate:
+                switch keyCode {
+                case kVK_LeftArrow, kVK_RightArrow, kVK_UpArrow, kVK_DownArrow,
+                     kVK_PageUp, kVK_PageDown, kVK_Tab:
+                    return true
+                default:
+                    return false
+                }
+            }
+        }
+
+        func forwardsMarkedSelectionCommandToTerminal(_ event: NSEvent) -> Bool {
+            guard case .korean2Set = self else { return false }
+            guard Self.hasOnlyPlainTextInputModifiers(event) else { return false }
+
+            switch Int(event.keyCode) {
+            case kVK_LeftArrow, kVK_RightArrow:
+                return true
+            default:
+                return false
+            }
+        }
+
+        func buffersInsertedPreedit(_ text: String) -> Bool {
+            guard case .bopomofoCandidate = self else { return false }
+            guard !text.isEmpty else { return false }
+            return text.unicodeScalars.allSatisfy(Self.isBopomofoPreeditScalar)
+        }
+
+        private static func hasOnlyPlainTextInputModifiers(_ event: NSEvent) -> Bool {
+            let flags = event.modifierFlags
+                .intersection(.deviceIndependentFlagsMask)
+                .subtracting([.numericPad, .function, .capsLock])
+            return flags.isEmpty
+        }
+
+        private static func isBopomofoPreeditScalar(_ scalar: UnicodeScalar) -> Bool {
+            switch scalar.value {
+            case 0x3100...0x312F, 0x31A0...0x31BF:
+                return true
+            case 0x02C7, 0x02C9, 0x02CA, 0x02CB, 0x02D9:
+                return true
+            default:
+                return false
+            }
         }
     }
 
@@ -165,6 +272,7 @@ extension GhosttyNSView {
         markedSelectionAfter: NSRange,
         accumulatedText: [String],
         event: NSEvent? = nil,
+        textInputHandledEvent: Bool = false,
         inputSourceId: String? = nil
     ) -> Bool {
         shouldSuppressGhosttyKeyForwardingAfterIMEHandling(
@@ -172,6 +280,7 @@ extension GhosttyNSView {
             after: (markedTextAfter, markedSelectionAfter),
             accumulatedText: accumulatedText,
             event: event,
+            textInputHandledEvent: textInputHandledEvent,
             inputSourceId: inputSourceId
         )
     }
