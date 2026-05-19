@@ -347,13 +347,13 @@ final class BonsplitTabDragUITests: XCTestCase {
         XCTAssertTrue(nameField.waitForExistence(timeout: 3.0), "Expected double-clicking a pane tab to show an inline rename field")
         let duringRenameScreenshot = window.screenshot()
         addWindowScreenshot(named: "pane-tab-during-inline-rename", screenshot: duringRenameScreenshot)
-        XCTAssertVisuallyStableCrop(
+        XCTAssertVisibleHighlightCrop(
             beforeRenameScreenshot,
             comparedTo: duringRenameScreenshot,
             cropInWindow: paneTabTitleCrop(for: betaFrameBeforeRename),
             in: window,
-            maxMeanLumaDiff: 2.0,
-            "Expected pane tab title pixels not to shift when inline editing starts"
+            minMeanLumaDiff: 1.0,
+            "Expected pane tab title pixels to show the full-selection highlight when inline editing starts"
         )
         XCTAssertStableFrame(
             alphaTab.frame,
@@ -382,8 +382,6 @@ final class BonsplitTabDragUITests: XCTestCase {
             betaFrameBeforeRename.height + 1.0,
             "Expected inline pane tab rename field not to exceed the original tab height"
         )
-        nameField.click()
-        app.typeKey("a", modifierFlags: [.command])
         app.typeText(renamedTitle)
         clickOutsideInlineEditor(in: window)
 
@@ -442,13 +440,13 @@ final class BonsplitTabDragUITests: XCTestCase {
         XCTAssertTrue(nameField.waitForExistence(timeout: 3.0), "Expected double-clicking a workspace row to show an inline rename field")
         let duringRenameScreenshot = window.screenshot()
         addWindowScreenshot(named: "sidebar-during-inline-rename", screenshot: duringRenameScreenshot)
-        XCTAssertVisuallyStableCrop(
+        XCTAssertVisibleHighlightCrop(
             beforeRenameScreenshot,
             comparedTo: duringRenameScreenshot,
             cropInWindow: sidebarWorkspaceTitleCrop(for: rowFrameBeforeRename),
             in: window,
-            maxMeanLumaDiff: 2.0,
-            "Expected sidebar workspace title pixels not to shift when inline editing starts"
+            minMeanLumaDiff: 1.0,
+            "Expected sidebar workspace title pixels to show the full-selection highlight when inline editing starts"
         )
         XCTAssertStableFrame(
             workspaceRow.frame,
@@ -466,8 +464,6 @@ final class BonsplitTabDragUITests: XCTestCase {
             workspaceRow.frame.maxY + 1.0,
             "Expected sidebar inline editor to stay inside the original workspace row bounds"
         )
-        nameField.click()
-        app.typeKey("a", modifierFlags: [.command])
         app.typeText(renamedTitle)
         clickOutsideInlineEditor(in: window)
 
@@ -1031,12 +1027,12 @@ final class BonsplitTabDragUITests: XCTestCase {
         )
     }
 
-    private func XCTAssertVisuallyStableCrop(
+    private func XCTAssertVisibleHighlightCrop(
         _ before: XCUIScreenshot,
         comparedTo after: XCUIScreenshot,
         cropInWindow crop: CGRect,
         in window: XCUIElement,
-        maxMeanLumaDiff: Double,
+        minMeanLumaDiff: Double,
         _ message: @autoclosure () -> String,
         file: StaticString = #filePath,
         line: UInt = #line
@@ -1049,9 +1045,9 @@ final class BonsplitTabDragUITests: XCTestCase {
             XCTFail("Unable to compare inline rename screenshots", file: file, line: line)
             return
         }
-        XCTAssertLessThanOrEqual(
+        XCTAssertGreaterThanOrEqual(
             diff,
-            maxMeanLumaDiff,
+            minMeanLumaDiff,
             "\(message()) diff=\(String(format: "%.3f", diff)) crop=\(crop) window=\(window.frame)",
             file: file,
             line: line
