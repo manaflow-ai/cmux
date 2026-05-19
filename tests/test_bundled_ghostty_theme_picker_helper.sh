@@ -62,9 +62,13 @@ fi
 
 CONFIG_PATH="$TMP_DIR/config.ghostty"
 SEARCH_CONFIG_PATH="$TMP_DIR/search-config.ghostty"
+CTRL_N_CONFIG_PATH="$TMP_DIR/ctrl-n-config.ghostty"
+CTRL_P_CONFIG_PATH="$TMP_DIR/ctrl-p-config.ghostty"
 RESULTS_PATH="$TMP_DIR/config-paths.txt"
 export CONFIG_PATH
 export SEARCH_CONFIG_PATH
+export CTRL_N_CONFIG_PATH
+export CTRL_P_CONFIG_PATH
 export RESULTS_PATH
 export GHOSTTY_RESOURCES_DIR
 export HELPER_PATH
@@ -83,11 +87,44 @@ import time
 helper_path = os.environ["HELPER_PATH"]
 config_path = os.environ["CONFIG_PATH"]
 search_config_path = os.environ["SEARCH_CONFIG_PATH"]
+ctrl_n_config_path = os.environ["CTRL_N_CONFIG_PATH"]
+ctrl_p_config_path = os.environ["CTRL_P_CONFIG_PATH"]
 results_path = os.environ["RESULTS_PATH"]
 ghostty_resources_dir = os.environ["GHOSTTY_RESOURCES_DIR"]
 
 
-def run_picker(label, scenario_config_path, scripted_input):
+theme_dir = os.path.join(ghostty_resources_dir, "themes")
+theme_names = sorted(
+    (
+        entry.name
+        for entry in os.scandir(theme_dir)
+        if entry.is_file() or entry.is_symlink()
+    ),
+    key=lambda name: name.lower(),
+)
+if len(theme_names) < 2:
+    sys.stderr.write(f"FAIL: expected at least two bundled themes in {theme_dir}\n")
+    sys.exit(1)
+
+
+def assert_theme_written(label, scenario_config_path, expected_theme):
+    try:
+        with open(scenario_config_path, "r", encoding="utf-8") as config:
+            contents = config.read()
+    except FileNotFoundError:
+        sys.stderr.write(f"FAIL: theme picker did not write config for {label}.\n")
+        sys.exit(1)
+
+    expected_line = f"theme = light:{expected_theme},dark:{expected_theme}"
+    if expected_line not in contents:
+        sys.stderr.write(
+            f"FAIL: expected {label} to write {expected_line!r}.\n"
+        )
+        sys.stderr.write(contents)
+        sys.exit(1)
+
+
+def run_picker(label, scenario_config_path, scripted_input, expected_theme=None):
     env = os.environ.copy()
     env.update(
         {
@@ -174,13 +211,22 @@ def run_picker(label, scenario_config_path, scripted_input):
     finally:
         os.close(master_fd)
 
+    if expected_theme is not None:
+        assert_theme_written(label, scenario_config_path, expected_theme)
+
+first_theme = theme_names[0]
+second_theme = theme_names[1]
 
 run_picker("normal mode", config_path, b"\r")
 run_picker("search mode", search_config_path, b"/tokyo\r")
+run_picker("Ctrl-N navigation", ctrl_n_config_path, b"\x0e\r", second_theme)
+run_picker("Ctrl-P navigation", ctrl_p_config_path, b"\x0e\x10\r", first_theme)
 
 with open(results_path, "w", encoding="utf-8") as results:
     results.write(config_path + "\n")
     results.write(search_config_path + "\n")
+    results.write(ctrl_n_config_path + "\n")
+    results.write(ctrl_p_config_path + "\n")
 PY
 
 while IFS= read -r CONFIG_PATH; do
