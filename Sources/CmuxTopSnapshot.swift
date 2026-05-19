@@ -63,6 +63,7 @@ nonisolated struct CmuxTopProcessInfo: Sendable {
     let ttyDevice: Int64?
     let cmuxWorkspaceID: UUID?
     let cmuxSurfaceID: UUID?
+    let cmuxAttributionReason: String?
     let processGroupID: Int?
     let terminalProcessGroupID: Int?
     var cpuPercent: Double
@@ -116,6 +117,13 @@ nonisolated struct CmuxTopProcessInfo: Sendable {
 nonisolated struct CmuxTopProcessScope: Sendable {
     let workspaceID: UUID?
     let surfaceID: UUID?
+    let attributionReason: String
+
+    init(workspaceID: UUID?, surfaceID: UUID?, attributionReason: String) {
+        self.workspaceID = workspaceID
+        self.surfaceID = surfaceID
+        self.attributionReason = attributionReason
+    }
 }
 
 nonisolated final class CmuxTopProcessSnapshot: @unchecked Sendable {
@@ -135,7 +143,7 @@ nonisolated final class CmuxTopProcessSnapshot: @unchecked Sendable {
         )
     }
 
-    private init(
+    init(
         processes: [CmuxTopProcessInfo],
         sampledAt: Date,
         includesProcessDetails: Bool
@@ -314,7 +322,14 @@ nonisolated final class CmuxTopProcessSnapshot: @unchecked Sendable {
         }
 
         var visited: Set<Int> = []
-        return roots.compactMap { processTreeNode(pid: $0, allowedPIDs: allowedPIDs, visited: &visited) }
+        return roots.compactMap {
+            processTreeNode(
+                pid: $0,
+                allowedPIDs: allowedPIDs,
+                rootPIDs: explicitRootPIDs,
+                visited: &visited
+            )
+        }
     }
 
     func topLevelPIDs(for pids: Set<Int>) -> Set<Int> {
@@ -477,6 +492,7 @@ nonisolated final class CmuxTopProcessSnapshot: @unchecked Sendable {
     private func processTreeNode(
         pid: Int,
         allowedPIDs: Set<Int>,
+        rootPIDs: Set<Int>,
         visited: inout Set<Int>
     ) -> [String: Any]? {
         guard visited.insert(pid).inserted,
@@ -487,7 +503,14 @@ nonisolated final class CmuxTopProcessSnapshot: @unchecked Sendable {
         let childNodes = (childrenByParentPID[pid] ?? [])
             .filter { allowedPIDs.contains($0) }
             .sorted { processSortKey($0) < processSortKey($1) }
-            .compactMap { processTreeNode(pid: $0, allowedPIDs: allowedPIDs, visited: &visited) }
+            .compactMap {
+                processTreeNode(
+                    pid: $0,
+                    allowedPIDs: allowedPIDs,
+                    rootPIDs: rootPIDs,
+                    visited: &visited
+                )
+            }
 
         var payload: [String: Any] = [
             "kind": "process",
@@ -495,6 +518,7 @@ nonisolated final class CmuxTopProcessSnapshot: @unchecked Sendable {
             "ppid": process.parentPID,
             "name": process.name,
             "path": process.path ?? NSNull(),
+            "attribution_reason": attributionReason(for: process, allowedPIDs: allowedPIDs, rootPIDs: rootPIDs),
             "thread_count": process.threadCount,
             "memory_source": process.memorySource.rawValue,
             "resident_memory_source": process.residentMemorySource.rawValue,
@@ -527,6 +551,33 @@ nonisolated final class CmuxTopProcessSnapshot: @unchecked Sendable {
             payload["tpgid"] = NSNull()
         }
         return payload
+    }
+
+    private func attributionReason(
+        for process: CmuxTopProcessInfo,
+        allowedPIDs: Set<Int>,
+        rootPIDs: Set<Int>
+    ) -> String {
+        if let reason = process.cmuxAttributionReason {
+            return reason
+        }
+        if rootPIDs.contains(process.pid), isWebKitWebContentProcess(process) {
+            return "webview-root-pid"
+        }
+        if rootPIDs.contains(process.pid) {
+            return "explicit-root-pid"
+        }
+        if allowedPIDs.contains(process.parentPID) {
+            return "child-process"
+        }
+        return "included-process"
+    }
+
+    private func isWebKitWebContentProcess(_ process: CmuxTopProcessInfo) -> Bool {
+        if process.name.localizedCaseInsensitiveContains("WebContent") {
+            return true
+        }
+        return process.path?.localizedCaseInsensitiveContains("com.apple.WebKit.WebContent") == true
     }
 
     private func processSortKey(_ pid: Int) -> String {
@@ -665,6 +716,7 @@ nonisolated final class CmuxTopProcessSnapshot: @unchecked Sendable {
             ttyDevice: ttyDevice,
             cmuxWorkspaceID: cmuxScope?.workspaceID,
             cmuxSurfaceID: cmuxScope?.surfaceID,
+            cmuxAttributionReason: cmuxScope?.attributionReason,
             processGroupID: processGroupID,
             terminalProcessGroupID: terminalProcessGroupID,
             cpuPercent: 0,
