@@ -745,7 +745,7 @@ struct GrokTerminalNotificationEnricher {
         }
         let trimmedBody = body.trimmingCharacters(in: .whitespacesAndNewlines)
         return trimmedBody.range(
-            of: #"^turn complete in [0-9]+(?:\.[0-9]+)?s\.?$"#,
+            of: #"^turn complete(?:d)? in [0-9]+(?:\.[0-9]+)?s\.?$"#,
             options: [.regularExpression, .caseInsensitive]
         ) != nil
     }
