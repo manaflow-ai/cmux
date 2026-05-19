@@ -18896,7 +18896,7 @@ struct CMUXCLI {
             return .parsed(nil)
         }
         guard let values = rawValues as? [String] else {
-            return .parsed(nil)
+            return .invalid
         }
         return .parsed(values)
     }

@@ -488,6 +488,38 @@ def main() -> int:
             print(f"invalid_config_commands={invalid_config_commands!r}")
             return 1
 
+        write_raw_cmux_config(
+            home,
+            json.dumps({"notifications": {"ignoredClaudeNotificationTypes": "idle_prompt"}}),
+        )
+        before_invalid_type_count = len(server.commands)
+        invalid_type_idle = run_notification_hook(
+            cli_path,
+            server,
+            stale_env,
+            {
+                "session_id": f"sess-{uuid.uuid4().hex}",
+                "hook_event_name": "Notification",
+                "notification_type": "idle_prompt",
+                "message": "Invalid ignored type value should fall back to hook env",
+            },
+        )
+        if invalid_type_idle.returncode != 0 or invalid_type_idle.stdout.strip() != "OK":
+            print("FAIL: wrong-type cmux.json ignored types did not fall back to hook env")
+            print(f"stdout={invalid_type_idle.stdout!r}")
+            print(f"stderr={invalid_type_idle.stderr!r}")
+            print(f"commands={server.commands!r}")
+            return 1
+
+        invalid_type_commands = server.commands[before_invalid_type_count:]
+        if any(
+            line.startswith("notify_target_async ") or line.startswith("set_status claude_code Needs input ")
+            for line in invalid_type_commands
+        ):
+            print("FAIL: wrong-type cmux.json blocked hook env ignored types")
+            print(f"invalid_type_commands={invalid_type_commands!r}")
+            return 1
+
         legacy_env = env.copy()
         legacy_env.pop("CMUX_CLAUDE_IGNORED_NOTIFICATION_TYPES", None)
         write_cmux_config(home, {})
