@@ -14881,7 +14881,8 @@ struct CMUXCLI {
         }
     }
 
-    private static let omoPluginName = "oh-my-opencode"
+    private static let omoPluginName = "oh-my-openagent"
+    private static let legacyOmoPluginName = "oh-my-opencode"
     private static let openCodeSessionPluginConfigSpec = "./plugins/cmux-session.js"
 
     private func resolveExecutableInPath(_ name: String) -> String? {
@@ -14924,7 +14925,7 @@ struct CMUXCLI {
 
         // Keep the shadow package isolated from stale/yanked pins in the user's
         // opencode package.json. bun will update this manifest with the resolved
-        // oh-my-opencode version when installation succeeds.
+        // oh-my-openagent version when installation succeeds.
         let packageManifest: [String: Any] = [
             "dependencies": [
                 Self.omoPluginName: "latest"
@@ -14978,6 +14979,30 @@ struct CMUXCLI {
         try process.run()
         process.waitUntilExit()
         return process.terminationStatus
+    }
+
+    private static func omoInstallingPluginMessage() -> String {
+        String(localized: "cli.omo.installingPlugin", defaultValue: "Installing \(Self.omoPluginName) plugin (this may take a minute on first run)...")
+    }
+
+    private static func omoRetryingInstallMessage() -> String {
+        String(localized: "cli.omo.retryingInstallCleanState", defaultValue: "Retrying \(Self.omoPluginName) install with a clean shadow package state...")
+    }
+
+    private static func omoInstallFailedMessage() -> String {
+        String(localized: "cli.omo.installFailed", defaultValue: "Failed to install \(Self.omoPluginName). Try manually: npm install -g \(Self.omoPluginName)")
+    }
+
+    private static func omoNoPackageManagerMessage() -> String {
+        String(localized: "cli.omo.noPackageManager", defaultValue: "Neither bun nor npm found in PATH. Install \(Self.omoPluginName) manually: bunx \(Self.omoPluginName) install")
+    }
+
+    private static func omoPluginInstalledMessage() -> String {
+        String(localized: "cli.omo.pluginInstalled", defaultValue: "\(Self.omoPluginName) plugin installed")
+    }
+
+    private func omoWriteStatus(_ message: String) {
+        FileHandle.standardError.write(Data((message + "\n").utf8))
     }
 
     private func omoRequestedPort(from commandArgs: [String]) -> String? {
@@ -15068,7 +15093,7 @@ struct CMUXCLI {
         return "4096"
     }
 
-    /// Creates a shadow config directory that layers oh-my-opencode on top of the user's
+    /// Creates a shadow config directory that layers oh-my-openagent on top of the user's
     /// existing opencode config without modifying the original. Sets OPENCODE_CONFIG_DIR
     /// to point at the shadow directory.
     private func omoEnsurePlugin() throws {
@@ -15092,7 +15117,9 @@ struct CMUXCLI {
             config = [:]
         }
 
-        var plugins = Self.openCodePluginListRemovingSessionPlugin((config["plugin"] as? [Any]) ?? [])
+        var plugins = Self.openCodePluginListNormalizingOMOPlugin(
+            Self.openCodePluginListRemovingSessionPlugin((config["plugin"] as? [Any]) ?? [])
+        )
         if !Self.openCodePluginListContains(plugins, spec: Self.omoPluginName, allowVersionSuffix: true) {
             plugins.append(Self.omoPluginName)
         }
@@ -15117,8 +15144,14 @@ struct CMUXCLI {
 
         try writeOpenCodeSessionPlugin(in: shadowDir)
 
-        // Copy oh-my-opencode plugin config (jsonc) if the user has one
-        for filename in ["oh-my-opencode.json", "oh-my-opencode.jsonc"] {
+        // Copy oh-my-openagent plugin config (jsonc) if the user has one.
+        // Keep legacy filenames visible in the shadow dir so existing setups still load.
+        for filename in [
+            "oh-my-openagent.json",
+            "oh-my-openagent.jsonc",
+            "oh-my-opencode.json",
+            "oh-my-opencode.jsonc"
+        ] {
             let userFile = userDir.appendingPathComponent(filename)
             let shadowFile = shadowDir.appendingPathComponent(filename)
             if fm.fileExists(atPath: userFile.path) && !fm.fileExists(atPath: shadowFile.path) {
@@ -15131,7 +15164,7 @@ struct CMUXCLI {
         if !fm.fileExists(atPath: pluginPackageDir.path) {
             let installDir = shadowDir
             if let bunPath = resolveExecutableInPath("bun") {
-                FileHandle.standardError.write("Installing oh-my-opencode plugin (this may take a minute on first run)...\n".data(using: .utf8)!)
+                omoWriteStatus(Self.omoInstallingPluginMessage())
                 let installArguments = ["add", Self.omoPluginName]
                 let firstAttemptStatus = try omoRunPackageInstall(
                     executablePath: bunPath,
@@ -15139,7 +15172,7 @@ struct CMUXCLI {
                     currentDirectoryURL: installDir
                 )
                 if firstAttemptStatus != 0 {
-                    FileHandle.standardError.write("Retrying oh-my-opencode install with a clean shadow package state...\n".data(using: .utf8)!)
+                    omoWriteStatus(Self.omoRetryingInstallMessage())
                     try? fm.removeItem(at: shadowBunLockURL)
                     try? fm.removeItem(at: shadowNodeModules)
                     try omoEnsureShadowNodeModulesSymlink(shadowNodeModules: shadowNodeModules, userNodeModules: userNodeModules)
@@ -15149,38 +15182,46 @@ struct CMUXCLI {
                         currentDirectoryURL: installDir
                     )
                     if retryStatus != 0 {
-                        throw CLIError(message: "Failed to install oh-my-opencode. Try manually: npm install -g oh-my-opencode")
+                        throw CLIError(message: Self.omoInstallFailedMessage())
                     }
                 }
             } else if let npmPath = resolveExecutableInPath("npm") {
-                FileHandle.standardError.write("Installing oh-my-opencode plugin (this may take a minute on first run)...\n".data(using: .utf8)!)
+                omoWriteStatus(Self.omoInstallingPluginMessage())
                 let status = try omoRunPackageInstall(
                     executablePath: npmPath,
                     arguments: ["install", Self.omoPluginName],
                     currentDirectoryURL: installDir
                 )
                 if status != 0 {
-                    throw CLIError(message: "Failed to install oh-my-opencode. Try manually: npm install -g oh-my-opencode")
+                    throw CLIError(message: Self.omoInstallFailedMessage())
                 }
             } else {
-                throw CLIError(message: "Neither bun nor npm found in PATH. Install oh-my-opencode manually: bunx oh-my-opencode install")
+                throw CLIError(message: Self.omoNoPackageManagerMessage())
             }
-            FileHandle.standardError.write("oh-my-opencode plugin installed\n".data(using: .utf8)!)
+            omoWriteStatus(Self.omoPluginInstalledMessage())
         }
 
-        // Ensure tmux mode is enabled in oh-my-opencode config.
+        // Ensure tmux mode is enabled in oh-my-openagent config.
         // Without this, the TmuxSessionManager won't spawn visual panes even though
         // $TMUX is set (tmux.enabled defaults to false).
-        let omoConfigURL = shadowDir.appendingPathComponent("oh-my-opencode.json")
+        let omoConfigURL = shadowDir.appendingPathComponent("oh-my-openagent.json")
         var omoConfig: [String: Any]
         if let data = try? Data(contentsOf: omoConfigURL),
            let existing = try? JSONSerialization.jsonObject(with: data) as? [String: Any] {
             omoConfig = existing
         } else {
-            // Check if user has a config we symlinked, read from source
-            let userOmoConfig = userDir.appendingPathComponent("oh-my-opencode.json")
-            if let data = try? Data(contentsOf: userOmoConfig),
-               let existing = try? JSONSerialization.jsonObject(with: data) as? [String: Any] {
+            // Check if user has a current or legacy config and write the normalized
+            // shadow copy under the current package name.
+            let userOmoConfigURLs = [
+                userDir.appendingPathComponent("oh-my-openagent.json"),
+                userDir.appendingPathComponent("oh-my-opencode.json"),
+                shadowDir.appendingPathComponent("oh-my-opencode.json")
+            ]
+            if let existing = userOmoConfigURLs.lazy.compactMap({ url -> [String: Any]? in
+                guard let data = try? Data(contentsOf: url) else { return nil }
+                guard let object = try? JSONSerialization.jsonObject(with: data) else { return nil }
+                return object as? [String: Any]
+            }).first {
                 omoConfig = existing
                 // Remove the symlink so we can write our own copy
                 try? fm.removeItem(at: omoConfigURL)
@@ -15278,7 +15319,7 @@ struct CMUXCLI {
             }
         }
 
-        // Ensure oh-my-opencode plugin is registered and installed
+        // Ensure oh-my-openagent plugin is registered and installed
         try omoEnsurePlugin()
 
         let shimDirectory = try createOMOShimDirectory()
@@ -19951,6 +19992,103 @@ export default CMUXSessionRestore;
             }
             return false
         }
+    }
+
+    private static func openCodePluginEntryName(_ entry: Any) -> String? {
+        if let string = entry as? String {
+            return string
+        }
+        if let tuple = entry as? [Any], let string = tuple.first as? String {
+            return string
+        }
+        return nil
+    }
+
+    private static func openCodePluginSpecIsPackage(_ value: String, packageName: String) -> Bool {
+        value == packageName || value.hasPrefix("\(packageName)@")
+    }
+
+    private static func openCodePluginSpecIsPinnedPackage(_ value: String, packageName: String) -> Bool {
+        value.hasPrefix("\(packageName)@")
+    }
+
+    private static func openCodePluginEntryReplacingPackage(
+        _ entry: Any,
+        packageName: String,
+        replacementPackageName: String
+    ) -> Any {
+        guard let name = openCodePluginEntryName(entry),
+              openCodePluginSpecIsPackage(name, packageName: packageName)
+        else {
+            return entry
+        }
+
+        let replacementName = "\(replacementPackageName)\(name.dropFirst(packageName.count))"
+        if entry is String {
+            return replacementName
+        }
+        if var tuple = entry as? [Any] {
+            tuple[0] = replacementName
+            return tuple
+        }
+        return entry
+    }
+
+    private static func openCodePluginEntryIsOMOPackage(_ entry: Any) -> Bool {
+        guard let name = openCodePluginEntryName(entry) else { return false }
+        return openCodePluginSpecIsPackage(name, packageName: omoPluginName)
+            || openCodePluginSpecIsPackage(name, packageName: legacyOmoPluginName)
+    }
+
+    private static func preferredOMOPluginEntry(from plugins: [Any]) -> Any? {
+        var currentPinnedEntry: Any?
+        var currentEntry: Any?
+        var legacyEntry: Any?
+
+        for entry in plugins {
+            guard let name = openCodePluginEntryName(entry) else { continue }
+            if openCodePluginSpecIsPackage(name, packageName: omoPluginName) {
+                if openCodePluginSpecIsPinnedPackage(name, packageName: omoPluginName) {
+                    if currentPinnedEntry == nil {
+                        currentPinnedEntry = entry
+                    }
+                } else if currentEntry == nil {
+                    currentEntry = entry
+                }
+                continue
+            }
+
+            if legacyEntry == nil,
+               openCodePluginSpecIsPackage(name, packageName: legacyOmoPluginName) {
+                legacyEntry = openCodePluginEntryReplacingPackage(
+                    entry,
+                    packageName: legacyOmoPluginName,
+                    replacementPackageName: omoPluginName
+                )
+            }
+        }
+
+        return currentPinnedEntry ?? currentEntry ?? legacyEntry
+    }
+
+    private static func openCodePluginListNormalizingOMOPlugin(_ plugins: [Any]) -> [Any] {
+        guard let preferredEntry = preferredOMOPluginEntry(from: plugins) else {
+            return plugins
+        }
+
+        var insertedOMOPlugin = false
+        var normalized: [Any] = []
+        for entry in plugins {
+            if openCodePluginEntryIsOMOPackage(entry) {
+                if !insertedOMOPlugin {
+                    normalized.append(preferredEntry)
+                    insertedOMOPlugin = true
+                }
+            } else {
+                normalized.append(entry)
+            }
+        }
+        return normalized
     }
 
     private static func openCodePluginListRemovingSessionPlugin(_ plugins: [Any]) -> [Any] {
