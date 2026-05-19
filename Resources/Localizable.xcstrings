@@ -102462,13 +102462,30 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Only HTTPS remote images can be loaded."
+            "value": "Only HTTPS remote images can be loaded in the viewer."
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "HTTPS のリモート画像のみ読み込めます。"
+            "value": "ビューアー内で読み込めるのは HTTPS のリモート画像のみです。"
+          }
+        }
+      }
+    },
+    "markdown.web.remoteImageOpenURL": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Open image URL"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "画像 URL を開く"
           }
         }
       }
@@ -102479,13 +102496,30 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "This remote image URL cannot be loaded."
+            "value": "This remote image URL cannot be loaded in the viewer."
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "このリモート画像 URL は読み込めません。"
+            "value": "このリモート画像 URL はビューアー内で読み込めません。"
+          }
+        }
+      }
+    },
+    "markdown.web.remoteImageURL": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Image URL: {url}"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "画像 URL: {url}"
           }
         }
       }

@@ -106,6 +106,13 @@ body {
   color: var(--fgColor-default);
   font-weight: 600;
 }
+.cmux-remote-image-url {
+  flex-basis: 100%;
+  min-width: 0;
+  overflow-wrap: anywhere;
+  font: 12px/1.4 ui-monospace, SFMono-Regular, "SF Mono", Menlo, Consolas, monospace;
+  color: var(--fgColor-muted);
+}
 .cmux-remote-image-placeholder button {
   padding: 3px 7px;
   border: 1px solid var(--borderColor-default);
@@ -595,6 +602,42 @@ html { scroll-behavior: smooth; }
     });
   }
 
+  function appendRemoteImageText(placeholder, key, fallback, replacements) {
+    var detail = document.createElement('span');
+    detail.textContent = cmuxString(key, fallback, replacements || {});
+    placeholder.appendChild(detail);
+    return detail;
+  }
+
+  function appendRemoteImageURL(placeholder, href) {
+    var url = document.createElement('span');
+    url.className = 'cmux-remote-image-url';
+    url.textContent = cmuxString(
+      'remoteImageURL',
+      'Image URL: {url}',
+      { url: href }
+    );
+    placeholder.appendChild(url);
+    return url;
+  }
+
+  function appendRemoteImageButton(placeholder, label, handler) {
+    var button = document.createElement('button');
+    button.type = 'button';
+    button.textContent = label;
+    button.addEventListener('click', function(ev) {
+      ev.preventDefault();
+      ev.stopPropagation();
+      handler();
+    });
+    placeholder.appendChild(button);
+    return button;
+  }
+
+  function openRemoteImageURL(href) {
+    window.open(href, '_blank', 'noopener');
+  }
+
   function ensureRemoteImagePlaceholder(img) {
     if (!img || img.getAttribute('data-cmux-remote-processed') === '1') { return; }
     var raw = unescapeDataAttribute(img.getAttribute('data-cmux-remote-src'));
@@ -617,41 +660,47 @@ html { scroll-behavior: smooth; }
     title.textContent = cmuxString('remoteImageBlocked', 'Remote image blocked');
     placeholder.appendChild(title);
 
-    var detail = document.createElement('span');
     if (canOfferLoad) {
-      detail.textContent = cmuxString(
+      appendRemoteImageText(
+        placeholder,
         'remoteImageHostMessage',
         'cmux will not contact {host} until you load images from this host.',
         { host: info.host }
       );
-      placeholder.appendChild(detail);
-
-      var button = document.createElement('button');
-      button.type = 'button';
-      button.textContent = cmuxString(
-        'remoteImageLoadHost',
-        'Load images from {host}',
-        { host: info.host }
+      appendRemoteImageURL(placeholder, info.href);
+      appendRemoteImageButton(
+        placeholder,
+        cmuxString(
+          'remoteImageLoadHost',
+          'Load images from {host}',
+          { host: info.host }
+        ),
+        function() {
+          loadRemoteImagesForHost(info.host);
+        }
       );
-      button.addEventListener('click', function(ev) {
-        ev.preventDefault();
-        ev.stopPropagation();
-        loadRemoteImagesForHost(info.host);
-      });
-      placeholder.appendChild(button);
     } else if (!info.https) {
-      detail.textContent = cmuxString(
+      appendRemoteImageText(
+        placeholder,
         'remoteImageHTTPSOnly',
-        'Only HTTPS remote images can be loaded.'
+        'Only HTTPS remote images can be loaded in the viewer.'
       );
-      placeholder.appendChild(detail);
+      appendRemoteImageURL(placeholder, info.href);
     } else {
-      detail.textContent = cmuxString(
+      appendRemoteImageText(
+        placeholder,
         'remoteImageNotAllowed',
-        'This remote image URL cannot be loaded.'
+        'This remote image URL cannot be loaded in the viewer.'
       );
-      placeholder.appendChild(detail);
+      appendRemoteImageURL(placeholder, info.href);
     }
+    appendRemoteImageButton(
+      placeholder,
+      cmuxString('remoteImageOpenURL', 'Open image URL'),
+      function() {
+        openRemoteImageURL(info.href);
+      }
+    );
 
     img.parentNode.insertBefore(placeholder, img.nextSibling);
     if (canOfferLoad && remoteImageAllowedHosts[info.host]) {

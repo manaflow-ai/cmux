@@ -349,14 +349,24 @@ final class MarkdownPanelTests: XCTestCase {
             localized: "markdown.web.remoteImageLoadHost",
             defaultValue: "Load images from {host}"
         ).replacingOccurrences(of: "{host}", with: remoteImageHost)
+        let expectedOpenURLButton = String(
+            localized: "markdown.web.remoteImageOpenURL",
+            defaultValue: "Open image URL"
+        )
         let expectedHTTPSOnlyMessage = String(
             localized: "markdown.web.remoteImageHTTPSOnly",
-            defaultValue: "Only HTTPS remote images can be loaded."
+            defaultValue: "Only HTTPS remote images can be loaded in the viewer."
         )
         let expectedNotAllowedMessage = String(
             localized: "markdown.web.remoteImageNotAllowed",
-            defaultValue: "This remote image URL cannot be loaded."
+            defaultValue: "This remote image URL cannot be loaded in the viewer."
         )
+        func expectedURLText(_ url: String) -> String {
+            String(
+                localized: "markdown.web.remoteImageURL",
+                defaultValue: "Image URL: {url}"
+            ).replacingOccurrences(of: "{url}", with: url)
+        }
 
         try await renderMarkdown(
             """
@@ -385,6 +395,7 @@ final class MarkdownPanelTests: XCTestCase {
         let before = try await remoteImageSnapshot(in: webView)
         let beforeImages = try XCTUnwrap(before["images"] as? [[String: Any]])
         let beforePlaceholders = try XCTUnwrap(before["placeholders"] as? [String])
+        let beforeURLs = try XCTUnwrap(before["remoteImageURLs"] as? [String])
         let beforeButtons = try XCTUnwrap(before["buttons"] as? [String])
         let beforeCodeFiles = try XCTUnwrap(before["codeFiles"] as? [String])
         let beforeStyleCount = try XCTUnwrap(before["styleCount"] as? Int)
@@ -392,15 +403,20 @@ final class MarkdownPanelTests: XCTestCase {
         let beforeRenderedText = try XCTUnwrap(before["renderedText"] as? String)
         XCTAssertEqual(beforeImages.count, 6)
         XCTAssertEqual(beforePlaceholders.count, 5)
-        XCTAssertEqual(beforeButtons, [
-            expectedLoadButton,
-            expectedLoadButton
-        ])
+        XCTAssertEqual(beforeURLs.count, 5)
+        XCTAssertTrue(beforeURLs.contains(expectedURLText("https://images.example.com/pixel.png")))
+        XCTAssertTrue(beforeURLs.contains(expectedURLText("https://images.example.com/linked.png")))
+        XCTAssertTrue(beforeURLs.contains(expectedURLText("http://images.example.com/pixel.png")))
+        XCTAssertTrue(beforeURLs.contains(expectedURLText("https://localhost/pixel.png")))
+        XCTAssertTrue(beforeURLs.contains(expectedURLText("https://user:pass@images.example.com/secret.png")))
+        XCTAssertEqual(beforeButtons.filter { $0 == expectedLoadButton }.count, 2)
+        XCTAssertEqual(beforeButtons.filter { $0 == expectedOpenURLButton }.count, 5)
         XCTAssertEqual(beforeCodeFiles, ["README.md"])
         XCTAssertEqual(beforeStyleCount, 0)
         XCTAssertEqual(beforeBackgroundAttrCount, 0)
         XCTAssertFalse(beforeRenderedText.contains(expectedBlockedTitle))
         XCTAssertFalse(beforeRenderedText.contains(expectedLoadButton))
+        XCTAssertFalse(beforeRenderedText.contains(expectedOpenURLButton))
         XCTAssertTrue(beforeRenderedText.contains("Visible details summary"))
         XCTAssertFalse(beforeRenderedText.contains("Hidden details text"))
         let remoteManagedImages = beforeImages.filter { !((($0["remoteSrc"] as? String) ?? "").isEmpty) }
@@ -417,6 +433,27 @@ final class MarkdownPanelTests: XCTestCase {
         XCTAssertTrue(beforePlaceholders.contains { $0.contains(expectedHostMessage) })
         XCTAssertTrue(beforePlaceholders.contains { $0.contains(expectedHTTPSOnlyMessage) })
         XCTAssertTrue(beforePlaceholders.contains { $0.contains(expectedNotAllowedMessage) })
+        XCTAssertTrue(beforePlaceholders.contains { $0.contains("http://images.example.com/pixel.png") })
+        let openedHTTPImageURL = try await webView.evaluateJavaScript(
+            """
+            (function() {
+              var opened = [];
+              window.open = function(url, target, features) {
+                opened.push({ url: String(url), target: String(target || ''), features: String(features || '') });
+                return null;
+              };
+              var img = document.querySelector('img[alt="HTTP remote"]');
+              var id = img && img.getAttribute('data-cmux-remote-placeholder-id');
+              var placeholder = id && document.querySelector('[data-cmux-remote-placeholder-for="' + id + '"]');
+              var button = placeholder && placeholder.querySelector('button');
+              if (button) { button.click(); }
+              return opened;
+            })();
+            """
+        )
+        let openedHTTPImageURLs = try XCTUnwrap(openedHTTPImageURL as? [[String: Any]])
+        XCTAssertEqual(openedHTTPImageURLs.first?["url"] as? String, "http://images.example.com/pixel.png")
+        XCTAssertEqual(openedHTTPImageURLs.first?["target"] as? String, "_blank")
         let linkedPlaceholderClickResult = try await webView.evaluateJavaScript(
             """
             (function() {
@@ -457,10 +494,8 @@ final class MarkdownPanelTests: XCTestCase {
         XCTAssertTrue((loadingLinkedImage["src"] as? String ?? "").hasPrefix("cmux-remote-image://"))
         XCTAssertEqual(loadingLinkedImage["hidden"] as? Bool, true)
         XCTAssertEqual(loadingPlaceholders.count, 5)
-        XCTAssertEqual(loadingButtons, [
-            expectedLoadButton,
-            expectedLoadButton
-        ])
+        XCTAssertEqual(loadingButtons.filter { $0 == expectedLoadButton }.count, 2)
+        XCTAssertEqual(loadingButtons.filter { $0 == expectedOpenURLButton }.count, 5)
 
         _ = try await webView.evaluateJavaScript(
             """
@@ -492,7 +527,8 @@ final class MarkdownPanelTests: XCTestCase {
         XCTAssertEqual(credentialImage["src"] as? String, "")
         XCTAssertEqual(credentialImage["hidden"] as? Bool, true)
         XCTAssertEqual(afterPlaceholders.count, 3)
-        XCTAssertEqual(afterButtons, [])
+        XCTAssertEqual(afterButtons.filter { $0 == expectedLoadButton }.count, 0)
+        XCTAssertEqual(afterButtons.filter { $0 == expectedOpenURLButton }.count, 3)
         XCTAssertTrue(afterPlaceholders.contains { $0.contains(expectedHTTPSOnlyMessage) })
         XCTAssertTrue(afterPlaceholders.contains { $0.contains(expectedNotAllowedMessage) })
 
@@ -508,7 +544,8 @@ final class MarkdownPanelTests: XCTestCase {
         XCTAssertTrue((autoLoadingImage["src"] as? String ?? "").hasPrefix("cmux-remote-image://"))
         XCTAssertEqual(autoLoadingImage["hidden"] as? Bool, true)
         XCTAssertEqual(autoLoadingPlaceholders.count, 1)
-        XCTAssertEqual(autoLoadingButtons, [expectedLoadButton])
+        XCTAssertEqual(autoLoadingButtons.filter { $0 == expectedLoadButton }.count, 1)
+        XCTAssertEqual(autoLoadingButtons.filter { $0 == expectedOpenURLButton }.count, 1)
 
         _ = try await webView.evaluateJavaScript(
             """
@@ -526,7 +563,8 @@ final class MarkdownPanelTests: XCTestCase {
         XCTAssertEqual(autoFailedImage["src"] as? String, "")
         XCTAssertEqual(autoFailedImage["hidden"] as? Bool, true)
         XCTAssertEqual(autoFailedPlaceholders.count, 1)
-        XCTAssertEqual(autoFailedButtons, [expectedLoadButton])
+        XCTAssertEqual(autoFailedButtons.filter { $0 == expectedLoadButton }.count, 1)
+        XCTAssertEqual(autoFailedButtons.filter { $0 == expectedOpenURLButton }.count, 1)
     }
 
     func testMarkdownRemoteImageSecurityRejectsUnsafeTargets() throws {
@@ -764,6 +802,9 @@ final class MarkdownPanelTests: XCTestCase {
                   };
                 }),
                 placeholders: Array.prototype.slice.call(document.querySelectorAll('.cmux-remote-image-placeholder')).map(function(el) {
+                  return el.textContent || '';
+                }),
+                remoteImageURLs: Array.prototype.slice.call(document.querySelectorAll('.cmux-remote-image-url')).map(function(el) {
                   return el.textContent || '';
                 }),
                 buttons: Array.prototype.slice.call(document.querySelectorAll('.cmux-remote-image-placeholder button')).map(function(el) {

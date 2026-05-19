@@ -96,11 +96,19 @@ final class MarkdownViewerAssets {
             ),
             "remoteImageHTTPSOnly": String(
                 localized: "markdown.web.remoteImageHTTPSOnly",
-                defaultValue: "Only HTTPS remote images can be loaded."
+                defaultValue: "Only HTTPS remote images can be loaded in the viewer."
+            ),
+            "remoteImageOpenURL": String(
+                localized: "markdown.web.remoteImageOpenURL",
+                defaultValue: "Open image URL"
             ),
             "remoteImageNotAllowed": String(
                 localized: "markdown.web.remoteImageNotAllowed",
-                defaultValue: "This remote image URL cannot be loaded."
+                defaultValue: "This remote image URL cannot be loaded in the viewer."
+            ),
+            "remoteImageURL": String(
+                localized: "markdown.web.remoteImageURL",
+                defaultValue: "Image URL: {url}"
             )
         ]
         guard let data = try? JSONSerialization.data(withJSONObject: strings),
