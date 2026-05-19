@@ -444,6 +444,40 @@ func TestWebSocketPTYAnonymousSessionKeyCannotBeForged(t *testing.T) {
 	waitForHubSessionCount(t, hub, 0, 5*time.Second)
 }
 
+func TestWebSocketPTYAttachmentWithoutSessionIDIsAnonymous(t *testing.T) {
+	leasePath := filepath.Join(t.TempDir(), "lease.json")
+	server, hub := newTestWebSocketPTYServer(t, leasePath)
+
+	ctx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
+	defer cancel()
+
+	writeTestLease(t, leasePath, "no-session-a-token", "", true, time.Now().Add(time.Minute))
+	a := dialPTY(t, ctx, server.URL)
+	defer a.Close(websocket.StatusNormalClosure, "done")
+	sendAuthWithAttachment(t, ctx, a, "no-session-a-token", "", "same", 80, 24)
+	readReady(t, ctx, a)
+	if err := a.Write(ctx, websocket.MessageBinary, []byte("CMUX_NO_SESSION_MARK=one; export CMUX_NO_SESSION_MARK; printf 'NO_SESSION_A_READY\\n'\r")); err != nil {
+		t.Fatalf("write no-session A marker: %v", err)
+	}
+	waitForBinaryContains(t, ctx, a, "NO_SESSION_A_READY", 5*time.Second)
+
+	writeTestLease(t, leasePath, "no-session-b-token", "", true, time.Now().Add(time.Minute))
+	b := dialPTY(t, ctx, server.URL)
+	defer b.Close(websocket.StatusNormalClosure, "done")
+	sendAuthWithAttachment(t, ctx, b, "no-session-b-token", "", "same", 80, 24)
+	readReady(t, ctx, b)
+	if err := b.Write(ctx, websocket.MessageBinary, []byte("printf 'NO_SESSION_B:%s\\n' \"${CMUX_NO_SESSION_MARK-unset}\"; exit\r")); err != nil {
+		t.Fatalf("write no-session B probe: %v", err)
+	}
+	output := waitForBinaryContains(t, ctx, b, "NO_SESSION_B:unset", 5*time.Second)
+	if strings.Contains(output, "NO_SESSION_B:one") {
+		t.Fatalf("attachment without session_id reused another shell, output=%q", output)
+	}
+	waitForHubSessionCount(t, hub, 1, 5*time.Second)
+	_ = a.Close(websocket.StatusNormalClosure, "done")
+	waitForHubSessionCount(t, hub, 0, 5*time.Second)
+}
+
 func TestWebSocketPTYDropsBackpressuredAttachment(t *testing.T) {
 	hub := newWebSocketPTYHub(wsPTYServerConfig{
 		Shell:           "/bin/sh",

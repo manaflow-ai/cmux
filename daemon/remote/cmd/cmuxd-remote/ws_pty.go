@@ -43,12 +43,13 @@ type wsLease struct {
 }
 
 type wsAuthFrame struct {
-	Type         string `json:"type"`
-	Token        string `json:"token"`
-	SessionID    string `json:"session_id,omitempty"`
-	AttachmentID string `json:"attachment_id,omitempty"`
-	Cols         int    `json:"cols,omitempty"`
-	Rows         int    `json:"rows,omitempty"`
+	Type              string `json:"type"`
+	Token             string `json:"token"`
+	SessionID         string `json:"session_id,omitempty"`
+	AttachmentID      string `json:"attachment_id,omitempty"`
+	Cols              int    `json:"cols,omitempty"`
+	Rows              int    `json:"rows,omitempty"`
+	SessionIDExplicit bool   `json:"-"`
 }
 
 type wsPTYControlFrame struct {
@@ -260,11 +261,12 @@ func handleWebSocketPTY(w http.ResponseWriter, r *http.Request, cfg wsPTYServerC
 		_ = conn.Close(websocket.StatusPolicyViolation, "invalid auth")
 		return
 	}
+	auth.SessionID = strings.TrimSpace(auth.SessionID)
+	auth.SessionIDExplicit = auth.SessionID != ""
 	auth.Cols, auth.Rows = normalizePTYSize(auth.Cols, auth.Rows)
 	if auth.SessionID == "" {
 		auth.SessionID = "default"
 	}
-	auth.Cols, auth.Rows = normalizePTYSize(auth.Cols, auth.Rows)
 
 	if err := consumeWebSocketLease(cfg.PTYAuthLeaseFile, auth); err != nil {
 		if errors.Is(err, errWSLeaseMissing) {
@@ -553,7 +555,7 @@ func (h *wsPTYHub) attach(ctx context.Context, conn *websocket.Conn, auth wsAuth
 	}
 	cols, rows := normalizePTYSize(auth.Cols, auth.Rows)
 	attachmentID := strings.TrimSpace(auth.AttachmentID)
-	persistent := attachmentID != ""
+	persistent := attachmentID != "" && auth.SessionIDExplicit
 
 	h.mu.Lock()
 
