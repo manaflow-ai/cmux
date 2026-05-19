@@ -1320,6 +1320,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             payload["socketAcceptLoopAlive"] = "0"
             payload["socketPathMatches"] = "0"
             payload["socketPathExists"] = "0"
+            payload["socketPathOwnedByThisProcess"] = "0"
+            payload["socketPathStatus"] = "disabled"
             payload["socketFailureSignals"] = "socket_disabled"
             return
         }
@@ -1343,6 +1345,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         payload["socketAcceptLoopAlive"] = health.acceptLoopAlive ? "1" : "0"
         payload["socketPathMatches"] = health.socketPathMatches ? "1" : "0"
         payload["socketPathExists"] = health.socketPathExists ? "1" : "0"
+        payload["socketPathOwnedByThisProcess"] = health.socketPathOwnedByThisProcess ? "1" : "0"
+        payload["socketPathStatus"] = health.socketPathStatus
         payload["socketFailureSignals"] = failureSignals.joined(separator: ",")
     }
 
@@ -10510,6 +10514,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
                 "socketAcceptLoopAlive": "0",
                 "socketPathMatches": "0",
                 "socketPathExists": "0",
+                "socketPathOwnedByThisProcess": "0",
+                "socketPathStatus": "disabled",
                 "socketFailureSignals": "socket_disabled",
             ], at: path)
             return
@@ -10520,6 +10526,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             "socketMode": config.mode.rawValue,
             "socketReady": "pending",
             "socketPingResponse": "",
+            "socketPathOwnedByThisProcess": "pending",
+            "socketPathStatus": "pending",
         ], at: path)
 
         let socketPath = config.path
@@ -10554,6 +10562,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
                         "socketAcceptLoopAlive": health.acceptLoopAlive ? "1" : "0",
                         "socketPathMatches": health.socketPathMatches ? "1" : "0",
                         "socketPathExists": health.socketPathExists ? "1" : "0",
+                        "socketPathOwnedByThisProcess": health.socketPathOwnedByThisProcess ? "1" : "0",
+                        "socketPathStatus": health.socketPathStatus,
                         "socketFailureSignals": failureSignals,
                     ], at: dataPath)
                     guard isReady || isTimedOut else { return }

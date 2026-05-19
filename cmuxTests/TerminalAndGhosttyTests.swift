@@ -5006,7 +5006,9 @@ final class TerminalControllerSocketListenerHealthTests: XCTestCase {
             isRunning: true,
             acceptLoopAlive: true,
             socketPathMatches: true,
-            socketPathExists: true
+            socketPathExists: true,
+            socketPathOwnedByThisProcess: true,
+            socketPathStatus: "owned_by_this_process"
         )
         XCTAssertTrue(health.isHealthy)
         XCTAssertTrue(health.failureSignals.isEmpty)
@@ -5017,7 +5019,9 @@ final class TerminalControllerSocketListenerHealthTests: XCTestCase {
             isRunning: false,
             acceptLoopAlive: false,
             socketPathMatches: false,
-            socketPathExists: false
+            socketPathExists: false,
+            socketPathOwnedByThisProcess: false,
+            socketPathStatus: "missing"
         )
         XCTAssertFalse(health.isHealthy)
         XCTAssertEqual(
