@@ -3180,7 +3180,8 @@ final class SocketListenerAcceptPolicyTests: XCTestCase {
             detectedSnapshots: [
                 RestorableAgentSessionIndex.PanelKey(workspaceId: workspaceId, panelId: panelId): (
                     snapshot: detectedSnapshot,
-                    updatedAt: 999
+                    updatedAt: 999,
+                    processIDs: [123]
                 ),
             ]
         )
@@ -3246,7 +3247,8 @@ final class SocketListenerAcceptPolicyTests: XCTestCase {
             detectedSnapshots: [
                 RestorableAgentSessionIndex.PanelKey(workspaceId: workspaceId, panelId: panelId): (
                     snapshot: detectedSnapshot,
-                    updatedAt: 999
+                    updatedAt: 999,
+                    processIDs: [456]
                 ),
             ]
         )

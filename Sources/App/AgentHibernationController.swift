@@ -1,4 +1,5 @@
 import AppKit
+import Darwin
 import Foundation
 
 struct AgentHibernationPanelKey: Hashable, Sendable {
@@ -55,6 +56,8 @@ struct AgentHibernationRecord {
     let hasUnconfirmedTerminalInput: Bool
     let lastActivityAt: TimeInterval
     let isProtected: Bool
+    let hasLiveProcess: Bool
+    let processIDs: Set<Int>
 }
 
 @MainActor
@@ -67,6 +70,11 @@ final class AgentHibernationController {
         let dueAt: TimeInterval
     }
 
+    private struct TailFingerprintSample {
+        let fingerprint: String
+        let stableSince: TimeInterval
+    }
+
     private let timerQueue = DispatchQueue(label: "com.cmux.agent-hibernation", qos: .utility)
     private var timer: DispatchSourceTimer?
     private var settingsObserver: NSObjectProtocol?
@@ -74,6 +82,7 @@ final class AgentHibernationController {
     private var terminalInputByPanel: [AgentHibernationPanelKey: TimeInterval] = [:]
     private var lifecycleChangeByPanel: [AgentHibernationPanelKey: TimeInterval] = [:]
     private var confirmations: [AgentHibernationPanelKey: Confirmation] = [:]
+    private var tailFingerprintSamples: [AgentHibernationPanelKey: TailFingerprintSample] = [:]
 
     private init() {}
 
@@ -105,7 +114,8 @@ final class AgentHibernationController {
     }
 
     func recordTerminalOutput(workspaceId: UUID, panelId: UUID, recordedAt: Date = Date()) {
-        recordActivity(workspaceId: workspaceId, panelId: panelId, recordedAt: recordedAt)
+        // Agent TUIs often redraw without adding scrollback. Hibernation idleness is
+        // based on stable scrollback tail samples, not every PTY write.
     }
 
     func recordTerminalInput(workspaceId: UUID, panelId: UUID, recordedAt: Date = Date()) {
@@ -173,15 +183,36 @@ final class AgentHibernationController {
             lifecycleChangeByPanel: lifecycleChangeByPanel
         )
         let nowTime = now.timeIntervalSince1970
+        let isLiveByKey = Dictionary(uniqueKeysWithValues: records.map { record in
+            (
+                record.key,
+                (record.terminalPanel.surface.hasLiveSurface || record.hasLiveProcess) &&
+                    !record.terminalPanel.isAgentHibernated
+            )
+        })
+        let liveRestorableCount = isLiveByKey.values.filter { $0 }.count
+        let shouldMaintainTailSamples = liveRestorableCount >= settings.maxLiveTerminals
+        var effectiveActivityByKey: [AgentHibernationPanelKey: TimeInterval] = [:]
         let plannerInputs = records.map { record in
-            AgentHibernationPlannerInput(
+            let isLive = isLiveByKey[record.key] ?? false
+            var effectiveLastActivityAt = record.lastActivityAt
+            if shouldMaintainTailSamples,
+               isLive,
+               !record.isProtected,
+               record.lifecycle.allowsHibernation,
+               !record.hasUnconfirmedTerminalInput,
+               let tailActivityAt = updateTailFingerprintSample(record: record, now: nowTime) {
+                effectiveLastActivityAt = max(record.lastActivityAt, tailActivityAt)
+            }
+            effectiveActivityByKey[record.key] = effectiveLastActivityAt
+            return AgentHibernationPlannerInput(
                 key: record.key,
                 hasRestorableAgent: true,
-                isLive: record.terminalPanel.surface.hasLiveSurface && !record.terminalPanel.isAgentHibernated,
+                isLive: isLive,
                 isProtected: record.isProtected,
                 lifecycle: record.lifecycle,
                 hasUnconfirmedTerminalInput: record.hasUnconfirmedTerminalInput,
-                lastActivityAt: record.lastActivityAt
+                lastActivityAt: effectiveLastActivityAt
             )
         }
         let selectedKeys = AgentHibernationPlanner.selectedPanelKeys(
@@ -193,19 +224,25 @@ final class AgentHibernationController {
         pruneTrackingState(currentKeys: currentKeys, selectedKeys: selectedKeys)
 
         for record in records where selectedKeys.contains(record.key) {
-            evaluateConfirmation(record: record, settings: settings, now: nowTime)
+            evaluateConfirmation(
+                record: record,
+                effectiveLastActivityAt: effectiveActivityByKey[record.key] ?? record.lastActivityAt,
+                settings: settings,
+                now: nowTime
+            )
         }
     }
 
     private func evaluateConfirmation(
         record: AgentHibernationRecord,
+        effectiveLastActivityAt: TimeInterval,
         settings: AgentHibernationSettings.Values,
         now: TimeInterval
     ) {
         guard record.lifecycle.allowsHibernation,
               !record.hasUnconfirmedTerminalInput,
               !record.isProtected,
-              record.terminalPanel.surface.hasLiveSurface,
+              record.terminalPanel.surface.hasLiveSurface || record.hasLiveProcess,
               !record.terminalPanel.isAgentHibernated else {
             confirmations.removeValue(forKey: record.key)
             return
@@ -213,31 +250,86 @@ final class AgentHibernationController {
 
         if let confirmation = confirmations[record.key] {
             guard now >= confirmation.dueAt else { return }
-            let lastActivity = activityByPanel[record.key] ?? record.lastActivityAt
-            guard lastActivity <= confirmation.sampledAt else {
+            guard effectiveLastActivityAt <= confirmation.sampledAt else {
                 confirmations.removeValue(forKey: record.key)
                 return
             }
-            guard let fingerprint = tailFingerprint(for: record.terminalPanel),
+            guard let fingerprint = hibernationFingerprint(for: record),
                   fingerprint == confirmation.fingerprint else {
                 confirmations.removeValue(forKey: record.key)
                 return
             }
             confirmations.removeValue(forKey: record.key)
+            terminateScopedProcessesForHibernation(record: record)
             record.workspace.enterAgentHibernation(
                 panelId: record.key.panelId,
                 agent: record.agent,
-                lastActivityAt: Date(timeIntervalSince1970: record.lastActivityAt)
+                lastActivityAt: Date(timeIntervalSince1970: effectiveLastActivityAt)
             )
             return
         }
 
-        guard let fingerprint = tailFingerprint(for: record.terminalPanel) else { return }
+        guard let fingerprint = hibernationFingerprint(for: record) else { return }
         confirmations[record.key] = Confirmation(
             fingerprint: fingerprint,
             sampledAt: now,
             dueAt: now + settings.confirmationSeconds
         )
+    }
+
+    private func updateTailFingerprintSample(
+        record: AgentHibernationRecord,
+        now: TimeInterval
+    ) -> TimeInterval? {
+        guard !record.terminalPanel.isAgentHibernated,
+              record.terminalPanel.surface.hasLiveSurface || record.hasLiveProcess,
+              let fingerprint = hibernationFingerprint(for: record) else {
+            tailFingerprintSamples.removeValue(forKey: record.key)
+            confirmations.removeValue(forKey: record.key)
+            return nil
+        }
+
+        if let sample = tailFingerprintSamples[record.key],
+           sample.fingerprint == fingerprint {
+            return sample.stableSince
+        }
+
+        let stableSince = now
+        tailFingerprintSamples[record.key] = TailFingerprintSample(
+            fingerprint: fingerprint,
+            stableSince: stableSince
+        )
+        confirmations.removeValue(forKey: record.key)
+        return stableSince
+    }
+
+    private func hibernationFingerprint(for record: AgentHibernationRecord) -> String? {
+        if let tail = tailFingerprint(for: record.terminalPanel) {
+            return Self.scrollbackFingerprint(tail: tail, processIDs: record.processIDs)
+        }
+        guard record.hasLiveProcess,
+              !record.terminalPanel.surface.hasLiveSurface else { return nil }
+        return Self.processFallbackFingerprint(
+            kind: record.agent.kind,
+            sessionId: record.agent.sessionId,
+            processIDs: record.processIDs
+        )
+    }
+
+    nonisolated static func scrollbackFingerprint(tail: String, processIDs: Set<Int>) -> String {
+        "scrollback:\(processIdentityFingerprint(processIDs)):\(tail)"
+    }
+
+    nonisolated static func processFallbackFingerprint(
+        kind: RestorableAgentKind,
+        sessionId: String,
+        processIDs: Set<Int>
+    ) -> String {
+        "process:\(kind.rawValue):\(sessionId):\(processIdentityFingerprint(processIDs))"
+    }
+
+    private nonisolated static func processIdentityFingerprint(_ processIDs: Set<Int>) -> String {
+        processIDs.sorted().map(String.init).joined(separator: ",")
     }
 
     private func tailFingerprint(for terminalPanel: TerminalPanel) -> String? {
@@ -248,11 +340,35 @@ final class AgentHibernationController {
         )
     }
 
+    private func terminateScopedProcessesForHibernation(record: AgentHibernationRecord) {
+        guard !record.processIDs.isEmpty else { return }
+        let currentProcessID = getpid()
+        let currentProcessGroupID = getpgrp()
+        var signaledProcessGroups: Set<pid_t> = []
+        for rawPID in record.processIDs.sorted(by: >) {
+            guard rawPID > 0, rawPID <= Int(Int32.max) else { continue }
+            let pid = pid_t(rawPID)
+            guard pid != currentProcessID else { continue }
+            guard let process = CmuxTopProcessSnapshot.processArgumentsAndEnvironment(for: rawPID),
+                  process.matchesCMUXScope(workspaceId: record.key.workspaceId, surfaceId: record.key.panelId) else {
+                continue
+            }
+            let processGroupID = getpgid(pid)
+            if processGroupID > 1,
+               processGroupID != currentProcessGroupID,
+               signaledProcessGroups.insert(processGroupID).inserted {
+                _ = kill(-processGroupID, SIGTERM)
+            }
+            _ = kill(pid, SIGTERM)
+        }
+    }
+
     private func clearTrackingState() {
         activityByPanel.removeAll(keepingCapacity: false)
         terminalInputByPanel.removeAll(keepingCapacity: false)
         lifecycleChangeByPanel.removeAll(keepingCapacity: false)
         confirmations.removeAll(keepingCapacity: false)
+        tailFingerprintSamples.removeAll(keepingCapacity: false)
     }
 
     private func pruneTrackingState(
@@ -265,6 +381,7 @@ final class AgentHibernationController {
         confirmations = confirmations.filter { key, _ in
             currentKeys.contains(key) && selectedKeys.contains(key)
         }
+        tailFingerprintSamples = tailFingerprintSamples.filter { currentKeys.contains($0.key) }
     }
 }
 
@@ -312,7 +429,9 @@ extension AppDelegate {
                             lifecycle: lifecycle,
                             hasUnconfirmedTerminalInput: terminalInputAt > lifecycleChangeAt,
                             lastActivityAt: max(indexActivity, localActivity, createdAt),
-                            isProtected: workspaceIsVisible && visiblePanelIds.contains(panelId)
+                            isProtected: workspaceIsVisible && visiblePanelIds.contains(panelId),
+                            hasLiveProcess: index.hasLiveProcess(workspaceId: workspace.id, panelId: panelId),
+                            processIDs: index.processIDs(workspaceId: workspace.id, panelId: panelId)
                         )
                     )
                 }
