@@ -8500,8 +8500,7 @@ final class Workspace: Identifiable, ObservableObject {
     }
 
     private func hasBackgroundSurfaceStartWork(for panel: TerminalPanel) -> Bool {
-        panel.surface.hasDeferredStartupWorkForBackgroundStart() ||
-            pendingTerminalInputObserversByPanelId[panel.id]?.isEmpty == false
+        panel.surface.hasDeferredStartupWorkForBackgroundStart()
     }
 
     private var backgroundPrimeTerminalPanelsNeedingSurfaceStart: [TerminalPanel] {
