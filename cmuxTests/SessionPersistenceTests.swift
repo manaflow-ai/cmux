@@ -496,6 +496,37 @@ final class SessionPersistenceTests: XCTestCase {
         XCTAssertFalse(AppDelegate.shouldPersistSnapshotOnWindowUnregister(isTerminatingApp: true))
     }
 
+    func testMainWindowRegistrationSnapshotSavePolicySkipsStartupRestore() {
+        XCTAssertTrue(
+            AppDelegate.shouldSaveSessionSnapshotAfterMainWindowRegistration(
+                isTerminatingApp: false,
+                didApplyStartupSessionRestore: false,
+                isApplyingSessionRestore: false
+            )
+        )
+        XCTAssertFalse(
+            AppDelegate.shouldSaveSessionSnapshotAfterMainWindowRegistration(
+                isTerminatingApp: true,
+                didApplyStartupSessionRestore: false,
+                isApplyingSessionRestore: false
+            )
+        )
+        XCTAssertFalse(
+            AppDelegate.shouldSaveSessionSnapshotAfterMainWindowRegistration(
+                isTerminatingApp: false,
+                didApplyStartupSessionRestore: true,
+                isApplyingSessionRestore: false
+            )
+        )
+        XCTAssertFalse(
+            AppDelegate.shouldSaveSessionSnapshotAfterMainWindowRegistration(
+                isTerminatingApp: false,
+                didApplyStartupSessionRestore: false,
+                isApplyingSessionRestore: true
+            )
+        )
+    }
+
     func testShouldSkipSessionSaveDuringRestorePolicy() {
         XCTAssertTrue(
             AppDelegate.shouldSkipSessionSaveDuringRestore(
@@ -1273,7 +1304,8 @@ final class SessionPersistenceTests: XCTestCase {
                 includeScrollback: false,
                 restorableAgentIndex: staleIndex
             )
-            XCTAssertEqual(initialSnapshot.panels.first?.terminal?.agent?.kind, scenario.kind)
+            let expectedKind: RestorableAgentKind = scenario.kind == .pi ? .custom("pi") : scenario.kind
+            XCTAssertEqual(initialSnapshot.panels.first?.terminal?.agent?.kind, expectedKind)
 
             workspace.updatePanelShellActivityState(panelId: panelId, state: .promptIdle)
             workspace.updatePanelShellActivityState(panelId: panelId, state: .commandRunning)
@@ -1282,7 +1314,7 @@ final class SessionPersistenceTests: XCTestCase {
                 includeScrollback: false,
                 restorableAgentIndex: staleIndex
             )
-            XCTAssertNil(staleSnapshot.panels.first?.terminal?.agent, scenario.kind.rawValue)
+            XCTAssertNil(staleSnapshot.panels.first?.terminal?.agent, expectedKind.rawValue)
         }
     }
 
@@ -1443,6 +1475,12 @@ final class SessionPersistenceTests: XCTestCase {
                 "source": "process",
             ],
         ]
+        if kind == .claude {
+            let transcriptURL = home.appendingPathComponent("\(sessionId).jsonl", isDirectory: false)
+            try #"{"type":"assistant","message":{"content":[{"type":"text","text":"ok"}]}}"#
+                .write(to: transcriptURL, atomically: true, encoding: .utf8)
+            sessionRecord["transcriptPath"] = transcriptURL.path
+        }
         if let pid {
             sessionRecord["pid"] = pid
         }
@@ -1943,6 +1981,70 @@ final class SocketListenerAcceptPolicyTests: XCTestCase {
         XCTAssertEqual(
             snapshot.resumeCommand,
             "cd '/Users/lawrence/fun/cmuxterm-hq' && '/Users/lawrence/.bun/bin/codex' 'resume' '019e2bb9-5544-7201-a517-d77bb00d724f' '--yolo' '--model' 'gpt-5.4'"
+        )
+    }
+
+    func testCodexTeamsResumeCommandUsesWrapperSubcommand() {
+        let snapshot = SessionRestorableAgentSnapshot(
+            kind: .codex,
+            sessionId: "019dad34-d218-7943-b81a-eddac5c87951",
+            workingDirectory: "/Users/example/repo",
+            launchCommand: AgentLaunchCommandSnapshot(
+                launcher: "codexTeams",
+                executablePath: "/usr/local/bin/cmux",
+                arguments: [
+                    "/usr/local/bin/cmux",
+                    "codex-teams",
+                    "--model",
+                    "gpt-5.4",
+                    "--image",
+                    "/tmp/team screenshot.png",
+                    "--sandbox",
+                    "danger-full-access",
+                    "initial prompt should not replay"
+                ],
+                workingDirectory: "/Users/example/repo",
+                environment: ["CODEX_HOME": "/tmp/codex home"],
+                capturedAt: 123,
+                source: "environment"
+            )
+        )
+
+        XCTAssertEqual(
+            snapshot.resumeCommand,
+            "cd '/Users/example/repo' && 'env' 'CODEX_HOME=/tmp/codex home' '/usr/local/bin/cmux' 'codex-teams' 'resume' '019dad34-d218-7943-b81a-eddac5c87951' '--model' 'gpt-5.4' '--sandbox' 'danger-full-access'"
+        )
+    }
+
+    func testCodexTeamsResumeCommandDropsOriginalForkTarget() {
+        let snapshot = SessionRestorableAgentSnapshot(
+            kind: .codex,
+            sessionId: "019dad34-d218-7943-b81a-eddac5c87952",
+            workingDirectory: "/Users/example/repo",
+            launchCommand: AgentLaunchCommandSnapshot(
+                launcher: "codexTeams",
+                executablePath: "/usr/local/bin/cmux",
+                arguments: [
+                    "/usr/local/bin/cmux",
+                    "codex-teams",
+                    "fork",
+                    "019dad34-d218-7943-b81a-eddac5c87951",
+                    "--model",
+                    "gpt-5.4",
+                    "stale fork prompt",
+                    "--sandbox",
+                    "danger-full-access"
+                ],
+                workingDirectory: "/Users/example/repo",
+                environment: ["CODEX_HOME": "/tmp/codex home"],
+                capturedAt: 123,
+                source: "environment"
+            )
+        )
+
+        XCTAssertEqual(
+            snapshot.resumeCommand,
+            "cd '/Users/example/repo' && 'env' 'CODEX_HOME=/tmp/codex home' '/usr/local/bin/cmux' 'codex-teams' 'resume' '019dad34-d218-7943-b81a-eddac5c87952' '--model' 'gpt-5.4' '--sandbox' 'danger-full-access'"
         )
     }
 
@@ -3287,6 +3389,1151 @@ final class SidebarDragFailsafePolicyTests: XCTestCase {
 }
 
 extension SessionPersistenceTests {
+    func testSurfaceResumeBindingStartupInputUsesExactCommand() {
+        let binding = SurfaceResumeBindingSnapshot(
+            name: "OpenCode",
+            kind: "opencode",
+            command: "opencode --session ses_123",
+            cwd: "/tmp/project",
+            checkpointId: "ses_123",
+            source: "cli",
+            updatedAt: 1_777_777_777
+        )
+
+        XCTAssertEqual(binding.startupInput, "opencode --session ses_123\n")
+    }
+
+    func testSurfaceResumeBindingStartupInputScopesEnvironmentToCommand() {
+        let binding = SurfaceResumeBindingSnapshot(
+            command: "cd '/tmp/project' && codex resume session",
+            environment: [
+                "SPACED": "  keep exact  ",
+                "CODEX_HOME": "/tmp/codex home",
+                "EMPTY": "",
+                "ANTHROPIC_API_KEY": "should-not-persist",
+            ]
+        )
+
+        XCTAssertEqual(
+            binding.startupInput,
+            "'/usr/bin/env' 'CODEX_HOME=/tmp/codex home' 'EMPTY=' 'SPACED=  keep exact  ' '/bin/zsh' '-lc' 'cd '\\''/tmp/project'\\'' && codex resume session'\n"
+        )
+    }
+
+    func testSurfaceResumeBindingStartupInputUsesLauncherScriptWhenLong() throws {
+        let tempDir = FileManager.default.temporaryDirectory
+            .appendingPathComponent("cmux-surface-resume-test-\(UUID().uuidString)", isDirectory: true)
+        try FileManager.default.createDirectory(at: tempDir, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: tempDir) }
+
+        let longPath = "/tmp/" + String(repeating: "nested-path-", count: 120)
+        let binding = SurfaceResumeBindingSnapshot(
+            kind: "codex",
+            command: "codex resume session --add-dir \(longPath)",
+            environment: [
+                "CODEX_HOME": "/tmp/codex home",
+            ]
+        )
+
+        let inlineInput = try XCTUnwrap(binding.inlineStartupInput)
+        XCTAssertGreaterThan(inlineInput.utf8.count, SurfaceResumeBindingSnapshot.maxInlineStartupInputBytes)
+
+        let input = try XCTUnwrap(binding.startupInputWithLauncherScript(temporaryDirectory: tempDir))
+        XCTAssertLessThanOrEqual(input.utf8.count, SurfaceResumeBindingSnapshot.maxInlineStartupInputBytes)
+        XCTAssertTrue(input.hasPrefix("/bin/zsh '"))
+        XCTAssertFalse(input.contains(longPath))
+
+        let trimmedInput = input.trimmingCharacters(in: .whitespacesAndNewlines)
+        let prefix = "/bin/zsh '"
+        let scriptPath = String(trimmedInput.dropFirst(prefix.count).dropLast())
+        let scriptContents = try String(contentsOfFile: scriptPath, encoding: .utf8)
+        XCTAssertTrue(scriptContents.contains(longPath))
+        XCTAssertTrue(scriptContents.contains("'CODEX_HOME=/tmp/codex home'"))
+        XCTAssertTrue(scriptContents.contains("codex resume session"))
+    }
+
+    @MainActor
+    func testSnapshotPrefersFreshProcessDetectedSurfaceResumeBinding() throws {
+        let workspace = Workspace()
+        let panelId = try XCTUnwrap(workspace.focusedPanelId)
+        XCTAssertTrue(
+            workspace.setSurfaceResumeBinding(
+                SurfaceResumeBindingSnapshot(
+                    name: "tmux",
+                    kind: "tmux",
+                    command: "tmux attach -t stale",
+                    cwd: "/tmp/old",
+                    checkpointId: "stale",
+                    source: "process-detected",
+                    updatedAt: 10
+                ),
+                panelId: panelId
+            )
+        )
+
+        let bindingIndex = SurfaceResumeBindingIndex(bindingsByPanel: [
+            SurfaceResumeBindingIndex.PanelKey(workspaceId: workspace.id, panelId: panelId): SurfaceResumeBindingSnapshot(
+                name: "tmux",
+                kind: "tmux",
+                command: "tmux attach -t fresh",
+                cwd: "/tmp/new",
+                checkpointId: "fresh",
+                source: "process-detected",
+                updatedAt: 20
+            ),
+        ])
+        let snapshot = workspace.sessionSnapshot(
+            includeScrollback: false,
+            surfaceResumeBindingIndex: bindingIndex
+        )
+
+        XCTAssertEqual(snapshot.panels.first?.terminal?.resumeBinding?.checkpointId, "fresh")
+        XCTAssertEqual(snapshot.panels.first?.terminal?.resumeBinding?.command, "tmux attach -t fresh")
+        XCTAssertEqual(
+            workspace.sessionSnapshot(includeScrollback: false).panels.first?.terminal?.resumeBinding?.checkpointId,
+            "fresh"
+        )
+    }
+
+    @MainActor
+    func testSnapshotUsesProcessDetectedSurfaceResumeBindingAfterWorkspaceMove() throws {
+        let originalWorkspaceId = UUID()
+        let workspace = Workspace()
+        let panelId = try XCTUnwrap(workspace.focusedPanelId)
+        let bindingIndex = SurfaceResumeBindingIndex(bindingsByPanel: [
+            SurfaceResumeBindingIndex.PanelKey(workspaceId: originalWorkspaceId, panelId: panelId): SurfaceResumeBindingSnapshot(
+                name: "tmux",
+                kind: "tmux",
+                command: "tmux attach -t moved",
+                cwd: "/tmp/moved",
+                checkpointId: "moved",
+                source: "process-detected",
+                updatedAt: 20
+            ),
+        ])
+        let snapshot = workspace.sessionSnapshot(
+            includeScrollback: false,
+            surfaceResumeBindingIndex: bindingIndex
+        )
+
+        XCTAssertEqual(snapshot.panels.first?.terminal?.resumeBinding?.checkpointId, "moved")
+        XCTAssertEqual(snapshot.panels.first?.terminal?.resumeBinding?.command, "tmux attach -t moved")
+        XCTAssertEqual(
+            workspace.sessionSnapshot(includeScrollback: false).panels.first?.terminal?.resumeBinding?.checkpointId,
+            "moved"
+        )
+    }
+
+    @MainActor
+    func testSnapshotKeepsExplicitSurfaceResumeBindingOverDetectedBinding() throws {
+        let workspace = Workspace()
+        let panelId = try XCTUnwrap(workspace.focusedPanelId)
+        XCTAssertTrue(
+            workspace.setSurfaceResumeBinding(
+                SurfaceResumeBindingSnapshot(
+                    name: "Codex",
+                    kind: "codex",
+                    command: "codex resume explicit",
+                    cwd: "/tmp/explicit",
+                    checkpointId: "explicit",
+                    source: "cli",
+                    updatedAt: 10
+                ),
+                panelId: panelId
+            )
+        )
+
+        let bindingIndex = SurfaceResumeBindingIndex(bindingsByPanel: [
+            SurfaceResumeBindingIndex.PanelKey(workspaceId: workspace.id, panelId: panelId): SurfaceResumeBindingSnapshot(
+                name: "tmux",
+                kind: "tmux",
+                command: "tmux attach -t detected",
+                cwd: "/tmp/detected",
+                checkpointId: "detected",
+                source: "process-detected",
+                updatedAt: 20
+            ),
+        ])
+        let snapshot = workspace.sessionSnapshot(
+            includeScrollback: false,
+            surfaceResumeBindingIndex: bindingIndex
+        )
+
+        XCTAssertEqual(snapshot.panels.first?.terminal?.resumeBinding?.checkpointId, "explicit")
+        XCTAssertEqual(snapshot.panels.first?.terminal?.resumeBinding?.command, "codex resume explicit")
+    }
+
+    @MainActor
+    func testSnapshotPrefersProcessDetectedTmuxOverAgentHookBinding() throws {
+        let workspace = Workspace()
+        let panelId = try XCTUnwrap(workspace.focusedPanelId)
+        XCTAssertTrue(
+            workspace.setSurfaceResumeBinding(
+                SurfaceResumeBindingSnapshot(
+                    name: "Codex",
+                    kind: "codex",
+                    command: "codex resume session",
+                    cwd: "/tmp/agent",
+                    checkpointId: "session",
+                    source: "agent-hook",
+                    updatedAt: 10
+                ),
+                panelId: panelId
+            )
+        )
+
+        let bindingIndex = SurfaceResumeBindingIndex(bindingsByPanel: [
+            SurfaceResumeBindingIndex.PanelKey(workspaceId: workspace.id, panelId: panelId): SurfaceResumeBindingSnapshot(
+                name: "tmux",
+                kind: "tmux",
+                command: "tmux attach -t detected",
+                cwd: "/tmp/detected",
+                checkpointId: "detected",
+                source: "process-detected",
+                autoResume: true,
+                updatedAt: 20
+            ),
+        ])
+        let snapshot = workspace.sessionSnapshot(
+            includeScrollback: false,
+            surfaceResumeBindingIndex: bindingIndex
+        )
+
+        XCTAssertEqual(snapshot.panels.first?.terminal?.resumeBinding?.checkpointId, "detected")
+        XCTAssertEqual(snapshot.panels.first?.terminal?.resumeBinding?.command, "tmux attach -t detected")
+        XCTAssertEqual(
+            workspace.sessionSnapshot(includeScrollback: false).panels.first?.terminal?.resumeBinding?.checkpointId,
+            "detected"
+        )
+    }
+
+    @MainActor
+    func testAutosaveFingerprintIgnoresSurfaceResumeBindingUpdatedAt() throws {
+        let manager = TabManager()
+        let workspace = try XCTUnwrap(manager.selectedWorkspace)
+        let panelId = try XCTUnwrap(workspace.focusedPanelId)
+        let key = SurfaceResumeBindingIndex.PanelKey(workspaceId: workspace.id, panelId: panelId)
+        let firstIndex = SurfaceResumeBindingIndex(bindingsByPanel: [
+            key: SurfaceResumeBindingSnapshot(
+                name: "tmux",
+                kind: "tmux",
+                command: "tmux attach -t work",
+                cwd: "/tmp/project",
+                checkpointId: "work",
+                source: "process-detected",
+                updatedAt: 10
+            ),
+        ])
+        let secondIndex = SurfaceResumeBindingIndex(bindingsByPanel: [
+            key: SurfaceResumeBindingSnapshot(
+                name: "tmux",
+                kind: "tmux",
+                command: "tmux attach -t work",
+                cwd: "/tmp/project",
+                checkpointId: "work",
+                source: "process-detected",
+                updatedAt: 20
+            ),
+        ])
+
+        XCTAssertEqual(
+            manager.sessionAutosaveFingerprint(surfaceResumeBindingIndex: firstIndex),
+            manager.sessionAutosaveFingerprint(surfaceResumeBindingIndex: secondIndex)
+        )
+    }
+
+    @MainActor
+    func testAutosaveFingerprintIncludesManualSurfaceResumeBindingUpdatedAt() throws {
+        let manager = TabManager()
+        let workspace = try XCTUnwrap(manager.selectedWorkspace)
+        let panelId = try XCTUnwrap(workspace.focusedPanelId)
+        let key = SurfaceResumeBindingIndex.PanelKey(workspaceId: workspace.id, panelId: panelId)
+        let firstIndex = SurfaceResumeBindingIndex(bindingsByPanel: [
+            key: SurfaceResumeBindingSnapshot(
+                name: "custom",
+                kind: "custom",
+                command: "echo one",
+                cwd: "/tmp/project",
+                checkpointId: "custom",
+                source: "cli",
+                updatedAt: 10
+            ),
+        ])
+        let secondIndex = SurfaceResumeBindingIndex(bindingsByPanel: [
+            key: SurfaceResumeBindingSnapshot(
+                name: "custom",
+                kind: "custom",
+                command: "echo one",
+                cwd: "/tmp/project",
+                checkpointId: "custom",
+                source: "cli",
+                updatedAt: 20
+            ),
+        ])
+
+        XCTAssertNotEqual(
+            manager.sessionAutosaveFingerprint(surfaceResumeBindingIndex: firstIndex),
+            manager.sessionAutosaveFingerprint(surfaceResumeBindingIndex: secondIndex)
+        )
+    }
+
+    @MainActor
+    func testAutosaveFingerprintUsesEffectiveSurfaceResumeBinding() throws {
+        let manager = TabManager()
+        let workspace = try XCTUnwrap(manager.selectedWorkspace)
+        let panelId = try XCTUnwrap(workspace.focusedPanelId)
+        XCTAssertTrue(
+            workspace.setSurfaceResumeBinding(
+                SurfaceResumeBindingSnapshot(
+                    name: "tmux",
+                    kind: "tmux",
+                    command: "tmux attach -t stale",
+                    cwd: "/tmp/stale",
+                    checkpointId: "stale",
+                    source: "process-detected",
+                    updatedAt: 10
+                ),
+                panelId: panelId
+            )
+        )
+
+        let key = SurfaceResumeBindingIndex.PanelKey(workspaceId: workspace.id, panelId: panelId)
+        let firstIndex = SurfaceResumeBindingIndex(bindingsByPanel: [
+            key: SurfaceResumeBindingSnapshot(
+                name: "tmux",
+                kind: "tmux",
+                command: "tmux attach -t first",
+                cwd: "/tmp/first",
+                checkpointId: "first",
+                source: "process-detected",
+                updatedAt: 20
+            ),
+        ])
+        let secondIndex = SurfaceResumeBindingIndex(bindingsByPanel: [
+            key: SurfaceResumeBindingSnapshot(
+                name: "tmux",
+                kind: "tmux",
+                command: "tmux attach -t second",
+                cwd: "/tmp/second",
+                checkpointId: "second",
+                source: "process-detected",
+                updatedAt: 30
+            ),
+        ])
+
+        XCTAssertNotEqual(
+            manager.sessionAutosaveFingerprint(surfaceResumeBindingIndex: firstIndex),
+            manager.sessionAutosaveFingerprint(surfaceResumeBindingIndex: secondIndex)
+        )
+    }
+
+    @MainActor
+    func testAutosaveFingerprintIncludesSurfaceResumeBindingEnvironment() throws {
+        let manager = TabManager()
+        let workspace = try XCTUnwrap(manager.selectedWorkspace)
+        let panelId = try XCTUnwrap(workspace.focusedPanelId)
+        let key = SurfaceResumeBindingIndex.PanelKey(workspaceId: workspace.id, panelId: panelId)
+        let firstIndex = SurfaceResumeBindingIndex(bindingsByPanel: [
+            key: SurfaceResumeBindingSnapshot(
+                name: "Codex",
+                kind: "codex",
+                command: "codex resume session",
+                cwd: "/tmp/project",
+                checkpointId: "session",
+                source: "agent-hook",
+                environment: ["CODEX_HOME": "/tmp/codex-a"],
+                updatedAt: 10
+            ),
+        ])
+        let secondIndex = SurfaceResumeBindingIndex(bindingsByPanel: [
+            key: SurfaceResumeBindingSnapshot(
+                name: "Codex",
+                kind: "codex",
+                command: "codex resume session",
+                cwd: "/tmp/project",
+                checkpointId: "session",
+                source: "agent-hook",
+                environment: ["CODEX_HOME": "/tmp/codex-b"],
+                updatedAt: 10
+            ),
+        ])
+
+        XCTAssertNotEqual(
+            manager.sessionAutosaveFingerprint(surfaceResumeBindingIndex: firstIndex),
+            manager.sessionAutosaveFingerprint(surfaceResumeBindingIndex: secondIndex)
+        )
+    }
+
+    @MainActor
+    func testAutosaveFingerprintIncludesSurfaceResumeBindingAutoResumeTrust() throws {
+        let manager = TabManager()
+        let workspace = try XCTUnwrap(manager.selectedWorkspace)
+        let panelId = try XCTUnwrap(workspace.focusedPanelId)
+        let key = SurfaceResumeBindingIndex.PanelKey(workspaceId: workspace.id, panelId: panelId)
+        let untrustedIndex = SurfaceResumeBindingIndex(bindingsByPanel: [
+            key: SurfaceResumeBindingSnapshot(
+                name: "tmux",
+                kind: "tmux",
+                command: "tmux attach -t work",
+                cwd: "/tmp/project",
+                checkpointId: "work",
+                source: "process-detected",
+                updatedAt: 10
+            ),
+        ])
+        let trustedIndex = SurfaceResumeBindingIndex(bindingsByPanel: [
+            key: SurfaceResumeBindingSnapshot(
+                name: "tmux",
+                kind: "tmux",
+                command: "tmux attach -t work",
+                cwd: "/tmp/project",
+                checkpointId: "work",
+                source: "process-detected",
+                autoResume: true,
+                updatedAt: 10
+            ),
+        ])
+
+        XCTAssertNotEqual(
+            manager.sessionAutosaveFingerprint(surfaceResumeBindingIndex: untrustedIndex),
+            manager.sessionAutosaveFingerprint(surfaceResumeBindingIndex: trustedIndex)
+        )
+    }
+
+    func testSurfaceResumeBindingPreservesExactNonSensitiveEnvironmentValues() {
+        let binding = SurfaceResumeBindingSnapshot(
+            command: "codex resume session",
+            environment: [
+                " EMPTY ": "",
+                "SPACED": "  keep exact  ",
+                "PLAIN": "value",
+                "MULTILINE": "line\nbreak",
+                "NULL_BYTE": "bad\u{0}value",
+                "ANTHROPIC_API_KEY": "should-not-persist",
+                "SERVICE_TOKEN": "should-not-persist",
+            ]
+        )
+
+        XCTAssertEqual(binding.environment?["EMPTY"], "")
+        XCTAssertEqual(binding.environment?["SPACED"], "  keep exact  ")
+        XCTAssertEqual(binding.environment?["PLAIN"], "value")
+        XCTAssertNil(binding.environment?["MULTILINE"])
+        XCTAssertNil(binding.environment?["NULL_BYTE"])
+        XCTAssertNil(binding.environment?["ANTHROPIC_API_KEY"])
+        XCTAssertNil(binding.environment?["SERVICE_TOKEN"])
+    }
+
+    func testSurfaceResumeApprovalAutoPolicyAppliesSignedPrefix() throws {
+        let storeURL = try makeSurfaceResumeApprovalStoreURL()
+        let secret = Data("approval-secret".utf8)
+        let binding = SurfaceResumeBindingSnapshot(
+            name: "tmux work",
+            kind: "tmux",
+            command: "tmux attach -t 'work session'",
+            cwd: "/tmp/project",
+            source: "cli",
+            environment: ["PATH": "/usr/bin:/bin"]
+        )
+
+        let record = try XCTUnwrap(SurfaceResumeApprovalStore.approve(
+            binding: binding,
+            policy: .auto,
+            commandPrefix: ["tmux", "attach"],
+            fileURL: storeURL,
+            signingSecret: secret
+        ))
+        XCTAssertTrue(record.hasValidSignature(secret: secret))
+
+        let effectiveBinding = SurfaceResumeApprovalStore.applyingStoredApproval(
+            to: binding,
+            fileURL: storeURL,
+            signingSecret: secret
+        )
+        XCTAssertEqual(effectiveBinding.approvalPolicy, .auto)
+        XCTAssertEqual(effectiveBinding.approvalRecordId, record.id)
+        XCTAssertTrue(effectiveBinding.allowsAutomaticResume)
+
+        let changedEnvironmentBinding = SurfaceResumeBindingSnapshot(
+            name: "tmux work",
+            kind: "tmux",
+            command: "tmux attach -t 'work session'",
+            cwd: "/tmp/project",
+            source: "cli",
+            environment: ["PATH": "/tmp/bin"]
+        )
+        let changedEnvironmentEffectiveBinding = SurfaceResumeApprovalStore.applyingStoredApproval(
+            to: changedEnvironmentBinding,
+            fileURL: storeURL,
+            signingSecret: secret
+        )
+        XCTAssertEqual(changedEnvironmentEffectiveBinding.approvalPolicy, .manual)
+        XCTAssertFalse(changedEnvironmentEffectiveBinding.allowsAutomaticResume)
+    }
+
+    func testSurfaceResumeApprovalRejectsTamperedRecord() throws {
+        let storeURL = try makeSurfaceResumeApprovalStoreURL()
+        let secret = Data("approval-secret".utf8)
+        let binding = SurfaceResumeBindingSnapshot(
+            command: "tmux attach -t work",
+            cwd: "/tmp/project",
+            source: "cli"
+        )
+
+        var record = try XCTUnwrap(SurfaceResumeApprovalStore.approve(
+            binding: binding,
+            policy: .manual,
+            fileURL: storeURL,
+            signingSecret: secret
+        ))
+        record.policy = .auto
+        let encoder = JSONEncoder()
+        let data = try encoder.encode(SurfaceResumeApprovalStore.StoredFile(version: 1, records: [record]))
+        try data.write(to: storeURL, options: [.atomic])
+
+        let effectiveBinding = SurfaceResumeApprovalStore.applyingStoredApproval(
+            to: binding,
+            fileURL: storeURL,
+            signingSecret: secret
+        )
+        XCTAssertEqual(effectiveBinding.approvalPolicy, .manual)
+        XCTAssertNil(effectiveBinding.approvalRecordId)
+        XCTAssertFalse(effectiveBinding.allowsAutomaticResume)
+    }
+
+    func testSurfaceResumeApprovalMissingRecordResetsStalePromptPolicy() throws {
+        let binding = SurfaceResumeBindingSnapshot(
+            command: "tmux attach -t work",
+            cwd: "/tmp/project",
+            source: "cli",
+            autoResume: false,
+            approvalPolicy: .prompt,
+            approvalRecordId: "deleted-record"
+        )
+
+        let effectiveBinding = SurfaceResumeApprovalStore.applyingStoredApproval(
+            to: binding,
+            fileURL: URL(fileURLWithPath: "/tmp/cmux-missing-\(UUID().uuidString).json"),
+            signingSecret: Data("approval-secret".utf8)
+        )
+        XCTAssertEqual(effectiveBinding.approvalPolicy, .manual)
+        XCTAssertNil(effectiveBinding.approvalRecordId)
+        XCTAssertFalse(effectiveBinding.allowsAutomaticResume)
+    }
+
+    func testSurfaceResumePromptPolicyDoesNotRunAutomaticallyUnderTest() throws {
+        let storeURL = try makeSurfaceResumeApprovalStoreURL()
+        let secret = Data("approval-secret".utf8)
+        let binding = SurfaceResumeBindingSnapshot(
+            command: "tmux attach -t work",
+            cwd: "/tmp/project",
+            source: "cli"
+        )
+
+        XCTAssertNotNil(SurfaceResumeApprovalStore.approve(
+            binding: binding,
+            policy: .prompt,
+            fileURL: storeURL,
+            signingSecret: secret
+        ))
+
+        let input = Workspace.surfaceResumeStartupInput(
+            binding,
+            autoResumeAgentSessions: true,
+            approvalStoreURL: storeURL,
+            approvalSigningSecret: secret
+        )
+        XCTAssertNil(input)
+    }
+
+    func testSurfaceResumePromptPolicyDoesNotPromptDuringSnapshot() throws {
+        let storeURL = try makeSurfaceResumeApprovalStoreURL()
+        let secret = Data("approval-secret".utf8)
+        let binding = SurfaceResumeBindingSnapshot(
+            command: "tmux attach -t work",
+            cwd: "/tmp/project",
+            source: "cli"
+        )
+
+        XCTAssertNotNil(SurfaceResumeApprovalStore.approve(
+            binding: binding,
+            policy: .prompt,
+            fileURL: storeURL,
+            signingSecret: secret
+        ))
+
+        let input = Workspace.surfaceResumeStartupInput(
+            binding,
+            autoResumeAgentSessions: true,
+            promptForApproval: false,
+            approvalStoreURL: storeURL,
+            approvalSigningSecret: secret
+        )
+        XCTAssertNil(input)
+    }
+
+    func testProcessDetectedSurfaceResumeRemainsTrustedWithoutApprovalRecord() {
+        let binding = SurfaceResumeBindingSnapshot(
+            command: "tmux attach -t work",
+            cwd: "/tmp/project",
+            source: "process-detected"
+        )
+
+        let effectiveBinding = SurfaceResumeApprovalStore.applyingStoredApproval(
+            to: binding,
+            fileURL: URL(fileURLWithPath: "/tmp/cmux-missing-\(UUID().uuidString).json"),
+            signingSecret: Data("approval-secret".utf8)
+        )
+        XCTAssertEqual(effectiveBinding.approvalPolicy, .auto)
+        XCTAssertTrue(effectiveBinding.allowsAutomaticResume)
+    }
+
+    func testAgentHookSurfaceResumeAutoResumeRemainsTrustedWithoutApprovalRecord() {
+        let binding = SurfaceResumeBindingSnapshot(
+            command: "codex resume session",
+            cwd: "/tmp/project",
+            source: "agent-hook",
+            autoResume: true
+        )
+
+        let effectiveBinding = SurfaceResumeApprovalStore.applyingStoredApproval(
+            to: binding,
+            fileURL: URL(fileURLWithPath: "/tmp/cmux-missing-\(UUID().uuidString).json"),
+            signingSecret: Data("approval-secret".utf8)
+        )
+        XCTAssertEqual(effectiveBinding.approvalPolicy, .auto)
+        XCTAssertTrue(effectiveBinding.allowsAutomaticResume)
+    }
+
+    private func makeSurfaceResumeApprovalStoreURL() throws -> URL {
+        let root = FileManager.default.temporaryDirectory
+            .appendingPathComponent("cmux-surface-resume-approvals-\(UUID().uuidString)", isDirectory: true)
+        try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
+        addTeardownBlock {
+            try? FileManager.default.removeItem(at: root)
+        }
+        return root.appendingPathComponent("resume-commands.json", isDirectory: false)
+    }
+
+    @MainActor
+    func testRestoreRunsSurfaceResumeBindingFromBindingCwd() throws {
+        let source = Workspace()
+        let sourcePanelId = try XCTUnwrap(source.focusedPanelId)
+        source.panelDirectories[sourcePanelId] = "/tmp/old"
+        let bindingIndex = SurfaceResumeBindingIndex(bindingsByPanel: [
+            SurfaceResumeBindingIndex.PanelKey(workspaceId: source.id, panelId: sourcePanelId): SurfaceResumeBindingSnapshot(
+                name: "script",
+                kind: "custom",
+                command: "./resume.sh",
+                cwd: "/tmp/new",
+                checkpointId: "script",
+                source: "process-detected",
+                autoResume: true,
+                updatedAt: 10
+            ),
+        ])
+        let snapshot = source.sessionSnapshot(
+            includeScrollback: false,
+            surfaceResumeBindingIndex: bindingIndex
+        )
+
+        let restored = Workspace()
+        restored.restoreSessionSnapshot(snapshot)
+        let restoredPanelId = try XCTUnwrap(restored.focusedPanelId)
+        let restoredPanel = try XCTUnwrap(restored.terminalPanel(for: restoredPanelId))
+
+        XCTAssertEqual(restoredPanel.requestedWorkingDirectory, "/tmp/new")
+        XCTAssertTrue(restoredPanel.surface.debugInitialInputMetadata().hasInitialInput)
+    }
+
+    @MainActor
+    func testRestoreDoesNotRunUntrustedSurfaceResumeBindingByDefault() throws {
+        let source = Workspace()
+        let sourcePanelId = try XCTUnwrap(source.focusedPanelId)
+        let bindingIndex = SurfaceResumeBindingIndex(bindingsByPanel: [
+            SurfaceResumeBindingIndex.PanelKey(workspaceId: source.id, panelId: sourcePanelId): SurfaceResumeBindingSnapshot(
+                name: "script",
+                kind: "custom",
+                command: "./resume.sh",
+                cwd: "/tmp/sticky",
+                checkpointId: "script",
+                source: "process-detected",
+                updatedAt: 10
+            ),
+        ])
+        let snapshot = source.sessionSnapshot(
+            includeScrollback: false,
+            surfaceResumeBindingIndex: bindingIndex
+        )
+
+        let restored = Workspace()
+        restored.restoreSessionSnapshot(snapshot)
+        let restoredPanelId = try XCTUnwrap(restored.focusedPanelId)
+        let restoredPanel = try XCTUnwrap(restored.terminalPanel(for: restoredPanelId))
+
+        XCTAssertFalse(restoredPanel.surface.debugInitialInputMetadata().hasInitialInput)
+        XCTAssertEqual(
+            restored.sessionSnapshot(includeScrollback: false).panels.first?.terminal?.resumeBinding?.command,
+            "./resume.sh"
+        )
+    }
+
+    @MainActor
+    func testRestoreScopesSurfaceResumeBindingEnvironmentToInitialInput() throws {
+        let source = Workspace()
+        let sourcePanelId = try XCTUnwrap(source.focusedPanelId)
+        let bindingIndex = SurfaceResumeBindingIndex(bindingsByPanel: [
+            SurfaceResumeBindingIndex.PanelKey(workspaceId: source.id, panelId: sourcePanelId): SurfaceResumeBindingSnapshot(
+                name: "Codex",
+                kind: "codex",
+                command: "codex resume session",
+                cwd: "/tmp/project",
+                checkpointId: "session",
+                source: "process-detected",
+                environment: [
+                    "CODEX_HOME": "/tmp/codex home",
+                    "EMPTY": "",
+                ],
+                autoResume: true,
+                updatedAt: 10
+            ),
+        ])
+        let snapshot = source.sessionSnapshot(
+            includeScrollback: false,
+            surfaceResumeBindingIndex: bindingIndex
+        )
+
+        let restored = Workspace()
+        restored.restoreSessionSnapshot(snapshot)
+        let restoredPanelId = try XCTUnwrap(restored.focusedPanelId)
+        let restoredPanel = try XCTUnwrap(restored.terminalPanel(for: restoredPanelId))
+
+        XCTAssertNil(restoredPanel.surface.debugAdditionalEnvironmentForTesting()["CODEX_HOME"])
+        XCTAssertNil(restoredPanel.surface.debugAdditionalEnvironmentForTesting()["EMPTY"])
+        XCTAssertEqual(
+            restoredPanel.surface.debugInitialInputForTesting(),
+            "'/usr/bin/env' 'CODEX_HOME=/tmp/codex home' 'EMPTY=' '/bin/zsh' '-lc' 'codex resume session'\n"
+        )
+    }
+
+    @MainActor
+    func testRestoreUsesLauncherScriptForLongSurfaceResumeBinding() throws {
+        let source = Workspace()
+        let sourcePanelId = try XCTUnwrap(source.focusedPanelId)
+        let longPath = "/tmp/" + String(repeating: "nested-project-", count: 120)
+        let bindingIndex = SurfaceResumeBindingIndex(bindingsByPanel: [
+            SurfaceResumeBindingIndex.PanelKey(workspaceId: source.id, panelId: sourcePanelId): SurfaceResumeBindingSnapshot(
+                name: "Codex",
+                kind: "codex",
+                command: "codex resume session --add-dir \(longPath)",
+                cwd: "/tmp/project",
+                checkpointId: "session",
+                source: "process-detected",
+                environment: [
+                    "CODEX_HOME": "/tmp/codex home",
+                ],
+                autoResume: true,
+                updatedAt: 10
+            ),
+        ])
+        let snapshot = source.sessionSnapshot(
+            includeScrollback: false,
+            surfaceResumeBindingIndex: bindingIndex
+        )
+
+        let restored = Workspace()
+        restored.restoreSessionSnapshot(snapshot)
+        let restoredPanelId = try XCTUnwrap(restored.focusedPanelId)
+        let restoredPanel = try XCTUnwrap(restored.terminalPanel(for: restoredPanelId))
+
+        XCTAssertNil(restoredPanel.surface.debugAdditionalEnvironmentForTesting()["CODEX_HOME"])
+        let input = try XCTUnwrap(restoredPanel.surface.debugInitialInputForTesting())
+        XCTAssertTrue(input.hasPrefix("/bin/zsh '"))
+        XCTAssertFalse(input.contains(longPath))
+
+        let trimmedInput = input.trimmingCharacters(in: .whitespacesAndNewlines)
+        let prefix = "/bin/zsh '"
+        let scriptPath = String(trimmedInput.dropFirst(prefix.count).dropLast())
+        defer { try? FileManager.default.removeItem(atPath: scriptPath) }
+        let scriptContents = try String(contentsOfFile: scriptPath, encoding: .utf8)
+        XCTAssertTrue(scriptContents.contains(longPath))
+        XCTAssertTrue(scriptContents.contains("'CODEX_HOME=/tmp/codex home'"))
+        XCTAssertTrue(scriptContents.contains("codex resume session"))
+    }
+
+    @MainActor
+    func testRestoreRetainsProcessDetectedSurfaceResumeBindingBeforeRedetection() throws {
+        let source = Workspace()
+        let sourcePanelId = try XCTUnwrap(source.focusedPanelId)
+        let bindingIndex = SurfaceResumeBindingIndex(bindingsByPanel: [
+            SurfaceResumeBindingIndex.PanelKey(workspaceId: source.id, panelId: sourcePanelId): SurfaceResumeBindingSnapshot(
+                name: "tmux",
+                kind: "tmux",
+                command: "tmux attach -t restored",
+                cwd: "/tmp/project",
+                checkpointId: "restored",
+                source: "process-detected",
+                updatedAt: 10
+            ),
+        ])
+        let snapshot = source.sessionSnapshot(
+            includeScrollback: false,
+            surfaceResumeBindingIndex: bindingIndex
+        )
+
+        let restored = Workspace()
+        restored.restoreSessionSnapshot(snapshot)
+        let immediateSnapshot = restored.sessionSnapshot(includeScrollback: false)
+
+        XCTAssertEqual(immediateSnapshot.panels.first?.terminal?.resumeBinding?.checkpointId, "restored")
+        XCTAssertEqual(immediateSnapshot.panels.first?.terminal?.resumeBinding?.command, "tmux attach -t restored")
+    }
+
+    @MainActor
+    func testSnapshotDropsStaleProcessDetectedSurfaceResumeBindingAfterCleanRedetection() throws {
+        let workspace = Workspace()
+        let panelId = try XCTUnwrap(workspace.focusedPanelId)
+        XCTAssertTrue(
+            workspace.setSurfaceResumeBinding(
+                SurfaceResumeBindingSnapshot(
+                    name: "tmux",
+                    kind: "tmux",
+                    command: "tmux attach -t stale",
+                    cwd: "/tmp/stale",
+                    checkpointId: "stale",
+                    source: "process-detected",
+                    updatedAt: 10
+                ),
+                panelId: panelId
+            )
+        )
+
+        let snapshot = workspace.sessionSnapshot(
+            includeScrollback: false,
+            surfaceResumeBindingIndex: .empty
+        )
+
+        XCTAssertNil(snapshot.panels.first?.terminal?.resumeBinding)
+        XCTAssertNil(workspace.sessionSnapshot(includeScrollback: false).panels.first?.terminal?.resumeBinding)
+    }
+
+    @MainActor
+    func testSnapshotCachesNewProcessDetectedSurfaceResumeBindingForLaterNoScanSave() throws {
+        let workspace = Workspace()
+        let panelId = try XCTUnwrap(workspace.focusedPanelId)
+        let bindingIndex = SurfaceResumeBindingIndex(bindingsByPanel: [
+            SurfaceResumeBindingIndex.PanelKey(workspaceId: workspace.id, panelId: panelId): SurfaceResumeBindingSnapshot(
+                name: "tmux",
+                kind: "tmux",
+                command: "tmux attach -t cached",
+                cwd: "/tmp/project",
+                checkpointId: "cached",
+                source: "process-detected",
+                updatedAt: 10
+            ),
+        ])
+
+        let scannedSnapshot = workspace.sessionSnapshot(
+            includeScrollback: false,
+            surfaceResumeBindingIndex: bindingIndex
+        )
+        let laterSnapshot = workspace.sessionSnapshot(includeScrollback: false)
+
+        XCTAssertEqual(scannedSnapshot.panels.first?.terminal?.resumeBinding?.checkpointId, "cached")
+        XCTAssertEqual(laterSnapshot.panels.first?.terminal?.resumeBinding?.checkpointId, "cached")
+    }
+
+    @MainActor
+    func testAppDelegateSnapshotPreservesRestoredProcessDetectedSurfaceResumeBindingBeforeScan() throws {
+        let previousAppDelegate = AppDelegate.shared
+        let app = AppDelegate()
+        AppDelegate.shared = app
+        defer {
+            AppDelegate.shared = previousAppDelegate
+        }
+
+        let manager = TabManager(autoWelcomeIfNeeded: false)
+        let windowId = app.registerMainWindowContextForTesting(tabManager: manager)
+        defer {
+            app.unregisterMainWindowContextForTesting(windowId: windowId)
+        }
+
+        let workspace = try XCTUnwrap(manager.selectedWorkspace)
+        let panelId = try XCTUnwrap(workspace.focusedPanelId)
+        XCTAssertTrue(
+            workspace.setSurfaceResumeBinding(
+                SurfaceResumeBindingSnapshot(
+                    name: "tmux",
+                    kind: "tmux",
+                    command: "tmux attach -t restored",
+                    cwd: "/tmp/project",
+                    checkpointId: "restored",
+                    source: "process-detected",
+                    updatedAt: 10
+                ),
+                panelId: panelId
+            )
+        )
+
+        let noScanSnapshot = try XCTUnwrap(app.debugBuildSessionSnapshotForTesting(includeScrollback: false))
+        let noScanBinding = noScanSnapshot.windows.first?.tabManager.workspaces.first?.panels
+            .first(where: { $0.id == panelId })?
+            .terminal?
+            .resumeBinding
+        XCTAssertEqual(noScanBinding?.checkpointId, "restored")
+
+        let cleanScanSnapshot = try XCTUnwrap(
+            app.debugBuildSessionSnapshotForTesting(
+                includeScrollback: false,
+                surfaceResumeBindingIndex: .empty
+            )
+        )
+        let cleanScanBinding = cleanScanSnapshot.windows.first?.tabManager.workspaces.first?.panels
+            .first(where: { $0.id == panelId })?
+            .terminal?
+            .resumeBinding
+        XCTAssertNil(cleanScanBinding)
+    }
+
+    func testTmuxProcessDetectedResumeBindingPreservesSocketFlags() throws {
+        let binding = try XCTUnwrap(
+            SurfaceResumeBindingIndex.tmuxResumeBindingForTesting(
+                processName: "tmux: client",
+                processPath: "/opt/homebrew/bin/tmux",
+                arguments: ["/opt/homebrew/bin/tmux", "-L", "dev", "attach-session", "-t", "work"],
+                environment: ["PWD": "/tmp/project"]
+            )
+        )
+
+        XCTAssertEqual(binding.kind, "tmux")
+        XCTAssertEqual(binding.source, "process-detected")
+        XCTAssertEqual(binding.allowsAutomaticResume, true)
+        XCTAssertEqual(binding.checkpointId, "work")
+        XCTAssertEqual(binding.cwd, "/tmp/project")
+        XCTAssertEqual(binding.command, "'/opt/homebrew/bin/tmux' '-L' 'dev' 'attach' '-t' 'work'")
+    }
+
+    func testTmuxProcessDetectedResumeBindingPreservesTmuxTmpdir() throws {
+        let binding = try XCTUnwrap(
+            SurfaceResumeBindingIndex.tmuxResumeBindingForTesting(
+                processName: "tmux: client",
+                processPath: "/opt/homebrew/bin/tmux",
+                arguments: ["/opt/homebrew/bin/tmux", "-L", "dev", "attach-session", "-t", "work"],
+                environment: [
+                    "PWD": "/tmp/project",
+                    "TMUX": "/tmp/tmux-current,123,0",
+                    "TMUX_TMPDIR": "/var/folders/custom-tmux",
+                ]
+            )
+        )
+
+        XCTAssertEqual(binding.command, "'/opt/homebrew/bin/tmux' '-L' 'dev' 'attach' '-t' 'work'")
+        XCTAssertEqual(binding.environment, ["TMUX_TMPDIR": "/var/folders/custom-tmux"])
+        let startupInput = try XCTUnwrap(binding.startupInput)
+        XCTAssertTrue(startupInput.contains("'TMUX_TMPDIR=/var/folders/custom-tmux'"), startupInput)
+        XCTAssertFalse(startupInput.contains("TMUX="), startupInput)
+    }
+
+    func testTmuxProcessDetectedResumeBindingParsesAttachAlias() throws {
+        let binding = try XCTUnwrap(
+            SurfaceResumeBindingIndex.tmuxResumeBindingForTesting(
+                processName: "tmux: client",
+                processPath: "/opt/homebrew/bin/tmux",
+                arguments: ["/opt/homebrew/bin/tmux", "a", "-t", "work"],
+                environment: [:]
+            )
+        )
+
+        XCTAssertEqual(binding.checkpointId, "work")
+        XCTAssertEqual(binding.command, "'/opt/homebrew/bin/tmux' 'attach' '-t' 'work'")
+    }
+
+    func testTmuxProcessDetectedResumeBindingDoesNotUseProcessTitleAsExecutable() throws {
+        let binding = try XCTUnwrap(
+            SurfaceResumeBindingIndex.tmuxResumeBindingForTesting(
+                processName: "tmux: client",
+                processPath: "/opt/homebrew/bin/tmux",
+                arguments: ["tmux: client", "attach-session", "-t", "work"],
+                environment: [:]
+            )
+        )
+
+        XCTAssertEqual(binding.command, "'/opt/homebrew/bin/tmux' 'attach' '-t' 'work'")
+    }
+
+    func testTmuxProcessDetectedResumeBindingDropsFullClientProcessTitle() throws {
+        let binding = try XCTUnwrap(
+            SurfaceResumeBindingIndex.tmuxResumeBindingForTesting(
+                processName: "tmux: client (/dev/ttys001)",
+                processPath: nil,
+                arguments: ["tmux: client (/dev/ttys001)", "attach-session", "-t", "work"],
+                environment: ["PWD": "/tmp/project"]
+            )
+        )
+
+        XCTAssertEqual(binding.checkpointId, "work")
+        XCTAssertEqual(binding.cwd, "/tmp/project")
+        XCTAssertEqual(binding.command, "'tmux' 'attach' '-t' 'work'")
+    }
+
+    func testTmuxProcessDetectedResumeBindingRejectsFullServerProcessTitle() {
+        let binding = SurfaceResumeBindingIndex.tmuxResumeBindingForTesting(
+            processName: "tmux: server (/private/tmp/tmux-501/default)",
+            processPath: nil,
+            arguments: ["tmux: server (/private/tmp/tmux-501/default)"],
+            environment: [:]
+        )
+
+        XCTAssertNil(binding)
+    }
+
+    func testTmuxProcessDetectedResumeBindingRejectsServerProcessTitle() {
+        let binding = SurfaceResumeBindingIndex.tmuxResumeBindingForTesting(
+            processName: "tmux: server",
+            processPath: "/opt/homebrew/bin/tmux",
+            arguments: ["tmux: server"],
+            environment: [:]
+        )
+
+        XCTAssertNil(binding)
+    }
+
+    func testTmuxAttachFlagParserTreatsConfigFlagAsValueTaking() {
+        let binding = SurfaceResumeBindingIndex.tmuxResumeBindingForTesting(
+            processName: "tmux",
+            processPath: nil,
+            arguments: ["tmux", "new", "-fA"],
+            environment: [:]
+        )
+
+        XCTAssertNil(binding)
+    }
+
+    func testTmuxAttachFlagParserTreatsShellCommandFlagAsValueTaking() throws {
+        let binding = try XCTUnwrap(
+            SurfaceResumeBindingIndex.tmuxResumeBindingForTesting(
+                processName: "tmux",
+                processPath: nil,
+                arguments: ["tmux", "-c", "/bin/zsh", "attach", "-t", "work"],
+                environment: [:]
+            )
+        )
+
+        XCTAssertEqual(binding.checkpointId, "work")
+        XCTAssertEqual(binding.command, "'tmux' 'attach' '-t' 'work'")
+    }
+
+    func testTmuxProcessDetectedResumeBindingRejectsUnnamedAttach() {
+        let attachBinding = SurfaceResumeBindingIndex.tmuxResumeBindingForTesting(
+            processName: "tmux",
+            processPath: nil,
+            arguments: ["tmux", "attach"],
+            environment: [:]
+        )
+        let aliasBinding = SurfaceResumeBindingIndex.tmuxResumeBindingForTesting(
+            processName: "tmux",
+            processPath: nil,
+            arguments: ["tmux", "a"],
+            environment: [:]
+        )
+
+        XCTAssertNil(attachBinding)
+        XCTAssertNil(aliasBinding)
+    }
+
+    func testTmuxProcessDetectedResumeBindingRejectsCommandlessClient() {
+        let executableOnlyBinding = SurfaceResumeBindingIndex.tmuxResumeBindingForTesting(
+            processName: "tmux",
+            processPath: nil,
+            arguments: ["tmux"],
+            environment: [:]
+        )
+        let processTitleBinding = SurfaceResumeBindingIndex.tmuxResumeBindingForTesting(
+            processName: "tmux: client",
+            processPath: nil,
+            arguments: ["tmux: client"],
+            environment: [:]
+        )
+
+        XCTAssertNil(executableOnlyBinding)
+        XCTAssertNil(processTitleBinding)
+    }
+
+    func testTmuxOptionValueDoesNotReadTargetFromConfigValue() {
+        let binding = SurfaceResumeBindingIndex.tmuxResumeBindingForTesting(
+            processName: "tmux",
+            processPath: nil,
+            arguments: ["tmux", "attach", "-factive-pane"],
+            environment: [:]
+        )
+
+        XCTAssertNil(binding)
+    }
+
+    func testTmuxOptionValueStopsAtValueTakingClusterOption() {
+        let binding = SurfaceResumeBindingIndex.tmuxResumeBindingForTesting(
+            processName: "tmux",
+            processPath: nil,
+            arguments: ["tmux", "new", "-Ans"],
+            environment: [:]
+        )
+
+        XCTAssertNil(binding)
+    }
+
+    func testTmuxOptionValueStopsAtCommandTerminator() {
+        let attachBinding = SurfaceResumeBindingIndex.tmuxResumeBindingForTesting(
+            processName: "tmux",
+            processPath: nil,
+            arguments: ["tmux", "attach", "--", "-t", "work"],
+            environment: [:]
+        )
+        let newBinding = SurfaceResumeBindingIndex.tmuxResumeBindingForTesting(
+            processName: "tmux",
+            processPath: nil,
+            arguments: ["tmux", "new", "-A", "--", "-s", "work"],
+            environment: [:]
+        )
+
+        XCTAssertNil(attachBinding)
+        XCTAssertNil(newBinding)
+    }
+
+    func testTmuxProcessDetectedResumeBindingRejectsUnnamedNewAttachSession() {
+        let binding = SurfaceResumeBindingIndex.tmuxResumeBindingForTesting(
+            processName: "tmux",
+            processPath: nil,
+            arguments: ["tmux", "new-session", "-A"],
+            environment: [:]
+        )
+
+        XCTAssertNil(binding)
+    }
+
+    func testTmuxProcessDetectedResumeBindingParsesNewAttachSession() throws {
+        let binding = try XCTUnwrap(
+            SurfaceResumeBindingIndex.tmuxResumeBindingForTesting(
+                processName: "tmux",
+                processPath: nil,
+                arguments: ["tmux", "new", "-As", "work"],
+                environment: [:]
+            )
+        )
+
+        XCTAssertEqual(binding.checkpointId, "work")
+        XCTAssertEqual(binding.command, "'tmux' 'attach' '-t' 'work'")
+    }
+
+    func testTmuxProcessDetectedResumeBindingRejectsSessionNameThatLooksLikeAttachFlag() {
+        let binding = SurfaceResumeBindingIndex.tmuxResumeBindingForTesting(
+            processName: "tmux",
+            processPath: nil,
+            arguments: ["tmux", "new", "-sA"],
+            environment: [:]
+        )
+
+        XCTAssertNil(binding)
+    }
+
     func testMarkdownFileLinkResolverRecognizesMarkdownPathLikeStrings() {
         XCTAssertTrue(MarkdownPanelFileLinkResolver.isMarkdownPathLike("other-markdown.md"))
         XCTAssertTrue(MarkdownPanelFileLinkResolver.isMarkdownPathLike("test/markdown.md"))
