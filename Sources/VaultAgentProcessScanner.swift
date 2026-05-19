@@ -8,7 +8,9 @@ extension AgentLaunchCommandSnapshot {
         executablePath: String?,
         arguments: [String],
         workingDirectory: String?,
-        environment: [String: String]
+        environment: [String: String],
+        capturedAt: TimeInterval? = nil,
+        source: String = "process"
     ) {
         var selectedEnvironment = AgentLaunchEnvironmentPolicy.selectedEnvironment(from: environment)
         if launcher == "opencode",
@@ -22,8 +24,8 @@ extension AgentLaunchCommandSnapshot {
             arguments: arguments,
             workingDirectory: workingDirectory,
             environment: selectedEnvironment.isEmpty ? nil : selectedEnvironment,
-            capturedAt: nil,
-            source: "process"
+            capturedAt: capturedAt,
+            source: source
         )
     }
 }
@@ -102,7 +104,7 @@ extension RestorableAgentSessionIndex {
                 sessionId: sessionId,
                 workingDirectory: registration.cwd == .ignore ? nil : cwd,
                 launchCommand: AgentLaunchCommandSnapshot(
-                    launcher: registration.id,
+                    processDetectedLauncher: registration.id,
                     executablePath: executablePath,
                     arguments: arguments,
                     workingDirectory: cwd,

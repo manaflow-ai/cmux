@@ -989,12 +989,19 @@ final class AppDelegateShortcutRoutingTests: XCTestCase {
         )
         XCTAssertFalse(fileExplorerState.isVisible)
 
+        let previousTerminalPanel = tabManager.selectedWorkspace?.focusedTerminalPanel
+        let previousSidekickState = previousTerminalPanel?.sidekickState
         if let workspace = tabManager.selectedWorkspace,
            let paneId = workspace.bonsplitController.allPaneIds.first,
            let browserPanel = workspace.newBrowserSurface(inPane: paneId, focus: true) {
             workspace.focusPanel(browserPanel.id)
             XCTAssertTrue(appDelegate.debugHandleCustomShortcut(event: rightSidebarEvent))
             RunLoop.main.run(until: Date(timeIntervalSinceNow: 0.05))
+            XCTAssertEqual(
+                previousTerminalPanel?.sidekickState,
+                previousSidekickState,
+                "Cmd+Option+B should not mutate the previous terminal sidekick when a browser panel is focused"
+            )
             XCTAssertTrue(fileExplorerState.isVisible, "Cmd+Option+B should toggle the right sidebar outside focused terminals")
         } else {
             XCTFail("Expected to create a browser panel for right-sidebar shortcut routing")
@@ -5108,6 +5115,9 @@ final class AppDelegateShortcutRoutingTests: XCTestCase {
         ]
 
         for testCase in cases {
+            workspace.focusPanel(browserPanel.id)
+            RunLoop.main.run(until: Date(timeIntervalSinceNow: 0.01))
+
             var observedActions: [KeyboardShortcutSettings.Action] = []
             #if DEBUG
             KeyboardShortcutSettings.shortcutLookupObserver = { action in

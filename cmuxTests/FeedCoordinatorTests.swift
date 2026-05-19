@@ -135,6 +135,75 @@ final class FeedCoordinatorTests: XCTestCase {
         )
     }
 
+    func testBlockingIngestExpiresWaiterWhenAgentProcessExitsBeforeNotificationDisplay() async {
+#if DEBUG
+        let requestId = "agent-exit-request"
+        let ppid = 424_242
+        let notifications = NotificationRequestRecorder()
+
+        addTeardownBlock {
+            Self.resetFeedCoordinatorTestHooks()
+        }
+
+        await MainActor.run {
+            let store = WorkstreamStore(ringCapacity: 10)
+            FeedCoordinator.shared.install(store: store)
+            FeedCoordinatorTestHooks.afterBlockingEventIngested = { _, ingestedRequestId in
+                guard ingestedRequestId == requestId else { return }
+                FeedCoordinator.shared.debugExpirePendingItemsAndWaiters(forPpid: ppid)
+            }
+            FeedCoordinatorTestHooks.isAppActiveOverride = { false }
+            FeedCoordinatorTestHooks.notificationPostObserver = { _, postedRequestId in
+                notifications.record(postedRequestId)
+            }
+        }
+
+        let event = WorkstreamEvent(
+            sessionId: "claude-agent-exit-test",
+            hookEventName: .permissionRequest,
+            source: "claude",
+            cwd: "/tmp",
+            toolName: "Bash",
+            toolInputJSON: #"{"command":"true"}"#,
+            requestId: requestId,
+            ppid: ppid
+        )
+
+        let done = expectation(description: "blocking ingest expired after agent exit")
+        let resultBox = IngestResultBox()
+
+        DispatchQueue.global(qos: .userInitiated).async {
+            resultBox.value = FeedCoordinator.shared.ingestBlocking(
+                event: event,
+                waitTimeout: 5
+            )
+            done.fulfill()
+        }
+
+        await fulfillment(of: [done], timeout: 2)
+        await MainActor.run {}
+
+        guard case .timedOut = resultBox.value else {
+            XCTFail("expected agent-exit hook to unblock as timed out")
+            return
+        }
+
+        let status = await MainActor.run {
+            FeedCoordinator.shared.store.items.first?.status
+        }
+        guard case .expired = status else {
+            XCTFail("agent-exit hook item should be expired")
+            return
+        }
+        XCTAssertTrue(
+            notifications.requestIds.isEmpty,
+            "expired hook requests should not post native notifications"
+        )
+#else
+        XCTFail("debug feed test hooks are only available in DEBUG")
+#endif
+    }
+
     private static func resetFeedCoordinatorTestHooks() {
         let reset: @Sendable () -> Void = {
             MainActor.assumeIsolated {

@@ -16223,12 +16223,6 @@ class TerminalController {
         return terminalPanel.surface.surface
     }
 
-    private func resolveSurface(from arg: String, tabManager: TabManager) -> ghostty_surface_t? {
-        // Backwards compatibility: resolve a terminal surface by panel UUID or a stable index.
-        // Use a slightly longer wait to reduce flakiness during bonsplit/layout restructures.
-        return resolveTerminalSurface(from: arg, tabManager: tabManager, waitUpTo: 2.0)
-    }
-
     private func resolveSurfaceId(from arg: String, tab: Workspace) -> UUID? {
         if let uuid = UUID(uuidString: arg), tab.panels[uuid] != nil {
             return uuid
@@ -16406,15 +16400,6 @@ class TerminalController {
                 return
             }
 
-            guard let surface = resolveTerminalSurface(
-                from: terminalPanel.id.uuidString,
-                tabManager: tabManager,
-                waitUpTo: 2.0
-            ) else {
-                error = "ERROR: Surface not ready"
-                return
-            }
-
             // Unescape common escape sequences
             // Note: \n is converted to \r for terminal (Enter key sends \r)
             let unescaped = text
@@ -16422,14 +16407,7 @@ class TerminalController {
                 .replacingOccurrences(of: "\\r", with: "\r")
                 .replacingOccurrences(of: "\\t", with: "\t")
 
-            for char in unescaped {
-                if char.unicodeScalars.count == 1,
-                   let scalar = char.unicodeScalars.first,
-                   handleControlScalar(scalar, surface: surface) {
-                    continue
-                }
-                sendTextEvent(surface: surface, text: String(char))
-            }
+            sendSocketInput(unescaped, to: terminalPanel)
             success = true
         }
         if let error { return error }
@@ -16457,6 +16435,15 @@ class TerminalController {
             )
         }
 #endif
+    }
+
+    private func sendSocketInput(_ text: String, to terminalPanel: TerminalPanel) {
+        if let surface = terminalPanel.surface.surface {
+            sendSocketText(text, surface: surface)
+        } else {
+            terminalPanel.sendInput(text)
+            terminalPanel.surface.requestBackgroundSurfaceStartIfNeeded()
+        }
     }
 
     private func sendInputToWorkspace(_ args: String) -> String {
@@ -16498,12 +16485,7 @@ class TerminalController {
             // payload does not hold the control-socket response open in CI.
             TerminalMutationBus.shared.enqueueMainActorMutation { [weak self] in
                 guard let self else { return }
-                if let surface = terminalPanel.surface.surface {
-                    self.sendSocketText(unescaped, surface: surface)
-                } else {
-                    terminalPanel.sendText(unescaped)
-                    terminalPanel.surface.requestBackgroundSurfaceStartIfNeeded()
-                }
+                self.sendSocketInput(unescaped, to: terminalPanel)
             }
             success = true
         }
@@ -16559,25 +16541,23 @@ class TerminalController {
         let text = parts[1]
 
         var success = false
+        var error: String?
         v2MainSync {
-            guard let surface = resolveSurface(from: target, tabManager: tabManager) else { return }
+            guard let terminalPanel = resolveTerminalPanel(from: target, tabManager: tabManager) else {
+                error = "ERROR: Surface not found"
+                return
+            }
 
             let unescaped = text
                 .replacingOccurrences(of: "\\n", with: "\r")
                 .replacingOccurrences(of: "\\r", with: "\r")
                 .replacingOccurrences(of: "\\t", with: "\t")
 
-            for char in unescaped {
-                if char.unicodeScalars.count == 1,
-                   let scalar = char.unicodeScalars.first,
-                   handleControlScalar(scalar, surface: surface) {
-                    continue
-                }
-                sendTextEvent(surface: surface, text: String(char))
-            }
+            sendSocketInput(unescaped, to: terminalPanel)
             success = true
         }
 
+        if let error { return error }
         return success ? "OK" : "ERROR: Failed to send input"
     }
 

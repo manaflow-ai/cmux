@@ -69,7 +69,7 @@ final class FeedCoordinator: @unchecked Sendable {
         src.setEventHandler { [weak self] in
             Task { @MainActor in
                 guard let self else { return }
-                self.store?.expireItems(forPpid: ppid)
+                self.expirePendingItemsAndWaiters(forPpid: ppid)
                 self.pidWatchers[ppid]?.cancel()
                 self.pidWatchers.removeValue(forKey: ppid)
             }
@@ -179,30 +179,83 @@ final class FeedCoordinator: @unchecked Sendable {
         cancelNotification(requestId: requestId)
     }
 
+    @MainActor
+    private func expirePendingItemsAndWaiters(forPpid ppid: Int) {
+        guard let store else { return }
+        let requestIds = Self.pendingRequestIds(forPpid: ppid, in: store.items)
+        store.expireItems(forPpid: ppid)
+        signalExpiredWaiters(requestIds: requestIds)
+    }
+
+#if DEBUG
+    @MainActor
+    func debugExpirePendingItemsAndWaiters(forPpid ppid: Int) {
+        expirePendingItemsAndWaiters(forPpid: ppid)
+    }
+#endif
+
+    private func signalExpiredWaiters(requestIds: Set<String>) {
+        guard !requestIds.isEmpty else { return }
+        waiterLock.lock()
+        let expiredWaiters = requestIds.compactMap { waiters.removeValue(forKey: $0) }
+        waiterLock.unlock()
+
+        for waiter in expiredWaiters {
+            waiter.semaphore.signal()
+        }
+    }
+
+    @MainActor
     fileprivate func isAwaitingDecision(requestId: String) -> Bool {
         waiterLock.lock()
-        defer { waiterLock.unlock() }
-        guard let waiter = waiters[requestId] else { return false }
-        return waiter.decision == nil
+        let waiter = waiters[requestId]
+        waiterLock.unlock()
+        guard let waiter, waiter.decision == nil else { return false }
+        guard let store,
+              let item = Self.findItem(for: requestId, in: store.items) else {
+            return false
+        }
+        return item.status.isPending
+    }
+
+    private static func requestId(for item: WorkstreamItem) -> String? {
+        switch item.payload {
+        case .permissionRequest(let requestId, _, _, _):
+            return requestId
+        case .exitPlan(let requestId, _, _):
+            return requestId
+        case .question(let requestId, _):
+            return requestId
+        default:
+            return nil
+        }
+    }
+
+    private static func pendingRequestIds(
+        forPpid ppid: Int,
+        in items: [WorkstreamItem]
+    ) -> Set<String> {
+        Set(items.compactMap { item in
+            guard item.status.isPending, item.ppid == ppid else { return nil }
+            return requestId(for: item)
+        })
+    }
+
+    private static func findItem(
+        for requestId: String,
+        in items: [WorkstreamItem]
+    ) -> WorkstreamItem? {
+        for item in items.reversed() where Self.requestId(for: item) == requestId {
+            return item
+        }
+        return nil
     }
 
     private static func findItemId(
         for requestId: String,
         in items: [WorkstreamItem]
     ) -> UUID? {
-        for item in items.reversed() {
-            switch item.payload {
-            case .permissionRequest(let rid, _, _, _) where rid == requestId:
-                return item.id
-            case .exitPlan(let rid, _, _) where rid == requestId:
-                return item.id
-            case .question(let rid, _) where rid == requestId:
-                return item.id
-            default:
-                continue
-            }
-        }
-        return nil
+        findItem(for: requestId, in: items)?.id
     }
 
     private func expireTimedOutItem(_ itemId: UUID?) {

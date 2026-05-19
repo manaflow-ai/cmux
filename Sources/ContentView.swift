@@ -5067,23 +5067,28 @@ struct ContentView: View {
             return
         }
 
-        let entries = commandPaletteEntries(
+        let rawEntries = commandPaletteEntries(
             for: scope,
             includeSurfaces: includeSurfaces,
             commandsContext: commandsContext
         )
 #if DEBUG
-        let duplicateCommandIDs = Dictionary(grouping: entries, by: \.id)
+        let duplicateCommandIDs = Dictionary(grouping: rawEntries, by: \.id)
             .compactMap { id, entries in entries.count > 1 ? id : nil }
             .sorted()
         if !duplicateCommandIDs.isEmpty {
             cmuxDebugLog("commandPalette.duplicateCommandIDs ids=\(duplicateCommandIDs.joined(separator: ","))")
         }
 #endif
-        commandPaletteSearchCommandsByID = Dictionary(
-            entries.map { ($0.id, $0) },
-            uniquingKeysWith: { first, _ in first }
-        )
+        var seenCommandIDs: Set<String> = []
+        let entries = rawEntries
+            .reversed()
+            .compactMap { entry in
+                guard seenCommandIDs.insert(entry.id).inserted else { return nil }
+                return entry
+            }
+            .reversed()
+        commandPaletteSearchCommandsByID = Dictionary(uniqueKeysWithValues: entries.map { ($0.id, $0) })
         let searchCorpus = entries.map { entry in
             CommandPaletteSearchCorpusEntry(
                 payload: entry.id,
@@ -5093,10 +5098,7 @@ struct ContentView: View {
             )
         }
         commandPaletteSearchCorpus = searchCorpus
-        commandPaletteSearchCorpusByID = Dictionary(
-            searchCorpus.map { ($0.payload, $0) },
-            uniquingKeysWith: { first, _ in first }
-        )
+        commandPaletteSearchCorpusByID = Dictionary(uniqueKeysWithValues: searchCorpus.map { ($0.payload, $0) })
         cachedCommandPaletteScope = scope
         cachedCommandPaletteFingerprint = fingerprint
     }

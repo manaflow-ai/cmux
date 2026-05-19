@@ -1142,6 +1142,7 @@ struct BrowserPanelView: View {
             .buttonStyle(OmnibarAddressButtonStyle())
             .frame(width: addressBarButtonSize, height: addressBarButtonSize, alignment: .center)
             .safeHelp(String(localized: "terminalSidekick.collapse", defaultValue: "Collapse Sidekick"))
+            .accessibilityLabel(String(localized: "terminalSidekick.collapse", defaultValue: "Collapse Sidekick"))
             .accessibilityIdentifier("TerminalSidekickCollapseButton")
         }
     }
@@ -1749,7 +1750,7 @@ struct BrowserPanelView: View {
             // Re-run focus behavior (select-all/refresh suggestions) when focus is
             // explicitly requested again while already focused.
             let urlString = panel.preferredURLStringForOmnibar() ?? ""
-            let effects = omnibarReduce(state: &omnibarState, event: .focusGained(currentURLString: urlString))
+            let effects = omnibarReduce(state: &omnibarState, event: .reassertFocus(currentURLString: urlString))
             applyOmnibarEffects(effects)
             refreshInlineCompletion()
 #if DEBUG
@@ -3156,6 +3157,7 @@ struct OmnibarState: Equatable {
 
 enum OmnibarEvent: Equatable {
     case focusGained(currentURLString: String)
+    case reassertFocus(currentURLString: String)
     case focusLostRevertBuffer(currentURLString: String)
     case focusLostPreserveBuffer(currentURLString: String)
     case panelURLChanged(currentURLString: String)
@@ -3186,6 +3188,23 @@ func omnibarReduce(state: inout OmnibarState, event: OmnibarEvent) -> OmnibarEff
         state.selectedSuggestionIndex = 0
         state.selectedSuggestionID = nil
         effects.shouldSelectAll = true
+
+    case .reassertFocus(let url):
+        if state.isFocused {
+            state.currentURLString = url
+            state.selectedSuggestionIndex = 0
+            state.selectedSuggestionID = nil
+            effects.shouldSelectAll = true
+        } else {
+            state.isFocused = true
+            state.currentURLString = url
+            state.buffer = url
+            state.isUserEditing = false
+            state.suggestions = []
+            state.selectedSuggestionIndex = 0
+            state.selectedSuggestionID = nil
+            effects.shouldSelectAll = true
+        }
 
     case .focusLostRevertBuffer(let url):
         state.isFocused = false

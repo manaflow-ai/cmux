@@ -1,4 +1,5 @@
 import CoreGraphics
+import Foundation
 import XCTest
 
 #if canImport(cmux_DEV)
@@ -83,6 +84,29 @@ final class TabManagerSessionSnapshotTests: XCTestCase {
         )
 
         XCTAssertEqual(terminalPanel.sidekickState.splitRatio, 0.7, accuracy: 0.001)
+    }
+
+    func testTerminalSidekickSnapshotSanitizesPersistedValues() throws {
+        let directSnapshot = SessionTerminalSidekickSnapshot(
+            urlString: "   ",
+            isOpen: true,
+            splitRatio: .nan
+        )
+
+        XCTAssertNil(directSnapshot.urlString)
+        XCTAssertEqual(directSnapshot.splitRatio, TerminalSidekickState.defaultSplitRatio, accuracy: 0.001)
+
+        let decoded = try JSONDecoder().decode(
+            SessionTerminalSidekickSnapshot.self,
+            from: Data(
+                #"{"urlString":" https://sidekick.example/restored ","isOpen":true,"splitRatio":9.0}"#
+                    .utf8
+            )
+        )
+
+        XCTAssertEqual(decoded.urlString, "https://sidekick.example/restored")
+        XCTAssertTrue(decoded.isOpen)
+        XCTAssertEqual(decoded.splitRatio, 0.7, accuracy: 0.001)
     }
 
     func testTerminalSidekickResizeRatioMatchesDisplayedMinimumSidekickWidth() throws {

@@ -231,6 +231,40 @@ nonisolated struct SessionTerminalSidekickSnapshot: Codable, Equatable, Sendable
     var urlString: String?
     var isOpen: Bool
     var splitRatio: Double
+
+    init(
+        urlString: String? = nil,
+        isOpen: Bool,
+        splitRatio: Double = TerminalSidekickState.defaultSplitRatio
+    ) {
+        self.urlString = Self.sanitizedURLString(urlString)
+        self.isOpen = isOpen
+        self.splitRatio = Self.sanitizedSplitRatio(splitRatio)
+    }
+
+    init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        self.init(
+            urlString: try container.decodeIfPresent(String.self, forKey: .urlString),
+            isOpen: try container.decodeIfPresent(Bool.self, forKey: .isOpen) ?? false,
+            splitRatio: try container.decodeIfPresent(Double.self, forKey: .splitRatio)
+                ?? TerminalSidekickState.defaultSplitRatio
+        )
+    }
+
+    private static func sanitizedURLString(_ value: String?) -> String? {
+        guard let trimmed = value?.trimmingCharacters(in: .whitespacesAndNewlines),
+              !trimmed.isEmpty,
+              URL(string: trimmed) != nil else {
+            return nil
+        }
+        return trimmed
+    }
+
+    private static func sanitizedSplitRatio(_ value: Double) -> Double {
+        guard value.isFinite else { return TerminalSidekickState.defaultSplitRatio }
+        return TerminalSidekickState.clampedSplitRatio(value)
+    }
 }
 
 enum SurfaceResumeApprovalPolicy: String, Codable, CaseIterable, Sendable {

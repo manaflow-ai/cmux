@@ -970,6 +970,13 @@ final class TerminalNotificationStore: ObservableObject {
         restoredUnreadWorkspaceIds = []
     }
 
+    @discardableResult
+    private func clearWorkspaceUnreadState(forTabId tabId: UUID) -> Bool {
+        let clearedManual = setWorkspaceManualUnread(false, forTabId: tabId)
+        let clearedRestored = setWorkspaceRestoredUnread(false, forTabId: tabId)
+        return clearedManual || clearedRestored
+    }
+
     func hasManualUnread(forTabId tabId: UUID) -> Bool {
         manualUnreadWorkspaceIds.contains(tabId)
     }
@@ -1475,7 +1482,7 @@ final class TerminalNotificationStore: ObservableObject {
             }
         }
         if surfaceId == nil {
-            setWorkspaceRestoredUnread(false, forTabId: tabId)
+            clearWorkspaceUnreadState(forTabId: tabId)
         }
         if !idsToClear.isEmpty {
             notifications = updated
@@ -1593,7 +1600,8 @@ final class TerminalNotificationStore: ObservableObject {
     ) {
         if discardQueuedNotifications { TerminalMutationBus.shared.discardPendingNotifications(forTabId: tabId, surfaceId: surfaceId) }
         let hadFocusedReadIndicator = focusedReadIndicatorByTabId[tabId].map { $0 == surfaceId } ?? false
-        let hadRestoredWorkspaceUnread = surfaceId == nil && restoredUnreadWorkspaceIds.contains(tabId)
+        let hadWorkspaceUnread = surfaceId == nil &&
+            (manualUnreadWorkspaceIds.contains(tabId) || restoredUnreadWorkspaceIds.contains(tabId))
         var updated: [TerminalNotification] = []
         updated.reserveCapacity(notifications.count)
         var idsToClear: [String] = []
@@ -1604,12 +1612,12 @@ final class TerminalNotificationStore: ObservableObject {
                 updated.append(notification)
             }
         }
-        guard !idsToClear.isEmpty || hadFocusedReadIndicator || hadRestoredWorkspaceUnread else { return }
+        guard !idsToClear.isEmpty || hadFocusedReadIndicator || hadWorkspaceUnread else { return }
         if !idsToClear.isEmpty {
             replaceNotificationsForClear(updated)
         }
         if surfaceId == nil {
-            setWorkspaceRestoredUnread(false, forTabId: tabId)
+            clearWorkspaceUnreadState(forTabId: tabId)
         }
         clearFocusedReadIndicator(forTabId: tabId, surfaceId: surfaceId)
         if !idsToClear.isEmpty {

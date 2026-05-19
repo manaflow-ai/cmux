@@ -5664,6 +5664,7 @@ final class TerminalSurface: Identifiable, ObservableObject {
 
     /// Force a full size recalculation and surface redraw.
     func forceRefresh(reason: String = "unspecified") {
+        #if DEBUG
         let hasSurface = surface != nil
         let viewState: String
         if let view = attachedView {
@@ -5674,7 +5675,6 @@ final class TerminalSurface: Identifiable, ObservableObject {
         } else {
             viewState = "NO_ATTACHED_VIEW hasSurface=\(hasSurface)"
         }
-        #if DEBUG
         cmuxDebugLog("forceRefresh: \(id) reason=\(reason) \(viewState)")
         #endif
         guard let view = attachedView,
@@ -5895,14 +5895,6 @@ final class TerminalSurface: Identifiable, ObservableObject {
             self.backgroundSurfaceStartQueued = false
             guard self.allowsRuntimeSurfaceCreation() else { return }
             guard self.surface == nil, let view = self.attachedView else { return }
-            guard view.window != nil else {
-                #if DEBUG
-                cmuxDebugLog(
-                    "surface.background_start.defer surface=\(self.id.uuidString.prefix(8)) reason=noWindow"
-                )
-                #endif
-                return
-            }
             #if DEBUG
             let startedAt = ProcessInfo.processInfo.systemUptime
             #endif
@@ -9959,6 +9951,7 @@ final class GhosttySurfaceScrollView: NSView {
     private let notificationRingLayer: CAShapeLayer
     private let flashOverlayView: GhosttyFlashOverlayView
     private let flashLayer: CAShapeLayer
+    private var reparentFocusSuppressionCount = 0
     var isRightSidebarDockSurface: Bool {
         surfaceView.terminalSurface?.focusPlacement == .rightSidebarDock
     }
@@ -11998,12 +11991,23 @@ final class GhosttySurfaceScrollView: NSView {
     }
 
     /// Suppress the surface view's onFocus callback and ghostty_surface_set_focus during
-    /// SwiftUI reparenting (programmatic splits). Call clearSuppressReparentFocus() after layout settles.
-    func suppressReparentFocus() {
+    /// SwiftUI reparenting (programmatic splits).
+    func beginSuppressingReparentFocus() {
+        reparentFocusSuppressionCount += 1
         surfaceView.suppressingReparentFocus = true
     }
 
-    func clearSuppressReparentFocus() {
+    func endSuppressingReparentFocus() {
+        guard reparentFocusSuppressionCount > 0 else {
+            clearSuppressReparentFocus()
+            return
+        }
+        reparentFocusSuppressionCount -= 1
+        guard reparentFocusSuppressionCount == 0 else { return }
+        clearSuppressReparentFocus()
+    }
+
+    private func clearSuppressReparentFocus() {
         surfaceView.suppressingReparentFocus = false
         let hasUsablePortalGeometry: Bool = {
             let size = bounds.size

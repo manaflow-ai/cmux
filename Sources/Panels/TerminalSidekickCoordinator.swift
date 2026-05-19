@@ -21,6 +21,7 @@ nonisolated struct TerminalSidekickState: Codable, Equatable, Sendable {
     }
 
     static func clampedSplitRatio(_ value: Double) -> Double {
+        guard value.isFinite else { return defaultSplitRatio }
         min(max(value, minimumSplitRatio), maximumSplitRatio)
     }
 

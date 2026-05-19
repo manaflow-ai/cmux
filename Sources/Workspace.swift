@@ -8221,6 +8221,7 @@ final class Workspace: Identifiable, ObservableObject {
     private var layoutFollowUpAttemptScheduled = false
     private var layoutFollowUpAttemptVersion: Int = 0
     private var layoutFollowUpStalledAttemptCount = 0
+    private var layoutFollowUpReparentSuppressedViews: [GhosttySurfaceScrollView] = []
     private var portalRenderingEnabled = true
     private var isAttemptingLayoutFollowUp = false
     private var isNormalizingPinnedTabOrder = false
@@ -10481,15 +10482,9 @@ final class Workspace: Identifiable, ObservableObject {
         )
 #endif
 
-        // Suppress the old view's becomeFirstResponder side-effects during SwiftUI reparenting.
-        // Without this, reparenting triggers onFocus + ghostty_surface_set_focus on the old view,
-        // stealing focus from the new panel and creating model/surface divergence.
         if focus {
-            previousHostedView?.suppressReparentFocus()
+            suppressReparentFocusUntilLayoutSettles(previousHostedView, reason: "terminal_split")
             focusPanel(newPanel.id, previousHostedView: previousHostedView)
-            DispatchQueue.main.asyncAfter(deadline: .now() + 0.05) {
-                previousHostedView?.clearSuppressReparentFocus()
-            }
         } else {
             preserveFocusAfterNonFocusSplit(
                 preferredPanelId: previousFocusedPanelId,
@@ -10700,11 +10695,8 @@ final class Workspace: Identifiable, ObservableObject {
         // See newTerminalSplit: suppress old view's becomeFirstResponder during reparenting.
         let previousHostedView = focusedTerminalPanel?.hostedView
         if focus {
-            previousHostedView?.suppressReparentFocus()
+            suppressReparentFocusUntilLayoutSettles(previousHostedView, reason: "browser_split")
             focusPanel(browserPanel.id)
-            DispatchQueue.main.asyncAfter(deadline: .now() + 0.05) {
-                previousHostedView?.clearSuppressReparentFocus()
-            }
         } else {
             preserveFocusAfterNonFocusSplit(
                 preferredPanelId: previousFocusedPanelId,
@@ -10889,11 +10881,8 @@ final class Workspace: Identifiable, ObservableObject {
 
         let previousHostedView = focusedTerminalPanel?.hostedView
         if focus {
-            previousHostedView?.suppressReparentFocus()
+            suppressReparentFocusUntilLayoutSettles(previousHostedView, reason: "markdown_split")
             focusPanel(markdownPanel.id)
-            DispatchQueue.main.asyncAfter(deadline: .now() + 0.05) {
-                previousHostedView?.clearSuppressReparentFocus()
-            }
         } else {
             preserveFocusAfterNonFocusSplit(
                 preferredPanelId: previousFocusedPanelId,
@@ -12539,6 +12528,31 @@ final class Workspace: Identifiable, ObservableObject {
         }
     }
 
+    private func suppressReparentFocusUntilLayoutSettles(
+        _ hostedView: GhosttySurfaceScrollView?,
+        reason: String
+    ) {
+        guard let hostedView else { return }
+        hostedView.beginSuppressingReparentFocus()
+        guard portalRenderingEnabled else {
+            DispatchQueue.main.async {
+                hostedView.endSuppressingReparentFocus()
+            }
+            return
+        }
+        layoutFollowUpReparentSuppressedViews.append(hostedView)
+        beginEventDrivenLayoutFollowUp(reason: "reparent_focus.\(reason)", includeGeometry: true)
+    }
+
+    private func clearLayoutFollowUpReparentSuppressions() {
+        guard !layoutFollowUpReparentSuppressedViews.isEmpty else { return }
+        let suppressedViews = layoutFollowUpReparentSuppressedViews
+        layoutFollowUpReparentSuppressedViews.removeAll()
+        for hostedView in suppressedViews {
+            hostedView.endSuppressingReparentFocus()
+        }
+    }
+
     private func beginEventDrivenLayoutFollowUp(
         reason: String,
         browserPanelId: UUID? = nil,
@@ -12654,6 +12668,7 @@ final class Workspace: Identifiable, ObservableObject {
     }
 
     private func clearLayoutFollowUp() {
+        clearLayoutFollowUpReparentSuppressions()
         layoutFollowUpTimeoutWorkItem?.cancel()
         layoutFollowUpTimeoutWorkItem = nil
         layoutFollowUpObservers.forEach { NotificationCenter.default.removeObserver($0) }

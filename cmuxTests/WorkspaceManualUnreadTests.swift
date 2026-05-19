@@ -168,6 +168,34 @@ final class WorkspaceManualUnreadTests: XCTestCase {
         }
     }
 
+    func testManualWorkspaceUnreadClearsFromWorkspaceReadAndClearFlows() {
+        let store = TerminalNotificationStore.shared
+
+        func assertManualUnreadClears(_ action: (UUID) -> Void, line: UInt = #line) {
+            let workspaceId = UUID()
+            store.replaceNotificationsForTesting([])
+            store.markUnread(forTabId: workspaceId)
+
+            XCTAssertTrue(store.hasManualUnread(forTabId: workspaceId), line: line)
+            XCTAssertEqual(store.unreadCount(forTabId: workspaceId), 1, line: line)
+
+            action(workspaceId)
+
+            XCTAssertFalse(store.hasManualUnread(forTabId: workspaceId), line: line)
+            XCTAssertEqual(store.unreadCount(forTabId: workspaceId), 0, line: line)
+        }
+
+        assertManualUnreadClears { workspaceId in
+            store.markRead(forTabId: workspaceId, surfaceId: nil)
+        }
+        assertManualUnreadClears { workspaceId in
+            store.clearNotifications(forTabId: workspaceId, surfaceId: nil, discardQueuedNotifications: false)
+        }
+        assertManualUnreadClears { workspaceId in
+            store.clearNotifications(forTabId: workspaceId, discardQueuedNotifications: false)
+        }
+    }
+
     func testManualWorkspaceUnreadSurvivesNonTerminalDirectInteraction() {
         let appDelegate = AppDelegate.shared ?? AppDelegate()
         let manager = TabManager()
