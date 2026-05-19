@@ -1697,6 +1697,9 @@ class GhosttyApp {
     private(set) var defaultSelectionBackground: NSColor = GhosttyApp.fallbackAppearanceConfig.selectionBackground
     private(set) var defaultSelectionForeground: NSColor = GhosttyApp.fallbackAppearanceConfig.selectionForeground
     private(set) var effectiveTerminalColorSchemePreference: GhosttyConfig.ColorSchemePreference = .dark
+    private var appliedGhosttyRuntimeColorScheme: ghostty_color_scheme_e?
+    private var runtimeColorSchemeSynchronizationDepth = 0
+    private var reloadConfigurationDepth = 0
     private(set) var usesHostLayerBackground = false
     private(set) var userGhosttyShellIntegrationMode: String = "detect"
     private static func resolveBackgroundLogURL(
@@ -3010,6 +3013,26 @@ class GhosttyApp {
         }
     }
 
+    enum RuntimeColorSchemeSynchronizationDecision: Equatable {
+        case apply
+        case skipAlreadyApplied
+        case skipReentrant
+    }
+
+    static func runtimeColorSchemeSynchronizationDecision(
+        applied: ghostty_color_scheme_e?,
+        requested: ghostty_color_scheme_e,
+        isSynchronizing: Bool
+    ) -> RuntimeColorSchemeSynchronizationDecision {
+        if isSynchronizing {
+            return .skipReentrant
+        }
+        if applied == requested {
+            return .skipAlreadyApplied
+        }
+        return .apply
+    }
+
     static func appearanceSynchronizationPlan(
         previousColorScheme: GhosttyConfig.ColorSchemePreference?,
         currentColorScheme: GhosttyConfig.ColorSchemePreference
@@ -3162,6 +3185,13 @@ class GhosttyApp {
         reloadSettingsFromFile: Bool = true,
         preferredColorScheme: GhosttyConfig.ColorSchemePreference? = nil
     ) {
+        guard reloadConfigurationDepth == 0 else {
+            logThemeAction("reload skipped source=\(source) soft=\(soft) reason=reentrant")
+            return
+        }
+        reloadConfigurationDepth += 1
+        defer { reloadConfigurationDepth -= 1 }
+
         if reloadSettingsFromFile {
             KeyboardShortcutSettings.settingsFileStore.reload()
         }
@@ -3300,11 +3330,45 @@ class GhosttyApp {
         source: String
     ) {
         guard let app else { return }
+        let decision = Self.runtimeColorSchemeSynchronizationDecision(
+            applied: appliedGhosttyRuntimeColorScheme,
+            requested: runtimeColorScheme,
+            isSynchronizing: runtimeColorSchemeSynchronizationDepth > 0
+        )
+        guard decision == .apply else {
+            if backgroundLogEnabled {
+                let schemeLabel = colorScheme == .dark ? "dark" : "light"
+                let reason: String
+                switch decision {
+                case .apply:
+                    reason = "apply"
+                case .skipAlreadyApplied:
+                    reason = "already_applied"
+                case .skipReentrant:
+                    reason = "reentrant"
+                }
+                logBackground("app color scheme skipped source=\(source) scheme=\(schemeLabel) reason=\(reason)")
+            }
+            return
+        }
+
+        appliedGhosttyRuntimeColorScheme = runtimeColorScheme
+        runtimeColorSchemeSynchronizationDepth += 1
+        defer { runtimeColorSchemeSynchronizationDepth -= 1 }
         ghostty_app_set_color_scheme(app, runtimeColorScheme)
         if backgroundLogEnabled {
             let schemeLabel = colorScheme == .dark ? "dark" : "light"
             logBackground("app color scheme source=\(source) scheme=\(schemeLabel)")
         }
+    }
+
+    private func shouldProcessGhosttyReloadAction(source: String, soft: Bool) -> Bool {
+        guard reloadConfigurationDepth == 0,
+              runtimeColorSchemeSynchronizationDepth == 0 else {
+            logThemeAction("reload request skipped source=\(source) soft=\(soft) reason=reentrant")
+            return false
+        }
+        return true
     }
 
     func openConfigurationInTextEdit() {
@@ -3887,6 +3951,12 @@ class GhosttyApp {
                 let soft = action.action.reload_config.soft
                 logThemeAction("reload request target=app soft=\(soft)")
                 performOnMain {
+                    guard self.shouldProcessGhosttyReloadAction(
+                        source: "action.reload_config.app",
+                        soft: soft
+                    ) else {
+                        return
+                    }
                     self.reloadConfiguration(soft: soft, source: "action.reload_config.app")
                 }
                 return true
@@ -4201,10 +4271,14 @@ class GhosttyApp {
             return true
         case GHOSTTY_ACTION_RELOAD_CONFIG:
             let soft = action.action.reload_config.soft
+            let source = "action.reload_config.surface tab=\(surfaceView.tabId?.uuidString ?? "nil") surface=\(surfaceView.terminalSurface?.id.uuidString ?? "nil")"
             logThemeAction(
                 "reload request target=surface tab=\(surfaceView.tabId?.uuidString ?? "nil") surface=\(surfaceView.terminalSurface?.id.uuidString ?? "nil") soft=\(soft)"
             )
             return performOnMain {
+                guard self.shouldProcessGhosttyReloadAction(source: source, soft: soft) else {
+                    return true
+                }
                 let preferredColorScheme = self.effectiveTerminalColorSchemePreference
                 surfaceView.terminalSurface?.hostedView.reapplySurfaceColorSchemeAfterGhosttyConfigReload(
                     preferredColorScheme: preferredColorScheme
@@ -4212,7 +4286,7 @@ class GhosttyApp {
                 self.reloadSurfaceConfiguration(
                     target.target.surface,
                     soft: soft,
-                    source: "action.reload_config.surface tab=\(surfaceView.tabId?.uuidString ?? "nil") surface=\(surfaceView.terminalSurface?.id.uuidString ?? "nil")",
+                    source: source,
                     preferredColorScheme: preferredColorScheme
                 )
                 surfaceView.terminalSurface?.hostedView.refreshHostBackgroundAfterGhosttyConfigReload()

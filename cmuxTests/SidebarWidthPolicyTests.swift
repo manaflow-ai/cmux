@@ -156,6 +156,16 @@ final class SidebarWorkspaceSelectionColorTests: XCTestCase {
         )
     }
 
+    func testSelectedForegroundKeepsWhiteForStandardInactiveSelectionBlue() throws {
+        let background = try XCTUnwrap(NSColor(hex: "#6795F5"))
+        let foreground = sidebarSelectedWorkspaceForegroundNSColor(
+            on: background,
+            opacity: 0.75
+        )
+
+        assertColor(foreground, equals: NSColor.white.withAlphaComponent(0.75))
+    }
+
     func testTitlebarControlForegroundContrastsWithLightTerminalBackground() throws {
         let background = try XCTUnwrap(NSColor(hex: "#F7F7F7"))
         let snapshot = makeWindowAppearanceSnapshot(background: background)

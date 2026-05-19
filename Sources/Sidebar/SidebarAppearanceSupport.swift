@@ -236,11 +236,11 @@ func sidebarSelectedWorkspaceForegroundNSColor(
     opacity: CGFloat
 ) -> NSColor {
     let clampedOpacity = max(0, min(opacity, 1))
-    return cmuxReadableForegroundNSColor(
-        preferred: NSColor.white.withAlphaComponent(clampedOpacity),
-        on: backgroundColor,
-        minimumContrast: 3.0
-    )
+    let whiteContrast = cmuxContrastRatio(foreground: .white, background: backgroundColor)
+    guard whiteContrast < 2.75 else {
+        return NSColor.white.withAlphaComponent(clampedOpacity)
+    }
+    return cmuxReadableForegroundNSColor(on: backgroundColor, opacity: clampedOpacity)
 }
 
 struct SidebarWorkspaceRowBackgroundStyle {
