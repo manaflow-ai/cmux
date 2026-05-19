@@ -161,7 +161,8 @@ extension Workspace {
         publishSurfaceClosedEvent: Bool,
         clearSurfaceNotifications: Bool,
         requestTransferredRemoteCleanup: Bool,
-        cleanupControllerSurfaceState: Bool = false
+        cleanupControllerSurfaceState: Bool = false,
+        ephemeralWorktreeCleanupAuthorized: Bool = false
     ) -> WorkspaceRemoteConfiguration? {
         if publishSurfaceClosedEvent {
             publishCmuxSurfaceClosed(panelId, paneId: paneId, panel: panel, origin: origin)
@@ -178,6 +179,8 @@ extension Workspace {
         if closePanel {
             panel?.close()
         }
+
+        let ephemeralWorktree = ephemeralWorktreesByPanelId.removeValue(forKey: panelId)
 
         panels.removeValue(forKey: panelId)
         untrackRemoteTerminalSurface(panelId)
@@ -220,6 +223,12 @@ extension Workspace {
 
         if requestTransferredRemoteCleanup, let transferredRemoteCleanupConfiguration {
             Self.requestSSHControlMasterCleanupIfNeeded(configuration: transferredRemoteCleanupConfiguration)
+        }
+        if closePanel, let ephemeralWorktree {
+            EphemeralWorktreeRegistry.shared.cleanupInBackground(
+                ephemeralWorktree,
+                userConfirmed: ephemeralWorktreeCleanupAuthorized
+            )
         }
         return transferredRemoteCleanupConfiguration
     }

@@ -2047,7 +2047,8 @@ class TabManager: ObservableObject {
         configTemplate: CmuxSurfaceConfigTemplate?,
         initialTerminalCommand: String?,
         initialTerminalInput: String? = nil,
-        initialTerminalEnvironment: [String: String]
+        initialTerminalEnvironment: [String: String],
+        initialEphemeralWorktree: EphemeralWorktreeRecord? = nil
     ) -> Workspace {
         Workspace(
             title: title,
@@ -2056,7 +2057,8 @@ class TabManager: ObservableObject {
             configTemplate: configTemplate,
             initialTerminalCommand: initialTerminalCommand,
             initialTerminalInput: initialTerminalInput,
-            initialTerminalEnvironment: initialTerminalEnvironment
+            initialTerminalEnvironment: initialTerminalEnvironment,
+            initialEphemeralWorktree: initialEphemeralWorktree
         )
     }
 
@@ -2089,6 +2091,23 @@ class TabManager: ObservableObject {
 
     /// Test seam for mutating live workspace state after the creation snapshot is captured.
     func didCaptureWorkspaceCreationSnapshot() {}
+
+    func resolvedWorkingDirectoryForNewWorkspace(
+        override overrideWorkingDirectory: String?,
+        inheritWorkingDirectory: Bool = true
+    ) -> String? {
+        if let explicitWorkingDirectory = normalizedWorkingDirectory(overrideWorkingDirectory) {
+            return explicitWorkingDirectory
+        }
+        guard inheritWorkingDirectory else { return nil }
+        return implicitWorkingDirectoryForNewWorkspace(from: selectedWorkspace)
+    }
+
+    func activeEphemeralWorktreeSessionIds() -> Set<String> {
+        tabs.reduce(into: Set<String>()) { result, workspace in
+            result.formUnion(workspace.activeEphemeralWorktreeSessionIds())
+        }
+    }
 
 #if DEBUG
     func maybeMutateSelectionDuringWorkspaceCreationForDev(
@@ -2126,7 +2145,8 @@ class TabManager: ObservableObject {
         select: Bool = true,
         eagerLoadTerminal: Bool = false,
         placementOverride: NewWorkspacePlacement? = nil,
-        autoWelcomeIfNeeded: Bool = true
+        autoWelcomeIfNeeded: Bool = true,
+        initialEphemeralWorktree: EphemeralWorktreeRecord? = nil
     ) -> Workspace {
         let sourceWorkspace = selectedWorkspace
         let capturedTabs = tabs
@@ -2172,7 +2192,8 @@ class TabManager: ObservableObject {
                 configTemplate: inheritedConfig,
                 initialTerminalCommand: initialTerminalCommand,
                 initialTerminalInput: initialTerminalInput,
-                initialTerminalEnvironment: initialTerminalEnvironment
+                initialTerminalEnvironment: initialTerminalEnvironment,
+                initialEphemeralWorktree: initialEphemeralWorktree
             )
             applyCreationChromeInheritance(
                 to: newWorkspace,
@@ -4213,7 +4234,10 @@ class TabManager: ObservableObject {
         return trimmed
     }
 
-    func closeWorkspace(_ workspace: Workspace) {
+    func closeWorkspace(
+        _ workspace: Workspace,
+        ephemeralWorktreeCleanupAuthorizedPanelIds: Set<UUID> = []
+    ) {
         guard tabs.count > 1 else { return }
         sentryBreadcrumb("workspace.close", data: ["tabCount": tabs.count - 1])
         clearWorkspaceGitProbes(workspaceId: workspace.id)
@@ -4221,7 +4245,9 @@ class TabManager: ObservableObject {
         sidebarSelectedWorkspaceIds.remove(workspace.id)
 
         AppDelegate.shared?.notificationStore?.clearNotifications(forTabId: workspace.id)
-        workspace.teardownAllPanels()
+        workspace.teardownAllPanels(
+            ephemeralWorktreeCleanupAuthorizedPanelIds: ephemeralWorktreeCleanupAuthorizedPanelIds
+        )
         workspace.teardownRemoteConnection()
         unwireClosedBrowserTracking(for: workspace)
         workspace.owningTabManager = nil
@@ -4311,6 +4337,13 @@ class TabManager: ObservableObject {
         guard !closeConfirmationInFlight else { return }
         guard let plan = closeOtherTabsInFocusedPanePlan() else { return }
 
+        let blockPolicyPanelIds = blockPolicyEphemeralWorktreePanelIds(
+            in: plan.workspace,
+            panelIds: plan.panelIds
+        )
+        if !blockPolicyPanelIds.isEmpty {
+            guard confirmEphemeralWorktreeClose(affectedCount: blockPolicyPanelIds.count) else { return }
+        }
         if CloseTabConfirmationPolicy.shouldConfirm(requiresConfirmation: true) {
             let prompt = CloseOtherTabsConfirmationPrompt(titles: plan.titles)
             guard confirmClose(
@@ -4321,7 +4354,11 @@ class TabManager: ObservableObject {
         }
 
         for panelId in plan.panelIds {
-            _ = plan.workspace.closePanel(panelId, force: true)
+            _ = plan.workspace.closePanel(
+                panelId,
+                force: true,
+                ephemeralWorktreeCleanupAuthorized: blockPolicyPanelIds.contains(panelId)
+            )
         }
     }
 
@@ -4620,6 +4657,10 @@ class TabManager: ObservableObject {
     ) {
         let willCloseWindow = tabs.count <= 1
         let needsCloseConfirmation = workspaceNeedsConfirmClose(workspace)
+        let blockPolicyPanelIds = blockPolicyEphemeralWorktreePanelIds(in: workspace)
+        if !blockPolicyPanelIds.isEmpty {
+            guard confirmEphemeralWorktreeClose(affectedCount: blockPolicyPanelIds.count) else { return }
+        }
         if requiresConfirmation,
            shouldConfirmClose(requiresConfirmation: needsCloseConfirmation, source: source),
            !confirmClose(
@@ -4631,14 +4672,44 @@ class TabManager: ObservableObject {
         }
         if tabs.count <= 1 {
             // Last workspace in this window: match Close Workspace shortcut behavior.
+            let authorizedPanelIds = Set(blockPolicyPanelIds)
+            if !authorizedPanelIds.isEmpty {
+                workspace.authorizeEphemeralWorktreeCleanupForWindowClose(panelIds: authorizedPanelIds)
+            }
             if let window {
                 window.performClose(nil)
+                if window.isVisible, !authorizedPanelIds.isEmpty {
+                    workspace.cancelEphemeralWorktreeCleanupForWindowClose(panelIds: authorizedPanelIds)
+                }
             } else {
                 AppDelegate.shared?.closeMainWindowContainingTabId(workspace.id)
             }
         } else {
-            closeWorkspace(workspace)
+            closeWorkspace(
+                workspace,
+                ephemeralWorktreeCleanupAuthorizedPanelIds: Set(blockPolicyPanelIds)
+            )
         }
+    }
+
+    private func blockPolicyEphemeralWorktreePanelIds(
+        in workspace: Workspace,
+        panelIds candidatePanelIds: [UUID]? = nil
+    ) -> [UUID] {
+        let candidatePanelIdSet = candidatePanelIds.map { Set($0) }
+        return workspace.ephemeralWorktreesByPanelId.compactMap { panelId, record -> UUID? in
+            if let candidatePanelIdSet, !candidatePanelIdSet.contains(panelId) { return nil }
+            return record.cleanupPolicy == .block ? panelId : nil
+        }
+    }
+
+    private func confirmEphemeralWorktreeClose(affectedCount: Int) -> Bool {
+        let copy = WorkspaceEphemeralWorktreeManager.closeConfirmationCopy(affectedCount: affectedCount)
+        return confirmClose(
+            title: copy.title,
+            message: copy.message,
+            acceptCmdD: false
+        )
     }
 
     private func shouldConfirmClose(requiresConfirmation: Bool, source: CloseConfirmationSource) -> Bool {
@@ -5661,7 +5732,8 @@ class TabManager: ObservableObject {
         workingDirectory: String? = nil,
         initialCommand: String? = nil,
         tmuxStartCommand: String? = nil,
-        initialDividerPosition: CGFloat? = nil
+        initialDividerPosition: CGFloat? = nil,
+        ephemeralWorktree: EphemeralWorktreeRecord? = nil
     ) -> UUID? {
         guard let tab = tabs.first(where: { $0.id == tabId }) else { return nil }
         return tab.newTerminalSplit(
@@ -5672,7 +5744,8 @@ class TabManager: ObservableObject {
             workingDirectory: workingDirectory,
             initialCommand: initialCommand,
             tmuxStartCommand: tmuxStartCommand,
-            initialDividerPosition: initialDividerPosition
+            initialDividerPosition: initialDividerPosition,
+            ephemeralWorktree: ephemeralWorktree
         )?.id
     }
 

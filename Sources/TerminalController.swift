@@ -14,11 +14,6 @@ extension Notification.Name {
     static let reactGrabDidCopySelection = Notification.Name("cmux.reactGrabDidCopySelection")
 }
 
-nonisolated private struct SocketLineProcessingResult: Sendable {
-    let response: String
-    let authenticated: Bool
-}
-
 /// Unix socket-based controller for programmatic terminal control
 /// Allows automated testing and external control of terminal tabs
 @MainActor
@@ -1560,6 +1555,13 @@ class TerminalController {
         "system.top",
     ]
 
+    private nonisolated static let worktreeCreatingV2Methods: Set<String> = [
+        "workspace.create",
+        "surface.split",
+        "surface.create",
+        "pane.create",
+    ]
+
     private nonisolated static func executionPolicy(forV2Method method: String) -> SocketCommandExecutionPolicy {
         if method.hasPrefix("vm.") || socketWorkerV2Methods.contains(method) {
             return .socketWorker
@@ -1596,6 +1598,31 @@ class TerminalController {
         return withSocketCommandPolicy(commandKey: request.method, isV2: true, params: request.params) {
             socketWorkerV2Response(request)
         }
+    }
+
+    private nonisolated func socketWorkerV2WorktreeRequestIfNeeded(for command: String) -> V2SocketRequest? {
+        guard let request = parseV2SocketRequest(command),
+              Self.worktreeCreatingV2Methods.contains(request.method),
+              Self.socketWorkerWorktreeRequested(request.params) else {
+            return nil
+        }
+
+        return request
+    }
+
+    private nonisolated static func socketWorkerWorktreeRequested(_ params: [String: Any]) -> Bool {
+        guard let raw = params["worktree"] else { return false }
+        if let value = raw as? Bool { return value }
+        if let value = raw as? NSNumber { return value.boolValue }
+        if let value = raw as? String {
+            switch value.trimmingCharacters(in: .whitespacesAndNewlines).lowercased() {
+            case "1", "true", "yes", "on":
+                return true
+            default:
+                return false
+            }
+        }
+        return false
     }
 
     private nonisolated func socketWorkerV2Response(_ request: V2SocketRequest) -> String {
@@ -1670,6 +1697,77 @@ class TerminalController {
         default:
             return v2Error(id: request.id, code: "method_not_found", message: "Unknown method")
         }
+    }
+
+    private nonisolated func handOffSocketWorkerV2WorktreeResponse(
+        command: String,
+        socket: Int32
+    ) {
+        Task { [weak self] in
+            guard let self else {
+                close(socket)
+                return
+            }
+            let response = await socketWorkerV2WorktreeResponse(command: command)
+            _ = writeSocketResponse(response, to: socket)
+            publishSocketEvents(command: command, response: response)
+            close(socket)
+        }
+    }
+
+    private func socketWorkerV2WorktreeResponse(command: String) async -> String {
+        guard let request = socketWorkerV2WorktreeRequestIfNeeded(for: command) else {
+            return v2Error(
+                id: nil,
+                code: "invalid_dispatch",
+                message: String(
+                    localized: "error.socket.invalidWorktreeRequest",
+                    defaultValue: "Invalid worktree request"
+                )
+            )
+        }
+
+        let method = request.method
+        let params = request.params
+        let allowsFocusMutation = Self.socketCommandAllowsInAppFocusMutations(
+            commandKey: method,
+            isV2: true,
+            params: params
+        )
+        let result: V2CallResult
+        switch method {
+        case "workspace.create":
+            result = await v2WorkspaceCreateWithAsyncWorktree(
+                params: params,
+                allowsFocusMutation: allowsFocusMutation
+            )
+        case "surface.split":
+            result = await v2SurfaceSplitWithAsyncWorktree(
+                params: params,
+                allowsFocusMutation: allowsFocusMutation
+            )
+        case "surface.create":
+            result = await v2SurfaceCreateWithAsyncWorktree(
+                params: params,
+                allowsFocusMutation: allowsFocusMutation
+            )
+        case "pane.create":
+            result = await v2PaneCreateWithAsyncWorktree(
+                params: params,
+                allowsFocusMutation: allowsFocusMutation
+            )
+        default:
+            result = .err(
+                code: "method_not_found",
+                message: String(localized: "error.socket.unknownMethod", defaultValue: "Unknown method"),
+                data: nil
+            )
+        }
+
+        return v2Result(
+            id: request.id,
+            result
+        )
     }
 
     private nonisolated func startAcceptSource(listenerSocket: Int32, generation: UInt64) {
@@ -1955,7 +2053,12 @@ class TerminalController {
     }
 
     private nonisolated func handleClient(_ socket: Int32, peerPid: pid_t? = nil) {
-        defer { close(socket) }
+        var handlerOwnsSocket = true
+        defer {
+            if handlerOwnsSocket {
+                close(socket)
+            }
+        }
 
         // In cmuxOnly mode, verify the connecting process is a descendant of cmux.
         // In allowAll mode (env-var only), skip the ancestry check.
@@ -2018,28 +2121,32 @@ class TerminalController {
                     return
                 }
 
-                let result = processSocketLine(trimmed, authenticated: authenticated)
-                authenticated = result.authenticated
-                let didWriteResponse = writeSocketResponse(result.response, to: socket)
-                publishSocketEvents(command: trimmed, response: result.response)
+                var nextAuthenticated = authenticated
+                if let response = authResponseIfNeeded(for: trimmed, authenticated: &nextAuthenticated) {
+                    authenticated = nextAuthenticated
+                    let didWriteResponse = writeSocketResponse(response, to: socket)
+                    publishSocketEvents(command: trimmed, response: response)
+                    guard didWriteResponse else {
+                        return
+                    }
+                    continue
+                }
+                authenticated = nextAuthenticated
+
+                if socketWorkerV2WorktreeRequestIfNeeded(for: trimmed) != nil {
+                    handlerOwnsSocket = false
+                    handOffSocketWorkerV2WorktreeResponse(command: trimmed, socket: socket)
+                    return
+                }
+
+                let response = processCommandUsingSocketExecutionPolicy(trimmed)
+                let didWriteResponse = writeSocketResponse(response, to: socket)
+                publishSocketEvents(command: trimmed, response: response)
                 guard didWriteResponse else {
                     return
                 }
             }
         }
-    }
-
-    private nonisolated func processSocketLine(
-        _ command: String,
-        authenticated: Bool
-    ) -> SocketLineProcessingResult {
-        var nextAuthenticated = authenticated
-        if let response = authResponseIfNeeded(for: command, authenticated: &nextAuthenticated) {
-            return SocketLineProcessingResult(response: response, authenticated: nextAuthenticated)
-        }
-
-        let response = processCommandUsingSocketExecutionPolicy(command)
-        return SocketLineProcessingResult(response: response, authenticated: nextAuthenticated)
     }
 
     private nonisolated func processCommandUsingSocketExecutionPolicy(_ command: String) -> String {
@@ -2055,6 +2162,17 @@ class TerminalController {
 
         if let response = socketWorkerV2ResponseIfNeeded(for: command) {
             return response
+        }
+
+        if let request = socketWorkerV2WorktreeRequestIfNeeded(for: command) {
+            return v2Error(
+                id: request.id,
+                code: "invalid_dispatch",
+                message: String(
+                    localized: "error.socket.worktreeRequiresAsyncSocket",
+                    defaultValue: "worktree creation must run through the async socket responder"
+                )
+            )
         }
 
         if command.trimmingCharacters(in: .whitespacesAndNewlines).lowercased() == "ping" {
@@ -4340,6 +4458,195 @@ class TerminalController {
             "workspaces": workspaces
         ])
     }
+
+    func v2EphemeralWorktreeOptions(
+        params: [String: Any],
+        panelType: PanelType
+    ) -> (enabled: Bool, policy: EphemeralWorktreeCleanupPolicy, error: V2CallResult?) {
+        if v2HasNonNullParam(params, "worktree"), v2Bool(params, "worktree") == nil {
+            return (
+                false,
+                .defaultPolicy,
+                .err(
+                    code: "invalid_params",
+                    message: String(
+                        localized: "error.ephemeralWorktree.worktreeBoolean",
+                        defaultValue: "worktree must be a boolean."
+                    ),
+                    data: nil
+                )
+            )
+        }
+
+        let cleanupKey = ["worktree_cleanup", "worktree_cleanup_policy"]
+            .first { v2HasNonNullParam(params, $0) }
+        let rawPolicy: String?
+        if let cleanupKey {
+            guard let raw = v2RawString(params, cleanupKey) else {
+                return (
+                    false,
+                    .defaultPolicy,
+                    .err(
+                        code: "invalid_params",
+                        message: EphemeralWorktreeLifecycleError.invalidCleanupPolicy("").localizedDescription,
+                        data: nil
+                    )
+                )
+            }
+            rawPolicy = raw.trimmingCharacters(in: .whitespacesAndNewlines)
+        } else {
+            rawPolicy = nil
+        }
+        let enabled = v2Bool(params, "worktree") ?? false
+        guard enabled else {
+            if cleanupKey != nil {
+                return (
+                    false,
+                    .defaultPolicy,
+                    .err(
+                        code: "invalid_params",
+                        message: String(
+                            localized: "error.ephemeralWorktree.cleanupRequiresWorktree",
+                            defaultValue: "worktree_cleanup requires worktree: true."
+                        ),
+                        data: nil
+                    )
+                )
+            }
+            return (false, .defaultPolicy, nil)
+        }
+        guard panelType == .terminal else {
+            return (
+                false,
+                .defaultPolicy,
+                .err(
+                    code: "invalid_params",
+                    message: String(
+                        localized: "error.ephemeralWorktree.terminalOnly",
+                        defaultValue: "worktree mode is only supported for terminal panes."
+                    ),
+                    data: nil
+                )
+            )
+        }
+
+        guard let policy = EphemeralWorktreeCleanupPolicy(userValue: rawPolicy) else {
+            return (
+                false,
+                .defaultPolicy,
+                .err(
+                    code: "invalid_params",
+                    message: EphemeralWorktreeLifecycleError.invalidCleanupPolicy(rawPolicy ?? "").localizedDescription,
+                    data: nil
+                )
+            )
+        }
+        return (true, policy, nil)
+    }
+
+    private func v2CreateEphemeralWorktreeIfRequested(
+        params: [String: Any],
+        panelType: PanelType,
+        sourceDirectory: String?
+    ) -> (record: EphemeralWorktreeRecord?, workingDirectory: String?, error: V2CallResult?) {
+        let options = v2EphemeralWorktreeOptions(params: params, panelType: panelType)
+        if let error = options.error {
+            return (nil, nil, error)
+        }
+        guard options.enabled else {
+            return (nil, nil, nil)
+        }
+        guard let sourceDirectory = sourceDirectory?.trimmingCharacters(in: .whitespacesAndNewlines),
+              !sourceDirectory.isEmpty else {
+            return (
+                nil,
+                nil,
+                .err(
+                    code: "invalid_params",
+                    message: String(
+                        localized: "error.ephemeralWorktree.sourceDirectoryRequired",
+                        defaultValue: "worktree mode requires a source git repository directory."
+                    ),
+                    data: nil
+                )
+            )
+        }
+
+        do {
+            let record = try EphemeralWorktreeRegistry.shared.create(
+                sourceDirectory: sourceDirectory,
+                cleanupPolicy: options.policy
+            )
+            return (record, record.worktreePath, nil)
+        } catch let error as EphemeralWorktreeLifecycleError {
+            return (
+                nil,
+                nil,
+                .err(
+                    code: "worktree_error",
+                    message: error.localizedDescription,
+                    data: nil
+                )
+            )
+        } catch {
+            return (
+                nil,
+                nil,
+                .err(
+                    code: "worktree_error",
+                    message: String(
+                        localized: "error.ephemeralWorktree.operationFailed",
+                        defaultValue: "Failed to create ephemeral worktree."
+                    ),
+                    data: nil
+                )
+            )
+        }
+    }
+
+    func v2EphemeralWorktreePayload(_ record: EphemeralWorktreeRecord?) -> [String: Any] {
+        guard let record else { return [:] }
+        return [
+            "worktree": true,
+            "worktree_session_id": record.sessionId,
+            "worktree_path": record.worktreePath,
+            "worktree_branch": record.branchName,
+            "worktree_cleanup": record.cleanupPolicy.rawValue,
+        ]
+    }
+
+    func v2InvalidExplicitUUIDParamError(_ params: [String: Any], key: String) -> V2CallResult? {
+        guard v2HasNonNullParam(params, key), v2UUID(params, key) == nil else { return nil }
+        let message: String
+        switch key {
+        case "surface_id":
+            message = String(localized: "error.socket.invalidSurfaceId", defaultValue: "Invalid surface_id")
+        case "pane_id":
+            message = String(localized: "error.socket.invalidPaneId", defaultValue: "Invalid pane_id")
+        default:
+            message = String(localized: "error.socket.invalidIdentifier", defaultValue: "Invalid identifier")
+        }
+        return .err(
+            code: "invalid_params",
+            message: message,
+            data: [key: String(describing: params[key] ?? "")]
+        )
+    }
+
+    private func v2BlockedEphemeralWorktreeError(
+        for records: [EphemeralWorktreeRecord]
+    ) -> V2CallResult? {
+        guard records.contains(where: { $0.cleanupPolicy == .block }) else { return nil }
+        return .err(
+            code: "worktree_confirmation_required",
+            message: String(
+                localized: "error.ephemeralWorktree.dirtyRequiresConfirmation",
+                defaultValue: "This worktree cleanup policy requires confirmation before removal."
+            ),
+            data: nil
+        )
+    }
+
     private func v2WorkspaceCreate(params: [String: Any]) -> V2CallResult {
         guard let tabManager = v2ResolveTabManager(params: params) else {
             return .err(code: "unavailable", message: "TabManager not available", data: nil)
@@ -4369,6 +4676,31 @@ class TerminalController {
             cwd = nil
         }
 
+        if v2Bool(params, "worktree") == true, params["layout"] != nil {
+            return .err(
+                code: "invalid_params",
+                message: String(
+                    localized: "error.ephemeralWorktree.layoutUnsupported",
+                    defaultValue: "worktree mode is not supported with workspace layouts yet."
+                ),
+                data: nil
+            )
+        }
+
+        var sourceDirectoryForWorktree: String?
+        v2MainSync {
+            sourceDirectoryForWorktree = tabManager.resolvedWorkingDirectoryForNewWorkspace(override: cwd)
+        }
+        let worktree = v2CreateEphemeralWorktreeIfRequested(
+            params: params,
+            panelType: .terminal,
+            sourceDirectory: sourceDirectoryForWorktree
+        )
+        if let error = worktree.error {
+            return error
+        }
+        let creationCwd = worktree.workingDirectory ?? cwd
+
         let requestedTitle = v2RawString(params, "title")?.trimmingCharacters(in: .whitespacesAndNewlines)
         let title = (requestedTitle?.isEmpty == false) ? requestedTitle : nil
         let description = v2RawString(params, "description")
@@ -4393,30 +4725,37 @@ class TerminalController {
         v2MainSync {
             let ws = tabManager.addWorkspace(
                 title: title,
-                workingDirectory: cwd,
+                workingDirectory: creationCwd,
                 initialTerminalCommand: layoutNode == nil ? initialCommand : nil,
                 initialTerminalEnvironment: layoutNode == nil ? initialEnv : [:],
                 select: shouldFocus,
-                eagerLoadTerminal: !shouldFocus
+                eagerLoadTerminal: !shouldFocus,
+                initialEphemeralWorktree: layoutNode == nil ? worktree.record : nil
             )
             ws.setCustomDescription(description)
             if let layoutNode {
-                ws.applyCustomLayout(layoutNode, baseCwd: cwd ?? ws.currentDirectory)
+                ws.applyCustomLayout(layoutNode, baseCwd: creationCwd ?? ws.currentDirectory)
             }
             newId = ws.id
         }
 
         guard let newId else {
+            if let record = worktree.record {
+                EphemeralWorktreeRegistry.shared.cleanupInBackground(record, userConfirmed: true)
+            }
             return .err(code: "internal_error", message: "Failed to create workspace", data: nil)
         }
         let windowId = v2ResolveWindowId(tabManager: tabManager)
-        return .ok([
+        var payload: [String: Any] = [
             "window_id": v2OrNull(windowId?.uuidString),
             "window_ref": v2Ref(kind: .window, uuid: windowId),
             "workspace_id": newId.uuidString,
             "workspace_ref": v2Ref(kind: .workspace, uuid: newId)
-        ])
+        ]
+        payload.merge(v2EphemeralWorktreePayload(worktree.record)) { _, new in new }
+        return .ok(payload)
     }
+
     private func v2WorkspaceSelect(params: [String: Any]) -> V2CallResult {
         guard let tabManager = v2ResolveTabManager(params: params) else {
             return .err(code: "unavailable", message: "TabManager not available", data: nil)
@@ -4488,41 +4827,42 @@ class TerminalController {
             return .err(code: "invalid_params", message: "Missing or invalid workspace_id", data: nil)
         }
 
-        var found = false
-        var protected = false
+        var result: V2CallResult?
         v2MainSync {
-            if let ws = tabManager.tabs.first(where: { $0.id == wsId }) {
-                guard tabManager.canCloseWorkspace(ws) else {
-                    protected = true
-                    found = true
-                    return
-                }
-                tabManager.closeWorkspace(ws)
-                found = true
+            let windowId = v2ResolveWindowId(tabManager: tabManager)
+            guard let ws = tabManager.tabs.first(where: { $0.id == wsId }) else {
+                result = .err(code: "not_found", message: "Workspace not found", data: [
+                    "workspace_id": wsId.uuidString,
+                    "workspace_ref": v2Ref(kind: .workspace, uuid: wsId)
+                ])
+                return
             }
+            guard tabManager.canCloseWorkspace(ws) else {
+                result = .err(code: "protected", message: workspaceCloseProtectedMessage(), data: [
+                    "window_id": v2OrNull(windowId?.uuidString),
+                    "window_ref": v2Ref(kind: .window, uuid: windowId),
+                    "workspace_id": wsId.uuidString,
+                    "workspace_ref": v2Ref(kind: .workspace, uuid: wsId),
+                    "pinned": true
+                ])
+                return
+            }
+            if let worktreeError = v2BlockedEphemeralWorktreeError(
+                for: Array(ws.ephemeralWorktreesByPanelId.values)
+            ) {
+                result = worktreeError
+                return
+            }
+            tabManager.closeWorkspace(ws)
+            result = .ok([
+                "window_id": v2OrNull(windowId?.uuidString),
+                "window_ref": v2Ref(kind: .window, uuid: windowId),
+                "workspace_id": wsId.uuidString,
+                "workspace_ref": v2Ref(kind: .workspace, uuid: wsId)
+            ])
         }
 
-        let windowId = v2ResolveWindowId(tabManager: tabManager)
-        if protected {
-            return .err(code: "protected", message: workspaceCloseProtectedMessage(), data: [
-                "window_id": v2OrNull(windowId?.uuidString),
-                "window_ref": v2Ref(kind: .window, uuid: windowId),
-                "workspace_id": wsId.uuidString,
-                "workspace_ref": v2Ref(kind: .workspace, uuid: wsId),
-                "pinned": true
-            ])
-        }
-        return found
-            ? .ok([
-                "window_id": v2OrNull(windowId?.uuidString),
-                "window_ref": v2Ref(kind: .window, uuid: windowId),
-                "workspace_id": wsId.uuidString,
-                "workspace_ref": v2Ref(kind: .workspace, uuid: wsId)
-            ])
-            : .err(code: "not_found", message: "Workspace not found", data: [
-                "workspace_id": wsId.uuidString,
-                "workspace_ref": v2Ref(kind: .workspace, uuid: wsId)
-            ])
+        return result ?? .err(code: "internal_error", message: "Failed to close workspace", data: nil)
     }
 
     private func workspaceCloseProtectedMessage() -> String {
@@ -6411,14 +6751,82 @@ class TerminalController {
             return error
         }
         let initialDividerPosition = parsedInitialDivider.value
+        if panelType == .browser,
+           let worktreeError = v2EphemeralWorktreeOptions(params: params, panelType: panelType).error {
+            return worktreeError
+        }
         if panelType == .browser, BrowserAvailabilitySettings.isDisabled() {
             return v2BrowserDisabledExternalOpenResult(rawURL: urlStr, url: url, tabManager: tabManager)
         }
 
         var result: V2CallResult = .err(code: "internal_error", message: "Failed to create split", data: nil)
+        if panelType == .browser {
+            v2MainSync {
+                guard let ws = v2ResolveWorkspace(params: params, tabManager: tabManager) else {
+                    result = .err(code: "not_found", message: "Workspace not found", data: nil)
+                    return
+                }
+                if let invalidSurfaceId = v2InvalidExplicitUUIDParamError(params, key: "surface_id") {
+                    result = invalidSurfaceId
+                    return
+                }
+                let requestedSurfaceId: UUID? = v2UUID(params, "surface_id")
+                let targetSurfaceId: UUID?
+                if let requestedSurfaceId {
+                    guard ws.panels[requestedSurfaceId] != nil else {
+                        result = .err(code: "not_found", message: "Surface not found", data: ["surface_id": requestedSurfaceId.uuidString])
+                        return
+                    }
+                    targetSurfaceId = requestedSurfaceId
+                } else {
+                    targetSurfaceId = ws.focusedPanelId
+                }
+                guard let targetSurfaceId, ws.panels[targetSurfaceId] != nil else {
+                    result = .err(code: "not_found", message: "No focused surface", data: nil)
+                    return
+                }
+
+                v2MaybeFocusWindow(for: tabManager)
+                v2MaybeSelectWorkspace(tabManager, workspace: ws)
+
+                let focus = v2FocusAllowed(requested: v2Bool(params, "focus") ?? false)
+                guard let newId = ws.newBrowserSplit(
+                    from: targetSurfaceId,
+                    orientation: direction.orientation,
+                    insertFirst: direction.insertFirst,
+                    url: url,
+                    focus: focus,
+                    initialDividerPosition: initialDividerPosition.map { CGFloat($0) }
+                )?.id else {
+                    result = .err(code: "internal_error", message: "Failed to create split", data: nil)
+                    return
+                }
+
+                let paneUUID = ws.paneId(forPanelId: newId)?.id
+                let windowId = v2ResolveWindowId(tabManager: tabManager)
+                result = .ok([
+                    "window_id": v2OrNull(windowId?.uuidString),
+                    "window_ref": v2Ref(kind: .window, uuid: windowId),
+                    "workspace_id": ws.id.uuidString,
+                    "workspace_ref": v2Ref(kind: .workspace, uuid: ws.id),
+                    "pane_id": v2OrNull(paneUUID?.uuidString),
+                    "pane_ref": v2Ref(kind: .pane, uuid: paneUUID),
+                    "surface_id": newId.uuidString,
+                    "surface_ref": v2Ref(kind: .surface, uuid: newId),
+                    "type": v2OrNull(ws.panels[newId]?.panelType.rawValue)
+                ])
+            }
+            return result
+        }
+
+        var context: (workspaceId: UUID, targetSurfaceId: UUID, sourceDirectory: String?)?
         v2MainSync {
             guard let ws = v2ResolveWorkspace(params: params, tabManager: tabManager) else {
                 result = .err(code: "not_found", message: "Workspace not found", data: nil)
+                return
+            }
+            if let invalidSurfaceId = v2InvalidExplicitUUIDParamError(params, key: "surface_id") {
+                result = invalidSurfaceId
                 return
             }
             let requestedSurfaceId: UUID? = v2UUID(params, "surface_id")
@@ -6437,39 +6845,52 @@ class TerminalController {
                 return
             }
 
+            let sourceDirectory = ws.resolvedWorkingDirectoryForNewTerminalSplit(
+                from: targetSurfaceId,
+                workingDirectory: workingDirectory
+            )
+            context = (workspaceId: ws.id, targetSurfaceId: targetSurfaceId, sourceDirectory: sourceDirectory)
+        }
+        guard let context else { return result }
+
+        let worktree = v2CreateEphemeralWorktreeIfRequested(
+            params: params,
+            panelType: panelType,
+            sourceDirectory: context.sourceDirectory
+        )
+        if let error = worktree.error {
+            return error
+        }
+
+        var didAttachWorktree = false
+        v2MainSync {
+            guard let ws = tabManager.tabs.first(where: { $0.id == context.workspaceId }) else {
+                result = .err(code: "not_found", message: "Workspace not found", data: nil)
+                return
+            }
+            guard ws.panels[context.targetSurfaceId] != nil else {
+                result = .err(code: "not_found", message: "Surface not found", data: ["surface_id": context.targetSurfaceId.uuidString])
+                return
+            }
             v2MaybeFocusWindow(for: tabManager)
             v2MaybeSelectWorkspace(tabManager, workspace: ws)
 
             let focus = v2FocusAllowed(requested: v2Bool(params, "focus") ?? false)
-            let orientation = direction.orientation
-            let insertFirst = direction.insertFirst
-            let newId: UUID?
-            if panelType == .browser {
-                newId = ws.newBrowserSplit(
-                    from: targetSurfaceId,
-                    orientation: orientation,
-                    insertFirst: insertFirst,
-                    url: url,
-                    focus: focus,
-                    initialDividerPosition: initialDividerPosition.map { CGFloat($0) }
-                )?.id
-            } else {
-                newId = tabManager.newSplit(
-                    tabId: ws.id,
-                    surfaceId: targetSurfaceId,
-                    direction: direction,
-                    focus: focus,
-                    workingDirectory: workingDirectory,
-                    initialCommand: initialCommand,
-                    tmuxStartCommand: tmuxStartCommand,
-                    initialDividerPosition: initialDividerPosition.map { CGFloat($0) }
-                )
-            }
-
-            if let newId {
+            if let newId = tabManager.newSplit(
+                tabId: ws.id,
+                surfaceId: context.targetSurfaceId,
+                direction: direction,
+                focus: focus,
+                workingDirectory: worktree.workingDirectory ?? workingDirectory,
+                initialCommand: initialCommand,
+                tmuxStartCommand: tmuxStartCommand,
+                initialDividerPosition: initialDividerPosition.map { CGFloat($0) },
+                ephemeralWorktree: worktree.record
+            ) {
+                didAttachWorktree = worktree.record != nil
                 let paneUUID = ws.paneId(forPanelId: newId)?.id
                 let windowId = v2ResolveWindowId(tabManager: tabManager)
-                result = .ok([
+                var payload: [String: Any] = [
                     "window_id": v2OrNull(windowId?.uuidString),
                     "window_ref": v2Ref(kind: .window, uuid: windowId),
                     "workspace_id": ws.id.uuidString,
@@ -6479,13 +6900,19 @@ class TerminalController {
                     "surface_id": newId.uuidString,
                     "surface_ref": v2Ref(kind: .surface, uuid: newId),
                     "type": v2OrNull(ws.panels[newId]?.panelType.rawValue)
-                ])
+                ]
+                payload.merge(v2EphemeralWorktreePayload(worktree.record)) { _, new in new }
+                result = .ok(payload)
             } else {
                 result = .err(code: "internal_error", message: "Failed to create split", data: nil)
             }
         }
+        if !didAttachWorktree, let record = worktree.record {
+            EphemeralWorktreeRegistry.shared.cleanupInBackground(record, userConfirmed: true)
+        }
         return result
     }
+
     private func v2SurfaceCreate(params: [String: Any]) -> V2CallResult {
         guard let tabManager = v2ResolveTabManager(params: params) else {
             return .err(code: "unavailable", message: "TabManager not available", data: nil)
@@ -6497,19 +6924,75 @@ class TerminalController {
         let workingDirectory = v2OptionalTrimmedRawString(params, "working_directory")
         let initialCommand = v2OptionalTrimmedRawString(params, "initial_command")
         let tmuxStartCommand = v2OptionalTrimmedRawString(params, "tmux_start_command")
+        if panelType == .browser,
+           let worktreeError = v2EphemeralWorktreeOptions(params: params, panelType: panelType).error {
+            return worktreeError
+        }
         if panelType == .browser, BrowserAvailabilitySettings.isDisabled() {
             return v2BrowserDisabledExternalOpenResult(rawURL: urlStr, url: url, tabManager: tabManager)
         }
 
         var result: V2CallResult = .err(code: "internal_error", message: "Failed to create surface", data: nil)
+        if panelType == .browser {
+            v2MainSync {
+                guard let ws = v2ResolveWorkspace(params: params, tabManager: tabManager) else {
+                    result = .err(code: "not_found", message: "Workspace not found", data: nil)
+                    return
+                }
+
+                if let invalidPaneId = v2InvalidExplicitUUIDParamError(params, key: "pane_id") {
+                    result = invalidPaneId
+                    return
+                }
+                let paneUUID = v2UUID(params, "pane_id")
+                let paneId: PaneID? = {
+                    if let paneUUID {
+                        return ws.bonsplitController.allPaneIds.first(where: { $0.id == paneUUID })
+                    }
+                    return ws.bonsplitController.focusedPaneId
+                }()
+
+                guard let paneId else {
+                    result = .err(code: "not_found", message: "Pane not found", data: nil)
+                    return
+                }
+
+                v2MaybeFocusWindow(for: tabManager)
+                v2MaybeSelectWorkspace(tabManager, workspace: ws)
+
+                let focus = v2FocusAllowed(requested: v2Bool(params, "focus") ?? false)
+                guard let newPanelId = ws.newBrowserSurface(inPane: paneId, url: url, focus: focus)?.id else {
+                    result = .err(code: "internal_error", message: "Failed to create surface", data: nil)
+                    return
+                }
+
+                let windowId = v2ResolveWindowId(tabManager: tabManager)
+                result = .ok([
+                    "window_id": v2OrNull(windowId?.uuidString),
+                    "window_ref": v2Ref(kind: .window, uuid: windowId),
+                    "workspace_id": ws.id.uuidString,
+                    "workspace_ref": v2Ref(kind: .workspace, uuid: ws.id),
+                    "pane_id": paneId.id.uuidString,
+                    "pane_ref": v2Ref(kind: .pane, uuid: paneId.id),
+                    "surface_id": newPanelId.uuidString,
+                    "surface_ref": v2Ref(kind: .surface, uuid: newPanelId),
+                    "type": panelType.rawValue
+                ])
+            }
+            return result
+        }
+
+        var context: (workspaceId: UUID, paneId: PaneID, sourceDirectory: String?)?
         v2MainSync {
             guard let ws = v2ResolveWorkspace(params: params, tabManager: tabManager) else {
                 result = .err(code: "not_found", message: "Workspace not found", data: nil)
                 return
             }
-            v2MaybeFocusWindow(for: tabManager)
-            v2MaybeSelectWorkspace(tabManager, workspace: ws)
 
+            if let invalidPaneId = v2InvalidExplicitUUIDParamError(params, key: "pane_id") {
+                result = invalidPaneId
+                return
+            }
             let paneUUID = v2UUID(params, "pane_id")
             let paneId: PaneID? = {
                 if let paneUUID {
@@ -6523,37 +7006,67 @@ class TerminalController {
                 return
             }
 
-            let newPanelId: UUID?
-            let focus = v2FocusAllowed(requested: v2Bool(params, "focus") ?? false)
-            if panelType == .browser {
-                newPanelId = ws.newBrowserSurface(inPane: paneId, url: url, focus: focus)?.id
-            } else {
-                newPanelId = ws.newTerminalSurface(
-                    inPane: paneId,
-                    focus: focus,
-                    workingDirectory: workingDirectory,
-                    initialCommand: initialCommand,
-                    tmuxStartCommand: tmuxStartCommand
-                )?.id
-            }
+            let sourceDirectory = ws.resolvedWorkingDirectoryForNewTerminalSurface(
+                inPane: paneId,
+                workingDirectory: workingDirectory
+            )
+            context = (workspaceId: ws.id, paneId: paneId, sourceDirectory: sourceDirectory)
+        }
+        guard let context else { return result }
 
-            guard let newPanelId else {
+        let worktree = v2CreateEphemeralWorktreeIfRequested(
+            params: params,
+            panelType: panelType,
+            sourceDirectory: context.sourceDirectory
+        )
+        if let error = worktree.error {
+            return error
+        }
+
+        var didAttachWorktree = false
+        v2MainSync {
+            guard let ws = tabManager.tabs.first(where: { $0.id == context.workspaceId }) else {
+                result = .err(code: "not_found", message: "Workspace not found", data: nil)
+                return
+            }
+            guard ws.bonsplitController.allPaneIds.contains(context.paneId) else {
+                result = .err(code: "not_found", message: "Pane not found", data: nil)
+                return
+            }
+            v2MaybeFocusWindow(for: tabManager)
+            v2MaybeSelectWorkspace(tabManager, workspace: ws)
+
+            let focus = v2FocusAllowed(requested: v2Bool(params, "focus") ?? false)
+            guard let newPanelId = ws.newTerminalSurface(
+                inPane: context.paneId,
+                focus: focus,
+                workingDirectory: worktree.workingDirectory ?? workingDirectory,
+                initialCommand: initialCommand,
+                tmuxStartCommand: tmuxStartCommand,
+                ephemeralWorktree: worktree.record
+            )?.id else {
                 result = .err(code: "internal_error", message: "Failed to create surface", data: nil)
                 return
             }
+            didAttachWorktree = worktree.record != nil
 
             let windowId = v2ResolveWindowId(tabManager: tabManager)
-            result = .ok([
+            var payload: [String: Any] = [
                 "window_id": v2OrNull(windowId?.uuidString),
                 "window_ref": v2Ref(kind: .window, uuid: windowId),
                 "workspace_id": ws.id.uuidString,
                 "workspace_ref": v2Ref(kind: .workspace, uuid: ws.id),
-                "pane_id": paneId.id.uuidString,
-                "pane_ref": v2Ref(kind: .pane, uuid: paneId.id),
+                "pane_id": context.paneId.id.uuidString,
+                "pane_ref": v2Ref(kind: .pane, uuid: context.paneId.id),
                 "surface_id": newPanelId.uuidString,
                 "surface_ref": v2Ref(kind: .surface, uuid: newPanelId),
                 "type": panelType.rawValue
-            ])
+            ]
+            payload.merge(v2EphemeralWorktreePayload(worktree.record)) { _, new in new }
+            result = .ok(payload)
+        }
+        if !didAttachWorktree, let record = worktree.record {
+            EphemeralWorktreeRegistry.shared.cleanupInBackground(record, userConfirmed: true)
         }
         return result
     }
@@ -6564,6 +7077,7 @@ class TerminalController {
         }
 
         var result: V2CallResult = .err(code: "internal_error", message: "Failed to close surface", data: nil)
+        var context: (workspaceId: UUID, surfaceId: UUID, worktree: EphemeralWorktreeRecord?)?
         v2MainSync {
             guard let ws = v2ResolveWorkspace(params: params, tabManager: tabManager) else {
                 result = .err(code: "not_found", message: "Workspace not found", data: nil)
@@ -6586,9 +7100,44 @@ class TerminalController {
                 return
             }
 
+            context = (
+                workspaceId: ws.id,
+                surfaceId: surfaceId,
+                worktree: ws.ephemeralWorktreesByPanelId[surfaceId]
+            )
+        }
+        guard let context else { return result }
+
+        if let record = context.worktree,
+           let worktreeError = v2BlockedEphemeralWorktreeError(for: [record]) {
+            return worktreeError
+        }
+
+        v2MainSync {
+            guard let ws = tabManager.tabs.first(where: { $0.id == context.workspaceId }) else {
+                result = .err(code: "not_found", message: "Workspace not found", data: nil)
+                return
+            }
+            guard ws.panels[context.surfaceId] != nil else {
+                result = .err(code: "not_found", message: "Surface not found", data: ["surface_id": context.surfaceId.uuidString])
+                return
+            }
+            if ws.panels.count <= 1 {
+                result = .err(code: "invalid_state", message: "Cannot close the last surface", data: nil)
+                return
+            }
+
             // Socket API must be non-interactive: bypass close-confirmation gating.
-            ws.closePanel(surfaceId, force: true)
-            result = .ok(["workspace_id": ws.id.uuidString, "workspace_ref": v2Ref(kind: .workspace, uuid: ws.id), "surface_id": surfaceId.uuidString, "surface_ref": v2Ref(kind: .surface, uuid: surfaceId), "window_id": v2OrNull(v2ResolveWindowId(tabManager: tabManager)?.uuidString), "window_ref": v2Ref(kind: .window, uuid: v2ResolveWindowId(tabManager: tabManager))])
+            ws.closePanel(context.surfaceId, force: true)
+            let windowId = v2ResolveWindowId(tabManager: tabManager)
+            result = .ok([
+                "workspace_id": ws.id.uuidString,
+                "workspace_ref": v2Ref(kind: .workspace, uuid: ws.id),
+                "surface_id": context.surfaceId.uuidString,
+                "surface_ref": v2Ref(kind: .surface, uuid: context.surfaceId),
+                "window_id": v2OrNull(windowId?.uuidString),
+                "window_ref": v2Ref(kind: .window, uuid: windowId)
+            ])
         }
         return result
     }
@@ -7806,6 +8355,10 @@ class TerminalController {
         let workingDirectory = v2OptionalTrimmedRawString(params, "working_directory")
         let initialCommand = v2OptionalTrimmedRawString(params, "initial_command")
         let tmuxStartCommand = v2OptionalTrimmedRawString(params, "tmux_start_command")
+        if panelType == .browser,
+           let worktreeError = v2EphemeralWorktreeOptions(params: params, panelType: panelType).error {
+            return worktreeError
+        }
         if panelType == .browser, BrowserAvailabilitySettings.isDisabled() {
             return v2BrowserDisabledExternalOpenResult(rawURL: urlStr, url: url, tabManager: tabManager)
         }
@@ -7819,51 +8372,121 @@ class TerminalController {
         let initialDividerPosition = parsedInitialDivider.value
 
         var result: V2CallResult = .err(code: "internal_error", message: "Failed to create pane", data: nil)
-        v2MainSync {
-            guard let ws = v2ResolveWorkspace(params: params, tabManager: tabManager) else {
-                result = .err(code: "not_found", message: "Workspace not found", data: nil)
-                return
-            }
-            v2MaybeFocusWindow(for: tabManager)
-            v2MaybeSelectWorkspace(tabManager, workspace: ws)
-            let requestedPanelId = v2String(params, "surface_id").flatMap(UUID.init(uuidString:))
-            guard let sourcePanelId = requestedPanelId ?? ws.focusedPanelId,
-                  ws.panels[sourcePanelId] != nil else {
-                result = .err(code: "not_found", message: "No source surface to split", data: nil)
-                return
-            }
+        if panelType == .browser {
+            v2MainSync {
+                guard let ws = v2ResolveWorkspace(params: params, tabManager: tabManager) else {
+                    result = .err(code: "not_found", message: "Workspace not found", data: nil)
+                    return
+                }
+                if let invalidSurfaceId = v2InvalidExplicitUUIDParamError(params, key: "surface_id") {
+                    result = invalidSurfaceId
+                    return
+                }
+                let requestedPanelId = v2UUID(params, "surface_id")
+                guard let sourcePanelId = requestedPanelId ?? ws.focusedPanelId,
+                      ws.panels[sourcePanelId] != nil else {
+                    result = .err(code: "not_found", message: "No source surface to split", data: nil)
+                    return
+                }
 
-            let newPanelId: UUID?
-            let focus = v2FocusAllowed(requested: v2Bool(params, "focus") ?? false)
-            if panelType == .browser {
-                newPanelId = ws.newBrowserSplit(
+                v2MaybeFocusWindow(for: tabManager)
+                v2MaybeSelectWorkspace(tabManager, workspace: ws)
+
+                let focus = v2FocusAllowed(requested: v2Bool(params, "focus") ?? false)
+                guard let newPanelId = ws.newBrowserSplit(
                     from: sourcePanelId,
                     orientation: orientation,
                     insertFirst: insertFirst,
                     url: url,
                     focus: focus,
                     initialDividerPosition: initialDividerPosition.map { CGFloat($0) }
-                )?.id
-            } else {
-                newPanelId = ws.newTerminalSplit(
-                    from: sourcePanelId,
-                    orientation: orientation,
-                    insertFirst: insertFirst,
-                    focus: focus,
-                    workingDirectory: workingDirectory,
-                    initialCommand: initialCommand,
-                    tmuxStartCommand: tmuxStartCommand,
-                    initialDividerPosition: initialDividerPosition.map { CGFloat($0) }
-                )?.id
+                )?.id else {
+                    result = .err(code: "internal_error", message: "Failed to create pane", data: nil)
+                    return
+                }
+                let paneUUID = ws.paneId(forPanelId: newPanelId)?.id
+                let windowId = v2ResolveWindowId(tabManager: tabManager)
+                result = .ok([
+                    "window_id": v2OrNull(windowId?.uuidString),
+                    "window_ref": v2Ref(kind: .window, uuid: windowId),
+                    "workspace_id": ws.id.uuidString,
+                    "workspace_ref": v2Ref(kind: .workspace, uuid: ws.id),
+                    "pane_id": v2OrNull(paneUUID?.uuidString),
+                    "pane_ref": v2Ref(kind: .pane, uuid: paneUUID),
+                    "surface_id": newPanelId.uuidString,
+                    "surface_ref": v2Ref(kind: .surface, uuid: newPanelId),
+                    "type": panelType.rawValue
+                ])
+            }
+            return result
+        }
+
+        var context: (workspaceId: UUID, sourcePanelId: UUID, sourceDirectory: String?)?
+        v2MainSync {
+            guard let ws = v2ResolveWorkspace(params: params, tabManager: tabManager) else {
+                result = .err(code: "not_found", message: "Workspace not found", data: nil)
+                return
+            }
+            if let invalidSurfaceId = v2InvalidExplicitUUIDParamError(params, key: "surface_id") {
+                result = invalidSurfaceId
+                return
+            }
+            let requestedPanelId = v2UUID(params, "surface_id")
+            guard let sourcePanelId = requestedPanelId ?? ws.focusedPanelId,
+                  ws.panels[sourcePanelId] != nil else {
+                result = .err(code: "not_found", message: "No source surface to split", data: nil)
+                return
             }
 
-            guard let newPanelId else {
+            let sourceDirectory = ws.resolvedWorkingDirectoryForNewTerminalSplit(
+                from: sourcePanelId,
+                workingDirectory: workingDirectory
+            )
+            context = (workspaceId: ws.id, sourcePanelId: sourcePanelId, sourceDirectory: sourceDirectory)
+        }
+        guard let context else { return result }
+
+        let worktree = v2CreateEphemeralWorktreeIfRequested(
+            params: params,
+            panelType: panelType,
+            sourceDirectory: context.sourceDirectory
+        )
+        if let error = worktree.error {
+            return error
+        }
+
+        var didAttachWorktree = false
+        v2MainSync {
+            guard let ws = tabManager.tabs.first(where: { $0.id == context.workspaceId }) else {
+                result = .err(code: "not_found", message: "Workspace not found", data: nil)
+                return
+            }
+            guard ws.panels[context.sourcePanelId] != nil else {
+                result = .err(code: "not_found", message: "No source surface to split", data: nil)
+                return
+            }
+            v2MaybeFocusWindow(for: tabManager)
+            v2MaybeSelectWorkspace(tabManager, workspace: ws)
+
+            let focus = v2FocusAllowed(requested: v2Bool(params, "focus") ?? false)
+            guard let newPanelId = ws.newTerminalSplit(
+                from: context.sourcePanelId,
+                orientation: orientation,
+                insertFirst: insertFirst,
+                focus: focus,
+                workingDirectory: worktree.workingDirectory ?? workingDirectory,
+                initialCommand: initialCommand,
+                tmuxStartCommand: tmuxStartCommand,
+                initialDividerPosition: initialDividerPosition.map { CGFloat($0) },
+                ephemeralWorktree: worktree.record
+            )?.id else {
                 result = .err(code: "internal_error", message: "Failed to create pane", data: nil)
                 return
             }
+            didAttachWorktree = worktree.record != nil
             let paneUUID = ws.paneId(forPanelId: newPanelId)?.id
             let windowId = v2ResolveWindowId(tabManager: tabManager)
-            result = .ok([
+            var payload: [String: Any] = [
                 "window_id": v2OrNull(windowId?.uuidString),
                 "window_ref": v2Ref(kind: .window, uuid: windowId),
                 "workspace_id": ws.id.uuidString,
@@ -7873,7 +8496,12 @@ class TerminalController {
                 "surface_id": newPanelId.uuidString,
                 "surface_ref": v2Ref(kind: .surface, uuid: newPanelId),
                 "type": panelType.rawValue
-            ])
+            ]
+            payload.merge(v2EphemeralWorktreePayload(worktree.record)) { _, new in new }
+            result = .ok(payload)
+        }
+        if !didAttachWorktree, let record = worktree.record {
+            EphemeralWorktreeRegistry.shared.cleanupInBackground(record, userConfirmed: true)
         }
         return result
     }

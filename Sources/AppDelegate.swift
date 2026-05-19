@@ -678,6 +678,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
     private var menuBarVisibilityObserver: NSObjectProtocol?
     private var splitButtonTooltipRefreshScheduled = false
     private var didScheduleGhosttyCrashBreadcrumbCheck = false
+    private var didScheduleEphemeralWorktreeStartupReconciliation = false
     private var ghosttyCrashBreadcrumbTask: Task<Void, Never>?
     private struct PendingConfiguredShortcutChord {
         let firstStroke: ShortcutStroke
@@ -862,6 +863,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
     private var didPrepareStartupSessionSnapshot = false
     var didAttemptStartupSessionRestore = false
     private var isApplyingSessionRestore = false
+    private var didFinishStartupSessionRestoreAttempt = false
     private var sessionAutosaveTimer: DispatchSourceTimer?
     private var sessionAutosaveTickInFlight = false
     private var sessionAutosaveDeferredRetryPending = false
@@ -2790,8 +2792,14 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
     private func attemptStartupSessionRestoreIfNeeded(primaryWindow: NSWindow) -> Bool {
         guard !didAttemptStartupSessionRestore else { return false }
         didAttemptStartupSessionRestore = true
-        guard !didHandleExplicitOpenIntentAtStartup else { return false }
-        guard let primaryContext = contextForMainTerminalWindow(primaryWindow) else { return false }
+        guard !didHandleExplicitOpenIntentAtStartup else {
+            finishStartupSessionRestoreAttemptIfNeeded(reason: "startupRestoreSkippedForOpenIntent")
+            return false
+        }
+        guard let primaryContext = contextForMainTerminalWindow(primaryWindow) else {
+            finishStartupSessionRestoreAttemptIfNeeded(reason: "startupRestoreSkippedMissingWindow")
+            return false
+        }
 
         let startupSnapshot = startupSessionSnapshot
         let primaryWindowSnapshot = startupSnapshot?.windows.first
@@ -2823,7 +2831,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             }
         }
 
-        guard let startupSnapshot else { return false }
+        guard let startupSnapshot else {
+            finishStartupSessionRestoreAttemptIfNeeded(reason: "startupRestoreSkippedNoSnapshot")
+            return false
+        }
 
         let additionalWindows = Array(startupSnapshot
             .windows
@@ -2860,6 +2871,27 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             // restored process-detected bindings until a later live scan.
             _ = saveSessionSnapshot(includeScrollback: false)
         }
+        finishStartupSessionRestoreAttemptIfNeeded(reason: "sessionRestoreComplete")
+    }
+
+    private func finishStartupSessionRestoreAttemptIfNeeded(reason: String) {
+        guard !didFinishStartupSessionRestoreAttempt else { return }
+        didFinishStartupSessionRestoreAttempt = true
+        scheduleEphemeralWorktreeStartupReconciliation(reason: reason)
+    }
+
+    private func scheduleEphemeralWorktreeStartupReconciliation(reason: String) {
+        guard !didScheduleEphemeralWorktreeStartupReconciliation else { return }
+        didScheduleEphemeralWorktreeStartupReconciliation = true
+        let activeSessionIds = mainWindowContexts.values.reduce(into: Set<String>()) { result, context in
+            result.formUnion(context.tabManager.activeEphemeralWorktreeSessionIds())
+        }
+#if DEBUG
+        cmuxDebugLog(
+            "worktree.reconcile.startup reason=\(reason) active=\(activeSessionIds.count)"
+        )
+#endif
+        EphemeralWorktreeRegistry.shared.reconcileOrphansInBackground(activeSessionIds: activeSessionIds)
     }
 
     nonisolated static func shouldSaveSessionSnapshotOnRestoreCompletion(
@@ -4073,6 +4105,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             isApplyingSessionRestore: isApplyingSessionRestore
         ) {
             saveSessionSnapshotAfterLoadingProcessDetectedIndexes(includeScrollback: false)
+        }
+        if didFinishStartupSessionRestoreAttempt, !isApplyingSessionRestore {
+            scheduleEphemeralWorktreeStartupReconciliation(reason: "mainWindowRegistered")
         }
     }
 

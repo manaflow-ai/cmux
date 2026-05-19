@@ -981,6 +981,7 @@ struct SessionTerminalPanelSnapshot: Codable, Sendable {
     var scrollback: String?
     var agent: SessionRestorableAgentSnapshot?
     var tmuxStartCommand: String?
+    var ephemeralWorktree: EphemeralWorktreeRecord?
     var resumeBinding: SurfaceResumeBindingSnapshot?
 
     init(
@@ -988,12 +989,14 @@ struct SessionTerminalPanelSnapshot: Codable, Sendable {
         scrollback: String? = nil,
         agent: SessionRestorableAgentSnapshot? = nil,
         tmuxStartCommand: String? = nil,
+        ephemeralWorktree: EphemeralWorktreeRecord? = nil,
         resumeBinding: SurfaceResumeBindingSnapshot? = nil
     ) {
         self.workingDirectory = workingDirectory
         self.scrollback = scrollback
         self.agent = agent
         self.tmuxStartCommand = tmuxStartCommand
+        self.ephemeralWorktree = ephemeralWorktree
         self.resumeBinding = resumeBinding
     }
 }
