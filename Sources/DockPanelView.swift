@@ -807,6 +807,7 @@ final class DockControlsStore: ObservableObject {
 
     func noteKeyboardFocusIntent(id: String, window: NSWindow?) {
         guard controls.contains(where: { $0.id == id }) else { return }
+        focusedControlID = id
         AppDelegate.shared?.noteRightSidebarKeyboardFocusIntent(mode: .dock, in: window)
     }
 
@@ -1127,11 +1128,14 @@ final class DockControlsStore: ObservableObject {
     }
 
     private static func partialStartupErrorMessage(firstError: Error) -> String {
-        let format = String(
+        if let dockError = firstError as? DockControlRuntimeError,
+           let message = dockError.errorDescription {
+            return message
+        }
+        return String(
             localized: "dock.error.partialEntryStartup",
-            defaultValue: "Some Dock entries failed to start. First error: %@"
+            defaultValue: "Some Dock entries failed to start."
         )
-        return String(format: format, locale: Locale.current, firstError.localizedDescription)
     }
 
     private static func projectConfigURL(rootDirectory: String?) -> URL? {

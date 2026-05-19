@@ -108553,13 +108553,13 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Some Dock entries failed to start. First error: %@"
+            "value": "Some Dock entries failed to start."
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "一部のDock項目を開始できませんでした。最初のエラー: %@"
+            "value": "一部のDock項目を開始できませんでした。"
           }
         }
       }

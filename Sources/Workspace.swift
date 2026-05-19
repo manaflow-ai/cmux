@@ -7197,6 +7197,10 @@ final class Workspace: Identifiable, ObservableObject {
     /// Subscriptions for panel updates (e.g., browser title changes)
     var panelSubscriptions: [UUID: AnyCancellable] = [:]
 
+    /// Dock-hosted browser panels are intentionally outside Bonsplit `panels`,
+    /// but they still share workspace browser configuration and remote state.
+    private var adoptedDockBrowserPanels: [UUID: BrowserPanel] = [:]
+
     /// When true, suppresses auto-creation in didSplitPane (programmatic splits handle their own panels)
     private var isProgrammaticSplit = false
     private var debugStressPreloadSelectionDepth = 0
@@ -8169,12 +8173,15 @@ final class Workspace: Identifiable, ObservableObject {
     }
 
     func adoptDockBrowserPanel(_ browserPanel: BrowserPanel) {
+        adoptedDockBrowserPanels[browserPanel.id] = browserPanel
         configureBrowserPanel(browserPanel)
         installBrowserPanelSubscription(browserPanel)
+        browserPanel.setRemoteProxyEndpoint(remoteProxyEndpoint)
         browserPanel.setRemoteWorkspaceStatus(browserRemoteWorkspaceStatusSnapshot())
     }
 
     func releaseDockBrowserPanel(_ browserPanel: BrowserPanel, closePanel: Bool = true) {
+        adoptedDockBrowserPanels.removeValue(forKey: browserPanel.id)
         panelSubscriptions.removeValue(forKey: browserPanel.id)?.cancel()
         removeBrowserOpenTabSuggestion(panelId: browserPanel.id)
         if closePanel {
@@ -8286,10 +8293,14 @@ final class Workspace: Identifiable, ObservableObject {
         )
     }
 
+    private var workspaceBrowserPanels: [BrowserPanel] {
+        panels.values.compactMap { $0 as? BrowserPanel }
+            + adoptedDockBrowserPanels.values.filter { panels[$0.id] == nil }
+    }
+
     private func applyBrowserRemoteWorkspaceStatusToPanels() {
         let snapshot = browserRemoteWorkspaceStatusSnapshot()
-        for panel in panels.values {
-            guard let browserPanel = panel as? BrowserPanel else { continue }
+        for browserPanel in workspaceBrowserPanels {
             browserPanel.setRemoteWorkspaceStatus(snapshot)
         }
     }
@@ -8964,7 +8975,7 @@ final class Workspace: Identifiable, ObservableObject {
     }
 
     func resetBrowserPanelsForContextChange(reason: String) {
-        let browserPanels = panels.values.compactMap { $0 as? BrowserPanel }
+        let browserPanels = workspaceBrowserPanels
         guard !browserPanels.isEmpty else { return }
 
 #if DEBUG
@@ -8976,6 +8987,9 @@ final class Workspace: Identifiable, ObservableObject {
 
         for browserPanel in browserPanels {
             browserPanel.resetForWorkspaceContextChange(reason: reason)
+            guard panels[browserPanel.id] is BrowserPanel else {
+                continue
+            }
             let nextTitle = browserPanel.displayTitle
             _ = updatePanelTitle(panelId: browserPanel.id, title: nextTitle)
 
@@ -9867,8 +9881,7 @@ final class Workspace: Identifiable, ObservableObject {
 
     fileprivate func applyRemoteProxyEndpointUpdate(_ endpoint: BrowserProxyEndpoint?) {
         remoteProxyEndpoint = endpoint
-        for panel in panels.values {
-            guard let browserPanel = panel as? BrowserPanel else { continue }
+        for browserPanel in workspaceBrowserPanels {
             browserPanel.setRemoteProxyEndpoint(endpoint)
         }
         applyBrowserRemoteWorkspaceStatusToPanels()
@@ -11688,6 +11701,7 @@ final class Workspace: Identifiable, ObservableObject {
         if let terminalPanel = detached.panel as? TerminalPanel {
             terminalPanel.updateWorkspaceId(id)
         } else if let browserPanel = detached.panel as? BrowserPanel {
+            adoptedDockBrowserPanels.removeValue(forKey: browserPanel.id)
             browserPanel.reattachToWorkspace(
                 id,
                 isRemoteWorkspace: isRemoteWorkspace,
