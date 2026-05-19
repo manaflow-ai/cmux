@@ -5023,8 +5023,9 @@ final class TerminalControllerSocketListenerHealthTests: XCTestCase {
 
         XCTAssertEqual(resolved, livePath)
         XCTAssertEqual(warnings.count, 1)
-        XCTAssertTrue(warnings[0].contains(deadPath))
-        XCTAssertTrue(warnings[0].contains(livePath))
+        let warning = try XCTUnwrap(warnings.first)
+        XCTAssertTrue(warning.contains(deadPath))
+        XCTAssertTrue(warning.contains(livePath))
     }
 
     func testCLISocketResolverKeepsReachableEnvironmentSocket() throws {
