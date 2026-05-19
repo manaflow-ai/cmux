@@ -652,14 +652,20 @@ enum FilePreviewKindResolver {
         "podfile"
     ]
 
-    private static let textExtensions: Set<String> = [
+    // Single source of truth for markdown file extensions; FilePreviewPanel.isMarkdownFile
+    // also reads this so both the text-mode allowlist and the markdown-preview button
+    // recognize the same set of files.
+    static let markdownExtensions: Set<String> = [
+        "md", "markdown", "mkd", "mkdn", "mdwn", "mdown"
+    ]
+
+    private static let textExtensions: Set<String> = Set([
         "bash", "c", "cc", "cfg", "conf", "cpp", "cs", "css", "csv", "env",
         "fish", "go", "h", "hpp", "htm", "html", "ini", "java", "js", "json",
-        "jsx", "kt", "log", "m", "markdown", "md", "mdown", "mdwn", "mdx",
-        "mkd", "mkdn", "mm", "plist", "py",
+        "jsx", "kt", "log", "m", "mdx", "mm", "plist", "py",
         "rb", "rs", "sh", "sql", "swift", "toml", "ts", "tsx", "tsv", "txt",
         "xml", "yaml", "yml", "zsh"
-    ]
+    ]).union(markdownExtensions)
 
     static func mode(for url: URL) -> FilePreviewMode {
         switch resolvedResolution(for: url) {
@@ -928,8 +934,7 @@ final class FilePreviewPanel: Panel, ObservableObject, FilePreviewTextEditingPan
     }
 
     var isMarkdownFile: Bool {
-        let ext = fileURL.pathExtension.lowercased()
-        return ext == "md" || ext == "markdown" || ext == "mkd" || ext == "mkdn" || ext == "mdwn" || ext == "mdown"
+        FilePreviewKindResolver.markdownExtensions.contains(fileURL.pathExtension.lowercased())
     }
 
     // Mirrors TerminalSurface.owningWorkspace(): panel.workspaceId equals workspace.id,
