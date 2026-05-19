@@ -52,8 +52,11 @@ extension TerminalController {
     }
 
     func v2NoteOpen(params: [String: Any]) -> V2CallResult {
-        guard let rawSlug = v2String(params, "slug"), !rawSlug.isEmpty else {
+        guard params.keys.contains("slug") else {
             return .err(code: "invalid_params", message: NoteRPCMessage.missingSlug, data: nil)
+        }
+        guard let rawSlug = v2String(params, "slug"), !rawSlug.isEmpty else {
+            return .err(code: "invalid_params", message: NoteRPCMessage.emptySlug, data: nil)
         }
         let slug: String
         do {
@@ -77,69 +80,23 @@ extension TerminalController {
             return .err(code: "unavailable", message: NoteRPCMessage.tabManagerUnavailable, data: nil)
         }
         var result: V2CallResult = .err(code: "internal_error", message: NoteRPCMessage.openFailed, data: nil)
+        var resolvedWorkspace: Workspace?
+        var resolvedProjectRoot: String?
+        var resolvedNotePath: String?
+        var resolvedSourceSurfaceId: UUID?
+        var resolvedOrientation: SplitOrientation?
+        var resolvedInsertFirst = false
+        var resolvedFocusAllowed = false
         v2MainSync {
             guard let ws = v2ResolveWorkspace(params: params, tabManager: tabManager) else {
                 result = .err(code: "not_found", message: NoteRPCMessage.workspaceNotFound, data: nil)
                 return
             }
-            v2MaybeFocusWindow(for: tabManager)
-            v2MaybeSelectWorkspace(tabManager, workspace: ws)
-
             guard let projectRoot = ws.noteProjectRoot() else {
                 result = .err(code: "unavailable", message: NoteRPCMessage.remoteUnavailable, data: nil)
                 return
             }
             let notePath = NoteSupport.notePath(forSlug: slug, projectRoot: projectRoot)
-            let fileExistedBeforeCall: Bool
-            do {
-                fileExistedBeforeCall = try NoteSupport.noteFileExists(forSlug: slug, projectRoot: projectRoot)
-            } catch {
-                terminalNoteLogger.error(
-                    "Failed to inspect note slug=\(slug, privacy: .private) root=\(projectRoot, privacy: .private) error=\(error.localizedDescription, privacy: .private)"
-                )
-                result = .err(
-                    code: "io_error",
-                    message: NoteRPCMessage.accessFailed,
-                    data: [
-                        "slug": slug,
-                        "path": notePath,
-                        "project_root": projectRoot
-                    ]
-                )
-                return
-            }
-            if !createIfMissing {
-                guard fileExistedBeforeCall else {
-                    result = .err(
-                        code: "not_found",
-                        message: NoteRPCMessage.noteNotFound,
-                        data: ["slug": slug, "path": notePath, "project_root": projectRoot]
-                    )
-                    return
-                }
-            } else {
-                do {
-                    try NoteSupport.ensureNoteFile(slug: slug, projectRoot: projectRoot)
-                } catch {
-                    terminalNoteLogger.error(
-                        "Failed to create note slug=\(slug, privacy: .private) root=\(projectRoot, privacy: .private) error=\(error.localizedDescription, privacy: .private)"
-                    )
-                    result = .err(
-                        code: "io_error",
-                        message: NoteRPCMessage.createFailed,
-                        data: [
-                            "slug": slug,
-                            "path": notePath,
-                            "project_root": projectRoot
-                        ]
-                    )
-                    return
-                }
-            }
-            // Open new (empty) notes directly in text-edit mode so the user
-            // can start writing without clicking the mode toggle. Existing
-            // notes with content default to preview (MarkdownPanel default).
-            let openInTextMode = !fileExistedBeforeCall
 
             let sourceSurfaceId = v2UUID(params, "surface_id") ?? ws.focusedPanelId
             guard let sourceSurfaceId else {
@@ -154,7 +111,6 @@ extension TerminalController {
                 )
                 return
             }
-            let sourcePaneUUID = ws.paneId(forPanelId: sourceSurfaceId)?.id
 
             let directionStr = v2String(params, "direction") ?? "right"
             guard let direction = parseSplitDirection(directionStr) else {
@@ -169,6 +125,84 @@ extension TerminalController {
             let insertFirst = (direction == .left || direction == .up)
             let focusAllowed = v2FocusAllowed(requested: v2Bool(params, "focus") ?? false)
 
+            resolvedWorkspace = ws
+            resolvedProjectRoot = projectRoot
+            resolvedNotePath = notePath
+            resolvedSourceSurfaceId = sourceSurfaceId
+            resolvedOrientation = orientation
+            resolvedInsertFirst = insertFirst
+            resolvedFocusAllowed = focusAllowed
+        }
+
+        guard let ws = resolvedWorkspace,
+              let projectRoot = resolvedProjectRoot,
+              let notePath = resolvedNotePath,
+              let sourceSurfaceId = resolvedSourceSurfaceId,
+              let orientation = resolvedOrientation else {
+            return result
+        }
+
+        let fileExistedBeforeCall: Bool
+        do {
+            fileExistedBeforeCall = try NoteSupport.noteFileExists(forSlug: slug, projectRoot: projectRoot)
+        } catch {
+            terminalNoteLogger.error(
+                "Failed to inspect note slug=\(slug, privacy: .private) root=\(projectRoot, privacy: .private) error=\(error.localizedDescription, privacy: .private)"
+            )
+            return .err(
+                code: "io_error",
+                message: NoteRPCMessage.accessFailed,
+                data: [
+                    "slug": slug,
+                    "path": notePath,
+                    "project_root": projectRoot
+                ]
+            )
+        }
+        if !createIfMissing {
+            guard fileExistedBeforeCall else {
+                return .err(
+                    code: "not_found",
+                    message: NoteRPCMessage.noteNotFound,
+                    data: ["slug": slug, "path": notePath, "project_root": projectRoot]
+                )
+            }
+        } else {
+            do {
+                try NoteSupport.ensureNoteFile(slug: slug, projectRoot: projectRoot)
+            } catch {
+                terminalNoteLogger.error(
+                    "Failed to create note slug=\(slug, privacy: .private) root=\(projectRoot, privacy: .private) error=\(error.localizedDescription, privacy: .private)"
+                )
+                return .err(
+                    code: "io_error",
+                    message: NoteRPCMessage.createFailed,
+                    data: [
+                        "slug": slug,
+                        "path": notePath,
+                        "project_root": projectRoot
+                    ]
+                )
+            }
+        }
+        // Open new (empty) notes directly in text-edit mode so the user can
+        // start writing without clicking the mode toggle. Existing notes with
+        // content default to preview (MarkdownPanel default).
+        let openInTextMode = !fileExistedBeforeCall
+
+        v2MainSync {
+            v2MaybeFocusWindow(for: tabManager)
+            v2MaybeSelectWorkspace(tabManager, workspace: ws)
+            guard ws.panels[sourceSurfaceId] != nil else {
+                result = .err(
+                    code: "not_found",
+                    message: NoteRPCMessage.sourceSurfaceNotFound,
+                    data: ["surface_id": sourceSurfaceId.uuidString]
+                )
+                return
+            }
+            let sourcePaneUUID = ws.paneId(forPanelId: sourceSurfaceId)?.id
+
             // Reuse an existing markdown panel that already shows this note,
             // so repeated `cmux note open <slug>` focuses rather than spawns
             // duplicates. Mirrors openOrFocusMarkdownSurface semantics.
@@ -176,7 +210,7 @@ extension TerminalController {
             for (existingId, existingPanel) in ws.panels {
                 guard let md = existingPanel as? MarkdownPanel else { continue }
                 if (md.filePath as NSString).resolvingSymlinksInPath == canonical {
-                    if focusAllowed {
+                    if resolvedFocusAllowed {
                         ws.focusPanel(existingId)
                     }
                     let targetPaneUUID = ws.paneId(forPanelId: existingId)?.id
@@ -208,9 +242,9 @@ extension TerminalController {
             let createdPanel = ws.newMarkdownSplit(
                 from: sourceSurfaceId,
                 orientation: orientation,
-                insertFirst: insertFirst,
+                insertFirst: resolvedInsertFirst,
                 filePath: notePath,
-                focus: focusAllowed
+                focus: resolvedFocusAllowed
             )
 
             guard let panel = createdPanel else {
@@ -286,8 +320,11 @@ extension TerminalController {
         guard let tabManager = v2ResolveTabManager(params: params) else {
             return .err(code: "unavailable", message: NoteRPCMessage.tabManagerUnavailable, data: nil)
         }
-        guard let rawSlug = v2String(params, "slug"), !rawSlug.isEmpty else {
+        guard params.keys.contains("slug") else {
             return .err(code: "invalid_params", message: NoteRPCMessage.missingSlug, data: nil)
+        }
+        guard let rawSlug = v2String(params, "slug"), !rawSlug.isEmpty else {
+            return .err(code: "invalid_params", message: NoteRPCMessage.emptySlug, data: nil)
         }
         let slug: String
         do {
@@ -296,41 +333,45 @@ extension TerminalController {
             return .err(code: "invalid_params", message: error.localizedDescription, data: nil)
         }
         var result: V2CallResult = .err(code: "internal_error", message: NoteRPCMessage.pathFailed, data: nil)
+        var projectRoot: String?
         v2MainSync {
             guard let ws = v2ResolveWorkspace(params: params, tabManager: tabManager) else {
                 result = .err(code: "not_found", message: NoteRPCMessage.workspaceNotFound, data: nil)
                 return
             }
-            guard let projectRoot = ws.noteProjectRoot() else {
+            guard let resolvedRoot = ws.noteProjectRoot() else {
                 result = .err(code: "unavailable", message: NoteRPCMessage.remoteUnavailable, data: nil)
                 return
             }
-            let path = NoteSupport.notePath(forSlug: slug, projectRoot: projectRoot)
-            let exists: Bool
-            do {
-                exists = try NoteSupport.noteFileExists(forSlug: slug, projectRoot: projectRoot)
-            } catch {
-                terminalNoteLogger.error(
-                    "Failed to resolve note path slug=\(slug, privacy: .private) root=\(projectRoot, privacy: .private) error=\(error.localizedDescription, privacy: .private)"
-                )
-                result = .err(
-                    code: "io_error",
-                    message: NoteRPCMessage.accessFailed,
-                    data: [
-                        "slug": slug,
-                        "path": path,
-                        "project_root": projectRoot
-                    ]
-                )
-                return
-            }
-            result = .ok([
-                "slug": slug,
-                "path": path,
-                "exists": exists,
-                "project_root": projectRoot
-            ])
+            projectRoot = resolvedRoot
         }
+        guard let projectRoot else {
+            return result
+        }
+        let resolvedPath = NoteSupport.notePath(forSlug: slug, projectRoot: projectRoot)
+        let exists: Bool
+        do {
+            exists = try NoteSupport.noteFileExists(forSlug: slug, projectRoot: projectRoot)
+        } catch {
+            terminalNoteLogger.error(
+                "Failed to resolve note path slug=\(slug, privacy: .private) root=\(projectRoot, privacy: .private) error=\(error.localizedDescription, privacy: .private)"
+            )
+            return .err(
+                code: "io_error",
+                message: NoteRPCMessage.accessFailed,
+                data: [
+                    "slug": slug,
+                    "path": resolvedPath,
+                    "project_root": projectRoot
+                ]
+            )
+        }
+        result = .ok([
+            "slug": slug,
+            "path": resolvedPath,
+            "exists": exists,
+            "project_root": projectRoot
+        ])
         return result
     }
 
@@ -338,8 +379,11 @@ extension TerminalController {
         guard let tabManager = v2ResolveTabManager(params: params) else {
             return .err(code: "unavailable", message: NoteRPCMessage.tabManagerUnavailable, data: nil)
         }
-        guard let rawSlug = v2String(params, "slug"), !rawSlug.isEmpty else {
+        guard params.keys.contains("slug") else {
             return .err(code: "invalid_params", message: NoteRPCMessage.missingSlug, data: nil)
+        }
+        guard let rawSlug = v2String(params, "slug"), !rawSlug.isEmpty else {
+            return .err(code: "invalid_params", message: NoteRPCMessage.emptySlug, data: nil)
         }
         let slug: String
         do {
@@ -348,35 +392,40 @@ extension TerminalController {
             return .err(code: "invalid_params", message: error.localizedDescription, data: nil)
         }
         var result: V2CallResult = .err(code: "internal_error", message: NoteRPCMessage.deleteFailed, data: nil)
+        var projectRoot: String?
         v2MainSync {
             guard let ws = v2ResolveWorkspace(params: params, tabManager: tabManager) else {
                 result = .err(code: "not_found", message: NoteRPCMessage.workspaceNotFound, data: nil)
                 return
             }
-            guard let projectRoot = ws.noteProjectRoot() else {
+            guard let resolvedRoot = ws.noteProjectRoot() else {
                 result = .err(code: "unavailable", message: NoteRPCMessage.remoteUnavailable, data: nil)
                 return
             }
-            do {
-                let deleted = try NoteSupport.deleteNote(slug: slug, projectRoot: projectRoot)
-                result = .ok([
+            projectRoot = resolvedRoot
+        }
+        guard let projectRoot else {
+            return result
+        }
+        do {
+            let deleted = try NoteSupport.deleteNote(slug: slug, projectRoot: projectRoot)
+            result = .ok([
+                "slug": slug,
+                "deleted": deleted,
+                "project_root": projectRoot
+            ])
+        } catch {
+            terminalNoteLogger.error(
+                "Failed to delete note slug=\(slug, privacy: .private) root=\(projectRoot, privacy: .private) error=\(error.localizedDescription, privacy: .private)"
+            )
+            result = .err(
+                code: "io_error",
+                message: NoteRPCMessage.deleteFailed,
+                data: [
                     "slug": slug,
-                    "deleted": deleted,
                     "project_root": projectRoot
-                ])
-            } catch {
-                terminalNoteLogger.error(
-                    "Failed to delete note slug=\(slug, privacy: .private) root=\(projectRoot, privacy: .private) error=\(error.localizedDescription, privacy: .private)"
-                )
-                result = .err(
-                    code: "io_error",
-                    message: NoteRPCMessage.deleteFailed,
-                    data: [
-                        "slug": slug,
-                        "project_root": projectRoot
-                    ]
-                )
-            }
+                ]
+            )
         }
         return result
     }
