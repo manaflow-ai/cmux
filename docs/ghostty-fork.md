@@ -25,9 +25,9 @@ shaped glyph iteration during IME/preedit row rebuilds, prevents Cmd-hover from
 highlighting normal sentence text after a file path, exposes cursor line
 selection to embedded clients, and places embedded cmux Ghostty crash reports
 under `cmux/crash`.
-The corresponding prebuilt archive tag is
-`xcframework-5b0b60b95113cc848cf0c08dbc2cc85e65a4cfc3-crashsubdir-cmux-crash-v1`
-and must be pinned in `scripts/ghosttykit-checksums.txt`.
+The corresponding prebuilt archive is published at
+https://github.com/manaflow-ai/ghostty/releases/tag/xcframework-5b0b60b95113cc848cf0c08dbc2cc85e65a4cfc3-crashsubdir-cmux-crash-v1
+and pinned in `scripts/ghosttykit-checksums.txt`.
 
 ### 1) macOS display link restart on display changes
 
@@ -259,9 +259,11 @@ The current cmux pin is `5b0b60b95`. It is reachable from fork `main` and the
 fork branch in https://github.com/manaflow-ai/ghostty/pull/54, and merges the
 branches `issue-3369-metal-renderer-crash`,
 `issue-cmd-hover-path-range`, and `cmux-crash-report-subdir`.
-The release and checksum pin must be regenerated whenever this commit changes,
-even for comment-only amends, because the release tag is keyed by the Ghostty
-commit SHA.
+Published `xcframework-5b0b60b95113cc848cf0c08dbc2cc85e65a4cfc3-crashsubdir-cmux-crash-v1`
+and pinned its archive checksum in `scripts/ghosttykit-checksums.txt`. The
+release and checksum pin must be regenerated whenever this commit changes, even
+for comment-only amends, because the release tag is keyed by the Ghostty commit
+SHA.
 
 ## Upstreamed fork changes
 
