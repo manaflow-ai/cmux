@@ -17,7 +17,10 @@ enum CmuxReadableFilePathResolver {
                 nil,
                 CmuxReadableFilePathResolutionFailure(
                     code: "invalid_params",
-                    message: "Path must not be empty",
+                    message: String(
+                        localized: "socket.filePath.empty",
+                        defaultValue: "Path must not be empty"
+                    ),
                     path: rawPath
                 )
             )
@@ -39,7 +42,10 @@ enum CmuxReadableFilePathResolver {
                 nil,
                 CmuxReadableFilePathResolutionFailure(
                     code: "invalid_params",
-                    message: "Path must be absolute: \(standardizedPath)",
+                    message: String(
+                        localized: "socket.filePath.absoluteRequired",
+                        defaultValue: "Path must be absolute"
+                    ),
                     path: standardizedPath
                 )
             )
@@ -50,7 +56,10 @@ enum CmuxReadableFilePathResolver {
                 nil,
                 CmuxReadableFilePathResolutionFailure(
                     code: "invalid_params",
-                    message: "Path must be absolute: \(filePath)",
+                    message: String(
+                        localized: "socket.filePath.absoluteRequired",
+                        defaultValue: "Path must be absolute"
+                    ),
                     path: filePath
                 )
             )
@@ -62,7 +71,10 @@ enum CmuxReadableFilePathResolver {
                 nil,
                 CmuxReadableFilePathResolutionFailure(
                     code: "not_found",
-                    message: "File not found: \(filePath)",
+                    message: String(
+                        localized: "socket.filePath.notFound",
+                        defaultValue: "File not found"
+                    ),
                     path: filePath
                 )
             )
@@ -72,7 +84,10 @@ enum CmuxReadableFilePathResolver {
                 nil,
                 CmuxReadableFilePathResolutionFailure(
                     code: "invalid_params",
-                    message: "Path is a directory, not a file: \(filePath)",
+                    message: String(
+                        localized: "socket.filePath.directory",
+                        defaultValue: "Path is a directory, not a file"
+                    ),
                     path: filePath
                 )
             )
@@ -82,7 +97,10 @@ enum CmuxReadableFilePathResolver {
                 nil,
                 CmuxReadableFilePathResolutionFailure(
                     code: "permission_denied",
-                    message: "File not readable: \(filePath)",
+                    message: String(
+                        localized: "socket.filePath.notReadable",
+                        defaultValue: "File not readable"
+                    ),
                     path: filePath
                 )
             )
