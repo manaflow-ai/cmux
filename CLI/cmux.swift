@@ -18783,7 +18783,8 @@ struct CMUXCLI {
         def: AgentHookDef,
         parsedInput: ClaudeHookParsedInput,
         cwd: String?,
-        env: [String: String]
+        env: [String: String],
+        sessionId: String?
     ) -> AgentHookNotificationSummary {
         guard let object = parsedInput.object else {
             if let fallback = parsedInput.rawFallback, !fallback.isEmpty {
@@ -18821,9 +18822,9 @@ struct CMUXCLI {
         if let grokSummary = summarizeGrokAssistantCompletionNotification(
             def: def,
             message: normalizedMessage,
-            parsedInput: parsedInput,
             cwd: cwd,
             env: env,
+            sessionId: sessionId,
             matchesMessage: isGrokGenericTurnCompletion
         ) {
             return grokSummary
@@ -18839,9 +18840,9 @@ struct CMUXCLI {
         if let grokSummary = summarizeGrokAssistantCompletionNotification(
             def: def,
             message: normalizedMessage,
-            parsedInput: parsedInput,
             cwd: cwd,
             env: env,
+            sessionId: sessionId,
             matchesMessage: isGrokInternalSessionNotification
         ) {
             return grokSummary
@@ -18857,16 +18858,16 @@ struct CMUXCLI {
     private func summarizeGrokAssistantCompletionNotification(
         def: AgentHookDef,
         message: String,
-        parsedInput: ClaudeHookParsedInput,
         cwd: String?,
         env: [String: String],
+        sessionId: String?,
         matchesMessage: (String) -> Bool
     ) -> AgentHookNotificationSummary? {
         guard def.name == "grok",
               matchesMessage(message),
               let body = latestGrokAssistantMessage(
                 cwd: cwd,
-                sessionId: parsedInput.sessionId,
+                sessionId: sessionId,
                 env: env
               ) else {
             return nil
@@ -21674,7 +21675,8 @@ export default function cmuxPiSessionExtension(pi: ExtensionAPI) {
                 def: def,
                 parsedInput: input,
                 cwd: notificationCwd,
-                env: env
+                env: env,
+                sessionId: input.sessionId ?? sessionId
             )
             if summary.isFallback, let savedBody = mapped?.lastBody, !savedBody.isEmpty {
                 summary = AgentHookNotificationSummary(

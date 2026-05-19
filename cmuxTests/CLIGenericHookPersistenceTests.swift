@@ -461,6 +461,50 @@ extension CLINotifyProcessIntegrationRegressionTests {
             "Grok completion notifications must not read another session from the same cwd, saw \(sameCwdMissingCommands)"
         )
 
+        let envResolvedMessage = "This message belongs to the env-resolved session."
+        let unrelatedLatestMessage = "This message belongs to a newer unrelated session."
+        try writeGrokAssistantTranscript(
+            grokHome: grokHome,
+            cwd: root.path,
+            sessionId: surfaceId,
+            text: envResolvedMessage
+        )
+        try writeGrokAssistantTranscript(
+            grokHome: grokHome,
+            cwd: root.path,
+            sessionId: "latest-unrelated-grok-session",
+            text: unrelatedLatestMessage
+        )
+        let unrelatedLatestHistoryURL = grokHome
+            .appendingPathComponent("sessions", isDirectory: true)
+            .appendingPathComponent(grokEncodedSessionCWD(root.path), isDirectory: true)
+            .appendingPathComponent("latest-unrelated-grok-session", isDirectory: true)
+            .appendingPathComponent("chat_history.jsonl", isDirectory: false)
+        try FileManager.default.setAttributes(
+            [.modificationDate: Date(timeIntervalSince1970: 2_000_000_000)],
+            ofItemAtPath: unrelatedLatestHistoryURL.path
+        )
+        let envResolvedCommandStart = state.commands.count
+        let envResolved = runGrokHook(
+            "notification",
+            input: #"{"cwd":"\#(root.path)","hookEventName":"Notification","message":"Turn complete in 4.2s."}"#
+        )
+        XCTAssertFalse(envResolved.timedOut, envResolved.stderr)
+        XCTAssertEqual(envResolved.status, 0, envResolved.stderr)
+        XCTAssertEqual(envResolved.stdout, "{}\n")
+
+        let envResolvedCommands = Array(state.commands.dropFirst(envResolvedCommandStart))
+        XCTAssertTrue(
+            envResolvedCommands.contains {
+                $0.contains("notify_target_async \(workspaceId) \(surfaceId) Grok|Completed|\(envResolvedMessage)")
+            },
+            "Grok completion without a payload session id should use the resolved hook session id, saw \(envResolvedCommands)"
+        )
+        XCTAssertFalse(
+            envResolvedCommands.contains { $0.contains(unrelatedLatestMessage) },
+            "Grok completion without a payload session id must not fall back to the latest unrelated cwd session, saw \(envResolvedCommands)"
+        )
+
         let hookExecutionCommandStart = state.commands.count
         let hookExecution = runGrokHook(
             "notification",
