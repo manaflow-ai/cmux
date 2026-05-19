@@ -170,7 +170,7 @@ final class WindowAppearanceSnapshotTests: XCTestCase {
         bgGlassEnabled: Bool = false
     ) -> WindowAppearanceSnapshot {
         let backgroundColor = NSColor(hex: backgroundHex) ?? .black
-        WindowAppearanceSnapshot(
+        return WindowAppearanceSnapshot(
             terminalBackgroundColor: backgroundColor,
             terminalBackgroundOpacity: backgroundOpacity,
             terminalBackgroundBlur: backgroundBlur,
