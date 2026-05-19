@@ -117,13 +117,19 @@ struct RightSidebarChromeBottomBorderModifier: ViewModifier {
 }
 
 struct RightSidebarHeaderIconButtonStyle: ButtonStyle {
+    var iconGeometryKeyPrefix: String? = nil
+
     func makeBody(configuration: Configuration) -> some View {
-        RightSidebarHeaderIconButtonStyleBody(configuration: configuration)
+        RightSidebarHeaderIconButtonStyleBody(
+            configuration: configuration,
+            iconGeometryKeyPrefix: iconGeometryKeyPrefix
+        )
     }
 }
 
 private struct RightSidebarHeaderIconButtonStyleBody: View {
     let configuration: ButtonStyle.Configuration
+    let iconGeometryKeyPrefix: String?
     @State private var isHovering = false
     @Environment(\.isEnabled) private var isEnabled
 
@@ -134,6 +140,10 @@ private struct RightSidebarHeaderIconButtonStyleBody: View {
             .frame(
                 width: RightSidebarChromeMetrics.headerIconFrameSize,
                 height: RightSidebarChromeMetrics.headerIconFrameSize
+            )
+            .reportRightSidebarChromeNamedGeometryForBonsplitUITest(
+                keyPrefix: iconGeometryKeyPrefix,
+                isVisible: true
             )
             .frame(
                 width: RightSidebarChromeMetrics.headerControlSize,

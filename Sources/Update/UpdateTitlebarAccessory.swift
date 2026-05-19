@@ -934,7 +934,7 @@ struct TitlebarControlsView: View {
                 #endif
                 onToggleSidebar()
             }) {
-                sidebarIconLabel(config: config)
+                sidebarIconLabel(config: config, iconGeometryKeyPrefix: "titlebarControl_toggleSidebarIcon")
             }
             .safeHelp(KeyboardShortcutSettings.Action.toggleSidebar.tooltip(String(localized: "titlebar.sidebar.tooltip", defaultValue: "Show or hide the sidebar")))
 
@@ -949,7 +949,11 @@ struct TitlebarControlsView: View {
                 onToggleNotifications()
             }) {
                 ZStack(alignment: .topTrailing) {
-                    iconLabel(systemName: "bell", config: config)
+                    iconLabel(
+                        systemName: "bell",
+                        config: config,
+                        iconGeometryKeyPrefix: "titlebarControl_showNotificationsIcon"
+                    )
 
                     if notificationStore.unreadCount > 0 {
                         Text("\(min(notificationStore.unreadCount, 99))")
@@ -980,7 +984,7 @@ struct TitlebarControlsView: View {
                 rightClickAction: { anchorView, event in
                     _ = AppDelegate.shared?.showNewWorkspaceContextMenu(anchorView: anchorView, event: event)
                 }) {
-                iconLabel(systemName: "plus", config: config)
+                iconLabel(systemName: "plus", config: config, iconGeometryKeyPrefix: "titlebarControl_newTabIcon")
             }
             .safeHelp(KeyboardShortcutSettings.Action.newTab.tooltip(String(localized: "titlebar.newWorkspace.tooltip", defaultValue: "New workspace")))
 
@@ -994,7 +998,7 @@ struct TitlebarControlsView: View {
                     _ = AppDelegate.shared?.showFocusHistoryContextMenu(anchorView: anchorView, event: event, direction: .back)
                 }
             ) {
-                iconLabel(systemName: "arrow.left", config: config)
+                iconLabel(systemName: "arrow.left", config: config, iconGeometryKeyPrefix: "titlebarControl_focusHistoryBackIcon")
             }
             .safeHelp(KeyboardShortcutSettings.Action.focusHistoryBack.tooltip(String(localized: "menu.history.focusBack", defaultValue: "Focus Back")))
 
@@ -1008,7 +1012,7 @@ struct TitlebarControlsView: View {
                     _ = AppDelegate.shared?.showFocusHistoryContextMenu(anchorView: anchorView, event: event, direction: .forward)
                 }
             ) {
-                iconLabel(systemName: "arrow.right", config: config)
+                iconLabel(systemName: "arrow.right", config: config, iconGeometryKeyPrefix: "titlebarControl_focusHistoryForwardIcon")
             }
             .safeHelp(KeyboardShortcutSettings.Action.focusHistoryForward.tooltip(String(localized: "menu.history.focusForward", defaultValue: "Focus Forward")))
 
@@ -1152,8 +1156,12 @@ struct TitlebarControlsView: View {
     }
 
     @ViewBuilder
-    private func iconLabel(systemName: String, config: TitlebarControlsStyleConfig) -> some View {
-        titlebarIconChrome(config: config) {
+    private func iconLabel(
+        systemName: String,
+        config: TitlebarControlsStyleConfig,
+        iconGeometryKeyPrefix: String? = nil
+    ) -> some View {
+        titlebarIconChrome(config: config, iconGeometryKeyPrefix: iconGeometryKeyPrefix) {
             Image(systemName: systemName)
                 .symbolRenderingMode(.monochrome)
                 .font(.system(size: config.iconSize, weight: TitlebarControlIconStyle.weight))
@@ -1161,8 +1169,11 @@ struct TitlebarControlsView: View {
     }
 
     @ViewBuilder
-    private func sidebarIconLabel(config: TitlebarControlsStyleConfig) -> some View {
-        titlebarIconChrome(config: config) {
+    private func sidebarIconLabel(
+        config: TitlebarControlsStyleConfig,
+        iconGeometryKeyPrefix: String? = nil
+    ) -> some View {
+        titlebarIconChrome(config: config, iconGeometryKeyPrefix: iconGeometryKeyPrefix) {
             TitlebarSidebarGlyph(iconSize: config.iconSize)
         }
     }
@@ -1170,6 +1181,7 @@ struct TitlebarControlsView: View {
     @ViewBuilder
     private func titlebarIconChrome<Icon: View>(
         config: TitlebarControlsStyleConfig,
+        iconGeometryKeyPrefix: String? = nil,
         @ViewBuilder icon: () -> Icon
     ) -> some View {
         icon()
@@ -1177,6 +1189,7 @@ struct TitlebarControlsView: View {
                 width: TitlebarControlIconStyle.iconFrameSize(for: config),
                 height: TitlebarControlIconStyle.iconFrameSize(for: config)
             )
+            .background(TitlebarChromeGeometryReporter(keyPrefix: iconGeometryKeyPrefix ?? ""))
     }
 }
 

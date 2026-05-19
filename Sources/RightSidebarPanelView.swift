@@ -276,7 +276,7 @@ struct RightSidebarPanelView: View {
         } label: {
             Image(systemName: "rectangle.split.2x1")
         }
-        .buttonStyle(RightSidebarHeaderIconButtonStyle())
+        .buttonStyle(RightSidebarHeaderIconButtonStyle(iconGeometryKeyPrefix: "rightSidebarHeaderOpenAsPaneIcon"))
         .frame(
             width: RightSidebarChromeMetrics.headerControlSize,
             height: RightSidebarChromeMetrics.headerControlSize
@@ -308,7 +308,7 @@ struct RightSidebarPanelView: View {
             Button(action: onClose) {
                 Image(systemName: "xmark")
             }
-            .buttonStyle(RightSidebarHeaderIconButtonStyle())
+            .buttonStyle(RightSidebarHeaderIconButtonStyle(iconGeometryKeyPrefix: "rightSidebarHeaderCloseIcon"))
             .frame(
                 width: RightSidebarChromeMetrics.headerControlSize,
                 height: RightSidebarChromeMetrics.headerControlSize
