@@ -23142,7 +23142,7 @@ export default function cmuxPiSessionExtension(pi: ExtensionAPI) {
         }
 
         switch event {
-        case "PreToolUse", "beforeShellExecution":
+        case "PreToolUse", "BeforeTool", "beforeShellExecution":
             if source == "codex" { return ("PreToolUse", false) }
             switch toolName {
             case "ExitPlanMode":

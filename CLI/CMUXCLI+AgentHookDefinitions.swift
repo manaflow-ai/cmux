@@ -157,7 +157,7 @@ extension CMUXCLI {
                 .init(agentEvent: "AfterAgent", cmuxSubcommand: "stop"),
                 .init(agentEvent: "SessionEnd", cmuxSubcommand: "session-end"),
             ],
-            feedHookEvents: ["PreToolUse"]
+            feedHookEvents: ["BeforeTool"]
         ),
         AgentHookDef(
             name: "rovodev", displayName: "Rovo Dev", statusKey: "rovodev",
@@ -263,10 +263,6 @@ extension CMUXCLI {
     }
 
     private static func isLegacyCmuxOwnedHookCommand(_ command: String, for def: AgentHookDef) -> Bool {
-        // Legacy cmux codex-hook and feed-hook commands only existed for Codex hooks.
-        guard def.name == "codex" else {
-            return false
-        }
         let tokens = legacyCmuxCommandTokens(from: command, for: def)
         guard !tokens.isEmpty,
               URL(fileURLWithPath: String(tokens[0])).lastPathComponent == "cmux"
@@ -274,6 +270,20 @@ extension CMUXCLI {
             return false
         }
 
+        if def.name == "gemini" {
+            return tokens.count >= 7
+                && tokens[1] == "hooks"
+                && tokens[2] == "feed"
+                && tokens[3] == "--source"
+                && tokens[4] == "gemini"
+                && tokens[5] == "--event"
+                && tokens[6] == "PreToolUse"
+        }
+
+        // Legacy cmux codex-hook and feed-hook commands only existed for Codex hooks.
+        guard def.name == "codex" else {
+            return false
+        }
         if tokens.count >= 2, tokens[1] == "codex-hook" {
             return true
         }
