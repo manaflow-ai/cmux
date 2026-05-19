@@ -6738,6 +6738,16 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
         return true
     }
 
+    static func surfaceColorSchemePreference(
+        appPreferredColorScheme: GhosttyConfig.ColorSchemePreference,
+        surfaceAppearanceBestMatch _: NSAppearance.Name?
+    ) -> GhosttyConfig.ColorSchemePreference {
+        // The terminal config loader already resolves light/dark theme pairs from cmux's
+        // appearance setting. AppKit effectiveAppearance can lag behind that after live
+        // theme changes, so using it here can put Ghostty surfaces on the opposite theme.
+        appPreferredColorScheme
+    }
+
         // Visibility is used for focus gating. Explicit portal visibility transitions
         // also drive Ghostty occlusion so hidden workspace/split surfaces pause and
         // queue a redraw when they become visible again.
@@ -7262,14 +7272,16 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
     private func applySurfaceColorScheme(force: Bool = false) {
         guard let surface else { return }
         let bestMatch = effectiveAppearance.bestMatch(from: [.darkAqua, .aqua])
-        let scheme: ghostty_color_scheme_e = bestMatch == .darkAqua
-            ? GHOSTTY_COLOR_SCHEME_DARK
-            : GHOSTTY_COLOR_SCHEME_LIGHT
+        let preferredColorScheme = Self.surfaceColorSchemePreference(
+            appPreferredColorScheme: GhosttyConfig.currentColorSchemePreference(),
+            surfaceAppearanceBestMatch: bestMatch
+        )
+        let scheme = GhosttyApp.ghosttyRuntimeColorScheme(for: preferredColorScheme)
         if !force, appliedColorScheme == scheme {
             if GhosttyApp.shared.backgroundLogEnabled {
                 let schemeLabel = scheme == GHOSTTY_COLOR_SCHEME_DARK ? "dark" : "light"
                 GhosttyApp.shared.logBackground(
-                    "surface color scheme tab=\(tabId?.uuidString ?? "nil") surface=\(terminalSurface?.id.uuidString ?? "nil") bestMatch=\(bestMatch?.rawValue ?? "nil") scheme=\(schemeLabel) force=\(force) applied=false"
+                    "surface color scheme tab=\(tabId?.uuidString ?? "nil") surface=\(terminalSurface?.id.uuidString ?? "nil") bestMatch=\(bestMatch?.rawValue ?? "nil") preferred=\(schemeLabel) scheme=\(schemeLabel) force=\(force) applied=false"
                 )
             }
             return
@@ -7279,7 +7291,7 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
         if GhosttyApp.shared.backgroundLogEnabled {
             let schemeLabel = scheme == GHOSTTY_COLOR_SCHEME_DARK ? "dark" : "light"
             GhosttyApp.shared.logBackground(
-                "surface color scheme tab=\(tabId?.uuidString ?? "nil") surface=\(terminalSurface?.id.uuidString ?? "nil") bestMatch=\(bestMatch?.rawValue ?? "nil") scheme=\(schemeLabel) force=\(force) applied=true"
+                "surface color scheme tab=\(tabId?.uuidString ?? "nil") surface=\(terminalSurface?.id.uuidString ?? "nil") bestMatch=\(bestMatch?.rawValue ?? "nil") preferred=\(schemeLabel) scheme=\(schemeLabel) force=\(force) applied=true"
             )
         }
     }

@@ -1814,6 +1814,25 @@ final class GhosttyBackgroundThemeTests: XCTestCase {
     }
 }
 
+final class GhosttySurfaceColorSchemeTests: XCTestCase {
+    func testSurfaceColorSchemeFollowsAppPreferenceNotEffectiveAppearance() {
+        XCTAssertEqual(
+            GhosttyNSView.surfaceColorSchemePreference(
+                appPreferredColorScheme: .light,
+                surfaceAppearanceBestMatch: .darkAqua
+            ),
+            .light
+        )
+        XCTAssertEqual(
+            GhosttyNSView.surfaceColorSchemePreference(
+                appPreferredColorScheme: .dark,
+                surfaceAppearanceBestMatch: .aqua
+            ),
+            .dark
+        )
+    }
+}
+
 final class PanelAppearanceBackgroundTests: XCTestCase {
     func testTransparentGhosttyOpacityUsesClearContentBackground() {
         var config = GhosttyConfig()

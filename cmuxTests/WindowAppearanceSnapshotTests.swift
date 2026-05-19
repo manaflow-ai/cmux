@@ -112,6 +112,16 @@ final class WindowAppearanceSnapshotTests: XCTestCase {
         )
     }
 
+    func testChromeColorSchemeAccountsForTranslucentTerminalBackground() {
+        let composited = WindowAppearanceSnapshot.compositedTerminalColor(
+            backgroundColor: NSColor(hex: "#101820")!,
+            opacity: 0.05,
+            over: .white
+        )
+
+        XCTAssertEqual(cmuxReadableColorScheme(for: composited), .light)
+    }
+
     func testSidebarContentColorSchemeUsesTerminalOnlyForUnifiedBackdrops() {
         XCTAssertEqual(
             makeSnapshot(unifySurfaceBackdrops: true, backgroundHex: "#101820", sidebarColorScheme: .light)

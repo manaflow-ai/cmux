@@ -99,6 +99,30 @@ func cmuxReadableForegroundNSColor(
     return cmuxReadableForegroundNSColor(on: backgroundColor, opacity: preferredColor.alphaComponent)
 }
 
+func cmuxCompositedNSColor(_ foreground: NSColor, over background: NSColor) -> NSColor {
+    let fg = foreground.usingColorSpace(.sRGB) ?? foreground
+    let bg = background.usingColorSpace(.sRGB) ?? background
+    var foregroundRed: CGFloat = 0
+    var foregroundGreen: CGFloat = 0
+    var foregroundBlue: CGFloat = 0
+    var foregroundAlpha: CGFloat = 0
+    var backgroundRed: CGFloat = 0
+    var backgroundGreen: CGFloat = 0
+    var backgroundBlue: CGFloat = 0
+    var backgroundAlpha: CGFloat = 0
+    fg.getRed(&foregroundRed, green: &foregroundGreen, blue: &foregroundBlue, alpha: &foregroundAlpha)
+    bg.getRed(&backgroundRed, green: &backgroundGreen, blue: &backgroundBlue, alpha: &backgroundAlpha)
+    _ = backgroundAlpha
+
+    let alpha = max(0, min(foregroundAlpha, 1))
+    return NSColor(
+        srgbRed: foregroundRed * alpha + backgroundRed * (1 - alpha),
+        green: foregroundGreen * alpha + backgroundGreen * (1 - alpha),
+        blue: foregroundBlue * alpha + backgroundBlue * (1 - alpha),
+        alpha: 1
+    )
+}
+
 func cmuxContrastRatio(foreground: NSColor, background: NSColor) -> CGFloat {
     cmuxContrastRatio(
         cmuxRelativeLuminance(foreground),
