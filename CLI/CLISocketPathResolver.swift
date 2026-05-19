@@ -415,13 +415,68 @@ enum CLISocketPathResolver {
             }
         }
 
-        let result = withUnsafePointer(to: &addr) { ptr in
+        guard connectSocketWithTimeout(fd, to: &addr, timeout: 0.35) else {
+            return .unavailable
+        }
+        return perform(fd)
+    }
+
+    private static func connectSocketWithTimeout(
+        _ fd: Int32,
+        to address: inout sockaddr_un,
+        timeout: TimeInterval
+    ) -> Bool {
+        let originalFlags = fcntl(fd, F_GETFL, 0)
+        guard originalFlags >= 0 else { return false }
+        guard fcntl(fd, F_SETFL, originalFlags | O_NONBLOCK) >= 0 else { return false }
+        defer { _ = fcntl(fd, F_SETFL, originalFlags) }
+
+        let result = withUnsafePointer(to: &address) { ptr in
             ptr.withMemoryRebound(to: sockaddr.self, capacity: 1) { sockaddrPtr in
                 Darwin.connect(fd, sockaddrPtr, socklen_t(MemoryLayout<sockaddr_un>.size))
             }
         }
-        guard result == 0 else { return .unavailable }
-        return perform(fd)
+        if result == 0 || errno == EISCONN {
+            return true
+        }
+        guard errno == EINPROGRESS || errno == EALREADY else {
+            return false
+        }
+
+        return waitForSocketConnect(fd, timeout: timeout)
+    }
+
+    private static func waitForSocketConnect(_ fd: Int32, timeout: TimeInterval) -> Bool {
+        let deadline = ProcessInfo.processInfo.systemUptime + max(timeout, 0.01)
+        while true {
+            let remaining = deadline - ProcessInfo.processInfo.systemUptime
+            guard remaining > 0 else { return false }
+
+            var descriptor = pollfd(
+                fd: fd,
+                events: Int16(POLLOUT),
+                revents: 0
+            )
+            let timeoutMilliseconds = Int32(max(1, ceil(remaining * 1_000)))
+            let ready = Darwin.poll(&descriptor, 1, timeoutMilliseconds)
+            if ready < 0 {
+                if errno == EINTR { continue }
+                return false
+            }
+            guard ready > 0 else {
+                return false
+            }
+            guard descriptor.revents != 0 else {
+                return false
+            }
+
+            var socketError: Int32 = 0
+            var socketErrorLength = socklen_t(MemoryLayout<Int32>.size)
+            let status = withUnsafeMutablePointer(to: &socketError) { ptr in
+                getsockopt(fd, SOL_SOCKET, SO_ERROR, UnsafeMutableRawPointer(ptr), &socketErrorLength)
+            }
+            return status == 0 && socketError == 0
+        }
     }
 
     private static func isSuccessfulV2PingResponse(_ response: String) -> Bool {
