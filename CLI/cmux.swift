@@ -854,6 +854,10 @@ private enum HookAgentProcessKind: String {
 
 private let suppressSubagentNotificationsDefaultsKey = "suppressSubagentNotifications"
 private let suppressSubagentNotificationsEnvironmentKey = "CMUX_SUPPRESS_SUBAGENT_NOTIFICATIONS"
+private let managedSubagentEnvironmentKey = "CMUX_AGENT_MANAGED_SUBAGENT"
+private let codexTeamsThreadEnvironmentKey = "CMUX_CODEX_TEAMS_THREAD_ID"
+private let codexTeamsParentThreadEnvironmentKey = "CMUX_CODEX_TEAMS_PARENT_THREAD_ID"
+private let codexTeamsDepthEnvironmentKey = "CMUX_CODEX_TEAMS_DEPTH"
 
 enum CLIIDFormat: String {
     case refs
@@ -13937,6 +13941,8 @@ struct CMUXCLI {
                 codexExecutable: codexExecutable,
                 appServerURL: appServerURL,
                 threadId: thread.id,
+                parentThreadId: spawn.parentThreadId,
+                depth: depth,
                 launchPath: launchPath
             )
             guard let startupScript = CMUXCLI.codexTeamsStartupScript(commandText: commandText, cwd: thread.cwd) else {
@@ -14066,6 +14072,8 @@ struct CMUXCLI {
         codexExecutable: String,
         appServerURL: String,
         threadId: String,
+        parentThreadId: String,
+        depth: Int,
         launchPath: String?
     ) -> String {
         var parts = ["env"]
@@ -14075,6 +14083,10 @@ struct CMUXCLI {
         }
         parts += [
             "CMUX_CODEX_TEAMS_APP_SERVER_URL=\(appServerURL)",
+            "\(managedSubagentEnvironmentKey)=1",
+            "\(codexTeamsThreadEnvironmentKey)=\(threadId)",
+            "\(codexTeamsParentThreadEnvironmentKey)=\(parentThreadId)",
+            "\(codexTeamsDepthEnvironmentKey)=\(max(1, depth))",
             codexExecutable,
             "resume",
             "--remote",
@@ -19067,6 +19079,10 @@ struct CMUXCLI {
             return true
         }
 
+        if managedSubagentVisibleMutationSuppressionRequested(env: env) {
+            return true
+        }
+
         guard let currentAgentPID, currentAgentPID > 1 else {
             return false
         }
@@ -19089,6 +19105,14 @@ struct CMUXCLI {
             remainingAncestors -= 1
         }
         return false
+    }
+
+    private func managedSubagentVisibleMutationSuppressionRequested(env: [String: String]) -> Bool {
+        guard let raw = normalizedHookValue(env[managedSubagentEnvironmentKey]),
+              let parsed = Self.parseHookBoolean(raw) else {
+            return false
+        }
+        return parsed
     }
 
     private func subagentNotificationSuppressionEnabled(env: [String: String]) -> Bool {
