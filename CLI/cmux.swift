@@ -1083,21 +1083,17 @@ final class SocketClient {
     func connect() throws {
         if socketFD >= 0 { return }
         let deadline = Date().addingTimeInterval(Self.connectRetryDeadline)
-        var lastError: Error?
-        repeat {
+        while true {
             do {
                 try connectOnce()
                 return
             } catch {
-                lastError = error
                 guard Self.shouldRetryConnect(error), Date() < deadline else {
                     throw error
                 }
                 usleep(Self.connectRetryIntervalMicros)
             }
-        } while true
-
-        throw lastError ?? CLIError(message: "Failed to connect to socket at \(path)")
+        }
     }
 
     func close() {

@@ -8832,16 +8832,17 @@ final class Workspace: Identifiable, ObservableObject {
     }
 
     func applyProcessTitle(_ title: String) {
-        processTitle = title
-        guard customTitle == nil else { return }
-#if DEBUG
-        if self.title != title {
-            cmuxDebugLog(
-                "workspace.title.applyProcess workspace=\(id.uuidString.prefix(5)) " +
-                "from=\"\(debugWorkspaceDescriptionPreview(self.title, limit: 80))\" " +
-                "to=\"\(debugWorkspaceDescriptionPreview(title, limit: 80))\""
-            )
+        if processTitle != title {
+            processTitle = title
         }
+        guard customTitle == nil else { return }
+        guard self.title != title else { return }
+#if DEBUG
+        cmuxDebugLog(
+            "workspace.title.applyProcess workspace=\(id.uuidString.prefix(5)) " +
+            "from=\"\(debugWorkspaceDescriptionPreview(self.title, limit: 80))\" " +
+            "to=\"\(debugWorkspaceDescriptionPreview(title, limit: 80))\""
+        )
 #endif
         self.title = title
     }
