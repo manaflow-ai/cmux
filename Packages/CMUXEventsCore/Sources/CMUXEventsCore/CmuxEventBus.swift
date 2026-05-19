@@ -8,6 +8,7 @@ public struct CmuxEventSubscriptionSnapshot {
 
 // Sendable safety: every mutable field is protected by `lock`; `semaphore` only wakes `next(timeout:)`.
 public final class CmuxEventSubscription: @unchecked Sendable {
+    let ownerBusId: UUID
     let id: UUID
     let names: Set<String>
     let categories: Set<String>
@@ -19,7 +20,14 @@ public final class CmuxEventSubscription: @unchecked Sendable {
     private var closed = false
     private var closedReason: String?
 
-    init(id: UUID = UUID(), names: Set<String>, categories: Set<String>, maxPendingEvents: Int) {
+    init(
+        ownerBusId: UUID,
+        id: UUID = UUID(),
+        names: Set<String>,
+        categories: Set<String>,
+        maxPendingEvents: Int
+    ) {
+        self.ownerBusId = ownerBusId
         self.id = id
         self.names = names
         self.categories = categories
@@ -135,6 +143,7 @@ public final class CmuxEventBus: @unchecked Sendable {
     private let maxEventLineBytes: Int
     private let maxPendingEventsPerSubscription: Int
     private let eventLogWriter: CmuxEventLogWriter?
+    private let busId = UUID()
     private let bootId = UUID().uuidString
     private var nextSequence: Int64 = 1
     private var retained: [[String: Any]] = []
@@ -225,6 +234,7 @@ public final class CmuxEventBus: @unchecked Sendable {
         categories: Set<String>
     ) -> CmuxEventSubscriptionSnapshot {
         let subscription = CmuxEventSubscription(
+            ownerBusId: busId,
             names: names,
             categories: categories,
             maxPendingEvents: maxPendingEventsPerSubscription
@@ -283,13 +293,17 @@ public final class CmuxEventBus: @unchecked Sendable {
     }
 
     public func unsubscribe(_ subscription: CmuxEventSubscription) {
+        guard subscription.ownerBusId == busId else { return }
         lock.lock()
-        subscriptions.removeValue(forKey: subscription.id)
+        let removed = subscriptions.removeValue(forKey: subscription.id)
         lock.unlock()
-        subscription.close()
+        if removed === subscription {
+            subscription.close()
+        }
     }
 
     private func removeSubscriptionIfStillActive(_ subscription: CmuxEventSubscription) {
+        guard subscription.ownerBusId == busId else { return }
         lock.lock()
         if subscriptions[subscription.id] === subscription {
             subscriptions.removeValue(forKey: subscription.id)
@@ -298,6 +312,20 @@ public final class CmuxEventBus: @unchecked Sendable {
     }
 
     public func heartbeat(subscription: CmuxEventSubscription) -> [String: Any] {
+        guard subscription.ownerBusId == busId else {
+            return [
+                "type": "error",
+                "ok": false,
+                "protocol": Self.protocolName,
+                "version": Self.protocolVersion,
+                "subscription_id": subscription.id.uuidString,
+                "error": [
+                    "code": "invalid_subscription",
+                    "message": "subscription does not belong to this event bus"
+                ]
+            ]
+        }
+
         [
             "type": "heartbeat",
             "protocol": Self.protocolName,

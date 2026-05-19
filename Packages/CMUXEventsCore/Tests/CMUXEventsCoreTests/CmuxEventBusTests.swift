@@ -141,6 +141,27 @@ final class CmuxEventBusTests: XCTestCase {
         XCTAssertNil(snapshot.subscription.next(timeout: 0.05))
     }
 
+    func testForeignBusCannotCloseOrHeartbeatSubscription() throws {
+        let owner = CmuxEventBus(retainedEventLimit: 8)
+        let foreign = CmuxEventBus(retainedEventLimit: 8)
+        let snapshot = owner.subscribe(afterSequence: nil, names: [], categories: [])
+        defer { owner.unsubscribe(snapshot.subscription) }
+
+        foreign.unsubscribe(snapshot.subscription)
+        owner.publish(name: "still.active", category: "test", source: "test")
+
+        XCTAssertFalse(snapshot.subscription.isClosed)
+        XCTAssertEqual(snapshot.subscription.next(timeout: 0.2)?["name"] as? String, "still.active")
+
+        let foreignHeartbeat = foreign.heartbeat(subscription: snapshot.subscription)
+        XCTAssertEqual(foreignHeartbeat["type"] as? String, "error")
+        XCTAssertEqual(foreignHeartbeat["ok"] as? Bool, false)
+        XCTAssertNil(foreignHeartbeat["boot_id"])
+        XCTAssertNil(foreignHeartbeat["latest_seq"])
+        let error = try XCTUnwrap(foreignHeartbeat["error"] as? [String: Any])
+        XCTAssertEqual(error["code"] as? String, "invalid_subscription")
+    }
+
     func testEventEncodingIsSingleLineJSON() throws {
         let bus = CmuxEventBus(retainedEventLimit: 4)
         bus.publish(

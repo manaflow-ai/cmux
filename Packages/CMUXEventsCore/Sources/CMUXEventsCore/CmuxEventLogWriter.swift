@@ -10,6 +10,7 @@ final class CmuxEventLogWriter: @unchecked Sendable {
     private let eventLogURL: URL
     private let maxEventLogBytes: UInt64
     private let maxPendingLines: Int
+    private let flushQueue = DispatchQueue(label: "com.cmuxterm.events.log-writer", qos: .utility)
     private let lock = NSLock()
     private var pendingLines: [String] = []
     private var flushTask: Task<Void, Never>?
@@ -94,10 +95,15 @@ final class CmuxEventLogWriter: @unchecked Sendable {
         guard !pendingLines.isEmpty else {
             return nil
         }
-        // `publish` is intentionally synchronous; the detached utility task prevents
-        // file IO from inheriting the caller actor while keeping one drain active.
+        // `publish` is intentionally synchronous. The task tracks the active drain
+        // while the queue keeps blocking file IO off Swift's cooperative executor.
         let task = Task.detached(priority: .utility) { [self] in
-            flushPendingLines()
+            await withCheckedContinuation { (continuation: CheckedContinuation<Void, Never>) in
+                flushQueue.async {
+                    flushPendingLines()
+                    continuation.resume()
+                }
+            }
         }
         flushTask = task
         return task
