@@ -8,10 +8,31 @@ on:
   workflow_dispatch:
     inputs:
       run_warpbuild_macos:
-        description: Run preserved WarpBuild macOS jobs
+        description: Run optional macOS jobs
         required: false
         default: false
         type: boolean
+      macos_runner:
+        description: Runner for optional macOS 15 debug jobs
+        required: false
+        default: warp-macos-15-arm64-6x
+        type: choice
+        options:
+          - warp-macos-15-arm64-6x
+          - cmux-aws-macos-15
+          - cmux-aws-m4pro
+          - cmux-aws-m1ultra
+      release_macos_runner:
+        description: Runner for the optional macOS release build
+        required: false
+        default: warp-macos-26-arm64-6x
+        type: choice
+        options:
+          - warp-macos-26-arm64-6x
+          - warp-macos-15-arm64-6x
+          - cmux-aws-macos-15
+          - cmux-aws-m4pro
+          - cmux-aws-m1ultra
 
 concurrency:
   group: ${{ github.workflow }}-${{ github.ref }}
@@ -159,7 +180,7 @@ jobs:
 
   tests:
     if: ${{ github.event_name == 'workflow_dispatch' && inputs.run_warpbuild_macos }}
-    runs-on: warp-macos-15-arm64-6x
+    runs-on: ${{ inputs.macos_runner || 'warp-macos-15-arm64-6x' }}
     timeout-minutes: 30
     steps:
       - name: Checkout
@@ -335,7 +356,7 @@ jobs:
     # and performance regressions stay isolated. Broader interactive UI suites
     # still run via test-e2e.yml on GitHub-hosted runners.
     if: ${{ github.event_name == 'workflow_dispatch' && inputs.run_warpbuild_macos }}
-    runs-on: warp-macos-15-arm64-6x
+    runs-on: ${{ inputs.macos_runner || 'warp-macos-15-arm64-6x' }}
     timeout-minutes: 20
     steps:
       - name: Checkout
@@ -522,7 +543,7 @@ jobs:
     # signing, notarization, and publishing. This catches DEBUG/Release boundary
     # mistakes before they reach main.
     if: ${{ github.event_name == 'workflow_dispatch' && inputs.run_warpbuild_macos }}
-    runs-on: warp-macos-26-arm64-6x
+    runs-on: ${{ inputs.release_macos_runner || 'warp-macos-26-arm64-6x' }}
     timeout-minutes: 20
     steps:
       - name: Checkout
@@ -606,7 +627,7 @@ jobs:
 
   ui-regressions:
     if: ${{ github.event_name == 'workflow_dispatch' && inputs.run_warpbuild_macos }}
-    runs-on: warp-macos-15-arm64-6x
+    runs-on: ${{ inputs.macos_runner || 'warp-macos-15-arm64-6x' }}
     timeout-minutes: 25
     steps:
       - name: Checkout
