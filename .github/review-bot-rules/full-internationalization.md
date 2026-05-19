@@ -5,6 +5,7 @@ Flag production changes that add or materially change user-facing text without f
 Report a failure when the diff introduces or materially changes:
 
 - Swift UI, menu, alert, tooltip, error, recovery, or command text that is not routed through `String(localized:defaultValue:)` or an equivalent localized API.
+- A new Swift localization key that is not backed by a matching `Resources/*.xcstrings` entry with translated values for every locale already supported by that catalog.
 - A new or changed `Resources/*.xcstrings` key that does not include translated entries for every locale already supported by that string catalog.
 - A new app locale, language file, or string catalog entry that is only wired for English or a subset of existing app locales.
 - Web UI text, metadata, route copy, or message keys that are not represented across all locales in `web/i18n/routing.ts` and every matching file in `web/messages/`.
@@ -12,7 +13,7 @@ Report a failure when the diff introduces or materially changes:
 
 Expected shape:
 
-- New user-facing Swift text uses a stable localization key and an English `defaultValue`.
+- New user-facing Swift text uses a stable localization key, an English `defaultValue`, and a matching string-catalog entry.
 - `Resources/Localizable.xcstrings` and `Resources/InfoPlist.xcstrings` additions include complete translations for all existing locale codes in the touched catalog.
 - Web message changes update all locale message files consistently and keep the locale registry aligned with available messages.
 - If a locale is intentionally removed or added, the PR updates the canonical locale list and every affected message/catalog file in the same change.

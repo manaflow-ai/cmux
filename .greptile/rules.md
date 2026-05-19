@@ -22,7 +22,7 @@ Review production Swift and runtime changes for:
 
 For production user-facing text, require complete internationalization across every locale supported by the affected surface.
 
-Flag Swift UI, menu, alert, tooltip, error, recovery, or command text that is not routed through `String(localized:defaultValue:)` or an equivalent localized API. Flag app string catalog additions or edits that do not include translated entries for every locale already supported by the touched catalog. Flag web UI text, metadata, route copy, or message keys that are not represented across all locales in `web/i18n/routing.ts` and every matching file in `web/messages/`.
+Flag Swift UI, menu, alert, tooltip, error, recovery, or command text that is not routed through `String(localized:defaultValue:)` or an equivalent localized API with a matching translated string-catalog entry. Flag app string catalog additions or edits that do not include translated entries for every locale already supported by the touched catalog. Flag web UI text, metadata, route copy, or message keys that are not represented across all locales in `web/i18n/routing.ts` and every matching file in `web/messages/`.
 
 Pass for tests, operational docs not shown to end users, developer-only comments, debug-only logs, exact protocol/config tokens, and existing untranslated strings the PR does not introduce or worsen.
 
