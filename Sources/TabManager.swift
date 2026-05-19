@@ -5100,6 +5100,21 @@ class TabManager: ObservableObject {
         case activeFocus
         case directInteraction
         case terminalInteraction
+
+        var requiresActiveApp: Bool {
+            self == .activeFocus
+        }
+
+        var canDismissManualUnreadIndicator: Bool {
+            self == .terminalInteraction
+        }
+
+        var canDismissRestoredUnreadIndicator: Bool {
+            switch self {
+            case .activeFocus, .directInteraction, .terminalInteraction:
+                return true
+            }
+        }
     }
 
     private func dismissFocusedPanelNotificationIfActive(tabId: UUID) {
@@ -5137,7 +5152,7 @@ class TabManager: ObservableObject {
         context: NotificationDismissalContext
     ) -> Bool {
         guard selectedTabId == tabId else { return false }
-        if context == .activeFocus {
+        if context.requiresActiveApp {
             guard AppFocusState.isAppActive() else { return false }
         }
         guard let notificationStore = AppDelegate.shared?.notificationStore else { return false }
@@ -5146,8 +5161,11 @@ class TabManager: ObservableObject {
         let hasRestoredPanelUnread = surfaceId.map { workspace?.hasRestoredUnreadIndicator(panelId: $0) ?? false } ?? false
         let hasManualWorkspaceUnread = notificationStore.hasManualUnread(forTabId: tabId)
         let hasRestoredWorkspaceUnread = notificationStore.hasRestoredUnreadIndicator(forTabId: tabId)
-        let canDismissUnreadIndicator = context == .terminalInteraction &&
-            (hasManualPanelUnread || hasRestoredPanelUnread || hasManualWorkspaceUnread || hasRestoredWorkspaceUnread)
+        let canDismissManualUnreadIndicator = context.canDismissManualUnreadIndicator &&
+            (hasManualPanelUnread || hasManualWorkspaceUnread)
+        let canDismissRestoredUnreadIndicator = context.canDismissRestoredUnreadIndicator &&
+            (hasRestoredPanelUnread || hasRestoredWorkspaceUnread)
+        let canDismissUnreadIndicator = canDismissManualUnreadIndicator || canDismissRestoredUnreadIndicator
         let hasUnreadNotification = notificationStore.hasUnreadNotification(forTabId: tabId, surfaceId: surfaceId)
         let hasFocusedIndicator = notificationStore.hasVisibleNotificationIndicator(forTabId: tabId, surfaceId: surfaceId)
         guard hasUnreadNotification || hasFocusedIndicator || canDismissUnreadIndicator else { return false }
@@ -5155,17 +5173,19 @@ class TabManager: ObservableObject {
             notificationStore.markRead(forTabId: tabId, surfaceId: surfaceId)
         }
         var didDismissUnreadIndicator = false
-        if context == .terminalInteraction {
+        if context.canDismissManualUnreadIndicator {
             if let panelId = surfaceId, hasManualPanelUnread {
                 workspace?.clearManualUnread(panelId: panelId)
                 didDismissUnreadIndicator = true
             }
+            if hasManualWorkspaceUnread {
+                didDismissUnreadIndicator = notificationStore.clearManualUnread(forTabId: tabId) || didDismissUnreadIndicator
+            }
+        }
+        if context.canDismissRestoredUnreadIndicator {
             if let panelId = surfaceId, hasRestoredPanelUnread {
                 workspace?.clearRestoredUnreadIndicator(panelId: panelId)
                 didDismissUnreadIndicator = true
-            }
-            if hasManualWorkspaceUnread {
-                didDismissUnreadIndicator = notificationStore.clearManualUnread(forTabId: tabId) || didDismissUnreadIndicator
             }
             if hasRestoredWorkspaceUnread {
                 didDismissUnreadIndicator = notificationStore.clearRestoredUnreadIndicator(forTabId: tabId) ||
