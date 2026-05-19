@@ -69,7 +69,7 @@ struct PanelAppearance {
             backgroundColor: config.backgroundColor,
             opacity: config.backgroundOpacity
         )
-        PanelAppearance(
+        return PanelAppearance(
             backgroundColor: backgroundColor,
             foregroundColor: cmuxReadableForegroundNSColor(
                 preferred: config.foregroundColor,
