@@ -3087,6 +3087,40 @@
         }
       }
     },
+    "sidebar.hiddenWorkspaces.title.one": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Hidden Workspace (1)"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "非表示のワークスペース（1）"
+          }
+        }
+      }
+    },
+    "sidebar.hiddenWorkspaces.title.other": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Hidden Workspaces (%d)"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "非表示のワークスペース（%d）"
+          }
+        }
+      }
+    },
     "sidebar.help.button": {
       "extractionState": "manual",
       "localizations": {
@@ -24932,6 +24966,57 @@
         }
       }
     },
+    "command.snoozeWorkspace.title": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Snooze Workspace"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ワークスペースをスヌーズ"
+          }
+        }
+      }
+    },
+    "command.wakeWorkspace.subtitle": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Unhide the first hidden workspace"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "最初の非表示ワークスペースを再表示"
+          }
+        }
+      }
+    },
+    "command.wakeWorkspace.title": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Wake Workspace"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ワークスペースを再表示"
+          }
+        }
+      }
+    },
     "command.previousTabInPane.subtitle": {
       "extractionState": "manual",
       "localizations": {
@@ -36784,6 +36869,40 @@
         }
       }
     },
+    "contextMenu.snoozeWorkspace": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Snooze Workspace"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ワークスペースをスヌーズ"
+          }
+        }
+      }
+    },
+    "contextMenu.snoozeWorkspaces": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Snooze Workspaces"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ワークスペースをスヌーズ"
+          }
+        }
+      }
+    },
     "contextMenu.removeCustomWorkspaceName": {
       "extractionState": "manual",
       "localizations": {
@@ -37256,6 +37375,40 @@
           "stringUnit": {
             "state": "translated",
             "value": "Відкріпити робочі області"
+          }
+        }
+      }
+    },
+    "contextMenu.wakeWorkspace": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Wake Workspace"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ワークスペースを表示"
+          }
+        }
+      }
+    },
+    "contextMenu.wakeWorkspaces": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Wake Workspaces"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ワークスペースを表示"
           }
         }
       }
@@ -101318,6 +101471,40 @@
           "stringUnit": {
             "state": "translated",
             "value": "고정된 워크스페이스는 고정된 상태에서 닫을 수 없습니다. 먼저 워크스페이스의 고정을 해제하세요."
+          }
+        }
+      }
+    },
+    "workspace.hideLastVisible.message": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Cannot hide the last visible workspace. Wake or create another workspace first."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "最後の表示中ワークスペースは非表示にできません。別のワークスペースを表示するか作成してください。"
+          }
+        }
+      }
+    },
+    "workspace.moveLastVisible.message": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Cannot move the last visible workspace. Wake or create another workspace first."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "最後の表示中ワークスペースは移動できません。別のワークスペースを表示するか作成してください。"
           }
         }
       }

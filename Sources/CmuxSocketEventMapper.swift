@@ -45,6 +45,8 @@ enum CmuxSocketEventMapper {
             publishResult(name: "workspace.renamed", category: "workspace", method: method, params: params, result: result)
         case "workspace.reorder":
             publishResult(name: "workspace.reordered", category: "workspace", method: method, params: params, result: result)
+        case "workspace.hide", "workspace.show":
+            publishResult(name: "workspace.visibility_changed", category: "workspace", method: method, params: params, result: result)
         case "workspace.move_to_window":
             publishResult(name: "workspace.moved", category: "workspace", method: method, params: params, result: result)
         case "workspace.action":
