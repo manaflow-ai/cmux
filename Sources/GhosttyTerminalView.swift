@@ -1943,6 +1943,7 @@ class GhosttyApp {
     }
 
     private init() {
+        dispatchPrecondition(condition: .onQueue(.main))
         initializeGhostty()
         singletonConstructionPhase = .constructed
     }
