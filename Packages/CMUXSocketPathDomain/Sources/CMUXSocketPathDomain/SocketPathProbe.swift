@@ -61,8 +61,10 @@ public enum SocketPathOwnershipStatus: Equatable, Sendable {
         switch self {
         case .ownedByThisProcess, .ownerUnknown, .ownedByOtherProcess:
             return false
-        case .missing, .notSocket, .socketFileChanged:
+        case .notSocket, .socketFileChanged:
             return true
+        case .missing(let errnoCode):
+            return errnoCode == ENOENT || errnoCode == ENOTDIR
         case .connectFailed(let errnoCode):
             return errnoCode == ECONNREFUSED || errnoCode == ENOENT
         }

@@ -11,7 +11,7 @@ extension TerminalController {
         }
 
         let directoryPath = SocketPathProbe.parentDirectory(path: snapshot.socketPath)
-        let fd = open(directoryPath, O_EVTONLY)
+        let fd = open(directoryPath, O_EVTONLY | O_CLOEXEC)
         guard fd >= 0 else {
             reportSocketListenerFailure(
                 message: "socket.listener.path.watch.failed",

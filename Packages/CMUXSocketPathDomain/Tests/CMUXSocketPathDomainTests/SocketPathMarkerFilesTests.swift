@@ -80,7 +80,11 @@ import Foundation
     #expect(SocketPathProbe.unlinkIfNoLiveOtherOwner(path, expectedOwnerPID: getpid(), timeout: 0) == 0)
 }
 
-@Test func socketRecoveryOnlyAttemptsDefinitiveStaleConnectFailures() {
+@Test func socketRecoveryOnlyAttemptsDefinitiveStalePathFailures() {
+    #expect(SocketPathOwnershipStatus.missing(errnoCode: ENOENT).shouldAttemptListenerRecovery)
+    #expect(SocketPathOwnershipStatus.missing(errnoCode: ENOTDIR).shouldAttemptListenerRecovery)
+    #expect(!SocketPathOwnershipStatus.missing(errnoCode: EACCES).shouldAttemptListenerRecovery)
+    #expect(!SocketPathOwnershipStatus.missing(errnoCode: EIO).shouldAttemptListenerRecovery)
     #expect(SocketPathOwnershipStatus.connectFailed(errnoCode: ECONNREFUSED).shouldAttemptListenerRecovery)
     #expect(SocketPathOwnershipStatus.connectFailed(errnoCode: ENOENT).shouldAttemptListenerRecovery)
     #expect(!SocketPathOwnershipStatus.connectFailed(errnoCode: ETIMEDOUT).shouldAttemptListenerRecovery)

@@ -1,5 +1,6 @@
 import XCTest
 import AppKit
+import Darwin
 import SwiftUI
 import UniformTypeIdentifiers
 import WebKit
@@ -5120,9 +5121,7 @@ final class TerminalControllerSocketListenerHealthTests: XCTestCase {
             isRunning: true,
             acceptLoopAlive: true,
             socketPathMatches: true,
-            socketPathExists: true,
-            socketPathOwnedByThisProcess: true,
-            socketPathStatus: "owned_by_this_process"
+            socketPathOwnershipStatus: .ownedByThisProcess
         )
         XCTAssertTrue(health.isHealthy)
         XCTAssertTrue(health.failureSignals.isEmpty)
@@ -5133,9 +5132,7 @@ final class TerminalControllerSocketListenerHealthTests: XCTestCase {
             isRunning: false,
             acceptLoopAlive: false,
             socketPathMatches: false,
-            socketPathExists: false,
-            socketPathOwnedByThisProcess: false,
-            socketPathStatus: "missing"
+            socketPathOwnershipStatus: .missing(errnoCode: ENOENT)
         )
         XCTAssertFalse(health.isHealthy)
         XCTAssertEqual(
@@ -5149,9 +5146,7 @@ final class TerminalControllerSocketListenerHealthTests: XCTestCase {
             isRunning: true,
             acceptLoopAlive: true,
             socketPathMatches: true,
-            socketPathExists: true,
-            socketPathOwnedByThisProcess: false,
-            socketPathStatus: "owner_unknown"
+            socketPathOwnershipStatus: .ownerUnknown(errnoCode: ENOTCONN)
         )
         XCTAssertEqual(unknownOwner.failureSignals, ["socket_owner_unknown"])
 
@@ -5159,9 +5154,7 @@ final class TerminalControllerSocketListenerHealthTests: XCTestCase {
             isRunning: true,
             acceptLoopAlive: true,
             socketPathMatches: true,
-            socketPathExists: false,
-            socketPathOwnedByThisProcess: false,
-            socketPathStatus: "not_socket"
+            socketPathOwnershipStatus: .notSocket(mode: mode_t(S_IFREG))
         )
         XCTAssertEqual(wrongType.failureSignals, ["socket_not_socket"])
     }
@@ -5171,9 +5164,7 @@ final class TerminalControllerSocketListenerHealthTests: XCTestCase {
             isRunning: true,
             acceptLoopAlive: true,
             socketPathMatches: true,
-            socketPathExists: true,
-            socketPathOwnedByThisProcess: false,
-            socketPathStatus: "socket_file_changed"
+            socketPathOwnershipStatus: .socketFileChanged
         )
         XCTAssertFalse(health.isHealthy)
         XCTAssertEqual(health.failureSignals, ["socket_file_changed"])

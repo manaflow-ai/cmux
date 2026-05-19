@@ -28,9 +28,19 @@ class TerminalController {
         let isRunning: Bool
         let acceptLoopAlive: Bool
         let socketPathMatches: Bool
-        let socketPathExists: Bool
-        let socketPathOwnedByThisProcess: Bool
-        let socketPathStatus: String
+        let socketPathOwnershipStatus: SocketPathOwnershipStatus
+
+        var socketPathExists: Bool {
+            socketPathOwnershipStatus.socketPathExists
+        }
+
+        var socketPathOwnedByThisProcess: Bool {
+            socketPathOwnershipStatus.socketPathOwnedByThisProcess
+        }
+
+        var socketPathStatus: String {
+            socketPathOwnershipStatus.debugLabel
+        }
 
         var failureSignals: [String] {
             var signals: [String] = []
@@ -38,17 +48,26 @@ class TerminalController {
             if !acceptLoopAlive { signals.append("accept_loop_dead") }
             if !socketPathMatches { signals.append("socket_path_mismatch") }
             if !socketPathExists {
-                signals.append(socketPathStatus == "not_socket" ? "socket_not_socket" : "socket_missing")
-            } else if !socketPathOwnedByThisProcess {
-                switch socketPathStatus {
-                case "owner_unknown":
-                    signals.append("socket_owner_unknown")
-                case "connect_failed":
-                    signals.append("socket_connect_failed")
-                case "socket_file_changed":
-                    signals.append("socket_file_changed")
-                default:
+                switch socketPathOwnershipStatus {
+                case .notSocket:
+                    signals.append("socket_not_socket")
+                case .missing:
+                    signals.append("socket_missing")
+                case .ownedByThisProcess, .socketFileChanged, .connectFailed, .ownerUnknown, .ownedByOtherProcess:
                     signals.append("socket_owner_mismatch")
+                }
+            } else if !socketPathOwnedByThisProcess {
+                switch socketPathOwnershipStatus {
+                case .ownerUnknown:
+                    signals.append("socket_owner_unknown")
+                case .connectFailed:
+                    signals.append("socket_connect_failed")
+                case .socketFileChanged:
+                    signals.append("socket_file_changed")
+                case .ownedByOtherProcess:
+                    signals.append("socket_owner_mismatch")
+                case .ownedByThisProcess, .missing, .notSocket:
+                    break
                 }
             }
             return signals
@@ -1347,9 +1366,7 @@ class TerminalController {
             isRunning: snapshot.isRunning,
             acceptLoopAlive: snapshot.acceptLoopAlive,
             socketPathMatches: pathMatches,
-            socketPathExists: pathStatus.socketPathExists,
-            socketPathOwnedByThisProcess: pathStatus.socketPathOwnedByThisProcess,
-            socketPathStatus: pathStatus.debugLabel
+            socketPathOwnershipStatus: pathStatus
         )
     }
 
