@@ -449,10 +449,18 @@ final class BrowserProfilePopoverContrastUITests: XCTestCase {
             columns: 7,
             rows: 5
         )
+        let labelSamples = try sampleRGBAGrid(
+            fromPNG: rowScreenshot.pngRepresentation,
+            xRange: 0.18 ... 0.50,
+            yRange: 0.18 ... 0.82,
+            columns: 61,
+            rows: 15
+        )
         attachPNG(rowScreenshot.pngRepresentation, name: "profile-popover-default-row")
 
         let opaqueSamples = samples.filter { $0.alpha > 0.95 }
         let darkSamples = samples.filter { $0.luminance < 0.72 }
+        let lightLabelSamples = labelSamples.filter { $0.alpha > 0.95 && $0.luminance > 0.78 }
         XCTAssertGreaterThanOrEqual(
             opaqueSamples.count,
             28,
@@ -462,6 +470,11 @@ final class BrowserProfilePopoverContrastUITests: XCTestCase {
             darkSamples.count,
             22,
             "Expected dark app mode profile menu chrome to stay visibly distinct from the white page behind it, samples=\(samples)"
+        )
+        XCTAssertGreaterThanOrEqual(
+            lightLabelSamples.count,
+            8,
+            "Expected visible light foreground pixels in the profile name label over dark menu chrome, labelSamples=\(labelSamples)"
         )
     }
 
