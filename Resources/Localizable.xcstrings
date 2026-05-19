@@ -102422,36 +102422,36 @@
         }
       }
     },
-    "markdown.web.remoteImageHostMessage": {
+    "markdown.web.remoteImageConsentMessage": {
       "extractionState": "manual",
       "localizations": {
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "cmux will not contact {host} until you load images from this host."
+            "value": "cmux will not contact this image URL until you load this image."
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "このホストの画像を読み込むまで、cmux は {host} に接続しません。"
+            "value": "この画像を読み込むまで、cmux はこの画像 URL に接続しません。"
           }
         }
       }
     },
-    "markdown.web.remoteImageLoadHost": {
+    "markdown.web.remoteImageLoadImage": {
       "extractionState": "manual",
       "localizations": {
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Load images from {host}"
+            "value": "Load this image"
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "{host} の画像を読み込む"
+            "value": "この画像を読み込む"
           }
         }
       }

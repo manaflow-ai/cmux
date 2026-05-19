@@ -86,13 +86,13 @@ final class MarkdownViewerAssets {
                 localized: "markdown.web.remoteImageBlocked",
                 defaultValue: "Remote image blocked"
             ),
-            "remoteImageHostMessage": String(
-                localized: "markdown.web.remoteImageHostMessage",
-                defaultValue: "cmux will not contact {host} until you load images from this host."
+            "remoteImageConsentMessage": String(
+                localized: "markdown.web.remoteImageConsentMessage",
+                defaultValue: "cmux will not contact this image URL until you load this image."
             ),
-            "remoteImageLoadHost": String(
-                localized: "markdown.web.remoteImageLoadHost",
-                defaultValue: "Load images from {host}"
+            "remoteImageLoadImage": String(
+                localized: "markdown.web.remoteImageLoadImage",
+                defaultValue: "Load this image"
             ),
             "remoteImageHTTPSOnly": String(
                 localized: "markdown.web.remoteImageHTTPSOnly",

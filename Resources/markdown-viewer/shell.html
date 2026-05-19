@@ -546,7 +546,7 @@ html { scroll-behavior: smooth; }
     });
   }
 
-  var remoteImageAllowedHosts = Object.create(null);
+  var remoteImageAllowedURLs = Object.create(null);
 
   function cmuxRemoteImageURL(value) {
     var info = remoteImageInfo(value);
@@ -591,15 +591,16 @@ html { scroll-behavior: smooth; }
     return true;
   }
 
-  function loadRemoteImagesForHost(host) {
-    remoteImageAllowedHosts[host] = true;
+  function loadApprovedRemoteImage(href) {
+    remoteImageAllowedURLs[href] = true;
     contentEl.querySelectorAll('img[data-cmux-remote-src]').forEach(function(img) {
       var raw = unescapeDataAttribute(img.getAttribute('data-cmux-remote-src'));
       var info = remoteImageInfo(raw);
-      if (info && remoteImageCanOfferLoad(info) && info.host === host) {
+      if (info && remoteImageCanOfferLoad(info) && info.href === href) {
         loadRemoteImage(img);
       }
     });
+    return true;
   }
 
   function appendRemoteImageText(placeholder, key, fallback, replacements) {
@@ -663,20 +664,18 @@ html { scroll-behavior: smooth; }
     if (canOfferLoad) {
       appendRemoteImageText(
         placeholder,
-        'remoteImageHostMessage',
-        'cmux will not contact {host} until you load images from this host.',
-        { host: info.host }
+        'remoteImageConsentMessage',
+        'cmux will not contact this image URL until you load this image.'
       );
       appendRemoteImageURL(placeholder, info.href);
       appendRemoteImageButton(
         placeholder,
         cmuxString(
-          'remoteImageLoadHost',
-          'Load images from {host}',
-          { host: info.host }
+          'remoteImageLoadImage',
+          'Load this image'
         ),
         function() {
-          loadRemoteImagesForHost(info.host);
+          loadApprovedRemoteImage(info.href);
         }
       );
     } else if (!info.https) {
@@ -703,7 +702,7 @@ html { scroll-behavior: smooth; }
     );
 
     img.parentNode.insertBefore(placeholder, img.nextSibling);
-    if (canOfferLoad && remoteImageAllowedHosts[info.host]) {
+    if (canOfferLoad && remoteImageAllowedURLs[info.href]) {
       loadRemoteImage(img);
     }
   }

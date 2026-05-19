@@ -336,19 +336,18 @@ final class MarkdownPanelTests: XCTestCase {
             throw error
         }
 
-        let remoteImageHost = "images.example.com"
         let expectedBlockedTitle = String(
             localized: "markdown.web.remoteImageBlocked",
             defaultValue: "Remote image blocked"
         )
-        let expectedHostMessage = String(
-            localized: "markdown.web.remoteImageHostMessage",
-            defaultValue: "cmux will not contact {host} until you load images from this host."
-        ).replacingOccurrences(of: "{host}", with: remoteImageHost)
+        let expectedConsentMessage = String(
+            localized: "markdown.web.remoteImageConsentMessage",
+            defaultValue: "cmux will not contact this image URL until you load this image."
+        )
         let expectedLoadButton = String(
-            localized: "markdown.web.remoteImageLoadHost",
-            defaultValue: "Load images from {host}"
-        ).replacingOccurrences(of: "{host}", with: remoteImageHost)
+            localized: "markdown.web.remoteImageLoadImage",
+            defaultValue: "Load this image"
+        )
         let expectedOpenURLButton = String(
             localized: "markdown.web.remoteImageOpenURL",
             defaultValue: "Open image URL"
@@ -384,6 +383,7 @@ final class MarkdownPanelTests: XCTestCase {
 
             ![HTTPS remote](https://images.example.com/pixel.png)
             [![Linked remote](https://images.example.com/linked.png)](README.md)
+            ![Duplicate linked remote](https://images.example.com/linked.png)
             ![HTTP remote](http://images.example.com/pixel.png)
             ![Localhost remote](https://localhost/pixel.png)
             ![Credential remote](https://user:pass@images.example.com/secret.png)
@@ -401,16 +401,16 @@ final class MarkdownPanelTests: XCTestCase {
         let beforeStyleCount = try XCTUnwrap(before["styleCount"] as? Int)
         let beforeBackgroundAttrCount = try XCTUnwrap(before["backgroundAttrCount"] as? Int)
         let beforeRenderedText = try XCTUnwrap(before["renderedText"] as? String)
-        XCTAssertEqual(beforeImages.count, 6)
-        XCTAssertEqual(beforePlaceholders.count, 5)
-        XCTAssertEqual(beforeURLs.count, 5)
+        XCTAssertEqual(beforeImages.count, 7)
+        XCTAssertEqual(beforePlaceholders.count, 6)
+        XCTAssertEqual(beforeURLs.count, 6)
         XCTAssertTrue(beforeURLs.contains(expectedURLText("https://images.example.com/pixel.png")))
-        XCTAssertTrue(beforeURLs.contains(expectedURLText("https://images.example.com/linked.png")))
+        XCTAssertEqual(beforeURLs.filter { $0 == expectedURLText("https://images.example.com/linked.png") }.count, 2)
         XCTAssertTrue(beforeURLs.contains(expectedURLText("http://images.example.com/pixel.png")))
         XCTAssertTrue(beforeURLs.contains(expectedURLText("https://localhost/pixel.png")))
         XCTAssertTrue(beforeURLs.contains(expectedURLText("https://user:pass@images.example.com/secret.png")))
-        XCTAssertEqual(beforeButtons.filter { $0 == expectedLoadButton }.count, 2)
-        XCTAssertEqual(beforeButtons.filter { $0 == expectedOpenURLButton }.count, 5)
+        XCTAssertEqual(beforeButtons.filter { $0 == expectedLoadButton }.count, 3)
+        XCTAssertEqual(beforeButtons.filter { $0 == expectedOpenURLButton }.count, 6)
         XCTAssertEqual(beforeCodeFiles, ["README.md"])
         XCTAssertEqual(beforeStyleCount, 0)
         XCTAssertEqual(beforeBackgroundAttrCount, 0)
@@ -420,7 +420,7 @@ final class MarkdownPanelTests: XCTestCase {
         XCTAssertTrue(beforeRenderedText.contains("Visible details summary"))
         XCTAssertFalse(beforeRenderedText.contains("Hidden details text"))
         let remoteManagedImages = beforeImages.filter { !((($0["remoteSrc"] as? String) ?? "").isEmpty) }
-        XCTAssertEqual(remoteManagedImages.count, 5)
+        XCTAssertEqual(remoteManagedImages.count, 6)
         for image in remoteManagedImages {
             XCTAssertEqual(image["src"] as? String, "")
             XCTAssertEqual(image["currentSrc"] as? String, "")
@@ -430,7 +430,7 @@ final class MarkdownPanelTests: XCTestCase {
         let spoofedImage = try XCTUnwrap(beforeImages.first { $0["alt"] as? String == "Spoofed internal" })
         XCTAssertEqual(spoofedImage["remoteSrc"] as? String, "")
         XCTAssertEqual(spoofedImage["hidden"] as? Bool, false)
-        XCTAssertTrue(beforePlaceholders.contains { $0.contains(expectedHostMessage) })
+        XCTAssertTrue(beforePlaceholders.contains { $0.contains(expectedConsentMessage) })
         XCTAssertTrue(beforePlaceholders.contains { $0.contains(expectedHTTPSOnlyMessage) })
         XCTAssertTrue(beforePlaceholders.contains { $0.contains(expectedNotAllowedMessage) })
         XCTAssertTrue(beforePlaceholders.contains { $0.contains("http://images.example.com/pixel.png") })
@@ -489,13 +489,16 @@ final class MarkdownPanelTests: XCTestCase {
         let loadingButtons = try XCTUnwrap(loading["buttons"] as? [String])
         let loadingHTTPSImage = try XCTUnwrap(loadingImages.first { $0["alt"] as? String == "HTTPS remote" })
         let loadingLinkedImage = try XCTUnwrap(loadingImages.first { $0["alt"] as? String == "Linked remote" })
-        XCTAssertTrue((loadingHTTPSImage["src"] as? String ?? "").hasPrefix("cmux-remote-image://"))
+        let loadingDuplicateImage = try XCTUnwrap(loadingImages.first { $0["alt"] as? String == "Duplicate linked remote" })
+        XCTAssertEqual(loadingHTTPSImage["src"] as? String, "")
         XCTAssertEqual(loadingHTTPSImage["hidden"] as? Bool, true)
         XCTAssertTrue((loadingLinkedImage["src"] as? String ?? "").hasPrefix("cmux-remote-image://"))
         XCTAssertEqual(loadingLinkedImage["hidden"] as? Bool, true)
-        XCTAssertEqual(loadingPlaceholders.count, 5)
-        XCTAssertEqual(loadingButtons.filter { $0 == expectedLoadButton }.count, 2)
-        XCTAssertEqual(loadingButtons.filter { $0 == expectedOpenURLButton }.count, 5)
+        XCTAssertTrue((loadingDuplicateImage["src"] as? String ?? "").hasPrefix("cmux-remote-image://"))
+        XCTAssertEqual(loadingDuplicateImage["hidden"] as? Bool, true)
+        XCTAssertEqual(loadingPlaceholders.count, 6)
+        XCTAssertEqual(loadingButtons.filter { $0 == expectedLoadButton }.count, 3)
+        XCTAssertEqual(loadingButtons.filter { $0 == expectedOpenURLButton }.count, 6)
 
         _ = try await webView.evaluateJavaScript(
             """
@@ -512,28 +515,46 @@ final class MarkdownPanelTests: XCTestCase {
         let afterButtons = try XCTUnwrap(after["buttons"] as? [String])
         let httpsImage = try XCTUnwrap(afterImages.first { $0["alt"] as? String == "HTTPS remote" })
         let linkedImage = try XCTUnwrap(afterImages.first { $0["alt"] as? String == "Linked remote" })
+        let duplicateImage = try XCTUnwrap(afterImages.first { $0["alt"] as? String == "Duplicate linked remote" })
         let httpImage = try XCTUnwrap(afterImages.first { $0["alt"] as? String == "HTTP remote" })
         let localhostImage = try XCTUnwrap(afterImages.first { $0["alt"] as? String == "Localhost remote" })
         let credentialImage = try XCTUnwrap(afterImages.first { $0["alt"] as? String == "Credential remote" })
 
-        XCTAssertTrue((httpsImage["src"] as? String ?? "").hasPrefix("cmux-remote-image://"))
-        XCTAssertEqual(httpsImage["hidden"] as? Bool, false)
+        XCTAssertEqual(httpsImage["src"] as? String, "")
+        XCTAssertEqual(httpsImage["hidden"] as? Bool, true)
         XCTAssertTrue((linkedImage["src"] as? String ?? "").hasPrefix("cmux-remote-image://"))
         XCTAssertEqual(linkedImage["hidden"] as? Bool, false)
+        XCTAssertTrue((duplicateImage["src"] as? String ?? "").hasPrefix("cmux-remote-image://"))
+        XCTAssertEqual(duplicateImage["hidden"] as? Bool, false)
         XCTAssertEqual(httpImage["src"] as? String, "")
         XCTAssertEqual(httpImage["hidden"] as? Bool, true)
         XCTAssertEqual(localhostImage["src"] as? String, "")
         XCTAssertEqual(localhostImage["hidden"] as? Bool, true)
         XCTAssertEqual(credentialImage["src"] as? String, "")
         XCTAssertEqual(credentialImage["hidden"] as? Bool, true)
-        XCTAssertEqual(afterPlaceholders.count, 3)
-        XCTAssertEqual(afterButtons.filter { $0 == expectedLoadButton }.count, 0)
-        XCTAssertEqual(afterButtons.filter { $0 == expectedOpenURLButton }.count, 3)
+        XCTAssertEqual(afterPlaceholders.count, 4)
+        XCTAssertEqual(afterButtons.filter { $0 == expectedLoadButton }.count, 1)
+        XCTAssertEqual(afterButtons.filter { $0 == expectedOpenURLButton }.count, 4)
         XCTAssertTrue(afterPlaceholders.contains { $0.contains(expectedHTTPSOnlyMessage) })
         XCTAssertTrue(afterPlaceholders.contains { $0.contains(expectedNotAllowedMessage) })
 
         try await renderMarkdown(
-            "![Auto approved remote](https://images.example.com/auto.png)\n",
+            "![Different same-host remote](https://images.example.com/auto.png)\n",
+            in: webView
+        )
+        let differentSameHost = try await remoteImageSnapshot(in: webView)
+        let differentSameHostImages = try XCTUnwrap(differentSameHost["images"] as? [[String: Any]])
+        let differentSameHostPlaceholders = try XCTUnwrap(differentSameHost["placeholders"] as? [String])
+        let differentSameHostButtons = try XCTUnwrap(differentSameHost["buttons"] as? [String])
+        let differentSameHostImage = try XCTUnwrap(differentSameHostImages.first)
+        XCTAssertEqual(differentSameHostImage["src"] as? String, "")
+        XCTAssertEqual(differentSameHostImage["hidden"] as? Bool, true)
+        XCTAssertEqual(differentSameHostPlaceholders.count, 1)
+        XCTAssertEqual(differentSameHostButtons.filter { $0 == expectedLoadButton }.count, 1)
+        XCTAssertEqual(differentSameHostButtons.filter { $0 == expectedOpenURLButton }.count, 1)
+
+        try await renderMarkdown(
+            "![Auto approved remote](https://images.example.com/linked.png)\n",
             in: webView
         )
         let autoLoading = try await remoteImageSnapshot(in: webView)
