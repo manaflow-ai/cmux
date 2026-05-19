@@ -102,6 +102,10 @@ final class MarkdownViewerAssets {
                 localized: "markdown.web.remoteImageCopyURL",
                 defaultValue: "Copy image URL"
             ),
+            "remoteImageCopied": String(
+                localized: "markdown.web.remoteImageCopied",
+                defaultValue: "Copied"
+            ),
             "remoteImageOpenURL": String(
                 localized: "markdown.web.remoteImageOpenURL",
                 defaultValue: "Open image URL"

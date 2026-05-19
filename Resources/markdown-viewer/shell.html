@@ -642,7 +642,7 @@ html { scroll-behavior: smooth; }
     button.addEventListener('click', function(ev) {
       ev.preventDefault();
       ev.stopPropagation();
-      handler();
+      handler(button);
     });
     placeholder.appendChild(button);
     return button;
@@ -652,8 +652,28 @@ html { scroll-behavior: smooth; }
     window.open(href, '_blank', 'noopener');
   }
 
-  function copyRemoteImageURL(href) {
-    copyTextToClipboard(href).catch(function() {});
+  function temporarilySetButtonLabel(button, label, restoreLabel) {
+    if (!button) { return; }
+    if (button._cmuxResetLabelTimer) {
+      window.clearTimeout(button._cmuxResetLabelTimer);
+    }
+    button.textContent = label;
+    button.setAttribute('data-copied', '1');
+    button._cmuxResetLabelTimer = window.setTimeout(function() {
+      button.textContent = restoreLabel;
+      button.removeAttribute('data-copied');
+      button._cmuxResetLabelTimer = null;
+    }, 1200);
+  }
+
+  function copyRemoteImageURL(href, button, restoreLabel) {
+    copyTextToClipboard(href).then(function() {
+      temporarilySetButtonLabel(
+        button,
+        cmuxString('remoteImageCopied', 'Copied'),
+        restoreLabel
+      );
+    }).catch(function() {});
   }
 
   function insertRemoteImagePlaceholder(img, placeholder) {
@@ -719,11 +739,12 @@ html { scroll-behavior: smooth; }
       );
       appendRemoteImageURL(placeholder, info.href);
     }
+    var copyURLLabel = cmuxString('remoteImageCopyURL', 'Copy image URL');
     appendRemoteImageButton(
       placeholder,
-      cmuxString('remoteImageCopyURL', 'Copy image URL'),
-      function() {
-        copyRemoteImageURL(info.href);
+      copyURLLabel,
+      function(button) {
+        copyRemoteImageURL(info.href, button, copyURLLabel);
       }
     );
     appendRemoteImageButton(

@@ -352,6 +352,10 @@ final class MarkdownPanelTests: XCTestCase {
             localized: "markdown.web.remoteImageCopyURL",
             defaultValue: "Copy image URL"
         )
+        let expectedCopiedButton = String(
+            localized: "markdown.web.remoteImageCopied",
+            defaultValue: "Copied"
+        )
         let expectedOpenURLButton = String(
             localized: "markdown.web.remoteImageOpenURL",
             defaultValue: "Open image URL"
@@ -466,6 +470,42 @@ final class MarkdownPanelTests: XCTestCase {
         )
         let copiedHTTPImageURLs = try XCTUnwrap(copiedHTTPImageURL as? [String])
         XCTAssertEqual(copiedHTTPImageURLs, ["http://images.example.com/pixel.png"])
+        try await Task.sleep(nanoseconds: 100_000_000)
+        let copiedHTTPButtonState = try await webView.evaluateJavaScript(
+            """
+            (function() {
+              var img = document.querySelector('img[alt="HTTP remote"]');
+              var id = img && img.getAttribute('data-cmux-remote-placeholder-id');
+              var placeholder = id && document.querySelector('[data-cmux-remote-placeholder-for="' + id + '"]');
+              var button = placeholder && placeholder.querySelectorAll('button')[0];
+              return {
+                text: button ? button.textContent : '',
+                copied: button ? button.getAttribute('data-copied') : ''
+              };
+            })();
+            """
+        )
+        let copiedHTTPButton = try XCTUnwrap(copiedHTTPButtonState as? [String: Any])
+        XCTAssertEqual(copiedHTTPButton["text"] as? String, expectedCopiedButton)
+        XCTAssertEqual(copiedHTTPButton["copied"] as? String, "1")
+        try await Task.sleep(nanoseconds: 1_300_000_000)
+        let restoredHTTPButtonState = try await webView.evaluateJavaScript(
+            """
+            (function() {
+              var img = document.querySelector('img[alt="HTTP remote"]');
+              var id = img && img.getAttribute('data-cmux-remote-placeholder-id');
+              var placeholder = id && document.querySelector('[data-cmux-remote-placeholder-for="' + id + '"]');
+              var button = placeholder && placeholder.querySelectorAll('button')[0];
+              return {
+                text: button ? button.textContent : '',
+                copied: button ? button.getAttribute('data-copied') : ''
+              };
+            })();
+            """
+        )
+        let restoredHTTPButton = try XCTUnwrap(restoredHTTPButtonState as? [String: Any])
+        XCTAssertEqual(restoredHTTPButton["text"] as? String, expectedCopyURLButton)
+        XCTAssertNil(restoredHTTPButton["copied"] as? String)
         let openedHTTPImageURL = try await webView.evaluateJavaScript(
             """
             (function() {

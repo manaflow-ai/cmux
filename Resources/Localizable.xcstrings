@@ -102490,6 +102490,23 @@
         }
       }
     },
+    "markdown.web.remoteImageCopied": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Copied"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "コピーしました"
+          }
+        }
+      }
+    },
     "markdown.web.remoteImageOpenURL": {
       "extractionState": "manual",
       "localizations": {
