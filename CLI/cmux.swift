@@ -2564,6 +2564,7 @@ struct CMUXCLI {
                         }
                     case "--no-focus":
                         sawNoFocus = true
+                        focus = false
                         vmNewIndex += 1
                     default:
                         if arg.hasPrefix("--focus=") {
@@ -6514,6 +6515,7 @@ struct CMUXCLI {
                 index += 1
             case "--no-focus":
                 sawNoFocus = true
+                focus = false
                 index += 1
             default:
                 if arg.hasPrefix("--focus=") {
