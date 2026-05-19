@@ -1531,6 +1531,24 @@ final class ShortcutHintHorizontalPlannerTests: XCTestCase {
         let rightEdges = ShortcutHintHorizontalPlanner.assignRightEdges(for: intervals, minSpacing: 4)
         XCTAssertEqual(rightEdges, [12, 32, 52])
     }
+
+    func testAssignRightEdgesKeepsCrowdedHintsInsideLeadingEdge() {
+        let intervals: [ClosedRange<CGFloat>] = [-2...24, 27...50, 50...76, 78...102, 104...128]
+        let rightEdges = ShortcutHintHorizontalPlanner.assignRightEdges(for: intervals, minSpacing: 6)
+
+        let adjustedIntervals = zip(intervals, rightEdges).map { interval, rightEdge in
+            let width = interval.upperBound - interval.lowerBound
+            return (rightEdge - width)...rightEdge
+        }
+
+        XCTAssertGreaterThanOrEqual(adjustedIntervals[0].lowerBound, 0)
+        for index in 1..<adjustedIntervals.count {
+            XCTAssertGreaterThanOrEqual(
+                adjustedIntervals[index].lowerBound - adjustedIntervals[index - 1].upperBound,
+                6
+            )
+        }
+    }
 }
 
 
