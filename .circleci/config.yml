@@ -160,6 +160,10 @@ jobs:
       - resolve-swift-packages:
           scheme: cmux-unit
       - run:
+          name: Run CMUXVNC package tests
+          no_output_timeout: 15m
+          command: swift test --package-path Packages/CMUXVNC
+      - run:
           name: Run unit tests
           no_output_timeout: 35m
           command: |
@@ -271,6 +275,21 @@ jobs:
       - run:
           name: Validate Swift warning budget
           command: python3 scripts/swift_warning_budget.py --log /tmp/cmux-build-output.txt
+      - run:
+          name: Validate bundled VNC helper
+          no_output_timeout: 15m
+          command: |
+            APP_PATH="$(
+              find "$HOME/Library/Developer/Xcode/DerivedData" -path "*/Build/Products/Debug/cmux DEV.app" -exec stat -f '%m %N' {} \; \
+                | sort -nr \
+                | head -1 \
+                | cut -d' ' -f2-
+            )"
+            if [ -z "${APP_PATH:-}" ]; then
+              echo "cmux debug app not found in DerivedData" >&2
+              exit 1
+            fi
+            CMUX_APP_PATH="$APP_PATH" ./tests/test_bundled_vnc_helper.sh
       - save-swift-package-cache:
           prefix: debug-build
       - save-zig-cache
@@ -305,6 +324,13 @@ jobs:
               ONLY_ACTIVE_ARCH=NO \
               CMUX_SKIP_ZIG_BUILD=1 \
               CODE_SIGNING_ALLOWED=NO ASSETCATALOG_COMPILER_APPICON_NAME=AppIcon-Nightly build
+      - run:
+          name: Validate bundled universal VNC helper
+          no_output_timeout: 15m
+          command: |
+            CMUX_APP_PATH="build-universal/Build/Products/Release/cmux DEV.app" \
+              CMUX_EXPECT_UNIVERSAL=1 \
+              ./tests/test_bundled_vnc_helper.sh
       - save-swift-package-cache:
           prefix: release
           path: .spm-cache
