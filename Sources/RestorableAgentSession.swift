@@ -409,6 +409,9 @@ struct SessionRestorableAgentSnapshot: Codable, Sendable {
         guard inlineInput.utf8.count > Self.maxInlineStartupInputBytes else {
             return inlineInput
         }
+        guard !Self.containsPreservedClaudeAuthSelectionEnvironment(command) else {
+            return nil
+        }
         guard let scriptURL = AgentResumeScriptStore.writeLauncherScript(
             command: command,
             kind: kind,
@@ -421,6 +424,12 @@ struct SessionRestorableAgentSnapshot: Codable, Sendable {
 
         let scriptInput = "/bin/zsh \(shellSingleQuoted(scriptURL.path))\n"
         return scriptInput.utf8.count <= Self.maxInlineStartupInputBytes ? scriptInput : nil
+    }
+
+    private static func containsPreservedClaudeAuthSelectionEnvironment(_ command: String) -> Bool {
+        command.contains("'CMUX_PRESERVE_CLAUDE_AUTH_SELECTION_ENV=1'") ||
+            command.contains("\"CMUX_PRESERVE_CLAUDE_AUTH_SELECTION_ENV=1\"") ||
+            command.contains(" CMUX_PRESERVE_CLAUDE_AUTH_SELECTION_ENV=1")
     }
 }
 

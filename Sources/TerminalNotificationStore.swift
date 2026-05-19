@@ -1467,6 +1467,7 @@ final class TerminalNotificationStore: ObservableObject {
         if !idsToClear.isEmpty {
             notifications = updated
             center.removeDeliveredNotificationsOffMain(withIdentifiers: idsToClear)
+            center.removePendingNotificationRequestsOffMain(withIdentifiers: idsToClear)
         }
     }
 

@@ -14053,17 +14053,18 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
                 } ?? false
                 if !shouldPreserveTrackedPanel {
                     trackedPanel?.endSuppressWebViewFocusForAddressBar()
+                    self.browserAddressBarFocusedPanelId = nil
+                    self.stopBrowserOmnibarSelectionRepeat()
                 }
-                self.browserAddressBarFocusedPanelId = nil
-                self.stopBrowserOmnibarSelectionRepeat()
 #if DEBUG
                 let reason = trackedPanel == nil
                     ? "stale_missing_panel_webViewFirstResponder"
                     : (shouldPreserveTrackedPanel
                         ? "stale_other_panel_preserved_webViewFirstResponder"
                         : "stale_other_panel_webViewFirstResponder")
+                let action = shouldPreserveTrackedPanel ? "PRESERVE" : "CLEAR"
                 cmuxDebugLog(
-                    "addressBar CLEAR panelId=\(trackedPanelId.uuidString.prefix(8)) " +
+                    "addressBar \(action) panelId=\(trackedPanelId.uuidString.prefix(8)) " +
                     "reason=\(reason)"
                 )
 #endif

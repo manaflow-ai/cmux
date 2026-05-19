@@ -1334,6 +1334,7 @@ struct BrowserPaneDropContext: Equatable {
     let workspaceId: UUID
     let panelId: UUID
     let paneId: PaneID
+    let allowsPanelFocusAfterFileDrop: Bool = true
 }
 
 struct BrowserPaneDragTransfer: Equatable {

@@ -4362,18 +4362,42 @@ func browserOmnibarField(panelId: UUID?, in window: NSWindow?) -> OmnibarNativeT
         return focusedField
     }
 
-    guard let root = window?.contentView?.superview ?? window?.contentView else {
+    guard let window,
+          let root = window.contentView?.superview ?? window.contentView else {
         return nil
     }
 
     var stack: [NSView] = [root]
+    var fallback: OmnibarNativeTextField?
     while let view = stack.popLast() {
         if let field = view as? OmnibarNativeTextField, field.panelId == panelId {
-            return field
+            if browserOmnibarFieldIsLive(field, in: window, root: root) {
+                return field
+            }
+            fallback = fallback ?? field
         }
         stack.append(contentsOf: view.subviews)
     }
-    return nil
+    return fallback
+}
+
+private func browserOmnibarFieldIsLive(
+    _ field: OmnibarNativeTextField,
+    in window: NSWindow,
+    root: NSView
+) -> Bool {
+    guard field.window === window, field.isDescendant(of: root) else { return false }
+    var current: NSView? = field
+    while let view = current {
+        if view.isHidden || view.alphaValue <= 0 {
+            return false
+        }
+        if view === root {
+            return true
+        }
+        current = view.superview
+    }
+    return false
 }
 
 @discardableResult
@@ -7177,7 +7201,8 @@ struct WebViewRepresentable: NSViewRepresentable {
             return BrowserPaneDropContext(
                 workspaceId: panel.workspaceId,
                 panelId: panel.id,
-                paneId: paneId
+                paneId: paneId,
+                allowsPanelFocusAfterFileDrop: false
             )
         }
 
