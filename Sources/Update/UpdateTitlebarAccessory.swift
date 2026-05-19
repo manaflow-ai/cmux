@@ -351,7 +351,11 @@ struct ShortcutHintLanePlanner {
 }
 
 struct ShortcutHintHorizontalPlanner {
-    static func assignRightEdges(for intervals: [ClosedRange<CGFloat>], minSpacing: CGFloat = 6) -> [CGFloat] {
+    static func assignRightEdges(
+        for intervals: [ClosedRange<CGFloat>],
+        minSpacing: CGFloat = 6,
+        minLeadingEdge: CGFloat = 0
+    ) -> [CGFloat] {
         guard !intervals.isEmpty else { return [] }
 
         var assignedRightEdges = Array(repeating: CGFloat.zero, count: intervals.count)
@@ -364,6 +368,14 @@ struct ShortcutHintHorizontalPlanner {
             let adjustedRightEdge = min(preferredRightEdge, nextMaxRight)
             assignedRightEdges[index] = adjustedRightEdge
             nextMaxRight = adjustedRightEdge - width - minSpacing
+        }
+
+        let assignedLeftEdges = zip(intervals, assignedRightEdges).map { interval, rightEdge in
+            rightEdge - (interval.upperBound - interval.lowerBound)
+        }
+        if let minAssignedLeftEdge = assignedLeftEdges.min(), minAssignedLeftEdge < minLeadingEdge {
+            let shift = minLeadingEdge - minAssignedLeftEdge
+            assignedRightEdges = assignedRightEdges.map { $0 + shift }
         }
 
         return assignedRightEdges
@@ -1114,12 +1126,17 @@ struct TitlebarControlsView: View {
 
         ZStack(alignment: .topLeading) {
             ForEach(items) { item in
-                titlebarShortcutHintPill(shortcut: item.shortcut, config: config)
-                    .accessibilityIdentifier("titlebarShortcutHint.\(item.action.rawValue)")
-                    .frame(width: item.width, alignment: .leading)
-                    .offset(x: item.leftEdge, y: yOffset)
-                    .background(TitlebarChromeGeometryReporter(keyPrefix: "titlebarShortcutHint_\(item.action.rawValue)"))
-                    .shortcutHintTransition()
+                VStack(alignment: .leading, spacing: 0) {
+                    Color.clear.frame(height: yOffset)
+                    HStack(spacing: 0) {
+                        Color.clear.frame(width: max(0, item.leftEdge))
+                        titlebarShortcutHintPill(shortcut: item.shortcut, config: config)
+                            .accessibilityIdentifier("titlebarShortcutHint.\(item.action.rawValue)")
+                            .frame(width: item.width, alignment: .leading)
+                            .background(TitlebarChromeGeometryReporter(keyPrefix: "titlebarShortcutHint_\(item.action.rawValue)"))
+                    }
+                }
+                .shortcutHintTransition()
             }
         }
         .shortcutHintVisibilityAnimation(value: shouldShowTitlebarShortcutHints)
