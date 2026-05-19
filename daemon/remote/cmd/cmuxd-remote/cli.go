@@ -650,12 +650,7 @@ func normalizeBrowserToken(token string) string {
 
 func browserTabShortcutTargetCandidate(token string) bool {
 	trimmed := strings.TrimSpace(token)
-	normalized := normalizeBrowserToken(trimmed)
-	switch normalized {
-	case "new", "list", "switch", "close":
-		return false
-	}
-	return trimmed == "-" || isIntegerString(trimmed) || !strings.HasPrefix(trimmed, "-")
+	return trimmed == "-" || isIntegerString(trimmed) || isBrowserSurfaceTarget(trimmed)
 }
 
 func isBrowserSurfaceTarget(token string) bool {
