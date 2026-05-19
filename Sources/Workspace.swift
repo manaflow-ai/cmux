@@ -8675,10 +8675,9 @@ final class Workspace: Identifiable, ObservableObject {
     }
 
     func hasBackgroundPrimeTerminalSurfaceStartWork(includeIdleTerminals: Bool = false) -> Bool {
-        backgroundPrimeTerminalPanelCandidates(includeIdleTerminals: includeIdleTerminals).contains {
-            (includeIdleTerminals && $0.surface.surface == nil) ||
-                hasBackgroundSurfaceStartWork(for: $0)
-        }
+        !backgroundPrimeTerminalPanelsNeedingSurfaceStart(
+            includeIdleTerminals: includeIdleTerminals
+        ).isEmpty
     }
 
     func requestBackgroundPrimeTerminalSurfaceStartIfNeeded(includeIdleTerminals: Bool = false) {

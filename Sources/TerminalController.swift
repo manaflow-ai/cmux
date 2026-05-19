@@ -374,9 +374,18 @@ class TerminalController {
     }
 
     @MainActor
-    func v2EnsureTerminalAutomationReady(workspace: Workspace, surfaceId: UUID, reason: String) {
-        guard let terminalPanel = workspace.terminalPanel(for: surfaceId) else { return }
+    func v2EnsureTerminalAutomationReady(workspace: Workspace, surfaceId: UUID, reason: String) -> Bool {
+        guard let terminalPanel = workspace.terminalPanel(for: surfaceId) else { return false }
         terminalPanel.surface.ensureRuntimeSurfaceStartedForAutomationIfNeeded(reason: reason)
+        return true
+    }
+
+    func v2TerminalAutomationReadinessFailure(surfaceId: UUID, reason: String) -> V2CallResult {
+        .err(code: "internal_error", message: "Failed to start terminal automation surface", data: [
+            "surface_id": surfaceId.uuidString,
+            "surface_ref": v2Ref(kind: .surface, uuid: surfaceId),
+            "reason": reason
+        ])
     }
 
     private nonisolated static func socketCommandAllowsInAppFocusMutations(commandKey: String, isV2: Bool, params: [String: Any] = [:]) -> Bool {
@@ -4728,7 +4737,8 @@ class TerminalController {
                 initialTerminalCommand: layoutNode == nil ? initialCommand : nil,
                 initialTerminalEnvironment: layoutNode == nil ? initialEnv : [:],
                 select: shouldFocus,
-                eagerLoadTerminal: !shouldFocus
+                eagerLoadTerminal: !shouldFocus,
+                eagerLoadIdleTerminalsForAutomation: startTerminalForAutomation
             )
             ws.setCustomDescription(description)
             if let layoutNode {
@@ -6182,11 +6192,15 @@ class TerminalController {
                     return
                 }
                 _ = workspace.reorderSurface(panelId: newPanel.id, toIndex: targetIndex, focus: focus)
-                v2EnsureTerminalAutomationReady(
+                let readinessReason = "socket.tab.action.new_terminal_right"
+                guard v2EnsureTerminalAutomationReady(
                     workspace: workspace,
                     surfaceId: newPanel.id,
-                    reason: "socket.tab.action.new_terminal_right"
-                )
+                    reason: readinessReason
+                ) else {
+                    result = v2TerminalAutomationReadinessFailure(surfaceId: newPanel.id, reason: readinessReason)
+                    return
+                }
                 finish([
                     "created_surface_id": newPanel.id.uuidString,
                     "created_surface_ref": v2Ref(kind: .surface, uuid: newPanel.id),
@@ -6813,11 +6827,15 @@ class TerminalController {
 
             if let newId {
                 if panelType == .terminal {
-                    v2EnsureTerminalAutomationReady(
+                    let readinessReason = "socket.surface.split"
+                    guard v2EnsureTerminalAutomationReady(
                         workspace: ws,
                         surfaceId: newId,
-                        reason: "socket.surface.split"
-                    )
+                        reason: readinessReason
+                    ) else {
+                        result = v2TerminalAutomationReadinessFailure(surfaceId: newId, reason: readinessReason)
+                        return
+                    }
                 }
                 let paneUUID = ws.paneId(forPanelId: newId)?.id
                 let windowId = v2ResolveWindowId(tabManager: tabManager)
@@ -6899,11 +6917,15 @@ class TerminalController {
                 return
             }
             if panelType == .terminal {
-                v2EnsureTerminalAutomationReady(
+                let readinessReason = "socket.surface.create"
+                guard v2EnsureTerminalAutomationReady(
                     workspace: ws,
                     surfaceId: newPanelId,
-                    reason: "socket.surface.create"
-                )
+                    reason: readinessReason
+                ) else {
+                    result = v2TerminalAutomationReadinessFailure(surfaceId: newPanelId, reason: readinessReason)
+                    return
+                }
             }
 
             let windowId = v2ResolveWindowId(tabManager: tabManager)
@@ -8264,11 +8286,15 @@ class TerminalController {
                 return
             }
             if panelType == .terminal {
-                v2EnsureTerminalAutomationReady(
+                let readinessReason = "socket.pane.create"
+                guard v2EnsureTerminalAutomationReady(
                     workspace: ws,
                     surfaceId: newPanelId,
-                    reason: "socket.pane.create"
-                )
+                    reason: readinessReason
+                ) else {
+                    result = v2TerminalAutomationReadinessFailure(surfaceId: newPanelId, reason: readinessReason)
+                    return
+                }
             }
             let paneUUID = ws.paneId(forPanelId: newPanelId)?.id
             let windowId = v2ResolveWindowId(tabManager: tabManager)

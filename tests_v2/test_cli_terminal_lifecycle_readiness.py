@@ -27,7 +27,7 @@ def _must(cond: bool, msg: str) -> None:
 
 
 def _find_cli_binary() -> str:
-    for env_name in ("CMUXTERM_CLI", "CMUX_BUNDLED_CLI_PATH"):
+    for env_name in ("CMUX_BUNDLED_CLI_PATH", "CMUXTERM_CLI"):
         env_cli = os.environ.get(env_name)
         if env_cli and os.path.isfile(env_cli) and os.access(env_cli, os.X_OK):
             return env_cli

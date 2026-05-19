@@ -139,11 +139,12 @@ final class BackgroundWorkspacePrimeCoordinator {
             tabManager.completeBackgroundWorkspaceLoad(for: workspaceId)
             return .workspaceRemoved
         }
-        guard workspace.hasBackgroundPrimeTerminalSurfaceStartWork() else {
+        let includeIdleTerminals = tabManager.backgroundWorkspaceLoadIncludesIdleTerminals(for: workspaceId)
+        guard workspace.hasBackgroundPrimeTerminalSurfaceStartWork(includeIdleTerminals: includeIdleTerminals) else {
             tabManager.completeBackgroundWorkspaceLoad(for: workspaceId)
             return .noSurfaceWork
         }
-        guard !workspace.hasLoadedBackgroundPrimeTerminalSurface() else {
+        guard !workspace.hasLoadedBackgroundPrimeTerminalSurface(includeIdleTerminals: includeIdleTerminals) else {
             tabManager.completeBackgroundWorkspaceLoad(for: workspaceId)
             return .surfaceReady
         }
@@ -186,17 +187,18 @@ final class BackgroundWorkspacePrimeCoordinator {
             tabManager.completeBackgroundWorkspaceLoad(for: workspaceId)
             return .completed(reason: .workspaceRemoved)
         }
-        guard workspace.hasBackgroundPrimeTerminalSurfaceStartWork() else {
+        let includeIdleTerminals = tabManager.backgroundWorkspaceLoadIncludesIdleTerminals(for: workspaceId)
+        guard workspace.hasBackgroundPrimeTerminalSurfaceStartWork(includeIdleTerminals: includeIdleTerminals) else {
             tabManager.completeBackgroundWorkspaceLoad(for: workspaceId)
             return .completed(reason: .noSurfaceWork)
         }
-        guard !workspace.hasLoadedBackgroundPrimeTerminalSurface() else {
+        guard !workspace.hasLoadedBackgroundPrimeTerminalSurface(includeIdleTerminals: includeIdleTerminals) else {
             tabManager.completeBackgroundWorkspaceLoad(for: workspaceId)
             return .completed(reason: .surfaceReady)
         }
 
-        workspace.requestBackgroundPrimeTerminalSurfaceStartIfNeeded()
-        guard workspace.hasLoadedBackgroundPrimeTerminalSurface() else {
+        workspace.requestBackgroundPrimeTerminalSurfaceStartIfNeeded(includeIdleTerminals: includeIdleTerminals)
+        guard workspace.hasLoadedBackgroundPrimeTerminalSurface(includeIdleTerminals: includeIdleTerminals) else {
             return .pending
         }
 
