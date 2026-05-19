@@ -64,11 +64,54 @@ def main() -> int:
         with cmux(SOCKET_PATH) as client:
             workspace_id = client.new_workspace()
 
-            status_response = _run_cli(cli, ["set-status", "build", "compiling", "--workspace", workspace_id])
-            _must(status_response.startswith("OK"), f"set-status should succeed, got {status_response!r}")
+            deploy_response = _run_cli(cli, ["set-status", "deploy", "v1.2.3", "--workspace", workspace_id])
+            _must(deploy_response.startswith("OK"), f"first set-status should succeed, got {deploy_response!r}")
+
+            build_response = _run_cli(
+                cli,
+                [
+                    "set-status",
+                    "build",
+                    "compiling",
+                    "--workspace",
+                    workspace_id,
+                    "--priority",
+                    "80",
+                ],
+            )
+            _must(build_response.startswith("OK"), f"second set-status should succeed, got {build_response!r}")
+
+            wrap_response = _run_cli(
+                cli,
+                [
+                    "set-status",
+                    "wrap",
+                    "done",
+                    "--workspace",
+                    workspace_id,
+                    "--priority",
+                    "40",
+                ],
+            )
+            _must(wrap_response.startswith("OK"), f"third set-status should succeed, got {wrap_response!r}")
 
             status_list = _run_cli(cli, ["list-status", "--workspace", workspace_id])
             _must("build=compiling" in status_list, f"list-status should include the inserted status entry: {status_list!r}")
+            _must("deploy=v1.2.3" in status_list, f"list-status should include the second status entry: {status_list!r}")
+            _must("priority=80" in status_list, f"list-status should include the inserted status priority: {status_list!r}")
+            _must("wrap=done" in status_list, f"list-status should include the third status entry: {status_list!r}")
+            _must("priority=40" in status_list, f"list-status should include the third status priority: {status_list!r}")
+            status_lines = [line for line in status_list.splitlines() if line.strip()]
+            build_index = next((idx for idx, line in enumerate(status_lines) if line.startswith("build=compiling")), None)
+            deploy_index = next((idx for idx, line in enumerate(status_lines) if line.startswith("deploy=v1.2.3")), None)
+            wrap_index = next((idx for idx, line in enumerate(status_lines) if line.startswith("wrap=done")), None)
+            _must(build_index is not None, f"list-status should include the build status row: {status_list!r}")
+            _must(deploy_index is not None, f"list-status should include the deploy status row: {status_list!r}")
+            _must(wrap_index is not None, f"list-status should include the wrap status row: {status_list!r}")
+            _must(
+                build_index < wrap_index < deploy_index,
+                f"status rows should sort by priority, not insertion order or timestamp: {status_list!r}",
+            )
 
             progress_response = _run_cli(cli, ["set-progress", "0.5", "--workspace", workspace_id, "--label", "Building"])
             _must(progress_response.startswith("OK"), f"set-progress should succeed, got {progress_response!r}")
@@ -88,12 +131,16 @@ def main() -> int:
             _must("env scoped log" in log_list, f"list-log should include env-routed log entry: {log_list!r}")
 
             sidebar_state = _run_cli(cli, ["sidebar-state", "--workspace", workspace_id])
-            _must("status_count=1" in sidebar_state, f"sidebar-state should include the status entry count: {sidebar_state!r}")
+            _must("status_count=3" in sidebar_state, f"sidebar-state should include the status entry count: {sidebar_state!r}")
             _must("progress=0.50 Building" in sidebar_state, f"sidebar-state should include the progress label: {sidebar_state!r}")
             _must("[info] ship it" in sidebar_state, f"sidebar-state should include the recent log entry: {sidebar_state!r}")
 
             clear_status_response = _run_cli(cli, ["clear-status", "build", "--workspace", workspace_id])
             _must(clear_status_response.startswith("OK"), f"clear-status should succeed, got {clear_status_response!r}")
+            clear_deploy_response = _run_cli(cli, ["clear-status", "deploy", "--workspace", workspace_id])
+            _must(clear_deploy_response.startswith("OK"), f"second clear-status should succeed, got {clear_deploy_response!r}")
+            clear_wrap_response = _run_cli(cli, ["clear-status", "wrap", "--workspace", workspace_id])
+            _must(clear_wrap_response.startswith("OK"), f"third clear-status should succeed, got {clear_wrap_response!r}")
 
             clear_progress_response = _run_cli(cli, ["clear-progress", "--workspace", workspace_id])
             _must(clear_progress_response.startswith("OK"), f"clear-progress should succeed, got {clear_progress_response!r}")
