@@ -61,7 +61,7 @@ struct cmuxApp: App {
         if let occupiedSocketPath = Self.startupSocketCollisionPath(defaults: defaults) {
             StartupBreadcrumbLog.append(
                 "app.init.socketCollision",
-                fields: ["path": occupiedSocketPath]
+                fields: ["socket": Self.socketCollisionLabel(for: occupiedSocketPath)]
             )
             Self.terminateForSocketPathCollision(occupiedSocketPath)
         }
@@ -110,15 +110,20 @@ struct cmuxApp: App {
     }
 
     private static func terminateForSocketPathCollision(_ path: String) -> Never {
+        let socketLabel = socketCollisionLabel(for: path)
         let format = String(
             localized: "socket.startup.collision",
-            defaultValue: "error: refusing to launch cmux because another process is already listening on the socket at %@. Quit that process or use a different cmux build tag, then reopen cmux."
+            defaultValue: "error: refusing to launch cmux because another process is already listening on socket %@. Quit that process or use a different cmux build tag, then reopen cmux."
         )
-        let message = String(format: format, path)
+        let message = String(format: format, socketLabel)
         fputs("\(message)\n", stderr)
         fflush(stderr)
         NSLog("%@", message)
         Darwin.exit(73)
+    }
+
+    private static func socketCollisionLabel(for path: String) -> String {
+        URL(fileURLWithPath: path).lastPathComponent
     }
 
     private static func configureGhosttyEnvironment() {

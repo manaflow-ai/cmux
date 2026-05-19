@@ -1090,6 +1090,8 @@ class TerminalController {
         errnoCode: Int32,
         currentUserID: uid_t = getuid()
     ) -> String? {
+        // Disabled for issue #3993: startup must refuse a live socket collision
+        // instead of silently falling back to a fragile /tmp socket path.
         _ = requestedPath
         _ = stage
         _ = errnoCode
