@@ -105,6 +105,7 @@ final class VNCMetalCanvasView: NSView {
 
     override func viewDidMoveToWindow() {
         super.viewDidMoveToWindow()
+        window?.acceptsMouseMovedEvents = true
         updateMetalLayerGeometry()
         drawFramebuffer()
     }
