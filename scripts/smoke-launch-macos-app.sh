@@ -21,6 +21,7 @@ STABLE_SECONDS="${CMUX_SMOKE_STABLE_SECONDS:-5}"
 OPEN_LOG="$(mktemp /tmp/cmux-smoke-open.XXXXXX.log)"
 APP_PID=""
 PREEXISTING_PIDS="$(pgrep -f "$EXECUTABLE_PATH" 2>/dev/null || true)"
+DEBUG_LOGS="${CMUX_SMOKE_DEBUG_LOGS:-0}"
 
 cleanup() {
   if [[ -n "$APP_PID" ]] && kill -0 "$APP_PID" 2>/dev/null; then
@@ -40,6 +41,25 @@ find_new_app_pid() {
     fi
   done < <(pgrep -f "$EXECUTABLE_PATH" 2>/dev/null || true)
   return 1
+}
+
+dump_open_log() {
+  if [[ ! -s "$OPEN_LOG" ]]; then
+    return
+  fi
+  if [[ "$DEBUG_LOGS" == "1" ]]; then
+    cat "$OPEN_LOG" >&2
+  else
+    echo "open launcher output captured (set CMUX_SMOKE_DEBUG_LOGS=1 to print)" >&2
+  fi
+}
+
+dump_system_log() {
+  if [[ "$DEBUG_LOGS" == "1" ]]; then
+    /usr/bin/log show --last 2m --style compact --predicate "process == '$EXECUTABLE_NAME' OR eventMessage CONTAINS '$BUNDLE_ID'" 2>/dev/null | tail -n 160 >&2 || true
+  else
+    echo "system log capture skipped (set CMUX_SMOKE_DEBUG_LOGS=1 to print)" >&2
+  fi
 }
 
 echo "==> smoke launching $APP_PATH"
@@ -62,9 +82,7 @@ done
 
 if [[ -z "$APP_PID" ]]; then
   echo "error: app process did not appear for bundle $BUNDLE_ID within ${STARTUP_TIMEOUT_SECONDS}s" >&2
-  if [[ -s "$OPEN_LOG" ]]; then
-    cat "$OPEN_LOG" >&2
-  fi
+  dump_open_log
   exit 1
 fi
 
@@ -72,16 +90,14 @@ for _ in $(seq 1 "$STABLE_SECONDS"); do
   sleep 1
   if ! kill -0 "$APP_PID" 2>/dev/null; then
     echo "error: app process $APP_PID exited during ${STABLE_SECONDS}s launch smoke" >&2
-    if [[ -s "$OPEN_LOG" ]]; then
-      cat "$OPEN_LOG" >&2
-    fi
+    dump_open_log
     LOG_NAME="$(printf '%s' "$BUNDLE_ID" | sed -E 's/[^A-Za-z0-9._-]/-/g')"
     STARTUP_LOG="$HOME/Library/Logs/cmux/startup-${LOG_NAME}.log"
     if [[ -f "$STARTUP_LOG" ]]; then
       echo "startup breadcrumbs:" >&2
       tail -n 80 "$STARTUP_LOG" >&2 || true
     fi
-    /usr/bin/log show --last 2m --style compact --predicate "process == '$EXECUTABLE_NAME' OR eventMessage CONTAINS '$BUNDLE_ID'" 2>/dev/null | tail -n 160 >&2 || true
+    dump_system_log
     exit 1
   fi
 done

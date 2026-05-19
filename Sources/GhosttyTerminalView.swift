@@ -1674,6 +1674,7 @@ class GhosttyApp {
     // without adding a teardown path for a ghostty_app_t that is never freed/recreated.
     private static let appRegistryLock = NSLock()
     private static var appRegistry: [UInt: GhosttyApp] = [:]
+    private static var initializingRuntimeApp: GhosttyApp?
     private static let backgroundLogTimestampFormatter: ISO8601DateFormatter = {
         let formatter = ISO8601DateFormatter()
         formatter.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
@@ -2009,7 +2010,7 @@ class GhosttyApp {
             GhosttyApp.runtimeApp(from: userdata)?.scheduleTick()
         }
         runtimeConfig.action_cb = { app, target, action in
-            guard let runtimeApp = GhosttyApp.runtimeApp(for: app) else { return false }
+            guard let runtimeApp = GhosttyApp.runtimeAppForActionCallback(app) else { return false }
             return runtimeApp.handleAction(target: target, action: action)
         }
         // Some GhosttyKit builds import this callback as returning `Void` in Swift even
@@ -2097,6 +2098,9 @@ class GhosttyApp {
         }
 
         // Create app
+        Self.setInitializingRuntimeApp(self)
+        defer { Self.setInitializingRuntimeApp(nil) }
+
         if let created = ghostty_app_new(&runtimeConfig, primaryConfig) {
             self.app = created
             self.config = primaryConfig
@@ -3773,12 +3777,27 @@ class GhosttyApp {
         appRegistryLock.unlock()
     }
 
+    private static func setInitializingRuntimeApp(_ runtimeApp: GhosttyApp?) {
+        appRegistryLock.lock()
+        initializingRuntimeApp = runtimeApp
+        appRegistryLock.unlock()
+    }
+
     private static func runtimeApp(for app: ghostty_app_t?) -> GhosttyApp? {
         guard let app else { return nil }
         let key = UInt(bitPattern: app)
         appRegistryLock.lock()
         defer { appRegistryLock.unlock() }
         return appRegistry[key]
+    }
+
+    private static func runtimeAppForActionCallback(_ app: ghostty_app_t?) -> GhosttyApp? {
+        if let registered = runtimeApp(for: app) {
+            return registered
+        }
+        appRegistryLock.lock()
+        defer { appRegistryLock.unlock() }
+        return initializingRuntimeApp
     }
 
     private func handleAction(target: ghostty_target_s, action: ghostty_action_s) -> Bool {
