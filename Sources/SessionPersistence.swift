@@ -280,6 +280,10 @@ nonisolated struct SurfaceResumeBindingSnapshot: Codable, Equatable, Sendable {
         source == "agent-hook"
     }
 
+    var isCLIBinding: Bool {
+        source == "cli"
+    }
+
     var allowsAutomaticResume: Bool {
         autoResume == true
     }
@@ -709,7 +713,7 @@ enum SurfaceResumeApprovalStore {
         guard !isRunningTests else {
             return false
         }
-        guard binding.source != "cli" else {
+        guard !binding.isCLIBinding else {
             return false
         }
         guard !binding.isProcessDetected, !binding.isAgentHookBinding else {
