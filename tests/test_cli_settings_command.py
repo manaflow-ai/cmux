@@ -757,6 +757,23 @@ def main() -> int:
             "Unsupported TOML multi-line basic string",
         )
 
+        before_bad_bare_toml_string = read_config(home)
+        bad_bare_toml_string_path = home / "bad-bare-toml-string.toml"
+        bad_bare_toml_string_path.write_text("app.preferredEditor = code\n", encoding="utf-8")
+        bad_bare_toml_string = run_cli(cli_path, ["settings", "import", str(bad_bare_toml_string_path)], home)
+        assert_fails(
+            failures,
+            "settings import rejects unquoted TOML string",
+            bad_bare_toml_string,
+            "Invalid TOML literal",
+        )
+        after_bad_bare_toml_string = read_config(home)
+        if after_bad_bare_toml_string != before_bad_bare_toml_string:
+            failures.append(
+                "failed unquoted TOML string import changed cmux.json: "
+                f"before={before_bad_bare_toml_string} after={after_bad_bare_toml_string}"
+            )
+
         bad_inline_table_path = home / "bad-inline-table.toml"
         bad_inline_table_path.write_text('appearance = { theme = "dark" }\n', encoding="utf-8")
         bad_inline_table = run_cli(cli_path, ["settings", "import", str(bad_inline_table_path)], home)
@@ -791,6 +808,30 @@ def main() -> int:
             failures.append(
                 "failed intermediate-key import changed cmux.json: "
                 f"before={before_bad_intermediate_import} after={after_bad_intermediate_import}"
+            )
+
+        before_bad_json_path_collision = read_config(home)
+        bad_json_path_collision_path = home / "bad-dotted-nested-collision.json"
+        bad_json_path_collision_path.write_text(
+            json.dumps({"browser.enabled": False, "browser": {"enabled": True}}),
+            encoding="utf-8",
+        )
+        bad_json_path_collision = run_cli(
+            cli_path,
+            ["settings", "import", str(bad_json_path_collision_path)],
+            home,
+        )
+        assert_fails(
+            failures,
+            "settings import rejects dotted/nested JSON path collision",
+            bad_json_path_collision,
+            "Duplicate import key 'browser.enabled'",
+        )
+        after_bad_json_path_collision = read_config(home)
+        if after_bad_json_path_collision != before_bad_json_path_collision:
+            failures.append(
+                "failed JSON path-collision import changed cmux.json: "
+                f"before={before_bad_json_path_collision} after={after_bad_json_path_collision}"
             )
 
         before_bad_toml_collision = read_config(home)

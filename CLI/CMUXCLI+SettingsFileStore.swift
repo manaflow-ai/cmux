@@ -165,7 +165,7 @@ extension CMUXCLI {
         }
 
         func validatedImportOperations(from root: [String: Any]) throws -> [ImportOperation] {
-            let flat = flatten(root)
+            let flat = try flatten(root)
             var operations: [ImportOperation] = []
             var knownIntermediateKeys = Set<String>()
             for key in CmuxSettingsRegistry.sortedKeys + ["shortcuts.bindings"] {
@@ -394,16 +394,26 @@ extension CMUXCLI {
                 ?? fileManager.homeDirectoryForCurrentUser.path
         }
 
-        private func flatten(_ root: [String: Any], prefix: String = "") -> [String: Any] {
+        private func flatten(_ root: [String: Any], prefix: String = "") throws -> [String: Any] {
             var result: [String: Any] = [:]
-            for (key, value) in root {
+            for key in root.keys.sorted() {
+                guard let value = root[key] else { continue }
                 let path = prefix.isEmpty ? key : "\(prefix).\(key)"
                 if let dictionary = value as? [String: Any],
                    !(value is NSNull),
                    !dictionary.isEmpty,
                    CmuxSettingsRegistry.definitionsByKey[path] == nil {
-                    result.merge(flatten(dictionary, prefix: path), uniquingKeysWith: { _, rhs in rhs })
+                    let nested = try flatten(dictionary, prefix: path)
+                    for (nestedPath, nestedValue) in nested {
+                        guard result[nestedPath] == nil else {
+                            throw CLIError(message: "Duplicate import key '\(nestedPath)'")
+                        }
+                        result[nestedPath] = nestedValue
+                    }
                 } else {
+                    guard result[path] == nil else {
+                        throw CLIError(message: "Duplicate import key '\(path)'")
+                    }
                     result[path] = value
                 }
             }
@@ -719,7 +729,9 @@ extension CMUXCLI {
                 }
                 return String(inner)
             }
-            return raw
+            throw CLIError(
+                message: "Invalid TOML literal on line \(lineNumber). Quote string values or use --format json."
+            )
         }
 
         private func validateTomlBasicStringContent(_ raw: Substring, lineNumber: Int) throws {
