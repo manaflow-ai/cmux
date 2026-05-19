@@ -361,6 +361,7 @@ public enum CmuxExtensionSidebarProviderID {
     public static let lastMessage = "cmux.sidebar.last-message"
     public static let browser = "cmux.sidebar.browser"
     public static let superCompact = "cmux.sidebar.super-compact"
+    public static let browserStack = "cmux.sidebar.browser-stack"
 }
 
 public enum CmuxExtensionSidebarCustomizationMode: String, Codable, Equatable, Sendable {
@@ -371,10 +372,16 @@ public enum CmuxExtensionSidebarCustomizationMode: String, Codable, Equatable, S
     case lastMessage = "last-message"
     case browser
     case superCompact = "super-compact"
+    case browserStack = "browser-stack"
 
     public var allowsProjectWorktreeActions: Bool {
         self == .projectTree
     }
+}
+
+public enum CmuxExtensionSidebarPresentation: String, Codable, Equatable, Sendable {
+    case tree
+    case browserStack = "browser-stack"
 }
 
 public struct CmuxExtensionSidebarProviderDescriptor: Identifiable, Codable, Equatable, Sendable {
@@ -521,6 +528,21 @@ public struct CmuxExtensionSidebarProviderDescriptor: Identifiable, Codable, Equ
         isHostProvided: true
     )
 
+    public static let browserStack = CmuxExtensionSidebarProviderDescriptor(
+        id: CmuxExtensionSidebarProviderID.browserStack,
+        title: CmuxExtensionLocalizedText(
+            key: "sidebar.provider.browserStack.title",
+            defaultValue: "Browser Stack"
+        ),
+        subtitle: CmuxExtensionLocalizedText(
+            key: "sidebar.provider.browserStack.subtitle",
+            defaultValue: "CmuxExtensionKit"
+        ),
+        systemImageName: "square.on.square",
+        mode: .browserStack,
+        isHostProvided: true
+    )
+
     public static let builtInProviders: [CmuxExtensionSidebarProviderDescriptor] = [
         .defaultWorkspaces,
         .thin,
@@ -530,6 +552,7 @@ public struct CmuxExtensionSidebarProviderDescriptor: Identifiable, Codable, Equ
         .lastMessage,
         .browser,
         .superCompact,
+        .browserStack,
     ]
 }
 
@@ -628,6 +651,33 @@ public enum CmuxExtensionSidebarRelativeDateStyle: String, Codable, Equatable, S
     case compact
 }
 
+public enum CmuxExtensionSidebarRenderIconShape: String, Codable, Equatable, Sendable {
+    case circle
+    case roundedRectangle = "rounded-rectangle"
+}
+
+public struct CmuxExtensionSidebarRenderIcon: Codable, Equatable, Sendable {
+    public var systemImageName: String?
+    public var text: String?
+    public var foregroundColorHex: String?
+    public var backgroundColorHex: String?
+    public var shape: CmuxExtensionSidebarRenderIconShape
+
+    public init(
+        systemImageName: String? = nil,
+        text: String? = nil,
+        foregroundColorHex: String? = nil,
+        backgroundColorHex: String? = nil,
+        shape: CmuxExtensionSidebarRenderIconShape = .circle
+    ) {
+        self.systemImageName = systemImageName
+        self.text = text
+        self.foregroundColorHex = foregroundColorHex
+        self.backgroundColorHex = backgroundColorHex
+        self.shape = shape
+    }
+}
+
 public enum CmuxExtensionSidebarRenderText: Codable, Equatable, Sendable {
     case plain(String)
     case localized(CmuxExtensionLocalizedText)
@@ -650,6 +700,7 @@ public struct CmuxExtensionSidebarRenderRow: Identifiable, Codable, Equatable, S
     public var accessory: CmuxExtensionWorkspaceRowAccessory?
     public var subtitle: CmuxExtensionSidebarRenderText?
     public var trailingText: CmuxExtensionSidebarRenderText?
+    public var leadingIcon: CmuxExtensionSidebarRenderIcon?
 
     public init(
         id: UUID,
@@ -657,7 +708,8 @@ public struct CmuxExtensionSidebarRenderRow: Identifiable, Codable, Equatable, S
         workspaceId: UUID,
         accessory: CmuxExtensionWorkspaceRowAccessory?,
         subtitle: CmuxExtensionSidebarRenderText? = nil,
-        trailingText: CmuxExtensionSidebarRenderText? = nil
+        trailingText: CmuxExtensionSidebarRenderText? = nil,
+        leadingIcon: CmuxExtensionSidebarRenderIcon? = nil
     ) {
         self.id = id
         self.title = title
@@ -665,6 +717,7 @@ public struct CmuxExtensionSidebarRenderRow: Identifiable, Codable, Equatable, S
         self.accessory = accessory
         self.subtitle = subtitle
         self.trailingText = trailingText
+        self.leadingIcon = leadingIcon
     }
 }
 
@@ -688,15 +741,44 @@ public struct CmuxExtensionSidebarRenderModel: Codable, Equatable, Sendable {
     public var providerId: String
     public var snapshotSequence: UInt64
     public var sections: [CmuxExtensionSidebarRenderSection]
+    public var presentation: CmuxExtensionSidebarPresentation
 
     public init(
         providerId: String,
         snapshotSequence: UInt64,
-        sections: [CmuxExtensionSidebarRenderSection]
+        sections: [CmuxExtensionSidebarRenderSection],
+        presentation: CmuxExtensionSidebarPresentation = .tree
     ) {
         self.providerId = providerId
         self.snapshotSequence = snapshotSequence
         self.sections = sections
+        self.presentation = presentation
+    }
+
+    private enum CodingKeys: String, CodingKey {
+        case providerId
+        case snapshotSequence
+        case sections
+        case presentation
+    }
+
+    public init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        providerId = try container.decode(String.self, forKey: .providerId)
+        snapshotSequence = try container.decode(UInt64.self, forKey: .snapshotSequence)
+        sections = try container.decode([CmuxExtensionSidebarRenderSection].self, forKey: .sections)
+        presentation = try container.decodeIfPresent(
+            CmuxExtensionSidebarPresentation.self,
+            forKey: .presentation
+        ) ?? .tree
+    }
+
+    public func encode(to encoder: Encoder) throws {
+        var container = encoder.container(keyedBy: CodingKeys.self)
+        try container.encode(providerId, forKey: .providerId)
+        try container.encode(snapshotSequence, forKey: .snapshotSequence)
+        try container.encode(sections, forKey: .sections)
+        try container.encode(presentation, forKey: .presentation)
     }
 }
 
@@ -792,11 +874,13 @@ public struct CmuxExtensionWorkspaceTreeProvider: CmuxExtensionSidebarContextual
                             workspaceId: workspace.id,
                             accessory: .inspector,
                             subtitle: Self.subtitle(for: workspace, mode: mode),
-                            trailingText: Self.trailingText(for: workspace, mode: mode)
+                            trailingText: Self.trailingText(for: workspace, mode: mode),
+                            leadingIcon: Self.leadingIcon(for: workspace, mode: mode)
                         )
                     }
                 )
-            }
+            },
+            presentation: mode == .browserStack ? .browserStack : .tree
         )
     }
 
@@ -824,6 +908,27 @@ public struct CmuxExtensionWorkspaceTreeProvider: CmuxExtensionSidebarContextual
             return nil
         }
         return .relativeDate(latestSubmittedAt, style: .compact)
+    }
+
+    private static func leadingIcon(
+        for workspace: CmuxExtensionWorkspaceSnapshot,
+        mode: CmuxExtensionSidebarCustomizationMode
+    ) -> CmuxExtensionSidebarRenderIcon? {
+        guard mode == .browserStack else { return nil }
+        let title = workspace.title.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
+        if title.contains("google") {
+            return CmuxExtensionSidebarRenderIcon(text: "G", foregroundColorHex: "#4285F4", backgroundColorHex: "#FFFFFF")
+        }
+        if title.contains("hacker") || title.contains("ycombinator") || title.contains("yc") {
+            return CmuxExtensionSidebarRenderIcon(text: "Y", foregroundColorHex: "#FFFFFF", backgroundColorHex: "#FF6600", shape: .roundedRectangle)
+        }
+        if title == "x" || title.hasPrefix("x.") || title.contains("twitter") || title.contains("what's happening") {
+            return CmuxExtensionSidebarRenderIcon(text: "X", foregroundColorHex: "#FFFFFF", backgroundColorHex: "#000000", shape: .roundedRectangle)
+        }
+        if title.contains("dia") || workspace.unreadCount > 0 {
+            return CmuxExtensionSidebarRenderIcon(systemImageName: "bubble.left.fill", foregroundColorHex: "#D8D8D8", backgroundColorHex: "#000000")
+        }
+        return CmuxExtensionSidebarRenderIcon(systemImageName: "bubble.left.fill", foregroundColorHex: "#D0D0D0", backgroundColorHex: "#5A5A5A")
     }
 
     private static func trimmedNonEmpty(_ value: String?) -> String? {
@@ -858,6 +963,8 @@ public enum CmuxExtensionWorkspaceTreeBuilder {
             return browserSections(for: snapshot, localize: localize)
         case .superCompact:
             return flatSections(for: snapshot, localize: localize)
+        case .browserStack:
+            return browserStackSections(for: snapshot, localize: localize)
         }
     }
 
@@ -969,6 +1076,27 @@ public enum CmuxExtensionWorkspaceTreeBuilder {
             to: &sections
         )
         return sections
+    }
+
+    private static func browserStackSections(
+        for snapshot: CmuxExtensionSidebarSnapshot,
+        localize: Localize
+    ) -> [CmuxExtensionWorkspaceTreeSection] {
+        let title = CmuxExtensionLocalizedText(
+            key: "sidebar.custom.group.browserStack",
+            defaultValue: "Browser Stack"
+        )
+        return [
+            CmuxExtensionWorkspaceTreeSection(
+                id: "browser-stack",
+                title: localize(title),
+                titleText: title,
+                subtitle: nil,
+                systemImageName: "square.on.square",
+                projectRootPath: nil,
+                workspaceIds: snapshot.workspaces.map(\.id)
+            )
+        ]
     }
 
     private static func attentionSections(

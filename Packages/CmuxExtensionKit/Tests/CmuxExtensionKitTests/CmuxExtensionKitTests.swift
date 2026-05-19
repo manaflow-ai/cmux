@@ -9,6 +9,7 @@ final class CmuxExtensionKitTests: XCTestCase {
         XCTAssertEqual(CmuxExtensionSidebarProviderDescriptor.lastMessage.id, "cmux.sidebar.last-message")
         XCTAssertEqual(CmuxExtensionSidebarProviderDescriptor.lastMessage.mode, .lastMessage)
         XCTAssertEqual(CmuxExtensionSidebarProviderDescriptor.superCompact.mode, .superCompact)
+        XCTAssertEqual(CmuxExtensionSidebarProviderDescriptor.browserStack.mode, .browserStack)
         XCTAssertEqual(CmuxExtensionSidebarProviderDescriptor.builtInProviders.map(\.id), [
             "cmux.sidebar.default",
             "cmux.sidebar.thin",
@@ -18,6 +19,7 @@ final class CmuxExtensionKitTests: XCTestCase {
             "cmux.sidebar.last-message",
             "cmux.sidebar.browser",
             "cmux.sidebar.super-compact",
+            "cmux.sidebar.browser-stack",
         ])
     }
 
@@ -57,6 +59,34 @@ final class CmuxExtensionKitTests: XCTestCase {
         let decoded = try JSONDecoder().decode(CmuxExtensionWorkspacePopoverTab.self, from: data)
 
         XCTAssertEqual(decoded, .browser)
+    }
+
+    func testLegacyRenderModelDecodesWithTreePresentation() throws {
+        let data = Data("""
+        {"providerId":"legacy","snapshotSequence":1,"sections":[]}
+        """.utf8)
+
+        let decoded = try JSONDecoder().decode(CmuxExtensionSidebarRenderModel.self, from: data)
+
+        XCTAssertEqual(decoded.presentation, .tree)
+    }
+
+    func testBrowserStackProviderUsesBrowserPresentationAndLeadingIcons() {
+        let google = workspace(title: "Google", rootPath: nil, projectRootPath: nil)
+        let hackerNews = workspace(title: "hacker news", rootPath: nil, projectRootPath: nil)
+        let x = workspace(title: "X. It's what's happening / X", rootPath: nil, projectRootPath: nil)
+        let snapshot = CmuxExtensionSidebarSnapshot(
+            sequence: 12,
+            selectedWorkspaceId: google.id,
+            workspaces: [google, hackerNews, x]
+        )
+
+        let model = CmuxExtensionWorkspaceTreeProvider(descriptor: .browserStack).render(snapshot: snapshot)
+
+        XCTAssertEqual(model.providerId, CmuxExtensionSidebarProviderID.browserStack)
+        XCTAssertEqual(model.presentation, .browserStack)
+        XCTAssertEqual(model.sections.map(\.id), ["browser-stack"])
+        XCTAssertEqual(model.sections[0].rows.map(\.leadingIcon?.text), ["G", "Y", "X"])
     }
 
     func testLastMessageProviderSortsBySubmittedTimeAndAddsRelativeRows() {

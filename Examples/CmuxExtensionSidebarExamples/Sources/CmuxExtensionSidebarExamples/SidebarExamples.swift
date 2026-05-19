@@ -8,6 +8,7 @@ public enum SidebarExamples {
         DevServerSidebar(),
         LastPromptSidebar(),
         SuperCompactSidebar(),
+        BrowserStackSidebar(),
     ]
 }
 
@@ -22,7 +23,8 @@ struct ExampleSidebarSection {
         rowTitle: (CmuxExtensionWorkspaceSnapshot) -> String = { $0.title },
         accessory: CmuxExtensionWorkspaceRowAccessory? = .inspector,
         subtitle: (CmuxExtensionWorkspaceSnapshot) -> CmuxExtensionSidebarRenderText? = { _ in nil },
-        trailingText: (CmuxExtensionWorkspaceSnapshot) -> CmuxExtensionSidebarRenderText? = { _ in nil }
+        trailingText: (CmuxExtensionWorkspaceSnapshot) -> CmuxExtensionSidebarRenderText? = { _ in nil },
+        leadingIcon: (CmuxExtensionWorkspaceSnapshot) -> CmuxExtensionSidebarRenderIcon? = { _ in nil }
     ) -> CmuxExtensionSidebarRenderSection {
         CmuxExtensionSidebarRenderSection(
             id: id,
@@ -42,7 +44,8 @@ struct ExampleSidebarSection {
                     workspaceId: workspace.id,
                     accessory: accessory,
                     subtitle: subtitle(workspace),
-                    trailingText: trailingText(workspace)
+                    trailingText: trailingText(workspace),
+                    leadingIcon: leadingIcon(workspace)
                 )
             }
         )
@@ -56,12 +59,14 @@ func localized(_ key: String, _ defaultValue: String) -> CmuxExtensionLocalizedT
 func renderModel(
     providerId: String,
     snapshot: CmuxExtensionSidebarSnapshot,
-    sections: [CmuxExtensionSidebarRenderSection]
+    sections: [CmuxExtensionSidebarRenderSection],
+    presentation: CmuxExtensionSidebarPresentation = .tree
 ) -> CmuxExtensionSidebarRenderModel {
     CmuxExtensionSidebarRenderModel(
         providerId: providerId,
         snapshotSequence: snapshot.sequence,
-        sections: sections.filter { !$0.rows.isEmpty }
+        sections: sections.filter { !$0.rows.isEmpty },
+        presentation: presentation
     )
 }
 
