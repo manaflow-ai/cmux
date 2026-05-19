@@ -1229,7 +1229,7 @@ final class TerminalNotificationStore: ObservableObject {
             lastNotificationDateByCooldownKey[cooldownReservation.key] = now
         }
 
-        let cwd = notificationCWD(forTabId: tabId)
+        let cwd = notificationCWD(forTabId: tabId, surfaceId: surfaceId)
         let enrichmentGeneration = advanceNotificationEnrichmentGeneration(
             tabId: tabId,
             surfaceId: surfaceId
@@ -1405,11 +1405,23 @@ final class TerminalNotificationStore: ObservableObject {
         }
     }
 
-    private func notificationCWD(forTabId tabId: UUID) -> String {
+    private func notificationCWD(forTabId tabId: UUID, surfaceId: UUID?) -> String {
         let appDelegate = AppDelegate.shared
         let context = appDelegate?.contextContainingTabId(tabId)
         let tabManager = context?.tabManager ?? appDelegate?.tabManagerFor(tabId: tabId) ?? appDelegate?.tabManager
         let workspace = tabManager?.tabs.first(where: { $0.id == tabId })
+        if let surfaceId {
+            for candidate in [
+                workspace?.panelDirectories[surfaceId],
+                workspace?.terminalPanel(for: surfaceId)?.directory,
+                workspace?.terminalPanel(for: surfaceId)?.requestedWorkingDirectory,
+            ] {
+                let trimmed = candidate?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+                if !trimmed.isEmpty {
+                    return trimmed
+                }
+            }
+        }
         return workspace?.surfaceTabBarDirectory
             ?? workspace?.currentDirectory
             ?? FileManager.default.homeDirectoryForCurrentUser.path

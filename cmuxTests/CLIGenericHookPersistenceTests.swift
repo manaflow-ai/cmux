@@ -1937,7 +1937,7 @@ extension CLINotifyProcessIntegrationRegressionTests {
 
         let hooksURL = root
             .appendingPathComponent(".grok/hooks", isDirectory: true)
-            .appendingPathComponent("cmux.json", isDirectory: false)
+            .appendingPathComponent("cmux-session.json", isDirectory: false)
         let hooksData = try Data(contentsOf: hooksURL)
         let hooksObject = try JSONSerialization.jsonObject(with: hooksData)
         let json = try XCTUnwrap(hooksObject as? [String: Any])
