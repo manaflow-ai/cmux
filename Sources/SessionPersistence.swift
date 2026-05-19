@@ -709,6 +709,9 @@ enum SurfaceResumeApprovalStore {
         guard !isRunningTests else {
             return false
         }
+        guard binding.source != "cli" else {
+            return false
+        }
         guard !binding.isProcessDetected, !binding.isAgentHookBinding else {
             return false
         }
