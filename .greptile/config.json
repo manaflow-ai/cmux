@@ -49,6 +49,12 @@
       "severity": "high"
     },
     {
+      "id": "cmux-full-internationalization",
+      "rule": "Flag production user-facing text that is not fully internationalized across every locale supported by the affected surface: Swift UI/menu/alert/tooltip/error/command text must use String(localized:defaultValue:) or an equivalent localized API, app string catalog changes must include translated entries for every locale already supported by the touched catalog, and web UI or metadata message changes must update every locale listed in web/i18n/routing.ts with matching web/messages entries. Pass for tests, docs, developer-only comments, debug-only logs, literal protocol/config tokens, and existing untranslated strings not worsened by the PR.",
+      "scope": ["**/*.swift", "Resources/*.xcstrings", "web/app/**/*.ts", "web/app/**/*.tsx", "web/i18n/**/*.ts", "web/messages/**/*.json"],
+      "severity": "high"
+    },
+    {
       "id": "cmux-swiftui-state-layout",
       "rule": "Flag SwiftUI changes that can cause stale state, broad invalidation, layout instability, or main-thread churn: new ObservableObject/@Published state where @Observable is correct, GeometryReader measurement that changes layout, lazy/list row subtrees holding store references, or state mutation during body rendering.",
       "scope": ["**/*.swift"],
