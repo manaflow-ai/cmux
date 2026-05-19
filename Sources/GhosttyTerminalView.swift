@@ -1858,7 +1858,6 @@ class GhosttyApp {
     private var lastAppearanceColorScheme: GhosttyConfig.ColorSchemePreference?
     private var singletonConstructionPhase: SingletonConstructionPhase = .constructing
     private var pendingInitialRuntimeColorSchemeSync: RuntimeColorSchemeSync?
-    private var activeRuntimeColorSchemeReloadPreference: GhosttyConfig.ColorSchemePreference?
     private lazy var defaultBackgroundNotificationDispatcher: GhosttyDefaultBackgroundNotificationDispatcher =
         // Theme chrome should track terminal theme changes in the same frame.
         // Keep coalescing semantics, but flush in the next main turn instead of waiting ~1 frame.
@@ -3265,12 +3264,12 @@ class GhosttyApp {
             )
         }
         guard case let .reload(colorScheme, runtimeColorScheme) = plan else { return }
+        lastAppearanceColorScheme = colorScheme
         synchronizeGhosttyRuntimeColorScheme(
             runtimeColorScheme,
             colorScheme: colorScheme,
             source: source
         )
-        lastAppearanceColorScheme = colorScheme
         reloadConfiguration(
             source: "appearanceSync:\(source)",
             reloadSettingsFromFile: false,
@@ -3295,8 +3294,6 @@ class GhosttyApp {
         source: String
     ) {
         guard let app else { return }
-        activeRuntimeColorSchemeReloadPreference = colorScheme
-        defer { activeRuntimeColorSchemeReloadPreference = nil }
         ghostty_app_set_color_scheme(app, runtimeColorScheme)
         if backgroundLogEnabled {
             let schemeLabel = colorScheme == .dark ? "dark" : "light"
@@ -3306,10 +3303,8 @@ class GhosttyApp {
 
     private func synchronizePendingInitialRuntimeColorSchemeIfNeeded() {
         guard pendingInitialRuntimeColorSchemeSync != nil else { return }
+        assert(Thread.isMainThread, "Initial Ghostty runtime color-scheme sync must flush from a main-thread lifecycle point")
         guard Thread.isMainThread else {
-            DispatchQueue.main.sync {
-                self.synchronizePendingInitialRuntimeColorSchemeIfNeeded()
-            }
             return
         }
         guard singletonConstructionPhase == .constructed,
@@ -3818,8 +3813,6 @@ class GhosttyApp {
     }
 
     private func handleAction(target: ghostty_target_s, action: ghostty_action_s) -> Bool {
-        synchronizePendingInitialRuntimeColorSchemeIfNeeded()
-
         if target.tag != GHOSTTY_TARGET_SURFACE {
             if action.tag == GHOSTTY_ACTION_RELOAD_CONFIG ||
                 action.tag == GHOSTTY_ACTION_CONFIG_CHANGE ||
@@ -3869,12 +3862,13 @@ class GhosttyApp {
 
             if action.tag == GHOSTTY_ACTION_RELOAD_CONFIG {
                 let soft = action.action.reload_config.soft
+                let reloadColorScheme = lastAppearanceColorScheme
                 logThemeAction("reload request target=app soft=\(soft)")
                 performOnMain {
                     self.reloadConfiguration(
                         soft: soft,
                         source: "action.reload_config.app",
-                        preferredColorScheme: activeRuntimeColorSchemeReloadPreference
+                        preferredColorScheme: reloadColorScheme
                     )
                 }
                 return true
@@ -4174,6 +4168,7 @@ class GhosttyApp {
             return true
         case GHOSTTY_ACTION_RELOAD_CONFIG:
             let soft = action.action.reload_config.soft
+            let reloadColorScheme = lastAppearanceColorScheme
             logThemeAction(
                 "reload request target=surface tab=\(surfaceView.tabId?.uuidString ?? "nil") surface=\(surfaceView.terminalSurface?.id.uuidString ?? "nil") soft=\(soft)"
             )
@@ -4182,7 +4177,7 @@ class GhosttyApp {
                     target.target.surface,
                     soft: soft,
                     source: "action.reload_config.surface tab=\(surfaceView.tabId?.uuidString ?? "nil") surface=\(surfaceView.terminalSurface?.id.uuidString ?? "nil")",
-                    preferredColorScheme: activeRuntimeColorSchemeReloadPreference
+                    preferredColorScheme: reloadColorScheme
                 )
                 surfaceView.terminalSurface?.hostedView.refreshHostBackgroundAfterGhosttyConfigReload()
                 surfaceView.terminalSurface?.forceRefresh(reason: "surface.reloadConfig")
