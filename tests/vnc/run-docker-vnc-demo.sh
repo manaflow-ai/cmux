@@ -6,6 +6,11 @@ IMAGE="${CMUX_VNC_DEMO_IMAGE:-cmux-vnc-demo:latest}"
 PASSWORD="${CMUX_VNC_DEMO_PASSWORD:-cmuxvnc}"
 MANIFEST_OUT="${1:-}"
 
+if [[ -n "$MANIFEST_OUT" ]] && ! command -v jq >/dev/null 2>&1; then
+  echo "error: jq is required to write the demo manifest safely" >&2
+  exit 1
+fi
+
 docker build -t "$IMAGE" "$SCRIPT_DIR/docker-demo"
 
 for index in 1 2; do
@@ -24,11 +29,12 @@ done
 for index in 1 2; do
   port=$((5900 + index))
   for attempt in $(seq 1 60); do
-    if nc -z 127.0.0.1 "$port"; then
+    if nc -z 127.0.0.1 "$port" && docker exec "cmux-vnc-demo-$index" test -f /tmp/cmux-vnc-desktop-ready; then
       break
     fi
     if [[ "$attempt" == "60" ]]; then
-      echo "error: VNC demo container $index did not open port $port" >&2
+      echo "error: VNC demo container $index did not open port $port with a ready desktop" >&2
+      docker logs "cmux-vnc-demo-$index" >&2 || true
       exit 1
     fi
     sleep 1
@@ -37,34 +43,32 @@ done
 
 if [[ -n "$MANIFEST_OUT" ]]; then
   mkdir -p "$(dirname "$MANIFEST_OUT")"
-  cat >"$MANIFEST_OUT" <<JSON
-{
-  "default_password": "$PASSWORD",
-  "hosts": [
-    {
-      "name": "docker-vnc",
-      "prefix": "docker-vnc",
-      "tag": "tag:mac-mini-cluster",
-      "sessions": [
-        {
-          "index": 1,
-          "name": "docker-vnc-1",
-          "address": "127.0.0.1",
-          "port": 5901,
-          "username": "cmuxvnc"
-        },
-        {
-          "index": 2,
-          "name": "docker-vnc-2",
-          "address": "127.0.0.1",
-          "port": 5902,
-          "username": "cmuxvnc"
-        }
-      ]
-    }
-  ]
-}
-JSON
+  jq -n --arg password "$PASSWORD" '{
+    default_password: $password,
+    hosts: [
+      {
+        name: "docker-vnc",
+        prefix: "docker-vnc",
+        tag: "tag:mac-mini-cluster",
+        sessions: [
+          {
+            index: 1,
+            name: "docker-vnc-1",
+            address: "127.0.0.1",
+            port: 5901,
+            username: "cmuxvnc"
+          },
+          {
+            index: 2,
+            name: "docker-vnc-2",
+            address: "127.0.0.1",
+            port: 5902,
+            username: "cmuxvnc"
+          }
+        ]
+      }
+    ]
+  }' >"$MANIFEST_OUT"
 fi
 
-echo "Docker VNC demo sessions are listening on 127.0.0.1:5901 and 127.0.0.1:5902"
+echo "Docker VNC demo desktops are listening on 127.0.0.1:5901 and 127.0.0.1:5902"
