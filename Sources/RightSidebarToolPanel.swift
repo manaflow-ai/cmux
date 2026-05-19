@@ -91,7 +91,12 @@ final class RightSidebarToolPanel: Panel, ObservableObject {
               let paneId = workspace.bonsplitController.focusedPaneId ?? workspace.bonsplitController.allPaneIds.first else {
             return
         }
-        _ = workspace.openOrFocusFilePreviewSurface(inPane: paneId, filePath: filePath)
+        _ = workspace.openFileSurfaces(
+            inPane: paneId,
+            filePaths: [filePath],
+            focus: true,
+            reuseExisting: true
+        )
     }
 
     var isFocusedInWorkspace: Bool {
