@@ -9,6 +9,16 @@ import Darwin
 #endif
 
 final class CmuxTopSnapshotScopeTests: XCTestCase {
+    func testProcessForegroundGroupRequiresTerminalForegroundMatch() {
+        let foreground = makeProcessInfo(processGroupID: 10, terminalProcessGroupID: 10)
+        let background = makeProcessInfo(processGroupID: 11, terminalProcessGroupID: 10)
+        let detached = makeProcessInfo(processGroupID: nil, terminalProcessGroupID: nil)
+
+        XCTAssertTrue(foreground.isTerminalForegroundProcessGroup)
+        XCTAssertFalse(background.isTerminalForegroundProcessGroup)
+        XCTAssertFalse(detached.isTerminalForegroundProcessGroup)
+    }
+
     @MainActor
     func testWindowRollupMatchesPSForApplicationProcessTree() throws {
         let fixture = try SpawnedProcessTree.start()
@@ -588,6 +598,28 @@ final class CmuxTopSnapshotScopeTests: XCTestCase {
         XCTAssertEqual(int(monitorProcess["ppid"]), 1)
         XCTAssertEqual(monitorProcess["attribution_reason"] as? String, "cmux-hook-arguments")
         XCTAssertTrue(totalPIDs.contains(monitorPID))
+    }
+
+    private func makeProcessInfo(
+        processGroupID: Int?,
+        terminalProcessGroupID: Int?
+    ) -> CmuxTopProcessInfo {
+        CmuxTopProcessInfo(
+            pid: 123,
+            parentPID: 1,
+            name: "tmux",
+            path: "/opt/homebrew/bin/tmux",
+            ttyDevice: nil,
+            cmuxWorkspaceID: nil,
+            cmuxSurfaceID: nil,
+            cmuxAttributionReason: nil,
+            processGroupID: processGroupID,
+            terminalProcessGroupID: terminalProcessGroupID,
+            cpuPercent: 0,
+            residentBytes: 0,
+            virtualBytes: 0,
+            threadCount: 1
+        )
     }
 
     @MainActor
