@@ -192,6 +192,8 @@ private struct FeedListView: View {
                         onLoadOlderItems: onLoadOlderItems,
                         onToggle: { nodeId in
                             agentTreeController.toggle(nodeId)
+                            let updatedVisibleTree = agentTreeController.visibleSnapshot(from: agentGraphSnapshot)
+                            agentTreeController.reconcileSelection(with: updatedVisibleTree)
                         },
                         onSelect: { node in
                             applyAgentTreeSelectionEffect(
@@ -214,6 +216,10 @@ private struct FeedListView: View {
             .onChange(of: scrollRequest) { _, request in
                 guard let request else { return }
                 proxy.scrollTo(request.id, anchor: .top)
+            }
+            .onChange(of: agentGraphSnapshot) { _, newSnapshot in
+                let updatedVisibleTree = agentTreeController.visibleSnapshot(from: newSnapshot)
+                agentTreeController.reconcileSelection(with: updatedVisibleTree)
             }
             .background(
                 FeedKeyboardFocusBridge(

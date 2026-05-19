@@ -24,6 +24,13 @@ final class FeedAgentTreeController {
         )
     }
 
+    func reconcileSelection(with visibleSnapshot: FeedAgentTreeVisibleSnapshot) {
+        guard let selectedNodeId,
+              !visibleSnapshot.focusTargets.contains(where: { $0.nodeId == selectedNodeId })
+        else { return }
+        self.selectedNodeId = nil
+    }
+
     func focusFirst(
         in targets: [FeedAgentTreeFocusTarget],
         focusHost: Bool
@@ -43,6 +50,9 @@ final class FeedAgentTreeController {
            let currentIndex = nodeIds.firstIndex(of: selectedNodeId) {
             targetIndex = min(max(currentIndex + delta, 0), nodeIds.count - 1)
         } else {
+            if selectedNodeId != nil {
+                self.selectedNodeId = nil
+            }
             targetIndex = delta >= 0 ? 0 : nodeIds.count - 1
         }
         return select(targets[targetIndex], focusFeed: false)
@@ -51,7 +61,7 @@ final class FeedAgentTreeController {
     func activate(
         in targets: [FeedAgentTreeFocusTarget]
     ) -> FeedAgentTreeSelectionEffect? {
-        guard let target = preferredTarget(in: targets),
+        guard let target = activationTarget(in: targets),
               let focusWorkstreamId = target.focusWorkstreamId
         else { return nil }
         var effect = select(target, focusFeed: true)
@@ -93,6 +103,15 @@ final class FeedAgentTreeController {
             return target
         }
         return targets.first
+    }
+
+    private func activationTarget(
+        in targets: [FeedAgentTreeFocusTarget]
+    ) -> FeedAgentTreeFocusTarget? {
+        guard let selectedNodeId else {
+            return targets.first
+        }
+        return targets.first { $0.nodeId == selectedNodeId }
     }
 }
 
