@@ -6417,6 +6417,10 @@ class TabManager: ObservableObject {
             closeWorkspace(workspace, recordHistory: false)
             return false
         }
+        guard !workspace.panels.isEmpty else {
+            closeWorkspace(workspace, recordHistory: false)
+            return false
+        }
         ClosedItemHistoryStore.shared.remapPanelWorkspaceIds(
             from: entry.workspaceId,
             to: workspace.id,
