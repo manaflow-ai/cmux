@@ -14546,6 +14546,33 @@ struct CMUXCLI {
 
     private static let omoPluginName = "oh-my-opencode"
     private static let openCodeSessionPluginConfigSpec = "./plugins/cmux-session.js"
+    // Keep in sync with daemon/remote/cmd/cmuxd-remote/agent_launch.go.
+    private static let omoModelOverrideAgentKeys = [
+        "build",
+        "plan",
+        "sisyphus",
+        "hephaestus",
+        "sisyphus-junior",
+        "OpenCode-Builder",
+        "prometheus",
+        "metis",
+        "momus",
+        "oracle",
+        "librarian",
+        "explore",
+        "multimodal-looker",
+        "atlas",
+    ]
+    private static let omoModelOverrideCategoryKeys = [
+        "quick",
+        "deep",
+        "ultrabrain",
+        "unspecified-low",
+        "unspecified-high",
+        "visual-engineering",
+        "artistry",
+        "writing",
+    ]
 
     private func resolveExecutableInPath(_ name: String) -> String? {
         let entries = ProcessInfo.processInfo.environment["PATH"]?.split(separator: ":").map(String.init) ?? []
@@ -14661,6 +14688,66 @@ struct CMUXCLI {
         return nil
     }
 
+    private func omoRequestedModel(from commandArgs: [String]) -> String? {
+        var requestedModel: String?
+        var index = commandArgs.startIndex
+        while index < commandArgs.endIndex {
+            let arg = commandArgs[index]
+            if arg == "--" { break }
+
+            if arg == "--model" || arg == "-m" {
+                let nextIndex = commandArgs.index(after: index)
+                guard nextIndex < commandArgs.endIndex else { return requestedModel }
+                if commandArgs[nextIndex] == "--" {
+                    break
+                }
+                let value = commandArgs[nextIndex].trimmingCharacters(in: .whitespacesAndNewlines)
+                if !value.isEmpty {
+                    requestedModel = value
+                }
+                index = commandArgs.index(after: nextIndex)
+                continue
+            }
+
+            if arg.hasPrefix("--model=") {
+                let value = String(arg.dropFirst("--model=".count)).trimmingCharacters(in: .whitespacesAndNewlines)
+                if !value.isEmpty {
+                    requestedModel = value
+                }
+            } else if arg.hasPrefix("-m=") {
+                let value = String(arg.dropFirst("-m=".count)).trimmingCharacters(in: .whitespacesAndNewlines)
+                if !value.isEmpty {
+                    requestedModel = value
+                }
+            }
+
+            index = commandArgs.index(after: index)
+        }
+
+        return requestedModel
+    }
+
+    private func omoApplyRequestedModelOverride(_ requestedModel: String, to omoConfig: inout [String: Any]) {
+        let model = requestedModel.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !model.isEmpty else { return }
+
+        var agents = (omoConfig["agents"] as? [String: Any]) ?? [:]
+        for agent in Self.omoModelOverrideAgentKeys {
+            var agentConfig = (agents[agent] as? [String: Any]) ?? [:]
+            agentConfig["model"] = model
+            agents[agent] = agentConfig
+        }
+        omoConfig["agents"] = agents
+
+        var categories = (omoConfig["categories"] as? [String: Any]) ?? [:]
+        for category in Self.omoModelOverrideCategoryKeys {
+            var categoryConfig = (categories[category] as? [String: Any]) ?? [:]
+            categoryConfig["model"] = model
+            categories[category] = categoryConfig
+        }
+        omoConfig["categories"] = categories
+    }
+
     private func omoBindableLoopbackPort(_ port: UInt16) -> UInt16? {
         let socketDescriptor = socket(AF_INET, SOCK_STREAM, 0)
         guard socketDescriptor >= 0 else { return nil }
@@ -14734,7 +14821,7 @@ struct CMUXCLI {
     /// Creates a shadow config directory that layers oh-my-opencode on top of the user's
     /// existing opencode config without modifying the original. Sets OPENCODE_CONFIG_DIR
     /// to point at the shadow directory.
-    private func omoEnsurePlugin() throws {
+    private func omoEnsurePlugin(requestedModel: String?) throws {
         let userDir = omoUserConfigDir()
         let shadowDir = omoShadowConfigDir()
         let fm = FileManager.default
@@ -14746,9 +14833,15 @@ struct CMUXCLI {
         let shadowJsonURL = shadowDir.appendingPathComponent("opencode.json")
 
         var config: [String: Any]
-        if let data = try? Data(contentsOf: userJsonURL) {
+        if fm.fileExists(atPath: userJsonURL.path) {
+            let data: Data
+            do {
+                data = try Data(contentsOf: userJsonURL)
+            } catch {
+                throw CLIError(message: "Failed to read \(userJsonURL.lastPathComponent). Check file permissions and retry.")
+            }
             guard let existing = try? JSONSerialization.jsonObject(with: data) as? [String: Any] else {
-                throw CLIError(message: "Failed to parse \(userJsonURL.path). Fix the JSON syntax and retry.")
+                throw CLIError(message: "Failed to parse \(userJsonURL.lastPathComponent). Fix the JSON syntax and retry.")
             }
             config = existing
         } else {
@@ -14780,8 +14873,9 @@ struct CMUXCLI {
 
         try writeOpenCodeSessionPlugin(in: shadowDir)
 
-        // Copy oh-my-opencode plugin config (jsonc) if the user has one
-        for filename in ["oh-my-opencode.json", "oh-my-opencode.jsonc"] {
+        // Keep JSONC passthrough separate. The JSON shadow config is generated below
+        // after validating the user's source so invalid input cannot leak into shadow state.
+        for filename in ["oh-my-opencode.jsonc"] {
             let userFile = userDir.appendingPathComponent(filename)
             let shadowFile = shadowDir.appendingPathComponent(filename)
             if fm.fileExists(atPath: userFile.path) && !fm.fileExists(atPath: shadowFile.path) {
@@ -14835,53 +14929,57 @@ struct CMUXCLI {
         // Without this, the TmuxSessionManager won't spawn visual panes even though
         // $TMUX is set (tmux.enabled defaults to false).
         let omoConfigURL = shadowDir.appendingPathComponent("oh-my-opencode.json")
+        let userOmoConfig = userDir.appendingPathComponent("oh-my-opencode.json")
+        // Rebuild the shadow config from the user's source config on every run so
+        // a previous --model overlay cannot persist into a later bare `cmux omo`.
         var omoConfig: [String: Any]
-        if let data = try? Data(contentsOf: omoConfigURL),
-           let existing = try? JSONSerialization.jsonObject(with: data) as? [String: Any] {
-            omoConfig = existing
-        } else {
-            // Check if user has a config we symlinked, read from source
-            let userOmoConfig = userDir.appendingPathComponent("oh-my-opencode.json")
-            if let data = try? Data(contentsOf: userOmoConfig),
-               let existing = try? JSONSerialization.jsonObject(with: data) as? [String: Any] {
-                omoConfig = existing
-                // Remove the symlink so we can write our own copy
-                try? fm.removeItem(at: omoConfigURL)
-            } else {
-                omoConfig = [:]
+        if fm.fileExists(atPath: userOmoConfig.path) {
+            let data: Data
+            do {
+                data = try Data(contentsOf: userOmoConfig)
+            } catch {
+                throw CLIError(message: "Failed to read \(userOmoConfig.lastPathComponent). Check file permissions and retry.")
             }
+            do {
+                guard let existing = try JSONSerialization.jsonObject(with: data) as? [String: Any] else {
+                    throw CLIError(message: "\(userOmoConfig.lastPathComponent) must contain a JSON object.")
+                }
+                omoConfig = existing
+            } catch let error as CLIError {
+                throw error
+            } catch {
+                throw CLIError(message: "Failed to parse \(userOmoConfig.lastPathComponent). Fix the JSON syntax and retry.")
+            }
+        } else {
+            omoConfig = [:]
         }
         var tmuxConfig = (omoConfig["tmux"] as? [String: Any]) ?? [:]
-        var needsWrite = false
         if tmuxConfig["enabled"] as? Bool != true {
             tmuxConfig["enabled"] = true
-            needsWrite = true
         }
         // Lower the default min widths so agent panes spawn in normal-sized windows.
         // oh-my-openagent defaults: main_pane_min_width=120, agent_pane_min_width=40,
         // requiring 161+ columns. Most terminal windows are narrower.
         if tmuxConfig["main_pane_min_width"] == nil {
             tmuxConfig["main_pane_min_width"] = 60
-            needsWrite = true
         }
         if tmuxConfig["agent_pane_min_width"] == nil {
             tmuxConfig["agent_pane_min_width"] = 30
-            needsWrite = true
         }
         if tmuxConfig["main_pane_size"] == nil {
             tmuxConfig["main_pane_size"] = 50
-            needsWrite = true
         }
-        if needsWrite {
-            omoConfig["tmux"] = tmuxConfig
-            // Remove symlink if it exists (we need a real file)
-            if let attrs = try? fm.attributesOfItem(atPath: omoConfigURL.path),
-               attrs[.type] as? FileAttributeType == .typeSymbolicLink {
-                try? fm.removeItem(at: omoConfigURL)
-            }
-            let output = try JSONSerialization.data(withJSONObject: omoConfig, options: [.prettyPrinted, .sortedKeys])
-            try output.write(to: omoConfigURL, options: .atomic)
+        if let requestedModel {
+            omoApplyRequestedModelOverride(requestedModel, to: &omoConfig)
         }
+        omoConfig["tmux"] = tmuxConfig
+        // Remove symlink if it exists (we need a real file)
+        if let attrs = try? fm.attributesOfItem(atPath: omoConfigURL.path),
+           attrs[.type] as? FileAttributeType == .typeSymbolicLink {
+            try? fm.removeItem(at: omoConfigURL)
+        }
+        let configOutput = try JSONSerialization.data(withJSONObject: omoConfig, options: [.prettyPrinted, .sortedKeys])
+        try configOutput.write(to: omoConfigURL, options: .atomic)
 
         // Point OpenCode at the shadow config
         setenv("OPENCODE_CONFIG_DIR", shadowDir.path, 1)
@@ -14942,7 +15040,8 @@ struct CMUXCLI {
         }
 
         // Ensure oh-my-opencode plugin is registered and installed
-        try omoEnsurePlugin()
+        let requestedModel = omoRequestedModel(from: commandArgs)
+        try omoEnsurePlugin(requestedModel: requestedModel)
 
         let shimDirectory = try createOMOShimDirectory()
         let executablePath = resolvedExecutableURL()?.path ?? (args.first ?? "cmux")

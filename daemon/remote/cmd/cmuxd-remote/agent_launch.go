@@ -87,7 +87,8 @@ func runOMORelay(socketPath string, args []string, refreshAddr func() string) in
 	}
 
 	// Ensure oh-my-opencode plugin is set up
-	if err := omoEnsurePlugin(originalPath); err != nil {
+	requestedModel := omoRequestedModel(args)
+	if err := omoEnsurePlugin(originalPath, requestedModel); err != nil {
 		fmt.Fprintf(os.Stderr, "cmux omo: plugin setup: %v\n", err)
 		return 1
 	}
@@ -506,6 +507,102 @@ func configureAgentEnvironment(cfg agentConfig) {
 
 const omoPluginName = "oh-my-opencode"
 
+// Keep in sync with CLI/cmux.swift.
+var omoModelOverrideAgentKeys = []string{
+	"build",
+	"plan",
+	"sisyphus",
+	"hephaestus",
+	"sisyphus-junior",
+	"OpenCode-Builder",
+	"prometheus",
+	"metis",
+	"momus",
+	"oracle",
+	"librarian",
+	"explore",
+	"multimodal-looker",
+	"atlas",
+}
+
+var omoModelOverrideCategoryKeys = []string{
+	"quick",
+	"deep",
+	"ultrabrain",
+	"unspecified-low",
+	"unspecified-high",
+	"visual-engineering",
+	"artistry",
+	"writing",
+}
+
+func omoRequestedModel(args []string) string {
+	var requestedModel string
+	for index := 0; index < len(args); index++ {
+		arg := args[index]
+		if arg == "--" {
+			break
+		}
+		if arg == "--model" || arg == "-m" {
+			if index+1 >= len(args) {
+				return requestedModel
+			}
+			if args[index+1] == "--" {
+				break
+			}
+			value := strings.TrimSpace(args[index+1])
+			if value != "" {
+				requestedModel = value
+			}
+			index++
+			continue
+		}
+		if strings.HasPrefix(arg, "--model=") {
+			value := strings.TrimSpace(strings.TrimPrefix(arg, "--model="))
+			if value != "" {
+				requestedModel = value
+			}
+			continue
+		}
+		if strings.HasPrefix(arg, "-m=") {
+			value := strings.TrimSpace(strings.TrimPrefix(arg, "-m="))
+			if value != "" {
+				requestedModel = value
+			}
+			continue
+		}
+	}
+	return requestedModel
+}
+
+func omoObjectConfig(parent map[string]any, key string) map[string]any {
+	if existing, ok := parent[key].(map[string]any); ok {
+		return existing
+	}
+	config := map[string]any{}
+	parent[key] = config
+	return config
+}
+
+func omoApplyModelOverride(config map[string]any, requestedModel string) {
+	model := strings.TrimSpace(requestedModel)
+	if model == "" {
+		return
+	}
+
+	agents := omoObjectConfig(config, "agents")
+	for _, agent := range omoModelOverrideAgentKeys {
+		agentConfig := omoObjectConfig(agents, agent)
+		agentConfig["model"] = model
+	}
+
+	categories := omoObjectConfig(config, "categories")
+	for _, category := range omoModelOverrideCategoryKeys {
+		categoryConfig := omoObjectConfig(categories, category)
+		categoryConfig["model"] = model
+	}
+}
+
 func omoUserConfigDir() string {
 	home, _ := os.UserHomeDir()
 	return filepath.Join(home, ".config", "opencode")
@@ -519,7 +616,7 @@ func omoShadowConfigDir() string {
 // omoEnsurePlugin creates a shadow config directory that layers the
 // oh-my-opencode plugin on top of the user's opencode config, installs
 // the plugin if needed, and sets OPENCODE_CONFIG_DIR.
-func omoEnsurePlugin(searchPath string) error {
+func omoEnsurePlugin(searchPath string, requestedModel string) error {
 	userDir := omoUserConfigDir()
 	shadowDir := omoShadowConfigDir()
 
@@ -534,9 +631,12 @@ func omoEnsurePlugin(searchPath string) error {
 	var config map[string]any
 	if data, err := os.ReadFile(userJsonPath); err == nil {
 		if err := json.Unmarshal(data, &config); err != nil {
-			return fmt.Errorf("failed to parse %s: fix the JSON syntax and retry", userJsonPath)
+			return fmt.Errorf("failed to parse %s: fix the JSON syntax and retry", filepath.Base(userJsonPath))
 		}
-	} else {
+	} else if !os.IsNotExist(err) {
+		return fmt.Errorf("failed to read %s: check file permissions and retry", filepath.Base(userJsonPath))
+	}
+	if config == nil {
 		config = map[string]any{}
 	}
 
@@ -565,7 +665,7 @@ func omoEnsurePlugin(searchPath string) error {
 	if err != nil {
 		return err
 	}
-	if err := os.WriteFile(shadowJsonPath, output, 0644); err != nil {
+	if err := writeFileAtomic(shadowJsonPath, output, 0644); err != nil {
 		return err
 	}
 
@@ -589,8 +689,9 @@ func omoEnsurePlugin(searchPath string) error {
 		}
 	}
 
-	// Symlink oh-my-opencode config files
-	for _, filename := range []string{"oh-my-opencode.json", "oh-my-opencode.jsonc"} {
+	// Keep JSONC passthrough separate. The JSON shadow config is generated below
+	// after validating the user's source so invalid input cannot leak into shadow state.
+	for _, filename := range []string{"oh-my-opencode.jsonc"} {
 		userFile := filepath.Join(userDir, filename)
 		shadowFile := filepath.Join(shadowDir, filename)
 		if fileExists(userFile) && !fileExists(shadowFile) {
@@ -638,16 +739,15 @@ func omoEnsurePlugin(searchPath string) error {
 	// Configure oh-my-opencode.json with tmux settings
 	omoConfigPath := filepath.Join(shadowDir, "oh-my-opencode.json")
 	var omoConfig map[string]any
-	if data, err := os.ReadFile(omoConfigPath); err == nil {
-		json.Unmarshal(data, &omoConfig)
-	}
-	if omoConfig == nil {
-		// Check if user had one we symlinked
-		userOmoConfig := filepath.Join(userDir, "oh-my-opencode.json")
-		if data, err := os.ReadFile(userOmoConfig); err == nil {
-			json.Unmarshal(data, &omoConfig)
-			os.Remove(omoConfigPath) // Remove symlink so we can write our own copy
+	userOmoConfig := filepath.Join(userDir, "oh-my-opencode.json")
+	// Rebuild the shadow config from the user's source config on every run so
+	// a previous --model overlay cannot persist into a later bare `cmux omo`.
+	if data, err := os.ReadFile(userOmoConfig); err == nil {
+		if err := json.Unmarshal(data, &omoConfig); err != nil {
+			return fmt.Errorf("failed to parse %s: fix the JSON syntax and retry", filepath.Base(userOmoConfig))
 		}
+	} else if !os.IsNotExist(err) {
+		return fmt.Errorf("failed to read %s: check file permissions and retry", filepath.Base(userOmoConfig))
 	}
 	if omoConfig == nil {
 		omoConfig = map[string]any{}
@@ -657,31 +757,32 @@ func omoEnsurePlugin(searchPath string) error {
 	if tmuxConfig == nil {
 		tmuxConfig = map[string]any{}
 	}
-	needsWrite := false
 	if enabled, _ := tmuxConfig["enabled"].(bool); !enabled {
 		tmuxConfig["enabled"] = true
-		needsWrite = true
 	}
 	if tmuxConfig["main_pane_min_width"] == nil {
 		tmuxConfig["main_pane_min_width"] = 60
-		needsWrite = true
 	}
 	if tmuxConfig["agent_pane_min_width"] == nil {
 		tmuxConfig["agent_pane_min_width"] = 30
-		needsWrite = true
 	}
 	if tmuxConfig["main_pane_size"] == nil {
 		tmuxConfig["main_pane_size"] = 50
-		needsWrite = true
 	}
-	if needsWrite {
-		omoConfig["tmux"] = tmuxConfig
-		// Remove symlink if it exists
-		if target, err := os.Readlink(omoConfigPath); err == nil && target != "" {
-			os.Remove(omoConfigPath)
-		}
-		data, _ := json.MarshalIndent(omoConfig, "", "  ")
-		os.WriteFile(omoConfigPath, data, 0644)
+	if strings.TrimSpace(requestedModel) != "" {
+		omoApplyModelOverride(omoConfig, requestedModel)
+	}
+	omoConfig["tmux"] = tmuxConfig
+	// Remove symlink if it exists
+	if target, err := os.Readlink(omoConfigPath); err == nil && target != "" {
+		os.Remove(omoConfigPath)
+	}
+	data, err := json.MarshalIndent(omoConfig, "", "  ")
+	if err != nil {
+		return err
+	}
+	if err := writeFileAtomic(omoConfigPath, data, 0644); err != nil {
+		return err
 	}
 
 	os.Setenv("OPENCODE_CONFIG_DIR", shadowDir)
@@ -696,6 +797,29 @@ func fileExists(path string) bool {
 func dirExists(path string) bool {
 	info, err := os.Stat(path)
 	return err == nil && info.IsDir()
+}
+
+func writeFileAtomic(path string, data []byte, perm os.FileMode) error {
+	dir := filepath.Dir(path)
+	tmp, err := os.CreateTemp(dir, "."+filepath.Base(path)+".*.tmp")
+	if err != nil {
+		return err
+	}
+	tmpPath := tmp.Name()
+	defer os.Remove(tmpPath)
+
+	if _, err := tmp.Write(data); err != nil {
+		tmp.Close()
+		return err
+	}
+	if err := tmp.Chmod(perm); err != nil {
+		tmp.Close()
+		return err
+	}
+	if err := tmp.Close(); err != nil {
+		return err
+	}
+	return os.Rename(tmpPath, path)
 }
 
 // --- Node script resolution ---
