@@ -1175,6 +1175,21 @@ class TerminalController {
         return SocketPathIdentity(pathStat)
     }
 
+    @discardableResult
+    private nonisolated static func unlinkSocketPathIfStillNotSocket(_ path: String) -> Int32 {
+        var pathStat = stat()
+        guard lstat(path, &pathStat) == 0 else {
+            return 0
+        }
+
+        let fileType = pathStat.st_mode & mode_t(S_IFMT)
+        guard fileType != mode_t(S_IFSOCK) else {
+            return 0
+        }
+
+        return unlink(path)
+    }
+
     nonisolated func socketPathOwnershipStatus(path: String) -> SocketPathOwnershipStatus {
         Self.socketPathOwnershipStatus(
             path: path,
@@ -1535,11 +1550,15 @@ class TerminalController {
     nonisolated func socketListenerHealth(expectedSocketPath: String) -> SocketListenerHealth {
         let snapshot = listenerStateSnapshot()
         let pathMatches = snapshot.socketPath == expectedSocketPath
-        let expectedIdentity = pathMatches ? snapshot.socketPathIdentity : nil
-        let pathStatus = Self.observedSocketPathStatus(
-            path: expectedSocketPath,
-            expectedIdentity: expectedIdentity
-        )
+        let pathStatus: SocketPathOwnershipStatus
+        if pathMatches {
+            pathStatus = Self.observedSocketPathStatus(
+                path: expectedSocketPath,
+                expectedIdentity: snapshot.socketPathIdentity
+            )
+        } else {
+            pathStatus = socketPathOwnershipStatus(path: expectedSocketPath)
+        }
 
         return SocketListenerHealth(
             isRunning: snapshot.isRunning,
@@ -1596,6 +1615,7 @@ class TerminalController {
             pathStatus = observedPathStatus
         }
         let recoveryPath: String
+        let shouldUnlinkNonSocketReplacement: Bool
         let ownerPid = pathStatus.ownerPid
         if case .ownedByOtherProcess(let ownerPid) = pathStatus {
             let configuredPath = SocketControlSettings.socketPath()
@@ -1612,11 +1632,17 @@ class TerminalController {
                 return
             }
             recoveryPath = configuredPath
+            shouldUnlinkNonSocketReplacement = false
         } else {
             guard pathStatus.shouldAttemptListenerRecovery else {
                 return
             }
             recoveryPath = snapshot.socketPath
+            if case .notSocket = pathStatus {
+                shouldUnlinkNonSocketReplacement = true
+            } else {
+                shouldUnlinkNonSocketReplacement = false
+            }
         }
 
         let shouldScheduleRecovery = withListenerState {
@@ -1652,12 +1678,17 @@ class TerminalController {
         DispatchQueue.main.async { [weak self, recoveryPath] in
             self?.recoverSocketListenerAfterSocketFileLoss(
                 generation: snapshot.activeGeneration,
-                recoveryPath: recoveryPath
+                recoveryPath: recoveryPath,
+                shouldUnlinkNonSocketReplacement: shouldUnlinkNonSocketReplacement
             )
         }
     }
 
-    private func recoverSocketListenerAfterSocketFileLoss(generation: UInt64, recoveryPath: String) {
+    private func recoverSocketListenerAfterSocketFileLoss(
+        generation: UInt64,
+        recoveryPath: String,
+        shouldUnlinkNonSocketReplacement: Bool
+    ) {
         guard let tabManager else {
             withListenerState {
                 if pendingSocketFileRecoveryGeneration == generation {
@@ -1693,6 +1724,9 @@ class TerminalController {
         )
 
         stop()
+        if shouldUnlinkNonSocketReplacement {
+            Self.unlinkSocketPathIfStillNotSocket(recoveryPath)
+        }
         start(
             tabManager: tabManager,
             socketPath: recoveryPath,

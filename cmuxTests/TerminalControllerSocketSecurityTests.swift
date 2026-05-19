@@ -78,6 +78,41 @@ final class TerminalControllerSocketSecurityTests: XCTestCase {
         XCTAssertEqual(try socketMode(at: socketPath), 0o666)
     }
 
+    func testSocketListenerRecreatesSocketFileAfterNonSocketReplacement() throws {
+        let socketPath = makeSocketPath("not-socket")
+        let replacementURL = URL(fileURLWithPath: socketPath)
+        let tabManager = TabManager()
+
+        TerminalController.shared.start(
+            tabManager: tabManager,
+            socketPath: socketPath,
+            accessMode: .allowAll
+        )
+        try waitForSocket(at: socketPath)
+        XCTAssertEqual(try sendCommands(["ping"], to: socketPath), ["PONG"])
+
+        XCTAssertEqual(Darwin.unlink(socketPath), 0)
+        do {
+            try "not-a-socket".write(to: replacementURL, atomically: true, encoding: .utf8)
+        } catch {
+            try? FileManager.default.removeItem(at: replacementURL)
+            try "not-a-socket".write(to: replacementURL, atomically: true, encoding: .utf8)
+        }
+
+        let recovered = XCTNSPredicateExpectation(
+            predicate: NSPredicate { [weak self] _, _ in
+                return (try? self?.sendCommands(["ping"], to: socketPath)) == ["PONG"]
+            },
+            object: NSObject()
+        )
+        XCTAssertEqual(
+            XCTWaiter().wait(for: [recovered], timeout: 5.0),
+            .completed,
+            "Listener should replace a non-socket file and serve \(socketPath)"
+        )
+        XCTAssertEqual(try socketMode(at: socketPath), 0o666)
+    }
+
     func testPasswordModeRejectsUnauthenticatedCommands() throws {
         let socketPath = makeSocketPath("password-mode")
         let tabManager = TabManager()
