@@ -415,6 +415,116 @@ final class CLINotifyProcessIntegrationRegressionTests: XCTestCase {
         )
     }
 
+    func testCodexSubagentRelayStopSuppressesNotificationButMarksIdle() throws {
+        let context = try makeClaudeHookContext(name: "codex-subagent-relay")
+        defer { context.cleanup() }
+
+        let sessionId = "relay-session"
+        let turnId = "turn-relay"
+        let transcriptURL = context.root.appendingPathComponent("relay-session.jsonl")
+        try #"""
+{"timestamp":"2026-05-19T09:53:17.830Z","type":"event_msg","payload":{"type":"task_started","turn_id":"\#(turnId)"}}
+{"timestamp":"2026-05-19T09:53:44.302Z","type":"response_item","payload":{"type":"message","role":"user","content":[{"type":"input_text","text":"<subagent_notification>\n{\"agent_path\":\"child\",\"status\":{\"completed\":\"2\"}}\n</subagent_notification>"}]}}
+{"timestamp":"2026-05-19T09:53:49.557Z","type":"event_msg","payload":{"type":"task_complete","turn_id":"\#(turnId)","last_agent_message":"Subagent returned: `2`."}}
+"""#.write(to: transcriptURL, atomically: true, encoding: .utf8)
+
+        startAgentHookMockServerAccepting(context: context, connectionLimit: 16)
+        let result = runCodexHook(
+            context: context,
+            subcommand: "stop",
+            standardInput: #"{"session_id":"\#(sessionId)","turn_id":"\#(turnId)","cwd":"\#(context.root.path)","transcript_path":"\#(transcriptURL.path)","hook_event_name":"Stop","last_assistant_message":"Subagent returned: `2`."}"#
+        )
+
+        XCTAssertFalse(result.timedOut, result.stderr)
+        XCTAssertEqual(result.status, 0, result.stderr)
+        XCTAssertEqual(result.stdout, "{}\n")
+        XCTAssertTrue(
+            context.state.commands.contains { $0.contains(#""method":"feed.push""#) && $0.contains(#""hook_event_name":"Stop""#) },
+            "Subagent relay Stop should remain feed telemetry, saw \(context.state.commands)"
+        )
+        XCTAssertFalse(
+            context.state.commands.contains { $0.hasPrefix("notify_target") },
+            "Subagent relay Stop should not notify, saw \(context.state.commands)"
+        )
+        XCTAssertTrue(
+            context.state.commands.contains { $0.hasPrefix("set_status codex ") && $0.contains(" Idle ") },
+            "Subagent relay Stop should still mark Codex idle, saw \(context.state.commands)"
+        )
+    }
+
+    func testCodexSubagentRelayStopCanNotifyWhenSuppressionIsDisabled() throws {
+        let context = try makeClaudeHookContext(name: "codex-subagent-relay-disabled")
+        defer { context.cleanup() }
+
+        let sessionId = "relay-session-disabled"
+        let turnId = "turn-relay-disabled"
+        let transcriptURL = context.root.appendingPathComponent("relay-session-disabled.jsonl")
+        try #"""
+{"timestamp":"2026-05-19T09:53:17.830Z","type":"event_msg","payload":{"type":"task_started","turn_id":"\#(turnId)"}}
+{"timestamp":"2026-05-19T09:53:44.302Z","type":"response_item","payload":{"type":"message","role":"user","content":[{"type":"input_text","text":"<subagent_notification>\n{\"agent_path\":\"child\",\"status\":{\"completed\":\"2\"}}\n</subagent_notification>"}]}}
+{"timestamp":"2026-05-19T09:53:49.557Z","type":"event_msg","payload":{"type":"task_complete","turn_id":"\#(turnId)","last_agent_message":"Subagent returned: `2`."}}
+"""#.write(to: transcriptURL, atomically: true, encoding: .utf8)
+
+        startAgentHookMockServerAccepting(context: context, connectionLimit: 16)
+        let result = runCodexHook(
+            context: context,
+            subcommand: "stop",
+            standardInput: #"{"session_id":"\#(sessionId)","turn_id":"\#(turnId)","cwd":"\#(context.root.path)","transcript_path":"\#(transcriptURL.path)","hook_event_name":"Stop","last_assistant_message":"Subagent returned: `2`."}"#,
+            extraEnvironment: [
+                "CMUX_SUPPRESS_SUBAGENT_NOTIFICATIONS": "0",
+            ]
+        )
+
+        XCTAssertFalse(result.timedOut, result.stderr)
+        XCTAssertEqual(result.status, 0, result.stderr)
+        XCTAssertEqual(result.stdout, "{}\n")
+        XCTAssertTrue(
+            context.state.commands.contains { $0.hasPrefix("notify_target_async \(context.workspaceId) \(context.surfaceId) Codex|") },
+            "Subagent relay Stop should notify when suppression is disabled, saw \(context.state.commands)"
+        )
+        XCTAssertTrue(
+            context.state.commands.contains { $0.hasPrefix("set_status codex ") && $0.contains(" Idle ") },
+            "Subagent relay Stop should mark Codex idle when suppression is disabled, saw \(context.state.commands)"
+        )
+    }
+
+    func testCodexThreadSpawnSubagentTranscriptSuppressesVisibleCompletion() throws {
+        let context = try makeClaudeHookContext(name: "codex-thread-spawn-subagent")
+        defer { context.cleanup() }
+
+        let sessionId = "child-session"
+        let turnId = "turn-child"
+        let transcriptURL = context.root.appendingPathComponent("child-session.jsonl")
+        try #"""
+{"timestamp":"2026-05-19T09:53:39.055Z","type":"session_meta","payload":{"id":"\#(sessionId)","source":{"subagent":{"thread_spawn":{"parent_thread_id":"parent-session","depth":1,"agent_role":"default"}}},"thread_source":"subagent"}}
+{"timestamp":"2026-05-19T09:53:40.000Z","type":"event_msg","payload":{"type":"task_started","turn_id":"\#(turnId)"}}
+{"timestamp":"2026-05-19T09:53:41.000Z","type":"event_msg","payload":{"type":"task_complete","turn_id":"\#(turnId)","last_agent_message":"2"}}
+"""#.write(to: transcriptURL, atomically: true, encoding: .utf8)
+
+        startAgentHookMockServerAccepting(context: context, connectionLimit: 16)
+        let result = runCodexHook(
+            context: context,
+            subcommand: "stop",
+            standardInput: #"{"session_id":"\#(sessionId)","turn_id":"\#(turnId)","cwd":"\#(context.root.path)","transcript_path":"\#(transcriptURL.path)","hook_event_name":"Stop","last_assistant_message":"2"}"#
+        )
+
+        XCTAssertFalse(result.timedOut, result.stderr)
+        XCTAssertEqual(result.status, 0, result.stderr)
+        XCTAssertEqual(result.stdout, "{}\n")
+        XCTAssertTrue(
+            context.state.commands.contains { $0.contains(#""method":"feed.push""#) && $0.contains(#""hook_event_name":"Stop""#) },
+            "Thread-spawned Codex subagent Stop should remain feed telemetry, saw \(context.state.commands)"
+        )
+        XCTAssertFalse(
+            context.state.commands.contains { $0.hasPrefix("notify_target") },
+            "Thread-spawned Codex subagent Stop should not notify, saw \(context.state.commands)"
+        )
+        XCTAssertFalse(
+            context.state.commands.contains { $0.hasPrefix("set_status codex ") },
+            "Thread-spawned Codex subagent Stop should not clobber visible Codex status, saw \(context.state.commands)"
+        )
+    }
+
     func testManagedCodexTeamsSubagentEnvSuppressesVisibleCompletion() throws {
         let context = try makeClaudeHookContext(name: "codex-teams-managed-subagent")
         defer { context.cleanup() }
