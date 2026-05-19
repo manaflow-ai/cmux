@@ -134,6 +134,86 @@ final class WorkspaceManualUnreadTests: XCTestCase {
         XCTAssertEqual(store.unreadCount(forTabId: workspace.id), 0)
     }
 
+    func testRestoredUnreadClearsWhenWorkspaceBecomesActiveFocus() throws {
+        let appDelegate = AppDelegate.shared ?? AppDelegate()
+        let manager = TabManager()
+        let store = TerminalNotificationStore.shared
+
+        let originalTabManager = appDelegate.tabManager
+        let originalNotificationStore = appDelegate.notificationStore
+        let originalAppFocusOverride = AppFocusState.overrideIsFocused
+
+        store.replaceNotificationsForTesting([])
+        appDelegate.tabManager = manager
+        appDelegate.notificationStore = store
+        AppFocusState.overrideIsFocused = true
+
+        defer {
+            store.replaceNotificationsForTesting([])
+            appDelegate.tabManager = originalTabManager
+            appDelegate.notificationStore = originalNotificationStore
+            AppFocusState.overrideIsFocused = originalAppFocusOverride
+        }
+
+        _ = try XCTUnwrap(manager.selectedWorkspace)
+        let restoredWorkspace = manager.addWorkspace(select: false, eagerLoadTerminal: false)
+        let restoredPanelId = try XCTUnwrap(restoredWorkspace.focusedPanelId)
+
+        restoredWorkspace.restorePanelUnreadIndicator(restoredPanelId)
+        store.restoreUnreadIndicator(forTabId: restoredWorkspace.id)
+
+        XCTAssertTrue(restoredWorkspace.hasRestoredUnreadIndicator(panelId: restoredPanelId))
+        XCTAssertTrue(store.hasRestoredUnreadIndicator(forTabId: restoredWorkspace.id))
+
+        manager.selectWorkspace(restoredWorkspace)
+        drainMainQueue()
+        drainMainQueue()
+
+        XCTAssertEqual(manager.selectedTabId, restoredWorkspace.id)
+        XCTAssertFalse(restoredWorkspace.hasRestoredUnreadIndicator(panelId: restoredPanelId))
+        XCTAssertFalse(store.hasRestoredUnreadIndicator(forTabId: restoredWorkspace.id))
+    }
+
+    func testRestoredUnreadClearsOnDirectInteractionWithoutClearingManualUnread() throws {
+        let appDelegate = AppDelegate.shared ?? AppDelegate()
+        let manager = TabManager()
+        let store = TerminalNotificationStore.shared
+
+        let originalTabManager = appDelegate.tabManager
+        let originalNotificationStore = appDelegate.notificationStore
+
+        store.replaceNotificationsForTesting([])
+        appDelegate.tabManager = manager
+        appDelegate.notificationStore = store
+
+        defer {
+            store.replaceNotificationsForTesting([])
+            appDelegate.tabManager = originalTabManager
+            appDelegate.notificationStore = originalNotificationStore
+        }
+
+        let workspace = try XCTUnwrap(manager.selectedWorkspace)
+        let panelId = try XCTUnwrap(workspace.focusedPanelId)
+
+        workspace.markPanelUnread(panelId)
+        workspace.restorePanelUnreadIndicator(panelId)
+        store.markUnread(forTabId: workspace.id)
+        store.restoreUnreadIndicator(forTabId: workspace.id)
+
+        XCTAssertTrue(workspace.manualUnreadPanelIds.contains(panelId))
+        XCTAssertTrue(workspace.hasRestoredUnreadIndicator(panelId: panelId))
+        XCTAssertTrue(store.hasManualUnread(forTabId: workspace.id))
+        XCTAssertTrue(store.hasRestoredUnreadIndicator(forTabId: workspace.id))
+
+        XCTAssertTrue(manager.dismissNotificationOnDirectInteraction(tabId: workspace.id, surfaceId: panelId))
+
+        XCTAssertTrue(workspace.manualUnreadPanelIds.contains(panelId))
+        XCTAssertFalse(workspace.hasRestoredUnreadIndicator(panelId: panelId))
+        XCTAssertTrue(store.hasManualUnread(forTabId: workspace.id))
+        XCTAssertFalse(store.hasRestoredUnreadIndicator(forTabId: workspace.id))
+        XCTAssertEqual(store.unreadCount(forTabId: workspace.id), 1)
+    }
+
     func testRestoredWorkspaceUnreadClearsFromReadAndClearFlows() {
         let store = TerminalNotificationStore.shared
 
