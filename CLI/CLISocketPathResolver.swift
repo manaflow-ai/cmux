@@ -457,19 +457,19 @@ enum CLISocketPathResolver {
         warningSink: (String) -> Void
     ) {
         if resolved.path == requestedPath {
-            let format = String(
+            let message = String(
                 localized: "cli.socketPath.environment.unreachable.noFallback",
-                defaultValue: "cmux: CMUX_SOCKET_PATH=%@ is unreachable; no fallback socket found"
+                defaultValue: "cmux: CMUX_SOCKET_PATH=\(requestedPath) is unreachable; no fallback socket found"
             )
-            warningSink(String(format: format, requestedPath) + "\n")
+            warningSink(message + "\n")
             return
         }
 
-        let format = String(
+        let message = String(
             localized: "cli.socketPath.environment.unreachable",
-            defaultValue: "cmux: CMUX_SOCKET_PATH=%@ is unreachable; using %@"
+            defaultValue: "cmux: CMUX_SOCKET_PATH=\(requestedPath) is unreachable; using \(resolved.path)"
         )
-        warningSink(String(format: format, requestedPath, resolved.path) + "\n")
+        warningSink(message + "\n")
     }
 
     private static func writeStandardErrorLine(_ message: String) {
