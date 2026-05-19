@@ -1,6 +1,17 @@
 import AppKit
 import OSLog
 import SwiftUI
+import os
+
+private struct UIScalePendingPersistence: Sendable {
+    let identifier: String
+    let value: Double
+    let defaultsIdentity: UInt
+}
+
+private nonisolated let uiScalePendingPersistence = OSAllocatedUnfairLock(
+    initialState: UIScalePendingPersistence?.none
+)
 
 enum UIScaleSettings {
     static let userDefaultsKey = "app.uiScale"
@@ -12,9 +23,6 @@ enum UIScaleSettings {
     static let keyboardStep = 0.1
     private static let logger = Logger(subsystem: "ai.manaflow.cmux", category: "UIScaleSettings")
     private static let persistenceCoordinator = UIScaleSettingsPersistenceCoordinator()
-    private static let pendingPersistenceDomainName = "ai.manaflow.cmux.ui-scale-settings.pending"
-    private static let pendingPersistenceIdentifierKey = "identifier"
-    private static let pendingPersistenceValueKey = "value"
 
     static func clamped(_ value: Double) -> Double {
         min(max(value, minimum), maximum)
@@ -28,6 +36,7 @@ enum UIScaleSettings {
     }
 
     @discardableResult
+    @MainActor
     static func set(
         _ value: Double,
         defaults: UserDefaults = .standard,
@@ -61,16 +70,19 @@ enum UIScaleSettings {
     }
 
     @discardableResult
+    @MainActor
     static func zoomIn() -> Double {
         set(resolved() + keyboardStep)
     }
 
     @discardableResult
+    @MainActor
     static func zoomOut() -> Double {
         set(resolved() - keyboardStep)
     }
 
     @discardableResult
+    @MainActor
     static func reset() -> Double {
         set(defaultValue)
     }
@@ -132,28 +144,34 @@ enum UIScaleSettings {
         identifier: String,
         defaults: UserDefaults
     ) {
-        // Volatile defaults make the synchronous settings-file parser aware of
-        // an in-flight local write without adding a lock or blocking queue.
-        defaults.setVolatileDomain(
-            [
-                pendingPersistenceIdentifierKey: identifier,
-                pendingPersistenceValueKey: roundedForPersistence(value),
-            ],
-            forName: pendingPersistenceDomainName
-        )
+        uiScalePendingPersistence.withLock { pending in
+            pending = UIScalePendingPersistence(
+                identifier: identifier,
+                value: roundedForPersistence(value),
+                defaultsIdentity: defaultsIdentity(defaults)
+            )
+        }
     }
 
     private static func pendingPersistence(defaults: UserDefaults) -> (identifier: String, value: Double)? {
-        let domain = defaults.volatileDomain(forName: pendingPersistenceDomainName)
-        guard let identifier = domain[pendingPersistenceIdentifierKey] as? String,
-              let number = domain[pendingPersistenceValueKey] as? NSNumber else {
+        let identity = defaultsIdentity(defaults)
+        guard let pending = uiScalePendingPersistence.withLock({ $0 }),
+              pending.defaultsIdentity == identity else {
             return nil
         }
-        return (identifier, number.doubleValue)
+        return (pending.identifier, pending.value)
     }
 
     private static func clearPendingPersistence(defaults: UserDefaults) {
-        defaults.removeVolatileDomain(forName: pendingPersistenceDomainName)
+        let identity = defaultsIdentity(defaults)
+        uiScalePendingPersistence.withLock { pending in
+            guard pending?.defaultsIdentity == identity else { return }
+            pending = nil
+        }
+    }
+
+    private static func defaultsIdentity(_ defaults: UserDefaults) -> UInt {
+        UInt(bitPattern: Unmanaged.passUnretained(defaults).toOpaque())
     }
 }
 
@@ -194,7 +212,7 @@ private actor UIScaleSettingsPersistenceCoordinator {
                     )
                 }
                 guard shouldWrite else { return }
-                try settingsFileStore.writeAppUIScale(value)
+                try await settingsFileStore.writeAppUIScaleOffMain(value)
                 try Task.checkCancellation()
                 await MainActor.run {
                     UIScaleSettings.completePendingPersistence(

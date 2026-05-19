@@ -163,8 +163,29 @@ final class CmuxSettingsFileStore {
         (primaryPath as NSString).abbreviatingWithTildeInPath
     }
 
+    func writeAppUIScaleOffMain(_ uiScale: Double) async throws {
+        let primaryPath = primaryPath
+        let fileManager = fileManager
+        try await Task.detached(priority: .utility) {
+            try Self.writeAppUIScale(uiScale, primaryPath: primaryPath, fileManager: fileManager)
+        }.value
+    }
+
     func writeAppUIScale(_ uiScale: Double) throws {
-        let fileURL = settingsFileURLForEditing()
+        try Self.writeAppUIScale(uiScale, primaryPath: primaryPath, fileManager: fileManager)
+    }
+
+    private static func writeAppUIScale(
+        _ uiScale: Double,
+        primaryPath: String,
+        fileManager: FileManager
+    ) throws {
+        let fileURL = URL(fileURLWithPath: primaryPath)
+        try fileManager.createDirectory(
+            at: fileURL.deletingLastPathComponent(),
+            withIntermediateDirectories: true,
+            attributes: [.posixPermissions: 0o755]
+        )
         let data = try settingsFileDataForEditing(at: fileURL)
         let decodedSource = try JSONCParser.sourceString(from: data)
         let source = decodedSource.hasPrefix("\u{feff}") ? String(decodedSource.dropFirst()) : decodedSource
@@ -177,7 +198,7 @@ final class CmuxSettingsFileStore {
         try? fileManager.setAttributes([.posixPermissions: 0o600], ofItemAtPath: fileURL.path)
     }
 
-    private func settingsFileDataForEditing(at fileURL: URL) throws -> Data {
+    private static func settingsFileDataForEditing(at fileURL: URL) throws -> Data {
         do {
             return try Data(contentsOf: fileURL)
         } catch {

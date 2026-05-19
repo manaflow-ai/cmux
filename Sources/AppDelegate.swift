@@ -21,6 +21,17 @@ func cmuxJavaScriptStringLiteral(_ value: String?) -> String? {
     return String(arrayLiteral.dropFirst().dropLast())
 }
 
+private struct MainWindowUIScaleRoot<Content: View>: View {
+    @AppStorage(UIScaleSettings.userDefaultsKey) private var uiScaleRaw = UIScaleSettings.defaultValue
+
+    let content: Content
+
+    var body: some View {
+        content
+            .environment(\.uiScaleFactor, UIScaleSettings.clamped(uiScaleRaw))
+    }
+}
+
 /// Caches `AXWindows` responses so repeated AX polls can reuse the same
 /// snapshot while the app window graph is unchanged. Only `.windows` is
 /// cached; `.children` and `.visibleChildren` fall through to AppKit so the
@@ -7190,13 +7201,15 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         }
 #endif
 
-        let root = ContentView(updateViewModel: updateViewModel, windowId: windowId)
-            .environmentObject(tabManager)
-            .environmentObject(notificationStore)
-            .environmentObject(sidebarState)
-            .environmentObject(sidebarSelectionState)
-            .environmentObject(fileExplorerState)
-            .environmentObject(cmuxConfigStore)
+        let root = MainWindowUIScaleRoot(
+            content: ContentView(updateViewModel: updateViewModel, windowId: windowId)
+                .environmentObject(tabManager)
+                .environmentObject(notificationStore)
+                .environmentObject(sidebarState)
+                .environmentObject(sidebarSelectionState)
+                .environmentObject(fileExplorerState)
+                .environmentObject(cmuxConfigStore)
+        )
 
         // Use the current key window's size for new windows so Cmd+Shift+N
         // creates a window matching the previous one's dimensions.
