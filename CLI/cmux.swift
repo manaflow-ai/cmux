@@ -727,7 +727,7 @@ enum CLIIDFormat: String {
 
 private enum TopSortKey: Equatable {
     case cpu
-    case rss
+    case memory
     case proc
 }
 
@@ -9730,17 +9730,17 @@ struct CMUXCLI {
             Flags:
               --all                         Include all windows (default: current window only)
               --workspace <id|ref|index>   Show only one workspace
-              --processes                  Include process trees under surfaces, webviews, and tags
-              --sort <cpu|rss|proc>         Sort sibling rows by CPU, memory, or process count
+              --processes                  Include process trees under windows, surfaces, webviews, and tags
+              --sort <cpu|mem|proc>         Sort sibling rows by CPU, memory, or process count
               --flat                        Print independent rows for shell sorting
               --format <tree|tsv>           Text output format (tsv implies --flat)
               --json                        Structured JSON output
 
             Output:
               CPU comes from macOS process accounting and can exceed 100% across cores.
-              RSS is summed across the unique process IDs attributed to each tree node.
+              Memory is summed from macOS physical footprint across the unique process IDs attributed to each tree node.
               Browser webviews are attributed through their WebKit content process PID.
-              TSV columns are: cpu_percent, rss_bytes, process_count, kind, ref, parent_ref, title.
+              TSV columns are: cpu_percent, memory_bytes, process_count, kind, ref, parent_ref, title.
 
             Example:
               cmux top
@@ -11131,7 +11131,7 @@ struct CMUXCLI {
         }
         let (sortOpt, rem1) = parseOption(rem0, name: "--sort")
         if rem1.contains("--sort") {
-            throw CLIError(message: "top requires --sort <cpu|rss|proc>")
+            throw CLIError(message: "top requires --sort <cpu|mem|proc>")
         }
         let (formatOpt, rem2) = parseOption(rem1, name: "--format")
         if rem2.contains("--format") {
@@ -11164,7 +11164,7 @@ struct CMUXCLI {
         }
 
         if let unknown = remaining.first(where: { $0.hasPrefix("--") }) {
-            throw CLIError(message: "top: unknown flag '\(unknown)'. Known flags: --all --workspace <id|ref|index> --processes --sort <cpu|rss|proc> --flat --format <tree|tsv> --json")
+            throw CLIError(message: "top: unknown flag '\(unknown)'. Known flags: --all --workspace <id|ref|index> --processes --sort <cpu|mem|proc> --flat --format <tree|tsv> --json")
         }
         if let extra = remaining.first {
             throw CLIError(message: "top: unexpected argument '\(extra)'")
@@ -11193,11 +11193,11 @@ struct CMUXCLI {
         case "cpu", "cpu%":
             return .cpu
         case "rss", "mem", "memory", "ram":
-            return .rss
+            return .memory
         case "proc", "process", "processes", "count":
             return .proc
         default:
-            throw CLIError(message: "top: invalid --sort value '\(raw)'. Use cpu, rss, or proc")
+            throw CLIError(message: "top: invalid --sort value '\(raw)'. Use cpu, mem, or proc")
         }
     }
 
@@ -11722,7 +11722,7 @@ struct CMUXCLI {
         let windows = payload["windows"] as? [[String: Any]] ?? []
         guard !windows.isEmpty else { return "No windows" }
 
-        var lines: [String] = ["  CPU%       RSS  PROC  NODE"]
+        var lines: [String] = ["  CPU%    MEMORY  PROC  NODE"]
         if let totals = payload["totals"] as? [String: Any] {
             lines.append("\(topResourceColumns(resources: totals))total")
         }
@@ -11730,76 +11730,101 @@ struct CMUXCLI {
         for window in topSortedItems(windows, sortKey: sortKey, node: { $0 }) {
             lines.append("\(topResourceColumns(node: window))\(topWindowLabel(window, idFormat: idFormat))")
 
-            let workspaces = topSortedItems(window["workspaces"] as? [[String: Any]] ?? [], sortKey: sortKey, node: { $0 })
-            for (workspaceIndex, workspace) in workspaces.enumerated() {
-                let workspaceIsLast = workspaceIndex == workspaces.count - 1
-                let workspaceBranch = workspaceIsLast ? "└── " : "├── "
-                let workspaceIndent = workspaceIsLast ? "    " : "│   "
-                lines.append("\(topResourceColumns(node: workspace))\(workspaceBranch)\(topWorkspaceLabel(workspace, idFormat: idFormat))")
+            let windowProcesses = showProcesses ? (window["processes"] as? [[String: Any]] ?? []) : []
+            let workspaces = window["workspaces"] as? [[String: Any]] ?? []
+            let windowChildren = topSortedItems(
+                windowProcesses.map { TopWindowChild.process($0) } + workspaces.map { TopWindowChild.workspace($0) },
+                sortKey: sortKey,
+                node: { $0.node }
+            )
+            for (windowChildIndex, windowChild) in windowChildren.enumerated() {
+                let windowChildIsLast = windowChildIndex == windowChildren.count - 1
+                let windowChildBranch = windowChildIsLast ? "└── " : "├── "
+                let windowChildIndent = windowChildIsLast ? "    " : "│   "
 
-                let tags = workspace["tags"] as? [[String: Any]] ?? []
-                let panes = workspace["panes"] as? [[String: Any]] ?? []
-                let workspaceChildren = topSortedItems(
-                    tags.map { TopWorkspaceChild.tag($0) } + panes.map { TopWorkspaceChild.pane($0) },
-                    sortKey: sortKey,
-                    node: { $0.node }
-                )
+                switch windowChild {
+                case .process(let process):
+                    lines.append("\(topResourceColumns(node: process))\(windowChildBranch)\(topProcessLabel(process))")
+                    appendTopProcessLines(
+                        process["children"] as? [[String: Any]] ?? [],
+                        to: &lines,
+                        indent: windowChildIndent,
+                        sortKey: sortKey
+                    )
+                case .workspace(let workspace):
+                    lines.append("\(topResourceColumns(node: workspace))\(windowChildBranch)\(topWorkspaceLabel(workspace, idFormat: idFormat))")
 
-                for (workspaceChildIndex, workspaceChild) in workspaceChildren.enumerated() {
-                    let childIsLast = workspaceChildIndex == workspaceChildren.count - 1
-                    switch workspaceChild {
-                    case .tag(let tag):
-                        let tagIsLast = childIsLast
-                        let tagBranch = tagIsLast ? "└── " : "├── "
-                        let tagIndent = tagIsLast ? "    " : "│   "
-                        lines.append("\(topResourceColumns(node: tag))\(workspaceIndent)\(tagBranch)\(topTagLabel(tag))")
-                        if showProcesses {
-                            appendTopProcessLines(
-                                tag["processes"] as? [[String: Any]] ?? [],
-                                to: &lines,
-                                indent: workspaceIndent + tagIndent,
-                                sortKey: sortKey
-                            )
-                        }
-                    case .pane(let pane):
-                        let paneIsLast = childIsLast
-                        let paneBranch = paneIsLast ? "└── " : "├── "
-                        let paneIndent = paneIsLast ? "    " : "│   "
-                        lines.append("\(topResourceColumns(node: pane))\(workspaceIndent)\(paneBranch)\(topPaneLabel(pane, idFormat: idFormat))")
+                    let tags = workspace["tags"] as? [[String: Any]] ?? []
+                    let panes = workspace["panes"] as? [[String: Any]] ?? []
+                    let workspaceChildren = topSortedItems(
+                        tags.map { TopWorkspaceChild.tag($0) } + panes.map { TopWorkspaceChild.pane($0) },
+                        sortKey: sortKey,
+                        node: { $0.node }
+                    )
 
-                        let surfaces = topSortedItems(pane["surfaces"] as? [[String: Any]] ?? [], sortKey: sortKey, node: { $0 })
-                        for (surfaceIndex, surface) in surfaces.enumerated() {
-                            let surfaceIsLast = surfaceIndex == surfaces.count - 1
-                            let surfaceBranch = surfaceIsLast ? "└── " : "├── "
-                            let surfaceIndent = surfaceIsLast ? "    " : "│   "
-                            lines.append("\(topResourceColumns(node: surface))\(workspaceIndent)\(paneIndent)\(surfaceBranch)\(topSurfaceLabel(surface, idFormat: idFormat))")
+                    for (workspaceChildIndex, workspaceChild) in workspaceChildren.enumerated() {
+                        let childIsLast = workspaceChildIndex == workspaceChildren.count - 1
+                        switch workspaceChild {
+                        case .tag(let tag):
+                            let tagIsLast = childIsLast
+                            let tagBranch = tagIsLast ? "└── " : "├── "
+                            let tagIndent = tagIsLast ? "    " : "│   "
+                            lines.append("\(topResourceColumns(node: tag))\(windowChildIndent)\(tagBranch)\(topTagLabel(tag))")
+                            if showProcesses {
+                                appendTopProcessLines(
+                                    tag["processes"] as? [[String: Any]] ?? [],
+                                    to: &lines,
+                                    indent: windowChildIndent + tagIndent,
+                                    sortKey: sortKey
+                                )
+                            }
+                        case .pane(let pane):
+                            let paneIsLast = childIsLast
+                            let paneBranch = paneIsLast ? "└── " : "├── "
+                            let paneIndent = paneIsLast ? "    " : "│   "
+                            lines.append("\(topResourceColumns(node: pane))\(windowChildIndent)\(paneBranch)\(topPaneLabel(pane, idFormat: idFormat))")
 
-                            let webviews = topSortedItems(surface["webviews"] as? [[String: Any]] ?? [], sortKey: sortKey, node: { $0 })
-                            let surfaceProcesses = surface["processes"] as? [[String: Any]] ?? []
-                            let hasSurfaceProcesses = showProcesses && !surfaceProcesses.isEmpty
-                            if !webviews.isEmpty {
-                                for (webviewIndex, webview) in webviews.enumerated() {
-                                    let webviewIsLast = webviewIndex == webviews.count - 1 && !hasSurfaceProcesses
-                                    let webviewBranch = webviewIsLast ? "└── " : "├── "
-                                    let webviewIndent = webviewIsLast ? "    " : "│   "
-                                    lines.append("\(topResourceColumns(node: webview))\(workspaceIndent)\(paneIndent)\(surfaceIndent)\(webviewBranch)\(topWebViewLabel(webview))")
-                                    if showProcesses {
-                                        appendTopProcessLines(
-                                            webview["processes"] as? [[String: Any]] ?? [],
+                            let surfaces = topSortedItems(pane["surfaces"] as? [[String: Any]] ?? [], sortKey: sortKey, node: { $0 })
+                            for (surfaceIndex, surface) in surfaces.enumerated() {
+                                let surfaceIsLast = surfaceIndex == surfaces.count - 1
+                                let surfaceBranch = surfaceIsLast ? "└── " : "├── "
+                                let surfaceIndent = surfaceIsLast ? "    " : "│   "
+                                lines.append("\(topResourceColumns(node: surface))\(windowChildIndent)\(paneIndent)\(surfaceBranch)\(topSurfaceLabel(surface, idFormat: idFormat))")
+
+                                let webviews = surface["webviews"] as? [[String: Any]] ?? []
+                                let surfaceProcesses = showProcesses ? (surface["processes"] as? [[String: Any]] ?? []) : []
+                                let surfaceChildren = topSortedItems(
+                                    webviews.map { TopSurfaceChild.webview($0) } + surfaceProcesses.map { TopSurfaceChild.process($0) },
+                                    sortKey: sortKey,
+                                    node: { $0.node }
+                                )
+                                for (surfaceChildIndex, surfaceChild) in surfaceChildren.enumerated() {
+                                    let surfaceChildIsLast = surfaceChildIndex == surfaceChildren.count - 1
+                                    let surfaceChildBranch = surfaceChildIsLast ? "└── " : "├── "
+                                    let surfaceChildIndent = surfaceChildIsLast ? "    " : "│   "
+
+                                    switch surfaceChild {
+                                    case .webview(let webview):
+                                        lines.append("\(topResourceColumns(node: webview))\(windowChildIndent)\(paneIndent)\(surfaceIndent)\(surfaceChildBranch)\(topWebViewLabel(webview))")
+                                        if showProcesses {
+                                            appendTopProcessLines(
+                                                webview["processes"] as? [[String: Any]] ?? [],
+                                                to: &lines,
+                                                indent: windowChildIndent + paneIndent + surfaceIndent + surfaceChildIndent,
+                                                sortKey: sortKey
+                                            )
+                                        }
+                                    case .process(let process):
+                                        appendTopProcessLine(
+                                            process,
                                             to: &lines,
-                                            indent: workspaceIndent + paneIndent + surfaceIndent + webviewIndent,
+                                            indent: windowChildIndent + paneIndent + surfaceIndent,
+                                            branch: surfaceChildBranch,
+                                            childIndent: surfaceChildIndent,
                                             sortKey: sortKey
                                         )
                                     }
                                 }
-                            }
-                            if showProcesses {
-                                appendTopProcessLines(
-                                    surfaceProcesses,
-                                    to: &lines,
-                                    indent: workspaceIndent + paneIndent + surfaceIndent,
-                                    sortKey: sortKey
-                                )
                             }
                         }
                     }
@@ -11810,6 +11835,18 @@ struct CMUXCLI {
         return lines.joined(separator: "\n")
     }
 
+    private enum TopWindowChild {
+        case process([String: Any])
+        case workspace([String: Any])
+
+        var node: [String: Any] {
+            switch self {
+            case .process(let node), .workspace(let node):
+                return node
+            }
+        }
+    }
+
     private enum TopWorkspaceChild {
         case tag([String: Any])
         case pane([String: Any])
@@ -11817,6 +11854,18 @@ struct CMUXCLI {
         var node: [String: Any] {
             switch self {
             case .tag(let node), .pane(let node):
+                return node
+            }
+        }
+    }
+
+    private enum TopSurfaceChild {
+        case webview([String: Any])
+        case process([String: Any])
+
+        var node: [String: Any] {
+            switch self {
+            case .webview(let node), .process(let node):
                 return node
             }
         }
@@ -11842,8 +11891,8 @@ struct CMUXCLI {
         case .cpu:
             let value = topDouble(resources["cpu_percent"])
             return value.isFinite ? value : 0
-        case .rss:
-            return Double(topInt64(resources["resident_bytes"]))
+        case .memory:
+            return Double(topMemoryBytes(resources))
         case .proc:
             return Double(topInt(resources["process_count"]) ?? 0)
         }
@@ -11893,105 +11942,129 @@ struct CMUXCLI {
                 to: &rows
             )
 
-            let workspaces = topSortedItems(window["workspaces"] as? [[String: Any]] ?? [], sortKey: sortKey, node: { $0 })
-            for workspace in workspaces {
-                let workspaceRef = topFlatHandle(workspace, fallback: "workspace", idFormat: idFormat)
-                appendTopFlatNode(
-                    workspace,
-                    kind: "workspace",
-                    ref: workspaceRef,
-                    parentRef: windowRef,
-                    title: workspace["title"] as? String ?? "",
-                    ordinal: &ordinal,
-                    to: &rows
-                )
+            let windowProcesses = showProcesses ? (window["processes"] as? [[String: Any]] ?? []) : []
+            let workspaces = window["workspaces"] as? [[String: Any]] ?? []
+            let windowChildren = topSortedItems(
+                windowProcesses.map { TopWindowChild.process($0) } + workspaces.map { TopWindowChild.workspace($0) },
+                sortKey: sortKey,
+                node: { $0.node }
+            )
+            for windowChild in windowChildren {
+                switch windowChild {
+                case .process(let process):
+                    appendTopFlatProcesses(
+                        [process],
+                        parentRef: windowRef,
+                        ordinal: &ordinal,
+                        to: &rows,
+                        sortKey: sortKey
+                    )
+                case .workspace(let workspace):
+                    let workspaceRef = topFlatHandle(workspace, fallback: "workspace", idFormat: idFormat)
+                    appendTopFlatNode(
+                        workspace,
+                        kind: "workspace",
+                        ref: workspaceRef,
+                        parentRef: windowRef,
+                        title: workspace["title"] as? String ?? "",
+                        ordinal: &ordinal,
+                        to: &rows
+                    )
 
-                let tags = workspace["tags"] as? [[String: Any]] ?? []
-                let panes = workspace["panes"] as? [[String: Any]] ?? []
-                let workspaceChildren = topSortedItems(
-                    tags.map { TopWorkspaceChild.tag($0) } + panes.map { TopWorkspaceChild.pane($0) },
-                    sortKey: sortKey,
-                    node: { $0.node }
-                )
-                for workspaceChild in workspaceChildren {
-                    switch workspaceChild {
-                    case .tag(let tag):
-                        let tagRef = topFlatHandle(tag, fallback: topLabelText(tag["key"] as? String), idFormat: idFormat)
-                        appendTopFlatNode(
-                            tag,
-                            kind: "tag",
-                            ref: tagRef,
-                            parentRef: workspaceRef,
-                            title: tag["value"] as? String ?? "",
-                            ordinal: &ordinal,
-                            to: &rows
-                        )
-                        if showProcesses {
-                            appendTopFlatProcesses(
-                                tag["processes"] as? [[String: Any]] ?? [],
-                                parentRef: tagRef,
-                                ordinal: &ordinal,
-                                to: &rows,
-                                sortKey: sortKey
-                            )
-                        }
-                    case .pane(let pane):
-                        let paneRef = topFlatHandle(pane, fallback: "pane", idFormat: idFormat)
-                        appendTopFlatNode(
-                            pane,
-                            kind: "pane",
-                            ref: paneRef,
-                            parentRef: workspaceRef,
-                            title: "",
-                            ordinal: &ordinal,
-                            to: &rows
-                        )
-
-                        let surfaces = topSortedItems(pane["surfaces"] as? [[String: Any]] ?? [], sortKey: sortKey, node: { $0 })
-                        for surface in surfaces {
-                            let surfaceRef = topFlatHandle(surface, fallback: "surface", idFormat: idFormat)
+                    let tags = workspace["tags"] as? [[String: Any]] ?? []
+                    let panes = workspace["panes"] as? [[String: Any]] ?? []
+                    let workspaceChildren = topSortedItems(
+                        tags.map { TopWorkspaceChild.tag($0) } + panes.map { TopWorkspaceChild.pane($0) },
+                        sortKey: sortKey,
+                        node: { $0.node }
+                    )
+                    for workspaceChild in workspaceChildren {
+                        switch workspaceChild {
+                        case .tag(let tag):
+                            let tagRef = topFlatHandle(tag, fallback: topLabelText(tag["key"] as? String), idFormat: idFormat)
                             appendTopFlatNode(
-                                surface,
-                                kind: "surface",
-                                ref: surfaceRef,
-                                parentRef: paneRef,
-                                title: surface["title"] as? String ?? "",
+                                tag,
+                                kind: "tag",
+                                ref: tagRef,
+                                parentRef: workspaceRef,
+                                title: tag["value"] as? String ?? "",
                                 ordinal: &ordinal,
                                 to: &rows
                             )
-
-                            let webviews = topSortedItems(surface["webviews"] as? [[String: Any]] ?? [], sortKey: sortKey, node: { $0 })
-                            for webview in webviews {
-                                let fallback = topInt(webview["pid"]).map { "pid:\($0)" } ?? "webview"
-                                let webviewRef = topFlatHandle(webview, fallback: fallback, idFormat: idFormat)
-                                appendTopFlatNode(
-                                    webview,
-                                    kind: "webview",
-                                    ref: webviewRef,
-                                    parentRef: surfaceRef,
-                                    title: webview["title"] as? String ?? "",
-                                    ordinal: &ordinal,
-                                    to: &rows
-                                )
-                                if showProcesses {
-                                    appendTopFlatProcesses(
-                                        webview["processes"] as? [[String: Any]] ?? [],
-                                        parentRef: webviewRef,
-                                        ordinal: &ordinal,
-                                        to: &rows,
-                                        sortKey: sortKey
-                                    )
-                                }
-                            }
-
                             if showProcesses {
                                 appendTopFlatProcesses(
-                                    surface["processes"] as? [[String: Any]] ?? [],
-                                    parentRef: surfaceRef,
+                                    tag["processes"] as? [[String: Any]] ?? [],
+                                    parentRef: tagRef,
                                     ordinal: &ordinal,
                                     to: &rows,
                                     sortKey: sortKey
                                 )
+                            }
+                        case .pane(let pane):
+                            let paneRef = topFlatHandle(pane, fallback: "pane", idFormat: idFormat)
+                            appendTopFlatNode(
+                                pane,
+                                kind: "pane",
+                                ref: paneRef,
+                                parentRef: workspaceRef,
+                                title: "",
+                                ordinal: &ordinal,
+                                to: &rows
+                            )
+
+                            let surfaces = topSortedItems(pane["surfaces"] as? [[String: Any]] ?? [], sortKey: sortKey, node: { $0 })
+                            for surface in surfaces {
+                                let surfaceRef = topFlatHandle(surface, fallback: "surface", idFormat: idFormat)
+                                appendTopFlatNode(
+                                    surface,
+                                    kind: "surface",
+                                    ref: surfaceRef,
+                                    parentRef: paneRef,
+                                    title: surface["title"] as? String ?? "",
+                                    ordinal: &ordinal,
+                                    to: &rows
+                                )
+
+                                let webviews = surface["webviews"] as? [[String: Any]] ?? []
+                                let surfaceProcesses = showProcesses ? (surface["processes"] as? [[String: Any]] ?? []) : []
+                                let surfaceChildren = topSortedItems(
+                                    webviews.map { TopSurfaceChild.webview($0) } + surfaceProcesses.map { TopSurfaceChild.process($0) },
+                                    sortKey: sortKey,
+                                    node: { $0.node }
+                                )
+                                for surfaceChild in surfaceChildren {
+                                    switch surfaceChild {
+                                    case .webview(let webview):
+                                        let fallback = topInt(webview["pid"]).map { "pid:\($0)" } ?? "webview"
+                                        let webviewRef = topFlatHandle(webview, fallback: fallback, idFormat: idFormat)
+                                        appendTopFlatNode(
+                                            webview,
+                                            kind: "webview",
+                                            ref: webviewRef,
+                                            parentRef: surfaceRef,
+                                            title: webview["title"] as? String ?? "",
+                                            ordinal: &ordinal,
+                                            to: &rows
+                                        )
+                                        if showProcesses {
+                                            appendTopFlatProcesses(
+                                                webview["processes"] as? [[String: Any]] ?? [],
+                                                parentRef: webviewRef,
+                                                ordinal: &ordinal,
+                                                to: &rows,
+                                                sortKey: sortKey
+                                            )
+                                        }
+                                    case .process(let process):
+                                        appendTopFlatProcesses(
+                                            [process],
+                                            parentRef: surfaceRef,
+                                            ordinal: &ordinal,
+                                            to: &rows,
+                                            sortKey: sortKey
+                                        )
+                                    }
+                                }
                             }
                         }
                     }
@@ -12083,7 +12156,7 @@ struct CMUXCLI {
     private func topFlatTSVLine(_ row: TopFlatRow) -> String {
         [
             topFlatCPU(row.resources),
-            String(topInt64(row.resources["resident_bytes"])),
+            String(topMemoryBytes(row.resources)),
             String(topInt(row.resources["process_count"]) ?? 0),
             topTSVField(row.kind),
             topTSVField(row.ref),
@@ -12113,14 +12186,32 @@ struct CMUXCLI {
             let isLast = index == sortedProcesses.count - 1
             let branch = isLast ? "└── " : "├── "
             let childIndent = isLast ? "    " : "│   "
-            lines.append("\(topResourceColumns(node: process))\(indent)\(branch)\(topProcessLabel(process))")
-            appendTopProcessLines(
-                process["children"] as? [[String: Any]] ?? [],
+            appendTopProcessLine(
+                process,
                 to: &lines,
-                indent: indent + childIndent,
+                indent: indent,
+                branch: branch,
+                childIndent: childIndent,
                 sortKey: sortKey
             )
         }
+    }
+
+    private func appendTopProcessLine(
+        _ process: [String: Any],
+        to lines: inout [String],
+        indent: String,
+        branch: String,
+        childIndent: String,
+        sortKey: TopSortKey?
+    ) {
+        lines.append("\(topResourceColumns(node: process))\(indent)\(branch)\(topProcessLabel(process))")
+        appendTopProcessLines(
+            process["children"] as? [[String: Any]] ?? [],
+            to: &lines,
+            indent: indent + childIndent,
+            sortKey: sortKey
+        )
     }
 
     private func topWindowLabel(_ window: [String: Any], idFormat: CLIIDFormat) -> String {
@@ -12237,12 +12328,19 @@ struct CMUXCLI {
 
     private func topResourceColumns(resources: [String: Any]) -> String {
         let cpu = topDouble(resources["cpu_percent"])
-        let rss = topInt64(resources["resident_bytes"])
+        let memory = topMemoryBytes(resources)
         let count = topInt(resources["process_count"]) ?? 0
         let cpuText = String(format: "%6.1f%%", cpu)
-        let rssText = padLeft(formatBytes(rss), width: 9)
+        let memoryText = padLeft(formatBytes(memory), width: 9)
         let countText = padLeft(String(count), width: 5)
-        return "\(cpuText) \(rssText) \(countText)  "
+        return "\(cpuText) \(memoryText) \(countText)  "
+    }
+
+    private func topMemoryBytes(_ resources: [String: Any]) -> Int64 {
+        if resources["memory_bytes"] != nil {
+            return topInt64(resources["memory_bytes"])
+        }
+        return topInt64(resources["resident_bytes"])
     }
 
     private func formatBytes(_ bytes: Int64) -> String {
@@ -24112,7 +24210,7 @@ export default function cmuxPiSessionExtension(pi: ExtensionAPI) {
           list-panes [--workspace <id|ref>]
           list-pane-surfaces [--workspace <id|ref>] [--pane <id|ref>]
           tree [--all] [--workspace <id|ref|index>]
-          top [--all] [--workspace <id|ref|index>] [--processes] [--sort <cpu|rss|proc>] [--flat] [--format <tree|tsv>]
+          top [--all] [--workspace <id|ref|index>] [--processes] [--sort <cpu|mem|proc>] [--flat] [--format <tree|tsv>]
           focus-pane --pane <id|ref> [--workspace <id|ref>]
           new-pane [--type <terminal|browser>] [--direction <left|right|up|down>] [--workspace <id|ref>] [--url <url>] [--focus <true|false>]
           new-surface [--type <terminal|browser>] [--pane <id|ref>] [--workspace <id|ref>] [--url <url>] [--focus <true|false>]
