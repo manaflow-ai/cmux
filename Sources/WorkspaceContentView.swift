@@ -610,6 +610,7 @@ private final class CanvasPanEventMonitorView: NSView {
 
     private var monitor: Any?
     private var wheelGestureState = CanvasWheelGestureState()
+    private var activeMiddlePanPointInWindow: NSPoint?
 
     override var isOpaque: Bool { false }
 
@@ -628,7 +629,9 @@ private final class CanvasPanEventMonitorView: NSView {
 
     func installMonitorIfNeeded() {
         guard monitor == nil else { return }
-        monitor = NSEvent.addLocalMonitorForEvents(matching: [.scrollWheel, .magnify, .smartMagnify]) { [weak self] event in
+        monitor = NSEvent.addLocalMonitorForEvents(
+            matching: [.scrollWheel, .magnify, .smartMagnify, .otherMouseDown, .otherMouseDragged, .otherMouseUp]
+        ) { [weak self] event in
             self?.handle(event) ?? event
         }
     }
@@ -638,6 +641,7 @@ private final class CanvasPanEventMonitorView: NSView {
             NSEvent.removeMonitor(monitor)
         }
         monitor = nil
+        activeMiddlePanPointInWindow = nil
     }
 
     private func handle(_ event: NSEvent) -> NSEvent? {
@@ -648,9 +652,36 @@ private final class CanvasPanEventMonitorView: NSView {
             return event
         }
         let localPoint = convert(event.locationInWindow, from: nil)
-        guard bounds.contains(localPoint) else { return event }
+        if activeMiddlePanPointInWindow == nil {
+            guard bounds.contains(localPoint) else { return event }
+        }
 
         switch event.type {
+        case .otherMouseDown:
+            guard event.buttonNumber == 2 else { return event }
+            activeMiddlePanPointInWindow = event.locationInWindow
+            return nil
+        case .otherMouseDragged:
+            guard event.buttonNumber == 2,
+                  let previousPoint = activeMiddlePanPointInWindow else {
+                return event
+            }
+            let currentPoint = event.locationInWindow
+            activeMiddlePanPointInWindow = currentPoint
+            onPan?(
+                CGSize(
+                    width: currentPoint.x - previousPoint.x,
+                    height: previousPoint.y - currentPoint.y
+                )
+            )
+            return nil
+        case .otherMouseUp:
+            guard event.buttonNumber == 2,
+                  activeMiddlePanPointInWindow != nil else {
+                return event
+            }
+            activeMiddlePanPointInWindow = nil
+            return nil
         case .scrollWheel:
             let delta = CGSize(width: event.scrollingDeltaX, height: event.scrollingDeltaY)
             guard abs(delta.width) > 0.01 || abs(delta.height) > 0.01 else { return event }
@@ -2182,10 +2213,10 @@ private struct WorkspaceCanvasOverviewView<Content: View, EmptyContent: View>: V
 
             livePaneContent(item: item, selected: selected, paneID: paneID, renderMode: renderMode)
         }
-        .background(canvasCardBackgroundColor, in: RoundedRectangle(cornerRadius: 6))
-        .clipShape(RoundedRectangle(cornerRadius: 6))
+        .background(canvasCardBackgroundColor)
+        .clipped()
         .overlay {
-            RoundedRectangle(cornerRadius: 6)
+            Rectangle()
                 .stroke(
                     focused ? canvasForegroundColor.opacity(0.34) : appearance.dividerColor.opacity(0.58),
                     lineWidth: 1
@@ -2212,7 +2243,7 @@ private struct WorkspaceCanvasOverviewView<Content: View, EmptyContent: View>: V
             )
         }
         .shadow(color: .black.opacity(focused ? 0.20 : 0.10), radius: focused ? 10 : 5, x: 0, y: 4)
-        .contentShape(RoundedRectangle(cornerRadius: 6))
+        .contentShape(Rectangle())
         .accessibilityIdentifier(accessibilityIdentifier(for: item))
         .accessibilityLabel(title)
     }
@@ -2336,7 +2367,7 @@ private struct WorkspaceCanvasOverviewView<Content: View, EmptyContent: View>: V
                 .truncationMode(.middle)
                 .padding(.horizontal, 5)
                 .frame(height: 16)
-                .background(selected ? Color.primary.opacity(0.08) : Color.clear, in: RoundedRectangle(cornerRadius: 3))
+                .background(selected ? Color.primary.opacity(0.08) : Color.clear)
         }
         .buttonStyle(.plain)
         .foregroundStyle(selected ? canvasForegroundColor.opacity(0.84) : canvasForegroundColor.opacity(0.56))
@@ -2471,7 +2502,7 @@ private struct WorkspaceCanvasOverviewView<Content: View, EmptyContent: View>: V
                 .truncationMode(.middle)
                 .padding(.horizontal, 7)
                 .frame(maxWidth: .infinity, minHeight: 16, alignment: .leading)
-                .background(Color.black.opacity(0.24), in: RoundedRectangle(cornerRadius: 8, style: .continuous))
+                .background(Color.black.opacity(0.24))
         }
         .foregroundStyle(canvasForegroundColor.opacity(0.74))
         .padding(.horizontal, 7)

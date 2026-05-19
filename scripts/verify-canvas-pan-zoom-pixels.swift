@@ -56,10 +56,13 @@ struct SurfaceResult: Codable {
     var surface: String
     var beforeScreenshot: String
     var afterPanScreenshot: String
+    var afterEdgePanScreenshot: String
     var afterZoomScreenshot: String
     var nativeViewFrame: PixelRect
     var expectedPanDX: Double
     var expectedPanDY: Double
+    var expectedEdgePanDX: Double
+    var expectedEdgePanDY: Double
     var viewportScale: Double
     var markers: [String: MarkerResult]
 }
@@ -548,6 +551,32 @@ func runSurface(
 
     _ = try setCanvasViewport(scale: 1, workspace: workspace, viewportSize: viewport)
     Thread.sleep(forTimeInterval: 0.12)
+    let edgePanDX = 180.0
+    let edgePanDY = 32.0
+    let markerProbes = probes.filter { $0.name != "border" }
+    try panCanvas(workspace: workspace, viewportSize: viewport, dx: edgePanDX, dy: edgePanDY)
+    let afterEdgePanURL = try copyArtifact(
+        try waitForAll(label: "\(surface)_after_edge_pan", probes: markerProbes, crop: crop),
+        named: "\(surface)-after-edge-pan.png"
+    )
+    let afterEdgePan = try detectAll(in: afterEdgePanURL, probes: markerProbes, crop: crop)
+    for probe in markerProbes {
+        guard let beforeBounds = before[probe.name],
+              let edgePanBounds = afterEdgePan[probe.name] else {
+            throw ProbeError(message: "\(surface) missing \(probe.name) edge pan bounds")
+        }
+        try assertPan(
+            surface: surface,
+            marker: "\(probe.name)-edge",
+            before: beforeBounds,
+            after: edgePanBounds,
+            dx: edgePanDX,
+            dy: edgePanDY
+        )
+    }
+
+    _ = try setCanvasViewport(scale: 1, workspace: workspace, viewportSize: viewport)
+    Thread.sleep(forTimeInterval: 0.12)
     let scale = try zoomOut(workspace: workspace, viewportSize: viewport)
     let afterZoomURL = try copyArtifact(
         try waitForAll(label: "\(surface)_after_zoom", probes: probes, crop: crop),
@@ -579,10 +608,13 @@ func runSurface(
         surface: surface,
         beforeScreenshot: beforeURL.path,
         afterPanScreenshot: afterPanURL.path,
+        afterEdgePanScreenshot: afterEdgePanURL.path,
         afterZoomScreenshot: afterZoomURL.path,
         nativeViewFrame: nativeFrame,
         expectedPanDX: panDX,
         expectedPanDY: panDY,
+        expectedEdgePanDX: edgePanDX,
+        expectedEdgePanDY: edgePanDY,
         viewportScale: scale,
         markers: markerResults
     )

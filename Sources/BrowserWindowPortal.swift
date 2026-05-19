@@ -3764,7 +3764,9 @@ final class WindowBrowserPortal: NSObject {
             !clampedFrame.isNull &&
             clampedFrame.width > 1 &&
             clampedFrame.height > 1
-        let targetFrame = hasVisibleIntersection ? clampedFrame : frameInHost
+        let targetFrame = canvasSurfacePresentation != nil
+            ? frameInHost
+            : (hasVisibleIntersection ? clampedFrame : frameInHost)
         let anchorHidden = canvasSurfacePresentation == nil &&
             interactiveFrameInWindow == nil &&
             Self.isHiddenOrAncestorHidden(anchorView)
