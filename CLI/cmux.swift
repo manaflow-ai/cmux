@@ -2583,7 +2583,7 @@ struct CMUXCLI {
                     throw CLIError(message: "vm new: --focus and --no-focus cannot be used together")
                 }
                 remaining = remaining.filter { !["--detach", "-d"].contains($0) }
-                if let unknown = remaining.first(where: { Self.isUnknownFlagToken($0, allowedShortFlags: ["-d"]) }) {
+                if let unknown = remaining.first(where: { Self.isUnknownFlagToken($0) }) {
                     throw CLIError(message: """
                         vm new: unknown flag '\(unknown)'.
 
