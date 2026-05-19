@@ -78,6 +78,22 @@ final class SidebarSelectedWorkspaceColorTests: XCTestCase {
         XCTAssertEqual(color.alphaComponent, 0.65, accuracy: 0.001)
     }
 
+    func testDefaultSelectedWorkspaceForegroundUsesNativeSelectionTextOnAccentBackground() {
+        guard let color = sidebarSelectedWorkspaceForegroundNSColor(
+            on: sidebarSelectedWorkspaceBackgroundNSColor(for: .light),
+            opacity: 0.65,
+            usesDefaultSelectionColor: true
+        ).usingColorSpace(.sRGB) else {
+            XCTFail("Expected sRGB-convertible color")
+            return
+        }
+
+        XCTAssertEqual(color.redComponent, 1.0, accuracy: 0.001)
+        XCTAssertEqual(color.greenComponent, 1.0, accuracy: 0.001)
+        XCTAssertEqual(color.blueComponent, 1.0, accuracy: 0.001)
+        XCTAssertEqual(color.alphaComponent, 0.65, accuracy: 0.001)
+    }
+
     @MainActor
     func testSolidFillKeepsSelectedBackgroundForActiveCustomColoredWorkspaceRow() {
         let manager = TabManager()

@@ -293,6 +293,10 @@ struct WindowAppearanceSnapshot {
         cmuxReadableColorScheme(for: compositedTerminalBackgroundColor)
     }
 
+    var sidebarContentColorScheme: ColorScheme {
+        unifySurfaceBackdrops ? chromeColorScheme : sidebarSettings.colorScheme
+    }
+
     func sidebarContrastOverlayColor(for role: WindowBackdropRole) -> NSColor? {
         guard unifySurfaceBackdrops,
               role == .leftSidebar || role == .rightSidebar else {

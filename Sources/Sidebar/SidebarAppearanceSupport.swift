@@ -190,11 +190,19 @@ func sidebarSelectedWorkspaceBackgroundNSColor(
 func sidebarSelectedWorkspaceForegroundNSColor(opacity: CGFloat) -> NSColor {
     sidebarSelectedWorkspaceForegroundNSColor(
         on: sidebarSelectedWorkspaceBackgroundNSColor(for: .dark),
-        opacity: opacity
+        opacity: opacity,
+        usesDefaultSelectionColor: true
     )
 }
 
-func sidebarSelectedWorkspaceForegroundNSColor(on backgroundColor: NSColor, opacity: CGFloat) -> NSColor {
+func sidebarSelectedWorkspaceForegroundNSColor(
+    on backgroundColor: NSColor,
+    opacity: CGFloat,
+    usesDefaultSelectionColor: Bool = false
+) -> NSColor {
+    if usesDefaultSelectionColor {
+        return NSColor.white.withAlphaComponent(max(0, min(opacity, 1)))
+    }
     cmuxReadableForegroundNSColor(on: backgroundColor, opacity: opacity)
 }
 

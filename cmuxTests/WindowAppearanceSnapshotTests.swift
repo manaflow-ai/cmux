@@ -112,6 +112,19 @@ final class WindowAppearanceSnapshotTests: XCTestCase {
         )
     }
 
+    func testSidebarContentColorSchemeUsesTerminalOnlyForUnifiedBackdrops() {
+        XCTAssertEqual(
+            makeSnapshot(unifySurfaceBackdrops: true, backgroundHex: "#101820", sidebarColorScheme: .light)
+                .sidebarContentColorScheme,
+            .dark
+        )
+        XCTAssertEqual(
+            makeSnapshot(unifySurfaceBackdrops: false, backgroundHex: "#101820", sidebarColorScheme: .light)
+                .sidebarContentColorScheme,
+            .light
+        )
+    }
+
     func testUnifiedSidebarContrastOverlaySeparatesLightTerminalBackground() {
         let snapshot = makeSnapshot(unifySurfaceBackdrops: true, backgroundHex: "#FFFFFF")
         guard let overlay = snapshot.sidebarContrastOverlayColor(for: .leftSidebar) else {
@@ -167,6 +180,7 @@ final class WindowAppearanceSnapshotTests: XCTestCase {
         sidebarBlendMode: String = SidebarBlendModeOption.withinWindow.rawValue,
         sidebarTintHexDark: String? = nil,
         sidebarTintOpacity: Double = 0.18,
+        sidebarColorScheme: ColorScheme = .dark,
         bgGlassEnabled: Bool = false
     ) -> WindowAppearanceSnapshot {
         let backgroundColor = NSColor(hex: backgroundHex) ?? .black
@@ -186,7 +200,7 @@ final class WindowAppearanceSnapshotTests: XCTestCase {
                 tintOpacity: sidebarTintOpacity,
                 cornerRadius: 0,
                 blurOpacity: 1,
-                colorScheme: .dark
+                colorScheme: sidebarColorScheme
             ),
             windowGlassSettings: WindowGlassSettingsSnapshot(
                 sidebarBlendModeRawValue: sidebarBlendMode,
