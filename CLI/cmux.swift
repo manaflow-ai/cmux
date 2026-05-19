@@ -1,5 +1,6 @@
 import Foundation
 import CMUXAgentLaunch
+import CMUXClaudeNotifications
 import CoreFoundation
 import CryptoKit
 import Darwin
@@ -17332,7 +17333,7 @@ struct CMUXCLI {
                 rawObject: nil,
                 object: nil,
                 rawFallback: fallback,
-                rawFallbackNotificationTypeValues: Self.claudeNotificationTypeValues(inRawFallback: trimmed),
+                rawFallbackNotificationTypeValues: ClaudeNotificationTypeExtractor.values(inRawFallback: trimmed),
                 sessionId: nil,
                 turnId: nil,
                 cwd: nil,
@@ -18754,11 +18755,10 @@ struct CMUXCLI {
         ClaudeNotificationTypeNormalization.ignoredTypesEnvironmentKey
 
     private static func suppressedClaudeNotificationTypes(for types: Set<String>) -> Set<String> {
-        let ignoredTypes = ignoredClaudeNotificationTypes()
-        guard !ignoredTypes.isEmpty, !types.isEmpty else {
-            return []
-        }
-        return ignoredTypes.intersection(types)
+        ClaudeNotificationSuppression.suppressedTypes(
+            notificationTypes: types,
+            ignoredTypes: ignoredClaudeNotificationTypes()
+        )
     }
 
     private static func ignoredClaudeNotificationTypes() -> Set<String> {
@@ -18785,193 +18785,36 @@ struct CMUXCLI {
         return []
     }
 
-    private enum ClaudeIgnoredNotificationTypesFileLoadResult {
-        case missing
-        case invalid
-        case parsed([String]?)
-    }
-
     private static func ignoredClaudeNotificationTypesFromSettingsFiles(
         fileManager: FileManager = .default,
         environment: [String: String] = ProcessInfo.processInfo.environment
     ) -> Set<String>? {
-        let paths = claudeIgnoredNotificationTypesSettingsPaths(
+        let paths = ClaudeIgnoredNotificationSettings.settingsPaths(
+            primaryDisplayPath: primarySettingsDisplayPath,
+            legacyDisplayPath: legacySettingsDisplayPath,
+            appSupportDirectories: CmuxApplicationSupportDirectories.userDirectories(
+                environment: environment,
+                fileManager: fileManager
+            ),
             fileManager: fileManager,
             environment: environment
         )
 
-        for path in paths {
-            switch loadIgnoredClaudeNotificationTypes(at: path, fileManager: fileManager) {
-            case .missing:
-                continue
-            case .invalid:
-                continue
-            case .parsed(let values):
-                if let values {
-                    return normalizedClaudeNotificationTypes(values)
-                }
-                return []
-            }
-        }
-
-        return nil
-    }
-
-    private static func claudeIgnoredNotificationTypesSettingsPaths(
-        fileManager: FileManager,
-        environment: [String: String]
-    ) -> [String] {
-        var paths: [String] = []
-        var seen = Set<String>()
-
-        func append(_ path: String) {
-            let standardized = URL(fileURLWithPath: path).standardizedFileURL.path
-            if seen.insert(standardized).inserted {
-                paths.append(standardized)
-            }
-        }
-
-        append(expandedSettingsPath(
-            primarySettingsDisplayPath,
-            fileManager: fileManager,
-            environment: environment
-        ))
-        append(expandedSettingsPath(
-            legacySettingsDisplayPath,
-            fileManager: fileManager,
-            environment: environment
-        ))
-
-        for appSupportURL in CmuxApplicationSupportDirectories.userDirectories(
-            environment: environment,
+        return ClaudeIgnoredNotificationSettings.ignoredTypesFromSettingsFiles(
+            paths: paths,
             fileManager: fileManager
-        ) {
-            append(
-                appSupportURL
-                    .appendingPathComponent("com.cmuxterm.app", isDirectory: true)
-                    .appendingPathComponent("settings.json", isDirectory: false)
-                    .path
-            )
+        ) { data in
+            try JSONCParser.preprocess(data: data)
         }
-
-        return paths
-    }
-
-    private static func expandedSettingsPath(
-        _ rawPath: String,
-        fileManager: FileManager,
-        environment: [String: String]
-    ) -> String {
-        let homePath = environment["HOME"] ?? fileManager.homeDirectoryForCurrentUser.path
-        let expanded: String
-        if rawPath == "~" {
-            expanded = homePath
-        } else if rawPath.hasPrefix("~/") {
-            expanded = (homePath as NSString).appendingPathComponent(String(rawPath.dropFirst(2)))
-        } else {
-            expanded = rawPath
-        }
-        return URL(fileURLWithPath: expanded).standardizedFileURL.path
-    }
-
-    private static func loadIgnoredClaudeNotificationTypes(
-        at path: String,
-        fileManager: FileManager
-    ) -> ClaudeIgnoredNotificationTypesFileLoadResult {
-        var isDirectory = ObjCBool(false)
-        guard fileManager.fileExists(atPath: path, isDirectory: &isDirectory) else {
-            return .missing
-        }
-        guard !isDirectory.boolValue,
-              let data = fileManager.contents(atPath: path),
-              !data.isEmpty,
-              let sanitized = try? JSONCParser.preprocess(data: data),
-              let rootObject = try? JSONSerialization.jsonObject(with: sanitized, options: []),
-              let root = rootObject as? [String: Any] else {
-            return .invalid
-        }
-
-        guard let rawNotifications = root["notifications"] else {
-            return .parsed(nil)
-        }
-        guard let notifications = rawNotifications as? [String: Any] else {
-            return .invalid
-        }
-        guard let rawValues = notifications["ignoredClaudeNotificationTypes"] else {
-            return .parsed(nil)
-        }
-        guard let values = rawValues as? [String] else {
-            return .invalid
-        }
-        return .parsed(values)
     }
 
     private static func claudeNotificationTypes(parsedInput: ClaudeHookParsedInput) -> Set<String> {
         var rawValues: [String] = []
         if let object = parsedInput.rawObject ?? parsedInput.object {
-            rawValues.append(contentsOf: claudeNotificationTypeValues(inJSONValue: object))
+            rawValues.append(contentsOf: ClaudeNotificationTypeExtractor.values(inJSONValue: object))
         }
         rawValues.append(contentsOf: parsedInput.rawFallbackNotificationTypeValues)
         return normalizedClaudeNotificationTypes(rawValues)
-    }
-
-    private enum ClaudeNotificationTypeExtractionScope {
-        case root
-        case notificationPayload
-    }
-
-    private static func claudeNotificationTypeValues(
-        inRawFallback fallback: String,
-        scope: ClaudeNotificationTypeExtractionScope = .root
-    ) -> [String] {
-        let trimmed = fallback.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !trimmed.isEmpty,
-              let data = trimmed.data(using: .utf8),
-              let json = try? JSONSerialization.jsonObject(with: data, options: []) else {
-            return []
-        }
-        return claudeNotificationTypeValues(inJSONValue: json, scope: scope)
-    }
-
-    private static func claudeNotificationTypeValues(
-        inJSONValue value: Any,
-        scope: ClaudeNotificationTypeExtractionScope = .root
-    ) -> [String] {
-        if let object = value as? [String: Any] {
-            var values = claudeNotificationTypeValues(in: object, scope: scope)
-            for key in ["notification", "data"] {
-                if let nested = object[key] {
-                    values.append(contentsOf: claudeNotificationTypeValues(
-                        inJSONValue: nested,
-                        scope: .notificationPayload
-                    ))
-                }
-            }
-            return values
-        }
-        if let values = value as? [Any] {
-            return values.flatMap { claudeNotificationTypeValues(inJSONValue: $0, scope: scope) }
-        }
-        if let string = value as? String {
-            return claudeNotificationTypeValues(inRawFallback: string, scope: scope)
-        }
-        return []
-    }
-
-    private static func claudeNotificationTypeValues(
-        in object: [String: Any],
-        scope: ClaudeNotificationTypeExtractionScope
-    ) -> [String] {
-        let keys: [String]
-        switch scope {
-        case .root:
-            keys = ["notification_type", "matcher", "reason"]
-        case .notificationPayload:
-            keys = ["notification_type", "matcher", "reason", "type", "kind"]
-        }
-        return keys.compactMap { key in
-            object[key] as? String
-        }
     }
 
     private static func normalizedClaudeNotificationTypes(_ values: [String]) -> Set<String> {

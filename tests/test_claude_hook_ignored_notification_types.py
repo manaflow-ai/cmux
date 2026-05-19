@@ -469,22 +469,19 @@ def main() -> int:
                 "session_id": f"sess-{uuid.uuid4().hex}",
                 "hook_event_name": "Notification",
                 "notification_type": "idle_prompt",
-                "message": "Invalid cmux.json should fall back to hook env",
+                "message": "Invalid cmux.json should not leave stale suppression active",
             },
         )
         if invalid_config_idle.returncode != 0 or invalid_config_idle.stdout.strip() != "OK":
-            print("FAIL: invalid cmux.json did not fall back to hook env")
+            print("FAIL: invalid cmux.json hook failed")
             print(f"stdout={invalid_config_idle.stdout!r}")
             print(f"stderr={invalid_config_idle.stderr!r}")
             print(f"commands={server.commands!r}")
             return 1
 
         invalid_config_commands = server.commands[before_invalid_count:]
-        if any(
-            line.startswith("notify_target_async ") or line.startswith("set_status claude_code Needs input ")
-            for line in invalid_config_commands
-        ):
-            print("FAIL: invalid cmux.json blocked hook env ignored types")
+        if not any(line.startswith("notify_target_async ") for line in invalid_config_commands):
+            print("FAIL: stale hook env suppressed after cmux.json became invalid")
             print(f"invalid_config_commands={invalid_config_commands!r}")
             return 1
 
@@ -501,22 +498,19 @@ def main() -> int:
                 "session_id": f"sess-{uuid.uuid4().hex}",
                 "hook_event_name": "Notification",
                 "notification_type": "idle_prompt",
-                "message": "Invalid ignored type value should fall back to hook env",
+                "message": "Invalid ignored type value should not leave stale suppression active",
             },
         )
         if invalid_type_idle.returncode != 0 or invalid_type_idle.stdout.strip() != "OK":
-            print("FAIL: wrong-type cmux.json ignored types did not fall back to hook env")
+            print("FAIL: wrong-type cmux.json ignored types hook failed")
             print(f"stdout={invalid_type_idle.stdout!r}")
             print(f"stderr={invalid_type_idle.stderr!r}")
             print(f"commands={server.commands!r}")
             return 1
 
         invalid_type_commands = server.commands[before_invalid_type_count:]
-        if any(
-            line.startswith("notify_target_async ") or line.startswith("set_status claude_code Needs input ")
-            for line in invalid_type_commands
-        ):
-            print("FAIL: wrong-type cmux.json blocked hook env ignored types")
+        if not any(line.startswith("notify_target_async ") for line in invalid_type_commands):
+            print("FAIL: stale hook env suppressed after cmux.json ignored types became wrong-type")
             print(f"invalid_type_commands={invalid_type_commands!r}")
             return 1
 
@@ -530,22 +524,19 @@ def main() -> int:
                 "session_id": f"sess-{uuid.uuid4().hex}",
                 "hook_event_name": "Notification",
                 "notification_type": "idle_prompt",
-                "message": "Malformed notifications block should fall back to hook env",
+                "message": "Malformed notifications block should not leave stale suppression active",
             },
         )
         if malformed_notifications_idle.returncode != 0 or malformed_notifications_idle.stdout.strip() != "OK":
-            print("FAIL: malformed notifications block did not fall back to hook env")
+            print("FAIL: malformed notifications block hook failed")
             print(f"stdout={malformed_notifications_idle.stdout!r}")
             print(f"stderr={malformed_notifications_idle.stderr!r}")
             print(f"commands={server.commands!r}")
             return 1
 
         malformed_notifications_commands = server.commands[before_malformed_notifications_count:]
-        if any(
-            line.startswith("notify_target_async ") or line.startswith("set_status claude_code Needs input ")
-            for line in malformed_notifications_commands
-        ):
-            print("FAIL: malformed notifications block blocked hook env ignored types")
+        if not any(line.startswith("notify_target_async ") for line in malformed_notifications_commands):
+            print("FAIL: stale hook env suppressed after cmux.json notifications block became malformed")
             print(f"malformed_notifications_commands={malformed_notifications_commands!r}")
             return 1
 

@@ -2,6 +2,7 @@ import AppKit
 import SwiftUI
 import Darwin
 import Bonsplit
+import CMUXClaudeNotifications
 import UniformTypeIdentifiers
 @main
 struct cmuxApp: App {

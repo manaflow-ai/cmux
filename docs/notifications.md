@@ -126,6 +126,7 @@ To keep Claude Code integration on but suppress recurring idle prompt notificati
 ```
 
 This only skips Claude Code `Notification` hook rendering for matching notification types. Stop notifications and per-workspace running/stopped status still work.
+For already-open terminals, the current `cmux.json` value wins over the terminal's launch-time environment; if the current file exists but omits or invalidates `ignoredClaudeNotificationTypes`, cmux treats the ignored set as empty.
 
 ### GitHub Copilot CLI
 

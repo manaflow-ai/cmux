@@ -378,6 +378,16 @@
           "default": "",
           "description": "Optional shell command to run alongside notification delivery."
         },
+        "ignoredClaudeNotificationTypes": {
+          "type": "array",
+          "default": [],
+          "description": "Claude Code notification_type values to suppress while keeping the integration enabled.",
+          "items": {
+            "type": "string",
+            "minLength": 1
+          },
+          "uniqueItems": true
+        },
         "hooksMode": {
           "type": "string",
           "enum": ["append", "replace"],

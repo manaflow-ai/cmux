@@ -10,6 +10,7 @@ import Carbon.HIToolbox
 import Sentry
 import Bonsplit
 import CMUXAgentLaunch
+import CMUXClaudeNotifications
 import CMUXPasteboardFidelity
 import IOSurface
 import UniformTypeIdentifiers
