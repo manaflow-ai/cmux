@@ -1897,6 +1897,7 @@ class TerminalController {
         id: Any?,
         jsonRPC: Bool,
         timeoutSeconds: TimeInterval = 17 * 60,
+        failureCode: String = "request_error",
         _ work: @escaping @Sendable () async throws -> [String: Any]
     ) -> String {
         guard !Thread.isMainThread else {
@@ -1924,7 +1925,13 @@ class TerminalController {
                 id: id,
                 jsonRPC: jsonRPC,
                 code: "timeout",
-                message: "VM request timed out after \(Int(timeoutSeconds)) seconds"
+                message: String.localizedStringWithFormat(
+                    String(
+                        localized: "socket.error.requestTimedOut",
+                        defaultValue: "The request timed out after %d seconds."
+                    ),
+                    Int(timeoutSeconds)
+                )
             )
         }
 
@@ -1935,8 +1942,11 @@ class TerminalController {
             return v2Error(
                 id: id,
                 jsonRPC: jsonRPC,
-                code: "vm_error",
-                message: "The VM request could not be completed."
+                code: failureCode,
+                message: String(
+                    localized: "socket.error.requestFailed",
+                    defaultValue: "The request could not be completed."
+                )
             )
         }
     }

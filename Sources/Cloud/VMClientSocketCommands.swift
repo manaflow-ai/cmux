@@ -10,7 +10,7 @@ extension TerminalController {
     ) -> String {
         switch method {
         case "vm.list":
-            return socketWorkerAsyncV2Response(id: id, jsonRPC: jsonRPC) {
+            return socketWorkerAsyncV2Response(id: id, jsonRPC: jsonRPC, failureCode: "vm_error") {
                 let items = try await VMClient.shared.list()
                 return [
                     "vms": items.map { ["id": $0.id, "provider": $0.provider, "image": $0.image, "createdAt": $0.createdAt] as [String: Any] },
@@ -28,7 +28,7 @@ extension TerminalController {
                     message: "vm.create requires `idempotency_key`. Use `cmux vm new` instead of calling the socket method directly."
                 )
             }
-            return socketWorkerAsyncV2Response(id: id, jsonRPC: jsonRPC) {
+            return socketWorkerAsyncV2Response(id: id, jsonRPC: jsonRPC, failureCode: "vm_error") {
                 let vm = try await VMClient.shared.create(image: image, provider: provider, idempotencyKey: idempotencyKey)
                 return ["id": vm.id, "provider": vm.provider, "image": vm.image, "createdAt": vm.createdAt]
             }
@@ -36,7 +36,7 @@ extension TerminalController {
             guard let vmId = Self.socketWorkerString(params["id"]), !vmId.isEmpty else {
                 return v2Error(id: id, jsonRPC: jsonRPC, code: "invalid_params", message: "vm.destroy requires `id`. Run `cmux vm ls` to find one, then `cmux vm rm <id>`.")
             }
-            return socketWorkerAsyncV2Response(id: id, jsonRPC: jsonRPC) {
+            return socketWorkerAsyncV2Response(id: id, jsonRPC: jsonRPC, failureCode: "vm_error") {
                 try await VMClient.shared.destroy(id: vmId)
                 return ["ok": true]
             }
@@ -48,7 +48,7 @@ extension TerminalController {
                 return v2Error(id: id, jsonRPC: jsonRPC, code: "invalid_params", message: "vm.exec requires `command`. From the CLI, use `cmux vm exec <id> -- <command>`.")
             }
             let timeoutMs = max(1, Self.socketWorkerInt(params["timeout_ms"]) ?? 30_000)
-            return socketWorkerAsyncV2Response(id: id, jsonRPC: jsonRPC) {
+            return socketWorkerAsyncV2Response(id: id, jsonRPC: jsonRPC, failureCode: "vm_error") {
                 let result = try await VMClient.shared.exec(id: vmId, command: command, timeoutMs: timeoutMs)
                 return ["exit_code": result.exitCode, "stdout": result.stdout, "stderr": result.stderr]
             }
@@ -56,7 +56,7 @@ extension TerminalController {
             guard let vmId = Self.socketWorkerString(params["id"]), !vmId.isEmpty else {
                 return v2Error(id: id, jsonRPC: jsonRPC, code: "invalid_params", message: "vm.ssh_info requires `id`. Run `cmux vm ls` to find one.")
             }
-            return socketWorkerAsyncV2Response(id: id, jsonRPC: jsonRPC) {
+            return socketWorkerAsyncV2Response(id: id, jsonRPC: jsonRPC, failureCode: "vm_error") {
                 let endpoint = try await VMClient.shared.openSSH(id: vmId)
                 return Self.socketWorkerSSHInfoPayload(endpoint)
             }
@@ -67,7 +67,7 @@ extension TerminalController {
             let requireDaemon = Self.socketWorkerBool(params["require_daemon"])
                 ?? Self.socketWorkerBool(params["requireDaemon"])
                 ?? false
-            return socketWorkerAsyncV2Response(id: id, jsonRPC: jsonRPC) {
+            return socketWorkerAsyncV2Response(id: id, jsonRPC: jsonRPC, failureCode: "vm_error") {
                 let endpoint = try await VMClient.shared.openAttach(id: vmId, requireDaemon: requireDaemon)
                 return Self.socketWorkerAttachInfoPayload(endpoint)
             }

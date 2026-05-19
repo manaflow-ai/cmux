@@ -143,7 +143,10 @@ final class AppDelegateIssue2907RoutingTests: XCTestCase {
         XCTAssertEqual(error["code"] as? Int, -32603)
         XCTAssertEqual(
             error["message"] as? String,
-            "Request cannot be performed on the main thread; retry the operation asynchronously or use the async API."
+            String(
+                localized: "socket.error.invalidDispatch",
+                defaultValue: "cmux cannot perform this request in the current socket context. Perform it asynchronously and retry."
+            )
         )
         let data = try XCTUnwrap(error["data"] as? [String: Any], raw)
         XCTAssertEqual(data["cmux_code"] as? String, "invalid_dispatch")
