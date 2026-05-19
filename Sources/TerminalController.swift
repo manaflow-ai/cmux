@@ -46,6 +46,7 @@ class TerminalController {
     static let shared = TerminalController()
 
     private nonisolated(unsafe) var socketPath = SocketControlSettings.stableDefaultSocketPath
+    private nonisolated(unsafe) var boundSocketPathIdentity: SocketPathIdentity?
     private nonisolated(unsafe) var serverSocket: Int32 = -1
     private nonisolated(unsafe) var isRunning = false
     private nonisolated(unsafe) var acceptLoopAlive = false
@@ -156,8 +157,18 @@ class TerminalController {
         }
     }
 
+    struct SocketPathIdentity: Equatable, Sendable {
+        let device: UInt64
+        let inode: UInt64
+
+        init(device: UInt64, inode: UInt64) {
+            self.device = device
+            self.inode = inode
+        }
+    }
+
     private enum SocketBindAttemptResult {
-        case success(path: String)
+        case success(path: String, identity: SocketPathIdentity)
         case pathTooLong(path: String)
         case failure(path: String, stage: String, errnoCode: Int32)
     }
@@ -862,6 +873,14 @@ class TerminalController {
         return !isRunning && activeGeneration == 0
     }
 
+    nonisolated static func shouldUnlinkSocketPathAfterListenerStop(
+        currentIdentity: SocketPathIdentity?,
+        boundIdentity: SocketPathIdentity?
+    ) -> Bool {
+        guard let currentIdentity, let boundIdentity else { return false }
+        return currentIdentity == boundIdentity
+    }
+
     private nonisolated static func unixSocketAddress(path: String) -> sockaddr_un? {
         var addr = sockaddr_un()
         addr.sun_family = sa_family_t(AF_UNIX)
@@ -958,6 +977,29 @@ class TerminalController {
         return result == 0 ? nil : errno
     }
 
+    nonisolated static func socketPathIdentity(at path: String) -> SocketPathIdentity? {
+        socketPathIdentityResult(at: path).identity
+    }
+
+    private nonisolated static func socketPathIdentityResult(
+        at path: String
+    ) -> (identity: SocketPathIdentity?, errnoCode: Int32?) {
+        var st = stat()
+        guard lstat(path, &st) == 0 else {
+            return (nil, errno)
+        }
+        guard (st.st_mode & mode_t(S_IFMT)) == mode_t(S_IFSOCK) else {
+            return (nil, ENOTSOCK)
+        }
+        return (
+            SocketPathIdentity(
+                device: UInt64(st.st_dev),
+                inode: UInt64(st.st_ino)
+            ),
+            nil
+        )
+    }
+
     private nonisolated static func configureNoSigPipe(_ fd: Int32) -> Int32? {
 #if os(macOS)
         var noSigPipe: Int32 = 1
@@ -1030,7 +1072,15 @@ class TerminalController {
         guard bindResult >= 0 else {
             return .failure(path: path, stage: "bind", errnoCode: errno)
         }
-        return .success(path: path)
+        let identityResult = socketPathIdentityResult(at: path)
+        if let identity = identityResult.identity {
+            return .success(path: path, identity: identity)
+        }
+        return .failure(
+            path: path,
+            stage: "stat_bound_path",
+            errnoCode: identityResult.errnoCode ?? EIO
+        )
     }
 
     private nonisolated static func ensureSocketParentDirectoryExists(path: String) -> Int32? {
@@ -1099,6 +1149,7 @@ class TerminalController {
         var activeSocketPath = socketPath
         withListenerState {
             self.socketPath = activeSocketPath
+            boundSocketPathIdentity = nil
             listenerStartInProgress = true
         }
         var listenerActivated = false
@@ -1149,10 +1200,11 @@ class TerminalController {
         }
 
         switch bindAttempt {
-        case .success(let boundPath):
+        case .success(let boundPath, let identity):
             activeSocketPath = boundPath
             withListenerState {
                 self.socketPath = activeSocketPath
+                boundSocketPathIdentity = identity
             }
         case .pathTooLong(let failedPath):
             close(newServerSocket)
@@ -1286,8 +1338,7 @@ class TerminalController {
     }
 
     private nonisolated static func socketPathExists(_ path: String) -> Bool {
-        var st = stat()
-        return lstat(path, &st) == 0 && (st.st_mode & S_IFMT) == S_IFSOCK
+        socketPathIdentity(at: path) != nil
     }
 
     private nonisolated func startSocketPathMonitor(path: String, generation: UInt64) {
@@ -1473,7 +1524,8 @@ class TerminalController {
             monitorToCancel,
             socketToShutdown,
             socketToClose,
-            socketPathToUnlink
+            socketPathToUnlink,
+            boundSocketPathIdentityToUnlink
         ) = withListenerState {
             isRunning = false
             acceptLoopAlive = false
@@ -1489,13 +1541,16 @@ class TerminalController {
             socketPathMonitorSource = nil
             let socketToClose = serverSocket
             serverSocket = -1
+            let identity = boundSocketPathIdentity
+            boundSocketPathIdentity = nil
             return (
                 sourceToCancel,
                 sourceWasSuspended,
                 monitorToCancel,
                 socketToClose,
                 sourceToCancel == nil ? socketToClose : Int32(-1),
-                socketPath
+                socketPath,
+                identity
             )
         }
         if socketToShutdown >= 0 {
@@ -1509,7 +1564,12 @@ class TerminalController {
         if socketToClose >= 0 {
             close(socketToClose)
         }
-        unlink(socketPathToUnlink)
+        if Self.shouldUnlinkSocketPathAfterListenerStop(
+            currentIdentity: Self.socketPathIdentity(at: socketPathToUnlink),
+            boundIdentity: boundSocketPathIdentityToUnlink
+        ) {
+            unlink(socketPathToUnlink)
+        }
     }
 
     private nonisolated func unlinkSocketPathIfListenerStillInactive(_ path: String) {
