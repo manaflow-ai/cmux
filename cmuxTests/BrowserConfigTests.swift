@@ -164,6 +164,8 @@ final class CmuxWebViewKeyEquivalentTests: XCTestCase {
 
     private final class FieldEditorProbeTextView: NSTextView {
         private(set) var delegateReadCount = 0
+        private(set) var keyDownKeyCodes: [UInt16] = []
+        var reportsMarkedText = false
 
         override var delegate: NSTextViewDelegate? {
             get {
@@ -178,6 +180,26 @@ final class CmuxWebViewKeyEquivalentTests: XCTestCase {
         override var isFieldEditor: Bool {
             get { true }
             set {}
+        }
+
+        override func keyDown(with event: NSEvent) {
+            keyDownKeyCodes.append(event.keyCode)
+        }
+
+        override func hasMarkedText() -> Bool {
+            reportsMarkedText
+        }
+
+        func resetKeyDownKeyCodes() {
+            keyDownKeyCodes.removeAll()
+        }
+    }
+
+    private final class FieldEditorProbeWindow: NSWindow {
+        let testFieldEditor = FieldEditorProbeTextView(frame: NSRect(x: 0, y: 0, width: 240, height: 24))
+
+        override func fieldEditor(_ createFlag: Bool, for object: Any?) -> NSText? {
+            testFieldEditor
         }
     }
     func testCmdNRoutesToMainMenuWhenWebViewIsFirstResponder() {
@@ -3382,6 +3404,7 @@ final class BrowserDeveloperToolsVisibilityPersistenceTests: XCTestCase {
             portalZPriority: 0,
             paneDropZone: nil,
             searchOverlay: nil,
+            omnibarSuggestions: nil,
             paneTopChromeHeight: 0
         )
         let coordinator = representable.makeCoordinator()
@@ -3425,6 +3448,7 @@ final class BrowserDeveloperToolsVisibilityPersistenceTests: XCTestCase {
             portalZPriority: 0,
             paneDropZone: nil,
             searchOverlay: nil,
+            omnibarSuggestions: nil,
             paneTopChromeHeight: 0
         )
         let coordinator = representable.makeCoordinator()
@@ -3536,6 +3560,7 @@ final class BrowserDeveloperToolsVisibilityPersistenceTests: XCTestCase {
             portalZPriority: 0,
             paneDropZone: nil,
             searchOverlay: nil,
+            omnibarSuggestions: nil,
             paneTopChromeHeight: 0
         )
 
@@ -3620,6 +3645,7 @@ final class BrowserDeveloperToolsVisibilityPersistenceTests: XCTestCase {
             portalZPriority: 0,
             paneDropZone: nil,
             searchOverlay: nil,
+            omnibarSuggestions: nil,
             paneTopChromeHeight: 0
         )
 
