@@ -1,5 +1,58 @@
 import SwiftUI
 
+enum HeaderChromeIconStyle {
+    static let opacity = 0.86
+    static let hoveredOpacity = 0.96
+    static let pressedOpacity = 1.0
+    static let disabledOpacity = 0.34
+    static let weight: Font.Weight = .regular
+    static let foregroundColor = Color(nsColor: .secondaryLabelColor)
+    static let sidebarGlyphStrokeWidth: CGFloat = 1
+
+    static func foregroundOpacity(isHovering: Bool, isPressed: Bool, isEnabled: Bool = true) -> Double {
+        guard isEnabled else { return disabledOpacity }
+        if isPressed {
+            return pressedOpacity
+        }
+        if isHovering {
+            return hoveredOpacity
+        }
+        return opacity
+    }
+
+    static func backgroundOpacity(
+        hoverBackground: Bool,
+        isHovering: Bool,
+        isPressed: Bool,
+        isEnabled: Bool = true
+    ) -> Double {
+        guard isEnabled else { return 0 }
+        if isPressed {
+            return 0.14
+        }
+        if isHovering {
+            return hoverBackground ? 0.09 : 0.07
+        }
+        return 0
+    }
+
+    static func borderOpacity(
+        buttonBackground: Bool,
+        isHovering: Bool,
+        isPressed: Bool,
+        isEnabled: Bool = true
+    ) -> Double {
+        guard isEnabled else { return buttonBackground ? 0.04 : 0 }
+        if isPressed {
+            return 0.11
+        }
+        if isHovering {
+            return 0.07
+        }
+        return buttonBackground ? 0.05 : 0
+    }
+}
+
 struct RightSidebarChromeBarModifier: ViewModifier {
     var leadingPadding: CGFloat
     var trailingPadding: CGFloat
@@ -56,6 +109,56 @@ struct RightSidebarChromeBottomBorderModifier: ViewModifier {
         content.overlay(alignment: .bottom) {
             WindowChromeBorder(orientation: .horizontal, ignoresSafeArea: false)
         }
+    }
+}
+
+struct RightSidebarHeaderIconButtonStyle: ButtonStyle {
+    func makeBody(configuration: Configuration) -> some View {
+        RightSidebarHeaderIconButtonStyleBody(configuration: configuration)
+    }
+}
+
+private struct RightSidebarHeaderIconButtonStyleBody: View {
+    let configuration: ButtonStyle.Configuration
+    @State private var isHovering = false
+    @Environment(\.isEnabled) private var isEnabled
+
+    var body: some View {
+        configuration.label
+            .symbolRenderingMode(.monochrome)
+            .font(.system(size: RightSidebarChromeMetrics.headerIconSize, weight: HeaderChromeIconStyle.weight))
+            .frame(
+                width: RightSidebarChromeMetrics.headerControlSize,
+                height: RightSidebarChromeMetrics.headerControlSize
+            )
+            .foregroundStyle(HeaderChromeIconStyle.foregroundColor.opacity(foregroundOpacity))
+            .background {
+                if backgroundOpacity > 0 {
+                    RoundedRectangle(cornerRadius: RightSidebarChromeMetrics.headerControlCornerRadius, style: .continuous)
+                        .fill(Color.primary.opacity(backgroundOpacity))
+                }
+            }
+            .contentShape(
+                RoundedRectangle(cornerRadius: RightSidebarChromeMetrics.headerControlCornerRadius, style: .continuous)
+            )
+            .onHover { isHovering = $0 }
+    }
+
+    private var foregroundOpacity: Double {
+        HeaderChromeIconStyle.foregroundOpacity(
+            isHovering: isHovering,
+            isPressed: configuration.isPressed,
+            isEnabled: isEnabled
+        )
+    }
+
+    private var backgroundOpacity: Double {
+        HeaderChromeIconStyle.backgroundOpacity(
+            hoverBackground: false,
+            isHovering: isHovering,
+            isPressed: configuration.isPressed,
+            isEnabled: isEnabled
+        )
     }
 }
 

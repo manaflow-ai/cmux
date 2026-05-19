@@ -227,6 +227,30 @@ final class TabManagerSessionSnapshotTests: XCTestCase {
         XCTAssertFalse(manager.canNavigateBack)
     }
 
+    func testFocusHistoryWorkspaceInvalidationPreservesForwardStackAfterBackNavigation() throws {
+        let manager = TabManager()
+        let firstWorkspace = try XCTUnwrap(manager.selectedWorkspace)
+        let secondWorkspace = manager.addWorkspace(select: true)
+        secondWorkspace.setCustomTitle("Second")
+
+        manager.navigateBack()
+        XCTAssertEqual(manager.selectedTabId, firstWorkspace.id)
+        XCTAssertTrue(manager.canNavigateForward)
+
+        manager.invalidateFocusHistoryTarget(workspaceId: firstWorkspace.id, panelId: nil)
+
+        XCTAssertFalse(manager.canNavigateBack)
+        XCTAssertTrue(manager.canNavigateForward)
+        XCTAssertEqual(
+            manager.focusHistoryMenuSnapshot(direction: .forward).items.map(\.workspaceTitle),
+            ["Second"]
+        )
+
+        manager.navigateForward()
+
+        XCTAssertEqual(manager.selectedTabId, secondWorkspace.id)
+    }
+
     func testGhosttyFocusSurfaceIdRecordsMappedPanelInFocusHistory() throws {
         let manager = TabManager()
         let workspace = try XCTUnwrap(manager.selectedWorkspace)
