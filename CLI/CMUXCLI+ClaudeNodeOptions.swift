@@ -16,8 +16,10 @@ enum CMUXCLIShimWriter {
         do {
             if fileManager.fileExists(atPath: url.path) {
                 _ = try fileManager.replaceItemAt(url, withItemAt: tempURL)
+                try fileManager.setAttributes([.posixPermissions: mode], ofItemAtPath: url.path)
             } else {
                 try fileManager.moveItem(at: tempURL, to: url)
+                try fileManager.setAttributes([.posixPermissions: mode], ofItemAtPath: url.path)
             }
         } catch {
             let current = try? String(contentsOf: url, encoding: .utf8)
@@ -29,6 +31,7 @@ enum CMUXCLIShimWriter {
             if fileManager.fileExists(atPath: url.path) {
                 do {
                     _ = try fileManager.replaceItemAt(url, withItemAt: tempURL)
+                    try fileManager.setAttributes([.posixPermissions: mode], ofItemAtPath: url.path)
                     return
                 } catch {}
             }
