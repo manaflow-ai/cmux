@@ -4334,6 +4334,29 @@ func browserOmnibarPanelId(for responder: NSResponder?) -> UUID? {
     browserOmnibarField(for: responder)?.panelId
 }
 
+@MainActor
+func browserOmnibarField(panelId: UUID?, in window: NSWindow?) -> OmnibarNativeTextField? {
+    guard let panelId else { return nil }
+
+    if let focusedField = browserOmnibarField(for: window?.firstResponder),
+       focusedField.panelId == panelId {
+        return focusedField
+    }
+
+    guard let root = window?.contentView?.superview ?? window?.contentView else {
+        return nil
+    }
+
+    var stack: [NSView] = [root]
+    while let view = stack.popLast() {
+        if let field = view as? OmnibarNativeTextField, field.panelId == panelId {
+            return field
+        }
+        stack.append(contentsOf: view.subviews)
+    }
+    return nil
+}
+
 @discardableResult
 func browserPrepareOmnibarForProgrammaticBlur(panelId: UUID, responder: NSResponder?) -> Bool {
     guard let field = browserOmnibarField(for: responder),
@@ -4407,8 +4430,24 @@ struct OmnibarSuggestionsView: View {
         return (value * scale).rounded(.toNearestOrAwayFromZero) / scale
     }
 
-    private var popupHeight: CGFloat {
-        snapToDevicePixels(min(max(contentHeight, minimumPopupHeight), maxPopupHeight))
+    private var resolvedPopupHeight: CGFloat {
+        Self.popupHeight(for: items)
+    }
+
+    static func popupHeight(for items: [OmnibarSuggestion]) -> CGFloat {
+        let singleLineRowHeight: CGFloat = 24
+        let rowSpacing: CGFloat = 1
+        let topInset: CGFloat = 3
+        let bottomInset: CGFloat = 3
+        let maxPopupHeight: CGFloat = 560
+        let totalRowCount = max(1, items.count)
+        let rowsHeight = items.isEmpty ? singleLineRowHeight : CGFloat(items.count) * singleLineRowHeight
+        let gaps = CGFloat(max(0, totalRowCount - 1))
+        let contentHeight = rowsHeight + (gaps * rowSpacing) + topInset + bottomInset
+        let minimumPopupHeight = singleLineRowHeight + topInset + bottomInset
+        let height = min(max(contentHeight, minimumPopupHeight), maxPopupHeight)
+        let scale = NSScreen.main?.backingScaleFactor ?? 2
+        return (height * scale).rounded(.toNearestOrAwayFromZero) / scale
     }
 
     private var isPointerDrivenSelectionEvent: Bool {
@@ -4613,7 +4652,7 @@ struct OmnibarSuggestionsView: View {
                 rowsView
             }
         }
-        .frame(height: popupHeight, alignment: .top)
+        .frame(height: resolvedPopupHeight, alignment: .top)
         .overlay(alignment: .topTrailing) {
             if searchSuggestionsEnabled, isLoadingRemoteSuggestions {
                 ProgressView()
