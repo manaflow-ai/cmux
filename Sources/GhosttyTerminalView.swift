@@ -3783,6 +3783,12 @@ class GhosttyApp {
         appRegistryLock.unlock()
     }
 
+    private static func isInitializingRuntimeApp(_ runtimeApp: GhosttyApp) -> Bool {
+        appRegistryLock.lock()
+        defer { appRegistryLock.unlock() }
+        return initializingRuntimeApp === runtimeApp
+    }
+
     private static func runtimeApp(for app: ghostty_app_t?) -> GhosttyApp? {
         guard let app else { return nil }
         let key = UInt(bitPattern: app)
@@ -3853,9 +3859,18 @@ class GhosttyApp {
 
             if action.tag == GHOSTTY_ACTION_RELOAD_CONFIG {
                 let soft = action.action.reload_config.soft
+                let reloadSettingsFromFile = !Self.isInitializingRuntimeApp(self)
                 logThemeAction("reload request target=app soft=\(soft)")
                 performOnMain {
-                    self.reloadConfiguration(soft: soft, source: "action.reload_config.app")
+                    // libghostty may request a reload while GhosttyApp.shared is still
+                    // being constructed. Startup is already inside the cmux settings
+                    // load path, so re-reading it here can recursively enter the
+                    // KeyboardShortcutSettings singleton initializer.
+                    self.reloadConfiguration(
+                        soft: soft,
+                        source: "action.reload_config.app",
+                        reloadSettingsFromFile: reloadSettingsFromFile
+                    )
                 }
                 return true
             }
