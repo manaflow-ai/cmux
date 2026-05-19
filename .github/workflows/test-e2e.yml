@@ -225,26 +225,30 @@ jobs:
           if [ "$RECORD_VIDEO" = "true" ]; then
             DEVLIST=$( ffmpeg -f avfoundation -list_devices true -i "" 2>&1 || true )
             echo "Available devices:"
-            echo "$DEVLIST" | grep -E "AVFoundation|Capture screen"
+            echo "$DEVLIST" | grep -E "AVFoundation|Capture screen" || true
 
-            SCREEN_INDEX=$( echo "$DEVLIST" | grep "Capture screen" | head -1 \
-              | sed 's/.*\[\([0-9]*\)\].*/\1/' )
-            SCREEN_INDEX="${SCREEN_INDEX:-0}"
-            echo "Using screen device index: $SCREEN_INDEX"
-
-            ffmpeg -f avfoundation -framerate 10 -capture_cursor 1 \
-              -i "${SCREEN_INDEX}:none" \
-              -c:v libx264 -preset ultrafast -pix_fmt yuv420p \
-              /tmp/test-recording-raw.mp4 </dev/null >/tmp/ffmpeg.log 2>&1 &
-            RECORD_PID=$!
-            echo "RECORD_PID=$RECORD_PID" >> "$GITHUB_ENV"
-            sleep 2
-
-            if kill -0 "$RECORD_PID" 2>/dev/null; then
-              echo "Recording started (PID $RECORD_PID)"
+            SCREEN_LINE=$( echo "$DEVLIST" | grep "Capture screen" | head -1 || true )
+            if [ -z "$SCREEN_LINE" ]; then
+              echo "::warning::No AVFoundation Capture screen device found; continuing without recording"
             else
-              echo "::warning::ffmpeg screen recording failed to start"
-              cat /tmp/ffmpeg.log
+              SCREEN_INDEX=$( echo "$SCREEN_LINE" | sed 's/.*\[\([0-9]*\)\].*/\1/' )
+              SCREEN_INDEX="${SCREEN_INDEX:-0}"
+              echo "Using screen device index: $SCREEN_INDEX"
+
+              ffmpeg -f avfoundation -framerate 10 -capture_cursor 1 \
+                -i "${SCREEN_INDEX}:none" \
+                -c:v libx264 -preset ultrafast -pix_fmt yuv420p \
+                /tmp/test-recording-raw.mp4 </dev/null >/tmp/ffmpeg.log 2>&1 &
+              RECORD_PID=$!
+              echo "RECORD_PID=$RECORD_PID" >> "$GITHUB_ENV"
+              sleep 2
+
+              if kill -0 "$RECORD_PID" 2>/dev/null; then
+                echo "Recording started (PID $RECORD_PID)"
+              else
+                echo "::warning::ffmpeg screen recording failed to start"
+                cat /tmp/ffmpeg.log
+              fi
             fi
           fi
 
