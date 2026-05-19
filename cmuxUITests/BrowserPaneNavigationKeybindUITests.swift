@@ -785,6 +785,19 @@ final class BrowserPaneNavigationKeybindUITests: XCTestCase {
             "Expected terminal and browser cards in the canvas"
         )
 
+        guard let scaleBeforeZoom = Double(loadData()?["canvasScale"] ?? "") else {
+            XCTFail("Missing canvas scale before zoom. data=\(loadData() ?? [:])")
+            return
+        }
+        app.typeKey("-", modifierFlags: [.command])
+        app.typeKey("-", modifierFlags: [.command])
+        XCTAssertTrue(
+            waitForDataMatch(timeout: 6.0) { data in
+                (Double(data["canvasScale"] ?? "") ?? scaleBeforeZoom) < scaleBeforeZoom
+            },
+            "Expected Cmd+- to zoom the canvas out. data=\(loadData() ?? [:])"
+        )
+
         let terminalCard = canvasCard(app, paneId: terminalPaneId)
         XCTAssertTrue(terminalCard.waitForExistence(timeout: 6.0), "Expected terminal canvas card for pane \(terminalPaneId)")
 
@@ -812,18 +825,6 @@ final class BrowserPaneNavigationKeybindUITests: XCTestCase {
                 self.canvasCardGrew(app, paneId: terminalPaneId, from: frameBeforeResize)
             },
             "Expected bottom-right canvas corner hit target to resize width and height"
-        )
-
-        guard let scaleBeforeZoom = Double(loadData()?["canvasScale"] ?? "") else {
-            XCTFail("Missing canvas scale before zoom. data=\(loadData() ?? [:])")
-            return
-        }
-        app.typeKey("-", modifierFlags: [.command])
-        XCTAssertTrue(
-            waitForDataMatch(timeout: 6.0) { data in
-                (Double(data["canvasScale"] ?? "") ?? scaleBeforeZoom) < scaleBeforeZoom
-            },
-            "Expected Cmd+- to zoom the canvas out. data=\(loadData() ?? [:])"
         )
 
         app.typeKey("c", modifierFlags: [.command, .control, .shift])
