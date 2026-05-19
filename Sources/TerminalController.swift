@@ -1,6 +1,7 @@
 import AppKit
 import Carbon.HIToolbox
 import CMUXWorkstream
+import Darwin
 import Foundation
 import Bonsplit
 import WebKit
@@ -252,12 +253,13 @@ class TerminalController {
         let responder: (_ accept: Bool, _ text: String?) -> Void
     }
 
-    private final class V2BrowserUndefinedSentinel {}
+    private final class V2BrowserUndefinedSentinel: @unchecked Sendable {}
 
-    private static let v2BrowserEvalEnvelopeTypeKey = "__cmux_t"
-    private static let v2BrowserEvalEnvelopeValueKey = "__cmux_v"
-    private static let v2BrowserEvalEnvelopeTypeUndefined = "undefined"
-    private static let v2BrowserEvalEnvelopeTypeValue = "value"
+    private nonisolated static let v2BrowserEvalEnvelopeTypeKey = "__cmux_t"
+    private nonisolated static let v2BrowserEvalEnvelopeValueKey = "__cmux_v"
+    private nonisolated static let v2BrowserEvalEnvelopeTypeUndefined = "undefined"
+    private nonisolated static let v2BrowserEvalEnvelopeTypeValue = "value"
+    private nonisolated static let v2BrowserUndefinedSentinel = V2BrowserUndefinedSentinel()
 
     private var v2BrowserNextElementOrdinal: Int = 1
     private var v2BrowserElementRefs: [String: V2BrowserElementRefEntry] = [:]
@@ -267,7 +269,6 @@ class TerminalController {
     private var v2BrowserDialogQueueBySurface: [UUID: [V2BrowserPendingDialog]] = [:]
     private var v2BrowserDownloadEventsBySurface: [UUID: [[String: Any]]] = [:]
     private var v2BrowserUnsupportedNetworkRequestsBySurface: [UUID: [[String: Any]]] = [:]
-    private let v2BrowserUndefinedSentinel = V2BrowserUndefinedSentinel()
     private var browserDownloadObserver: NSObjectProtocol?
 
     func cleanupSurfaceState(surfaceIds: [UUID]) {
@@ -1757,24 +1758,32 @@ class TerminalController {
         let params: [String: Any]
     }
 
-    private nonisolated static let socketWorkerV2Methods: Set<String> = [
-        "auth.status",
-        "auth.begin_sign_in",
-        "auth.sign_out",
-        "feedback.submit",
-        "feed.push",
-        "feed.permission.reply",
-        "feed.question.reply",
-        "feed.exit_plan.reply",
-        "browser.download.wait",
-        "browser.profiles.list",
-        "browser.profiles.create",
-        "browser.profiles.rename",
-        "browser.profiles.clear",
-        "browser.profiles.delete",
-        "browser.import.cookies",
-        "system.top",
-    ]
+    private nonisolated static let socketWorkerV2Methods: Set<String> = {
+        var methods: Set<String> = [
+            "auth.status",
+            "auth.begin_sign_in",
+            "auth.sign_out",
+            "feedback.submit",
+            "feed.push",
+            "feed.permission.reply",
+            "feed.question.reply",
+            "feed.exit_plan.reply",
+            "browser.eval",
+            "browser.wait",
+            "browser.download.wait",
+            "browser.profiles.list",
+            "browser.profiles.create",
+            "browser.profiles.rename",
+            "browser.profiles.clear",
+            "browser.profiles.delete",
+            "browser.import.cookies",
+            "system.top",
+        ]
+#if DEBUG
+        methods.insert("debug.leak.snapshot")
+#endif
+        return methods
+    }()
 
     private nonisolated static func executionPolicy(forV2Method method: String) -> SocketCommandExecutionPolicy {
         if method.hasPrefix("vm.") || socketWorkerV2Methods.contains(method) {
@@ -1854,6 +1863,10 @@ class TerminalController {
             return v2Result(id: request.id, v2FeedQuestionReply(params: request.params))
         case "feed.exit_plan.reply":
             return v2Result(id: request.id, v2FeedExitPlanReply(params: request.params))
+        case "browser.eval":
+            return v2Result(id: request.id, v2BrowserEvalOnSocketWorker(params: request.params))
+        case "browser.wait":
+            return v2Result(id: request.id, v2BrowserWaitOnSocketWorker(params: request.params))
         case "browser.download.wait":
             return v2Result(id: request.id, v2BrowserDownloadWaitOnSocketWorker(params: request.params))
         case "browser.profiles.list":
@@ -1883,6 +1896,10 @@ class TerminalController {
             }
         case "system.top":
             return v2Result(id: request.id, v2SystemTop(params: request.params))
+#if DEBUG
+        case "debug.leak.snapshot":
+            return v2Result(id: request.id, v2DebugLeakSnapshot())
+#endif
         case let method where method.hasPrefix("vm."):
             return socketWorkerCloudVMResponse(method: method, id: request.id, params: request.params)
         default:
@@ -2825,6 +2842,12 @@ class TerminalController {
             return v2Result(id: id, self.v2DebugSessionSnapshotBenchmark(params: params))
         case "debug.session_snapshot_seed_scrollback":
             return v2Result(id: id, self.v2DebugSessionSnapshotSeedScrollback(params: params))
+        case "debug.leak.snapshot":
+            return v2Error(
+                id: id,
+                code: "invalid_dispatch",
+                message: "debug.leak.snapshot must run on the socket worker"
+            )
 #endif
         case "auth.login":
             return v2Ok(
@@ -3486,6 +3509,7 @@ class TerminalController {
             "debug.panel_snapshot.reset",
             "debug.session_snapshot_benchmark",
             "debug.session_snapshot_seed_scrollback",
+            "debug.leak.snapshot",
             "debug.window.screenshot",
         ])
 #endif
@@ -3814,6 +3838,31 @@ class TerminalController {
         payload["windows"] = windowNodes
         return .ok(payload)
     }
+
+#if DEBUG
+    private nonisolated func v2DebugLeakSnapshot() -> V2CallResult {
+        var info = task_vm_info_data_t()
+        var count = mach_msg_type_number_t(MemoryLayout<task_vm_info_data_t>.size / MemoryLayout<natural_t>.size)
+        let result = withUnsafeMutablePointer(to: &info) { pointer in
+            pointer.withMemoryRebound(to: integer_t.self, capacity: Int(count)) { rebound in
+                task_info(mach_task_self_, task_flavor_t(TASK_VM_INFO), rebound, &count)
+            }
+        }
+        guard result == KERN_SUCCESS else {
+            return .err(code: "snapshot_failed", message: "Failed to read task memory info", data: ["kern_return": Int(result)])
+        }
+        return .ok([
+            "sampled_at": ISO8601DateFormatter().string(from: Date()),
+            "pid": Int(getpid()),
+            "memory": [
+                "physical_footprint_bytes": UInt64(info.phys_footprint),
+                "resident_size_bytes": UInt64(info.resident_size),
+                "virtual_size_bytes": UInt64(info.virtual_size)
+            ],
+            "source": "task_info.TASK_VM_INFO"
+        ])
+    }
+#endif
 
     private func v2SystemTopBasePayload(params: [String: Any]) -> V2CallResult {
         let workspaceFilter = v2UUID(params, "workspace_id")
@@ -9351,7 +9400,7 @@ class TerminalController {
         return (workspace.focusedPanelId, nil)
     }
 
-    private func v2JSONLiteral(_ value: Any) -> String {
+    private nonisolated func v2JSONLiteral(_ value: Any) -> String {
         if let data = try? JSONSerialization.data(withJSONObject: [value], options: []),
            let text = String(data: data, encoding: .utf8),
            text.count >= 2 {
@@ -9363,7 +9412,7 @@ class TerminalController {
         return "null"
     }
 
-    private func v2NormalizeJSValue(_ value: Any?) -> Any {
+    private nonisolated func v2NormalizeJSValue(_ value: Any?) -> Any {
         guard let value else { return NSNull() }
         if value is V2BrowserUndefinedSentinel {
             return [
@@ -9393,49 +9442,56 @@ class TerminalController {
         case failure(String)
     }
 
-    private func v2RunJavaScript(
+    private enum V2BrowserContentWorld {
+        case page
+        case defaultClient
+
+        @MainActor
+        var webKitContentWorld: WKContentWorld {
+            switch self {
+            case .page:
+                return .page
+            case .defaultClient:
+                return .defaultClient
+            }
+        }
+    }
+
+    private nonisolated func v2RunJavaScript(
         _ webView: WKWebView,
         script: String,
         timeout: TimeInterval = 5.0,
         preferAsync: Bool = false,
-        contentWorld: WKContentWorld
+        contentWorld: V2BrowserContentWorld
     ) -> V2JavaScriptResult {
         let timeoutSeconds = max(0.01, timeout)
-        let evaluator: (@escaping (Any?, String?) -> Void) -> Void = { finish in
-            if preferAsync, #available(macOS 11.0, *) {
-                webView.callAsyncJavaScript(script, arguments: [:], in: nil, in: contentWorld) { result in
-                    switch result {
-                    case .success(let value):
-                        finish(value, nil)
-                    case .failure(let error):
-                        finish(nil, error.localizedDescription)
+        let evaluator: (@escaping (Any?, String?) -> Void) -> Void = { [self] finish in
+            self.v2MainSync {
+                let webKitContentWorld = contentWorld.webKitContentWorld
+                if preferAsync, #available(macOS 11.0, *) {
+                    webView.callAsyncJavaScript(script, arguments: [:], in: nil, in: webKitContentWorld) { result in
+                        switch result {
+                        case .success(let value):
+                            finish(value, nil)
+                        case .failure(let error):
+                            finish(nil, error.localizedDescription)
+                        }
                     }
-                }
-            } else {
-                webView.evaluateJavaScript(script) { value, error in
-                    if let error {
-                        finish(nil, error.localizedDescription)
-                    } else {
-                        finish(value, nil)
+                } else {
+                    webView.evaluateJavaScript(script) { value, error in
+                        if let error {
+                            finish(nil, error.localizedDescription)
+                        } else {
+                            finish(value, nil)
+                        }
                     }
                 }
             }
         }
 
-        let outcome: (Any?, String?)?
-        if Thread.isMainThread {
-            outcome = v2AwaitCallback(timeout: timeoutSeconds) { finish in
-                evaluator { value, error in
-                    finish((value, error))
-                }
-            }
-        } else {
-            outcome = v2AwaitCallback(timeout: timeoutSeconds) { finish in
-                DispatchQueue.main.async {
-                    evaluator { value, error in
-                        finish((value, error))
-                    }
-                }
+        let outcome = v2AwaitCallback(timeout: timeoutSeconds) { finish in
+            evaluator { value, error in
+                finish((value, error))
             }
         }
 
@@ -9448,7 +9504,7 @@ class TerminalController {
         return .success(outcome.0)
     }
 
-    private func v2AwaitCallback<T>(
+    private nonisolated func v2AwaitCallback<T>(
         timeout: TimeInterval,
         start: (@escaping (T) -> Void) -> Void
     ) -> T? {
@@ -9524,11 +9580,12 @@ class TerminalController {
         return result
     }
 
-    private func v2WaitForBrowserCondition(
+    private nonisolated func v2WaitForBrowserCondition(
         _ webView: WKWebView,
         surfaceId: UUID,
         conditionScript: String,
-        timeoutMs: Int
+        timeoutMs: Int,
+        frameSelector: String? = nil
     ) -> Bool {
         let timeout = Double(timeoutMs) / 1000.0
         let waitScript = """
@@ -9600,7 +9657,8 @@ class TerminalController {
             surfaceId: surfaceId,
             script: waitScript,
             timeout: timeout + 1.0,
-            useEval: false
+            useEval: false,
+            frameSelector: frameSelector
         ) {
         case .success(let value):
             return (value as? Bool) == true
@@ -9648,17 +9706,22 @@ class TerminalController {
         v2BrowserFrameSelectorBySurface[surfaceId]
     }
 
-    private func v2RunBrowserJavaScript(
+    private nonisolated func v2RunBrowserJavaScript(
         _ webView: WKWebView,
         surfaceId: UUID,
         script: String,
         timeout: TimeInterval = 5.0,
-        useEval: Bool = true
+        useEval: Bool = true,
+        frameSelector: String? = nil,
+        elementSelector: String? = nil
     ) -> V2JavaScriptResult {
         let scriptLiteral = v2JSONLiteral(script)
         let framePrelude: String
-        if let frameSelector = v2BrowserCurrentFrameSelector(surfaceId: surfaceId) {
-            let selectorLiteral = v2JSONLiteral(frameSelector)
+        let effectiveFrameSelector = frameSelector ?? v2MainSync {
+            self.v2BrowserCurrentFrameSelector(surfaceId: surfaceId)
+        }
+        if let effectiveFrameSelector {
+            let selectorLiteral = v2JSONLiteral(effectiveFrameSelector)
             framePrelude = """
             let __cmuxDoc = document;
             try {
@@ -9672,9 +9735,26 @@ class TerminalController {
             framePrelude = "const __cmuxDoc = document;"
         }
 
+        let elementPrelude: String
+        if let elementSelector {
+            let elementSelectorLiteral = v2JSONLiteral(elementSelector)
+            elementPrelude = """
+            const __cmuxElement = document.querySelector(\(elementSelectorLiteral));
+            if (!__cmuxElement) {
+              throw new Error('Element not found: ' + \(elementSelectorLiteral));
+            }
+            """
+        } else {
+            elementPrelude = ""
+        }
+
         let executionBlock: String
         if useEval {
-            executionBlock = "const __r = eval(\(scriptLiteral));"
+            if elementSelector != nil {
+                executionBlock = "const __r = (function(element, $el) { return eval(\(scriptLiteral)); }).call(__cmuxElement, __cmuxElement, __cmuxElement);"
+            } else {
+                executionBlock = "const __r = eval(\(scriptLiteral));"
+            }
         } else {
             executionBlock = "const __r = \(script);"
         }
@@ -9691,6 +9771,7 @@ class TerminalController {
 
         const __cmuxEvalInFrame = async function() {
           const document = __cmuxDoc;
+          \(elementPrelude)
           \(executionBlock)
           const __value = await __cmuxMaybeAwait(__r);
           return {
@@ -9749,7 +9830,7 @@ class TerminalController {
 
             switch type {
             case Self.v2BrowserEvalEnvelopeTypeUndefined:
-                return .success(v2BrowserUndefinedSentinel)
+                return .success(Self.v2BrowserUndefinedSentinel)
             case Self.v2BrowserEvalEnvelopeTypeValue:
                 return .success(dict[Self.v2BrowserEvalEnvelopeValueKey])
             default:
@@ -10353,23 +10434,311 @@ class TerminalController {
         }
     }
 
+    private struct V2BrowserSocketWorkerSnapshot {
+        let workspaceId: UUID
+        let workspaceRef: String?
+        let surfaceId: UUID
+        let surfaceRef: String?
+        let webView: WKWebView?
+        let frameSelector: String?
+        let resolvedSelector: String?
+        let error: V2CallResult?
+    }
+
+    private nonisolated static func v2WorkerBrowserSelector(_ params: [String: Any]) -> String? {
+        if let selector = v2WorkerString(params, "selector")
+            ?? v2WorkerString(params, "sel")
+            ?? v2WorkerString(params, "element_ref") {
+            return selector
+        }
+        guard let ref = v2WorkerString(params, "ref")?.trimmingCharacters(in: .whitespacesAndNewlines) else {
+            return nil
+        }
+        if ref.hasPrefix("@e") {
+            return ref
+        }
+        if ref.hasPrefix("e"), Int(ref.dropFirst()) != nil {
+            return ref
+        }
+        return nil
+    }
+
+    private nonisolated func v2BrowserSocketWorkerSnapshot(
+        params: [String: Any],
+        selectorRaw: String? = nil
+    ) -> V2BrowserSocketWorkerSnapshot {
+        v2MainSync {
+            v2RefreshKnownRefs()
+            guard let tabManager = v2ResolveTabManager(params: params) else {
+                return V2BrowserSocketWorkerSnapshot(
+                    workspaceId: UUID(),
+                    workspaceRef: nil,
+                    surfaceId: UUID(),
+                    surfaceRef: nil,
+                    webView: nil,
+                    frameSelector: nil,
+                    resolvedSelector: nil,
+                    error: .err(code: "unavailable", message: "TabManager not available", data: nil)
+                )
+            }
+            guard let ws = v2ResolveWorkspace(params: params, tabManager: tabManager) else {
+                return V2BrowserSocketWorkerSnapshot(
+                    workspaceId: UUID(),
+                    workspaceRef: nil,
+                    surfaceId: UUID(),
+                    surfaceRef: nil,
+                    webView: nil,
+                    frameSelector: nil,
+                    resolvedSelector: nil,
+                    error: .err(code: "not_found", message: "Workspace not found", data: nil)
+                )
+            }
+            let resolvedSurface = v2ResolveBrowserSurfaceId(params: params, workspace: ws)
+            if let error = resolvedSurface.error {
+                return V2BrowserSocketWorkerSnapshot(
+                    workspaceId: ws.id,
+                    workspaceRef: v2EnsureHandleRef(kind: .workspace, uuid: ws.id),
+                    surfaceId: UUID(),
+                    surfaceRef: nil,
+                    webView: nil,
+                    frameSelector: nil,
+                    resolvedSelector: nil,
+                    error: error
+                )
+            }
+            guard let surfaceId = resolvedSurface.surfaceId else {
+                return V2BrowserSocketWorkerSnapshot(
+                    workspaceId: ws.id,
+                    workspaceRef: v2EnsureHandleRef(kind: .workspace, uuid: ws.id),
+                    surfaceId: UUID(),
+                    surfaceRef: nil,
+                    webView: nil,
+                    frameSelector: nil,
+                    resolvedSelector: nil,
+                    error: .err(code: "not_found", message: "No focused browser surface", data: nil)
+                )
+            }
+            guard let browserPanel = ws.browserPanel(for: surfaceId) else {
+                return V2BrowserSocketWorkerSnapshot(
+                    workspaceId: ws.id,
+                    workspaceRef: v2EnsureHandleRef(kind: .workspace, uuid: ws.id),
+                    surfaceId: surfaceId,
+                    surfaceRef: v2EnsureHandleRef(kind: .surface, uuid: surfaceId),
+                    webView: nil,
+                    frameSelector: nil,
+                    resolvedSelector: nil,
+                    error: .err(code: "invalid_params", message: "Surface is not a browser", data: ["surface_id": surfaceId.uuidString])
+                )
+            }
+
+            let selector: String?
+            if let selectorRaw {
+                guard let resolved = v2BrowserResolveSelector(selectorRaw, surfaceId: surfaceId) else {
+                    return V2BrowserSocketWorkerSnapshot(
+                        workspaceId: ws.id,
+                        workspaceRef: v2EnsureHandleRef(kind: .workspace, uuid: ws.id),
+                        surfaceId: surfaceId,
+                        surfaceRef: v2EnsureHandleRef(kind: .surface, uuid: surfaceId),
+                        webView: nil,
+                        frameSelector: nil,
+                        resolvedSelector: nil,
+                        error: .err(code: "not_found", message: "Element reference not found", data: ["selector": selectorRaw])
+                    )
+                }
+                selector = resolved
+            } else {
+                selector = nil
+            }
+
+            return V2BrowserSocketWorkerSnapshot(
+                workspaceId: ws.id,
+                workspaceRef: v2EnsureHandleRef(kind: .workspace, uuid: ws.id),
+                surfaceId: surfaceId,
+                surfaceRef: v2EnsureHandleRef(kind: .surface, uuid: surfaceId),
+                webView: browserPanel.webView,
+                frameSelector: v2BrowserCurrentFrameSelector(surfaceId: surfaceId),
+                resolvedSelector: selector,
+                error: nil
+            )
+        }
+    }
+
+    private nonisolated func v2BrowserEvalOnSocketWorker(params: [String: Any]) -> V2CallResult {
+        guard let script = Self.v2WorkerString(params, "script") else {
+            return .err(code: "invalid_params", message: "Missing script", data: nil)
+        }
+
+        let selectorRaw = Self.v2WorkerBrowserSelector(params)
+        let snapshot = v2BrowserSocketWorkerSnapshot(params: params, selectorRaw: selectorRaw)
+        if let error = snapshot.error {
+            return error
+        }
+        guard let webView = snapshot.webView else {
+            return .err(code: "internal_error", message: "Failed to resolve browser surface", data: nil)
+        }
+
+        switch v2RunBrowserJavaScript(
+            webView,
+            surfaceId: snapshot.surfaceId,
+            script: script,
+            timeout: 10.0,
+            frameSelector: snapshot.frameSelector,
+            elementSelector: snapshot.resolvedSelector
+        ) {
+        case .failure(let message):
+            return .err(code: "js_error", message: message, data: nil)
+        case .success(let value):
+            return .ok([
+                "workspace_id": snapshot.workspaceId.uuidString,
+                "workspace_ref": v2OrNull(snapshot.workspaceRef),
+                "surface_id": snapshot.surfaceId.uuidString,
+                "surface_ref": v2OrNull(snapshot.surfaceRef),
+                "value": v2NormalizeJSValue(value)
+            ])
+        }
+    }
+
+    private nonisolated func v2BrowserWaitOnSocketWorker(params: [String: Any]) -> V2CallResult {
+        let timeoutMs = max(1, Self.v2WorkerInt(params, "timeout_ms") ?? 5_000)
+        let selectorRaw = Self.v2WorkerBrowserSelector(params)
+
+        let conditionScriptBase: String = {
+            if let urlContains = Self.v2WorkerString(params, "url_contains") {
+                let literal = v2JSONLiteral(urlContains)
+                return "String(location.href || '').includes(\(literal))"
+            }
+            if let textContains = Self.v2WorkerString(params, "text_contains") {
+                let literal = v2JSONLiteral(textContains)
+                return "(document.body && String(document.body.innerText || '').includes(\(literal)))"
+            }
+            if let loadState = Self.v2WorkerString(params, "load_state") {
+                let normalizedLoadState = loadState.lowercased()
+                if normalizedLoadState == "interactive" {
+                    return """
+                    (() => {
+                      const __state = String(document.readyState || '').toLowerCase();
+                      return __state === 'interactive' || __state === 'complete';
+                    })()
+                    """
+                }
+                let literal = v2JSONLiteral(normalizedLoadState)
+                return "String(document.readyState || '').toLowerCase() === \(literal)"
+            }
+            if let fn = Self.v2WorkerString(params, "function") {
+                return "(() => { return !!(\(fn)); })()"
+            }
+            return "document.readyState === 'complete'"
+        }()
+
+        let snapshot = v2BrowserSocketWorkerSnapshot(params: params, selectorRaw: selectorRaw)
+        if let error = snapshot.error {
+            return error
+        }
+        guard let webView = snapshot.webView else {
+            return .err(code: "internal_error", message: "Failed to resolve browser surface", data: nil)
+        }
+
+        let conditionScript: String
+        if let selectorRaw {
+            guard let selector = snapshot.resolvedSelector else {
+                return .err(code: "not_found", message: "Element reference not found", data: ["selector": selectorRaw])
+            }
+            let literal = v2JSONLiteral(selector)
+            conditionScript = "document.querySelector(\(literal)) !== null"
+        } else {
+            conditionScript = conditionScriptBase
+        }
+
+        if v2WaitForBrowserCondition(
+            webView,
+            surfaceId: snapshot.surfaceId,
+            conditionScript: conditionScript,
+            timeoutMs: timeoutMs,
+            frameSelector: snapshot.frameSelector
+        ) {
+            return .ok([
+                "workspace_id": snapshot.workspaceId.uuidString,
+                "workspace_ref": v2OrNull(snapshot.workspaceRef),
+                "surface_id": snapshot.surfaceId.uuidString,
+                "surface_ref": v2OrNull(snapshot.surfaceRef),
+                "waited": true
+            ])
+        }
+        return .err(code: "timeout", message: "Condition not met before timeout", data: ["timeout_ms": timeoutMs])
+    }
+
     private func v2BrowserEval(params: [String: Any]) -> V2CallResult {
         guard let script = v2String(params, "script") else {
             return .err(code: "invalid_params", message: "Missing script", data: nil)
         }
-        return v2BrowserWithPanel(params: params) { _, ws, surfaceId, browserPanel in
-            switch v2RunBrowserJavaScript(browserPanel.webView, surfaceId: surfaceId, script: script, timeout: 10.0) {
-            case .failure(let message):
-                return .err(code: "js_error", message: message, data: nil)
-            case .success(let value):
-                return .ok([
-                    "workspace_id": ws.id.uuidString,
-                    "workspace_ref": v2Ref(kind: .workspace, uuid: ws.id),
-                    "surface_id": surfaceId.uuidString,
-                    "surface_ref": v2Ref(kind: .surface, uuid: surfaceId),
-                    "value": v2NormalizeJSValue(value)
-                ])
+
+        var setupResult: V2CallResult?
+        var workspaceId: UUID?
+        var surfaceIdOut: UUID?
+        var webView: WKWebView?
+        var frameSelector: String?
+        var resolvedSelector: String?
+
+        v2MainSync {
+            guard let tabManager = self.v2ResolveTabManager(params: params) else {
+                setupResult = .err(code: "unavailable", message: "TabManager not available", data: nil)
+                return
             }
+            guard let ws = self.v2ResolveWorkspace(params: params, tabManager: tabManager) else {
+                setupResult = .err(code: "not_found", message: "Workspace not found", data: nil)
+                return
+            }
+            let resolvedSurface = self.v2ResolveBrowserSurfaceId(params: params, workspace: ws)
+            if let error = resolvedSurface.error {
+                setupResult = error
+                return
+            }
+            guard let surfaceId = resolvedSurface.surfaceId else {
+                setupResult = .err(code: "not_found", message: "No focused browser surface", data: nil)
+                return
+            }
+            guard let browserPanel = ws.browserPanel(for: surfaceId) else {
+                setupResult = .err(code: "invalid_params", message: "Surface is not a browser", data: ["surface_id": surfaceId.uuidString])
+                return
+            }
+            if let selectorRaw = Self.v2WorkerBrowserSelector(params) {
+                guard let selector = self.v2BrowserResolveSelector(selectorRaw, surfaceId: surfaceId) else {
+                    setupResult = .err(code: "not_found", message: "Element reference not found", data: ["selector": selectorRaw])
+                    return
+                }
+                resolvedSelector = selector
+            }
+            workspaceId = ws.id
+            surfaceIdOut = surfaceId
+            webView = browserPanel.webView
+            frameSelector = self.v2BrowserCurrentFrameSelector(surfaceId: surfaceId)
+        }
+
+        if let setupResult {
+            return setupResult
+        }
+        guard let workspaceId, let surfaceIdOut, let webView else {
+            return .err(code: "internal_error", message: "Failed to resolve browser surface", data: nil)
+        }
+
+        switch v2RunBrowserJavaScript(
+            webView,
+            surfaceId: surfaceIdOut,
+            script: script,
+            timeout: 10.0,
+            frameSelector: frameSelector,
+            elementSelector: resolvedSelector
+        ) {
+        case .failure(let message):
+            return .err(code: "js_error", message: message, data: nil)
+        case .success(let value):
+            return .ok([
+                "workspace_id": workspaceId.uuidString,
+                "workspace_ref": v2Ref(kind: .workspace, uuid: workspaceId),
+                "surface_id": surfaceIdOut.uuidString,
+                "surface_ref": v2Ref(kind: .surface, uuid: surfaceIdOut),
+                "value": v2NormalizeJSValue(value)
+            ])
         }
     }
 
@@ -10690,6 +11059,8 @@ class TerminalController {
         var workspaceId: UUID?
         var surfaceIdOut: UUID?
         var webView: WKWebView?
+        var resolvedSelector: String?
+        var frameSelector: String?
 
         v2MainSync {
             guard let tabManager = self.v2ResolveTabManager(params: params) else {
@@ -10709,9 +11080,17 @@ class TerminalController {
                 setupResult = .err(code: "invalid_params", message: "Surface is not a browser", data: ["surface_id": surfaceId.uuidString])
                 return
             }
+            if let selectorRaw {
+                guard let selector = self.v2BrowserResolveSelector(selectorRaw, surfaceId: surfaceId) else {
+                    setupResult = .err(code: "not_found", message: "Element reference not found", data: ["selector": selectorRaw])
+                    return
+                }
+                resolvedSelector = selector
+            }
             workspaceId = ws.id
             surfaceIdOut = surfaceId
             webView = browserPanel.webView
+            frameSelector = self.v2BrowserCurrentFrameSelector(surfaceId: surfaceId)
         }
 
         if let setupResult {
@@ -10723,7 +11102,7 @@ class TerminalController {
 
         let conditionScript: String
         if let selectorRaw {
-            guard let selector = v2BrowserResolveSelector(selectorRaw, surfaceId: surfaceIdOut) else {
+            guard let selector = resolvedSelector else {
                 return .err(code: "not_found", message: "Element reference not found", data: ["selector": selectorRaw])
             }
             let literal = v2JSONLiteral(selector)
@@ -10736,7 +11115,8 @@ class TerminalController {
             webView,
             surfaceId: surfaceIdOut,
             conditionScript: conditionScript,
-            timeoutMs: timeoutMs
+            timeoutMs: timeoutMs,
+            frameSelector: frameSelector
         ) {
             return .ok([
                 "workspace_id": workspaceId.uuidString,

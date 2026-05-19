@@ -13,6 +13,8 @@ from cmux import cmux, cmuxError
 
 
 SOCKET_PATH = os.environ.get("CMUX_SOCKET_PATH", "/tmp/cmux-debug.sock")
+RESPONSIVENESS_TIMEOUT_S = 0.75
+RESPONSIVENESS_JITTER_S = 0.10
 
 
 def _must(cond: bool, msg: str) -> None:
@@ -28,9 +30,12 @@ def _timed_call(method: str, params: dict | None = None, timeout_s: float = 1.0)
 
 
 def _assert_unrelated_socket_calls_are_responsive(label: str) -> None:
-    for method in ("system.ping", "workspace.list"):
-        elapsed, response = _timed_call(method, timeout_s=0.75)
-        _must(elapsed < 0.75, f"{method} was blocked by pending {label} for {elapsed:.3f}s")
+    for method in ("system.ping", "workspace.list", "debug.leak.snapshot"):
+        elapsed, response = _timed_call(method, timeout_s=RESPONSIVENESS_TIMEOUT_S)
+        _must(
+            elapsed < RESPONSIVENESS_TIMEOUT_S + RESPONSIVENESS_JITTER_S,
+            f"{method} was blocked by pending {label} for {elapsed:.3f}s",
+        )
         _must(response is not None, f"{method} returned no response during pending {label}")
 
 
@@ -39,12 +44,24 @@ def main() -> int:
         opened = c._call("browser.open_split", {"url": "about:blank"}, timeout_s=10.0) or {}
         surface_id = str(opened.get("surface_id") or "")
         _must(surface_id != "", f"browser.open_split returned no surface_id: {opened}")
+        selector_eval = c._call(
+            "browser.eval",
+            {
+                "surface_id": surface_id,
+                "selector": "body",
+                "script": "this === document.body",
+            },
+            timeout_s=5.0,
+        ) or {}
+        _must(selector_eval.get("value") is True, f"Expected selector-scoped browser.eval, got {selector_eval!r}")
 
+    wait_started = threading.Event()
     wait_result: "queue.Queue[object]" = queue.Queue()
 
     def run_pending_wait() -> None:
         try:
             with cmux(SOCKET_PATH) as waiter:
+                wait_started.set()
                 waiter._call(
                     "browser.wait",
                     {
@@ -61,7 +78,7 @@ def main() -> int:
     thread = threading.Thread(target=run_pending_wait, name="pending-browser-wait")
     thread.start()
 
-    time.sleep(0.25)
+    _must(wait_started.wait(timeout=2.0), "browser.wait did not start")
     _must(thread.is_alive(), "browser.wait finished before responsiveness probe could run")
 
     _assert_unrelated_socket_calls_are_responsive("browser.wait")
@@ -73,11 +90,13 @@ def main() -> int:
     _must(isinstance(wait_exc, cmuxError), f"Expected browser.wait timeout error, got {wait_exc!r}")
     _must("timeout" in str(wait_exc).lower(), f"Expected timeout error from pending browser.wait, got {wait_exc!r}")
 
+    eval_started = threading.Event()
     eval_result: "queue.Queue[object]" = queue.Queue()
 
     def run_pending_eval() -> None:
         try:
             with cmux(SOCKET_PATH) as evaluator:
+                eval_started.set()
                 result = evaluator._call(
                     "browser.eval",
                     {
@@ -93,7 +112,7 @@ def main() -> int:
     eval_thread = threading.Thread(target=run_pending_eval, name="pending-browser-eval")
     eval_thread.start()
 
-    time.sleep(0.25)
+    _must(eval_started.wait(timeout=2.0), "browser.eval did not start")
     _must(eval_thread.is_alive(), "browser.eval finished before responsiveness probe could run")
 
     _assert_unrelated_socket_calls_are_responsive("browser.eval")
