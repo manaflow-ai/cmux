@@ -698,19 +698,28 @@ def codex_command_hook_hash(
     return f"sha256:{hashlib.sha256(canonical).hexdigest()}"
 
 
-def cmux_codex_hook_command(subcommand: str) -> str:
+def cmux_codex_shell_command(routed_command: str) -> str:
     return (
-        '[ -n "$CMUX_SURFACE_ID" ] && [ "$CMUX_CODEX_HOOKS_DISABLED" != "1" ] '
-        f"&& command -v cmux >/dev/null 2>&1 && cmux hooks codex {subcommand} || echo '{{}}'"
+        'cmux_cli="${CMUX_BUNDLED_CLI_PATH:-}"; '
+        'if [ -z "$cmux_cli" ] || [ ! -x "$cmux_cli" ]; then '
+        'cmux_cli="$(command -v cmux 2>/dev/null || true)"; '
+        'fi; '
+        'if [ -n "$CMUX_SURFACE_ID" ] && [ "$CMUX_CODEX_HOOKS_DISABLED" != "1" ] && [ -n "$cmux_cli" ]; then '
+        '{ if [ -n "${CMUX_SOCKET_PATH:-}" ]; then '
+        f'"$cmux_cli" --socket "$CMUX_SOCKET_PATH" {routed_command}; '
+        "else "
+        f'"$cmux_cli" {routed_command}; '
+        "fi; } || echo '{}'; "
+        "else echo '{}'; fi"
     )
+
+
+def cmux_codex_hook_command(subcommand: str) -> str:
+    return cmux_codex_shell_command(f"hooks codex {subcommand}")
 
 
 def cmux_codex_feed_command(agent_event: str) -> str:
-    return (
-        '[ -n "$CMUX_SURFACE_ID" ] && [ "$CMUX_CODEX_HOOKS_DISABLED" != "1" ] '
-        f"&& command -v cmux >/dev/null 2>&1 && cmux hooks feed --source codex --event {agent_event} "
-        "|| echo '{}'"
-    )
+    return cmux_codex_shell_command(f"hooks feed --source codex --event {agent_event}")
 
 
 def is_cmux_codex_hook_command(command: str) -> bool:
@@ -848,7 +857,7 @@ def test_install_adds_codex_permission_request_hook(cli_path: str, root: Path) -
         if not groups:
             raise AssertionError(f"missing {event_name} hook group: {hooks!r}")
         command = groups[-1]["hooks"][0]["command"]
-        if f"cmux hooks feed --source codex --event {event_name}" not in command:
+        if command != cmux_codex_feed_command(event_name):
             raise AssertionError(f"wrong {event_name} feed command: {command!r}")
         if groups[-1]["hooks"][0].get("timeout") != 120_000:
             raise AssertionError(f"wrong {event_name} timeout: {groups[-1]!r}")
@@ -946,7 +955,7 @@ def test_install_preserves_codex_hook_position_with_third_party_hooks(cli_path: 
     groups = hooks["hooks"]["PreToolUse"]
     first_command = groups[0]["hooks"][0]["command"]
     second_command = groups[1]["hooks"][0]["command"]
-    if "cmux hooks feed --source codex --event PreToolUse" not in first_command:
+    if first_command != cmux_codex_feed_command("PreToolUse"):
         raise AssertionError(f"cmux hook did not keep its existing position: {groups!r}")
     if second_command != orca_hook:
         raise AssertionError(f"third-party hook was not preserved after cmux hook: {groups!r}")
