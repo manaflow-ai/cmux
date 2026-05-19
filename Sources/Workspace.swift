@@ -14891,6 +14891,11 @@ extension Workspace: BonsplitDelegate {
         }
     }
 
+    func splitTabBar(_ controller: BonsplitController, didCommitInlineRename title: String, for tab: Bonsplit.Tab, inPane pane: PaneID) {
+        guard let panelId = panelIdFromSurfaceId(tab.id) else { return }
+        setPanelCustomTitle(panelId: panelId, title: title)
+    }
+
     func splitTabBar(_ controller: BonsplitController, didRequestTabMoveToDestination destinationId: String, for tab: Bonsplit.Tab, inPane pane: PaneID) {
         _ = moveBonsplitTab(tab.id, toMoveDestination: destinationId)
     }

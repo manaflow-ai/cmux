@@ -12300,6 +12300,93 @@ private final class SidebarTabItemContextMenuState: ObservableObject {
     var pendingWorkspaceSnapshot: SidebarWorkspaceSnapshotBuilder.Snapshot?
 }
 
+private struct SidebarInlineRenameField: NSViewRepresentable {
+    let initialTitle: String
+    let fontSize: CGFloat
+    let fontWeight: NSFont.Weight
+    let textColor: NSColor
+    let onCommit: (String) -> Void
+    let onCancel: () -> Void
+
+    final class Coordinator: NSObject, NSTextFieldDelegate {
+        var parent: SidebarInlineRenameField
+        var didFinish = false
+
+        init(parent: SidebarInlineRenameField) {
+            self.parent = parent
+        }
+
+        func finishCommit(_ title: String) {
+            guard !didFinish else { return }
+            didFinish = true
+            parent.onCommit(title)
+        }
+
+        func finishCancel() {
+            guard !didFinish else { return }
+            didFinish = true
+            parent.onCancel()
+        }
+
+        func controlTextDidEndEditing(_ obj: Notification) {
+            guard let field = obj.object as? NSTextField else { return }
+            finishCommit(field.stringValue)
+        }
+
+        func control(_ control: NSControl, textView: NSTextView, doCommandBy commandSelector: Selector) -> Bool {
+            switch commandSelector {
+            case #selector(NSResponder.insertNewline(_:)):
+                guard !textView.hasMarkedText() else { return false }
+                finishCommit(textView.string)
+                return true
+            case #selector(NSResponder.cancelOperation(_:)):
+                guard !textView.hasMarkedText() else { return false }
+                finishCancel()
+                return true
+            default:
+                return false
+            }
+        }
+    }
+
+    func makeCoordinator() -> Coordinator {
+        Coordinator(parent: self)
+    }
+
+    func makeNSView(context: Context) -> NSTextField {
+        let field = NSTextField(string: initialTitle)
+        field.delegate = context.coordinator
+        field.isBordered = false
+        field.isBezeled = false
+        field.drawsBackground = false
+        field.focusRingType = .none
+        field.font = .systemFont(ofSize: fontSize, weight: fontWeight)
+        field.textColor = textColor
+        field.lineBreakMode = .byTruncatingTail
+        field.cell?.usesSingleLineMode = true
+        field.cell?.wraps = false
+        field.cell?.isScrollable = true
+        field.setAccessibilityIdentifier("sidebar.workspace.inlineRenameField")
+
+        DispatchQueue.main.async {
+            guard !context.coordinator.didFinish else { return }
+            field.window?.makeFirstResponder(field)
+            field.currentEditor()?.selectAll(nil)
+        }
+
+        return field
+    }
+
+    func updateNSView(_ field: NSTextField, context: Context) {
+        context.coordinator.parent = self
+        field.font = .systemFont(ofSize: fontSize, weight: fontWeight)
+        field.textColor = textColor
+        if field.currentEditor() == nil, field.stringValue != initialTitle {
+            field.stringValue = initialTitle
+        }
+    }
+}
+
 private struct TabItemView: View, Equatable {
     private static let workspaceObservationCoalesceInterval: RunLoop.SchedulerTimeType.Stride = .milliseconds(40)
     private static let legacyVMWebSocketDescription = "VM WebSocket PTY"
@@ -12365,6 +12452,7 @@ private struct TabItemView: View, Equatable {
     @State private var rowHeight: CGFloat = 1
     @State private var workspaceFinderDirectoryCache = WorkspaceFinderDirectoryCache()
     @State private var workspaceFinderDirectoryOpenRequest: WorkspaceFinderDirectoryOpenRequest?
+    @State private var inlineRenameInitialTitle: String?
 
     var isMultiSelected: Bool {
         selectedTabIds.contains(tab.id)
@@ -12465,6 +12553,12 @@ private struct TabItemView: View, Equatable {
         usesInvertedActiveForeground
             ? Color(nsColor: sidebarSelectedWorkspaceForegroundNSColor(opacity: 1.0))
             : .primary
+    }
+
+    private var activePrimaryTextNSColor: NSColor {
+        usesInvertedActiveForeground
+            ? sidebarSelectedWorkspaceForegroundNSColor(opacity: 1.0)
+            : .labelColor
     }
 
     private func activeSecondaryColor(_ opacity: Double = 0.75) -> Color {
@@ -12645,13 +12739,26 @@ private struct TabItemView: View, Equatable {
                         .safeHelp(protectedWorkspaceTooltip)
                 }
 
-                Text(workspaceSnapshot.title)
-                    .font(.system(size: 12.5, weight: titleFontWeight))
-                    .foregroundColor(activePrimaryTextColor)
-                    .lineLimit(1)
-                    .truncationMode(.tail)
-                    .frame(maxWidth: .infinity, alignment: .leading)
+                if let inlineRenameInitialTitle {
+                    SidebarInlineRenameField(
+                        initialTitle: inlineRenameInitialTitle,
+                        fontSize: 12.5,
+                        fontWeight: .semibold,
+                        textColor: activePrimaryTextNSColor,
+                        onCommit: commitInlineRename,
+                        onCancel: cancelInlineRename
+                    )
+                    .frame(maxWidth: .infinity, minHeight: 18, maxHeight: 22, alignment: .leading)
                     .layoutPriority(1)
+                } else {
+                    Text(workspaceSnapshot.title)
+                        .font(.system(size: 12.5, weight: titleFontWeight))
+                        .foregroundColor(activePrimaryTextColor)
+                        .lineLimit(1)
+                        .truncationMode(.tail)
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                        .layoutPriority(1)
+                }
             }
 
             if let description = workspaceSnapshot.customDescription {
@@ -13001,8 +13108,13 @@ private struct TabItemView: View, Equatable {
         .onTapGesture {
             updateSelection()
         }
+        .simultaneousGesture(
+            TapGesture(count: 2).onEnded {
+                beginRenameFromDoubleClick()
+            }
+        )
         .safeHelp(workspaceSnapshot.title)
-        .accessibilityElement(children: .combine)
+        .accessibilityElement(children: inlineRenameInitialTitle == nil ? .combine : .contain)
         .accessibilityLabel(Text(accessibilityTitle))
         .accessibilityHint(Text(accessibilityHintText))
         .accessibilityAction(named: Text(moveUpActionText)) {
@@ -13449,6 +13561,24 @@ private struct TabItemView: View, Equatable {
             )
         }
         setSelectionToTabs()
+    }
+
+    private func beginRenameFromDoubleClick() {
+        selectedTabIds = [tab.id]
+        lastSidebarSelectionIndex = index
+        tabManager.selectTab(tab)
+        setSelectionToTabs()
+        inlineRenameInitialTitle = tab.customTitle ?? tab.title
+    }
+
+    private func commitInlineRename(_ title: String) {
+        inlineRenameInitialTitle = nil
+        tabManager.setCustomTitle(tabId: tab.id, title: title)
+        refreshWorkspaceSnapshot(force: true)
+    }
+
+    private func cancelInlineRename() {
+        inlineRenameInitialTitle = nil
     }
 
     private func closeTabs(_ targetIds: [UUID], allowPinned: Bool) {

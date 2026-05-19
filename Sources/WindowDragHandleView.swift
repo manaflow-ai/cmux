@@ -469,6 +469,9 @@ func isMinimalModeTitlebarControlHit(window: NSWindow, locationInWindow: NSPoint
     if isMinimalModeSidebarTitlebarControlButtonHit(window: window, locationInWindow: locationInWindow) {
         return true
     }
+    if BonsplitTabBarHitRegionRegistry.containsWindowPoint(locationInWindow, in: window) {
+        return true
+    }
     return MinimalModeTitlebarControlHitRegionRegistry.containsWindowPoint(locationInWindow, in: window)
 }
 
