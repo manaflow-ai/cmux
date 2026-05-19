@@ -119,7 +119,7 @@ nonisolated struct CmuxTopProcessScope: Sendable {
     let surfaceID: UUID?
     let attributionReason: String
 
-    init(workspaceID: UUID?, surfaceID: UUID?, attributionReason: String) {
+    init(workspaceID: UUID?, surfaceID: UUID?, attributionReason: String = "cmux-environment") {
         self.workspaceID = workspaceID
         self.surfaceID = surfaceID
         self.attributionReason = attributionReason

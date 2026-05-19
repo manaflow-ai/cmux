@@ -45,6 +45,10 @@ func browserOmnibarNormalizedModifierFlags(_ flags: NSEvent.ModifierFlags) -> NS
         .subtracting([.numericPad, .function, .capsLock])
 }
 
+func browserOmnibarShouldContinueControlNavigationRepeat(flags: NSEvent.ModifierFlags) -> Bool {
+    browserOmnibarNormalizedModifierFlags(flags) == [.control]
+}
+
 func browserOmnibarShouldSubmitOnReturn(flags: NSEvent.ModifierFlags) -> Bool {
     let normalizedFlags = browserOmnibarNormalizedModifierFlags(flags)
     return normalizedFlags == [] || normalizedFlags == [.shift]
@@ -98,6 +102,20 @@ func shouldDispatchBrowserArrowViaFirstResponderKeyDown(
     let normalizedFlags = flags
         .intersection(.deviceIndependentFlagsMask)
         .subtracting([.numericPad, .function, .capsLock])
+    return normalizedFlags.isEmpty
+}
+
+func shouldDispatchBrowserOmnibarArrowViaFirstResponderKeyDown(
+    keyCode: UInt16,
+    firstResponderIsBrowserOmnibar: Bool,
+    firstResponderHasMarkedText: Bool = false,
+    flags: NSEvent.ModifierFlags
+) -> Bool {
+    guard firstResponderIsBrowserOmnibar else { return false }
+    guard !firstResponderHasMarkedText else { return false }
+    guard (123...126).contains(keyCode) else { return false }
+
+    let normalizedFlags = browserOmnibarNormalizedModifierFlags(flags)
     return normalizedFlags.isEmpty
 }
 

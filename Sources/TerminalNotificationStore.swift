@@ -836,6 +836,10 @@ final class TerminalNotificationStore: ObservableObject {
         indexes.unreadCount
     }
 
+    var workspaceUnreadIndicatorIds: Set<UUID> {
+        manualUnreadWorkspaceIds.union(restoredUnreadWorkspaceIds)
+    }
+
     private func logAuthorization(_ message: String) {
 #if DEBUG
         cmuxDebugLog("notification.auth \(message)")
