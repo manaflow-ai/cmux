@@ -84,8 +84,8 @@ final class CLINotifyProcessIntegrationRegressionTests: XCTestCase {
             .compactMap { $0["command"] as? String }
 
         XCTAssertTrue(
-            stopFailureCommands.contains { $0.contains("hooks claude stop") },
-            "StopFailure must route through the same turn-end status path as Stop, saw \(stopFailureCommands)"
+            stopFailureCommands.contains { $0.contains("hooks claude stop-failure") },
+            "StopFailure must invoke the stop-failure subcommand so interrupt cleanup skips completion notification, saw \(stopFailureCommands)"
         )
     }
 
