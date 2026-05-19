@@ -91,9 +91,16 @@ nonisolated enum EphemeralWorktreeLifecycleError: LocalizedError {
 nonisolated struct EphemeralWorktreeGitClient {
     struct CommandResult: Sendable {
         let exitCode: Int32
-        let output: String
+        let standardOutput: String
+        let standardError: String
 
         var succeeded: Bool { exitCode == 0 }
+        var output: String {
+            [standardOutput, standardError]
+                .map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }
+                .filter { !$0.isEmpty }
+                .joined(separator: "\n")
+        }
     }
 
     var fileManager: FileManager = .default
@@ -103,7 +110,7 @@ nonisolated struct EphemeralWorktreeGitClient {
         guard result.succeeded else {
             throw EphemeralWorktreeLifecycleError.notGitRepository(directory)
         }
-        let root = result.output.trimmingCharacters(in: .whitespacesAndNewlines)
+        let root = result.standardOutput.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !root.isEmpty else {
             throw EphemeralWorktreeLifecycleError.notGitRepository(directory)
         }
@@ -186,7 +193,7 @@ nonisolated struct EphemeralWorktreeGitClient {
 
     func runGitChecked(_ arguments: [String]) throws -> String {
         let result = try runGit(arguments, allowFailure: false)
-        return result.output
+        return result.standardOutput
     }
 
     func runGit(_ arguments: [String], allowFailure: Bool) throws -> CommandResult {
@@ -194,15 +201,37 @@ nonisolated struct EphemeralWorktreeGitClient {
         process.executableURL = URL(fileURLWithPath: "/usr/bin/env")
         process.arguments = ["git"] + arguments
 
-        let outputPipe = Pipe()
-        process.standardOutput = outputPipe
-        process.standardError = outputPipe
+        let outputDirectory = fileManager.temporaryDirectory
+            .appendingPathComponent("cmux-worktree-git-\(UUID().uuidString)", isDirectory: true)
+        try fileManager.createDirectory(at: outputDirectory, withIntermediateDirectories: true)
+        let stdoutURL = outputDirectory.appendingPathComponent("stdout.txt", isDirectory: false)
+        let stderrURL = outputDirectory.appendingPathComponent("stderr.txt", isDirectory: false)
+        _ = fileManager.createFile(atPath: stdoutURL.path, contents: nil)
+        _ = fileManager.createFile(atPath: stderrURL.path, contents: nil)
+        defer { try? fileManager.removeItem(at: outputDirectory) }
+
+        let stdoutHandle = try FileHandle(forWritingTo: stdoutURL)
+        let stderrHandle = try FileHandle(forWritingTo: stderrURL)
+        defer {
+            stdoutHandle.closeFile()
+            stderrHandle.closeFile()
+        }
+
+        process.standardOutput = stdoutHandle
+        process.standardError = stderrHandle
 
         try process.run()
-        let data = outputPipe.fileHandleForReading.readDataToEndOfFile()
         process.waitUntilExit()
-        let output = String(data: data, encoding: .utf8) ?? ""
-        let result = CommandResult(exitCode: process.terminationStatus, output: output)
+        stdoutHandle.synchronizeFile()
+        stderrHandle.synchronizeFile()
+
+        let stdoutData = try Data(contentsOf: stdoutURL)
+        let stderrData = try Data(contentsOf: stderrURL)
+        let result = CommandResult(
+            exitCode: process.terminationStatus,
+            standardOutput: String(data: stdoutData, encoding: .utf8) ?? "",
+            standardError: String(data: stderrData, encoding: .utf8) ?? ""
+        )
         if !allowFailure && !result.succeeded {
             throw EphemeralWorktreeLifecycleError.commandFailed(
                 command: (["git"] + arguments).joined(separator: " "),
