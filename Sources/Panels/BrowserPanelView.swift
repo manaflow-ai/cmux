@@ -7062,6 +7062,9 @@ struct WebViewRepresentable: NSViewRepresentable {
         let hostOwnsPortal = useLocalInlineHosting
             ? updateUsingLocalInlineHosting(nsView, context: context, webView: webView)
             : updateUsingWindowPortal(nsView, context: context, webView: webView)
+        if hostOwnsPortal {
+            panel.releaseBackgroundPreloadHostIfAttachedToRealWindow(reason: "representable.update")
+        }
         Self.applyWebViewFirstResponderPolicy(
             panel: panel,
             webView: webView,
