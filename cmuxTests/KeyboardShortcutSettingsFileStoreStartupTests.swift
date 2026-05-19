@@ -345,6 +345,66 @@ final class KeyboardShortcutSettingsFileStoreStartupTests: XCTestCase {
         }
     }
 
+    func testManagedAppearanceInitialReloadDoesNotSynchronizeTerminalThemeUntilSubsequentReload() throws {
+        let defaults = UserDefaults.standard
+        let key = AppearanceSettings.appearanceModeKey
+
+        try preservingDefaults(keys: [key, settingsFileBackupsDefaultsKey, importedManagedDefaultsKey]) {
+            defaults.removeObject(forKey: key)
+            defaults.removeObject(forKey: settingsFileBackupsDefaultsKey)
+            defaults.removeObject(forKey: importedManagedDefaultsKey)
+
+            let directoryURL = try makeTemporaryDirectory()
+            defer { try? FileManager.default.removeItem(at: directoryURL) }
+
+            let settingsFileURL = directoryURL.appendingPathComponent("cmux.json", isDirectory: false)
+            try writeSettingsFile(
+                """
+                {
+                  "app": {
+                    "appearance": "dark"
+                  }
+                }
+                """,
+                to: settingsFileURL
+            )
+
+            var appearanceApplications: [(rawValue: String?, source: String, synchronizeTerminalTheme: Bool)] = []
+            let store = KeyboardShortcutSettingsFileStore(
+                primaryPath: settingsFileURL.path,
+                fallbackPath: nil,
+                additionalFallbackPaths: [],
+                applyAppearanceMode: { rawValue, source, synchronizeTerminalTheme in
+                    appearanceApplications.append((rawValue, source, synchronizeTerminalTheme))
+                },
+                startWatching: false
+            )
+
+            XCTAssertEqual(defaults.string(forKey: key), AppearanceMode.dark.rawValue)
+            XCTAssertEqual(appearanceApplications.map { $0.rawValue }, [AppearanceMode.dark.rawValue])
+            XCTAssertEqual(appearanceApplications.map { $0.synchronizeTerminalTheme }, [false])
+
+            try writeSettingsFile(
+                """
+                {
+                  "app": {
+                    "appearance": "light"
+                  }
+                }
+                """,
+                to: settingsFileURL
+            )
+            store.reload()
+
+            XCTAssertEqual(defaults.string(forKey: key), AppearanceMode.light.rawValue)
+            XCTAssertEqual(
+                appearanceApplications.map { $0.rawValue },
+                [AppearanceMode.dark.rawValue, AppearanceMode.light.rawValue]
+            )
+            XCTAssertEqual(appearanceApplications.map { $0.synchronizeTerminalTheme }, [false, true])
+        }
+    }
+
     func testManagedBoolUserDefaultSurvivesSettingsFileReapplyUntilFileChanges() throws {
         let defaults = UserDefaults.standard
         let key = QuitWarningSettings.warnBeforeQuitKey

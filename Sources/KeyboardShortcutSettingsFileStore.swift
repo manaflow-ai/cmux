@@ -54,6 +54,7 @@ final class CmuxSettingsFileStore {
     private let fallbackPaths: [String]
     private let fileManager: FileManager
     private let notificationCenter: NotificationCenter
+    private let applyAppearanceMode: (_ rawValue: String?, _ source: String, _ synchronizeTerminalTheme: Bool) -> Void
     private let stateLock = NSLock()
 
     private var primaryWatcher: ShortcutSettingsFileWatcher?
@@ -66,6 +67,7 @@ final class CmuxSettingsFileStore {
     private var importedManagedDefaults: [String: ManagedSettingsValue] = [:]
     private var activeManagedCustomSettings = ManagedCustomSettings()
     private var isApplyingManagedSettings = false
+    private var hasCompletedInitialReload = false
     private(set) var activeSourcePath: String?
 
     init(
@@ -74,6 +76,13 @@ final class CmuxSettingsFileStore {
         additionalFallbackPaths: [String] = [CmuxSettingsFileStore.defaultApplicationSupportFallbackPath].compactMap { $0 },
         fileManager: FileManager = .default,
         notificationCenter: NotificationCenter = .default,
+        applyAppearanceMode: @escaping (_ rawValue: String?, _ source: String, _ synchronizeTerminalTheme: Bool) -> Void = { rawValue, source, synchronizeTerminalTheme in
+            AppearanceSettings.applyStoredMode(
+                rawValue: rawValue,
+                source: source,
+                synchronizeTerminalTheme: synchronizeTerminalTheme
+            )
+        },
         startWatching: Bool = true
     ) {
         self.primaryPath = primaryPath
@@ -81,10 +90,12 @@ final class CmuxSettingsFileStore {
             .filter { $0 != primaryPath }
         self.fileManager = fileManager
         self.notificationCenter = notificationCenter
+        self.applyAppearanceMode = applyAppearanceMode
         importedManagedDefaults = Self.loadImportedManagedDefaults()
 
         bootstrapPrimaryTemplateIfNeeded()
         reload()
+        hasCompletedInitialReload = true
         guard startWatching else { return }
 
         primaryWatcher = ShortcutSettingsFileWatcher(path: primaryPath, fileManager: fileManager) { [weak self] in
@@ -1217,6 +1228,8 @@ final class CmuxSettingsFileStore {
         let language = defaultsKey == LanguageSettings.languageKey ? AppLanguage(rawValue: UserDefaults.standard.string(forKey: defaultsKey) ?? "") ?? .system : nil
         let shouldApplyAppearance = defaultsKey == AppearanceSettings.appearanceModeKey
         let appearanceRawValue = shouldApplyAppearance ? UserDefaults.standard.string(forKey: defaultsKey) : nil
+        let shouldSynchronizeTerminalTheme = shouldApplyAppearance ? hasCompletedInitialReload : true
+        let applyAppearanceMode = self.applyAppearanceMode
         let appIconMode = defaultsKey == AppIconSettings.modeKey ? AppIconSettings.resolvedMode() : nil
         let apply = {
             if notifyScrollBar {
@@ -1226,7 +1239,10 @@ final class CmuxSettingsFileStore {
             if let language {
                 LanguageSettings.apply(language)
             } else if shouldApplyAppearance {
-                AppearanceSettings.applyStoredMode(rawValue: appearanceRawValue, source: source)
+                // The initial reload happens while KeyboardShortcutSettings.settingsFileStore's
+                // dispatch_once is still running. Synchronizing the terminal theme here can create
+                // GhosttyApp.shared, whose startup callbacks may request another settings reload.
+                applyAppearanceMode(appearanceRawValue, source, shouldSynchronizeTerminalTheme)
             } else if let appIconMode {
                 AppIconSettings.applyIcon(appIconMode)
             }
