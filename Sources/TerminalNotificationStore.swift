@@ -1222,7 +1222,8 @@ final class TerminalNotificationStore: ObservableObject {
         }
         let cooldownReservation = makeCooldownReservation(
             key: cooldownKey,
-            interval: resolvedCooldownInterval
+            interval: resolvedCooldownInterval,
+            reservedAt: now
         )
         if let cooldownReservation {
             lastNotificationDateByCooldownKey[cooldownReservation.key] = now
@@ -1248,6 +1249,7 @@ final class TerminalNotificationStore: ObservableObject {
                     tabId: tabId,
                     surfaceId: surfaceId
                 ) == true else {
+                    self?.restoreCooldownReservationIfCurrent(cooldownReservation)
                     return
                 }
                 self?.addNotificationAfterEnrichment(
@@ -1328,6 +1330,7 @@ final class TerminalNotificationStore: ObservableObject {
                 tabId: tabId,
                 surfaceId: surfaceId
            ) {
+            restoreCooldownReservationIfCurrent(cooldownReservation)
             return
         }
         guard !policyContext.hooks.isEmpty else {
@@ -1353,6 +1356,7 @@ final class TerminalNotificationStore: ObservableObject {
                     tabId: tabId,
                     surfaceId: surfaceId
                ) {
+                self.restoreCooldownReservationIfCurrent(cooldownReservation)
                 return
             }
             guard !authorizedHooks.isEmpty else {
@@ -1376,6 +1380,7 @@ final class TerminalNotificationStore: ObservableObject {
                     tabId: tabId,
                     surfaceId: surfaceId
                ) {
+                self.restoreCooldownReservationIfCurrent(cooldownReservation)
                 return
             }
             switch result {
@@ -1422,6 +1427,7 @@ final class TerminalNotificationStore: ObservableObject {
     private struct NotificationCooldownReservation: Sendable {
         let key: String
         let previousDate: Date?
+        let reservedDate: Date
     }
 
     private struct NotificationPolicyContext: Sendable {
@@ -1432,12 +1438,14 @@ final class TerminalNotificationStore: ObservableObject {
 
     private func makeCooldownReservation(
         key: String?,
-        interval: TimeInterval?
+        interval: TimeInterval?,
+        reservedAt date: Date
     ) -> NotificationCooldownReservation? {
         guard let key, interval != nil else { return nil }
         return NotificationCooldownReservation(
             key: key,
-            previousDate: lastNotificationDateByCooldownKey[key]
+            previousDate: lastNotificationDateByCooldownKey[key],
+            reservedDate: date
         )
     }
 
@@ -1456,6 +1464,15 @@ final class TerminalNotificationStore: ObservableObject {
         } else {
             lastNotificationDateByCooldownKey.removeValue(forKey: reservation.key)
         }
+    }
+
+    private func restoreCooldownReservationIfCurrent(_ reservation: NotificationCooldownReservation?) {
+        guard let reservation,
+              lastNotificationDateByCooldownKey[reservation.key] == reservation.reservedDate
+        else {
+            return
+        }
+        restoreCooldownReservation(reservation)
     }
 
     private func makeNotificationPolicyContext(
