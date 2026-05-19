@@ -254,6 +254,10 @@ extension SocketListenerAcceptPolicyTests {
                     "grok-4",
                     "--resume",
                     "old-session",
+                    "--sandbox",
+                    "danger-full-access",
+                    "--allow",
+                    "run_terminal_cmd",
                     "--permission-mode",
                     "auto",
                     "--cwd",
@@ -263,6 +267,7 @@ extension SocketListenerAcceptPolicyTests {
                 workingDirectory: "/tmp/grok repo",
                 environment: [
                     "GROK_HOME": "/tmp/grok home",
+                    "GROK_SANDBOX": "danger-full-access",
                     "XAI_API_KEY": "secret"
                 ],
                 capturedAt: 123,
@@ -325,7 +330,7 @@ extension SocketListenerAcceptPolicyTests {
         )
         XCTAssertEqual(
             grok.resumeCommand,
-            "cd '/tmp/grok repo' && 'env' 'GROK_HOME=/tmp/grok home' '/Users/example/.grok/bin/grok' '-r' 'grok-session-123' '--model' 'grok-4' '--permission-mode' 'auto' '--cwd' '/tmp/grok repo'"
+            "cd '/tmp/grok repo' && 'env' 'GROK_HOME=/tmp/grok home' 'GROK_SANDBOX=danger-full-access' '/Users/example/.grok/bin/grok' '-r' 'grok-session-123' '--model' 'grok-4' '--sandbox' 'danger-full-access' '--allow' 'run_terminal_cmd' '--permission-mode' 'auto' '--cwd' '/tmp/grok repo'"
         )
         XCTAssertEqual(pi.resumeCommand, "cd '/tmp/pi repo' && 'env' 'PI_CODING_AGENT_DIR=/tmp/pi home' '/Users/example/.bun/bin/pi' '--session' 'pi-session-123' '--model' 'anthropic/claude-sonnet-4-5' '--thinking' 'high'")
         XCTAssertEqual(
@@ -604,6 +609,43 @@ extension SocketListenerAcceptPolicyTests {
                 "--workspace",
                 "/tmp/qoder repo"
             ]
+        )
+        XCTAssertEqual(
+            AgentLaunchSanitizer.sanitizedLaunchArguments(
+                [
+                    "/Users/example/.grok/bin/grok",
+                    "--session-id",
+                    "old-session",
+                    "--model",
+                    "grok-build",
+                    "-s",
+                    "older-session",
+                    "--sandbox",
+                    "danger-full-access",
+                    "--session-id=inline-session",
+                    "-s=inline-short"
+                ],
+                launcher: "grok",
+                fallbackKind: "grok"
+            ),
+            [
+                "/Users/example/.grok/bin/grok",
+                "--model",
+                "grok-build",
+                "--sandbox",
+                "danger-full-access"
+            ]
+        )
+        XCTAssertNil(
+            AgentLaunchSanitizer.sanitizedLaunchArguments(
+                [
+                    "/Users/example/.grok/bin/grok",
+                    "-p",
+                    "single-turn prompts should not restore"
+                ],
+                launcher: "grok",
+                fallbackKind: "grok"
+            )
         )
     }
 }

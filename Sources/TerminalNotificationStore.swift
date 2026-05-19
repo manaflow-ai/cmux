@@ -3,6 +3,7 @@ import Foundation
 import os
 import UserNotifications
 import Bonsplit
+import CMUXAgentLaunch
 
 nonisolated private let terminalNotificationLogger = Logger(
     subsystem: "com.cmuxterm.app",
@@ -704,6 +705,81 @@ struct TerminalNotification: Identifiable, Hashable {
     var clickAction: TerminalNotificationClickAction?
 }
 
+struct GrokTerminalNotificationEnricher {
+    static func shouldEnrich(title: String, body: String) -> Bool {
+        isGrokTurnCompletion(title: title, body: body)
+    }
+
+    static func enriched(
+        title: String,
+        subtitle: String,
+        body: String,
+        cwd: String?,
+        reader: GrokSessionSummaryReader
+    ) async -> (title: String, subtitle: String, body: String) {
+        guard shouldEnrich(title: title, body: body) else {
+            return (title, subtitle, body)
+        }
+        let summary = await Task.detached(priority: .utility) {
+            reader.latestSummary(cwd: cwd)
+        }.value
+        guard let summary else {
+            return (title, subtitle, body)
+        }
+
+        let enrichedBody = summary.lastAssistantMessage ?? summary.title
+        guard let enrichedBody, !enrichedBody.isEmpty else {
+            return (title, subtitle, body)
+        }
+
+        return (
+            title: String(localized: "agent.grok.completion.title", defaultValue: "Grok"),
+            subtitle: completedSubtitle(projectName: projectName(fromCWD: cwd)),
+            body: truncate(normalizedSingleLine(enrichedBody), maxLength: 240)
+        )
+    }
+
+    private static func isGrokTurnCompletion(title: String, body: String) -> Bool {
+        guard title.range(of: "grok", options: [.caseInsensitive, .diacriticInsensitive]) != nil else {
+            return false
+        }
+        let trimmedBody = body.trimmingCharacters(in: .whitespacesAndNewlines)
+        return trimmedBody.range(
+            of: #"^turn complete(?:d)? in [0-9]+(?:\.[0-9]+)?s\.?$"#,
+            options: [.regularExpression, .caseInsensitive]
+        ) != nil
+    }
+
+    private static func completedSubtitle(projectName: String?) -> String {
+        guard let projectName, !projectName.isEmpty else {
+            return String(localized: "agent.grok.completion.subtitle.completed", defaultValue: "Completed")
+        }
+        return String.localizedStringWithFormat(
+            String(localized: "agent.grok.completion.subtitle.completedInProject", defaultValue: "Completed in %@"),
+            projectName
+        )
+    }
+
+    private static func projectName(fromCWD cwd: String?) -> String? {
+        guard let cwd, !cwd.isEmpty else { return nil }
+        let path = NSString(string: cwd).expandingTildeInPath
+        let tail = URL(fileURLWithPath: path).lastPathComponent
+        return tail.isEmpty ? path : tail
+    }
+
+    private static func normalizedSingleLine(_ value: String) -> String {
+        value
+            .replacingOccurrences(of: "\\s+", with: " ", options: .regularExpression)
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+    }
+
+    private static func truncate(_ value: String, maxLength: Int) -> String {
+        guard value.count > maxLength else { return value }
+        let index = value.index(value.startIndex, offsetBy: max(0, maxLength - 3))
+        return String(value[..<index]) + "..."
+    }
+}
+
 @MainActor
 final class TerminalNotificationStore: ObservableObject {
     private struct TabSurfaceKey: Hashable {
@@ -723,6 +799,9 @@ final class TerminalNotificationStore: ObservableObject {
 
     static let categoryIdentifier = "com.cmuxterm.app.userNotification"
     static let actionShowIdentifier = "com.cmuxterm.app.userNotification.show"
+#if DEBUG
+    var grokHomeOverrideForTesting: URL?
+#endif
     private enum AuthorizationRequestOrigin: String {
         case notificationDelivery = "notification_delivery"
         case settingsButton = "settings_button"
@@ -795,6 +874,8 @@ final class TerminalNotificationStore: ObservableObject {
     private static let notificationHookFailureThrottle: TimeInterval = 300
     private var lastNotificationDateByCooldownKey: [String: Date] = [:]
     private var lastNotificationHookFailureDateByKey: [NotificationHookFailureThrottleKey: Date] = [:]
+    private var notificationRecordGeneration: UInt64 = 0
+    private var latestRecordedNotificationGenerationByTabSurface: [TabSurfaceKey: UInt64] = [:]
     private var indexes = NotificationIndexes()
 
     private init() {
@@ -1141,19 +1222,122 @@ final class TerminalNotificationStore: ObservableObject {
         }
         let cooldownReservation = makeCooldownReservation(
             key: cooldownKey,
-            interval: resolvedCooldownInterval
+            interval: resolvedCooldownInterval,
+            reservedAt: now
         )
         if let cooldownReservation {
             lastNotificationDateByCooldownKey[cooldownReservation.key] = now
         }
 
+        let cwd = notificationCWD(forTabId: tabId, surfaceId: surfaceId)
+        let recordGeneration = currentRecordedNotificationGeneration(
+            tabId: tabId,
+            surfaceId: surfaceId
+        )
+        if GrokTerminalNotificationEnricher.shouldEnrich(title: title, body: body) {
+            let reader = grokSessionSummaryReader()
+            Task { @MainActor [weak self] in
+                let enrichedNotification = await GrokTerminalNotificationEnricher.enriched(
+                    title: title,
+                    subtitle: subtitle,
+                    body: body,
+                    cwd: cwd,
+                    reader: reader
+                )
+                guard self?.isCurrentRecordedNotificationGeneration(
+                    recordGeneration,
+                    tabId: tabId,
+                    surfaceId: surfaceId
+                ) == true else {
+                    self?.restoreCooldownReservationIfCurrent(cooldownReservation)
+                    return
+                }
+                self?.addNotificationAfterEnrichment(
+                    tabId: tabId,
+                    surfaceId: surfaceId,
+                    title: enrichedNotification.title,
+                    subtitle: enrichedNotification.subtitle,
+                    body: enrichedNotification.body,
+                    cwd: cwd,
+                    now: now,
+                    cooldownReservation: cooldownReservation,
+                    clickAction: clickAction,
+                    recordGeneration: recordGeneration
+                )
+            }
+            return
+        }
+
+        addNotificationAfterEnrichment(
+            tabId: tabId,
+            surfaceId: surfaceId,
+            title: title,
+            subtitle: subtitle,
+            body: body,
+            cwd: cwd,
+            now: now,
+            cooldownReservation: cooldownReservation,
+            clickAction: clickAction,
+            recordGeneration: recordGeneration
+        )
+    }
+
+    private func currentRecordedNotificationGeneration(
+        tabId: UUID,
+        surfaceId: UUID?
+    ) -> UInt64 {
+        latestRecordedNotificationGenerationByTabSurface[
+            TabSurfaceKey(tabId: tabId, surfaceId: surfaceId)
+        ] ?? 0
+    }
+
+    private func advanceRecordedNotificationGeneration(
+        tabId: UUID,
+        surfaceId: UUID?
+    ) {
+        notificationRecordGeneration &+= 1
+        latestRecordedNotificationGenerationByTabSurface[
+            TabSurfaceKey(tabId: tabId, surfaceId: surfaceId)
+        ] = notificationRecordGeneration
+    }
+
+    private func isCurrentRecordedNotificationGeneration(
+        _ generation: UInt64,
+        tabId: UUID,
+        surfaceId: UUID?
+    ) -> Bool {
+        currentRecordedNotificationGeneration(tabId: tabId, surfaceId: surfaceId) == generation
+    }
+
+    private func addNotificationAfterEnrichment(
+        tabId: UUID,
+        surfaceId: UUID?,
+        title: String,
+        subtitle: String,
+        body: String,
+        cwd: String,
+        now: Date,
+        cooldownReservation: NotificationCooldownReservation?,
+        clickAction: TerminalNotificationClickAction?,
+        recordGeneration: UInt64?
+    ) {
         let policyContext = makeNotificationPolicyContext(
             tabId: tabId,
             surfaceId: surfaceId,
             title: title,
             subtitle: subtitle,
-            body: body
+            body: body,
+            cwd: cwd
         )
+        if let recordGeneration,
+           !isCurrentRecordedNotificationGeneration(
+                recordGeneration,
+                tabId: tabId,
+                surfaceId: surfaceId
+           ) {
+            restoreCooldownReservationIfCurrent(cooldownReservation)
+            return
+        }
         guard !policyContext.hooks.isEmpty else {
             applyNotification(
                 request: policyContext.request,
@@ -1171,6 +1355,15 @@ final class TerminalNotificationStore: ObservableObject {
                 policyContext.hooks,
                 globalConfigPath: policyContext.globalConfigPath
             )
+            if let recordGeneration,
+               !self.isCurrentRecordedNotificationGeneration(
+                    recordGeneration,
+                    tabId: tabId,
+                    surfaceId: surfaceId
+               ) {
+                self.restoreCooldownReservationIfCurrent(cooldownReservation)
+                return
+            }
             guard !authorizedHooks.isEmpty else {
                 self.applyNotification(
                     request: policyContext.request,
@@ -1186,6 +1379,15 @@ final class TerminalNotificationStore: ObservableObject {
                 request: policyContext.request,
                 hooks: authorizedHooks
             )
+            if let recordGeneration,
+               !self.isCurrentRecordedNotificationGeneration(
+                    recordGeneration,
+                    tabId: tabId,
+                    surfaceId: surfaceId
+               ) {
+                self.restoreCooldownReservationIfCurrent(cooldownReservation)
+                return
+            }
             switch result {
             case .success(let envelope):
                 self.applyNotification(
@@ -1208,9 +1410,41 @@ final class TerminalNotificationStore: ObservableObject {
         }
     }
 
+    private func notificationCWD(forTabId tabId: UUID, surfaceId: UUID?) -> String {
+        let appDelegate = AppDelegate.shared
+        let context = appDelegate?.contextContainingTabId(tabId)
+        let tabManager = context?.tabManager ?? appDelegate?.tabManagerFor(tabId: tabId) ?? appDelegate?.tabManager
+        let workspace = tabManager?.tabs.first(where: { $0.id == tabId })
+        if let surfaceId {
+            for candidate in [
+                workspace?.panelDirectories[surfaceId],
+                workspace?.terminalPanel(for: surfaceId)?.directory,
+                workspace?.terminalPanel(for: surfaceId)?.requestedWorkingDirectory,
+            ] {
+                let trimmed = candidate?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+                if !trimmed.isEmpty {
+                    return trimmed
+                }
+            }
+        }
+        return workspace?.surfaceTabBarDirectory
+            ?? workspace?.currentDirectory
+            ?? FileManager.default.homeDirectoryForCurrentUser.path
+    }
+
+    private func grokSessionSummaryReader() -> GrokSessionSummaryReader {
+#if DEBUG
+        if let grokHomeOverrideForTesting {
+            return GrokSessionSummaryReader(grokHome: grokHomeOverrideForTesting)
+        }
+#endif
+        return GrokSessionSummaryReader()
+    }
+
     private struct NotificationCooldownReservation: Sendable {
         let key: String
         let previousDate: Date?
+        let reservedDate: Date
     }
 
     private struct NotificationPolicyContext: Sendable {
@@ -1221,12 +1455,14 @@ final class TerminalNotificationStore: ObservableObject {
 
     private func makeCooldownReservation(
         key: String?,
-        interval: TimeInterval?
+        interval: TimeInterval?,
+        reservedAt date: Date
     ) -> NotificationCooldownReservation? {
         guard let key, interval != nil else { return nil }
         return NotificationCooldownReservation(
             key: key,
-            previousDate: lastNotificationDateByCooldownKey[key]
+            previousDate: lastNotificationDateByCooldownKey[key],
+            reservedDate: date
         )
     }
 
@@ -1247,26 +1483,32 @@ final class TerminalNotificationStore: ObservableObject {
         }
     }
 
+    private func restoreCooldownReservationIfCurrent(_ reservation: NotificationCooldownReservation?) {
+        guard let reservation,
+              lastNotificationDateByCooldownKey[reservation.key] == reservation.reservedDate
+        else {
+            return
+        }
+        restoreCooldownReservation(reservation)
+    }
+
     private func makeNotificationPolicyContext(
         tabId: UUID,
         surfaceId: UUID?,
         title: String,
         subtitle: String,
-        body: String
+        body: String,
+        cwd: String
     ) -> NotificationPolicyContext {
         let appDelegate = AppDelegate.shared
         let context = appDelegate?.contextContainingTabId(tabId)
         let tabManager = context?.tabManager ?? appDelegate?.tabManagerFor(tabId: tabId) ?? appDelegate?.tabManager
         let cmuxConfigStore = context?.cmuxConfigStore
-        let workspace = tabManager?.tabs.first(where: { $0.id == tabId })
         let focusedSurfaceId = tabManager?.focusedSurfaceId(for: tabId)
         let isActiveTab = tabManager?.selectedTabId == tabId
         let isFocusedSurface = surfaceId == nil || focusedSurfaceId == surfaceId
         let isFocusedPanel = isActiveTab && isFocusedSurface
         let isAppFocused = AppFocusState.isAppFocused()
-        let cwd = workspace?.surfaceTabBarDirectory
-            ?? workspace?.currentDirectory
-            ?? FileManager.default.homeDirectoryForCurrentUser.path
 
         return NotificationPolicyContext(
             request: TerminalNotificationPolicyRequest(
@@ -1398,6 +1640,7 @@ final class TerminalNotificationStore: ObservableObject {
         updated.insert(notification, at: 0)
         setWorkspaceManualUnread(false, forTabId: notification.tabId)
         notifications = updated
+        advanceRecordedNotificationGeneration(tabId: notification.tabId, surfaceId: notification.surfaceId)
         commitCooldownReservation(cooldownReservation, at: now)
 #if DEBUG
         cmuxDebugLog(

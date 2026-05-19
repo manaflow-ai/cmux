@@ -165,80 +165,6 @@ extension AgentLaunchSanitizer {
         resumeSubcommand: "resume"
     )
 
-    static let grokPolicy = Policy(
-        valueOptions: [
-            "--agent",
-            "--agents",
-            "--allow",
-            "--cwd",
-            "--deny",
-            "--disallowed-tools",
-            "--effort",
-            "--max-turns",
-            "--model",
-            "-m",
-            "--permission-mode",
-            "--reasoning-effort",
-            "--resume",
-            "-r",
-            "--rules",
-            "--sandbox",
-            "--system-prompt-override",
-            "--tools",
-            "--worktree",
-            "-w"
-        ],
-        optionalValueOptions: [
-            "--resume",
-            "-r",
-            "--worktree",
-            "-w"
-        ],
-        nonRestorableCommands: [
-            "agent",
-            "help",
-            "import",
-            "inspect",
-            "leader",
-            "login",
-            "mcp",
-            "memory",
-            "models",
-            "sessions",
-            "setup",
-            "share",
-            "ssh",
-            "trace",
-            "update",
-            "version",
-            "v",
-            "worktree"
-        ],
-        droppedOptions: [
-            "--continue",
-            "-c",
-            "--restore-code",
-            "--resume",
-            "-r",
-            "--worktree",
-            "-w"
-        ],
-        droppedOptionPrefixes: [
-            "--resume=",
-            "-r=",
-            "--worktree=",
-            "-w="
-        ],
-        rejectOptions: [
-            "--best-of-n",
-            "--output-format",
-            "--prompt-file",
-            "--prompt-json",
-            "--single",
-            "-p"
-        ]
-    )
-
     static let piPolicy = Policy(
         valueOptions: [
             "--append-system-prompt",
@@ -422,6 +348,104 @@ extension AgentLaunchSanitizer {
             "--acp",
             "--experimental-acp",
             "--list-extensions"
+        ]
+    )
+
+    static let grokPolicy = Policy(
+        valueOptions: [
+            "--agent",
+            "--agents",
+            "--allow",
+            "--best-of-n",
+            "--cwd",
+            "--deny",
+            "--disallowed-tools",
+            "--effort",
+            "--max-turns",
+            "--model",
+            "-m",
+            "--output-format",
+            "--permission-mode",
+            "--prompt-file",
+            "--prompt-json",
+            "--reasoning-effort",
+            "--resume",
+            "-r",
+            "--rules",
+            "--sandbox",
+            "--single",
+            "-p",
+            "--system-prompt-override",
+            "--tools",
+            "--worktree",
+            "-w"
+        ],
+        droppedValueOptions: [
+            "--session-id",
+            "-s"
+        ],
+        optionalValueOptions: [
+            "--resume",
+            "-r",
+            "--worktree",
+            "-w"
+        ],
+        variadicOptions: [
+            "--allow",
+            "--deny"
+        ],
+        nonRestorableCommands: [
+            "agent",
+            "help",
+            "import",
+            "inspect",
+            "leader",
+            "login",
+            "mcp",
+            "memory",
+            "models",
+            "sessions",
+            "setup",
+            "share",
+            "ssh",
+            "trace",
+            "update",
+            "version",
+            "v",
+            "worktree"
+        ],
+        droppedOptions: [
+            "--continue",
+            "-c",
+            "--restore-code",
+            "--resume",
+            "-r",
+            "--session-id",
+            "-s",
+            "--worktree",
+            "-w"
+        ],
+        droppedOptionPrefixes: [
+            "--resume=",
+            "-r=",
+            "--session-id=",
+            "-s=",
+            "--worktree=",
+            "-w="
+        ],
+        rejectOptions: [
+            "--best-of-n",
+            "--check",
+            "--help",
+            "-h",
+            "--output-format",
+            "--prompt-file",
+            "--prompt-json",
+            "--single",
+            "-p",
+            "--verbatim",
+            "--version",
+            "-v"
         ]
     )
 

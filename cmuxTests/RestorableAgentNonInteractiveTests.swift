@@ -213,6 +213,20 @@ final class RestorableAgentNonInteractiveTests: XCTestCase {
                 source: nil
             )
         )
+        let grokPrint = SessionRestorableAgentSnapshot(
+            kind: .grok,
+            sessionId: "grok-print-session-123",
+            workingDirectory: nil,
+            launchCommand: AgentLaunchCommandSnapshot(
+                launcher: "grok",
+                executablePath: "grok",
+                arguments: ["grok", "-p", "fix this"],
+                workingDirectory: nil,
+                environment: nil,
+                capturedAt: nil,
+                source: nil
+            )
+        )
 
         XCTAssertNil(claudePrint.resumeCommand)
         XCTAssertNil(claudePrintEquals.resumeCommand)
@@ -228,5 +242,6 @@ final class RestorableAgentNonInteractiveTests: XCTestCase {
         XCTAssertNil(codeBuddyPrint.resumeCommand)
         XCTAssertNil(factoryExec.resumeCommand)
         XCTAssertNil(qoderPrint.resumeCommand)
+        XCTAssertNil(grokPrint.resumeCommand)
     }
 }

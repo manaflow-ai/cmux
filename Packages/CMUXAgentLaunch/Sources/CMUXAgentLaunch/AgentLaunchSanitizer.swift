@@ -10,6 +10,7 @@ public enum AgentLaunchSanitizer {
 
     struct Policy {
         var valueOptions: Set<String>
+        var droppedValueOptions: Set<String> = []
         var optionalValueOptions: Set<String> = []
         var variadicOptions: Set<String> = []
         var nonRestorableCommands: Set<String>
@@ -376,7 +377,8 @@ public enum AgentLaunchSanitizer {
             }
             return 2
         }
-        guard policy.valueOptions.contains(arg), index + 1 < args.count else {
+        guard policy.valueOptions.contains(arg) || policy.droppedValueOptions.contains(arg),
+              index + 1 < args.count else {
             return 1
         }
         if policy.variadicOptions.contains(arg) {

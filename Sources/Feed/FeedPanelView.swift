@@ -1165,6 +1165,7 @@ struct FeedItemRow: View, Equatable {
         case .codex: return .green
         case .opencode: return .blue
         case .hermesAgent: return .teal
+        case .grok: return .cyan
         case .cursor: return .purple
         default: return .secondary
         }

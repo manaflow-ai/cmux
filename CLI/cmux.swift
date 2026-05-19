@@ -9686,6 +9686,34 @@ struct CMUXCLI {
               --legacy         Force the older built-in Swift TUI
             """
         case "hooks":
+            let agents = String(
+                localized: "cli.help.hooks.agents",
+                defaultValue: "codex, opencode, pi, amp, cursor, gemini, grok, rovodev (alias: rovo), hermes-agent, copilot, codebuddy, factory, qoder"
+            )
+            let targets = String(
+                localized: "cli.help.hooks.targets",
+                defaultValue: """
+                  setup              Install hooks for all supported agents on PATH
+                  uninstall          Remove hooks for all supported agents
+                  <agent> install    Install one agent integration
+                  <agent> uninstall  Remove one agent integration
+                  <agent> <event>    Internal hook entrypoint used by generated configs
+                  feed               Internal Feed decision bridge
+                """
+            )
+            let examples = String(
+                localized: "cli.help.hooks.examples",
+                defaultValue: """
+                  cmux hooks setup
+                  cmux hooks setup --agent codex
+                  cmux hooks setup grok
+                  cmux hooks setup rovo
+                  cmux hooks uninstall rovo
+                  cmux hooks codex install
+                  cmux hooks opencode install --project
+                  cmux hooks uninstall
+                """
+            )
             return """
             Usage: cmux hooks setup [agent] [--agent <name>] [--yes|-y]
                    cmux hooks uninstall [agent] [--agent <name>] [--yes|-y]
@@ -9698,31 +9726,21 @@ struct CMUXCLI {
             agent. Claude Code hooks are injected automatically by the cmux Claude wrapper.
 
             Agents:
-              codex, grok, opencode, pi, amp, cursor, gemini, rovodev (alias: rovo), hermes-agent, copilot, codebuddy, factory, qoder
+              \(agents)
 
             Hook targets:
-              setup              Install hooks for all supported agents on PATH
-              uninstall          Remove hooks for all supported agents
-              <agent> install    Install one agent integration
-              <agent> uninstall  Remove one agent integration
-              <agent> <event>    Internal hook entrypoint used by generated configs
-              feed               Internal Feed decision bridge
+            \(targets)
 
             Generated files:
               ~/.config/opencode/plugins/cmux-session.js
               ~/.config/opencode/plugins/cmux-feed.js
               ~/.pi/agent/extensions/cmux-session.ts
               ~/.config/amp/plugins/cmux-session.ts
+              ~/.grok/hooks/cmux-session.json
               See docs/agent-hooks.md for the full integration matrix.
 
             Examples:
-              cmux hooks setup
-              cmux hooks setup --agent codex
-              cmux hooks setup rovo
-              cmux hooks uninstall rovo
-              cmux hooks codex install
-              cmux hooks opencode install --project
-              cmux hooks uninstall
+            \(examples)
             """
         case "themes":
             return """
@@ -18031,9 +18049,9 @@ struct CMUXCLI {
             }
         }
 
-        if let toolInput = object["tool_input"] as? [String: Any] {
+        if let toolInput = (object["tool_input"] as? [String: Any]) ?? (object["toolInput"] as? [String: Any]) {
             var compactToolInput: [String: Any] = [:]
-            for key in ["file_path", "command", "pattern", "description", "query", "plan", "planFilePath"] {
+            for key in ["file_path", "filePath", "command", "pattern", "description", "query", "plan", "planFilePath"] {
                 if let value = compactClaudeHookToolInputValue(toolInput[key], key: key) {
                     compactToolInput[key] = value
                 }
@@ -18134,7 +18152,7 @@ struct CMUXCLI {
 
     private func compactClaudeHookToolInputValue(_ rawValue: Any?, key: String) -> String? {
         switch key {
-        case "file_path":
+        case "file_path", "filePath":
             return compactClaudeHookStringValue(rawValue, maxLength: 240, keepSuffix: true)
         case "planFilePath":
             return compactClaudeHookStringValue(rawValue, maxLength: 240, keepSuffix: true)
@@ -18213,6 +18231,93 @@ struct CMUXCLI {
         return nil
     }
 
+    private struct AgentHookCompletionSummary {
+        let subtitle: String
+        let body: String
+    }
+
+    private func summarizeAgentHookCompletion(
+        def: AgentHookDef,
+        parsedInput: ClaudeHookParsedInput,
+        sessionRecord: ClaudeHookSessionRecord?,
+        env: [String: String]
+    ) -> AgentHookCompletionSummary? {
+        switch def.name {
+        case "grok":
+            return summarizeGrokHookCompletion(
+                parsedInput: parsedInput,
+                sessionRecord: sessionRecord,
+                env: env
+            )
+        default:
+            return nil
+        }
+    }
+
+    private func summarizeGrokHookCompletion(
+        parsedInput: ClaudeHookParsedInput,
+        sessionRecord: ClaudeHookSessionRecord?,
+        env: [String: String]
+    ) -> AgentHookCompletionSummary? {
+        let cwd = parsedInput.cwd ?? sessionRecord?.cwd
+        let projectName = projectName(fromCWD: cwd)
+        let subtitle = completedSubtitle(projectName: projectName)
+        let hookAssistant = claudeAssistantMessageFromHookPayload(parsedInput.object)
+        let genericMessage = grokHookMessage(from: parsedInput.object)
+        let body: String? = {
+            if let hookAssistant { return hookAssistant }
+            guard let sessionId = parsedInput.sessionId ?? sessionRecord?.sessionId else {
+                return nil
+            }
+            let sessionSummary = GrokSessionSummaryReader(env: env).summary(
+                sessionId: sessionId,
+                cwd: cwd
+            )
+            return sessionSummary?.lastAssistantMessage
+                ?? sessionSummary?.title
+                ?? genericMessage
+        }()
+
+        guard let body, !body.isEmpty else { return nil }
+        return AgentHookCompletionSummary(
+            subtitle: subtitle,
+            body: truncate(normalizedSingleLine(body), maxLength: 240)
+        )
+    }
+
+    private func grokHookMessage(from object: [String: Any]?) -> String? {
+        guard let object else { return nil }
+        let keys = ["message", "body", "text", "summary", "description"]
+        if let value = firstString(in: object, keys: keys) {
+            return value
+        }
+        for nestedKey in ["notification", "data"] {
+            guard let nested = object[nestedKey] as? [String: Any],
+                  let value = firstString(in: nested, keys: keys) else {
+                continue
+            }
+            return value
+        }
+        return nil
+    }
+
+    private func completedSubtitle(projectName: String?) -> String {
+        guard let projectName, !projectName.isEmpty else {
+            return String(localized: "agent.grok.completion.subtitle.completed", defaultValue: "Completed")
+        }
+        return String.localizedStringWithFormat(
+            String(localized: "agent.grok.completion.subtitle.completedInProject", defaultValue: "Completed in %@"),
+            projectName
+        )
+    }
+
+    private func projectName(fromCWD cwd: String?) -> String? {
+        guard let cwd, !cwd.isEmpty else { return nil }
+        let path = NSString(string: cwd).expandingTildeInPath
+        let tail = URL(fileURLWithPath: path).lastPathComponent
+        return tail.isEmpty ? path : tail
+    }
+
     private func summarizeClaudeHookStop(
         parsedInput: ClaudeHookParsedInput,
         sessionRecord: ClaudeHookSessionRecord?
@@ -18220,12 +18325,7 @@ struct CMUXCLI {
         let cwd = parsedInput.cwd ?? sessionRecord?.cwd
         let transcriptPath = parsedInput.transcriptPath
 
-        let projectName: String? = {
-            guard let cwd = cwd, !cwd.isEmpty else { return nil }
-            let path = NSString(string: cwd).expandingTildeInPath
-            let tail = URL(fileURLWithPath: path).lastPathComponent
-            return tail.isEmpty ? path : tail
-        }()
+        let projectName = projectName(fromCWD: cwd)
         let completedSubtitle: String = {
             guard let projectName, !projectName.isEmpty else {
                 return String(localized: "agent.claude.completion.subtitle.completed", defaultValue: "Completed")
@@ -22695,14 +22795,27 @@ export default function cmuxPiSessionExtension(pi: ExtensionAPI) {
                 codexFailure = nil
             }
 
+            let completionSummary = codexFailure == nil
+                ? summarizeAgentHookCompletion(
+                    def: def,
+                    parsedInput: input,
+                    sessionRecord: mapped,
+                    env: env
+                )
+                : nil
             let cwd = hookCwd ?? mapped?.cwd
             let grokAssistantMessage: String? = {
-                guard def.name == "grok" else { return nil }
+                guard def.name == "grok", completionSummary == nil else { return nil }
                 return latestGrokAssistantMessage(
                     cwd: cwd,
                     sessionId: input.sessionId ?? sessionId,
                     env: env
                 )
+            }()
+            let grokFallbackHookMessage: String? = {
+                guard def.name == "grok" else { return nil }
+                return grokHookMessage(from: input.object)
+                    .map { truncate(normalizedSingleLine($0), maxLength: 200) }
             }()
             let lastMsg = input.object?["last_assistant_message"] as? String
                 ?? input.object?["lastAssistantMessage"] as? String
@@ -22710,22 +22823,41 @@ export default function cmuxPiSessionExtension(pi: ExtensionAPI) {
                 guard let cwd, !cwd.isEmpty else { return nil }
                 return URL(fileURLWithPath: NSString(string: cwd).expandingTildeInPath).lastPathComponent
             }()
-            var subtitle = codexFailure?.subtitle ?? String(
-                localized: "agent.codex.completion.subtitle.completed",
-                defaultValue: "Completed"
-            )
-            if codexFailure == nil, let projectName, !projectName.isEmpty {
-                subtitle = String.localizedStringWithFormat(
-                    String(
-                        localized: "agent.codex.completion.subtitle.completedInProject",
-                        defaultValue: "Completed in %@"
-                    ),
-                    projectName
-                )
+            let defaultCompletedSubtitle: String = {
+                if def.name == "grok" {
+                    return String(localized: "agent.grok.completion.subtitle.completed", defaultValue: "Completed")
+                }
+                return String(localized: "agent.codex.completion.subtitle.completed", defaultValue: "Completed")
+            }()
+            var subtitle = codexFailure?.subtitle
+                ?? completionSummary?.subtitle
+                ?? defaultCompletedSubtitle
+            if codexFailure == nil,
+               completionSummary == nil,
+               let projectName, !projectName.isEmpty {
+                if def.name == "grok" {
+                    subtitle = String.localizedStringWithFormat(
+                        String(
+                            localized: "agent.grok.completion.subtitle.completedInProject",
+                            defaultValue: "Completed in %@"
+                        ),
+                        projectName
+                    )
+                } else {
+                    subtitle = String.localizedStringWithFormat(
+                        String(
+                            localized: "agent.codex.completion.subtitle.completedInProject",
+                            defaultValue: "Completed in %@"
+                        ),
+                        projectName
+                    )
+                }
             }
             let body = codexFailure?.body
+                ?? completionSummary?.body
                 ?? lastMsg.map { truncate(normalizedSingleLine($0), maxLength: 200) }
                 ?? grokAssistantMessage.map { truncate(normalizedSingleLine($0), maxLength: 200) }
+                ?? grokFallbackHookMessage
                 ?? String.localizedStringWithFormat(
                     String(
                         localized: "agent.codex.completion.body.sessionCompleted",
@@ -23045,11 +23177,16 @@ export default function cmuxPiSessionExtension(pi: ExtensionAPI) {
             event["workspace_id"] = workspaceId
         }
         if let cwd = parsedInput.cwd { event["cwd"] = cwd }
-        let toolName = parsedInput.object?["tool_name"] as? String
+        let toolName = (parsedInput.object?["tool_name"] as? String)
+            ?? (parsedInput.object?["toolName"] as? String)
         if let toolName, !toolName.isEmpty {
             event["tool_name"] = toolName
         }
-        if let toolInput = parsedInput.object?["tool_input"] {
+        if let toolInput = Self.feedToolInput(
+            from: parsedInput.object,
+            hookEventName: hookEventName,
+            source: source
+        ) {
             event["tool_input"] = toolInput
         }
         if let context = feedContextForEvent(
@@ -23182,6 +23319,83 @@ export default function cmuxPiSessionExtension(pi: ExtensionAPI) {
             return direct
         }
         return nil
+    }
+
+    private static func feedToolInput(
+        from object: [String: Any]?,
+        hookEventName: String,
+        source: String
+    ) -> Any? {
+        guard let object else { return nil }
+        if let toolInput = object["tool_input"] ?? object["toolInput"] {
+            return toolInput
+        }
+        guard hookEventName == "Notification" else { return nil }
+
+        var detail: [String: Any] = [:]
+        let copyString: (String, [String], [String: Any]) -> Void = { outputKey, inputKeys, sourceObject in
+            guard detail[outputKey] == nil,
+                  let value = Self.firstNonEmptyString(in: sourceObject, keys: inputKeys)
+            else { return }
+            detail[outputKey] = value
+        }
+
+        let stringFields: [(String, [String])] = [
+            ("title", ["title", "subject"]),
+            ("message", ["message", "body", "text", "prompt", "summary", "description"]),
+            ("reason", ["reason", "status", "kind", "type", "notification_type"]),
+            ("session_id", ["session_id", "sessionId"]),
+            ("cwd", ["cwd", "workspaceRoot", "workspace_root", "working_directory", "workingDirectory"]),
+            ("timestamp", ["timestamp", "created_at", "createdAt"]),
+            ("transcript_path", ["transcript_path", "transcriptPath"]),
+        ]
+        for (outputKey, inputKeys) in stringFields {
+            copyString(outputKey, inputKeys, object)
+        }
+        for nestedKey in ["notification", "data"] {
+            guard let nested = object[nestedKey] as? [String: Any] else { continue }
+            for (outputKey, inputKeys) in stringFields {
+                copyString(outputKey, inputKeys, nested)
+            }
+        }
+
+        let scalarFields = ["durationMs", "duration_ms", "durationSeconds", "duration_seconds", "elapsedMs", "elapsed_ms"]
+        let copyScalarFields: ([String: Any]) -> Void = { sourceObject in
+            for key in scalarFields {
+                guard detail[key] == nil,
+                      let value = sourceObject[key],
+                      Self.isJSONObjectScalar(value)
+                else { continue }
+                detail[key] = value
+            }
+        }
+        copyScalarFields(object)
+        for nestedKey in ["notification", "data"] {
+            guard let nested = object[nestedKey] as? [String: Any] else { continue }
+            copyScalarFields(nested)
+        }
+
+        if source == "grok", detail.isEmpty {
+            for (key, value) in object where Self.isJSONObjectScalar(value) {
+                detail[key] = value
+            }
+        }
+        return detail.isEmpty ? nil : detail
+    }
+
+    private static func firstNonEmptyString(in object: [String: Any], keys: [String]) -> String? {
+        for key in keys {
+            guard let string = object[key] as? String else { continue }
+            let trimmed = string.trimmingCharacters(in: .whitespacesAndNewlines)
+            if !trimmed.isEmpty {
+                return trimmed
+            }
+        }
+        return nil
+    }
+
+    private static func isJSONObjectScalar(_ value: Any) -> Bool {
+        value is String || value is NSNumber || value is NSNull
     }
 
     private func enrichUserPromptSubmitFeedEvent(
@@ -23373,10 +23587,10 @@ export default function cmuxPiSessionExtension(pi: ExtensionAPI) {
         guard let toolName, let dict = feedToolInputDictionary(toolInput) else { return nil }
         let lower = toolName.lowercased()
         var summary: String?
-        if lower == "bash" {
+        if lower == "bash" || lower == "run_terminal_cmd" {
             summary = firstString(in: dict, keys: ["description", "command"])
-        } else if ["write", "edit", "multiedit", "read"].contains(lower) {
-            summary = firstString(in: dict, keys: ["file_path", "path"])
+        } else if ["write", "edit", "multiedit", "read", "search_replace", "write_file", "read_file"].contains(lower) {
+            summary = firstString(in: dict, keys: ["file_path", "path", "filePath"])
         } else if lower == "askuserquestion" {
             if let questions = dict["questions"] as? [[String: Any]],
                let first = questions.first {
@@ -24896,11 +25110,16 @@ export default function cmuxPiSessionExtension(pi: ExtensionAPI) {
         // Derive the hook event name, mapped to our wire format. Claude
         // uses `hook_event_name`; Codex uses `event` or `hook_event_name`.
         let rawEvent = (stdinObj["hook_event_name"] as? String)
+            ?? (stdinObj["hookEventName"] as? String)
             ?? (stdinObj["event"] as? String)
             ?? optionValue(commandArgs, name: "--event")
             ?? ""
-        let toolName = (stdinObj["tool_name"] as? String) ?? ""
-        let sessionId = (stdinObj["session_id"] as? String) ?? UUID().uuidString
+        let toolName = (stdinObj["tool_name"] as? String)
+            ?? (stdinObj["toolName"] as? String)
+            ?? ""
+        let sessionId = (stdinObj["session_id"] as? String)
+            ?? (stdinObj["sessionId"] as? String)
+            ?? UUID().uuidString
 
         // Decide whether this event is Feed-actionable. Non-actionable
         // events are forwarded as telemetry (non-blocking) and exit `{}`
@@ -24924,6 +25143,7 @@ export default function cmuxPiSessionExtension(pi: ExtensionAPI) {
             case "codex":    envKey = "CMUX_CODEX_PID"
             case "cursor":   envKey = "CMUX_CURSOR_PID"
             case "gemini":   envKey = "CMUX_GEMINI_PID"
+            case "grok":     envKey = "CMUX_GROK_PID"
             case "rovodev":  envKey = "CMUX_ROVODEV_PID"
             case "hermes-agent": envKey = "CMUX_HERMES_AGENT_PID"
             case "copilot":  envKey = "CMUX_COPILOT_PID"
@@ -24949,7 +25169,11 @@ export default function cmuxPiSessionExtension(pi: ExtensionAPI) {
         if let cwd = stdinObj["cwd"] as? String { eventDict["cwd"] = cwd }
         if !toolName.isEmpty { eventDict["tool_name"] = toolName }
         let promptText = hookEventName == "UserPromptSubmit" ? feedPromptText(from: stdinObj) : nil
-        if let toolInput = stdinObj["tool_input"] {
+        if let toolInput = Self.feedToolInput(
+            from: stdinObj,
+            hookEventName: hookEventName,
+            source: source
+        ) {
             eventDict["tool_input"] = toolInput
         }
         if let context = feedContextForEvent(
@@ -25096,7 +25320,7 @@ export default function cmuxPiSessionExtension(pi: ExtensionAPI) {
         }
 
         switch event {
-        case "PreToolUse", "beforeShellExecution":
+        case "PreToolUse", "beforeShellExecution", "pre_tool_use":
             if source == "codex" { return ("PreToolUse", false) }
             switch toolName {
             case "ExitPlanMode":
@@ -25116,17 +25340,19 @@ export default function cmuxPiSessionExtension(pi: ExtensionAPI) {
             }
         case "PermissionRequest":
             return ("PermissionRequest", true)
-        case "PostToolUse":
+        case "PostToolUse", "post_tool_use":
             return ("PostToolUse", false)
-        case "UserPromptSubmit":
+        case "PostToolUseFailure", "post_tool_use_failure":
+            return ("PostToolUse", false)
+        case "UserPromptSubmit", "user_prompt_submit":
             return ("UserPromptSubmit", false)
-        case "SessionStart":
+        case "SessionStart", "session_start":
             return ("SessionStart", false)
-        case "SessionEnd":
+        case "SessionEnd", "session_end":
             return ("SessionEnd", false)
-        case "Stop", "SubagentStop":
+        case "Stop", "SubagentStop", "stop", "subagent_stop":
             return ("Stop", false)
-        case "Notification":
+        case "Notification", "notification":
             return ("Notification", false)
         default:
             return ("PreToolUse", false)
@@ -25140,11 +25366,15 @@ export default function cmuxPiSessionExtension(pi: ExtensionAPI) {
     /// intentionally excluded.
     private static let sideEffectingTools: Set<String> = [
         "Bash",
+        "bash",
         "Write",
         "Edit",
         "MultiEdit",
         "NotebookEdit",
         "apply_patch",   // Codex
+        "run_terminal_cmd", // Grok
+        "search_replace",   // Grok
+        "write_file",       // Grok
         "shell",         // Codex / other agents
         "terminal",      // Hermes Agent
     ]
@@ -25273,6 +25503,15 @@ export default function cmuxPiSessionExtension(pi: ExtensionAPI) {
                 }
                 return "{}"
             }
+            if source == "grok" {
+                if mode == "deny" {
+                    return encode([
+                        "decision": "deny",
+                        "reason": "User denied permission via cmux Feed.",
+                    ])
+                }
+                return encode(["decision": "allow"])
+            }
             if mode == "deny" {
                 return encode(nonClaudePreToolDecision(
                     permission: "deny",
@@ -25334,6 +25573,21 @@ export default function cmuxPiSessionExtension(pi: ExtensionAPI) {
                 }
                 return "{}"
             }
+            if source == "grok" {
+                if let feedback, !feedback.isEmpty {
+                    return encode([
+                        "decision": "deny",
+                        "reason": "User rejected the plan via cmux Feed and wants this change: \(feedback)",
+                    ])
+                }
+                if mode == "deny" {
+                    return encode([
+                        "decision": "deny",
+                        "reason": "User rejected the plan via cmux Feed.",
+                    ])
+                }
+                return encode(["decision": "allow"])
+            }
             if let feedback, !feedback.isEmpty {
                 let reason = "User rejected the plan via cmux Feed and wants this change: \(feedback)"
                 return encode(nonClaudePreToolDecision(
@@ -25382,6 +25636,12 @@ export default function cmuxPiSessionExtension(pi: ExtensionAPI) {
                         message: message
                     ))
                 }
+                if source == "grok" {
+                    return encode([
+                        "decision": "deny",
+                        "reason": message,
+                    ])
+                }
                 return encode(nonClaudePreToolDecision(
                     permission: "deny",
                     reason: message,
@@ -25398,6 +25658,26 @@ export default function cmuxPiSessionExtension(pi: ExtensionAPI) {
                     body = "The user answered: \(selections.joined(separator: ", "))"
                 }
                 return encode(["context": body])
+            }
+            if source == "grok" {
+                let body: String
+                if selections.isEmpty {
+                    body = "The user submitted an empty answer."
+                } else if selections.count == 1 {
+                    body = "The user answered: \(selections[0])"
+                } else {
+                    body = "The user answered: \(selections.joined(separator: ", "))"
+                }
+                // Grok's current hook decision schema has no updated-input
+                // channel for AskUserQuestion answers. Deny the tool call and
+                // pass the selected answer as the denial reason so the model
+                // receives it as context instead of re-asking the question.
+                // Revisit this when Grok exposes a first-class answer/context
+                // injection API for question hooks.
+                return encode([
+                    "decision": "deny",
+                    "reason": "[cmux Feed] \(body). Treat this as the user's response and continue without asking the same question again.",
+                ])
             }
             if source == "claude" {
                 let updatedInput = claudeAskUserQuestionInput(
@@ -25695,7 +25975,7 @@ export default function cmuxPiSessionExtension(pi: ExtensionAPI) {
         for def in Self.agentDefs {
             if let agentFilterDef, agentFilterDef.name != def.name { continue }
             let configDir = def.resolvedConfigDir()
-            let canUseMissingConfigDir = def.name == "opencode" || def.name == "pi" || def.name == "amp" || (!isUninstall && def.name == "rovodev")
+            let canUseMissingConfigDir = def.name == "opencode" || def.name == "pi" || def.name == "amp" || (!isUninstall && (def.name == "rovodev" || def.name == "grok"))
             if !canUseMissingConfigDir, !fm.fileExists(atPath: configDir) {
                 print("  \(def.name): skipped (config dir not found)")
                 skipped += 1
