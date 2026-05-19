@@ -1,0 +1,147 @@
+import AppKit
+import CMUXVNC
+import Combine
+import Foundation
+
+struct VNCDisplayFrame: Equatable {
+    let header: VNCFrameHeader
+    let payload: Data
+}
+
+enum VNCConnectionState: Equatable {
+    case idle
+    case connecting
+    case connected
+    case disconnected
+    case failed(String)
+}
+
+@MainActor
+final class VNCPanel: Panel, ObservableObject {
+    let id: UUID
+    let panelType: PanelType = .vnc
+    private(set) var workspaceId: UUID
+    let session: MacfleetVNCSession
+    let credential: VNCResolvedCredential
+
+    @Published private(set) var displayTitle: String
+    @Published private(set) var connectionState: VNCConnectionState = .idle
+    @Published private(set) var latestFrame: VNCDisplayFrame?
+    @Published private(set) var focusFlashToken: Int = 0
+
+    private weak var focusView: NSView?
+    private var connection: VNCPanelConnection?
+
+    init(
+        workspaceId: UUID,
+        session: MacfleetVNCSession,
+        credential: VNCResolvedCredential
+    ) {
+        self.id = UUID()
+        self.workspaceId = workspaceId
+        self.session = session
+        self.credential = credential
+        self.displayTitle = session.workspaceTitle
+    }
+
+    var displayIcon: String? { "display" }
+
+    func attachFocusView(_ view: NSView?) {
+        focusView = view
+    }
+
+    func startIfNeeded() {
+        guard connection == nil else { return }
+        connectionState = .connecting
+        let nextConnection = VNCPanelConnection(
+            session: session,
+            credential: credential,
+            onControl: { [weak self] control in
+                self?.handleControl(control)
+            },
+            onFrame: { [weak self] header, payload in
+                self?.latestFrame = VNCDisplayFrame(header: header, payload: payload)
+            },
+            onExit: { [weak self] reason in
+                self?.connectionState = .failed(reason)
+                self?.connection = nil
+            }
+        )
+        connection = nextConnection
+        nextConnection.start()
+    }
+
+    func reconnect() {
+        connection?.close()
+        connection = nil
+        latestFrame = nil
+        startIfNeeded()
+    }
+
+    func setVisible(_ isVisible: Bool) {
+        connection?.sendControl(VNCControlMessage(kind: "visibility", visible: isVisible))
+    }
+
+    func sendText(_ text: String) {
+        guard !text.isEmpty else { return }
+        connection?.sendControl(VNCControlMessage(kind: "text", text: text))
+    }
+
+    func sendPointer(x: Int, y: Int, button: Int, isDown: Bool) {
+        connection?.sendControl(VNCControlMessage(kind: "pointer", x: x, y: y, button: button, isDown: isDown))
+    }
+
+    func close() {
+        connection?.close()
+        connection = nil
+        focusView = nil
+    }
+
+    func focus() {
+        guard let view = focusView, let window = view.window else { return }
+        window.makeFirstResponder(view)
+    }
+
+    func unfocus() {}
+
+    func triggerFlash(reason: WorkspaceAttentionFlashReason) {
+        _ = reason
+        guard NotificationPaneFlashSettings.isEnabled() else { return }
+        focusFlashToken += 1
+    }
+
+    func ownedFocusIntent(for responder: NSResponder, in window: NSWindow) -> PanelFocusIntent? {
+        _ = window
+        guard let focusView,
+              responder === focusView || responder.isDescendant(of: focusView) else {
+            return nil
+        }
+        return .panel
+    }
+
+    private func handleControl(_ control: VNCControlMessage) {
+        switch control.state {
+        case "connecting":
+            connectionState = .connecting
+        case "connected":
+            connectionState = .connected
+        case "disconnected":
+            connectionState = .disconnected
+        case "failed":
+            connectionState = .failed(control.message ?? VNCPanelText.stateFailed)
+        default:
+            break
+        }
+    }
+}
+
+private extension NSResponder {
+    func isDescendant(of view: NSView) -> Bool {
+        var responder: NSResponder? = self
+        while let current = responder {
+            if current === view { return true }
+            responder = current.nextResponder
+        }
+        return false
+    }
+}

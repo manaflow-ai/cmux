@@ -54,6 +54,9 @@ jobs:
       - name: Validate auxiliary window close shortcut lint
         run: ./tests/test_ci_auxiliary_window_close_shortcuts.sh
 
+      - name: Validate VNC helper bundling
+        run: ./tests/test_ci_vnc_helper_bundling.sh
+
       - name: Validate CircleCI auto approval
         run: python3 tests/test_circleci_auto_approve.py
 
@@ -247,6 +250,9 @@ jobs:
             echo "Package resolution failed on attempt $attempt, retrying..."
             sleep $((attempt * 5))
           done
+
+      - name: Run CMUXVNC package tests
+        run: swift test --package-path Packages/CMUXVNC
 
       - name: Run unit tests
         run: |

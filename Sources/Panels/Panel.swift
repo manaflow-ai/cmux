@@ -9,6 +9,7 @@ public enum PanelType: String, Codable, Sendable {
     case markdown
     case filePreview = "filepreview"
     case rightSidebarTool
+    case vnc
 
     public init(from decoder: Decoder) throws {
         let container = try decoder.singleValueContainer()

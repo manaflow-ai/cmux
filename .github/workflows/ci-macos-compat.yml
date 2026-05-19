@@ -109,6 +109,9 @@ jobs:
             sleep $((attempt * 5))
           done
 
+      - name: Run CMUXVNC package tests
+        run: swift test --package-path Packages/CMUXVNC
+
       - name: Run unit tests
         env:
           CMUX_SKIP_ZIG_BUILD: ${{ matrix.skip_zig && '1' || '0' }}
@@ -181,6 +184,14 @@ jobs:
             -clonedSourcePackagesDirPath "$SOURCE_PACKAGES_DIR" \
             -disableAutomaticPackageResolution \
             -destination "platform=macOS" build
+
+      - name: Verify bundled VNC helper
+        if: matrix.startup_smoke
+        run: |
+          set -euo pipefail
+          APP_PATH="$(find ~/Library/Developer/Xcode/DerivedData -path '*/Build/Products/Debug/cmux DEV.app' -type d -print -quit)"
+          [ -n "$APP_PATH" ] || { echo "cmux DEV.app not found" >&2; exit 1; }
+          CMUX_APP_PATH="$APP_PATH" ./tests/test_bundled_vnc_helper.sh
 
       - name: Smoke test
         if: matrix.startup_smoke

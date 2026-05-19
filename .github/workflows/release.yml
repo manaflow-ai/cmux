@@ -177,15 +177,23 @@ jobs:
           APP_BINARY="build-universal/Build/Products/Release/cmux.app/Contents/MacOS/cmux"
           CLI_BINARY="build-universal/Build/Products/Release/cmux.app/Contents/Resources/bin/cmux"
           HELPER_BINARY="build-universal/Build/Products/Release/cmux.app/Contents/Resources/bin/ghostty"
+          VNC_HELPER_BINARY="build-universal/Build/Products/Release/cmux.app/Contents/Resources/bin/cmux-vnc-helper"
+          VNC_DYLIB_BINARY="build-universal/Build/Products/Release/cmux.app/Contents/Resources/bin/libRoyalVNCKit.dylib"
           APP_ARCHS="$(lipo -archs "$APP_BINARY")"
           CLI_ARCHS="$(lipo -archs "$CLI_BINARY")"
           HELPER_ARCHS="$(lipo -archs "$HELPER_BINARY")"
+          VNC_HELPER_ARCHS="$(lipo -archs "$VNC_HELPER_BINARY")"
+          VNC_DYLIB_ARCHS="$(lipo -archs "$VNC_DYLIB_BINARY")"
           echo "App binary architectures: $APP_ARCHS"
           echo "CLI binary architectures: $CLI_ARCHS"
           echo "Ghostty helper architectures: $HELPER_ARCHS"
+          echo "VNC helper architectures: $VNC_HELPER_ARCHS"
+          echo "RoyalVNC dylib architectures: $VNC_DYLIB_ARCHS"
           [[ "$APP_ARCHS" == *arm64* && "$APP_ARCHS" == *x86_64* ]]
           [[ "$CLI_ARCHS" == *arm64* && "$CLI_ARCHS" == *x86_64* ]]
           [[ "$HELPER_ARCHS" == *arm64* && "$HELPER_ARCHS" == *x86_64* ]]
+          [[ "$VNC_HELPER_ARCHS" == *arm64* && "$VNC_HELPER_ARCHS" == *x86_64* ]]
+          [[ "$VNC_DYLIB_ARCHS" == *arm64* && "$VNC_DYLIB_ARCHS" == *x86_64* ]]
 
       - name: Build remote daemon release assets and inject manifest
         if: steps.guard_release_assets.outputs.skip_all != 'true'
@@ -216,6 +224,14 @@ jobs:
           set -euo pipefail
           HELPER_BINARY="build-universal/Build/Products/Release/cmux.app/Contents/Resources/bin/ghostty"
           [ -x "$HELPER_BINARY" ] || { echo "Ghostty theme picker helper not found at $HELPER_BINARY" >&2; exit 1; }
+
+      - name: Run bundled VNC helper regression
+        if: steps.guard_release_assets.outputs.skip_all != 'true'
+        run: |
+          set -euo pipefail
+          CMUX_APP_PATH="build-universal/Build/Products/Release/cmux.app" \
+          CMUX_EXPECT_UNIVERSAL=1 \
+            ./tests/test_bundled_vnc_helper.sh
 
       - name: Inject Sparkle keys into Info.plist
         if: steps.guard_release_assets.outputs.skip_all != 'true'

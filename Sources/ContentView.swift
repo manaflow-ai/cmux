@@ -5754,6 +5754,8 @@ struct ContentView: View {
             return String(localized: "commandPalette.kind.filePreview", defaultValue: "File Preview")
         case .rightSidebarTool:
             return String(localized: "commandPalette.kind.rightSidebarTool", defaultValue: "Tool")
+        case .vnc:
+            return String(localized: "commandPalette.kind.vnc", defaultValue: "VNC")
         }
     }
 
@@ -5769,6 +5771,8 @@ struct ContentView: View {
             return ["file", "preview", "text", "pdf", "image", "audio", "video"]
         case .rightSidebarTool:
             return ["tool", "files", "find", "vault", "sidebar"]
+        case .vnc:
+            return ["vnc", "screen", "sharing", "mac", "mini", "macfleet"]
         }
     }
 
@@ -6350,6 +6354,14 @@ struct ContentView: View {
                 title: constant(String(localized: "command.newWindow.title", defaultValue: "New Window")),
                 subtitle: constant(String(localized: "command.newWindow.subtitle", defaultValue: "Window")),
                 keywords: ["create", "new", "window"]
+            )
+        )
+        contributions.append(
+            CommandPaletteCommandContribution(
+                commandId: "palette.openMacfleetVNCWorkspaces",
+                title: constant(VNCPanelText.openMacfleetWorkspacesTitle),
+                subtitle: constant(VNCPanelText.openMacfleetWorkspacesSubtitle),
+                keywords: ["vnc", "macfleet", "screen", "sharing", "mac", "mini", "cluster"]
             )
         )
         contributions.append(
@@ -7392,6 +7404,9 @@ struct ContentView: View {
         registry.register(commandId: "palette.newWindow") {
             guard let appDelegate = AppDelegate.shared else { return }
             appDelegate.openNewMainWindow(preferredWindow: appDelegate.mainWindow(for: windowId))
+        }
+        registry.register(commandId: "palette.openMacfleetVNCWorkspaces") {
+            openMacfleetVNCWorkspaces()
         }
         registry.register(commandId: "palette.installCLI") {
             AppDelegate.shared?.installCmuxCLIInPath(nil)
