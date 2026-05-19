@@ -21417,7 +21417,7 @@ export default function cmuxPiSessionExtension(pi: ExtensionAPI) {
             json.removeValue(forKey: "hooks")
             if json.isEmpty {
                 try FileManager.default.removeItem(at: legacyURL)
-                print("Removed legacy \(def.displayName) hooks at \(legacyURL.path)")
+                print(String(format: String(localized: "cli.hooks.legacy.removedFile", defaultValue: "Removed legacy %@ hooks at %@"), def.displayName, legacyURL.path))
                 return
             }
         } else {
@@ -21425,7 +21425,7 @@ export default function cmuxPiSessionExtension(pi: ExtensionAPI) {
         }
         let newData = try JSONSerialization.data(withJSONObject: json, options: [.prettyPrinted, .sortedKeys])
         try newData.write(to: legacyURL, options: .atomic)
-        print("Removed \(removed) legacy \(def.displayName) cmux hook(s) from \(legacyURL.path)")
+        print(String(format: String(localized: "cli.hooks.legacy.removedEntries", defaultValue: "Removed %lld legacy %@ cmux hook(s) from %@"), Int64(removed), def.displayName, legacyURL.path))
     }
 
     private func pruneLegacyCopilotConfigHooksIfNeeded(
@@ -21453,12 +21453,12 @@ export default function cmuxPiSessionExtension(pi: ExtensionAPI) {
         }
         let newData = try JSONSerialization.data(withJSONObject: json, options: [.prettyPrinted, .sortedKeys])
         try newData.write(to: legacyURL, options: .atomic)
-        print("Removed \(removed) legacy \(def.displayName) cmux hook(s) from \(legacyURL.path)")
+        print(String(format: String(localized: "cli.hooks.legacy.removedEntries", defaultValue: "Removed %lld legacy %@ cmux hook(s) from %@"), Int64(removed), def.displayName, legacyURL.path))
     }
 
     private func printCopilotHookStorageNoteIfNeeded(def: AgentHookDef, filePath: String) {
         guard def.name == "copilot" else { return }
-        print("Copilot hooks stored in \(filePath); Copilot CLI manages config.json and may rewrite it on launch.")
+        print(String(format: String(localized: "cli.hooks.copilot.storageNote", defaultValue: "Copilot hooks stored in %@; Copilot manages its own settings and may rewrite them on launch."), filePath))
     }
 
     private func uninstallAgentHooks(_ def: AgentHookDef) throws {
