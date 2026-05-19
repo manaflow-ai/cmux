@@ -22,6 +22,7 @@ final class SettingsSearchIndexTests: XCTestCase {
         assertSearch("opencode resume", contains: SettingsSearchIndex.settingID(for: .terminal, idSuffix: "agent-auto-resume"))
         assertSearch("status command", contains: SettingsSearchIndex.settingID(for: .terminal, idSuffix: "status-bar"))
         assertSearch("pinned bottom rows", contains: SettingsSearchIndex.settingID(for: .terminal, idSuffix: "status-bar"))
+        assertSearch("tmux resume command approval", contains: SettingsSearchIndex.settingID(for: .terminal, idSuffix: "resume-commands"))
         assertSearch("ctrl b", contains: SettingsSearchIndex.settingID(for: .keyboardShortcuts, idSuffix: "shortcut-chords"))
         assertSearch("split right", contains: SettingsSearchIndex.settingID(for: .keyboardShortcuts, idSuffix: "shortcuts"))
         assertSearch("factory defaults", contains: SettingsSearchIndex.settingID(for: .reset, idSuffix: "reset-all"))
