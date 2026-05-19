@@ -557,6 +557,7 @@ enum NotificationSoundSettings {
 
 enum NotificationBadgeSettings {
     static let dockBadgeEnabledKey = "notificationDockBadgeEnabled"
+    static let dockBadgeLabelKey = "notificationDockBadgeLabel"
     static let defaultDockBadgeEnabled = true
 
     static func isDockBadgeEnabled(defaults: UserDefaults = .standard) -> Bool {
@@ -564,6 +565,17 @@ enum NotificationBadgeSettings {
             return defaultDockBadgeEnabled
         }
         return defaults.bool(forKey: dockBadgeEnabledKey)
+    }
+
+    static func persistDockBadgeLabel(_ label: String?, defaults: UserDefaults = .standard) {
+        let normalizedLabel = AppIconBadgeRenderer.normalizedBadgeLabel(label)
+        guard defaults.string(forKey: dockBadgeLabelKey) != normalizedLabel else { return }
+        if let normalizedLabel {
+            defaults.set(normalizedLabel, forKey: dockBadgeLabelKey)
+        } else {
+            defaults.removeObject(forKey: dockBadgeLabelKey)
+        }
+        _ = defaults.synchronize()
     }
 }
 
@@ -2118,6 +2130,8 @@ final class TerminalNotificationStore: ObservableObject {
             isEnabled: NotificationBadgeSettings.isDockBadgeEnabled(),
             runTag: TaggedRunBadgeSettings.normalizedTag()
         )
+        NotificationBadgeSettings.persistDockBadgeLabel(label)
         NSApp?.dockTile.badgeLabel = label
+        AppIconSettings.updateRuntimeBadgeLabel(label)
     }
 }
