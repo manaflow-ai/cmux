@@ -12,6 +12,7 @@ import subprocess
 import sys
 import tempfile
 import threading
+import time
 from pathlib import Path
 
 _REPO_ROOT = Path(__file__).resolve().parents[1]
@@ -57,8 +58,12 @@ class PingServer:
         self.max_ping_requests = max_ping_requests
         self.accept_timeout = accept_timeout
         self.ready = threading.Event()
+        self._done = threading.Event()
         self.error: Exception | None = None
         self._thread = threading.Thread(target=self._run, daemon=True)
+        self._connection_threads: list[threading.Thread] = []
+        self._handled_pings = 0
+        self._handler_lock = threading.Lock()
 
     def start(self) -> None:
         self._thread.start()
@@ -75,41 +80,62 @@ class PingServer:
             if os.path.exists(self.socket_path):
                 os.remove(self.socket_path)
             server.bind(self.socket_path)
-            server.listen(1)
-            server.settimeout(self.accept_timeout)
+            server.listen(8)
             self.ready.set()
 
-            # The CLI probes candidate sockets with ping before issuing the
-            # command, so tests can opt into serving both requests.
-            handled_pings = 0
-            for _ in range(max(4, self.max_ping_requests + 2)):
-                conn, _ = server.accept()
-                with conn:
-                    conn.settimeout(2.0)
-                    data = b""
-                    try:
-                        while b"\n" not in data:
-                            chunk = conn.recv(4096)
-                            if not chunk:
-                                break
-                            data += chunk
-                    except (ConnectionResetError, socket.timeout):
-                        continue
-
-                    if b"ping" in data:
-                        response = self.response
-                        if self.responses:
-                            response = self.responses[min(handled_pings, len(self.responses) - 1)]
-                        conn.sendall(response)
-                        handled_pings += 1
-                        if handled_pings >= self.max_ping_requests:
-                            return
-            raise RuntimeError("Did not receive ping command on test socket")
+            # The CLI may probe candidate sockets with a connect-only check before
+            # issuing ping requests, so keep accepting until the configured ping
+            # count arrives or the test socket times out.
+            deadline = time.monotonic() + self.accept_timeout
+            while not self._done.is_set():
+                remaining = deadline - time.monotonic()
+                if remaining <= 0:
+                    raise RuntimeError("Did not receive ping command on test socket")
+                server.settimeout(min(0.2, remaining))
+                try:
+                    conn, _ = server.accept()
+                except TimeoutError:
+                    continue
+                connection_thread = threading.Thread(
+                    target=self._handle_connection,
+                    args=(conn,),
+                    daemon=True,
+                )
+                self._connection_threads.append(connection_thread)
+                connection_thread.start()
         except Exception as exc:  # pragma: no cover - explicit surface on failure
             self.error = exc
             self.ready.set()
         finally:
+            self._done.set()
             server.close()
+            for connection_thread in self._connection_threads:
+                connection_thread.join(timeout=1.0)
+
+    def _handle_connection(self, conn: socket.socket) -> None:
+        with conn:
+            conn.settimeout(2.0)
+            data = b""
+            try:
+                while b"\n" not in data:
+                    chunk = conn.recv(4096)
+                    if not chunk:
+                        break
+                    data += chunk
+            except (ConnectionResetError, TimeoutError, socket.timeout):
+                return
+
+            if b"ping" in data:
+                with self._handler_lock:
+                    response_index = self._handled_pings
+                    response = self.response
+                    if self.responses:
+                        response = self.responses[min(response_index, len(self.responses) - 1)]
+                    self._handled_pings += 1
+                    should_finish = self._handled_pings >= self.max_ping_requests
+                conn.sendall(response)
+                if should_finish:
+                    self._done.set()
 
 
 def write_marker(home: str, marker_name: str, socket_path: str) -> None:
