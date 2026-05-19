@@ -4077,17 +4077,17 @@ struct OmnibarTextFieldRepresentable: NSViewRepresentable {
             // charactersIgnoringModifiers returns non-ASCII characters. Normalize
             // via KeyboardLayout so Cmd/Ctrl+N/P navigation works across input sources.
             let lowered = KeyboardLayout.normalizedCharacters(for: event)
-            let hasCommandOrControl = modifiers.contains(.command) || modifiers.contains(.control)
+            let repeatsSelectionShortcut = modifiers == [.command] || modifiers == [.control]
 
             // Cmd/Ctrl+N and Cmd/Ctrl+P should repeat while held.
-            if hasCommandOrControl, lowered == "n" {
+            if repeatsSelectionShortcut, lowered == "n" {
                 parent.onMoveSelection(+1)
 #if DEBUG
                 handled = true
 #endif
                 return true
             }
-            if hasCommandOrControl, lowered == "p" {
+            if repeatsSelectionShortcut, lowered == "p" {
                 parent.onMoveSelection(-1)
 #if DEBUG
                 handled = true

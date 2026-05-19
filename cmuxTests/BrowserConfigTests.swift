@@ -3678,7 +3678,7 @@ final class BrowserDeveloperToolsVisibilityPersistenceTests: XCTestCase {
 }
 
 
-final class BrowserOmnibarCommandNavigationTests: XCTestCase {
+final class BrowserOmnibarCommandOrControlNavigationTests: XCTestCase {
     func testArrowNavigationDeltaRequiresFocusedAddressBarAndNoModifierFlags() {
         XCTAssertNil(
             browserOmnibarSelectionDeltaForArrowNavigation(
@@ -3763,6 +3763,22 @@ final class BrowserOmnibarCommandNavigationTests: XCTestCase {
                 hasFocusedAddressBar: true,
                 flags: [.command, .shift],
                 chars: "n"
+            )
+        )
+
+        XCTAssertNil(
+            browserOmnibarSelectionDeltaForCommandNavigation(
+                hasFocusedAddressBar: true,
+                flags: [.command, .control],
+                chars: "n"
+            )
+        )
+
+        XCTAssertNil(
+            browserOmnibarSelectionDeltaForCommandNavigation(
+                hasFocusedAddressBar: true,
+                flags: [.command, .control],
+                chars: "p"
             )
         )
 

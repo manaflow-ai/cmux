@@ -625,11 +625,15 @@ private func deliverFeedNotification(
                     }
                 }
                 if !granted {
-                    runFallbackEffects()
+                    DispatchQueue.main.async {
+                        runFallbackEffects()
+                    }
                 }
             }
         default:
-            runFallbackEffects()
+            DispatchQueue.main.async {
+                runFallbackEffects()
+            }
         }
     }
 }

@@ -7070,13 +7070,14 @@ private class BrowserNavigationDelegate: NSObject, WKNavigationDelegate {
            navigationAction.targetFrame?.isMainFrame != false,
            browserShouldOpenURLExternally(url) {
             let opened = NSWorkspace.shared.open(url)
+            let redactedURL = browserNavigationDebugURL(url)
             if !opened {
-                NSLog("BrowserPanel external navigation failed to open URL: %@", url.absoluteString)
+                NSLog("BrowserPanel external navigation failed to open URL: %@", redactedURL)
             }
             #if DEBUG
-            cmuxDebugLog("browser.navigation.external source=navDelegate opened=\(opened ? 1 : 0) url=\(url.absoluteString)")
+            cmuxDebugLog("browser.navigation.external source=navDelegate opened=\(opened ? 1 : 0) url=\(redactedURL)")
             #endif
-            decisionHandler(.cancel)
+            decisionHandler(opened ? .cancel : .allow)
             return
         }
 
@@ -7258,12 +7259,16 @@ private class BrowserUIDelegate: NSObject, WKUIDelegate {
         if let url = navigationAction.request.url,
            browserShouldOpenURLExternally(url) {
             let opened = NSWorkspace.shared.open(url)
+            let redactedURL = browserNavigationDebugURL(url)
             if !opened {
-                NSLog("BrowserPanel external navigation failed to open URL: %@", url.absoluteString)
+                NSLog("BrowserPanel external navigation failed to open URL: %@", redactedURL)
             }
             #if DEBUG
-            cmuxDebugLog("browser.navigation.external source=uiDelegate opened=\(opened ? 1 : 0) url=\(browserNavigationDebugURL(url))")
+            cmuxDebugLog("browser.navigation.external source=uiDelegate opened=\(opened ? 1 : 0) url=\(redactedURL)")
             #endif
+            if !opened {
+                requestNavigation?(navigationAction.request, .currentTab)
+            }
             return nil
         }
 

@@ -15270,13 +15270,18 @@ class TerminalController {
         _ = v2AwaitCallback(timeout: timeout) { finish in
             var readyObserver: NSObjectProtocol?
             var hostedViewObserver: NSObjectProtocol?
+            var didFinish = false
             let finishOnce: () -> Void = {
+                guard !didFinish else { return }
+                didFinish = true
                 if let readyObserver {
                     NotificationCenter.default.removeObserver(readyObserver)
                 }
                 if let hostedViewObserver {
                     NotificationCenter.default.removeObserver(hostedViewObserver)
                 }
+                readyObserver = nil
+                hostedViewObserver = nil
                 finish(())
             }
 

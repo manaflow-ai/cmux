@@ -5702,10 +5702,10 @@ final class TerminalSurface: Identifiable, ObservableObject {
         desiredFocusState = focused
     }
 
-    func setFocus(_ focused: Bool) {
+    func setFocus(_ focused: Bool, force: Bool = false) {
         // Only send focus events when the state changes to avoid redundant
         // prompt redraws with zsh themes like Powerlevel10k.
-        guard focused != desiredFocusState else { return }
+        guard force || focused != desiredFocusState else { return }
         desiredFocusState = focused
         // Track desired state even before the C surface exists (e.g. during
         // layout restoration). createSurface syncs the state once created.
@@ -5766,35 +5766,59 @@ final class TerminalSurface: Identifiable, ObservableObject {
     /// events so the shell processes them, while regular text is sent via the
     /// normal key-text path.  Mirrors `TerminalController.sendSocketText`.
     func sendInput(_ text: String) {
-        guard let surface = surface else { return }
+        let activeSurface = surface
         var bufferedText = ""
         var previousWasCR = false
+        var queuedPendingInput = false
+
+        func flushBufferedText() {
+            if let activeSurface {
+                flushText(&bufferedText, surface: activeSurface)
+            } else {
+                queuedPendingInput = enqueuePendingText(&bufferedText) || queuedPendingInput
+            }
+        }
+
+        func sendOrQueueKey(keycode: UInt32, label: String) {
+            if let activeSurface {
+                sendKeyEvent(surface: activeSurface, keycode: keycode)
+            } else {
+                enqueuePendingSocketInput(
+                    .key(PendingKeyEvent(keycode: keycode, mods: GHOSTTY_MODS_NONE, label: label))
+                )
+                queuedPendingInput = true
+            }
+        }
+
         for scalar in text.unicodeScalars {
             switch scalar.value {
             case 0x0A: // \n — skip if preceded by \r (already sent Return)
                 if !previousWasCR {
-                    flushText(&bufferedText, surface: surface)
-                    sendKeyEvent(surface: surface, keycode: 0x24) // kVK_Return
+                    flushBufferedText()
+                    sendOrQueueKey(keycode: 0x24, label: "enter") // kVK_Return
                 }
                 previousWasCR = false
             case 0x0D:
-                flushText(&bufferedText, surface: surface)
-                sendKeyEvent(surface: surface, keycode: 0x24) // kVK_Return
+                flushBufferedText()
+                sendOrQueueKey(keycode: 0x24, label: "enter") // kVK_Return
                 previousWasCR = true
             case 0x09:
-                flushText(&bufferedText, surface: surface)
-                sendKeyEvent(surface: surface, keycode: 0x30) // kVK_Tab
+                flushBufferedText()
+                sendOrQueueKey(keycode: 0x30, label: "tab") // kVK_Tab
                 previousWasCR = false
             case 0x1B:
-                flushText(&bufferedText, surface: surface)
-                sendKeyEvent(surface: surface, keycode: 0x35) // kVK_Escape
+                flushBufferedText()
+                sendOrQueueKey(keycode: 0x35, label: "escape") // kVK_Escape
                 previousWasCR = false
             default:
                 bufferedText.unicodeScalars.append(scalar)
                 previousWasCR = false
             }
         }
-        flushText(&bufferedText, surface: surface)
+        flushBufferedText()
+        if activeSurface == nil, queuedPendingInput {
+            requestBackgroundSurfaceStartIfNeeded()
+        }
     }
 
     private func flushText(_ buffer: inout String, surface: ghostty_surface_t) {
@@ -5811,6 +5835,14 @@ final class TerminalSurface: Identifiable, ObservableObject {
             _ = ghostty_surface_key(surface, keyEvent)
         }
         buffer.removeAll(keepingCapacity: true)
+    }
+
+    @discardableResult
+    private func enqueuePendingText(_ buffer: inout String) -> Bool {
+        guard let data = buffer.data(using: .utf8), !data.isEmpty else { return false }
+        enqueuePendingSocketInput(.text(data))
+        buffer.removeAll(keepingCapacity: true)
+        return true
     }
 
     private func sendKeyEvent(
@@ -6013,10 +6045,21 @@ final class TerminalSurface: Identifiable, ObservableObject {
 
     private func enqueuePendingSocketInput(_ input: PendingSocketInput) {
         let incomingBytes = input.estimatedBytes
-        while !pendingSocketInputQueue.isEmpty,
-              pendingSocketInputBytes + incomingBytes > maxPendingSocketInputBytes {
-            let dropped = pendingSocketInputQueue.removeFirst()
-            pendingSocketInputBytes -= dropped.estimatedBytes
+        guard incomingBytes <= maxPendingSocketInputBytes else {
+#if DEBUG
+            cmuxDebugLog(
+                "surface.socket_input.drop surface=\(id.uuidString.prefix(8)) reason=oversized bytes=\(incomingBytes)"
+            )
+#endif
+            return
+        }
+        guard pendingSocketInputBytes + incomingBytes <= maxPendingSocketInputBytes else {
+#if DEBUG
+            cmuxDebugLog(
+                "surface.socket_input.drop surface=\(id.uuidString.prefix(8)) reason=full bytes=\(incomingBytes) queuedBytes=\(pendingSocketInputBytes)"
+            )
+#endif
+            return
         }
 
         pendingSocketInputQueue.append(input)
@@ -12043,7 +12086,7 @@ final class GhosttySurfaceScrollView: NSView {
 #if DEBUG
         cmuxDebugLog("focus.surface.reassert surface=\(terminalSurface.id.uuidString.prefix(5)) reason=\(reason)")
 #endif
-        terminalSurface.setFocus(true)
+        terminalSurface.setFocus(true, force: true)
         refreshSurfaceAfterFocusIfNeeded(reason: reason)
     }
 

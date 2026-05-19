@@ -5072,7 +5072,18 @@ struct ContentView: View {
             includeSurfaces: includeSurfaces,
             commandsContext: commandsContext
         )
-        commandPaletteSearchCommandsByID = Dictionary(uniqueKeysWithValues: entries.map { ($0.id, $0) })
+#if DEBUG
+        let duplicateCommandIDs = Dictionary(grouping: entries, by: \.id)
+            .compactMap { id, entries in entries.count > 1 ? id : nil }
+            .sorted()
+        if !duplicateCommandIDs.isEmpty {
+            cmuxDebugLog("commandPalette.duplicateCommandIDs ids=\(duplicateCommandIDs.joined(separator: ","))")
+        }
+#endif
+        commandPaletteSearchCommandsByID = Dictionary(
+            entries.map { ($0.id, $0) },
+            uniquingKeysWith: { first, _ in first }
+        )
         let searchCorpus = entries.map { entry in
             CommandPaletteSearchCorpusEntry(
                 payload: entry.id,
@@ -5082,7 +5093,10 @@ struct ContentView: View {
             )
         }
         commandPaletteSearchCorpus = searchCorpus
-        commandPaletteSearchCorpusByID = Dictionary(uniqueKeysWithValues: searchCorpus.map { ($0.payload, $0) })
+        commandPaletteSearchCorpusByID = Dictionary(
+            searchCorpus.map { ($0.payload, $0) },
+            uniquingKeysWith: { first, _ in first }
+        )
         cachedCommandPaletteScope = scope
         cachedCommandPaletteFingerprint = fingerprint
     }
@@ -5201,20 +5215,6 @@ struct ContentView: View {
     ) -> [CommandPaletteResolvedSearchMatch] {
         guard resultLimit > 0 else {
             return []
-        }
-
-        if scope == .commands {
-            let matches = commandPaletteResolvedSearchMatches(
-                searchCorpus: searchCorpus,
-                query: query,
-                usageHistory: usageHistory,
-                queryIsEmpty: queryIsEmpty,
-                historyTimestamp: historyTimestamp
-            )
-            guard matches.count > resultLimit else {
-                return matches
-            }
-            return Array(matches.prefix(resultLimit))
         }
 
         guard !candidateCommandIDs.isEmpty else {
