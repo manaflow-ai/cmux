@@ -12992,8 +12992,10 @@ private struct TabItemView: View, Equatable {
             refreshWorkspaceIconDetection()
             refreshWorkspaceSnapshot()
         }
-        .onChange(of: settings) { _ in
+        .onChange(of: settings.autoDetectWorkspaceIcon) {
             refreshWorkspaceIconDetection(force: true)
+        }
+        .onChange(of: settings) {
             refreshWorkspaceSnapshot(force: true)
         }
         .onDrag {
@@ -14052,11 +14054,23 @@ private struct TabItemView: View, Equatable {
         alert.window.initialFirstResponder = input
 
         let response = alert.runModal()
-        guard response == .alertFirstButtonReturn,
-              let normalized = WorkspaceIconValue.normalizedStorageValue("emoji:\(input.stringValue)") else {
+        guard response == .alertFirstButtonReturn else {
+            return
+        }
+        guard let normalized = WorkspaceIconValue.normalizedStorageValue("emoji:\(input.stringValue)") else {
+            showInvalidEmojiIconAlert()
+            promptEmojiIcon(targetIds: targetIds)
             return
         }
         applyTabIcon(normalized, targetIds: targetIds)
+    }
+
+    private func showInvalidEmojiIconAlert() {
+        let alert = NSAlert()
+        alert.messageText = String(localized: "alert.emojiIcon.invalid.title", defaultValue: "Emoji Required")
+        alert.informativeText = String(localized: "alert.emojiIcon.invalid.message", defaultValue: "Enter at least one emoji to use as the workspace icon.")
+        alert.addButton(withTitle: String(localized: "alert.ok", defaultValue: "OK"))
+        alert.runModal()
     }
 
     private func promptCustomColor(targetIds: [UUID]) {

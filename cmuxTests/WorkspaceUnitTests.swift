@@ -261,28 +261,35 @@ final class WorkspaceIconTests: XCTestCase {
         try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
         defer { try? FileManager.default.removeItem(at: directory) }
 
+        let iconURL = directory.appendingPathComponent("favicon.png")
+        try Data([0x89, 0x50, 0x4E, 0x47]).write(to: iconURL)
+
         let manager = TabManager()
         guard let workspace = manager.tabs.first else {
             XCTFail("Expected TabManager to initialise with a workspace")
             return
         }
         workspace.currentDirectory = directory.path
-        workspace.refreshDetectedWorkspaceIcon(autoDetectEnabled: true, force: true)
 
-        let iconURL = directory.appendingPathComponent("favicon.png")
-        try Data([0x89, 0x50, 0x4E, 0x47]).write(to: iconURL)
-        workspace.refreshDetectedWorkspaceIcon(autoDetectEnabled: true)
-
-        let expectation = expectation(description: "detected icon refreshes")
-        let cancellable = workspace.$detectedIconPath.sink { detectedPath in
-            if detectedPath == iconURL.path {
-                expectation.fulfill()
-            }
+        let initialTask = workspace.refreshDetectedWorkspaceIcon(autoDetectEnabled: true, force: true)
+        if let initialTask {
+            await initialTask.value
         }
+        XCTAssertEqual(workspace.detectedIconPath, iconURL.path)
 
-        workspace.refreshDetectedWorkspaceIcon(autoDetectEnabled: true, force: true)
-        await fulfillment(of: [expectation], timeout: 3)
-        withExtendedLifetime(cancellable) {}
+        let firstToken = workspace.effectiveIconReloadToken(autoDetectEnabled: true)
+        XCTAssertNotNil(firstToken)
+
+        try Data([0x89, 0x50, 0x4E, 0x47, 0x01]).write(to: iconURL)
+        let skippedTask = workspace.refreshDetectedWorkspaceIcon(autoDetectEnabled: true)
+        XCTAssertNil(skippedTask)
+        XCTAssertEqual(firstToken, workspace.effectiveIconReloadToken(autoDetectEnabled: true))
+
+        let rescanTask = workspace.refreshDetectedWorkspaceIcon(autoDetectEnabled: true, force: true)
+        if let rescanTask {
+            await rescanTask.value
+        }
+        XCTAssertNotEqual(firstToken, workspace.effectiveIconReloadToken(autoDetectEnabled: true))
     }
 }
 

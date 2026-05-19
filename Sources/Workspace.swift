@@ -8707,7 +8707,8 @@ final class Workspace: Identifiable, ObservableObject {
         return "\(detectedIconPath)\u{0}detected:\(detectedIconRevision)"
     }
 
-    func refreshDetectedWorkspaceIcon(autoDetectEnabled: Bool, force: Bool = false) {
+    @discardableResult
+    func refreshDetectedWorkspaceIcon(autoDetectEnabled: Bool, force: Bool = false) -> Task<Void, Never>? {
         guard autoDetectEnabled else {
             workspaceIconDetectionTask?.cancel()
             workspaceIconDetectionTask = nil
@@ -8717,7 +8718,7 @@ final class Workspace: Identifiable, ObservableObject {
                 detectedIconPath = nil
                 detectedIconRevision &+= 1
             }
-            return
+            return nil
         }
 
         let directory = WorkspaceIconValue.normalizedStorageValue(currentDirectory)
@@ -8730,13 +8731,13 @@ final class Workspace: Identifiable, ObservableObject {
                 detectedIconPath = nil
                 detectedIconRevision &+= 1
             }
-            return
+            return nil
         }
 
-        guard force || workspaceIconDetectionDirectory != directory else { return }
+        guard force || workspaceIconDetectionDirectory != directory else { return nil }
         workspaceIconDetectionDirectory = directory
         workspaceIconDetectionTask?.cancel()
-        workspaceIconDetectionTask = Task.detached(priority: .utility) { [weak self, directory] in
+        let task = Task.detached(priority: .utility) { [weak self, directory] in
             let result = WorkspaceIconDetectionResult.detect(in: directory)
             guard !Task.isCancelled else { return }
 
@@ -8754,6 +8755,8 @@ final class Workspace: Identifiable, ObservableObject {
                 }
             }
         }
+        workspaceIconDetectionTask = task
+        return task
     }
 
     func setTerminalScrollBarHidden(_ hidden: Bool) {
