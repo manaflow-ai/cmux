@@ -142,11 +142,13 @@ final class AgentHibernationController {
         timer.schedule(deadline: .now() + 5, repeating: 30)
         timer.setEventHandler {
             let now = Date()
-            let index = RestorableAgentSessionIndex.load()
-            Task { @MainActor in
-                let settings = AgentHibernationSettings.values()
-                guard settings.enabled else { return }
-                AgentHibernationController.shared.evaluate(index: index, settings: settings, now: now)
+            Task(priority: .utility) {
+                let index = await RestorableAgentSessionIndex.loadIncludingProcessDetectedSnapshots()
+                await MainActor.run {
+                    let settings = AgentHibernationSettings.values()
+                    guard settings.enabled else { return }
+                    AgentHibernationController.shared.evaluate(index: index, settings: settings, now: now)
+                }
             }
         }
         timer.resume()
