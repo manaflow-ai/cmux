@@ -376,6 +376,70 @@ final class AppDelegateIssue2907RoutingTests: XCTestCase {
         XCTAssertEqual(shape["workspaces"] as? Int, 1)
     }
 
+    func testRecoveredFallbackSnapshotPreservesCachedRestorableAgentMetadataAfterManagerReferenceCleared() throws {
+        _ = NSApplication.shared
+        let previousAppDelegate = AppDelegate.shared
+        let app = AppDelegate()
+        defer {
+            AppDelegate.shared = previousAppDelegate
+        }
+
+        let recoveredWindowId = UUID()
+        let recoveredWindow = makeMainWindow(id: recoveredWindowId)
+        defer {
+            TerminalController.shared.setActiveTabManager(nil)
+            app.unregisterMainWindowContextForTesting(windowId: recoveredWindowId)
+            recoveredWindow.orderOut(nil)
+        }
+
+        let recoveredManager = TabManager()
+        app.registerMainWindow(
+            recoveredWindow,
+            windowId: recoveredWindowId,
+            tabManager: recoveredManager,
+            sidebarState: SidebarState(),
+            sidebarSelectionState: SidebarSelectionState(),
+            fileExplorerState: FileExplorerState()
+        )
+
+        let recoveredWorkspace = try XCTUnwrap(recoveredManager.selectedWorkspace)
+        let recoveredTerminal = try XCTUnwrap(recoveredWorkspace.focusedTerminalPanel)
+        let agentSnapshot = SessionRestorableAgentSnapshot(
+            kind: .codex,
+            sessionId: "cached-codex-session",
+            workingDirectory: "/tmp/recovered-agent",
+            launchCommand: nil
+        )
+        let restorableAgentIndex = RestorableAgentSessionIndex.load(
+            homeDirectory: NSTemporaryDirectory(),
+            fileManager: .default,
+            registry: CmuxVaultAgentRegistry(registrations: []),
+            detectedSnapshots: [
+                RestorableAgentSessionIndex.PanelKey(
+                    workspaceId: recoveredWorkspace.id,
+                    panelId: recoveredTerminal.id
+                ): (
+                    snapshot: agentSnapshot,
+                    updatedAt: 1
+                ),
+            ]
+        )
+        app.debugSetLatestRestorableAgentIndexForTesting(restorableAgentIndex)
+
+        app.unregisterMainWindowContextForTesting(windowId: recoveredWindowId)
+        app.debugClearRecoverableMainWindowRouteManagerForTesting(windowId: recoveredWindowId)
+        TerminalController.shared.setActiveTabManager(nil)
+        app.retireRecoverableMainWindowRoutesWithoutRegisteredTerminalSurfaces(reason: "test")
+
+        let snapshot = try XCTUnwrap(app.debugBuildSessionSnapshotForTesting(
+            includeScrollback: false,
+            includeRecoverableRoutes: true
+        ))
+        let terminal = try XCTUnwrap(snapshot.windows.first?.tabManager.workspaces.first?.panels.first?.terminal)
+        XCTAssertEqual(terminal.agent?.sessionId, "cached-codex-session")
+        XCTAssertNil(terminal.scrollback)
+    }
+
     func testSessionSnapshotExcludesRecoveredWindowRouteDuringNormalCloseSave() throws {
         _ = NSApplication.shared
         let previousAppDelegate = AppDelegate.shared

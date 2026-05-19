@@ -34,7 +34,7 @@ final class RecoverableMainWindowRoute {
     let sidebarState: SidebarState
     let sidebarSelectionState: SidebarSelectionState
     // Full snapshots are rebuilt at save time while the manager is live; this is only a lightweight
-    // shape fallback for routes whose manager disappears before the terminating save.
+    // no-scrollback fallback for routes whose manager disappears before the terminating save.
     let fallbackSnapshot: SessionWindowSnapshot
     let order: UInt64
 
@@ -331,7 +331,7 @@ extension AppDelegate {
             sidebarState: sidebarState,
             sidebarSelectionState: sidebarSelectionState,
             includeScrollback: false,
-            restorableAgentIndex: .empty
+            restorableAgentIndex: cachedRestorableAgentIndexForSessionSnapshot()
         )
         mainWindowRouteLedger.routesByWindowId[windowId] = RecoverableMainWindowRoute(
             windowId: windowId,

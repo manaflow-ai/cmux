@@ -878,6 +878,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
     }
     private var lastSessionAutosaveFingerprint: Int?
     private var lastSessionAutosavePersistedAt: Date = .distantPast
+    private var latestRestorableAgentIndexForSessionSnapshot: RestorableAgentSessionIndex = .empty
     private var lastTypingActivityAt: TimeInterval = 0
     var didHandleExplicitOpenIntentAtStartup = false
     private var didScheduleInitialMainWindowBootstrap = false
@@ -3495,7 +3496,15 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             restorableAgentIndex: .empty
         )
     }
+
+    func debugSetLatestRestorableAgentIndexForTesting(_ index: RestorableAgentSessionIndex) {
+        latestRestorableAgentIndexForSessionSnapshot = index
+    }
 #endif
+
+    func cachedRestorableAgentIndexForSessionSnapshot() -> RestorableAgentSessionIndex {
+        latestRestorableAgentIndexForSessionSnapshot
+    }
 
     @discardableResult
     private func saveSessionSnapshot(
@@ -3703,6 +3712,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         let fingerprintStart = ProcessInfo.processInfo.systemUptime
 #endif
         let restorableAgentIndex = await RestorableAgentSessionIndex.loadIncludingProcessDetectedSnapshots()
+        latestRestorableAgentIndexForSessionSnapshot = restorableAgentIndex
         let autosaveFingerprint = sessionAutosaveFingerprint(
             includeScrollback: false,
             restorableAgentIndex: restorableAgentIndex
@@ -3847,7 +3857,13 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             includeRecoverableRoutes: false
         )
 
-        let restorableAgentIndex = suppliedRestorableAgentIndex ?? RestorableAgentSessionIndex.load()
+        let restorableAgentIndex: RestorableAgentSessionIndex
+        if let suppliedRestorableAgentIndex {
+            restorableAgentIndex = suppliedRestorableAgentIndex
+            latestRestorableAgentIndexForSessionSnapshot = suppliedRestorableAgentIndex
+        } else {
+            restorableAgentIndex = RestorableAgentSessionIndex.load()
+        }
         let maxWindowSnapshots = SessionPersistencePolicy.maxWindowsPerSnapshot
 
         var seenWindowIds: Set<UUID> = []
@@ -3887,6 +3903,18 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
     }
 
 #if DEBUG
+    func debugBuildSessionSnapshotForTesting(
+        includeScrollback: Bool,
+        includeRecoverableRoutes: Bool = true,
+        restorableAgentIndex: RestorableAgentSessionIndex? = nil
+    ) -> AppSessionSnapshot? {
+        buildSessionSnapshot(
+            includeScrollback: includeScrollback,
+            restorableAgentIndex: restorableAgentIndex,
+            includeRecoverableRoutes: includeRecoverableRoutes
+        )
+    }
+
     private func debugLogSessionSaveSnapshot(
         _ snapshot: AppSessionSnapshot,
         includeScrollback: Bool
