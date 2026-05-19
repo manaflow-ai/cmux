@@ -448,6 +448,10 @@ html { scroll-behavior: smooth; }
     value = value.replace(/^\[/, '').replace(/\]$/, '');
     if (value.indexOf(':') === -1) { return false; }
     if (value === '::' || value === '::1') { return true; }
+    var embeddedIPv4 = embeddedIPv4FromIPv6(value);
+    if (embeddedIPv4) {
+      return isBlockedRemoteIPv4(embeddedIPv4);
+    }
     var first = value.split(':')[0] || '0';
     var firstValue = parseInt(first, 16);
     if (Number.isFinite(firstValue)) {
@@ -456,23 +460,32 @@ html { scroll-behavior: smooth; }
       if ((firstValue & 0xffc0) === 0xfec0) { return true; }
       if ((firstValue & 0xff00) === 0xff00) { return true; }
     }
-    if (value.indexOf('::ffff:') === 0) {
-      return isBlockedRemoteIPv4(value.slice('::ffff:'.length));
-    }
-    var embeddedIPv4 = embeddedIPv4FromIPv6(value);
-    if (embeddedIPv4) {
-      return isBlockedRemoteIPv4(embeddedIPv4);
-    }
     return false;
   }
 
   function embeddedIPv4FromIPv6(value) {
-    if (value.indexOf('::') !== 0) { return null; }
-    var hextets = value.split(':').filter(Boolean);
-    if (hextets.length === 3 && hextets[0] === 'ffff') {
-      hextets = hextets.slice(1);
+    var raw = String(value || '').toLowerCase().replace(/^\[/, '').replace(/\]$/, '');
+    var hextets = null;
+    if (raw.indexOf('::') === 0) {
+      hextets = raw.split(':').filter(Boolean);
+      if (hextets.length === 3 && hextets[0] === 'ffff') {
+        hextets = hextets.slice(1);
+      }
+    } else {
+      var expanded = raw.split(':');
+      var numbers = expanded.map(function(part) {
+        return /^[0-9a-f]{1,4}$/.test(part) ? parseInt(part, 16) : NaN;
+      });
+      var isIPv4Compatible = numbers.length === 8 &&
+        numbers.slice(0, 6).every(function(part) { return part === 0; });
+      var isIPv4Mapped = numbers.length === 8 &&
+        numbers.slice(0, 5).every(function(part) { return part === 0; }) &&
+        numbers[5] === 0xffff;
+      if (isIPv4Compatible || isIPv4Mapped) {
+        hextets = [expanded[6], expanded[7]];
+      }
     }
-    if (hextets.length !== 2) { return null; }
+    if (!hextets || hextets.length !== 2) { return null; }
     var high = parseInt(hextets[0], 16);
     var low = parseInt(hextets[1], 16);
     if (
@@ -639,6 +652,19 @@ html { scroll-behavior: smooth; }
     window.open(href, '_blank', 'noopener');
   }
 
+  function copyRemoteImageURL(href) {
+    copyTextToClipboard(href).catch(function() {});
+  }
+
+  function insertRemoteImagePlaceholder(img, placeholder) {
+    var anchor = img.closest ? img.closest('a') : null;
+    if (anchor && contentEl.contains(anchor) && anchor.parentNode) {
+      anchor.parentNode.insertBefore(placeholder, anchor.nextSibling);
+      return;
+    }
+    img.parentNode.insertBefore(placeholder, img.nextSibling);
+  }
+
   function ensureRemoteImagePlaceholder(img) {
     if (!img || img.getAttribute('data-cmux-remote-processed') === '1') { return; }
     var raw = unescapeDataAttribute(img.getAttribute('data-cmux-remote-src'));
@@ -695,13 +721,20 @@ html { scroll-behavior: smooth; }
     }
     appendRemoteImageButton(
       placeholder,
+      cmuxString('remoteImageCopyURL', 'Copy image URL'),
+      function() {
+        copyRemoteImageURL(info.href);
+      }
+    );
+    appendRemoteImageButton(
+      placeholder,
       cmuxString('remoteImageOpenURL', 'Open image URL'),
       function() {
         openRemoteImageURL(info.href);
       }
     );
 
-    img.parentNode.insertBefore(placeholder, img.nextSibling);
+    insertRemoteImagePlaceholder(img, placeholder);
     if (canOfferLoad && remoteImageAllowedURLs[info.href]) {
       loadRemoteImage(img);
     }

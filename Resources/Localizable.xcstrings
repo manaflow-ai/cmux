@@ -102473,6 +102473,23 @@
         }
       }
     },
+    "markdown.web.remoteImageCopyURL": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Copy image URL"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "画像 URL をコピー"
+          }
+        }
+      }
+    },
     "markdown.web.remoteImageOpenURL": {
       "extractionState": "manual",
       "localizations": {
