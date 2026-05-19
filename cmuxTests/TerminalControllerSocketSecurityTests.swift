@@ -113,6 +113,63 @@ final class TerminalControllerSocketSecurityTests: XCTestCase {
         XCTAssertEqual(try socketMode(at: socketPath), 0o666)
     }
 
+    func testRecoveryRetryWatcherRestartsAfterFailedRecoveryStart() throws {
+        let socketPath = makeSocketPath("retry-fail")
+        let tabManager = TabManager()
+
+        XCTAssertTrue(TerminalController.shared.start(
+            tabManager: tabManager,
+            socketPath: socketPath,
+            accessMode: .allowAll
+        ))
+        try waitForSocket(at: socketPath)
+        XCTAssertEqual(try sendCommands(["ping"], to: socketPath), ["PONG"])
+
+        let generation = TerminalController.shared.listenerStateSnapshot().activeGeneration
+        XCTAssertNotEqual(generation, 0)
+
+        XCTAssertEqual(Darwin.unlink(socketPath), 0)
+        let helper = try launchForeignSocketBinder(at: socketPath)
+        var shouldTerminateHelper = true
+        defer {
+            if shouldTerminateHelper {
+                terminate(helper)
+            }
+            unlink(socketPath)
+        }
+
+        TerminalController.shared.withListenerState {
+            TerminalController.shared.pendingSocketFileRecoveryGeneration = generation
+        }
+        TerminalController.shared.recoverSocketListenerAfterSocketFileLoss(
+            generation: generation,
+            recoveryPath: socketPath,
+            shouldUnlinkNonSocketReplacement: false,
+            nonSocketReplacementIdentity: nil
+        )
+        XCTAssertFalse(
+            TerminalController.shared.listenerStateSnapshot().isRunning,
+            "Listener should stop after recovery start loses the path to a foreign socket"
+        )
+
+        terminate(helper)
+        shouldTerminateHelper = false
+        XCTAssertEqual(Darwin.unlink(socketPath), 0)
+
+        let recovered = XCTNSPredicateExpectation(
+            predicate: NSPredicate { [weak self] _, _ in
+                return (try? self?.sendCommands(["ping"], to: socketPath)) == ["PONG"]
+            },
+            object: NSObject()
+        )
+        XCTAssertEqual(
+            XCTWaiter().wait(for: [recovered], timeout: 5.0),
+            .completed,
+            "Listener should retry and serve \(socketPath) after the foreign socket is released"
+        )
+        XCTAssertEqual(try socketMode(at: socketPath), 0o666)
+    }
+
     func testStopDoesNotProbeReplacementSocketAtListenerPath() throws {
         let socketPath = makeSocketPath("stop-replacement")
         let tabManager = TabManager()
@@ -814,6 +871,64 @@ final class TerminalControllerSocketSecurityTests: XCTestCase {
         }
 
         return fd
+    }
+
+    private func launchForeignSocketBinder(at path: String) throws -> Process {
+        let pythonPath = "/usr/bin/python3"
+        guard FileManager.default.isExecutableFile(atPath: pythonPath) else {
+            throw XCTSkip("python3 is unavailable for the foreign socket owner helper")
+        }
+
+        let process = Process()
+        process.executableURL = URL(fileURLWithPath: pythonPath)
+        process.arguments = [
+            "-c",
+            """
+            import os, socket, sys, time
+            path = sys.argv[1]
+            try:
+                os.unlink(path)
+            except FileNotFoundError:
+                pass
+            sock = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
+            sock.bind(path)
+            sock.listen(8)
+            while True:
+                time.sleep(60)
+            """,
+            path
+        ]
+        process.standardOutput = Pipe()
+        process.standardError = Pipe()
+        try process.run()
+
+        let deadline = Date().addingTimeInterval(2.0)
+        while Date() < deadline {
+            if FileManager.default.fileExists(atPath: path) {
+                return process
+            }
+            if !process.isRunning {
+                throw NSError(
+                    domain: "TerminalControllerSocketSecurityTests",
+                    code: Int(process.terminationStatus),
+                    userInfo: [NSLocalizedDescriptionKey: "Foreign socket owner helper exited before binding"]
+                )
+            }
+            RunLoop.current.run(until: Date().addingTimeInterval(0.01))
+        }
+
+        terminate(process)
+        throw NSError(
+            domain: "TerminalControllerSocketSecurityTests",
+            code: Int(ETIMEDOUT),
+            userInfo: [NSLocalizedDescriptionKey: "Timed out waiting for foreign socket owner helper"]
+        )
+    }
+
+    private func terminate(_ process: Process) {
+        guard process.isRunning else { return }
+        process.terminate()
+        process.waitUntilExit()
     }
 
     private func assertNoPendingClient(

@@ -1160,12 +1160,13 @@ class TerminalController {
         }
     }
 
+    @discardableResult
     func start(
         tabManager: TabManager,
         socketPath: String,
         accessMode: SocketControlMode,
         preserveAcceptFailureStreak: Bool = false
-    ) {
+    ) -> Bool {
         self.tabManager = tabManager
         self.accessMode = accessMode
 
@@ -1180,7 +1181,7 @@ class TerminalController {
             self.accessMode = accessMode
             applySocketPermissions()
             startSocketFileHealthWatcher()
-            return
+            return true
         }
 
         if existing.isRunning {
@@ -1212,7 +1213,7 @@ class TerminalController {
                 stage: "create_socket",
                 errnoCode: errnoCode
             )
-            return
+            return false
         }
 
         var bindAttempt = Self.bindListenerSocket(newServerSocket, path: activeSocketPath)
@@ -1259,7 +1260,7 @@ class TerminalController {
                     "maxPathLength": SocketPathProbe.unixSocketPathMaxLength
                 ]
             )
-            return
+            return false
         case .failure(let failedPath, let failedStage, let failedErrnoCode):
             print("TerminalController: Failed to bind socket")
             close(newServerSocket)
@@ -1269,7 +1270,7 @@ class TerminalController {
                 errnoCode: failedErrnoCode,
                 extra: ["path": failedPath]
             )
-            return
+            return false
         }
 
         applySocketPermissions()
@@ -1282,7 +1283,7 @@ class TerminalController {
                 stage: "configure_nonblocking",
                 errnoCode: errnoCode
             )
-            return
+            return false
         }
 
         // Listen
@@ -1295,7 +1296,7 @@ class TerminalController {
                 stage: "listen",
                 errnoCode: errnoCode
             )
-            return
+            return false
         }
 
         SocketControlSettings.recordLastSocketPath(activeSocketPath)
@@ -1364,6 +1365,7 @@ class TerminalController {
 
         startAcceptSource(listenerSocket: listenerSocket, generation: generation)
         startSocketFileHealthWatcher()
+        return true
     }
 
     nonisolated func socketListenerHealth(expectedSocketPath: String) -> SocketListenerHealth {

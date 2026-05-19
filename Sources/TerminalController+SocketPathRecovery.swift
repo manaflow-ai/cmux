@@ -57,6 +57,108 @@ extension TerminalController {
         }
     }
 
+    @discardableResult
+    nonisolated func startSocketFileRecoveryRetryWatcher(
+        socketPath retrySocketPath: String,
+        accessMode retryAccessMode: SocketControlMode
+    ) -> Bool {
+        let directoryPath = SocketPathProbe.parentDirectory(path: retrySocketPath)
+        let fd = open(directoryPath, O_EVTONLY | O_CLOEXEC)
+        guard fd >= 0 else {
+            reportSocketListenerFailure(
+                message: "socket.listener.path.recovery.retry_watch_failed",
+                stage: "socket_file_recovery_retry_watch_start",
+                errnoCode: errno,
+                extra: [
+                    "directoryPath": directoryPath,
+                    "path": retrySocketPath
+                ]
+            )
+            return false
+        }
+
+        let source = DispatchSource.makeFileSystemObjectSource(
+            fileDescriptor: fd,
+            eventMask: [.write, .link, .rename, .delete],
+            queue: socketListenerQueue
+        )
+        source.setEventHandler { [weak self, retrySocketPath, retryAccessMode] in
+            self?.retrySocketListenerStartFromRecoveryWatcher(
+                socketPath: retrySocketPath,
+                accessMode: retryAccessMode
+            )
+        }
+        source.setCancelHandler {
+            close(fd)
+        }
+
+        var shouldStartSource = false
+        let previousSource = withListenerState { () -> DispatchSourceFileSystemObject? in
+            guard !isRunning,
+                  !listenerStartInProgress else {
+                return nil
+            }
+            let previousSource = socketPathWatchSource
+            socketPath = retrySocketPath
+            accessMode = retryAccessMode
+            socketPathWatchSource = source
+            shouldStartSource = true
+            return previousSource
+        }
+        source.resume()
+        if shouldStartSource {
+            previousSource?.cancel()
+            return true
+        } else {
+            source.cancel()
+            return false
+        }
+    }
+
+    private nonisolated func retrySocketListenerStartFromRecoveryWatcher(
+        socketPath retrySocketPath: String,
+        accessMode retryAccessMode: SocketControlMode
+    ) {
+        let shouldRetry = withListenerState { () -> Bool in
+            guard !isRunning,
+                  !listenerStartInProgress else {
+                return false
+            }
+            listenerStartInProgress = true
+            return true
+        }
+        guard shouldRetry else {
+            return
+        }
+
+        Task { @MainActor [weak self, retrySocketPath, retryAccessMode] in
+            guard let self else { return }
+            guard let tabManager = self.tabManager else {
+                self.withListenerState {
+                    self.listenerStartInProgress = false
+                }
+                return
+            }
+
+            let didStart = self.start(
+                tabManager: tabManager,
+                socketPath: retrySocketPath,
+                accessMode: retryAccessMode,
+                preserveAcceptFailureStreak: true
+            )
+            if !didStart {
+                self.reportSocketListenerFailure(
+                    message: "socket.listener.path.recovery.retry_failed",
+                    stage: "socket_file_recovery_retry",
+                    extra: [
+                        "path": retrySocketPath,
+                        "mode": retryAccessMode.rawValue
+                    ]
+                )
+            }
+        }
+    }
+
     nonisolated func performSocketFileHealthCheck() {
         let snapshot = listenerStateSnapshot()
         guard snapshot.isRunning,
@@ -245,21 +347,27 @@ extension TerminalController {
                 )
             }
         }
-        start(
+        let didRestart = start(
             tabManager: tabManager,
             socketPath: recoveryPath,
             accessMode: restart.mode,
             preserveAcceptFailureStreak: true
         )
-        if !listenerStateSnapshot().isRunning {
+        if !didRestart {
+            let retryPath = listenerStateSnapshot().socketPath
             reportSocketListenerFailure(
                 message: "socket.listener.path.recovery.restart_failed",
                 stage: "socket_file_recovery_restart",
                 extra: [
-                    "path": recoveryPath,
+                    "path": retryPath,
+                    "requestedPath": recoveryPath,
                     "mode": restart.mode.rawValue,
                     "generation": generation
                 ]
+            )
+            startSocketFileRecoveryRetryWatcher(
+                socketPath: retryPath,
+                accessMode: restart.mode
             )
         }
     }
