@@ -144,6 +144,11 @@ class TerminalController {
         }
     }
 
+    private enum POSIXResult<Value: Sendable>: Sendable {
+        case success(Value)
+        case failure(Int32)
+    }
+
     enum AcceptFailureRecoveryAction: Equatable {
         case retryImmediately
         case resumeAfterDelay(delayMs: Int)
@@ -1069,7 +1074,7 @@ class TerminalController {
     private nonisolated static func connectUnixSocketForOwnershipProbe(
         path: String,
         timeout: TimeInterval
-    ) -> Result<Int32, Int32> {
+    ) -> POSIXResult<Int32> {
         let fd = socket(AF_UNIX, SOCK_STREAM, 0)
         guard fd >= 0 else {
             return .failure(errno)
@@ -1125,7 +1130,7 @@ class TerminalController {
         return .success(fd)
     }
 
-    private nonisolated static func peerPID(forConnectedSocket fd: Int32) -> Result<pid_t, Int32> {
+    private nonisolated static func peerPID(forConnectedSocket fd: Int32) -> POSIXResult<pid_t> {
         var pid: pid_t = 0
         var pidSize = socklen_t(MemoryLayout<pid_t>.size)
         let result = getsockopt(fd, SOL_LOCAL, LOCAL_PEERPID, &pid, &pidSize)
