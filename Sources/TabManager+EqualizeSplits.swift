@@ -41,6 +41,7 @@ extension TabManager {
 
 }
 
+@MainActor
 enum SplitEqualizer {
     struct Result {
         let foundSplit: Bool
