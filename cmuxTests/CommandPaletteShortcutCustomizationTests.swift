@@ -119,6 +119,7 @@ final class CommandPaletteShortcutCustomizationTests: XCTestCase {
             in: .vscode,
             tabManager: nil,
             onOpenFailure: { error in
+                guard let error else { return }
                 reportedErrors.append(error as NSError)
             },
             applicationURLProvider: { target in
