@@ -387,7 +387,7 @@ func titlebarShortcutHintHeight(for config: TitlebarControlsStyleConfig) -> CGFl
 }
 
 enum TitlebarShortcutHintMetrics {
-    static let verticalGap: CGFloat = 3
+    static let verticalGap: CGFloat = 1
 }
 
 func titlebarShortcutHintVerticalOffset(for config: TitlebarControlsStyleConfig) -> CGFloat {

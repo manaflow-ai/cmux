@@ -209,6 +209,10 @@ final class TitlebarControlsSizingPolicyTests: XCTestCase {
         }
     }
 
+    func testShortcutHintVerticalGapStaysTightBelowButtonLane() {
+        XCTAssertEqual(TitlebarShortcutHintMetrics.verticalGap, 1, accuracy: 0.001)
+    }
+
     func testTitlebarControlsUseNeutralVisualLift() {
         XCTAssertEqual(
             TitlebarControlsVisualMetrics.liftedYOffset(3),
