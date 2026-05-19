@@ -22473,7 +22473,7 @@ export default function cmuxPiSessionExtension(pi: ExtensionAPI) {
             }
             let idleStatus = String(localized: "agent.generic.notification.status.idle", defaultValue: "Idle")
             _ = try? sendV1Command(
-                "set_status \(def.statusKey) \(idleStatus) --icon=pause.circle.fill --color=#8E8E93 --tab=\(workspaceId)\(socketPanelOption(surfaceId))",
+                "set_status \(def.statusKey) \(socketQuote(idleStatus)) --icon=pause.circle.fill --color=#8E8E93 --protocol=idle --tab=\(workspaceId)\(socketPanelOption(surfaceId))",
                 client: client
             )
         }
