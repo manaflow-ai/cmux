@@ -13233,8 +13233,37 @@ struct CMUXCLI {
             with: "",
             options: .regularExpression
         )
+        let shortAliases: [(alias: String, key: String)] = [
+            ("S", "session_name"),
+            ("I", "window_index"),
+            ("W", "window_name"),
+            ("P", "pane_index"),
+            ("T", "pane_title"),
+            ("D", "pane_id"),
+        ]
+        for entry in shortAliases {
+            rendered = rendered.replacingOccurrences(
+                of: "#\(entry.alias)",
+                with: context[entry.key] ?? ""
+            )
+        }
         let trimmed = rendered.trimmingCharacters(in: .whitespacesAndNewlines)
         return trimmed.isEmpty ? fallback : trimmed
+    }
+
+    private func tmuxCompatOptionValue(_ optionName: String) -> String? {
+        switch optionName {
+        case "default-terminal":
+            return "tmux-256color"
+        case "extended-keys":
+            return "on"
+        case "extended-keys-format":
+            return "csi-u"
+        case "status":
+            return "on"
+        default:
+            return nil
+        }
     }
 
     private func tmuxFormatContext(
@@ -13246,6 +13275,11 @@ struct CMUXCLI {
         let canonicalWorkspaceId = try resolveWorkspaceId(workspaceId, client: client)
         var context: [String: String] = [
             "session_name": "cmux",
+            "session_id": "$0",
+            "session_attached": "1",
+            "client_attached": "1",
+            "client_name": "cmux",
+            "client_tty": ProcessInfo.processInfo.environment["TTY"] ?? "",
             "window_id": "@\(canonicalWorkspaceId)",
             "window_uuid": canonicalWorkspaceId
         ]
@@ -16068,10 +16102,9 @@ struct CMUXCLI {
                 boolFlags: ["-g", "-q", "-s", "-v", "-w"]
             )
             let optionName = parsed.positional.last ?? ""
-            guard optionName == "extended-keys" else {
+            guard let value = tmuxCompatOptionValue(optionName) else {
                 throw CLIError(message: "Unsupported tmux compatibility command: \(command) \(optionName)")
             }
-            let value = "on"
             if parsed.hasFlag("-v") {
                 print(value)
             } else {
