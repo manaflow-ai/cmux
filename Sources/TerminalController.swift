@@ -1708,63 +1708,61 @@ class TerminalController {
                 close(socket)
                 return
             }
-            let response: String
-            if let request = socketWorkerV2WorktreeRequestIfNeeded(for: command) {
-                response = await socketWorkerV2WorktreeResponse(request)
-            } else {
-                response = v2Error(
-                    id: nil,
-                    code: "invalid_dispatch",
-                    message: String(
-                        localized: "error.socket.invalidWorktreeRequest",
-                        defaultValue: "Invalid worktree request"
-                    )
-                )
-            }
+            let response = await socketWorkerV2WorktreeResponse(command: command)
             _ = writeSocketResponse(response, to: socket)
             publishSocketEvents(command: command, response: response)
             close(socket)
         }
     }
 
-    private nonisolated func socketWorkerV2WorktreeResponse(_ request: V2SocketRequest) async -> String {
+    private func socketWorkerV2WorktreeResponse(command: String) async -> String {
+        guard let request = socketWorkerV2WorktreeRequestIfNeeded(for: command) else {
+            return v2Error(
+                id: nil,
+                code: "invalid_dispatch",
+                message: String(
+                    localized: "error.socket.invalidWorktreeRequest",
+                    defaultValue: "Invalid worktree request"
+                )
+            )
+        }
+
         let method = request.method
-        nonisolated(unsafe) let params = request.params
+        let params = request.params
         let allowsFocusMutation = Self.socketCommandAllowsInAppFocusMutations(
             commandKey: method,
             isV2: true,
             params: params
         )
-        let result = await Task { @MainActor () -> V2CallResult in
-            switch method {
-            case "workspace.create":
-                return await self.v2WorkspaceCreateWithAsyncWorktree(
-                    params: params,
-                    allowsFocusMutation: allowsFocusMutation
-                )
-            case "surface.split":
-                return await self.v2SurfaceSplitWithAsyncWorktree(
-                    params: params,
-                    allowsFocusMutation: allowsFocusMutation
-                )
-            case "surface.create":
-                return await self.v2SurfaceCreateWithAsyncWorktree(
-                    params: params,
-                    allowsFocusMutation: allowsFocusMutation
-                )
-            case "pane.create":
-                return await self.v2PaneCreateWithAsyncWorktree(
-                    params: params,
-                    allowsFocusMutation: allowsFocusMutation
-                )
-            default:
-                return .err(
-                    code: "method_not_found",
-                    message: String(localized: "error.socket.unknownMethod", defaultValue: "Unknown method"),
-                    data: nil
-                )
-            }
-        }.value
+        let result: V2CallResult
+        switch method {
+        case "workspace.create":
+            result = await v2WorkspaceCreateWithAsyncWorktree(
+                params: params,
+                allowsFocusMutation: allowsFocusMutation
+            )
+        case "surface.split":
+            result = await v2SurfaceSplitWithAsyncWorktree(
+                params: params,
+                allowsFocusMutation: allowsFocusMutation
+            )
+        case "surface.create":
+            result = await v2SurfaceCreateWithAsyncWorktree(
+                params: params,
+                allowsFocusMutation: allowsFocusMutation
+            )
+        case "pane.create":
+            result = await v2PaneCreateWithAsyncWorktree(
+                params: params,
+                allowsFocusMutation: allowsFocusMutation
+            )
+        default:
+            result = .err(
+                code: "method_not_found",
+                message: String(localized: "error.socket.unknownMethod", defaultValue: "Unknown method"),
+                data: nil
+            )
+        }
 
         return v2Result(
             id: request.id,
