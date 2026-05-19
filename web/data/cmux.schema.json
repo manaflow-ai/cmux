@@ -499,7 +499,8 @@
         },
         "rightMaxWidth": {
           "type": "number",
-          "exclusiveMinimum": 0
+          "exclusiveMinimum": 0,
+          "description": "Maximum width in points for the right sidebar. When omitted, the built-in dynamic cap applies."
         }
       }
     },
