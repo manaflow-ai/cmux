@@ -9450,7 +9450,7 @@ class TerminalController {
                 "pane_ref": v2Ref(kind: .pane, uuid: targetPaneUUID),
                 "surface_id": panel.id.uuidString,
                 "surface_ref": v2Ref(kind: .surface, uuid: panel.id),
-                "source_surface_id": v2OrNull(sourceSurfaceId?.uuidString),
+                "source_surface_id": sourceSurfaceId.uuidString,
                 "source_surface_ref": v2Ref(kind: .surface, uuid: sourceSurfaceId),
                 "source_pane_id": v2OrNull(sourcePaneUUID?.uuidString),
                 "source_pane_ref": v2Ref(kind: .pane, uuid: sourcePaneUUID),
