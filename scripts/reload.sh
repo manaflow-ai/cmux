@@ -270,6 +270,21 @@ tagged_derived_data_path() {
   echo "$HOME/Library/Developer/Xcode/DerivedData/cmux-${slug}"
 }
 
+ensure_tagged_derived_data_path() {
+  local path="$1"
+  local expected="$2"
+
+  if [[ "$path" != "$expected" ]]; then
+    return 0
+  fi
+
+  if [[ -L "$path" ]]; then
+    rm -f "$path"
+  fi
+
+  mkdir -p "$path"
+}
+
 print_tag_cleanup_reminder() {
   local current_slug="$1"
   local path=""
@@ -403,6 +418,7 @@ if [[ -n "$TAG" ]]; then
   if [[ "$DERIVED_SET" -eq 0 ]]; then
     DERIVED_DATA="$(tagged_derived_data_path "$TAG_SLUG")"
   fi
+  ensure_tagged_derived_data_path "$DERIVED_DATA" "$(tagged_derived_data_path "$TAG_SLUG")"
 fi
 
 CMUX_DEV_PORT="$(choose_cmux_dev_port)"

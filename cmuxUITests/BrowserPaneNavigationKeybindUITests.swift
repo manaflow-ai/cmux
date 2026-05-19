@@ -751,10 +751,11 @@ final class BrowserPaneNavigationKeybindUITests: XCTestCase {
         app.launchEnvironment["CMUX_UI_TEST_GOTO_SPLIT_SETUP"] = "1"
         app.launchEnvironment["CMUX_UI_TEST_GOTO_SPLIT_PATH"] = dataPath
         app.launchEnvironment["CMUX_UI_TEST_FOCUS_SHORTCUTS"] = "1"
+        app.launchEnvironment["CMUX_UI_TEST_GOTO_SPLIT_ALLOW_UNFOCUSED_BROWSER"] = "1"
         launchAndEnsureForeground(app)
 
         XCTAssertTrue(
-            waitForData(keys: ["terminalPaneId", "browserPaneId", "webViewFocused"], timeout: 12.0),
+            waitForData(keys: ["terminalPaneId", "browserPaneId", "browserPanelId"], timeout: 12.0),
             "Expected split setup data before opening the canvas. data=\(loadData() ?? [:])"
         )
 

@@ -9067,6 +9067,31 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
                 return
             }
 
+            if env["CMUX_UI_TEST_GOTO_SPLIT_ALLOW_UNFOCUSED_BROWSER"] == "1" {
+                guard let (browserPaneId, terminalPaneId) = self.paneIdsForGotoSplitUITest(
+                    tab: tab,
+                    browserPanelId: browserPanelId
+                ) else {
+                    self.writeGotoSplitTestData(["setupError": "Missing split pane ids"])
+                    return
+                }
+
+                self.startGotoSplitUITestRecorder(browserPanelId: browserPanelId)
+                self.writeGotoSplitTestData([
+                    "browserPanelId": browserPanelId.uuidString,
+                    "browserPaneId": browserPaneId.description,
+                    "terminalPaneId": terminalPaneId.description,
+                    "initialPaneCount": String(tab.layoutController.allPaneIds.count),
+                    "focusedPaneId": tab.layoutController.focusedPaneId?.description ?? "",
+                    "ghosttyGotoSplitLeftShortcut": ghosttyGotoSplitLeftShortcut?.displayString ?? "",
+                    "ghosttyGotoSplitRightShortcut": ghosttyGotoSplitRightShortcut?.displayString ?? "",
+                    "ghosttyGotoSplitUpShortcut": ghosttyGotoSplitUpShortcut?.displayString ?? "",
+                    "ghosttyGotoSplitDownShortcut": ghosttyGotoSplitDownShortcut?.displayString ?? "",
+                    "webViewFocused": "false"
+                ])
+                return
+            }
+
             self.focusWebViewForGotoSplitUITest(tab: tab, browserPanelId: browserPanelId)
         }
 
