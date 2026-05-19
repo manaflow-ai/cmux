@@ -9713,6 +9713,7 @@ struct CMUXCLI {
               ~/.config/opencode/plugins/cmux-feed.js
               ~/.pi/agent/extensions/cmux-session.ts
               ~/.config/amp/plugins/cmux-session.ts
+              ~/.copilot/hooks/cmux.json
               See docs/agent-hooks.md for the full integration matrix.
 
             Examples:
@@ -20342,6 +20343,14 @@ struct CMUXCLI {
                     "hooks": [["type": "command", "command": cmd, "timeout": timeout] as [String: Any]]
                 ] as [String: Any])
                 result[event.agentEvent] = groups
+            case .copilot(let timeoutSeconds):
+                var entries = result[event.agentEvent] as? [[String: Any]] ?? []
+                entries.append([
+                    "type": "command",
+                    "command": cmd,
+                    "timeoutSec": timeoutSeconds,
+                ])
+                result[event.agentEvent] = entries
             case .rovoDevYAML, .hermesAgentYAML:
                 break
             }
@@ -20365,6 +20374,14 @@ struct CMUXCLI {
                     "hooks": [["type": "command", "command": feedCmd, "timeout": timeout] as [String: Any]]
                 ] as [String: Any])
                 result[agentEvent] = groups
+            case .copilot:
+                var entries = result[agentEvent] as? [[String: Any]] ?? []
+                entries.append([
+                    "type": "command",
+                    "command": feedCmd,
+                    "timeoutSec": max((feedTimeoutMs - 1) / 1000 + 1, 1),
+                ])
+                result[agentEvent] = entries
             case .rovoDevYAML, .hermesAgentYAML:
                 break
             }
@@ -21043,7 +21060,7 @@ export default function cmuxPiSessionExtension(pi: ExtensionAPI) {
         let oldString = try readAgentHookConfig(filePath: filePath, displayName: def.displayName)
         let newString = try rovoDevHooksContent(existing: oldString, def: def, shouldInstall: false)
         guard oldString != newString else {
-            print("Removed 0 cmux hook(s) from \(filePath)")
+            print(Self.localizedHookRemovalMessage(count: 0, path: filePath))
             return
         }
         try newString.write(toFile: filePath, atomically: true, encoding: .utf8)
@@ -21136,7 +21153,7 @@ export default function cmuxPiSessionExtension(pi: ExtensionAPI) {
 
         var existing: [String: Any] = [:]
         if let data = fm.contents(atPath: filePath) {
-            guard let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any] else {
+            guard let json = Self.jsonObjectForHookConfig(from: data, def: def) else {
                 throw CLIError(message: "\(filePath) exists but is not valid JSON. Fix or remove it before installing hooks.")
             }
             existing = json
@@ -21156,11 +21173,11 @@ export default function cmuxPiSessionExtension(pi: ExtensionAPI) {
         var cmuxInsertionIndexes: [String: [Int]] = [:]
         for (event, value) in hooks {
             switch def.format {
-            case .flat:
+            case .flat, .copilot:
                 guard let entries = value as? [[String: Any]] else { continue }
                 var rewrittenEntries: [[String: Any]] = []
                 for entry in entries {
-                    if isCmuxOwnedCommand(entry["command"] as? String ?? "") {
+                    if isCmuxOwnedCommand(Self.hookCommandValue(in: entry) ?? "") {
                         Self.appendCmuxHookInsertionIndex(
                             rewrittenEntries.count,
                             for: event,
@@ -21213,7 +21230,7 @@ export default function cmuxPiSessionExtension(pi: ExtensionAPI) {
         // Add new cmux entries
         for (event, value) in newHooks {
             switch def.format {
-            case .flat:
+            case .flat, .copilot:
                 var entries = hooks[event] as? [[String: Any]] ?? []
                 if let newEntries = value as? [[String: Any]] {
                     if let insertionIndexes = cmuxInsertionIndexes[event], !insertionIndexes.isEmpty {
@@ -21239,7 +21256,7 @@ export default function cmuxPiSessionExtension(pi: ExtensionAPI) {
         }
 
         existing["hooks"] = hooks
-        if case .flat = def.format { existing["version"] = 1 }
+        if Self.hookFormatUsesTopLevelVersion(def.format) { existing["version"] = 1 }
         let codexHookTrustEntries = Self.codexHookTrustEntries(
             hooks: hooks,
             hooksFilePath: filePath,
@@ -21252,14 +21269,19 @@ export default function cmuxPiSessionExtension(pi: ExtensionAPI) {
         let codexLegacyHookTrustHashes = Self.codexLegacyHookTrustHashes(def: def)
 
         let newData = try JSONSerialization.data(withJSONObject: existing, options: [.prettyPrinted, .sortedKeys])
-        let newString = String(data: newData, encoding: .utf8) ?? "{}"
+        let dataToWrite = Self.hookConfigDataPreservingLeadingComments(
+            newData,
+            originalData: fm.contents(atPath: filePath),
+            def: def
+        )
+        let newString = String(data: dataToWrite, encoding: .utf8) ?? "{}"
         let oldString: String = {
             if let data = fm.contents(atPath: filePath),
-               let json = try? JSONSerialization.jsonObject(with: data),
+               let json = Self.jsonObjectForHookConfig(from: data, def: def),
                let pretty = try? JSONSerialization.data(
                     withJSONObject: json, options: [.prettyPrinted, .sortedKeys]
                ),
-               let s = String(data: pretty, encoding: .utf8)
+               let s = String(data: Self.hookConfigDataPreservingLeadingComments(pretty, originalData: data, def: def), encoding: .utf8)
             {
                 return s
             }
@@ -21283,11 +21305,13 @@ export default function cmuxPiSessionExtension(pi: ExtensionAPI) {
                     return
                 }
             }
-            try newData.write(to: URL(fileURLWithPath: filePath), options: .atomic)
+            try dataToWrite.write(to: URL(fileURLWithPath: filePath), options: .atomic)
             print("\(def.displayName) hooks installed at \(filePath)")
         }
 
         try pruneLegacyGrokHookFileIfNeeded(def: def, configDir: configDir, primaryFilePath: filePath)
+        try pruneLegacyCopilotConfigHooksIfNeeded(def: def, configDir: configDir, primaryFilePath: filePath)
+        printCopilotHookStorageNoteIfNeeded(def: def, filePath: filePath)
 
         // Post-install actions
         if let action = def.postInstallAction {
@@ -21398,7 +21422,7 @@ export default function cmuxPiSessionExtension(pi: ExtensionAPI) {
             json.removeValue(forKey: "hooks")
             if json.isEmpty {
                 try FileManager.default.removeItem(at: legacyURL)
-                print("Removed legacy \(def.displayName) hooks at \(legacyURL.path)")
+                print(String(format: String(localized: "cli.hooks.legacy.removedFile", defaultValue: "Removed legacy %@ hooks at %@"), def.displayName, legacyURL.path))
                 return
             }
         } else {
@@ -21406,7 +21430,47 @@ export default function cmuxPiSessionExtension(pi: ExtensionAPI) {
         }
         let newData = try JSONSerialization.data(withJSONObject: json, options: [.prettyPrinted, .sortedKeys])
         try newData.write(to: legacyURL, options: .atomic)
-        print("Removed \(removed) legacy \(def.displayName) cmux hook(s) from \(legacyURL.path)")
+        print(Self.localizedLegacyHookRemovalMessage(count: removed, displayName: def.displayName, path: legacyURL.path))
+    }
+
+    private func pruneLegacyCopilotConfigHooksIfNeeded(
+        def: AgentHookDef,
+        configDir: String,
+        primaryFilePath: String
+    ) throws {
+        guard def.name == "copilot" else { return }
+        let configRootURL = URL(fileURLWithPath: configDir, isDirectory: true).deletingLastPathComponent()
+        let legacyURL = configRootURL.appendingPathComponent("config.json", isDirectory: false)
+        guard legacyURL.path != primaryFilePath,
+              FileManager.default.fileExists(atPath: legacyURL.path),
+              let data = FileManager.default.contents(atPath: legacyURL.path),
+              var json = Self.jsonObjectAllowingLineComments(from: data),
+              var hooks = json["hooks"] as? [String: Any] else {
+            return
+        }
+
+        let removed = Self.removeCmuxOwnedFlatOrNestedHooks(from: &hooks, for: def)
+        guard removed > 0 else { return }
+        if hooks.isEmpty {
+            json.removeValue(forKey: "hooks")
+        } else {
+            json["hooks"] = hooks
+        }
+        var newData = try JSONSerialization.data(withJSONObject: json, options: [.prettyPrinted, .sortedKeys])
+        if let original = String(data: data, encoding: .utf8),
+           let serialized = String(data: newData, encoding: .utf8) {
+            let prefix = Self.leadingJSONLineCommentPrefix(from: original)
+            if !prefix.isEmpty, let prefixedData = (prefix + serialized).data(using: .utf8) {
+                newData = prefixedData
+            }
+        }
+        try newData.write(to: legacyURL, options: .atomic)
+        print(Self.localizedLegacyHookRemovalMessage(count: removed, displayName: def.displayName, path: legacyURL.path))
+    }
+
+    private func printCopilotHookStorageNoteIfNeeded(def: AgentHookDef, filePath: String) {
+        guard def.name == "copilot" else { return }
+        print(String(format: String(localized: "cli.hooks.copilot.storageNote", defaultValue: "Copilot hooks stored in %@; Copilot manages its own settings and may rewrite them on launch."), filePath))
     }
 
     private func uninstallAgentHooks(_ def: AgentHookDef) throws {
@@ -21436,8 +21500,9 @@ export default function cmuxPiSessionExtension(pi: ExtensionAPI) {
         let filePath = "\(configDir)/\(def.configFile)"
 
         guard let data = fm.contents(atPath: filePath),
-              var json = try? JSONSerialization.jsonObject(with: data) as? [String: Any] else {
+              var json = Self.jsonObjectForHookConfig(from: data, def: def) else {
             print("No \(def.configFile) found at \(filePath)")
+            try pruneLegacyCopilotConfigHooksIfNeeded(def: def, configDir: configDir, primaryFilePath: filePath)
             return
         }
 
@@ -21464,10 +21529,10 @@ export default function cmuxPiSessionExtension(pi: ExtensionAPI) {
         }
         for (event, value) in hooks {
             switch def.format {
-            case .flat:
+            case .flat, .copilot:
                 guard var entries = value as? [[String: Any]] else { continue }
                 let before = entries.count
-                entries.removeAll { isCmuxOwnedCommand($0["command"] as? String ?? "") }
+                entries.removeAll { isCmuxOwnedCommand(Self.hookCommandValue(in: $0) ?? "") }
                 removed += before - entries.count
                 if entries.isEmpty {
                     hooks.removeValue(forKey: event)
@@ -21499,10 +21564,25 @@ export default function cmuxPiSessionExtension(pi: ExtensionAPI) {
             }
         }
 
-        json["hooks"] = hooks
+        if hooks.isEmpty {
+            json.removeValue(forKey: "hooks")
+        } else {
+            json["hooks"] = hooks
+        }
+        if def.name == "copilot" {
+            let remainingKeys = Set(json.keys).subtracting(["version"])
+            if remainingKeys.isEmpty {
+                try fm.removeItem(atPath: filePath)
+                print(Self.localizedHookRemovalMessage(count: removed, path: filePath))
+                try pruneLegacyCopilotConfigHooksIfNeeded(def: def, configDir: configDir, primaryFilePath: filePath)
+                return
+            }
+        }
         let newData = try JSONSerialization.data(withJSONObject: json, options: [.prettyPrinted, .sortedKeys])
-        try newData.write(to: URL(fileURLWithPath: filePath), options: .atomic)
-        print("Removed \(removed) cmux hook(s) from \(filePath)")
+        let dataToWrite = Self.hookConfigDataPreservingLeadingComments(newData, originalData: data, def: def)
+        try dataToWrite.write(to: URL(fileURLWithPath: filePath), options: .atomic)
+        print(Self.localizedHookRemovalMessage(count: removed, path: filePath))
+        try pruneLegacyCopilotConfigHooksIfNeeded(def: def, configDir: configDir, primaryFilePath: filePath)
 
         // Post-uninstall actions
         if let action = def.postInstallAction {
@@ -21537,6 +21617,190 @@ export default function cmuxPiSessionExtension(pi: ExtensionAPI) {
     ) {
         if indexes[event]?.isEmpty == false { return }
         indexes[event, default: []].append(index)
+    }
+
+    private static func localizedLegacyHookRemovalMessage(
+        count _: Int,
+        displayName: String,
+        path: String
+    ) -> String {
+        String(format: String(localized: "cli.hooks.legacy.removedFile", defaultValue: "Removed legacy %@ hooks at %@"), displayName, path)
+    }
+
+    private static func localizedHookRemovalMessage(count: Int, path: String) -> String {
+        if count == 0 {
+            return String(format: String(localized: "cli.hooks.removedNone", defaultValue: "No cmux hooks found at %@"), path)
+        }
+        return String(format: String(localized: "cli.hooks.removedFile", defaultValue: "Removed cmux hooks at %@"), path)
+    }
+
+    private static func hookCommandValue(in entry: [String: Any]) -> String? {
+        if let command = entry["command"] as? String {
+            return command
+        }
+        if let command = entry["command"] as? [Any] {
+            let tokens = command.map { String(describing: $0) }
+            if tokens.count >= 3,
+               Self.isShellCommandToken(tokens[0]),
+               Self.isShellCommandFlag(tokens[1]) {
+                return tokens[2]
+            }
+            return tokens.joined(separator: " ")
+        }
+        return entry["bash"] as? String
+    }
+
+    private static func isShellCommandToken(_ token: String) -> Bool {
+        switch URL(fileURLWithPath: token).lastPathComponent {
+        case "sh", "bash", "zsh", "dash":
+            return true
+        default:
+            return false
+        }
+    }
+
+    private static func isShellCommandFlag(_ token: String) -> Bool {
+        token.hasPrefix("-") && token.contains("c")
+    }
+
+    private static func hookFormatUsesTopLevelVersion(_ format: AgentHookDef.HookFormat) -> Bool {
+        switch format {
+        case .flat, .copilot:
+            return true
+        case .nested, .rovoDevYAML, .hermesAgentYAML:
+            return false
+        }
+    }
+
+    private static func jsonObjectForHookConfig(from data: Data, def: AgentHookDef) -> [String: Any]? {
+        if def.name == "copilot" {
+            return jsonObjectAllowingLineComments(from: data)
+        }
+        return try? JSONSerialization.jsonObject(with: data) as? [String: Any]
+    }
+
+    private static func hookConfigDataPreservingLeadingComments(
+        _ data: Data,
+        originalData: Data?,
+        def: AgentHookDef
+    ) -> Data {
+        guard def.name == "copilot",
+              let originalData,
+              let original = String(data: originalData, encoding: .utf8),
+              let serialized = String(data: data, encoding: .utf8) else {
+            return data
+        }
+        let prefix = leadingJSONLineCommentPrefix(from: original)
+        guard !prefix.isEmpty, let prefixedData = (prefix + serialized).data(using: .utf8) else {
+            return data
+        }
+        return prefixedData
+    }
+
+    private static func jsonObjectAllowingLineComments(from data: Data) -> [String: Any]? {
+        if let object = try? JSONSerialization.jsonObject(with: data) as? [String: Any] {
+            return object
+        }
+        guard let string = String(data: data, encoding: .utf8) else { return nil }
+        let uncommented = jsonStringRemovingLineComments(from: string)
+        guard let uncommentedData = uncommented.data(using: .utf8) else { return nil }
+        return try? JSONSerialization.jsonObject(with: uncommentedData) as? [String: Any]
+    }
+
+    private static func jsonStringRemovingLineComments(from string: String) -> String {
+        var result = ""
+        var index = string.startIndex
+        var inString = false
+        var escaping = false
+
+        while index < string.endIndex {
+            let character = string[index]
+            if inString {
+                result.append(character)
+                if escaping {
+                    escaping = false
+                } else if character == "\\" {
+                    escaping = true
+                } else if character == "\"" {
+                    inString = false
+                }
+                index = string.index(after: index)
+                continue
+            }
+
+            if character == "\"" {
+                inString = true
+                result.append(character)
+                index = string.index(after: index)
+                continue
+            }
+
+            let nextIndex = string.index(after: index)
+            if character == "/", nextIndex < string.endIndex, string[nextIndex] == "/" {
+                index = string.index(after: nextIndex)
+                while index < string.endIndex, string[index] != "\n", string[index] != "\r" {
+                    index = string.index(after: index)
+                }
+                continue
+            }
+
+            result.append(character)
+            index = nextIndex
+        }
+
+        return result
+    }
+
+    private static func leadingJSONLineCommentPrefix(from string: String) -> String {
+        var prefix = ""
+        var index = string.startIndex
+        while index < string.endIndex {
+            let lineEnd = string[index...].firstIndex(of: "\n") ?? string.endIndex
+            let nextIndex = lineEnd < string.endIndex ? string.index(after: lineEnd) : lineEnd
+            let line = String(string[index..<lineEnd])
+            let trimmed = line.trimmingCharacters(in: .whitespaces)
+            guard trimmed.isEmpty || trimmed.hasPrefix("//") else { break }
+            prefix += String(string[index..<nextIndex])
+            index = nextIndex
+        }
+        return prefix
+    }
+
+    private static func removeCmuxOwnedFlatOrNestedHooks(
+        from hooks: inout [String: Any],
+        for def: AgentHookDef
+    ) -> Int {
+        let isCmuxOwnedCommand: (String) -> Bool = { command in
+            Self.isCmuxOwnedHookCommand(command, for: def)
+        }
+        var removed = 0
+        for (event, value) in hooks {
+            guard let entries = value as? [[String: Any]] else { continue }
+            var rewrittenEntries: [[String: Any]] = []
+            for var entry in entries {
+                if var hookList = entry["hooks"] as? [[String: Any]] {
+                    let before = hookList.count
+                    hookList.removeAll { isCmuxOwnedCommand(Self.hookCommandValue(in: $0) ?? "") }
+                    removed += before - hookList.count
+                    guard !hookList.isEmpty else { continue }
+                    entry["hooks"] = hookList
+                    rewrittenEntries.append(entry)
+                    continue
+                }
+
+                if isCmuxOwnedCommand(Self.hookCommandValue(in: entry) ?? "") {
+                    removed += 1
+                    continue
+                }
+                rewrittenEntries.append(entry)
+            }
+            if rewrittenEntries.isEmpty {
+                hooks.removeValue(forKey: event)
+            } else {
+                hooks[event] = rewrittenEntries
+            }
+        }
+        return removed
     }
 
     private static func insertCmuxHookValues<T>(_ values: [T], into target: inout [T], atOriginalIndexes indexes: [Int]) {
@@ -25695,7 +25959,11 @@ export default function cmuxPiSessionExtension(pi: ExtensionAPI) {
         for def in Self.agentDefs {
             if let agentFilterDef, agentFilterDef.name != def.name { continue }
             let configDir = def.resolvedConfigDir()
-            let canUseMissingConfigDir = def.name == "opencode" || def.name == "pi" || def.name == "amp" || (!isUninstall && def.name == "rovodev")
+            let canUseMissingConfigDir = def.createConfigDirIfMissing
+                || def.name == "opencode"
+                || def.name == "pi"
+                || def.name == "amp"
+                || (!isUninstall && def.name == "rovodev")
             if !canUseMissingConfigDir, !fm.fileExists(atPath: configDir) {
                 print("  \(def.name): skipped (config dir not found)")
                 skipped += 1

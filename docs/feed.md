@@ -80,7 +80,7 @@ Installs supported agent hooks whose binaries are on `PATH`. See [Agent hook int
 | OpenCode     | `~/.config/opencode/plugins/cmux-feed.js` | plugin event bus         |
 | Cursor CLI   | `~/.cursor/hooks.json`                    | beforeShellExecution     |
 | Gemini       | `~/.gemini/settings.json`                 | PreToolUse               |
-| Copilot      | `~/.copilot/config.json`                  | PreToolUse               |
+| Copilot      | `~/.copilot/hooks/cmux.json`              | PreToolUse               |
 | CodeBuddy    | `~/.codebuddy/settings.json`              | PreToolUse               |
 | Factory      | `~/.factory/settings.json`                | PreToolUse               |
 | Qoder        | `~/.qoder/settings.json`                  | PreToolUse               |
