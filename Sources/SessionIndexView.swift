@@ -2040,9 +2040,8 @@ private struct SectionPopoverView: View {
         // query change. `.task(id: query)` auto-cancels on view disappear
         // AND on any `query` change, so we don't need onAppear +
         // onChange + onDisappear + a manual generation counter to
-        // discard superseded fetches. The 200ms pause doubles as a
-        // debounce: rapid keystrokes bump `id:` which cancels this task
-        // before the sleep completes, preventing an unnecessary search.
+        // discard superseded fetches. A short timer-backed debounce
+        // prevents unnecessary searches during rapid keystrokes.
         .task(id: query) {
             // Any pagination task from the previous query lifecycle is now
             // superseded. Cancel explicitly; reassigning `loadTask =
@@ -2108,11 +2107,8 @@ private struct SectionPopoverView: View {
             hasMore = true
             isLoading = true
 
-            do {
-                try await Task.sleep(for: .milliseconds(200))
-            } catch {
-                return
-            }
+            let debounce = MainActorDelayTimer(milliseconds: 200)
+            guard await debounce.wait() else { return }
 
             let outcome = await search(trimmed, sectionSearchScope, 0, Self.pageSize)
             guard !Task.isCancelled else { return }
@@ -2223,6 +2219,57 @@ private struct SectionPopoverView: View {
                 .foregroundColor(.secondary)
                 .frame(width: 14, height: 14)
         }
+    }
+}
+
+@MainActor
+private final class MainActorDelayTimer: @unchecked Sendable {
+    private let milliseconds: Int
+    private var timer: DispatchSourceTimer?
+    private var continuation: CheckedContinuation<Bool, Never>?
+    private var didResume = false
+
+    init(milliseconds: Int) {
+        self.milliseconds = milliseconds
+    }
+
+    func wait() async -> Bool {
+        await withTaskCancellationHandler {
+            await withCheckedContinuation { continuation in
+                guard !Task.isCancelled else {
+                    continuation.resume(returning: false)
+                    return
+                }
+
+                self.continuation = continuation
+                let timer = DispatchSource.makeTimerSource(queue: .main)
+                timer.schedule(
+                    deadline: .now() + .milliseconds(milliseconds),
+                    leeway: .milliseconds(15)
+                )
+                timer.setEventHandler { [weak self] in
+                    Task { @MainActor [weak self] in
+                        self?.resume(returning: true)
+                    }
+                }
+                self.timer = timer
+                timer.resume()
+            }
+        } onCancel: {
+            Task { @MainActor in
+                self.resume(returning: false)
+            }
+        }
+    }
+
+    private func resume(returning value: Bool) {
+        guard !didResume else { return }
+        didResume = true
+        timer?.cancel()
+        timer = nil
+        let continuation = continuation
+        self.continuation = nil
+        continuation?.resume(returning: value)
     }
 }
 

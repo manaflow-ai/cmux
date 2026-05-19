@@ -57,19 +57,32 @@ final class SessionDragRegistry {
     static let shared = SessionDragRegistry()
 
     private var pending: [UUID: SessionEntry] = [:]
+    private var expirationTimers: [UUID: DispatchSourceTimer] = [:]
 
     func register(_ entry: SessionEntry) -> UUID {
         let id = UUID()
         pending[id] = entry
-        // Auto-expire so a cancelled drag doesn't leak forever.
-        Task { @MainActor [weak self] in
-            try? await Task.sleep(for: .seconds(60))
-            self?.pending.removeValue(forKey: id)
+        let timer = DispatchSource.makeTimerSource(queue: .main)
+        timer.schedule(deadline: .now() + .seconds(60), leeway: .seconds(1))
+        timer.setEventHandler { [weak self] in
+            Task { @MainActor [weak self] in
+                self?.expire(id: id)
+            }
         }
+        expirationTimers[id] = timer
+        timer.resume()
         return id
     }
 
     func consume(id: UUID) -> SessionEntry? {
+        expirationTimers[id]?.cancel()
+        expirationTimers[id] = nil
+        pending.removeValue(forKey: id)
+    }
+
+    private func expire(id: UUID) {
+        expirationTimers[id]?.cancel()
+        expirationTimers[id] = nil
         pending.removeValue(forKey: id)
     }
 }
