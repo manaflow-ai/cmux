@@ -755,11 +755,12 @@ final class BrowserPaneNavigationKeybindUITests: XCTestCase {
         app.launchEnvironment["CMUX_UI_TEST_GOTO_SPLIT_PATH"] = dataPath
         app.launchEnvironment["CMUX_UI_TEST_FOCUS_SHORTCUTS"] = "1"
         app.launchEnvironment["CMUX_UI_TEST_GOTO_SPLIT_ALLOW_UNFOCUSED_BROWSER"] = "1"
+        app.launchEnvironment["CMUX_UI_TEST_GOTO_SPLIT_OPEN_CANVAS"] = "1"
         launchAndEnsureForeground(app)
 
         XCTAssertTrue(
             waitForData(keys: ["terminalPaneId", "browserPaneId", "browserPanelId"], timeout: 12.0),
-            "Expected split setup data before opening the canvas. data=\(loadData() ?? [:])"
+            "Expected split setup data before testing the canvas. data=\(loadData() ?? [:])"
         )
 
         guard let terminalPaneId = loadData()?["terminalPaneId"] else {
@@ -767,12 +768,11 @@ final class BrowserPaneNavigationKeybindUITests: XCTestCase {
             return
         }
 
-        openCanvasCommandFromPalette(app, query: "Canvas")
         XCTAssertTrue(
             waitForDataMatch(timeout: 8.0) { data in
                 data["canvasOverviewActive"] == "true"
             },
-            "Expected command palette to enter canvas. data=\(loadData() ?? [:])"
+            "Expected UI test setup to enter canvas. data=\(loadData() ?? [:])"
         )
 
         let overview = app.descendants(matching: .any).matching(identifier: "WorkspaceCanvasOverview").firstMatch

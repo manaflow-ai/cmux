@@ -9081,6 +9081,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
                     return
                 }
 
+                if env["CMUX_UI_TEST_GOTO_SPLIT_OPEN_CANVAS"] == "1" {
+                    tab.enterCanvasOverview()
+                }
+
                 self.startGotoSplitUITestRecorder(browserPanelId: browserPanelId)
                 self.writeGotoSplitTestData([
                     "browserPanelId": browserPanelId.uuidString,
