@@ -90,7 +90,13 @@ extension CMUXCLI {
                     return nil
                 }
                 guard candidate.owned else {
-                    throw CLIError(message: "memory trim refused PID \(pid) because it is not a cmux-owned recoverable agent")
+                    throw CLIError(message: String(
+                        format: String(
+                            localized: "cli.memory.error.trimPidNotOwned",
+                            defaultValue: "memory trim refused PID %@ because it is not a cmux-owned recoverable agent"
+                        ),
+                        String(pid)
+                    ))
                 }
                 return candidate
             }
@@ -102,7 +108,13 @@ extension CMUXCLI {
                 return nil
             }
             guard candidate.owned else {
-                throw CLIError(message: "memory trim refused agent '\(requestedRaw)' because it is not a cmux-owned recoverable agent")
+                throw CLIError(message: String(
+                    format: String(
+                        localized: "cli.memory.error.trimAgentNotOwned",
+                        defaultValue: "memory trim refused agent '%@' because it is not a cmux-owned recoverable agent"
+                    ),
+                    requestedRaw
+                ))
             }
             return candidate
         }
@@ -112,10 +124,23 @@ extension CMUXCLI {
             if let requested, !requested.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
                 let available = recoverableCandidates.map { "\($0.key):\($0.pid)" }.joined(separator: ", ")
                 return available.isEmpty
-                    ? "memory trim found no recoverable agent PIDs in this workspace"
-                    : "memory trim could not find agent '\(requested)'. Available: \(available)"
+                    ? String(
+                        localized: "cli.memory.error.trimNoRecoverableAgents",
+                        defaultValue: "memory trim found no recoverable agent PIDs in this workspace"
+                    )
+                    : String(
+                        format: String(
+                            localized: "cli.memory.error.trimAgentNotFound",
+                            defaultValue: "memory trim could not find agent '%@'. Available: %@"
+                        ),
+                        requested,
+                        available
+                    )
             }
-            return "memory trim found no cmux-owned recoverable agent PIDs in this workspace"
+            return String(
+                localized: "cli.memory.error.trimNoOwnedAgents",
+                defaultValue: "memory trim found no cmux-owned recoverable agent PIDs in this workspace"
+            )
         }
 
         func matchesOriginal(_ candidate: MemoryAgentCandidate, original: MemoryAgentCandidate) -> Bool {
@@ -365,9 +390,9 @@ extension CMUXCLI {
         private func memoryGracefulExit(for candidate: MemoryAgentCandidate) -> (label: String, text: String)? {
             switch candidate.key {
             case "claude":
-                return ("send /exit", "/exit\r")
+                return (String(localized: "cli.memory.trim.action.exit", defaultValue: "send /exit"), "/exit\r")
             case "codex":
-                return ("send /quit", "/quit\r")
+                return (String(localized: "cli.memory.trim.action.quit", defaultValue: "send /quit"), "/quit\r")
             default:
                 return nil
             }

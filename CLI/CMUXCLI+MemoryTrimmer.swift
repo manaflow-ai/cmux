@@ -126,11 +126,17 @@ extension CMUXCLI {
                 allowCurrent: true
             )
             guard let workspaceHandle else {
-                throw CLIError(message: "memory trim requires --workspace <id|ref|index> or a current workspace")
+                throw CLIError(message: String(
+                    localized: "cli.memory.error.trimWorkspaceRequired",
+                    defaultValue: "memory trim requires --workspace <id|ref|index> or a current workspace"
+                ))
             }
             let payload = try cli.buildMemoryTopPayload(workspaceHandle: workspaceHandle, client: client)
             guard let workspace = parser.workspaceNode(from: payload, matching: workspaceHandle) else {
-                throw CLIError(message: "Workspace not found")
+                throw CLIError(message: String(
+                    localized: "cli.memory.error.workspaceNotFound",
+                    defaultValue: "Workspace not found"
+                ))
             }
             let workspaceId = (workspace["id"] as? String) ?? workspaceHandle
             let workspaceRef = workspace["ref"] as? String
@@ -223,14 +229,26 @@ extension CMUXCLI {
         ) throws -> MemoryAgentCandidate? {
             guard signaler.isRunning(pid: original.pid) else { return nil }
             guard original.identity != nil else {
-                throw CLIError(message: "memory trim refused to signal PID \(original.pid) because the process identity was not available")
+                throw CLIError(message: String(
+                    format: String(
+                        localized: "cli.memory.error.trimIdentityUnavailable",
+                        defaultValue: "memory trim refused to signal PID %@ because the process identity was not available"
+                    ),
+                    String(original.pid)
+                ))
             }
 
             let payload = try cli.buildMemoryTopPayload(workspaceHandle: workspaceHandle, client: client)
             guard let workspace = parser.workspaceNode(from: payload, matching: workspaceHandle),
                   let candidate = parser.candidates(in: workspace).first(where: { parser.matchesOriginal($0, original: original) }) else {
                 guard signaler.isRunning(pid: original.pid) else { return nil }
-                throw CLIError(message: "memory trim refused to signal PID \(original.pid) because the process identity could not be verified")
+                throw CLIError(message: String(
+                    format: String(
+                        localized: "cli.memory.error.trimIdentityUnverified",
+                        defaultValue: "memory trim refused to signal PID %@ because the process identity could not be verified"
+                    ),
+                    String(original.pid)
+                ))
             }
             return candidate
         }

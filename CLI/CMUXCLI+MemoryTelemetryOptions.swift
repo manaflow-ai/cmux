@@ -46,7 +46,10 @@ extension CMUXCLI {
             case "avg", "average", "mean", "avg-rss", "average-rss":
                 return .average
             default:
-                throw CLIError(message: "--sort must be one of: peak, avg")
+                throw CLIError(message: String(
+                    localized: "cli.memory.error.sortInvalid",
+                    defaultValue: "--sort must be one of: peak, avg"
+                ))
             }
         }
     }
@@ -64,7 +67,10 @@ extension CMUXCLI {
         case "memory":
             guard let rawSubcommand = args.first?.trimmingCharacters(in: .whitespacesAndNewlines).lowercased(),
                   !rawSubcommand.isEmpty else {
-                throw CLIError(message: "Usage: cmux memory <snapshot|list|top|trim> [flags]")
+                throw CLIError(message: String(
+                    localized: "cli.memory.error.usage",
+                    defaultValue: "Usage: cmux memory <snapshot|list|top|trim> [flags]"
+                ))
             }
             let rest = Array(args.dropFirst())
             switch rawSubcommand {
@@ -77,10 +83,22 @@ extension CMUXCLI {
             case "trim":
                 return (.trim, rest)
             default:
-                throw CLIError(message: "Unknown memory subcommand '\(rawSubcommand)'. Usage: cmux memory <snapshot|list|top|trim> [flags]")
+                throw CLIError(message: String(
+                    format: String(
+                        localized: "cli.memory.error.unknownSubcommand",
+                        defaultValue: "Unknown memory subcommand '%@'. Usage: cmux memory <snapshot|list|top|trim> [flags]"
+                    ),
+                    rawSubcommand
+                ))
             }
         default:
-            throw CLIError(message: "Unknown memory command '\(command)'")
+            throw CLIError(message: String(
+                format: String(
+                    localized: "cli.memory.error.unknownCommand",
+                    defaultValue: "Unknown memory command '%@'"
+                ),
+                command
+            ))
         }
     }
 
@@ -100,10 +118,24 @@ extension CMUXCLI {
             }
         }
         if let unknown = remaining.first(where: { $0.hasPrefix("--") }) {
-            throw CLIError(message: "\(commandName): unknown flag '\(unknown)'. Known flags: --workspace <id|ref|index> --limit <n> --json")
+            throw CLIError(message: String(
+                format: String(
+                    localized: "cli.memory.error.currentUnknownFlag",
+                    defaultValue: "%@: unknown flag '%@'. Known flags: --workspace <id|ref|index> --limit <n> --json"
+                ),
+                commandName,
+                unknown
+            ))
         }
         if let extra = remaining.first {
-            throw CLIError(message: "\(commandName): unexpected argument '\(extra)'")
+            throw CLIError(message: String(
+                format: String(
+                    localized: "cli.memory.error.currentUnexpectedArgument",
+                    defaultValue: "%@: unexpected argument '%@'"
+                ),
+                commandName,
+                extra
+            ))
         }
         let limit = try parsePositiveInt(limitOpt, label: "--limit")
         return MemoryCurrentCommandOptions(
@@ -127,10 +159,22 @@ extension CMUXCLI {
             }
         }
         if let unknown = remaining.first(where: { $0.hasPrefix("--") }) {
-            throw CLIError(message: "memory top: unknown flag '\(unknown)'. Known flags: --since <duration> --limit <n> --sort <peak|avg> --json")
+            throw CLIError(message: String(
+                format: String(
+                    localized: "cli.memory.error.topUnknownFlag",
+                    defaultValue: "memory top: unknown flag '%@'. Known flags: --since <duration> --limit <n> --sort <peak|avg> --json"
+                ),
+                unknown
+            ))
         }
         if let extra = remaining.first {
-            throw CLIError(message: "memory top: unexpected argument '\(extra)'")
+            throw CLIError(message: String(
+                format: String(
+                    localized: "cli.memory.error.topUnexpectedArgument",
+                    defaultValue: "memory top: unexpected argument '%@'"
+                ),
+                extra
+            ))
         }
         let since = try parseMemoryDuration(sinceOpt ?? "6h", label: "--since")
         let limit = try parsePositiveInt(limitOpt, label: "--limit") ?? 20
@@ -161,10 +205,22 @@ extension CMUXCLI {
             }
         }
         if let unknown = remaining.first(where: { $0.hasPrefix("--") }) {
-            throw CLIError(message: "memory trim: unknown flag '\(unknown)'. Known flags: --workspace <id|ref|index> --agent <name|pid|auto> --grace <duration> --grace-seconds <n> --dry-run --json")
+            throw CLIError(message: String(
+                format: String(
+                    localized: "cli.memory.error.trimUnknownFlag",
+                    defaultValue: "memory trim: unknown flag '%@'. Known flags: --workspace <id|ref|index> --agent <name|pid|auto> --grace <duration> --grace-seconds <n> --dry-run --json"
+                ),
+                unknown
+            ))
         }
         if let extra = remaining.first {
-            throw CLIError(message: "memory trim: unexpected argument '\(extra)'")
+            throw CLIError(message: String(
+                format: String(
+                    localized: "cli.memory.error.trimUnexpectedArgument",
+                    defaultValue: "memory trim: unexpected argument '%@'"
+                ),
+                extra
+            ))
         }
         let graceSeconds: TimeInterval
         if let graceSecondsOpt {
@@ -185,7 +241,13 @@ extension CMUXCLI {
     func parseMemoryDuration(_ raw: String, label: String) throws -> TimeInterval {
         let trimmed = raw.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
         guard !trimmed.isEmpty else {
-            throw CLIError(message: "\(label) requires a duration")
+            throw CLIError(message: String(
+                format: String(
+                    localized: "cli.memory.error.durationRequired",
+                    defaultValue: "%@ requires a duration"
+                ),
+                label
+            ))
         }
         var suffixStart = trimmed.endIndex
         while suffixStart > trimmed.startIndex {
@@ -195,20 +257,45 @@ extension CMUXCLI {
         }
         let numberText = String(trimmed[..<suffixStart])
         let suffix = String(trimmed[suffixStart...])
-        guard let value = Double(numberText), value >= 0 else {
-            throw CLIError(message: "\(label) must be a non-negative duration like 30s, 15m, 6h, or 1d")
+        guard let value = Double(numberText), value.isFinite, value >= 0 else {
+            throw CLIError(message: String(
+                format: String(
+                    localized: "cli.memory.error.durationInvalid",
+                    defaultValue: "%@ must be a non-negative duration like 30s, 15m, 6h, or 1d"
+                ),
+                label
+            ))
         }
+        let multiplier: TimeInterval
         switch suffix {
         case "", "s", "sec", "secs", "second", "seconds":
-            return value
+            multiplier = 1
         case "m", "min", "mins", "minute", "minutes":
-            return value * 60
+            multiplier = 60
         case "h", "hr", "hrs", "hour", "hours":
-            return value * 60 * 60
+            multiplier = 60 * 60
         case "d", "day", "days":
-            return value * 60 * 60 * 24
+            multiplier = 60 * 60 * 24
         default:
-            throw CLIError(message: "\(label) has unsupported duration unit '\(suffix)'")
+            throw CLIError(message: String(
+                format: String(
+                    localized: "cli.memory.error.durationUnsupportedUnit",
+                    defaultValue: "%@ has unsupported duration unit '%@'"
+                ),
+                label,
+                suffix
+            ))
         }
+        let seconds = value * multiplier
+        guard seconds.isFinite else {
+            throw CLIError(message: String(
+                format: String(
+                    localized: "cli.memory.error.durationInvalid",
+                    defaultValue: "%@ must be a non-negative duration like 30s, 15m, 6h, or 1d"
+                ),
+                label
+            ))
+        }
+        return seconds
     }
 }
