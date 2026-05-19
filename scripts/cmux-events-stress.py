@@ -411,7 +411,8 @@ class CmuxEventsStress:
     def assert_ping(self, label: str) -> None:
         with SocketClient(self.socket_path, timeout=10) as client:
             result = client.rpc("system.ping", request_id=f"ping-{label}")
-        if result.get("result", {}).get("pong") is not True:
+        payload = result.get("result")
+        if not isinstance(payload, dict) or payload.get("pong") is not True:
             raise StressFailure(f"{label}: ping did not return pong: {summarize_frame(result)}")
 
     def consumer_loop(self, stats: ConsumerStats, ready: threading.Barrier) -> None:
