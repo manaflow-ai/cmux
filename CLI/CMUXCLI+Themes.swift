@@ -128,10 +128,30 @@ extension CMUXCLI {
         process.standardOutput = FileHandle.standardOutput
         process.standardError = FileHandle.standardError
 
+        let originalForegroundProcessGroup = isatty(STDIN_FILENO) == 1 ? tcgetpgrp(STDIN_FILENO) : -1
+        var didForegroundChild = false
         do {
             try process.run()
         } catch {
             throw CLIError(message: "Failed to launch interactive theme picker: \(error.localizedDescription)")
+        }
+        if originalForegroundProcessGroup > 0 {
+            let childProcessGroup = getpgid(process.processIdentifier)
+            if childProcessGroup > 0 && childProcessGroup != originalForegroundProcessGroup {
+                do {
+                    try setInteractiveThemePickerForegroundProcessGroup(childProcessGroup)
+                    _ = Darwin.kill(-childProcessGroup, SIGCONT)
+                    didForegroundChild = true
+                } catch {
+                    process.terminate()
+                    throw error
+                }
+            }
+        }
+        defer {
+            if didForegroundChild {
+                try? setInteractiveThemePickerForegroundProcessGroup(originalForegroundProcessGroup)
+            }
         }
 
         process.waitUntilExit()
@@ -143,6 +163,14 @@ extension CMUXCLI {
             throw CLIError(message: "Interactive theme picker exited from signal \(process.terminationStatus)")
         }
         throw CLIError(message: "Interactive theme picker exited with status \(process.terminationStatus)")
+    }
+
+    private func setInteractiveThemePickerForegroundProcessGroup(_ processGroup: pid_t) throws {
+        let previousHandler = signal(SIGTTOU, SIG_IGN)
+        defer { _ = signal(SIGTTOU, previousHandler) }
+        guard tcsetpgrp(STDIN_FILENO, processGroup) == 0 else {
+            throw CLIError(message: "Interactive theme picker failed to enter foreground: \(String(cString: strerror(errno)))")
+        }
     }
 
     private func bundledGhosttyResourcesURL() -> URL? {
