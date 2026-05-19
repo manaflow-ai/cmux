@@ -15,6 +15,7 @@ cmux events --cursor-file ~/.cache/cmux/events.seq --reconnect
 cmux events --category window --category workspace --category pane --category surface
 cmux events --category notification
 cmux events --category feed --category agent --no-heartbeat
+cmux events status
 ```
 
 Every event has a monotonically increasing process-local `seq` and a `boot_id`.
@@ -170,6 +171,11 @@ The intended client loop is:
 6. Persist each event's `seq` only after your side effect succeeds.
 7. Reconnect with the latest persisted `seq` if the socket closes.
 
+`ack.resume.gap` means the client's requested cursor cannot be fully satisfied
+from cmux's retained in-memory event buffer. Treat it as a state-synchronization
+gap: process the replayed tail if useful, then refresh authoritative state with
+snapshot commands before continuing.
+
 The retained replay buffer is in memory and bounded to 4,096 events. Individual
 event frames are capped to 16 KiB after JSON encoding; oversized payloads are
 replaced with a small payload that sets `payload_truncated: true`.
@@ -184,10 +190,84 @@ The durable event log is bounded too. cmux writes current events to
 `~/.cmuxterm/events.jsonl.1`, and caps each file at 16 MiB. Disk writes are
 batched behind a bounded 1,024-line queue. Under sustained disk backpressure,
 cmux drops the oldest pending disk-only lines and keeps the live socket stream
-and in-memory replay buffer moving. Clients can read those files for recent
-auditing, but should treat the socket `ack.resume.gap` contract plus snapshot
-commands as the source of truth for catch-up after long outages. Feed still
-writes its specialized long-term audit log to `~/.cmuxterm/workstream.jsonl`.
+and in-memory replay buffer moving. A non-zero disk-only drop counter means the
+durable JSONL audit file is missing lines; it does not mean the socket stream or
+retained replay buffer dropped those same events. Clients can read those files
+for recent auditing, but should treat the socket `ack.resume.gap` contract plus
+snapshot commands as the source of truth for catch-up after long outages. Feed
+still writes its specialized long-term audit log to
+`~/.cmuxterm/workstream.jsonl`.
+
+## Diagnostics
+
+`events.status` is a v2 socket method advertised by `capabilities`.
+`cmux events status` calls that method and prints the result as JSON. Pass
+`--reset-counters` on the CLI, or `{"reset_counters": true}` in the RPC params,
+to reset cumulative counters after reading them.
+
+```bash
+cmux events status
+cmux events status --reset-counters
+cmux rpc events.status '{"reset_counters":true}'
+```
+
+The status payload contains operational metadata only. It does not include
+retained event payloads, notification body text, or workstream prompt/tool
+content.
+
+```json
+{
+  "protocol": "cmux-events",
+  "version": 1,
+  "boot_id": "0F221057-0320-41B7-8CB3-083C8D927D95",
+  "oldest_seq": 120,
+  "latest_seq": 126,
+  "next_seq": 127,
+  "retained_count": 7,
+  "active_subscription_count": 1,
+  "slow_subscription_close_count": 0,
+  "subscriptions": [
+    {
+      "subscription_id": "8F6F1E66-0D6E-4B4D-A0F8-0F7B0B7B92CA",
+      "names": [],
+      "categories": ["notification"],
+      "pending_count": 0,
+      "max_pending_events": 1024
+    }
+  ],
+  "limits": {
+    "retained_events": 4096,
+    "event_line_bytes": 16384,
+    "subscription_pending_events": 1024
+  },
+  "durable_log": {
+    "enabled": true,
+    "current_path": "/Users/me/.cmuxterm/events.jsonl",
+    "rotated_path": "/Users/me/.cmuxterm/events.jsonl.1",
+    "current_size_bytes": 4096,
+    "rotated_size_bytes": 0,
+    "max_file_size_bytes": 16777216,
+    "pending_queue_depth": 0,
+    "max_pending_queue_depth": 1024,
+    "dropped_disk_only_line_count": 0
+  }
+}
+```
+
+Interpretation:
+
+1. `retained_count`, `oldest_seq`, and `latest_seq` describe the in-memory
+   replay window used by `events.stream`. When no events are retained yet,
+   `oldest_seq` and `latest_seq` are `null` and `next_seq` is the first sequence
+   that will be assigned.
+2. `active_subscription_count` and `subscriptions[].pending_count` show live
+   clients that are connected but not yet reading all queued events.
+3. `slow_subscription_close_count` is a resettable counter of subscriptions cmux
+   closed because their pending event queue reached `max_pending_events`.
+4. `durable_log.pending_queue_depth` and `dropped_disk_only_line_count` describe
+   only the asynchronous disk writer. Disk-only drops are auditing pressure; an
+   `ack.resume.gap` is the signal that a reconnecting stream client missed
+   in-memory replay and must refresh state.
 
 ## CLI
 
@@ -206,6 +286,9 @@ Options:
 | `--limit <n>` | Exit after printing `n` event frames. |
 | `--no-ack` | Hide the initial ack frame. |
 | `--no-heartbeat` | Hide heartbeat frames. |
+
+`cmux events status [--reset-counters]` prints the diagnostics payload described
+above.
 
 ## Event catalog
 

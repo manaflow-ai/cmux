@@ -407,6 +407,182 @@ final class CmuxEventBusTests: XCTestCase {
         XCTAssertEqual(indexes, [3, 4])
     }
 
+    func testDiagnosticsPayloadReportsRetentionSubscriptionsAndDurableLog() throws {
+        let directory = FileManager.default.temporaryDirectory
+            .appendingPathComponent("cmux-event-diagnostics-\(UUID().uuidString)", isDirectory: true)
+        let logURL = directory.appendingPathComponent("events.jsonl")
+        let bus = CmuxEventBus(
+            retainedEventLimit: 3,
+            eventLogURL: logURL,
+            maxPendingEventLogLines: 4,
+            maxPendingEventsPerSubscription: 5
+        )
+
+        bus.setEventLogFlushSuspendedForTesting(true)
+        let snapshot = bus.subscribe(afterSequence: nil, names: ["agent.log"], categories: ["agent"])
+        defer {
+            bus.unsubscribe(snapshot.subscription)
+            bus.setEventLogFlushSuspendedForTesting(false)
+            bus.flushEventLogForTesting()
+        }
+
+        bus.publish(
+            name: "agent.log",
+            category: "agent",
+            source: "test",
+            payload: ["message": "secret diagnostic payload"]
+        )
+        bus.publish(
+            name: "agent.log",
+            category: "agent",
+            source: "test",
+            payload: ["message": "another secret payload"]
+        )
+
+        let diagnostics = bus.diagnosticsSnapshot()
+
+        XCTAssertEqual(diagnostics["protocol"] as? String, CmuxEventBus.protocolName)
+        XCTAssertEqual((diagnostics["oldest_seq"] as? NSNumber)?.int64Value, 1)
+        XCTAssertEqual((diagnostics["latest_seq"] as? NSNumber)?.int64Value, 2)
+        XCTAssertEqual(diagnostics["retained_count"] as? Int, 2)
+        XCTAssertEqual(diagnostics["active_subscription_count"] as? Int, 1)
+        XCTAssertEqual(diagnostics["slow_subscription_close_count"] as? Int, 0)
+        XCTAssertNotNil(diagnostics["boot_id"] as? String)
+
+        let limits = try XCTUnwrap(diagnostics["limits"] as? [String: Any])
+        XCTAssertEqual(limits["retained_events"] as? Int, 3)
+        XCTAssertEqual(limits["subscription_pending_events"] as? Int, 5)
+
+        let subscriptions = try XCTUnwrap(diagnostics["subscriptions"] as? [[String: Any]])
+        XCTAssertEqual(subscriptions.count, 1)
+        XCTAssertEqual(subscriptions.first?["names"] as? [String], ["agent.log"])
+        XCTAssertEqual(subscriptions.first?["categories"] as? [String], ["agent"])
+        XCTAssertEqual(subscriptions.first?["pending_count"] as? Int, 2)
+        XCTAssertEqual(subscriptions.first?["max_pending_events"] as? Int, 5)
+
+        let durableLog = try XCTUnwrap(diagnostics["durable_log"] as? [String: Any])
+        XCTAssertEqual(durableLog["enabled"] as? Bool, true)
+        XCTAssertEqual(durableLog["current_path"] as? String, logURL.path)
+        XCTAssertEqual(durableLog["rotated_path"] as? String, logURL.appendingPathExtension("1").path)
+        XCTAssertEqual((durableLog["current_size_bytes"] as? NSNumber)?.uint64Value, 0)
+        XCTAssertEqual((durableLog["rotated_size_bytes"] as? NSNumber)?.uint64Value, 0)
+        XCTAssertEqual(
+            (durableLog["max_file_size_bytes"] as? NSNumber)?.uint64Value,
+            CmuxEventBus.defaultMaxEventLogBytes
+        )
+        XCTAssertEqual(durableLog["pending_queue_depth"] as? Int, 2)
+        XCTAssertEqual(durableLog["max_pending_queue_depth"] as? Int, 4)
+        XCTAssertEqual(durableLog["dropped_disk_only_line_count"] as? Int, 0)
+
+        let encoded = try XCTUnwrap(CmuxEventBus.encodeLine(diagnostics))
+        XCTAssertFalse(encoded.contains("secret"))
+        XCTAssertFalse(encoded.contains("payload"))
+    }
+
+    func testDiagnosticsUsesNullSequenceBoundsWhenRetainedBufferIsEmpty() throws {
+        let bus = CmuxEventBus(retainedEventLimit: 3)
+
+        let diagnostics = bus.diagnosticsSnapshot()
+
+        XCTAssertTrue(diagnostics["oldest_seq"] is NSNull)
+        XCTAssertTrue(diagnostics["latest_seq"] is NSNull)
+        XCTAssertEqual((diagnostics["next_seq"] as? NSNumber)?.int64Value, 1)
+        XCTAssertEqual(diagnostics["retained_count"] as? Int, 0)
+        XCTAssertEqual(diagnostics["slow_subscription_close_count"] as? Int, 0)
+
+        let durableLog = try XCTUnwrap(diagnostics["durable_log"] as? [String: Any])
+        XCTAssertEqual(durableLog["enabled"] as? Bool, false)
+        XCTAssertEqual((durableLog["current_size_bytes"] as? NSNumber)?.uint64Value, 0)
+        XCTAssertEqual((durableLog["rotated_size_bytes"] as? NSNumber)?.uint64Value, 0)
+        XCTAssertEqual((durableLog["max_file_size_bytes"] as? NSNumber)?.uint64Value, 0)
+    }
+
+    func testDiagnosticsCanResetSlowSubscriptionCloseCounter() throws {
+        let bus = CmuxEventBus(retainedEventLimit: 8, maxPendingEventsPerSubscription: 2)
+        let firstSnapshot = bus.subscribe(afterSequence: nil, names: [], categories: [])
+
+        for index in 0..<3 {
+            bus.publish(
+                name: "agent.log",
+                category: "agent",
+                source: "test",
+                payload: ["index": index]
+            )
+        }
+
+        XCTAssertTrue(firstSnapshot.subscription.isClosed)
+        var diagnostics = bus.diagnosticsSnapshot()
+        XCTAssertEqual(diagnostics["active_subscription_count"] as? Int, 0)
+        XCTAssertEqual(diagnostics["slow_subscription_close_count"] as? Int, 1)
+
+        let resetDiagnostics = bus.diagnosticsSnapshot(resetCounters: true)
+        XCTAssertEqual(resetDiagnostics["slow_subscription_close_count"] as? Int, 1)
+
+        diagnostics = bus.diagnosticsSnapshot()
+        XCTAssertEqual(diagnostics["slow_subscription_close_count"] as? Int, 0)
+
+        let secondSnapshot = bus.subscribe(afterSequence: nil, names: [], categories: [])
+        for index in 3..<6 {
+            bus.publish(
+                name: "agent.log",
+                category: "agent",
+                source: "test",
+                payload: ["index": index]
+            )
+        }
+
+        XCTAssertTrue(secondSnapshot.subscription.isClosed)
+        diagnostics = bus.diagnosticsSnapshot()
+        XCTAssertEqual(diagnostics["active_subscription_count"] as? Int, 0)
+        XCTAssertEqual(diagnostics["slow_subscription_close_count"] as? Int, 1)
+    }
+
+    func testDiagnosticsCanResetDiskOnlyDropCounterWithoutClearingPendingDepth() throws {
+        let directory = FileManager.default.temporaryDirectory
+            .appendingPathComponent("cmux-event-diagnostics-reset-\(UUID().uuidString)", isDirectory: true)
+        let logURL = directory.appendingPathComponent("events.jsonl")
+        let bus = CmuxEventBus(
+            retainedEventLimit: 8,
+            eventLogURL: logURL,
+            maxPendingEventLogLines: 2
+        )
+
+        bus.setEventLogFlushSuspendedForTesting(true)
+        defer {
+            bus.setEventLogFlushSuspendedForTesting(false)
+            bus.flushEventLogForTesting()
+        }
+
+        for index in 0..<5 {
+            bus.publish(
+                name: "agent.log",
+                category: "agent",
+                source: "test",
+                payload: ["index": index]
+            )
+        }
+
+        let firstStatus = try XCTUnwrap(bus.diagnosticsSnapshot()["durable_log"] as? [String: Any])
+        XCTAssertEqual(firstStatus["pending_queue_depth"] as? Int, 2)
+        XCTAssertEqual(firstStatus["dropped_disk_only_line_count"] as? Int, 3)
+
+        let resetStatus = try XCTUnwrap(
+            bus.diagnosticsSnapshot(resetCounters: true)["durable_log"] as? [String: Any]
+        )
+        XCTAssertEqual(resetStatus["pending_queue_depth"] as? Int, 2)
+        XCTAssertEqual(resetStatus["dropped_disk_only_line_count"] as? Int, 3)
+
+        let afterResetStatus = try XCTUnwrap(bus.diagnosticsSnapshot()["durable_log"] as? [String: Any])
+        XCTAssertEqual(afterResetStatus["pending_queue_depth"] as? Int, 2)
+        XCTAssertEqual(afterResetStatus["dropped_disk_only_line_count"] as? Int, 0)
+
+        bus.publish(name: "agent.log", category: "agent", source: "test")
+
+        let updatedStatus = try XCTUnwrap(bus.diagnosticsSnapshot()["durable_log"] as? [String: Any])
+        XCTAssertEqual(updatedStatus["pending_queue_depth"] as? Int, 2)
+        XCTAssertEqual(updatedStatus["dropped_disk_only_line_count"] as? Int, 1)
+    }
+
     func testDurableEventLogRotatesAtByteLimit() throws {
         let directory = FileManager.default.temporaryDirectory
             .appendingPathComponent("cmux-event-log-rotation-\(UUID().uuidString)", isDirectory: true)
@@ -431,8 +607,14 @@ final class CmuxEventBusTests: XCTestCase {
         let rotatedURL = logURL.appendingPathExtension("1")
         XCTAssertTrue(FileManager.default.fileExists(atPath: logURL.path))
         XCTAssertTrue(FileManager.default.fileExists(atPath: rotatedURL.path))
-        XCTAssertLessThanOrEqual(try fileSize(logURL), 1_500)
-        XCTAssertLessThanOrEqual(try fileSize(rotatedURL), 1_500)
+        let currentSize = try fileSize(logURL)
+        let rotatedSize = try fileSize(rotatedURL)
+        XCTAssertLessThanOrEqual(currentSize, 1_500)
+        XCTAssertLessThanOrEqual(rotatedSize, 1_500)
+
+        let durableLog = try XCTUnwrap(bus.diagnosticsSnapshot()["durable_log"] as? [String: Any])
+        XCTAssertEqual((durableLog["current_size_bytes"] as? NSNumber)?.uint64Value, currentSize)
+        XCTAssertEqual((durableLog["rotated_size_bytes"] as? NSNumber)?.uint64Value, rotatedSize)
     }
 
     private func fileSize(_ url: URL) throws -> UInt64 {

@@ -80,7 +80,7 @@ Environment:
 | `codex` | Compatibility alias for installing or uninstalling Codex hooks. |
 | `ping` | Check socket connectivity. |
 | `capabilities` | Print server capabilities as JSON. |
-| `events` | Stream reconnectable cmux events as newline-delimited JSON. |
+| `events` | Stream reconnectable cmux events as newline-delimited JSON, or print event-bus diagnostics with `events status`. |
 | `auth` | Manage auth status, login, and logout through the app. |
 | `vm`, `cloud` | Manage cloud VMs. `cloud` is an alias for `vm`. |
 | `rpc` | Call a raw v2 socket method with optional JSON params. |
@@ -337,6 +337,7 @@ Events command:
 
 | Option | Contract |
 | --- | --- |
+| `status [--reset-counters]` | Print event-bus diagnostics as JSON. With `--reset-counters`, cumulative event diagnostics counters are reset after the snapshot is captured. |
 | `--after <seq>`, `--after-seq <seq>` | Subscribe to retained events after a sequence number. |
 | `--cursor-file <path>` | Read the starting sequence from a file and update it after every event. |
 | `--name <event>` | Filter by event name. Repeatable. |
@@ -346,18 +347,26 @@ Events command:
 | `--no-ack` | Suppress the initial ack frame in stdout. |
 | `--no-heartbeat`, `--no-heartbeats` | Suppress heartbeat frames in stdout. |
 
-`events.stream` is a v2 socket method advertised by `capabilities`. The first
-response frame is an `ack`; sequence resume metadata lives under `ack.resume` as
-`after_seq`, `oldest_seq`, `latest_seq`, `next_seq`, and `gap`. Event frames
-carry a process-local monotonic `seq` and a stable `id` for dedupe. Clients
-should persist `seq` after processing each event and reconnect with that value.
-See [events.md](events.md) for the full protocol and event catalog. Every emitted event is also appended to
-`~/.cmuxterm/events.jsonl`, including model lifecycle events for window
-creation, close, focus, key-window state, workspace selection, pane focus, and
-surface selection, focus, creation, or closure. The stream is bounded: cmux keeps
-4,096 replay events in memory, caps each encoded event frame at 16 KiB, closes
+`events.stream` and `events.status` are v2 socket methods advertised by
+`capabilities`. The first stream response frame is an `ack`; sequence resume
+metadata lives under `ack.resume` as `after_seq`, `oldest_seq`, `latest_seq`,
+`next_seq`, and `gap`. Event frames carry a process-local monotonic `seq` and a
+stable `id` for dedupe. Clients should persist `seq` after processing each event
+and reconnect with that value. See [events.md](events.md) for the full protocol,
+status payload, and event catalog. In `events.status`, `oldest_seq` and
+`latest_seq` are `null` when no events are retained yet. Every emitted event is
+also appended to `~/.cmuxterm/events.jsonl`, including model lifecycle events for
+window creation, close, focus, key-window state, workspace selection, pane focus,
+and surface selection, focus, creation, or closure. The stream is bounded: cmux
+keeps 4,096 replay events in memory, caps each encoded event frame at 16 KiB, closes
 slow subscribers after 1,024 pending events, and rotates `events.jsonl` with one
-16 MiB archive at `events.jsonl.1`.
+16 MiB archive at `events.jsonl.1`. Slow subscriber closures are counted in
+`events.status.slow_subscription_close_count` and reset by
+`cmux events status --reset-counters`. Disk-only drops reported by
+`events.status.durable_log.dropped_disk_only_line_count` mean the durable audit
+file lost pending lines under disk backpressure; they do not imply socket-stream
+loss. `ack.resume.gap` is the reconnect signal that a client missed in-memory
+replay and must refresh state through snapshot commands.
 
 ## No-Socket Help Probes
 

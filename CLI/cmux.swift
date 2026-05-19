@@ -9021,8 +9021,10 @@ struct CMUXCLI {
         case "events":
             return """
             Usage: cmux events [options]
+                   cmux events status [--reset-counters]
 
             Stream cmux events as newline-delimited JSON.
+            Print event-bus diagnostics with `cmux events status`.
 
             Options:
               --after <seq>          Replay retained events after this sequence
@@ -9034,10 +9036,15 @@ struct CMUXCLI {
               --no-ack               Do not print the subscription ack frame
               --no-heartbeat         Do not print heartbeat frames
 
+            Status options:
+              --reset-counters       Reset slow_subscription_close_count and
+                                     durable_log.dropped_disk_only_line_count after reading them
+
             Examples:
               cmux events --category notification
               cmux events --cursor-file ~/.cache/cmux/events.seq --reconnect
               cmux events --after 42 --name feed.item.received
+              cmux events status
             """
         case "auth":
             return """
@@ -24188,7 +24195,7 @@ export default function cmuxPiSessionExtension(pi: ExtensionAPI) {
           ping
           version
           capabilities
-          events [--after <seq>] [--cursor-file <path>] [--name <event>] [--category <category>] [--reconnect] [--limit <n>] [--no-ack] [--no-heartbeat]
+          events [options] | events status [--reset-counters]
           auth <status|login|logout>
           login | logout                                      (aliases for auth login/logout)
           vm <new|ls|rm|exec|shell|ssh> [args...]    (alias: cloud)

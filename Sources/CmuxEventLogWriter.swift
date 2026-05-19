@@ -15,7 +15,10 @@ final class CmuxEventLogWriter: @unchecked Sendable {
     private let lock = NSLock()
     private var pendingLines: [String] = []
     private var flushScheduled = false
-    private var droppedLineCount = 0
+    private var droppedDiskOnlyLineCount = 0
+    private var unreportedDroppedLineCount = 0
+    private var currentLogSizeBytes: UInt64
+    private var rotatedLogSizeBytes: UInt64
 #if DEBUG
     private var flushSuspendedForTesting = false
 #endif
@@ -24,6 +27,12 @@ final class CmuxEventLogWriter: @unchecked Sendable {
         self.eventLogURL = eventLogURL
         self.maxEventLogBytes = max(1, maxEventLogBytes)
         self.maxPendingLines = max(1, maxPendingLines)
+        let fileManager = FileManager.default
+        self.currentLogSizeBytes = Self.fileSize(at: eventLogURL, fileManager: fileManager)
+        self.rotatedLogSizeBytes = Self.fileSize(
+            at: eventLogURL.appendingPathExtension("1"),
+            fileManager: fileManager
+        )
     }
 
     func enqueue(_ line: String) {
@@ -32,7 +41,8 @@ final class CmuxEventLogWriter: @unchecked Sendable {
         if pendingLines.count >= maxPendingLines {
             let removedCount = pendingLines.count - maxPendingLines + 1
             pendingLines.removeFirst(removedCount)
-            droppedLineCount += removedCount
+            droppedDiskOnlyLineCount += removedCount
+            unreportedDroppedLineCount += removedCount
         }
         pendingLines.append(line)
 #if DEBUG
@@ -70,18 +80,52 @@ final class CmuxEventLogWriter: @unchecked Sendable {
     func backlogSnapshotForTesting() -> (pending: Int, dropped: Int) {
         lock.lock()
         defer { lock.unlock() }
-        return (pendingLines.count, droppedLineCount)
+        return (pendingLines.count, droppedDiskOnlyLineCount)
     }
 
     func resetForTesting() {
+        let fileManager = FileManager.default
+        let currentSize = Self.fileSize(at: eventLogURL, fileManager: fileManager)
+        let rotatedSize = Self.fileSize(
+            at: eventLogURL.appendingPathExtension("1"),
+            fileManager: fileManager
+        )
         lock.lock()
         pendingLines.removeAll()
         flushScheduled = false
-        droppedLineCount = 0
+        droppedDiskOnlyLineCount = 0
+        unreportedDroppedLineCount = 0
+        currentLogSizeBytes = currentSize
+        rotatedLogSizeBytes = rotatedSize
         flushSuspendedForTesting = false
         lock.unlock()
     }
 #endif
+
+    func diagnosticsSnapshot(resetCounters: Bool) -> [String: Any] {
+        lock.lock()
+        let pendingQueueDepth = pendingLines.count
+        let droppedCount = droppedDiskOnlyLineCount
+        let currentSizeBytes = currentLogSizeBytes
+        let rotatedSizeBytes = rotatedLogSizeBytes
+        if resetCounters {
+            droppedDiskOnlyLineCount = 0
+        }
+        lock.unlock()
+
+        let rotatedURL = eventLogURL.appendingPathExtension("1")
+        return [
+            "enabled": true,
+            "current_path": eventLogURL.path,
+            "rotated_path": rotatedURL.path,
+            "current_size_bytes": NSNumber(value: currentSizeBytes),
+            "rotated_size_bytes": NSNumber(value: rotatedSizeBytes),
+            "max_file_size_bytes": NSNumber(value: maxEventLogBytes),
+            "pending_queue_depth": pendingQueueDepth,
+            "max_pending_queue_depth": maxPendingLines,
+            "dropped_disk_only_line_count": droppedCount
+        ]
+    }
 
     private func scheduleFlushIfNeeded() {
         var shouldSchedule = false
@@ -110,8 +154,8 @@ final class CmuxEventLogWriter: @unchecked Sendable {
             lock.lock()
             if pendingLines.isEmpty {
                 flushScheduled = false
-                droppedCount = droppedLineCount
-                droppedLineCount = 0
+                droppedCount = unreportedDroppedLineCount
+                unreportedDroppedLineCount = 0
                 lock.unlock()
                 if droppedCount > 0 {
                     cmuxEventLogLogger.warning("Dropped \(droppedCount, privacy: .public) cmux event log line(s) under disk backpressure")
@@ -151,7 +195,16 @@ final class CmuxEventLogWriter: @unchecked Sendable {
                 try handle.write(contentsOf: data)
                 currentSize += UInt64(data.count)
             }
+            updateCachedLogSizes(current: currentSize)
         } catch {
+            let fileManager = FileManager.default
+            updateCachedLogSizes(
+                current: Self.fileSize(at: eventLogURL, fileManager: fileManager),
+                rotated: Self.fileSize(
+                    at: eventLogURL.appendingPathExtension("1"),
+                    fileManager: fileManager
+                )
+            )
             cmuxEventLogLogger.error("Failed to append cmux event log: \(String(describing: error), privacy: .private)")
         }
     }
@@ -165,6 +218,10 @@ final class CmuxEventLogWriter: @unchecked Sendable {
         if currentSize > maxEventLogBytes {
             try fileManager.removeItem(at: eventLogURL)
             _ = fileManager.createFile(atPath: eventLogURL.path, contents: nil)
+            updateCachedLogSizes(
+                current: 0,
+                rotated: Self.fileSize(at: rotatedURL, fileManager: fileManager)
+            )
             return
         }
 
@@ -175,6 +232,21 @@ final class CmuxEventLogWriter: @unchecked Sendable {
             try fileManager.moveItem(at: eventLogURL, to: rotatedURL)
         }
         _ = fileManager.createFile(atPath: eventLogURL.path, contents: nil)
+        updateCachedLogSizes(
+            current: 0,
+            rotated: Self.fileSize(at: rotatedURL, fileManager: fileManager)
+        )
+    }
+
+    private func updateCachedLogSizes(current: UInt64? = nil, rotated: UInt64? = nil) {
+        lock.lock()
+        if let current {
+            currentLogSizeBytes = current
+        }
+        if let rotated {
+            rotatedLogSizeBytes = rotated
+        }
+        lock.unlock()
     }
 
     private static func fileSize(at url: URL, fileManager: FileManager) -> UInt64 {

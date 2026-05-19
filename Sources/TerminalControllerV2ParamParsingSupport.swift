@@ -90,7 +90,7 @@ extension TerminalController {
         return v2ResolveHandleRef(trimmed)
     }
 
-    func v2Bool(_ params: [String: Any], _ key: String) -> Bool? {
+    nonisolated func v2Bool(_ params: [String: Any], _ key: String) -> Bool? {
         if let b = params[key] as? Bool { return b }
         if let n = params[key] as? NSNumber { return n.boolValue }
         if let s = params[key] as? String {

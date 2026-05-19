@@ -21,6 +21,15 @@ extension CMUXCLI {
         socketPath: String,
         explicitPassword: String?
     ) throws {
+        if commandArgs.first == "status" {
+            try runEventsStatusCommand(
+                commandArgs: Array(commandArgs.dropFirst()),
+                socketPath: socketPath,
+                explicitPassword: explicitPassword
+            )
+            return
+        }
+
         var options = try parseEventsOptions(commandArgs)
         if options.afterSeq == nil, let cursorFile = options.cursorFile {
             options.afterSeq = try readEventCursor(from: cursorFile)
@@ -100,6 +109,49 @@ extension CMUXCLI {
                 continue
             }
         }
+    }
+
+    private func runEventsStatusCommand(
+        commandArgs: [String],
+        socketPath: String,
+        explicitPassword: String?
+    ) throws {
+        var resetCounters = false
+        for arg in commandArgs {
+            switch arg {
+            case "--reset-counters":
+                resetCounters = true
+            case "--help", "-h":
+                print("""
+                Usage: cmux events status [--reset-counters]
+
+                Print cmux event stream diagnostics as JSON.
+
+                Options:
+                  --reset-counters      Reset slow_subscription_close_count and
+                                        durable_log.dropped_disk_only_line_count after reading them
+                """)
+                return
+            default:
+                throw CLIError(message: "Unknown events status option. Use --help for usage.")
+            }
+        }
+
+        let client = SocketClient(path: socketPath)
+        defer { client.close() }
+        try client.connect()
+        try authenticateClientIfNeeded(
+            client,
+            explicitPassword: explicitPassword,
+            socketPath: socketPath
+        )
+
+        var params: [String: Any] = [:]
+        if resetCounters {
+            params["reset_counters"] = true
+        }
+        let payload = try client.sendV2(method: "events.status", params: params)
+        print(jsonString(payload))
     }
 
     func isTransientEventStreamError(_ error: Error) -> Bool {

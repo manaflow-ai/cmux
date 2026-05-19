@@ -1551,6 +1551,7 @@ class TerminalController {
         "feed.permission.reply",
         "feed.question.reply",
         "feed.exit_plan.reply",
+        "events.status",
         "browser.profiles.list",
         "browser.profiles.create",
         "browser.profiles.rename",
@@ -1638,6 +1639,9 @@ class TerminalController {
             return v2Result(id: request.id, v2FeedQuestionReply(params: request.params))
         case "feed.exit_plan.reply":
             return v2Result(id: request.id, v2FeedExitPlanReply(params: request.params))
+        case "events.status":
+            let resetCounters = v2Bool(request.params, "reset_counters") ?? false
+            return v2Ok(id: request.id, result: CmuxEventBus.shared.diagnosticsSnapshot(resetCounters: resetCounters))
         case "browser.profiles.list":
             return v2VmCall(id: request.id, timeoutSeconds: 30) {
                 try await BrowserProfileAutomation.list(params: request.params)
@@ -2942,6 +2946,7 @@ class TerminalController {
             "system.tree",
             "system.top",
             "events.stream",
+            "events.status",
             "auth.login",
             "auth.status",
             "auth.begin_sign_in",
