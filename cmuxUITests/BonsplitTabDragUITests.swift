@@ -328,12 +328,15 @@ final class BonsplitTabDragUITests: XCTestCase {
         let alphaTitle = ready["alphaTitle"] ?? "UITest Alpha"
         let alphaTab = app.buttons[alphaTitle]
         let betaTab = app.buttons[betaTitle]
+        let betaSurfaceId = ready["betaSurfaceId"] ?? ""
+        let betaTabContainer = app.descendants(matching: .any).matching(identifier: "paneTab.\(betaSurfaceId)").firstMatch
 
         XCTAssertTrue(window.waitForExistence(timeout: 5.0), "Expected main window to exist")
         XCTAssertTrue(alphaTab.waitForExistence(timeout: 5.0), "Expected alpha tab to exist")
         XCTAssertTrue(betaTab.waitForExistence(timeout: 5.0), "Expected beta tab to exist")
+        XCTAssertTrue(betaTabContainer.waitForExistence(timeout: 5.0), "Expected beta tab container to exist")
         let alphaFrameBeforeRename = alphaTab.frame
-        let betaFrameBeforeRename = betaTab.frame
+        let betaFrameBeforeRename = betaTabContainer.frame
         addWindowScreenshot(named: "pane-tab-before-inline-rename", window: window)
 
         doubleClick(in: window, atAccessibilityPoint: CGPoint(x: betaTab.frame.midX, y: betaTab.frame.midY))
@@ -351,7 +354,7 @@ final class BonsplitTabDragUITests: XCTestCase {
             "Expected neighboring pane tab geometry to stay stable while another tab is inline-renaming"
         )
         XCTAssertStableFrame(
-            betaTab.frame,
+            betaTabContainer.frame,
             comparedTo: betaFrameBeforeRename,
             accuracy: 1.0,
             "Expected the inline-renaming pane tab geometry to stay stable after the editor appears"

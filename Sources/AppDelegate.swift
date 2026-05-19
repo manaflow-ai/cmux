@@ -9156,6 +9156,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             }
 
             workspace.setPanelCustomTitle(panelId: betaPanelId, title: betaTitle)
+            let alphaSurfaceId = workspace.surfaceIdFromPanelId(alphaPanelId)?.uuid.uuidString ?? ""
+            let betaSurfaceId = workspace.surfaceIdFromPanelId(betaPanelId)?.uuid.uuidString ?? ""
             if let rawActionButtonCount = env["CMUX_UI_TEST_BONSPLIT_ACTION_BUTTON_COUNT"],
                let requestedActionButtonCount = Int(rawActionButtonCount),
                requestedActionButtonCount > 0 {
@@ -9208,6 +9210,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
                 "betaTitle": betaTitle,
                 "alphaPanelId": alphaPanelId.uuidString,
                 "betaPanelId": betaPanelId.uuidString,
+                "alphaSurfaceId": alphaSurfaceId,
+                "betaSurfaceId": betaSurfaceId,
             ])
             self.startBonsplitTabDragUITestRecorder(
                 workspaceId: workspace.id,
