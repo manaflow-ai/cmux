@@ -662,6 +662,36 @@ enum NotificationAuthorizationState: Equatable {
     }
 }
 
+enum TerminalNotificationClickAction: Hashable, Sendable {
+    case revealInFinder(path: String)
+
+    private static let kindUserInfoKey = "cmuxClickAction"
+    private static let revealInFinderPathUserInfoKey = "cmuxRevealInFinderPath"
+    private static let revealInFinderKind = "revealInFinder"
+
+    var userInfo: [String: String] {
+        switch self {
+        case .revealInFinder(let path):
+            return [
+                Self.kindUserInfoKey: Self.revealInFinderKind,
+                Self.revealInFinderPathUserInfoKey: path,
+            ]
+        }
+    }
+
+    init?(userInfo: [AnyHashable: Any]) {
+        guard let kind = userInfo[Self.kindUserInfoKey] as? String else { return nil }
+        switch kind {
+        case Self.revealInFinderKind:
+            guard let path = userInfo[Self.revealInFinderPathUserInfoKey] as? String,
+                  !path.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else { return nil }
+            self = .revealInFinder(path: path)
+        default:
+            return nil
+        }
+    }
+}
+
 struct TerminalNotification: Identifiable, Hashable {
     let id: UUID
     let tabId: UUID
@@ -672,6 +702,7 @@ struct TerminalNotification: Identifiable, Hashable {
     let createdAt: Date
     var isRead: Bool
     var paneFlash: Bool = true
+    var clickAction: TerminalNotificationClickAction?
 }
 
 @MainActor
@@ -1083,7 +1114,8 @@ final class TerminalNotificationStore: ObservableObject {
         subtitle: String,
         body: String,
         cooldownKey: String? = nil,
-        cooldownInterval: TimeInterval? = nil
+        cooldownInterval: TimeInterval? = nil,
+        clickAction: TerminalNotificationClickAction? = nil
     ) {
         let now = Date()
         let resolvedCooldownInterval: TimeInterval?
@@ -1118,7 +1150,8 @@ final class TerminalNotificationStore: ObservableObject {
                 request: policyContext.request,
                 effects: TerminalNotificationPolicyEffects(),
                 now: now,
-                cooldownReservation: cooldownReservation
+                cooldownReservation: cooldownReservation,
+                clickAction: clickAction
             )
             return
         }
@@ -1134,7 +1167,8 @@ final class TerminalNotificationStore: ObservableObject {
                     request: policyContext.request,
                     effects: TerminalNotificationPolicyEffects(),
                     now: Date(),
-                    cooldownReservation: cooldownReservation
+                    cooldownReservation: cooldownReservation,
+                    clickAction: clickAction
                 )
                 return
             }
@@ -1149,14 +1183,16 @@ final class TerminalNotificationStore: ObservableObject {
                     request: policyContext.request,
                     envelope: envelope,
                     now: Date(),
-                    cooldownReservation: cooldownReservation
+                    cooldownReservation: cooldownReservation,
+                    clickAction: clickAction
                 )
             case .failure(let failure):
                 self.applyNotification(
                     request: policyContext.request,
                     effects: TerminalNotificationPolicyEffects(),
                     now: Date(),
-                    cooldownReservation: cooldownReservation
+                    cooldownReservation: cooldownReservation,
+                    clickAction: clickAction
                 )
                 self.reportNotificationHookFailure(failure)
             }
@@ -1243,7 +1279,8 @@ final class TerminalNotificationStore: ObservableObject {
         request: TerminalNotificationPolicyRequest,
         envelope: TerminalNotificationPolicyEnvelope,
         now: Date,
-        cooldownReservation: NotificationCooldownReservation?
+        cooldownReservation: NotificationCooldownReservation?,
+        clickAction: TerminalNotificationClickAction?
     ) {
         let payload = envelope.notification
         applyNotification(
@@ -1259,7 +1296,8 @@ final class TerminalNotificationStore: ObservableObject {
             ),
             effects: envelope.effects,
             now: now,
-            cooldownReservation: cooldownReservation
+            cooldownReservation: cooldownReservation,
+            clickAction: clickAction
         )
     }
 
@@ -1267,7 +1305,8 @@ final class TerminalNotificationStore: ObservableObject {
         request: TerminalNotificationPolicyRequest,
         effects: TerminalNotificationPolicyEffects,
         now: Date,
-        cooldownReservation: NotificationCooldownReservation?
+        cooldownReservation: NotificationCooldownReservation?,
+        clickAction: TerminalNotificationClickAction?
     ) {
         let shouldSuppressExternalDelivery = shouldSuppressExternalDelivery(
             tabId: request.tabId,
@@ -1282,7 +1321,8 @@ final class TerminalNotificationStore: ObservableObject {
             body: request.body,
             createdAt: now,
             isRead: !effects.markUnread,
-            paneFlash: effects.paneFlash
+            paneFlash: effects.paneFlash,
+            clickAction: clickAction
         )
 
         if effects.record {
@@ -1647,7 +1687,8 @@ final class TerminalNotificationStore: ObservableObject {
                 body: notification.body,
                 createdAt: notification.createdAt,
                 isRead: notification.isRead,
-                paneFlash: notification.paneFlash
+                paneFlash: notification.paneFlash,
+                clickAction: notification.clickAction
             )
         }
         if didMoveNotification {
@@ -1735,6 +1776,11 @@ final class TerminalNotificationStore: ObservableObject {
             ]
             if let surfaceId = notification.surfaceId {
                 content.userInfo["surfaceId"] = surfaceId.uuidString
+            }
+            if let clickAction = notification.clickAction {
+                for (key, value) in clickAction.userInfo {
+                    content.userInfo[key] = value
+                }
             }
 
             let request = UNNotificationRequest(
