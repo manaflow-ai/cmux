@@ -479,7 +479,10 @@ private struct IndexSectionView: View, Equatable {
             Image(systemName: "folder")
                 .cmuxFont(size: 12)
                 .foregroundColor(.secondary)
-                .frame(width: 14, height: 14)
+                .frame(
+                    width: UIScaleSettings.scaled(14, by: uiScaleFactor),
+                    height: UIScaleSettings.scaled(14, by: uiScaleFactor)
+                )
         }
     }
 }
@@ -946,7 +949,14 @@ private struct SessionTranscriptVirtualizedList: View, Equatable {
 }
 
 private struct SessionTranscriptTurnView: View, Equatable {
+    @Environment(\.uiScaleFactor) private var uiScaleFactor
+
     let row: SessionTranscriptDisplayRow
+
+    static func == (lhs: SessionTranscriptTurnView, rhs: SessionTranscriptTurnView) -> Bool {
+        lhs.row == rhs.row &&
+            lhs.uiScaleFactor == rhs.uiScaleFactor
+    }
 
     var body: some View {
         HStack(alignment: .top, spacing: 10) {
@@ -955,7 +965,10 @@ private struct SessionTranscriptTurnView: View, Equatable {
                     .cmuxFont(size: 10, weight: .semibold)
                     .foregroundColor(row.role.foregroundColor)
                     .lineLimit(1)
-                    .frame(width: 58, alignment: .trailing)
+                    .frame(
+                        width: UIScaleSettings.scaled(58, by: uiScaleFactor),
+                        alignment: .trailing
+                    )
                 if row.isContinuation {
                     Circle()
                         .fill(row.role.foregroundColor.opacity(0.38))
@@ -2238,7 +2251,10 @@ private struct SectionPopoverView: View {
             Image(systemName: "folder")
                 .cmuxFont(size: 12)
                 .foregroundColor(.secondary)
-                .frame(width: 14, height: 14)
+                .frame(
+                    width: UIScaleSettings.scaled(14, by: uiScaleFactor),
+                    height: UIScaleSettings.scaled(14, by: uiScaleFactor)
+                )
         }
     }
 }
