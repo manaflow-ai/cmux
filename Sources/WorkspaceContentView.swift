@@ -3052,6 +3052,10 @@ private struct WorkspaceCanvasOverviewView<Content: View, EmptyContent: View>: V
     }
 
     private func accessibilityIdentifier(for item: CanvasItem) -> String {
+        if let paneID = paneID(for: item) {
+            return "WorkspaceCanvasCard.\(paneID.id.uuidString)"
+        }
+
         switch item.content {
         case .pane(let paneID):
             return "WorkspaceCanvasCard.\(paneID.id.uuidString)"
