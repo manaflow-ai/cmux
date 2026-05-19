@@ -336,8 +336,16 @@ enum CLISocketPathResolver {
 
     private static func isDiscoverableTaggedSocketName(_ name: String) -> Bool {
         guard name.hasSuffix(".sock") else { return false }
-        return name.hasPrefix("cmux-debug-") ||
-            name.hasPrefix("com.cmuxterm.app.dev.")
+        if name.hasPrefix("cmux-debug-") || name.hasPrefix("com.cmuxterm.app.dev.") {
+            return true
+        }
+        if name == "cmux-nightly.sock" || name.hasPrefix("cmux-nightly-") {
+            return false
+        }
+        if name == "cmux-staging.sock" || name.hasPrefix("cmux-staging-") {
+            return false
+        }
+        return name.hasPrefix("cmux-")
     }
 
     private static func isSocketFile(_ path: String) -> Bool {

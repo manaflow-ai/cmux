@@ -46,10 +46,10 @@ _APP_SUPPORT_DIR = os.path.expanduser("~/Library/Application Support/cmux")
 _STABLE_SOCKET_PATH = os.path.join(_APP_SUPPORT_DIR, "com.cmuxterm.app.sock")
 _LEGACY_APP_SUPPORT_SOCKET_PATH = os.path.join(_APP_SUPPORT_DIR, "cmux.sock")
 _LEGACY_STABLE_SOCKET_PATH = "/tmp/cmux.sock"
-_LAST_SOCKET_PATH_FILES = [
-    os.path.join(_APP_SUPPORT_DIR, "last-socket-path"),
-    "/tmp/cmux-last-socket-path",
-]
+_STABLE_BUNDLE_ID = "com.cmuxterm.app"
+_NIGHTLY_BUNDLE_ID = "com.cmuxterm.app.nightly"
+_STAGING_BUNDLE_ID = "com.cmuxterm.app.staging"
+_DEFAULT_DEBUG_BUNDLE_ID = "com.cmuxterm.app.debug"
 
 
 def _sanitize_tag_slug(raw: str) -> Optional[str]:
@@ -58,8 +58,105 @@ def _sanitize_tag_slug(raw: str) -> Optional[str]:
     return cleaned or None
 
 
+def _sanitize_bundle_suffix(raw: str) -> str:
+    cleaned = re.sub(r"[^a-z0-9]+", ".", (raw or "").strip().lower())
+    cleaned = re.sub(r"\.+", ".", cleaned).strip(".")
+    return cleaned or "agent"
+
+
 def _socket_path_for_file_name(file_name: str) -> str:
     return str(_shared_socket_path_for_file_name(file_name))
+
+
+def _is_known_cmux_bundle_id(bundle_id: str) -> bool:
+    return (
+        bundle_id == _STABLE_BUNDLE_ID
+        or bundle_id == _NIGHTLY_BUNDLE_ID
+        or bundle_id.startswith(f"{_NIGHTLY_BUNDLE_ID}.")
+        or bundle_id == _STAGING_BUNDLE_ID
+        or bundle_id.startswith(f"{_STAGING_BUNDLE_ID}.")
+        or bundle_id == _DEFAULT_DEBUG_BUNDLE_ID
+        or bundle_id.startswith(f"{_DEFAULT_DEBUG_BUNDLE_ID}.")
+    )
+
+
+def _configured_bundle_id() -> Optional[str]:
+    override = (os.environ.get("CMUX_BUNDLE_ID") or "").strip()
+    if override and _is_known_cmux_bundle_id(override):
+        return override
+
+    tag = os.environ.get("CMUX_TAG")
+    if tag and _sanitize_tag_slug(tag):
+        return f"{_DEFAULT_DEBUG_BUNDLE_ID}.{_sanitize_bundle_suffix(tag)}"
+
+    return None
+
+
+def _socket_variant() -> Tuple[str, Optional[str]]:
+    bundle_id = _configured_bundle_id()
+    if bundle_id == _STABLE_BUNDLE_ID:
+        return ("stable", None)
+    if bundle_id == _NIGHTLY_BUNDLE_ID:
+        return ("nightly", None)
+    if bundle_id and bundle_id.startswith(f"{_NIGHTLY_BUNDLE_ID}."):
+        suffix = bundle_id.removeprefix(f"{_NIGHTLY_BUNDLE_ID}.")
+        return ("nightly", _sanitize_tag_slug(suffix))
+    if bundle_id == _STAGING_BUNDLE_ID:
+        return ("staging", None)
+    if bundle_id and bundle_id.startswith(f"{_STAGING_BUNDLE_ID}."):
+        suffix = bundle_id.removeprefix(f"{_STAGING_BUNDLE_ID}.")
+        return ("staging", _sanitize_tag_slug(suffix))
+    if bundle_id == _DEFAULT_DEBUG_BUNDLE_ID:
+        tag = os.environ.get("CMUX_TAG", "").strip()
+        return ("dev", _sanitize_tag_slug(tag) if tag else None)
+    if bundle_id and bundle_id.startswith(f"{_DEFAULT_DEBUG_BUNDLE_ID}."):
+        suffix = bundle_id.removeprefix(f"{_DEFAULT_DEBUG_BUNDLE_ID}.")
+        return ("dev", _sanitize_tag_slug(suffix))
+
+    tag = os.environ.get("CMUX_TAG", "").strip()
+    if tag:
+        return ("dev", _sanitize_tag_slug(tag))
+    return ("dev", None)
+
+
+def _last_socket_path_files() -> List[str]:
+    variant, slug = _socket_variant()
+    marker = "last-socket-path"
+    tmp_marker = "/tmp/cmux-last-socket-path"
+
+    if variant == "nightly":
+        marker = f"nightly-{slug}-last-socket-path" if slug else "nightly-last-socket-path"
+        tmp_marker = f"/tmp/cmux-nightly-{slug}-last-socket-path" if slug else "/tmp/cmux-nightly-last-socket-path"
+    elif variant == "staging":
+        marker = f"staging-{slug}-last-socket-path" if slug else "staging-last-socket-path"
+        tmp_marker = f"/tmp/cmux-staging-{slug}-last-socket-path" if slug else "/tmp/cmux-staging-last-socket-path"
+    elif variant == "dev":
+        marker = f"dev-{slug}-last-socket-path" if slug else "dev-last-socket-path"
+        tmp_marker = f"/tmp/cmux-dev-{slug}-last-socket-path" if slug else "/tmp/cmux-dev-last-socket-path"
+
+    return [
+        os.path.join(_APP_SUPPORT_DIR, marker),
+        tmp_marker,
+    ]
+
+
+def _variant_socket_candidates() -> List[str]:
+    variant, slug = _socket_variant()
+    if variant == "nightly":
+        legacy = [f"/tmp/cmux-nightly-{slug}.sock"] if slug else ["/tmp/cmux-nightly.sock"]
+        return [_socket_path_for_file_name("com.cmuxterm.app.nightly.sock"), *legacy]
+    if variant == "staging":
+        legacy = [f"/tmp/cmux-staging-{slug}.sock"] if slug else ["/tmp/cmux-staging.sock"]
+        return [_socket_path_for_file_name("com.cmuxterm.app.staging.sock"), *legacy]
+    if variant == "dev":
+        if slug:
+            return [
+                _socket_path_for_file_name(f"com.cmuxterm.app.dev.{slug}.sock"),
+                f"/tmp/cmux-debug-{slug}.sock",
+                f"/tmp/cmux-{slug}.sock",
+            ]
+        return [_socket_path_for_file_name("com.cmuxterm.app.dev.sock"), "/tmp/cmux-debug.sock"]
+    return [_STABLE_SOCKET_PATH, _LEGACY_APP_SUPPORT_SOCKET_PATH, _LEGACY_STABLE_SOCKET_PATH]
 
 
 def _is_non_release_variant_socket_name(name: str) -> bool:
@@ -82,14 +179,26 @@ def _is_non_release_variant_socket_name(name: str) -> bool:
     )
 
 
+def _is_discoverable_tagged_debug_socket_name(name: str) -> bool:
+    if not name.endswith(".sock"):
+        return False
+    if name.startswith("cmux-debug-") or name.startswith("com.cmuxterm.app.dev."):
+        return True
+    if name == "cmux-nightly.sock" or name.startswith("cmux-nightly-"):
+        return False
+    if name == "cmux-staging.sock" or name.startswith("cmux-staging-"):
+        return False
+    return name.startswith("cmux-")
+
+
 def _read_last_socket_path() -> Optional[str]:
-    is_stable_client = not os.environ.get("CMUX_TAG")
-    for marker_path in _LAST_SOCKET_PATH_FILES:
+    variant, _ = _socket_variant()
+    for marker_path in _last_socket_path_files():
         try:
-            with open(marker_path, "r", encoding="utf-8") as f:
+            with open(marker_path, encoding="utf-8") as f:
                 path = f.read().strip()
             if path and (
-                not is_stable_client
+                variant != "stable"
                 or not _is_non_release_variant_socket_name(os.path.basename(path))
             ):
                 return path
@@ -134,7 +243,7 @@ def _can_connect(path: str, timeout: float = 0.15, retries: int = 4) -> bool:
 
 
 def _default_socket_path() -> str:
-    tag = os.environ.get("CMUX_TAG")
+    variant, slug = _socket_variant()
     override = os.environ.get("CMUX_SOCKET_PATH")
     if override:
         stable_defaults = {
@@ -142,58 +251,38 @@ def _default_socket_path() -> str:
             _LEGACY_APP_SUPPORT_SOCKET_PATH,
             _LEGACY_STABLE_SOCKET_PATH,
         }
-        is_stale_stable_default = bool(tag) and override in stable_defaults
+        is_stale_stable_default = variant != "stable" and override in stable_defaults
         if not is_stale_stable_default:
             if os.path.exists(override) and _can_connect(override):
                 return override
             if not os.path.exists(override) and override not in stable_defaults:
                 return override
 
-    if tag:
-        slug = _sanitize_tag_slug(tag)
-        if slug:
-            tagged_candidates = [
-                _socket_path_for_file_name(f"com.cmuxterm.app.dev.{slug}.sock"),
-                f"/tmp/cmux-debug-{slug}.sock",
-                f"/tmp/cmux-{slug}.sock",
-            ]
-        else:
-            tagged_candidates = [
-                _socket_path_for_file_name("com.cmuxterm.app.dev.sock"),
-                "/tmp/cmux-debug.sock",
-            ]
-        for path in tagged_candidates:
-            if os.path.exists(path) and _can_connect(path):
-                return path
-        for path in tagged_candidates:
-            if os.path.exists(path):
-                return path
-        return tagged_candidates[0]
-
     last_socket = _read_last_socket_path()
     if last_socket:
         if os.path.exists(last_socket) and _can_connect(last_socket):
             return last_socket
 
-    candidates = [
-        "/tmp/cmux-debug.sock",
-        _STABLE_SOCKET_PATH,
-        _LEGACY_APP_SUPPORT_SOCKET_PATH,
-        _LEGACY_STABLE_SOCKET_PATH,
-    ]
+    candidates = _variant_socket_candidates()
     for path in candidates:
         if os.path.exists(path) and _can_connect(path):
             return path
 
-    discovered = glob.glob("/tmp/cmux-debug-*.sock")
-    discovered.extend(glob.glob(os.path.join(_APP_SUPPORT_DIR, "cmux*.sock")))
-    discovered.extend(glob.glob(os.path.join(_APP_SUPPORT_DIR, "com.cmuxterm.app*.sock")))
-    discovered = [path for path in discovered if os.path.exists(path)]
-    if discovered:
-        discovered.sort(key=os.path.getmtime, reverse=True)
-        for path in discovered:
-            if _can_connect(path, timeout=0.1, retries=2):
-                return path
+    if variant == "dev" and slug is None:
+        discovered = glob.glob("/tmp/cmux-debug-*.sock")
+        discovered.extend(glob.glob("/tmp/cmux-*.sock"))
+        discovered.extend(glob.glob(os.path.join(_APP_SUPPORT_DIR, "com.cmuxterm.app.dev.*.sock")))
+        discovered = list(dict.fromkeys(discovered))
+        discovered = [
+            path for path in discovered
+            if os.path.exists(path)
+            and _is_discoverable_tagged_debug_socket_name(os.path.basename(path))
+        ]
+        if discovered:
+            discovered.sort(key=os.path.getmtime, reverse=True)
+            for path in discovered:
+                if _can_connect(path, timeout=0.1, retries=2):
+                    return path
 
     return candidates[0]
 

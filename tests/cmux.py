@@ -209,6 +209,18 @@ def _is_non_release_variant_socket_name(name: str) -> bool:
     )
 
 
+def _is_discoverable_tagged_debug_socket_name(name: str) -> bool:
+    if not name.endswith(".sock"):
+        return False
+    if name.startswith("cmux-debug-") or name.startswith("com.cmuxterm.app.dev."):
+        return True
+    if name == "cmux-nightly.sock" or name.startswith("cmux-nightly-"):
+        return False
+    if name == "cmux-staging.sock" or name.startswith("cmux-staging-"):
+        return False
+    return name.startswith("cmux-")
+
+
 def _can_connect(path: str, timeout: float = 0.15, retries: int = 4) -> bool:
     # Best-effort check to avoid getting stuck on stale socket files.
     for _ in range(max(1, retries)):
@@ -256,14 +268,13 @@ def _default_socket_path() -> str:
 
     if bundle_id == _DEFAULT_DEBUG_BUNDLE_ID:
         tagged = glob.glob("/tmp/cmux-debug-*.sock")
+        tagged.extend(glob.glob("/tmp/cmux-*.sock"))
         tagged.extend(glob.glob(os.path.join(_APP_SUPPORT_DIR, "com.cmuxterm.app.dev.*.sock")))
+        tagged = list(dict.fromkeys(tagged))
         tagged = [
             p for p in tagged
             if os.path.exists(p)
-            and (
-                os.path.basename(p).startswith("cmux-debug-")
-                or os.path.basename(p).startswith("com.cmuxterm.app.dev.")
-            )
+            and _is_discoverable_tagged_debug_socket_name(os.path.basename(p))
         ]
         if tagged:
             tagged.sort(key=lambda p: os.path.getmtime(p), reverse=True)

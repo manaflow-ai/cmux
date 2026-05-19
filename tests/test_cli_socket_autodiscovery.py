@@ -490,14 +490,19 @@ def test_python_v2_client_treats_stable_override_as_implicit() -> bool:
     with temporary_socket_home("cmux-v2-stable-override-") as home:
         app_support = os.path.join(home, "Library", "Application Support", "cmux")
         stable_socket = os.path.join(app_support, "com.cmuxterm.app.sock")
-        actual = python_v2_client_default_socket_path({
+        base_env = {
             "HOME": home,
             "CFFIXED_USER_HOME": home,
+        }
+        expected = python_v2_client_default_socket_path(base_env)
+        actual = python_v2_client_default_socket_path({
+            **base_env,
             "CMUX_SOCKET_PATH": stable_socket,
         })
 
-    if actual == stable_socket:
+    if actual != expected:
         print("FAIL: tests_v2 client followed a nonexistent stable CMUX_SOCKET_PATH")
+        print(f"expected={expected!r}")
         print(f"actual={actual!r}")
         return False
 
@@ -509,6 +514,12 @@ def test_python_v2_client_ignores_non_release_stable_marker() -> bool:
     with temporary_socket_home("cmux-v2-marker-") as home:
         app_support = Path(home) / "Library" / "Application Support" / "cmux"
         app_support.mkdir(parents=True, exist_ok=True)
+        base_env = {
+            "HOME": home,
+            "CFFIXED_USER_HOME": home,
+            "CMUX_BUNDLE_ID": "com.cmuxterm.app",
+        }
+        expected = python_v2_client_default_socket_path(base_env)
         variant_socket = str(app_support / "com.cmuxterm.app.nightly.sock")
         write_marker(home, "last-socket-path", variant_socket)
 
@@ -526,8 +537,7 @@ def test_python_v2_client_ignores_non_release_stable_marker() -> bool:
             return False
 
         actual = python_v2_client_default_socket_path({
-            "HOME": home,
-            "CFFIXED_USER_HOME": home,
+            **base_env,
         })
 
         variant_server.join(timeout=2.0)
@@ -536,12 +546,59 @@ def test_python_v2_client_ignores_non_release_stable_marker() -> bool:
         except OSError:
             pass
 
-    if actual == variant_socket:
+    if actual != expected:
         print("FAIL: tests_v2 stable client followed a non-release marker")
+        print(f"expected={expected!r}")
         print(f"actual={actual!r}")
         return False
 
     print("PASS: tests_v2 stable client ignores non-release variant markers")
+    return True
+
+
+def test_python_v2_client_reads_tagged_dev_marker() -> bool:
+    tag = f"v2-marker-{os.getpid()}"
+    with temporary_socket_home("cmux-v2-dev-marker-") as home:
+        app_support = Path(home) / "Library" / "Application Support" / "cmux"
+        app_support.mkdir(parents=True, exist_ok=True)
+        marker_socket = str(app_support / f"com.cmuxterm.app.dev.{tag}.sock")
+        write_marker(home, f"dev-{tag}-last-socket-path", marker_socket)
+
+        server = PingServer(
+            marker_socket,
+            response=b'{"id":1,"ok":true,"result":{"pong":true}}\n',
+        )
+        server.start()
+        if not server.wait_ready(2.0):
+            print("FAIL: v2 tagged marker socket server did not become ready")
+            return False
+        if server.error is not None:
+            print(f"FAIL: v2 tagged marker socket server failed to start: {server.error}")
+            return False
+
+        actual = python_v2_client_default_socket_path({
+            "HOME": home,
+            "CFFIXED_USER_HOME": home,
+            "CMUX_TAG": tag,
+        })
+
+        server.join(timeout=2.0)
+        try:
+            os.remove(marker_socket)
+        except OSError:
+            pass
+
+    if server.error is not None:
+        print(f"FAIL: v2 tagged marker socket server error: {server.error}")
+        return False
+
+    if actual != marker_socket:
+        print("FAIL: tests_v2 client ignored its tagged dev marker")
+        print(f"expected={marker_socket!r}")
+        print(f"actual={actual!r}")
+        return False
+
+    print("PASS: tests_v2 client reads tagged dev markers")
     return True
 
 
@@ -916,6 +973,9 @@ def main() -> int:
         return 1
 
     if not test_python_v2_client_ignores_non_release_stable_marker():
+        return 1
+
+    if not test_python_v2_client_reads_tagged_dev_marker():
         return 1
 
     print("PASS: cmux ping auto-discovers tagged socket from CMUX_TAG")
