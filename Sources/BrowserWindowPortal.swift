@@ -20,6 +20,16 @@ private func browserPortalDebugToken(_ view: NSView?) -> String {
 private func browserPortalDebugFrame(_ rect: NSRect) -> String {
     String(format: "%.1f,%.1f %.1fx%.1f", rect.origin.x, rect.origin.y, rect.size.width, rect.size.height)
 }
+
+private func browserPortalSwitchDebugFields() -> String {
+    MainActor.assumeIsolated {
+        guard let snapshot = AppDelegate.shared?.tabManager?.debugCurrentWorkspaceSwitchSnapshot() else {
+            return "switchId=none"
+        }
+        let dtMs = (CACurrentMediaTime() - snapshot.startedAt) * 1000
+        return "switchId=\(snapshot.id) switchDt=\(String(format: "%.2fms", dtMs))"
+    }
+}
 #endif
 
 private extension NSObject {
@@ -2979,9 +2989,24 @@ final class WindowBrowserPortal: NSObject {
     func updateEntryVisibility(forWebViewId webViewId: ObjectIdentifier, visibleInUI: Bool, zPriority: Int) {
         guard var entry = entriesByWebViewId[webViewId] else { return }
         guard entry.visibleInUI != visibleInUI || entry.zPriority != zPriority else { return }
+        let previousZPriority = entry.zPriority
         entry.visibleInUI = visibleInUI
         entry.zPriority = zPriority
         entriesByWebViewId[webViewId] = entry
+        let priorityIncreased = zPriority > previousZPriority
+        if visibleInUI,
+           priorityIncreased,
+           let containerView = entry.containerView,
+           containerView.superview === hostView,
+           hostView.subviews.last !== containerView {
+#if DEBUG
+            cmuxDebugLog(
+                "browser.portal.reparent container=\(browserPortalDebugToken(containerView)) " +
+                "reason=visibilityPriority priorityIncreased=1 z=\(zPriority) prevZ=\(previousZPriority)"
+            )
+#endif
+            hostView.addSubview(containerView, positioned: .above, relativeTo: nil)
+        }
     }
 
     func isWebViewBoundToAnchor(withId webViewId: ObjectIdentifier, anchorView: NSView) -> Bool {
@@ -3827,6 +3852,7 @@ final class WindowBrowserPortal: NSObject {
 #if DEBUG
         cmuxDebugLog(
             "browser.portal.sync.result web=\(browserPortalDebugToken(webView)) source=\(source) " +
+            "\(browserPortalSwitchDebugFields()) " +
             "container=\(browserPortalDebugToken(containerView)) " +
             "anchor=\(browserPortalDebugToken(anchorView)) host=\(browserPortalDebugToken(hostView)) " +
             "hostWin=\(hostView.window?.windowNumber ?? -1) " +

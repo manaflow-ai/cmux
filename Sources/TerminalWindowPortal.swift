@@ -7,6 +7,18 @@ import Bonsplit
 private var cmuxWindowTerminalPortalKey: UInt8 = 0
 private var cmuxWindowTerminalPortalCloseObserverKey: UInt8 = 0
 
+#if DEBUG
+private func terminalPortalSwitchDebugFields() -> String {
+    MainActor.assumeIsolated {
+        guard let snapshot = AppDelegate.shared?.tabManager?.debugCurrentWorkspaceSwitchSnapshot() else {
+            return "switchId=none"
+        }
+        let dtMs = (CACurrentMediaTime() - snapshot.startedAt) * 1000
+        return "switchId=\(snapshot.id) switchDt=\(String(format: "%.2fms", dtMs))"
+    }
+}
+#endif
+
 final class WindowTerminalHostView: NSView {
     private struct DividerRegion {
         let rectInWindow: NSRect
@@ -1128,13 +1140,35 @@ final class WindowTerminalPortal: NSObject {
     /// Update the visibleInUI flag on an existing entry without rebinding.
     /// Used when a deferred bind is pending — this ensures synchronizeHostedView
     /// won't hide a view that updateNSView has already marked as visible.
-    func updateEntryVisibility(forHostedId hostedId: ObjectIdentifier, visibleInUI: Bool) {
+    func updateEntryVisibility(forHostedId hostedId: ObjectIdentifier, visibleInUI: Bool, zPriority: Int? = nil) {
         guard var entry = entriesByHostedId[hostedId] else { return }
+        let previousVisible = entry.visibleInUI
+        let previousZPriority = entry.zPriority
         entry.visibleInUI = visibleInUI
+        if let zPriority {
+            entry.zPriority = zPriority
+        }
         if !visibleInUI {
             entry.transientRecoveryRetriesRemaining = 0
         }
         entriesByHostedId[hostedId] = entry
+        let becameVisible = !previousVisible && visibleInUI
+        let priorityIncreased = entry.zPriority > previousZPriority
+        if visibleInUI,
+           (becameVisible || priorityIncreased),
+           let hostedView = entry.hostedView,
+           hostedView.superview === hostView,
+           hostView.subviews.last !== hostedView {
+#if DEBUG
+            cmuxDebugLog(
+                "portal.reparent hosted=\(portalDebugToken(hostedView)) reason=visibilityPriority " +
+                "becameVisible=\(becameVisible ? 1 : 0) priorityIncreased=\(priorityIncreased ? 1 : 0) " +
+                "z=\(entry.zPriority) prevZ=\(previousZPriority)"
+            )
+#endif
+            hostView.addSubview(hostedView, positioned: .above, relativeTo: nil)
+            ensureDividerOverlayOnTop()
+        }
     }
 
     func isHostedViewBoundToAnchor(withId hostedId: ObjectIdentifier, anchorView: NSView) -> Bool {
@@ -1655,6 +1689,7 @@ final class WindowTerminalPortal: NSObject {
 #if DEBUG
         cmuxDebugLog(
             "portal.sync.result hosted=\(portalDebugToken(hostedView)) " +
+            "\(terminalPortalSwitchDebugFields()) " +
             "anchor=\(portalDebugToken(anchorView)) host=\(portalDebugToken(hostView)) " +
             "hostWin=\(hostView.window?.windowNumber ?? -1) " +
             "old=\(portalDebugFrame(oldFrame)) raw=\(portalDebugFrame(frameInHost)) " +
@@ -2142,11 +2177,11 @@ enum TerminalWindowPortalRegistry {
     /// Update the visibleInUI flag on an existing portal entry without rebinding.
     /// Called when a bind is deferred (host not yet in window) to prevent stale
     /// portal syncs from hiding a view that is about to become visible.
-    static func updateEntryVisibility(for hostedView: GhosttySurfaceScrollView, visibleInUI: Bool) {
+    static func updateEntryVisibility(for hostedView: GhosttySurfaceScrollView, visibleInUI: Bool, zPriority: Int? = nil) {
         let hostedId = ObjectIdentifier(hostedView)
         guard let windowId = hostedToWindowId[hostedId],
               let portal = portalsByWindowId[windowId] else { return }
-        portal.updateEntryVisibility(forHostedId: hostedId, visibleInUI: visibleInUI)
+        portal.updateEntryVisibility(forHostedId: hostedId, visibleInUI: visibleInUI, zPriority: zPriority)
     }
 
     static func isHostedView(_ hostedView: GhosttySurfaceScrollView, boundTo anchorView: NSView) -> Bool {

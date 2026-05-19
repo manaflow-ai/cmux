@@ -5851,7 +5851,7 @@ final class WorkspacePanelGitBranchTests: XCTestCase {
 
 
 final class WorkspaceMountPolicyTests: XCTestCase {
-    func testDefaultPolicyMountsOnlySelectedWorkspace() {
+    func testDefaultPolicyKeepsVisitedWorkspacesMounted() {
         let a = UUID()
         let b = UUID()
         let orderedTabIds: [UUID] = [a, b]
@@ -5865,10 +5865,10 @@ final class WorkspaceMountPolicyTests: XCTestCase {
             maxMounted: WorkspaceMountPolicy.maxMountedWorkspaces
         )
 
-        XCTAssertEqual(next, [b])
+        XCTAssertEqual(next, [b, a])
     }
 
-    func testSelectedWorkspaceMovesToFrontAndMountCountIsBounded() {
+    func testSelectedWorkspaceMovesToFrontAndKeepsWarmCacheWhenUnbounded() {
         let a = UUID()
         let b = UUID()
         let c = UUID()
@@ -5880,10 +5880,10 @@ final class WorkspaceMountPolicyTests: XCTestCase {
             pinnedIds: [],
             orderedTabIds: orderedTabIds,
             isCycleHot: false,
-            maxMounted: 2
+            maxMounted: WorkspaceMountPolicy.maxMountedWorkspaces
         )
 
-        XCTAssertEqual(next, [c, a])
+        XCTAssertEqual(next, [c, a, b])
     }
 
     func testMissingWorkspacesArePruned() {
@@ -5936,7 +5936,7 @@ final class WorkspaceMountPolicyTests: XCTestCase {
         XCTAssertEqual(next, [a])
     }
 
-    func testCycleHotModeKeepsOnlySelectedWhenNoPinnedHandoff() {
+    func testCycleHotModeKeepsWarmCacheWhenNoPinnedHandoff() {
         let a = UUID()
         let b = UUID()
         let c = UUID()
@@ -5952,10 +5952,10 @@ final class WorkspaceMountPolicyTests: XCTestCase {
             maxMounted: WorkspaceMountPolicy.maxMountedWorkspacesDuringCycle
         )
 
-        XCTAssertEqual(next, [c])
+        XCTAssertEqual(next, [c, a])
     }
 
-    func testCycleHotModeRespectsMaxMountedLimit() {
+    func testCycleHotModeKeepsWarmCacheWithinMaxMountedLimit() {
         let a = UUID()
         let b = UUID()
         let c = UUID()
@@ -5970,7 +5970,7 @@ final class WorkspaceMountPolicyTests: XCTestCase {
             maxMounted: 2
         )
 
-        XCTAssertEqual(next, [b])
+        XCTAssertEqual(next, [b, a])
     }
 
     func testPinnedIdsAreRetainedAcrossReconcile() {
@@ -6006,6 +6006,90 @@ final class WorkspaceMountPolicyTests: XCTestCase {
         )
 
         XCTAssertEqual(next, [b, a])
+    }
+
+    func testPinnedWorkspaceIdsIncludesBackgroundLoadsWhenIdle() {
+        let background = UUID()
+        let debug = UUID()
+
+        let pinnedIds = WorkspaceMountPolicy.pinnedWorkspaceIds(
+            retiringWorkspaceId: nil,
+            backgroundWorkspaceLoadIds: [background],
+            debugPinnedWorkspaceLoadIds: [debug],
+            isCycleHot: false
+        )
+
+        XCTAssertEqual(pinnedIds, [background, debug])
+    }
+
+    func testPinnedWorkspaceIdsSuppressesBackgroundLoadsDuringHandoff() {
+        let retiring = UUID()
+        let background = UUID()
+        let debug = UUID()
+
+        let pinnedIds = WorkspaceMountPolicy.pinnedWorkspaceIds(
+            retiringWorkspaceId: retiring,
+            backgroundWorkspaceLoadIds: [background],
+            debugPinnedWorkspaceLoadIds: [debug],
+            isCycleHot: false
+        )
+
+        XCTAssertEqual(pinnedIds, [retiring, debug])
+    }
+
+    func testPinnedWorkspaceIdsSuppressesBackgroundLoadsDuringHotCycle() {
+        let background = UUID()
+        let debug = UUID()
+
+        let pinnedIds = WorkspaceMountPolicy.pinnedWorkspaceIds(
+            retiringWorkspaceId: nil,
+            backgroundWorkspaceLoadIds: [background],
+            debugPinnedWorkspaceLoadIds: [debug],
+            isCycleHot: true
+        )
+
+        XCTAssertEqual(pinnedIds, [debug])
+    }
+}
+
+
+@MainActor
+final class BackgroundWorkspacePrimeCoordinatorTests: XCTestCase {
+    func testTimedOutPrimeReleasesMountButKeepsPendingLoad() async {
+#if DEBUG
+        let manager = TabManager(autoWelcomeIfNeeded: false)
+        let workspace = manager.addWorkspace(
+            select: false,
+            eagerLoadTerminal: false,
+            autoWelcomeIfNeeded: false
+        )
+        manager.requestBackgroundWorkspaceLoad(for: workspace.id)
+
+        let coordinator = BackgroundWorkspacePrimeCoordinator(timeoutSeconds: 0.01)
+        let reason = await coordinator.debugPrimeBackgroundWorkspaceOnceForTesting(
+            workspaceId: workspace.id,
+            tabManager: manager
+        )
+
+        XCTAssertEqual(reason, "timeout")
+        XCTAssertTrue(manager.pendingBackgroundWorkspaceLoadIds.contains(workspace.id))
+        XCTAssertFalse(manager.mountedBackgroundWorkspaceLoadIds.contains(workspace.id))
+#else
+        throw XCTSkip("Debug-only background prime timeout test")
+#endif
+    }
+}
+
+
+@MainActor
+final class WorkspacePortalRenderingTests: XCTestCase {
+    func testPortalRenderingToggleReportsOnlyStateTransitions() {
+        let workspace = Workspace()
+
+        XCTAssertTrue(workspace.setPortalRenderingEnabled(false, reason: "test"))
+        XCTAssertFalse(workspace.setPortalRenderingEnabled(false, reason: "test"))
+        XCTAssertTrue(workspace.setPortalRenderingEnabled(true, reason: "test"))
+        XCTAssertFalse(workspace.setPortalRenderingEnabled(true, reason: "test"))
     }
 }
 

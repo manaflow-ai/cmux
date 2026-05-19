@@ -767,10 +767,11 @@ private func commandPaletteOwningWebView(for responder: NSResponder?) -> WKWebVi
 }
 
 enum WorkspaceMountPolicy {
-    // Keep only the selected workspace mounted to minimize layer-tree traversal.
-    static let maxMountedWorkspaces = 1
-    // During workspace cycling, keep only a minimal handoff pair (selected + retiring).
-    static let maxMountedWorkspacesDuringCycle = 2
+    // Keep warm workspaces mounted once they have been visited. The end-user hot path is
+    // switching among already-loaded terminals and browsers, not minimizing session restore
+    // work by evicting hidden workspace views.
+    static let maxMountedWorkspaces = Int.max
+    static let maxMountedWorkspacesDuringCycle = Int.max
 
     static func nextMountedWorkspaceIds(
         current: [UUID],
@@ -795,12 +796,6 @@ enum WorkspaceMountPolicy {
                 ordered.removeAll { $0 == id }
                 ordered.insert(id, at: 0)
             }
-        }
-
-        if isCycleHot,
-           pinnedIds.isEmpty,
-           let selected {
-            ordered.removeAll { $0 != selected }
         }
 
         // Ensure pinned ids (retiring handoff workspaces) are always retained at highest priority.
@@ -831,10 +826,24 @@ enum WorkspaceMountPolicy {
         return ordered
     }
 
+    static func pinnedWorkspaceIds(
+        retiringWorkspaceId: UUID?,
+        backgroundWorkspaceLoadIds: Set<UUID>,
+        debugPinnedWorkspaceLoadIds: Set<UUID>,
+        isCycleHot: Bool
+    ) -> Set<UUID> {
+        let handoffPinnedIds = retiringWorkspaceId.map { Set([ $0 ]) } ?? []
+        let shouldMountBackgroundLoads = retiringWorkspaceId == nil && !isCycleHot
+        let backgroundPinnedIds = shouldMountBackgroundLoads ? backgroundWorkspaceLoadIds : []
+        return handoffPinnedIds
+            .union(backgroundPinnedIds)
+            .union(debugPinnedWorkspaceLoadIds)
+    }
+
     private static func cycleWarmIds(selected: UUID, orderedTabIds: [UUID]) -> [UUID] {
         guard orderedTabIds.contains(selected) else { return [selected] }
-        // Keep warming focused to the selected workspace. Retiring/target workspaces are
-        // pinned by handoff logic, so warming adjacent neighbors here just adds layout work.
+        // Keep warming focused to the selected workspace. Workspaces already in `current`
+        // remain mounted, so this only controls which new workspace gets inserted first.
         return [selected]
     }
 }
@@ -854,7 +863,7 @@ enum MountedWorkspacePresentationPolicy {
 
         return MountedWorkspacePresentation(
             isRenderedVisible: isRenderedVisible,
-            isPanelVisible: isRenderedVisible,
+            isPanelVisible: true,
             renderOpacity: isRenderedVisible ? 1 : 0
         )
     }
@@ -2782,6 +2791,13 @@ struct ContentView: View {
             scheduleTitlebarTextRefresh()
         })
 
+        view = AnyView(view.onReceive(NotificationCenter.default.publisher(for: .terminalPortalVisibilityDidChange)) { notification in
+            guard let tabId = notification.userInfo?[GhosttyNotificationKey.tabId] as? UUID,
+                  tabId == tabManager.selectedTabId,
+                  notification.userInfo?[GhosttyNotificationKey.terminalVisibleInUI] as? Bool == true else { return }
+            completeWorkspaceHandoffIfNeeded(focusedTabId: tabId, reason: "terminal_visible")
+        })
+
         view = AnyView(view.onChange(of: titlebarThemeGeneration) { oldValue, newValue in
             guard GhosttyApp.shared.backgroundLogEnabled else { return }
             GhosttyApp.shared.logBackground(
@@ -3267,11 +3283,14 @@ struct ContentView: View {
         let currentTabs = tabs ?? tabManager.tabs
         let orderedTabIds = currentTabs.map { $0.id }
         let effectiveSelectedId = selectedId ?? tabManager.selectedTabId
-        let handoffPinnedIds = retiringWorkspaceId.map { Set([ $0 ]) } ?? []
-        let pinnedIds = handoffPinnedIds
-            .union(tabManager.mountedBackgroundWorkspaceLoadIds)
-            .union(tabManager.debugPinnedWorkspaceLoadIds)
         let isCycleHot = tabManager.isWorkspaceCycleHot
+        let pinnedIds = WorkspaceMountPolicy.pinnedWorkspaceIds(
+            retiringWorkspaceId: retiringWorkspaceId,
+            backgroundWorkspaceLoadIds: tabManager.mountedBackgroundWorkspaceLoadIds,
+            debugPinnedWorkspaceLoadIds: tabManager.debugPinnedWorkspaceLoadIds,
+            isCycleHot: isCycleHot
+        )
+        let handoffPinnedIds = retiringWorkspaceId.map { Set([ $0 ]) } ?? []
         let shouldKeepHandoffPair = isCycleHot && !handoffPinnedIds.isEmpty
         let baseMaxMounted = shouldKeepHandoffPair
             ? WorkspaceMountPolicy.maxMountedWorkspacesDuringCycle
@@ -3615,6 +3634,9 @@ struct ContentView: View {
     }
 
     private func canCompleteWorkspaceHandoffImmediately(for workspaceId: UUID) -> Bool {
+        if tabManager.isWorkspaceCycleHot {
+            return true
+        }
         guard let workspace = tabManager.tabs.first(where: { $0.id == workspaceId }) else { return true }
         if let focusedPanelId = workspace.focusedPanelId,
            workspace.browserPanel(for: focusedPanelId) != nil {
@@ -3627,21 +3649,26 @@ struct ContentView: View {
         workspaceHandoffFallbackTask?.cancel()
         workspaceHandoffFallbackTask = nil
         let retiring = retiringWorkspaceId
-
-        // Disable portal rendering for the retiring workspace BEFORE clearing
-        // retiringWorkspaceId. Once cleared, reconcileMountedWorkspaceIds unmounts
-        // the workspace — but dismantleNSView intentionally doesn't hide portal views
-        // during transient rebuilds. Disabling here also cancels stale layout follow-up
-        // loops that could re-show an old terminal above the newly selected workspace.
-        if let retiring, let workspace = tabManager.tabs.first(where: { $0.id == retiring }) {
-            workspace.setPortalRenderingEnabled(false, reason: "workspaceHandoff")
-        }
+        let selected = tabManager.selectedTabId
+        let didLowerRetiring = retiring.flatMap { retiringId in
+            tabManager.tabs.first(where: { $0.id == retiringId })?
+                .prioritizePortalViewsForCurrentRenderedLayout(zPriority: 0, reason: "workspaceHandoff.retiring")
+        } ?? false
+        let didPrioritizeSelected = selected.flatMap { selectedId in
+            tabManager.tabs.first(where: { $0.id == selectedId })?
+                .prioritizePortalViewsForCurrentRenderedLayout(zPriority: 2, reason: "workspaceHandoff.selected")
+        } ?? false
 
         retiringWorkspaceId = nil
         tabManager.completePendingWorkspaceUnfocus(reason: reason)
 #if DEBUG
         if let snapshot = tabManager.debugCurrentWorkspaceSwitchSnapshot() {
             let dtMs = (CACurrentMediaTime() - snapshot.startedAt) * 1000
+            cmuxDebugLog(
+                "ws.handoff.prioritize id=\(snapshot.id) dt=\(debugMsText(dtMs)) " +
+                "retiring=\(debugShortWorkspaceId(retiring)) lowered=\(didLowerRetiring ? 1 : 0) " +
+                "selected=\(debugShortWorkspaceId(selected)) raised=\(didPrioritizeSelected ? 1 : 0)"
+            )
             cmuxDebugLog(
                 "ws.handoff.complete id=\(snapshot.id) dt=\(debugMsText(dtMs)) reason=\(reason) retiring=\(debugShortWorkspaceId(retiring))"
             )
