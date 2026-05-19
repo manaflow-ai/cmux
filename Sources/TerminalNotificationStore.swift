@@ -699,9 +699,36 @@ struct TerminalNotification: Identifiable, Hashable {
     let subtitle: String
     let body: String
     let createdAt: Date
+    let deliverySequence: UInt64
     var isRead: Bool
-    var paneFlash: Bool = true
+    var paneFlash: Bool
     var clickAction: TerminalNotificationClickAction?
+
+    init(
+        id: UUID,
+        tabId: UUID,
+        surfaceId: UUID?,
+        title: String,
+        subtitle: String,
+        body: String,
+        createdAt: Date,
+        deliverySequence: UInt64 = 0,
+        isRead: Bool,
+        paneFlash: Bool = true,
+        clickAction: TerminalNotificationClickAction? = nil
+    ) {
+        self.id = id
+        self.tabId = tabId
+        self.surfaceId = surfaceId
+        self.title = title
+        self.subtitle = subtitle
+        self.body = body
+        self.createdAt = createdAt
+        self.deliverySequence = deliverySequence
+        self.isRead = isRead
+        self.paneFlash = paneFlash
+        self.clickAction = clickAction
+    }
 }
 
 @MainActor
@@ -732,6 +759,7 @@ final class TerminalNotificationStore: ObservableObject {
     @Published private(set) var notifications: [TerminalNotification] = [] {
         didSet {
             indexes = Self.buildIndexes(for: notifications)
+            mergeAcceptedDeliverySequences(from: notifications)
             refreshUnreadPresentation()
             if !suppressNotificationDiffPublishing { CmuxEventBus.shared.publishNotificationChanges(oldValue: oldValue, newValue: notifications) }
         }
@@ -794,6 +822,7 @@ final class TerminalNotificationStore: ObservableObject {
 
     private static let notificationHookFailureThrottle: TimeInterval = 300
     private var lastNotificationDateByCooldownKey: [String: Date] = [:]
+    private var latestAcceptedDeliverySequenceByTarget: [TabSurfaceKey: UInt64] = [:]
     private var lastNotificationHookFailureDateByKey: [NotificationHookFailureThrottleKey: Date] = [:]
     private var indexes = NotificationIndexes()
 
@@ -808,6 +837,7 @@ final class TerminalNotificationStore: ObservableObject {
         }
         refreshDockBadge()
         refreshAuthorizationStatus()
+        mergeAcceptedDeliverySequences(from: notifications)
     }
 
     deinit {
@@ -1114,6 +1144,7 @@ final class TerminalNotificationStore: ObservableObject {
         body: String,
         cooldownKey: String? = nil,
         cooldownInterval: TimeInterval? = nil,
+        deliverySequence: UInt64? = nil,
         clickAction: TerminalNotificationClickAction? = nil
     ) {
         let now = Date()
@@ -1129,9 +1160,15 @@ final class TerminalNotificationStore: ObservableObject {
            now.timeIntervalSince(lastNotificationDate) < resolvedCooldownInterval {
             return
         }
+
+        let resolvedDeliverySequence = deliverySequence ?? TerminalMutationBus.shared.reserveNotificationDeliverySequence()
+        let notificationTarget = TabSurfaceKey(tabId: tabId, surfaceId: surfaceId)
+        guard acceptDeliverySequence(resolvedDeliverySequence, for: notificationTarget) else { return }
+
         let cooldownReservation = makeCooldownReservation(
             key: cooldownKey,
-            interval: resolvedCooldownInterval
+            interval: resolvedCooldownInterval,
+            reservedAt: now
         )
         if let cooldownReservation {
             lastNotificationDateByCooldownKey[cooldownReservation.key] = now
@@ -1142,11 +1179,13 @@ final class TerminalNotificationStore: ObservableObject {
             surfaceId: surfaceId,
             title: title,
             subtitle: subtitle,
-            body: body
+            body: body,
+            deliverySequence: resolvedDeliverySequence
         )
         guard !policyContext.hooks.isEmpty else {
             applyNotification(
                 request: policyContext.request,
+                deliverySequence: policyContext.deliverySequence,
                 effects: TerminalNotificationPolicyEffects(),
                 now: now,
                 cooldownReservation: cooldownReservation,
@@ -1164,6 +1203,7 @@ final class TerminalNotificationStore: ObservableObject {
             guard !authorizedHooks.isEmpty else {
                 self.applyNotification(
                     request: policyContext.request,
+                    deliverySequence: policyContext.deliverySequence,
                     effects: TerminalNotificationPolicyEffects(),
                     now: Date(),
                     cooldownReservation: cooldownReservation,
@@ -1180,6 +1220,7 @@ final class TerminalNotificationStore: ObservableObject {
             case .success(let envelope):
                 self.applyNotification(
                     request: policyContext.request,
+                    deliverySequence: policyContext.deliverySequence,
                     envelope: envelope,
                     now: Date(),
                     cooldownReservation: cooldownReservation,
@@ -1188,6 +1229,7 @@ final class TerminalNotificationStore: ObservableObject {
             case .failure(let failure):
                 self.applyNotification(
                     request: policyContext.request,
+                    deliverySequence: policyContext.deliverySequence,
                     effects: TerminalNotificationPolicyEffects(),
                     now: Date(),
                     cooldownReservation: cooldownReservation,
@@ -1200,22 +1242,26 @@ final class TerminalNotificationStore: ObservableObject {
 
     private struct NotificationCooldownReservation: Sendable {
         let key: String
+        let reservedAt: Date
         let previousDate: Date?
     }
 
     private struct NotificationPolicyContext: Sendable {
         let request: TerminalNotificationPolicyRequest
+        let deliverySequence: UInt64
         let hooks: [CmuxResolvedNotificationHook]
         let globalConfigPath: String?
     }
 
     private func makeCooldownReservation(
         key: String?,
-        interval: TimeInterval?
+        interval: TimeInterval?,
+        reservedAt: Date
     ) -> NotificationCooldownReservation? {
         guard let key, interval != nil else { return nil }
         return NotificationCooldownReservation(
             key: key,
+            reservedAt: reservedAt,
             previousDate: lastNotificationDateByCooldownKey[key]
         )
     }
@@ -1230,6 +1276,7 @@ final class TerminalNotificationStore: ObservableObject {
 
     private func restoreCooldownReservation(_ reservation: NotificationCooldownReservation?) {
         guard let reservation else { return }
+        guard lastNotificationDateByCooldownKey[reservation.key] == reservation.reservedAt else { return }
         if let previousDate = reservation.previousDate {
             lastNotificationDateByCooldownKey[reservation.key] = previousDate
         } else {
@@ -1242,7 +1289,8 @@ final class TerminalNotificationStore: ObservableObject {
         surfaceId: UUID?,
         title: String,
         subtitle: String,
-        body: String
+        body: String,
+        deliverySequence: UInt64
     ) -> NotificationPolicyContext {
         let appDelegate = AppDelegate.shared
         let context = appDelegate?.contextContainingTabId(tabId)
@@ -1269,6 +1317,7 @@ final class TerminalNotificationStore: ObservableObject {
                 isAppFocused: isAppFocused,
                 isFocusedPanel: isFocusedPanel
             ),
+            deliverySequence: deliverySequence,
             hooks: cmuxConfigStore?.notificationHooks(startingFrom: cwd) ?? [],
             globalConfigPath: cmuxConfigStore?.globalConfigPath
         )
@@ -1276,6 +1325,7 @@ final class TerminalNotificationStore: ObservableObject {
 
     private func applyNotification(
         request: TerminalNotificationPolicyRequest,
+        deliverySequence: UInt64,
         envelope: TerminalNotificationPolicyEnvelope,
         now: Date,
         cooldownReservation: NotificationCooldownReservation?,
@@ -1293,6 +1343,7 @@ final class TerminalNotificationStore: ObservableObject {
                 isAppFocused: request.isAppFocused,
                 isFocusedPanel: request.isFocusedPanel
             ),
+            deliverySequence: deliverySequence,
             effects: envelope.effects,
             now: now,
             cooldownReservation: cooldownReservation,
@@ -1302,11 +1353,18 @@ final class TerminalNotificationStore: ObservableObject {
 
     private func applyNotification(
         request: TerminalNotificationPolicyRequest,
+        deliverySequence: UInt64,
         effects: TerminalNotificationPolicyEffects,
         now: Date,
         cooldownReservation: NotificationCooldownReservation?,
         clickAction: TerminalNotificationClickAction?
     ) {
+        let notificationTarget = TabSurfaceKey(tabId: request.tabId, surfaceId: request.surfaceId)
+        guard deliverySequenceIsCurrent(deliverySequence, for: notificationTarget) else {
+            restoreCooldownReservation(cooldownReservation)
+            return
+        }
+
         let shouldSuppressExternalDelivery = shouldSuppressExternalDelivery(
             tabId: request.tabId,
             surfaceId: request.surfaceId
@@ -1319,6 +1377,7 @@ final class TerminalNotificationStore: ObservableObject {
             subtitle: request.subtitle,
             body: request.body,
             createdAt: now,
+            deliverySequence: deliverySequence,
             isRead: !effects.markUnread,
             paneFlash: effects.paneFlash,
             clickAction: clickAction
@@ -1685,6 +1744,7 @@ final class TerminalNotificationStore: ObservableObject {
                 subtitle: notification.subtitle,
                 body: notification.body,
                 createdAt: notification.createdAt,
+                deliverySequence: notification.deliverySequence,
                 isRead: notification.isRead,
                 paneFlash: notification.paneFlash,
                 clickAction: notification.clickAction
@@ -1693,6 +1753,10 @@ final class TerminalNotificationStore: ObservableObject {
         if didMoveNotification {
             notifications = updated
         }
+        moveAcceptedDeliverySequence(
+            from: TabSurfaceKey(tabId: sourceTabId, surfaceId: surfaceId),
+            to: TabSurfaceKey(tabId: destinationTabId, surfaceId: surfaceId)
+        )
 
         if focusedReadIndicatorByTabId[sourceTabId] == surfaceId {
             focusedReadIndicatorByTabId.removeValue(forKey: sourceTabId)
@@ -2030,6 +2094,37 @@ final class TerminalNotificationStore: ObservableObject {
         return indexes
     }
 
+    private func mergeAcceptedDeliverySequences(from notifications: [TerminalNotification]) {
+        for notification in notifications {
+            let key = TabSurfaceKey(tabId: notification.tabId, surfaceId: notification.surfaceId)
+            latestAcceptedDeliverySequenceByTarget[key] = max(
+                latestAcceptedDeliverySequenceByTarget[key] ?? 0,
+                notification.deliverySequence
+            )
+        }
+    }
+
+    private func acceptDeliverySequence(_ deliverySequence: UInt64, for key: TabSurfaceKey) -> Bool {
+        guard deliverySequenceIsCurrent(deliverySequence, for: key) else { return false }
+        latestAcceptedDeliverySequenceByTarget[key] = deliverySequence
+        return true
+    }
+
+    private func deliverySequenceIsCurrent(_ deliverySequence: UInt64, for key: TabSurfaceKey) -> Bool {
+        guard let latestDeliverySequence = latestAcceptedDeliverySequenceByTarget[key] else { return true }
+        return deliverySequence >= latestDeliverySequence
+    }
+
+    private func moveAcceptedDeliverySequence(from sourceKey: TabSurfaceKey, to destinationKey: TabSurfaceKey) {
+        guard let sourceSequence = latestAcceptedDeliverySequenceByTarget.removeValue(forKey: sourceKey) else {
+            return
+        }
+        latestAcceptedDeliverySequenceByTarget[destinationKey] = max(
+            latestAcceptedDeliverySequenceByTarget[destinationKey] ?? 0,
+            sourceSequence
+        )
+    }
+
 #if DEBUG
     func configureNotificationSettingsPromptHooksForTesting(
         windowProvider: @escaping () -> NSWindow?,
@@ -2104,6 +2199,7 @@ final class TerminalNotificationStore: ObservableObject {
 
     func replaceNotificationsForTesting(_ notifications: [TerminalNotification]) {
         TerminalMutationBus.shared.discardPendingNotifications()
+        latestAcceptedDeliverySequenceByTarget = [:]
         self.notifications = notifications
         clearWorkspaceManualUnread()
         clearPanelDerivedWorkspaceUnread()
