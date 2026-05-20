@@ -25726,7 +25726,11 @@ export default function cmuxPiSessionExtension(pi: ExtensionAPI) {
         for def in Self.agentDefs {
             if let agentFilterDef, agentFilterDef.name != def.name { continue }
             let configDir = def.resolvedConfigDir()
-            let canUseMissingConfigDir = def.name == "opencode" || def.name == "pi" || def.name == "amp" || (!isUninstall && def.name == "rovodev")
+            let canUseMissingConfigDir = def.createConfigDirIfMissing
+                || def.name == "opencode"
+                || def.name == "pi"
+                || def.name == "amp"
+                || (!isUninstall && def.name == "rovodev")
             if !canUseMissingConfigDir, !fm.fileExists(atPath: configDir) {
                 print("  \(def.name): skipped (config dir not found)")
                 skipped += 1
