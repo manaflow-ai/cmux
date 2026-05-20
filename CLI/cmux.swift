@@ -24912,7 +24912,6 @@ export default function cmuxPiSessionExtension(pi: ExtensionAPI) {
         client: SocketClient,
         telemetry: CLISocketSentryTelemetry
     ) throws {
-        _ = client
         _ = telemetry
         let source = optionValue(commandArgs, name: "--source") ?? ""
         guard !source.isEmpty else {
