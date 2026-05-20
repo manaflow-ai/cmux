@@ -81,6 +81,19 @@ final class WindowAppearanceSnapshotTests: XCTestCase {
         XCTAssertEqual(sidebarPolicy.tintColor.hexString(includeAlpha: true), "#FF000066")
     }
 
+    func testTranslucentTerminalUsesTransparentHostingWithOpaqueCompositedChromeColor() {
+        let snapshot = makeSnapshot(
+            unifySurfaceBackdrops: true,
+            backgroundOpacity: 0.5
+        )
+
+        XCTAssertEqual(snapshot.compositedTerminalBackgroundColor.alphaComponent, 1, accuracy: 0.0001)
+
+        let plan = snapshot.backdropPlan(glassEffectAvailable: false)
+        XCTAssertEqual(plan.hostingPhase, .transparentRootBackdrop)
+        XCTAssertTrue(plan.usesTransparentWindow)
+    }
+
     func testSidebarTintChangesDoNotDriveWindowBackdropPlanIdentity() {
         let red = makeSnapshot(
             unifySurfaceBackdrops: false,
