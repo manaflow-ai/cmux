@@ -5217,6 +5217,16 @@ final class AppDelegateShortcutRoutingTests: XCTestCase {
 #endif
             XCTAssertEqual(observedCommands.last, testCase.command)
         }
+
+        observedCommands.removeAll()
+        XCTAssertTrue(appDelegate.performFindShortcutInActiveMainWindow(preferredWindow: window))
+        XCTAssertEqual(observedCommands.last, .findForward)
+
+        manager.findNext()
+        XCTAssertEqual(observedCommands.last, .findNext)
+
+        manager.findPrevious()
+        XCTAssertEqual(observedCommands.last, .findPrevious)
     }
 
     // MARK: - Browser find shortcut routing tests

@@ -1968,7 +1968,8 @@ class TabManager: ObservableObject {
         selectedTerminalPanel?.hasSelection() == true
     }
 
-    func startSearch() {
+    @discardableResult
+    func startSearch() -> Bool {
         if let panel = selectedTerminalPanel {
             let hadExistingSearch = panel.searchState != nil
             panel.hostedView.preparePanelFocusIntentForActivation(.findField)
@@ -1988,9 +1989,16 @@ class TabManager: ObservableObject {
                 "firstResponder=\(String(describing: panel.surface.uiWindow?.firstResponder))"
             )
 #endif
-            return
+            return handled
         }
-        focusedBrowserPanel?.startFind()
+        if focusedMarkdownPanel?.performPreviewKeyboardCommand(.findForward) == true {
+            return true
+        }
+        if let browserPanel = focusedBrowserPanel {
+            browserPanel.startFind()
+            return browserPanel.searchState != nil
+        }
+        return false
     }
 
     func searchSelection() {
@@ -2014,12 +2022,20 @@ class TabManager: ObservableObject {
             return
         }
 
+        if focusedMarkdownPanel?.performPreviewKeyboardCommand(.findNext) == true {
+            return
+        }
+
         focusedBrowserPanel?.findNext()
     }
 
     func findPrevious() {
         if let panel = selectedTerminalPanel {
             _ = panel.performBindingAction("search:previous")
+            return
+        }
+
+        if focusedMarkdownPanel?.performPreviewKeyboardCommand(.findPrevious) == true {
             return
         }
 
@@ -4869,6 +4885,12 @@ class TabManager: ObservableObject {
         guard let tab = selectedWorkspace,
               let panelId = tab.focusedPanelId else { return nil }
         return tab.panels[panelId] as? BrowserPanel
+    }
+
+    var focusedMarkdownPanel: MarkdownPanel? {
+        guard let tab = selectedWorkspace,
+              let panelId = tab.focusedPanelId else { return nil }
+        return tab.panels[panelId] as? MarkdownPanel
     }
 
     @discardableResult

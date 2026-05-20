@@ -44,6 +44,33 @@ final class MarkdownWebView: WKWebView {
         }
         return super.performKeyEquivalent(with: event)
     }
+
+    override func doCommand(by selector: Selector) {
+        if Self.isControlNavigationCommand(selector, currentEvent: NSApp.currentEvent),
+           let event = NSApp.currentEvent,
+           onKeyboardShortcut?(event) == true {
+            return
+        }
+        super.doCommand(by: selector)
+    }
+
+    private static func isControlNavigationCommand(
+        _ selector: Selector,
+        currentEvent event: NSEvent?
+    ) -> Bool {
+        guard let event, event.type == .keyDown else { return false }
+        let flags = event.modifierFlags.intersection(.deviceIndependentFlagsMask)
+            .subtracting([.capsLock, .function, .numericPad])
+        guard flags == [.control] else { return false }
+        switch event.keyCode {
+        case 35:
+            return selector == #selector(NSResponder.moveUp(_:))
+        case 45:
+            return selector == #selector(NSResponder.moveDown(_:))
+        default:
+            return false
+        }
+    }
 }
 
 struct MarkdownWebTheme: Equatable {
@@ -106,6 +133,10 @@ final class MarkdownRendererSession {
     @discardableResult
     func handleKeyboardShortcut(_ event: NSEvent) -> Bool {
         ownedCoordinator.handleKeyboardShortcut(event)
+    }
+
+    func performKeyboardCommand(_ command: MarkdownPreviewKeyCommand) {
+        ownedCoordinator.performKeyboardCommand(command)
     }
 
     func renderedHTML(markdown: String? = nil) async -> String? {

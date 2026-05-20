@@ -454,17 +454,58 @@ final class MarkdownPanelTests: XCTestCase {
             """,
             in: webView
         )
+        try await webView.evaluateJavaScript(
+            """
+            (function() {
+              window.__cmuxTestScrollCalls = [];
+              var originalScrollTo = window.scrollTo.bind(window);
+              window.scrollTo = function(first, second) {
+                var call;
+                if (first && typeof first === 'object') {
+                  call = {
+                    left: Number(first.left || 0),
+                    top: Number(first.top || 0),
+                    behavior: String(first.behavior || '')
+                  };
+                  window.__cmuxTestScrollCalls.push(call);
+                  var scroller = document.scrollingElement || document.documentElement;
+                  if (scroller) {
+                    scroller.scrollLeft = call.left;
+                    scroller.scrollTop = call.top;
+                  }
+                  originalScrollTo(call.left, call.top);
+                  return;
+                }
+                call = {
+                  left: Number(first || 0),
+                  top: Number(second || 0),
+                  behavior: 'legacy'
+                };
+                window.__cmuxTestScrollCalls.push(call);
+                originalScrollTo(first, second);
+              };
+            })();
+            """
+        )
         _ = try await webView.evaluateJavaScript("window.__cmuxMarkdownPreviewHandleKeyCommand('scrollDown');")
         let afterScroll = try await evaluateScrollSnapshot(
             """
             (function() {
               var scroller = document.scrollingElement || document.documentElement;
-              return { y: window.scrollY || scroller.scrollTop };
+              var calls = window.__cmuxTestScrollCalls || [];
+              return {
+                y: window.scrollY || scroller.scrollTop,
+                calls: calls.length,
+                targetY: calls[0] ? calls[0].top : 0,
+                smooth: calls[0] && calls[0].behavior === 'smooth' ? 1 : 0
+              };
             })();
             """,
             in: webView
         )
-        XCTAssertGreaterThan(afterScroll["y"] ?? 0, before["y"] ?? 0)
+        XCTAssertEqual(afterScroll["calls"] ?? 0, 1)
+        XCTAssertGreaterThan(afterScroll["targetY"] ?? 0, before["y"] ?? 0)
+        XCTAssertEqual(afterScroll["smooth"] ?? 0, 1)
 
         let searchSnapshot = try await evaluateScrollSnapshot(
             """
@@ -504,6 +545,61 @@ final class MarkdownPanelTests: XCTestCase {
         XCTAssertEqual(searchSnapshot["firstBackwards"] ?? -1, 0)
         XCTAssertEqual(searchSnapshot["lastBackwards"] ?? -1, 1)
         XCTAssertEqual(searchSnapshot["firstWrap"] ?? -1, 1)
+
+        let domShortcutSnapshot = try await evaluateScrollSnapshot(
+            """
+            (function() {
+              var calls = [];
+              Object.defineProperty(window, 'find', {
+                configurable: true,
+                value: function(query, caseSensitive, backwards, wrap, wholeWord, searchInFrames, showDialog) {
+                  calls.push({
+                    query: String(query),
+                    backwards: backwards ? 1 : 0,
+                    wrap: wrap ? 1 : 0
+                  });
+                  return true;
+                }
+              });
+              window.prompt = function() { return 'Section 20'; };
+              var cmdF = new KeyboardEvent('keydown', {
+                key: 'f',
+                metaKey: true,
+                bubbles: true,
+                cancelable: true
+              });
+              var ctrlN = new KeyboardEvent('keydown', {
+                key: 'n',
+                ctrlKey: true,
+                bubbles: true,
+                cancelable: true
+              });
+              var ctrlP = new KeyboardEvent('keydown', {
+                key: 'p',
+                ctrlKey: true,
+                bubbles: true,
+                cancelable: true
+              });
+              return {
+                cmdFCanceled: document.dispatchEvent(cmdF) ? 0 : 1,
+                ctrlNCanceled: document.dispatchEvent(ctrlN) ? 0 : 1,
+                ctrlPCanceled: document.dispatchEvent(ctrlP) ? 0 : 1,
+                calls: calls.length,
+                firstBackwards: calls[0] ? calls[0].backwards : -1,
+                secondBackwards: calls[1] ? calls[1].backwards : -1,
+                thirdBackwards: calls[2] ? calls[2].backwards : -1
+              };
+            })();
+            """,
+            in: webView
+        )
+        XCTAssertEqual(domShortcutSnapshot["cmdFCanceled"] ?? 0, 1)
+        XCTAssertEqual(domShortcutSnapshot["ctrlNCanceled"] ?? 0, 1)
+        XCTAssertEqual(domShortcutSnapshot["ctrlPCanceled"] ?? 0, 1)
+        XCTAssertEqual(domShortcutSnapshot["calls"] ?? 0, 3)
+        XCTAssertEqual(domShortcutSnapshot["firstBackwards"] ?? -1, 0)
+        XCTAssertEqual(domShortcutSnapshot["secondBackwards"] ?? -1, 0)
+        XCTAssertEqual(domShortcutSnapshot["thirdBackwards"] ?? -1, 1)
     }
 
     func testMarkdownRendererKeepsRecoveryBudgetAfterShellReload() {

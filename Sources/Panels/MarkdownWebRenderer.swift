@@ -316,7 +316,7 @@ struct MarkdownWebRenderer: NSViewRepresentable {
             return false
         }
 
-        private func performKeyboardCommand(_ command: MarkdownPreviewKeyCommand) {
+        func performKeyboardCommand(_ command: MarkdownPreviewKeyCommand) {
 #if DEBUG
             Self.keyboardCommandObserver?(command)
 #endif

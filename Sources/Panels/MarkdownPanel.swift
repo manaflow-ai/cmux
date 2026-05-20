@@ -59,6 +59,13 @@ final class MarkdownPanel: Panel, ObservableObject, FilePreviewTextEditingPanel 
         return rendererSession.handleKeyboardShortcut(event)
     }
 
+    @discardableResult
+    func performPreviewKeyboardCommand(_ command: MarkdownPreviewKeyCommand) -> Bool {
+        guard displayMode == .preview else { return false }
+        rendererSession.performKeyboardCommand(command)
+        return true
+    }
+
     // MARK: - File watching
 
     // nonisolated(unsafe) because deinit is not guaranteed to run on the
