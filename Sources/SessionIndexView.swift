@@ -1079,14 +1079,58 @@ private enum SessionTranscriptLoader {
         Data(#""role":"#.utf8),
         Data(#""role": "#.utf8)
     ]
-    private static let grokRoleNeedles = [
-        Data(#""role":"#.utf8),
-        Data(#""role": "#.utf8),
-        Data(#""type":"user""#.utf8),
-        Data(#""type": "user""#.utf8),
+    private static let grokAssistantRoleNeedles = [
+        Data(#""role":"assistant""#.utf8),
+        Data(#""role": "assistant""#.utf8),
         Data(#""type":"assistant""#.utf8),
         Data(#""type": "assistant""#.utf8)
     ]
+    private static let grokUserRoleNeedles = [
+        Data(#""role":"user""#.utf8),
+        Data(#""role": "user""#.utf8),
+        Data(#""type":"user""#.utf8),
+        Data(#""type": "user""#.utf8)
+    ]
+    private static let grokSystemRoleNeedles = [
+        Data(#""role":"system""#.utf8),
+        Data(#""role": "system""#.utf8),
+        Data(#""role":"developer""#.utf8),
+        Data(#""role": "developer""#.utf8),
+        Data(#""type":"system""#.utf8),
+        Data(#""type": "system""#.utf8),
+        Data(#""type":"developer""#.utf8),
+        Data(#""type": "developer""#.utf8)
+    ]
+    private static let grokToolRoleNeedles = [
+        Data(#""role":"tool""#.utf8),
+        Data(#""role": "tool""#.utf8),
+        Data(#""role":"tool_use""#.utf8),
+        Data(#""role": "tool_use""#.utf8),
+        Data(#""role":"tool_result""#.utf8),
+        Data(#""role": "tool_result""#.utf8),
+        Data(#""role":"function_call""#.utf8),
+        Data(#""role": "function_call""#.utf8),
+        Data(#""role":"function_call_output""#.utf8),
+        Data(#""role": "function_call_output""#.utf8),
+        Data(#""type":"tool""#.utf8),
+        Data(#""type": "tool""#.utf8),
+        Data(#""type":"tool_use""#.utf8),
+        Data(#""type": "tool_use""#.utf8),
+        Data(#""type":"tool_result""#.utf8),
+        Data(#""type": "tool_result""#.utf8),
+        Data(#""type":"function_call""#.utf8),
+        Data(#""type": "function_call""#.utf8),
+        Data(#""type":"function_call_output""#.utf8),
+        Data(#""type": "function_call_output""#.utf8)
+    ]
+    private static let grokRoleNeedles = [
+        Data(#""role":"#.utf8),
+        Data(#""role": "#.utf8)
+    ]
+        + grokAssistantRoleNeedles
+        + grokUserRoleNeedles
+        + grokSystemRoleNeedles
+        + grokToolRoleNeedles
 
     static func load(entry: SessionEntry) async throws -> [SessionTranscriptTurn] {
         if entry.agent == .opencode {
@@ -1758,21 +1802,17 @@ private enum SessionTranscriptLoader {
     }
 
     private static func inferredGrokRole(from data: Data) -> SessionTranscriptRole? {
-        if containsAny(data, needles: [
-            Data(#""role":"assistant""#.utf8),
-            Data(#""role": "assistant""#.utf8),
-            Data(#""type":"assistant""#.utf8),
-            Data(#""type": "assistant""#.utf8),
-        ]) {
+        if containsAny(data, needles: grokAssistantRoleNeedles) {
             return .assistant
         }
-        if containsAny(data, needles: [
-            Data(#""role":"user""#.utf8),
-            Data(#""role": "user""#.utf8),
-            Data(#""type":"user""#.utf8),
-            Data(#""type": "user""#.utf8),
-        ]) {
+        if containsAny(data, needles: grokUserRoleNeedles) {
             return .user
+        }
+        if containsAny(data, needles: grokSystemRoleNeedles) {
+            return .system
+        }
+        if containsAny(data, needles: grokToolRoleNeedles) {
+            return .tool
         }
         return nil
     }
