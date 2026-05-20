@@ -30,14 +30,12 @@ final class CmuxDockTilePlugin: NSObject, NSDockTilePlugIn {
     // Keep the state minimal and derive everything from the enclosing app bundle.
     private let pluginBundle = Bundle(for: CmuxDockTilePlugin.self)
     private var iconChangeObserver: NSObjectProtocol?
-    private var appearanceObservation: NSKeyValueObservation?
     private var hasClearedAutomaticOverride = false
 
     deinit {
         if let iconChangeObserver {
             DistributedNotificationCenter.default().removeObserver(iconChangeObserver)
         }
-        appearanceObservation?.invalidate()
     }
 
     func setDockTile(_ dockTile: NSDockTile?) {
@@ -53,8 +51,6 @@ final class CmuxDockTilePlugin: NSObject, NSDockTilePlugIn {
             DistributedNotificationCenter.default().removeObserver(iconChangeObserver)
             self.iconChangeObserver = nil
         }
-        appearanceObservation?.invalidate()
-        appearanceObservation = nil
         hasClearedAutomaticOverride = false
 
         guard let dockTile else { return }
@@ -67,15 +63,6 @@ final class CmuxDockTilePlugin: NSObject, NSDockTilePlugIn {
         ) { [weak self] _ in
             guard let self else { return }
             self.updateDockTile(dockTile)
-        }
-
-        if let app = NSApp {
-            appearanceObservation = app.observe(\.effectiveAppearance, options: []) { [weak self] _, _ in
-                DispatchQueue.main.async {
-                    guard let self, self.appearanceObservation != nil else { return }
-                    self.updateDockTile(dockTile)
-                }
-            }
         }
     }
 
@@ -119,7 +106,7 @@ final class CmuxDockTilePlugin: NSObject, NSDockTilePlugIn {
         // previous custom override lets macOS reassert the asset catalog's
         // adaptive icon and switch automatically with system appearance.
         // The clear is gated on `hasClearedAutomaticOverride` so the redundant
-        // workspace ops don't fire on every effectiveAppearance KVO callback.
+        // workspace ops don't repeat while the plugin remains in automatic mode.
         if mode == .automatic {
             if !hasClearedAutomaticOverride {
                 persistBundleIcon(nil, at: appBundleURL)
