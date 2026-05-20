@@ -306,6 +306,7 @@ extension TerminalController {
     private nonisolated func v2TopMemoryAttributionByPID(in windows: [[String: Any]]) -> [Int: CmuxTopProcessAttribution] {
         var result: [Int: CmuxTopProcessAttribution] = [:]
         var ambiguousSpecificityByPID: [Int: Int] = [:]
+        var commonOwnerSourceSpecificityByPID: [Int: Int] = [:]
         for window in windows {
             let workspaces = window["workspaces"] as? [[String: Any]] ?? []
             for workspace in workspaces {
@@ -328,7 +329,8 @@ extension TerminalController {
                         attribution,
                         from: tag,
                         to: &result,
-                        ambiguousSpecificityByPID: &ambiguousSpecificityByPID
+                        ambiguousSpecificityByPID: &ambiguousSpecificityByPID,
+                        commonOwnerSourceSpecificityByPID: &commonOwnerSourceSpecificityByPID
                     )
                 }
 
@@ -352,7 +354,8 @@ extension TerminalController {
                             attribution,
                             from: surface,
                             to: &result,
-                            ambiguousSpecificityByPID: &ambiguousSpecificityByPID
+                            ambiguousSpecificityByPID: &ambiguousSpecificityByPID,
+                            commonOwnerSourceSpecificityByPID: &commonOwnerSourceSpecificityByPID
                         )
 
                         let webviews = surface["webviews"] as? [[String: Any]] ?? []
@@ -361,7 +364,8 @@ extension TerminalController {
                                 attribution,
                                 from: webview,
                                 to: &result,
-                                ambiguousSpecificityByPID: &ambiguousSpecificityByPID
+                                ambiguousSpecificityByPID: &ambiguousSpecificityByPID,
+                                commonOwnerSourceSpecificityByPID: &commonOwnerSourceSpecificityByPID
                             )
                         }
                     }
@@ -375,7 +379,8 @@ extension TerminalController {
         _ attribution: CmuxTopProcessAttribution,
         from node: [String: Any],
         to result: inout [Int: CmuxTopProcessAttribution],
-        ambiguousSpecificityByPID: inout [Int: Int]
+        ambiguousSpecificityByPID: inout [Int: Int],
+        commonOwnerSourceSpecificityByPID: inout [Int: Int]
     ) {
         let resources = node["resources"] as? [String: Any] ?? [:]
         let newSpecificity = v2TopMemoryAttributionSpecificity(attribution)
@@ -384,6 +389,7 @@ extension TerminalController {
             if let ambiguousSpecificity = ambiguousSpecificityByPID[pid] {
                 guard newSpecificity > ambiguousSpecificity else { continue }
                 ambiguousSpecificityByPID.removeValue(forKey: pid)
+                commonOwnerSourceSpecificityByPID.removeValue(forKey: pid)
             }
             guard let existing = result[pid] else {
                 result[pid] = attribution
@@ -391,16 +397,19 @@ extension TerminalController {
             }
             if existing == attribution { continue }
             let existingSpecificity = v2TopMemoryAttributionSpecificity(existing)
-            if newSpecificity > existingSpecificity {
+            let commonOwnerSourceSpecificity = commonOwnerSourceSpecificityByPID[pid]
+            let mergedSourceSpecificity = max(commonOwnerSourceSpecificity ?? existingSpecificity, newSpecificity)
+            if let commonOwner = v2TopMemoryAttributionCommonOwner(existing, attribution),
+               commonOwnerSourceSpecificity != nil || newSpecificity == existingSpecificity {
+                result[pid] = commonOwner
+                commonOwnerSourceSpecificityByPID[pid] = mergedSourceSpecificity
+            } else if newSpecificity > existingSpecificity {
                 result[pid] = attribution
+                commonOwnerSourceSpecificityByPID.removeValue(forKey: pid)
             } else if newSpecificity == existingSpecificity {
-                if let commonOwner = v2TopMemoryAttributionCommonOwner(existing, attribution) {
-                    result[pid] = commonOwner
-                    ambiguousSpecificityByPID[pid] = newSpecificity
-                } else {
-                    result.removeValue(forKey: pid)
-                    ambiguousSpecificityByPID[pid] = newSpecificity
-                }
+                result.removeValue(forKey: pid)
+                ambiguousSpecificityByPID[pid] = newSpecificity
+                commonOwnerSourceSpecificityByPID.removeValue(forKey: pid)
             } else {
                 continue
             }
