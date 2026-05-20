@@ -13818,6 +13818,7 @@ struct CMUXCLI {
            !explicitPassword.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
             launcherEnvironment["CMUX_SOCKET_PASSWORD"] = explicitPassword
         }
+        launcherEnvironment["PATH"] = providerExecutableLaunchPath(searchPath: launcherEnvironment["PATH"])
         let shimDirectory = try createClaudeTeamsShimDirectory()
         let executablePath = resolvedExecutableURL()?.path ?? (args.first ?? "cmux")
         let focusedContext = try tmuxCompatFocusedContext(
@@ -14539,6 +14540,7 @@ struct CMUXCLI {
            !explicitPassword.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
             launcherEnvironment["CMUX_SOCKET_PASSWORD"] = explicitPassword
         }
+        launcherEnvironment["PATH"] = providerExecutableLaunchPath(searchPath: launcherEnvironment["PATH"])
 
         guard let focusedContext = try tmuxCompatFocusedContext(
             processEnvironment: launcherEnvironment,
@@ -15091,8 +15093,10 @@ struct CMUXCLI {
     private static let legacyOmoPluginName = "oh-my-opencode"
     private static let openCodeSessionPluginConfigSpec = "./plugins/cmux-session.js"
 
-    private func resolveExecutableInPath(_ name: String) -> String? {
-        let entries = ProcessInfo.processInfo.environment["PATH"]?.split(separator: ":").map(String.init) ?? []
+    private func resolveExecutableInPath(_ name: String, searchPath: String? = nil) -> String? {
+        let entries = (searchPath ?? ProcessInfo.processInfo.environment["PATH"])?
+            .split(separator: ":")
+            .map(String.init) ?? []
         for entry in entries where !entry.isEmpty {
             let candidate = URL(fileURLWithPath: entry, isDirectory: true)
                 .appendingPathComponent(name, isDirectory: false)
@@ -15174,12 +15178,14 @@ struct CMUXCLI {
     private func omoRunPackageInstall(
         executablePath: String,
         arguments: [String],
-        currentDirectoryURL: URL
+        currentDirectoryURL: URL,
+        environment: [String: String]
     ) throws -> Int32 {
         let process = Process()
         process.currentDirectoryURL = currentDirectoryURL
         process.executableURL = URL(fileURLWithPath: executablePath)
         process.arguments = arguments
+        process.environment = environment
         process.standardOutput = FileHandle.standardError
         process.standardError = FileHandle.standardError
         try process.run()
@@ -15302,7 +15308,7 @@ struct CMUXCLI {
     /// Creates a shadow config directory that layers oh-my-openagent on top of the user's
     /// existing opencode config without modifying the original. Sets OPENCODE_CONFIG_DIR
     /// to point at the shadow directory.
-    private func omoEnsurePlugin() throws {
+    private func omoEnsurePlugin(processEnvironment: [String: String]) throws {
         let userDir = omoUserConfigDir()
         let shadowDir = omoShadowConfigDir()
         let fm = FileManager.default
@@ -15369,13 +15375,14 @@ struct CMUXCLI {
         let pluginPackageDir = shadowNodeModules.appendingPathComponent(Self.omoPluginName)
         if !fm.fileExists(atPath: pluginPackageDir.path) {
             let installDir = shadowDir
-            if let bunPath = resolveExecutableInPath("bun") {
+            if let bunPath = resolveExecutableInPath("bun", searchPath: processEnvironment["PATH"]) {
                 omoWriteStatus(Self.omoInstallingPluginMessage())
                 let installArguments = ["add", Self.omoPluginName]
                 let firstAttemptStatus = try omoRunPackageInstall(
                     executablePath: bunPath,
                     arguments: installArguments,
-                    currentDirectoryURL: installDir
+                    currentDirectoryURL: installDir,
+                    environment: processEnvironment
                 )
                 if firstAttemptStatus != 0 {
                     omoWriteStatus(Self.omoRetryingInstallMessage())
@@ -15385,18 +15392,20 @@ struct CMUXCLI {
                     let retryStatus = try omoRunPackageInstall(
                         executablePath: bunPath,
                         arguments: installArguments,
-                        currentDirectoryURL: installDir
+                        currentDirectoryURL: installDir,
+                        environment: processEnvironment
                     )
                     if retryStatus != 0 {
                         throw CLIError(message: Self.omoInstallFailedMessage())
                     }
                 }
-            } else if let npmPath = resolveExecutableInPath("npm") {
+            } else if let npmPath = resolveExecutableInPath("npm", searchPath: processEnvironment["PATH"]) {
                 omoWriteStatus(Self.omoInstallingPluginMessage())
                 let status = try omoRunPackageInstall(
                     executablePath: npmPath,
                     arguments: ["install", Self.omoPluginName],
-                    currentDirectoryURL: installDir
+                    currentDirectoryURL: installDir,
+                    environment: processEnvironment
                 )
                 if status != 0 {
                     throw CLIError(message: Self.omoInstallFailedMessage())
@@ -15509,6 +15518,7 @@ struct CMUXCLI {
            !explicitPassword.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
             launcherEnvironment["CMUX_SOCKET_PASSWORD"] = explicitPassword
         }
+        launcherEnvironment["PATH"] = providerExecutableLaunchPath(searchPath: launcherEnvironment["PATH"])
 
         guard let openCodeExecutablePath = resolveOpenCodeExecutable(searchPath: launcherEnvironment["PATH"]) else {
             throw CLIError(message: String(
@@ -15518,7 +15528,7 @@ struct CMUXCLI {
         }
 
         // Ensure oh-my-openagent plugin is registered and installed
-        try omoEnsurePlugin()
+        try omoEnsurePlugin(processEnvironment: launcherEnvironment)
 
         let shimDirectory = try createOMOShimDirectory()
         let executablePath = resolvedExecutableURL()?.path ?? (args.first ?? "cmux")
@@ -15655,6 +15665,7 @@ struct CMUXCLI {
            !explicitPassword.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
             launcherEnvironment["CMUX_SOCKET_PASSWORD"] = explicitPassword
         }
+        launcherEnvironment["PATH"] = providerExecutableLaunchPath(searchPath: launcherEnvironment["PATH"])
 
         let omxExecutablePath = resolveOMXExecutable(searchPath: launcherEnvironment["PATH"])
         if omxExecutablePath == nil {
@@ -15784,6 +15795,7 @@ struct CMUXCLI {
            !explicitPassword.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
             launcherEnvironment["CMUX_SOCKET_PASSWORD"] = explicitPassword
         }
+        launcherEnvironment["PATH"] = providerExecutableLaunchPath(searchPath: launcherEnvironment["PATH"])
 
         let omcExecutablePath = resolveOMCExecutable(searchPath: launcherEnvironment["PATH"])
         if omcExecutablePath == nil {
