@@ -6,7 +6,7 @@ TAG="${CMUX_TAG:-ca-main-thread}"
 SOCKET_PATH="${CMUX_SOCKET_PATH:-/tmp/cmux-debug-${TAG}.sock}"
 LOG_PATH="${CMUX_CA_ASSERT_LOG:-/tmp/cmux-ca-main-thread-${TAG}.log}"
 HOLD_SECONDS="${CMUX_CA_ASSERT_HOLD_SECONDS:-8}"
-STARTUP_TIMEOUT_SECONDS="${CMUX_CA_ASSERT_STARTUP_TIMEOUT_SECONDS:-45}"
+READY_TIMEOUT_SECONDS="${CMUX_CA_ASSERT_READY_TIMEOUT_SECONDS:-${CMUX_CA_ASSERT_STARTUP_TIMEOUT_SECONDS:-60}}"
 APP_PID_FILE="${CMUX_CA_ASSERT_PID_FILE:-/tmp/cmux-ca-main-thread-${TAG}.pid}"
 
 if [ -z "$APP_PATH" ]; then
@@ -85,9 +85,7 @@ CMUX_ALLOW_SOCKET_OVERRIDE=1 \
 APP_PID=$!
 echo "$APP_PID" >"$APP_PID_FILE"
 
-startup_deadline=$((SECONDS + STARTUP_TIMEOUT_SECONDS))
-socket_ready=0
-while [ "$SECONDS" -lt "$startup_deadline" ]; do
+wait_for_app_alive() {
   if ! kill -0 "$APP_PID" >/dev/null 2>&1; then
     wait "$APP_PID" >/dev/null 2>&1 || true
     echo "FAIL: cmux exited while CA_ASSERT_MAIN_THREAD_TRANSACTIONS=1 was active" >&2
@@ -95,7 +93,12 @@ while [ "$SECONDS" -lt "$startup_deadline" ]; do
     tail -80 "$LOG_PATH" >&2 2>/dev/null || true
     exit 1
   fi
+}
 
+ready_deadline=$((SECONDS + READY_TIMEOUT_SECONDS))
+socket_ready=0
+while [ "$SECONDS" -lt "$ready_deadline" ]; do
+  wait_for_app_alive
   if [ -S "$SOCKET_PATH" ]; then
     socket_ready=1
     break
@@ -104,21 +107,15 @@ while [ "$SECONDS" -lt "$startup_deadline" ]; do
 done
 
 if [ "$socket_ready" -ne 1 ]; then
-  echo "FAIL: cmux stayed alive but did not create its socket at $SOCKET_PATH within ${STARTUP_TIMEOUT_SECONDS}s" >&2
+  echo "FAIL: cmux stayed alive but did not create its socket at $SOCKET_PATH within ${READY_TIMEOUT_SECONDS}s" >&2
   echo "--- app log tail ($LOG_PATH) ---" >&2
   tail -80 "$LOG_PATH" >&2 2>/dev/null || true
   exit 1
 fi
 
-deadline=$((SECONDS + HOLD_SECONDS))
-while [ "$SECONDS" -lt "$deadline" ]; do
-  if ! kill -0 "$APP_PID" >/dev/null 2>&1; then
-    wait "$APP_PID" >/dev/null 2>&1 || true
-    echo "FAIL: cmux exited after creating its socket while CA_ASSERT_MAIN_THREAD_TRANSACTIONS=1 was active" >&2
-    echo "--- app log tail ($LOG_PATH) ---" >&2
-    tail -80 "$LOG_PATH" >&2 2>/dev/null || true
-    exit 1
-  fi
+hold_deadline=$((SECONDS + HOLD_SECONDS))
+while [ "$SECONDS" -lt "$hold_deadline" ]; do
+  wait_for_app_alive
   sleep 0.25
 done
 

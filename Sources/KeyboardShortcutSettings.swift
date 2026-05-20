@@ -2307,8 +2307,25 @@ enum KeyboardShortcutRecorderActivity {
     }
 
     static func stopAllRecording(center: NotificationCenter = .default) {
+        let wasActive = isAnyRecorderActive
         center.post(name: stopAllNotification, object: nil)
+        guard activeRecorderCount > 0 else { return }
+        activeRecorderCount = 0
+        if wasActive {
+            center.post(name: didChangeNotification, object: nil)
+        }
     }
+
+#if DEBUG
+    static func resetForTesting(center: NotificationCenter = .default) {
+        // Keep test isolation from broadcasting stop-all UI notifications into unrelated live windows.
+        let wasActive = isAnyRecorderActive
+        activeRecorderCount = 0
+        if wasActive {
+            center.post(name: didChangeNotification, object: nil)
+        }
+    }
+#endif
 }
 
 struct ShortcutRecorderRejectedAttempt: Equatable {

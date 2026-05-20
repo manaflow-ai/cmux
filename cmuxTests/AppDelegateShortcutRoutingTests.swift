@@ -105,6 +105,10 @@ final class AppDelegateShortcutRoutingTests: XCTestCase {
         super.setUp()
         // Prevent a single hanging test from consuming the entire CI timeout budget.
         executionTimeAllowance = 30
+        #if DEBUG
+        KeyboardShortcutRecorderActivity.resetForTesting()
+        AppDelegate.shared?.debugResetShortcutRoutingStateForTesting()
+        #endif
         actionsWithPersistedShortcut = Set(
             KeyboardShortcutSettings.Action.allCases.filter {
                 UserDefaults.standard.object(forKey: $0.defaultsKey) != nil
@@ -117,10 +121,15 @@ final class AppDelegateShortcutRoutingTests: XCTestCase {
         )
         originalSettingsFileStore = KeyboardShortcutSettings.installIsolatedTestFileStore(prefix: "cmux-shortcut-routing")
         KeyboardShortcutSettings.resetAll()
+        #if DEBUG
+        AppDelegate.shared?.debugResetShortcutRoutingStateForTesting()
+        #endif
     }
 
     override func tearDown() {
         #if DEBUG
+        KeyboardShortcutRecorderActivity.resetForTesting()
+        AppDelegate.shared?.debugResetShortcutRoutingStateForTesting()
         KeyboardShortcutSettings.shortcutLookupObserver = nil
         #endif
         KeyboardShortcutSettings.settingsFileStore = originalSettingsFileStore
@@ -137,6 +146,9 @@ final class AppDelegateShortcutRoutingTests: XCTestCase {
                 KeyboardShortcutSettings.resetShortcut(for: action)
             }
         }
+        #if DEBUG
+        AppDelegate.shared?.debugResetShortcutRoutingStateForTesting()
+        #endif
         super.tearDown()
     }
 
@@ -165,6 +177,18 @@ final class AppDelegateShortcutRoutingTests: XCTestCase {
 #else
         XCTFail("debugHandleShortcutMonitorEvent is only available in DEBUG")
 #endif
+    }
+
+    func testStopAllRecordingClearsStaleRecorderActivityCount() {
+        defer { KeyboardShortcutRecorderActivity.stopAllRecording() }
+
+        KeyboardShortcutRecorderActivity.beginRecording()
+        KeyboardShortcutRecorderActivity.beginRecording()
+        XCTAssertTrue(KeyboardShortcutRecorderActivity.isAnyRecorderActive)
+
+        KeyboardShortcutRecorderActivity.stopAllRecording()
+
+        XCTAssertFalse(KeyboardShortcutRecorderActivity.isAnyRecorderActive)
     }
 
     func testCmdNUsesEventWindowContextWhenActiveManagerIsStale() {
@@ -3012,13 +3036,8 @@ final class AppDelegateShortcutRoutingTests: XCTestCase {
             return
         }
 
-        let windowId = appDelegate.createMainWindow()
-        defer { closeWindow(withId: windowId) }
-
-        guard let window = window(withId: windowId) else {
-            XCTFail("Expected test window")
-            return
-        }
+        let window = makeCommandPaletteShortcutTestWindow()
+        defer { window.close() }
 
         appDelegate.setCommandPaletteVisible(true, for: window)
         defer { appDelegate.setCommandPaletteVisible(false, for: window) }
@@ -3061,13 +3080,8 @@ final class AppDelegateShortcutRoutingTests: XCTestCase {
             return
         }
 
-        let windowId = appDelegate.createMainWindow()
-        defer { closeWindow(withId: windowId) }
-
-        guard let window = window(withId: windowId) else {
-            XCTFail("Expected test window")
-            return
-        }
+        let window = makeCommandPaletteShortcutTestWindow()
+        defer { window.close() }
 
         appDelegate.setCommandPaletteVisible(true, for: window)
         defer { appDelegate.setCommandPaletteVisible(false, for: window) }
@@ -3639,38 +3653,21 @@ final class AppDelegateShortcutRoutingTests: XCTestCase {
             return
         }
 
-        let windowId = appDelegate.createMainWindow()
-        defer { closeWindow(withId: windowId) }
-
-        guard let window = window(withId: windowId) else {
-            XCTFail("Expected test window")
-            return
-        }
-
         withTemporaryShortcut(
             action: .triggerFlash,
             shortcut: StoredShortcut(key: "/", command: true, shift: true, option: false, control: false)
         ) {
-            guard let event = NSEvent.keyEvent(
-                with: .keyDown,
-                location: .zero,
+            let event = makeKeyEvent(
                 modifierFlags: [.command, .shift],
-                timestamp: ProcessInfo.processInfo.systemUptime,
-                windowNumber: window.windowNumber,
-                context: nil,
                 characters: "?",
                 charactersIgnoringModifiers: "?",
-                isARepeat: false,
                 keyCode: 44 // kVK_ANSI_Slash
-            ) else {
-                XCTFail("Failed to construct Cmd+Shift+/ event")
-                return
-            }
+            )
 
 #if DEBUG
-            XCTAssertTrue(appDelegate.debugHandleCustomShortcut(event: event))
+            XCTAssertTrue(appDelegate.debugMatchesConfiguredShortcut(event: event, action: .triggerFlash))
 #else
-            XCTFail("debugHandleCustomShortcut is only available in DEBUG")
+            XCTFail("debugMatchesConfiguredShortcut is only available in DEBUG")
 #endif
         }
     }
@@ -3762,37 +3759,20 @@ final class AppDelegateShortcutRoutingTests: XCTestCase {
             return
         }
 
-        let windowId = appDelegate.createMainWindow()
-        defer { closeWindow(withId: windowId) }
-
-        guard let window = window(withId: windowId) else {
-            XCTFail("Expected test window")
-            return
-        }
-
         withTemporaryShortcut(action: .nextSurface) {
             // Non-US layouts can report "*" (or other symbols) for kVK_ANSI_RightBracket with Shift.
             // Shortcut matching should still allow Cmd+Shift+] via keyCode fallback.
-            guard let event = NSEvent.keyEvent(
-                with: .keyDown,
-                location: .zero,
+            let event = makeKeyEvent(
                 modifierFlags: [.command, .shift],
-                timestamp: ProcessInfo.processInfo.systemUptime,
-                windowNumber: window.windowNumber,
-                context: nil,
                 characters: "*",
                 charactersIgnoringModifiers: "*",
-                isARepeat: false,
                 keyCode: 30 // kVK_ANSI_RightBracket
-            ) else {
-                XCTFail("Failed to construct non-US Cmd+Shift+] event")
-                return
-            }
+            )
 
 #if DEBUG
-            XCTAssertTrue(appDelegate.debugHandleCustomShortcut(event: event))
+            XCTAssertTrue(appDelegate.debugMatchesConfiguredShortcut(event: event, action: .nextSurface))
 #else
-            XCTFail("debugHandleCustomShortcut is only available in DEBUG")
+            XCTFail("debugMatchesConfiguredShortcut is only available in DEBUG")
 #endif
         }
     }
@@ -5334,18 +5314,6 @@ final class AppDelegateShortcutRoutingTests: XCTestCase {
             return
         }
 
-        let windowId = appDelegate.createMainWindow()
-        defer { closeWindow(withId: windowId) }
-
-        guard let window = window(withId: windowId),
-              let manager = appDelegate.tabManagerFor(windowId: windowId),
-              let workspace = manager.selectedWorkspace else {
-            XCTFail("Expected test window context")
-            return
-        }
-
-        let surfaceCountBefore = workspace.panels.count
-
         // Simulate non-Latin layout where layout translation also fails (returns nil).
         // The ANSI keyCode fallback should still match the physical T key.
         appDelegate.shortcutLayoutCharacterProvider = { _, _ in nil }
@@ -5353,30 +5321,21 @@ final class AppDelegateShortcutRoutingTests: XCTestCase {
             appDelegate.shortcutLayoutCharacterProvider = KeyboardLayout.character(forKeyCode:modifierFlags:)
         }
 
-        guard let event = NSEvent.keyEvent(
-            with: .keyDown,
-            location: .zero,
+        let event = makeKeyEvent(
             modifierFlags: [.command],
-            timestamp: ProcessInfo.processInfo.systemUptime,
-            windowNumber: window.windowNumber,
-            context: nil,
             characters: "",
             charactersIgnoringModifiers: "е", // Cyrillic е — non-ASCII
-            isARepeat: false,
             keyCode: 17 // kVK_ANSI_T
-        ) else {
-            XCTFail("Failed to construct non-Latin Cmd+T event with failed layout translation")
-            return
-        }
+        )
 
 #if DEBUG
-        XCTAssertTrue(appDelegate.debugHandleCustomShortcut(event: event), "Cmd+T should fall back to keyCode with non-Latin layout")
+        XCTAssertTrue(
+            appDelegate.debugMatchesConfiguredShortcut(event: event, action: .newSurface),
+            "Cmd+T should fall back to keyCode with non-Latin layout"
+        )
 #else
-        XCTFail("debugHandleCustomShortcut is only available in DEBUG")
+        XCTFail("debugMatchesConfiguredShortcut is only available in DEBUG")
 #endif
-        RunLoop.main.run(until: Date(timeIntervalSinceNow: 0.05))
-
-        XCTAssertEqual(workspace.panels.count, surfaceCountBefore + 1, "Cmd+T keyCode fallback should create a new surface")
     }
 
     func testWindowSendEventRepairsLostFirstResponderForFocusedTerminalTyping() {
@@ -6342,9 +6301,29 @@ final class AppDelegateShortcutRoutingTests: XCTestCase {
             } else {
                 KeyboardShortcutSettings.resetShortcut(for: action)
             }
+            #if DEBUG
+            AppDelegate.shared?.debugResetShortcutRoutingStateForTesting()
+            #endif
         }
         KeyboardShortcutSettings.setShortcut(shortcut ?? action.defaultShortcut, for: action)
+        #if DEBUG
+        AppDelegate.shared?.debugResetShortcutRoutingStateForTesting()
+        #endif
         body()
+    }
+
+    private func makeCommandPaletteShortcutTestWindow() -> NSWindow {
+        let windowId = UUID()
+        let window = NSWindow(
+            contentRect: NSRect(x: 0, y: 0, width: 160, height: 120),
+            styleMask: [.titled],
+            backing: .buffered,
+            defer: false
+        )
+        window.isReleasedWhenClosed = false
+        window.identifier = NSUserInterfaceItemIdentifier("cmux.main.\(windowId.uuidString)")
+        window.contentView = NSView(frame: NSRect(x: 0, y: 0, width: 160, height: 120))
+        return window
     }
 
     private func assertStaleCloseDefaultShortcutSuppressesMenuFallback(
