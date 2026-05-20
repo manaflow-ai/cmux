@@ -5730,7 +5730,8 @@ final class AppDelegateShortcutRoutingTests: XCTestCase {
 
         let windowId = appDelegate.createMainWindow()
         guard let window = appDelegate.windowForMainWindowId(windowId),
-              let manager = appDelegate.tabManagerFor(windowId: windowId) else {
+              let manager = appDelegate.tabManagerFor(windowId: windowId),
+              let initialSidebarVisible = appDelegate.sidebarVisibility(windowId: windowId) else {
             closeWindow(withId: windowId)
             XCTFail("Expected a main window context")
             return
@@ -5770,10 +5771,10 @@ final class AppDelegateShortcutRoutingTests: XCTestCase {
 
         let initialWorkspaceCount = manager.tabs.count
         let remappedCloseTab = StoredShortcut(key: "w", command: true, shift: false, option: true, control: false)
-        let reassignedNewWorkspace = StoredShortcut(key: "w", command: true, shift: false, option: false, control: false)
+        let reassignedSidebarToggle = StoredShortcut(key: "w", command: true, shift: false, option: false, control: false)
 
         withTemporaryShortcut(action: .closeTab, shortcut: remappedCloseTab) {
-            withTemporaryShortcut(action: .newTab, shortcut: reassignedNewWorkspace) {
+            withTemporaryShortcut(action: .toggleSidebar, shortcut: reassignedSidebarToggle) {
                 NSApp.sendEvent(event)
             }
         }
@@ -5783,7 +5784,12 @@ final class AppDelegateShortcutRoutingTests: XCTestCase {
         XCTAssertEqual(menuProbe.callCount, 0, "A stale Cmd+W Close Tab menu item must not run after Cmd+W is reassigned")
         XCTAssertEqual(
             manager.tabs.count,
-            initialWorkspaceCount + 1,
+            initialWorkspaceCount,
+            "Plain Cmd+W must not close a tab after Close Tab is remapped away"
+        )
+        XCTAssertEqual(
+            appDelegate.sidebarVisibility(windowId: windowId),
+            !initialSidebarVisible,
             "The action currently assigned to Cmd+W should run before stale Close Tab menu fallback"
         )
     }
