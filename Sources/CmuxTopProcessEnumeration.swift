@@ -157,21 +157,21 @@ nonisolated extension CmuxTopProcessSnapshot {
             }
         }
 
-        let initialByteCount = Int(proc_listallpids(nil, 0))
-        guard initialByteCount > 0 else { return [] }
-        let initialPIDCount = max(1, (initialByteCount + pidStride - 1) / pidStride)
+        // proc_listallpids returns a PID count; the buffer size argument is bytes.
+        let initialPIDCount = Int(proc_listallpids(nil, 0))
+        guard initialPIDCount > 0 else { return [] }
         var capacity = max(1, initialPIDCount + 32)
         var lastPIDs: [pid_t] = []
         var lastCount = 0
         for _ in 0..<3 {
             var pids = Array(repeating: pid_t(), count: capacity)
-            let returnedByteCount = pids.withUnsafeMutableBufferPointer { buffer in
+            let returnedCount = pids.withUnsafeMutableBufferPointer { buffer in
                 proc_listallpids(buffer.baseAddress, Int32(buffer.count * pidStride))
             }
-            guard returnedByteCount >= 0 else {
+            guard returnedCount >= 0 else {
                 return lastCount > 0 ? bsdInfos(from: lastPIDs, count: lastCount) : []
             }
-            let returnedPIDCount = Int(returnedByteCount) / pidStride
+            let returnedPIDCount = Int(returnedCount)
             let count = min(pids.count, returnedPIDCount)
             if count > 0 {
                 lastPIDs = pids
