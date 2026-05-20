@@ -49,6 +49,22 @@ extension RestorableAgentSessionIndex {
         processSnapshot: CmuxTopProcessSnapshot,
         capturedAt: TimeInterval
     ) -> [PanelKey: (snapshot: SessionRestorableAgentSnapshot, updatedAt: TimeInterval)] {
+        return processDetectedSnapshots(
+            registry: registry,
+            fileManager: fileManager,
+            processSnapshot: processSnapshot,
+            capturedAt: capturedAt,
+            processArgumentsProvider: { CmuxTopProcessSnapshot.processArgumentsAndEnvironment(for: $0) }
+        )
+    }
+
+    static func processDetectedSnapshots(
+        registry: CmuxVaultAgentRegistry,
+        fileManager: FileManager,
+        processSnapshot: CmuxTopProcessSnapshot,
+        capturedAt: TimeInterval,
+        processArgumentsProvider: (Int) -> CmuxTopProcessArguments?
+    ) -> [PanelKey: (snapshot: SessionRestorableAgentSnapshot, updatedAt: TimeInterval)] {
         var resolved = processDetectedOpenCodeSnapshots(
             processSnapshot: processSnapshot,
             capturedAt: capturedAt,
@@ -75,7 +91,7 @@ extension RestorableAgentSessionIndex {
         for process in processSnapshot.cmuxScopedProcesses() {
             guard let workspaceId = process.cmuxWorkspaceID,
                   let panelId = process.cmuxSurfaceID,
-                  let processArguments = CmuxTopProcessSnapshot.processArgumentsAndEnvironment(for: process.pid) else {
+                  let processArguments = processArgumentsProvider(process.pid) else {
                 continue
             }
             let observed = VaultObservedAgentProcess(
@@ -782,9 +798,9 @@ private extension CmuxVaultAgentSessionIDSource {
     ) -> String? {
         switch self {
         case .argvOption(let option):
-            return process.arguments.value(afterOption: option)
+            return process.arguments.nonOptionValue(afterOption: option)
         case .piSessionFile:
-            if let session = process.arguments.value(afterOption: "--session") {
+            if let session = process.arguments.nonOptionValue(afterOption: "--session") {
                 return PiSessionLocator.resolvedSessionPath(
                     session,
                     for: process,
@@ -833,6 +849,13 @@ private extension Array where Element == String {
             }
         }
         return nil
+    }
+
+    func nonOptionValue(afterOption option: String) -> String? {
+        guard let value = value(afterOption: option), !value.hasPrefix("-") else {
+            return nil
+        }
+        return value
     }
 
     var grokResumeSessionID: String? {
