@@ -72,11 +72,28 @@ func browserWebExtensionActionPopupContentSize(
     return CGSize(width: width, height: height)
 }
 
+func browserWebExtensionActionPopupClampedMidX(
+    anchorMidX: CGFloat,
+    allowedFrame: NSRect,
+    popupWidth: CGFloat,
+    horizontalFrameReserve: CGFloat = 48
+) -> CGFloat {
+    guard allowedFrame.width > 0 else {
+        return anchorMidX
+    }
+
+    let effectiveWidth = min(max(popupWidth + horizontalFrameReserve, 1), allowedFrame.width)
+    let minMidX = allowedFrame.minX + effectiveWidth / 2
+    let maxMidX = allowedFrame.maxX - effectiveWidth / 2
+    return min(max(anchorMidX, minMidX), maxMidX)
+}
+
 func browserWebExtensionActionPopupPositioningRect(
     positioningRect: NSRect,
     positioningView: NSView,
     popupWidth: CGFloat,
-    margin: CGFloat = 12
+    margin: CGFloat = 12,
+    horizontalFrameReserve: CGFloat = 48
 ) -> NSRect {
     guard let anchorWindow = positioningView.window else {
         return positioningRect
@@ -92,10 +109,12 @@ func browserWebExtensionActionPopupPositioningRect(
         return positioningRect
     }
 
-    let effectiveWidth = min(max(popupWidth, 1), allowedFrame.width)
-    let minMidX = allowedFrame.minX + effectiveWidth / 2
-    let maxMidX = allowedFrame.maxX - effectiveWidth / 2
-    let clampedMidX = min(max(screenRect.midX, minMidX), maxMidX)
+    let clampedMidX = browserWebExtensionActionPopupClampedMidX(
+        anchorMidX: screenRect.midX,
+        allowedFrame: allowedFrame,
+        popupWidth: popupWidth,
+        horizontalFrameReserve: horizontalFrameReserve
+    )
     let adjustedScreenRect = screenRect.offsetBy(dx: clampedMidX - screenRect.midX, dy: 0)
     let adjustedWindowRect = anchorWindow.convertFromScreen(adjustedScreenRect)
     return positioningView.convert(adjustedWindowRect, from: nil)
@@ -1670,7 +1689,7 @@ private final class BrowserWebExtensionRuntime: NSObject, WKWebExtensionControll
         presentation.show(
             relativeTo: rect,
             of: presentationAnchorView,
-            preferredEdge: .minY
+            preferredEdge: .maxY
         )
         completionHandler(nil)
     }

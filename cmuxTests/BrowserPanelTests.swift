@@ -163,6 +163,21 @@ final class BrowserWebExtensionActionPopupContentSizeTests: XCTestCase {
     }
 }
 
+final class BrowserWebExtensionActionPopupPositioningTests: XCTestCase {
+    func testRightEdgeAnchorLeavesSpaceForNativePopoverFrame() {
+        let allowedFrame = NSRect(x: 112, y: 112, width: 976, height: 576)
+        let clampedMidX = browserWebExtensionActionPopupClampedMidX(
+            anchorMidX: 1070,
+            allowedFrame: allowedFrame,
+            popupWidth: 380,
+            horizontalFrameReserve: 48
+        )
+        let reservedPopupMaxX = clampedMidX + (380 + 48) / 2
+
+        XCTAssertLessThanOrEqual(reservedPopupMaxX, allowedFrame.maxX + 0.5)
+    }
+}
+
 final class BrowserWebExtensionInstallStoreTests: XCTestCase {
     func testRejectsUnpackedManifestDirectory() throws {
         let root = try temporaryDirectory()
