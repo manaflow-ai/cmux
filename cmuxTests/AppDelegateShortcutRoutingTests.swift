@@ -5656,6 +5656,47 @@ final class AppDelegateShortcutRoutingTests: XCTestCase {
         }
     }
 
+    func testCurrentNumberedDigitShortcutIsNotSuppressedAsStaleMenuShortcut() {
+        guard let appDelegate = AppDelegate.shared else {
+            XCTFail("Expected AppDelegate.shared")
+            return
+        }
+
+        guard let event = makeKeyDownEvent(
+            key: "2",
+            modifiers: [.command],
+            keyCode: 19,
+            windowNumber: 0
+        ) else {
+            XCTFail("Failed to construct Cmd+2 event")
+            return
+        }
+
+        let remappedWorkspaceNumber = StoredShortcut(
+            key: "1",
+            command: false,
+            shift: false,
+            option: false,
+            control: true
+        )
+        let currentSurfaceNumber = StoredShortcut(
+            key: "1",
+            command: true,
+            shift: false,
+            option: false,
+            control: false
+        )
+
+        withTemporaryShortcut(action: .selectWorkspaceByNumber, shortcut: remappedWorkspaceNumber) {
+            withTemporaryShortcut(action: .selectSurfaceByNumber, shortcut: currentSurfaceNumber) {
+                XCTAssertFalse(
+                    appDelegate.shouldSuppressStaleCmuxMenuShortcut(event: event),
+                    "A current numbered-digit shortcut must own Cmd+2 before stale menu suppression"
+                )
+            }
+        }
+    }
+
     func testStaleCloseDefaultShortcutsSuppressMenuFallbackAfterReassignment() {
         assertStaleCloseDefaultShortcutSuppressesMenuFallback(
             staleAction: .closeTab,
