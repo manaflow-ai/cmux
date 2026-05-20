@@ -1,0 +1,215 @@
+#!/usr/bin/env bash
+# cmux codex wrapper - installs hooks and session tracking
+#
+# When running inside a cmux terminal (CMUX_SURFACE_ID is set), this wrapper
+# prepares Codex hooks and exports launch metadata so cmux can later rebuild a
+# restorable `codex resume <session>` command after an app/session restore.
+# Outside cmux, it passes through to the real codex binary unchanged.
+
+find_real_codex() {
+    local custom="${CMUX_CUSTOM_CODEX_PATH:-}"
+    custom="${custom#"${custom%%[![:space:]]*}"}"
+    custom="${custom%"${custom##*[![:space:]]}"}"
+    if [[ -n "$custom" && -f "$custom" && -x "$custom" ]]; then
+        if [[ ! "$custom" -ef "$0" ]]; then
+            printf '%s' "$custom"
+            return 0
+        fi
+    fi
+
+    local self_dir
+    self_dir="$(cd "$(dirname "$0")" && pwd)"
+    local IFS=:
+    for d in $PATH; do
+        [[ "$d" == "$self_dir" ]] && continue
+        [[ -x "$d/codex" ]] && printf '%s' "$d/codex" && return 0
+    done
+    return 1
+}
+
+cmux_socket_available() {
+    local socket="${CMUX_SOCKET_PATH:-}"
+    [[ -n "$socket" && -S "$socket" ]] || return 1
+
+    local self_dir cmux_bin
+    self_dir="$(cd "$(dirname "$0")" && pwd)"
+    cmux_bin="$self_dir/cmux"
+    [[ -x "$cmux_bin" ]] || cmux_bin="$(command -v cmux || true)"
+    [[ -n "$cmux_bin" ]] || return 1
+
+    CMUXTERM_CLI_RESPONSE_TIMEOUT_SEC=0.75 \
+        "$cmux_bin" --socket "$socket" ping >/dev/null 2>&1
+}
+
+resolve_hook_cmux_bin() {
+    local self_dir bundled_cli
+    bundled_cli="${CMUX_BUNDLED_CLI_PATH:-}"
+    if [[ -n "$bundled_cli" && -x "$bundled_cli" ]]; then
+        printf '%s' "$bundled_cli"
+        return 0
+    fi
+
+    self_dir="$(cd "$(dirname "$0")" && pwd)"
+    bundled_cli="$self_dir/cmux"
+    if [[ -x "$bundled_cli" ]]; then
+        printf '%s' "$bundled_cli"
+        return 0
+    fi
+
+    bundled_cli="$(command -v cmux || true)"
+    if [[ -n "$bundled_cli" ]]; then
+        printf '%s' "$bundled_cli"
+        return 0
+    fi
+
+    printf '%s' "cmux"
+}
+
+codex_option_consumes_value() {
+    case "$1" in
+        -c|--config|--enable|--disable|--remote|--remote-auth-token-env|\
+        -i|--image|-m|--model|--local-provider|-p|--profile|\
+        --profile-v2|-s|--sandbox|-C|--cd|--add-dir|\
+        -a|--ask-for-approval)
+            return 0
+            ;;
+    esac
+    return 1
+}
+
+codex_passthrough_option_flag() {
+    case "$1" in
+        --help|-h|--version|-V)
+            return 0
+            ;;
+    esac
+    return 1
+}
+
+codex_interactive_command_name() {
+    case "$1" in
+        resume|fork)
+            return 0
+            ;;
+    esac
+    return 1
+}
+
+codex_noninteractive_command_name() {
+    case "$1" in
+        exec|e|review|login|logout|mcp|plugin|mcp-server|app-server|\
+        remote-control|app|completion|update|doctor|sandbox|debug|\
+        apply|a|cloud|exec-server|features|help)
+            return 0
+            ;;
+    esac
+    return 1
+}
+
+codex_command_like_invocation() {
+    local candidate="$1"
+    [[ -n "$candidate" ]] || return 1
+    case "$candidate" in
+        *[![:alnum:]_-]*)
+            return 1
+            ;;
+    esac
+    codex_noninteractive_command_name "$candidate"
+}
+
+should_track_codex_session() {
+    (( $# == 0 )) && return 0
+
+    local arg
+    local skip_next=false
+    for arg in "$@"; do
+        if [[ "$skip_next" == true ]]; then
+            skip_next=false
+            continue
+        fi
+        case "$arg" in
+            --)
+                return 0
+                ;;
+            -*)
+                if codex_passthrough_option_flag "$arg"; then
+                    return 1
+                fi
+                if [[ "$arg" != *=* ]] && codex_option_consumes_value "$arg"; then
+                    skip_next=true
+                fi
+                continue
+                ;;
+            *)
+                if codex_interactive_command_name "$arg"; then
+                    return 0
+                fi
+                if codex_command_like_invocation "$arg"; then
+                    return 1
+                fi
+                return 0
+                ;;
+        esac
+    done
+
+    return 0
+}
+
+encode_launch_argv() {
+    {
+        printf '%s\0' "$REAL_CODEX"
+        if (( $# > 0 )); then
+            printf '%s\0' "$@"
+        fi
+    } | base64 | tr -d '\n'
+}
+
+install_codex_hooks_if_needed() {
+    local cmux_bin
+    cmux_bin="$(resolve_hook_cmux_bin)" || return 0
+    [[ -n "$cmux_bin" ]] || return 0
+
+    CMUXTERM_CLI_RESPONSE_TIMEOUT_SEC=2 \
+        "$cmux_bin" hooks codex install --yes >/dev/null 2>&1 || true
+}
+
+IN_CMUX=0
+if [[ -n "$CMUX_SURFACE_ID" ]]; then
+    IN_CMUX=1
+fi
+
+REAL_CODEX="$(find_real_codex)" || { echo "Error: codex not found in PATH" >&2; exit 127; }
+
+exec_real_codex_passthrough() {
+    if [[ "$IN_CMUX" == "1" ]]; then
+        local cmux_key
+        for cmux_key in "${!CMUX_@}"; do
+            unset "$cmux_key"
+        done
+        unset TERMINFO
+    fi
+    exec "$REAL_CODEX" "$@"
+}
+
+if [[ "$IN_CMUX" == "0" || "$CMUX_CODEX_HOOKS_DISABLED" == "1" ]]; then
+    exec_real_codex_passthrough "$@"
+fi
+
+if ! should_track_codex_session "$@"; then
+    exec_real_codex_passthrough "$@"
+fi
+
+if ! cmux_socket_available; then
+    exec_real_codex_passthrough "$@"
+fi
+
+install_codex_hooks_if_needed
+
+# Because we exec codex below, this PID becomes the real codex process PID.
+export CMUX_CODEX_PID=$$
+export CMUX_AGENT_LAUNCH_KIND="codex"
+export CMUX_AGENT_LAUNCH_EXECUTABLE="$REAL_CODEX"
+export CMUX_AGENT_LAUNCH_ARGV_B64="$(encode_launch_argv "$@")"
+export CMUX_AGENT_LAUNCH_CWD="$PWD"
+
+exec "$REAL_CODEX" "$@"

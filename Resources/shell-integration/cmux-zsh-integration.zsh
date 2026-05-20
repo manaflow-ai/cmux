@@ -174,6 +174,22 @@ _cmux_install_claude_wrapper() {
 }
 _cmux_install_claude_wrapper
 
+typeset -g _CMUX_CODEX_WRAPPER=""
+_cmux_install_codex_wrapper() {
+    local integration_dir="${CMUX_SHELL_INTEGRATION_DIR:-}"
+    [[ -n "$integration_dir" ]] || return 0
+
+    integration_dir="${integration_dir%/}"
+    local bundle_dir="${integration_dir%/shell-integration}"
+    local wrapper_path="$bundle_dir/bin/codex"
+    [[ -x "$wrapper_path" ]] || return 0
+
+    _CMUX_CODEX_WRAPPER="$wrapper_path"
+    builtin unalias codex >/dev/null 2>&1 || true
+    eval 'codex() { "$_CMUX_CODEX_WRAPPER" "$@"; }'
+}
+_cmux_install_codex_wrapper
+
 _cmux_normalize_claude_config_dir() {
     [[ -n "${CLAUDE_CONFIG_DIR:-}" && -n "${HOME:-}" ]] || return 0
 
