@@ -1723,7 +1723,9 @@ final class AppDelegateShortcutRoutingTests: XCTestCase {
         XCTFail("debugHandleCustomShortcut is only available in DEBUG")
 #endif
 
-        RunLoop.main.run(until: Date(timeIntervalSinceNow: 0.05))
+        waitUntil(timeout: 1.0) {
+            self.window(withId: windowId) == nil
+        }
 
         XCTAssertNil(self.window(withId: windowId), "Confirming Cmd+Ctrl+W should close the window")
     }
@@ -4283,6 +4285,12 @@ final class AppDelegateShortcutRoutingTests: XCTestCase {
             moveExpectation.fulfill()
         }
         defer { NotificationCenter.default.removeObserver(moveToken) }
+
+        window.displayIfNeeded()
+        XCTAssertTrue(
+            window.makeFirstResponder(fieldEditor),
+            "Expected command palette field editor to own first responder"
+        )
 
         guard let downArrowEvent = makeKeyDownEvent(
             key: String(UnicodeScalar(NSDownArrowFunctionKey)!),
