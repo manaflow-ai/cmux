@@ -12221,6 +12221,9 @@ final class Workspace: Identifiable, ObservableObject {
            panelSubscriptions[markdownPanel.id] == nil {
             installMarkdownPanelSubscription(markdownPanel)
         }
+        if let codexPanel = detached.panel as? CodexAppServerPanel {
+            updateCodexAppServerPanelDisplay(codexPanel)
+        }
         if let filePreviewPanel = detached.panel as? FilePreviewPanel,
            panelSubscriptions[filePreviewPanel.id] == nil {
             installFilePreviewPanelSubscription(filePreviewPanel)

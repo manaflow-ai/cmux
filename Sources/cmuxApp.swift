@@ -7471,6 +7471,7 @@ struct SettingsView: View {
         CmdClickSupportedFileRouteSettings.setEnabled(CmdClickSupportedFileRouteSettings.defaultValue)
         openSupportedFilesInCmux = CmdClickSupportedFileRouteSettings.defaultValue
         openMarkdownInCmuxViewer = CmdClickMarkdownRouteSettings.defaultValue
+        codexTranscriptFontSize = CodexAppServerUISettings.defaultTranscriptFontSize
         browserSearchEngine = BrowserSearchSettings.defaultSearchEngine.rawValue
         browserSearchSuggestionsEnabled = BrowserSearchSettings.defaultSearchSuggestionsEnabled
         browserThemeMode = BrowserThemeSettings.defaultMode.rawValue

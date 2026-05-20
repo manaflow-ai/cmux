@@ -369,6 +369,55 @@ final class CodexAppServerRequestFactoryTests: XCTestCase {
     }
 
     @MainActor
+    func testAttachingRunningCodexPanelRefreshesTabLoadingState() async throws {
+        let client = FakeCodexAppServerClient()
+        let sourceWorkspaceId = UUID()
+        let panel = CodexAppServerPanel(
+            workspaceId: sourceWorkspaceId,
+            cwd: "/tmp",
+            client: client
+        )
+        panel.promptText = "keep working"
+
+        await panel.sendPrompt()
+
+        XCTAssertTrue(panel.status.isBusy)
+
+        let detached = Workspace.DetachedSurfaceTransfer(
+            sourceWorkspaceId: sourceWorkspaceId,
+            panelId: panel.id,
+            panel: panel,
+            title: panel.displayTitle,
+            icon: panel.displayIcon,
+            iconImageData: nil,
+            kind: Workspace.SurfaceKind.codexAppServer,
+            isLoading: false,
+            isPinned: false,
+            directory: panel.cwd,
+            ttyName: nil,
+            cachedTitle: nil,
+            customTitle: nil,
+            manuallyUnread: false,
+            restoredUnread: false,
+            restorableAgent: nil,
+            restorableAgentResumeState: nil,
+            resumeBinding: nil,
+            agentRuntime: nil,
+            isRemoteTerminal: false,
+            remoteRelayPort: nil,
+            remoteCleanupConfiguration: nil
+        )
+        let destination = Workspace()
+        let paneId = try XCTUnwrap(destination.bonsplitController.focusedPaneId)
+
+        let attachedPanelId = destination.attachDetachedSurface(detached, inPane: paneId, focus: false)
+
+        XCTAssertEqual(attachedPanelId, panel.id)
+        let tabId = try XCTUnwrap(destination.surfaceIdFromPanelId(panel.id))
+        XCTAssertTrue(destination.bonsplitController.tab(tabId)?.isLoading ?? false)
+    }
+
+    @MainActor
     func testResumeMissingRolloutFallsBackToFreshReadyPanel() async throws {
         let client = FakeCodexAppServerClient()
         client.resumeThreadError = CodexAppServerClientError.requestFailed(
