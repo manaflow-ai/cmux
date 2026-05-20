@@ -123,6 +123,7 @@ should_track_codex_session() {
 
     local arg
     local skip_next=false
+    local saw_interactive_command=false
     for arg in "$@"; do
         if [[ "$skip_next" == true ]]; then
             skip_next=false
@@ -143,7 +144,8 @@ should_track_codex_session() {
                 ;;
             *)
                 if codex_interactive_command_name "$arg"; then
-                    return 0
+                    saw_interactive_command=true
+                    continue
                 fi
                 if codex_command_like_invocation "$arg"; then
                     return 1
@@ -153,6 +155,7 @@ should_track_codex_session() {
         esac
     done
 
+    [[ "$saw_interactive_command" == true ]] && return 0
     return 0
 }
 

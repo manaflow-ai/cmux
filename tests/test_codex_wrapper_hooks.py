@@ -298,6 +298,9 @@ def test_passthrough_flags_and_disabled_hooks_do_not_track(failures: list[str]) 
     scenarios = [
         ("--help", {"argv": ["--help"], "hooks_disabled": False, "socket_state": "live"}),
         ("--version", {"argv": ["--version"], "hooks_disabled": False, "socket_state": "live"}),
+        ("resume --help", {"argv": ["resume", "--help"], "hooks_disabled": False, "socket_state": "live"}),
+        ("resume -h", {"argv": ["resume", "-h"], "hooks_disabled": False, "socket_state": "live"}),
+        ("fork --help", {"argv": ["fork", "--help"], "hooks_disabled": False, "socket_state": "live"}),
         ("disabled", {"argv": ["hello"], "hooks_disabled": True, "socket_state": "live"}),
         ("stale socket", {"argv": ["hello"], "hooks_disabled": False, "socket_state": "stale"}),
         ("missing socket", {"argv": ["hello"], "hooks_disabled": False, "socket_state": "missing"}),
