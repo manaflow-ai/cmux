@@ -669,25 +669,57 @@ extension SessionIndexStore {
 
     nonisolated private static func grokTitle(in object: [String: Any]) -> String? {
         if shouldUseGrokObjectAsTitle(object) {
-            if let title = firstText(in: object, keys: ["content", "text"]) {
+            if let title = grokTitleText(firstText(in: object, keys: ["content", "text"])) {
                 return title
             }
-            if let message = firstString(in: object, keys: ["message"]) {
+            if let message = grokTitleText(firstString(in: object, keys: ["message"])) {
                 return message
             }
         }
         if let message = object["message"] as? [String: Any],
            shouldUseGrokObjectAsTitle(message) {
-            return firstText(in: message, keys: ["content", "text"])
+            return grokTitleText(firstText(in: message, keys: ["content", "text"]))
         }
         if let messages = object["messages"] as? [[String: Any]] {
             return messages.compactMap { message in
                 shouldUseGrokObjectAsTitle(message)
-                    ? firstText(in: message, keys: ["content", "text"])
+                    ? grokTitleText(firstText(in: message, keys: ["content", "text"]))
                     : nil
             }.first
         }
         return nil
+    }
+
+    nonisolated private static func grokTitleText(_ value: String?) -> String? {
+        guard let value else { return nil }
+        if let userQuery = grokTaggedContent(named: "user_query", in: value) {
+            return userQuery
+        }
+        let withoutMetadata = ["user_info", "git_status", "system-reminder"].reduce(value) { partial, tag in
+            removingGrokTaggedContent(named: tag, from: partial)
+        }
+        return trimmedNonEmpty(withoutMetadata)
+    }
+
+    nonisolated private static func grokTaggedContent(named tag: String, in text: String) -> String? {
+        let openTag = "<\(tag)>"
+        let closeTag = "</\(tag)>"
+        guard let openRange = text.range(of: openTag) else { return nil }
+        let bodyStart = openRange.upperBound
+        guard let closeRange = text[bodyStart...].range(of: closeTag) else { return nil }
+        return trimmedNonEmpty(String(text[bodyStart..<closeRange.lowerBound]))
+    }
+
+    nonisolated private static func removingGrokTaggedContent(named tag: String, from text: String) -> String {
+        let openTag = "<\(tag)>"
+        let closeTag = "</\(tag)>"
+        var result = text
+        while let openRange = result.range(of: openTag) {
+            let bodyStart = openRange.upperBound
+            guard let closeRange = result[bodyStart...].range(of: closeTag) else { break }
+            result.removeSubrange(openRange.lowerBound..<closeRange.upperBound)
+        }
+        return result
     }
 
     nonisolated private static func shouldUseGrokObjectAsTitle(_ object: [String: Any]) -> Bool {

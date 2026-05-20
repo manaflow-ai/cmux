@@ -76,6 +76,7 @@ final class PiVaultAgentPersistenceTests: XCTestCase {
         XCTAssertEqual(registration.sessionDirectory, "~/.grok/sessions")
         XCTAssertEqual(registration.detect.processNames, ["grok", "grok-macos-aarch64", "grok-macos-aarch"])
         XCTAssertTrue(registration.detect.argvContains.isEmpty)
+        XCTAssertEqual(SessionAgent.grok.assetName, "AgentIcons/Grok")
     }
 
     func testRegisteredAgentTemplateFailsClosedWhenPlaceholderIsUnavailable() {
@@ -461,6 +462,59 @@ final class PiVaultAgentPersistenceTests: XCTestCase {
             entry.resumeCommand,
             "cd '/tmp/grok repo' && 'env' 'GROK_HOME=\(grokHome.path)' 'grok' '-r' 'grok-session-123' '-m' 'grok-4' '--permission-mode' 'auto' '--sandbox' 'danger-full-access'"
         )
+    }
+
+    func testGrokVaultTitlePrefersUserQueryOverInjectedMetadata() async throws {
+        let tempDir = FileManager.default.temporaryDirectory
+            .appendingPathComponent("cmux-grok-vault-metadata-title-\(UUID().uuidString)", isDirectory: true)
+        try FileManager.default.createDirectory(at: tempDir, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: tempDir) }
+
+        let cwd = "/tmp/grok metadata repo"
+        let sessionId = "grok-metadata-session"
+        let sessionsRoot = tempDir.appendingPathComponent("sessions", isDirectory: true)
+        let historyURL = sessionsRoot
+            .appendingPathComponent(GrokSessionLocator.encodedSessionCWD(cwd), isDirectory: true)
+            .appendingPathComponent(sessionId, isDirectory: true)
+            .appendingPathComponent("chat_history.jsonl", isDirectory: false)
+        try FileManager.default.createDirectory(
+            at: historyURL.deletingLastPathComponent(),
+            withIntermediateDirectories: true
+        )
+
+        let userContent = """
+        <user_info>
+        OS Version: macos 26.4
+        </user_info>
+        <git_status>
+        Current branch: issue-4394-grok-vault-resume
+        </git_status>
+        <user_query>
+        Implement native Vault metadata
+        </user_query>
+        """
+        let records: [[String: Any]] = [
+            ["type": "system", "content": "You are Grok"],
+            ["type": "user", "content": userContent, "model": "grok-4"],
+        ]
+        let jsonLines = try records.map { record in
+            let data = try JSONSerialization.data(withJSONObject: record, options: [.sortedKeys])
+            return String(decoding: data, as: UTF8.self)
+        }.joined(separator: "\n")
+        try (jsonLines + "\n").write(to: historyURL, atomically: true, encoding: .utf8)
+
+        var registration = CmuxVaultAgentRegistration.builtInGrok
+        registration.sessionDirectory = sessionsRoot.path
+        let entries = await SessionIndexStore.loadGrokEntries(
+            registration: registration,
+            needle: "",
+            cwdFilter: nil,
+            offset: 0,
+            limit: 10
+        )
+
+        let entry = try XCTUnwrap(entries.first)
+        XCTAssertEqual(entry.title, "Implement native Vault metadata")
     }
 
     func testGrokVaultLoadsHookObservedShellGrokHome() async throws {
