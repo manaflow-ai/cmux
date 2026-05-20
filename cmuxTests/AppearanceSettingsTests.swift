@@ -10,6 +10,97 @@ import SwiftUI
 
 @MainActor
 final class AppearanceSettingsTests: XCTestCase {
+    func testBundleIconPersistenceAllowsStableReleaseBundle() {
+        XCTAssertTrue(
+            AppBundleIconPersistencePolicy.shouldPersist(
+                bundleIdentifier: "com.cmuxterm.app",
+                appBundleLastPathComponent: "cmux.app",
+                persistenceDisabled: false
+            )
+        )
+    }
+
+    func testBundleIconPersistenceSkipsNightlyBundles() {
+        XCTAssertFalse(
+            AppBundleIconPersistencePolicy.shouldPersist(
+                bundleIdentifier: "com.cmuxterm.app.nightly",
+                appBundleLastPathComponent: "cmux NIGHTLY.app",
+                persistenceDisabled: false
+            )
+        )
+        XCTAssertFalse(
+            AppBundleIconPersistencePolicy.shouldPersist(
+                bundleIdentifier: "com.cmuxterm.app.nightly.issue-4350",
+                appBundleLastPathComponent: "cmux NIGHTLY issue-4350.app",
+                persistenceDisabled: false
+            )
+        )
+    }
+
+    func testBundleIconPersistenceRejectsMismatchedStableIdentifierAndPath() {
+        XCTAssertFalse(
+            AppBundleIconPersistencePolicy.shouldPersist(
+                bundleIdentifier: "com.cmuxterm.app",
+                appBundleLastPathComponent: "cmux NIGHTLY.app",
+                persistenceDisabled: false
+            )
+        )
+    }
+
+    func testBundleIconPersistenceSkipsDebugBundles() {
+        XCTAssertFalse(
+            AppBundleIconPersistencePolicy.shouldPersist(
+                bundleIdentifier: "com.cmuxterm.app.debug",
+                appBundleLastPathComponent: "cmux DEV.app",
+                persistenceDisabled: false
+            )
+        )
+        XCTAssertFalse(
+            AppBundleIconPersistencePolicy.shouldPersist(
+                bundleIdentifier: "com.cmuxterm.app.debug.issue-4350",
+                appBundleLastPathComponent: "cmux DEV issue-4350.app",
+                persistenceDisabled: false
+            )
+        )
+    }
+
+    func testBundleIconPersistenceHonorsDisableDefault() {
+        XCTAssertFalse(
+            AppBundleIconPersistencePolicy.shouldPersist(
+                bundleIdentifier: "com.cmuxterm.app",
+                appBundleLastPathComponent: "cmux.app",
+                persistenceDisabled: true
+            )
+        )
+    }
+
+    func testBundleIconPersistenceMirrorsSmokeLaunchArgumentToDefaults() {
+        let suiteName = "AppearanceSettingsTests.BundleIconPersistence.\(UUID().uuidString)"
+        guard let defaults = UserDefaults(suiteName: suiteName) else {
+            XCTFail("Failed to create isolated UserDefaults suite")
+            return
+        }
+        defer { defaults.removePersistentDomain(forName: suiteName) }
+
+        AppBundleIconPersistencePolicy.updateDisableDefault(
+            defaults: defaults,
+            launchArguments: [AppBundleIconPersistencePolicy.disablePersistenceArgument]
+        )
+        XCTAssertEqual(
+            defaults.object(forKey: AppBundleIconPersistencePolicy.disablePersistenceDefaultsKey) as? Bool,
+            true
+        )
+
+        AppBundleIconPersistencePolicy.updateDisableDefault(
+            defaults: defaults,
+            launchArguments: []
+        )
+        XCTAssertEqual(
+            defaults.object(forKey: AppBundleIconPersistencePolicy.disablePersistenceDefaultsKey) as? Bool,
+            false
+        )
+    }
+
     func testAppConfigReloadRefreshUpdatesSurfaceConfigBeforeRedraw() throws {
         let fakeSurface = try XCTUnwrap(UnsafeMutableRawPointer(bitPattern: 0x3851))
         var events: [String] = []
@@ -22,6 +113,9 @@ final class AppearanceSettingsTests: XCTestCase {
                 XCTAssertTrue(soft)
                 events.append("reload:\(source)")
             },
+            applySurfaceColorScheme: {
+                events.append("color-scheme")
+            },
             refreshHostBackground: {
                 events.append("host-background")
             },
@@ -31,6 +125,7 @@ final class AppearanceSettingsTests: XCTestCase {
         )
 
         XCTAssertEqual(events, [
+            "color-scheme",
             "reload:appearanceSync:test",
             "host-background",
             "force-refresh:\(GhosttySurfaceConfigurationRefresh.forceRefreshReason)"
@@ -46,6 +141,9 @@ final class AppearanceSettingsTests: XCTestCase {
             reloadSurfaceConfiguration: { _, _, _ in
                 events.append("reload")
             },
+            applySurfaceColorScheme: {
+                events.append("color-scheme")
+            },
             refreshHostBackground: {
                 events.append("host-background")
             },
@@ -58,6 +156,65 @@ final class AppearanceSettingsTests: XCTestCase {
             "host-background",
             "force-refresh:\(GhosttySurfaceConfigurationRefresh.forceRefreshReason)"
         ])
+    }
+
+    func testAppConfigReloadRefreshAppliesSurfaceColorSchemeForPreviewReload() throws {
+        let fakeSurface = try XCTUnwrap(UnsafeMutableRawPointer(bitPattern: 0x3852))
+        var events: [String] = []
+
+        GhosttySurfaceConfigurationRefresh.applyAfterAppConfigReload(
+            to: fakeSurface,
+            source: GhosttySurfaceConfigurationRefresh.cmuxThemeReloadPreviewSource,
+            reloadSurfaceConfiguration: { _, soft, source in
+                XCTAssertTrue(soft)
+                events.append("reload:\(source)")
+            },
+            applySurfaceColorScheme: {
+                events.append("color-scheme")
+            },
+            refreshHostBackground: {
+                events.append("host-background")
+            },
+            forceRefresh: { reason in
+                events.append("force-refresh:\(reason)")
+            }
+        )
+
+        XCTAssertEqual(events, [
+            "color-scheme",
+            "reload:\(GhosttySurfaceConfigurationRefresh.cmuxThemeReloadPreviewSource)",
+            "host-background",
+            "force-refresh:\(GhosttySurfaceConfigurationRefresh.forceRefreshReason)"
+        ])
+    }
+
+    func testCmuxThemeFinalReloadUsesFinalSource() {
+        XCTAssertEqual(
+            GhosttySurfaceConfigurationRefresh.cmuxThemeReloadSource(phase: "final"),
+            GhosttySurfaceConfigurationRefresh.cmuxThemeReloadFinalSource
+        )
+    }
+
+    func testCmuxThemePreviewReloadIsDebounced() {
+        XCTAssertEqual(
+            GhosttySurfaceConfigurationRefresh.cmuxThemeReloadSource(phase: "preview"),
+            GhosttySurfaceConfigurationRefresh.cmuxThemeReloadPreviewSource
+        )
+        XCTAssertTrue(
+            GhosttySurfaceConfigurationRefresh.shouldDebounceCmuxThemeReload(
+                source: GhosttySurfaceConfigurationRefresh.cmuxThemeReloadPreviewSource
+            )
+        )
+        XCTAssertTrue(
+            GhosttySurfaceConfigurationRefresh.shouldDebounceCmuxThemeReload(
+                source: GhosttySurfaceConfigurationRefresh.cmuxThemeReloadLegacySource
+            )
+        )
+        XCTAssertFalse(
+            GhosttySurfaceConfigurationRefresh.shouldDebounceCmuxThemeReload(
+                source: GhosttySurfaceConfigurationRefresh.cmuxThemeReloadFinalSource
+            )
+        )
     }
 
     func testResolvedModeDefaultsToSystemWhenUnset() {

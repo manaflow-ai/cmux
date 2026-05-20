@@ -6497,7 +6497,12 @@ class TerminalController {
                 }
 
                 let targetIndex = insertionIndexToRight(anchorTabId: anchorTabId, inPane: paneId)
-                guard let newPanel = workspace.newBrowserSurface(inPane: paneId, url: url, focus: focus) else {
+                guard let newPanel = workspace.newBrowserSurface(
+                    inPane: paneId,
+                    url: url,
+                    focus: focus,
+                    creationPolicy: .automationPreload
+                ) else {
                     result = .err(code: "internal_error", message: "Failed to create tab", data: nil)
                     return
                 }
@@ -6732,6 +6737,12 @@ class TerminalController {
     private func v2SurfaceResumeBindingWithApproval(_ binding: SurfaceResumeBindingSnapshot) -> SurfaceResumeBindingSnapshot {
         let existingRecord = SurfaceResumeApprovalStore.matchingRecord(for: binding)
         var effectiveBinding = SurfaceResumeApprovalStore.applyingStoredApproval(to: binding)
+        if let promptlessCLIManualBinding = SurfaceResumeApprovalStore.applyingPromptlessCLIManualApprovalIfNeeded(
+            to: binding,
+            existingRecord: existingRecord
+        ) {
+            return promptlessCLIManualBinding
+        }
         guard v2ShouldPromptForSurfaceResumeApproval(binding: binding, existingRecord: existingRecord) else {
             return effectiveBinding
         }
@@ -6750,20 +6761,12 @@ class TerminalController {
         binding: SurfaceResumeBindingSnapshot,
         existingRecord: SurfaceResumeApprovalRecord?
     ) -> Bool {
-        guard Thread.isMainThread else {
-            return false
-        }
-        guard ProcessInfo.processInfo.environment["XCTestConfigurationFilePath"] == nil else {
-            return false
-        }
-        guard !binding.isProcessDetected, !binding.isAgentHookBinding else {
-            return false
-        }
-        guard SurfaceResumeCommandCanonicalizer.tokens(from: binding.command) != nil else {
-            return false
-        }
-        guard let existingRecord else { return true }
-        return existingRecord.policy == .prompt
+        SurfaceResumeApprovalStore.shouldPromptForProposal(
+            binding: binding,
+            existingRecord: existingRecord,
+            isMainThread: Thread.isMainThread,
+            isRunningTests: ProcessInfo.processInfo.environment["XCTestConfigurationFilePath"] != nil
+        )
     }
 
     private func v2PromptForSurfaceResumeApproval(
@@ -7072,6 +7075,7 @@ class TerminalController {
                     insertFirst: insertFirst,
                     url: url,
                     focus: focus,
+                    creationPolicy: .automationPreload,
                     initialDividerPosition: initialDividerPosition.map { CGFloat($0) }
                 )?.id
             } else {
@@ -7147,7 +7151,12 @@ class TerminalController {
             let newPanelId: UUID?
             let focus = v2FocusAllowed(requested: v2Bool(params, "focus") ?? false)
             if panelType == .browser {
-                newPanelId = ws.newBrowserSurface(inPane: paneId, url: url, focus: focus)?.id
+                newPanelId = ws.newBrowserSurface(
+                    inPane: paneId,
+                    url: url,
+                    focus: focus,
+                    creationPolicy: .automationPreload
+                )?.id
             } else {
                 newPanelId = ws.newTerminalSurface(
                     inPane: paneId,
@@ -8463,6 +8472,7 @@ class TerminalController {
                     insertFirst: insertFirst,
                     url: url,
                     focus: focus,
+                    creationPolicy: .automationPreload,
                     initialDividerPosition: initialDividerPosition.map { CGFloat($0) }
                 )?.id
             } else {
@@ -10319,11 +10329,22 @@ class TerminalController {
             var placementStrategy = "split_right"
             let createdPanel: BrowserPanel?
             if let targetPane = ws.preferredRightSideTargetPane(fromPanelId: sourceSurfaceId) {
-                createdPanel = ws.newBrowserSurface(inPane: targetPane, url: url, focus: focus)
+                createdPanel = ws.newBrowserSurface(
+                    inPane: targetPane,
+                    url: url,
+                    focus: focus,
+                    creationPolicy: .automationPreload
+                )
                 createdSplit = false
                 placementStrategy = "reuse_right_sibling"
             } else {
-                createdPanel = ws.newBrowserSplit(from: sourceSurfaceId, orientation: .horizontal, url: url, focus: focus)
+                createdPanel = ws.newBrowserSplit(
+                    from: sourceSurfaceId,
+                    orientation: .horizontal,
+                    url: url,
+                    focus: focus,
+                    creationPolicy: .automationPreload
+                )
             }
 
             guard let browserPanelId = createdPanel?.id else {
@@ -13083,7 +13104,12 @@ class TerminalController {
                 return
             }
 
-            guard let panel = ws.newBrowserSurface(inPane: pane, url: url, focus: true) else {
+            guard let panel = ws.newBrowserSurface(
+                inPane: pane,
+                url: url,
+                focus: true,
+                creationPolicy: .automationPreload
+            ) else {
                 result = .err(code: "internal_error", message: "Failed to create browser tab", data: nil)
                 return
             }
@@ -14425,7 +14451,7 @@ class TerminalController {
           notify_target <workspace_id> <surface_id> <payload> - Notify by workspace+surface
           notify_target_async <workspace_uuid> <surface_uuid> <payload> - Queue notification by workspace+surface
           list_notifications              - List all notifications
-          clear_notifications [--tab=X]    - Clear notifications (all or per-tab)
+          clear_notifications [--tab=X] [--panel=ID] - Clear notifications (all, per-tab, or per-panel)
           set_app_focus <active|inactive|clear> - Override app focus state
           simulate_app_active             - Trigger app active handler
           set_status <key> <value> [--icon=X] [--color=#hex] [--url=X] [--priority=N] [--format=plain|markdown] [--tab=X] - Set a status entry
@@ -15755,12 +15781,18 @@ class TerminalController {
             return "ERROR: Usage: notify_target_async <workspace_uuid> <surface_uuid> <title>|<subtitle>|<body>"
         }
         let (title, subtitle, body) = parseNotificationPayload(payload)
+#if DEBUG
+        cmuxDebugLog(
+            "socket.notifyTargetAsync.enqueue workspace=\(tabId.uuidString.prefix(8)) surface=\(surfaceId.uuidString.prefix(8)) titleLen=\(title.count) subtitleLen=\(subtitle.count) bodyLen=\(body.count) coalesces=0"
+        )
+#endif
         TerminalMutationBus.shared.enqueueNotification(
             tabId: tabId,
             surfaceId: surfaceId,
             title: title,
             subtitle: subtitle,
-            body: body
+            body: body,
+            coalesces: false
         )
         return "OK"
     }
@@ -15789,26 +15821,49 @@ class TerminalController {
         let parsed = parseOptions(trimmed)
         guard let tabOption = parsed.options["tab"],
               !tabOption.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else {
-            return "ERROR: Usage: clear_notifications [--tab=X]"
+            return "ERROR: Usage: clear_notifications [--tab=X] [--panel=ID]"
         }
         let targetResolution = parseSidebarMutationTabTarget(options: parsed.options)
         guard let target = targetResolution.target else {
             return targetResolution.error ?? "ERROR: Tab not found"
         }
+        let usage = "clear_notifications [--tab=X] [--panel=ID]"
+        let panelResolution = parseOptionalPanelIdOption(options: parsed.options, usage: usage)
+        if let error = panelResolution.error {
+            return error
+        }
         if case .workspace(let tabId) = target {
-            TerminalMutationBus.shared.enqueueClearNotifications(forTabId: tabId)
+            if let panelId = panelResolution.panelId {
+                TerminalMutationBus.shared.enqueueClearNotifications(forTabId: tabId, surfaceId: panelId)
+            } else {
+                TerminalMutationBus.shared.enqueueClearNotifications(forTabId: tabId)
+            }
         } else {
             let clearBoundary = TerminalMutationBus.shared.markNotificationClearBoundary()
             TerminalMutationBus.shared.enqueueMainActorMutation { [weak self] in
                 guard let self, let tab = self.resolveSidebarMutationTab(target) else { return }
-                TerminalMutationBus.shared.discardPendingNotifications(
-                    forTabId: tab.id,
-                    through: clearBoundary
-                )
-                TerminalNotificationStore.shared.clearNotifications(
-                    forTabId: tab.id,
-                    discardQueuedNotifications: false
-                )
+                if let panelId = panelResolution.panelId {
+                    guard tab.panels.keys.contains(panelId) else { return }
+                    TerminalMutationBus.shared.discardPendingNotifications(
+                        forTabId: tab.id,
+                        surfaceId: panelId,
+                        through: clearBoundary
+                    )
+                    TerminalNotificationStore.shared.clearNotifications(
+                        forTabId: tab.id,
+                        surfaceId: panelId,
+                        discardQueuedNotifications: false
+                    )
+                } else {
+                    TerminalMutationBus.shared.discardPendingNotifications(
+                        forTabId: tab.id,
+                        through: clearBoundary
+                    )
+                    TerminalNotificationStore.shared.clearNotifications(
+                        forTabId: tab.id,
+                        discardQueuedNotifications: false
+                    )
+                }
             }
         }
         return "OK"
@@ -16828,7 +16883,8 @@ class TerminalController {
                 from: focusedPanelId,
                 orientation: .horizontal,
                 url: url,
-                focus: focus
+                focus: focus,
+                creationPolicy: .automationPreload
             )?.id {
                 result = "OK \(browserPanelId.uuidString)"
             }
@@ -17269,7 +17325,8 @@ class TerminalController {
                     orientation: orientation,
                     insertFirst: insertFirst,
                     url: url,
-                    focus: focus
+                    focus: focus,
+                    creationPolicy: .automationPreload
                 )?.id
             } else {
                 newPanelId = tab.newTerminalSplit(
@@ -17742,7 +17799,18 @@ class TerminalController {
             if let panelId = panelResolution.panelId, !tab.panels.keys.contains(panelId) {
                 return
             }
-            tab.recordAgentPID(key: key, pid: pid, panelId: panelResolution.panelId)
+            let didReplaceAgentRuntime = tab.recordAgentPID(
+                key: key,
+                pid: pid,
+                panelId: panelResolution.panelId
+            )
+            if didReplaceAgentRuntime, let panelId = panelResolution.panelId {
+                TerminalNotificationStore.shared.clearNotifications(
+                    forTabId: tab.id,
+                    surfaceId: panelId,
+                    discardQueuedNotifications: false
+                )
+            }
         }
         return "OK"
     }
@@ -18889,7 +18957,12 @@ class TerminalController {
 
             let newPanelId: UUID?
             if panelType == .browser {
-                newPanelId = tab.newBrowserSurface(inPane: targetPaneId, url: url, focus: focus)?.id
+                newPanelId = tab.newBrowserSurface(
+                    inPane: targetPaneId,
+                    url: url,
+                    focus: focus,
+                    creationPolicy: .automationPreload
+                )?.id
             } else {
                 newPanelId = tab.newTerminalSurface(inPane: targetPaneId, focus: focus)?.id
             }

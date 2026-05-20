@@ -1437,6 +1437,8 @@ final class SessionPersistenceTests: XCTestCase {
                 resolvedEnvironment = ["CLAUDE_CONFIG_DIR": "/tmp/claude"]
             case .codex:
                 resolvedEnvironment = ["CODEX_HOME": "/tmp/codex"]
+            case .grok:
+                resolvedEnvironment = ["GROK_HOME": "/tmp/grok"]
             case .pi:
                 resolvedEnvironment = ["PI_CODING_AGENT_DIR": "/tmp/pi"]
             case .amp:
@@ -4023,6 +4025,77 @@ extension SessionPersistenceTests {
         XCTAssertEqual(effectiveBinding.approvalPolicy, .manual)
         XCTAssertNil(effectiveBinding.approvalRecordId)
         XCTAssertFalse(effectiveBinding.allowsAutomaticResume)
+    }
+
+    func testSurfaceResumeApprovalDoesNotPromptForExplicitCLICommand() throws {
+        let binding = SurfaceResumeBindingSnapshot(
+            command: "tmux attach -t work",
+            cwd: "/tmp/project",
+            source: "cli"
+        )
+
+        XCTAssertFalse(SurfaceResumeApprovalStore.shouldPromptForProposal(
+            binding: binding,
+            existingRecord: nil,
+            isMainThread: true,
+            isRunningTests: false
+        ))
+    }
+
+    func testSurfaceResumeApprovalCreatesManualRecordForPromptlessCLICommand() throws {
+        let storeURL = try makeSurfaceResumeApprovalStoreURL()
+        let secret = Data("approval-secret".utf8)
+        let binding = SurfaceResumeBindingSnapshot(
+            name: "tmux work",
+            kind: "tmux",
+            command: "tmux attach -t work",
+            cwd: "/tmp/project",
+            source: "cli",
+            environment: ["PATH": "/usr/bin:/bin"]
+        )
+
+        let effectiveBinding = try XCTUnwrap(SurfaceResumeApprovalStore.applyingPromptlessCLIManualApprovalIfNeeded(
+            to: binding,
+            existingRecord: nil,
+            fileURL: storeURL,
+            signingSecret: secret
+        ))
+        XCTAssertEqual(effectiveBinding.approvalPolicy, .manual)
+        XCTAssertFalse(effectiveBinding.allowsAutomaticResume)
+        XCTAssertNotNil(effectiveBinding.approvalRecordId)
+
+        let records = SurfaceResumeApprovalStore.validRecords(
+            fileURL: storeURL,
+            signingSecret: secret
+        )
+        let record = try XCTUnwrap(records.first)
+        XCTAssertEqual(records.count, 1)
+        XCTAssertEqual(record.policy, .manual)
+        XCTAssertEqual(record.source, "cli")
+        XCTAssertEqual(record.commandPrefixText, "tmux attach -t work")
+        XCTAssertEqual(effectiveBinding.approvalRecordId, record.id)
+
+        XCTAssertNil(SurfaceResumeApprovalStore.applyingPromptlessCLIManualApprovalIfNeeded(
+            to: binding,
+            existingRecord: record,
+            fileURL: storeURL,
+            signingSecret: secret
+        ))
+    }
+
+    func testSurfaceResumeApprovalPromptsForUnknownManualProposal() throws {
+        let binding = SurfaceResumeBindingSnapshot(
+            command: "tmux attach -t work",
+            cwd: "/tmp/project",
+            source: nil
+        )
+
+        XCTAssertTrue(SurfaceResumeApprovalStore.shouldPromptForProposal(
+            binding: binding,
+            existingRecord: nil,
+            isMainThread: true,
+            isRunningTests: false
+        ))
     }
 
     func testSurfaceResumePromptPolicyDoesNotRunAutomaticallyUnderTest() throws {

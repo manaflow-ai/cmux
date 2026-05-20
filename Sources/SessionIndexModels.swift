@@ -37,6 +37,7 @@ struct RegisteredSessionAgent: Hashable, Sendable {
 enum SessionAgent: Identifiable, Codable, Sendable, Hashable {
     case claude
     case codex
+    case grok
     case opencode
     case rovodev
     case hermesAgent
@@ -44,13 +45,14 @@ enum SessionAgent: Identifiable, Codable, Sendable, Hashable {
 
     var id: String { rawValue }
 
-    static let builtInCases: [SessionAgent] = [.claude, .codex, .opencode, .rovodev, .hermesAgent]
+    static let builtInCases: [SessionAgent] = [.claude, .codex, .grok, .opencode, .rovodev, .hermesAgent]
 
     init?(rawValue: String) {
         let value = rawValue.trimmingCharacters(in: .whitespacesAndNewlines)
         switch value {
         case "claude": self = .claude
         case "codex": self = .codex
+        case "grok": self = .grok
         case "opencode": self = .opencode
         case "rovodev": self = .rovodev
         case "hermes-agent": self = .hermesAgent
@@ -64,6 +66,7 @@ enum SessionAgent: Identifiable, Codable, Sendable, Hashable {
         switch self {
         case .claude: return "claude"
         case .codex: return "codex"
+        case .grok: return "grok"
         case .opencode: return "opencode"
         case .rovodev: return "rovodev"
         case .hermesAgent: return "hermes-agent"
@@ -80,8 +83,12 @@ enum SessionAgent: Identifiable, Codable, Sendable, Hashable {
            container.contains(.id) {
             let id = try container.decode(String.self, forKey: .id)
                 .trimmingCharacters(in: .whitespacesAndNewlines)
+            let name = try container.decodeIfPresent(String.self, forKey: .name)
+            let iconAssetName = try container.decodeIfPresent(String.self, forKey: .iconAssetName)
+            let hasRegisteredMetadata = name != nil || iconAssetName != nil
             if let builtIn = SessionAgent(rawValue: id),
-               !CmuxVaultAgentRegistration.isValidID(id) || SessionAgent.builtInCases.contains(builtIn) {
+               (!CmuxVaultAgentRegistration.isValidID(id) || SessionAgent.builtInCases.contains(builtIn)),
+               !hasRegisteredMetadata {
                 self = builtIn
                 return
             }
@@ -94,8 +101,8 @@ enum SessionAgent: Identifiable, Codable, Sendable, Hashable {
             }
             self = .registered(RegisteredSessionAgent(
                 id: id,
-                name: try container.decodeIfPresent(String.self, forKey: .name),
-                iconAssetName: try container.decodeIfPresent(String.self, forKey: .iconAssetName)
+                name: name,
+                iconAssetName: iconAssetName
             ))
             return
         }
@@ -191,6 +198,7 @@ struct PullRequestLink: Hashable {
 enum AgentSpecifics: Hashable {
     case claude(model: String?, permissionMode: String?, configDirectoryForResume: String?)
     case codex(model: String?, approvalPolicy: String?, sandboxMode: String?, effort: String?)
+    case grok(model: String?, permissionMode: String?, sandboxMode: String?, grokHome: String?)
     case opencode(providerModel: String?, agentName: String?)
     case rovodev
     case hermesAgent(source: String?, model: String?, hermesHome: String?)
@@ -333,6 +341,22 @@ struct SessionEntry: Identifiable, Hashable {
                 parts.append("-c model_reasoning_effort=\(Self.shellQuote(effort))")
             }
             return parts.joined(separator: " ")
+        case let .grok(model, permissionMode, sandboxMode, grokHome):
+            var parts = ["grok -r \(Self.shellQuote(sessionId))"]
+            if let model, !model.isEmpty {
+                parts.append("-m \(Self.shellQuote(model))")
+            }
+            if let permissionMode, !permissionMode.isEmpty {
+                parts.append("--permission-mode \(Self.shellQuote(permissionMode))")
+            }
+            if let sandboxMode, !sandboxMode.isEmpty {
+                parts.append("--sandbox \(Self.shellQuote(sandboxMode))")
+            }
+            let environment = grokHome.flatMap { value -> [String: String]? in
+                let trimmed = value.trimmingCharacters(in: .whitespacesAndNewlines)
+                return trimmed.isEmpty ? nil : ["GROK_HOME": trimmed]
+            } ?? [:]
+            return Self.withShellEnvironment(environment, command: parts.joined(separator: " "))
         case let .opencode(providerModel, agentName):
             var parts = ["opencode --session \(sessionId)"]
             if let providerModel, !providerModel.isEmpty {
