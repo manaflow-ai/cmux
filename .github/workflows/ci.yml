@@ -182,7 +182,7 @@ jobs:
         uses: actions/cache@27d5ce7f107fe9357f9df03efb73ab90386fccae # v5.0.5
         with:
           path: GhosttyKit.xcframework
-          key: ghosttykit-${{ hashFiles('.gitmodules', 'ghostty') }}
+          key: ghosttykit-${{ hashFiles('.gitmodules', 'ghostty/**', 'scripts/download-prebuilt-ghosttykit.sh') }}
 
       - name: Download pre-built GhosttyKit.xcframework
         if: steps.cache-ghosttykit.outputs.cache-hit != 'true'
@@ -360,7 +360,7 @@ jobs:
         uses: actions/cache@27d5ce7f107fe9357f9df03efb73ab90386fccae # v5.0.5
         with:
           path: GhosttyKit.xcframework
-          key: ghosttykit-${{ hashFiles('.gitmodules', 'ghostty') }}
+          key: ghosttykit-${{ hashFiles('.gitmodules', 'ghostty/**', 'scripts/download-prebuilt-ghosttykit.sh') }}
 
       - name: Download pre-built GhosttyKit.xcframework
         if: steps.cache-ghosttykit-lag.outputs.cache-hit != 'true'
@@ -547,7 +547,7 @@ jobs:
         uses: actions/cache@27d5ce7f107fe9357f9df03efb73ab90386fccae # v5.0.5
         with:
           path: GhosttyKit.xcframework
-          key: ghosttykit-${{ hashFiles('.gitmodules', 'ghostty') }}
+          key: ghosttykit-${{ hashFiles('.gitmodules', 'ghostty/**', 'scripts/download-prebuilt-ghosttykit.sh') }}
 
       - name: Download pre-built GhosttyKit.xcframework
         if: steps.cache-ghosttykit-release.outputs.cache-hit != 'true'
