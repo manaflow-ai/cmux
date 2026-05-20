@@ -13196,6 +13196,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         return clearEscapeSuppressionForKeyUp(event: event, consumeIfSuppressed: true)
     }
 
+    func debugResetShortcutRoutingStateForTesting() {
+        refreshConfiguredShortcutChordActions()
+        clearConfiguredShortcutChordState()
+        shortcutEventFocusContextCache = nil
+    }
+
     func debugMarkCommandPaletteOpenPending(window: NSWindow) {
         markCommandPaletteOpenRequested(for: window)
     }

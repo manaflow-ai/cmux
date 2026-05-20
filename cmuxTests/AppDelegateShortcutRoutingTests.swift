@@ -105,6 +105,10 @@ final class AppDelegateShortcutRoutingTests: XCTestCase {
         super.setUp()
         // Prevent a single hanging test from consuming the entire CI timeout budget.
         executionTimeAllowance = 30
+        #if DEBUG
+        KeyboardShortcutRecorderActivity.resetForTesting()
+        AppDelegate.shared?.debugResetShortcutRoutingStateForTesting()
+        #endif
         actionsWithPersistedShortcut = Set(
             KeyboardShortcutSettings.Action.allCases.filter {
                 UserDefaults.standard.object(forKey: $0.defaultsKey) != nil
@@ -117,9 +121,16 @@ final class AppDelegateShortcutRoutingTests: XCTestCase {
         )
         originalSettingsFileStore = KeyboardShortcutSettings.installIsolatedTestFileStore(prefix: "cmux-shortcut-routing")
         KeyboardShortcutSettings.resetAll()
+        #if DEBUG
+        AppDelegate.shared?.debugResetShortcutRoutingStateForTesting()
+        #endif
     }
 
     override func tearDown() {
+        #if DEBUG
+        KeyboardShortcutRecorderActivity.resetForTesting()
+        AppDelegate.shared?.debugResetShortcutRoutingStateForTesting()
+        #endif
         #if DEBUG
         KeyboardShortcutSettings.shortcutLookupObserver = nil
         #endif
@@ -137,6 +148,9 @@ final class AppDelegateShortcutRoutingTests: XCTestCase {
                 KeyboardShortcutSettings.resetShortcut(for: action)
             }
         }
+        #if DEBUG
+        AppDelegate.shared?.debugResetShortcutRoutingStateForTesting()
+        #endif
         super.tearDown()
     }
 
@@ -164,6 +178,20 @@ final class AppDelegateShortcutRoutingTests: XCTestCase {
         XCTAssertFalse(appDelegate.debugHandleShortcutMonitorEvent(event: event))
 #else
         XCTFail("debugHandleShortcutMonitorEvent is only available in DEBUG")
+#endif
+    }
+
+    func testStopAllRecordingClearsStaleRecorderActivityCount() {
+#if DEBUG
+        KeyboardShortcutRecorderActivity.beginRecording()
+        KeyboardShortcutRecorderActivity.beginRecording()
+        XCTAssertTrue(KeyboardShortcutRecorderActivity.isAnyRecorderActive)
+
+        KeyboardShortcutRecorderActivity.stopAllRecording()
+
+        XCTAssertFalse(KeyboardShortcutRecorderActivity.isAnyRecorderActive)
+#else
+        XCTFail("KeyboardShortcutRecorderActivity reset hooks are only available in DEBUG")
 #endif
     }
 
@@ -6342,8 +6370,14 @@ final class AppDelegateShortcutRoutingTests: XCTestCase {
             } else {
                 KeyboardShortcutSettings.resetShortcut(for: action)
             }
+            #if DEBUG
+            AppDelegate.shared?.debugResetShortcutRoutingStateForTesting()
+            #endif
         }
         KeyboardShortcutSettings.setShortcut(shortcut ?? action.defaultShortcut, for: action)
+        #if DEBUG
+        AppDelegate.shared?.debugResetShortcutRoutingStateForTesting()
+        #endif
         body()
     }
 
