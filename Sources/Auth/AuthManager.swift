@@ -545,6 +545,7 @@ final class AuthManager: ObservableObject {
         let teams: [AuthTeamSummary]
     }
 
+    @concurrent
     nonisolated static func signInWithCredentialDirectly(email: String, password: String) async throws -> SignInResult {
         authLog("signInDirectly: email=\(email)")
         let signInJSON = try await stackAPIRequest(
