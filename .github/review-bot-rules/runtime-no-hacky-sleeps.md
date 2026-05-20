@@ -1,6 +1,6 @@
 # Runtime No Hacky Sleeps
 
-Scope: TypeScript, JavaScript, shell, and non-Swift runtime scripts. Swift timing and blocking primitives are covered by `swift-blocking-runtime.md`.
+Scope: TypeScript, JavaScript, shell, and non-Swift build/runtime scripts. Swift timing and blocking primitives are covered by `swift-blocking-runtime.md`.
 
 Flag fixed delays used as synchronization in production application or runtime code.
 
