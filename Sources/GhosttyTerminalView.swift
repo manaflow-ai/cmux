@@ -8392,6 +8392,10 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
                 keyCode: event.keyCode
             ) ?? event
         }
+        let textInputEvent = textInputInterpretationEvent(
+            original: event,
+            translated: translationEvent
+        )
 
         // Set up text accumulator for interpretKeyEvents
         keyTextAccumulator = []
@@ -8409,7 +8413,7 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
         let interpretTimingStart = CmuxTypingTiming.start()
         let interpretPhaseStart = ProcessInfo.processInfo.systemUptime
 #endif
-        interpretKeyEvents([translationEvent])
+        interpretKeyEvents([textInputEvent])
 #if DEBUG
         interpretMs = (ProcessInfo.processInfo.systemUptime - interpretPhaseStart) * 1000.0
         CmuxTypingTiming.logDuration(
@@ -8447,7 +8451,7 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
             before: markedStateBefore,
             after: (markedText.string, markedSelectedRange),
             accumulatedText: accumulatedText,
-            event: event,
+            event: textInputEvent,
             inputSourceId: keyboardIdBefore
         ) {
             imeConsumedKeyUps.insert(event.keyCode)
@@ -8527,7 +8531,7 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
             }
 
             if shouldSendCommittedIMEConfirmKey(
-                event: translationEvent,
+                event: textInputEvent,
                 markedTextBefore: markedTextBefore
             ) {
                 keyEvent.consumed_mods = GHOSTTY_MODS_NONE
