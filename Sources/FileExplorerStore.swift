@@ -479,9 +479,9 @@ final class ProcessSSHFileExplorerTransport: SSHFileExplorerTransport {
             process.waitUntilExit()
             terminationGate.markFinished()
             lock.lock()
-            let wasCancelled = cancelled
+            let cancelledAfterExit = cancelled
             lock.unlock()
-            if wasCancelled {
+            if cancelledAfterExit {
                 throw CancellationError()
             }
 
