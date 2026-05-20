@@ -31,21 +31,46 @@ def _run_case(
     shell: str,
     shell_args: list[str],
     script: Path,
+    config_mode: str,
 ) -> tuple[int, str]:
-    repo = base / shell / "repo"
+    repo = base / shell / config_mode / "repo"
     git_dir = repo / ".git"
     git_dir.mkdir(parents=True, exist_ok=True)
     (git_dir / "HEAD").write_text("ref: refs/heads/main\n", encoding="utf-8")
-    (git_dir / "config").write_text(
-        textwrap.dedent(
-            """\
-            [remote "origin"] ; manually annotated main remote
-                url = "https://github.com/manaflow-ai/cmux.git" # canonical repo
-                fetch = +refs/heads/*:refs/remotes/origin/*
-            """
-        ),
-        encoding="utf-8",
+
+    remote_config = textwrap.dedent(
+        """\
+        [remote "origin"] ; manually annotated main remote
+            url = "https://github.com/manaflow-ai/cmux.git" # canonical repo
+            fetch = +refs/heads/*:refs/remotes/origin/*
+        """
     )
+    if config_mode == "direct":
+        (git_dir / "config").write_text(remote_config, encoding="utf-8")
+    elif config_mode == "include":
+        (git_dir / "config").write_text(
+            textwrap.dedent(
+                """\
+                [include]
+                    path = remotes.inc
+                """
+            ),
+            encoding="utf-8",
+        )
+        (git_dir / "remotes.inc").write_text(remote_config, encoding="utf-8")
+    elif config_mode == "includeIf-gitdir":
+        (git_dir / "config").write_text(
+            textwrap.dedent(
+                f"""\
+                [includeIf "gitdir:{repo}/"]
+                    path = conditional-remotes.inc
+                """
+            ),
+            encoding="utf-8",
+        )
+        (git_dir / "conditional-remotes.inc").write_text(remote_config, encoding="utf-8")
+    else:
+        return 1, f"unknown config mode {config_mode}"
 
     env = dict(os.environ)
     env["CMUX_TEST_SCRIPT"] = str(script)
@@ -63,8 +88,8 @@ def _run_case(
 
     output = result.stdout.strip()
     if output != "manaflow-ai/cmux":
-        return 1, f"{shell}: expected manaflow-ai/cmux, got {output!r}"
-    return 0, f"{shell}: ok"
+        return 1, f"{shell} {config_mode}: expected manaflow-ai/cmux, got {output!r}"
+    return 0, f"{shell} {config_mode}: ok"
 
 
 def main() -> int:
@@ -84,9 +109,16 @@ def main() -> int:
             if not script.exists():
                 print(f"SKIP: missing integration script at {script}")
                 continue
-            rc, detail = _run_case(base, shell=shell, shell_args=shell_args, script=script)
-            if rc != 0:
-                failures.append(detail)
+            for config_mode in ("direct", "include", "includeIf-gitdir"):
+                rc, detail = _run_case(
+                    base,
+                    shell=shell,
+                    shell_args=shell_args,
+                    script=script,
+                    config_mode=config_mode,
+                )
+                if rc != 0:
+                    failures.append(detail)
 
         if failures:
             print("FAIL:")
@@ -94,7 +126,7 @@ def main() -> int:
                 print(failure)
             return 1
 
-        print("PASS: shell git config quoted remote URL parsing")
+        print("PASS: shell git config remote URL parsing follows quoted and included config")
         return 0
     finally:
         shutil.rmtree(base, ignore_errors=True)

@@ -693,103 +693,234 @@ _cmux_pr_output_indicates_no_pull_request() {
         || "$output" == *"no pull request associated"* ]]
 }
 
-_cmux_github_repo_slug_for_path() {
-    local repo_path="$1"
-    local git_dir="" config_file="" remote_url="" path_part=""
-    [[ -n "$repo_path" ]] || return 0
+_cmux_git_config_resolve_include_path() {
+    local path="$1" config_dir="$2"
+    case "$path" in
+        "~")
+            printf '%s\n' "$HOME" ;;
+        "~/"*)
+            printf '%s/%s\n' "$HOME" "${path#~/}" ;;
+        /*)
+            printf '%s\n' "$path" ;;
+        *)
+            printf '%s/%s\n' "$config_dir" "$path" ;;
+    esac
+}
 
-    git_dir="$(_cmux_git_resolve_git_dir "$repo_path" 2>/dev/null || true)"
-    [[ -n "$git_dir" ]] || return 0
-    config_file="$git_dir/config"
-    if [[ ! -r "$config_file" && -r "$git_dir/commondir" ]]; then
-        local common_dir
-        common_dir="$(<"$git_dir/commondir")"
-        common_dir="${common_dir## }"
-        common_dir="${common_dir%% }"
-        [[ "$common_dir" != /* ]] && common_dir="$git_dir/$common_dir"
-        config_file="$common_dir/config"
+_cmux_git_config_gitdir_pattern_matches() {
+    local pattern="$1" repo_path="$2" git_dir="$3" common_dir="$4" case_insensitive="$5"
+    local expanded="$pattern" candidate cmp_candidate cmp_pattern prefix
+
+    case "$expanded" in
+        "~")
+            expanded="$HOME" ;;
+        "~/"*)
+            expanded="$HOME/${expanded#~/}" ;;
+    esac
+    if [[ "$expanded" == */ ]]; then
+        prefix="$expanded"
+        [[ "$case_insensitive" == "1" ]] && prefix="$(printf '%s' "$prefix" | tr '[:upper:]' '[:lower:]')"
+        for candidate in "$git_dir" "$common_dir" "$repo_path"; do
+            cmp_candidate="$candidate"
+            [[ "$case_insensitive" == "1" ]] && cmp_candidate="$(printf '%s' "$cmp_candidate" | tr '[:upper:]' '[:lower:]')"
+            [[ "$cmp_candidate" == "${prefix%/}" || "$cmp_candidate/" == "$prefix"* ]] && return 0
+        done
+        return 1
     fi
-    [[ -r "$config_file" ]] || return 0
-    remote_url="$(awk '
-        function trim(s) {
-            sub(/^[[:space:]]+/, "", s)
-            sub(/[[:space:]]+$/, "", s)
-            return s
-        }
-        function strip_inline_comment(s, i, c, out, previous_was_space, in_quote, escaped) {
-            out = ""
-            previous_was_space = 1
-            in_quote = 0
-            escaped = 0
-            for (i = 1; i <= length(s); i++) {
-                c = substr(s, i, 1)
-                if (escaped) {
-                    out = out c
-                    escaped = 0
-                    previous_was_space = (c ~ /[[:space:]]/)
-                    continue
-                }
-                if (in_quote && c == "\\") {
-                    out = out c
-                    escaped = 1
-                    previous_was_space = 0
-                    continue
-                }
-                if (c == "\"") {
-                    out = out c
-                    in_quote = !in_quote
-                    previous_was_space = 0
-                    continue
-                }
-                if (!in_quote && previous_was_space && (c == "#" || c == ";")) {
-                    break
-                }
-                out = out c
-                previous_was_space = (c ~ /[[:space:]]/)
+    if [[ "$expanded" == *"/\*\*" ]]; then
+        prefix="${expanded%/\*\*}/"
+        [[ "$case_insensitive" == "1" ]] && prefix="$(printf '%s' "$prefix" | tr '[:upper:]' '[:lower:]')"
+        for candidate in "$git_dir" "$common_dir" "$repo_path"; do
+            cmp_candidate="$candidate"
+            [[ "$case_insensitive" == "1" ]] && cmp_candidate="$(printf '%s' "$cmp_candidate" | tr '[:upper:]' '[:lower:]')"
+            [[ "$cmp_candidate" == "${prefix%/}" || "$cmp_candidate/" == "$prefix"* ]] && return 0
+        done
+        return 1
+    fi
+
+    cmp_pattern="$expanded"
+    [[ "$case_insensitive" == "1" ]] && cmp_pattern="$(printf '%s' "$cmp_pattern" | tr '[:upper:]' '[:lower:]')"
+    for candidate in "$git_dir" "$common_dir" "$repo_path"; do
+        cmp_candidate="$candidate"
+        [[ "$case_insensitive" == "1" ]] && cmp_candidate="$(printf '%s' "$cmp_candidate" | tr '[:upper:]' '[:lower:]')"
+        [[ "$cmp_candidate" == $cmp_pattern || "$cmp_candidate/" == $cmp_pattern ]] && return 0
+    done
+    return 1
+}
+
+_cmux_git_config_include_condition_matches() {
+    local condition="$1" repo_path="$2" git_dir="$3" common_dir="$4"
+    local lower pattern
+    lower="$(printf '%s' "$condition" | tr '[:upper:]' '[:lower:]')"
+    case "$lower" in
+        gitdir/i:*)
+            pattern="${condition#gitdir/i:}"
+            _cmux_git_config_gitdir_pattern_matches "$pattern" "$repo_path" "$git_dir" "$common_dir" 1 ;;
+        gitdir:*)
+            pattern="${condition#gitdir:}"
+            _cmux_git_config_gitdir_pattern_matches "$pattern" "$repo_path" "$git_dir" "$common_dir" 0 ;;
+        *)
+            return 1 ;;
+    esac
+}
+
+_cmux_git_origin_url_from_config_files() {
+    local repo_path="$1" git_dir="$2" common_dir="$3"
+    local pending="" seen=$'\n' config_file="" config_dir="" output="" depth=0
+    local kind="" condition="" value="" include_path=""
+
+    [[ -r "$common_dir/config" ]] && pending+="$common_dir/config"$'\n'
+    [[ "$git_dir" != "$common_dir" && -r "$git_dir/config" ]] && pending+="$git_dir/config"$'\n'
+    [[ -n "$pending" ]] || return 0
+
+    while [[ -n "$pending" && "$depth" -lt 32 ]]; do
+        config_file="${pending%%$'\n'*}"
+        pending="${pending#*$'\n'}"
+        depth=$(( depth + 1 ))
+        [[ -r "$config_file" ]] || continue
+        case "$seen" in
+            *$'\n'"$config_file"$'\n'*) continue ;;
+        esac
+        seen+="$config_file"$'\n'
+        config_dir="$(dirname "$config_file")"
+        output="$(awk '
+            function trim(s) {
+                sub(/^[[:space:]]+/, "", s)
+                sub(/[[:space:]]+$/, "", s)
+                return s
             }
-            return out
-        }
-        function unquote_config_value(s, i, c, out, escaped) {
-            s = trim(s)
-            if (length(s) >= 2 && substr(s, 1, 1) == "\"" && substr(s, length(s), 1) == "\"") {
+            function strip_inline_comment(s, i, c, out, previous_was_space, in_quote, escaped) {
                 out = ""
+                previous_was_space = 1
+                in_quote = 0
                 escaped = 0
-                for (i = 2; i < length(s); i++) {
+                for (i = 1; i <= length(s); i++) {
                     c = substr(s, i, 1)
                     if (escaped) {
                         out = out c
                         escaped = 0
+                        previous_was_space = (c ~ /[[:space:]]/)
                         continue
                     }
-                    if (c == "\\") {
+                    if (in_quote && c == "\\") {
+                        out = out c
                         escaped = 1
+                        previous_was_space = 0
                         continue
+                    }
+                    if (c == "\"") {
+                        out = out c
+                        in_quote = !in_quote
+                        previous_was_space = 0
+                        continue
+                    }
+                    if (!in_quote && previous_was_space && (c == "#" || c == ";")) {
+                        break
                     }
                     out = out c
-                }
-                if (escaped) {
-                    out = out "\\"
+                    previous_was_space = (c ~ /[[:space:]]/)
                 }
                 return out
             }
-            return s
-        }
-        {
-            line = strip_inline_comment($0)
-            if (line ~ /^\[remote[[:space:]]+"origin"\][[:space:]]*$/) {
-                in_origin = 1
-                next
+            function unquote_config_value(s, i, c, out, escaped) {
+                s = trim(s)
+                if (length(s) >= 2 && substr(s, 1, 1) == "\"" && substr(s, length(s), 1) == "\"") {
+                    out = ""
+                    escaped = 0
+                    for (i = 2; i < length(s); i++) {
+                        c = substr(s, i, 1)
+                        if (escaped) {
+                            out = out c
+                            escaped = 0
+                            continue
+                        }
+                        if (c == "\\") {
+                            escaped = 1
+                            continue
+                        }
+                        out = out c
+                    }
+                    if (escaped) {
+                        out = out "\\"
+                    }
+                    return out
+                }
+                return s
             }
-            if (line ~ /^\[/) {
-                in_origin = 0
-            }
-            if (in_origin && line ~ /^[[:space:]]*url[[:space:]]*=/) {
+            function path_value(line) {
                 sub(/^[^=]*=/, "", line)
-                print unquote_config_value(line)
-                exit
+                return unquote_config_value(line)
             }
-        }
-    ' "$config_file" 2>/dev/null)"
+            {
+                line = strip_inline_comment($0)
+                trimmed = trim(line)
+                if (trimmed ~ /^\[remote[[:space:]]+"origin"\][[:space:]]*$/) {
+                    section = "remote"
+                    condition = ""
+                    next
+                }
+                if (trimmed == "[include]") {
+                    section = "include"
+                    condition = ""
+                    next
+                }
+                if (trimmed ~ /^\[includeIf[[:space:]]+"/) {
+                    section = "includeIf"
+                    condition = trimmed
+                    sub(/^\[includeIf[[:space:]]+"/, "", condition)
+                    sub(/"\][[:space:]]*$/, "", condition)
+                    next
+                }
+                if (trimmed ~ /^\[/) {
+                    section = ""
+                    condition = ""
+                    next
+                }
+                if (section == "remote" && line ~ /^[[:space:]]*url[[:space:]]*=/) {
+                    print "remote\t" path_value(line) "\t"
+                    exit
+                }
+                if (section == "include" && line ~ /^[[:space:]]*path[[:space:]]*=/) {
+                    print "include\t" path_value(line) "\t"
+                }
+                if (section == "includeIf" && line ~ /^[[:space:]]*path[[:space:]]*=/) {
+                    print "includeIf\t" condition "\t" path_value(line)
+                }
+            }
+        ' "$config_file" 2>/dev/null)"
+
+        while IFS=$'\t' read -r kind condition value; do
+            case "$kind" in
+                remote)
+                    [[ -n "$condition" ]] && printf '%s\n' "$condition" && return 0 ;;
+                include)
+                    include_path="$(_cmux_git_config_resolve_include_path "$condition" "$config_dir")"
+                    [[ -r "$include_path" ]] && pending+="$include_path"$'\n' ;;
+                includeIf)
+                    if _cmux_git_config_include_condition_matches "$condition" "$repo_path" "$git_dir" "$common_dir"; then
+                        include_path="$(_cmux_git_config_resolve_include_path "$value" "$config_dir")"
+                        [[ -r "$include_path" ]] && pending+="$include_path"$'\n'
+                    fi ;;
+            esac
+        done <<< "$output"
+    done
+}
+
+_cmux_github_repo_slug_for_path() {
+    local repo_path="$1"
+    local git_dir="" common_dir="" remote_url="" path_part=""
+    [[ -n "$repo_path" ]] || return 0
+
+    git_dir="$(_cmux_git_resolve_git_dir "$repo_path" 2>/dev/null || true)"
+    [[ -n "$git_dir" ]] || return 0
+    common_dir="$git_dir"
+    if [[ -r "$git_dir/commondir" ]]; then
+        common_dir="$(<"$git_dir/commondir")"
+        common_dir="${common_dir## }"
+        common_dir="${common_dir%% }"
+        [[ "$common_dir" != /* ]] && common_dir="$git_dir/$common_dir"
+    fi
+    remote_url="$(_cmux_git_origin_url_from_config_files "$repo_path" "$git_dir" "$common_dir")"
     [[ -n "$remote_url" ]] || return 0
 
     case "$remote_url" in
