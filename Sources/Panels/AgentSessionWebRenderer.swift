@@ -60,7 +60,7 @@ struct AgentSessionWebRenderer: NSViewRepresentable {
         webView.underPageBackgroundColor = backgroundColor
         webView.wantsLayer = true
         webView.layer?.backgroundColor = backgroundColor.cgColor
-        webView.layer?.isOpaque = backgroundColor.alphaComponent >= 0.999
+        webView.layer?.isOpaque = false
     }
 
     private func attachWebView(to hostView: AgentSessionWebHostView, context: Context) {
@@ -80,6 +80,10 @@ enum AgentSessionBridgeContract {
 @MainActor
 final class AgentSessionWebView: WKWebView {
     var onPointerDown: (() -> Void)?
+
+    override var isOpaque: Bool {
+        false
+    }
 
     override func acceptsFirstMouse(for event: NSEvent?) -> Bool {
         PaneFirstClickFocusSettings.isEnabled()
@@ -102,6 +106,10 @@ final class AgentSessionWebHostView: NSView {
             layer?.backgroundColor = backgroundColor.cgColor
             hostedWebView?.underPageBackgroundColor = backgroundColor
         }
+    }
+
+    override var isOpaque: Bool {
+        false
     }
 
     var hasVisibleBounds: Bool {

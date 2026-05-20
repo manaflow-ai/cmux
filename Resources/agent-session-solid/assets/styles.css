@@ -3,18 +3,38 @@
   font-family:
     Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI",
     sans-serif;
-  background: #171916;
   color: #f1f0e8;
+  background: transparent;
+  --agent-panel: rgba(28, 31, 27, 0.72);
+  --agent-panel-strong: rgba(18, 20, 17, 0.86);
+  --agent-border: rgba(233, 231, 216, 0.13);
+  --agent-border-strong: rgba(233, 231, 216, 0.21);
+  --agent-text: #f1f0e8;
+  --agent-muted: #a9aa9e;
+  --agent-soft: #d1d4c6;
+  --agent-green: #9fdf8f;
+  --agent-blue: #8ab4f8;
+  --agent-red: #ff9a8d;
 }
 
 * {
   box-sizing: border-box;
 }
 
+html,
+body {
+  height: 100%;
+  background: transparent;
+}
+
 body {
   margin: 0;
-  min-width: 720px;
-  background: #171916;
+  min-width: 0;
+}
+
+#root {
+  height: 100%;
+  background: transparent;
 }
 
 button,
@@ -25,34 +45,48 @@ textarea {
 
 .agent-shell {
   display: grid;
-  grid-template-rows: auto 1fr auto;
+  grid-template-rows: auto minmax(0, 1fr) auto;
+  gap: 12px;
   height: 100vh;
-  background: #171916;
+  padding: 12px;
+  background: transparent;
 }
 
 .toolbar {
   display: grid;
-  grid-template-columns: auto minmax(160px, 240px) auto auto 1fr auto;
+  grid-template-columns: auto minmax(150px, 260px) auto auto minmax(80px, 1fr) auto;
   gap: 10px;
   align-items: center;
-  min-height: 56px;
-  padding: 10px 14px;
-  border-bottom: 1px solid #393c35;
-  background: #20231e;
+  min-height: 48px;
+  padding: 8px 10px;
+  border: 1px solid var(--agent-border);
+  border-radius: 8px;
+  background: var(--agent-panel);
+  box-shadow: 0 10px 28px rgba(0, 0, 0, 0.18);
+  -webkit-backdrop-filter: blur(18px) saturate(1.18);
+  backdrop-filter: blur(18px) saturate(1.18);
 }
 
 .renderer-mark {
-  color: #a7c8a3;
+  min-width: 48px;
+  color: var(--agent-green);
   font-weight: 700;
   letter-spacing: 0;
 }
 
 .provider-select,
 .prompt-input {
-  color: #f1f0e8;
-  background: #131511;
-  border: 1px solid #4a4d45;
+  color: var(--agent-text);
+  background: rgba(8, 10, 8, 0.46);
+  border: 1px solid var(--agent-border-strong);
   border-radius: 6px;
+  outline: none;
+}
+
+.provider-select:focus,
+.prompt-input:focus {
+  border-color: rgba(138, 180, 248, 0.68);
+  box-shadow: 0 0 0 2px rgba(138, 180, 248, 0.18);
 }
 
 .provider-select {
@@ -63,76 +97,86 @@ textarea {
 .status-pill {
   min-width: 84px;
   padding: 5px 9px;
-  border: 1px solid #4a4d45;
+  border: 1px solid var(--agent-border-strong);
   border-radius: 999px;
-  color: #d8d6c8;
+  color: var(--agent-soft);
   text-align: center;
-  background: #151713;
+  background: rgba(8, 10, 8, 0.34);
 }
 
 .status-pill.running {
-  color: #c7f0c0;
-  border-color: #3e7b45;
-  background: #172516;
+  color: #c9f5bd;
+  border-color: rgba(93, 166, 95, 0.66);
+  background: rgba(23, 53, 24, 0.55);
 }
 
 .status-pill.failed {
   color: #ffb5a8;
-  border-color: #8d3f35;
-  background: #2b1714;
+  border-color: rgba(184, 77, 65, 0.68);
+  background: rgba(59, 24, 20, 0.55);
 }
 
 .toolbar-button,
 .send-button {
   min-height: 34px;
   padding: 0 12px;
-  border: 1px solid #4a4d45;
+  border: 1px solid var(--agent-border-strong);
   border-radius: 6px;
-  color: #f1f0e8;
-  background: #30342d;
+  color: var(--agent-text);
+  background: rgba(238, 236, 224, 0.12);
+}
+
+.toolbar-button:not(:disabled):hover,
+.send-button:not(:disabled):hover {
+  border-color: rgba(238, 236, 224, 0.32);
+  background: rgba(238, 236, 224, 0.17);
 }
 
 .toolbar-button:disabled,
 .send-button:disabled {
-  color: #7f8178;
-  background: #22241f;
+  color: rgba(202, 203, 191, 0.45);
+  background: rgba(238, 236, 224, 0.05);
 }
 
 .transport {
-  color: #94978b;
+  color: var(--agent-muted);
   font-size: 12px;
   text-align: right;
 }
 
 .log {
   overflow: auto;
-  padding: 12px 14px;
-  background: #171916;
+  min-height: 0;
+  padding: 2px 2px 2px 0;
+  background: transparent;
 }
 
 .log-line {
   display: grid;
   grid-template-columns: 76px 1fr;
   gap: 10px;
-  padding: 6px 0;
-  border-bottom: 1px solid rgba(255, 255, 255, 0.06);
+  margin-bottom: 6px;
+  padding: 8px 10px;
+  border: 1px solid rgba(233, 231, 216, 0.07);
+  border-radius: 8px;
+  background: rgba(10, 12, 10, 0.2);
   font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
   font-size: 12px;
   line-height: 1.45;
 }
 
 .log-label {
-  color: #989b8f;
+  color: var(--agent-muted);
   text-transform: uppercase;
 }
 
 .log-line.stdout .log-label {
-  color: #96d894;
+  color: var(--agent-green);
 }
 
 .log-line.stderr .log-label,
 .log-line.error .log-label {
-  color: #ff9a8d;
+  color: var(--agent-red);
 }
 
 .log-text {
@@ -145,9 +189,13 @@ textarea {
   display: grid;
   grid-template-columns: 1fr auto;
   gap: 10px;
-  padding: 12px 14px;
-  border-top: 1px solid #393c35;
-  background: #20231e;
+  padding: 10px;
+  border: 1px solid var(--agent-border);
+  border-radius: 8px;
+  background: var(--agent-panel);
+  box-shadow: 0 10px 28px rgba(0, 0, 0, 0.18);
+  -webkit-backdrop-filter: blur(18px) saturate(1.18);
+  backdrop-filter: blur(18px) saturate(1.18);
 }
 
 .prompt-input {
@@ -159,4 +207,14 @@ textarea {
 
 .send-button {
   min-width: 82px;
+}
+
+@media (max-width: 760px) {
+  .toolbar {
+    grid-template-columns: auto minmax(130px, 1fr) auto auto;
+  }
+
+  .transport {
+    display: none;
+  }
 }
