@@ -153,7 +153,7 @@ jobs:
     timeout-minutes: 45
     env:
       CMUX_SKIP_ZIG_BUILD: "1"
-      SWIFT_BACKTRACE: "interactive=no,color=no"
+      SWIFT_BACKTRACE: "enable=no,interactive=no,color=no"
     steps:
       - name: Checkout
         uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
@@ -330,6 +330,8 @@ jobs:
     # still run via test-e2e.yml on GitHub-hosted runners.
     runs-on: warp-macos-15-arm64-6x
     timeout-minutes: 20
+    env:
+      SWIFT_BACKTRACE: "enable=no,interactive=no,color=no"
     steps:
       - name: Checkout
         uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
@@ -421,9 +423,12 @@ jobs:
         run: |
           set -euo pipefail
           SOURCE_PACKAGES_DIR="$PWD/.ci-source-packages"
+          DERIVED_DATA_PATH="$HOME/Library/Developer/Xcode/DerivedData/cmux-ci-build-and-lag"
+          echo "CMUX_LAG_DERIVED_DATA_PATH=$DERIVED_DATA_PATH" >> "$GITHUB_ENV"
           xcodebuild -project cmux.xcodeproj -scheme cmux -configuration Debug \
             -clonedSourcePackagesDirPath "$SOURCE_PACKAGES_DIR" \
             -disableAutomaticPackageResolution \
+            -derivedDataPath "$DERIVED_DATA_PATH" \
             -destination "platform=macOS" build 2>&1 | tee /tmp/cmux-build-output.txt
 
       - name: Validate Swift warning budget
@@ -432,19 +437,14 @@ jobs:
       - name: Run CoreAnimation main-thread startup regression
         run: |
           set -euo pipefail
-          APP="$(
-            find "$HOME/Library/Developer/Xcode/DerivedData" -path "*/Build/Products/Debug/cmux DEV.app" -exec stat -f '%m %N' {} \; \
-              | sort -nr \
-              | head -1 \
-              | cut -d' ' -f2-
-          )"
+          APP="${CMUX_LAG_DERIVED_DATA_PATH:?}/Build/Products/Debug/cmux DEV.app"
           if [ -z "${APP:-}" ] || [ ! -d "$APP" ]; then
-            echo "cmux DEV.app not found in DerivedData" >&2
+            echo "cmux DEV.app not found at expected build output: $APP" >&2
             exit 1
           fi
 
           CMUX_ALLOW_UNTAGGED_CA_REGRESSION=1 \
-          CMUX_CA_ASSERT_HOLD_SECONDS=15 \
+          CMUX_CA_ASSERT_HOLD_SECONDS=30 \
           CMUX_TAG="ci-ca-main-thread" \
           ./scripts/verify-main-thread-ca-transactions.sh "$APP"
 
