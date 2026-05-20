@@ -12345,6 +12345,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             case .newBrowser:
                 _ = openBrowserAndFocusAddressBar(insertAtEnd: true)
                 return true
+            case .newCodex:
+                return openCodexAppServerInPreferredMainWindow(
+                    preferredWindow: event.window ?? NSApp.keyWindow ?? NSApp.mainWindow,
+                    debugSource: "shortcut.cmuxNewCodex"
+                )
             case .splitRight:
                 if shouldSuppressSplitShortcutForTransientTerminalFocusState(direction: .right) {
                     return true

@@ -115,7 +115,10 @@ struct CmuxConfigExecutor {
                 targetTerminal?.sendInput(shellInput)
             case .newTabInCurrentPane:
                 targetWorkspace?.clearSplitZoom()
-                targetWorkspace?.newTerminalSurfaceInFocusedPane(focus: true, initialInput: shellInput)
+                targetWorkspace?.newTerminalSurfaceInFocusedPane(
+                    focus: true,
+                    sendingInputWhenReady: shellInput
+                )
             }
             onExecuted?()
         }

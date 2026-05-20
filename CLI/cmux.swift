@@ -2143,6 +2143,10 @@ struct CMUXCLI {
             if try runHooksNoSocketCommand(commandArgs: commandArgs) {
                 return
             }
+            if hooksNamespaceDisabledNoop(commandArgs: commandArgs, env: processEnv) {
+                print("{}")
+                return
+            }
             if Self.hooksCommandNeedsCmuxTarget(commandArgs),
                processEnv["CMUX_SURFACE_ID"]?.isEmpty != false,
                processEnv["CMUX_WORKSPACE_ID"]?.isEmpty != false,
@@ -2150,6 +2154,20 @@ struct CMUXCLI {
                 print("{}")
                 return
             }
+        }
+
+        if command == "claude-hook",
+           Self.hooksDisabled(forSource: "claude", env: processEnv),
+           !Self.isHookHelpSubcommand(commandArgs.first?.lowercased() ?? "help") {
+            print("{}")
+            return
+        }
+
+        if command == "feed-hook",
+           let source = optionValue(commandArgs, name: "--source"),
+           Self.hooksDisabled(forSource: source, env: processEnv) {
+            print("{}")
+            return
         }
 
         // Feed helpers: clear the persistent workstream history.
@@ -8769,7 +8787,8 @@ struct CMUXCLI {
                    cmux hooks feed --source <agent> [--event <event>]
 
             Manage and run cmux agent hooks without adding one top-level command per
-            agent. Claude Code hooks are injected automatically by the cmux Claude wrapper.
+            agent. Claude Code hooks can call `cmux hooks claude ...` from
+            Claude's native hook config; cmux does not ship a `claude` wrapper.
 
             Agents:
               codex, opencode, cursor, gemini, copilot, codebuddy, factory, qoder
@@ -11959,6 +11978,16 @@ struct CMUXCLI {
         )
     }
 
+    private func resolveClaudeTeamsExecutable(processEnvironment: [String: String]) throws -> String {
+        if let claudeExecutablePath = resolveClaudeExecutable(searchPath: processEnvironment["PATH"]) {
+            return claudeExecutablePath
+        }
+
+        throw CLIError(
+            message: "Claude Code was not found. Install it and make sure \"claude\" is available on PATH."
+        )
+    }
+
     private func claudeTeamsHasExplicitTeammateMode(commandArgs: [String]) -> Bool {
         commandArgs.contains { arg in
             arg == "--teammate-mode" || arg.hasPrefix("--teammate-mode=")
@@ -12130,8 +12159,17 @@ struct CMUXCLI {
         )
     }
 
+    private func nodeOptionsRestoreTemporaryDirectory() -> URL {
+        let rawPath = ProcessInfo.processInfo.environment["TMPDIR"]?
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+        if let rawPath, !rawPath.isEmpty {
+            return URL(fileURLWithPath: rawPath, isDirectory: true)
+        }
+        return URL(fileURLWithPath: NSTemporaryDirectory(), isDirectory: true)
+    }
+
     private func createClaudeNodeOptionsRestoreModule() throws -> URL {
-        let root = URL(fileURLWithPath: NSTemporaryDirectory(), isDirectory: true)
+        let root = nodeOptionsRestoreTemporaryDirectory()
             .appendingPathComponent("cmux-claude-node-options", isDirectory: true)
         try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true, attributes: nil)
         let restoreModuleURL = root.appendingPathComponent("restore-node-options.cjs", isDirectory: false)
@@ -12157,34 +12195,7 @@ struct CMUXCLI {
             processEnvironment: launcherEnvironment,
             explicitPassword: explicitPassword
         )
-        let bundledClaudePath = resolvedExecutableURL()?
-            .deletingLastPathComponent()
-            .appendingPathComponent("claude", isDirectory: false)
-            .path
-        let claudeExecutablePath: String? = {
-            // Check custom path from Settings > Automation > Claude Code.
-            // Try env var first (set by the app per-session), then UserDefaults.
-            let candidates = [
-                launcherEnvironment["CMUX_CUSTOM_CLAUDE_PATH"],
-                UserDefaults.standard.string(forKey: "claudeCodeCustomClaudePath"),
-            ]
-            for raw in candidates {
-                guard let trimmed = raw?.trimmingCharacters(in: .whitespacesAndNewlines),
-                      !trimmed.isEmpty else { continue }
-                var isDir: ObjCBool = false
-                guard FileManager.default.fileExists(atPath: trimmed, isDirectory: &isDir),
-                      !isDir.boolValue,
-                      FileManager.default.isExecutableFile(atPath: trimmed),
-                      !isCmuxClaudeWrapper(at: trimmed) else { continue }
-                return trimmed
-            }
-            return resolveClaudeExecutable(searchPath: launcherEnvironment["PATH"])
-                ?? {
-                    guard let bundledClaudePath,
-                          FileManager.default.isExecutableFile(atPath: bundledClaudePath) else { return nil }
-                    return bundledClaudePath
-                }()
-        }()
+        let claudeExecutablePath = try resolveClaudeTeamsExecutable(processEnvironment: launcherEnvironment)
         configureClaudeTeamsEnvironment(
             processEnvironment: launcherEnvironment,
             shimDirectory: shimDirectory,
@@ -12194,7 +12205,7 @@ struct CMUXCLI {
             focusedContext: focusedContext
         )
 
-        let launchPath = claudeExecutablePath ?? "claude"
+        let launchPath = claudeExecutablePath
         let launchArguments = claudeTeamsLaunchArguments(commandArgs: commandArgs)
         exportAgentLaunchCommandEnvironment(
             launcher: "claudeTeams",
@@ -12210,11 +12221,7 @@ struct CMUXCLI {
         }
         argv.append(nil)
 
-        if claudeExecutablePath != nil {
-            execv(launchPath, &argv)
-        } else {
-            execvp("claude", &argv)
-        }
+        execv(launchPath, &argv)
         let code = errno
         throw CLIError(message: "Failed to launch claude: \(String(cString: strerror(code)))")
     }
@@ -12682,18 +12689,8 @@ struct CMUXCLI {
         }
 
         // Check for opencode before doing expensive plugin setup
-        let openCodeExecutablePath = resolveOpenCodeExecutable(searchPath: launcherEnvironment["PATH"])
-        if openCodeExecutablePath == nil {
-            let checkProcess = Process()
-            checkProcess.executableURL = URL(fileURLWithPath: "/usr/bin/which")
-            checkProcess.arguments = ["opencode"]
-            checkProcess.standardOutput = Pipe()
-            checkProcess.standardError = Pipe()
-            try? checkProcess.run()
-            checkProcess.waitUntilExit()
-            if checkProcess.terminationStatus != 0 {
-                throw CLIError(message: "opencode is not installed. Install it first:\n  npm install -g opencode-ai\n  # or\n  bun install -g opencode-ai\n\nThen run: cmux omo")
-            }
+        guard let openCodeExecutablePath = resolveOpenCodeExecutable(searchPath: launcherEnvironment["PATH"]) else {
+            throw CLIError(message: "opencode is not installed or not on PATH. Install it first:\n  npm install -g opencode-ai\n  # or\n  bun install -g opencode-ai\n\nThen run: cmux omo")
         }
 
         // Ensure oh-my-opencode plugin is registered and installed
@@ -12720,7 +12717,7 @@ struct CMUXCLI {
             openCodePort: openCodePort
         )
 
-        let launchPath = openCodeExecutablePath ?? "opencode"
+        let launchPath = openCodeExecutablePath
         // oh-my-openagent needs the OpenCode API server running to attach
         // subagent sessions to tmux panes. Prefer the historic default port
         // when it is available, otherwise fall back to a free loopback port.
@@ -12743,11 +12740,7 @@ struct CMUXCLI {
         }
         argv.append(nil)
 
-        if openCodeExecutablePath != nil {
-            execv(launchPath, &argv)
-        } else {
-            execvp("opencode", &argv)
-        }
+        execv(launchPath, &argv)
         let code = errno
         throw CLIError(message: "Failed to launch opencode: \(String(cString: strerror(code)))\n\nIs opencode installed? Install with:\n  npm install -g opencode-ai")
     }
@@ -14068,6 +14061,11 @@ struct CMUXCLI {
         telemetry: CLISocketSentryTelemetry
     ) throws {
         let subcommand = commandArgs.first?.lowercased() ?? "help"
+        if Self.hooksDisabled(forSource: "claude"),
+           !Self.isHookHelpSubcommand(subcommand) {
+            print("{}")
+            return
+        }
         let hookArgs = Array(commandArgs.dropFirst())
         let hookWsFlag = optionValue(hookArgs, name: "--workspace")
         let workspaceArg = hookWsFlag ?? ProcessInfo.processInfo.environment["CMUX_WORKSPACE_ID"]
@@ -15950,7 +15948,6 @@ struct CMUXCLI {
         let allowedKeys = [
             "ANTHROPIC_MODEL",
             "CLAUDE_CONFIG_DIR",
-            "CMUX_CUSTOM_CLAUDE_PATH",
             "CODEX_HOME",
             "OPENCODE_CONFIG_DIR"
         ]
@@ -16677,6 +16674,23 @@ struct CMUXCLI {
 
     private static func agentDef(named name: String) -> AgentHookDef? {
         agentDefs.first { $0.name == name }
+    }
+
+    private static func disableEnvVar(forHookSource source: String) -> String? {
+        switch source.lowercased() {
+        case "claude":
+            return "CMUX_CLAUDE_HOOKS_DISABLED"
+        default:
+            return agentDef(named: source.lowercased())?.disableEnvVar
+        }
+    }
+
+    private static func hooksDisabled(
+        forSource source: String,
+        env: [String: String] = ProcessInfo.processInfo.environment
+    ) -> Bool {
+        guard let disableEnvVar = disableEnvVar(forHookSource: source) else { return false }
+        return env[disableEnvVar] == "1"
     }
 
     private static func hookMarkers(for def: AgentHookDef) -> [String] {
@@ -19502,6 +19516,10 @@ export default CMUXSessionRestore;
         guard !source.isEmpty else {
             throw CLIError(message: "cmux hooks feed requires --source <agent-name>")
         }
+        if Self.hooksDisabled(forSource: source) {
+            print("{}")
+            return
+        }
 
         // Outside a cmux terminal (no CMUX_SURFACE_ID) → silently no-op.
         // Also matches the graceful-fallback pattern of the other hooks.
@@ -20122,6 +20140,29 @@ export default CMUXSessionRestore;
         return action != "install" && action != "uninstall"
     }
 
+    private static func isHookHelpSubcommand(_ subcommand: String) -> Bool {
+        ["help", "--help", "-h"].contains(subcommand)
+    }
+
+    private func hooksNamespaceDisabledNoop(commandArgs: [String], env: [String: String]) -> Bool {
+        guard let first = commandArgs.first?.lowercased() else { return false }
+        let rest = Array(commandArgs.dropFirst())
+        switch first {
+        case "claude":
+            let subcommand = rest.first?.lowercased() ?? "help"
+            return Self.hooksDisabled(forSource: "claude", env: env)
+                && !Self.isHookHelpSubcommand(subcommand)
+        case "feed":
+            guard let source = optionValue(rest, name: "--source") else { return false }
+            return Self.hooksDisabled(forSource: source, env: env)
+        default:
+            guard let def = Self.agentDef(named: first) else { return false }
+            let action = rest.first?.lowercased() ?? ""
+            guard action != "install", action != "uninstall" else { return false }
+            return Self.hooksDisabled(forSource: def.name, env: env)
+        }
+    }
+
     private func installHooksForAgent(_ def: AgentHookDef, arguments: [String]) throws {
         if def.name == "opencode" {
             let projectLocal = arguments.contains("--project")
@@ -20212,7 +20253,7 @@ export default CMUXSessionRestore;
 
         print("cmux hooks \(isUninstall ? "uninstall" : "setup"): \(verb) agent hooks")
         if !isUninstall {
-            print("  (Claude Code hooks are injected automatically via the claude wrapper)")
+            print("  (Claude Code hooks are not installed by setup; configure Claude's native hooks to call cmux hooks claude)")
         }
         print("")
 

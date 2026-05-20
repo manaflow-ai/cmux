@@ -553,7 +553,6 @@ private enum AgentResumeCommandBuilder {
         switch key {
         case "ANTHROPIC_MODEL",
              "CLAUDE_CONFIG_DIR",
-             "CMUX_CUSTOM_CLAUDE_PATH",
              "CODEX_HOME",
              "NODE_OPTIONS",
              "OPENCODE_CONFIG_DIR":

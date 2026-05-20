@@ -1741,7 +1741,6 @@ final class CLINotifyProcessIntegrationTests: XCTestCase {
         for key in [
             "ANTHROPIC_MODEL",
             "CLAUDE_CONFIG_DIR",
-            "CMUX_CUSTOM_CLAUDE_PATH",
             "NODE_OPTIONS",
             "OPENCODE_CONFIG_DIR"
         ] {

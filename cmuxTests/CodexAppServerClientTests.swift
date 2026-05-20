@@ -7,6 +7,137 @@ import XCTest
 @testable import cmux
 #endif
 
+private final class FakeCodexAppServerClient: CodexAppServerClienting {
+    struct TurnStartCall: Equatable {
+        var threadId: String
+        var text: String
+    }
+
+    struct SteerCall: Equatable {
+        var threadId: String
+        var turnId: String
+        var text: String
+    }
+
+    var onEvent: ((CodexAppServerEvent) -> Void)?
+    var holdStartAndInitialize = false
+    var holdStartThread = false
+    var startAndInitializeCallCount = 0
+    var startThreadCallCount = 0
+    var resumeThreadCallCount = 0
+    var resumeThreadError: Error?
+    var startTurnCalls: [TurnStartCall] = []
+    var steerTurnCalls: [SteerCall] = []
+    var steerTurnCallCount = 0
+    var holdListModels = false
+    var listModelsCallCount = 0
+    var pendingListModelsCallCount: Int { listModelsContinuations.count }
+
+    private var startAndInitializeContinuation: CheckedContinuation<Void, Error>?
+    private var startThreadContinuation: CheckedContinuation<String, Error>?
+    private var listModelsContinuations: [CheckedContinuation<[[String: Any]], Error>] = []
+
+    static func generatedThreadId(_ index: Int) -> String {
+        String(format: "019d6637-e5cc-7cc0-a321-2c43b799%04x", index)
+    }
+
+    func stop() {}
+
+    func startAndInitialize() async throws {
+        startAndInitializeCallCount += 1
+        guard holdStartAndInitialize else { return }
+        try await withCheckedThrowingContinuation { continuation in
+            startAndInitializeContinuation = continuation
+        }
+    }
+
+    func finishStartAndInitialize() {
+        let continuation = startAndInitializeContinuation
+        startAndInitializeContinuation = nil
+        continuation?.resume()
+    }
+
+    func startThread(cwd: String?, model: String?, serviceTier: String?) async throws -> String {
+        startThreadCallCount += 1
+        guard holdStartThread else {
+            return Self.generatedThreadId(startThreadCallCount)
+        }
+        return try await withCheckedThrowingContinuation { continuation in
+            startThreadContinuation = continuation
+        }
+    }
+
+    func finishStartThread(with threadId: String) {
+        let continuation = startThreadContinuation
+        startThreadContinuation = nil
+        continuation?.resume(returning: threadId)
+    }
+
+    func resumeThread(threadId: String, cwd: String?) async throws -> [String: Any] {
+        resumeThreadCallCount += 1
+        if let resumeThreadError {
+            throw resumeThreadError
+        }
+        return ["thread": ["id": threadId]]
+    }
+
+    func startTurn(
+        threadId: String,
+        text: String,
+        cwd: String?,
+        model: String?,
+        serviceTier: String?,
+        reasoningSummary: String?
+    ) async throws -> String {
+        startTurnCalls.append(TurnStartCall(threadId: threadId, text: text))
+        return "turn-\(startTurnCalls.count)"
+    }
+
+    func listModels(includeHidden: Bool) async throws -> [[String: Any]] {
+        listModelsCallCount += 1
+        guard holdListModels else {
+            return []
+        }
+        return try await withCheckedThrowingContinuation { continuation in
+            listModelsContinuations.append(continuation)
+        }
+    }
+
+    func finishNextListModels(with models: [[String: Any]] = []) {
+        guard !listModelsContinuations.isEmpty else { return }
+        let continuation = listModelsContinuations.removeFirst()
+        continuation.resume(returning: models)
+    }
+
+    func finishAllListModels(with models: [[String: Any]] = []) {
+        let continuations = listModelsContinuations
+        listModelsContinuations.removeAll()
+        for continuation in continuations {
+            continuation.resume(returning: models)
+        }
+    }
+
+    deinit {
+        finishAllListModels()
+    }
+
+    func readRateLimits() async throws -> [String: Any] {
+        [:]
+    }
+
+    func steerTurn(threadId: String, turnId: String, text: String) async throws -> String {
+        steerTurnCallCount += 1
+        steerTurnCalls.append(SteerCall(threadId: threadId, turnId: turnId, text: text))
+        return turnId
+    }
+
+    func interruptTurn(threadId: String, turnId: String) async throws {}
+
+    func respondToServerRequest(id: CodexAppServerRequestID, result: [String: Any]) throws {}
+
+    func rejectServerRequest(id: CodexAppServerRequestID, message: String) throws {}
+}
+
 final class CodexAppServerRequestFactoryTests: XCTestCase {
     func testInitializeRequestUsesCodexAppServerHandshakeShape() throws {
         let request = CodexAppServerRequestFactory.initializeRequest(id: 42)
@@ -86,6 +217,19 @@ final class CodexAppServerRequestFactoryTests: XCTestCase {
         XCTAssertEqual(input[0]["type"] as? String, "text")
         XCTAssertEqual(input[0]["text"] as? String, "Summarize this repo")
         XCTAssertNotNil(input[0]["textElements"] as? [Any])
+    }
+
+    func testTurnStartRequestCanRequestReasoningSummary() throws {
+        let request = CodexAppServerRequestFactory.turnStartRequest(
+            id: 12,
+            threadId: "thr_123",
+            text: "Think through this",
+            cwd: "/Users/cmux/project",
+            reasoningSummary: "detailed"
+        )
+
+        let params = try XCTUnwrap(request["params"] as? [String: Any])
+        XCTAssertEqual(params["summary"] as? String, "detailed")
     }
 
     func testThreadAndTurnStartRequestsCarryModelOverrides() throws {
@@ -191,7 +335,7 @@ final class CodexAppServerRequestFactoryTests: XCTestCase {
     }
 
     @MainActor
-    func testCodexPanelAutoStartsOnlyWhenResumingThread() {
+    func testCodexPanelAutoStartsForFreshAndResumedThreads() {
         let workspaceId = UUID()
         let freshPanel = CodexAppServerPanel(
             workspaceId: workspaceId,
@@ -203,8 +347,446 @@ final class CodexAppServerRequestFactoryTests: XCTestCase {
             resumeThreadId: "019d6637-e5cc-7cc0-a321-2c43b799036b"
         )
 
-        XCTAssertFalse(freshPanel.shouldAutoStart)
+        XCTAssertTrue(freshPanel.shouldAutoStart)
         XCTAssertTrue(resumingPanel.shouldAutoStart)
+    }
+
+    @MainActor
+    func testResumeMissingRolloutFallsBackToFreshReadyPanel() async throws {
+        let client = FakeCodexAppServerClient()
+        client.resumeThreadError = CodexAppServerClientError.requestFailed(
+            "no rollout found for thread id 019d6637-e5cc-7cc0-a321-2c43b799036b"
+        )
+        let panel = CodexAppServerPanel(
+            workspaceId: UUID(),
+            cwd: "/tmp",
+            resumeThreadId: "019d6637-e5cc-7cc0-a321-2c43b799036b",
+            client: client
+        )
+
+        await panel.start()
+
+        XCTAssertEqual(client.resumeThreadCallCount, 1)
+        XCTAssertEqual(panel.status, .ready)
+        XCTAssertFalse(panel.isDirty)
+        XCTAssertNil(panel.resumableThreadId)
+
+        panel.promptText = "start over"
+        await panel.sendPrompt()
+
+        let freshThreadId = FakeCodexAppServerClient.generatedThreadId(1)
+        XCTAssertEqual(client.startThreadCallCount, 1)
+        XCTAssertEqual(client.startTurnCalls, [
+            FakeCodexAppServerClient.TurnStartCall(threadId: freshThreadId, text: "start over"),
+        ])
+        XCTAssertEqual(panel.resumableThreadId, freshThreadId)
+    }
+
+    @MainActor
+    func testResumeMissingRolloutDoesNotRetryUnavailableThreadAfterRestart() async throws {
+        let client = FakeCodexAppServerClient()
+        client.resumeThreadError = CodexAppServerClientError.requestFailed(
+            "no rollout found for thread id 019d6637-e5cc-7cc0-a321-2c43b799036b"
+        )
+        let panel = CodexAppServerPanel(
+            workspaceId: UUID(),
+            cwd: "/tmp",
+            resumeThreadId: "019d6637-e5cc-7cc0-a321-2c43b799036b",
+            client: client
+        )
+
+        await panel.start()
+        panel.stop()
+        await panel.start()
+
+        XCTAssertEqual(client.startAndInitializeCallCount, 2)
+        XCTAssertEqual(client.resumeThreadCallCount, 1)
+        XCTAssertEqual(panel.status, .ready)
+        XCTAssertNil(panel.resumableThreadId)
+    }
+
+    func testMissingRolloutResumeErrorMatcher() {
+        XCTAssertTrue(CodexAppServerPanel.isMissingRolloutResumeError(
+            CodexAppServerClientError.requestFailed("no rollout found for thread id abc")
+        ))
+        XCTAssertFalse(CodexAppServerPanel.isMissingRolloutResumeError(
+            CodexAppServerClientError.requestFailed("permission denied")
+        ))
+    }
+
+    @MainActor
+    func testLateClientEventsFromStoppedLifecycleAreIgnored() async throws {
+        let client = FakeCodexAppServerClient()
+        let panel = CodexAppServerPanel(
+            workspaceId: UUID(),
+            cwd: "/tmp",
+            client: client
+        )
+        await panel.start()
+        let stoppedLifecycleHandler = client.onEvent
+
+        panel.stop()
+        stoppedLifecycleHandler?(.terminated(42))
+        await Task.yield()
+
+        XCTAssertEqual(panel.status, .stopped)
+        XCTAssertTrue(panel.transcriptItems.isEmpty)
+    }
+
+    @MainActor
+    func testStaleModelRefreshDoesNotClearCurrentLoadingState() async throws {
+        let client = FakeCodexAppServerClient()
+        client.holdListModels = true
+        let panel = CodexAppServerPanel(
+            workspaceId: UUID(),
+            cwd: "/tmp",
+            client: client
+        )
+
+        await panel.start()
+        let didStartFirstRefresh = await waitForMainActorCondition {
+            client.listModelsCallCount == 1 && panel.isModelListLoading
+        }
+        XCTAssertTrue(didStartFirstRefresh)
+
+        panel.stop()
+        await panel.start()
+        let didStartSecondRefresh = await waitForMainActorCondition {
+            client.listModelsCallCount == 2 && panel.isModelListLoading
+        }
+        XCTAssertTrue(didStartSecondRefresh)
+
+        client.finishNextListModels()
+        let didFinishStaleRefresh = await waitForMainActorCondition {
+            client.pendingListModelsCallCount == 1
+        }
+        XCTAssertTrue(didFinishStaleRefresh)
+        XCTAssertTrue(panel.isModelListLoading)
+
+        client.finishNextListModels()
+        let didFinishCurrentRefresh = await waitForMainActorCondition {
+            client.pendingListModelsCallCount == 0 && !panel.isModelListLoading
+        }
+        XCTAssertTrue(didFinishCurrentRefresh)
+    }
+
+    @MainActor
+    func testInitialCommandOutputDeltaIsTruncated() async throws {
+        let client = FakeCodexAppServerClient()
+        let panel = CodexAppServerPanel(
+            workspaceId: UUID(),
+            cwd: "/tmp",
+            client: client
+        )
+        await panel.start()
+
+        let oversizedOutput = String(repeating: "x", count: CodexAppServerTranscriptPolicy.maxItemCharacters + 1_000)
+        client.onEvent?(
+            .notification(
+                CodexAppServerServerNotification(
+                    method: "item/commandExecution/outputDelta",
+                    params: [
+                        "itemId": "command-1",
+                        "delta": oversizedOutput,
+                    ]
+                )
+            )
+        )
+        let didAppendOutput = await waitForMainActorCondition {
+            panel.transcriptItems.count == 1
+        }
+        XCTAssertTrue(didAppendOutput, "Expected command output event to append a transcript item")
+
+        let item = try XCTUnwrap(panel.transcriptItems.first)
+        XCTAssertEqual(item.presentation, .commandOutput)
+        XCTAssertNotEqual(item.body, oversizedOutput)
+        XCTAssertTrue(item.body.contains("Earlier output omitted"))
+        XCTAssertTrue(item.body.hasSuffix(String(repeating: "x", count: 1_000)))
+    }
+
+    @MainActor
+    func testBusyPromptQueuesUntilFirstTurnIdExists() async throws {
+        let client = FakeCodexAppServerClient()
+        let panel = CodexAppServerPanel(
+            workspaceId: UUID(),
+            cwd: "/tmp",
+            client: client
+        )
+        await panel.start()
+        XCTAssertEqual(panel.status, .ready)
+
+        client.holdStartThread = true
+        panel.promptText = "first prompt"
+        let firstSend = Task { @MainActor in
+            await panel.sendPrompt()
+        }
+        let didEnterThreadCreation = await waitForMainActorCondition {
+            client.startThreadCallCount == 1
+        }
+        XCTAssertTrue(didEnterThreadCreation, "Expected the first prompt to enter thread creation")
+        XCTAssertEqual(panel.status, .running)
+
+        panel.promptText = "second prompt"
+        await panel.sendPrompt()
+
+        XCTAssertEqual(client.startThreadCallCount, 1)
+        XCTAssertEqual(client.startTurnCalls, [])
+        XCTAssertEqual(client.steerTurnCallCount, 0)
+        XCTAssertEqual(panel.queuedPrompts.map(\.text), ["second prompt"])
+
+        let firstThreadId = FakeCodexAppServerClient.generatedThreadId(1)
+        client.finishStartThread(with: firstThreadId)
+        await firstSend.value
+
+        XCTAssertEqual(client.startTurnCalls, [
+            FakeCodexAppServerClient.TurnStartCall(threadId: firstThreadId, text: "first prompt"),
+        ])
+        XCTAssertEqual(panel.queuedPrompts.map(\.text), ["second prompt"])
+    }
+
+    @MainActor
+    func testQueuedFollowUpDoesNotDrainDuringInitialStartup() async throws {
+        let client = FakeCodexAppServerClient()
+        client.holdStartAndInitialize = true
+        let panel = CodexAppServerPanel(
+            workspaceId: UUID(),
+            cwd: "/tmp",
+            client: client
+        )
+
+        panel.promptText = "first prompt"
+        let firstSend = Task { @MainActor in
+            await panel.sendPrompt()
+        }
+        let didEnterStartup = await waitForMainActorCondition {
+            client.startAndInitializeCallCount == 1
+        }
+        XCTAssertTrue(didEnterStartup, "Expected first prompt to start Codex app-server initialization")
+
+        panel.promptText = "second prompt"
+        await panel.sendPrompt()
+
+        XCTAssertEqual(client.startTurnCalls, [])
+        XCTAssertEqual(panel.queuedPrompts.map(\.text), ["second prompt"])
+
+        client.finishStartAndInitialize()
+        await firstSend.value
+
+        let firstThreadId = FakeCodexAppServerClient.generatedThreadId(1)
+        XCTAssertEqual(client.startTurnCalls, [
+            FakeCodexAppServerClient.TurnStartCall(threadId: firstThreadId, text: "first prompt"),
+        ])
+        XCTAssertEqual(panel.queuedPrompts.map(\.text), ["second prompt"])
+
+        client.onEvent?(
+            .notification(CodexAppServerServerNotification(method: "turn/completed", params: [:]))
+        )
+        let didDrainAfterTurnCompleted = await waitForMainActorCondition {
+            client.startTurnCalls.count == 2
+        }
+
+        XCTAssertTrue(didDrainAfterTurnCompleted, "Expected queued follow-up to drain after the first turn completed")
+        XCTAssertEqual(client.startTurnCalls.last, FakeCodexAppServerClient.TurnStartCall(
+            threadId: firstThreadId,
+            text: "second prompt"
+        ))
+    }
+
+    @MainActor
+    func testQueuedFollowUpDrainIgnoresDuplicateCompletionUntilSubmittedTurnFinishes() async throws {
+        let client = FakeCodexAppServerClient()
+        let panel = CodexAppServerPanel(
+            workspaceId: UUID(),
+            cwd: "/tmp",
+            client: client
+        )
+        await panel.start()
+
+        panel.promptText = "first prompt"
+        await panel.sendPrompt()
+        panel.promptText = "second prompt"
+        panel.queuePromptForNextTurn()
+        panel.promptText = "third prompt"
+        panel.queuePromptForNextTurn()
+
+        client.onEvent?(
+            .notification(CodexAppServerServerNotification(method: "turn/completed", params: [:]))
+        )
+        client.onEvent?(
+            .notification(CodexAppServerServerNotification(method: "turn/completed", params: [:]))
+        )
+
+        let didDrainOneFollowUp = await waitForMainActorCondition {
+            client.startTurnCalls.count == 2
+        }
+
+        XCTAssertTrue(didDrainOneFollowUp, "Expected one queued follow-up to drain after turn completion")
+        XCTAssertEqual(client.startTurnCalls.map(\.text), ["first prompt", "second prompt"])
+        XCTAssertEqual(panel.queuedPrompts.map(\.text), ["third prompt"])
+    }
+
+    @MainActor
+    func testChangingQueuedFollowUpToSteerSendsActiveTurnSteer() async throws {
+        let client = FakeCodexAppServerClient()
+        let panel = CodexAppServerPanel(
+            workspaceId: UUID(),
+            cwd: "/tmp",
+            client: client
+        )
+        await panel.start()
+
+        panel.promptText = "first prompt"
+        await panel.sendPrompt()
+        let threadId = FakeCodexAppServerClient.generatedThreadId(1)
+        XCTAssertEqual(panel.status, .running)
+
+        panel.promptText = "adjust current turn"
+        panel.queuePromptForNextTurn()
+        let queuedPrompt = try XCTUnwrap(panel.queuedPrompts.first)
+
+        panel.setQueuedPromptKind(id: queuedPrompt.id, kind: .steer)
+        let didSendSteer = await waitForMainActorCondition {
+            client.steerTurnCalls.count == 1
+        }
+
+        XCTAssertTrue(didSendSteer, "Expected queued follow-up converted to Steer to send turn/steer")
+        XCTAssertEqual(client.steerTurnCalls, [
+            FakeCodexAppServerClient.SteerCall(
+                threadId: threadId,
+                turnId: "turn-1",
+                text: "adjust current turn"
+            ),
+        ])
+        XCTAssertEqual(panel.queuedPrompts.map(\.kind), [.steer])
+
+        panel.setQueuedPromptKind(id: queuedPrompt.id, kind: .followUp)
+        await Task.yield()
+
+        XCTAssertEqual(client.startTurnCalls.count, 1)
+        XCTAssertEqual(client.steerTurnCallCount, 1)
+        XCTAssertEqual(panel.queuedPrompts.map(\.kind), [.steer])
+    }
+
+    @MainActor
+    func testPendingSteersCannotBeReorderedAfterSend() async throws {
+        let client = FakeCodexAppServerClient()
+        let panel = CodexAppServerPanel(
+            workspaceId: UUID(),
+            cwd: "/tmp",
+            client: client
+        )
+        await panel.start()
+
+        panel.promptText = "first prompt"
+        await panel.sendPrompt()
+        panel.promptText = "first steer"
+        await panel.sendPrompt()
+        panel.promptText = "second steer"
+        await panel.sendPrompt()
+
+        let didSendSteers = await waitForMainActorCondition {
+            client.steerTurnCalls.count == 2
+        }
+        XCTAssertTrue(didSendSteers, "Expected both steers to be sent")
+
+        let queuedPrompts = panel.queuedPrompts
+        XCTAssertEqual(queuedPrompts.map(\.text), ["first steer", "second steer"])
+        panel.moveQueuedPrompt(id: queuedPrompts[1].id, before: queuedPrompts[0].id)
+
+        XCTAssertEqual(panel.queuedPrompts.map(\.text), ["first steer", "second steer"])
+    }
+
+    @MainActor
+    func testPendingSteerEchoRemovesMatchingPromptRegardlessOfPosition() async throws {
+        let client = FakeCodexAppServerClient()
+        let panel = CodexAppServerPanel(
+            workspaceId: UUID(),
+            cwd: "/tmp",
+            client: client
+        )
+        await panel.start()
+
+        panel.promptText = "first prompt"
+        await panel.sendPrompt()
+        panel.promptText = "first steer"
+        await panel.sendPrompt()
+        panel.promptText = "second steer"
+        await panel.sendPrompt()
+
+        let didSendSteers = await waitForMainActorCondition {
+            client.steerTurnCalls.count == 2
+        }
+        XCTAssertTrue(didSendSteers, "Expected both steers to be sent")
+
+        client.onEvent?(
+            .notification(CodexAppServerServerNotification(
+                method: "userMessage",
+                params: [
+                    "type": "userMessage",
+                    "content": [
+                        [
+                            "type": "input_text",
+                            "text": "second steer",
+                        ],
+                    ],
+                ]
+            ))
+        )
+
+        let didRemoveMatchingPendingSteer = await waitForMainActorCondition {
+            panel.queuedPrompts.map(\.text) == ["first steer"]
+        }
+        XCTAssertTrue(didRemoveMatchingPendingSteer, "Expected server echo to remove the matching pending steer")
+        XCTAssertEqual(panel.queuedPrompts.map(\.text), ["first steer"])
+    }
+
+    @MainActor
+    func testCodexPromptPrintableRedirectSkipsFocusedControls() {
+        XCTAssertFalse(
+            CodexPromptPrintableKeyRedirectorView.shouldRedirectPrintableKey(
+                firstResponder: NSTextView(frame: .zero)
+            )
+        )
+        XCTAssertFalse(
+            CodexPromptPrintableKeyRedirectorView.shouldRedirectPrintableKey(
+                firstResponder: NSTextField(frame: .zero)
+            )
+        )
+        XCTAssertFalse(
+            CodexPromptPrintableKeyRedirectorView.shouldRedirectPrintableKey(
+                firstResponder: NSButton(frame: .zero)
+            )
+        )
+
+        let button = NSButton(frame: .zero)
+        let childView = NSView(frame: .zero)
+        button.addSubview(childView)
+
+        XCTAssertFalse(
+            CodexPromptPrintableKeyRedirectorView.shouldRedirectPrintableKey(
+                firstResponder: childView
+            )
+        )
+        XCTAssertTrue(
+            CodexPromptPrintableKeyRedirectorView.shouldRedirectPrintableKey(
+                firstResponder: NSView(frame: .zero)
+            )
+        )
+    }
+
+    @MainActor
+    private func waitForMainActorCondition(
+        timeout: TimeInterval = 1,
+        _ condition: @MainActor () -> Bool
+    ) async -> Bool {
+        let deadline = Date().addingTimeInterval(timeout)
+        while Date() < deadline {
+            if condition() {
+                return true
+            }
+            await Task.yield()
+        }
+        return condition()
     }
 
     func testResponseObjectUsesJsonRpcResponseShapeWithoutMethod() throws {
@@ -283,7 +865,7 @@ final class CodexAppServerRequestFactoryTests: XCTestCase {
         XCTAssertTrue(pathComponents.contains(nvmNodeBin.path))
     }
 
-    func testLaunchConfigurationRunsNodeBackedCodexScriptWithResolvedNode() throws {
+    func testLaunchConfigurationUsesResolvedProviderExecutableWithoutChangingArguments() throws {
         let fileManager = FileManager.default
         let tempDirectory = fileManager.temporaryDirectory
             .appendingPathComponent("cmux-codex-launch-\(UUID().uuidString)", isDirectory: true)
@@ -301,20 +883,60 @@ final class CodexAppServerRequestFactoryTests: XCTestCase {
         try fileManager.setAttributes([.posixPermissions: 0o755], ofItemAtPath: codexPath.path)
         try fileManager.setAttributes([.posixPermissions: 0o755], ofItemAtPath: nodePath.path)
 
-        let configuration = CodexAppServerClient.appServerLaunchConfiguration(
+        let configuration = try CodexAppServerClient.appServerLaunchConfiguration(
             baseEnvironment: [
                 "HOME": tempDirectory.path,
                 "PATH": codexBin.path,
             ]
         )
 
-        XCTAssertEqual(configuration.executablePath, nodePath.path)
-        XCTAssertEqual(configuration.arguments, [
-            codexPath.path,
-            "app-server",
-            "--listen",
-            "stdio://",
-        ])
+        XCTAssertEqual(configuration.executablePath, codexPath.path)
+        XCTAssertEqual(configuration.arguments, AgentSessionProvider.provider(.codex).launchPlan.arguments)
+        let pathComponents = try XCTUnwrap(configuration.environment["PATH"]).split(separator: ":").map(String.init)
+        XCTAssertTrue(pathComponents.contains(nodeBin.path))
+    }
+
+    func testClientStartThrowsMissingProviderErrorBeforeProcessSpawn() throws {
+        let fileManager = FileManager.default
+        let tempDirectory = fileManager.temporaryDirectory
+            .appendingPathComponent("cmux-missing-provider-\(UUID().uuidString)", isDirectory: true)
+        defer { try? fileManager.removeItem(at: tempDirectory) }
+
+        let binDirectory = tempDirectory.appendingPathComponent("bin", isDirectory: true)
+        try fileManager.createDirectory(at: binDirectory, withIntermediateDirectories: true)
+        let missingName = "cmux-missing-codex-\(UUID().uuidString)"
+        let provider = AgentSessionProvider(
+            id: .codex,
+            displayName: "Codex",
+            transport: .stdioJSONRPC,
+            unixSocketSupport: .notApplicable,
+            launchPlan: AgentSessionLaunchPlan(
+                executableName: missingName,
+                arguments: ["app-server", "--listen", "stdio://"]
+            )
+        )
+        let client = CodexAppServerClient(
+            provider: provider,
+            executableResolver: AgentExecutableResolver(baseEnvironment: [
+                "HOME": tempDirectory.path,
+                "PATH": binDirectory.path,
+            ])
+        )
+
+        XCTAssertThrowsError(try client.start()) { error in
+            guard case let AgentExecutableResolverError.missingExecutable(
+                providerID,
+                providerName,
+                executableName,
+                _
+            ) = error else {
+                return XCTFail("Expected structured missing executable error, got \(error)")
+            }
+
+            XCTAssertEqual(providerID, .codex)
+            XCTAssertEqual(providerName, "Codex")
+            XCTAssertEqual(executableName, missingName)
+        }
     }
 
     func testStopThenReleaseDoesNotCrashWhenLastReferenceDropsOnStateQueue() throws {
@@ -356,6 +978,266 @@ final class CodexAppServerRequestFactoryTests: XCTestCase {
         let finalLine = try XCTUnwrap(buffer.finish())
         XCTAssertEqual(String(data: finalLine, encoding: .utf8), "partial")
         XCTAssertNil(buffer.finish())
+    }
+
+    func testJSONWarningStderrLinesRenderAsWarningTranscriptItems() throws {
+        let text = """
+        {"level":"WARN","fields":{"message":"Warning: ignoring interface.defaultPrompt because it is not supported"},"target":"codex_core_plugins::manifest"}
+        {"level":"WARNING","fields":{"message":"using fallback model"},"target":"codex_core::config"}
+        """
+
+        let items = CodexAppServerTranscriptPolicy.transcriptItems(
+            fromStderr: text,
+            date: Date(timeIntervalSince1970: 1)
+        )
+
+        XCTAssertEqual(items.count, 2)
+        XCTAssertTrue(items.allSatisfy { $0.role == .event })
+        XCTAssertTrue(items.allSatisfy { $0.presentation == .warning })
+        XCTAssertEqual(items.map(\.title), ["Warning", "Warning"])
+        XCTAssertEqual(
+            items.map(\.body),
+            [
+                "ignoring interface.defaultPrompt because it is not supported",
+                "using fallback model",
+            ]
+        )
+        XCTAssertFalse(items.contains { $0.body.contains(#""level""#) })
+    }
+
+    func testMixedWarningStderrKeepsNonWarningTextAsStderr() throws {
+        let text = """
+        booting app-server
+        {"level":"INFO","fields":{"message":"ready"},"target":"codex_core"}
+        {"level":"WARN","fields":{"message":"ignoring interface.defaultPrompt"},"target":"codex_core_plugins::manifest"}
+        """
+
+        let items = CodexAppServerTranscriptPolicy.transcriptItems(
+            fromStderr: text,
+            date: Date(timeIntervalSince1970: 1)
+        )
+
+        XCTAssertEqual(items.count, 2)
+        XCTAssertEqual(items[0].role, .stderr)
+        XCTAssertEqual(
+            items[0].body,
+            "booting app-server\n{\"level\":\"INFO\",\"fields\":{\"message\":\"ready\"},\"target\":\"codex_core\"}\n"
+        )
+        XCTAssertEqual(items[1].role, .event)
+        XCTAssertEqual(items[1].presentation, .warning)
+        XCTAssertEqual(items[1].body, "ignoring interface.defaultPrompt")
+    }
+
+    func testWarningStderrBufferHandlesSplitJSONLine() throws {
+        var buffer = CodexAppServerStderrTranscriptBuffer()
+
+        XCTAssertTrue(buffer.append(#"{"level":"WARN","fields":{"message":"Warning: ignored"#).isEmpty)
+        let items = buffer.append(#" interface.defaultPrompt"},"target":"codex_core_plugins::manifest"}"# + "\n")
+
+        XCTAssertEqual(items.count, 1)
+        XCTAssertEqual(items[0].role, .event)
+        XCTAssertEqual(items[0].presentation, .warning)
+        XCTAssertEqual(items[0].body, "ignored interface.defaultPrompt")
+    }
+
+    func testWarningStderrBufferFlushesPartialNonWarningText() throws {
+        var buffer = CodexAppServerStderrTranscriptBuffer()
+
+        XCTAssertTrue(buffer.append("partial stderr").isEmpty)
+        let items = buffer.flush(date: Date(timeIntervalSince1970: 1))
+
+        XCTAssertEqual(items.count, 1)
+        XCTAssertEqual(items[0].role, .stderr)
+        XCTAssertEqual(items[0].body, "partial stderr")
+    }
+
+    func testWarningStderrBufferDoesNotEmitBlankItemForSplitCRLF() throws {
+        var buffer = CodexAppServerStderrTranscriptBuffer()
+
+        XCTAssertTrue(buffer.append(#"{"level":"WARN","fields":{"message":"split crlf"}}"# + "\r").isEmpty)
+        let items = buffer.append("\n")
+
+        XCTAssertEqual(items.count, 1)
+        XCTAssertEqual(items[0].role, .event)
+        XCTAssertEqual(items[0].presentation, .warning)
+        XCTAssertEqual(items[0].body, "split crlf")
+    }
+
+    func testCodexStateDBReadRepairWarningsAreSuppressed() throws {
+        let text = """
+        {"timestamp":"2026-05-08T20:33:51.525981Z","level":"WARN","fields":{"message":"state db discrepancy during find_thread_path_by_id_str_in_subdir: falling_back"},"target":"codex_rollout::list"}
+        {"timestamp":"2026-05-08T20:33:51.526485Z","level":"WARN","fields":{"message":"state db discrepancy during read_repair_rollout_path: upsert_needed (slow path)"},"target":"codex_rollout::state_db"}
+        """
+
+        let items = CodexAppServerTranscriptPolicy.transcriptItems(
+            fromStderr: text,
+            date: Date(timeIntervalSince1970: 1)
+        )
+
+        XCTAssertTrue(items.isEmpty)
+    }
+
+    @MainActor
+    func testReasoningSummaryPreservesInlineBoldMarkdown() async throws {
+        let client = FakeCodexAppServerClient()
+        let panel = CodexAppServerPanel(
+            workspaceId: UUID(),
+            cwd: "/tmp",
+            client: client
+        )
+        await panel.start()
+
+        client.onEvent?(
+            .notification(CodexAppServerServerNotification(
+                method: "item/completed",
+                params: [
+                    "item": [
+                        "id": "reasoning-1",
+                        "type": "reasoning",
+                        "summary": "We considered **two options** and chose A",
+                    ],
+                ]
+            ))
+        )
+
+        let didAppendReasoning = await waitForMainActorCondition {
+            panel.transcriptItems.count == 1
+        }
+
+        XCTAssertTrue(didAppendReasoning, "Expected completed reasoning item to append")
+        XCTAssertEqual(panel.transcriptItems.first?.body, "We considered **two options** and chose A")
+    }
+
+    @MainActor
+    func testReasoningSummaryPreservesLeadingBoldProse() async throws {
+        let client = FakeCodexAppServerClient()
+        let panel = CodexAppServerPanel(
+            workspaceId: UUID(),
+            cwd: "/tmp",
+            client: client
+        )
+        await panel.start()
+
+        client.onEvent?(
+            .notification(CodexAppServerServerNotification(
+                method: "item/completed",
+                params: [
+                    "item": [
+                        "id": "reasoning-1",
+                        "type": "reasoning",
+                        "summary": "**Option A** is best",
+                    ],
+                ]
+            ))
+        )
+
+        let didAppendReasoning = await waitForMainActorCondition {
+            panel.transcriptItems.count == 1
+        }
+
+        XCTAssertTrue(didAppendReasoning, "Expected completed reasoning item to append")
+        XCTAssertEqual(panel.transcriptItems.first?.body, "**Option A** is best")
+    }
+
+    func testLocalCodexHistoryLoaderPreservesInlineBoldInReasoningSummary() throws {
+        let fileManager = FileManager.default
+        let threadId = "019d6637-e5cc-7cc0-a321-2c43b7990371"
+        let tempDirectory = fileManager.temporaryDirectory
+            .appendingPathComponent("cmux-codex-history-\(UUID().uuidString)", isDirectory: true)
+        defer { try? fileManager.removeItem(at: tempDirectory) }
+
+        let sessionDirectory = tempDirectory
+            .appendingPathComponent("2026/04/06", isDirectory: true)
+        try fileManager.createDirectory(at: sessionDirectory, withIntermediateDirectories: true)
+        let fileURL = sessionDirectory
+            .appendingPathComponent("rollout-2026-04-06T21-33-52-\(threadId).jsonl")
+
+        let records: [[String: Any]] = [
+            [
+                "timestamp": "2026-04-06T21:33:52.000Z",
+                "type": "session_meta",
+                "payload": ["id": threadId],
+            ],
+            [
+                "timestamp": "2026-04-06T21:34:00.000Z",
+                "type": "response_item",
+                "payload": [
+                    "type": "reasoning",
+                    "summary": "We considered **two options** and chose A",
+                ],
+            ],
+        ]
+        let jsonl = try records.map(Self.jsonLine).joined(separator: "\n")
+        try jsonl.write(to: fileURL, atomically: true, encoding: .utf8)
+
+        let snapshot = CodexSessionHistoryLoader.loadHistorySync(
+            threadId: threadId,
+            limit: 10,
+            searchRoots: [tempDirectory]
+        )
+
+        XCTAssertEqual(snapshot.transcriptItems.map(\.presentation), [.reasoning])
+        XCTAssertEqual(snapshot.transcriptItems.map(\.body), ["We considered **two options** and chose A"])
+    }
+
+    func testLocalCodexHistoryLoaderPreservesLeadingBoldReasoningProse() throws {
+        let fileManager = FileManager.default
+        let threadId = "019d6637-e5cc-7cc0-a321-2c43b7990371"
+        let tempDirectory = fileManager.temporaryDirectory
+            .appendingPathComponent("cmux-codex-history-\(UUID().uuidString)", isDirectory: true)
+        defer { try? fileManager.removeItem(at: tempDirectory) }
+
+        let sessionDirectory = tempDirectory
+            .appendingPathComponent("2026/04/06", isDirectory: true)
+        try fileManager.createDirectory(at: sessionDirectory, withIntermediateDirectories: true)
+        let fileURL = sessionDirectory
+            .appendingPathComponent("rollout-2026-04-06T21-33-52-\(threadId).jsonl")
+
+        let records: [[String: Any]] = [
+            [
+                "timestamp": "2026-04-06T21:33:52.000Z",
+                "type": "session_meta",
+                "payload": ["id": threadId],
+            ],
+            [
+                "timestamp": "2026-04-06T21:34:00.000Z",
+                "type": "response_item",
+                "payload": [
+                    "type": "reasoning",
+                    "summary": "**Option A** is best",
+                ],
+            ],
+        ]
+        let jsonl = try records.map(Self.jsonLine).joined(separator: "\n")
+        try jsonl.write(to: fileURL, atomically: true, encoding: .utf8)
+
+        let snapshot = CodexSessionHistoryLoader.loadHistorySync(
+            threadId: threadId,
+            limit: 10,
+            searchRoots: [tempDirectory]
+        )
+
+        XCTAssertEqual(snapshot.transcriptItems.map(\.presentation), [.reasoning])
+        XCTAssertEqual(snapshot.transcriptItems.map(\.body), ["**Option A** is best"])
+    }
+
+    func testStreamingFadeStateDoesNotRestartWhileStreamRemainsActive() {
+        var state = CodexStreamingFadeState()
+        let streamID = "assistant-stream"
+        let duration = 0.18
+
+        state.updateActiveStreamingIDs(Set([streamID]), now: 0)
+        XCTAssertLessThan(state.alpha(for: streamID, now: 0, duration: duration), 1)
+
+        state.pruneExpired(now: 0.2, duration: duration)
+        XCTAssertEqual(state.alpha(for: streamID, now: 0.2, duration: duration), 1)
+
+        state.updateActiveStreamingIDs(Set([streamID]), now: 0.21)
+        XCTAssertEqual(state.alpha(for: streamID, now: 0.21, duration: duration), 1)
+
+        state.updateActiveStreamingIDs([], now: 0.22)
+        state.updateActiveStreamingIDs(Set([streamID]), now: 0.23)
+        XCTAssertLessThan(state.alpha(for: streamID, now: 0.23, duration: duration), 1)
     }
 
     func testLocalCodexHistoryLoaderRestoresTailFromJsonl() throws {
@@ -993,6 +1875,39 @@ final class CodexAppServerRequestFactoryTests: XCTestCase {
         XCTAssertEqual(entries[4].block.text, "final answer")
     }
 
+    func testTranscriptDisplayKeepsHookOnlyProgressAtTopLevel() {
+        let started = """
+        {
+          "run": {
+            "eventName": "sessionStart",
+            "status": "running"
+          },
+          "threadId": "019d6637-e5cc-7cc0-a321-2c43b799036b"
+        }
+        """
+        let completed = """
+        {
+          "run": {
+            "durationMs": 42,
+            "eventName": "sessionStart",
+            "status": "completed"
+          },
+          "threadId": "019d6637-e5cc-7cc0-a321-2c43b799036b"
+        }
+        """
+        let entries = CodexTrajectoryTranscriptDisplayEntry.entries(from: [
+            CodexAppServerTranscriptItem(role: .user, title: "You", body: "how are you doing"),
+            Self.transcriptHook(method: "hook/started", body: started),
+            Self.transcriptHook(method: "hook/completed", body: completed),
+            CodexAppServerTranscriptItem(role: .assistant, title: "Codex", body: "Doing fine."),
+        ])
+
+        XCTAssertEqual(entries.map(\.kind), [.plain, .toolGroup, .plain])
+        XCTAssertEqual(entries[1].title, "2 hook events")
+        XCTAssertTrue(entries[1].block.text.contains("Started hook sessionStart"))
+        XCTAssertTrue(entries[1].block.text.contains("Completed hook sessionStart"))
+    }
+
     func testTranscriptDisplaySuppressesChatRoleTitles() {
         let entries = CodexTrajectoryTranscriptDisplayEntry.entries(from: [
             CodexAppServerTranscriptItem(role: .user, title: "You", body: "Use **literal** markdown"),
@@ -1002,6 +1917,25 @@ final class CodexAppServerRequestFactoryTests: XCTestCase {
 
         XCTAssertEqual(entries.map(\.block.title), ["", "", "Event"])
         XCTAssertEqual(entries.map(\.block.displayText), ["Use **literal** markdown", "Rendered answer", "Event\nDiagnostic"])
+    }
+
+    func testTranscriptDisplayPreservesStreamingAssistantMarkdownBlocks() {
+        let assistantID = UUID()
+        let entries = CodexTrajectoryTranscriptDisplayEntry.entries(from: [
+            CodexAppServerTranscriptItem(
+                id: assistantID,
+                role: .assistant,
+                title: "Codex",
+                body: "Streaming **markdown**",
+                isStreaming: true
+            ),
+        ])
+
+        XCTAssertEqual(entries.count, 1)
+        XCTAssertEqual(entries[0].block.kind, .assistantText)
+        XCTAssertEqual(entries[0].block.text, "Streaming **markdown**")
+        XCTAssertTrue(entries[0].block.isStreaming)
+        XCTAssertEqual(entries[0].streamingAssistantBlockIDs, [assistantID.uuidString])
     }
 
     func testTranscriptDisplaySuppressesLifecycleNoise() {

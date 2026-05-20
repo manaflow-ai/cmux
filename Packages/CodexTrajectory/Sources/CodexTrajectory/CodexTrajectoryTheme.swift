@@ -96,6 +96,7 @@ public struct CodexTrajectoryTheme {
                 .fileChange: CodexTrajectoryBlockStyle(font: monospacedFont, foregroundColor: primary),
                 .approvalRequest: CodexTrajectoryBlockStyle(font: textFont, foregroundColor: primary),
                 .status: CodexTrajectoryBlockStyle(font: textFont, foregroundColor: muted),
+                .warning: CodexTrajectoryBlockStyle(font: textFont, foregroundColor: primary),
                 .stderr: CodexTrajectoryBlockStyle(font: monospacedFont, foregroundColor: error),
                 .systemEvent: CodexTrajectoryBlockStyle(font: textFont, foregroundColor: muted),
             ],

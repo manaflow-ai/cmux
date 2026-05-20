@@ -59,6 +59,7 @@ struct CmuxSurfaceConfigTemplate {
 
 enum WorkspacePendingTerminalInputReason {
     case configurationCommand
+    case newTerminalLaunchCommand
 }
 
 enum WorkspacePendingTerminalInputPolicy {
@@ -66,6 +67,8 @@ enum WorkspacePendingTerminalInputPolicy {
         switch reason {
         case .configurationCommand:
             return 3.0
+        case .newTerminalLaunchCommand:
+            return nil
         }
     }
 }
@@ -1147,6 +1150,27 @@ extension Workspace {
                 NSLog("[CmuxConfig] surface not ready after 3s, dropping command (%d chars)", text.count)
             }
         }
+    }
+
+    @discardableResult
+    func newTerminalSurfaceAndSendInputWhenReady(
+        _ text: String,
+        inPane paneId: PaneID,
+        focus: Bool? = nil,
+        workingDirectory: String? = nil,
+        startupEnvironment: [String: String] = [:],
+        reason: WorkspacePendingTerminalInputReason = .newTerminalLaunchCommand
+    ) -> TerminalPanel? {
+        guard let panel = newTerminalSurface(
+            inPane: paneId,
+            focus: focus,
+            workingDirectory: workingDirectory,
+            startupEnvironment: startupEnvironment
+        ) else {
+            return nil
+        }
+        sendInputWhenReady(text, to: panel, reason: reason)
+        return panel
     }
 
     private func hasPendingTerminalInputObserver(
@@ -10013,7 +10037,7 @@ final class Workspace: Identifiable, ObservableObject {
             // ghostty_surface_inherited_config or cmuxCurrentSurfaceFontSizePoints
             // is still reading through the pointer.
             let surface = terminalPanel.surface
-            guard let sourceSurface = surface.surface else { continue }
+            guard let sourceSurface = surface.liveSurfaceForGhosttyAccess(reason: "configInheritance") else { continue }
             var config = cmuxInheritedSurfaceConfig(
                 sourceSurface: sourceSurface,
                 context: GHOSTTY_SURFACE_CONTEXT_SPLIT
@@ -11784,6 +11808,15 @@ final class Workspace: Identifiable, ObservableObject {
     func newTerminalSurfaceInFocusedPane(focus: Bool? = nil, initialInput: String? = nil) -> TerminalPanel? {
         guard let focusedPaneId = bonsplitController.focusedPaneId else { return nil }
         return newTerminalSurface(inPane: focusedPaneId, focus: focus, initialInput: initialInput)
+    }
+
+    @discardableResult
+    func newTerminalSurfaceInFocusedPane(
+        focus: Bool? = nil,
+        sendingInputWhenReady text: String
+    ) -> TerminalPanel? {
+        guard let focusedPaneId = bonsplitController.focusedPaneId else { return nil }
+        return newTerminalSurfaceAndSendInputWhenReady(text, inPane: focusedPaneId, focus: focus)
     }
 
     @discardableResult
@@ -14092,7 +14125,7 @@ extension Workspace: BonsplitDelegate {
             case .currentTerminal:
                 self.selectedTerminalPanel(inPane: pane)?.sendInput(shellInput)
             case .newTabInCurrentPane:
-                _ = self.newTerminalSurface(inPane: pane, focus: true, initialInput: shellInput)
+                _ = self.newTerminalSurfaceAndSendInputWhenReady(shellInput, inPane: pane, focus: true)
             }
         }
         guard didExecute else {

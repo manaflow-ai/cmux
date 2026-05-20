@@ -176,6 +176,9 @@ enum CodexAppServerTranscriptRole: Equatable, Sendable {
 enum CodexAppServerTranscriptPresentation: Equatable, Sendable {
     case plain
     case lifecycleEvent
+    case thinkingIndicator
+    case reasoning
+    case warning
     case toolCall(name: String?)
     case toolOutput
     case commandOutput
@@ -494,6 +497,47 @@ enum CodexAppServerTranscriptPolicy {
         return "\(prefix)\n\(String(body.suffix(maxItemCharacters)))"
     }
 
+    static func transcriptItems(fromStderr text: String, date: Date = Date()) -> [CodexAppServerTranscriptItem] {
+        let normalizedText = text
+            .replacingOccurrences(of: "\r\n", with: "\n")
+            .replacingOccurrences(of: "\r", with: "\n")
+        let lines = normalizedText.components(separatedBy: "\n")
+        var items: [CodexAppServerTranscriptItem] = []
+        var stderrBuffer = ""
+        var foundWarning = false
+
+        func appendStderrBufferIfNeeded() {
+            guard !stderrBuffer.isEmpty else { return }
+            items.append(stderrTranscriptItem(from: stderrBuffer, date: date))
+            stderrBuffer = ""
+        }
+
+        for index in lines.indices {
+            let line = lines[index]
+            let hasTrailingNewline = index < lines.index(before: lines.endIndex)
+            if shouldSuppressWarningTranscriptItem(fromStderrLine: line) {
+                foundWarning = true
+                continue
+            } else if let warningItem = warningTranscriptItem(fromStderrLine: line, date: date) {
+                appendStderrBufferIfNeeded()
+                items.append(warningItem)
+                foundWarning = true
+            } else {
+                stderrBuffer += line
+                if hasTrailingNewline {
+                    stderrBuffer += "\n"
+                }
+            }
+        }
+
+        guard foundWarning else {
+            return text.isEmpty ? [] : [stderrTranscriptItem(from: text, date: date)]
+        }
+
+        appendStderrBufferIfNeeded()
+        return items
+    }
+
     static func normalizedWarningMessage(_ message: String) -> String {
         var lines = message
             .components(separatedBy: .newlines)
@@ -530,6 +574,67 @@ enum CodexAppServerTranscriptPolicy {
             title = String(localized: "codexAppServer.error.codexError", defaultValue: "Codex error")
         }
         return (title, message)
+    }
+
+    private static func stderrTranscriptItem(from text: String, date: Date) -> CodexAppServerTranscriptItem {
+        CodexAppServerTranscriptItem(
+            role: .stderr,
+            title: String(localized: "codexAppServer.event.stderr", defaultValue: "stderr"),
+            body: truncatedBody(text),
+            date: date
+        )
+    }
+
+    private static func warningTranscriptItem(
+        fromStderrLine line: String,
+        date: Date
+    ) -> CodexAppServerTranscriptItem? {
+        let trimmedLine = line.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmedLine.isEmpty,
+              let data = trimmedLine.data(using: .utf8),
+              let object = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
+              let level = stringValue(named: "level", in: object)?.lowercased(),
+              level == "warn" || level == "warning" else {
+            return nil
+        }
+
+        let fields = object["fields"] as? [String: Any]
+        let rawMessage = stringValue(named: "message", in: fields)
+            ?? stringValue(named: "message", in: object)
+            ?? stringValue(named: "target", in: object)
+            ?? prettyJSON(object)
+        let message = normalizedWarningMessage(rawMessage)
+        guard !message.isEmpty else { return nil }
+
+        return CodexAppServerTranscriptItem(
+            role: .event,
+            title: String(localized: "codexAppServer.event.warning", defaultValue: "Warning"),
+            body: truncatedBody(message),
+            date: date,
+            presentation: .warning
+        )
+    }
+
+    private static func shouldSuppressWarningTranscriptItem(fromStderrLine line: String) -> Bool {
+        let trimmedLine = line.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmedLine.isEmpty,
+              let data = trimmedLine.data(using: .utf8),
+              let object = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
+              let level = stringValue(named: "level", in: object)?.lowercased(),
+              level == "warn" || level == "warning" else {
+            return false
+        }
+
+        let fields = object["fields"] as? [String: Any]
+        let message = stringValue(named: "message", in: fields)
+            ?? stringValue(named: "message", in: object)
+            ?? ""
+        let target = stringValue(named: "target", in: object) ?? ""
+        guard target == "codex_rollout::list" || target == "codex_rollout::state_db" else {
+            return false
+        }
+        return message.contains("state db discrepancy during find_thread_path_by_id_str_in_subdir")
+            || message.contains("state db discrepancy during read_repair_rollout_path")
     }
 
     private static func stringValue(named key: String, in object: [String: Any]?) -> String? {
@@ -571,6 +676,15 @@ enum CodexAppServerPromptQueueKind: Equatable, Sendable {
             return String(localized: "codexAppServer.queue.steer", defaultValue: "Steering")
         case .followUp:
             return String(localized: "codexAppServer.queue.followUp", defaultValue: "Queued")
+        }
+    }
+
+    var localizedShortLabel: String {
+        switch self {
+        case .steer:
+            return String(localized: "codexAppServer.queue.steer.short", defaultValue: "Steer")
+        case .followUp:
+            return String(localized: "codexAppServer.queue.followUp.short", defaultValue: "Next")
         }
     }
 }
@@ -652,6 +766,45 @@ struct CodexPromptSelectionRange: Equatable, Sendable {
     }
 }
 
+struct CodexAppServerStderrTranscriptBuffer {
+    private var pendingText = ""
+
+    mutating func append(_ text: String, date: Date = Date()) -> [CodexAppServerTranscriptItem] {
+        guard !text.isEmpty else { return [] }
+        pendingText += text
+        let holdsTrailingCarriageReturn = pendingText.hasSuffix("\r")
+        let textToNormalize = holdsTrailingCarriageReturn
+            ? String(pendingText.dropLast())
+            : pendingText
+        pendingText = textToNormalize
+            .replacingOccurrences(of: "\r\n", with: "\n")
+            .replacingOccurrences(of: "\r", with: "\n")
+        if holdsTrailingCarriageReturn {
+            pendingText += "\r"
+        }
+
+        guard let lastNewlineIndex = pendingText.lastIndex(of: "\n") else {
+            return []
+        }
+
+        let completeEndIndex = pendingText.index(after: lastNewlineIndex)
+        let completeText = String(pendingText[..<completeEndIndex])
+        pendingText = String(pendingText[completeEndIndex...])
+        return CodexAppServerTranscriptPolicy.transcriptItems(fromStderr: completeText, date: date)
+    }
+
+    mutating func flush(date: Date = Date()) -> [CodexAppServerTranscriptItem] {
+        guard !pendingText.isEmpty else { return [] }
+        let text = pendingText
+        pendingText.removeAll(keepingCapacity: false)
+        return CodexAppServerTranscriptPolicy.transcriptItems(fromStderr: text, date: date)
+    }
+
+    mutating func removeAll(keepingCapacity keepCapacity: Bool = false) {
+        pendingText.removeAll(keepingCapacity: keepCapacity)
+    }
+}
+
 @MainActor
 final class CodexAppServerPanel: Panel, ObservableObject {
     let id: UUID
@@ -660,6 +813,8 @@ final class CodexAppServerPanel: Panel, ObservableObject {
     private static let restoredTranscriptItemLimit = 250
     private static let localHistoryItemLimit = 2_000
     private static let maxTranscriptItems = 2_500
+    private static let requestedReasoningSummary = "detailed"
+    private static let anonymousReasoningItemKey = "__cmux_anonymous_reasoning"
 
     private(set) var workspaceId: UUID
 
@@ -672,32 +827,41 @@ final class CodexAppServerPanel: Panel, ObservableObject {
     @Published private(set) var rateLimitSummary: CodexAppServerRateLimitSummary?
     @Published private(set) var contextSummary: CodexAppServerContextSummary?
     @Published private(set) var availableModels: [CodexAppServerModelInfo] = []
+    @Published private(set) var isModelListLoading = false
     @Published var selectedModelId: String?
     @Published var fastModeEnabled: Bool = false
     @Published private(set) var pendingSteers: [CodexAppServerQueuedPrompt] = []
     @Published private(set) var queuedFollowUps: [CodexAppServerQueuedPrompt] = []
     var promptSelectionRanges: [CodexPromptSelectionRange] = [.caret(at: 0)]
+    let provider: AgentSessionProvider
 
-    private let client: CodexAppServerClient
+    private let client: any CodexAppServerClienting
     private let initialResumeThreadId: String?
     private var threadId: String?
     private var currentTurnId: String?
     private var activeAssistantItemId: UUID?
+    private var activeReasoningItemIDs: [String: UUID] = [:]
     private var activeCommandOutputItemIDs: [String: UUID] = [:]
     private var anonymousCommandOutputItemID: UUID?
     private var lastRenderedUserMessageText: String?
+    private var initialResumeThreadUnavailable = false
     private var isStarted = false
     private var isClosed = false
     private var didResumeInitialThread = false
+    private var isStartingNewTurn = false
     private var lifecycleGeneration = 0
     private var initialHistoryRestoreThreadId: String?
     private var initialHistoryRestoreTask: Task<CodexSessionHistorySnapshot, Never>?
+    private var stderrTranscriptBuffer = CodexAppServerStderrTranscriptBuffer()
 
     var displayTitle: String {
         if status.isFailed {
-            return String(localized: "codexAppServer.panel.title.failed", defaultValue: "Codex Error")
+            return String(
+                format: String(localized: "agentSession.panel.title.failed.format", defaultValue: "%@ Error"),
+                provider.displayName
+            )
         }
-        return String(localized: "codexAppServer.panel.title", defaultValue: "Codex")
+        return provider.displayName
     }
 
     var displayIcon: String? {
@@ -720,11 +884,18 @@ final class CodexAppServerPanel: Panel, ObservableObject {
     }
 
     var canInterruptPendingPrompts: Bool {
-        status.isBusy && !pendingSteers.isEmpty && threadId != nil && currentTurnId != nil
+        status.isBusy && !pendingSteers.isEmpty && threadId != nil && hasActiveTurn
     }
 
     var shouldAutoStart: Bool {
-        normalizedThreadId(initialResumeThreadId) != nil
+        true
+    }
+
+    private var hasActiveTurn: Bool {
+        guard let currentTurnId = currentTurnId?.trimmingCharacters(in: .whitespacesAndNewlines) else {
+            return false
+        }
+        return !currentTurnId.isEmpty
     }
 
     var selectedModel: CodexAppServerModelInfo? {
@@ -737,7 +908,7 @@ final class CodexAppServerPanel: Panel, ObservableObject {
 
     var selectedModelDisplayName: String {
         selectedModel?.pickerTitle
-            ?? String(localized: "codexAppServer.composer.model.fallback", defaultValue: "Codex")
+            ?? provider.displayName
     }
 
     var selectedModelParameter: String? {
@@ -781,6 +952,9 @@ final class CodexAppServerPanel: Panel, ObservableObject {
         if let current = normalizedThreadId(threadId) {
             return current
         }
+        if initialResumeThreadUnavailable {
+            return nil
+        }
         return normalizedThreadId(initialResumeThreadId)
     }
 
@@ -789,21 +963,19 @@ final class CodexAppServerPanel: Panel, ObservableObject {
         workspaceId: UUID,
         cwd: String,
         resumeThreadId: String? = nil,
-        client: CodexAppServerClient = CodexAppServerClient()
+        provider: AgentSessionProvider = .provider(.codex),
+        client: (any CodexAppServerClienting)? = nil
     ) {
         self.id = id
         self.workspaceId = workspaceId
         self.cwd = cwd
+        self.provider = provider
         self.initialResumeThreadId = Self.normalizedCodexThreadId(resumeThreadId)
-        self.client = client
-        self.client.onEvent = { [weak self] event in
-            Task { @MainActor in
-                self?.handle(event)
-            }
-        }
+        self.client = client ?? CodexAppServerClient(provider: provider)
     }
 
     deinit {
+        client.onEvent = nil
         client.stop()
     }
 
@@ -813,7 +985,10 @@ final class CodexAppServerPanel: Panel, ObservableObject {
         let startTime = CodexAppServerTiming.now()
 #endif
         let generation = lifecycleGeneration
-        let pendingInitialResumeThreadId = normalizedThreadId(initialResumeThreadId)
+        installClientEventHandler(generation: generation)
+        let pendingInitialResumeThreadId = initialResumeThreadUnavailable
+            ? nil
+            : normalizedThreadId(initialResumeThreadId)
 #if DEBUG
         CodexAppServerTiming.log("panel.start.begin", [
             "panel": id.uuidString.prefix(8),
@@ -823,6 +998,7 @@ final class CodexAppServerPanel: Panel, ObservableObject {
         ])
 #endif
         status = .starting
+        stderrTranscriptBuffer.removeAll(keepingCapacity: true)
         transcriptLoadingPhase = pendingInitialResumeThreadId?.isEmpty == false
             ? .restoringHistory
             : .startingServer
@@ -866,10 +1042,42 @@ final class CodexAppServerPanel: Panel, ObservableObject {
                     "items_before": transcriptItems.count,
                 ])
 #endif
-                let response = try await client.resumeThread(
-                    threadId: pendingInitialResumeThreadId,
-                    cwd: currentWorkingDirectory()
-                )
+                let response: [String: Any]
+                do {
+                    response = try await client.resumeThread(
+                        threadId: pendingInitialResumeThreadId,
+                        cwd: currentWorkingDirectory()
+                    )
+                } catch {
+                    guard Self.isMissingRolloutResumeError(error) else {
+                        throw error
+                    }
+#if DEBUG
+                    CodexAppServerTiming.log("panel.resume.missingRolloutFallback", [
+                        "panel": id.uuidString.prefix(8),
+                        "thread": pendingInitialResumeThreadId,
+                        "error": error.localizedDescription,
+                    ])
+#endif
+                    guard isCurrentLifecycle(generation) else {
+                        client.stop()
+                        return
+                    }
+                    initialHistoryRestoreTask?.cancel()
+                    initialHistoryRestoreTask = nil
+                    initialHistoryRestoreThreadId = nil
+                    initialResumeThreadUnavailable = true
+                    didResumeInitialThread = true
+                    threadId = nil
+                    currentTurnId = nil
+                    transcriptItems.removeAll()
+                    pendingRequests.removeAll()
+                    contextSummary = nil
+                    status = .ready
+                    transcriptLoadingPhase = .idle
+                    drainNextQueuedFollowUpIfNeeded()
+                    return
+                }
 #if DEBUG
                 CodexAppServerTiming.log("panel.resume.response", [
                     "panel": id.uuidString.prefix(8),
@@ -908,9 +1116,11 @@ final class CodexAppServerPanel: Panel, ObservableObject {
                 }
                 status = .ready
                 transcriptLoadingPhase = .idle
+                drainNextQueuedFollowUpIfNeeded()
             } else {
                 status = .ready
                 transcriptLoadingPhase = .idle
+                drainNextQueuedFollowUpIfNeeded()
             }
 #if DEBUG
             CodexAppServerTiming.log("panel.start.end", [
@@ -936,15 +1146,24 @@ final class CodexAppServerPanel: Panel, ObservableObject {
         }
     }
 
+    nonisolated static func isMissingRolloutResumeError(_ error: Error) -> Bool {
+        let message = error.localizedDescription.lowercased()
+        return message.contains("no rollout found for thread id")
+            || message.contains("no rollout found")
+    }
+
     private func refreshCodexMetadata(generation: Int) async {
         guard isCurrentLifecycle(generation), isStarted else { return }
+        isModelListLoading = true
         do {
             let models = try await client.listModels(includeHidden: true)
                 .compactMap(CodexAppServerModelInfo.init(object:))
                 .filter { !$0.pickerTitle.isEmpty }
-            guard isCurrentLifecycle(generation) else { return }
+            guard isCurrentLifecycle(generation) else {
+                return
+            }
             availableModels = models
-            if selectedModelId == nil {
+            if selectedModelId == nil || selectedModel == nil {
                 selectedModelId = models.first(where: \.isDefault)?.id ?? models.first?.id
             }
             if selectedModel?.supportsFastMode != true {
@@ -957,6 +1176,9 @@ final class CodexAppServerPanel: Panel, ObservableObject {
                 "error": error.localizedDescription,
             ])
 #endif
+        }
+        if isCurrentLifecycle(generation) {
+            isModelListLoading = false
         }
 
         do {
@@ -978,15 +1200,20 @@ final class CodexAppServerPanel: Panel, ObservableObject {
         initialHistoryRestoreTask?.cancel()
         initialHistoryRestoreTask = nil
         initialHistoryRestoreThreadId = nil
+        client.onEvent = nil
         client.stop()
+        stderrTranscriptBuffer.removeAll(keepingCapacity: true)
         isStarted = false
+        isModelListLoading = false
         threadId = nil
         currentTurnId = nil
         activeAssistantItemId = nil
+        activeReasoningItemIDs.removeAll(keepingCapacity: false)
         activeCommandOutputItemIDs.removeAll(keepingCapacity: false)
         anonymousCommandOutputItemID = nil
         lastRenderedUserMessageText = nil
         didResumeInitialThread = false
+        isStartingNewTurn = false
         pendingRequests.removeAll()
         pendingSteers.removeAll()
         queuedFollowUps.removeAll()
@@ -1006,6 +1233,10 @@ final class CodexAppServerPanel: Panel, ObservableObject {
         }
 
         if status.isBusy {
+            if !hasActiveTurn {
+                queuedFollowUps.append(CodexAppServerQueuedPrompt(text: text, kind: .followUp))
+                return
+            }
             await submitSteer(text)
             return
         }
@@ -1019,6 +1250,57 @@ final class CodexAppServerPanel: Panel, ObservableObject {
         promptText = ""
         queuedFollowUps.append(CodexAppServerQueuedPrompt(text: text, kind: .followUp))
         drainNextQueuedFollowUpIfNeeded()
+    }
+
+    func removeQueuedPrompt(id: UUID) {
+        pendingSteers.removeAll { $0.id == id }
+        queuedFollowUps.removeAll { $0.id == id }
+    }
+
+    func moveQueuedPrompt(id: UUID, before targetID: UUID) {
+        _ = moveQueuedPrompt(in: &queuedFollowUps, id: id, before: targetID)
+    }
+
+    func setQueuedPromptKind(id: UUID, kind: CodexAppServerPromptQueueKind) {
+        if let index = pendingSteers.firstIndex(where: { $0.id == id }) {
+            guard kind == .steer else { return }
+            pendingSteers[index].kind = .steer
+            return
+        }
+
+        if let index = queuedFollowUps.firstIndex(where: { $0.id == id }) {
+            var prompt = queuedFollowUps.remove(at: index)
+            prompt.kind = kind
+            switch kind {
+            case .steer:
+                guard status.isBusy, hasActiveTurn else {
+                    prompt.kind = .followUp
+                    queuedFollowUps.insert(prompt, at: min(index, queuedFollowUps.count))
+                    return
+                }
+                Task { @MainActor [weak self] in
+                    await self?.submitSteer(prompt)
+                }
+            case .followUp:
+                queuedFollowUps.insert(prompt, at: min(index, queuedFollowUps.count))
+            }
+        }
+    }
+
+    private func moveQueuedPrompt(
+        in prompts: inout [CodexAppServerQueuedPrompt],
+        id: UUID,
+        before targetID: UUID
+    ) -> Bool {
+        guard let sourceIndex = prompts.firstIndex(where: { $0.id == id }),
+              let targetIndex = prompts.firstIndex(where: { $0.id == targetID }) else {
+            return false
+        }
+        guard sourceIndex != targetIndex else { return true }
+        let prompt = prompts.remove(at: sourceIndex)
+        let adjustedTargetIndex = targetIndex > sourceIndex ? targetIndex - 1 : targetIndex
+        prompts.insert(prompt, at: min(adjustedTargetIndex, prompts.count))
+        return true
     }
 
     func interruptForPendingPrompts() async {
@@ -1048,6 +1330,12 @@ final class CodexAppServerPanel: Panel, ObservableObject {
         let cleanedText = text.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !cleanedText.isEmpty else { return }
         let generation = lifecycleGeneration
+        isStartingNewTurn = true
+        defer {
+            if lifecycleGeneration == generation {
+                isStartingNewTurn = false
+            }
+        }
         if renderUserImmediately {
             appendUser(cleanedText)
         }
@@ -1059,6 +1347,7 @@ final class CodexAppServerPanel: Panel, ObservableObject {
             }
             guard isCurrentLifecycle(generation) else { return }
             guard isStarted else { return }
+            status = .running
             let resolvedThreadId: String
             if let threadId {
                 resolvedThreadId = threadId
@@ -1078,7 +1367,8 @@ final class CodexAppServerPanel: Panel, ObservableObject {
                 text: cleanedText,
                 cwd: currentWorkingDirectory(),
                 model: selectedModelParameter,
-                serviceTier: effectiveServiceTier
+                serviceTier: effectiveServiceTier,
+                reasoningSummary: Self.requestedReasoningSummary
             )
             guard isCurrentLifecycle(generation) else { return }
             currentTurnId = turnId
@@ -1092,8 +1382,16 @@ final class CodexAppServerPanel: Panel, ObservableObject {
     private func submitSteer(_ text: String) async {
         let cleanedText = text.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !cleanedText.isEmpty else { return }
+        await submitSteer(CodexAppServerQueuedPrompt(text: cleanedText, kind: .steer))
+    }
+
+    private func submitSteer(_ queuedPrompt: CodexAppServerQueuedPrompt) async {
+        let cleanedText = queuedPrompt.text.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !cleanedText.isEmpty else { return }
         let generation = lifecycleGeneration
-        let pending = CodexAppServerQueuedPrompt(text: cleanedText, kind: .steer)
+        var pending = queuedPrompt
+        pending.text = cleanedText
+        pending.kind = .steer
         pendingSteers.append(pending)
 
         do {
@@ -1125,7 +1423,8 @@ final class CodexAppServerPanel: Panel, ObservableObject {
                     text: cleanedText,
                     cwd: currentWorkingDirectory(),
                     model: selectedModelParameter,
-                    serviceTier: effectiveServiceTier
+                    serviceTier: effectiveServiceTier,
+                    reasoningSummary: Self.requestedReasoningSummary
                 )
                 guard isCurrentLifecycle(generation) else { return }
                 currentTurnId = returnedTurnId
@@ -1134,7 +1433,7 @@ final class CodexAppServerPanel: Panel, ObservableObject {
             guard isCurrentLifecycle(generation) else { return }
             pendingSteers.removeAll { $0.id == pending.id }
             queuedFollowUps.insert(
-                CodexAppServerQueuedPrompt(text: cleanedText, kind: .followUp, date: pending.date),
+                CodexAppServerQueuedPrompt(id: pending.id, text: cleanedText, kind: .followUp, date: pending.date),
                 at: 0
             )
             appendError(error.localizedDescription)
@@ -1142,8 +1441,9 @@ final class CodexAppServerPanel: Panel, ObservableObject {
     }
 
     private func drainNextQueuedFollowUpIfNeeded() {
-        guard !status.isBusy, !queuedFollowUps.isEmpty else { return }
+        guard !isStartingNewTurn, !status.isBusy, !queuedFollowUps.isEmpty else { return }
         let next = queuedFollowUps.removeFirst()
+        isStartingNewTurn = true
         Task { @MainActor in
             await submitNewTurn(next.text, renderUserImmediately: true)
         }
@@ -1202,8 +1502,16 @@ final class CodexAppServerPanel: Panel, ObservableObject {
         !isClosed && lifecycleGeneration == generation
     }
 
-    private func handle(_ event: CodexAppServerEvent) {
-        guard !isClosed else { return }
+    private func installClientEventHandler(generation: Int) {
+        client.onEvent = { [weak self] event in
+            Task { @MainActor in
+                self?.handle(event, generation: generation)
+            }
+        }
+    }
+
+    private func handle(_ event: CodexAppServerEvent, generation: Int) {
+        guard isCurrentLifecycle(generation) else { return }
         switch event {
         case .notification(let notification):
             handleNotification(notification)
@@ -1221,13 +1529,9 @@ final class CodexAppServerPanel: Panel, ObservableObject {
                 body: request.rawMethod
             )
         case .stderr(let text):
-            append(
-                role: .stderr,
-                title: String(localized: "codexAppServer.event.stderr", defaultValue: "stderr"),
-                body: text,
-                preservesBodyWhitespace: true
-            )
+            appendStderr(text)
         case .terminated(let statusCode):
+            flushPendingStderr()
             isStarted = false
             status = .failed(
                 String(
@@ -1242,6 +1546,7 @@ final class CodexAppServerPanel: Panel, ObservableObject {
             threadId = nil
             currentTurnId = nil
             activeAssistantItemId = nil
+            activeReasoningItemIDs.removeAll(keepingCapacity: false)
             activeCommandOutputItemIDs.removeAll(keepingCapacity: false)
             anonymousCommandOutputItemID = nil
             lastRenderedUserMessageText = nil
@@ -1276,6 +1581,7 @@ final class CodexAppServerPanel: Panel, ObservableObject {
         case "turn/completed":
             status = .ready
             currentTurnId = nil
+            finishStreamingReasoningSummaries()
             finishStreamingAssistant()
             drainNextQueuedFollowUpIfNeeded()
         case "item/started":
@@ -1296,6 +1602,19 @@ final class CodexAppServerPanel: Panel, ObservableObject {
                 itemId: Self.stringValue(named: "itemId", in: params)
                     ?? Self.stringValue(named: "id", in: params)
             )
+        case "item/reasoning/summaryTextDelta":
+            appendReasoningSummaryDelta(
+                Self.stringValue(named: "delta", in: params),
+                itemId: Self.stringValue(named: "itemId", in: params)
+                    ?? Self.stringValue(named: "id", in: params)
+            )
+        case "item/reasoning/summaryPartAdded":
+            appendReasoningSummaryPartBreak(
+                itemId: Self.stringValue(named: "itemId", in: params)
+                    ?? Self.stringValue(named: "id", in: params)
+            )
+        case "item/reasoning/textDelta":
+            break
         case "serverRequest/resolved":
             removeResolvedServerRequest(params)
         case "item/completed":
@@ -1320,9 +1639,10 @@ final class CodexAppServerPanel: Panel, ObservableObject {
                 title: String(localized: "codexAppServer.event.warning", defaultValue: "Warning"),
                 body: CodexAppServerTranscriptPolicy.normalizedWarningMessage(
                     Self.stringValue(named: "message", in: params) ?? Self.prettyJSON(params)
-                )
+                ),
+                presentation: .warning
             )
-        case "mcpServer/startupStatus/updated", "thread/status/changed":
+        case "mcpServer/startupStatus/updated", "thread/status/changed", "remoteControl/status/changed":
             break
         default:
             appendEvent(title: method, body: Self.prettyJSON(params))
@@ -1343,9 +1663,10 @@ final class CodexAppServerPanel: Panel, ObservableObject {
         let normalized = text.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !normalized.isEmpty else { return }
 
-        if let first = pendingSteers.first,
-           first.text.trimmingCharacters(in: .whitespacesAndNewlines) == normalized {
-            pendingSteers.removeFirst()
+        if let pendingSteerIndex = pendingSteers.firstIndex(where: {
+            $0.text.trimmingCharacters(in: .whitespacesAndNewlines) == normalized
+        }) {
+            pendingSteers.remove(at: pendingSteerIndex)
             appendUser(normalized)
             return
         }
@@ -1384,6 +1705,11 @@ final class CodexAppServerPanel: Panel, ObservableObject {
                 body: Self.prettyJSON(item),
                 presentation: .toolCall(name: "apply_patch")
             )
+        case "reasoning":
+            finishReasoningSummary(
+                for: Self.itemIdentifier(from: item),
+                summary: Self.reasoningSummaryText(from: item)
+            )
         case "error":
             appendCodexErrorEvent(item)
         default:
@@ -1419,6 +1745,77 @@ final class CodexAppServerPanel: Panel, ObservableObject {
         }
     }
 
+    private func appendReasoningSummaryDelta(_ delta: String?, itemId: String?) {
+        guard let delta, !delta.isEmpty else { return }
+        let itemKey = normalizedReasoningItemKey(itemId)
+        if let id = activeReasoningItemIDs[itemKey],
+           let index = transcriptItems.firstIndex(where: { $0.id == id }) {
+            transcriptItems[index].body = Self.truncatedTranscriptBody(transcriptItems[index].body + delta)
+            transcriptItems[index].date = Date()
+            return
+        }
+
+        let item = CodexAppServerTranscriptItem(
+            role: .event,
+            title: String(localized: "codexAppServer.event.reasoning", defaultValue: "Reasoning"),
+            body: Self.truncatedTranscriptBody(delta),
+            isStreaming: true,
+            presentation: .reasoning
+        )
+        activeReasoningItemIDs[itemKey] = item.id
+        transcriptItems.append(item)
+        trimTranscriptItemsIfNeeded()
+    }
+
+    private func appendReasoningSummaryPartBreak(itemId: String?) {
+        let itemKey = normalizedReasoningItemKey(itemId)
+        guard let id = activeReasoningItemIDs[itemKey],
+              let index = transcriptItems.firstIndex(where: { $0.id == id }) else {
+            return
+        }
+        let currentBody = transcriptItems[index].body
+        guard !currentBody.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty,
+              !currentBody.hasSuffix("\n\n") else {
+            return
+        }
+        transcriptItems[index].body = Self.truncatedTranscriptBody(currentBody + "\n\n")
+        transcriptItems[index].date = Date()
+    }
+
+    private func finishReasoningSummary(for itemId: String?, summary: String?) {
+        let itemKey = normalizedReasoningItemKey(itemId)
+        let body = summary?.trimmingCharacters(in: .whitespacesAndNewlines)
+        if let id = activeReasoningItemIDs.removeValue(forKey: itemKey),
+           let index = transcriptItems.firstIndex(where: { $0.id == id }) {
+            if let body, !body.isEmpty {
+                transcriptItems[index].body = Self.truncatedTranscriptBody(body)
+            }
+            if transcriptItems[index].body.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+                transcriptItems.remove(at: index)
+            } else {
+                transcriptItems[index].isStreaming = false
+                transcriptItems[index].date = Date()
+            }
+            return
+        }
+
+        guard let body, !body.isEmpty else { return }
+        append(
+            role: .event,
+            title: String(localized: "codexAppServer.event.reasoning", defaultValue: "Reasoning"),
+            body: body,
+            presentation: .reasoning
+        )
+    }
+
+    private func normalizedReasoningItemKey(_ itemId: String?) -> String {
+        let trimmed = itemId?.trimmingCharacters(in: .whitespacesAndNewlines)
+        if let trimmed, !trimmed.isEmpty {
+            return trimmed
+        }
+        return Self.anonymousReasoningItemKey
+    }
+
     private func appendCommandDelta(_ delta: String?, itemId: String?) {
         guard let delta, !delta.isEmpty else { return }
 
@@ -1440,7 +1837,7 @@ final class CodexAppServerPanel: Panel, ObservableObject {
         let item = CodexAppServerTranscriptItem(
             role: .event,
             title: String(localized: "codexAppServer.event.output", defaultValue: "Output"),
-            body: delta,
+            body: Self.truncatedTranscriptBody(delta),
             isStreaming: true,
             presentation: .commandOutput
         )
@@ -1497,6 +1894,15 @@ final class CodexAppServerPanel: Panel, ObservableObject {
         activeAssistantItemId = nil
     }
 
+    private func finishStreamingReasoningSummaries() {
+        guard !activeReasoningItemIDs.isEmpty else { return }
+        let ids = Set(activeReasoningItemIDs.values)
+        for index in transcriptItems.indices where ids.contains(transcriptItems[index].id) {
+            transcriptItems[index].isStreaming = false
+        }
+        activeReasoningItemIDs.removeAll(keepingCapacity: false)
+    }
+
     private func appendEvent(
         title: String,
         body: String,
@@ -1516,6 +1922,20 @@ final class CodexAppServerPanel: Panel, ObservableObject {
     private func appendCodexErrorEvent(_ params: [String: Any]?) {
         let display = CodexAppServerTranscriptPolicy.codexErrorDisplay(from: params)
         append(role: .error, title: display.title, body: display.message)
+    }
+
+    private func appendStderr(_ text: String) {
+        let items = stderrTranscriptBuffer.append(text)
+        guard !items.isEmpty else { return }
+        transcriptItems.append(contentsOf: items)
+        trimTranscriptItemsIfNeeded()
+    }
+
+    private func flushPendingStderr() {
+        let items = stderrTranscriptBuffer.flush()
+        guard !items.isEmpty else { return }
+        transcriptItems.append(contentsOf: items)
+        trimTranscriptItemsIfNeeded()
     }
 
     private func appendCompactionEvent() {
@@ -1550,6 +1970,7 @@ final class CodexAppServerPanel: Panel, ObservableObject {
         }
 
         activeAssistantItemId = nil
+        activeReasoningItemIDs.removeAll(keepingCapacity: false)
 
         if snapshot.responseWasTruncated {
             return snapshot
@@ -1846,6 +2267,15 @@ final class CodexAppServerPanel: Panel, ObservableObject {
                 body: Self.truncatedTranscriptBody(text),
                 date: date
             )
+        case "reasoning":
+            guard let summary = Self.reasoningSummaryText(from: item), !summary.isEmpty else { return nil }
+            return CodexAppServerTranscriptItem(
+                role: .event,
+                title: String(localized: "codexAppServer.event.reasoning", defaultValue: "Reasoning"),
+                body: Self.truncatedTranscriptBody(summary),
+                date: date,
+                presentation: .reasoning
+            )
         case "commandExecution":
             return CodexAppServerTranscriptItem(
                 role: .event,
@@ -1975,6 +2405,41 @@ final class CodexAppServerPanel: Panel, ObservableObject {
         return nil
     }
 
+    private static func reasoningSummaryText(from item: [String: Any]) -> String? {
+        let summary = reasoningTextEntries(from: item["summary"])
+        if !summary.isEmpty {
+            return normalizedReasoningSummary(summary.joined(separator: "\n\n"))
+        }
+        return nil
+    }
+
+    private static func reasoningTextEntries(from value: Any?) -> [String] {
+        if let text = value as? String {
+            let trimmed = text.trimmingCharacters(in: .whitespacesAndNewlines)
+            return trimmed.isEmpty ? [] : [trimmed]
+        }
+        if let entries = value as? [String] {
+            return entries.compactMap { entry in
+                let trimmed = entry.trimmingCharacters(in: .whitespacesAndNewlines)
+                return trimmed.isEmpty ? nil : trimmed
+            }
+        }
+        if let entries = value as? [[String: Any]] {
+            return entries.compactMap { entry in
+                let text = stringValue(named: "text", in: entry)
+                    ?? stringValue(named: "content", in: entry)
+                    ?? stringValue(named: "summary", in: entry)
+                let trimmed = text?.trimmingCharacters(in: .whitespacesAndNewlines)
+                return trimmed?.isEmpty == false ? trimmed : nil
+            }
+        }
+        return []
+    }
+
+    private static func normalizedReasoningSummary(_ text: String) -> String? {
+        CodexReasoningSummaryNormalizer.normalized(text)
+    }
+
     nonisolated static func requestIDValue(named key: String, in object: [String: Any]?) -> CodexAppServerRequestID? {
         CodexAppServerClient.requestID(from: object?[key])
     }
@@ -2042,6 +2507,60 @@ final class CodexAppServerPanel: Panel, ObservableObject {
     }
 }
 
+private enum CodexReasoningSummaryNormalizer {
+    private static let knownLeadingLabels: Set<String> = [
+        "analysis",
+        "reasoning",
+        "summary",
+        "thinking",
+        "thought",
+        "thoughts",
+    ]
+
+    static func normalized(_ text: String) -> String? {
+        let trimmed = text.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmed.isEmpty else { return nil }
+
+        guard trimmed.hasPrefix("**"),
+              let open = trimmed.range(of: "**") else {
+            return trimmed
+        }
+        let afterOpen = trimmed[open.upperBound...]
+        guard let close = afterOpen.range(of: "**") else {
+            return trimmed
+        }
+
+        let heading = afterOpen[..<close.lowerBound].trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !heading.isEmpty else { return trimmed }
+
+        let rawAfterClose = afterOpen[close.upperBound...]
+        let afterClose = removingLeadingLabelSeparator(from: rawAfterClose)
+        guard !afterClose.isEmpty else { return heading }
+
+        if rawAfterClose.unicodeScalars.first.map({ CharacterSet.newlines.contains($0) }) == true {
+            return afterClose
+        }
+
+        let normalizedHeading = heading
+            .trimmingCharacters(in: CharacterSet(charactersIn: ":："))
+            .lowercased()
+        if heading.hasSuffix(":") || heading.hasSuffix("：") || knownLeadingLabels.contains(normalizedHeading) {
+            return afterClose
+        }
+
+        return trimmed
+    }
+
+    private static func removingLeadingLabelSeparator(from text: Substring) -> String {
+        var trimmed = text.trimmingCharacters(in: .whitespacesAndNewlines)
+        if trimmed.first == ":" || trimmed.first == "：" {
+            trimmed.removeFirst()
+            trimmed = trimmed.trimmingCharacters(in: .whitespacesAndNewlines)
+        }
+        return trimmed
+    }
+}
+
 enum CodexSessionHistoryLoader {
     private static let chunkSize = 1024 * 1024
     private static let largeHistoryTailParsingThreshold = 64 * 1024 * 1024
@@ -2055,6 +2574,7 @@ enum CodexSessionHistoryLoader {
     private static let responseItemNeedle = Data(#""type":"response_item""#.utf8)
     private static let messageNeedle = Data(#""type":"message""#.utf8)
     private static let assistantRoleNeedle = Data(#""role":"assistant""#.utf8)
+    private static let reasoningNeedle = Data(#""type":"reasoning""#.utf8)
     private static let functionCallNeedle = Data(#""type":"function_call""#.utf8)
     private static let functionCallOutputNeedle = Data(#""type":"function_call_output""#.utf8)
     private static let customToolCallNeedle = Data(#""type":"custom_tool_call""#.utf8)
@@ -2586,7 +3106,8 @@ enum CodexSessionHistoryLoader {
         if line.range(of: messageNeedle) != nil {
             return line.range(of: assistantRoleNeedle) != nil
         }
-        return line.range(of: functionCallNeedle) != nil
+        return line.range(of: reasoningNeedle) != nil
+            || line.range(of: functionCallNeedle) != nil
             || line.range(of: functionCallOutputNeedle) != nil
             || line.range(of: customToolCallNeedle) != nil
     }
@@ -2607,6 +3128,8 @@ enum CodexSessionHistoryLoader {
         switch stringValue(named: "type", in: payload) {
         case "message":
             return messageTranscriptItem(from: payload, date: date)
+        case "reasoning":
+            return reasoningTranscriptItem(from: payload, date: date)
         case "function_call":
             return functionCallTranscriptItem(from: payload, date: date)
         case "function_call_output":
@@ -2658,7 +3181,8 @@ enum CodexSessionHistoryLoader {
                 body: CodexAppServerTranscriptPolicy.truncatedBody(
                     CodexAppServerTranscriptPolicy.normalizedWarningMessage(message)
                 ),
-                date: date
+                date: date,
+                presentation: .warning
             )
         case "error":
             let display = CodexAppServerTranscriptPolicy.codexErrorDisplay(from: payload)
@@ -2698,6 +3222,22 @@ enum CodexSessionHistoryLoader {
             title: title,
             body: CodexAppServerTranscriptPolicy.truncatedBody(text),
             date: date
+        )
+    }
+
+    private static func reasoningTranscriptItem(
+        from payload: [String: Any],
+        date: Date
+    ) -> CodexAppServerTranscriptItem? {
+        guard let summary = reasoningSummaryText(from: payload), !summary.isEmpty else {
+            return nil
+        }
+        return CodexAppServerTranscriptItem(
+            role: .event,
+            title: String(localized: "codexAppServer.event.reasoning", defaultValue: "Reasoning"),
+            body: CodexAppServerTranscriptPolicy.truncatedBody(summary),
+            date: date,
+            presentation: .reasoning
         )
     }
 
@@ -2756,6 +3296,39 @@ enum CodexSessionHistoryLoader {
             date: date,
             presentation: .toolCall(name: name)
         )
+    }
+
+    private static func reasoningSummaryText(from payload: [String: Any]) -> String? {
+        let entries = reasoningTextEntries(from: payload["summary"])
+        guard !entries.isEmpty else { return nil }
+        return normalizedReasoningSummary(entries.joined(separator: "\n\n"))
+    }
+
+    private static func reasoningTextEntries(from value: Any?) -> [String] {
+        if let text = value as? String {
+            let trimmed = text.trimmingCharacters(in: .whitespacesAndNewlines)
+            return trimmed.isEmpty ? [] : [trimmed]
+        }
+        if let entries = value as? [String] {
+            return entries.compactMap { entry in
+                let trimmed = entry.trimmingCharacters(in: .whitespacesAndNewlines)
+                return trimmed.isEmpty ? nil : trimmed
+            }
+        }
+        if let entries = value as? [[String: Any]] {
+            return entries.compactMap { entry in
+                let text = stringValue(named: "text", in: entry)
+                    ?? stringValue(named: "content", in: entry)
+                    ?? stringValue(named: "summary", in: entry)
+                let trimmed = text?.trimmingCharacters(in: .whitespacesAndNewlines)
+                return trimmed?.isEmpty == false ? trimmed : nil
+            }
+        }
+        return []
+    }
+
+    private static func normalizedReasoningSummary(_ text: String) -> String? {
+        CodexReasoningSummaryNormalizer.normalized(text)
     }
 
     private static func messageText(from content: Any?) -> String? {

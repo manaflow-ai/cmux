@@ -13429,13 +13429,13 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Fast on"
+            "value": "Fast"
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "高速オン"
+            "value": "高速"
           }
         }
       }
@@ -13623,6 +13623,108 @@
           "stringUnit": {
             "state": "translated",
             "value": "まだメッセージはありません"
+          }
+        }
+      }
+    },
+    "agentSession.error.missingExecutable": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Could not find %@ executable `%@`. Install %@ and make sure `%@` is available on PATH."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%1$@ の実行ファイル `%2$@` が見つかりません。%3$@ をインストールし、`%4$@` が PATH から利用できることを確認してください。"
+          }
+        }
+      }
+    },
+    "agentSession.panel.title.failed.format": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ Error"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ エラー"
+          }
+        }
+      }
+    },
+    "agentSession.provider.claude": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Claude Code"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Claude Code"
+          }
+        }
+      }
+    },
+    "agentSession.provider.codex": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Codex"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Codex"
+          }
+        }
+      }
+    },
+    "agentSession.provider.opencode": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "OpenCode"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "OpenCode"
+          }
+        }
+      }
+    },
+    "agentSession.provider.pi": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Pi"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Pi"
           }
         }
       }
@@ -14120,6 +14222,23 @@
         }
       }
     },
+    "codexAppServer.event.reasoning": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Reasoning"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "推論"
+          }
+        }
+      }
+    },
     "codexAppServer.event.request": {
       "extractionState": "manual",
       "localizations": {
@@ -14579,6 +14698,23 @@
         }
       }
     },
+    "codexAppServer.loading.thinking": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Thinking"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "考え中"
+          }
+        }
+      }
+    },
     "codexAppServer.modelPicker.empty": {
       "extractionState": "manual",
       "localizations": {
@@ -14609,6 +14745,23 @@
           "stringUnit": {
             "state": "translated",
             "value": "高速モード"
+          }
+        }
+      }
+    },
+    "codexAppServer.modelPicker.loading": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Loading models"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "モデルを読み込み中"
           }
         }
       }
@@ -14715,6 +14868,40 @@
         }
       }
     },
+    "codexAppServer.queue.delete": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Remove queued message"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "キューメッセージを削除"
+          }
+        }
+      }
+    },
+    "codexAppServer.queue.drag": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Reorder queued message"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "キューメッセージを並べ替え"
+          }
+        }
+      }
+    },
     "codexAppServer.queue.followUp": {
       "extractionState": "manual",
       "localizations": {
@@ -14728,6 +14915,57 @@
           "stringUnit": {
             "state": "translated",
             "value": "キュー済み"
+          }
+        }
+      }
+    },
+    "codexAppServer.queue.followUp.short": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Next"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "次"
+          }
+        }
+      }
+    },
+    "codexAppServer.queue.makeFollowUp": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Make follow-up"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "フォローアップにする"
+          }
+        }
+      }
+    },
+    "codexAppServer.queue.makeSteer": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Make steer"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "誘導にする"
           }
         }
       }
@@ -14749,6 +14987,23 @@
         }
       }
     },
+    "codexAppServer.queue.moreActions": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Queued message actions"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "キューメッセージの操作"
+          }
+        }
+      }
+    },
     "codexAppServer.queue.steer": {
       "extractionState": "manual",
       "localizations": {
@@ -14762,6 +15017,23 @@
           "stringUnit": {
             "state": "translated",
             "value": "誘導中"
+          }
+        }
+      }
+    },
+    "codexAppServer.queue.steer.short": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Steer"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "誘導"
           }
         }
       }
@@ -59221,6 +59493,57 @@
         }
       }
     },
+    "settings.app.codexTranscriptFontSize": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Codex Transcript Text Size"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Codex トランスクリプトの文字サイズ"
+          }
+        }
+      }
+    },
+    "settings.app.codexTranscriptFontSize.subtitle": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Controls message and tool text size in Codex panels."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Codex パネル内のメッセージとツール文字サイズを調整します。"
+          }
+        }
+      }
+    },
+    "settings.app.codexTranscriptFontSize.value": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%.0f pt"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%.0f pt"
+          }
+        }
+      }
+    },
     "settings.app.commandPaletteSearchAllSurfaces": {
       "extractionState": "manual",
       "localizations": {
@@ -65692,115 +66015,115 @@
         "ar": {
           "stringUnit": {
             "state": "translated",
-            "value": "عند التفعيل، يغلّف cmux أمر claude لحقن تتبع الجلسة وخطافات الإشعارات. قم بالتعطيل إذا كنت تفضل إدارة خطافات Claude Code بنفسك."
+            "value": "يستخدم cmux خطافات Claude الأصلية وملف claude التنفيذي الموجود لديك. اضبط خطافات Claude لاستدعاء cmux hooks claude؛ لا يشحن cmux ملف Claude التنفيذي ولا يغلّفه."
           }
         },
         "bs": {
           "stringUnit": {
             "state": "translated",
-            "value": "Kada je omogućeno, cmux omotava naredbu claude kako bi ubacio praćenje sesije i zakačke za obavještenja. Onemogućite ako preferirate sami upravljati Claude Code zakačkama."
+            "value": "cmux koristi Claudeove izvorne zakačke i vaš postojeći claude izvršni fajl. Podesite Claude zakačke da pozovu cmux hooks claude; cmux ne isporučuje niti omotava Claude izvršni fajl."
           }
         },
         "da": {
           "stringUnit": {
             "state": "translated",
-            "value": "Når aktiveret, wrapper cmux claude-kommandoen for at injicere sessionssporing og notifikationshooks. Deaktiver, hvis du foretrækker at administrere Claude Code-hooks selv."
+            "value": "cmux bruger Claudes native hooks og din eksisterende claude-binær. Konfigurer Claude-hooks til at kalde cmux hooks claude; cmux leverer eller wrapper ikke Claude-binæren."
           }
         },
         "de": {
           "stringUnit": {
             "state": "translated",
-            "value": "Wenn aktiviert, umhüllt cmux den claude-Befehl, um Sitzungsverfolgung und Benachrichtigungs-Hooks einzufügen. Deaktivieren Sie dies, wenn Sie Claude Code-Hooks selbst verwalten möchten."
+            "value": "cmux verwendet Claudes native Hooks und Ihre vorhandene claude-Binärdatei. Konfigurieren Sie Claude-Hooks so, dass sie cmux hooks claude aufrufen; cmux liefert oder umhüllt die Claude-Binärdatei nicht."
           }
         },
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "When enabled, cmux wraps the claude command to inject session tracking and notification hooks. Disable if you prefer to manage Claude Code hooks yourself."
+            "value": "cmux uses Claude's native hooks and your existing claude binary. Configure Claude hooks to call cmux hooks claude; cmux does not ship or wrap the Claude binary."
           }
         },
         "es": {
           "stringUnit": {
             "state": "translated",
-            "value": "Cuando está activado, cmux envuelve el comando claude para inyectar seguimiento de sesión y hooks de notificación. Desactiva si prefieres gestionar los hooks de Claude Code tú mismo."
+            "value": "cmux usa los hooks nativos de Claude y tu binario claude existente. Configura los hooks de Claude para llamar a cmux hooks claude; cmux no distribuye ni envuelve el binario de Claude."
           }
         },
         "fr": {
           "stringUnit": {
             "state": "translated",
-            "value": "Lorsque cette option est activée, cmux encapsule la commande claude pour injecter le suivi de session et les hooks de notification. Désactivez si vous préférez gérer les hooks Claude Code vous-même."
+            "value": "cmux utilise les hooks natifs de Claude et votre binaire claude existant. Configurez les hooks Claude pour appeler cmux hooks claude; cmux ne fournit pas et n'encapsule pas le binaire Claude."
           }
         },
         "it": {
           "stringUnit": {
             "state": "translated",
-            "value": "Quando abilitato, cmux avvolge il comando claude per iniettare il tracciamento della sessione e gli hook di notifica. Disabilita se preferisci gestire gli hook di Claude Code manualmente."
+            "value": "cmux usa gli hook nativi di Claude e il binario claude già presente. Configura gli hook di Claude per chiamare cmux hooks claude; cmux non distribuisce né avvolge il binario Claude."
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "有効にすると、cmuxはclaudeコマンドをラップしてセッション追跡と通知フックを挿入します。Claude Codeのフックを自分で管理する場合は無効にしてください。"
+            "value": "cmuxはClaudeのネイティブフックと既存のclaudeバイナリを使用します。Claudeフックからcmux hooks claudeを呼び出すように設定してください。cmuxはClaudeバイナリを同梱したりラップしたりしません。"
           }
         },
         "ko": {
           "stringUnit": {
             "state": "translated",
-            "value": "활성화하면 cmux가 claude 명령을 래핑하여 세션 추적 및 알림 훅을 삽입합니다. Claude Code 훅을 직접 관리하려면 비활성화하세요."
+            "value": "cmux는 Claude의 기본 훅과 사용자의 기존 claude 바이너리를 사용합니다. Claude 훅이 cmux hooks claude를 호출하도록 설정하세요. cmux는 Claude 바이너리를 포함하거나 래핑하지 않습니다."
           }
         },
         "nb": {
           "stringUnit": {
             "state": "translated",
-            "value": "Når aktivert, pakker cmux inn claude-kommandoen for å injisere sesjonssporing og varslingsmekanismer. Deaktiver hvis du foretrekker å håndtere Claude Code-mekanismer selv."
+            "value": "cmux bruker Claudes innebygde hooks og din eksisterende claude-binær. Konfigurer Claude-hooks til å kalle cmux hooks claude; cmux leverer ikke og pakker ikke inn Claude-binæren."
           }
         },
         "pl": {
           "stringUnit": {
             "state": "translated",
-            "value": "Po włączeniu cmux opakowuje polecenie claude, aby wstrzyknąć śledzenie sesji i hooki powiadomień. Wyłącz, jeśli wolisz samodzielnie zarządzać hookami Claude Code."
+            "value": "cmux używa natywnych hooków Claude i istniejącego pliku wykonywalnego claude. Skonfiguruj hooki Claude, aby wywoływały cmux hooks claude; cmux nie dostarcza ani nie opakowuje pliku wykonywalnego Claude."
           }
         },
         "pt-BR": {
           "stringUnit": {
             "state": "translated",
-            "value": "Quando ativado, o cmux encapsula o comando claude para injetar rastreamento de sessão e hooks de notificação. Desative se preferir gerenciar os hooks do Claude Code você mesmo."
+            "value": "O cmux usa os hooks nativos do Claude e o binário claude existente. Configure os hooks do Claude para chamar cmux hooks claude; o cmux não distribui nem encapsula o binário do Claude."
           }
         },
         "ru": {
           "stringUnit": {
             "state": "translated",
-            "value": "При включении cmux оборачивает команду claude для отслеживания сеансов и уведомлений. Отключите, если предпочитаете управлять хуками Claude Code самостоятельно."
+            "value": "cmux использует нативные хуки Claude и существующий исполняемый файл claude. Настройте хуки Claude для вызова cmux hooks claude; cmux не поставляет и не оборачивает исполняемый файл Claude."
           }
         },
         "th": {
           "stringUnit": {
             "state": "translated",
-            "value": "เมื่อเปิดใช้งาน cmux จะห่อคำสั่ง claude เพื่อเพิ่มการติดตามเซสชันและตะขอการแจ้งเตือน ปิดใช้งานหากคุณต้องการจัดการตะขอ Claude Code ด้วยตัวเอง"
+            "value": "cmux ใช้ฮุกดั้งเดิมของ Claude และไบนารี claude ที่มีอยู่ของคุณ ตั้งค่าฮุกของ Claude ให้เรียก cmux hooks claude; cmux ไม่ได้จัดส่งหรือห่อไบนารี Claude"
           }
         },
         "tr": {
           "stringUnit": {
             "state": "translated",
-            "value": "Etkinleştirildiğinde, cmux oturum izleme ve bildirim kancaları eklemek için claude komutunu sarar. Claude Code kancalarını kendiniz yönetmeyi tercih ediyorsanız devre dışı bırakın."
+            "value": "cmux, Claude'un yerel kancalarını ve mevcut claude ikilinizi kullanır. Claude kancalarını cmux hooks claude çağıracak şekilde yapılandırın; cmux Claude ikilisini göndermez veya sarmalamaz."
           }
         },
         "uk": {
           "stringUnit": {
             "state": "translated",
-            "value": "Якщо увімкнено, cmux обгортає команду claude для інʼєкції відстеження сеансів та хуків сповіщень. Вимкніть, якщо бажаєте самостійно керувати хуками Claude Code."
+            "value": "cmux використовує нативні хуки Claude і наявний виконуваний файл claude. Налаштуйте хуки Claude на виклик cmux hooks claude; cmux не постачає і не обгортає виконуваний файл Claude."
           }
         },
         "zh-Hans": {
           "stringUnit": {
             "state": "translated",
-            "value": "启用后，cmux 会包装 claude 命令以注入会话跟踪和通知钩子。如果您希望自行管理 Claude Code 钩子，请禁用此选项。"
+            "value": "cmux 使用 Claude 的原生钩子和你现有的 claude 二进制文件。请配置 Claude 钩子来调用 cmux hooks claude；cmux 不会随附或包装 Claude 二进制文件。"
           }
         },
         "zh-Hant": {
           "stringUnit": {
             "state": "translated",
-            "value": "啟用後，cmux 會包裝 claude 指令以注入工作階段追蹤和通知掛鉤。如果您偏好自行管理 Claude Code 掛鉤，請停用此選項。"
+            "value": "cmux 使用 Claude 的原生掛鉤和你現有的 claude 二進位檔。請設定 Claude 掛鉤來呼叫 cmux hooks claude；cmux 不會隨附或包裝 Claude 二進位檔。"
           }
         }
       }

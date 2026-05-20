@@ -8,6 +8,7 @@ public enum CodexTrajectoryBlockKind: String, Codable, CaseIterable, Sendable {
     case fileChange
     case approvalRequest
     case status
+    case warning
     case stderr
     case systemEvent
 }

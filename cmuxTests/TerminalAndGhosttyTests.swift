@@ -4247,10 +4247,55 @@ final class TerminalControllerSocketTextChunkTests: XCTestCase {
 
 
 final class GhosttyTerminalViewVisibilityPolicyTests: XCTestCase {
+    func testTerminalLaunchEnvironmentClearsInheritedClaudeCodeMarker() {
+        var environment = [
+            "CLAUDECODE": "1",
+            "PATH": "/usr/bin:/bin",
+        ]
+
+        GhosttyTerminalView.removeInheritedAgentEnvironment(from: &environment)
+
+        XCTAssertNil(environment["CLAUDECODE"])
+        XCTAssertEqual(environment["PATH"], "/usr/bin:/bin")
+    }
+
+    func testTerminalLaunchEnvironmentClearsClaudeCodeAfterStartupEnvironmentMerge() {
+        var environment = TerminalSurface.mergedStartupEnvironment(
+            base: ["PATH": "/usr/bin:/bin"],
+            protectedKeys: [],
+            additionalEnvironment: ["CLAUDECODE": "1"],
+            initialEnvironmentOverrides: ["CLAUDECODE": "2"]
+        )
+
+        GhosttyTerminalView.removeInheritedAgentEnvironment(from: &environment)
+
+        XCTAssertNil(environment["CLAUDECODE"])
+        XCTAssertEqual(environment["PATH"], "/usr/bin:/bin")
+    }
+
+    func testTerminalLaunchTemporarilyClearsInheritedClaudeCodeProcessEnvironment() {
+        let originalValue = getenv("CLAUDECODE").map { String(cString: $0) }
+        setenv("CLAUDECODE", "nested-session", 1)
+        defer {
+            if let originalValue {
+                setenv("CLAUDECODE", originalValue, 1)
+            } else {
+                unsetenv("CLAUDECODE")
+            }
+        }
+
+        let removedDuringLaunch = GhosttyTerminalView.withRemovedInheritedAgentProcessEnvironment {
+            getenv("CLAUDECODE") == nil
+        }
+
+        XCTAssertTrue(removedDuringLaunch)
+        XCTAssertEqual(getenv("CLAUDECODE").map { String(cString: $0) }, "nested-session")
+    }
+
     func testImmediateStateUpdateAllowedWhenHostNotInWindow() {
         XCTAssertTrue(
             GhosttyTerminalView.shouldApplyImmediateHostedStateUpdate(
-                hostedViewHasSuperview: true,
+                hostedViewHasSuperview: false,
                 isBoundToCurrentHost: false
             )
         )

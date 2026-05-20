@@ -4977,19 +4977,12 @@ enum CommandPaletteSwitcherSearchSettings {
 enum ClaudeCodeIntegrationSettings {
     static let hooksEnabledKey = "claudeCodeHooksEnabled"
     static let defaultHooksEnabled = true
-    static let customClaudePathKey = "claudeCodeCustomClaudePath"
 
     static func hooksEnabled(defaults: UserDefaults = .standard) -> Bool {
         if defaults.object(forKey: hooksEnabledKey) == nil {
             return defaultHooksEnabled
         }
         return defaults.bool(forKey: hooksEnabledKey)
-    }
-
-    static func customClaudePath(defaults: UserDefaults = .standard) -> String? {
-        let value = defaults.string(forKey: customClaudePathKey)?
-            .trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
-        return value.isEmpty ? nil : value
     }
 }
 
@@ -5288,8 +5281,6 @@ struct SettingsView: View {
     @AppStorage(SocketControlSettings.appStorageKey) private var socketControlMode = SocketControlSettings.defaultMode.rawValue
     @AppStorage(ClaudeCodeIntegrationSettings.hooksEnabledKey)
     private var claudeCodeHooksEnabled = ClaudeCodeIntegrationSettings.defaultHooksEnabled
-    @AppStorage(ClaudeCodeIntegrationSettings.customClaudePathKey)
-    private var customClaudePath = ""
     @AppStorage(CursorIntegrationSettings.hooksEnabledKey)
     private var cursorHooksEnabled = CursorIntegrationSettings.defaultHooksEnabled
     @AppStorage(GeminiIntegrationSettings.hooksEnabledKey)
@@ -5298,6 +5289,8 @@ struct SettingsView: View {
     private var sendAnonymousTelemetry = TelemetrySettings.defaultSendAnonymousTelemetry
     @AppStorage(PreferredEditorSettings.key) private var preferredEditorCommand = ""
     @AppStorage(CmdClickMarkdownRouteSettings.key) private var openMarkdownInCmuxViewer = CmdClickMarkdownRouteSettings.defaultValue
+    @AppStorage(CodexAppServerUISettings.transcriptFontSizeKey)
+    private var codexTranscriptFontSize = CodexAppServerUISettings.defaultTranscriptFontSize
     @AppStorage("cmuxPortBase") private var cmuxPortBase = 9100
     @AppStorage("cmuxPortRange") private var cmuxPortRange = 10
     @AppStorage(BrowserSearchSettings.searchEngineKey) private var browserSearchEngine = BrowserSearchSettings.defaultSearchEngine.rawValue
@@ -6101,6 +6094,34 @@ struct SettingsView: View {
                         SettingsCardDivider()
 
                         SettingsCardRow(
+                            configurationReview: .settingsOnly,
+                            String(localized: "settings.app.codexTranscriptFontSize", defaultValue: "Codex Transcript Text Size"),
+                            subtitle: String(localized: "settings.app.codexTranscriptFontSize.subtitle", defaultValue: "Controls message and tool text size in Codex panels.")
+                        ) {
+                            HStack(spacing: 8) {
+                                Stepper(
+                                    "",
+                                    value: $codexTranscriptFontSize,
+                                    in: CodexAppServerUISettings.transcriptFontSizeRange,
+                                    step: 1
+                                )
+                                .labelsHidden()
+                                Text(
+                                    String(
+                                        format: String(localized: "settings.app.codexTranscriptFontSize.value", defaultValue: "%.0f pt"),
+                                        locale: Locale.current,
+                                        codexTranscriptFontSize
+                                    )
+                                )
+                                .font(.system(size: 12, weight: .medium, design: .monospaced))
+                                .foregroundStyle(.secondary)
+                                .frame(width: 42, alignment: .trailing)
+                            }
+                        }
+
+                        SettingsCardDivider()
+
+                        SettingsCardRow(
                             configurationReview: .json("app.reorderOnNotification"),
                             String(localized: "settings.app.reorderOnNotification", defaultValue: "Reorder on Notification"),
                             subtitle: String(localized: "settings.app.reorderOnNotification.subtitle", defaultValue: "Move workspaces to the top when they receive a notification. Disable for stable shortcut positions.")
@@ -6713,22 +6734,7 @@ struct SettingsView: View {
 
                         SettingsCardDivider()
 
-                        SettingsCardNote(String(localized: "settings.automation.claudeCode.note", defaultValue: "When enabled, cmux wraps the claude command to inject session tracking and notification hooks. Disable if you prefer to manage Claude Code hooks yourself."))
-                    }
-
-                    SettingsCard {
-                        SettingsCardRow(
-                            configurationReview: .json("automation.claudeBinaryPath"),
-                            String(localized: "settings.automation.claudeCode.customPath", defaultValue: "Claude Binary Path"),
-                            subtitle: String(localized: "settings.automation.claudeCode.customPath.subtitle", defaultValue: "Custom path to the claude binary. Leave empty to use PATH.")
-                        ) {
-                            TextField(
-                                String(localized: "settings.automation.claudeCode.customPath.placeholder", defaultValue: "e.g. /usr/local/bin/claude"),
-                                text: $customClaudePath
-                            )
-                            .textFieldStyle(.roundedBorder)
-                            .frame(width: 200)
-                        }
+                        SettingsCardNote(String(localized: "settings.automation.claudeCode.note", defaultValue: "cmux uses Claude's native hooks and your existing claude binary. Configure Claude hooks to call cmux hooks claude; cmux does not ship or wrap the Claude binary."))
                     }
 
                     SettingsCard {
@@ -7524,7 +7530,6 @@ struct SettingsView: View {
         AppIconSettings.applyIcon(.automatic)
         socketControlMode = SocketControlSettings.defaultMode.rawValue
         claudeCodeHooksEnabled = ClaudeCodeIntegrationSettings.defaultHooksEnabled
-        customClaudePath = ""
         cursorHooksEnabled = CursorIntegrationSettings.defaultHooksEnabled
         geminiHooksEnabled = GeminiIntegrationSettings.defaultHooksEnabled
         sendAnonymousTelemetry = TelemetrySettings.defaultSendAnonymousTelemetry

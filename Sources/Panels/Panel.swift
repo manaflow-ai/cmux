@@ -10,15 +10,38 @@ public enum PanelType: String, Codable, Sendable {
     case codexAppServer = "codex-app-server"
     case filePreview = "filepreview"
 
-    public init(from decoder: Decoder) throws {
-        let container = try decoder.singleValueContainer()
-        let rawValue = try container.decode(String.self)
-        if let type = Self(rawValue: rawValue) {
+    public init?(surfaceType rawValue: String) {
+        let trimmed = rawValue.trimmingCharacters(in: .whitespacesAndNewlines)
+        if let type = Self(rawValue: trimmed) {
             self = type
             return
         }
-        if rawValue.lowercased() == Self.filePreview.rawValue {
+
+        let normalized = trimmed
+            .replacingOccurrences(of: "-", with: "")
+            .replacingOccurrences(of: "_", with: "")
+            .lowercased()
+        switch normalized {
+        case Self.terminal.rawValue:
+            self = .terminal
+        case Self.browser.rawValue:
+            self = .browser
+        case Self.markdown.rawValue:
+            self = .markdown
+        case "codex", "codexappserver":
+            self = .codexAppServer
+        case Self.filePreview.rawValue:
             self = .filePreview
+        default:
+            return nil
+        }
+    }
+
+    public init(from decoder: Decoder) throws {
+        let container = try decoder.singleValueContainer()
+        let rawValue = try container.decode(String.self)
+        if let type = Self(surfaceType: rawValue) {
+            self = type
             return
         }
         throw DecodingError.dataCorruptedError(

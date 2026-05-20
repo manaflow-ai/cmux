@@ -1,13 +1,181 @@
 import AppKit
 import SwiftUI
+import UniformTypeIdentifiers
+
+enum CodexAppServerUISettings {
+    static let transcriptFontSizeKey = "codexAppServer.transcriptFontSize"
+    static let defaultTranscriptFontSize: Double = 13
+    static let transcriptFontSizeRange: ClosedRange<Double> = 11...18
+
+    static func clampedTranscriptFontSize(_ value: Double) -> CGFloat {
+        CGFloat(min(max(value, transcriptFontSizeRange.lowerBound), transcriptFontSizeRange.upperBound))
+    }
+}
+
+enum CodexThinkingGlint {
+    static let duration: TimeInterval = 2.7
+    static let baseAlpha: CGFloat = 0.56
+    static let highlightAlpha: CGFloat = 0.18
+    static let sweepFraction: CGFloat = 0.34
+
+    static func easedPhase(_ value: CGFloat) -> CGFloat {
+        let x = min(1, max(0, value))
+        return CGFloat(0.5 - 0.5 * cos(Double(x) * .pi))
+    }
+}
+
+struct CodexAppServerAdaptivePalette {
+    let background: NSColor
+    let appearance: NSAppearance
+
+    init(
+        background: NSColor = GhosttyBackgroundTheme.currentColor(),
+        appearance: NSAppearance = NSApp.effectiveAppearance
+    ) {
+        self.background = Self.resolved(background, appearance: appearance)
+        self.appearance = appearance
+    }
+
+    var isDark: Bool {
+        background.luminance <= 0.5
+    }
+
+    var primaryText: NSColor {
+        let configured = Self.resolved(GhosttyConfig.load().foregroundColor, appearance: appearance)
+        if contrastDistance(configured, background) > 0.35 {
+            return configured
+        }
+        return isDark
+            ? NSColor(srgbRed: 0.925, green: 0.936, blue: 0.898, alpha: 1)
+            : NSColor(srgbRed: 0.095, green: 0.102, blue: 0.088, alpha: 1)
+    }
+
+    var secondaryText: NSColor {
+        blend(background, primaryText, fraction: isDark ? 0.58 : 0.54)
+    }
+
+    var tertiaryText: NSColor {
+        blend(background, primaryText, fraction: isDark ? 0.42 : 0.40)
+    }
+
+    var surfaceFill: NSColor {
+        blend(background, primaryText, fraction: isDark ? 0.075 : 0.060)
+    }
+
+    var elevatedSurfaceFill: NSColor {
+        blend(background, primaryText, fraction: isDark ? 0.105 : 0.085)
+    }
+
+    var hoverSurfaceFill: NSColor {
+        blend(background, primaryText, fraction: isDark ? 0.155 : 0.130)
+    }
+
+    var stroke: NSColor {
+        blend(background, primaryText, fraction: isDark ? 0.22 : 0.18)
+    }
+
+    var overlayButtonFill: NSColor {
+        blend(background, primaryText, fraction: isDark ? 0.120 : 0.105)
+    }
+
+    var overlayButtonHoverFill: NSColor {
+        blend(background, primaryText, fraction: isDark ? 0.185 : 0.155)
+    }
+
+    var overlayButtonActiveFill: NSColor {
+        blend(background, primaryText, fraction: isDark ? 0.145 : 0.125)
+    }
+
+    var overlayButtonGlyph: NSColor {
+        readableText(on: overlayButtonFill)
+    }
+
+    var overlayButtonHoverGlyph: NSColor {
+        readableText(on: overlayButtonHoverFill)
+    }
+
+    var overlayButtonActiveGlyph: NSColor {
+        readableText(on: overlayButtonActiveFill)
+    }
+
+    var userBubbleFill: NSColor {
+        blend(background, primaryText, fraction: isDark ? 0.075 : 0.070)
+    }
+
+    var errorText: NSColor {
+        isDark
+            ? NSColor(srgbRed: 1, green: 0.37, blue: 0.32, alpha: 1)
+            : NSColor(srgbRed: 0.72, green: 0.08, blue: 0.08, alpha: 1)
+    }
+
+    var errorFill: NSColor {
+        let base = isDark
+            ? NSColor(srgbRed: 0.24, green: 0.12, blue: 0.11, alpha: 1)
+            : NSColor(srgbRed: 1.0, green: 0.92, blue: 0.90, alpha: 1)
+        return blend(background, base, fraction: isDark ? 0.84 : 0.92)
+    }
+
+    var errorStroke: NSColor {
+        isDark
+            ? NSColor(srgbRed: 0.46, green: 0.19, blue: 0.17, alpha: 1)
+            : NSColor(srgbRed: 0.86, green: 0.29, blue: 0.24, alpha: 1)
+    }
+
+    private func contrastDistance(_ lhs: NSColor, _ rhs: NSColor) -> Double {
+        abs(lhs.luminance - rhs.luminance)
+    }
+
+    private func readableText(on fill: NSColor) -> NSColor {
+        if contrastDistance(primaryText, fill) > 0.42 {
+            return primaryText
+        }
+        let light = NSColor(srgbRed: 0.96, green: 0.965, blue: 0.94, alpha: 1)
+        let dark = NSColor(srgbRed: 0.08, green: 0.085, blue: 0.075, alpha: 1)
+        return fill.luminance <= 0.5 ? light : dark
+    }
+
+    private func blend(_ from: NSColor, _ to: NSColor, fraction: CGFloat) -> NSColor {
+        let fromColor = Self.resolved(from, appearance: appearance)
+        let toColor = Self.resolved(to, appearance: appearance)
+        var fr: CGFloat = 0
+        var fg: CGFloat = 0
+        var fb: CGFloat = 0
+        var fa: CGFloat = 0
+        var tr: CGFloat = 0
+        var tg: CGFloat = 0
+        var tb: CGFloat = 0
+        var ta: CGFloat = 0
+        fromColor.getRed(&fr, green: &fg, blue: &fb, alpha: &fa)
+        toColor.getRed(&tr, green: &tg, blue: &tb, alpha: &ta)
+        let t = min(1, max(0, fraction))
+        return NSColor(
+            srgbRed: fr + (tr - fr) * t,
+            green: fg + (tg - fg) * t,
+            blue: fb + (tb - fb) * t,
+            alpha: fa + (ta - fa) * t
+        )
+    }
+
+    static func resolved(_ color: NSColor, appearance: NSAppearance) -> NSColor {
+        var resolved = color
+        appearance.performAsCurrentDrawingAppearance {
+            resolved = color.usingColorSpace(.sRGB) ?? color
+        }
+        return resolved.usingColorSpace(.sRGB) ?? resolved
+    }
+}
 
 struct CodexAppServerPanelView: View {
     @ObservedObject var panel: CodexAppServerPanel
     let isFocused: Bool
 
+    private static let thinkingIndicatorItemID = UUID(uuidString: "00000000-0000-4000-8000-000000000321")!
+
     @State private var promptFocused: Bool = false
     @State private var promptInputHeight = CodexComposerMetrics.micro.promptMinHeight
     @State private var themeBackground = GhosttyBackgroundTheme.currentColor()
+    @AppStorage(CodexAppServerUISettings.transcriptFontSizeKey)
+    private var transcriptFontSize = CodexAppServerUISettings.defaultTranscriptFontSize
 #if DEBUG
     @AppStorage(CodexComposerDebugSettings.layoutLabVisibleKey)
     private var showComposerLayoutLab = CodexComposerDebugSettings.defaultShowLayoutLab
@@ -26,14 +194,17 @@ struct CodexAppServerPanelView: View {
 #endif
 #if DEBUG
                 if showQueueLayoutLab {
-                    CodexQueuedPromptDebugLabView(prompts: panel.queuedPrompts)
+                    CodexQueuedPromptDebugLabView(
+                        prompts: panel.queuedPrompts,
+                        themeBackground: themeBackground
+                    )
                 }
 #endif
                 composerCluster
             }
             .padding(.bottom, CodexComposerMetrics.micro.bottomFloat)
         }
-        .background(Color(nsColor: themeBackground).ignoresSafeArea())
+        .background(Color.clear.ignoresSafeArea())
         .onAppear {
             if isFocused {
                 promptFocused = true
@@ -51,14 +222,25 @@ struct CodexAppServerPanelView: View {
         .onReceive(NotificationCenter.default.publisher(for: .ghosttyDefaultBackgroundDidChange)) { notification in
             themeBackground = GhosttyBackgroundTheme.color(from: notification)
         }
+        .background {
+            CodexPromptPrintableKeyRedirector(
+                isPanelFocused: isFocused,
+                onInsert: insertPrintableTextIntoPrompt(_:)
+            )
+        }
+    }
+
+    private var adaptivePalette: CodexAppServerAdaptivePalette {
+        CodexAppServerAdaptivePalette(background: themeBackground)
     }
 
     private var transcript: some View {
         VStack(spacing: 0) {
             ZStack {
                 CodexTrajectoryTranscriptView(
-                    items: panel.transcriptItems,
-                    bottomSpacerHeight: transcriptBottomSpacerHeight
+                    items: transcriptDisplayItems,
+                    bottomSpacerHeight: transcriptBottomSpacerHeight,
+                    transcriptFontSize: CodexAppServerUISettings.clampedTranscriptFontSize(transcriptFontSize)
                 )
                     .opacity(panel.transcriptContentState == .content ? 1 : 0)
                     .frame(maxWidth: .infinity, maxHeight: .infinity)
@@ -90,31 +272,70 @@ struct CodexAppServerPanelView: View {
     }
 
     private func loadingState(_ phase: CodexAppServerTranscriptLoadingPhase) -> some View {
-        VStack(spacing: 10) {
-            ProgressView()
-                .controlSize(.small)
-            Text(phase.localizedTitle)
-                .font(.system(size: 13, weight: .semibold))
-                .foregroundStyle(.secondary)
-        }
-        .frame(maxWidth: .infinity, minHeight: 180)
+        CodexThinkingLoadingView(
+            title: phase.localizedTitle,
+            themeBackground: themeBackground,
+            fontSize: CodexAppServerUISettings.clampedTranscriptFontSize(transcriptFontSize)
+        )
+        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .center)
+        .transition(.opacity)
+        .animation(.easeInOut(duration: 0.16), value: phase)
     }
 
     private var emptyState: some View {
-        VStack(spacing: 8) {
-            Image(systemName: "sparkles")
-                .font(.system(size: 28))
-                .foregroundStyle(.tertiary)
-            Text(String(localized: "codexAppServer.emptyTranscript", defaultValue: "No messages yet"))
-                .foregroundStyle(.secondary)
-        }
+        Color.clear
         .frame(maxWidth: .infinity, minHeight: 180)
+    }
+
+    private var transcriptDisplayItems: [CodexAppServerTranscriptItem] {
+        guard shouldShowThinkingPlaceholder else {
+            return panel.transcriptItems
+        }
+        var items = panel.transcriptItems
+        items.append(
+            CodexAppServerTranscriptItem(
+                id: Self.thinkingIndicatorItemID,
+                role: .event,
+                title: String(localized: "codexAppServer.loading.thinking", defaultValue: "Thinking"),
+                body: "",
+                date: panel.transcriptItems.last?.date ?? .distantPast,
+                isStreaming: true,
+                presentation: .thinkingIndicator
+            )
+        )
+        return items
+    }
+
+    private var shouldShowThinkingPlaceholder: Bool {
+        guard panel.transcriptContentState == .content,
+              panel.status.isBusy,
+              panel.pendingRequests.isEmpty else {
+            return false
+        }
+        return !panel.transcriptItems.reversed().prefix(8).contains { item in
+            item.role == .assistant
+                && item.isStreaming
+                && !item.body.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+        }
     }
 
     @ViewBuilder
     private var queuedPromptStrip: some View {
         if !panel.queuedPrompts.isEmpty {
-            CodexQueuedPromptIntegratedView(prompts: panel.queuedPrompts, variant: .solidShelf)
+            CodexQueuedPromptIntegratedView(
+                prompts: panel.queuedPrompts,
+                variant: .solidShelf,
+                themeBackground: themeBackground,
+                onRemove: { id in
+                    panel.removeQueuedPrompt(id: id)
+                },
+                onMove: { sourceID, targetID in
+                    panel.moveQueuedPrompt(id: sourceID, before: targetID)
+                },
+                onSetKind: { id, kind in
+                    panel.setQueuedPromptKind(id: id, kind: kind)
+                }
+            )
                 .frame(maxWidth: CodexComposerMetrics.queuedPromptWidth)
                 .frame(maxWidth: .infinity)
                 .padding(.horizontal, 24)
@@ -152,9 +373,11 @@ struct CodexAppServerPanelView: View {
             isFocused: $promptFocused,
             measuredHeight: $promptInputHeight,
             metrics: metrics,
+            themeBackground: themeBackground,
             modelDisplayName: panel.selectedModelDisplayName,
             metadataText: composerMetadataText,
             models: panel.availableModels,
+            isModelListLoading: panel.isModelListLoading,
             selectedModelId: panel.selectedModel?.id,
             fastModeEnabled: panel.fastModeEnabled,
             canEnableFastMode: panel.selectedModel?.supportsFastMode == true,
@@ -188,36 +411,24 @@ struct CodexAppServerPanelView: View {
 
     private var composerMetadataText: String {
         var segments: [String] = []
-        if panel.status.isBusy {
-            segments.append(String(localized: "codexAppServer.composer.status.thinking", defaultValue: "Thinking"))
+        if panel.fastModeEnabled {
+            segments.append(String(localized: "codexAppServer.composer.fastOn", defaultValue: "Fast"))
         }
-        if let contextSummary = panel.contextSummary {
-            let format = String(localized: "codexAppServer.composer.contextRemaining", defaultValue: "Context %ld%% left")
-            segments.append(String(format: format, locale: Locale.current, contextSummary.remainingPercent))
-        }
-        segments.append(
-            panel.fastModeEnabled
-                ? String(localized: "codexAppServer.composer.fastOn", defaultValue: "Fast on")
-                : String(localized: "codexAppServer.composer.fastOff", defaultValue: "Fast off")
-        )
         return segments.joined(separator: "  ")
     }
 
     private var transcriptBottomSpacerHeight: CGFloat {
         CodexComposerMetrics.micro.transcriptSpacerHeight(forPromptHeight: promptInputHeight)
             + CodexQueuedPromptIntegratedView.estimatedHeight(for: panel.queuedPrompts.count)
+            + CodexRateLimitSubtleLine.reservedHeight
     }
 
-    @ViewBuilder
     private var subtleRateLimitLine: some View {
-        if let summary = panel.rateLimitSummary, !summary.windows.isEmpty {
-            CodexRateLimitSubtleLine(summary: summary)
-                .frame(maxWidth: CodexComposerMetrics.maxWidth)
-                .frame(maxWidth: .infinity)
-                .padding(.horizontal, 24)
-                .padding(.top, 5)
-                .transition(.opacity)
-        }
+        CodexRateLimitSubtleLine(summary: panel.rateLimitSummary, themeBackground: themeBackground)
+            .frame(maxWidth: CodexComposerMetrics.maxWidth)
+            .frame(maxWidth: .infinity)
+            .frame(height: CodexRateLimitSubtleLine.reservedHeight, alignment: .top)
+            .padding(.horizontal, 24)
     }
 
     @ViewBuilder
@@ -230,6 +441,25 @@ struct CodexAppServerPanelView: View {
                 .transition(.opacity.combined(with: .move(edge: .bottom)))
         }
     }
+
+    private func insertPrintableTextIntoPrompt(_ text: String) {
+        guard !text.isEmpty else { return }
+        let mutableText = NSMutableString(string: panel.promptText)
+        let textLength = mutableText.length
+        let range = CodexPromptSelectionRange.normalized(
+            panel.promptSelectionRanges,
+            textLength: textLength
+        )
+        .first?
+        .nsRange ?? NSRange(location: textLength, length: 0)
+
+        mutableText.replaceCharacters(in: range, with: text)
+        panel.promptText = mutableText as String
+        panel.updatePromptSelectionRanges([
+            .caret(at: range.location + (text as NSString).length),
+        ])
+        promptFocused = true
+    }
 }
 
 #if DEBUG
@@ -240,6 +470,121 @@ enum CodexComposerDebugSettings {
     static let defaultShowQueueLab = false
 }
 #endif
+
+private struct CodexPromptPrintableKeyRedirector: NSViewRepresentable {
+    let isPanelFocused: Bool
+    let onInsert: (String) -> Void
+
+    func makeNSView(context: Context) -> CodexPromptPrintableKeyRedirectorView {
+        let view = CodexPromptPrintableKeyRedirectorView(frame: .zero)
+        view.isPanelFocused = isPanelFocused
+        view.onInsert = onInsert
+        return view
+    }
+
+    func updateNSView(_ nsView: CodexPromptPrintableKeyRedirectorView, context: Context) {
+        nsView.isPanelFocused = isPanelFocused
+        nsView.onInsert = onInsert
+    }
+}
+
+final class CodexPromptPrintableKeyRedirectorView: NSView {
+    var isPanelFocused = false
+    var onInsert: ((String) -> Void)?
+    private var keyDownMonitor: Any?
+
+    override init(frame frameRect: NSRect) {
+        super.init(frame: frameRect)
+        translatesAutoresizingMaskIntoConstraints = false
+        installMonitorIfNeeded()
+    }
+
+    @available(*, unavailable)
+    required init?(coder: NSCoder) {
+        fatalError("init(coder:) has not been implemented")
+    }
+
+    deinit {
+        if let keyDownMonitor {
+            NSEvent.removeMonitor(keyDownMonitor)
+        }
+    }
+
+    private func installMonitorIfNeeded() {
+        guard keyDownMonitor == nil else { return }
+        keyDownMonitor = NSEvent.addLocalMonitorForEvents(matching: .keyDown) { [weak self] event in
+            self?.handleKeyDown(event) ?? event
+        }
+    }
+
+    private func handleKeyDown(_ event: NSEvent) -> NSEvent? {
+        guard isPanelFocused,
+              let window,
+              let eventWindow = event.window,
+              window.isKeyWindow,
+              eventWindow === window,
+              Self.shouldRedirectPrintableKey(firstResponder: window.firstResponder),
+              let text = Self.printableInsertionText(from: event) else {
+            return event
+        }
+
+        onInsert?(text)
+        return nil
+    }
+
+    private static func printableInsertionText(from event: NSEvent) -> String? {
+        let blockedFlags = event.modifierFlags
+            .intersection(.deviceIndependentFlagsMask)
+            .subtracting([.shift, .capsLock, .numericPad])
+        guard blockedFlags.isEmpty,
+              event.specialKey == nil,
+              let text = event.characters,
+              !text.isEmpty else {
+            return nil
+        }
+
+        let hasControlScalar = text.unicodeScalars.contains { scalar in
+            CharacterSet.controlCharacters.contains(scalar)
+                || CharacterSet.newlines.contains(scalar)
+                || (0xF700...0xF8FF).contains(Int(scalar.value))
+        }
+        return hasControlScalar ? nil : text
+    }
+
+    static func shouldRedirectPrintableKey(firstResponder responder: NSResponder?) -> Bool {
+        !responderIsTextInput(responder) && !responderIsControl(responder)
+    }
+
+    private static func responderIsTextInput(_ responder: NSResponder?) -> Bool {
+        if responder is NSTextView || responder is NSTextField || responder is NSComboBox {
+            return true
+        }
+        guard let view = responder as? NSView else { return false }
+        var current: NSView? = view
+        while let candidate = current {
+            if candidate is NSTextView || candidate is NSTextField || candidate is NSComboBox {
+                return true
+            }
+            current = candidate.superview
+        }
+        return false
+    }
+
+    private static func responderIsControl(_ responder: NSResponder?) -> Bool {
+        if responder is NSControl {
+            return true
+        }
+        guard let view = responder as? NSView else { return false }
+        var current: NSView? = view
+        while let candidate = current {
+            if candidate is NSControl {
+                return true
+            }
+            current = candidate.superview
+        }
+        return false
+    }
+}
 
 private enum CodexComposerLayoutMode {
     case legacyTopAligned
@@ -260,6 +605,10 @@ private struct CodexComposerSurfaceChrome<Content: View>: View {
     let metrics: CodexComposerMetrics
     let themeBackground: NSColor
     @ViewBuilder let content: () -> Content
+
+    private var palette: CodexAppServerAdaptivePalette {
+        CodexAppServerAdaptivePalette(background: themeBackground)
+    }
 
     var body: some View {
         Group {
@@ -282,7 +631,7 @@ private struct CodexComposerSurfaceChrome<Content: View>: View {
             content()
                 .glassEffect(
                     .regular
-                        .tint(Color(nsColor: themeBackground).opacity(0.56))
+                        .tint(Color(nsColor: palette.surfaceFill).opacity(0.72))
                         .interactive(),
                     in: .rect(cornerRadius: metrics.cornerRadius)
                 )
@@ -298,7 +647,7 @@ private struct CodexComposerSurfaceChrome<Content: View>: View {
                 RoundedRectangle(cornerRadius: metrics.cornerRadius, style: .continuous)
                     .fill(.regularMaterial)
                 RoundedRectangle(cornerRadius: metrics.cornerRadius, style: .continuous)
-                    .fill(Color(nsColor: .controlBackgroundColor).opacity(0.62))
+                    .fill(Color(nsColor: palette.surfaceFill).opacity(0.92))
             }
             .overlay(composerStroke)
             .shadow(color: Color.black.opacity(metrics.shadowOpacity - 0.04), radius: metrics.shadowRadius - 2, x: 0, y: metrics.shadowY - 1)
@@ -306,7 +655,7 @@ private struct CodexComposerSurfaceChrome<Content: View>: View {
 
     private var composerStroke: some View {
         RoundedRectangle(cornerRadius: metrics.cornerRadius, style: .continuous)
-            .strokeBorder(Color(nsColor: .separatorColor).opacity(0.58), lineWidth: 1)
+            .strokeBorder(Color(nsColor: palette.stroke).opacity(0.72), lineWidth: 1)
             .allowsHitTesting(false)
     }
 }
@@ -318,9 +667,11 @@ private struct CodexComposerSurfaceContent: View {
     @Binding var isFocused: Bool
     @Binding var measuredHeight: CGFloat
     let metrics: CodexComposerMetrics
+    let themeBackground: NSColor
     let modelDisplayName: String
     let metadataText: String
     let models: [CodexAppServerModelInfo]
+    let isModelListLoading: Bool
     let selectedModelId: String?
     let fastModeEnabled: Bool
     let canEnableFastMode: Bool
@@ -333,6 +684,10 @@ private struct CodexComposerSurfaceContent: View {
     let onInterrupt: () -> Bool
     let onSelectionRangesChange: ([CodexPromptSelectionRange]) -> Void
     let onSend: () -> Void
+
+    private var palette: CodexAppServerAdaptivePalette {
+        CodexAppServerAdaptivePalette(background: themeBackground)
+    }
 
     var body: some View {
         Group {
@@ -376,6 +731,7 @@ private struct CodexComposerSurfaceContent: View {
             fontSize: metrics.promptFont,
             minimumHeight: metrics.promptMinHeight,
             maximumHeight: metrics.promptMaxHeight,
+            themeBackground: themeBackground,
             onSubmit: onSubmit,
             onQueueFollowUp: onQueueFollowUp,
             onInterrupt: onInterrupt,
@@ -387,6 +743,15 @@ private struct CodexComposerSurfaceContent: View {
 
     private var controlRow: some View {
         HStack(alignment: .center, spacing: metrics.iconSpacing) {
+            leftControlCluster
+            Spacer(minLength: 12)
+            rightControlCluster
+        }
+        .frame(height: metrics.controlRowHeight)
+    }
+
+    private var leftControlCluster: some View {
+        HStack(alignment: .center, spacing: metrics.iconSpacing) {
             composerIcon("plus")
             composerIcon("globe")
             composerIcon("cursorarrow.rays")
@@ -396,32 +761,40 @@ private struct CodexComposerSurfaceContent: View {
                 modelDisplayName: modelDisplayName,
                 metadataText: metadataText,
                 models: models,
+                isModelListLoading: isModelListLoading,
                 selectedModelId: selectedModelId,
                 fastModeEnabled: fastModeEnabled,
                 canEnableFastMode: canEnableFastMode,
                 metrics: metrics,
+                themeBackground: themeBackground,
                 onSelectModel: onSelectModel,
                 onSetFastMode: onSetFastMode
             )
+        }
+        .frame(height: metrics.controlRowHeight)
+        .fixedSize(horizontal: true, vertical: false)
+    }
 
-            Spacer(minLength: 12)
-
+    private var rightControlCluster: some View {
+        HStack(alignment: .center, spacing: metrics.iconSpacing) {
             composerIcon("circle")
             composerIcon("mic")
 
             CodexComposerSendButton(
                 metrics: metrics,
+                themeBackground: themeBackground,
                 canSend: canSend,
                 onSend: onSend
             )
         }
         .frame(height: metrics.controlRowHeight)
+        .fixedSize(horizontal: true, vertical: false)
     }
 
     private func composerIcon(_ systemName: String) -> some View {
         Image(systemName: systemName)
             .font(.system(size: metrics.iconFont, weight: .medium))
-            .foregroundStyle(.secondary)
+            .foregroundStyle(Color(nsColor: palette.secondaryText))
             .frame(width: metrics.iconFrame, height: metrics.iconFrame)
             .accessibilityHidden(true)
     }
@@ -431,37 +804,39 @@ private struct CodexModelPickerButton: View {
     let modelDisplayName: String
     let metadataText: String
     let models: [CodexAppServerModelInfo]
+    let isModelListLoading: Bool
     let selectedModelId: String?
     let fastModeEnabled: Bool
     let canEnableFastMode: Bool
     let metrics: CodexComposerMetrics
+    let themeBackground: NSColor
     let onSelectModel: (String) -> Void
     let onSetFastMode: (Bool) -> Void
 
     @State private var isPresented = false
 
+    private var palette: CodexAppServerAdaptivePalette {
+        CodexAppServerAdaptivePalette(background: themeBackground)
+    }
+
     var body: some View {
         Button {
             isPresented.toggle()
         } label: {
-            HStack(spacing: 5) {
-                Text(modelDisplayName)
-                    .font(.system(size: metrics.statusFont, weight: .semibold))
-                    .foregroundStyle(.primary.opacity(0.76))
-                    .lineLimit(1)
+            ZStack(alignment: .leading) {
+                modelPickerLabel(
+                    modelName: "GPT-5.5 Codex",
+                    metadata: String(localized: "codexAppServer.composer.fastOn", defaultValue: "Fast")
+                )
+                .opacity(0)
+                .accessibilityHidden(true)
 
-                if !metadataText.isEmpty {
-                    Text(metadataText)
-                        .font(.system(size: max(9.5, metrics.statusFont - 0.5), weight: .medium))
-                        .foregroundStyle(.secondary)
-                        .lineLimit(1)
-                }
-
-                Image(systemName: "chevron.down")
-                    .font(.system(size: 8.5, weight: .semibold))
-                    .foregroundStyle(.tertiary)
+                modelPickerLabel(modelName: modelDisplayName, metadata: metadataText)
+                    .opacity(isModelListLoading && models.isEmpty ? 0 : 1)
             }
             .contentShape(Rectangle())
+            .animation(.easeInOut(duration: 0.14), value: isModelListLoading)
+            .animation(.easeInOut(duration: 0.14), value: modelDisplayName)
         }
         .buttonStyle(.plain)
         .popover(isPresented: $isPresented, arrowEdge: .bottom) {
@@ -470,20 +845,49 @@ private struct CodexModelPickerButton: View {
         .accessibilityLabel(String(localized: "codexAppServer.modelPicker.title", defaultValue: "Model"))
     }
 
+    private func modelPickerLabel(modelName: String, metadata: String) -> some View {
+        HStack(spacing: 5) {
+            Text(modelName)
+                .font(.system(size: metrics.statusFont, weight: .semibold))
+                .foregroundStyle(Color(nsColor: palette.primaryText).opacity(0.76))
+                .lineLimit(1)
+
+            if !metadata.isEmpty {
+                Text(metadata)
+                    .font(.system(size: max(9.5, metrics.statusFont - 0.5), weight: .medium))
+                    .foregroundStyle(Color(nsColor: palette.secondaryText))
+                    .lineLimit(1)
+            }
+
+            Image(systemName: "chevron.down")
+                .font(.system(size: 8.5, weight: .semibold))
+                .foregroundStyle(Color(nsColor: palette.tertiaryText))
+        }
+    }
+
     private var popoverContent: some View {
         VStack(alignment: .leading, spacing: 10) {
             Text(String(localized: "codexAppServer.modelPicker.title", defaultValue: "Model"))
                 .font(.system(size: 12, weight: .semibold))
                 .foregroundStyle(.secondary)
 
-            if models.isEmpty {
+            if isModelListLoading {
+                HStack(spacing: 8) {
+                    ProgressView()
+                        .controlSize(.small)
+                    Text(String(localized: "codexAppServer.modelPicker.loading", defaultValue: "Loading models"))
+                        .font(.system(size: 12, weight: .regular))
+                        .foregroundStyle(.secondary)
+                }
+                .frame(maxWidth: .infinity, alignment: .leading)
+            } else if models.isEmpty {
                 Text(String(localized: "codexAppServer.modelPicker.empty", defaultValue: "Models unavailable"))
                     .font(.system(size: 12, weight: .regular))
                     .foregroundStyle(.secondary)
                     .frame(maxWidth: .infinity, alignment: .leading)
             } else {
                 ScrollView {
-                    LazyVStack(alignment: .leading, spacing: 2) {
+                    LazyVStack(alignment: .leading, spacing: 1) {
                         ForEach(models) { model in
                             modelRow(model)
                         }
@@ -514,18 +918,11 @@ private struct CodexModelPickerButton: View {
             onSelectModel(model.id)
             isPresented = false
         } label: {
-            HStack(alignment: .top, spacing: 8) {
-                VStack(alignment: .leading, spacing: 2) {
-                    Text(model.pickerTitle)
-                        .font(.system(size: 12, weight: .semibold))
-                        .foregroundStyle(.primary)
-                    if !model.description.isEmpty {
-                        Text(model.description)
-                            .font(.system(size: 11, weight: .regular))
-                            .foregroundStyle(.secondary)
-                            .lineLimit(2)
-                    }
-                }
+            HStack(alignment: .center, spacing: 8) {
+                Text(model.pickerTitle)
+                    .font(.system(size: 12, weight: .medium))
+                    .foregroundStyle(.primary)
+                    .lineLimit(1)
                 Spacer(minLength: 8)
                 if selectedModelId == model.id || selectedModelId == model.model {
                     Image(systemName: "checkmark")
@@ -534,7 +931,7 @@ private struct CodexModelPickerButton: View {
                 }
             }
             .padding(.horizontal, 8)
-            .padding(.vertical, 6)
+            .padding(.vertical, 5)
             .contentShape(RoundedRectangle(cornerRadius: 8, style: .continuous))
         }
         .buttonStyle(.plain)
@@ -543,6 +940,7 @@ private struct CodexModelPickerButton: View {
 
 private struct CodexComposerSendButton: View {
     let metrics: CodexComposerMetrics
+    let themeBackground: NSColor
     let canSend: Bool
     let onSend: () -> Void
 
@@ -557,7 +955,11 @@ private struct CodexComposerSendButton: View {
                 .frame(width: metrics.sendButtonSize, height: metrics.sendButtonSize)
                 .contentShape(Circle())
         }
-        .buttonStyle(CodexComposerSendButtonStyle(canSend: canSend, isHovered: isHovered))
+        .buttonStyle(CodexComposerSendButtonStyle(
+            themeBackground: themeBackground,
+            canSend: canSend,
+            isHovered: isHovered
+        ))
         .disabled(!canSend)
         .onHover { hovering in
             isHovered = hovering
@@ -567,10 +969,12 @@ private struct CodexComposerSendButton: View {
 }
 
 private struct CodexComposerSendButtonStyle: ButtonStyle {
+    let themeBackground: NSColor
     let canSend: Bool
     let isHovered: Bool
 
     func makeBody(configuration: Configuration) -> some View {
+        let palette = CodexAppServerAdaptivePalette(background: themeBackground)
         let active = canSend && configuration.isPressed
         let hovered = canSend && isHovered
         let fillOpacity: Double = {
@@ -585,16 +989,16 @@ private struct CodexComposerSendButtonStyle: ButtonStyle {
         configuration.label
             .foregroundStyle(
                 canSend
-                    ? Color(nsColor: .windowBackgroundColor).opacity(iconOpacity)
-                    : Color(nsColor: .secondaryLabelColor)
+                    ? Color(nsColor: palette.background).opacity(iconOpacity)
+                    : Color(nsColor: palette.secondaryText)
             )
             .background {
                 Circle()
-                    .fill(Color(nsColor: .labelColor).opacity(fillOpacity))
+                    .fill(Color(nsColor: canSend ? palette.primaryText : palette.overlayButtonFill).opacity(fillOpacity))
             }
             .overlay {
                 Circle()
-                    .strokeBorder(Color(nsColor: .labelColor).opacity(strokeOpacity), lineWidth: 1)
+                    .strokeBorder(Color(nsColor: palette.primaryText).opacity(strokeOpacity), lineWidth: 1)
             }
             .animation(.easeInOut(duration: 0.12), value: isHovered)
             .animation(.easeOut(duration: 0.08), value: configuration.isPressed)
@@ -602,27 +1006,51 @@ private struct CodexComposerSendButtonStyle: ButtonStyle {
 }
 
 private struct CodexRateLimitSubtleLine: View {
-    let summary: CodexAppServerRateLimitSummary
+    static let reservedHeight: CGFloat = 21
+
+    let summary: CodexAppServerRateLimitSummary?
+    let themeBackground: NSColor
+
+    private var palette: CodexAppServerAdaptivePalette {
+        CodexAppServerAdaptivePalette(background: themeBackground)
+    }
+
+    private var windows: [CodexAppServerRateLimitWindow] {
+        summary?.windows ?? []
+    }
+
+    private var hasContent: Bool {
+        !windows.isEmpty
+    }
 
     var body: some View {
         HStack(spacing: 9) {
             Text(String(localized: "codexAppServer.rateLimits.title", defaultValue: "Rate limits"))
                 .font(.system(size: 10.5, weight: .medium))
-                .foregroundStyle(.tertiary)
+                .foregroundStyle(Color(nsColor: palette.tertiaryText))
 
-            ForEach(summary.windows, id: \.name) { window in
-                CodexRateLimitInlineStatus(window: window)
+            ForEach(windows, id: \.name) { window in
+                CodexRateLimitInlineStatus(window: window, themeBackground: themeBackground)
             }
 
             Spacer(minLength: 0)
         }
         .padding(.horizontal, 4)
-        .frame(height: 16)
+        .padding(.top, 5)
+        .frame(height: Self.reservedHeight, alignment: .top)
+        .opacity(hasContent ? 0.72 : 0)
+        .allowsHitTesting(hasContent)
+        .animation(.easeInOut(duration: 0.22), value: hasContent)
     }
 }
 
 private struct CodexRateLimitInlineStatus: View {
     let window: CodexAppServerRateLimitWindow
+    let themeBackground: NSColor
+
+    private var palette: CodexAppServerAdaptivePalette {
+        CodexAppServerAdaptivePalette(background: themeBackground)
+    }
 
     var body: some View {
         HStack(spacing: 5) {
@@ -631,14 +1059,14 @@ private struct CodexRateLimitInlineStatus: View {
                 .frame(width: 4, height: 4)
             Text(localizedName)
                 .font(.system(size: 10.5, weight: .medium))
-                .foregroundStyle(.secondary)
+                .foregroundStyle(Color(nsColor: palette.secondaryText))
             Text(window.displayPercent)
                 .font(.system(size: 10.5, weight: .medium, design: .monospaced))
-                .foregroundStyle(.secondary)
+                .foregroundStyle(Color(nsColor: palette.secondaryText))
             if let resetText {
                 Text(resetText)
                     .font(.system(size: 10.5, weight: .regular))
-                    .foregroundStyle(.tertiary)
+                    .foregroundStyle(Color(nsColor: palette.tertiaryText))
                     .lineLimit(1)
             }
         }
@@ -656,7 +1084,7 @@ private struct CodexRateLimitInlineStatus: View {
     }
 
     private var barColor: Color {
-        guard let used = window.usedPercent else { return Color(nsColor: .secondaryLabelColor) }
+        guard let used = window.usedPercent else { return Color(nsColor: palette.secondaryText) }
         if used >= 85 {
             return Color(nsColor: .systemRed)
         }
@@ -680,6 +1108,87 @@ private struct CodexRateLimitInlineStatus: View {
         formatter.doesRelativeDateFormatting = true
         return formatter
     }()
+}
+
+private struct CodexThinkingLoadingView: View {
+    let title: String
+    let themeBackground: NSColor
+    let fontSize: CGFloat
+
+    var body: some View {
+        CodexThinkingAnimatedText(
+            title: title,
+            themeBackground: themeBackground,
+            fontSize: fontSize
+        )
+    }
+}
+
+private struct CodexThinkingAnimatedText: View {
+    let title: String
+    let themeBackground: NSColor
+    let fontSize: CGFloat
+    @State private var startDate = Date()
+
+    private var palette: CodexAppServerAdaptivePalette {
+        CodexAppServerAdaptivePalette(background: themeBackground)
+    }
+
+    var body: some View {
+        TimelineView(.animation(minimumInterval: 1.0 / 30.0)) { timeline in
+            animatedText(rawPhase: phase(at: timeline.date))
+        }
+        .onAppear {
+            startDate = Date()
+        }
+    }
+
+    private func animatedText(rawPhase: CGFloat) -> some View {
+        baseText(color: Color(nsColor: palette.secondaryText).opacity(CodexThinkingGlint.baseAlpha))
+            .overlay {
+                sweepOverlay(rawPhase: rawPhase)
+                    .mask(baseText(color: .white))
+            }
+            .clipped()
+    }
+
+    private func sweepOverlay(rawPhase: CGFloat) -> some View {
+        GeometryReader { proxy in
+            let width = max(1, proxy.size.width)
+            let sweepWidth = max(18, width * CodexThinkingGlint.sweepFraction)
+            let easedPhase = CodexThinkingGlint.easedPhase(rawPhase)
+            let offsetX = -sweepWidth + easedPhase * (width + sweepWidth * 2)
+            LinearGradient(
+                colors: [
+                    Color.clear,
+                    Color(nsColor: palette.primaryText).opacity(CodexThinkingGlint.highlightAlpha),
+                    Color.clear,
+                ],
+                startPoint: .leading,
+                endPoint: .trailing
+            )
+            .frame(width: sweepWidth)
+            .offset(x: offsetX)
+        }
+    }
+
+    private func baseText(color: Color) -> some View {
+        Text(title)
+            .font(.system(size: CodexAppServerUISettings.clampedTranscriptFontSize(Double(fontSize)), weight: .regular))
+            .foregroundStyle(color)
+            .lineLimit(1)
+            .fixedSize(horizontal: true, vertical: false)
+    }
+
+    private func phase(at date: Date) -> CGFloat {
+        let elapsed = date.timeIntervalSince(startDate)
+        return normalized(CGFloat(elapsed / CodexThinkingGlint.duration))
+    }
+
+    private func normalized(_ value: CGFloat) -> CGFloat {
+        let remainder = value.truncatingRemainder(dividingBy: 1)
+        return remainder >= 0 ? remainder : remainder + 1
+    }
 }
 
 private struct CodexRateLimitFooterView: View {
@@ -872,18 +1381,67 @@ private enum CodexQueuedPromptIntegratedVariant: CaseIterable, Identifiable {
 private struct CodexQueuedPromptIntegratedView: View {
     let prompts: [CodexAppServerQueuedPrompt]
     let variant: CodexQueuedPromptIntegratedVariant
+    let themeBackground: NSColor
+    let onRemove: (UUID) -> Void
+    let onMove: (UUID, UUID) -> Void
+    let onSetKind: (UUID, CodexAppServerPromptQueueKind) -> Void
+
+    @State private var draggingPromptID: UUID?
+    @State private var isQueueDropTargeted = false
+
+    private var palette: CodexAppServerAdaptivePalette {
+        CodexAppServerAdaptivePalette(background: themeBackground)
+    }
+
+    private var queueDropTargetedBinding: Binding<Bool> {
+        Binding(
+            get: { isQueueDropTargeted },
+            set: { targeted in
+                isQueueDropTargeted = targeted
+                if !targeted {
+                    draggingPromptID = nil
+                }
+            }
+        )
+    }
 
     var body: some View {
         VStack(alignment: .leading, spacing: variant.rowSpacing) {
             ForEach(Array(prompts.prefix(variant.maxVisibleRows))) { prompt in
-                CodexQueuedPromptIntegratedRow(prompt: prompt)
+                CodexQueuedPromptIntegratedRow(
+                    prompt: prompt,
+                    themeBackground: themeBackground,
+                    isDragging: draggingPromptID == prompt.id,
+                    onRemove: {
+                        onRemove(prompt.id)
+                    },
+                    onSetKind: { kind in
+                        onSetKind(prompt.id, kind)
+                    },
+                    onDragStarted: {
+                        draggingPromptID = prompt.id
+                    }
+                )
+                .onDrop(
+                    of: [UTType.text],
+                    delegate: CodexQueuedPromptDropDelegate(
+                        targetPrompt: prompt,
+                        prompts: prompts,
+                        draggingPromptID: $draggingPromptID,
+                        onMove: onMove
+                    )
+                )
             }
             if prompts.count > variant.maxVisibleRows {
                 let format = String(localized: "codexAppServer.queue.more", defaultValue: "+%ld more")
                 Text(String(format: format, locale: Locale.current, prompts.count - variant.maxVisibleRows))
                     .font(.system(size: 10.5, weight: .medium))
-                    .foregroundStyle(.secondary)
+                    .foregroundStyle(Color(nsColor: palette.secondaryText))
             }
+        }
+        .onDrop(of: [UTType.text], isTargeted: queueDropTargetedBinding) { _ in
+            draggingPromptID = nil
+            return false
         }
         .padding(.horizontal, variant.horizontalPadding)
         .padding(.vertical, variant.verticalPadding)
@@ -895,7 +1453,7 @@ private struct CodexQueuedPromptIntegratedView: View {
                 topTrailingRadius: variant.topCornerRadius,
                 style: .continuous
             )
-            .fill(Color(nsColor: .controlBackgroundColor).opacity(variant.fillOpacity))
+            .fill(Color(nsColor: palette.surfaceFill).opacity(variant.fillOpacity))
         }
         .overlay {
             UnevenRoundedRectangle(
@@ -905,7 +1463,7 @@ private struct CodexQueuedPromptIntegratedView: View {
                 topTrailingRadius: variant.topCornerRadius,
                 style: .continuous
             )
-            .strokeBorder(Color(nsColor: .separatorColor).opacity(variant.borderOpacity), lineWidth: 1)
+            .strokeBorder(Color(nsColor: palette.stroke).opacity(variant.borderOpacity), lineWidth: 1)
         }
         .clipShape(
             UnevenRoundedRectangle(
@@ -922,27 +1480,123 @@ private struct CodexQueuedPromptIntegratedView: View {
         guard promptCount > 0 else { return 0 }
         let visibleRows = min(promptCount, CodexQueuedPromptIntegratedVariant.solidShelf.maxVisibleRows)
         let hiddenRow = promptCount > visibleRows ? 17 : 0
-        return CGFloat(visibleRows * 22) + CGFloat(max(0, visibleRows - 1) * 5) + 16 + CGFloat(hiddenRow)
+        return CGFloat(visibleRows) * CodexQueuedPromptIntegratedRow.rowHeight
+            + CGFloat(max(0, visibleRows - 1) * 5)
+            + 16
+            + CGFloat(hiddenRow)
     }
 }
 
 private struct CodexQueuedPromptIntegratedRow: View {
+    static let rowHeight: CGFloat = 32
+
     let prompt: CodexAppServerQueuedPrompt
+    let themeBackground: NSColor
+    let isDragging: Bool
+    let onRemove: () -> Void
+    let onSetKind: (CodexAppServerPromptQueueKind) -> Void
+    let onDragStarted: () -> Void
+
+    private var palette: CodexAppServerAdaptivePalette {
+        CodexAppServerAdaptivePalette(background: themeBackground)
+    }
 
     var body: some View {
-        HStack(alignment: .firstTextBaseline, spacing: 7) {
-            Text(prompt.kind.localizedLabel)
-                .font(.system(size: 10.5, weight: .semibold))
-                .foregroundStyle(.secondary)
-                .frame(width: 58, alignment: .leading)
+        HStack(alignment: .center, spacing: 9) {
+            HStack(spacing: 4) {
+                Image(systemName: "circle.grid.2x3.fill")
+                    .font(.system(size: 9, weight: .medium))
+                    .foregroundStyle(Color(nsColor: palette.tertiaryText))
+                    .frame(width: 9)
+                    .accessibilityLabel(String(localized: "codexAppServer.queue.drag", defaultValue: "Reorder queued message"))
+                    .onDrag {
+                        onDragStarted()
+                        return NSItemProvider(object: prompt.id.uuidString as NSString)
+                    }
+
+                Image(systemName: "arrow.turn.down.right")
+                    .font(.system(size: 10.5, weight: .medium))
+                    .foregroundStyle(Color(nsColor: palette.tertiaryText))
+            }
+            .frame(width: 27, alignment: .leading)
+
             Text(prompt.text)
-                .font(.system(size: 11, weight: .regular))
-                .foregroundStyle(.primary.opacity(0.86))
+                .font(.system(size: 12, weight: .medium))
+                .foregroundStyle(Color(nsColor: palette.primaryText).opacity(0.78))
                 .lineLimit(1)
                 .truncationMode(.tail)
             Spacer(minLength: 0)
+
+            HStack(spacing: 10) {
+                HStack(spacing: 4) {
+                    Image(systemName: prompt.kind == .steer ? "arrow.turn.down.right" : "arrow.down.to.line")
+                        .font(.system(size: 10, weight: .medium))
+                    Text(prompt.kind.localizedShortLabel)
+                        .font(.system(size: 11.5, weight: .semibold))
+                }
+                .foregroundStyle(Color(nsColor: palette.secondaryText))
+                .lineLimit(1)
+
+                Button(action: onRemove) {
+                    Image(systemName: "trash")
+                        .font(.system(size: 12, weight: .medium))
+                        .frame(width: 18, height: 18)
+                }
+                .buttonStyle(.plain)
+                .foregroundStyle(Color(nsColor: palette.secondaryText))
+                .accessibilityLabel(String(localized: "codexAppServer.queue.delete", defaultValue: "Remove queued message"))
+
+                if prompt.kind == .followUp {
+                    Menu {
+                        Button(String(localized: "codexAppServer.queue.makeSteer", defaultValue: "Make steer")) {
+                            onSetKind(.steer)
+                        }
+                    } label: {
+                        Image(systemName: "ellipsis")
+                            .font(.system(size: 12, weight: .semibold))
+                            .frame(width: 18, height: 18)
+                    }
+                    .menuStyle(.button)
+                    .buttonStyle(.plain)
+                    .foregroundStyle(Color(nsColor: palette.secondaryText))
+                    .accessibilityLabel(String(localized: "codexAppServer.queue.moreActions", defaultValue: "Queued message actions"))
+                } else {
+                    Color.clear
+                        .frame(width: 18, height: 18)
+                }
+            }
         }
-        .frame(height: 22)
+        .frame(height: Self.rowHeight)
+        .opacity(isDragging ? 0.58 : 1)
+    }
+}
+
+private struct CodexQueuedPromptDropDelegate: DropDelegate {
+    let targetPrompt: CodexAppServerQueuedPrompt
+    let prompts: [CodexAppServerQueuedPrompt]
+    @Binding var draggingPromptID: UUID?
+    let onMove: (UUID, UUID) -> Void
+
+    func validateDrop(info: DropInfo) -> Bool {
+        guard let sourceID = draggingPromptID,
+              sourceID != targetPrompt.id,
+              let sourcePrompt = prompts.first(where: { $0.id == sourceID }) else {
+            return false
+        }
+        return sourcePrompt.kind == targetPrompt.kind
+    }
+
+    func dropEntered(info: DropInfo) {
+        guard validateDrop(info: info),
+              let sourceID = draggingPromptID else { return }
+        withAnimation(.easeInOut(duration: 0.12)) {
+            onMove(sourceID, targetPrompt.id)
+        }
+    }
+
+    func performDrop(info: DropInfo) -> Bool {
+        draggingPromptID = nil
+        return true
     }
 }
 
@@ -1003,9 +1657,11 @@ private struct CodexComposerDebugVariantView: View {
                     isFocused: $focused,
                     measuredHeight: $measuredHeight,
                     metrics: .micro,
+                    themeBackground: themeBackground,
                     modelDisplayName: "GPT-5.5 Codex",
-                    metadataText: String(localized: "codexAppServer.composer.status.thinking", defaultValue: "Thinking"),
+                    metadataText: "",
                     models: [],
+                    isModelListLoading: false,
                     selectedModelId: nil,
                     fastModeEnabled: false,
                     canEnableFastMode: false,
@@ -1026,6 +1682,7 @@ private struct CodexComposerDebugVariantView: View {
 
 private struct CodexQueuedPromptDebugLabView: View {
     let prompts: [CodexAppServerQueuedPrompt]
+    let themeBackground: NSColor
 
     private var previewPrompts: [CodexAppServerQueuedPrompt] {
         if !prompts.isEmpty { return prompts }
@@ -1046,7 +1703,14 @@ private struct CodexQueuedPromptDebugLabView: View {
                     Text(variant.localizedTitle)
                         .font(.system(size: 10, weight: .medium))
                         .foregroundStyle(.tertiary)
-                    CodexQueuedPromptIntegratedView(prompts: previewPrompts, variant: variant)
+                    CodexQueuedPromptIntegratedView(
+                        prompts: previewPrompts,
+                        variant: variant,
+                        themeBackground: themeBackground,
+                        onRemove: { _ in },
+                        onMove: { _, _ in },
+                        onSetKind: { _, _ in }
+                    )
                         .frame(maxWidth: CodexComposerMetrics.queuedPromptWidth)
                         .frame(maxWidth: .infinity, alignment: .center)
                 }
@@ -1218,6 +1882,10 @@ private final class CodexPromptTextEditorView: NSView {
         didSet { refreshMetrics() }
     }
 
+    var themeBackground: NSColor = GhosttyBackgroundTheme.currentColor() {
+        didSet { updateColors() }
+    }
+
     var placeholder: String = "" {
         didSet {
             placeholderField.stringValue = placeholder
@@ -1245,8 +1913,6 @@ private final class CodexPromptTextEditorView: NSView {
         textView.isVerticallyResizable = true
         textView.backgroundColor = .clear
         textView.drawsBackground = false
-        textView.textColor = .labelColor
-        textView.insertionPointColor = .labelColor
         textView.textContainerInset = .zero
         textView.textContainer?.lineFragmentPadding = 0
         textView.textContainer?.widthTracksTextView = true
@@ -1259,7 +1925,6 @@ private final class CodexPromptTextEditorView: NSView {
         scrollView.documentView = textView
 
         placeholderField.translatesAutoresizingMaskIntoConstraints = false
-        placeholderField.textColor = .secondaryLabelColor
         placeholderField.lineBreakMode = .byTruncatingTail
         placeholderField.maximumNumberOfLines = 1
         addSubview(placeholderField)
@@ -1283,6 +1948,7 @@ private final class CodexPromptTextEditorView: NSView {
         ])
 
         updateFont()
+        updateColors()
         updatePlaceholderVisibility()
     }
 
@@ -1295,6 +1961,11 @@ private final class CodexPromptTextEditorView: NSView {
         NotificationCenter.default.removeObserver(self)
     }
 
+    override func viewDidChangeEffectiveAppearance() {
+        super.viewDidChangeEffectiveAppearance()
+        updateColors()
+    }
+
     override func layout() {
         super.layout()
         updateTextViewLayout()
@@ -1305,7 +1976,6 @@ private final class CodexPromptTextEditorView: NSView {
         textView.minSize = NSSize(width: 0, height: minimumHeight)
         updatePlaceholderVisibility()
         needsLayout = true
-        layoutSubtreeIfNeeded()
         reportMeasuredHeightIfNeeded()
     }
 
@@ -1339,6 +2009,13 @@ private final class CodexPromptTextEditorView: NSView {
         textView.font = font
         placeholderField.font = font
         refreshMetrics()
+    }
+
+    private func updateColors() {
+        let palette = CodexAppServerAdaptivePalette(background: themeBackground, appearance: effectiveAppearance)
+        textView.textColor = palette.primaryText
+        textView.insertionPointColor = palette.primaryText
+        placeholderField.textColor = palette.secondaryText
     }
 
     private func lineHeight() -> CGFloat {
@@ -1406,6 +2083,7 @@ private struct CodexPromptTextEditor: NSViewRepresentable {
     let fontSize: CGFloat
     let minimumHeight: CGFloat
     let maximumHeight: CGFloat
+    let themeBackground: NSColor
     let onSubmit: () -> Void
     let onQueueFollowUp: () -> Void
     let onInterrupt: () -> Bool
@@ -1522,6 +2200,7 @@ private struct CodexPromptTextEditor: NSViewRepresentable {
         view.fontSize = fontSize
         view.minimumHeight = minimumHeight
         view.maximumHeight = maximumHeight
+        view.themeBackground = themeBackground
         view.textView.string = text
         view.textView.delegate = context.coordinator
         context.coordinator.applySelection(selectionRanges, to: view)
@@ -1547,13 +2226,14 @@ private struct CodexPromptTextEditor: NSViewRepresentable {
         nsView.fontSize = fontSize
         nsView.minimumHeight = minimumHeight
         nsView.maximumHeight = maximumHeight
+        nsView.themeBackground = themeBackground
         nsView.textView.setAccessibilityLabel(placeholder)
 
         if nsView.textView.string != text {
             context.coordinator.isProgrammaticMutation = true
             nsView.textView.string = text
             context.coordinator.isProgrammaticMutation = false
-            context.coordinator.applySelection(context.coordinator.lastKnownSelectionRanges, to: nsView)
+            context.coordinator.applySelection(selectionRanges, to: nsView)
         } else if context.coordinator.lastKnownSelectionRanges.isEmpty {
             context.coordinator.applySelection(selectionRanges, to: nsView)
         }
@@ -1614,7 +2294,7 @@ private struct CodexAppServerPendingRequestsSection: View {
             .frame(maxWidth: .infinity, alignment: .leading)
         }
         .frame(maxHeight: 240)
-        .background(Color(nsColor: themeBackground))
+        .background(Color.clear)
     }
 }
 

@@ -71,6 +71,29 @@ struct CodexAppServerLaunchConfiguration: Equatable {
     var environment: [String: String]
 }
 
+protocol CodexAppServerClienting: AnyObject {
+    var onEvent: ((CodexAppServerEvent) -> Void)? { get set }
+
+    func stop()
+    func startAndInitialize() async throws
+    func startThread(cwd: String?, model: String?, serviceTier: String?) async throws -> String
+    func resumeThread(threadId: String, cwd: String?) async throws -> [String: Any]
+    func startTurn(
+        threadId: String,
+        text: String,
+        cwd: String?,
+        model: String?,
+        serviceTier: String?,
+        reasoningSummary: String?
+    ) async throws -> String
+    func listModels(includeHidden: Bool) async throws -> [[String: Any]]
+    func readRateLimits() async throws -> [String: Any]
+    func steerTurn(threadId: String, turnId: String, text: String) async throws -> String
+    func interruptTurn(threadId: String, turnId: String) async throws
+    func respondToServerRequest(id: CodexAppServerRequestID, result: [String: Any]) throws
+    func rejectServerRequest(id: CodexAppServerRequestID, message: String) throws
+}
+
 enum CodexAppServerRequestFactory {
     static func request(id: Int, method: String, params: [String: Any]? = nil) -> [String: Any] {
         var object: [String: Any] = [
@@ -176,7 +199,8 @@ enum CodexAppServerRequestFactory {
         text: String,
         cwd: String?,
         model: String? = nil,
-        serviceTier: String? = nil
+        serviceTier: String? = nil,
+        reasoningSummary: String? = nil
     ) -> [String: Any] {
         var params: [String: Any] = [
             "threadId": threadId,
@@ -196,6 +220,9 @@ enum CodexAppServerRequestFactory {
         }
         if let serviceTier, !serviceTier.isEmpty {
             params["serviceTier"] = serviceTier
+        }
+        if let reasoningSummary, !reasoningSummary.isEmpty {
+            params["summary"] = reasoningSummary
         }
         return request(id: id, method: "turn/start", params: params)
     }
@@ -287,7 +314,7 @@ struct CodexAppServerLineBuffer {
     }
 }
 
-final class CodexAppServerClient: @unchecked Sendable {
+final class CodexAppServerClient: CodexAppServerClienting, @unchecked Sendable {
     typealias EventHandler = (CodexAppServerEvent) -> Void
 
     private final class QueueIdentity {}
@@ -332,6 +359,8 @@ final class CodexAppServerClient: @unchecked Sendable {
     private let stateQueue = DispatchQueue(label: "cmux.codexAppServerClient.state")
     private let stateQueueIdentity = QueueIdentity()
     private let callbackQueue: DispatchQueue
+    private let provider: AgentSessionProvider
+    private let executableResolver: AgentExecutableResolver
     private var process: Process?
     private var stdinPipe: Pipe?
     private var stdoutPipe: Pipe?
@@ -359,8 +388,14 @@ final class CodexAppServerClient: @unchecked Sendable {
         }
     }
 
-    init(callbackQueue: DispatchQueue = .main) {
+    init(
+        provider: AgentSessionProvider = .provider(.codex),
+        callbackQueue: DispatchQueue = .main,
+        executableResolver: AgentExecutableResolver = AgentExecutableResolver()
+    ) {
+        self.provider = provider
         self.callbackQueue = callbackQueue
+        self.executableResolver = executableResolver
         stateQueue.setSpecific(key: Self.stateQueueSpecificKey, value: stateQueueIdentity)
     }
 
@@ -461,7 +496,8 @@ final class CodexAppServerClient: @unchecked Sendable {
         text: String,
         cwd: String?,
         model: String? = nil,
-        serviceTier: String? = nil
+        serviceTier: String? = nil,
+        reasoningSummary: String? = nil
     ) async throws -> String {
         let response = try await sendRequestObject(
             CodexAppServerRequestFactory.turnStartRequest(
@@ -470,7 +506,8 @@ final class CodexAppServerClient: @unchecked Sendable {
                 text: text,
                 cwd: cwd,
                 model: model,
-                serviceTier: serviceTier
+                serviceTier: serviceTier,
+                reasoningSummary: reasoningSummary
             )
         )
         guard let turn = response["turn"] as? [String: Any],
@@ -551,7 +588,10 @@ final class CodexAppServerClient: @unchecked Sendable {
         let stdoutPipe = Pipe()
         let stderrPipe = Pipe()
 
-        let configuration = Self.appServerLaunchConfiguration()
+        let configuration = try Self.appServerLaunchConfiguration(
+            provider: provider,
+            executableResolver: executableResolver
+        )
 #if DEBUG
         CodexAppServerTiming.log("client.process.config", [
             "ms": CodexAppServerTiming.ms(CodexAppServerTiming.elapsedMs(since: configStart)),
@@ -642,173 +682,38 @@ final class CodexAppServerClient: @unchecked Sendable {
     }
 
     static func appServerLaunchConfiguration(
-        baseEnvironment: [String: String] = ProcessInfo.processInfo.environment
-    ) -> CodexAppServerLaunchConfiguration {
-        let environment = appServerEnvironment(baseEnvironment: baseEnvironment)
-        let codexPath = resolvedExecutablePath("codex", environment: environment)
-        let nodePath = resolvedExecutablePath("node", environment: environment)
-
-        if let codexPath,
-           let nodePath,
-           executableUsesEnvNode(codexPath) {
-            return CodexAppServerLaunchConfiguration(
-                executablePath: nodePath,
-                arguments: [codexPath, "app-server", "--listen", "stdio://"],
-                environment: environment
-            )
-        }
-
-        if let codexPath {
-            return CodexAppServerLaunchConfiguration(
-                executablePath: codexPath,
-                arguments: ["app-server", "--listen", "stdio://"],
-                environment: environment
-            )
-        }
-
+        provider: AgentSessionProvider = .provider(.codex),
+        executableResolver: AgentExecutableResolver
+    ) throws -> CodexAppServerLaunchConfiguration {
+        let launchPlan = try executableResolver.resolveLaunchPlan(for: provider)
         return CodexAppServerLaunchConfiguration(
-            executablePath: "/usr/bin/env",
-            arguments: ["codex", "app-server", "--listen", "stdio://"],
-            environment: environment
+            executablePath: launchPlan.executablePath,
+            arguments: launchPlan.arguments,
+            environment: launchPlan.environment
+        )
+    }
+
+    static func appServerLaunchConfiguration(
+        provider: AgentSessionProvider = .provider(.codex),
+        baseEnvironment: [String: String] = ProcessInfo.processInfo.environment
+    ) throws -> CodexAppServerLaunchConfiguration {
+        try appServerLaunchConfiguration(
+            provider: provider,
+            executableResolver: AgentExecutableResolver(baseEnvironment: baseEnvironment)
         )
     }
 
     static func appServerEnvironment(
         baseEnvironment: [String: String] = ProcessInfo.processInfo.environment
     ) -> [String: String] {
-        var environment = baseEnvironment
-        let paths = commandSearchDirectories(environment: environment)
-        let existing = environment["PATH"]?.split(separator: ":").map(String.init) ?? []
-        let merged = (paths + existing)
-            .reduce(into: [String]()) { paths, candidate in
-                guard !candidate.isEmpty, !paths.contains(candidate) else { return }
-                paths.append(candidate)
-            }
-            .joined(separator: ":")
-        environment["PATH"] = merged
-        return environment
+        AgentExecutableResolver.providerEnvironment(baseEnvironment: baseEnvironment)
     }
 
     static func resolvedExecutablePath(
         _ executable: String,
         environment: [String: String] = ProcessInfo.processInfo.environment
     ) -> String? {
-        guard !executable.isEmpty else { return nil }
-        let fileManager = FileManager.default
-        if executable.contains("/") {
-            return fileManager.isExecutableFile(atPath: executable) ? executable : nil
-        }
-
-        for directory in commandSearchDirectories(environment: environment) {
-            let path = URL(fileURLWithPath: directory, isDirectory: true)
-                .appendingPathComponent(executable)
-                .path
-            if fileManager.isExecutableFile(atPath: path) {
-                return path
-            }
-        }
-        return nil
-    }
-
-    private static func commandSearchDirectories(environment: [String: String]) -> [String] {
-        var paths: [String] = []
-        var seen: Set<String> = []
-
-        func append(_ path: String?) {
-            guard let path else { return }
-            for component in path.split(separator: ":").map(String.init) {
-                let trimmed = component.trimmingCharacters(in: .whitespacesAndNewlines)
-                guard !trimmed.isEmpty,
-                      seen.insert(trimmed).inserted else {
-                    continue
-                }
-                paths.append(trimmed)
-            }
-        }
-
-        let home = environment["HOME"]?.isEmpty == false ? environment["HOME"]! : NSHomeDirectory()
-        append(environment["PATH"])
-        if let resourceBinPath = Bundle.main.resourceURL?.appendingPathComponent("bin").path {
-            append(resourceBinPath)
-        }
-        append((home as NSString).appendingPathComponent(".bun/bin"))
-        append((home as NSString).appendingPathComponent(".local/bin"))
-        append((home as NSString).appendingPathComponent("bin"))
-        append((home as NSString).appendingPathComponent(".volta/bin"))
-        append((home as NSString).appendingPathComponent(".asdf/shims"))
-        append((home as NSString).appendingPathComponent(".deno/bin"))
-        append((home as NSString).appendingPathComponent("Library/pnpm"))
-        appendNodeVersionManagerPaths(home: home, append: append)
-        append("/opt/homebrew/bin:/opt/homebrew/sbin:/usr/local/bin:/usr/local/sbin:/opt/local/bin")
-        append("/usr/bin:/bin:/usr/sbin:/sbin")
-        return paths
-    }
-
-    private static func appendNodeVersionManagerPaths(home: String, append: (String?) -> Void) {
-        let fileManager = FileManager.default
-
-        append((home as NSString).appendingPathComponent(".nvm/current/bin"))
-        let nvmVersions = (home as NSString).appendingPathComponent(".nvm/versions/node")
-        for version in sortedNodeVersionDirectories(in: nvmVersions, fileManager: fileManager) {
-            append((nvmVersions as NSString).appendingPathComponent("\(version)/bin"))
-        }
-
-        let fnmVersions = (home as NSString).appendingPathComponent(".fnm/node-versions")
-        for version in sortedNodeVersionDirectories(in: fnmVersions, fileManager: fileManager) {
-            append((fnmVersions as NSString).appendingPathComponent("\(version)/installation/bin"))
-            append((fnmVersions as NSString).appendingPathComponent("\(version)/bin"))
-        }
-    }
-
-    private static func sortedNodeVersionDirectories(
-        in directory: String,
-        fileManager: FileManager
-    ) -> [String] {
-        guard let names = try? fileManager.contentsOfDirectory(atPath: directory) else {
-            return []
-        }
-        return names
-            .filter { name in
-                var isDirectory: ObjCBool = false
-                let path = (directory as NSString).appendingPathComponent(name)
-                return fileManager.fileExists(atPath: path, isDirectory: &isDirectory) && isDirectory.boolValue
-            }
-            .sorted { lhs, rhs in
-                compareNodeVersionsDescending(lhs, rhs)
-            }
-    }
-
-    private static func compareNodeVersionsDescending(_ lhs: String, _ rhs: String) -> Bool {
-        let lhsComponents = nodeVersionComponents(lhs)
-        let rhsComponents = nodeVersionComponents(rhs)
-        for index in 0..<max(lhsComponents.count, rhsComponents.count) {
-            let lhsValue = index < lhsComponents.count ? lhsComponents[index] : 0
-            let rhsValue = index < rhsComponents.count ? rhsComponents[index] : 0
-            if lhsValue != rhsValue {
-                return lhsValue > rhsValue
-            }
-        }
-        return lhs > rhs
-    }
-
-    private static func nodeVersionComponents(_ version: String) -> [Int] {
-        version
-            .trimmingCharacters(in: CharacterSet(charactersIn: "v"))
-            .split(separator: ".")
-            .map { Int($0) ?? 0 }
-    }
-
-    private static func executableUsesEnvNode(_ path: String) -> Bool {
-        guard let handle = FileHandle(forReadingAtPath: path) else { return false }
-        defer { try? handle.close() }
-        guard let data = try? handle.read(upToCount: 256),
-              let text = String(data: data, encoding: .utf8) else {
-            return false
-        }
-        return text.hasPrefix("#!/usr/bin/env node")
-            || text.hasPrefix("#! /usr/bin/env node")
-            || text.hasPrefix("#!/bin/env node")
-            || text.hasPrefix("#! /bin/env node")
+        AgentExecutableResolver.resolvedExecutablePath(executable, environment: environment)
     }
 
     private func sendRequestObject(

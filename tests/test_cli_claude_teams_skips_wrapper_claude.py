@@ -33,6 +33,8 @@ def main() -> int:
         wrapper_bin.mkdir(parents=True, exist_ok=True)
         real_bin.mkdir(parents=True, exist_ok=True)
         logs.mkdir(parents=True, exist_ok=True)
+        fake_home = tmp / "home"
+        fake_home.mkdir(parents=True, exist_ok=True)
 
         real_hit = logs / "real-hit.txt"
 
@@ -55,6 +57,7 @@ printf 'REAL\\n' > {real_hit}
         )
 
         env = os.environ.copy()
+        env["HOME"] = str(fake_home)
         env["PATH"] = f"{wrapper_bin}:{real_bin}:/usr/bin:/bin"
 
         proc = subprocess.run(
@@ -75,6 +78,35 @@ printf 'REAL\\n' > {real_hit}
 
         if not real_hit.exists():
             print("FAIL: real claude binary was not reached")
+            return 1
+
+        real_hit.unlink()
+        env["PATH"] = str(wrapper_bin)
+        proc = subprocess.run(
+            [cli_path, "claude-teams", "--version"],
+            capture_output=True,
+            text=True,
+            check=False,
+            env=env,
+            timeout=30,
+        )
+
+        if proc.returncode == 0:
+            print("FAIL: `cmux claude-teams --version` succeeded without a user claude binary")
+            return 1
+
+        if "WRAPPER_EXECUTED" in proc.stderr:
+            print("FAIL: missing claude resolution fell through to the cmux wrapper")
+            print(f"stderr={proc.stderr.strip()}")
+            return 1
+
+        if "Claude Code was not found" not in proc.stderr:
+            print("FAIL: expected a clear missing claude binary error")
+            print(f"stderr={proc.stderr.strip()}")
+            return 1
+
+        if real_hit.exists():
+            print("FAIL: real claude binary was reached in the missing-binary case")
             return 1
 
     print("PASS: cmux claude-teams skips cmux wrapper scripts on PATH")

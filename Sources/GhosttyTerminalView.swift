@@ -4859,6 +4859,7 @@ final class TerminalSurface: Identifiable, ObservableObject {
         }
 
         var env = baseConfig.environmentVariables
+        GhosttyTerminalView.removeInheritedAgentEnvironment(from: &env)
 
         var protectedStartupEnvironmentKeys: Set<String> = []
         Self.applyManagedTerminalIdentityEnvironment(
@@ -4897,9 +4898,6 @@ final class TerminalSurface: Identifiable, ObservableObject {
         let claudeHooksEnabled = ClaudeCodeIntegrationSettings.hooksEnabled()
         if !claudeHooksEnabled {
             setManagedEnvironmentValue("CMUX_CLAUDE_HOOKS_DISABLED", "1")
-        }
-        if let customClaudePath = ClaudeCodeIntegrationSettings.customClaudePath() {
-            setManagedEnvironmentValue("CMUX_CUSTOM_CLAUDE_PATH", customClaudePath)
         }
         if !CursorIntegrationSettings.hooksEnabled() {
             setManagedEnvironmentValue("CMUX_CURSOR_HOOKS_DISABLED", "1")
@@ -4984,6 +4982,7 @@ final class TerminalSurface: Identifiable, ObservableObject {
             additionalEnvironment: additionalEnvironment,
             initialEnvironmentOverrides: initialEnvironmentOverrides
         )
+        GhosttyTerminalView.removeInheritedAgentEnvironment(from: &env)
         env.removeValue(forKey: "CMUX_SOCKET")
 
         if !env.isEmpty {
@@ -4997,15 +4996,17 @@ final class TerminalSurface: Identifiable, ObservableObject {
         }
 
         let createSurface = { [self] in
-            if !envVars.isEmpty {
-                let envVarsCount = envVars.count
-                envVars.withUnsafeMutableBufferPointer { buffer in
-                    surfaceConfig.env_vars = buffer.baseAddress
-                    surfaceConfig.env_var_count = envVarsCount
+            GhosttyTerminalView.withRemovedInheritedAgentProcessEnvironment {
+                if !envVars.isEmpty {
+                    let envVarsCount = envVars.count
+                    envVars.withUnsafeMutableBufferPointer { buffer in
+                        surfaceConfig.env_vars = buffer.baseAddress
+                        surfaceConfig.env_var_count = envVarsCount
+                        self.surface = ghostty_surface_new(app, &surfaceConfig)
+                    }
+                } else {
                     self.surface = ghostty_surface_new(app, &surfaceConfig)
                 }
-            } else {
-                self.surface = ghostty_surface_new(app, &surfaceConfig)
             }
         }
 
@@ -13082,6 +13083,33 @@ struct GhosttyTerminalView: NSViewRepresentable {
         interactiveGeometryResizeActive: Bool
     ) -> Bool {
         hostInLiveResize || windowInLiveResize || interactiveGeometryResizeActive
+    }
+
+    private static let inheritedAgentEnvironmentKeys: Set<String> = [
+        "CLAUDECODE",
+    ]
+
+    static func removeInheritedAgentEnvironment(from environment: inout [String: String]) {
+        for key in inheritedAgentEnvironmentKeys {
+            environment.removeValue(forKey: key)
+        }
+    }
+
+    static func withRemovedInheritedAgentProcessEnvironment<T>(_ body: () -> T) -> T {
+        let savedValues = inheritedAgentEnvironmentKeys.reduce(into: [String: String?]()) { values, key in
+            values[key] = getenv(key).map { String(cString: $0) }
+            unsetenv(key)
+        }
+        defer {
+            for (key, value) in savedValues {
+                if let value {
+                    setenv(key, value, 1)
+                } else {
+                    unsetenv(key)
+                }
+            }
+        }
+        return body()
     }
 
     private static func synchronizePortalGeometry(
