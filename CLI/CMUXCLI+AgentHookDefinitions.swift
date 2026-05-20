@@ -32,6 +32,7 @@ extension CMUXCLI {
         enum HookFormat {
             case flat       // Cursor: {"hooks": {"event": [{"command": "..."}]}, "version": 1}
             case nested(timeoutMs: Int)  // Codex/Gemini: nested with type/command/timeout
+            case antigravityJSON(timeoutSeconds: Int) // ~/.gemini/config/hooks.json named hook groups
             case rovoDevYAML
             case hermesAgentYAML
         }
@@ -195,6 +196,23 @@ extension CMUXCLI {
                 .init(agentEvent: "AfterAgent", cmuxSubcommand: "stop"),
                 .init(agentEvent: "SessionEnd", cmuxSubcommand: "session-end"),
             ],
+            feedHookEvents: ["PreToolUse"]
+        ),
+        AgentHookDef(
+            name: "antigravity", displayName: "Antigravity", statusKey: "antigravity",
+            configDir: ".gemini/config", configFile: "hooks.json",
+            createConfigDirIfMissing: true, binaryName: "agy",
+            sessionStoreSuffix: "antigravity", disableEnvVar: "CMUX_ANTIGRAVITY_HOOKS_DISABLED",
+            hookMarker: "cmux hooks antigravity", format: .antigravityJSON(timeoutSeconds: 10),
+            events: [
+                .init(agentEvent: "SessionStart", cmuxSubcommand: "session-start"),
+                .init(agentEvent: "PreInvocation", cmuxSubcommand: "prompt-submit"),
+                .init(agentEvent: "Stop", cmuxSubcommand: "stop"),
+                .init(agentEvent: "turn-completion", cmuxSubcommand: "stop"),
+                .init(agentEvent: "Notification", cmuxSubcommand: "notification"),
+                .init(agentEvent: "SessionEnd", cmuxSubcommand: "session-end"),
+            ],
+            aliases: ["agy"],
             feedHookEvents: ["PreToolUse"]
         ),
         AgentHookDef(

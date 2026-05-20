@@ -4,6 +4,7 @@ import Foundation
 
 extension Workspace {
     private static let structuredAgentHookStatusKeys: Set<String> = [
+        "antigravity",
         "amp",
         "claude_code",
         "codebuddy",

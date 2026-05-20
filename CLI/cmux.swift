@@ -9698,7 +9698,7 @@ struct CMUXCLI {
             agent. Claude Code hooks are injected automatically by the cmux Claude wrapper.
 
             Agents:
-              codex, grok, opencode, pi, amp, cursor, gemini, rovodev (alias: rovo), hermes-agent, copilot, codebuddy, factory, qoder
+              codex, grok, opencode, pi, amp, cursor, gemini, antigravity (alias: agy), rovodev (alias: rovo), hermes-agent, copilot, codebuddy, factory, qoder
 
             Hook targets:
               setup              Install hooks for all supported agents on PATH
@@ -18004,6 +18004,9 @@ struct CMUXCLI {
         let turnId = firstString(in: object, keys: ["turn_id", "turnId"])
         let cwd = extractClaudeHookCWD(from: object)
         let transcriptPath = firstString(in: object, keys: ["transcript_path", "transcriptPath"])
+            ?? (object["notification"] as? [String: Any]).flatMap { firstString(in: $0, keys: ["transcript_path", "transcriptPath"]) }
+            ?? (object["data"] as? [String: Any]).flatMap { firstString(in: $0, keys: ["transcript_path", "transcriptPath"]) }
+            ?? (object["context"] as? [String: Any]).flatMap { firstString(in: $0, keys: ["transcript_path", "transcriptPath"]) }
         let compactObject = compactClaudeHookObject(object)
         return ClaudeHookParsedInput(
             rawObject: object,
@@ -18020,9 +18023,9 @@ struct CMUXCLI {
         var compact: [String: Any] = [:]
 
         for key in [
-            "tool_name", "toolName", "turn_id", "turnId",
+            "tool_name", "toolName", "turn_id", "turnId", "conversation_id", "conversationId", "transcript_path", "transcriptPath",
             "last_assistant_message", "lastAssistantMessage", "assistantPreamble", "assistant_preamble",
-            "event", "event_name", "hook_event_name", "hookEventName", "type", "kind", "notification_type", "matcher", "reason", "source",
+            "event", "event_name", "hook_event_name", "hookEventName", "type", "kind", "notification_type", "matcher", "reason", "source", "terminationReason",
             "title", "summary", "message", "body", "text", "prompt", "error", "codex_error_info", "codexErrorInfo",
             "additional_details", "additionalDetails", "description",
         ] {
@@ -18083,7 +18086,7 @@ struct CMUXCLI {
             guard let nested = object[key] as? [String: Any] else { continue }
             var compactNested: [String: Any] = [:]
             for nestedKey in [
-                "type", "kind", "reason", "title", "summary", "message", "body", "text", "prompt", "error",
+                "type", "kind", "reason", "title", "summary", "message", "body", "text", "prompt", "error", "conversation_id", "conversationId", "transcript_path", "transcriptPath",
                 "codex_error_info", "codexErrorInfo", "additional_details", "additionalDetails", "description",
             ] {
                 if let value = compactClaudeHookValue(nested[nestedKey], key: nestedKey) {
@@ -18100,9 +18103,11 @@ struct CMUXCLI {
 
     private func claudeHookCompactFieldLimit(for key: String) -> Int {
         switch key {
-        case "tool_name", "toolName", "turn_id", "turnId", "event", "event_name", "hook_event_name", "hookEventName", "type", "kind", "notification_type", "matcher", "reason", "source":
+        case "tool_name", "toolName", "turn_id", "turnId", "conversation_id", "conversationId", "event", "event_name", "hook_event_name", "hookEventName", "type", "kind", "notification_type", "matcher", "reason", "source":
             return 80
-        case "last_assistant_message", "lastAssistantMessage", "assistantPreamble", "assistant_preamble", "title", "summary", "message", "body", "text", "prompt", "error", "codex_error_info", "codexErrorInfo", "additional_details", "additionalDetails", "description":
+        case "transcript_path", "transcriptPath":
+            return 240
+        case "last_assistant_message", "lastAssistantMessage", "assistantPreamble", "assistant_preamble", "title", "summary", "message", "body", "text", "prompt", "error", "codex_error_info", "codexErrorInfo", "additional_details", "additionalDetails", "description", "terminationReason":
             return 240
         default:
             return 160
@@ -18170,45 +18175,74 @@ struct CMUXCLI {
     }
 
     private func extractClaudeHookSessionId(from object: [String: Any]) -> String? {
-        if let id = firstString(in: object, keys: ["session_id", "sessionId"]) {
+        let sessionIDKeys = ["session_id", "sessionId", "conversation_id", "conversationId"]
+        if let id = firstString(in: object, keys: sessionIDKeys) {
             return id
         }
 
         if let nested = object["notification"] as? [String: Any],
-           let id = firstString(in: nested, keys: ["session_id", "sessionId"]) {
+           let id = firstString(in: nested, keys: sessionIDKeys) {
             return id
         }
         if let nested = object["data"] as? [String: Any],
-           let id = firstString(in: nested, keys: ["session_id", "sessionId"]) {
+           let id = firstString(in: nested, keys: sessionIDKeys) {
             return id
         }
         if let session = object["session"] as? [String: Any],
-           let id = firstString(in: session, keys: ["id", "session_id", "sessionId"]) {
+           let id = firstString(in: session, keys: ["id"] + sessionIDKeys) {
             return id
         }
         if let context = object["context"] as? [String: Any],
-           let id = firstString(in: context, keys: ["session_id", "sessionId"]) {
+           let id = firstString(in: context, keys: sessionIDKeys) {
             return id
         }
         return nil
     }
 
     private func extractClaudeHookCWD(from object: [String: Any]) -> String? {
-        let cwdKeys = ["cwd", "working_directory", "workingDirectory", "project_dir", "projectDir"]
+        let cwdKeys = ["cwd", "working_directory", "workingDirectory", "workspace", "project_dir", "projectDir", "project_path", "projectPath"]
         if let cwd = firstString(in: object, keys: cwdKeys) {
+            return cwd
+        }
+        if let cwd = firstWorkspacePath(in: object) {
             return cwd
         }
         if let nested = object["notification"] as? [String: Any],
            let cwd = firstString(in: nested, keys: cwdKeys) {
             return cwd
         }
+        if let nested = object["notification"] as? [String: Any],
+           let cwd = firstWorkspacePath(in: nested) {
+            return cwd
+        }
         if let nested = object["data"] as? [String: Any],
            let cwd = firstString(in: nested, keys: cwdKeys) {
+            return cwd
+        }
+        if let nested = object["data"] as? [String: Any],
+           let cwd = firstWorkspacePath(in: nested) {
             return cwd
         }
         if let context = object["context"] as? [String: Any],
            let cwd = firstString(in: context, keys: cwdKeys) {
             return cwd
+        }
+        if let context = object["context"] as? [String: Any],
+           let cwd = firstWorkspacePath(in: context) {
+            return cwd
+        }
+        return nil
+    }
+
+    private func firstWorkspacePath(in object: [String: Any]) -> String? {
+        let rawPaths = object["workspacePaths"] ?? object["workspace_paths"]
+        guard let paths = rawPaths as? [Any] else { return nil }
+        for path in paths {
+            guard let string = path as? String else { continue }
+            let trimmed = string.trimmingCharacters(in: .whitespacesAndNewlines)
+            if !trimmed.isEmpty {
+                return trimmed
+            }
         }
         return nil
     }
@@ -20143,6 +20177,8 @@ struct CMUXCLI {
             return agentSurfaceResumeWithOption(kind: kind, launchCommand: launchCommand, fallbackExecutable: "cursor-agent", option: "--resume", sessionId: sessionId)
         case "gemini":
             return agentSurfaceResumeWithOption(kind: kind, launchCommand: launchCommand, fallbackExecutable: "gemini", option: "--resume", sessionId: sessionId)
+        case "antigravity":
+            return agentSurfaceResumeWithOption(kind: kind, launchCommand: launchCommand, fallbackExecutable: "agy", option: "--conversation", sessionId: sessionId)
         case "opencode":
             let original = agentSurfaceResumeCommandParts(launchCommand: launchCommand, fallbackExecutable: "opencode")
             return AgentLaunchSanitizer.preservedArguments(kind: kind, args: original.tail).map {
@@ -20342,6 +20378,14 @@ struct CMUXCLI {
                     "hooks": [["type": "command", "command": cmd, "timeout": timeout] as [String: Any]]
                 ] as [String: Any])
                 result[event.agentEvent] = groups
+            case .antigravityJSON(let timeoutSeconds):
+                var entries = result[event.agentEvent] as? [[String: Any]] ?? []
+                entries.append(Self.antigravityHookEntry(
+                    command: cmd,
+                    timeoutSeconds: timeoutSeconds,
+                    eventName: event.agentEvent
+                ))
+                result[event.agentEvent] = entries
             case .rovoDevYAML, .hermesAgentYAML:
                 break
             }
@@ -20365,6 +20409,14 @@ struct CMUXCLI {
                     "hooks": [["type": "command", "command": feedCmd, "timeout": timeout] as [String: Any]]
                 ] as [String: Any])
                 result[agentEvent] = groups
+            case .antigravityJSON:
+                var entries = result[agentEvent] as? [[String: Any]] ?? []
+                entries.append(Self.antigravityHookEntry(
+                    command: feedCmd,
+                    timeoutSeconds: feedTimeoutMs / 1000,
+                    eventName: agentEvent
+                ))
+                result[agentEvent] = entries
             case .rovoDevYAML, .hermesAgentYAML:
                 break
             }
@@ -20376,6 +20428,27 @@ struct CMUXCLI {
         guard def.name == "grok" else { return timeoutMs }
         let positiveTimeoutMs = max(timeoutMs, 1)
         return ((positiveTimeoutMs - 1) / 1000) + 1
+    }
+
+    private static func antigravityHookEntry(
+        command: String,
+        timeoutSeconds: Int,
+        eventName: String
+    ) -> [String: Any] {
+        let hook: [String: Any] = [
+            "type": "command",
+            "command": command,
+            "timeout": max(timeoutSeconds, 1),
+        ]
+        switch eventName {
+        case "PreToolUse", "PostToolUse":
+            return [
+                "matcher": "*",
+                "hooks": [hook],
+            ]
+        default:
+            return hook
+        }
     }
 
     private static let openCodeSessionPluginMarker = "cmux-opencode-session-plugin-marker"
@@ -21077,6 +21150,117 @@ export default function cmuxPiSessionExtension(pi: ExtensionAPI) {
         return RovoDevHookConfig.uninstalling(from: existing)
     }
 
+    private static let antigravityHookGroupName = "cmux"
+
+    private func installAntigravityHooks(_ def: AgentHookDef) throws {
+        let fm = FileManager.default
+        let configDir = def.resolvedConfigDir()
+        let filePath = "\(configDir)/\(def.configFile)"
+        let skipConfirm = ProcessInfo.processInfo.arguments.contains("--yes")
+            || ProcessInfo.processInfo.arguments.contains("-y")
+
+        let configDirectoryFileError = String.localizedStringWithFormat(
+            String(
+                localized: "cli.hooks.error.configDirectoryIsFile",
+                defaultValue: "cmux could not create the hooks directory: a file exists at %@; remove or rename the conflicting file and re-run `cmux hooks setup`"
+            ),
+            configDir
+        )
+        var isConfigDirectory = ObjCBool(false)
+        let configPathExists = fm.fileExists(atPath: configDir, isDirectory: &isConfigDirectory)
+        if configPathExists, !isConfigDirectory.boolValue {
+            throw CLIError(message: configDirectoryFileError)
+        }
+        if !configPathExists {
+            do {
+                try fm.createDirectory(atPath: configDir, withIntermediateDirectories: true)
+            } catch {
+                throw CLIError(message: configDirectoryFileError)
+            }
+        }
+
+        var existing: [String: Any] = [:]
+        if let data = fm.contents(atPath: filePath) {
+            guard let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any] else {
+                throw CLIError(message: "\(filePath) exists but is not valid JSON. Fix or remove it before installing hooks.")
+            }
+            existing = json
+        }
+
+        let newGroup = buildHooksDict(for: def)
+        existing[Self.antigravityHookGroupName] = newGroup
+
+        let newData = try JSONSerialization.data(withJSONObject: existing, options: [.prettyPrinted, .sortedKeys])
+        let newString = String(data: newData, encoding: .utf8) ?? "{}"
+        let oldString: String = {
+            guard let data = fm.contents(atPath: filePath),
+                  let json = try? JSONSerialization.jsonObject(with: data),
+                  let pretty = try? JSONSerialization.data(withJSONObject: json, options: [.prettyPrinted, .sortedKeys]),
+                  let string = String(data: pretty, encoding: .utf8) else {
+                return ""
+            }
+            return string
+        }()
+
+        if oldString == newString {
+            print("\(def.displayName) hooks already up to date at \(filePath)")
+            return
+        }
+        if !skipConfirm {
+            Self.printInstallPreview(
+                path: filePath,
+                oldContent: oldString,
+                newContent: newString,
+                fallbackContent: newString
+            )
+            print("\nProceed? [y/N] ", terminator: "")
+            guard readLine()?.lowercased().hasPrefix("y") == true else {
+                print("Aborted.")
+                return
+            }
+        }
+        try newData.write(to: URL(fileURLWithPath: filePath), options: .atomic)
+        print("\(def.displayName) hooks installed at \(filePath)")
+    }
+
+    private func uninstallAntigravityHooks(_ def: AgentHookDef) throws {
+        let filePath = "\(def.resolvedConfigDir())/\(def.configFile)"
+        let fm = FileManager.default
+        guard let data = fm.contents(atPath: filePath),
+              var json = try? JSONSerialization.jsonObject(with: data) as? [String: Any] else {
+            print("No \(def.configFile) found at \(filePath)")
+            return
+        }
+
+        guard let group = json[Self.antigravityHookGroupName],
+              Self.jsonHookValueContainsCmuxOwnedCommand(group, for: def) else {
+            print("Removed 0 cmux hook(s) from \(filePath)")
+            return
+        }
+
+        json.removeValue(forKey: Self.antigravityHookGroupName)
+        let newData = try JSONSerialization.data(withJSONObject: json, options: [.prettyPrinted, .sortedKeys])
+        try newData.write(to: URL(fileURLWithPath: filePath), options: .atomic)
+        print("Removed Antigravity cmux hooks from \(filePath)")
+    }
+
+    private static func jsonHookValueContainsCmuxOwnedCommand(_ value: Any, for def: AgentHookDef) -> Bool {
+        if let command = value as? String {
+            return isCmuxOwnedHookCommand(command, for: def)
+        }
+        if let array = value as? [Any] {
+            return array.contains { jsonHookValueContainsCmuxOwnedCommand($0, for: def) }
+        }
+        if let object = value as? [String: Any] {
+            if let command = object["command"] as? String,
+               isCmuxOwnedHookCommand(command, for: def) {
+                return true
+            }
+            return object.values.contains { jsonHookValueContainsCmuxOwnedCommand($0, for: def) }
+        }
+        return false
+    }
+
     private func installAgentHooks(_ def: AgentHookDef) throws {
         if def.name == "opencode" {
             try installOpenCodePluginHooks(def)
@@ -21096,6 +21280,10 @@ export default function cmuxPiSessionExtension(pi: ExtensionAPI) {
         }
         if def.name == "hermes-agent" {
             try installHermesAgentHooks(def)
+            return
+        }
+        if case .antigravityJSON = def.format {
+            try installAntigravityHooks(def)
             return
         }
 
@@ -21205,7 +21393,7 @@ export default function cmuxPiSessionExtension(pi: ExtensionAPI) {
                 } else {
                     hooks[event] = rewrittenGroups
                 }
-            case .rovoDevYAML, .hermesAgentYAML:
+            case .antigravityJSON, .rovoDevYAML, .hermesAgentYAML:
                 break
             }
         }
@@ -21233,7 +21421,7 @@ export default function cmuxPiSessionExtension(pi: ExtensionAPI) {
                     }
                 }
                 hooks[event] = groups
-            case .rovoDevYAML, .hermesAgentYAML:
+            case .antigravityJSON, .rovoDevYAML, .hermesAgentYAML:
                 break
             }
         }
@@ -21430,6 +21618,10 @@ export default function cmuxPiSessionExtension(pi: ExtensionAPI) {
             try uninstallHermesAgentHooks(def)
             return
         }
+        if case .antigravityJSON = def.format {
+            try uninstallAntigravityHooks(def)
+            return
+        }
 
         let fm = FileManager.default
         let configDir = def.resolvedConfigDir()
@@ -21494,7 +21686,7 @@ export default function cmuxPiSessionExtension(pi: ExtensionAPI) {
                 } else {
                     hooks[event] = rewrittenGroups
                 }
-            case .rovoDevYAML, .hermesAgentYAML:
+            case .antigravityJSON, .rovoDevYAML, .hermesAgentYAML:
                 break
             }
         }
@@ -22433,7 +22625,7 @@ export default function cmuxPiSessionExtension(pi: ExtensionAPI) {
             )
         }
         func notificationDedupeFingerprint(status: AgentHookNotificationStatus?) -> String? {
-            guard def.name == "grok", !sessionId.isEmpty, status == .idle else {
+            guard (def.name == "grok" || def.name == "antigravity"), !sessionId.isEmpty, status == .idle else {
                 return nil
             }
             return "idle-turn"
@@ -22559,6 +22751,7 @@ export default function cmuxPiSessionExtension(pi: ExtensionAPI) {
                     workspaceId: workspaceId,
                     surfaceId: surfaceId,
                     cwd: hookCwd ?? mapped?.cwd,
+                    transcriptPath: input.transcriptPath ?? mapped?.transcriptPath,
                     pid: pid,
                     launchCommand: launchCommand,
                     runtimeStatus: .running,
@@ -22606,6 +22799,7 @@ export default function cmuxPiSessionExtension(pi: ExtensionAPI) {
                     workspaceId: workspaceId,
                     surfaceId: surfaceId,
                     cwd: hookCwd ?? mapped?.cwd,
+                    transcriptPath: input.transcriptPath ?? mapped?.transcriptPath,
                     pid: pid,
                     launchCommand: launchCommand,
                     runtimeStatus: .running,
@@ -22694,6 +22888,18 @@ export default function cmuxPiSessionExtension(pi: ExtensionAPI) {
             } else {
                 codexFailure = nil
             }
+            let antigravityFailure: AgentHookNotificationSummary? = {
+                guard def.name == "antigravity", let rawObject = input.rawObject else { return nil }
+                let signal = firstString(in: rawObject, keys: ["terminationReason", "reason", "type", "kind"]) ?? ""
+                let message = firstString(in: rawObject, keys: ["error", "message", "description"]) ?? signal
+                let summary = classifyAgentHookNotification(
+                    def: def,
+                    signal: signal,
+                    message: message,
+                    isFallback: false
+                )
+                return summary.status == .error ? summary : nil
+            }()
 
             let cwd = hookCwd ?? mapped?.cwd
             let grokAssistantMessage: String? = {
@@ -22714,7 +22920,10 @@ export default function cmuxPiSessionExtension(pi: ExtensionAPI) {
                 localized: "agent.codex.completion.subtitle.completed",
                 defaultValue: "Completed"
             )
-            if codexFailure == nil, let projectName, !projectName.isEmpty {
+            if let antigravityFailure {
+                subtitle = antigravityFailure.subtitle
+            }
+            if codexFailure == nil, antigravityFailure == nil, let projectName, !projectName.isEmpty {
                 subtitle = String.localizedStringWithFormat(
                     String(
                         localized: "agent.codex.completion.subtitle.completedInProject",
@@ -22724,6 +22933,7 @@ export default function cmuxPiSessionExtension(pi: ExtensionAPI) {
                 )
             }
             let body = codexFailure?.body
+                ?? antigravityFailure?.body
                 ?? lastMsg.map { truncate(normalizedSingleLine($0), maxLength: 200) }
                 ?? grokAssistantMessage.map { truncate(normalizedSingleLine($0), maxLength: 200) }
                 ?? String.localizedStringWithFormat(
@@ -22733,7 +22943,9 @@ export default function cmuxPiSessionExtension(pi: ExtensionAPI) {
                     ),
                     def.displayName
                 )
-            let stopNotificationStatus: AgentHookNotificationStatus = codexFailure == nil ? .idle : .error
+            let antigravityHasActiveBackgroundWork = def.name == "antigravity"
+                && (input.rawObject?["fullyIdle"] as? Bool) == false
+            let stopNotificationStatus: AgentHookNotificationStatus = (codexFailure == nil && antigravityFailure == nil) ? .idle : .error
 
             if !sessionId.isEmpty {
                 let launchCommand = agentLaunchCommandFromEnvironment(
@@ -22742,13 +22954,15 @@ export default function cmuxPiSessionExtension(pi: ExtensionAPI) {
                     fallbackKind: def.name,
                     cwd: cwd
                 )
-                try? store.upsert(sessionId: sessionId, workspaceId: workspaceId, surfaceId: surfaceId, cwd: cwd, pid: pid,
+                try? store.upsert(sessionId: sessionId, workspaceId: workspaceId, surfaceId: surfaceId, cwd: cwd,
+                                  transcriptPath: input.transcriptPath ?? mapped?.transcriptPath,
+                                  pid: pid,
                                   launchCommand: launchCommand,
                                   lastSubtitle: subtitle,
                                   lastBody: body,
                                   lastNotificationStatus: stopNotificationStatus,
                                   updateLastNotificationStatus: true,
-                                  runtimeStatus: runtimeStatus(for: stopNotificationStatus),
+                                  runtimeStatus: (antigravityHasActiveBackgroundWork && stopNotificationStatus == .idle) ? .running : runtimeStatus(for: stopNotificationStatus),
                                   updateRuntimeStatus: true)
                 publishAgentSurfaceResumeBinding(
                     client: client,
@@ -22769,7 +22983,7 @@ export default function cmuxPiSessionExtension(pi: ExtensionAPI) {
             }
 
             let notificationFingerprint = notificationDedupeFingerprint(status: stopNotificationStatus)
-            let shouldPublishStopNotification = def.publishesStopNotification
+            let shouldPublishStopNotification = def.publishesStopNotification && (!antigravityHasActiveBackgroundWork || stopNotificationStatus == .error)
             let shouldPublishGrokStopFallbackNotification = def.name == "grok" && stopNotificationStatus == .idle
             let shouldPublishStopAlert = shouldPublishStopNotification || shouldPublishGrokStopFallbackNotification
             if shouldPublishStopAlert, shouldSendNotification(fingerprint: notificationFingerprint) {
@@ -22813,6 +23027,20 @@ export default function cmuxPiSessionExtension(pi: ExtensionAPI) {
             if let codexFailure {
                 _ = try? sendV1Command(
                     "set_status \(def.statusKey) \(codexFailure.statusValue) --icon=exclamationmark.triangle.fill --color=#FF453A --priority=100 --tab=\(workspaceId)\(socketPanelOption(surfaceId))",
+                    client: client
+                )
+            } else if antigravityFailure != nil {
+                let statusValue = String.localizedStringWithFormat(
+                    String(localized: "agent.generic.notification.status.error", defaultValue: "%@ error"),
+                    def.displayName
+                )
+                _ = try? sendV1Command(
+                    "set_status \(def.statusKey) \(statusValue) --icon=exclamationmark.triangle.fill --color=#FF453A --priority=100 --tab=\(workspaceId)\(socketPanelOption(surfaceId))",
+                    client: client
+                )
+            } else if antigravityHasActiveBackgroundWork {
+                _ = try? sendV1Command(
+                    "set_status \(def.statusKey) Running --icon=bolt.fill --color=#4C8DFF --tab=\(workspaceId)\(socketPanelOption(surfaceId))",
                     client: client
                 )
             } else {
@@ -22901,6 +23129,7 @@ export default function cmuxPiSessionExtension(pi: ExtensionAPI) {
                     workspaceId: workspaceId,
                     surfaceId: surfaceId,
                     cwd: notificationCwd,
+                    transcriptPath: input.transcriptPath ?? mapped?.transcriptPath,
                     pid: pid,
                     launchCommand: launchCommand,
                     lastSubtitle: summary.subtitle,
@@ -22982,7 +23211,7 @@ export default function cmuxPiSessionExtension(pi: ExtensionAPI) {
             if def.name == "codex", !sessionId.isEmpty {
                 retireCodexMonitorLeases(sessionId: sessionId, turnId: nil, env: env)
             }
-            if def.name == "grok" {
+            if def.name == "grok" || def.name == "antigravity" {
                 if let mapped = sessionId.isEmpty ? nil : (try? store.lookup(sessionId: sessionId)) {
                     sendAgentFeedTelemetry(workspaceId: mapped.workspaceId)
                 }
@@ -23375,9 +23604,13 @@ export default function cmuxPiSessionExtension(pi: ExtensionAPI) {
         var summary: String?
         if lower == "bash" {
             summary = firstString(in: dict, keys: ["description", "command"])
+        } else if lower == "run_command" {
+            summary = firstString(in: dict, keys: ["CommandLine", "commandLine", "command", "Cwd", "cwd"])
         } else if ["write", "edit", "multiedit", "read"].contains(lower) {
             summary = firstString(in: dict, keys: ["file_path", "path"])
-        } else if lower == "askuserquestion" {
+        } else if ["view_file", "write_to_file", "replace_file_content", "multi_replace_file_content"].contains(lower) {
+            summary = firstString(in: dict, keys: ["AbsolutePath", "TargetFile", "SearchPath", "DirectoryPath", "path"])
+        } else if lower == "askuserquestion" || lower == "ask_question" {
             if let questions = dict["questions"] as? [[String: Any]],
                let first = questions.first {
                 summary = firstString(in: first, keys: ["question", "prompt", "header"])
@@ -24899,8 +25132,15 @@ export default function cmuxPiSessionExtension(pi: ExtensionAPI) {
             ?? (stdinObj["event"] as? String)
             ?? optionValue(commandArgs, name: "--event")
             ?? ""
-        let toolName = (stdinObj["tool_name"] as? String) ?? ""
-        let sessionId = (stdinObj["session_id"] as? String) ?? UUID().uuidString
+        let toolCall = stdinObj["toolCall"] as? [String: Any]
+        let toolName = firstString(in: stdinObj, keys: ["tool_name", "toolName"])
+            ?? toolCall.flatMap { firstString(in: $0, keys: ["name"]) }
+            ?? ""
+        let sessionId = (stdinObj["session_id"] as? String)
+            ?? (stdinObj["sessionId"] as? String)
+            ?? (stdinObj["conversation_id"] as? String)
+            ?? (stdinObj["conversationId"] as? String)
+            ?? UUID().uuidString
 
         // Decide whether this event is Feed-actionable. Non-actionable
         // events are forwarded as telemetry (non-blocking) and exit `{}`
@@ -24924,6 +25164,7 @@ export default function cmuxPiSessionExtension(pi: ExtensionAPI) {
             case "codex":    envKey = "CMUX_CODEX_PID"
             case "cursor":   envKey = "CMUX_CURSOR_PID"
             case "gemini":   envKey = "CMUX_GEMINI_PID"
+            case "antigravity": envKey = "CMUX_ANTIGRAVITY_PID"
             case "rovodev":  envKey = "CMUX_ROVODEV_PID"
             case "hermes-agent": envKey = "CMUX_HERMES_AGENT_PID"
             case "copilot":  envKey = "CMUX_COPILOT_PID"
@@ -24946,10 +25187,15 @@ export default function cmuxPiSessionExtension(pi: ExtensionAPI) {
         if let workspaceId = feedWorkspaceId(rawObject: stdinObj, fallback: env["CMUX_WORKSPACE_ID"]) {
             eventDict["workspace_id"] = workspaceId
         }
-        if let cwd = stdinObj["cwd"] as? String { eventDict["cwd"] = cwd }
+        let toolInput = stdinObj["tool_input"] ?? stdinObj["toolInput"] ?? toolCall?["args"]
+        if let cwd = firstString(in: stdinObj, keys: ["cwd", "working_directory", "workingDirectory"])
+            ?? firstWorkspacePath(in: stdinObj)
+            ?? (toolInput as? [String: Any]).flatMap({ firstString(in: $0, keys: ["Cwd", "cwd"]) }) {
+            eventDict["cwd"] = cwd
+        }
         if !toolName.isEmpty { eventDict["tool_name"] = toolName }
         let promptText = hookEventName == "UserPromptSubmit" ? feedPromptText(from: stdinObj) : nil
-        if let toolInput = stdinObj["tool_input"] {
+        if let toolInput {
             eventDict["tool_input"] = toolInput
         }
         if let context = feedContextForEvent(
@@ -25147,6 +25393,17 @@ export default function cmuxPiSessionExtension(pi: ExtensionAPI) {
         "apply_patch",   // Codex
         "shell",         // Codex / other agents
         "terminal",      // Hermes Agent
+        "run_command",   // Antigravity
+        "write_to_file",
+        "replace_file_content",
+        "multi_replace_file_content",
+        "manage_task",
+        "schedule",
+        "ask_permission",
+        "invoke_subagent",
+        "define_subagent",
+        "manage_subagents",
+        "generate_image",
     ]
 
     private static let skipInterviewAndPlanAnswer = "Skip interview and plan immediately"
@@ -25272,6 +25529,15 @@ export default function cmuxPiSessionExtension(pi: ExtensionAPI) {
                     return hermesAgentBlock("User denied permission via cmux Feed.")
                 }
                 return "{}"
+            }
+            if source == "antigravity" {
+                let reason = mode == "deny"
+                    ? "User denied permission via cmux Feed."
+                    : "User approved via cmux Feed."
+                return encode([
+                    "decision": mode == "deny" ? "deny" : "allow",
+                    "reason": reason,
+                ])
             }
             if mode == "deny" {
                 return encode(nonClaudePreToolDecision(

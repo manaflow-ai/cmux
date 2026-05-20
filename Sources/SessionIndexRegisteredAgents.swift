@@ -141,7 +141,7 @@ extension SessionIndexStore {
             if metadata.cwd == nil {
                 metadata.cwd = firstString(
                     in: object,
-                    keys: ["cwd", "workingDirectory", "workspacePath", "projectPath", "directory"]
+                    keys: ["cwd", "workingDirectory", "workspacePath", "workspace", "projectPath", "directory"]
                 )
             }
             if metadata.branch == nil, let git = object["git"] as? [String: Any] {
@@ -219,7 +219,7 @@ extension SessionIndexStore {
     }
 
     nonisolated private static func firstTopLevelTitle(in object: [String: Any]) -> String? {
-        if let title = firstText(in: object, keys: ["title", "prompt"]) {
+        if let title = firstText(in: object, keys: ["title", "prompt", "display"]) {
             return title
         }
         guard shouldUseMessageAsTitle(object) else { return nil }

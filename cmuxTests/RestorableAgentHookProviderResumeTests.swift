@@ -44,6 +44,40 @@ extension SocketListenerAcceptPolicyTests {
         )
     }
 
+    func testAntigravityResumeCommandUsesConversationAndDropsStartupSelectors() {
+        let snapshot = SessionRestorableAgentSnapshot(
+            kind: .antigravity,
+            sessionId: "antigravity-conversation-123",
+            workingDirectory: "/tmp/antigravity repo",
+            launchCommand: AgentLaunchCommandSnapshot(
+                launcher: "antigravity",
+                executablePath: "/Users/example/.local/bin/agy",
+                arguments: [
+                    "/Users/example/.local/bin/agy",
+                    "--conversation",
+                    "old-conversation",
+                    "--sandbox",
+                    "danger-full-access",
+                    "--add-dir",
+                    "/tmp/extra repo",
+                    "initial prompt should not replay"
+                ],
+                workingDirectory: "/tmp/antigravity repo",
+                environment: [
+                    "GEMINI_CLI_HOME": "/tmp/gemini home",
+                    "GEMINI_API_KEY": "secret"
+                ],
+                capturedAt: 123,
+                source: "process"
+            )
+        )
+
+        XCTAssertEqual(
+            snapshot.resumeCommand,
+            "cd '/tmp/antigravity repo' && 'env' 'GEMINI_CLI_HOME=/tmp/gemini home' '/Users/example/.local/bin/agy' '--conversation' 'antigravity-conversation-123' '--sandbox' 'danger-full-access' '--add-dir' '/tmp/extra repo'"
+        )
+    }
+
     func testRovoDevResumeCommandUsesRestoreAndPreservesYolo() {
         let snapshot = SessionRestorableAgentSnapshot(
             kind: .rovodev,

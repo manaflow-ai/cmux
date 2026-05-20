@@ -547,6 +547,8 @@ final class TaskManagerResourcesTests: XCTestCase {
             ("amp", "amp"),
             ("cursor-agent", "cursor"),
             ("gemini", "gemini"),
+            ("agy", "antigravity"),
+            ("antigravity", "antigravity"),
             ("hermes", "hermes-agent"),
             ("hermes-agent", "hermes-agent"),
             ("copilot", "copilot"),

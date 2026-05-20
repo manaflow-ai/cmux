@@ -121,6 +121,18 @@ struct CmuxVaultAgentRegistration: Codable, Hashable, Sendable {
             sessionDirectory: "~/.pi/agent/sessions"
         )
     }
+
+    static var builtInAntigravity: CmuxVaultAgentRegistration {
+        CmuxVaultAgentRegistration(
+            id: "antigravity",
+            name: "Antigravity",
+            detect: CmuxVaultAgentDetectRule(processName: "agy"),
+            sessionIdSource: .argvOption("--conversation"),
+            resumeCommand: "{{executable}} --conversation {{sessionId}}",
+            cwd: .preserve,
+            sessionDirectory: "~/.gemini/antigravity-cli"
+        )
+    }
 }
 
 struct CmuxVaultAgentDetectRule: Codable, Hashable, Sendable {
@@ -301,7 +313,10 @@ struct CmuxVaultAgentRegistry: Sendable {
         environment: [String: String] = ProcessInfo.processInfo.environment,
         fileManager: FileManager = .default
     ) -> CmuxVaultAgentRegistry {
-        var registrations = [CmuxVaultAgentRegistration.builtInPi]
+        var registrations = [
+            CmuxVaultAgentRegistration.builtInPi,
+            CmuxVaultAgentRegistration.builtInAntigravity,
+        ]
         for path in configPaths(homeDirectory: homeDirectory, workingDirectory: workingDirectory, environment: environment, fileManager: fileManager) {
             guard let config = decodeConfig(at: path, fileManager: fileManager) else { continue }
             registrations.append(contentsOf: config.vault?.agents ?? [])

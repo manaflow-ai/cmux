@@ -251,6 +251,14 @@ enum AgentResumeCommandBuilder {
                 option: "--resume",
                 sessionId: sessionId
             )
+        case .antigravity:
+            return resumeWithOption(
+                kind: "antigravity",
+                launchCommand: launchCommand,
+                fallbackExecutable: "agy",
+                option: "--conversation",
+                sessionId: sessionId
+            )
         case .opencode:
             let original = commandParts(launchCommand: launchCommand, fallbackExecutable: "opencode")
             guard let preserved = AgentLaunchSanitizer.preservedArguments(kind: "opencode", args: original.tail) else { return nil }

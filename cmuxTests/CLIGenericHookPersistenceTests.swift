@@ -72,6 +72,34 @@ extension CLINotifyProcessIntegrationRegressionTests {
                 expectedEnvironment: ["GEMINI_CLI_HOME": "/tmp/gemini home"]
             ),
             GenericHookPersistenceScenario(
+                agent: "antigravity",
+                subcommand: "session-start",
+                sessionId: "antigravity-conversation-123",
+                executable: "/Users/example/.local/bin/agy",
+                launchArguments: [
+                    "/Users/example/.local/bin/agy",
+                    "--conversation",
+                    "old-conversation",
+                    "--sandbox",
+                    "danger-full-access",
+                    "--add-dir",
+                    "/tmp/extra repo",
+                    "initial prompt should not persist"
+                ],
+                extraEnvironment: [
+                    "GEMINI_CLI_HOME": "/tmp/gemini home",
+                    "GEMINI_API_KEY": "secret"
+                ],
+                expectedArguments: [
+                    "/Users/example/.local/bin/agy",
+                    "--sandbox",
+                    "danger-full-access",
+                    "--add-dir",
+                    "/tmp/extra repo"
+                ],
+                expectedEnvironment: ["GEMINI_CLI_HOME": "/tmp/gemini home"]
+            ),
+            GenericHookPersistenceScenario(
                 agent: "grok",
                 subcommand: "session-start",
                 sessionId: "grok-session-123",
@@ -226,6 +254,249 @@ extension CLINotifyProcessIntegrationRegressionTests {
                 try runGenericHookPersistenceScenario(scenario)
             }
         }
+    }
+
+    func testAntigravityStopAndNotificationsUseGenericNotificationPath() throws {
+        let cliPath = try bundledCLIPath()
+        let socketPath = makeSocketPath("antigravity-notification")
+        let listenerFD = try bindUnixSocket(at: socketPath)
+        let state = MockSocketServerState()
+        let root = FileManager.default.temporaryDirectory
+            .appendingPathComponent("cmux-antigravity-notification-\(UUID().uuidString)", isDirectory: true)
+        let workspaceId = "11111111-1111-1111-1111-111111111111"
+        let surfaceId = "22222222-2222-2222-2222-222222222222"
+        let sessionId = "antigravity-conversation-123"
+
+        try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
+        defer {
+            Darwin.close(listenerFD)
+            unlink(socketPath)
+            try? FileManager.default.removeItem(at: root)
+        }
+
+        let environment: [String: String] = [
+            "HOME": root.path,
+            "PATH": "/usr/bin:/bin:/usr/sbin:/sbin",
+            "PWD": root.path,
+            "CMUX_SOCKET_PATH": socketPath,
+            "CMUX_WORKSPACE_ID": workspaceId,
+            "CMUX_SURFACE_ID": surfaceId,
+            "CMUX_AGENT_HOOK_STATE_DIR": root.path,
+            "CMUX_CLI_SENTRY_DISABLED": "1",
+        ]
+
+        func runAntigravityHook(_ subcommand: String, input: String) -> ProcessRunResult {
+            let serverHandled = startMockServer(listenerFD: listenerFD, state: state) { line in
+                guard let payload = self.jsonObject(line) else {
+                    return "OK"
+                }
+                guard let id = payload["id"] as? String, let method = payload["method"] as? String else {
+                    return self.malformedRequestResponse(id: payload["id"] as? String, raw: line)
+                }
+                switch method {
+                case "surface.list":
+                    return self.surfaceListResponse(id: id, surfaceId: surfaceId)
+                case "feed.push":
+                    return self.v2Response(id: id, ok: true, result: [:])
+                default:
+                    return self.v2Response(id: id, ok: false, error: ["code": "unrecognized_method", "message": "unexpected method: \(method)"])
+                }
+            }
+            let result = runProcess(
+                executablePath: cliPath,
+                arguments: ["hooks", "antigravity", subcommand],
+                environment: environment,
+                standardInput: input,
+                timeout: 5
+            )
+            wait(for: [serverHandled], timeout: 5)
+            return result
+        }
+
+        let start = runAntigravityHook(
+            "session-start",
+            input: #"{"session_id":"\#(sessionId)","cwd":"\#(root.path)","hook_event_name":"SessionStart"}"#
+        )
+        XCTAssertFalse(start.timedOut, start.stderr)
+        XCTAssertEqual(start.status, 0, start.stderr)
+        XCTAssertEqual(start.stdout, "{}\n")
+
+        let stopMessage = "Antigravity finished updating docs"
+        let stopCommandStart = state.commands.count
+        let stop = runAntigravityHook(
+            "stop",
+            input: #"{"session_id":"\#(sessionId)","cwd":"\#(root.path)","hook_event_name":"AfterAgent","last_assistant_message":"\#(stopMessage)"}"#
+        )
+        XCTAssertFalse(stop.timedOut, stop.stderr)
+        XCTAssertEqual(stop.status, 0, stop.stderr)
+        XCTAssertEqual(stop.stdout, "{}\n")
+
+        let stopCommands = Array(state.commands.dropFirst(stopCommandStart))
+        XCTAssertTrue(
+            stopCommands.contains {
+                $0.contains("notify_target_async \(workspaceId) \(surfaceId) Antigravity|Completed in ")
+                    && $0.contains(stopMessage)
+            },
+            "Expected Antigravity stop to publish a turn-completion notification, saw \(stopCommands)"
+        )
+        XCTAssertTrue(
+            stopCommands.contains { $0.contains("set_status antigravity Idle") },
+            "Expected Antigravity stop to leave the session idle, saw \(stopCommands)"
+        )
+
+        let sessionEndCommandStart = state.commands.count
+        let sessionEnd = runAntigravityHook(
+            "session-end",
+            input: #"{"session_id":"\#(sessionId)","cwd":"\#(root.path)","hook_event_name":"SessionEnd"}"#
+        )
+        XCTAssertFalse(sessionEnd.timedOut, sessionEnd.stderr)
+        XCTAssertEqual(sessionEnd.status, 0, sessionEnd.stderr)
+        XCTAssertEqual(sessionEnd.stdout, "{}\n")
+
+        let sessionEndCommands = Array(state.commands.dropFirst(sessionEndCommandStart))
+        XCTAssertTrue(
+            sessionEndCommands.contains { $0.contains("feed.push") },
+            "Expected Antigravity SessionEnd to emit feed telemetry, saw \(sessionEndCommands)"
+        )
+        XCTAssertFalse(
+            sessionEndCommands.contains { $0.hasPrefix("clear_agent_pid antigravity.") },
+            "Antigravity SessionEnd is a turn boundary and must not clear saved routing, saw \(sessionEndCommands)"
+        )
+
+        let duplicateCompletionCommandStart = state.commands.count
+        let duplicateCompletion = runAntigravityHook(
+            "notification",
+            input: #"{"session_id":"\#(sessionId)","cwd":"\#(root.path)","hook_event_name":"Notification","message":"Turn complete in 2.0s."}"#
+        )
+        XCTAssertFalse(duplicateCompletion.timedOut, duplicateCompletion.stderr)
+        XCTAssertEqual(duplicateCompletion.status, 0, duplicateCompletion.stderr)
+        XCTAssertEqual(duplicateCompletion.stdout, "{}\n")
+
+        let duplicateCompletionCommands = Array(state.commands.dropFirst(duplicateCompletionCommandStart))
+        XCTAssertFalse(
+            duplicateCompletionCommands.contains { $0.hasPrefix("notify_target_async ") },
+            "Antigravity turn-completion notification must not double-notify after stop already did, saw \(duplicateCompletionCommands)"
+        )
+
+        let permissionMessage = "Allow shell command?"
+        let permissionCommandStart = state.commands.count
+        let permission = runAntigravityHook(
+            "notification",
+            input: #"{"session_id":"\#(sessionId)","cwd":"\#(root.path)","hook_event_name":"Notification","reason":"permission_prompt","message":"\#(permissionMessage)"}"#
+        )
+        XCTAssertFalse(permission.timedOut, permission.stderr)
+        XCTAssertEqual(permission.status, 0, permission.stderr)
+        XCTAssertEqual(permission.stdout, "{}\n")
+
+        let permissionCommands = Array(state.commands.dropFirst(permissionCommandStart))
+        XCTAssertTrue(
+            permissionCommands.contains {
+                $0.contains("notify_target_async \(workspaceId) \(surfaceId) Antigravity|Permission|\(permissionMessage)")
+            },
+            "Expected Antigravity permission notifications to publish through cmux, saw \(permissionCommands)"
+        )
+        XCTAssertTrue(
+            permissionCommands.contains { $0.contains("set_status antigravity Antigravity needs input") },
+            "Expected Antigravity permission notifications to mark needs-input, saw \(permissionCommands)"
+        )
+
+        let stopErrorMessage = "Tool crashed"
+        let stopErrorCommandStart = state.commands.count
+        let stopError = runAntigravityHook(
+            "stop",
+            input: #"{"conversationId":"\#(sessionId)","workspacePaths":["\#(root.path)"],"hook_event_name":"Stop","terminationReason":"error","error":"\#(stopErrorMessage)","fullyIdle":true}"#
+        )
+        XCTAssertFalse(stopError.timedOut, stopError.stderr)
+        XCTAssertEqual(stopError.status, 0, stopError.stderr)
+        XCTAssertEqual(stopError.stdout, "{}\n")
+
+        let stopErrorCommands = Array(state.commands.dropFirst(stopErrorCommandStart))
+        XCTAssertTrue(
+            stopErrorCommands.contains {
+                $0.contains("notify_target_async \(workspaceId) \(surfaceId) Antigravity|Error|\(stopErrorMessage)")
+            },
+            "Expected Antigravity Stop errors to publish through cmux, saw \(stopErrorCommands)"
+        )
+        XCTAssertTrue(
+            stopErrorCommands.contains { $0.contains("set_status antigravity Antigravity error") },
+            "Expected Antigravity Stop errors to mark error status, saw \(stopErrorCommands)"
+        )
+
+        let errorMessage = "Execution failed"
+        let errorCommandStart = state.commands.count
+        let error = runAntigravityHook(
+            "notification",
+            input: #"{"session_id":"\#(sessionId)","cwd":"\#(root.path)","hook_event_name":"Notification","message":"\#(errorMessage)"}"#
+        )
+        XCTAssertFalse(error.timedOut, error.stderr)
+        XCTAssertEqual(error.status, 0, error.stderr)
+        XCTAssertEqual(error.stdout, "{}\n")
+
+        let errorCommands = Array(state.commands.dropFirst(errorCommandStart))
+        XCTAssertTrue(
+            errorCommands.contains {
+                $0.contains("notify_target_async \(workspaceId) \(surfaceId) Antigravity|Error|\(errorMessage)")
+            },
+            "Expected Antigravity error notifications to publish through cmux, saw \(errorCommands)"
+        )
+        XCTAssertTrue(
+            errorCommands.contains { $0.contains("set_status antigravity Antigravity error") },
+            "Expected Antigravity error notifications to mark error status, saw \(errorCommands)"
+        )
+    }
+
+    func testAntigravityHookInstallUsesNativeHooksJSONShape() throws {
+        let cliPath = try bundledCLIPath()
+        let root = FileManager.default.temporaryDirectory
+            .appendingPathComponent("cmux-antigravity-hook-install-\(UUID().uuidString)", isDirectory: true)
+        try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: root) }
+
+        let result = runProcess(
+            executablePath: cliPath,
+            arguments: ["hooks", "agy", "install", "--yes"],
+            environment: [
+                "HOME": root.path,
+                "PATH": "/usr/bin:/bin:/usr/sbin:/sbin",
+                "CMUX_CLI_SENTRY_DISABLED": "1",
+            ],
+            timeout: 5
+        )
+
+        XCTAssertFalse(result.timedOut, result.stderr)
+        XCTAssertEqual(result.status, 0, result.stderr)
+
+        let hookURL = root
+            .appendingPathComponent(".gemini", isDirectory: true)
+            .appendingPathComponent("config", isDirectory: true)
+            .appendingPathComponent("hooks.json", isDirectory: false)
+        let json = try XCTUnwrap(JSONSerialization.jsonObject(with: Data(contentsOf: hookURL)) as? [String: Any])
+        XCTAssertNil(json["hooks"])
+
+        let cmuxGroup = try XCTUnwrap(json["cmux"] as? [String: Any])
+        let preToolUse = try XCTUnwrap(cmuxGroup["PreToolUse"] as? [[String: Any]])
+        let preToolCommands = preToolUse
+            .compactMap { $0["hooks"] as? [[String: Any]] }
+            .flatMap { $0 }
+        XCTAssertTrue(
+            preToolCommands.contains {
+                ($0["command"] as? String)?.contains("hooks feed --source antigravity --event PreToolUse") == true
+                    && ($0["timeout"] as? Int) == 120
+            },
+            "Expected Antigravity PreToolUse feed hook with second-based timeout, saw \(preToolCommands)"
+        )
+
+        let stop = try XCTUnwrap(cmuxGroup["Stop"] as? [[String: Any]])
+        XCTAssertTrue(
+            stop.contains {
+                ($0["command"] as? String)?.contains("hooks antigravity stop") == true
+                    && ($0["timeout"] as? Int) == 10
+            },
+            "Expected Antigravity Stop hook to be a direct command handler, saw \(stop)"
+        )
+        XCTAssertNotNil(cmuxGroup["SessionStart"])
+        XCTAssertNotNil(cmuxGroup["SessionEnd"])
+        XCTAssertNotNil(cmuxGroup["turn-completion"])
     }
 
     func testGrokNotificationHookUsesPayloadMessageAndStopDoesNotSendGenericNotification() throws {

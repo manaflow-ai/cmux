@@ -68,6 +68,35 @@ final class PiVaultAgentPersistenceTests: XCTestCase {
         XCTAssertEqual(SessionAgent.registered(agent).assetName, "AgentIcons/Pi")
     }
 
+    func testBuiltInAntigravityRegistrationLoadsHistoryDisplayAndWorkspace() async throws {
+        let tempDir = FileManager.default.temporaryDirectory
+            .appendingPathComponent("cmux-antigravity-vault-history-\(UUID().uuidString)", isDirectory: true)
+        try FileManager.default.createDirectory(at: tempDir, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: tempDir) }
+
+        let historyURL = tempDir.appendingPathComponent("history.jsonl", isDirectory: false)
+        try """
+        {"id":"antigravity-conversation-123","display":"Implement Antigravity notifications","timestamp":1779231774516,"workspace":"/tmp/antigravity repo"}
+        """.write(to: historyURL, atomically: true, encoding: .utf8)
+
+        var registration = CmuxVaultAgentRegistration.builtInAntigravity
+        registration.sessionDirectory = tempDir.path
+        let entries = await SessionIndexStore.loadRegisteredAgentEntries(
+            registration: registration,
+            needle: "",
+            cwdFilter: nil,
+            offset: 0,
+            limit: 10
+        )
+
+        let entry = try XCTUnwrap(entries.first)
+        XCTAssertEqual(entry.agent, .registered(RegisteredSessionAgent(registration: registration)))
+        XCTAssertEqual(entry.sessionId, "antigravity-conversation-123")
+        XCTAssertEqual(entry.title, "Implement Antigravity notifications")
+        XCTAssertEqual(entry.cwd, "/tmp/antigravity repo")
+        XCTAssertEqual(entry.resumeCommand, "'agy' '--conversation' 'antigravity-conversation-123'")
+    }
+
     func testRegisteredAgentTemplateFailsClosedWhenPlaceholderIsUnavailable() {
         let registration = CmuxVaultAgentRegistration(
             id: "acme-agent",

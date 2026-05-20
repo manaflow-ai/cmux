@@ -1447,6 +1447,8 @@ final class SessionPersistenceTests: XCTestCase {
                 resolvedEnvironment = [:]
             case .gemini:
                 resolvedEnvironment = ["GEMINI_CLI_HOME": "/tmp/gemini"]
+            case .antigravity:
+                resolvedEnvironment = ["GEMINI_CLI_HOME": "/tmp/gemini"]
             case .opencode:
                 resolvedEnvironment = ["OPENCODE_CONFIG_DIR": "/tmp/opencode"]
             case .hermesAgent:
