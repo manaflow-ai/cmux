@@ -19034,6 +19034,13 @@ class TerminalController {
         let visibleWorkspaces = requestedWorkspaceID.map { workspaceID in
             tabManager.tabs.filter { $0.id == workspaceID }
         } ?? tabManager.tabs
+        if let requestedWorkspaceID, visibleWorkspaces.isEmpty {
+            return .err(
+                code: "not_found",
+                message: "Workspace not found",
+                data: ["workspace_id": requestedWorkspaceID.uuidString]
+            )
+        }
 
         let workspaces = visibleWorkspaces.enumerated().map { _, workspace in
             let terminals = orderedPanels(in: workspace).compactMap { panel -> [String: Any]? in
@@ -19063,6 +19070,17 @@ class TerminalController {
                 "is_selected": workspace.id == tabManager.selectedTabId,
                 "terminals": terminals
             ]
+        }
+        if let requestedTerminalID,
+           !workspaces.contains(where: { workspace in
+               guard let terminals = workspace["terminals"] as? [[String: Any]] else { return false }
+               return terminals.contains { ($0["id"] as? String) == requestedTerminalID.uuidString }
+           }) {
+            return .err(
+                code: "not_found",
+                message: "Terminal not found",
+                data: ["surface_id": requestedTerminalID.uuidString]
+            )
         }
 
         var payload: [String: Any] = [

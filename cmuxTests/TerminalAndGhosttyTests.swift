@@ -1374,6 +1374,50 @@ final class TerminalOffscreenStartupTests: XCTestCase {
         }
     }
 
+    func testMobileWorkspaceListRejectsMissingScopedTargets() async throws {
+        let previousManager = TerminalController.shared.activeTabManagerForCallerNotification()
+        let manager = TabManager()
+        TerminalController.shared.setActiveTabManager(manager)
+        defer {
+            TerminalController.shared.setActiveTabManager(previousManager)
+        }
+
+        let workspace = try XCTUnwrap(manager.selectedWorkspace)
+        let missingWorkspaceID = UUID()
+        let missingTerminalID = UUID()
+
+        let missingWorkspaceResponse = await TerminalController.shared.mobileHostHandleRPC(
+            MobileHostRPCRequest(
+                id: "workspace-list-missing-workspace",
+                method: "workspace.list",
+                params: ["workspace_id": missingWorkspaceID.uuidString],
+                auth: nil
+            )
+        )
+        guard case let .failure(missingWorkspaceError) = missingWorkspaceResponse else {
+            XCTFail("Expected stale mobile workspace scope to fail")
+            return
+        }
+        XCTAssertEqual(missingWorkspaceError.code, "not_found")
+
+        let missingTerminalResponse = await TerminalController.shared.mobileHostHandleRPC(
+            MobileHostRPCRequest(
+                id: "workspace-list-missing-terminal",
+                method: "workspace.list",
+                params: [
+                    "workspace_id": workspace.id.uuidString,
+                    "surface_id": missingTerminalID.uuidString,
+                ],
+                auth: nil
+            )
+        )
+        guard case let .failure(missingTerminalError) = missingTerminalResponse else {
+            XCTFail("Expected stale mobile terminal scope to fail")
+            return
+        }
+        XCTAssertEqual(missingTerminalError.code, "not_found")
+    }
+
     func testMobileAttachTicketCreateWithoutTerminalStaysWorkspaceScoped() async throws {
         let previousManager = TerminalController.shared.activeTabManagerForCallerNotification()
         let manager = TabManager()
