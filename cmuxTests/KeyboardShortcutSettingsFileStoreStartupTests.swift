@@ -568,15 +568,18 @@ final class KeyboardShortcutSettingsFileStoreStartupTests: XCTestCase {
     func testInitialSettingsFileLoadImportsDefaultsWithoutLiveDefaultNotifications() throws {
         let defaults = UserDefaults.standard
         let scrollBarKey = TerminalScrollBarSettings.showScrollBarKey
+        let smoothScrollingKey = TerminalSmoothScrollingSettings.enabledKey
         let autoResumeKey = AgentSessionAutoResumeSettings.autoResumeAgentSessionsKey
 
         try preservingDefaults(keys: [
             scrollBarKey,
+            smoothScrollingKey,
             autoResumeKey,
             settingsFileBackupsDefaultsKey,
             importedManagedDefaultsKey,
         ]) {
             defaults.removeObject(forKey: scrollBarKey)
+            defaults.removeObject(forKey: smoothScrollingKey)
             defaults.removeObject(forKey: autoResumeKey)
             defaults.removeObject(forKey: settingsFileBackupsDefaultsKey)
             defaults.removeObject(forKey: importedManagedDefaultsKey)
@@ -590,6 +593,7 @@ final class KeyboardShortcutSettingsFileStoreStartupTests: XCTestCase {
                 {
                   "terminal": {
                     "showScrollBar": false,
+                    "smoothScrolling": false,
                     "autoResumeAgentSessions": false
                   }
                 }
@@ -599,6 +603,7 @@ final class KeyboardShortcutSettingsFileStoreStartupTests: XCTestCase {
 
             let notificationCenter = NotificationCenter()
             var scrollBarNotificationCount = 0
+            var smoothScrollingNotificationCount = 0
             var autoResumeNotificationCount = 0
             let scrollBarObserver = notificationCenter.addObserver(
                 forName: TerminalScrollBarSettings.didChangeNotification,
@@ -606,6 +611,13 @@ final class KeyboardShortcutSettingsFileStoreStartupTests: XCTestCase {
                 queue: nil
             ) { _ in
                 scrollBarNotificationCount += 1
+            }
+            let smoothScrollingObserver = notificationCenter.addObserver(
+                forName: TerminalSmoothScrollingSettings.didChangeNotification,
+                object: nil,
+                queue: nil
+            ) { _ in
+                smoothScrollingNotificationCount += 1
             }
             let autoResumeObserver = notificationCenter.addObserver(
                 forName: AgentSessionAutoResumeSettings.didChangeNotification,
@@ -616,6 +628,7 @@ final class KeyboardShortcutSettingsFileStoreStartupTests: XCTestCase {
             }
             defer {
                 notificationCenter.removeObserver(scrollBarObserver)
+                notificationCenter.removeObserver(smoothScrollingObserver)
                 notificationCenter.removeObserver(autoResumeObserver)
             }
 
@@ -628,14 +641,52 @@ final class KeyboardShortcutSettingsFileStoreStartupTests: XCTestCase {
             )
 
             XCTAssertEqual(defaults.object(forKey: scrollBarKey) as? Bool, false)
+            XCTAssertEqual(defaults.object(forKey: smoothScrollingKey) as? Bool, false)
             XCTAssertEqual(defaults.object(forKey: autoResumeKey) as? Bool, false)
             XCTAssertEqual(scrollBarNotificationCount, 0)
+            XCTAssertEqual(smoothScrollingNotificationCount, 0)
             XCTAssertEqual(autoResumeNotificationCount, 0)
 
             store.applyDeferredManagedDefaultSideEffects()
 
             XCTAssertEqual(scrollBarNotificationCount, 1)
+            XCTAssertEqual(smoothScrollingNotificationCount, 1)
             XCTAssertEqual(autoResumeNotificationCount, 1)
+        }
+    }
+
+    func testSettingsFileStoreAppliesTerminalSmoothScrollingSetting() throws {
+        let defaults = UserDefaults.standard
+        let key = TerminalSmoothScrollingSettings.enabledKey
+
+        try preservingDefaults(keys: [key, settingsFileBackupsDefaultsKey, importedManagedDefaultsKey]) {
+            defaults.removeObject(forKey: key)
+            defaults.removeObject(forKey: settingsFileBackupsDefaultsKey)
+            defaults.removeObject(forKey: importedManagedDefaultsKey)
+
+            let directoryURL = try makeTemporaryDirectory()
+            defer { try? FileManager.default.removeItem(at: directoryURL) }
+
+            let settingsFileURL = directoryURL.appendingPathComponent("cmux.json", isDirectory: false)
+            try writeSettingsFile(
+                """
+                {
+                  "terminal": {
+                    "smoothScrolling": false
+                  }
+                }
+                """,
+                to: settingsFileURL
+            )
+
+            _ = KeyboardShortcutSettingsFileStore(
+                primaryPath: settingsFileURL.path,
+                fallbackPath: nil,
+                startWatching: false
+            )
+
+            XCTAssertEqual(defaults.object(forKey: key) as? Bool, false)
+            XCTAssertFalse(TerminalSmoothScrollingSettings.isEnabled(defaults: defaults))
         }
     }
 

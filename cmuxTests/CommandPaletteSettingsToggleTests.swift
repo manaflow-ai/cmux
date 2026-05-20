@@ -65,6 +65,34 @@ final class CommandPaletteSettingsToggleTests: XCTestCase {
         }
     }
 
+    func testTerminalSmoothScrollingTogglePostsChangeNotification() throws {
+        try withTemporaryDefaults { defaults in
+            let descriptor = try XCTUnwrap(
+                CommandPaletteSettingsToggleCommands.descriptor(
+                    commandId: "palette.toggleSetting.terminalSmoothScrolling"
+                )
+            )
+            let notificationCenter = NotificationCenter()
+            var didNotify = false
+            let token = notificationCenter.addObserver(
+                forName: TerminalSmoothScrollingSettings.didChangeNotification,
+                object: nil,
+                queue: nil
+            ) { _ in
+                didNotify = true
+            }
+            defer { notificationCenter.removeObserver(token) }
+
+            XCTAssertTrue(TerminalSmoothScrollingSettings.isEnabled(defaults: defaults))
+            XCTAssertTrue(descriptor.isOn(defaults))
+            descriptor.toggle(defaults: defaults, notificationCenter: notificationCenter)
+
+            XCTAssertEqual(defaults.object(forKey: TerminalSmoothScrollingSettings.enabledKey) as? Bool, false)
+            XCTAssertFalse(TerminalSmoothScrollingSettings.isEnabled(defaults: defaults))
+            XCTAssertTrue(didNotify)
+        }
+    }
+
     func testShowMenuBarCommandIsUnavailableWhenMenuBarOnlyIsEnabled() throws {
         try withTemporaryDefaults { defaults in
             let descriptor = try XCTUnwrap(

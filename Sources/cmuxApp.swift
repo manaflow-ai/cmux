@@ -5082,6 +5082,8 @@ struct SettingsView: View {
     private var paneFirstClickFocusEnabled = PaneFirstClickFocusSettings.defaultEnabled
     @AppStorage(TerminalScrollBarSettings.showScrollBarKey)
     private var showTerminalScrollBar = TerminalScrollBarSettings.defaultShowScrollBar
+    @AppStorage(TerminalSmoothScrollingSettings.enabledKey)
+    private var terminalSmoothScrollingEnabled = TerminalSmoothScrollingSettings.defaultEnabled
     @AppStorage(FileDropBehaviorSettings.defaultBehaviorKey)
     private var fileDropDefaultBehavior = FileDropBehaviorSettings.defaultBehavior.rawValue
     @AppStorage(AgentSessionAutoResumeSettings.autoResumeAgentSessionsKey)
@@ -5219,6 +5221,17 @@ struct SettingsView: View {
                 guard showTerminalScrollBar != newValue else { return }
                 showTerminalScrollBar = newValue
                 TerminalScrollBarSettings.notifyDidChange()
+            }
+        )
+    }
+
+    private var terminalSmoothScrollingBinding: Binding<Bool> {
+        Binding(
+            get: { terminalSmoothScrollingEnabled },
+            set: { newValue in
+                guard terminalSmoothScrollingEnabled != newValue else { return }
+                terminalSmoothScrollingEnabled = newValue
+                TerminalSmoothScrollingSettings.notifyDidChange()
             }
         )
     }
@@ -6295,6 +6308,24 @@ struct SettingsView: View {
                                 .accessibilityIdentifier("SettingsTerminalScrollBarToggle")
                                 .accessibilityLabel(
                                     String(localized: "settings.terminal.scrollBar", defaultValue: "Show Terminal Scroll Bar")
+                                )
+                        }
+
+                        SettingsCardDivider()
+
+                        SettingsCardRow(
+                            configurationReview: .json("terminal.smoothScrolling"),
+                            String(localized: "settings.terminal.smoothScrolling", defaultValue: "Smooth Terminal Scrolling"),
+                            subtitle: terminalSmoothScrollingEnabled
+                                ? String(localized: "settings.terminal.smoothScrolling.subtitleOn", defaultValue: "Uses pixel-precise scrollback for trackpads and Magic Mouse gestures. Mouse-reporting terminal apps keep their own wheel handling.")
+                                : String(localized: "settings.terminal.smoothScrolling.subtitleOff", defaultValue: "Uses Ghostty's row-based scrollback handling for terminal wheel gestures.")
+                        ) {
+                            Toggle("", isOn: terminalSmoothScrollingBinding)
+                                .labelsHidden()
+                                .controlSize(.small)
+                                .accessibilityIdentifier("SettingsTerminalSmoothScrollingToggle")
+                                .accessibilityLabel(
+                                    String(localized: "settings.terminal.smoothScrolling", defaultValue: "Smooth Terminal Scrolling")
                                 )
                         }
 
@@ -7488,6 +7519,11 @@ struct SettingsView: View {
         showTerminalScrollBar = TerminalScrollBarSettings.defaultShowScrollBar
         if previousShowTerminalScrollBar != showTerminalScrollBar {
             TerminalScrollBarSettings.notifyDidChange()
+        }
+        let previousTerminalSmoothScrolling = terminalSmoothScrollingEnabled
+        terminalSmoothScrollingEnabled = TerminalSmoothScrollingSettings.defaultEnabled
+        if previousTerminalSmoothScrolling != terminalSmoothScrollingEnabled {
+            TerminalSmoothScrollingSettings.notifyDidChange()
         }
         fileDropDefaultBehavior = FileDropBehaviorSettings.defaultBehavior.rawValue
         let previousAutoResumeAgentSessions = autoResumeAgentSessions

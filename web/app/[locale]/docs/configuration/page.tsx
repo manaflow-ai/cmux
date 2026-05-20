@@ -64,6 +64,7 @@ const settingsFileExample = `{
 
   // "terminal": {
   //   "showScrollBar": false,
+  //   "smoothScrolling": true,
   //   "autoResumeAgentSessions": true
   // },
 
