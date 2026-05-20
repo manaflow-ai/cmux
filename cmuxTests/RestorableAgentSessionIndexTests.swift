@@ -324,17 +324,46 @@ final class SessionIndexRipgrepCancellationTests: XCTestCase {
             encoding: .utf8
         )
 
+        let gate = SessionIndexCancellationGate()
         let task = Task { () -> [URL]? in
-            await Task.yield()
+            await gate.waitForRelease()
             return await SessionIndexStore.ripgrepMatchingPaths(
                 needle: "needle",
                 root: rootURL.path,
                 fileGlob: "*.jsonl"
             )
         }
+        await gate.waitUntilReached()
         task.cancel()
+        await gate.release()
 
         let matches = await task.value
         XCTAssertEqual(matches, [])
+    }
+}
+
+private actor SessionIndexCancellationGate {
+    private var releaseContinuation: CheckedContinuation<Void, Never>?
+    private var reachedContinuation: CheckedContinuation<Void, Never>?
+
+    func waitForRelease() async {
+        await withCheckedContinuation { continuation in
+            releaseContinuation = continuation
+            reachedContinuation?.resume()
+            reachedContinuation = nil
+        }
+    }
+
+    func waitUntilReached() async {
+        if releaseContinuation != nil { return }
+        await withCheckedContinuation { continuation in
+            reachedContinuation = continuation
+        }
+    }
+
+    func release() {
+        let continuation = releaseContinuation
+        releaseContinuation = nil
+        continuation?.resume()
     }
 }
