@@ -3134,6 +3134,10 @@ struct CMUXCLI {
             )
         case "ssh-session-end":
             try runSSHSessionEnd(commandArgs: commandArgs, client: client)
+        case "ssh-session-reconnecting":
+            try runSSHSessionReconnecting(commandArgs: commandArgs, client: client)
+        case "ssh-session-connected":
+            try runSSHSessionConnected(commandArgs: commandArgs, client: client)
         case "vm-pty-attach":
             try runVMPtyAttach(commandArgs: commandArgs, client: client)
         case "vm-ssh-attach":
@@ -5909,12 +5913,16 @@ struct CMUXCLI {
             localCLIPath: resolvedExecutableURL()?.path,
             foregroundAuthToken: deferredRemoteReconnectToken
         )
+        let sshSessionConnectedCommandScript = buildSSHSessionConnectedShellCommand(
+            remoteRelayPort: sshOptions.remoteRelayPort
+        )
         let sshConnectionTimingCommandScript = sshConnectionTimingLocalCommandScript(
             target: sshOptions.displayDestination,
             relayPort: sshOptions.remoteRelayPort
         )
         let combinedLocalCommandScript = combinedLocalShellScript([
             deferredRemoteReconnectCommandScript,
+            sshSessionConnectedCommandScript,
             sshConnectionTimingCommandScript,
         ])
         let configuredForegroundAuthToken = deferredRemoteReconnectCommandScript == nil ? nil : deferredRemoteReconnectToken
@@ -6896,6 +6904,7 @@ struct CMUXCLI {
             ? ""
             : "export GHOSTTY_SHELL_FEATURES=\(shellQuote(trimmedFeatures))"
         let lifecycleCleanup = buildSSHSessionEndShellCommand(remoteRelayPort: remoteRelayPort)
+        let lifecycleReconnecting = buildSSHSessionReconnectingShellCommand(remoteRelayPort: remoteRelayPort)
         let trimmedControlPathPreflight = controlPathPreflightShellFunction?
             .trimmingCharacters(in: .whitespacesAndNewlines)
         var scriptLines: [String] = []
@@ -6915,6 +6924,7 @@ struct CMUXCLI {
             "cmux_ssh_reconnect_delay=\"${CMUX_SSH_RECONNECT_DELAY_SECONDS:-2}\"",
             "case \"$cmux_ssh_reconnect_delay\" in ''|*[!0-9]*) cmux_ssh_reconnect_delay=2 ;; esac",
             "cmux_ssh_retry=0",
+            "cmux_ssh_lifecycle_sequence=0",
             "CMUX_SSH_CHILD_PID=",
             "CMUX_SSH_PENDING_SIGNAL=",
             "cmux_ssh_note() { if [ -t 2 ]; then printf \"$@\" >&2 || true; fi; }",
@@ -6931,6 +6941,11 @@ struct CMUXCLI {
         if let trimmedControlPathPreflight, !trimmedControlPathPreflight.isEmpty {
             scriptLines.append("  cmux_ssh_preflight_control_path")
         }
+        scriptLines += [
+            "  cmux_ssh_lifecycle_sequence=$((cmux_ssh_lifecycle_sequence + 1))",
+            "  CMUX_SSH_LIFECYCLE_SEQUENCE=\"$cmux_ssh_lifecycle_sequence\"",
+            "  export CMUX_SSH_LIFECYCLE_SEQUENCE",
+        ]
         // POSIX sh redirects stdin of an async command (`&`) to /dev/null when
         // job control is off (the default for `/bin/sh -c …`), so ssh would
         // never receive keystrokes from the surface PTY. Inheriting fd 0
@@ -6955,6 +6970,10 @@ struct CMUXCLI {
             "  if [ \"$cmux_ssh_status\" -ne 255 ]; then break; fi",
             "  if [ \"$cmux_ssh_retry\" -ge \"$cmux_ssh_reconnect_limit\" ]; then break; fi",
             "  cmux_ssh_retry=$((cmux_ssh_retry + 1))",
+            "  cmux_ssh_lifecycle_sequence=$((cmux_ssh_lifecycle_sequence + 1))",
+            "  CMUX_SSH_LIFECYCLE_SEQUENCE=\"$cmux_ssh_lifecycle_sequence\"",
+            "  export CMUX_SSH_LIFECYCLE_SEQUENCE",
+            "  \(lifecycleReconnecting)",
             "  cmux_ssh_note '\\n\\033[33m[cmux] ssh exited with status %s; reconnecting (attempt %s/%s).\\033[0m\\n\\033[2m[cmux] close this pane or press Ctrl-C to stop reconnecting.\\033[0m\\n' \"$cmux_ssh_status\" \"$cmux_ssh_retry\" \"$cmux_ssh_reconnect_limit\"",
             "  if [ \"$cmux_ssh_reconnect_delay\" -gt 0 ]; then sleep \"$cmux_ssh_reconnect_delay\"; fi",
             "  if [ -n \"${CMUX_SSH_PENDING_SIGNAL:-}\" ]; then cmux_ssh_session_end; trap - EXIT HUP INT TERM; exit \"$CMUX_SSH_PENDING_SIGNAL\"; fi",
@@ -7010,18 +7029,59 @@ struct CMUXCLI {
     }
 
     private func buildSSHSessionEndShellCommand(remoteRelayPort: Int) -> String {
-        [
-            "if [ -n \"${CMUX_BUNDLED_CLI_PATH:-}\" ]",
-            "&& [ -x \"${CMUX_BUNDLED_CLI_PATH}\" ]",
-            "&& [ -n \"${CMUX_SOCKET_PATH:-}\" ]",
-            "&& [ -n \"${CMUX_WORKSPACE_ID:-}\" ]",
-            "&& [ -n \"${CMUX_SURFACE_ID:-}\" ]; then",
-            "\"${CMUX_BUNDLED_CLI_PATH}\" --socket \"${CMUX_SOCKET_PATH}\" ssh-session-end --relay-port \(remoteRelayPort) --workspace \"${CMUX_WORKSPACE_ID}\" --surface \"${CMUX_SURFACE_ID}\" >/dev/null 2>&1 || true;",
-            "elif command -v cmux >/dev/null 2>&1",
-            "&& [ -n \"${CMUX_WORKSPACE_ID:-}\" ]",
-            "&& [ -n \"${CMUX_SURFACE_ID:-}\" ]; then",
-            "cmux ssh-session-end --relay-port \(remoteRelayPort) --workspace \"${CMUX_WORKSPACE_ID}\" --surface \"${CMUX_SURFACE_ID}\" >/dev/null 2>&1 || true;",
-            "fi",
+        buildSSHSessionLifecycleShellCommand(
+            subcommand: "ssh-session-end",
+            remoteRelayPort: remoteRelayPort
+        )
+    }
+
+    private func buildSSHSessionReconnectingShellCommand(remoteRelayPort: Int) -> String {
+        buildSSHSessionLifecycleShellCommand(
+            subcommand: "ssh-session-reconnecting",
+            remoteRelayPort: remoteRelayPort,
+            extraArguments: [
+                "--attempt \"$cmux_ssh_retry\"",
+                "--limit \"$cmux_ssh_reconnect_limit\"",
+                "--exit-status \"$cmux_ssh_status\"",
+                "--sequence \"$cmux_ssh_lifecycle_sequence\"",
+            ]
+        )
+    }
+
+    private func buildSSHSessionConnectedShellCommand(remoteRelayPort: Int) -> String {
+        buildSSHSessionLifecycleShellCommand(
+            subcommand: "ssh-session-connected",
+            remoteRelayPort: remoteRelayPort,
+            extraArguments: [
+                "--sequence \"${CMUX_SSH_LIFECYCLE_SEQUENCE:-0}\"",
+            ]
+        )
+    }
+
+    private func buildSSHSessionLifecycleShellCommand(
+        subcommand: String,
+        remoteRelayPort: Int,
+        extraArguments: [String] = []
+    ) -> String {
+        let suffix = extraArguments.isEmpty ? "" : " " + extraArguments.joined(separator: " ")
+        let fallbackCLIPath = resolvedExecutableURL()?.path.trimmingCharacters(in: .whitespacesAndNewlines)
+        let fallbackCLILine: String
+        if let fallbackCLIPath, !fallbackCLIPath.isEmpty {
+            fallbackCLILine = "cmux_lifecycle_fallback_cli=\(shellQuote(fallbackCLIPath));"
+        } else {
+            fallbackCLILine = "cmux_lifecycle_fallback_cli=\"\";"
+        }
+        return [
+            "cmux_lifecycle_cli=\"\";",
+            fallbackCLILine,
+            "cmux_lifecycle_socket=\"${CMUX_SOCKET_PATH:-${CMUX_SOCKET:-}}\";",
+            "if [ -n \"${CMUX_BUNDLED_CLI_PATH:-}\" ] && [ -x \"${CMUX_BUNDLED_CLI_PATH}\" ]; then cmux_lifecycle_cli=\"$CMUX_BUNDLED_CLI_PATH\"; fi;",
+            "if [ -z \"$cmux_lifecycle_cli\" ] && [ -n \"$cmux_lifecycle_fallback_cli\" ] && [ -x \"$cmux_lifecycle_fallback_cli\" ]; then cmux_lifecycle_cli=\"$cmux_lifecycle_fallback_cli\"; fi;",
+            "if [ -z \"$cmux_lifecycle_cli\" ]; then cmux_lifecycle_cli=\"$(command -v cmux 2>/dev/null || true)\"; fi;",
+            "if [ -n \"$cmux_lifecycle_cli\" ] && [ -x \"$cmux_lifecycle_cli\" ] && [ -n \"$cmux_lifecycle_socket\" ] && [ -n \"${CMUX_WORKSPACE_ID:-}\" ] && [ -n \"${CMUX_SURFACE_ID:-}\" ]; then",
+            "\"$cmux_lifecycle_cli\" --socket \"$cmux_lifecycle_socket\" \(subcommand) --relay-port \(remoteRelayPort) --workspace \"${CMUX_WORKSPACE_ID}\" --surface \"${CMUX_SURFACE_ID}\"\(suffix) >/dev/null 2>&1 || true;",
+            "fi;",
+            "unset cmux_lifecycle_socket cmux_lifecycle_fallback_cli cmux_lifecycle_cli;",
         ].joined(separator: " ")
     }
 
@@ -7785,28 +7845,107 @@ struct CMUXCLI {
     }
 
     private func runSSHSessionEnd(commandArgs: [String], client: SocketClient) throws {
+        let identity = try parseSSHSessionLifecycleIdentity(commandArgs: commandArgs, client: client, commandName: "ssh-session-end")
+        _ = try client.sendV2(method: "workspace.remote.terminal_session_end", params: [
+            "workspace_id": identity.workspaceId,
+            "surface_id": identity.surfaceId,
+            "relay_port": identity.relayPort,
+        ])
+    }
+
+    private func runSSHSessionReconnecting(commandArgs: [String], client: SocketClient) throws {
+        let identity = try parseSSHSessionLifecycleIdentity(
+            commandArgs: commandArgs,
+            client: client,
+            commandName: "ssh-session-reconnecting"
+        )
+        guard let attempt = positiveIntOption(commandArgs, name: "--attempt") else {
+            throw CLIError(message: "ssh-session-reconnecting requires --attempt <n>")
+        }
+        guard let limit = positiveIntOption(commandArgs, name: "--limit") else {
+            throw CLIError(message: "ssh-session-reconnecting requires --limit <n>")
+        }
+        guard let exitStatus = nonNegativeIntOption(commandArgs, name: "--exit-status") else {
+            throw CLIError(message: "ssh-session-reconnecting requires --exit-status <status>")
+        }
+        guard let sequence = positiveIntOption(commandArgs, name: "--sequence") else {
+            throw CLIError(message: "ssh-session-reconnecting requires --sequence <n>")
+        }
+        _ = try client.sendV2(method: "workspace.remote.terminal_reconnecting", params: [
+            "workspace_id": identity.workspaceId,
+            "surface_id": identity.surfaceId,
+            "relay_port": identity.relayPort,
+            "attempt": attempt,
+            "limit": limit,
+            "exit_status": exitStatus,
+            "sequence": sequence,
+        ])
+    }
+
+    private func runSSHSessionConnected(commandArgs: [String], client: SocketClient) throws {
+        let identity = try parseSSHSessionLifecycleIdentity(
+            commandArgs: commandArgs,
+            client: client,
+            commandName: "ssh-session-connected"
+        )
+        guard let sequence = positiveIntOption(commandArgs, name: "--sequence") else {
+            throw CLIError(message: "ssh-session-connected requires --sequence <n>")
+        }
+        _ = try client.sendV2(method: "workspace.remote.terminal_connected", params: [
+            "workspace_id": identity.workspaceId,
+            "surface_id": identity.surfaceId,
+            "relay_port": identity.relayPort,
+            "sequence": sequence,
+        ])
+    }
+
+    private struct SSHSessionLifecycleIdentity {
+        let relayPort: Int
+        let workspaceId: String
+        let surfaceId: String
+    }
+
+    private func parseSSHSessionLifecycleIdentity(
+        commandArgs: [String],
+        client: SocketClient,
+        commandName: String
+    ) throws -> SSHSessionLifecycleIdentity {
         guard let relayPortRaw = optionValue(commandArgs, name: "--relay-port"),
               let relayPort = Int(relayPortRaw),
               relayPort > 0 else {
-            throw CLIError(message: "ssh-session-end requires --relay-port <port>")
+            throw CLIError(message: "\(commandName) requires --relay-port <port>")
         }
         let workspaceRaw = optionValue(commandArgs, name: "--workspace") ?? ProcessInfo.processInfo.environment["CMUX_WORKSPACE_ID"]
         let surfaceRaw = optionValue(commandArgs, name: "--surface") ?? ProcessInfo.processInfo.environment["CMUX_SURFACE_ID"]
         guard let workspaceRaw,
               let workspaceId = try normalizeWorkspaceHandle(workspaceRaw, client: client),
               !workspaceId.isEmpty else {
-            throw CLIError(message: "ssh-session-end requires --workspace or CMUX_WORKSPACE_ID")
+            throw CLIError(message: "\(commandName) requires --workspace or CMUX_WORKSPACE_ID")
         }
         guard let surfaceRaw,
               let surfaceId = try normalizeSurfaceHandle(surfaceRaw, client: client, workspaceHandle: workspaceId),
               !surfaceId.isEmpty else {
-            throw CLIError(message: "ssh-session-end requires --surface or CMUX_SURFACE_ID")
+            throw CLIError(message: "\(commandName) requires --surface or CMUX_SURFACE_ID")
         }
-        _ = try client.sendV2(method: "workspace.remote.terminal_session_end", params: [
-            "workspace_id": workspaceId,
-            "surface_id": surfaceId,
-            "relay_port": relayPort,
-        ])
+        return SSHSessionLifecycleIdentity(relayPort: relayPort, workspaceId: workspaceId, surfaceId: surfaceId)
+    }
+
+    private func positiveIntOption(_ commandArgs: [String], name: String) -> Int? {
+        guard let raw = optionValue(commandArgs, name: name),
+              let value = Int(raw),
+              value > 0 else {
+            return nil
+        }
+        return value
+    }
+
+    private func nonNegativeIntOption(_ commandArgs: [String], name: String) -> Int? {
+        guard let raw = optionValue(commandArgs, name: name),
+              let value = Int(raw),
+              value >= 0 else {
+            return nil
+        }
+        return value
     }
 
     private func runRemoteDaemonStatus(commandArgs: [String], jsonOutput: Bool) throws {

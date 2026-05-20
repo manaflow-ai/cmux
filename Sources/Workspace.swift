@@ -7527,6 +7527,7 @@ final class Workspace: Identifiable, ObservableObject {
     private var remoteLastPortConflictFingerprint: String?
     private var remoteDetectedSurfaceIds: Set<UUID> = []
     private var activeRemoteTerminalSurfaceIds: Set<UUID> = []
+    private var remoteTerminalLifecycleSequencesBySurfaceId: [UUID: Int] = [:]
     var pendingRemoteTerminalChildExitSurfaceIds: Set<UUID> = []
     /// Display target of the remote workspace that just disconnected. Set right before
     /// `createReplacementTerminalPanel()` so the replacement shell can print a banner
@@ -9846,6 +9847,7 @@ final class Workspace: Identifiable, ObservableObject {
     private func trackRemoteTerminalSurface(_ panelId: UUID) {
         skipControlMasterCleanupAfterDetachedRemoteTransfer = false
         pendingRemoteTerminalChildExitSurfaceIds.remove(panelId)
+        remoteTerminalLifecycleSequencesBySurfaceId.removeValue(forKey: panelId)
         transferredRemoteCleanupConfigurationsByPanelId.removeValue(forKey: panelId)
         guard activeRemoteTerminalSurfaceIds.insert(panelId).inserted else { return }
         activeRemoteTerminalSessionCount = activeRemoteTerminalSurfaceIds.count
@@ -9855,6 +9857,7 @@ final class Workspace: Identifiable, ObservableObject {
 
     func untrackRemoteTerminalSurface(_ panelId: UUID) {
         guard activeRemoteTerminalSurfaceIds.remove(panelId) != nil else { return }
+        remoteTerminalLifecycleSequencesBySurfaceId.removeValue(forKey: panelId)
         activeRemoteTerminalSessionCount = activeRemoteTerminalSurfaceIds.count
         guard !isDetachingCloseTransaction else { return }
         maybeDemoteRemoteWorkspaceAfterSSHSessionEnded()
@@ -9866,12 +9869,50 @@ final class Workspace: Identifiable, ObservableObject {
         if !hasBrowserPanels {
             if remoteConnectionState == .error ||
                 remoteDaemonStatus.state == .error ||
-                remoteConnectionState == .connecting ||
-                remoteConnectionState == .reconnecting {
+                remoteConnectionState == .connecting {
                 return
             }
             disconnectRemoteConnection(clearConfiguration: true)
+            return
         }
+        settleRemoteConnectionStateAfterLastTerminalSessionEnded()
+    }
+
+    @MainActor
+    private func settleRemoteConnectionStateAfterLastTerminalSessionEnded() {
+        guard activeRemoteTerminalSurfaceIds.isEmpty, remoteConfiguration != nil else { return }
+        guard remoteConnectionState != .error,
+              remoteDaemonStatus.state != .error,
+              remoteConnectionState != .connecting else {
+            return
+        }
+
+        let target = remoteConfiguration?.displayTarget ?? String(
+            localized: "remote.state.targetFallback",
+            defaultValue: "remote host"
+        )
+        let vmNoProxyConnectionReady = remoteConnectionState == .connected &&
+            remoteConfiguration?.skipDaemonBootstrap == true &&
+            remoteConfiguration?.daemonWebSocketEndpoint == nil
+        if remoteProxyEndpoint != nil || remoteDaemonStatus.state == .ready || vmNoProxyConnectionReady {
+            if remoteConnectionState != .connected {
+                applyRemoteConnectionStateUpdate(.connected, detail: nil, target: target)
+            }
+            return
+        }
+
+        guard remoteConnectionState == .connected || remoteConnectionState == .reconnecting else {
+            return
+        }
+        let detailFormat = String(
+            localized: "remote.state.disconnected.terminalEnded",
+            defaultValue: "SSH session to %@ ended."
+        )
+        applyRemoteConnectionStateUpdate(
+            .disconnected,
+            detail: String(format: detailFormat, target),
+            target: target
+        )
     }
 
     @MainActor
@@ -9969,6 +10010,7 @@ final class Workspace: Identifiable, ObservableObject {
         return true
     }
 
+    @MainActor
     func markRemoteTerminalSessionEnded(surfaceId: UUID, relayPort: Int?) {
         if cleanupTransferredRemoteConnectionIfNeeded(surfaceId: surfaceId, relayPort: relayPort) {
             return
@@ -9987,6 +10029,76 @@ final class Workspace: Identifiable, ObservableObject {
         }
         pendingRemoteTerminalChildExitSurfaceIds.insert(surfaceId)
         untrackRemoteTerminalSurface(surfaceId)
+    }
+
+    @MainActor
+    func markRemoteTerminalSessionReconnecting(
+        surfaceId: UUID,
+        relayPort: Int?,
+        attempt: Int,
+        limit: Int,
+        exitStatus _: Int,
+        sequence: Int
+    ) {
+        guard remoteTerminalLifecycleMatches(surfaceId: surfaceId, relayPort: relayPort) else { return }
+        guard remoteConnectionState != .error else { return }
+        guard acceptRemoteTerminalLifecycleSequence(surfaceId: surfaceId, sequence: sequence) else { return }
+        let target = remoteConfiguration?.displayTarget ?? String(
+            localized: "remote.state.targetFallback",
+            defaultValue: "remote host"
+        )
+        let detailFormat = String(
+            localized: "remote.state.reconnecting.terminal",
+            defaultValue: "Reconnecting to %@ (attempt %lld/%lld)"
+        )
+        let detail = String(format: detailFormat, target, Int64(attempt), Int64(limit))
+        applyRemoteConnectionStateUpdate(.reconnecting, detail: detail, target: target)
+    }
+
+    @MainActor
+    func markRemoteTerminalSessionConnected(surfaceId: UUID, relayPort: Int?, sequence: Int) {
+        guard remoteTerminalLifecycleMatches(surfaceId: surfaceId, relayPort: relayPort) else { return }
+        guard remoteConnectionState == .connecting || remoteConnectionState == .reconnecting else { return }
+        guard acceptRemoteTerminalLifecycleSequence(surfaceId: surfaceId, sequence: sequence) else { return }
+        let target = remoteConfiguration?.displayTarget ?? String(
+            localized: "remote.state.targetFallback",
+            defaultValue: "remote host"
+        )
+        if remoteConfiguration?.skipDaemonBootstrap == true,
+           remoteConfiguration?.daemonWebSocketEndpoint == nil {
+            let detailFormat = String(
+                localized: "remote.state.connected.vmNoProxy",
+                defaultValue: "Connected to %@ (VM, proxy disabled)"
+            )
+            applyRemoteConnectionStateUpdate(
+                .connected,
+                detail: String(format: detailFormat, target),
+                target: target
+            )
+            return
+        }
+
+        guard remoteProxyEndpoint != nil || remoteDaemonStatus.state == .ready else { return }
+        applyRemoteConnectionStateUpdate(.connected, detail: nil, target: target)
+    }
+
+    @MainActor
+    private func remoteTerminalLifecycleMatches(surfaceId: UUID, relayPort: Int?) -> Bool {
+        guard let relayPort,
+              relayPort > 0,
+              remoteConfiguration?.relayPort == relayPort else {
+            return false
+        }
+        return activeRemoteTerminalSurfaceIds.contains(surfaceId)
+    }
+
+    @MainActor
+    private func acceptRemoteTerminalLifecycleSequence(surfaceId: UUID, sequence: Int) -> Bool {
+        guard sequence > 0 else { return false }
+        let lastSequence = remoteTerminalLifecycleSequencesBySurfaceId[surfaceId] ?? 0
+        guard sequence > lastSequence else { return false }
+        remoteTerminalLifecycleSequencesBySurfaceId[surfaceId] = sequence
+        return true
     }
 
     func teardownRemoteConnection() {
