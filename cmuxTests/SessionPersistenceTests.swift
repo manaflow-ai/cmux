@@ -651,6 +651,99 @@ final class SessionPersistenceTests: XCTestCase {
         )
     }
 
+    @MainActor
+    func testManualReopenPreviousSessionKeepsCurrentWindowStateAlive() throws {
+        let previousAppDelegate = AppDelegate.shared
+        let app = AppDelegate()
+        AppDelegate.shared = app
+        var restoredWindowIds: [UUID] = []
+        defer {
+            for windowId in restoredWindowIds {
+                app.unregisterMainWindowContextForTesting(windowId: windowId)
+            }
+            app.debugLoadReopenSessionSnapshot = nil
+            app.debugCreateMainWindowForSessionRestore = nil
+            AppDelegate.shared = previousAppDelegate
+        }
+
+        let liveManager = TabManager(autoWelcomeIfNeeded: false)
+        let liveWorkspace = try XCTUnwrap(liveManager.selectedWorkspace)
+        liveWorkspace.setCustomTitle("Live Workspace")
+        let liveWindowId = app.registerMainWindowContextForTesting(tabManager: liveManager)
+        defer { app.unregisterMainWindowContextForTesting(windowId: liveWindowId) }
+
+        let previousSnapshot = try makeSingleWindowAppSessionSnapshotForTesting(
+            workspaceTitle: "Previous Workspace"
+        )
+        app.debugLoadReopenSessionSnapshot = { previousSnapshot }
+        app.debugCreateMainWindowForSessionRestore = { windowSnapshot, _ in
+            let restoredManager = TabManager(autoWelcomeIfNeeded: false)
+            restoredManager.restoreSessionSnapshot(windowSnapshot.tabManager)
+            let windowId = app.registerMainWindowContextForTesting(tabManager: restoredManager)
+            restoredWindowIds.append(windowId)
+            return windowId
+        }
+
+        XCTAssertTrue(app.reopenPreviousSession(shouldActivate: false))
+        XCTAssertTrue(
+            liveManager.tabs.contains { $0.id == liveWorkspace.id && $0.customTitle == "Live Workspace" },
+            "Manual reopen must not replace the live window's tab manager contents."
+        )
+        XCTAssertEqual(restoredWindowIds.count, 1)
+        XCTAssertEqual(app.mainWindowContexts.count, 2)
+
+        let restoredContext = try XCTUnwrap(
+            app.mainWindowContexts.values.first { restoredWindowIds.contains($0.windowId) }
+        )
+        XCTAssertEqual(restoredContext.tabManager.tabs.first?.customTitle, "Previous Workspace")
+        XCTAssertFalse(restoredContext.tabManager === liveManager)
+    }
+
+    @MainActor
+    func testManualReopenPreviousSessionIgnoresSnapshotWithNoRestorableWorkspaces() throws {
+        let previousAppDelegate = AppDelegate.shared
+        let app = AppDelegate()
+        AppDelegate.shared = app
+        var restoreCreateCount = 0
+        defer {
+            app.debugLoadReopenSessionSnapshot = nil
+            app.debugCreateMainWindowForSessionRestore = nil
+            AppDelegate.shared = previousAppDelegate
+        }
+
+        let liveManager = TabManager(autoWelcomeIfNeeded: false)
+        let liveWorkspace = try XCTUnwrap(liveManager.selectedWorkspace)
+        liveWorkspace.setCustomTitle("Live Workspace")
+        let liveWindowId = app.registerMainWindowContextForTesting(tabManager: liveManager)
+        defer { app.unregisterMainWindowContextForTesting(windowId: liveWindowId) }
+
+        let emptyWindowSnapshot = SessionWindowSnapshot(
+            frame: nil,
+            display: nil,
+            tabManager: SessionTabManagerSnapshot(selectedWorkspaceIndex: nil, workspaces: []),
+            sidebar: SessionSidebarSnapshot(isVisible: true, selection: .tabs, width: 240)
+        )
+        app.debugLoadReopenSessionSnapshot = {
+            AppSessionSnapshot(
+                version: SessionSnapshotSchema.currentVersion,
+                createdAt: Date().timeIntervalSince1970,
+                windows: [emptyWindowSnapshot]
+            )
+        }
+        app.debugCreateMainWindowForSessionRestore = { _, _ in
+            restoreCreateCount += 1
+            return UUID()
+        }
+
+        XCTAssertFalse(app.reopenPreviousSession(shouldActivate: false))
+        XCTAssertTrue(
+            liveManager.tabs.contains { $0.id == liveWorkspace.id && $0.customTitle == "Live Workspace" },
+            "An empty previous snapshot must not replace live state with a fallback workspace."
+        )
+        XCTAssertEqual(restoreCreateCount, 0)
+        XCTAssertEqual(app.mainWindowContexts.count, 1)
+    }
+
     func testUnchangedAutosaveFingerprintSkipsWithinStalenessWindow() {
         let now = Date()
         XCTAssertTrue(
@@ -1629,6 +1722,26 @@ final class SessionPersistenceTests: XCTestCase {
 
         return AppSessionSnapshot(
             version: version,
+            createdAt: Date().timeIntervalSince1970,
+            windows: [window]
+        )
+    }
+
+    @MainActor
+    private func makeSingleWindowAppSessionSnapshotForTesting(
+        workspaceTitle: String
+    ) throws -> AppSessionSnapshot {
+        let manager = TabManager(autoWelcomeIfNeeded: false)
+        let workspace = try XCTUnwrap(manager.selectedWorkspace)
+        workspace.setCustomTitle(workspaceTitle)
+        let window = SessionWindowSnapshot(
+            frame: nil,
+            display: nil,
+            tabManager: manager.sessionSnapshot(includeScrollback: false),
+            sidebar: SessionSidebarSnapshot(isVisible: true, selection: .tabs, width: 240)
+        )
+        return AppSessionSnapshot(
+            version: SessionSnapshotSchema.currentVersion,
             createdAt: Date().timeIntervalSince1970,
             windows: [window]
         )

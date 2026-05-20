@@ -863,6 +863,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
     private var didPrepareStartupSessionSnapshot = false
     var didAttemptStartupSessionRestore = false
     private var isApplyingSessionRestore = false
+#if DEBUG
+    var debugLoadReopenSessionSnapshot: (() -> AppSessionSnapshot?)?
+    var debugCreateMainWindowForSessionRestore: ((SessionWindowSnapshot, Bool) -> UUID)?
+#endif
     private var sessionAutosaveTimer: DispatchSourceTimer?
     private var sessionAutosaveTickInFlight = false
     private var sessionAutosaveDeferredRetryPending = false
@@ -2860,7 +2864,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
 
     @discardableResult
     func reopenPreviousSession(shouldActivate: Bool = true) -> Bool {
-        guard let snapshot = SessionPersistenceStore.loadReopenSessionSnapshot() else {
+        guard let snapshot = loadReopenSessionSnapshot() else {
             return false
         }
 
@@ -2876,10 +2880,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
 
         if existingContexts.isEmpty {
             for windowSnapshot in snapshotWindows {
-                _ = createMainWindow(
-                    sessionWindowSnapshot: windowSnapshot,
-                    shouldActivate: shouldActivate
-                )
+                _ = createMainWindowForSessionRestore(windowSnapshot, shouldActivate: shouldActivate)
             }
         } else {
             for (context, windowSnapshot) in zip(existingContexts, snapshotWindows) {
@@ -2892,10 +2893,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
 
             if snapshotWindows.count > existingContexts.count {
                 for windowSnapshot in snapshotWindows.dropFirst(existingContexts.count) {
-                    _ = createMainWindow(
-                        sessionWindowSnapshot: windowSnapshot,
-                        shouldActivate: shouldActivate
-                    )
+                    _ = createMainWindowForSessionRestore(windowSnapshot, shouldActivate: shouldActivate)
                 }
             }
 
@@ -2920,6 +2918,31 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         }
 
         return true
+    }
+
+    private func loadReopenSessionSnapshot() -> AppSessionSnapshot? {
+#if DEBUG
+        if let debugLoadReopenSessionSnapshot {
+            return debugLoadReopenSessionSnapshot()
+        }
+#endif
+        return SessionPersistenceStore.loadReopenSessionSnapshot()
+    }
+
+    @discardableResult
+    private func createMainWindowForSessionRestore(
+        _ windowSnapshot: SessionWindowSnapshot,
+        shouldActivate: Bool
+    ) -> UUID {
+#if DEBUG
+        if let debugCreateMainWindowForSessionRestore {
+            return debugCreateMainWindowForSessionRestore(windowSnapshot, shouldActivate)
+        }
+#endif
+        return createMainWindow(
+            sessionWindowSnapshot: windowSnapshot,
+            shouldActivate: shouldActivate
+        )
     }
 
     private func applySessionWindowSnapshot(
