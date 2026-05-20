@@ -241,6 +241,8 @@ jobs:
           done
 
       - name: Run unit tests
+        env:
+          SWIFT_BACKTRACE: interactive=no
         run: |
           set -euo pipefail
           SOURCE_PACKAGES_DIR="$PWD/.ci-source-packages"
