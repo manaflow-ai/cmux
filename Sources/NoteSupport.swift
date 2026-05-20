@@ -118,6 +118,19 @@ enum NoteSupport {
         return try? validateSlug(slug)
     }
 
+    /// Pure path decomposition for a persisted note path. Unlike
+    /// `projectRoot(forCwd:)`, this does not touch the filesystem, so it is
+    /// safe to call from session snapshot and restore projections.
+    static func projectRoot(forNotePath path: String) -> String? {
+        let standardized = (path as NSString).standardizingPath
+        let notesDirectory = (standardized as NSString).deletingLastPathComponent
+        guard (notesDirectory as NSString).lastPathComponent == "notes" else { return nil }
+        let cmuxDirectory = (notesDirectory as NSString).deletingLastPathComponent
+        guard (cmuxDirectory as NSString).lastPathComponent == ".cmux" else { return nil }
+        let projectRoot = (cmuxDirectory as NSString).deletingLastPathComponent
+        return projectRoot.isEmpty ? nil : projectRoot
+    }
+
     /// Project-root-aware reverse lookup for note files. This avoids treating an
     /// arbitrary `.cmux/notes/<slug>.md` path from another project as this
     /// workspace's note.

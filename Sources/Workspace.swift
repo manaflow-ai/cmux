@@ -275,9 +275,6 @@ extension Workspace {
         if !normalizedCurrentDirectory.isEmpty {
             currentDirectory = normalizedCurrentDirectory
         }
-        sessionRestoreNoteProjectRoot = noteProjectRoot()
-        defer { sessionRestoreNoteProjectRoot = nil }
-
         let panelSnapshotsById = Dictionary(uniqueKeysWithValues: snapshot.panels.map { ($0.id, $0) })
         let leafEntries = restoreSessionLayout(snapshot.layout)
         var oldToNewPanelIds: [UUID: UUID] = [:]
@@ -541,9 +538,7 @@ extension Workspace {
             guard let markdownPanel = panel as? MarkdownPanel else { return nil }
             terminalSnapshot = nil
             browserSnapshot = nil
-            let noteSlug = noteProjectRoot().flatMap { projectRoot in
-                NoteSupport.slug(forNotePath: markdownPanel.filePath, projectRoot: projectRoot)
-            }
+            let noteSlug = NoteSupport.slug(forNotePath: markdownPanel.filePath)
             markdownSnapshot = SessionMarkdownPanelSnapshot(
                 filePath: markdownPanel.filePath,
                 displayMode: markdownPanel.displayMode,
@@ -1025,19 +1020,14 @@ extension Workspace {
         case .markdown:
             guard let snapshotMarkdown = snapshot.markdown else { return nil }
             // If this markdown panel was opened as a project-scoped note,
-            // re-resolve against the current workspace project root so the
-            // note survives the project moving directories. Falls back to the
-            // original absolute path if slug-resolution finds nothing.
+            // reconstruct the canonical note path from the persisted slug and
+            // stored path shape. This avoids filesystem probes on the main
+            // actor during session restore.
             let restorePath: String
             if let rawSlug = snapshotMarkdown.noteSlug,
                let slug = try? NoteSupport.validateSlug(rawSlug),
-               let projectRootCandidate = sessionRestoreNoteProjectRoot ?? noteProjectRoot() {
-                let resolved = NoteSupport.notePath(forSlug: slug, projectRoot: projectRootCandidate)
-                if (try? NoteSupport.noteFileExists(forSlug: slug, projectRoot: projectRootCandidate)) == true {
-                    restorePath = resolved
-                } else {
-                    restorePath = snapshotMarkdown.filePath
-                }
+               let projectRoot = NoteSupport.projectRoot(forNotePath: snapshotMarkdown.filePath) {
+                restorePath = NoteSupport.notePath(forSlug: slug, projectRoot: projectRoot)
             } else {
                 restorePath = snapshotMarkdown.filePath
             }
@@ -7638,7 +7628,6 @@ final class Workspace: Identifiable, ObservableObject {
 #endif
     var restoredAgentSnapshotsByPanelId: [UUID: SessionRestorableAgentSnapshot] = [:]
     var surfaceResumeBindingsByPanelId: [UUID: SurfaceResumeBindingSnapshot] = [:]
-    private var sessionRestoreNoteProjectRoot: String?
     enum RestoredAgentResumeState: Equatable {
         case manualResumeAvailable
         case awaitingAutoResumeCommand

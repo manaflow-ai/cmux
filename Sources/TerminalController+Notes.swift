@@ -245,6 +245,9 @@ extension TerminalController {
             for (existingId, existingPanel) in ws.panels {
                 guard let md = existingPanel as? MarkdownPanel else { continue }
                 if (md.filePath as NSString).resolvingSymlinksInPath == canonical {
+                    if openInTextMode {
+                        md.setDisplayMode(.text)
+                    }
                     if resolvedFocusAllowed {
                         ws.focusPanel(existingId)
                     }

@@ -2129,6 +2129,14 @@ final class NoteSupportTests: XCTestCase {
         )
     }
 
+    func testProjectRootFromNotePathIsPurePathDecomposition() {
+        XCTAssertEqual(
+            NoteSupport.projectRoot(forNotePath: "/tmp/project/.cmux/notes/todo-1.md"),
+            "/tmp/project"
+        )
+        XCTAssertNil(NoteSupport.projectRoot(forNotePath: "/tmp/project/notes/todo-1.md"))
+    }
+
     func testConfigFallbackSlugIsDeterministicAndValid() throws {
         let first = NoteSupport.configFallbackSlug(seed: "root.0.surface.1")
         let second = NoteSupport.configFallbackSlug(seed: "root.0.surface.1")
