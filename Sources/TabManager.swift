@@ -1759,7 +1759,8 @@ class TabManager: ObservableObject {
     }
 
     private func isSelectedFocusedPanel(workspace: Workspace, panelId: UUID) -> Bool {
-        selectedWorkspace?.id == workspace.id && selectedWorkspace?.focusedPanelId == panelId
+        _ = panelId
+        return selectedWorkspace?.id == workspace.id
     }
 
     private nonisolated static func jitteredPollInterval(base: TimeInterval) -> TimeInterval {
