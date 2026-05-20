@@ -403,6 +403,8 @@ struct CmuxTaskManagerMemoryGroup: Sendable {
 struct CmuxTaskManagerMemoryAttribution: Sendable {
     let workspaceId: UUID?
     let workspaceRef: String?
+    let paneId: UUID?
+    let paneRef: String?
     let surfaceId: UUID?
     let surfaceRef: String?
     let surfaceType: String?
@@ -411,10 +413,18 @@ struct CmuxTaskManagerMemoryAttribution: Sendable {
         guard let payload else { return nil }
         self.workspaceId = Self.uuid(payload["workspace_id"])
         self.workspaceRef = CmuxTaskManagerMemoryDiagnostic.string(payload["workspace_ref"])
+        self.paneId = Self.uuid(payload["pane_id"])
+        self.paneRef = CmuxTaskManagerMemoryDiagnostic.string(payload["pane_ref"])
         self.surfaceId = Self.uuid(payload["surface_id"])
         self.surfaceRef = CmuxTaskManagerMemoryDiagnostic.string(payload["surface_ref"])
         self.surfaceType = CmuxTaskManagerMemoryDiagnostic.string(payload["surface_type"])
-        if workspaceId == nil, workspaceRef == nil, surfaceId == nil, surfaceRef == nil, surfaceType == nil {
+        if workspaceId == nil,
+           workspaceRef == nil,
+           paneId == nil,
+           paneRef == nil,
+           surfaceId == nil,
+           surfaceRef == nil,
+           surfaceType == nil {
             return nil
         }
     }

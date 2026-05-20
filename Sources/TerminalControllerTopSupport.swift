@@ -398,15 +398,16 @@ extension TerminalController {
             if existing == attribution { continue }
             let existingSpecificity = v2TopMemoryAttributionSpecificity(existing)
             let commonOwnerSourceSpecificity = commonOwnerSourceSpecificityByPID[pid]
-            let mergedSourceSpecificity = max(commonOwnerSourceSpecificity ?? existingSpecificity, newSpecificity)
+            let existingSourceSpecificity = commonOwnerSourceSpecificity ?? existingSpecificity
+            let mergedSourceSpecificity = max(existingSourceSpecificity, newSpecificity)
             if let commonOwner = v2TopMemoryAttributionCommonOwner(existing, attribution),
-               commonOwnerSourceSpecificity != nil || newSpecificity == existingSpecificity {
+               commonOwnerSourceSpecificity != nil || newSpecificity == existingSourceSpecificity {
                 result[pid] = commonOwner
                 commonOwnerSourceSpecificityByPID[pid] = mergedSourceSpecificity
-            } else if newSpecificity > existingSpecificity {
+            } else if newSpecificity > existingSourceSpecificity {
                 result[pid] = attribution
                 commonOwnerSourceSpecificityByPID.removeValue(forKey: pid)
-            } else if newSpecificity == existingSpecificity {
+            } else if newSpecificity == existingSourceSpecificity {
                 result.removeValue(forKey: pid)
                 ambiguousSpecificityByPID[pid] = newSpecificity
                 commonOwnerSourceSpecificityByPID.removeValue(forKey: pid)

@@ -143,6 +143,12 @@ struct CmuxTaskManagerSnapshot {
                 defaultValue: "Workspace %@"
             ), workspace))
         }
+        if let pane = attribution.paneRef ?? attribution.paneId?.uuidString {
+            parts.append(String(format: String(
+                localized: "taskManager.memory.pane",
+                defaultValue: "Pane %@"
+            ), pane))
+        }
         if let surface = attribution.surfaceRef ?? attribution.surfaceId?.uuidString {
             parts.append(String(format: String(
                 localized: "taskManager.memory.surface",
