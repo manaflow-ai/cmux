@@ -43,6 +43,8 @@ def run_wrapper(
     argv: list[str],
     hooks_disabled: bool = False,
     symlink_wrapper_first: bool = False,
+    wrapper_cmux_available: bool = True,
+    include_ambient_path: bool = True,
 ) -> tuple[int, list[str], dict[str, str], list[str], str]:
     with tempfile.TemporaryDirectory(prefix="cmux-codex-wrapper-test-") as td:
         tmp = Path(td)
@@ -98,9 +100,10 @@ done
 """,
         )
 
-        make_executable(
-            wrapper_dir / "cmux",
-            """#!/usr/bin/env bash
+        if wrapper_cmux_available:
+            make_executable(
+                wrapper_dir / "cmux",
+                """#!/usr/bin/env bash
 set -euo pipefail
 printf 'self %s timeout=%s\\n' "$*" "${CMUXTERM_CLI_RESPONSE_TIMEOUT_SEC-__UNSET__}" >> "$FAKE_CMUX_LOG"
 if [[ "${1:-}" == "--socket" ]]; then
@@ -114,7 +117,7 @@ if [[ "${1:-}" == "ping" ]]; then
 fi
 exit 0
 """,
-        )
+            )
 
         bundled_cli_path = bundled_dir / "cmux"
         make_executable(
@@ -132,7 +135,11 @@ exit 0
             test_socket.bind(socket_path)
 
         env = os.environ.copy()
-        path_entries.extend([real_dir, env.get("PATH", "/usr/bin:/bin")])
+        path_entries.append(real_dir)
+        if include_ambient_path:
+            path_entries.append(env.get("PATH", "/usr/bin:/bin"))
+        else:
+            path_entries.extend(["/usr/bin", "/bin"])
         env["PATH"] = ":".join(str(entry) for entry in path_entries)
         env["CMUX_SURFACE_ID"] = "surface:test"
         env["CMUX_SOCKET_PATH"] = socket_path
@@ -222,6 +229,27 @@ def test_symlinked_wrapper_path_is_not_selected_as_real_codex(failures: list[str
     )
 
 
+def test_bundled_cli_path_is_used_for_socket_ping_when_cmux_not_on_path(failures: list[str]) -> None:
+    code, _, env, cmux_log, stderr = run_wrapper(
+        socket_state="live",
+        argv=["hello"],
+        wrapper_cmux_available=False,
+        include_ambient_path=False,
+    )
+    expect(code == 0, f"bundled cmux ping: wrapper exited {code}: {stderr}", failures)
+    expect(env.get("CMUX_AGENT_LAUNCH_KIND") == "codex", f"bundled cmux ping: expected tracking metadata, got {env}", failures)
+    expect(
+        any(line.startswith("bundled --socket ") and " ping " in line for line in cmux_log),
+        f"bundled cmux ping: expected bundled CLI ping, got {cmux_log}",
+        failures,
+    )
+    expect(
+        any(line.startswith("bundled hooks codex install --yes ") for line in cmux_log),
+        f"bundled cmux ping: expected bundled hook install, got {cmux_log}",
+        failures,
+    )
+
+
 def test_resume_and_fork_are_tracked_interactive_entrypoints(failures: list[str]) -> None:
     for argv in (["resume", "codex-session-123"], ["fork", "--last"]):
         code, real_argv, env, cmux_log, stderr = run_wrapper(socket_state="live", argv=argv)
@@ -288,6 +316,7 @@ def main() -> int:
     test_live_socket_installs_hooks_and_exports_launch_metadata(failures)
     test_plain_codex_launch_argv_has_no_empty_argument(failures)
     test_symlinked_wrapper_path_is_not_selected_as_real_codex(failures)
+    test_bundled_cli_path_is_used_for_socket_ping_when_cmux_not_on_path(failures)
     test_resume_and_fork_are_tracked_interactive_entrypoints(failures)
     test_command_like_invocations_bypass_hook_tracking_and_scrub_cmux_env(failures)
     test_passthrough_flags_and_disabled_hooks_do_not_track(failures)

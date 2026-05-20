@@ -35,11 +35,8 @@ cmux_socket_available() {
     local socket="${CMUX_SOCKET_PATH:-}"
     [[ -n "$socket" && -S "$socket" ]] || return 1
 
-    local self_dir cmux_bin
-    self_dir="$(cd "$(dirname "$0")" && pwd)"
-    cmux_bin="$self_dir/cmux"
-    [[ -x "$cmux_bin" ]] || cmux_bin="$(command -v cmux || true)"
-    [[ -n "$cmux_bin" ]] || return 1
+    local cmux_bin
+    cmux_bin="$(resolve_hook_cmux_bin)" || return 1
 
     CMUXTERM_CLI_RESPONSE_TIMEOUT_SEC=0.75 \
         "$cmux_bin" --socket "$socket" ping >/dev/null 2>&1
@@ -66,7 +63,7 @@ resolve_hook_cmux_bin() {
         return 0
     fi
 
-    printf '%s' "cmux"
+    return 1
 }
 
 codex_option_consumes_value() {
@@ -171,7 +168,6 @@ encode_launch_argv() {
 install_codex_hooks_if_needed() {
     local cmux_bin
     cmux_bin="$(resolve_hook_cmux_bin)" || return 0
-    [[ -n "$cmux_bin" ]] || return 0
 
     CMUXTERM_CLI_RESPONSE_TIMEOUT_SEC=2 \
         "$cmux_bin" hooks codex install --yes >/dev/null 2>&1 || true
