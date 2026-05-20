@@ -3406,8 +3406,12 @@ class TabManager: ObservableObject {
         repository: ResolvedGitRepository,
         caseInsensitive: Bool
     ) -> Bool {
+        let isRecursiveDirectoryPattern = pattern.hasSuffix("/")
         var expandedPattern = gitConfigExpandedPattern(pattern)
-        if expandedPattern.hasSuffix("/") {
+        if isRecursiveDirectoryPattern, !expandedPattern.hasSuffix("/") {
+            expandedPattern.append("/")
+        }
+        if isRecursiveDirectoryPattern {
             expandedPattern.append("**")
         }
         let candidates = [
@@ -3446,7 +3450,114 @@ class TabManager: ObservableObject {
     ) -> Bool {
         let candidateValue = caseInsensitive ? value.lowercased() : value
         let candidatePattern = caseInsensitive ? pattern.lowercased() : pattern
-        return fnmatch(candidatePattern, candidateValue, 0) == 0
+        guard let regex = try? NSRegularExpression(
+            pattern: gitConfigGlobRegexPattern(candidatePattern)
+        ) else {
+            return fnmatch(candidatePattern, candidateValue, 0) == 0
+        }
+        let range = NSRange(candidateValue.startIndex..<candidateValue.endIndex, in: candidateValue)
+        return regex.firstMatch(in: candidateValue, range: range) != nil
+    }
+
+    private nonisolated static func gitConfigGlobRegexPattern(_ pattern: String) -> String {
+        let characters = Array(pattern)
+        var regex = "^"
+        var index = 0
+
+        while index < characters.count {
+            let character = characters[index]
+
+            if character == "*" {
+                var starCount = 1
+                while index + starCount < characters.count,
+                      characters[index + starCount] == "*" {
+                    starCount += 1
+                }
+                index += starCount
+
+                if starCount >= 2 {
+                    if index < characters.count, characters[index] == "/" {
+                        index += 1
+                        regex += "(?:.*/)?"
+                    } else {
+                        regex += ".*"
+                    }
+                } else {
+                    regex += "[^/]*"
+                }
+                continue
+            }
+
+            if character == "?" {
+                regex += "[^/]"
+                index += 1
+                continue
+            }
+
+            if character == "[" {
+                let parsedClass = gitConfigGlobCharacterClass(characters, startIndex: index)
+                if let parsedClass {
+                    regex += parsedClass.regex
+                    index = parsedClass.endIndex
+                    continue
+                }
+            }
+
+            regex += NSRegularExpression.escapedPattern(for: String(character))
+            index += 1
+        }
+
+        regex += "$"
+        return regex
+    }
+
+    private nonisolated static func gitConfigGlobCharacterClass(
+        _ characters: [Character],
+        startIndex: Int
+    ) -> (regex: String, endIndex: Int)? {
+        guard startIndex < characters.count, characters[startIndex] == "[" else {
+            return nil
+        }
+
+        var index = startIndex + 1
+        guard index < characters.count else { return nil }
+
+        var regex = "["
+        if characters[index] == "!" {
+            regex += "^"
+            index += 1
+        } else if characters[index] == "^" {
+            regex += "\\^"
+            index += 1
+        }
+
+        if index < characters.count, characters[index] == "]" {
+            regex += "\\]"
+            index += 1
+        }
+
+        var hasTerminator = false
+        while index < characters.count {
+            let character = characters[index]
+            if character == "]" {
+                hasTerminator = true
+                index += 1
+                break
+            }
+            switch character {
+            case "\\":
+                regex += "\\\\"
+            case "[":
+                regex += "\\["
+            default:
+                regex += String(character)
+            }
+            index += 1
+        }
+
+        guard hasTerminator else { return nil }
+        regex += "]"
+        return (regex, index)
     }
 
     private nonisolated static func gitTrackedChangesSnapshot(

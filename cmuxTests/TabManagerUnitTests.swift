@@ -432,6 +432,48 @@ final class TabManagerPullRequestProbeTests: XCTestCase {
         )
     }
 
+    func testGitHubRepositorySlugsFromGitConfigTreatsTrailingSlashGitdirAsRecursive() throws {
+        let parentURL = FileManager.default.temporaryDirectory.appendingPathComponent(
+            "cmux-git-config-recursive-include-\(UUID().uuidString)",
+            isDirectory: true
+        )
+        let repoURL = parentURL
+            .appendingPathComponent("teams", isDirectory: true)
+            .appendingPathComponent("cmux", isDirectory: true)
+        let gitURL = repoURL.appendingPathComponent(".git", isDirectory: true)
+        try FileManager.default.createDirectory(at: gitURL, withIntermediateDirectories: true)
+        defer {
+            try? FileManager.default.removeItem(at: parentURL)
+        }
+
+        try "ref: refs/heads/main\n".write(
+            to: gitURL.appendingPathComponent("HEAD"),
+            atomically: true,
+            encoding: .utf8
+        )
+        try """
+        [includeIf "gitdir:\(parentURL.path)/"]
+            path = recursive-remotes.inc
+        """.write(
+            to: gitURL.appendingPathComponent("config"),
+            atomically: true,
+            encoding: .utf8
+        )
+        try """
+        [remote "upstream"]
+            url = https://github.com/manaflow-ai/cmux.git
+        """.write(
+            to: gitURL.appendingPathComponent("recursive-remotes.inc"),
+            atomically: true,
+            encoding: .utf8
+        )
+
+        XCTAssertEqual(
+            TabManager.githubRepositorySlugs(directoryForTesting: repoURL.path),
+            ["manaflow-ai/cmux"]
+        )
+    }
+
     func testPreferredPullRequestPrefersOpenOverMergedAndClosed() {
         let candidates = [
             TabManager.GitHubPullRequestProbeItem(
