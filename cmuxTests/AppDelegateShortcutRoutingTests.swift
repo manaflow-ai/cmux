@@ -344,6 +344,9 @@ final class AppDelegateShortcutRoutingTests: XCTestCase {
             fallbackPath: nil,
             startWatching: false
         )
+#if DEBUG
+        appDelegate.debugResetShortcutRoutingStateForTesting()
+#endif
 
         window.makeKeyAndOrderFront(nil)
         RunLoop.main.run(until: Date(timeIntervalSinceNow: 0.05))
@@ -820,7 +823,9 @@ final class AppDelegateShortcutRoutingTests: XCTestCase {
         )
 
         appDelegate.debugCreateMainWindowSourceIsNativeFullScreenOverride = nil
-        RunLoop.main.run(until: Date(timeIntervalSinceNow: 0.05))
+        _ = waitForCondition {
+            !newWindow.collectionBehavior.contains(.fullScreenDisallowsTiling)
+        }
 
         XCTAssertFalse(
             newWindow.collectionBehavior.contains(.fullScreenDisallowsTiling),
@@ -992,7 +997,7 @@ final class AppDelegateShortcutRoutingTests: XCTestCase {
         XCTAssertFalse(sidebarState.isVisible, "Cmd+B should toggle the Welcome window left sidebar")
 
         XCTAssertTrue(appDelegate.debugHandleCustomShortcut(event: rightSidebarEvent))
-        RunLoop.main.run(until: Date(timeIntervalSinceNow: 0.05))
+        _ = waitForCondition { fileExplorerState.isVisible }
         XCTAssertTrue(fileExplorerState.isVisible, "Cmd+Option+B should toggle the Welcome window right sidebar")
 #else
         XCTFail("debugHandleCustomShortcut is only available in DEBUG")
@@ -6100,6 +6105,8 @@ final class AppDelegateShortcutRoutingTests: XCTestCase {
             return
         }
 
+        window.makeKeyAndOrderFront(nil)
+        RunLoop.main.run(until: Date(timeIntervalSinceNow: 0.05))
         appDelegate.noteTerminalKeyboardFocusIntent(workspaceId: workspace.id, panelId: terminalPanel.id, in: window)
 
         guard let event = makeKeyDownEvent(
@@ -6280,6 +6287,19 @@ final class AppDelegateShortcutRoutingTests: XCTestCase {
         window.orderOut(nil)
         window.close()
         RunLoop.main.run(until: Date(timeIntervalSinceNow: 0.05))
+    }
+
+    @discardableResult
+    private func waitForCondition(
+        timeout: TimeInterval = 1.0,
+        interval: TimeInterval = 0.01,
+        _ condition: () -> Bool
+    ) -> Bool {
+        let deadline = Date(timeIntervalSinceNow: timeout)
+        while !condition(), Date() < deadline {
+            RunLoop.main.run(until: Date(timeIntervalSinceNow: interval))
+        }
+        return condition()
     }
 
     private func makeKeyDownEvent(
