@@ -133,7 +133,7 @@ def hook_payload(index: int) -> str:
 
 
 def run_hook(cli_path: str, socket_path: Path, index: int, timeout: float) -> HookRun:
-    state_dir = socket_path.parent / "hook-state"
+    state_dir = socket_path.parent / "hook-state" / str(index)
     state_dir.mkdir(parents=True, exist_ok=True)
 
     env = os.environ.copy()
