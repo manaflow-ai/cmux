@@ -639,7 +639,7 @@ import UIKit
     #expect(route.kind == .tailscale)
     #expect(store.phase == .pairing)
     #expect(store.connectionState == .disconnected)
-    #expect(store.connectionError == "No response from work-mac.tailnet.ts.net:58465. Make sure cmux is open on that Mac and the mobile server is on.")
+    #expect(store.connectionError == "No response from work-mac.tailnet.ts.net:58465. Make sure the host app is open and accepting mobile connections.")
 }
 
 @MainActor

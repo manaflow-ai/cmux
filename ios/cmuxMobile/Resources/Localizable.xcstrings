@@ -228,22 +228,22 @@
     "mobile.pairing.connectionTimedOutFormat" : {
       "extractionState" : "manual",
       "localizations" : {
-        "en" : { "stringUnit" : { "state" : "translated", "value" : "No response from %@:%d. Make sure cmux is open on that Mac and the mobile server is on." } },
-        "ja" : { "stringUnit" : { "state" : "translated", "value" : "%@:%d から応答がありません。Mac で cmux が開いていて、モバイルサーバーがオンになっていることを確認してください。" } }
+        "en" : { "stringUnit" : { "state" : "translated", "value" : "No response from %@:%d. Make sure the host app is open and accepting mobile connections." } },
+        "ja" : { "stringUnit" : { "state" : "translated", "value" : "%@:%d から応答がありません。ホストアプリが開いていて、モバイル接続を受け入れていることを確認してください。" } }
       }
     },
     "mobile.pairing.connectionFailedFormat" : {
       "extractionState" : "manual",
       "localizations" : {
-        "en" : { "stringUnit" : { "state" : "translated", "value" : "Could not reach %@:%d. Check that the Mac is on the same Tailscale or LAN and that the port is correct." } },
-        "ja" : { "stringUnit" : { "state" : "translated", "value" : "%@:%d に到達できませんでした。Mac が同じ Tailscale または LAN 上にあり、ポートが正しいことを確認してください。" } }
+        "en" : { "stringUnit" : { "state" : "translated", "value" : "Could not reach %@:%d. Check that the host is reachable over Tailscale or LAN and that the port is correct." } },
+        "ja" : { "stringUnit" : { "state" : "translated", "value" : "%@:%d に到達できませんでした。ホストが Tailscale または LAN 経由で到達可能で、ポートが正しいことを確認してください。" } }
       }
     },
     "mobile.pairing.connectionDroppedFormat" : {
       "extractionState" : "manual",
       "localizations" : {
-        "en" : { "stringUnit" : { "state" : "translated", "value" : "Connected to %@:%d, but the mobile server closed the connection. Check that cmux is still running." } },
-        "ja" : { "stringUnit" : { "state" : "translated", "value" : "%@:%d に接続しましたが、モバイルサーバーが接続を閉じました。cmux がまだ実行中であることを確認してください。" } }
+        "en" : { "stringUnit" : { "state" : "translated", "value" : "Connected to %@:%d, but the host closed the connection. Check that the host app is still running." } },
+        "ja" : { "stringUnit" : { "state" : "translated", "value" : "%@:%d に接続しましたが、ホストが接続を閉じました。ホストアプリがまだ実行中であることを確認してください。" } }
       }
     },
     "mobile.pairing.secureRouteRequired" : {

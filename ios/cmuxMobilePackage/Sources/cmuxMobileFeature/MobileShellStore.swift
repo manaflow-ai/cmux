@@ -1566,7 +1566,7 @@ public final class CMUXMobileShellStore {
             case .connectionTimedOut:
                 return localizedHostPortConnectionError(
                     key: "mobile.pairing.connectionTimedOutFormat",
-                    defaultValue: "No response from %@:%d. Make sure cmux is open on that Mac and the mobile server is on.",
+                    defaultValue: "No response from %@:%d. Make sure the host app is open and accepting mobile connections.",
                     fallbackKey: "mobile.pairing.requestTimedOut",
                     fallbackDefaultValue: "The computer did not respond. Check the host and port, then try again.",
                     hostPort: hostPort
@@ -1574,7 +1574,7 @@ public final class CMUXMobileShellStore {
             case .connectionFailed, .notConnected, .alreadyClosed:
                 return localizedHostPortConnectionError(
                     key: "mobile.pairing.connectionFailedFormat",
-                    defaultValue: "Could not reach %@:%d. Check that the Mac is on the same Tailscale or LAN and that the port is correct.",
+                    defaultValue: "Could not reach %@:%d. Check that the host is reachable over Tailscale or LAN and that the port is correct.",
                     fallbackKey: "mobile.pairing.runtimeUnavailable",
                     fallbackDefaultValue: "Could not connect to your computer.",
                     hostPort: hostPort
@@ -1582,7 +1582,7 @@ public final class CMUXMobileShellStore {
             case .receiveFailed, .sendFailed:
                 return localizedHostPortConnectionError(
                     key: "mobile.pairing.connectionDroppedFormat",
-                    defaultValue: "Connected to %@:%d, but the mobile server closed the connection. Check that cmux is still running.",
+                    defaultValue: "Connected to %@:%d, but the host closed the connection. Check that the host app is still running.",
                     fallbackKey: "mobile.pairing.runtimeUnavailable",
                     fallbackDefaultValue: "Could not connect to your computer.",
                     hostPort: hostPort
@@ -1598,7 +1598,7 @@ public final class CMUXMobileShellStore {
         case .requestTimedOut:
             return localizedHostPortConnectionError(
                 key: "mobile.pairing.connectionTimedOutFormat",
-                defaultValue: "No response from %@:%d. Make sure cmux is open on that Mac and the mobile server is on.",
+                defaultValue: "No response from %@:%d. Make sure the host app is open and accepting mobile connections.",
                 fallbackKey: "mobile.pairing.requestTimedOut",
                 fallbackDefaultValue: "The computer did not respond. Check the host and port, then try again.",
                 hostPort: hostPort
