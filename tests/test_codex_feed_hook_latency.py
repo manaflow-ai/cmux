@@ -133,11 +133,15 @@ def hook_payload(index: int) -> str:
 
 
 def run_hook(cli_path: str, socket_path: Path, index: int, timeout: float) -> HookRun:
+    state_dir = socket_path.parent / "hook-state"
+    state_dir.mkdir(parents=True, exist_ok=True)
+
     env = os.environ.copy()
     env["CMUX_SURFACE_ID"] = FAKE_SURFACE_ID
     env["CMUX_WORKSPACE_ID"] = FAKE_WORKSPACE_ID
     env["CMUX_SOCKET_PATH"] = str(socket_path)
     env["CMUX_SOCKET"] = str(socket_path)
+    env["CMUX_AGENT_HOOK_STATE_DIR"] = str(state_dir)
     env["CMUX_CLI_SENTRY_DISABLED"] = "1"
     env["CMUX_CLAUDE_HOOK_SENTRY_DISABLED"] = "1"
     env.pop("CMUXTERM_CLI_RESPONSE_TIMEOUT_SEC", None)
