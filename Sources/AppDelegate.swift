@@ -1019,6 +1019,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             ]
         )
         AppIconLaunchState.markDidFinishLaunching()
+        AppearanceSettingsUserDefaultsObserver.shared.startObserving()
         if isRunningUnderXCTest {
             NSApp.setActivationPolicy(.regular)
         } else {
@@ -5877,7 +5878,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             return .ok
 
         case .focus:
-            guard focusRightSidebarInActiveMainWindow(preferredWindow: preferredWindow) else {
+            // Remote focus should preserve the currently selected sidebar mode
+            // instead of reviving a stale keyboard-focus memory.
+            guard focusRightSidebarInActiveMainWindow(mode: state.mode, preferredWindow: preferredWindow) else {
                 return .failure(String(localized: "rightSidebar.remote.error.focusFailed", defaultValue: "ERROR: Failed to focus right sidebar"))
             }
             return .ok

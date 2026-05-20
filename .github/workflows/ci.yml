@@ -153,6 +153,8 @@ jobs:
     timeout-minutes: 45
     env:
       CMUX_SKIP_ZIG_BUILD: "1"
+      # Keep Swift crash backtraces from opening the 30s interactive prompt in CI.
+      SWIFT_BACKTRACE: "interactive=no,color=no"
     steps:
       - name: Checkout
         uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
