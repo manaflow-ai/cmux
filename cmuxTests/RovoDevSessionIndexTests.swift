@@ -40,9 +40,8 @@ final class RovoDevSessionIndexTests: XCTestCase {
         XCTAssertEqual(entry.title, "Ship Rovo Dev support")
         XCTAssertEqual(entry.cwd, "/tmp/rovo repo")
         XCTAssertEqual(entry.fileURL?.lastPathComponent, "session_context.json")
-        XCTAssertEqual(entry.resumeCommand, "acli rovodev run --restore 'session with space'")
         XCTAssertEqual(
-            entry.resumeCommandWithCwd,
+            entry.resumeCommand,
             "cd '/tmp/rovo repo' && acli rovodev run --restore 'session with space'"
         )
     }

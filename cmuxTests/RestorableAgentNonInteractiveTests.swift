@@ -101,6 +101,20 @@ final class RestorableAgentNonInteractiveTests: XCTestCase {
                 source: nil
             )
         )
+        let grokSingle = SessionRestorableAgentSnapshot(
+            kind: .grok,
+            sessionId: "grok-session-123",
+            workingDirectory: nil,
+            launchCommand: AgentLaunchCommandSnapshot(
+                launcher: "grok",
+                executablePath: "grok",
+                arguments: ["grok", "--single", "fix this"],
+                workingDirectory: nil,
+                environment: nil,
+                capturedAt: nil,
+                source: nil
+            )
+        )
         let rovoDevAuth = SessionRestorableAgentSnapshot(
             kind: .rovodev,
             sessionId: "rovo-session-123",
@@ -109,6 +123,20 @@ final class RestorableAgentNonInteractiveTests: XCTestCase {
                 launcher: "rovodev",
                 executablePath: "acli",
                 arguments: ["acli", "rovodev", "auth", "login"],
+                workingDirectory: nil,
+                environment: nil,
+                capturedAt: nil,
+                source: nil
+            )
+        )
+        let hermesOneShot = SessionRestorableAgentSnapshot(
+            kind: .hermesAgent,
+            sessionId: "hermes-session-123",
+            workingDirectory: nil,
+            launchCommand: AgentLaunchCommandSnapshot(
+                launcher: "hermes-agent",
+                executablePath: "hermes",
+                arguments: ["hermes", "--oneshot", "fix this"],
                 workingDirectory: nil,
                 environment: nil,
                 capturedAt: nil,
@@ -192,7 +220,9 @@ final class RestorableAgentNonInteractiveTests: XCTestCase {
         XCTAssertNil(opencodeRun.resumeCommand)
         XCTAssertNil(opencodePR.resumeCommand)
         XCTAssertNil(geminiPrompt.resumeCommand)
+        XCTAssertNil(grokSingle.resumeCommand)
         XCTAssertNil(rovoDevAuth.resumeCommand)
+        XCTAssertNil(hermesOneShot.resumeCommand)
         XCTAssertNil(cursorPrint.resumeCommand)
         XCTAssertNil(copilotPrompt.resumeCommand)
         XCTAssertNil(codeBuddyPrint.resumeCommand)

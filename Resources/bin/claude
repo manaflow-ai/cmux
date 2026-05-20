@@ -85,16 +85,58 @@ case "${CMUX_PRESERVE_CLAUDE_AUTH_SELECTION_ENV:-}" in
 esac
 
 should_preserve_claude_auth_selection_key() {
-    [[ "$PRESERVE_CLAUDE_AUTH_SELECTION_ENV" == true ]] || return 1
+    if [[ "$PRESERVE_CLAUDE_AUTH_SELECTION_ENV" == true ]]; then
+        local configured_keys="${CMUX_PRESERVE_CLAUDE_AUTH_SELECTION_ENV_KEYS:-}"
+        if [[ -z "$configured_keys" ]]; then
+            return 0
+        fi
+        configured_keys="${configured_keys//,/ }"
+        local configured_key
+        for configured_key in $configured_keys; do
+            [[ "$configured_key" == "$1" ]] && return 0
+        done
+        # Key not in the explicit list: do NOT early-return — fall through to
+        # the Vertex/Bedrock auto-preserve below. CMUX_PRESERVE_CLAUDE_AUTH_SELECTION_ENV_KEYS
+        # is an additive allow-list, not an exclusion list, so an operator
+        # who opts in with a narrower key list still gets Vertex/Bedrock
+        # selection signals preserved when those backends are active.
+    fi
 
-    local configured_keys="${CMUX_PRESERVE_CLAUDE_AUTH_SELECTION_ENV_KEYS:-}"
-    [[ -n "$configured_keys" ]] || return 0
+    # Auto-preserve Vertex/Bedrock auth selection so users with valid
+    # CLAUDE_CODE_USE_VERTEX=1 / CLAUDE_CODE_USE_BEDROCK=1 setups in their
+    # shell rc authenticate inside cmux the same way they do in plain
+    # Terminal. Without this, the wrapper silently drops the selection
+    # signal and claude reports "not logged in".
+    # Refs: https://github.com/manaflow-ai/cmux/issues/3641 (Vertex)
+    #       https://github.com/manaflow-ai/cmux/issues/3638 (Bedrock)
+    local vertex_on=false bedrock_on=false
+    case "${CLAUDE_CODE_USE_VERTEX:-}" in
+        1|true|TRUE|yes|YES) vertex_on=true ;;
+    esac
+    case "${CLAUDE_CODE_USE_BEDROCK:-}" in
+        1|true|TRUE|yes|YES) bedrock_on=true ;;
+    esac
 
-    configured_keys="${configured_keys//,/ }"
-    local configured_key
-    for configured_key in $configured_keys; do
-        [[ "$configured_key" == "$1" ]] && return 0
-    done
+    case "$1" in
+        CLAUDE_CODE_USE_VERTEX)
+            [[ "$vertex_on" == true ]] && return 0
+            ;;
+        CLAUDE_CODE_USE_BEDROCK)
+            [[ "$bedrock_on" == true ]] && return 0
+            ;;
+        ANTHROPIC_MODEL|ANTHROPIC_SMALL_FAST_MODEL)
+            # Vertex and Bedrock require backend-specific full model ids
+            # (e.g. "claude-sonnet-4-5@20250929" for Vertex,
+            # "us.anthropic.claude-sonnet-4-5-20250929-v1:0" for Bedrock).
+            # Preserve the user's selection only when one of those
+            # backends is active; otherwise stale ids would leak into the
+            # default Anthropic API path.
+            if [[ "$vertex_on" == true || "$bedrock_on" == true ]]; then
+                return 0
+            fi
+            ;;
+    esac
+
     return 1
 }
 
@@ -139,6 +181,17 @@ if [[ -n "$CMUX_SURFACE_ID" ]]; then
     IN_CMUX=1
 fi
 
+exec_real_claude_passthrough() {
+    if [[ "$IN_CMUX" == "1" ]]; then
+        local cmux_key
+        for cmux_key in "${!CMUX_@}"; do
+            unset "$cmux_key"
+        done
+        unset TERMINFO
+    fi
+    exec "$REAL_CLAUDE" "$@"
+}
+
 if [[ "$IN_CMUX" == "0" || "$CMUX_CLAUDE_HOOKS_DISABLED" == "1" ]] || ! cmux_socket_available; then
     # In cmux-launched shells, preserve old behavior and always clear nested
     # Claude session markers, even when we must pass through due to stale socket.
@@ -147,7 +200,7 @@ if [[ "$IN_CMUX" == "0" || "$CMUX_CLAUDE_HOOKS_DISABLED" == "1" ]] || ! cmux_soc
     fi
     clear_inherited_claude_auth_selection_env
     REAL_CLAUDE="$(find_real_claude)" || { echo "Error: claude not found in PATH" >&2; exit 127; }
-    exec "$REAL_CLAUDE" "$@"
+    exec_real_claude_passthrough "$@"
 fi
 
 # Find real claude.
@@ -261,13 +314,107 @@ encode_launch_argv() {
     } | base64 | tr -d '\n'
 }
 
-# Pass through subcommands that don't support session/hook flags.
-case "${1:-}" in
-    mcp|config|api-key|rc|remote-control)
-        clear_inherited_claude_auth_selection_env
-        exec "$REAL_CLAUDE" "$@"
-        ;;
-esac
+claude_option_consumes_value() {
+    case "$1" in
+        --add-dir|--agent|--agents|--allowedTools|--allowed-tools|\
+        --append-system-prompt|--betas|--debug-file|--disallowedTools|\
+        --disallowed-tools|--effort|--fallback-model|--file|\
+        --input-format|--json-schema|--max-budget-usd|--mcp-config|\
+        --model|-m|-n|--name|--output-format|--permission-mode|--plugin-dir|\
+        --plugin-url|--remote-control-session-name-prefix|--setting-sources|\
+        --settings|--system-prompt|--tools)
+            return 0
+            ;;
+    esac
+    return 1
+}
+
+claude_interactive_entry_flag() {
+    case "$1" in
+        --print|--print=*|-p|--resume|--resume=*|-r|--continue|-c|\
+        --session-id|--session-id=*|--remote-control|--remote-control=*|\
+        --from-pr|--from-pr=*|--worktree|--worktree=*|-w|-w=*)
+            return 0
+            ;;
+    esac
+    return 1
+}
+
+claude_passthrough_option_flag() {
+    case "$1" in
+        --help|-h|--version|-v)
+            return 0
+            ;;
+    esac
+    return 1
+}
+
+claude_builtin_command_name() {
+    case "$1" in
+        agents|auth|auto-mode|config|api-key|daemon|doctor|install|mcp|\
+        experimental-next|plugin|plugins|project|rc|remote-control|setup-token|\
+        ultrareview|update|upgrade)
+            return 0
+            ;;
+    esac
+    return 1
+}
+
+claude_command_like_invocation() {
+    local candidate="$1"
+    [[ -n "$candidate" ]] || return 1
+    case "$candidate" in
+        *[![:alnum:]_-]*)
+            return 1
+            ;;
+    esac
+    claude_builtin_command_name "$candidate"
+}
+
+should_inject_claude_hooks() {
+    (( $# == 0 )) && return 0
+
+    local arg
+    local skip_next=false
+    for arg in "$@"; do
+        if [[ "$skip_next" == true ]]; then
+            skip_next=false
+            continue
+        fi
+        case "$arg" in
+            --)
+                return 0
+                ;;
+            -*)
+                if claude_passthrough_option_flag "$arg"; then
+                    return 1
+                fi
+                if claude_interactive_entry_flag "$arg"; then
+                    return 0
+                fi
+                if [[ "$arg" != *=* ]] && claude_option_consumes_value "$arg"; then
+                    skip_next=true
+                fi
+                continue
+                ;;
+            *)
+                if claude_command_like_invocation "$arg"; then
+                    return 1
+                fi
+                return 0
+                ;;
+        esac
+    done
+
+    return 0
+}
+
+# Only inject hooks for Claude session entrypoints. Command-like invocations
+# pass through so Claude subcommands do not receive session/hook flags.
+if ! should_inject_claude_hooks "$@"; then
+    clear_inherited_claude_auth_selection_env
+    exec_real_claude_passthrough "$@"
+fi
 
 # Unset CLAUDECODE to avoid "nested session" detection — cmux terminals are
 # independent sessions even when the parent shell was launched from Claude Code.
@@ -312,12 +459,14 @@ fi
 # - SessionStart/Stop/Notification: existing lifecycle hooks
 # - SessionEnd: cleanup when Claude exits (covers Ctrl+C where Stop doesn't fire)
 # - UserPromptSubmit: clears "Needs input" and sets "Running" on new prompt
-# - PreToolUse: clears "Needs input" and captures AskUserQuestion text for notifications (async status only)
+# - PreToolUse: rejects unsupported durable cron requests synchronously, then
+#   clears "Needs input" and captures AskUserQuestion text for notifications
+#   (async status only)
 # - PermissionRequest: cmux hooks feed. SYNC with a 125s timeout.
 #   This is Claude Code's native blocking decision hook. It covers
 #   permissions, ExitPlanMode, and AskUserQuestion without using
 #   PreToolUse denial as a side channel.
-HOOKS_JSON='{"preferredNotifChannel":"notifications_disabled","hooks":{"SessionStart":[{"matcher":"","hooks":[{"type":"command","command":"\"${CMUX_CLAUDE_HOOK_CMUX_BIN:-cmux}\" hooks claude session-start","timeout":10}]}],"Stop":[{"matcher":"","hooks":[{"type":"command","command":"\"${CMUX_CLAUDE_HOOK_CMUX_BIN:-cmux}\" hooks claude stop","timeout":10}]},{"matcher":"","hooks":[{"type":"command","command":"\"${CMUX_CLAUDE_HOOK_CMUX_BIN:-cmux}\" hooks feed --source claude","timeout":10,"async":true}]}],"SessionEnd":[{"matcher":"","hooks":[{"type":"command","command":"\"${CMUX_CLAUDE_HOOK_CMUX_BIN:-cmux}\" hooks claude session-end","timeout":1}]}],"Notification":[{"matcher":"","hooks":[{"type":"command","command":"\"${CMUX_CLAUDE_HOOK_CMUX_BIN:-cmux}\" hooks claude notification","timeout":10}]}],"UserPromptSubmit":[{"matcher":"","hooks":[{"type":"command","command":"\"${CMUX_CLAUDE_HOOK_CMUX_BIN:-cmux}\" hooks claude prompt-submit","timeout":10}]}],"PreToolUse":[{"matcher":"","hooks":[{"type":"command","command":"\"${CMUX_CLAUDE_HOOK_CMUX_BIN:-cmux}\" hooks claude pre-tool-use","timeout":5,"async":true}]}],"PermissionRequest":[{"matcher":"","hooks":[{"type":"command","command":"\"${CMUX_CLAUDE_HOOK_CMUX_BIN:-cmux}\" hooks feed --source claude","timeout":125}]}]}}'
+HOOKS_JSON='{"preferredNotifChannel":"notifications_disabled","hooks":{"SessionStart":[{"matcher":"","hooks":[{"type":"command","command":"\"${CMUX_CLAUDE_HOOK_CMUX_BIN:-cmux}\" hooks claude session-start","timeout":10}]}],"Stop":[{"matcher":"","hooks":[{"type":"command","command":"\"${CMUX_CLAUDE_HOOK_CMUX_BIN:-cmux}\" hooks claude stop","timeout":10}]},{"matcher":"","hooks":[{"type":"command","command":"\"${CMUX_CLAUDE_HOOK_CMUX_BIN:-cmux}\" hooks feed --source claude","timeout":10,"async":true}]}],"SessionEnd":[{"matcher":"","hooks":[{"type":"command","command":"\"${CMUX_CLAUDE_HOOK_CMUX_BIN:-cmux}\" hooks claude session-end","timeout":1}]}],"Notification":[{"matcher":"","hooks":[{"type":"command","command":"\"${CMUX_CLAUDE_HOOK_CMUX_BIN:-cmux}\" hooks claude notification","timeout":10}]}],"UserPromptSubmit":[{"matcher":"","hooks":[{"type":"command","command":"\"${CMUX_CLAUDE_HOOK_CMUX_BIN:-cmux}\" hooks claude prompt-submit","timeout":10}]}],"PreToolUse":[{"matcher":"CronCreate","hooks":[{"type":"command","command":"\"${CMUX_CLAUDE_HOOK_CMUX_BIN:-cmux}\" hooks claude cron-create-guard","timeout":5}]},{"matcher":"","hooks":[{"type":"command","command":"\"${CMUX_CLAUDE_HOOK_CMUX_BIN:-cmux}\" hooks claude pre-tool-use","timeout":5,"async":true}]}],"PermissionRequest":[{"matcher":"","hooks":[{"type":"command","command":"\"${CMUX_CLAUDE_HOOK_CMUX_BIN:-cmux}\" hooks feed --source claude","timeout":125}]}]}}'
 
 if [[ "$SKIP_SESSION_ID" == true ]]; then
     exec "$REAL_CLAUDE" --settings "$HOOKS_JSON" "$@"

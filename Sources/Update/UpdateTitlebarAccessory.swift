@@ -432,13 +432,13 @@ struct TitlebarControlsView: View {
     let visibilityMode: TitlebarControlsVisibilityMode
     @ObservedObject private var popoverVisibilityState = NotificationsPopoverVisibilityState.shared
     @AppStorage("titlebarControlsStyle") private var styleRawValue = TitlebarControlsStyle.classic.rawValue
-    @AppStorage(ShortcutHintDebugSettings.titlebarHintXKey) private var titlebarShortcutHintXOffset = ShortcutHintDebugSettings.defaultTitlebarHintX
-    @AppStorage(ShortcutHintDebugSettings.titlebarHintYKey) private var titlebarShortcutHintYOffset = ShortcutHintDebugSettings.defaultTitlebarHintY
-    @AppStorage(ShortcutHintDebugSettings.alwaysShowHintsKey) private var alwaysShowShortcutHints = ShortcutHintDebugSettings.defaultAlwaysShowHints
     @State private var shortcutRefreshTick = 0
     @State private var isHoveringControls = false
     @State private var hostWindowNumber: Int?
     @StateObject private var modifierKeyMonitor = TitlebarShortcutHintModifierMonitor()
+    private let titlebarShortcutHintXOffset = ShortcutHintDebugSettings.defaultTitlebarHintX
+    private let titlebarShortcutHintYOffset = ShortcutHintDebugSettings.defaultTitlebarHintY
+    private let alwaysShowShortcutHints = ShortcutHintDebugSettings.alwaysShowHints()
     private let titlebarHintRightSafetyShift: CGFloat = 10
     private let titlebarHintBaseXShift: CGFloat = -10
 
@@ -1295,6 +1295,7 @@ private final class TitlebarShortcutHintModifierMonitor: ObservableObject {
 struct TitlebarControlsLayoutSnapshot: Equatable {
     let contentSize: NSSize
     let containerHeight: CGFloat
+    let xOffset: CGFloat
     let yOffset: CGFloat
 }
 
@@ -1322,6 +1323,7 @@ func titlebarControlsShouldApplyLayout(
     return abs(previous.contentSize.width - next.contentSize.width) > tolerance
         || abs(previous.contentSize.height - next.contentSize.height) > tolerance
         || abs(previous.containerHeight - next.containerHeight) > tolerance
+        || abs(previous.xOffset - next.xOffset) > tolerance
         || abs(previous.yOffset - next.yOffset) > tolerance
 }
 
@@ -1372,7 +1374,7 @@ final class TitlebarControlsAccessoryViewController: NSTitlebarAccessoryViewCont
         containerView.wantsLayer = true
         containerView.layer?.masksToBounds = false
         hostingView.translatesAutoresizingMaskIntoConstraints = true
-        hostingView.autoresizingMask = [.width, .height]
+        hostingView.autoresizingMask = []
         containerView.addSubview(hostingView)
 
         userDefaultsObserver = NotificationCenter.default.addObserver(
@@ -1383,6 +1385,7 @@ final class TitlebarControlsAccessoryViewController: NSTitlebarAccessoryViewCont
             self?.applyWorkspaceTitlebarVisibility()
             if self?.showsWorkspaceTitlebar == true {
                 self?.restoreSizeAfterMinimalMode()
+                self?.scheduleSizeUpdate()
             }
         }
 
@@ -1460,10 +1463,16 @@ final class TitlebarControlsAccessoryViewController: NSTitlebarAccessoryViewCont
             } ?? contentSize.height
         }()
         let containerHeight = max(contentSize.height, titlebarHeight)
+        let debugSnapshot = MinimalModeTitlebarDebugSettings.snapshot()
+        let xOffset = MinimalModeTitlebarDebugSettings.leftControlsXOffset(
+            leadingInset: debugSnapshot.leftControlsLeadingInset
+        )
         let yOffset = max(0, (containerHeight - contentSize.height) / 2.0)
+            + CGFloat(MinimalModeTitlebarDebugSettings.defaultLeftControlsTopInset - debugSnapshot.leftControlsTopInset)
         let nextLayoutSnapshot = TitlebarControlsLayoutSnapshot(
             contentSize: contentSize,
             containerHeight: containerHeight,
+            xOffset: xOffset,
             yOffset: yOffset
         )
         guard titlebarControlsShouldApplyLayout(
@@ -1473,9 +1482,10 @@ final class TitlebarControlsAccessoryViewController: NSTitlebarAccessoryViewCont
             return
         }
         lastAppliedLayoutSnapshot = nextLayoutSnapshot
-        preferredContentSize = NSSize(width: contentSize.width, height: containerHeight)
-        containerView.frame = NSRect(x: 0, y: 0, width: contentSize.width, height: containerHeight)
-        hostingView.frame = NSRect(x: 0, y: yOffset, width: contentSize.width, height: contentSize.height)
+        let containerWidth = contentSize.width + abs(xOffset)
+        preferredContentSize = NSSize(width: containerWidth, height: containerHeight)
+        containerView.setFrameSize(NSSize(width: containerWidth, height: containerHeight))
+        hostingView.frame = NSRect(x: xOffset, y: yOffset, width: contentSize.width, height: contentSize.height)
     }
 
     private func applyWorkspaceTitlebarVisibility() {
@@ -1627,14 +1637,14 @@ private struct NotificationsPopoverView: View {
                 }
                 .buttonStyle(.bordered)
                 .accessibilityIdentifier("notificationsPopover.clearAll")
-                .disabled(notificationStore.notifications.isEmpty)
+                .disabled(notificationStore.notificationMenuSnapshot.hasNotifications == false)
             }
             .padding(.horizontal, 12)
             .padding(.vertical, 10)
 
             Divider()
 
-            if notificationStore.notifications.isEmpty {
+            if !notificationStore.notificationMenuSnapshot.hasNotifications {
                 VStack(spacing: 8) {
                     Image(systemName: "bell.slash")
                         .font(.system(size: 28))
@@ -1644,6 +1654,15 @@ private struct NotificationsPopoverView: View {
                     Text(String(localized: "notifications.empty.subtitle", defaultValue: "Desktop notifications will appear here."))
                         .font(.subheadline)
                         .foregroundColor(.secondary)
+                }
+                .frame(minWidth: 420, idealWidth: 520, maxWidth: 640, minHeight: 180)
+            } else if notificationStore.notifications.isEmpty {
+                VStack(spacing: 8) {
+                    Image(systemName: "bell.badge")
+                        .font(.system(size: 28))
+                        .foregroundColor(.secondary)
+                    Text(notificationStore.notificationMenuSnapshot.stateHintTitle)
+                        .font(.headline)
                 }
                 .frame(minWidth: 420, idealWidth: 520, maxWidth: 640, minHeight: 180)
             } else {
@@ -1676,7 +1695,7 @@ private struct NotificationsPopoverView: View {
     }
 
     private var hasUnreadNotifications: Bool {
-        notificationStore.notifications.contains(where: { !$0.isRead })
+        notificationStore.notificationMenuSnapshot.hasUnreadNotifications
     }
 
     private func jumpToLatestUnread() {
@@ -1690,11 +1709,7 @@ private struct NotificationsPopoverView: View {
         // SwiftUI action closures are not guaranteed to run on the main actor.
         // Ensure window focus + tab selection happens on the main thread.
         DispatchQueue.main.async {
-            _ = AppDelegate.shared?.openNotification(
-                tabId: notification.tabId,
-                surfaceId: notification.surfaceId,
-                notificationId: notification.id
-            )
+            _ = AppDelegate.shared?.openTerminalNotification(notification)
             onDismiss()
         }
     }

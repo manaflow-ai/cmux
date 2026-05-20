@@ -12,9 +12,13 @@ let package = Package(
             targets: ["CMUXAgentLaunch"]
         ),
     ],
+    dependencies: [
+        .package(path: "../CMUXAgentVault"),
+    ],
     targets: [
         .target(
-            name: "CMUXAgentLaunch"
+            name: "CMUXAgentLaunch",
+            dependencies: ["CMUXAgentVault"]
         ),
         .testTarget(
             name: "CMUXAgentLaunchTests",

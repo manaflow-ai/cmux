@@ -49,9 +49,14 @@ final class TaskManagerWindowController: NSWindowController, NSWindowDelegate {
 
 @MainActor
 final class CmuxTaskManagerModel: ObservableObject {
-    @Published private(set) var snapshot = CmuxTaskManagerSnapshot.empty
+    @Published private(set) var snapshot = CmuxTaskManagerSnapshot.empty {
+        didSet { updateSortedRows() }
+    }
     @Published private(set) var isRefreshing = false
     @Published private(set) var errorMessage: String?
+    @Published private(set) var sortOrder = CmuxTaskManagerSortOrder.defaultOrder {
+        didSet { updateSortedRows() }
+    }
     @Published var includesProcesses = false {
         didSet {
             guard oldValue != includesProcesses else { return }
@@ -65,15 +70,35 @@ final class CmuxTaskManagerModel: ObservableObject {
     private let refreshInterval: TimeInterval = 3.0
     private let terminationGraceInterval: TimeInterval = 2.0
 
+    private(set) var sortedRows: [CmuxTaskManagerRow] = []
+    private(set) var sortedAgentRows: [CmuxTaskManagerRow] = []
+    private(set) var sortedAggregateRows: [CmuxTaskManagerRow] = []
+
+    init() {
+        updateSortedRows()
+    }
+
+    var isInitialLoading: Bool {
+        !snapshot.hasLoadedResourceUsage && errorMessage == nil
+    }
+
+    private var hasLoadedSnapshot: Bool {
+        snapshot.hasLoadedResourceUsage
+    }
+
+    func sort(by column: CmuxTaskManagerSortOrder.Column) {
+        sortOrder = sortOrder.toggled(for: column)
+    }
+
     func start() {
         guard refreshTimer == nil else {
-            refresh(force: true)
+            refresh(force: true, showIndicator: false)
             return
         }
-        refresh(force: true)
+        refresh(force: true, showIndicator: !hasLoadedSnapshot)
         let timer = Timer.scheduledTimer(withTimeInterval: refreshInterval, repeats: true) { [weak self] _ in
             Task { @MainActor [weak self] in
-                self?.refresh()
+                self?.refresh(showIndicator: false)
             }
         }
         timer.tolerance = 0.75
@@ -88,15 +113,19 @@ final class CmuxTaskManagerModel: ObservableObject {
         isRefreshing = false
     }
 
-    func refresh(force: Bool = false) {
+    func refresh(force: Bool = false, showIndicator: Bool? = nil) {
         if refreshTask != nil {
             guard force else { return }
             refreshTask?.cancel()
             refreshTask = nil
+            isRefreshing = false
         }
 
         let includeProcesses = includesProcesses
-        isRefreshing = true
+        let shouldShowIndicator = showIndicator ?? (force || !hasLoadedSnapshot)
+        if shouldShowIndicator {
+            isRefreshing = true
+        }
         refreshTask = Task { [weak self] in
             do {
                 let payload = try await TerminalController.shared.taskManagerTopPayload(includeProcesses: includeProcesses)
@@ -108,7 +137,9 @@ final class CmuxTaskManagerModel: ObservableObject {
                 guard !Task.isCancelled else { return }
                 self?.errorMessage = String(describing: error)
             }
-            self?.isRefreshing = false
+            if shouldShowIndicator {
+                self?.isRefreshing = false
+            }
             self?.refreshTask = nil
         }
     }
@@ -123,7 +154,11 @@ final class CmuxTaskManagerModel: ObservableObject {
 
     func viewWorkspace(for row: CmuxTaskManagerRow) {
         guard let workspaceId = row.workspaceId,
-              let manager = AppDelegate.shared?.tabManagerFor(tabId: workspaceId) else { return }
+              let appDelegate = AppDelegate.shared,
+              let manager = appDelegate.tabManagerFor(tabId: workspaceId) else { return }
+        if let windowId = appDelegate.windowId(for: manager) {
+            _ = appDelegate.focusMainWindow(windowId: windowId)
+        }
         manager.focusTab(workspaceId, surfaceId: row.surfaceId, suppressFlash: true)
         flashSelection(workspaceId: workspaceId, surfaceId: row.surfaceId)
     }
@@ -131,7 +166,11 @@ final class CmuxTaskManagerModel: ObservableObject {
     func viewTerminal(for row: CmuxTaskManagerRow) {
         guard let workspaceId = row.workspaceId,
               let terminalSurfaceId = row.terminalSurfaceId,
-              let manager = AppDelegate.shared?.tabManagerFor(tabId: workspaceId) else { return }
+              let appDelegate = AppDelegate.shared,
+              let manager = appDelegate.tabManagerFor(tabId: workspaceId) else { return }
+        if let windowId = appDelegate.windowId(for: manager) {
+            _ = appDelegate.focusMainWindow(windowId: windowId)
+        }
         manager.focusTab(workspaceId, surfaceId: terminalSurfaceId, suppressFlash: true)
         flashSelection(workspaceId: workspaceId, surfaceId: terminalSurfaceId)
     }
@@ -215,6 +254,12 @@ final class CmuxTaskManagerModel: ObservableObject {
             localized: "taskManager.killProcess.target.pid",
             defaultValue: "PID %lld"
         ), Int64(processId))
+    }
+
+    private func updateSortedRows() {
+        sortedRows = sortOrder.sortedRows(snapshot.rows)
+        sortedAgentRows = sortOrder.sortedRows(snapshot.agentRows)
+        sortedAggregateRows = sortOrder.sortedRows(snapshot.aggregateRows)
     }
 
     private func sendSignal(_ signal: Int32, toProcessId processId: Int) -> String? {

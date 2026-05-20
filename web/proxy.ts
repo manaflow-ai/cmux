@@ -18,6 +18,14 @@ export default function middleware(request: NextRequest) {
 
   const { pathname } = request.nextUrl;
 
+  // Temporary redirect: /changelog → /docs/changelog, preserving any locale prefix.
+  const changelogMatch = pathname.match(/^(\/[a-z]{2}(?:-[A-Z]{2})?)?\/changelog\/?$/);
+  if (changelogMatch) {
+    const url = request.nextUrl.clone();
+    url.pathname = `${changelogMatch[1] ?? ""}/docs/changelog`;
+    return NextResponse.redirect(url, 307);
+  }
+
   if (isAgentPageVariantPath(pathname)) {
     const url = request.nextUrl.clone();
     url.pathname = "/agent-page-variant";

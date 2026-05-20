@@ -405,6 +405,13 @@ _cmux_report_shell_activity_state() {
     } >/dev/null 2>&1 & disown
 }
 
+_cmux_reset_terminal_keyboard_protocols() {
+    [[ -t 1 || -n "${CMUX_TEST_FORCE_KEYBOARD_RESET:-}${CMUX_TEST_FORCE_KITTY_RESET:-}" ]] || return 0
+    # A crashed TUI may leave keyboard protocol state pushed. At a fresh shell
+    # prompt, return terminal input encoding to plain readline bytes.
+    printf '\033[>m\033[<8u'
+}
+
 _cmux_ports_kick() {
     local reason="${1:-command}"
     # Lightweight: just tell the app to run a batched scan for this panel.
@@ -963,6 +970,7 @@ _cmux_prompt_command() {
     fi
 
     if [[ -n "$CMUX_PANEL_ID" ]]; then
+        _cmux_reset_terminal_keyboard_protocols
         _cmux_report_shell_activity_state prompt
     fi
     _cmux_report_tty_once
