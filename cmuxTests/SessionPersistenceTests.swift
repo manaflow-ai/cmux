@@ -717,12 +717,7 @@ final class SessionPersistenceTests: XCTestCase {
         let liveWindowId = app.registerMainWindowContextForTesting(tabManager: liveManager)
         defer { app.unregisterMainWindowContextForTesting(windowId: liveWindowId) }
 
-        let emptyWindowSnapshot = SessionWindowSnapshot(
-            frame: nil,
-            display: nil,
-            tabManager: SessionTabManagerSnapshot(selectedWorkspaceIndex: nil, workspaces: []),
-            sidebar: SessionSidebarSnapshot(isVisible: true, selection: .tabs, width: 240)
-        )
+        let emptyWindowSnapshot = makeEmptySessionWindowSnapshotForTesting()
         app.debugLoadReopenSessionSnapshot = {
             AppSessionSnapshot(
                 version: SessionSnapshotSchema.currentVersion,
@@ -742,6 +737,61 @@ final class SessionPersistenceTests: XCTestCase {
         )
         XCTAssertEqual(restoreCreateCount, 0)
         XCTAssertEqual(app.mainWindowContexts.count, 1)
+    }
+
+    @MainActor
+    func testManualReopenPreviousSessionSkipsLeadingEmptyWindowsBeforeRestoreCap() throws {
+        let previousAppDelegate = AppDelegate.shared
+        let app = AppDelegate()
+        AppDelegate.shared = app
+        var restoredWindowIds: [UUID] = []
+        defer {
+            for windowId in restoredWindowIds {
+                app.unregisterMainWindowContextForTesting(windowId: windowId)
+            }
+            app.debugLoadReopenSessionSnapshot = nil
+            app.debugCreateMainWindowForSessionRestore = nil
+            AppDelegate.shared = previousAppDelegate
+        }
+
+        let liveManager = TabManager(autoWelcomeIfNeeded: false)
+        let liveWorkspace = try XCTUnwrap(liveManager.selectedWorkspace)
+        liveWorkspace.setCustomTitle("Live Workspace")
+        let liveWindowId = app.registerMainWindowContextForTesting(tabManager: liveManager)
+        defer { app.unregisterMainWindowContextForTesting(windowId: liveWindowId) }
+
+        let validAppSnapshot = try makeSingleWindowAppSessionSnapshotForTesting(
+            workspaceTitle: "Previous Workspace"
+        )
+        let validWindowSnapshot = try XCTUnwrap(validAppSnapshot.windows.first)
+        let emptyWindows = Array(
+            repeating: makeEmptySessionWindowSnapshotForTesting(),
+            count: SessionPersistencePolicy.maxWindowsPerSnapshot
+        )
+        app.debugLoadReopenSessionSnapshot = {
+            AppSessionSnapshot(
+                version: SessionSnapshotSchema.currentVersion,
+                createdAt: Date().timeIntervalSince1970,
+                windows: emptyWindows + [validWindowSnapshot]
+            )
+        }
+        app.debugCreateMainWindowForSessionRestore = { windowSnapshot, _ in
+            let restoredManager = TabManager(autoWelcomeIfNeeded: false)
+            restoredManager.restoreSessionSnapshot(windowSnapshot.tabManager)
+            let windowId = app.registerMainWindowContextForTesting(tabManager: restoredManager)
+            restoredWindowIds.append(windowId)
+            return windowId
+        }
+
+        XCTAssertTrue(app.reopenPreviousSession(shouldActivate: false))
+        XCTAssertEqual(restoredWindowIds.count, 1)
+        let restoredContext = try XCTUnwrap(
+            app.mainWindowContexts.values.first { restoredWindowIds.contains($0.windowId) }
+        )
+        XCTAssertEqual(restoredContext.tabManager.tabs.first?.customTitle, "Previous Workspace")
+        XCTAssertTrue(
+            liveManager.tabs.contains { $0.id == liveWorkspace.id && $0.customTitle == "Live Workspace" }
+        )
     }
 
     func testUnchangedAutosaveFingerprintSkipsWithinStalenessWindow() {
@@ -1744,6 +1794,15 @@ final class SessionPersistenceTests: XCTestCase {
             version: SessionSnapshotSchema.currentVersion,
             createdAt: Date().timeIntervalSince1970,
             windows: [window]
+        )
+    }
+
+    private func makeEmptySessionWindowSnapshotForTesting() -> SessionWindowSnapshot {
+        SessionWindowSnapshot(
+            frame: nil,
+            display: nil,
+            tabManager: SessionTabManagerSnapshot(selectedWorkspaceIndex: nil, workspaces: []),
+            sidebar: SessionSidebarSnapshot(isVisible: true, selection: .tabs, width: 240)
         )
     }
 

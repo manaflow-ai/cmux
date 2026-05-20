@@ -2898,9 +2898,13 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
     nonisolated static func manualReopenSessionWindows(
         from snapshot: AppSessionSnapshot
     ) -> [SessionWindowSnapshot] {
-        snapshot.windows
-            .prefix(SessionPersistencePolicy.maxWindowsPerSnapshot)
-            .filter { !$0.tabManager.workspaces.isEmpty }
+        // Manual reopen is additive and stricter than startup restore: user-triggered
+        // restore must not turn stale empty snapshot windows into fallback workspaces.
+        Array(
+            snapshot.windows
+                .filter { !$0.tabManager.workspaces.isEmpty }
+                .prefix(SessionPersistencePolicy.maxWindowsPerSnapshot)
+        )
     }
 
     private func loadReopenSessionSnapshot() -> AppSessionSnapshot? {
