@@ -1136,7 +1136,7 @@ final class CodexAppServerPanel: Panel, ObservableObject {
 #endif
                 if snapshot.responseWasTruncated {
                     transcriptLoadingPhase = .restoringHistory
-                    await loadLocalHistory(for: snapshot.threadId)
+                    await loadLocalHistory(for: snapshot.threadId, generation: generation)
                 }
                 guard isCurrentLifecycle(generation) else {
                     client.stop()
@@ -1160,6 +1160,12 @@ final class CodexAppServerPanel: Panel, ObservableObject {
 #endif
         } catch {
             guard isCurrentLifecycle(generation) else { return }
+            lifecycleGeneration += 1
+            initialHistoryRestoreTask?.cancel()
+            initialHistoryRestoreTask = nil
+            initialHistoryRestoreThreadId = nil
+            client.onEvent = nil
+            client.stop()
             isStarted = false
             transcriptLoadingPhase = .idle
             status = .failed(error.localizedDescription)
@@ -2064,9 +2070,10 @@ final class CodexAppServerPanel: Panel, ObservableObject {
         }
     }
 
-    private func loadLocalHistory(for threadId: String) async {
+    private func loadLocalHistory(for threadId: String, generation: Int) async {
         transcriptLoadingPhase = .restoringHistory
         let sanitizedThreadId = threadId.trimmingCharacters(in: .whitespacesAndNewlines)
+        let expectedThreadId = normalizedThreadId(sanitizedThreadId)
 #if DEBUG
         let loadStart = CodexAppServerTiming.now()
         CodexAppServerTiming.log("localHistory.fallback.begin", [
@@ -2098,7 +2105,11 @@ final class CodexAppServerPanel: Panel, ObservableObject {
                 limit: Self.localHistoryItemLimit
             )
         }
-        guard !isClosed else { return }
+        guard let expectedThreadId,
+              isCurrentLifecycle(generation),
+              normalizedThreadId(self.threadId) == expectedThreadId else {
+            return
+        }
 #if DEBUG
         CodexAppServerTiming.log("localHistory.fallback.loaded", [
             "panel": id.uuidString.prefix(8),

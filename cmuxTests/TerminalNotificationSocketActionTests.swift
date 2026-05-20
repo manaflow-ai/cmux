@@ -234,6 +234,50 @@ final class TerminalNotificationSocketActionTests: XCTestCase {
         XCTAssertEqual(fixture.notification(openable.id)?.isRead, true)
     }
 
+    func testSurfaceCreateCodexAppServerCreatesCodexPanel() async throws {
+        let fixture = try makeSocketFixture(name: "codex-create")
+        defer { fixture.cleanup() }
+
+        let response = try await sendV2RequestAsync(
+            method: "surface.create",
+            params: [
+                "type": "codex-app-server",
+                "working_directory": "/tmp",
+                "focus": false,
+            ],
+            to: fixture.socketPath
+        )
+
+        XCTAssertEqual(response["ok"] as? Bool, true, "\(response)")
+        let result = try XCTUnwrap(response["result"] as? [String: Any])
+        XCTAssertEqual(result["type"] as? String, PanelType.codexAppServer.rawValue)
+        let surfaceId = try XCTUnwrap(UUID(uuidString: try XCTUnwrap(result["surface_id"] as? String)))
+        XCTAssertTrue(fixture.workspace.panels[surfaceId] is CodexAppServerPanel)
+    }
+
+    func testSurfaceSplitCodexAppServerCreatesCodexPanel() async throws {
+        let fixture = try makeSocketFixture(name: "codex-split")
+        defer { fixture.cleanup() }
+
+        let response = try await sendV2RequestAsync(
+            method: "surface.split",
+            params: [
+                "surface_id": fixture.surfaceId.uuidString,
+                "type": "codex_app_server",
+                "direction": "right",
+                "working_directory": "/tmp",
+                "focus": false,
+            ],
+            to: fixture.socketPath
+        )
+
+        XCTAssertEqual(response["ok"] as? Bool, true, "\(response)")
+        let result = try XCTUnwrap(response["result"] as? [String: Any])
+        XCTAssertEqual(result["type"] as? String, PanelType.codexAppServer.rawValue)
+        let surfaceId = try XCTUnwrap(UUID(uuidString: try XCTUnwrap(result["surface_id"] as? String)))
+        XCTAssertTrue(fixture.workspace.panels[surfaceId] is CodexAppServerPanel)
+    }
+
     private struct SocketFixture {
         let socketPath: String
         let store: TerminalNotificationStore

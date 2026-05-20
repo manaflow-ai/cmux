@@ -25,6 +25,7 @@ private final class FakeCodexAppServerClient: CodexAppServerClienting {
     var startAndInitializeCallCount = 0
     var startThreadCallCount = 0
     var resumeThreadCallCount = 0
+    var stopCallCount = 0
     var resumeThreadError: Error?
     var startTurnCalls: [TurnStartCall] = []
     var steerTurnCalls: [SteerCall] = []
@@ -41,7 +42,9 @@ private final class FakeCodexAppServerClient: CodexAppServerClienting {
         String(format: "019d6637-e5cc-7cc0-a321-2c43b799%04x", index)
     }
 
-    func stop() {}
+    func stop() {
+        stopCallCount += 1
+    }
 
     func startAndInitialize() async throws {
         startAndInitializeCallCount += 1
@@ -403,6 +406,25 @@ final class CodexAppServerRequestFactoryTests: XCTestCase {
         XCTAssertEqual(client.resumeThreadCallCount, 1)
         XCTAssertEqual(panel.status, .ready)
         XCTAssertNil(panel.resumableThreadId)
+    }
+
+    @MainActor
+    func testStartupFailureAfterInitializeStopsClientBeforeFailedState() async throws {
+        let client = FakeCodexAppServerClient()
+        client.resumeThreadError = CodexAppServerClientError.requestFailed("permission denied")
+        let panel = CodexAppServerPanel(
+            workspaceId: UUID(),
+            cwd: "/tmp",
+            resumeThreadId: "019d6637-e5cc-7cc0-a321-2c43b799036b",
+            client: client
+        )
+
+        await panel.start()
+
+        XCTAssertEqual(client.startAndInitializeCallCount, 1)
+        XCTAssertEqual(client.resumeThreadCallCount, 1)
+        XCTAssertEqual(client.stopCallCount, 1)
+        XCTAssertTrue(panel.status.isFailed)
     }
 
     func testMissingRolloutResumeErrorMatcher() {

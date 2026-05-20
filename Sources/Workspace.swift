@@ -11111,7 +11111,8 @@ final class Workspace: Identifiable, ObservableObject {
         insertFirst: Bool = false,
         cwd: String? = nil,
         resumeThreadId: String? = nil,
-        focus: Bool = true
+        focus: Bool = true,
+        initialDividerPosition: CGFloat? = nil
     ) -> CodexAppServerPanel? {
         guard let sourceTabId = surfaceIdFromPanelId(panelId) else { return nil }
         var sourcePaneId: PaneID?
@@ -11150,12 +11151,14 @@ final class Workspace: Identifiable, ObservableObject {
 
         isProgrammaticSplit = true
         defer { isProgrammaticSplit = false }
-        guard bonsplitController.splitPane(paneId, orientation: orientation, withTab: newTab, insertFirst: insertFirst) != nil else {
+        guard let newPaneId = bonsplitController.splitPane(paneId, orientation: orientation, withTab: newTab, insertFirst: insertFirst) else {
             surfaceIdToPanelId.removeValue(forKey: newTab.id)
             panels.removeValue(forKey: codexPanel.id)
             panelTitles.removeValue(forKey: codexPanel.id)
             return nil
         }
+        applyInitialSplitDividerPosition(initialDividerPosition, sourcePaneId: paneId, newPaneId: newPaneId)
+        publishCmuxSplitCreated(newPaneId, sourcePaneId: paneId, orientation: orientation, surfaceId: codexPanel.id, kind: "codex_app_server", origin: "codex_app_server_split", focused: focus)
 
         let previousHostedView = focusedTerminalPanel?.hostedView
         if focus {
