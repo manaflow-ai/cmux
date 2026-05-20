@@ -1266,8 +1266,21 @@ final class SessionIndexStore: ObservableObject {
             process.standardError = nullDev
         }
 
+        // Coordinate launch and cancellation: calling `.terminate()` on a
+        // never-launched NSTask raises NSInvalidArgumentException, an ObjC
+        // exception Swift cannot catch — it propagates to std::terminate and
+        // crashes the app. Rapid typing in the Vault search field hits this
+        // race because cancellation can fire before `process.run()` executes.
+        let launchedState = OSAllocatedUnfairLock<Bool>(initialState: false)
+
         return await withTaskCancellationHandler {
-            do { try process.run() } catch { return nil as [URL]? }
+            let started: Bool = launchedState.withLock { launched in
+                if Task.isCancelled { return false }
+                do { try process.run() } catch { return false }
+                launched = true
+                return true
+            }
+            guard started else { return nil as [URL]? }
             // Drain stdout BEFORE waitUntilExit. With many matches rg writes
             // more than the ~64 KB pipe buffer; reading until EOF lets rg
             // make progress and EOF arrives when rg closes its stdout on exit.
@@ -1291,9 +1304,12 @@ final class SessionIndexStore: ObservableObject {
             }
         } onCancel: {
             // Fires synchronously when the awaiting Task is cancelled. Sends
-            // SIGTERM to rg, which closes stdout, lets readDataToEndOfFile
-            // return, and unblocks the body so this call can complete cleanly.
-            process.terminate()
+            // SIGTERM to rg only if we actually launched it; otherwise NSTask
+            // would raise "task not launched" and kill the process.
+            let wasLaunched = launchedState.withLock { $0 }
+            if wasLaunched {
+                process.terminate()
+            }
         }
     }
 
