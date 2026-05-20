@@ -9,6 +9,7 @@ let package = Package(
     products: [
         .library(
             name: "CMUXAgentLaunch",
+            type: .static,
             targets: ["CMUXAgentLaunch"]
         ),
     ],
