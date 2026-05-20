@@ -159,6 +159,39 @@ final class WindowAppearanceSnapshotTests: XCTestCase {
         XCTAssertNil(makeSnapshot(unifySurfaceBackdrops: false).sidebarContrastOverlayColor(for: .leftSidebar))
     }
 
+    func testUnifiedSidebarContrastOverlayUsesCompositedTerminalBackground() {
+        let snapshot = makeSnapshot(
+            unifySurfaceBackdrops: true,
+            backgroundHex: "#000000",
+            backgroundOpacity: 0.05
+        )
+        guard let overlay = snapshot.sidebarContrastOverlayColor(for: .leftSidebar),
+              let overlaySRGB = overlay.usingColorSpace(.sRGB),
+              let compositedSRGB = snapshot.compositedTerminalBackgroundColor.usingColorSpace(.sRGB) else {
+            XCTFail("expected sRGB-convertible sidebar overlay")
+            return
+        }
+
+        let isLight = snapshot.compositedTerminalBackgroundColor.isLightColor
+        let adjustment: CGFloat = isLight ? -0.05 : 0.07
+        XCTAssertEqual(
+            overlaySRGB.redComponent,
+            min(1, max(0, compositedSRGB.redComponent + adjustment)),
+            accuracy: 0.001
+        )
+        XCTAssertEqual(
+            overlaySRGB.greenComponent,
+            min(1, max(0, compositedSRGB.greenComponent + adjustment)),
+            accuracy: 0.001
+        )
+        XCTAssertEqual(
+            overlaySRGB.blueComponent,
+            min(1, max(0, compositedSRGB.blueComponent + adjustment)),
+            accuracy: 0.001
+        )
+        XCTAssertEqual(overlaySRGB.alphaComponent, isLight ? 0.20 : 0.18, accuracy: 0.0001)
+    }
+
     func testOpaqueTerminalUsesOpaqueWindowFill() {
         let snapshot = makeSnapshot(unifySurfaceBackdrops: false, backgroundOpacity: 1.0)
         let plan = snapshot.backdropPlan(glassEffectAvailable: false)

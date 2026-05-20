@@ -215,6 +215,81 @@ final class CMUXCLIErrorOutputRegressionTests: XCTestCase {
         XCTAssertEqual(responder.receivedRequests, [])
     }
 
+    func testThemesSetTargetsResolvedTaggedSocketWhenBundleEnvironmentIsStale() throws {
+        let cliPath = try bundledCLIPath()
+        let fileManager = FileManager.default
+        let root = fileManager.temporaryDirectory
+            .appendingPathComponent("cmux-themes-stale-bundle-\(UUID().uuidString)", isDirectory: true)
+        try fileManager.createDirectory(at: root, withIntermediateDirectories: true)
+        defer { try? fileManager.removeItem(at: root) }
+
+        let resourcesURL = root.appendingPathComponent("resources", isDirectory: true)
+        let themesURL = resourcesURL.appendingPathComponent("themes", isDirectory: true)
+        try fileManager.createDirectory(at: themesURL, withIntermediateDirectories: true)
+        try writeTheme(named: "Theme A", background: "#101010", to: themesURL)
+
+        let socketPath = "/tmp/cmux-debug-active-theme.sock"
+        let staleBundleIdentifier = "com.cmuxterm.app.debug.stale.theme"
+        let targetBundleIdentifier = "com.cmuxterm.app.debug.active.theme"
+        let reloadExpectation = expectation(description: "cmux themes set targets the resolved socket bundle")
+        let notificationQueue = OperationQueue()
+        notificationQueue.maxConcurrentOperationCount = 1
+        let notificationLock = NSLock()
+        var observedReloads: [(bundleIdentifier: String?, phase: String?, socketPath: String?)] = []
+        let observer = DistributedNotificationCenter.default().addObserver(
+            forName: Notification.Name("com.cmuxterm.themes.reload-config"),
+            object: nil,
+            queue: notificationQueue
+        ) { notification in
+            let observedBundleIdentifier = notification.userInfo?["bundleIdentifier"] as? String
+            guard observedBundleIdentifier == targetBundleIdentifier else { return }
+            let observedPhase = notification.userInfo?["phase"] as? String
+            let observedSocketPath = notification.userInfo?["socketPath"] as? String
+            notificationLock.lock()
+            observedReloads.append((
+                bundleIdentifier: observedBundleIdentifier,
+                phase: observedPhase,
+                socketPath: observedSocketPath
+            ))
+            notificationLock.unlock()
+            reloadExpectation.fulfill()
+        }
+        defer {
+            DistributedNotificationCenter.default().removeObserver(observer)
+        }
+
+        var environment = ProcessInfo.processInfo.environment
+        for key in Array(environment.keys) where key.hasPrefix("CMUX_") {
+            environment.removeValue(forKey: key)
+        }
+        environment["CFFIXED_USER_HOME"] = root.path
+        environment["HOME"] = root.path
+        environment["GHOSTTY_RESOURCES_DIR"] = resourcesURL.path
+        environment["CMUX_SOCKET_PATH"] = socketPath
+        environment["CMUX_BUNDLE_ID"] = staleBundleIdentifier
+        environment["CMUX_CLI_SENTRY_DISABLED"] = "1"
+
+        let result = runProcess(
+            executablePath: cliPath,
+            arguments: ["--json", "themes", "set", "Theme A"],
+            environment: environment,
+            timeout: 5
+        )
+
+        XCTAssertFalse(result.timedOut, result.stdout)
+        XCTAssertEqual(result.status, 0, result.stdout)
+        wait(for: [reloadExpectation], timeout: 5)
+
+        notificationLock.lock()
+        let reloads = observedReloads
+        notificationLock.unlock()
+        XCTAssertEqual(reloads.map { $0.bundleIdentifier }, [targetBundleIdentifier])
+        XCTAssertEqual(reloads.map { $0.phase }, ["final"])
+        XCTAssertEqual(reloads.map { $0.socketPath }, [socketPath])
+        XCTAssertFalse(result.stdout.contains(staleBundleIdentifier), result.stdout)
+        XCTAssertTrue(result.stdout.contains(targetBundleIdentifier), result.stdout)
+    }
+
     func testBareInteractiveThemesReloadsRunningAppAfterPickerExits() throws {
         let cliPath = try bundledCLIPath()
         let fileManager = FileManager.default

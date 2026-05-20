@@ -313,7 +313,8 @@ struct WindowAppearanceSnapshot {
             return nil
         }
 
-        let srgb = terminalBackgroundColor.usingColorSpace(.sRGB) ?? terminalBackgroundColor
+        let composited = compositedTerminalBackgroundColor
+        let srgb = composited.usingColorSpace(.sRGB) ?? composited
         var red: CGFloat = 0
         var green: CGFloat = 0
         var blue: CGFloat = 0
@@ -321,7 +322,7 @@ struct WindowAppearanceSnapshot {
         srgb.getRed(&red, green: &green, blue: &blue, alpha: &alpha)
         _ = alpha
 
-        let isLight = terminalBackgroundColor.isLightColor
+        let isLight = composited.isLightColor
         let adjustment: CGFloat = isLight ? -0.05 : 0.07
         return NSColor(
             srgbRed: min(1, max(0, red + adjustment)),

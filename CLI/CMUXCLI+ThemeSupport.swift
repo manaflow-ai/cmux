@@ -310,19 +310,71 @@ extension CMUXCLI {
     }
 
     func reloadThemesIfPossible(
-        socketPath _: String,
+        socketPath: String,
         explicitPassword _: String?
     ) -> ThemeReloadStatus {
-        let bundleIdentifier = currentCmuxAppBundleIdentifier() ?? Self.cmuxThemeOverrideBundleIdentifier
+        let bundleIdentifier = themeReloadTargetBundleIdentifier(socketPath: socketPath)
         DistributedNotificationCenter.default().post(
             name: Notification.Name(Self.cmuxThemesReloadNotificationName),
             object: nil,
             userInfo: [
                 "bundleIdentifier": bundleIdentifier,
+                "socketPath": socketPath,
                 "phase": "final",
             ]
         )
         return ThemeReloadStatus(requested: true, targetBundleIdentifier: bundleIdentifier)
+    }
+
+    func themeReloadTargetBundleIdentifier(socketPath: String) -> String {
+        bundleIdentifierForThemeReloadSocketPath(socketPath)
+            ?? currentCmuxAppBundleIdentifier()
+            ?? Self.cmuxThemeOverrideBundleIdentifier
+    }
+
+    private func bundleIdentifierForThemeReloadSocketPath(_ socketPath: String) -> String? {
+        let name = URL(fileURLWithPath: socketPath).lastPathComponent
+        switch name {
+        case "cmux.sock":
+            return Self.cmuxThemeOverrideBundleIdentifier
+        case "cmux-debug.sock":
+            return "com.cmuxterm.app.debug"
+        case "cmux-nightly.sock":
+            return "com.cmuxterm.app.nightly"
+        case "cmux-staging.sock":
+            return "com.cmuxterm.app.staging"
+        default:
+            break
+        }
+
+        if name.range(of: #"^cmux-\d+\.sock$"#, options: .regularExpression) != nil {
+            return Self.cmuxThemeOverrideBundleIdentifier
+        }
+
+        if let slug = themeReloadSocketSlug(name, prefix: "cmux-debug-", suffix: ".sock") {
+            return "com.cmuxterm.app.debug.\(slug)"
+        }
+        if let slug = themeReloadSocketSlug(name, prefix: "cmux-nightly-", suffix: ".sock") {
+            return "com.cmuxterm.app.nightly.\(slug)"
+        }
+        if let slug = themeReloadSocketSlug(name, prefix: "cmux-staging-", suffix: ".sock") {
+            return "com.cmuxterm.app.staging.\(slug)"
+        }
+        return nil
+    }
+
+    private func themeReloadSocketSlug(_ name: String, prefix: String, suffix: String) -> String? {
+        guard name.hasPrefix(prefix), name.hasSuffix(suffix) else {
+            return nil
+        }
+        let start = name.index(name.startIndex, offsetBy: prefix.count)
+        let end = name.index(name.endIndex, offsetBy: -suffix.count)
+        let rawSlug = String(name[start..<end])
+        let bundleSlug = rawSlug
+            .lowercased()
+            .replacingOccurrences(of: #"[^a-z0-9]+"#, with: ".", options: .regularExpression)
+            .trimmingCharacters(in: CharacterSet(charactersIn: "."))
+        return bundleSlug.isEmpty ? nil : bundleSlug
     }
 
     func currentCmuxAppBundleIdentifier() -> String? {
