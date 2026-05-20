@@ -344,6 +344,9 @@ final class AppDelegateShortcutRoutingTests: XCTestCase {
             fallbackPath: nil,
             startWatching: false
         )
+        #if DEBUG
+        appDelegate.debugResetShortcutRoutingStateForTesting()
+        #endif
 
         window.makeKeyAndOrderFront(nil)
         RunLoop.main.run(until: Date(timeIntervalSinceNow: 0.05))
@@ -1839,6 +1842,16 @@ final class AppDelegateShortcutRoutingTests: XCTestCase {
 
         AppDelegate.installWindowResponderSwizzlesForTesting()
 
+        let windowId = appDelegate.createMainWindow()
+        defer { closeWindow(withId: windowId) }
+
+        guard let mainWindow = window(withId: windowId) else {
+            XCTFail("Expected test main window")
+            return
+        }
+        mainWindow.makeKeyAndOrderFront(nil)
+        RunLoop.main.run(until: Date(timeIntervalSinceNow: 0.05))
+
         let previousMainMenu = NSApp.mainMenu
         let probeWindow = NSWindow(
             contentRect: NSRect(x: 0, y: 0, width: 320, height: 240),
@@ -1846,6 +1859,7 @@ final class AppDelegateShortcutRoutingTests: XCTestCase {
             backing: .buffered,
             defer: false
         )
+        probeWindow.isReleasedWhenClosed = false
         probeWindow.identifier = NSUserInterfaceItemIdentifier("cmux.browser-popup")
         let contentView = NSView(frame: probeWindow.contentRect(forFrameRect: probeWindow.frame))
         let probeView = GhosttyCommandEquivalentProbeView(frame: NSRect(x: 0, y: 0, width: 200, height: 120))
@@ -1854,6 +1868,8 @@ final class AppDelegateShortcutRoutingTests: XCTestCase {
         defer {
             NSApp.mainMenu = previousMainMenu
             probeWindow.orderOut(nil)
+            probeWindow.close()
+            RunLoop.main.run(until: Date(timeIntervalSinceNow: 0.05))
         }
 
         let staleMenu = NSMenu(title: "Test")
