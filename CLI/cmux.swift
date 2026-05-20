@@ -2458,7 +2458,9 @@ struct CMUXCLI {
         if command == "themes" {
             try runThemes(
                 commandArgs: commandArgs,
-                jsonOutput: jsonOutput
+                jsonOutput: jsonOutput,
+                socketPath: resolvedSocketPath,
+                explicitPassword: socketPasswordArg
             )
             return
         }

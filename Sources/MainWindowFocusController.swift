@@ -136,6 +136,14 @@ final class MainWindowFocusController {
         publishFeedFocusSnapshot()
     }
 
+    func rememberRightSidebarMode(_ mode: RightSidebarMode) {
+        rememberedRightSidebarMode = mode
+        if mode != .feed {
+            feedSelectedItemId = nil
+        }
+        publishFeedFocusSnapshot()
+    }
+
     func noteTerminalInteraction(workspaceId: UUID, panelId: UUID) {
         noteMainPanelInteraction(workspaceId: workspaceId, panelId: panelId)
     }
