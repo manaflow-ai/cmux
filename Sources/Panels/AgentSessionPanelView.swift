@@ -9,16 +9,21 @@ struct AgentSessionPanelView: View {
     let onRequestPanelFocus: () -> Void
 
     var body: some View {
-        if isVisibleInUI {
-            AgentSessionWebRenderer(
-                panel: panel,
-                backgroundColor: appearance.backgroundColor,
-                onRequestPanelFocus: onRequestPanelFocus
-            )
-            .id(panel.id)
-            .zIndex(Double(portalPriority))
-        } else {
-            Color(nsColor: appearance.backgroundColor)
+        Group {
+            if isVisibleInUI {
+                AgentSessionWebRenderer(
+                    panel: panel,
+                    backgroundColor: appearance.contentBackgroundColor,
+                    onRequestPanelFocus: onRequestPanelFocus
+                )
+                .id(panel.id)
+                .frame(maxWidth: .infinity, maxHeight: .infinity)
+                .zIndex(Double(portalPriority))
+            } else {
+                Color(nsColor: appearance.contentBackgroundColor)
+            }
         }
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
+        .background(Color(nsColor: appearance.contentBackgroundColor))
     }
 }
