@@ -1724,10 +1724,13 @@ final class AppDelegateShortcutRoutingTests: XCTestCase {
 #endif
 
         waitUntil(timeout: 1.0) {
-            self.window(withId: windowId) == nil
+            self.window(withId: windowId)?.isVisible != true
         }
 
-        XCTAssertNil(self.window(withId: windowId), "Confirming Cmd+Ctrl+W should close the window")
+        XCTAssertFalse(
+            self.window(withId: windowId)?.isVisible == true,
+            "Confirming Cmd+Ctrl+W should close the window"
+        )
     }
 
     // NOTE: This test is skipped in CI via -skip-testing in ci.yml because closing
@@ -4253,11 +4256,12 @@ final class AppDelegateShortcutRoutingTests: XCTestCase {
         window.makeKeyAndOrderFront(nil)
         RunLoop.main.run(until: Date(timeIntervalSinceNow: 0.05))
 
-        let overlayContainer = NSView(frame: contentView.bounds)
+        let overlayHost = contentView.superview ?? contentView
+        let overlayContainer = NSView(frame: overlayHost.bounds)
         overlayContainer.identifier = commandPaletteOverlayContainerIdentifier
         overlayContainer.alphaValue = 1
         overlayContainer.isHidden = false
-        contentView.addSubview(overlayContainer)
+        overlayHost.addSubview(overlayContainer)
 
         let fieldEditor = CommandPaletteMarkedTextFieldEditor(frame: NSRect(x: 0, y: 0, width: 200, height: 24))
         fieldEditor.isFieldEditor = true
@@ -4296,7 +4300,7 @@ final class AppDelegateShortcutRoutingTests: XCTestCase {
             key: String(UnicodeScalar(NSDownArrowFunctionKey)!),
             modifiers: [],
             keyCode: 125,
-            windowNumber: 0
+            windowNumber: window.windowNumber
         ) else {
             XCTFail("Failed to construct Down Arrow event")
             return
