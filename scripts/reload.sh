@@ -503,7 +503,11 @@ XCODEBUILD_LOCK="${TMPDIR:-/tmp}/cmux-xcodebuild-$(id -u).lock"
 # invocations (even with separate -derivedDataPath) share that daemon and can
 # crash it, SIGTERMing in-flight builds. Serialize via a per-user lock so
 # parallel reload.sh runs queue instead of trampling each other.
-python3 -c '
+if [[ "${CMUX_RELOAD_BYPASS_XCODEBUILD_LOCK:-}" == "1" ]]; then
+  echo "warning: bypassing xcodebuild lock for tag ${TAG_SLUG}; concurrent Xcode builds may fail" >&4
+  xcodebuild "${XCODEBUILD_ARGS[@]}"
+else
+  python3 -c '
 import fcntl
 import os
 import sys
@@ -547,6 +551,7 @@ try:
 except OSError as exc:
     raise SystemExit(f"error: exec: {exc}")
 ' "$XCODEBUILD_LOCK" xcodebuild "${XCODEBUILD_ARGS[@]}"
+fi
 sleep 0.2
 
 FALLBACK_APP_NAME="$BASE_APP_NAME"

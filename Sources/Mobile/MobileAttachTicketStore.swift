@@ -15,6 +15,7 @@ final class MobileAttachTicketStore {
         let issuedAt: Date
     }
 
+    private let lock = NSLock()
     private var recordsByAuthToken: [String: Record] = [:]
 
     func createTicket(
@@ -24,6 +25,9 @@ final class MobileAttachTicketStore {
         ttl: TimeInterval,
         now: Date = Date()
     ) throws -> CmxAttachTicket {
+        lock.lock()
+        defer { lock.unlock() }
+
         pruneExpired(now: now)
         guard !routes.isEmpty else {
             throw MobileAttachTicketStoreError.noRoutes
@@ -54,6 +58,9 @@ final class MobileAttachTicketStore {
     }
 
     func validTicket(authToken: String?, now: Date = Date()) -> CmxAttachTicket? {
+        lock.lock()
+        defer { lock.unlock() }
+
         pruneExpired(now: now)
         guard let authToken = authToken?.trimmingCharacters(in: .whitespacesAndNewlines),
               !authToken.isEmpty else {

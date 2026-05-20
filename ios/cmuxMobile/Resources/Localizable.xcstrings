@@ -11,8 +11,15 @@
     "mobile.addDevice.help" : {
       "extractionState" : "manual",
       "localizations" : {
-        "en" : { "stringUnit" : { "state" : "translated", "value" : "Enter your computer's device name. For IP, LAN, or local pairing, scan a QR code or open a link from that computer." } },
-        "ja" : { "stringUnit" : { "state" : "translated", "value" : "コンピュータのデバイス名を入力してください。IP、LAN、ローカルでペアリングするには、そのコンピュータの QR コードをスキャンするかリンクを開いてください。" } }
+        "en" : { "stringUnit" : { "state" : "translated", "value" : "Enter a Tailscale, LAN, or local host and port. QR/link pairing from that computer is still the safest setup path." } },
+        "ja" : { "stringUnit" : { "state" : "translated", "value" : "Tailscale、LAN、またはローカルのホストとポートを入力してください。そのコンピュータからの QR/リンクでのペアリングが最も安全な設定方法です。" } }
+      }
+    },
+    "mobile.addDevice.manualRouteWarning" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : { "stringUnit" : { "state" : "translated", "value" : "This will connect directly to that address. Use this only on a trusted LAN, VPN, or device you control." } },
+        "ja" : { "stringUnit" : { "state" : "translated", "value" : "そのアドレスへ直接接続します。信頼できる LAN、VPN、または管理しているデバイスでのみ使用してください。" } }
       }
     },
     "mobile.addDevice.hostLabel" : {
@@ -218,11 +225,32 @@
         "ja" : { "stringUnit" : { "state" : "translated", "value" : "コンピュータが応答しませんでした。ホストとポートを確認して、もう一度お試しください。" } }
       }
     },
+    "mobile.pairing.connectionTimedOutFormat" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : { "stringUnit" : { "state" : "translated", "value" : "No response from %@:%d. Make sure cmux is open on that Mac and the mobile server is on." } },
+        "ja" : { "stringUnit" : { "state" : "translated", "value" : "%@:%d から応答がありません。Mac で cmux が開いていて、モバイルサーバーがオンになっていることを確認してください。" } }
+      }
+    },
+    "mobile.pairing.connectionFailedFormat" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : { "stringUnit" : { "state" : "translated", "value" : "Could not reach %@:%d. Check that the Mac is on the same Tailscale or LAN and that the port is correct." } },
+        "ja" : { "stringUnit" : { "state" : "translated", "value" : "%@:%d に到達できませんでした。Mac が同じ Tailscale または LAN 上にあり、ポートが正しいことを確認してください。" } }
+      }
+    },
+    "mobile.pairing.connectionDroppedFormat" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : { "stringUnit" : { "state" : "translated", "value" : "Connected to %@:%d, but the mobile server closed the connection. Check that cmux is still running." } },
+        "ja" : { "stringUnit" : { "state" : "translated", "value" : "%@:%d に接続しましたが、モバイルサーバーが接続を閉じました。cmux がまだ実行中であることを確認してください。" } }
+      }
+    },
     "mobile.pairing.secureRouteRequired" : {
       "extractionState" : "manual",
       "localizations" : {
-        "en" : { "stringUnit" : { "state" : "translated", "value" : "Enter a device name, or pair with a QR/link from that computer." } },
-        "ja" : { "stringUnit" : { "state" : "translated", "value" : "デバイス名を入力するか、そのコンピュータの QR/リンクでペアリングしてください。" } }
+        "en" : { "stringUnit" : { "state" : "translated", "value" : "This pairing route is not allowed. Enter a host and port, or pair with a QR/link from that computer." } },
+        "ja" : { "stringUnit" : { "state" : "translated", "value" : "このペアリング経路は使用できません。ホストとポートを入力するか、そのコンピュータの QR/リンクでペアリングしてください。" } }
       }
     },
     "mobile.pairing.unsupportedRoute" : {

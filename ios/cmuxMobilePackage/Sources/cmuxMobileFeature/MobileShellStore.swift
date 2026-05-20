@@ -215,11 +215,13 @@ public enum MobileShellPhase: Equatable, Sendable {
 
 public struct CMUXMobileRuntime: Sendable {
     public static let defaultRPCRequestTimeoutNanoseconds: UInt64 = 30 * 1_000_000_000
+    public static let defaultPairingRequestTimeoutNanoseconds: UInt64 = 8 * 1_000_000_000
 
     public var supportedRouteKinds: [CmxAttachTransportKind]
     public var transportFactory: any CmxByteTransportFactory
     public var stackAccessTokenProvider: @Sendable () async throws -> String
     public var rpcRequestTimeoutNanoseconds: UInt64
+    public var pairingRequestTimeoutNanoseconds: UInt64
     public var now: @Sendable () -> Date
 
     private static var defaultStackAccessTokenProvider: @Sendable () async throws -> String {
@@ -233,12 +235,14 @@ public struct CMUXMobileRuntime: Sendable {
         transportFactory: any CmxByteTransportFactory,
         stackAccessTokenProvider: (@Sendable () async throws -> String)? = nil,
         rpcRequestTimeoutNanoseconds: UInt64 = CMUXMobileRuntime.defaultRPCRequestTimeoutNanoseconds,
+        pairingRequestTimeoutNanoseconds: UInt64 = CMUXMobileRuntime.defaultPairingRequestTimeoutNanoseconds,
         now: @escaping @Sendable () -> Date = Date.init
     ) {
         self.supportedRouteKinds = supportedRouteKinds
         self.transportFactory = transportFactory
         self.stackAccessTokenProvider = stackAccessTokenProvider ?? Self.defaultStackAccessTokenProvider
         self.rpcRequestTimeoutNanoseconds = rpcRequestTimeoutNanoseconds
+        self.pairingRequestTimeoutNanoseconds = pairingRequestTimeoutNanoseconds
         self.now = now
     }
 
@@ -246,12 +250,14 @@ public struct CMUXMobileRuntime: Sendable {
         transportFactory: any CmxRouteAwareByteTransportFactory,
         stackAccessTokenProvider: (@Sendable () async throws -> String)? = nil,
         rpcRequestTimeoutNanoseconds: UInt64 = CMUXMobileRuntime.defaultRPCRequestTimeoutNanoseconds,
+        pairingRequestTimeoutNanoseconds: UInt64 = CMUXMobileRuntime.defaultPairingRequestTimeoutNanoseconds,
         now: @escaping @Sendable () -> Date = Date.init
     ) {
         self.supportedRouteKinds = transportFactory.supportedKinds
         self.transportFactory = transportFactory
         self.stackAccessTokenProvider = stackAccessTokenProvider ?? Self.defaultStackAccessTokenProvider
         self.rpcRequestTimeoutNanoseconds = rpcRequestTimeoutNanoseconds
+        self.pairingRequestTimeoutNanoseconds = pairingRequestTimeoutNanoseconds
         self.now = now
     }
 }
@@ -270,12 +276,31 @@ enum MobileShellRouteAuthPolicy {
         case (.debugLoopback, let .hostPort(host, _)):
             return isLoopbackHost(host)
         case (.tailscale, let .hostPort(host, _)):
-            return isTailscaleDNSHost(host)
+            return normalizedManualNetworkHost(host) != nil
         case (.iroh, .peer):
             return true
         default:
             return false
         }
+    }
+
+    static func manualHostNeedsTrustWarning(_ host: String) -> Bool {
+        guard let normalizedHost = normalizedManualNetworkHost(host) else {
+            return false
+        }
+        return !isLoopbackHost(normalizedHost) && !isTailscaleHost(normalizedHost)
+    }
+
+    private static func normalizedManualNetworkHost(_ host: String) -> String? {
+        let normalizedHost = host.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
+        guard !normalizedHost.isEmpty,
+              normalizedHost.rangeOfCharacter(from: .whitespacesAndNewlines) == nil,
+              normalizedHost.rangeOfCharacter(from: .controlCharacters) == nil,
+              normalizedHost.rangeOfCharacter(from: CharacterSet(charactersIn: "/?#@")) == nil,
+              normalizedHost.range(of: "://") == nil else {
+            return nil
+        }
+        return normalizedHost
     }
 
     private static func isLoopbackHost(_ host: String) -> Bool {
@@ -286,9 +311,28 @@ enum MobileShellRouteAuthPolicy {
     }
 
     private static func isIPv4LoopbackHost(_ host: String) -> Bool {
+        guard let octets = ipv4Octets(host) else {
+            return false
+        }
+        return octets[0] == 127
+    }
+
+    private static func isTailscaleHost(_ host: String) -> Bool {
+        let normalizedHost = host.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
+        return isTailscaleDNSHost(normalizedHost) || isTailscaleIPv4Host(normalizedHost)
+    }
+
+    private static func isTailscaleIPv4Host(_ host: String) -> Bool {
+        guard let octets = ipv4Octets(host) else {
+            return false
+        }
+        return octets[0] == 100 && (64...127).contains(octets[1])
+    }
+
+    private static func ipv4Octets(_ host: String) -> [Int]? {
         let parts = host.split(separator: ".", omittingEmptySubsequences: false)
         guard parts.count == 4 else {
-            return false
+            return nil
         }
         let octets = parts.compactMap { part -> Int? in
             guard !part.isEmpty,
@@ -299,7 +343,10 @@ enum MobileShellRouteAuthPolicy {
             }
             return value
         }
-        return octets.count == 4 && octets[0] == 127
+        guard octets.count == 4 else {
+            return nil
+        }
+        return octets
     }
 
     private static func isTailscaleDNSHost(_ host: String) -> Bool {
@@ -520,6 +567,7 @@ public final class CMUXMobileShellStore {
             return
         }
 
+        let directRoute = try? Self.manualHostRoute(host: normalizedHost, port: port)
         do {
             let ticket = try await manualHostTicket(
                 name: trimmedName,
@@ -529,7 +577,7 @@ public final class CMUXMobileShellStore {
             try await connect(ticket: ticket)
         } catch {
             mobileShellLog.error("manual host pairing failed: \(String(describing: error), privacy: .private)")
-            connectionError = Self.localizedConnectionError(for: error)
+            connectionError = Self.localizedConnectionError(for: error, route: activeRoute ?? directRoute)
             connectionState = .disconnected
             clearRemoteConnectionContext()
         }
@@ -563,6 +611,15 @@ public final class CMUXMobileShellStore {
         return host
     }
 
+    private static func manualHostRoute(host: String, port: Int) throws -> CmxAttachRoute {
+        let routeKind = MobileShellRouteAuthPolicy.manualRouteKind(for: host)
+        return try CmxAttachRoute(
+            id: routeKind.rawValue,
+            kind: routeKind,
+            endpoint: .hostPort(host: host, port: port)
+        )
+    }
+
     public func connectPairingURL(_ rawValue: String? = nil) async {
         let rawURL = Self.normalizedPairingURL(rawValue ?? pairingCode)
         let ticket: CmxAttachTicket
@@ -579,7 +636,7 @@ public final class CMUXMobileShellStore {
             try await connect(ticket: ticket)
         } catch {
             mobileShellLog.error("pairing failed: \(String(describing: error), privacy: .private)")
-            connectionError = Self.localizedConnectionError(for: error)
+            connectionError = Self.localizedConnectionError(for: error, route: activeRoute)
             connectionState = .disconnected
             clearRemoteConnectionContext()
         }
@@ -597,19 +654,19 @@ public final class CMUXMobileShellStore {
     }
 
     private func manualHostTicket(name: String, host: String, port: Int) async throws -> CmxAttachTicket {
-        let routeKind = MobileShellRouteAuthPolicy.manualRouteKind(for: host)
-        let directRoute = try CmxAttachRoute(
-            id: routeKind.rawValue,
-            kind: routeKind,
-            endpoint: .hostPort(host: host, port: port)
-        )
+        let directRoute = try Self.manualHostRoute(host: host, port: port)
         let displayName = name.isEmpty ? host : name
         if MobileShellRouteAuthPolicy.routeAllowsStackAuth(directRoute) {
-            if let ticket = try? await requestManualAttachTicket(
-                route: directRoute,
-                displayName: displayName
-            ) {
+            do {
+                let ticket = try await requestManualAttachTicket(
+                    route: directRoute,
+                    displayName: displayName
+                )
                 return ticket
+            } catch {
+                guard Self.shouldFallbackToSyntheticManualTicket(after: error) else {
+                    throw error
+                }
             }
             return try Self.manualHostTicket(
                 displayName: displayName,
@@ -618,6 +675,21 @@ public final class CMUXMobileShellStore {
             )
         }
         throw MobileShellConnectionError.insecureManualRoute
+    }
+
+    private static func shouldFallbackToSyntheticManualTicket(after error: Error) -> Bool {
+        guard case let MobileShellConnectionError.rpcError(code, message) = error else {
+            return false
+        }
+        let normalizedCode = code?.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
+        let normalizedMessage = message.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
+        if let normalizedCode,
+           ["method_not_found", "not_found", "unknown_method", "unsupported_method"].contains(normalizedCode) {
+            return true
+        }
+        return normalizedMessage.contains("unknown method")
+            || normalizedMessage.contains("method not found")
+            || normalizedMessage.contains("unsupported method")
     }
 
     private static func manualHostTicket(
@@ -652,7 +724,8 @@ public final class CMUXMobileShellStore {
             MobileCoreRPCClient.requestData(
                 method: "mobile.attach_ticket.create",
                 params: ["ttl_seconds": 3600]
-            )
+            ),
+            timeoutNanoseconds: runtime.pairingRequestTimeoutNanoseconds
         )
         let response = try MobileManualAttachTicketCreateResponse.decode(resultData)
         return try response.ticket.constrainingRoutes(to: [route], fallbackDisplayName: displayName)
@@ -875,7 +948,10 @@ public final class CMUXMobileShellStore {
             mobileShellLog.info("pairing trying route kind=\(route.kind.rawValue, privacy: .public) endpoint=\(route.endpoint.logDescription, privacy: .private)")
             let client = MobileCoreRPCClient(runtime: runtime, route: route, ticket: ticket)
             do {
-                let resultData = try await client.sendRequest(requestData)
+                let resultData = try await client.sendRequest(
+                    requestData,
+                    timeoutNanoseconds: runtime.pairingRequestTimeoutNanoseconds
+                )
                 let response = try MobileSyncWorkspaceListResponse.decode(resultData)
                 guard generation == connectionGeneration, isSignedIn else { return }
                 remoteClient = client
@@ -1476,20 +1552,81 @@ public final class CMUXMobileShellStore {
         return message.localizedCaseInsensitiveContains("surface is not ready")
     }
 
-    private static func localizedConnectionError(for error: Error) -> String {
+    private static func localizedConnectionError(for error: Error, route: CmxAttachRoute? = nil) -> String {
+        let hostPort = route.flatMap(Self.hostPortDescription(for:))
+        if let networkError = error as? CmxNetworkByteTransportError {
+            switch networkError {
+            case .connectionTimedOut:
+                return localizedHostPortConnectionError(
+                    key: "mobile.pairing.connectionTimedOutFormat",
+                    defaultValue: "No response from %@:%d. Make sure cmux is open on that Mac and the mobile server is on.",
+                    fallbackKey: "mobile.pairing.requestTimedOut",
+                    fallbackDefaultValue: "The computer did not respond. Check the host and port, then try again.",
+                    hostPort: hostPort
+                )
+            case .connectionFailed, .notConnected, .alreadyClosed:
+                return localizedHostPortConnectionError(
+                    key: "mobile.pairing.connectionFailedFormat",
+                    defaultValue: "Could not reach %@:%d. Check that the Mac is on the same Tailscale or LAN and that the port is correct.",
+                    fallbackKey: "mobile.pairing.runtimeUnavailable",
+                    fallbackDefaultValue: "Could not connect to your computer.",
+                    hostPort: hostPort
+                )
+            case .receiveFailed, .sendFailed:
+                return localizedHostPortConnectionError(
+                    key: "mobile.pairing.connectionDroppedFormat",
+                    defaultValue: "Connected to %@:%d, but the mobile server closed the connection. Check that cmux is still running.",
+                    fallbackKey: "mobile.pairing.runtimeUnavailable",
+                    fallbackDefaultValue: "Could not connect to your computer.",
+                    hostPort: hostPort
+                )
+            case .emptyHost, .invalidPort, .invalidMaximumReceiveLength, .unsupportedRouteKind, .unsupportedEndpoint, .receiveAlreadyInProgress, .sendAlreadyInProgress:
+                break
+            }
+        }
         guard let connectionError = error as? MobileShellConnectionError else {
             return L10n.string("mobile.pairing.runtimeUnavailable", defaultValue: "Could not connect to your computer.")
         }
         switch connectionError {
         case .requestTimedOut:
-            return L10n.string("mobile.pairing.requestTimedOut", defaultValue: "The computer did not respond. Check the host and port, then try again.")
+            return localizedHostPortConnectionError(
+                key: "mobile.pairing.connectionTimedOutFormat",
+                defaultValue: "No response from %@:%d. Make sure cmux is open on that Mac and the mobile server is on.",
+                fallbackKey: "mobile.pairing.requestTimedOut",
+                fallbackDefaultValue: "The computer did not respond. Check the host and port, then try again.",
+                hostPort: hostPort
+            )
         case .insecureManualRoute:
-            return L10n.string("mobile.pairing.secureRouteRequired", defaultValue: "Enter a device name, or pair with a QR/link from that computer.")
+            return L10n.string("mobile.pairing.secureRouteRequired", defaultValue: "This pairing route is not allowed. Enter a host and port, or pair with a QR/link from that computer.")
         case .authorizationFailed:
             return L10n.string("mobile.pairing.authorizationFailed", defaultValue: "Sign in on your computer with the same account, or pair with a QR/link from that computer.")
         case .invalidResponse, .connectionClosed, .rpcError:
             return L10n.string("mobile.pairing.runtimeUnavailable", defaultValue: "Could not connect to your computer.")
         }
+    }
+
+    private static func localizedHostPortConnectionError(
+        key: StaticString,
+        defaultValue: String.LocalizationValue,
+        fallbackKey: StaticString,
+        fallbackDefaultValue: String.LocalizationValue,
+        hostPort: (host: String, port: Int)?
+    ) -> String {
+        guard let hostPort else {
+            return L10n.string(fallbackKey, defaultValue: fallbackDefaultValue)
+        }
+        return String(
+            format: L10n.string(key, defaultValue: defaultValue),
+            hostPort.host,
+            hostPort.port
+        )
+    }
+
+    private static func hostPortDescription(for route: CmxAttachRoute) -> (host: String, port: Int)? {
+        guard case let .hostPort(host, port) = route.endpoint else {
+            return nil
+        }
+        return (host, port)
     }
 
     private static func routeSortsBefore(_ left: CmxAttachRoute, _ right: CmxAttachRoute) -> Bool {
@@ -1723,11 +1860,11 @@ final class MobileCoreRPCClient: @unchecked Sendable {
         return try JSONSerialization.data(withJSONObject: request)
     }
 
-    func sendRequest(_ requestData: Data) async throws -> Data {
+    func sendRequest(_ requestData: Data, timeoutNanoseconds: UInt64? = nil) async throws -> Data {
         let transport = try runtime.transportFactory.makeTransport(for: route)
         do {
             let response = try await Self.withRequestTimeout(
-                timeoutNanoseconds: runtime.rpcRequestTimeoutNanoseconds
+                timeoutNanoseconds: timeoutNanoseconds ?? runtime.rpcRequestTimeoutNanoseconds
             ) {
                 try await transport.connect()
                 let authenticatedRequestData = try await self.requestDataWithAuth(requestData)

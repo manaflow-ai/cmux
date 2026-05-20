@@ -119,7 +119,7 @@ final class MobileHostService {
     private func publicStatusSnapshot() async -> MobileHostServiceStatus {
         let routes: [CmxAttachRoute]
         if let listenerPort {
-            routes = await routeResolver.routesResolvingTailscaleDNS(port: listenerPort).routes
+            routes = routeResolver.routes(port: listenerPort).routes
         } else {
             routes = []
         }
@@ -147,7 +147,7 @@ final class MobileHostService {
     ) async throws -> [String: Any] {
         let routes: [CmxAttachRoute]
         if let listenerPort {
-            routes = await routeResolver.routesResolvingTailscaleDNS(port: listenerPort).routes
+            routes = routeResolver.routes(port: listenerPort).routes
         } else {
             routes = []
         }

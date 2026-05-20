@@ -81,12 +81,24 @@ class TerminalController {
         var rows: Int
         var updatedAt: Date
     }
+    private struct MobileTerminalSnapshotCacheEntry {
+        var columns: Int
+        var rows: Int
+        var maxScrollbackRows: Int?
+        var createdAt: Date
+        var payload: [String: Any]
+    }
     private static let mobileViewportReportTTL: TimeInterval = 5
+    private static let mobileTerminalSnapshotCacheTTL: TimeInterval = 0.35
+    private static let mobileTerminalSnapshotViewportChurnCacheTTL: TimeInterval = 1.0
+    private static let mobileTerminalVTExportMinimumInterval: TimeInterval = 0.1
     private static let mobileTerminalSnapshotMaximumScrollbackRows = 120
     private static let mobileTerminalSnapshotFrameSafetyBudget = MobileSyncFrameCodec.defaultMaximumFrameByteCount / 2
     private static let mobileTerminalSnapshotEstimatedCellByteCount = 128
     private var mobileViewportReportsBySurfaceID: [UUID: [String: MobileViewportReport]] = [:]
     private var mobileViewportReportCleanupTimersBySurfaceID: [UUID: DispatchSourceTimer] = [:]
+    private var mobileTerminalSnapshotCacheBySurfaceID: [UUID: MobileTerminalSnapshotCacheEntry] = [:]
+    private var mobileTerminalVTExportLastAttemptBySurfaceID: [UUID: Date] = [:]
     private nonisolated static let unixSocketPathMaxLength: Int = {
         var addr = sockaddr_un()
         // Reserve one byte for the null terminator.
@@ -7228,71 +7240,15 @@ class TerminalController {
         return "OK \(base64)"
     }
 
-    private struct PasteboardItemSnapshot {
-        let representations: [(type: NSPasteboard.PasteboardType, data: Data)]
-    }
-
-    private func snapshotPasteboardItems(_ pasteboard: NSPasteboard) -> [PasteboardItemSnapshot] {
-        guard let items = pasteboard.pasteboardItems else { return [] }
-        return items.map { item in
-            let representations = item.types.compactMap { type -> (type: NSPasteboard.PasteboardType, data: Data)? in
-                guard let data = item.data(forType: type) else { return nil }
-                return (type: type, data: data)
-            }
-            return PasteboardItemSnapshot(representations: representations)
-        }
-    }
-
-    private func restorePasteboardItems(
-        _ snapshots: [PasteboardItemSnapshot],
-        to pasteboard: NSPasteboard
-    ) {
-        _ = pasteboard.clearContents()
-        guard !snapshots.isEmpty else { return }
-
-        let restoredItems = snapshots.compactMap { snapshot -> NSPasteboardItem? in
-            guard !snapshot.representations.isEmpty else { return nil }
-            let item = NSPasteboardItem()
-            for representation in snapshot.representations {
-                item.setData(representation.data, forType: representation.type)
-            }
-            return item
-        }
-        guard !restoredItems.isEmpty else { return }
-        _ = pasteboard.writeObjects(restoredItems)
-    }
-
-    private func readGeneralPasteboardString(_ pasteboard: NSPasteboard) -> String? {
-        if let urls = pasteboard.readObjects(forClasses: [NSURL.self]) as? [URL],
-           let firstURL = urls.first,
-           firstURL.isFileURL {
-            return firstURL.path
-        }
-        if let value = pasteboard.string(forType: .string) {
-            return value
-        }
-        return pasteboard.string(forType: NSPasteboard.PasteboardType("public.utf8-plain-text"))
-    }
-
     private func readTerminalTextFromVTExportForSnapshot(
         terminalPanel: TerminalPanel,
         bindingAction: String = "write_screen_file:copy,vt",
         lineLimit: Int?
     ) -> String? {
-        let pasteboard = NSPasteboard.general
-        let snapshot = snapshotPasteboardItems(pasteboard)
-        defer {
-            restorePasteboardItems(snapshot, to: pasteboard)
+        let exportedPath = GhosttyPasteboardHelper.captureNextStandardClipboardWrite {
+            terminalPanel.performBindingAction(bindingAction)
         }
-
-        let initialChangeCount = pasteboard.changeCount
-        guard terminalPanel.performBindingAction(bindingAction) else {
-            return nil
-        }
-        guard pasteboard.changeCount != initialChangeCount else {
-            return nil
-        }
-        guard let exportedPath = Self.normalizedExportedScreenPath(readGeneralPasteboardString(pasteboard)) else {
+        guard let exportedPath = Self.normalizedExportedScreenPath(exportedPath) else {
             return nil
         }
 
@@ -7323,12 +7279,14 @@ class TerminalController {
 
     private func readMobileTerminalViewportTextForSnapshot(
         terminalPanel: TerminalPanel,
-        lineLimit: Int
+        lineLimit: Int,
+        now: Date
     ) -> MobileTerminalSnapshotText? {
-        if let vtText = readTerminalTextFromVTExportForSnapshot(
-            terminalPanel: terminalPanel,
-            lineLimit: lineLimit
-        ) {
+        if shouldAttemptMobileTerminalVTExport(surfaceID: terminalPanel.id, now: now),
+           let vtText = readTerminalTextFromVTExportForSnapshot(
+               terminalPanel: terminalPanel,
+               lineLimit: lineLimit
+           ) {
             return MobileTerminalSnapshotText(text: tailTerminalLines(vtText, maxLines: lineLimit), fidelity: "ansi_vt")
         }
 
@@ -7340,6 +7298,15 @@ class TerminalController {
             return nil
         }
         return MobileTerminalSnapshotText(text: tailTerminalLines(plainText, maxLines: lineLimit), fidelity: "plain_text")
+    }
+
+    private func shouldAttemptMobileTerminalVTExport(surfaceID: UUID, now: Date) -> Bool {
+        if let lastAttempt = mobileTerminalVTExportLastAttemptBySurfaceID[surfaceID],
+           now.timeIntervalSince(lastAttempt) < Self.mobileTerminalVTExportMinimumInterval {
+            return false
+        }
+        mobileTerminalVTExportLastAttemptBySurfaceID[surfaceID] = now
+        return true
     }
 
     private func readPlainTerminalTextForSnapshot(
@@ -18169,7 +18136,10 @@ class TerminalController {
     }
 
     func clearAllMobileViewportReports(reason: String) {
-        guard !mobileViewportReportsBySurfaceID.isEmpty || !mobileViewportReportCleanupTimersBySurfaceID.isEmpty else {
+        guard !mobileViewportReportsBySurfaceID.isEmpty ||
+            !mobileViewportReportCleanupTimersBySurfaceID.isEmpty ||
+            !mobileTerminalSnapshotCacheBySurfaceID.isEmpty ||
+            !mobileTerminalVTExportLastAttemptBySurfaceID.isEmpty else {
             return
         }
 
@@ -18179,6 +18149,8 @@ class TerminalController {
         let surfaceIDs = Array(mobileViewportReportsBySurfaceID.keys)
         mobileViewportReportsBySurfaceID.removeAll()
         mobileViewportReportCleanupTimersBySurfaceID.removeAll()
+        mobileTerminalSnapshotCacheBySurfaceID.removeAll()
+        mobileTerminalVTExportLastAttemptBySurfaceID.removeAll()
 
         for surfaceID in surfaceIDs {
             terminalPanel(surfaceID: surfaceID)?.surface.clearMobileViewportLimit(reason: reason)
@@ -18281,7 +18253,12 @@ class TerminalController {
             return .err(code: "not_found", message: "Terminal surface not found", data: nil)
         }
 
+        #if DEBUG
+        let sendStart = ProcessInfo.processInfo.systemUptime
+        #endif
         let sendResult = terminalPanel.surface.sendInputResult(text)
+        mobileTerminalSnapshotCacheBySurfaceID[terminalPanel.id] = nil
+        mobileTerminalVTExportLastAttemptBySurfaceID[terminalPanel.id] = Date()
         switch sendResult {
         case .sent:
             terminalPanel.surface.forceRefresh(reason: "mobileHost.terminalInput")
@@ -18294,6 +18271,12 @@ class TerminalController {
         case .processExited:
             return .err(code: "process_exited", message: Self.terminalProcessExitedMessage, data: ["surface_id": surfaceId.uuidString])
         }
+        #if DEBUG
+        let sendMs = (ProcessInfo.processInfo.systemUptime - sendStart) * 1000.0
+        cmuxDebugLog(
+            "mobile.terminal.input workspace=\(resolved.workspace.id.uuidString.prefix(8)) surface=\(surfaceId.uuidString.prefix(8)) queued=\(sendResult == .queued ? 1 : 0) chars=\(text.count) ms=\(String(format: "%.2f", sendMs))"
+        )
+        #endif
         return .ok([
             "workspace_id": resolved.workspace.id.uuidString,
             "surface_id": terminalPanel.id.uuidString,
@@ -18413,10 +18396,26 @@ class TerminalController {
             columns: columns,
             visibleRows: rows
         )
+        let now = Date()
+
+        if let cached = mobileTerminalSnapshotCacheBySurfaceID[terminalPanel.id],
+           Self.shouldReuseMobileTerminalSnapshotCache(
+               cached: cached,
+               columns: columns,
+               rows: rows,
+               now: now
+           ) {
+            var payload = cached.payload
+            if let viewportFit = mobileViewportFitPayload(params: params, terminalPanel: terminalPanel) {
+                payload["viewport_fit"] = viewportFit
+            }
+            return .ok(payload)
+        }
 
         guard let viewportText = readMobileTerminalViewportTextForSnapshot(
             terminalPanel: terminalPanel,
-            lineLimit: rows
+            lineLimit: rows,
+            now: now
         ) else {
             return .err(code: "internal_error", message: "Failed to read terminal viewport", data: nil)
         }
@@ -18476,10 +18475,32 @@ class TerminalController {
             if let viewportFit = mobileViewportFitPayload(params: params, terminalPanel: terminalPanel) {
                 payload["viewport_fit"] = viewportFit
             }
+            mobileTerminalSnapshotCacheBySurfaceID[terminalPanel.id] = MobileTerminalSnapshotCacheEntry(
+                columns: columns,
+                rows: rows,
+                maxScrollbackRows: safeMaxScrollbackRows,
+                createdAt: now,
+                payload: payload
+            )
             return .ok(payload)
         } catch {
             return .err(code: "internal_error", message: "Failed to build terminal snapshot", data: nil)
         }
+    }
+
+    private static func shouldReuseMobileTerminalSnapshotCache(
+        cached: MobileTerminalSnapshotCacheEntry,
+        columns: Int,
+        rows: Int,
+        now: Date
+    ) -> Bool {
+        let age = now.timeIntervalSince(cached.createdAt)
+        if cached.columns == columns,
+           cached.rows == rows,
+           age <= mobileTerminalSnapshotCacheTTL {
+            return true
+        }
+        return age <= mobileTerminalSnapshotViewportChurnCacheTTL
     }
 
     private static func mobileTerminalSnapshotScrollbackRows(

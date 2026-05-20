@@ -36,6 +36,7 @@ struct CMUXMobileRootView: View {
     @State private var authManager = AuthManager.shared
     @State private var pendingAttachURL: String?
     @State private var didConsumeUITestAttachURL = false
+    @State private var didAuthenticateWithAttachTicket = false
     @State private var isShowingAddDeviceSheet = true
     #if os(iOS)
     @State private var addDeviceSheetDetent: PresentationDetent = .large
@@ -85,6 +86,15 @@ struct CMUXMobileRootView: View {
         }
         .onOpenURL { url in
             let rawURL = url.absoluteString
+            if MobileRootAuthGate.isAttachURL(url) {
+                didAuthenticateWithAttachTicket = true
+                syncShellAuthentication(isAuthenticated)
+                Task {
+                    await store.connectPairingURL(rawURL)
+                }
+                return
+            }
+
             guard isAuthenticated else {
                 pendingAttachURL = rawURL
                 return
@@ -112,7 +122,10 @@ struct CMUXMobileRootView: View {
     }
 
     private var isAuthenticated: Bool {
-        MobileRootAuthGate.isAuthenticated(stackAuthenticated: authManager.isAuthenticated)
+        MobileRootAuthGate.isAuthenticated(
+            stackAuthenticated: authManager.isAuthenticated,
+            attachTicketAuthenticated: didAuthenticateWithAttachTicket
+        )
     }
 
     private func syncShellAuthentication(_ isAuthenticated: Bool) {
@@ -132,6 +145,7 @@ struct CMUXMobileRootView: View {
     private func signOut() {
         Task {
             await authManager.signOut()
+            didAuthenticateWithAttachTicket = false
             store.signOut()
         }
     }
@@ -153,8 +167,18 @@ struct CMUXMobileRootView: View {
 }
 
 enum MobileRootAuthGate {
-    static func isAuthenticated(stackAuthenticated: Bool) -> Bool {
-        stackAuthenticated
+    static func isAuthenticated(
+        stackAuthenticated: Bool,
+        attachTicketAuthenticated: Bool = false
+    ) -> Bool {
+        stackAuthenticated || attachTicketAuthenticated
+    }
+
+    static func isAttachURL(_ url: URL) -> Bool {
+        guard url.scheme?.caseInsensitiveCompare("cmux-ios") == .orderedSame else {
+            return false
+        }
+        return url.host?.caseInsensitiveCompare("attach") == .orderedSame
     }
 
     @MainActor
@@ -877,6 +901,7 @@ struct PairingView: View {
     @State private var port = UITestConfig.addDevicePort ?? "\(CmxMobileDefaults.defaultHostPort)"
     @State private var validationError: String?
     @State private var isPairing = false
+    @State private var pairingTask: Task<Void, Never>?
     @FocusState private var focusedField: AddDeviceField?
 
     var body: some View {
@@ -912,7 +937,7 @@ struct PairingView: View {
                 } header: {
                     Text(L10n.string("mobile.addDevice.title", defaultValue: "Add device"))
                 } footer: {
-                    Text(L10n.string("mobile.addDevice.help", defaultValue: "Enter your computer's device name. For IP, LAN, or local pairing, scan a QR code or open a link from that computer."))
+                    Text(L10n.string("mobile.addDevice.help", defaultValue: "Enter a Tailscale, LAN, or local host and port. QR/link pairing from that computer is still the safest setup path."))
                 }
                 .overlay(alignment: .topLeading) {
                     #if DEBUG
@@ -959,6 +984,18 @@ struct PairingView: View {
                 }
                 #endif
 
+                if let manualRouteWarningText {
+                    Section {
+                        Label {
+                            Text(manualRouteWarningText)
+                        } icon: {
+                            Image(systemName: "exclamationmark.triangle")
+                        }
+                        .foregroundStyle(.orange)
+                        .accessibilityIdentifier("MobileManualRouteWarning")
+                    }
+                }
+
                 if let errorText {
                     Section {
                         Text(errorText)
@@ -1002,13 +1039,31 @@ struct PairingView: View {
     }
 
     private var cancelButton: some View {
-        Button(action: cancel) {
+        Button {
+            pairingTask?.cancel()
+            pairingTask = nil
+            isPairing = false
+            cancel()
+        } label: {
             Text(L10n.string("mobile.common.cancel", defaultValue: "Cancel"))
         }
     }
 
     private var errorText: String? {
         validationError ?? connectionError
+    }
+
+    private var manualRouteWarningText: String? {
+        let trimmedHost = host.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmedHost.isEmpty,
+              !trimmedHost.hasPrefix("cmux-ios://"),
+              MobileShellRouteAuthPolicy.manualHostNeedsTrustWarning(trimmedHost) else {
+            return nil
+        }
+        return L10n.string(
+            "mobile.addDevice.manualRouteWarning",
+            defaultValue: "This will connect directly to that address. Use this only on a trusted LAN, VPN, or device you control."
+        )
     }
 
     private func pair() {
@@ -1029,10 +1084,14 @@ struct PairingView: View {
             return
         }
 
+        pairingTask?.cancel()
         isPairing = true
-        Task {
+        pairingTask = Task { @MainActor in
+            defer {
+                isPairing = false
+                pairingTask = nil
+            }
             await connectManualHost(deviceName, trimmedHost, parsedPort)
-            isPairing = false
         }
     }
 }
@@ -2410,8 +2469,9 @@ enum MobileTerminalBottomBarPlacementPolicy {
         safeAreaBottom: CGFloat,
         expandsSafeArea: Bool
     ) -> CGFloat {
-        guard expandsSafeArea else { return 0 }
-        return max(0, safeAreaBottom)
+        _ = safeAreaBottom
+        _ = expandsSafeArea
+        return 0
     }
 }
 

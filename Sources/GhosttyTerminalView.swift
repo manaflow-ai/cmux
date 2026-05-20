@@ -293,6 +293,23 @@ private func cmuxScalarHex(_ value: String?) -> String {
 #endif
 
 enum GhosttyPasteboardHelper {
+    private final class ClipboardWriteCapture {
+        private let lock = NSLock()
+        private var capturedValue: String?
+
+        func capture(_ value: String) {
+            lock.lock()
+            capturedValue = value
+            lock.unlock()
+        }
+
+        var value: String? {
+            lock.lock()
+            defer { lock.unlock() }
+            return capturedValue
+        }
+    }
+
     enum ImageFileMaterializationResult {
         case saved(URL)
         case noDecodableImagePayload
@@ -314,6 +331,8 @@ enum GhosttyPasteboardHelper {
     private static let objectReplacementCharacter = Character(UnicodeScalar(0xFFFC)!)
     private static let temporaryImageOwnershipLock = NSLock()
     private static var ownedTemporaryImagePaths: Set<String> = []
+    private static let standardClipboardWriteCaptureLock = NSLock()
+    private static var standardClipboardWriteCapture: ClipboardWriteCapture?
 
     static func pasteboard(for location: ghostty_clipboard_e) -> NSPasteboard? {
         switch location {
@@ -386,9 +405,43 @@ enum GhosttyPasteboardHelper {
     }
 
     static func writeString(_ string: String, to location: ghostty_clipboard_e) {
+        if location == GHOSTTY_CLIPBOARD_STANDARD {
+            var capture: ClipboardWriteCapture?
+            standardClipboardWriteCaptureLock.lock()
+            capture = standardClipboardWriteCapture
+            if capture != nil {
+                standardClipboardWriteCapture = nil
+            }
+            standardClipboardWriteCaptureLock.unlock()
+
+            if let capture {
+                capture.capture(string)
+                return
+            }
+        }
+
         guard let pasteboard = pasteboard(for: location) else { return }
         pasteboard.clearContents()
         pasteboard.setString(string, forType: .string)
+    }
+
+    @discardableResult
+    static func captureNextStandardClipboardWrite(_ action: () -> Bool) -> String? {
+        let capture = ClipboardWriteCapture()
+        standardClipboardWriteCaptureLock.lock()
+        standardClipboardWriteCapture = capture
+        standardClipboardWriteCaptureLock.unlock()
+
+        defer {
+            standardClipboardWriteCaptureLock.lock()
+            if standardClipboardWriteCapture === capture {
+                standardClipboardWriteCapture = nil
+            }
+            standardClipboardWriteCaptureLock.unlock()
+        }
+
+        guard action() else { return nil }
+        return capture.value
     }
 
     static func escapeForShell(_ value: String) -> String {
@@ -4541,15 +4594,13 @@ final class TerminalSurface: Identifiable, ObservableObject {
 
     private enum PendingSocketInput {
         case pasteText(Data)
-        case inputText(String)
+        case inputText(Data)
         case key(PendingKeyEvent)
 
         var estimatedBytes: Int {
             switch self {
-            case .pasteText(let data):
+            case .pasteText(let data), .inputText(let data):
                 return data.count
-            case .inputText(let text):
-                return text.utf8.count
             case .key(let event):
                 return event.queuedByteCost
             }
@@ -4557,7 +4608,7 @@ final class TerminalSurface: Identifiable, ObservableObject {
     }
 
     private enum ParsedSocketInput {
-        case text(String)
+        case rawBytes(Data)
         case key(PendingKeyEvent)
     }
 
@@ -6121,10 +6172,11 @@ final class TerminalSurface: Identifiable, ObservableObject {
         return .sent
     }
 
-    /// Send text with control characters (Return, Tab, etc.) delivered as key
-    /// events so the shell processes them, while regular text is sent via the
-    /// normal key-text path. Cold surfaces queue the same ordered events and
-    /// flush them after runtime creation.
+    /// Send programmatic socket/API input as committed text input.
+    /// This bypasses bracketed paste so newline-terminated API commands execute
+    /// instead of sitting at the prompt as pasted multiline text.
+    /// Backspace, Tab, and Escape still use key events because Ghostty's input
+    /// layer owns those terminal editing/control semantics.
     @MainActor
     @discardableResult
     func sendInput(_ text: String) -> Bool {
@@ -6155,9 +6207,8 @@ final class TerminalSurface: Identifiable, ObservableObject {
     private func sendInput(_ text: String, to surface: ghostty_surface_t) {
         for event in Self.parsedSocketInputEvents(for: text) {
             switch event {
-            case .text(let value):
-                var bufferedText = value
-                flushText(&bufferedText, surface: surface)
+            case .rawBytes(let data):
+                writeInputTextData(data, to: surface)
             case .key(let event):
                 sendKeyEvent(surface: surface, keycode: event.keycode, mods: event.mods)
             }
@@ -6168,8 +6219,8 @@ final class TerminalSurface: Identifiable, ObservableObject {
     private func enqueuePendingSocketInput(_ text: String) -> Bool {
         let inputs = Self.parsedSocketInputEvents(for: text).compactMap { event -> PendingSocketInput? in
             switch event {
-            case .text(let value):
-                return value.isEmpty ? nil : .inputText(value)
+            case .rawBytes(let data):
+                return data.isEmpty ? nil : .inputText(data)
             case .key(let event):
                 return .key(event)
             }
@@ -6188,7 +6239,7 @@ final class TerminalSurface: Identifiable, ObservableObject {
 
         func flushBufferedText() {
             guard !bufferedText.isEmpty else { return }
-            events.append(.text(bufferedText))
+            events.append(.rawBytes(Data(bufferedText.utf8)))
             bufferedText.removeAll(keepingCapacity: true)
         }
 
@@ -6200,17 +6251,21 @@ final class TerminalSurface: Identifiable, ObservableObject {
             )))
         }
 
+        func appendRawReturn() {
+            events.append(.rawBytes(Data([0x0D])))
+        }
+
         for scalar in text.unicodeScalars {
             switch scalar.value {
             case 0x0A:
                 if !previousWasCR {
                     flushBufferedText()
-                    appendKey(UInt32(kVK_Return), label: "return")
+                    appendRawReturn()
                 }
                 previousWasCR = false
             case 0x0D:
                 flushBufferedText()
-                appendKey(UInt32(kVK_Return), label: "return")
+                appendRawReturn()
                 previousWasCR = true
             case 0x09:
                 flushBufferedText()
@@ -6231,22 +6286,6 @@ final class TerminalSurface: Identifiable, ObservableObject {
         }
         flushBufferedText()
         return events
-    }
-
-    private func flushText(_ buffer: inout String, surface: ghostty_surface_t) {
-        guard !buffer.isEmpty else { return }
-        var keyEvent = ghostty_input_key_s()
-        keyEvent.action = GHOSTTY_ACTION_PRESS
-        keyEvent.keycode = 0
-        keyEvent.mods = GHOSTTY_MODS_NONE
-        keyEvent.consumed_mods = GHOSTTY_MODS_NONE
-        keyEvent.unshifted_codepoint = 0
-        keyEvent.composing = false
-        buffer.withCString { ptr in
-            keyEvent.text = ptr
-            _ = ghostty_surface_key(surface, keyEvent)
-        }
-        buffer.removeAll(keepingCapacity: true)
     }
 
     private func sendKeyEvent(
@@ -6316,6 +6355,13 @@ final class TerminalSurface: Identifiable, ObservableObject {
         data.withUnsafeBytes { rawBuffer in
             guard let baseAddress = rawBuffer.baseAddress?.assumingMemoryBound(to: CChar.self) else { return }
             ghostty_surface_text(surface, baseAddress, UInt(rawBuffer.count))
+        }
+    }
+
+    private func writeInputTextData(_ data: Data, to surface: ghostty_surface_t) {
+        data.withUnsafeBytes { rawBuffer in
+            guard let baseAddress = rawBuffer.baseAddress?.assumingMemoryBound(to: CChar.self) else { return }
+            ghostty_surface_text_input(surface, baseAddress, UInt(rawBuffer.count))
         }
     }
 
@@ -6506,9 +6552,8 @@ final class TerminalSurface: Identifiable, ObservableObject {
             switch item {
             case .pasteText(let chunk):
                 writeTextData(chunk, to: surface)
-            case .inputText(let text):
-                var bufferedText = text
-                flushText(&bufferedText, surface: surface)
+            case .inputText(let chunk):
+                writeInputTextData(chunk, to: surface)
             case .key(let event):
                 queuedKeys += 1
                 sendKeyEvent(surface: surface, keycode: event.keycode, mods: event.mods)
@@ -6579,13 +6624,32 @@ final class TerminalSurface: Identifiable, ObservableObject {
     }
 
     @MainActor
-    func debugPendingSocketInputForTesting() -> (items: Int, bytes: Int, keyEvents: Int) {
-        let keyEvents = pendingSocketInputQueue.reduce(into: 0) { count, item in
-            if case .key = item {
-                count += 1
+    func debugPendingSocketInputForTesting() -> (
+        items: Int,
+        bytes: Int,
+        keyEvents: Int,
+        pasteTextItems: Int,
+        inputTextItems: Int
+    ) {
+        let counts = pendingSocketInputQueue.reduce(
+            into: (keyEvents: 0, pasteTextItems: 0, inputTextItems: 0)
+        ) { counts, item in
+            switch item {
+            case .key:
+                counts.keyEvents += 1
+            case .pasteText:
+                counts.pasteTextItems += 1
+            case .inputText:
+                counts.inputTextItems += 1
             }
         }
-        return (pendingSocketInputQueue.count, pendingSocketInputBytes, keyEvents)
+        return (
+            pendingSocketInputQueue.count,
+            pendingSocketInputBytes,
+            counts.keyEvents,
+            counts.pasteTextItems,
+            counts.inputTextItems
+        )
     }
 
     /// Test-only helper to deterministically simulate a released runtime surface.

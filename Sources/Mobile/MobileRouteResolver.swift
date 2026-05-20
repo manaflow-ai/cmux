@@ -18,9 +18,17 @@ final class MobileRouteResolver: @unchecked Sendable {
     private var cachedResolvedTailscaleHostsUpdatedAt: Date?
     private var tailscaleRefreshTask: Task<[String], Never>?
 
-    func routes(port: Int) -> MobileHostRouteSnapshot {
+    func routes(
+        port: Int,
+        now: Date = Date(),
+        immediateHosts: () -> [String] = { MobileRouteResolver.tailscaleRouteHosts(resolveDNS: false) }
+    ) -> MobileHostRouteSnapshot {
         refreshTailscaleRoutes()
-        return routes(port: port, tailscaleHosts: currentTailscaleRouteHosts())
+        let cachedHosts = resolvedTailscaleRouteHostsFromCache(now: now) ?? []
+        return routes(
+            port: port,
+            tailscaleHosts: Self.deduplicatedHosts(cachedHosts + immediateHosts())
+        )
     }
 
     func routesResolvingTailscaleDNS(
@@ -77,13 +85,6 @@ final class MobileRouteResolver: @unchecked Sendable {
         }
         _ = tailscaleRefreshTaskLocked(resolveHosts: { Self.tailscaleRouteHosts(resolveDNS: true) })
         cacheLock.unlock()
-    }
-
-    private func currentTailscaleRouteHosts() -> [String] {
-        if let cachedHosts = resolvedTailscaleRouteHostsFromCache(now: Date()) {
-            return cachedHosts
-        }
-        return []
     }
 
     private static var includesDebugLoopbackRoute: Bool {
@@ -170,6 +171,10 @@ final class MobileRouteResolver: @unchecked Sendable {
         }
         hosts.append(candidate.address)
 
+        return deduplicatedHosts(hosts)
+    }
+
+    private static func deduplicatedHosts(_ hosts: [String]) -> [String] {
         var seen = Set<String>()
         return hosts.filter { host in
             let normalized = host.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()

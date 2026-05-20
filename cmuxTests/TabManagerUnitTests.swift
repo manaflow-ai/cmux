@@ -317,6 +317,24 @@ final class TabManagerPullRequestProbeTests: XCTestCase {
         )
     }
 
+    func testPullRequestRepoCandidateListIsCappedAfterRemotePriorityOrdering() {
+        XCTAssertEqual(
+            TabManager.workspacePullRequestCandidateRepoSlugsForTesting(
+                from: [
+                    "manaflow-ai/cmux",
+                    "lawrence/cmux",
+                    "austin/cmux",
+                    "extra/cmux",
+                ]
+            ),
+            [
+                "manaflow-ai/cmux",
+                "lawrence/cmux",
+                "austin/cmux",
+            ]
+        )
+    }
+
     func testPreferredPullRequestPrefersOpenOverMergedAndClosed() {
         let candidates = [
             TabManager.GitHubPullRequestProbeItem(
@@ -457,6 +475,100 @@ final class TabManagerPullRequestProbeTests: XCTestCase {
         XCTAssertFalse(TabManager.workspacePullRequestRefreshAllowsRepoCache(reason: "branchChange.followUp"))
         XCTAssertFalse(TabManager.workspacePullRequestRefreshAllowsRepoCache(reason: "shellPrompt"))
         XCTAssertFalse(TabManager.workspacePullRequestRefreshAllowsRepoCache(reason: "commandHint:merge"))
+    }
+
+    func testWorkspacePullRequestGlobalBackoffDefersRefreshes() {
+        let now = Date(timeIntervalSince1970: 1_000)
+
+        XCTAssertTrue(
+            TabManager.workspacePullRequestShouldDeferForGlobalBackoff(
+                now: now,
+                globalBackoffUntil: now.addingTimeInterval(60)
+            )
+        )
+        XCTAssertFalse(
+            TabManager.workspacePullRequestShouldDeferForGlobalBackoff(
+                now: now,
+                globalBackoffUntil: now.addingTimeInterval(-1)
+            )
+        )
+        XCTAssertFalse(
+            TabManager.workspacePullRequestShouldDeferForGlobalBackoff(
+                now: now,
+                globalBackoffUntil: nil
+            )
+        )
+    }
+
+    func testWorkspacePullRequestRerunDoesNotFollowUpDuringTransientFailureOrBackoff() {
+        let now = Date(timeIntervalSince1970: 1_000)
+
+        XCTAssertFalse(
+            TabManager.workspacePullRequestShouldFollowUpForRerun(
+                resultWasTransientFailure: true,
+                globalBackoffUntil: nil,
+                now: now
+            )
+        )
+        XCTAssertFalse(
+            TabManager.workspacePullRequestShouldFollowUpForRerun(
+                resultWasTransientFailure: false,
+                globalBackoffUntil: now.addingTimeInterval(60),
+                now: now
+            )
+        )
+        XCTAssertTrue(
+            TabManager.workspacePullRequestShouldFollowUpForRerun(
+                resultWasTransientFailure: false,
+                globalBackoffUntil: nil,
+                now: now
+            )
+        )
+    }
+
+    func testWorkspacePullRequestRefreshReasonDoesNotRescheduleUnchangedBranches() {
+        XCTAssertEqual(
+            TabManager.workspacePullRequestRefreshReason(
+                previousBranch: nil,
+                nextBranch: "feat/mobile",
+                hasCurrentPullRequest: false,
+                hasScheduledPoll: false
+            ),
+            "branchChange"
+        )
+        XCTAssertNil(
+            TabManager.workspacePullRequestRefreshReason(
+                previousBranch: "feat/mobile",
+                nextBranch: "feat/mobile",
+                hasCurrentPullRequest: true,
+                hasScheduledPoll: true
+            )
+        )
+        XCTAssertNil(
+            TabManager.workspacePullRequestRefreshReason(
+                previousBranch: "feat/mobile",
+                nextBranch: "feat/mobile",
+                hasCurrentPullRequest: false,
+                hasScheduledPoll: true
+            )
+        )
+        XCTAssertEqual(
+            TabManager.workspacePullRequestRefreshReason(
+                previousBranch: "feat/mobile",
+                nextBranch: "feat/mobile",
+                hasCurrentPullRequest: false,
+                hasScheduledPoll: false
+            ),
+            "localGitProbe"
+        )
+        XCTAssertNil(
+            TabManager.workspacePullRequestRefreshReason(
+                previousBranch: "main",
+                nextBranch: "main",
+                hasCurrentPullRequest: false,
+                hasScheduledPoll: false
+            )
+        )
     }
 
     func testWorkspacePullRequestShouldRefreshHonorsForcedRefreshForTerminalStates() {

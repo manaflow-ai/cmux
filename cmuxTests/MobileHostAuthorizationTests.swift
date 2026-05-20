@@ -137,12 +137,24 @@ final class MobileHostAuthorizationTests: XCTestCase {
         }
     }
 
-    func testMobileRouteResolverImmediateSnapshotDoesNotBlockForTailscaleProbe() throws {
+    func testMobileRouteResolverImmediateSnapshotUsesNumericTailscaleFallbackWithoutDNS() throws {
         let resolver = MobileRouteResolver()
 
-        let snapshot = resolver.routes(port: 61234)
+        let snapshot = resolver.routes(
+            port: 61234,
+            immediateHosts: {
+                ["100.71.210.41"]
+            }
+        )
 
-        XCTAssertEqual(snapshot.routes.filter { $0.kind == .tailscale }.count, 0)
+        let tailscaleRoutes = snapshot.routes.filter { $0.kind == .tailscale }
+        XCTAssertEqual(tailscaleRoutes.count, 1)
+        if case let .hostPort(host, port) = tailscaleRoutes.first?.endpoint {
+            XCTAssertEqual(host, "100.71.210.41")
+            XCTAssertEqual(port, 61234)
+        } else {
+            XCTFail("Expected immediate snapshot to include a numeric Tailscale route")
+        }
         XCTAssertEqual(snapshot.routes.filter { $0.kind == .debugLoopback }.count, 1)
     }
 

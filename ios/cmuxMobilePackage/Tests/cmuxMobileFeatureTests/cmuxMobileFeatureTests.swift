@@ -134,11 +134,13 @@ import UIKit
     )
 
     #expect(runtime.rpcRequestTimeoutNanoseconds == 30 * 1_000_000_000)
+    #expect(runtime.pairingRequestTimeoutNanoseconds == 8 * 1_000_000_000)
 }
 
-@Test func manualRouteAuthPolicyOnlyAllowsStackAuthForLoopbackAndMagicDNS() throws {
+@Test func manualRouteAuthPolicyAllowsStackAuthForGeneralManualHostPortRoutes() throws {
     let loopback = try hostPortRoute(kind: .debugLoopback, host: "127.0.0.1", port: CmxMobileDefaults.defaultHostPort)
     let tailscaleIP = try hostPortRoute(kind: .tailscale, host: "100.71.210.41", port: CmxMobileDefaults.defaultHostPort)
+    let lanIP = try hostPortRoute(kind: .tailscale, host: "192.168.1.77", port: CmxMobileDefaults.defaultHostPort)
     let tailscaleMagicDNS = try hostPortRoute(kind: .tailscale, host: "work-mac.tailnet.ts.net", port: CmxMobileDefaults.defaultHostPort)
     let pretendLoopback = try hostPortRoute(kind: .debugLoopback, host: "127.attacker.example", port: CmxMobileDefaults.defaultHostPort)
 
@@ -146,8 +148,14 @@ import UIKit
     #expect(MobileShellRouteAuthPolicy.manualRouteKind(for: "127.attacker.example") == .tailscale)
     #expect(MobileShellRouteAuthPolicy.routeAllowsStackAuth(loopback))
     #expect(MobileShellRouteAuthPolicy.routeAllowsStackAuth(tailscaleMagicDNS))
-    #expect(!MobileShellRouteAuthPolicy.routeAllowsStackAuth(tailscaleIP))
+    #expect(MobileShellRouteAuthPolicy.routeAllowsStackAuth(tailscaleIP))
+    #expect(MobileShellRouteAuthPolicy.routeAllowsStackAuth(lanIP))
     #expect(!MobileShellRouteAuthPolicy.routeAllowsStackAuth(pretendLoopback))
+    #expect(!MobileShellRouteAuthPolicy.manualHostNeedsTrustWarning("127.0.0.1"))
+    #expect(!MobileShellRouteAuthPolicy.manualHostNeedsTrustWarning("100.71.210.41"))
+    #expect(!MobileShellRouteAuthPolicy.manualHostNeedsTrustWarning("work-mac.tailnet.ts.net"))
+    #expect(MobileShellRouteAuthPolicy.manualHostNeedsTrustWarning("192.168.1.77"))
+    #expect(MobileShellRouteAuthPolicy.manualHostNeedsTrustWarning("devbox.local"))
 }
 
 @Test func compactHeightUsesStackWorkspaceNavigation() {
@@ -179,6 +187,25 @@ import UIKit
 
     #expect(store.isSignedIn)
     #expect(!MobileRootAuthGate.isAuthenticated(stackAuthenticated: false))
+}
+
+@Test func rootAuthGateAllowsAttachTicketAuthenticationWithoutStackAuth() throws {
+    #expect(MobileRootAuthGate.isAuthenticated(
+        stackAuthenticated: false,
+        attachTicketAuthenticated: true
+    ))
+    #expect(!MobileRootAuthGate.isAuthenticated(
+        stackAuthenticated: false,
+        attachTicketAuthenticated: false
+    ))
+
+    let attachURL = try #require(URL(string: "cmux-ios://attach?v=1&payload=test"))
+    let authURL = try #require(URL(string: "stack-auth-mobile-oauth-url://callback?code=test"))
+    let otherURL = try #require(URL(string: "cmux-ios://oauth?v=1"))
+
+    #expect(MobileRootAuthGate.isAttachURL(attachURL))
+    #expect(!MobileRootAuthGate.isAttachURL(authURL))
+    #expect(!MobileRootAuthGate.isAttachURL(otherURL))
 }
 
 @MainActor
@@ -472,60 +499,100 @@ import UIKit
 }
 
 @MainActor
-@Test func manualHostPairingRejectsLANBeforeSendingStackAuth() async throws {
-    let responses = ScriptedTransportResponses([])
+@Test func manualHostPairingUsesNetworkRouteForPrivateLANIP() async throws {
+    let attachRoute = try hostPortRoute(
+        kind: .tailscale,
+        host: "192.168.1.77",
+        port: 15432
+    )
+    let responses = ScriptedTransportResponses([
+        try rpcAttachTicketFrame(route: attachRoute, workspaceID: "lan-workspace"),
+        try rpcWorkspaceListFrame(workspaceID: "lan-workspace", title: "LAN Workspace"),
+    ])
     let runtime = testRuntime(
         supportedRouteKinds: [.tailscale],
         transportFactory: ScriptedTransportFactory(responses: responses),
-        stackAccessToken: "stack-token-must-not-leak"
+        stackAccessToken: "stack-token-for-lan"
     )
     let store = CMUXMobileShellStore.preview(runtime: runtime)
 
     store.signIn()
     await store.connectManualHost(name: "Studio LAN", host: " 192.168.1.77 ", port: 15432)
 
-    #expect(store.phase == .pairing)
-    #expect(store.connectionState == .disconnected)
-    #expect(store.connectionError == "Enter a device name, or pair with a QR/link from that computer.")
-    let requests = try await responses.sentRequests()
-    #expect(requests.isEmpty)
+    let route = try #require(store.activeRoute)
+    #expect(store.phase == .workspaces)
+    #expect(store.connectionState == .connected)
+    #expect(store.connectionError == nil)
+    #expect(store.connectedHostName == "Studio LAN")
+    if case let .hostPort(host, port) = route.endpoint {
+        #expect(host == "192.168.1.77")
+        #expect(port == 15432)
+    } else {
+        Issue.record("manual LAN route should use host/port")
+    }
+    let attachTicketRequest = try #require(try await responses.sentRequests().first { $0.method == "mobile.attach_ticket.create" })
+    #expect(attachTicketRequest.stackAccessToken == "stack-token-for-lan")
 }
 
 @MainActor
-@Test func manualHostPairingRejectsLocalDNSBeforeSendingStackAuth() async throws {
-    let responses = ScriptedTransportResponses([])
+@Test func manualHostPairingUsesNetworkRouteForLocalDNSName() async throws {
+    let attachRoute = try hostPortRoute(
+        kind: .tailscale,
+        host: "devbox.local",
+        port: 61234
+    )
+    let responses = ScriptedTransportResponses([
+        try rpcAttachTicketFrame(route: attachRoute, workspaceID: "local-dns-workspace"),
+        try rpcWorkspaceListFrame(workspaceID: "local-dns-workspace", title: "Local DNS Workspace"),
+    ])
     let runtime = testRuntime(
         supportedRouteKinds: [.tailscale],
         transportFactory: ScriptedTransportFactory(responses: responses),
-        stackAccessToken: "stack-token-must-not-leak"
+        stackAccessToken: "stack-token-for-local-dns"
     )
     let store = CMUXMobileShellStore.preview(runtime: runtime)
 
     store.signIn()
     await store.connectManualHost(name: "", host: "devbox.local", port: 61234)
 
-    #expect(store.phase == .pairing)
-    #expect(store.connectionState == .disconnected)
-    #expect(store.connectionError == "Enter a device name, or pair with a QR/link from that computer.")
-    let requests = try await responses.sentRequests()
-    #expect(requests.isEmpty)
+    let route = try #require(store.activeRoute)
+    #expect(store.phase == .workspaces)
+    #expect(store.connectionState == .connected)
+    #expect(store.connectionError == nil)
+    #expect(store.connectedHostName == "devbox.local")
+    if case let .hostPort(host, port) = route.endpoint {
+        #expect(host == "devbox.local")
+        #expect(port == 61234)
+    } else {
+        Issue.record("manual local DNS route should use host/port")
+    }
+    let attachTicketRequest = try #require(try await responses.sentRequests().first { $0.method == "mobile.attach_ticket.create" })
+    #expect(attachTicketRequest.stackAccessToken == "stack-token-for-local-dns")
 }
 
 @MainActor
-@Test func manualHostPairingRejectsLANHostBeforeSendingStackAuth() async throws {
-    let responses = ScriptedTransportResponses([])
+@Test func manualHostPairingFallsBackToSyntheticTicketForGeneralManualHost() async throws {
+    let responses = ScriptedTransportResponses([
+        try rpcErrorFrame(message: "unknown method"),
+        try rpcWorkspaceListFrame(workspaceID: "manual-workspace", title: "Manual Workspace"),
+    ])
     let runtime = testRuntime(
         supportedRouteKinds: [.tailscale],
-        transportFactory: ScriptedTransportFactory(responses: responses)
+        transportFactory: ScriptedTransportFactory(responses: responses),
+        stackAccessToken: "stack-token-for-fallback"
     )
     let store = CMUXMobileShellStore.preview(runtime: runtime)
 
     store.signIn()
     await store.connectManualHost(name: "Studio LAN", host: "192.168.1.77", port: 15432)
 
-    #expect(store.phase == .pairing)
-    #expect(store.connectionState == .disconnected)
-    #expect(store.connectionError == "Enter a device name, or pair with a QR/link from that computer.")
+    #expect(store.phase == .workspaces)
+    #expect(store.connectionState == .connected)
+    #expect(store.connectionError == nil)
+    #expect(store.connectedHostName == "Studio LAN")
+    let requests = try await responses.sentRequests()
+    #expect(requests.map(\.method) == ["mobile.attach_ticket.create", "workspace.list"])
+    #expect(requests.last?.stackAccessToken == "stack-token-for-fallback")
 }
 
 @MainActor
@@ -538,7 +605,7 @@ import UIKit
     let runtime = testRuntime(
         supportedRouteKinds: [.tailscale],
         transportFactory: HangingTransportFactory(),
-        rpcRequestTimeoutNanoseconds: 1_000_000
+        pairingRequestTimeoutNanoseconds: 1_000_000
     )
     let store = CMUXMobileShellStore.preview(runtime: runtime)
 
@@ -548,7 +615,7 @@ import UIKit
     #expect(route.kind == .tailscale)
     #expect(store.phase == .pairing)
     #expect(store.connectionState == .disconnected)
-    #expect(store.connectionError == "The computer did not respond. Check the host and port, then try again.")
+    #expect(store.connectionError == "No response from work-mac.tailnet.ts.net:58465. Make sure cmux is open on that Mac and the mobile server is on.")
 }
 
 @MainActor
@@ -604,7 +671,7 @@ import UIKit
     #expect(store.connectionState == .disconnected)
     #expect(store.activeTicket == nil)
     #expect(store.activeRoute == nil)
-    #expect(store.connectionError == "Enter a device name, or pair with a QR/link from that computer.")
+    #expect(store.connectionError == "This pairing route is not allowed. Enter a host and port, or pair with a QR/link from that computer.")
     #expect(try await responses.sentRequests().isEmpty)
 }
 
@@ -838,43 +905,69 @@ import UIKit
 }
 
 @MainActor
-@Test func manualHostPairingRejectsTailscaleIPBeforeSendingStackAuth() async throws {
-    let responses = ScriptedTransportResponses([])
+@Test func manualHostPairingUsesNetworkRouteForTailscaleIP() async throws {
+    let attachRoute = try hostPortRoute(
+        kind: .tailscale,
+        host: "100.71.210.41",
+        port: CmxMobileDefaults.defaultHostPort
+    )
+    let responses = ScriptedTransportResponses([
+        try rpcAttachTicketFrame(route: attachRoute, workspaceID: "tailscale-ip-workspace"),
+        try rpcWorkspaceListFrame(workspaceID: "tailscale-ip-workspace", title: "Tailscale IP Workspace"),
+    ])
     let runtime = testRuntime(
         supportedRouteKinds: [.tailscale],
         transportFactory: ScriptedTransportFactory(responses: responses),
-        stackAccessToken: "stack-token-must-not-leak"
+        stackAccessToken: "stack-token-for-tailscale-ip"
     )
     let store = CMUXMobileShellStore.preview(runtime: runtime)
 
     store.signIn()
     await store.connectManualHost(name: "Work Mac", host: "100.71.210.41", port: CmxMobileDefaults.defaultHostPort)
 
-    #expect(store.phase == .pairing)
-    #expect(store.connectionState == .disconnected)
-    #expect(store.connectionError == "Enter a device name, or pair with a QR/link from that computer.")
-    let requests = try await responses.sentRequests()
-    #expect(requests.isEmpty)
+    let route = try #require(store.activeRoute)
+    #expect(store.phase == .workspaces)
+    #expect(store.connectionState == .connected)
+    #expect(store.connectionError == nil)
+    #expect(store.connectedHostName == "Work Mac")
+    #expect(route.kind == .tailscale)
+    if case let .hostPort(host, port) = route.endpoint {
+        #expect(host == "100.71.210.41")
+        #expect(port == CmxMobileDefaults.defaultHostPort)
+    } else {
+        Issue.record("manual Tailscale IP route should use host/port")
+    }
+    let attachTicketRequest = try #require(try await responses.sentRequests().first { $0.method == "mobile.attach_ticket.create" })
+    #expect(attachTicketRequest.stackAccessToken == "stack-token-for-tailscale-ip")
 }
 
 @MainActor
-@Test func manualHostPairingRejectsLANHostWithoutDiscovery() async throws {
-    let responses = ScriptedTransportResponses([])
+@Test func manualHostPairingUsesNetworkRouteForDefaultPortLANHost() async throws {
+    let attachRoute = try hostPortRoute(
+        kind: .tailscale,
+        host: "192.168.1.77",
+        port: CmxMobileDefaults.defaultHostPort
+    )
+    let responses = ScriptedTransportResponses([
+        try rpcAttachTicketFrame(route: attachRoute, workspaceID: "default-port-lan-workspace"),
+        try rpcWorkspaceListFrame(workspaceID: "default-port-lan-workspace", title: "Default Port LAN Workspace"),
+    ])
     let runtime = testRuntime(
         supportedRouteKinds: [.tailscale],
         transportFactory: ScriptedTransportFactory(responses: responses),
-        stackAccessToken: "stack-token-must-not-leak"
+        stackAccessToken: "stack-token-for-default-lan"
     )
     let store = CMUXMobileShellStore.preview(runtime: runtime)
 
     store.signIn()
     await store.connectManualHost(name: "Work Mac", host: "192.168.1.77", port: CmxMobileDefaults.defaultHostPort)
 
-    #expect(store.phase == .pairing)
-    #expect(store.connectionState == .disconnected)
-    #expect(store.connectionError == "Enter a device name, or pair with a QR/link from that computer.")
-    let requests = try await responses.sentRequests()
-    #expect(requests.isEmpty)
+    #expect(store.phase == .workspaces)
+    #expect(store.connectionState == .connected)
+    #expect(store.connectionError == nil)
+    #expect(store.connectedHostName == "Work Mac")
+    let attachTicketRequest = try #require(try await responses.sentRequests().first { $0.method == "mobile.attach_ticket.create" })
+    #expect(attachTicketRequest.stackAccessToken == "stack-token-for-default-lan")
 }
 
 @MainActor
@@ -1848,7 +1941,7 @@ import UIKit
         MobileTerminalBottomBarPlacementPolicy.controlBottomOffset(
             safeAreaBottom: 21,
             expandsSafeArea: true
-        ) == 21
+        ) == 0
     )
     #expect(
         MobileTerminalBottomBarPlacementPolicy.controlBottomOffset(
@@ -1950,6 +2043,7 @@ private func testRuntime(
     transportFactory: any CmxByteTransportFactory,
     stackAccessToken: String? = "test-stack-token",
     rpcRequestTimeoutNanoseconds: UInt64 = CMUXMobileRuntime.defaultRPCRequestTimeoutNanoseconds,
+    pairingRequestTimeoutNanoseconds: UInt64 = CMUXMobileRuntime.defaultPairingRequestTimeoutNanoseconds,
     now: @escaping @Sendable () -> Date = Date.init
 ) -> CMUXMobileRuntime {
     CMUXMobileRuntime(
@@ -1962,6 +2056,7 @@ private func testRuntime(
             return stackAccessToken
         },
         rpcRequestTimeoutNanoseconds: rpcRequestTimeoutNanoseconds,
+        pairingRequestTimeoutNanoseconds: pairingRequestTimeoutNanoseconds,
         now: now
     )
 }

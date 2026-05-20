@@ -44,6 +44,42 @@ final class GhosttyPasteboardHelperTests: XCTestCase {
         XCTAssertNil(cmuxPasteboardImagePathForTesting(pasteboard))
     }
 
+    func testCapturedStandardClipboardWriteDoesNotTouchGeneralPasteboard() {
+        let pasteboard = NSPasteboard.general
+        pasteboard.clearContents()
+        pasteboard.setString("existing clipboard text", forType: .string)
+        let initialChangeCount = pasteboard.changeCount
+
+        let captured = GhosttyPasteboardHelper.captureNextStandardClipboardWrite {
+            GhosttyPasteboardHelper.writeString(
+                "/tmp/cmux-screen.txt",
+                to: GHOSTTY_CLIPBOARD_STANDARD
+            )
+            return true
+        }
+
+        XCTAssertEqual(captured, "/tmp/cmux-screen.txt")
+        XCTAssertEqual(pasteboard.string(forType: .string), "existing clipboard text")
+        XCTAssertEqual(pasteboard.changeCount, initialChangeCount)
+    }
+
+    func testStandardClipboardWriteAfterCaptureUsesGeneralPasteboard() {
+        let pasteboard = NSPasteboard.general
+        pasteboard.clearContents()
+        pasteboard.setString("existing clipboard text", forType: .string)
+
+        _ = GhosttyPasteboardHelper.captureNextStandardClipboardWrite {
+            GhosttyPasteboardHelper.writeString(
+                "/tmp/cmux-screen.txt",
+                to: GHOSTTY_CLIPBOARD_STANDARD
+            )
+            return true
+        }
+
+        GhosttyPasteboardHelper.writeString("normal clipboard text", to: GHOSTTY_CLIPBOARD_STANDARD)
+        XCTAssertEqual(pasteboard.string(forType: .string), "normal clipboard text")
+    }
+
     func testAlternatePlainTextUTIExtractsPlainText() {
         let pasteboard = NSPasteboard(name: .init("cmux-test-plain-text-uti-\(UUID().uuidString)"))
         pasteboard.clearContents()
@@ -386,7 +422,7 @@ final class GhosttyPasteboardHelperTests: XCTestCase {
         let imagePath = try XCTUnwrap(cmuxPasteboardImagePathForTesting(pasteboard))
         defer { try? FileManager.default.removeItem(atPath: imagePath) }
 
-        XCTAssertTrue(imagePath.hasSuffix(".tiff"))
+        XCTAssertTrue(imagePath.hasSuffix(".png"))
         XCTAssertTrue(FileManager.default.fileExists(atPath: imagePath))
     }
 
@@ -418,7 +454,7 @@ final class GhosttyPasteboardHelperTests: XCTestCase {
         let imagePath = try XCTUnwrap(cmuxPasteboardImagePathForTesting(pasteboard))
         defer { try? FileManager.default.removeItem(atPath: imagePath) }
 
-        XCTAssertTrue(imagePath.hasSuffix(".tiff"))
+        XCTAssertTrue(imagePath.hasSuffix(".png"))
         XCTAssertTrue(FileManager.default.fileExists(atPath: imagePath))
     }
 
@@ -1109,6 +1145,31 @@ final class TerminalOffscreenStartupTests: XCTestCase {
         )
     }
 
+    func testColdSocketInputQueuesReturnAsCommittedTextInputInsteadOfPasteOrKeyEvent() {
+        let panel = TerminalPanel(workspaceId: UUID())
+
+        panel.surface.releaseSurfaceForTesting()
+        XCTAssertTrue(panel.surface.sendInput("printf 'ok\\n'\n"))
+
+        let pending = panel.surface.debugPendingSocketInputForTesting()
+        XCTAssertGreaterThan(pending.items, 0)
+        XCTAssertGreaterThan(
+            pending.inputTextItems,
+            0,
+            "Programmatic newline input must use Ghostty committed text input so headless mobile commands execute."
+        )
+        XCTAssertEqual(
+            pending.pasteTextItems,
+            0,
+            "Programmatic newline input must not use paste mode because bracketed paste can strand commands at the prompt."
+        )
+        XCTAssertEqual(
+            pending.keyEvents,
+            0,
+            "Programmatic newline input must not be translated to Return key events for cold terminals."
+        )
+    }
+
     func testTeardownClosesHeadlessStartupWindow() {
         let panel = TerminalPanel(
             workspaceId: UUID(),
@@ -1168,10 +1229,12 @@ final class TerminalOffscreenStartupTests: XCTestCase {
         let pending = panel.surface.debugPendingSocketInputForTesting()
         XCTAssertGreaterThan(pending.items, 0)
         XCTAssertGreaterThan(
-            pending.keyEvents,
+            pending.inputTextItems,
             0,
-            "A daemon send that accepts newline input for a cold terminal must queue the Return event instead of reporting OK for bytes that cannot execute."
+            "A daemon send that accepts newline input for a cold terminal must queue committed text input instead of reporting OK for pasted text that can fail to execute."
         )
+        XCTAssertEqual(pending.pasteTextItems, 0)
+        XCTAssertEqual(pending.keyEvents, 0)
     }
 
     func testMobileTerminalInputReportsRejectedClosedSurface() async throws {
