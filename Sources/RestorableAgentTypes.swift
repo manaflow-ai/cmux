@@ -21,9 +21,8 @@ enum RestorableAgentKind: Codable, Hashable, Sendable {
     static let allCases: [RestorableAgentKind] = [
         .claude,
         .codex,
-        .grok,
-        // Pi is registry-owned so the built-in Vault registration can be
-        // overridden by project config while direct .pi values still encode.
+        // Pi and Grok are registry-owned so the built-in Vault registrations can be
+        // overridden by project config while direct native values still encode.
         .amp,
         .cursor,
         .gemini,

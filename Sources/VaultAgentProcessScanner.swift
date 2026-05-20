@@ -743,12 +743,16 @@ private struct VaultObservedAgentProcess: Sendable {
 
 private extension CmuxVaultAgentDetectRule {
     func matches(_ process: VaultObservedAgentProcess) -> Bool {
-        guard processName != nil || !argvContains.isEmpty else { return false }
-        let processNameMatch = processName.map { expected in
+        var expectedNames = processNames
+        if let processName {
+            expectedNames.append(processName)
+        }
+        guard !expectedNames.isEmpty || !argvContains.isEmpty else { return false }
+        let processNameMatch = expectedNames.isEmpty || expectedNames.contains { expected in
             process.executableBasenames.contains { candidate in
                 candidate.compare(expected, options: [.caseInsensitive, .literal]) == .orderedSame
             }
-        } ?? true
+        }
         let argvContainsMatch = argvContains.isEmpty || argvContains.allSatisfy { needle in
             if needle.contains(" ") {
                 let joinedArguments = process.arguments.joined(separator: " ")
@@ -789,6 +793,11 @@ private extension CmuxVaultAgentSessionIDSource {
                 ) ?? session
             }
             return PiSessionLocator.latestSessionPath(for: process, registration: registration, fileManager: fileManager)
+        case .grokSessionDirectory:
+            if let session = process.arguments.grokResumeSessionID {
+                return session
+            }
+            return nil
         }
     }
 }
@@ -821,6 +830,31 @@ private extension Array where Element == String {
             if argument.hasPrefix(prefix) {
                 let value = String(argument.dropFirst(prefix.count)).trimmingCharacters(in: .whitespacesAndNewlines)
                 return value.isEmpty ? nil : value
+            }
+        }
+        return nil
+    }
+
+    var grokResumeSessionID: String? {
+        let options = ["-r", "--resume"]
+        for index in indices {
+            let argument = self[index]
+            if options.contains(argument) {
+                let nextIndex = self.index(after: index)
+                guard nextIndex < endIndex else { continue }
+                let value = self[nextIndex].trimmingCharacters(in: .whitespacesAndNewlines)
+                if !value.isEmpty, !value.hasPrefix("-") {
+                    return value
+                }
+                continue
+            }
+            for option in options {
+                let prefix = option + "="
+                guard argument.hasPrefix(prefix) else { continue }
+                let value = String(argument.dropFirst(prefix.count)).trimmingCharacters(in: .whitespacesAndNewlines)
+                if !value.isEmpty, !value.hasPrefix("-") {
+                    return value
+                }
             }
         }
         return nil

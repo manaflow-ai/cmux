@@ -1010,6 +1010,8 @@ class TabManager: ObservableObject {
                 recordTabInHistory(selectedTabId)
             }
             publishCmuxWorkspaceSelectedChange(from: previousTabId)
+            let notificationDismissalContext = pendingSelectedTabNotificationDismissContext ?? .activeFocus
+            pendingSelectedTabNotificationDismissContext = nil
 #if DEBUG
             let switchId = debugWorkspaceSwitchId
             let switchDtMs = debugWorkspaceSwitchStartTime > 0
@@ -1027,7 +1029,10 @@ class TabManager: ObservableObject {
                 self.focusSelectedTabPanel(previousTabId: previousTabId)
                 self.updateWindowTitleForSelectedTab()
                 if let selectedTabId = self.selectedTabId {
-                    self.dismissFocusedPanelNotificationIfActive(tabId: selectedTabId)
+                    self.dismissFocusedPanelNotificationIfActive(
+                        tabId: selectedTabId,
+                        context: notificationDismissalContext
+                    )
                 }
 #if DEBUG
                 let dtMs = self.debugWorkspaceSwitchStartTime > 0
@@ -1043,6 +1048,7 @@ class TabManager: ObservableObject {
     }
     private var observers: [NSObjectProtocol] = []
     private var suppressFocusFlash = false
+    private var pendingSelectedTabNotificationDismissContext: NotificationDismissalContext?
     private var lastFocusedPanelByTab: [UUID: UUID] = [:]
     private struct PanelTitleUpdateKey: Hashable {
         let tabId: UUID
@@ -4405,7 +4411,7 @@ class TabManager: ObservableObject {
 #if DEBUG
         debugPrimeWorkspaceSwitchTrigger("select", to: workspace.id)
 #endif
-        selectedTabId = workspace.id
+        selectWorkspaceId(workspace.id, notificationDismissalContext: .explicitWorkspaceResume)
     }
 
     // Keep selectTab as convenience alias
@@ -5096,27 +5102,84 @@ class TabManager: ObservableObject {
         selectedTabId != pendingTabId
     }
 
-    private enum NotificationDismissalContext {
+    private enum NotificationDismissalContext: Sendable {
         case activeFocus
+        case explicitWorkspaceResume
         case directInteraction
         case terminalInteraction
+
+        var requiresActiveApp: Bool {
+            switch self {
+            case .activeFocus, .explicitWorkspaceResume:
+                return true
+            case .directInteraction, .terminalInteraction:
+                return false
+            }
+        }
+
+        var canDismissManualUnreadIndicator: Bool {
+            self == .terminalInteraction
+        }
+
+        // Generic active focus can be produced by restore/programmatic selection.
+        // Keep this exhaustive so any future context must make an explicit
+        // restored-unread policy decision.
+        var canDismissRestoredUnreadIndicator: Bool {
+            switch self {
+            case .activeFocus:
+                return false
+            case .explicitWorkspaceResume, .directInteraction, .terminalInteraction:
+                return true
+            }
+        }
     }
 
-    private func dismissFocusedPanelNotificationIfActive(tabId: UUID) {
+    private func selectWorkspaceId(
+        _ tabId: UUID,
+        notificationDismissalContext: NotificationDismissalContext?
+    ) {
+        guard selectedTabId != tabId else {
+            pendingSelectedTabNotificationDismissContext = nil
+            if let notificationDismissalContext {
+                dismissFocusedPanelNotificationIfActive(tabId: tabId, context: notificationDismissalContext)
+            }
+            return
+        }
+
+        pendingSelectedTabNotificationDismissContext = notificationDismissalContext
+        selectedTabId = tabId
+    }
+
+    private func dismissFocusedPanelNotificationIfActive(
+        tabId: UUID,
+        context: NotificationDismissalContext = .activeFocus
+    ) {
         let shouldSuppressFlash = suppressFocusFlash
         suppressFocusFlash = false
         guard !shouldSuppressFlash else { return }
         guard let panelId = focusedPanelId(for: tabId) else { return }
-        dismissPanelNotificationOnFocus(tabId: tabId, panelId: panelId, explicitFocusIntent: false)
+        dismissPanelNotificationOnFocus(tabId: tabId, panelId: panelId, context: context)
     }
 
     private func dismissPanelNotificationOnFocus(tabId: UUID, panelId: UUID, explicitFocusIntent: Bool) {
+        dismissPanelNotificationOnFocus(
+            tabId: tabId,
+            panelId: panelId,
+            context: explicitFocusIntent ? .directInteraction : .activeFocus
+        )
+    }
+
+    private func dismissPanelNotificationOnFocus(
+        tabId: UUID,
+        panelId: UUID,
+        context: NotificationDismissalContext
+    ) {
         guard selectedTabId == tabId else { return }
         guard !suppressFocusFlash else { return }
         _ = dismissNotification(
             tabId: tabId,
             surfaceId: panelId,
-            context: explicitFocusIntent ? .directInteraction : .activeFocus
+            context: context
         )
     }
 
@@ -5137,48 +5200,86 @@ class TabManager: ObservableObject {
         context: NotificationDismissalContext
     ) -> Bool {
         guard selectedTabId == tabId else { return false }
-        if context == .activeFocus {
+        if context.requiresActiveApp {
             guard AppFocusState.isAppActive() else { return false }
         }
         guard let notificationStore = AppDelegate.shared?.notificationStore else { return false }
         let workspace = tabs.first(where: { $0.id == tabId })
-        let hasManualPanelUnread = surfaceId.map { workspace?.manualUnreadPanelIds.contains($0) ?? false } ?? false
-        let hasRestoredPanelUnread = surfaceId.map { workspace?.hasRestoredUnreadIndicator(panelId: $0) ?? false } ?? false
+        let targetPanelId = surfaceId.flatMap { surfaceOrPanelId in
+            workspace.flatMap { panelId(forSurfaceOrPanelId: surfaceOrPanelId, in: $0) }
+        }
+        var notificationSurfaceIds: [UUID] = []
+        if let surfaceId {
+            notificationSurfaceIds.append(surfaceId)
+        }
+        if let targetPanelId, !notificationSurfaceIds.contains(targetPanelId) {
+            notificationSurfaceIds.append(targetPanelId)
+        }
+        let hasManualPanelUnread = targetPanelId.map { workspace?.manualUnreadPanelIds.contains($0) ?? false } ?? false
+        let hasRestoredPanelUnread = targetPanelId.map { workspace?.hasRestoredUnreadIndicator(panelId: $0) ?? false } ?? false
         let hasManualWorkspaceUnread = notificationStore.hasManualUnread(forTabId: tabId)
         let hasRestoredWorkspaceUnread = notificationStore.hasRestoredUnreadIndicator(forTabId: tabId)
-        let canDismissUnreadIndicator = context == .terminalInteraction &&
-            (hasManualPanelUnread || hasRestoredPanelUnread || hasManualWorkspaceUnread || hasRestoredWorkspaceUnread)
-        let hasUnreadNotification = notificationStore.hasUnreadNotification(forTabId: tabId, surfaceId: surfaceId)
-        let hasFocusedIndicator = notificationStore.hasVisibleNotificationIndicator(forTabId: tabId, surfaceId: surfaceId)
+        let canDismissManualUnreadIndicator = context.canDismissManualUnreadIndicator &&
+            (hasManualPanelUnread || hasManualWorkspaceUnread)
+        let canDismissRestoredUnreadIndicator = context.canDismissRestoredUnreadIndicator &&
+            (hasRestoredPanelUnread || hasRestoredWorkspaceUnread)
+        let canDismissUnreadIndicator = canDismissManualUnreadIndicator || canDismissRestoredUnreadIndicator
+        let hasUnreadNotification: Bool
+        let hasFocusedIndicator: Bool
+        if notificationSurfaceIds.isEmpty {
+            hasUnreadNotification = notificationStore.hasUnreadNotification(forTabId: tabId, surfaceId: nil)
+            hasFocusedIndicator = notificationStore.hasVisibleNotificationIndicator(forTabId: tabId, surfaceId: nil)
+        } else {
+            hasUnreadNotification = notificationSurfaceIds.contains {
+                notificationStore.hasUnreadNotification(forTabId: tabId, surfaceId: $0)
+            }
+            hasFocusedIndicator = notificationSurfaceIds.contains {
+                notificationStore.hasVisibleNotificationIndicator(forTabId: tabId, surfaceId: $0)
+            }
+        }
         guard hasUnreadNotification || hasFocusedIndicator || canDismissUnreadIndicator else { return false }
         if hasUnreadNotification {
-            notificationStore.markRead(forTabId: tabId, surfaceId: surfaceId)
+            if notificationSurfaceIds.isEmpty {
+                notificationStore.markRead(forTabId: tabId, surfaceId: nil)
+            } else {
+                for surfaceId in notificationSurfaceIds {
+                    notificationStore.markRead(forTabId: tabId, surfaceId: surfaceId)
+                }
+            }
         }
         var didDismissUnreadIndicator = false
-        if context == .terminalInteraction {
-            if let panelId = surfaceId, hasManualPanelUnread {
-                workspace?.clearManualUnread(panelId: panelId)
-                didDismissUnreadIndicator = true
-            }
-            if let panelId = surfaceId, hasRestoredPanelUnread {
-                workspace?.clearRestoredUnreadIndicator(panelId: panelId)
+        if context.canDismissManualUnreadIndicator {
+            if let targetPanelId, hasManualPanelUnread {
+                workspace?.clearManualUnread(panelId: targetPanelId)
                 didDismissUnreadIndicator = true
             }
             if hasManualWorkspaceUnread {
                 didDismissUnreadIndicator = notificationStore.clearManualUnread(forTabId: tabId) || didDismissUnreadIndicator
             }
+        }
+        if context.canDismissRestoredUnreadIndicator {
+            if let targetPanelId, hasRestoredPanelUnread {
+                workspace?.clearRestoredUnreadIndicator(panelId: targetPanelId)
+                didDismissUnreadIndicator = true
+            }
             if hasRestoredWorkspaceUnread {
-                didDismissUnreadIndicator = notificationStore.clearRestoredUnreadIndicator(forTabId: tabId) ||
-                    didDismissUnreadIndicator
+                didDismissUnreadIndicator =
+                    notificationStore.clearRestoredUnreadIndicator(forTabId: tabId) || didDismissUnreadIndicator
             }
         }
-        notificationStore.clearFocusedReadIndicator(forTabId: tabId, surfaceId: surfaceId)
-        if let panelId = surfaceId,
+        if notificationSurfaceIds.isEmpty {
+            notificationStore.clearFocusedReadIndicator(forTabId: tabId, surfaceId: nil)
+        } else {
+            for surfaceId in notificationSurfaceIds {
+                notificationStore.clearFocusedReadIndicator(forTabId: tabId, surfaceId: surfaceId)
+            }
+        }
+        if let targetPanelId,
            let workspace {
             if hasUnreadNotification || hasFocusedIndicator {
-                workspace.triggerNotificationDismissFlash(panelId: panelId)
+                workspace.triggerNotificationDismissFlash(panelId: targetPanelId)
             } else if didDismissUnreadIndicator {
-                workspace.triggerManualUnreadDismissFlash(panelId: panelId)
+                workspace.triggerUnreadIndicatorDismissFlash(panelId: targetPanelId)
             }
         }
         return true
@@ -5260,17 +5361,27 @@ class TabManager: ObservableObject {
         _ tabId: UUID,
         surfaceId: UUID? = nil,
         suppressFlash: Bool = false,
-        focusIntent: PanelFocusIntent? = nil
+        focusIntent: PanelFocusIntent? = nil,
+        dismissRestoredUnreadOnResume: Bool? = nil
     ) {
         guard let tab = tabs.first(where: { $0.id == tabId }) else { return }
-        if let surfaceId, tab.panels[surfaceId] != nil {
+        let targetPanelId = surfaceId.flatMap { panelId(forSurfaceOrPanelId: $0, in: tab) }
+        if let targetPanelId {
             // Keep selected-surface intent stable across selectedTabId didSet async restore.
-            lastFocusedPanelByTab[tabId] = surfaceId
+            lastFocusedPanelByTab[tabId] = targetPanelId
         }
+        let shouldDismissRestoredUnread = dismissRestoredUnreadOnResume ?? !suppressFlash
+        let dismissalContext: NotificationDismissalContext? = shouldDismissRestoredUnread ? .explicitWorkspaceResume : nil
+        let shouldDeferSelectedWorkspaceDismissal =
+            selectedTabId == tabId &&
+            targetPanelId.map { $0 != focusedPanelId(for: tabId) } == true
 #if DEBUG
         debugPrimeWorkspaceSwitchTrigger("focus", to: tabId)
 #endif
-        selectedTabId = tabId
+        selectWorkspaceId(
+            tabId,
+            notificationDismissalContext: shouldDeferSelectedWorkspaceDismissal ? nil : dismissalContext
+        )
         NotificationCenter.default.post(
             name: .ghosttyDidFocusTab,
             object: nil,
@@ -5278,10 +5389,14 @@ class TabManager: ObservableObject {
         )
 
         if let surfaceId {
+            let focusPanelId = targetPanelId ?? surfaceId
             if !suppressFlash {
-                focusSurface(tabId: tabId, surfaceId: surfaceId)
+                focusSurface(tabId: tabId, surfaceId: focusPanelId)
             } else {
-                tab.focusPanel(surfaceId, focusIntent: focusIntent)
+                tab.focusPanel(focusPanelId, focusIntent: focusIntent)
+            }
+            if let dismissalContext {
+                _ = dismissNotification(tabId: tabId, surfaceId: surfaceId, context: dismissalContext)
             }
         }
     }
@@ -5325,7 +5440,14 @@ class TabManager: ObservableObject {
 
     func focusSurface(tabId: UUID, surfaceId: UUID) {
         guard let tab = tabs.first(where: { $0.id == tabId }) else { return }
-        tab.focusPanel(surfaceId)
+        tab.focusPanel(panelId(forSurfaceOrPanelId: surfaceId, in: tab) ?? surfaceId)
+    }
+
+    private func panelId(forSurfaceOrPanelId surfaceOrPanelId: UUID, in workspace: Workspace) -> UUID? {
+        if workspace.panels[surfaceOrPanelId] != nil {
+            return surfaceOrPanelId
+        }
+        return workspace.panelIdFromSurfaceId(TabID(uuid: surfaceOrPanelId))
     }
 
     func selectNextTab() {
@@ -5337,7 +5459,10 @@ class TabManager: ObservableObject {
         debugPrepareWorkspaceSwitch("next", from: currentId, to: nextId)
 #endif
         activateWorkspaceCycleHotWindow()
-        selectedTabId = tabs[nextIndex].id
+        selectWorkspaceId(
+            tabs[nextIndex].id,
+            notificationDismissalContext: .explicitWorkspaceResume
+        )
     }
 
     func selectPreviousTab() {
@@ -5349,7 +5474,10 @@ class TabManager: ObservableObject {
         debugPrepareWorkspaceSwitch("prev", from: currentId, to: prevId)
 #endif
         activateWorkspaceCycleHotWindow()
-        selectedTabId = tabs[prevIndex].id
+        selectWorkspaceId(
+            tabs[prevIndex].id,
+            notificationDismissalContext: .explicitWorkspaceResume
+        )
     }
 
     private func activateWorkspaceCycleHotWindow() {
@@ -5479,12 +5607,12 @@ class TabManager: ObservableObject {
 #if DEBUG
         debugPrimeWorkspaceSwitchTrigger("select_index", to: tabs[index].id)
 #endif
-        selectedTabId = tabs[index].id
+        selectWorkspaceId(tabs[index].id, notificationDismissalContext: .explicitWorkspaceResume)
     }
 
     func selectLastTab() {
         guard let lastTab = tabs.last else { return }
-        selectedTabId = lastTab.id
+        selectWorkspaceId(lastTab.id, notificationDismissalContext: .explicitWorkspaceResume)
     }
 
     // MARK: - Surface Navigation
@@ -5625,7 +5753,7 @@ class TabManager: ObservableObject {
             if tabs.contains(where: { $0.id == tabId }) {
                 isNavigatingHistory = true
                 historyIndex = targetIndex
-                selectedTabId = tabId
+                selectWorkspaceId(tabId, notificationDismissalContext: .explicitWorkspaceResume)
                 isNavigatingHistory = false
                 return
             }
@@ -5646,7 +5774,7 @@ class TabManager: ObservableObject {
             if tabs.contains(where: { $0.id == tabId }) {
                 isNavigatingHistory = true
                 historyIndex = targetIndex
-                selectedTabId = tabId
+                selectWorkspaceId(tabId, notificationDismissalContext: .explicitWorkspaceResume)
                 isNavigatingHistory = false
                 return
             }
@@ -5882,7 +6010,7 @@ class TabManager: ObservableObject {
         guard BrowserAvailabilitySettings.isEnabled() else { return nil }
         guard let workspace = tabs.first(where: { $0.id == tabId }) else { return nil }
         if selectedTabId != tabId {
-            selectedTabId = tabId
+            selectWorkspaceId(tabId, notificationDismissalContext: .explicitWorkspaceResume)
         }
 
         if preferSplitRight {
@@ -5973,7 +6101,10 @@ class TabManager: ObservableObject {
             let preReopenFocusedPanelId = focusedPanelId(for: targetWorkspace.id)
 
             if selectedTabId != targetWorkspace.id {
-                selectedTabId = targetWorkspace.id
+                selectWorkspaceId(
+                    targetWorkspace.id,
+                    notificationDismissalContext: .explicitWorkspaceResume
+                )
             }
 
             if let reopenedPanelId = reopenClosedBrowserPanel(snapshot, in: targetWorkspace) {
@@ -7362,6 +7493,10 @@ extension TabManager {
             hasher.combine(workspace.surfaceListeningPorts.count)
             hasher.combine(notificationStore?.hasManualUnread(forTabId: workspace.id) ?? false)
             hasher.combine(notificationStore?.workspaceIsUnread(forTabId: workspace.id) ?? false)
+            Self.hashNotifications(
+                notificationStore?.notifications(forTabId: workspace.id, surfaceId: nil) ?? [],
+                into: &hasher
+            )
 
             let panelIds = workspace.panels.keys.sorted { $0.uuidString < $1.uuidString }
             hasher.combine(panelIds.count)
@@ -7374,6 +7509,10 @@ extension TabManager {
                         forTabId: workspace.id,
                         surfaceId: panelId
                     ) ?? false
+                )
+                Self.hashNotifications(
+                    notificationStore?.notifications(forTabId: workspace.id, surfaceId: panelId) ?? [],
+                    into: &hasher
                 )
                 Self.hashRestorableAgentSnapshot(
                     restorableAgentIndex.snapshot(
@@ -7484,6 +7623,24 @@ extension TabManager {
             hasher.combine(false)
         } else {
             hashOptionalDouble(snapshot.updatedAt, into: &hasher)
+        }
+    }
+
+    nonisolated private static func hashNotifications(
+        _ notifications: [TerminalNotification],
+        into hasher: inout Hasher
+    ) {
+        hasher.combine(notifications.count)
+        for notification in notifications.sorted(by: { $0.id.uuidString < $1.id.uuidString }) {
+            hasher.combine(notification.id)
+            hasher.combine(notification.title)
+            hasher.combine(notification.subtitle)
+            hasher.combine(notification.body)
+            hasher.combine(notification.createdAt.timeIntervalSince1970)
+            hasher.combine(notification.isRead)
+            hasher.combine(notification.paneFlash)
+            hasher.combine(notification.panelId)
+            hasher.combine(notification.clickAction)
         }
     }
 
