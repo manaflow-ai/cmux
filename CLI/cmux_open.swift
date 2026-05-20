@@ -17,6 +17,17 @@ extension CMUXCLI {
         case url(String)
     }
 
+    private struct DiffArguments {
+        var workspace: String?
+        var window: String?
+        var surface: String?
+        var focus: String?
+        var noFocus = false
+        var title: String?
+        var layout: String?
+        var inputs: [String] = []
+    }
+
     func runOpenCommand(
         commandArgs: [String],
         socketPath: String,
@@ -117,6 +128,87 @@ extension CMUXCLI {
         ))
     }
 
+    func runDiffCommand(
+        commandArgs: [String],
+        socketPath: String,
+        explicitPassword: String?,
+        jsonOutput: Bool,
+        idFormat: CLIIDFormat
+    ) throws {
+        let parsedArgs = try parseDiffArguments(commandArgs)
+        guard parsedArgs.inputs.count <= 1 else {
+            throw CLIError(message: "diff accepts at most one patch file. Usage: cmux diff [patch-file|-] [options]")
+        }
+
+        let focus: Bool
+        if parsedArgs.noFocus {
+            focus = false
+        } else if let focusOpt = parsedArgs.focus {
+            guard let parsed = parseBoolString(focusOpt) else {
+                throw CLIError(message: "--focus must be true|false")
+            }
+            focus = parsed
+        } else {
+            focus = false
+        }
+
+        let layout = parsedArgs.layout ?? "split"
+        guard layout == "split" || layout == "unified" else {
+            throw CLIError(message: "--layout must be split|unified")
+        }
+
+        let input = try readDiffInput(parsedArgs.inputs.first)
+        let trimmedPatch = input.patch.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmedPatch.isEmpty else {
+            throw CLIError(message: "diff input is empty")
+        }
+
+        let title = parsedArgs.title ?? input.defaultTitle
+        let viewerURL = try writeDiffViewerHTML(
+            patch: input.patch,
+            title: title,
+            sourceLabel: input.sourceLabel,
+            layout: layout
+        )
+
+        let client = try connectClient(
+            socketPath: socketPath,
+            explicitPassword: explicitPassword,
+            launchIfNeeded: true
+        )
+        defer { client.close() }
+
+        let windowHandle = try normalizeWindowHandle(parsedArgs.window, client: client)
+        let workspaceRaw = parsedArgs.workspace ?? (parsedArgs.window == nil ? ProcessInfo.processInfo.environment["CMUX_WORKSPACE_ID"] : nil)
+        let workspaceHandle = try normalizeWorkspaceHandle(workspaceRaw, client: client, windowHandle: windowHandle)
+        let surfaceRaw = parsedArgs.surface ?? (parsedArgs.window == nil ? ProcessInfo.processInfo.environment["CMUX_SURFACE_ID"] : nil)
+        let surfaceHandle = try normalizeSurfaceHandle(surfaceRaw, client: client, workspaceHandle: workspaceHandle)
+
+        var params: [String: Any] = [
+            "url": viewerURL.absoluteString,
+            "focus": focus
+        ]
+        if let windowHandle { params["window_id"] = windowHandle }
+        if let workspaceHandle { params["workspace_id"] = workspaceHandle }
+        if let surfaceHandle { params["surface_id"] = surfaceHandle }
+
+        let payload = try client.sendV2(method: "browser.open_split", params: params)
+
+        if jsonOutput {
+            var response = payload
+            response["path"] = viewerURL.path
+            response["url"] = viewerURL.absoluteString
+            response["title"] = title
+            response["source"] = input.sourceLabel
+            print(jsonString(formatIDs(response, mode: idFormat)))
+            return
+        }
+
+        let surfaceText = formatHandle(payload, kind: "surface", idFormat: idFormat) ?? "unknown"
+        let paneText = formatHandle(payload, kind: "pane", idFormat: idFormat) ?? "unknown"
+        print("OK surface=\(surfaceText) pane=\(paneText) path=\(viewerURL.path)")
+    }
+
     private func parseOpenArguments(_ commandArgs: [String]) throws -> OpenArguments {
         var parsed = OpenArguments()
         var index = 0
@@ -170,7 +262,71 @@ extension CMUXCLI {
         return parsed
     }
 
+    private func parseDiffArguments(_ commandArgs: [String]) throws -> DiffArguments {
+        var parsed = DiffArguments()
+        var index = 0
+        var isParsingOptions = true
+
+        while index < commandArgs.count {
+            let arg = commandArgs[index]
+            if isParsingOptions, arg == "--" {
+                isParsingOptions = false
+                index += 1
+                continue
+            }
+
+            if isParsingOptions {
+                switch arg {
+                case "--workspace":
+                    parsed.workspace = try diffOptionValue(commandArgs, index: index, name: arg)
+                    index += 2
+                    continue
+                case "--window":
+                    parsed.window = try diffOptionValue(commandArgs, index: index, name: arg)
+                    index += 2
+                    continue
+                case "--surface":
+                    parsed.surface = try diffOptionValue(commandArgs, index: index, name: arg)
+                    index += 2
+                    continue
+                case "--focus":
+                    parsed.focus = try diffOptionValue(commandArgs, index: index, name: arg)
+                    index += 2
+                    continue
+                case "--no-focus":
+                    parsed.noFocus = true
+                    index += 1
+                    continue
+                case "--title":
+                    parsed.title = try diffOptionValue(commandArgs, index: index, name: arg)
+                    index += 2
+                    continue
+                case "--layout":
+                    parsed.layout = try diffOptionValue(commandArgs, index: index, name: arg)
+                    index += 2
+                    continue
+                default:
+                    if arg.hasPrefix("-"), arg != "-" {
+                        throw CLIError(message: "diff: unknown flag '\(arg)'. Usage: cmux diff [patch-file|-] [--workspace <id|ref|index>] [--surface <id|ref|index>] [--window <id|ref|index>] [--focus true|false] [--no-focus] [--title <text>] [--layout split|unified]")
+                    }
+                }
+            }
+
+            parsed.inputs.append(arg)
+            index += 1
+        }
+
+        return parsed
+    }
+
     private func openOptionValue(_ args: [String], index: Int, name: String) throws -> String {
+        guard index + 1 < args.count else {
+            throw CLIError(message: "\(name) requires a value")
+        }
+        return args[index + 1]
+    }
+
+    private func diffOptionValue(_ args: [String], index: Int, name: String) throws -> String {
         guard index + 1 < args.count else {
             throw CLIError(message: "\(name) requires a value")
         }
@@ -196,6 +352,232 @@ extension CMUXCLI {
         return .file(resolved)
     }
 
+    private func readDiffInput(_ rawInput: String?) throws -> (patch: String, sourceLabel: String, defaultTitle: String) {
+        guard let rawInput, rawInput != "-" else {
+            guard isatty(STDIN_FILENO) == 0 else {
+                throw CLIError(message: "diff requires a patch file or piped stdin. Usage: cmux diff <patch-file>|-")
+            }
+            let data = FileHandle.standardInput.readDataToEndOfFile()
+            return (try decodeDiffData(data, sourceDescription: "stdin"), "stdin", "cmux diff")
+        }
+
+        let resolved = resolvePath(rawInput)
+        var isDir: ObjCBool = false
+        guard FileManager.default.fileExists(atPath: resolved, isDirectory: &isDir) else {
+            throw CLIError(message: "Path does not exist: \(resolved)")
+        }
+        guard !isDir.boolValue else {
+            throw CLIError(message: "Path is a directory, not a patch file: \(resolved)")
+        }
+        guard FileManager.default.isReadableFile(atPath: resolved) else {
+            throw CLIError(message: "File not readable: \(resolved)")
+        }
+
+        let data = try Data(contentsOf: URL(fileURLWithPath: resolved))
+        let filename = URL(fileURLWithPath: resolved).lastPathComponent
+        return (try decodeDiffData(data, sourceDescription: resolved), resolved, filename.isEmpty ? "cmux diff" : filename)
+    }
+
+    private func decodeDiffData(_ data: Data, sourceDescription: String) throws -> String {
+        if let text = String(data: data, encoding: .utf8) {
+            return text
+        }
+        if let text = String(data: data, encoding: .ascii) {
+            return text
+        }
+        throw CLIError(message: "Diff input is not valid UTF-8: \(sourceDescription)")
+    }
+
+    private func writeDiffViewerHTML(
+        patch: String,
+        title: String,
+        sourceLabel: String,
+        layout: String
+    ) throws -> URL {
+        let directory = FileManager.default.temporaryDirectory
+            .appendingPathComponent("cmux-diff-viewer", isDirectory: true)
+        try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+        pruneDiffViewerFiles(in: directory)
+
+        let timestamp = Int(Date().timeIntervalSince1970)
+        let filename = "diff-\(timestamp)-\(UUID().uuidString.prefix(8)).html"
+        let viewerURL = directory.appendingPathComponent(filename, isDirectory: false)
+        let payload: [String: Any] = [
+            "patch": patch,
+            "title": title,
+            "sourceLabel": sourceLabel,
+            "layout": layout,
+            "generatedAt": ISO8601DateFormatter().string(from: Date())
+        ]
+        let payloadLiteral = try jsonScriptLiteral(payload)
+        let escapedTitle = htmlEscaped(title)
+        let html = """
+        <!doctype html>
+        <html lang="en">
+        <head>
+          <meta charset="utf-8">
+          <meta name="viewport" content="width=device-width, initial-scale=1">
+          <title>\(escapedTitle)</title>
+          <style>
+            :root {
+              color-scheme: light dark;
+              font-family: Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+              background: light-dark(#f7f7f8, #101113);
+              color: light-dark(#1f2328, #f1f3f5);
+            }
+            * {
+              box-sizing: border-box;
+            }
+            body {
+              margin: 0;
+              min-height: 100vh;
+              display: grid;
+              grid-template-rows: auto minmax(0, 1fr);
+            }
+            header {
+              min-width: 0;
+              padding: 12px 14px;
+              border-bottom: 1px solid light-dark(#d8dadd, #2a2d31);
+              background: light-dark(#ffffff, #15171a);
+            }
+            h1 {
+              margin: 0;
+              font-size: 14px;
+              line-height: 20px;
+              font-weight: 650;
+              overflow: hidden;
+              text-overflow: ellipsis;
+              white-space: nowrap;
+            }
+            .meta {
+              margin-top: 2px;
+              color: light-dark(#66707a, #9ba4ad);
+              font-size: 12px;
+              line-height: 18px;
+              overflow: hidden;
+              text-overflow: ellipsis;
+              white-space: nowrap;
+            }
+            #viewer {
+              min-height: 0;
+              overflow: auto;
+              padding: 12px;
+            }
+            #viewer > diffs-container {
+              border: 1px solid light-dark(#d8dadd, #2a2d31);
+              border-radius: 8px;
+              overflow: hidden;
+            }
+            #status {
+              padding: 24px;
+              font: 13px/20px ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", monospace;
+              color: light-dark(#57606a, #a6adb7);
+            }
+            #status[data-error="true"] {
+              color: light-dark(#b42318, #ff8a80);
+            }
+          </style>
+        </head>
+        <body>
+          <header>
+            <h1 id="title"></h1>
+            <div class="meta" id="meta"></div>
+          </header>
+          <main id="viewer">
+            <div id="status">Loading diff...</div>
+          </main>
+          <script type="module">
+            import { CodeView, parsePatchFiles } from "https://esm.run/@pierre/diffs@1.2.1";
+
+            const payload = \(payloadLiteral);
+            const title = document.getElementById("title");
+            const meta = document.getElementById("meta");
+            const viewerElement = document.getElementById("viewer");
+            const status = document.getElementById("status");
+            title.textContent = payload.title;
+            meta.textContent = `${payload.sourceLabel} - ${payload.generatedAt}`;
+
+            try {
+              const patches = parsePatchFiles(payload.patch, "cmux-diff");
+              const items = patches.flatMap((patch, patchIndex) =>
+                patch.files.map((fileDiff, fileIndex) => ({
+                  id: `patch-${patchIndex}-file-${fileIndex}`,
+                  type: "diff",
+                  fileDiff,
+                }))
+              );
+
+              if (items.length === 0) {
+                throw new Error("No file diffs found in patch input.");
+              }
+
+              status.remove();
+              const codeView = new CodeView({
+                theme: { dark: "pierre-dark", light: "pierre-light" },
+                themeType: "system",
+                diffStyle: payload.layout,
+                diffIndicators: "bars",
+                hunkSeparators: "line-info",
+                lineDiffType: "word",
+                overflow: "scroll",
+                stickyHeaders: true,
+                layout: { paddingTop: 0, paddingBottom: 16, gap: 10 },
+              });
+              codeView.setup(viewerElement);
+              codeView.setItems(items);
+              codeView.render(true);
+            } catch (error) {
+              status.dataset.error = "true";
+              status.textContent = error instanceof Error ? error.message : String(error);
+            }
+          </script>
+        </body>
+        </html>
+        """
+        try html.write(to: viewerURL, atomically: true, encoding: .utf8)
+        return viewerURL
+    }
+
+    private func jsonScriptLiteral(_ object: [String: Any]) throws -> String {
+        let data = try JSONSerialization.data(withJSONObject: object, options: [.withoutEscapingSlashes])
+        guard let text = String(data: data, encoding: .utf8) else {
+            throw CLIError(message: "Failed to encode diff viewer payload")
+        }
+        return text.replacingOccurrences(of: "</", with: "<\\/")
+    }
+
+    private func htmlEscaped(_ raw: String) -> String {
+        raw
+            .replacingOccurrences(of: "&", with: "&amp;")
+            .replacingOccurrences(of: "<", with: "&lt;")
+            .replacingOccurrences(of: ">", with: "&gt;")
+            .replacingOccurrences(of: "\"", with: "&quot;")
+    }
+
+    private func pruneDiffViewerFiles(in directory: URL) {
+        guard let entries = try? FileManager.default.contentsOfDirectory(
+            at: directory,
+            includingPropertiesForKeys: [.contentModificationDateKey, .creationDateKey, .isRegularFileKey],
+            options: [.skipsHiddenFiles]
+        ) else {
+            return
+        }
+
+        let now = Date()
+        let sorted = entries.compactMap { url -> (url: URL, date: Date)? in
+            guard url.pathExtension == "html",
+                  let values = try? url.resourceValues(forKeys: [.contentModificationDateKey, .creationDateKey, .isRegularFileKey]),
+                  values.isRegularFile == true else {
+                return nil
+            }
+            return (url, values.contentModificationDate ?? values.creationDate ?? .distantPast)
+        }.sorted { $0.date > $1.date }
+
+        for (index, entry) in sorted.enumerated() where index >= 50 || now.timeIntervalSince(entry.date) > 24 * 60 * 60 {
+            try? FileManager.default.removeItem(at: entry.url)
+        }
+    }
+
     func openSubcommandUsage() -> String {
         """
         Usage: cmux open <path-or-url>... [options]
@@ -217,6 +599,29 @@ extension CMUXCLI {
           cmux open image-a.png image-b.jpg
           cmux open ~/Downloads/movie.mov --pane pane:1
           cmux open https://example.com
+        """
+    }
+
+    func diffSubcommandUsage() -> String {
+        """
+        Usage: cmux diff [patch-file|-] [options]
+
+        Render a unified diff or patch with Diffs CodeView in a cmux browser split.
+        With no patch file, cmux diff reads piped stdin.
+
+        Options:
+          --workspace <id|ref|index>   Target workspace (default: $CMUX_WORKSPACE_ID)
+          --surface <id|ref|index>     Source surface to split from (default: $CMUX_SURFACE_ID)
+          --window <id|ref|index>      Target window
+          --focus <true|false>         Focus the diff browser split (default: false)
+          --no-focus                   Do not focus the diff browser split
+          --title <text>               Diff viewer title
+          --layout <split|unified>     Diff layout (default: split)
+
+        Examples:
+          cmux diff changes.patch
+          git diff | cmux diff
+          cmux diff pr.patch --layout unified --focus true
         """
     }
 

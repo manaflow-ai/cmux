@@ -169,6 +169,81 @@ final class CMUXOpenCommandTests: XCTestCase {
         XCTAssertEqual(state.commands.compactMap { Self.v2Payload(from: $0)?["method"] as? String }, ["markdown.open"])
     }
 
+    func testDiffCommandGeneratesCodeViewAndOpensBrowserSplit() throws {
+        let cliPath = try bundledCLIPath()
+        let socketPath = makeSocketPath("diff-open")
+        let listenerFD = try bindUnixSocket(at: socketPath)
+        let rootURL = FileManager.default.temporaryDirectory
+            .appendingPathComponent(UUID().uuidString, isDirectory: true)
+        let patchURL = rootURL.appendingPathComponent("changes.patch")
+        try FileManager.default.createDirectory(at: rootURL, withIntermediateDirectories: true)
+        try """
+        diff --git a/hello.txt b/hello.txt
+        index 8ab686e..d95f3ad 100644
+        --- a/hello.txt
+        +++ b/hello.txt
+        @@ -1,3 +1,3 @@
+         one
+        -two
+        +three
+         four
+        """.write(to: patchURL, atomically: true, encoding: .utf8)
+        let state = MockSocketServerState()
+
+        defer {
+            Darwin.close(listenerFD)
+            unlink(socketPath)
+            try? FileManager.default.removeItem(at: rootURL)
+        }
+
+        let serverHandled = startMockServer(listenerFD: listenerFD, state: state) { line in
+            guard let payload = Self.v2Payload(from: line),
+                  let id = payload["id"] as? String,
+                  let method = payload["method"] as? String else {
+                return Self.v2Response(id: "unknown", ok: false, error: ["code": "unexpected"])
+            }
+
+            let params = payload["params"] as? [String: Any] ?? [:]
+            guard method == "browser.open_split",
+                  params["focus"] as? Bool == true,
+                  let rawURL = params["url"] as? String,
+                  let viewerURL = URL(string: rawURL),
+                  viewerURL.isFileURL else {
+                return Self.v2Response(id: id, ok: false, error: ["code": "unexpected", "message": method])
+            }
+            return Self.v2Response(
+                id: id,
+                ok: true,
+                result: ["surface_id": "surface-id", "pane_id": "pane-id", "url": rawURL]
+            )
+        }
+
+        let result = runCLI(
+            cliPath: cliPath,
+            socketPath: socketPath,
+            arguments: ["diff", patchURL.path, "--title", "Review diff", "--layout", "unified", "--focus", "true"]
+        )
+
+        wait(for: [serverHandled], timeout: 5)
+        XCTAssertFalse(result.timedOut, result.stderr)
+        XCTAssertEqual(result.status, 0, result.stderr)
+        XCTAssertTrue(result.stdout.hasPrefix("OK surface=surface-id pane=pane-id path="), result.stdout)
+        XCTAssertEqual(state.commands.compactMap { Self.v2Payload(from: $0)?["method"] as? String }, ["browser.open_split"])
+
+        let commandPayload = try XCTUnwrap(Self.v2Payload(from: try XCTUnwrap(state.commands.first)))
+        let params = try XCTUnwrap(commandPayload["params"] as? [String: Any])
+        let rawURL = try XCTUnwrap(params["url"] as? String)
+        let viewerURL = try XCTUnwrap(URL(string: rawURL))
+        defer { try? FileManager.default.removeItem(at: viewerURL) }
+
+        let html = try String(contentsOf: viewerURL, encoding: .utf8)
+        XCTAssertTrue(html.contains("Review diff"), html)
+        XCTAssertTrue(html.contains("CodeView"), html)
+        XCTAssertTrue(html.contains("parsePatchFiles"), html)
+        XCTAssertTrue(html.contains("hello.txt"), html)
+        XCTAssertTrue(html.contains("\"layout\":\"unified\""), html)
+    }
+
     func testTopCommandSortsWorkspacesByCPUDescending() throws {
         let cliPath = try bundledCLIPath()
         let socketPath = makeSocketPath("top-cpu")
