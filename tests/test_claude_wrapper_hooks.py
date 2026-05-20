@@ -645,37 +645,42 @@ def test_agents_subcommand_removes_cmux_terminal_fingerprint(failures: list[str]
 
 
 def test_hooks_disabled_preserves_cmux_terminal_env_for_custom_hooks(failures: list[str]) -> None:
-    code, observed_env, real_argv, stderr, expected_keys = run_wrapper_terminal_env_probe(
-        ["hello"],
-        hooks_disabled=True,
-    )
-    expect(code == 0, f"hooks-disabled env probe: wrapper exited {code}: {stderr}", failures)
-    expect(real_argv == ["hello"], f"hooks-disabled env probe: expected raw argv, got {real_argv}", failures)
-    expect(
-        set(observed_env) == expected_keys,
-        f"hooks-disabled env probe: expected probed keys {sorted(expected_keys)}, got {sorted(observed_env)}",
-        failures,
-    )
+    scenarios = [
+        ("interactive", ["hello"]),
+        ("command-like", ["agents"]),
+    ]
+    for label, argv in scenarios:
+        code, observed_env, real_argv, stderr, expected_keys = run_wrapper_terminal_env_probe(
+            argv,
+            hooks_disabled=True,
+        )
+        expect(code == 0, f"hooks-disabled {label} env probe: wrapper exited {code}: {stderr}", failures)
+        expect(real_argv == argv, f"hooks-disabled {label} env probe: expected raw argv, got {real_argv}", failures)
+        expect(
+            set(observed_env) == expected_keys,
+            f"hooks-disabled {label} env probe: expected probed keys {sorted(expected_keys)}, got {sorted(observed_env)}",
+            failures,
+        )
 
-    for key, expected_value in {
-        "CMUX_BUNDLE_ID": "com.cmuxterm.app.debug.envprobe",
-        "CMUX_CLAUDE_HOOKS_DISABLED": "1",
-        "CMUX_PANEL_ID": "panel:test",
-        "CMUX_SURFACE_ID": "surface:test",
-        "CMUX_TAB_ID": "tab:test",
-        "CMUX_WORKSPACE_ID": "workspace:test",
-    }.items():
-        expect(
-            observed_env.get(key) == expected_value,
-            f"hooks-disabled env probe: expected {key} preserved as {expected_value!r}, got {observed_env.get(key)!r}",
-            failures,
-        )
-    for key in sorted(k for k in expected_keys if k.startswith("CMUX_")):
-        expect(
-            observed_env.get(key) != "__UNSET__",
-            f"hooks-disabled env probe: expected {key} to survive passthrough, got unset",
-            failures,
-        )
+        for key, expected_value in {
+            "CMUX_BUNDLE_ID": "com.cmuxterm.app.debug.envprobe",
+            "CMUX_CLAUDE_HOOKS_DISABLED": "1",
+            "CMUX_PANEL_ID": "panel:test",
+            "CMUX_SURFACE_ID": "surface:test",
+            "CMUX_TAB_ID": "tab:test",
+            "CMUX_WORKSPACE_ID": "workspace:test",
+        }.items():
+            expect(
+                observed_env.get(key) == expected_value,
+                f"hooks-disabled {label} env probe: expected {key} preserved as {expected_value!r}, got {observed_env.get(key)!r}",
+                failures,
+            )
+        for key in sorted(k for k in expected_keys if k.startswith("CMUX_")):
+            expect(
+                observed_env.get(key) != "__UNSET__",
+                f"hooks-disabled {label} env probe: expected {key} to survive passthrough, got unset",
+                failures,
+            )
 
 
 def test_live_socket_preserves_third_party_claude_auth_for_fresh_launch(failures: list[str]) -> None:
