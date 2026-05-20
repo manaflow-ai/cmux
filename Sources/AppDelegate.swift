@@ -7403,7 +7403,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         }
         if shouldTemporarilyDisallowFullScreenTiling {
             DispatchQueue.main.async { [weak window] in
-                window?.collectionBehavior.remove(.fullScreenDisallowsTiling)
+                guard let window else { return }
+                var behavior = window.collectionBehavior
+                behavior.remove(.fullScreenDisallowsTiling)
+                window.collectionBehavior = behavior
             }
         }
         if let explicitInitialFrame {

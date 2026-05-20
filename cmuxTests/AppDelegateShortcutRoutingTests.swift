@@ -6103,6 +6103,17 @@ final class AppDelegateShortcutRoutingTests: XCTestCase {
             return
         }
         window.makeKeyAndOrderFront(nil)
+        window.displayIfNeeded()
+        terminalPanel.hostedView.setVisibleInUI(true)
+        terminalPanel.hostedView.setActive(true)
+        terminalPanel.hostedView.moveFocus()
+        waitUntil(timeout: 1.0) {
+            terminalPanel.hostedView.isSurfaceViewFirstResponder()
+        }
+        XCTAssertTrue(
+            terminalPanel.hostedView.isSurfaceViewFirstResponder(),
+            "Expected terminal surface to own first responder before Cmd+F"
+        )
         RunLoop.main.run(until: Date(timeIntervalSinceNow: 0.05))
 
         appDelegate.noteTerminalKeyboardFocusIntent(workspaceId: workspace.id, panelId: terminalPanel.id, in: window)
@@ -6123,6 +6134,9 @@ final class AppDelegateShortcutRoutingTests: XCTestCase {
         XCTFail("debugHandleCustomShortcut is only available in DEBUG")
 #endif
 
+        waitUntil(timeout: 1.0) {
+            terminalPanel.searchState != nil
+        }
         XCTAssertNotNil(terminalPanel.searchState, "Cmd+F from terminal focus should create terminal search state")
     }
 
