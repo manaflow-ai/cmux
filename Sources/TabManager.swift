@@ -3175,7 +3175,8 @@ class TabManager: ObservableObject {
         var lines: [String] = []
 
         for rawLine in config.components(separatedBy: .newlines) {
-            let line = rawLine.trimmingCharacters(in: .whitespaces)
+            let line = gitConfigLineRemovingInlineComment(rawLine)
+                .trimmingCharacters(in: .whitespaces)
             if line.hasPrefix("[") && line.hasSuffix("]") {
                 currentRemoteName = gitConfigRemoteName(fromSectionHeader: line)
                 continue
@@ -3192,6 +3193,47 @@ class TabManager: ObservableObject {
         }
 
         return lines
+    }
+
+    private nonisolated static func gitConfigLineRemovingInlineComment(_ line: String) -> String {
+        var result = ""
+        var isInsideDoubleQuotedString = false
+        var isEscaped = false
+        var previousWasWhitespace = true
+
+        for character in line {
+            if isEscaped {
+                result.append(character)
+                isEscaped = false
+                previousWasWhitespace = character.isWhitespace
+                continue
+            }
+
+            if isInsideDoubleQuotedString && character == "\\" {
+                result.append(character)
+                isEscaped = true
+                previousWasWhitespace = false
+                continue
+            }
+
+            if character == "\"" {
+                result.append(character)
+                isInsideDoubleQuotedString.toggle()
+                previousWasWhitespace = false
+                continue
+            }
+
+            if !isInsideDoubleQuotedString,
+               previousWasWhitespace,
+               (character == "#" || character == ";") {
+                break
+            }
+
+            result.append(character)
+            previousWasWhitespace = character.isWhitespace
+        }
+
+        return result
     }
 
     private nonisolated static func gitConfigRemoteName(fromSectionHeader header: String) -> String? {
@@ -4360,6 +4402,12 @@ class TabManager: ObservableObject {
         }
         return orderedSlugs
     }
+
+#if DEBUG
+    nonisolated static func githubRepositorySlugs(fromGitConfigForTesting config: String) -> [String] {
+        githubRepositorySlugs(fromGitRemoteVOutput: gitRemoteVLines(fromConfig: config).joined())
+    }
+#endif
 
     private nonisolated static func githubRepositorySlugs(directory: String) async -> [String] {
         guard let repository = resolveGitRepository(containing: directory),
