@@ -4325,12 +4325,7 @@ struct CMUXCLI {
         )
 
         guard result.status == 0 else {
-            let message = [result.stderr, result.stdout]
-                .map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }
-                .filter { !$0.isEmpty }
-                .joined(separator: "\n")
-            let detail = message.isEmpty ? "roughdraft exited with status \(result.status)" : message
-            throw CLIError(message: "Failed to open Roughdraft. Install it with `npm i -g roughdraft`, then retry.\n\(detail)")
+            throw CLIError(message: "Failed to open Roughdraft. Install it with `npm i -g roughdraft`, then retry. roughdraft exited with status \(result.status).")
         }
 
         let lines = result.stdout.split(whereSeparator: \.isNewline)
