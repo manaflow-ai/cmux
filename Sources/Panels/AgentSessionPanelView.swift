@@ -20,10 +20,10 @@ struct AgentSessionPanelView: View {
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
                 .zIndex(Double(portalPriority))
             } else {
-                Color(nsColor: appearance.contentBackgroundColor)
+                Color.clear
             }
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
-        .background(Color(nsColor: appearance.contentBackgroundColor))
+        .background(Color.clear)
     }
 }
