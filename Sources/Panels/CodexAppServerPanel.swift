@@ -925,6 +925,10 @@ final class CodexAppServerPanel: Panel, ObservableObject {
 
     var isDirty: Bool {
         status.isFailed
+            || status.isBusy
+            || isStartingNewTurn
+            || !pendingSteers.isEmpty
+            || !queuedFollowUps.isEmpty
     }
 
     var canSendPrompt: Bool {

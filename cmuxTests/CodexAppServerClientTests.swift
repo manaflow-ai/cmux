@@ -418,6 +418,34 @@ final class CodexAppServerRequestFactoryTests: XCTestCase {
     }
 
     @MainActor
+    func testRunningCodexPanelRequiresCloseConfirmationUntilTurnCompletes() async throws {
+        let client = FakeCodexAppServerClient()
+        let panel = CodexAppServerPanel(
+            workspaceId: UUID(),
+            cwd: "/tmp",
+            client: client
+        )
+        panel.promptText = "keep working"
+
+        await panel.sendPrompt()
+
+        XCTAssertTrue(panel.status.isBusy)
+        XCTAssertTrue(panel.isDirty)
+
+        client.onEvent?(.notification(CodexAppServerServerNotification(
+            method: "turn/completed",
+            params: ["threadId": FakeCodexAppServerClient.generatedThreadId(1), "turnId": "turn-1"]
+        )))
+
+        let didComplete = await waitForMainActorCondition {
+            panel.status == .ready
+        }
+        XCTAssertTrue(didComplete)
+        XCTAssertEqual(panel.status, .ready)
+        XCTAssertFalse(panel.isDirty)
+    }
+
+    @MainActor
     func testResumeMissingRolloutFallsBackToFreshReadyPanel() async throws {
         let client = FakeCodexAppServerClient()
         client.resumeThreadError = CodexAppServerClientError.requestFailed(
