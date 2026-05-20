@@ -540,6 +540,7 @@ extension CLINotifyProcessIntegrationRegressionTests {
         XCTAssertNotNil(cmuxGroup["SessionStart"])
         XCTAssertNotNil(cmuxGroup["SessionEnd"])
         XCTAssertNotNil(cmuxGroup["turn-completion"])
+        XCTAssertNotNil(cmuxGroup["Notification"])
     }
 
     func testAntigravityFeedHookMissingSessionIdUsesStableFallback() throws {
@@ -592,7 +593,7 @@ extension CLINotifyProcessIntegrationRegressionTests {
             return result
         }
 
-        let input = #"{"hook_event_name":"PreToolUse","workspacePaths":["\#(root.path)"],"toolCall":{"name":"read_file","args":{"path":"README.md"}}}"#
+        let input = #"{"hook_event_name":"PreToolUse","workspacePaths":["\#(root.path)"],"notification":{"transcript_path":"\#(root.appendingPathComponent("transcript-a.jsonl").path)"},"toolCall":{"name":"read_file","args":{"path":"README.md"}}}"#
         let first = runFeedHook(input: input)
         XCTAssertFalse(first.timedOut, first.stderr)
         XCTAssertEqual(first.status, 0, first.stderr)
@@ -603,21 +604,30 @@ extension CLINotifyProcessIntegrationRegressionTests {
         XCTAssertEqual(second.status, 0, second.stderr)
         XCTAssertEqual(second.stdout, "{}\n")
 
-        let sessionIds = state.commands.compactMap { command -> String? in
+        let differentTranscriptInput = #"{"hook_event_name":"PreToolUse","workspacePaths":["\#(root.path)"],"notification":{"transcript_path":"\#(root.appendingPathComponent("transcript-b.jsonl").path)"},"toolCall":{"name":"read_file","args":{"path":"README.md"}}}"#
+        let third = runFeedHook(input: differentTranscriptInput)
+        XCTAssertFalse(third.timedOut, third.stderr)
+        XCTAssertEqual(third.status, 0, third.stderr)
+        XCTAssertEqual(third.stdout, "{}\n")
+
+        let events = state.commands.compactMap { command -> [String: Any]? in
             guard let payload = self.jsonObject(command),
                   payload["method"] as? String == "feed.push",
                   let params = payload["params"] as? [String: Any],
                   let event = params["event"] as? [String: Any] else {
                 return nil
             }
-            return event["session_id"] as? String
+            return event
         }
-        XCTAssertEqual(sessionIds.count, 2, "Expected two feed events, saw \(state.commands)")
+        let sessionIds = events.compactMap { $0["session_id"] as? String }
+        XCTAssertEqual(sessionIds.count, 3, "Expected three feed events, saw \(state.commands)")
         XCTAssertEqual(sessionIds[0], sessionIds[1])
+        XCTAssertNotEqual(sessionIds[1], sessionIds[2])
         XCTAssertTrue(
             sessionIds[0].hasPrefix("antigravity-fallback-"),
             "Expected deterministic Antigravity fallback session id, saw \(sessionIds[0])"
         )
+        XCTAssertEqual(events.compactMap { $0["_ppid"] as? Int }, [424242, 424242, 424242])
     }
 
     func testGrokNotificationHookUsesPayloadMessageAndStopDoesNotSendGenericNotification() throws {

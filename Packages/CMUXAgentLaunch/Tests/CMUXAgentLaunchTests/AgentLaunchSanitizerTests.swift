@@ -403,6 +403,20 @@ struct AgentLaunchSanitizerTests {
         )
         #expect(
             AgentLaunchSanitizer.sanitizedLaunchArguments(
+                ["agy", "--prompt", "summarize"],
+                launcher: "antigravity",
+                fallbackKind: "antigravity"
+            ) == nil
+        )
+        #expect(
+            AgentLaunchSanitizer.sanitizedLaunchArguments(
+                ["agy", "-i", "--prompt", "summarize"],
+                launcher: "antigravity",
+                fallbackKind: "antigravity"
+            ) == nil
+        )
+        #expect(
+            AgentLaunchSanitizer.sanitizedLaunchArguments(
                 ["agy", "-p", "summarize"],
                 launcher: "antigravity",
                 fallbackKind: "antigravity"
