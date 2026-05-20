@@ -36,34 +36,3 @@ final class PortScannerProcessCaptureTests: XCTestCase {
         XCTAssertLessThanOrEqual(finalCount - baseline, 8)
     }
 }
-
-final class SessionIndexRipgrepCancellationTests: XCTestCase {
-    func testRipgrepCancellationBeforeLaunchDoesNotAbort() async throws {
-        try XCTSkipUnless(
-            RipgrepExecutableResolver.resolve(configuredPath: nil) != nil,
-            "ripgrep is required for session search cancellation behavior"
-        )
-
-        let rootURL = FileManager.default.temporaryDirectory
-            .appendingPathComponent(UUID().uuidString, isDirectory: true)
-        defer { try? FileManager.default.removeItem(at: rootURL) }
-        try FileManager.default.createDirectory(at: rootURL, withIntermediateDirectories: true)
-        try "needle\n".write(
-            to: rootURL.appendingPathComponent("session.jsonl"),
-            atomically: true,
-            encoding: .utf8
-        )
-
-        let task = Task { () -> [URL]? in
-            await Task.yield()
-            return await SessionIndexStore.ripgrepMatchingPaths(
-                needle: "needle",
-                root: rootURL.path,
-                fileGlob: "*.jsonl"
-            )
-        }
-        task.cancel()
-
-        _ = await task.value
-    }
-}

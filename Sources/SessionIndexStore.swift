@@ -47,6 +47,8 @@ final class ClaudeMetadataCache: @unchecked Sendable {
     }
 }
 
+// Safe to mark @unchecked Sendable: `lock` guards every mutable field. `onCancel`
+// is synchronous and cannot await an actor hop, so this helper uses NSLock instead.
 private final class SessionIndexCancellableProcess: @unchecked Sendable {
     private let process: Process
     private let lock = NSLock()
