@@ -24,6 +24,11 @@ final class WorkspaceRemoteConnectionTests: XCTestCase {
         let stderrPipe = Pipe()
         process.executableURL = URL(fileURLWithPath: executablePath)
         process.arguments = arguments
+        process.environment = [
+            "HOME": NSTemporaryDirectory(),
+            "PATH": "/usr/bin:/bin:/usr/sbin:/sbin",
+            "TMPDIR": NSTemporaryDirectory(),
+        ]
         process.standardInput = FileHandle.nullDevice
         process.standardOutput = stdoutPipe
         process.standardError = stderrPipe
@@ -65,6 +70,323 @@ final class WorkspaceRemoteConnectionTests: XCTestCase {
         try lines.joined(separator: "\n")
             .appending("\n")
             .write(to: url, atomically: true, encoding: .utf8)
+    }
+
+    private func runRemoteShellSnippetSmoke(shellPath: String) throws -> String {
+        let fileManager = FileManager.default
+        let root = fileManager.temporaryDirectory.appendingPathComponent("cmux-remote-shell-init-\(UUID().uuidString)")
+        try fileManager.createDirectory(at: root, withIntermediateDirectories: true)
+        defer { try? fileManager.removeItem(at: root) }
+
+        let script = """
+        set -e
+        cd "\(root.path)"
+        git init -q
+        git checkout -q -b feature/mosh
+        printf 'changed\\n' > tracked.txt
+        git add tracked.txt
+        git commit -q -m init
+        printf 'dirty\\n' >> tracked.txt
+        \(RemoteShellIntegrationSnippet.script())
+        __cmux_remote_report_prompt
+        """
+
+        let result = runProcess(
+            executablePath: "/usr/bin/env",
+            arguments: [
+                "-i",
+                "HOME=\(root.path)",
+                "PATH=/usr/bin:/bin:/usr/sbin:/sbin",
+                "TMPDIR=\(fileManager.temporaryDirectory.path)",
+                "CMUX_REMOTE_HOST=remotehost",
+                "GIT_AUTHOR_NAME=cmux",
+                "GIT_AUTHOR_EMAIL=cmux@example.invalid",
+                "GIT_COMMITTER_NAME=cmux",
+                "GIT_COMMITTER_EMAIL=cmux@example.invalid",
+                shellPath,
+                "-c",
+                script,
+            ],
+            timeout: 10
+        )
+
+        XCTAssertFalse(result.timedOut, result.stderr)
+        XCTAssertEqual(result.status, 0, result.stderr)
+        return result.stdout
+    }
+
+    private func runIsolatedShell(script: String, shellPath: String = "/bin/bash", timeout: TimeInterval = 5) -> ProcessRunResult {
+        runProcess(
+            executablePath: "/usr/bin/env",
+            arguments: [
+                "-i",
+                "HOME=\(NSTemporaryDirectory())",
+                "PATH=/usr/bin:/bin:/usr/sbin:/sbin",
+                "TMPDIR=\(NSTemporaryDirectory())",
+                shellPath,
+                "-c",
+                script,
+            ],
+            timeout: timeout
+        )
+    }
+
+    func testRemoteShellSnippetEmitsOSC7UnderBash() throws {
+        let stdout = try runRemoteShellSnippetSmoke(shellPath: "/bin/bash")
+
+        XCTAssertTrue(stdout.contains("\u{1B}]7;file://remotehost/"), stdout.debugDescription)
+        XCTAssertTrue(stdout.contains("cmux_git_branch=feature%2Fmosh"), stdout.debugDescription)
+        XCTAssertTrue(stdout.contains("cmux_git_dirty=1"), stdout.debugDescription)
+        XCTAssertTrue(stdout.contains("\u{1B}\\"), stdout.debugDescription)
+    }
+
+    func testRemoteShellSnippetEmitsOSC7UnderZsh() throws {
+        let stdout = try runRemoteShellSnippetSmoke(shellPath: "/bin/zsh")
+
+        XCTAssertTrue(stdout.contains("\u{1B}]7;file://remotehost/"), stdout.debugDescription)
+        XCTAssertTrue(stdout.contains("cmux_git_branch=feature%2Fmosh"), stdout.debugDescription)
+        XCTAssertTrue(stdout.contains("cmux_git_dirty=1"), stdout.debugDescription)
+        XCTAssertTrue(stdout.contains("\u{1B}\\"), stdout.debugDescription)
+    }
+
+    func testRemoteShellSnippetSourcesCleanlyUnderZshWithPathIntact() throws {
+        let fileManager = FileManager.default
+        let root = fileManager.temporaryDirectory.appendingPathComponent("cmux-remote-shell-zsh-path-\(UUID().uuidString)")
+        let project = root.appendingPathComponent("[WIP];project", isDirectory: true)
+        try fileManager.createDirectory(at: project, withIntermediateDirectories: true)
+        defer { try? fileManager.removeItem(at: root) }
+
+        let shellPath = "/usr/bin:/bin:/usr/sbin:/sbin"
+        let script = """
+        set -e
+        original_path="$PATH"
+        cd "\(project.path)"
+        CMUX_REMOTE_HOST='remote[host]'
+        CMUX_REMOTE_DISABLE_GIT=1
+        export CMUX_REMOTE_HOST CMUX_REMOTE_DISABLE_GIT
+        \(RemoteShellIntegrationSnippet.script())
+        output="$(__cmux_remote_report_prompt)"
+        if [ "$PATH" != "$original_path" ]; then
+          print -r -- "PATH_CHANGED=$PATH"
+          exit 33
+        fi
+        command -v tr >/dev/null
+        print -r -- "$output"
+        print -r -- "PATH_OK=$PATH"
+        """
+
+        let result = runProcess(
+            executablePath: "/usr/bin/env",
+            arguments: [
+                "-i",
+                "HOME=\(root.path)",
+                "PATH=\(shellPath)",
+                "TMPDIR=\(fileManager.temporaryDirectory.path)",
+                "/bin/zsh",
+                "-c",
+                script,
+            ],
+            timeout: 5
+        )
+
+        XCTAssertFalse(result.timedOut, result.stderr)
+        XCTAssertEqual(result.status, 0, result.stderr)
+        XCTAssertTrue(result.stdout.contains("file://remote%5Bhost%5D/"), result.stdout.debugDescription)
+        XCTAssertTrue(result.stdout.contains("%5BWIP%5D%3Bproject"), result.stdout.debugDescription)
+        XCTAssertTrue(result.stdout.contains("PATH_OK=\(shellPath)"), result.stdout.debugDescription)
+    }
+
+    func testRemoteShellSnippetEscapesBracketPathBytes() throws {
+        let fileManager = FileManager.default
+        let root = fileManager.temporaryDirectory.appendingPathComponent("cmux-remote-shell-brackets-\(UUID().uuidString)")
+        let project = root.appendingPathComponent("[WIP]-project", isDirectory: true)
+        try fileManager.createDirectory(at: project, withIntermediateDirectories: true)
+        defer { try? fileManager.removeItem(at: root) }
+
+        let script = """
+        set -e
+        cd "\(project.path)"
+        \(RemoteShellIntegrationSnippet.script())
+        __cmux_remote_report_prompt
+        """
+
+        let result = runProcess(
+            executablePath: "/usr/bin/env",
+            arguments: [
+                "-i",
+                "HOME=\(root.path)",
+                "PATH=/usr/bin:/bin:/usr/sbin:/sbin",
+                "TMPDIR=\(fileManager.temporaryDirectory.path)",
+                "CMUX_REMOTE_HOST=remotehost",
+                "CMUX_REMOTE_DISABLE_GIT=1",
+                "/bin/bash",
+                "-c",
+                script,
+            ],
+            timeout: 5
+        )
+
+        XCTAssertFalse(result.timedOut, result.stderr)
+        XCTAssertEqual(result.status, 0, result.stderr)
+        XCTAssertTrue(result.stdout.contains("%5BWIP%5D-project"), result.stdout.debugDescription)
+    }
+
+    func testRemoteShellSnippetEscapesHostAuthorityBytes() throws {
+        let script = """
+        set -e
+        \(RemoteShellIntegrationSnippet.script())
+        __cmux_remote_report_prompt
+        """
+
+        let result = runProcess(
+            executablePath: "/usr/bin/env",
+            arguments: [
+                "-i",
+                "HOME=\(NSTemporaryDirectory())",
+                "PATH=/usr/bin:/bin:/usr/sbin:/sbin",
+                "TMPDIR=\(NSTemporaryDirectory())",
+                "CMUX_REMOTE_HOST=remote host/frag?x#y@deploy;semi:2222",
+                "CMUX_REMOTE_DISABLE_GIT=1",
+                "/bin/bash",
+                "-c",
+                script,
+            ],
+            timeout: 5
+        )
+
+        XCTAssertFalse(result.timedOut, result.stderr)
+        XCTAssertEqual(result.status, 0, result.stderr)
+        XCTAssertTrue(
+            result.stdout.contains("\u{1B}]7;file://remote%20host%2Ffrag%3Fx%23y%40deploy%3Bsemi%3A2222/"),
+            result.stdout.debugDescription
+        )
+    }
+
+    func testRemoteShellSnippetCachesResolvedHostnameAcrossPromptReports() throws {
+        let fileManager = FileManager.default
+        let root = fileManager.temporaryDirectory.appendingPathComponent("cmux-remote-shell-host-cache-\(UUID().uuidString)")
+        let bin = root.appendingPathComponent("bin", isDirectory: true)
+        try fileManager.createDirectory(at: bin, withIntermediateDirectories: true)
+        defer { try? fileManager.removeItem(at: root) }
+
+        let fakeHostname = bin.appendingPathComponent("hostname")
+        try writeShellFile(
+            at: fakeHostname,
+            lines: [
+                "#!/bin/sh",
+                "count=0",
+                "[ -f \"$CMUX_HOSTNAME_COUNT_FILE\" ] && count=\"$(cat \"$CMUX_HOSTNAME_COUNT_FILE\")\"",
+                "printf '%s\\n' \"$((count + 1))\" > \"$CMUX_HOSTNAME_COUNT_FILE\"",
+                "printf 'cached.example\\n'",
+            ]
+        )
+        try fileManager.setAttributes([.posixPermissions: 0o755], ofItemAtPath: fakeHostname.path)
+
+        let countFile = root.appendingPathComponent("hostname-count")
+        let script = """
+        set -e
+        \(RemoteShellIntegrationSnippet.script())
+        __cmux_remote_report_prompt >/dev/null
+        __cmux_remote_report_prompt >/dev/null
+        printf 'count=%s\\n' "$(cat "$CMUX_HOSTNAME_COUNT_FILE")"
+        """
+
+        let result = runProcess(
+            executablePath: "/usr/bin/env",
+            arguments: [
+                "-i",
+                "HOME=\(root.path)",
+                "PATH=\(bin.path):/usr/bin:/bin:/usr/sbin:/sbin",
+                "TMPDIR=\(fileManager.temporaryDirectory.path)",
+                "CMUX_REMOTE_DISABLE_GIT=1",
+                "CMUX_HOSTNAME_COUNT_FILE=\(countFile.path)",
+                "/bin/bash",
+                "-c",
+                script,
+            ],
+            timeout: 5
+        )
+
+        XCTAssertFalse(result.timedOut, result.stderr)
+        XCTAssertEqual(result.status, 0, result.stderr)
+        XCTAssertTrue(result.stdout.contains("count=1"), result.stdout.debugDescription)
+    }
+
+    func testRemoteShellSnippetCapturesHostOverrideWhenSourced() throws {
+        let script = """
+        set -e
+        CMUX_REMOTE_HOST=initial-host
+        export CMUX_REMOTE_HOST
+        \(RemoteShellIntegrationSnippet.script())
+        CMUX_REMOTE_HOST=later-host
+        export CMUX_REMOTE_HOST
+        CMUX_REMOTE_DISABLE_GIT=1
+        export CMUX_REMOTE_DISABLE_GIT
+        __cmux_remote_report_prompt
+        """
+
+        let result = runIsolatedShell(script: script)
+
+        XCTAssertFalse(result.timedOut, result.stderr)
+        XCTAssertEqual(result.status, 0, result.stderr)
+        XCTAssertTrue(result.stdout.contains("\u{1B}]7;file://initial-host/"), result.stdout.debugDescription)
+        XCTAssertFalse(result.stdout.contains("later-host"), result.stdout.debugDescription)
+    }
+
+    func testRemoteShellSnippetPreservesBashPromptCommandArray() throws {
+        let script = """
+        set -e
+        existing_hook() { printf 'existing-hook-ran\\n'; }
+        PROMPT_COMMAND=(existing_hook)
+        \(RemoteShellIntegrationSnippet.script())
+        printf 'count=%s\\n' "${#PROMPT_COMMAND[@]}"
+        printf 'first=%s\\n' "${PROMPT_COMMAND[0]}"
+        printf 'second=%s\\n' "${PROMPT_COMMAND[1]}"
+        """
+
+        let result = runIsolatedShell(script: script)
+
+        XCTAssertFalse(result.timedOut, result.stderr)
+        XCTAssertEqual(result.status, 0, result.stderr)
+        XCTAssertTrue(result.stdout.contains("count=2"), result.stdout)
+        XCTAssertTrue(result.stdout.contains("first=__cmux_remote_report_prompt"), result.stdout)
+        XCTAssertTrue(result.stdout.contains("second=existing_hook"), result.stdout)
+    }
+
+    func testRemoteShellSnippetStripsControlCharactersFromOSC7Host() throws {
+        let script = """
+        set -e
+        \(RemoteShellIntegrationSnippet.script())
+        __cmux_remote_report_prompt
+        """
+
+        let result = runProcess(
+            executablePath: "/usr/bin/env",
+            arguments: [
+                "-i",
+                "HOME=\(NSTemporaryDirectory())",
+                "PATH=/usr/bin:/bin:/usr/sbin:/sbin",
+                "TMPDIR=\(NSTemporaryDirectory())",
+                "CMUX_REMOTE_HOST=remote\u{1B}]0;bad\u{7}host",
+                "/bin/bash",
+                "-c",
+                script,
+            ],
+            timeout: 5
+        )
+
+        XCTAssertFalse(result.timedOut, result.stderr)
+        XCTAssertEqual(result.status, 0, result.stderr)
+        let prefix = "\u{1B}]7;file://"
+        let suffix = "\u{1B}\\"
+        guard let prefixRange = result.stdout.range(of: prefix),
+              let suffixRange = result.stdout.range(of: suffix, range: prefixRange.upperBound..<result.stdout.endIndex) else {
+            XCTFail(result.stdout.debugDescription)
+            return
+        }
+        let payload = result.stdout[prefixRange.upperBound..<suffixRange.lowerBound]
+        XCTAssertFalse(payload.contains("\u{1B}"), result.stdout.debugDescription)
+        XCTAssertFalse(payload.contains("\u{7}"), result.stdout.debugDescription)
     }
 
     private func runRelayZshHistfile(

@@ -728,6 +728,175 @@ final class TabManagerPullRequestProbeTests: XCTestCase {
         XCTAssertEqual(workspace.sidebarGitBranchesInDisplayOrder().map(\.branch), ["main"])
     }
 
+    func testOSC7BranchSignalSchedulesLocalGitRefreshWhenDirectoryIsUnchanged() throws {
+        let fileManager = FileManager.default
+        let directoryURL = fileManager.temporaryDirectory.appendingPathComponent(
+            "cmux-git-osc7-branch-refresh-\(UUID().uuidString)",
+            isDirectory: true
+        )
+        try fileManager.createDirectory(at: directoryURL, withIntermediateDirectories: true)
+        defer { try? fileManager.removeItem(at: directoryURL) }
+
+        let manager = TabManager()
+        guard let workspace = manager.selectedWorkspace,
+              let panelId = workspace.focusedPanelId else {
+            XCTFail("Expected selected workspace with focused panel")
+            return
+        }
+
+        workspace.updatePanelDirectory(panelId: panelId, directory: directoryURL.path)
+        XCTAssertTrue(
+            waitForCondition {
+                manager.activeWorkspaceGitProbePanelIdsForTesting(workspaceId: workspace.id).isEmpty
+            }
+        )
+        let releaseProbe = DispatchSemaphore(value: 0)
+        TabManager.commandRunnerForTesting = { _, executable, _, _ in
+            if URL(fileURLWithPath: executable).lastPathComponent == "git" {
+                _ = releaseProbe.wait(timeout: .now() + 2)
+            }
+            return TabManager.CommandResult(
+                stdout: "",
+                stderr: "",
+                exitStatus: 1,
+                timedOut: false,
+                executionError: nil
+            )
+        }
+        defer {
+            releaseProbe.signal()
+            TabManager.commandRunnerForTesting = nil
+        }
+
+        manager.updateSurfaceDirectory(
+            tabId: workspace.id,
+            surfaceId: panelId,
+            directory: "\u{1B}]7;file://localhost\(directoryURL.path)?cmux_git_branch=feature%2Fosc7&cmux_git_dirty=0\u{1B}\\"
+        )
+
+        XCTAssertEqual(workspace.panelGitBranches[panelId]?.branch, "feature/osc7")
+        XCTAssertTrue(manager.activeWorkspaceGitProbePanelIdsForTesting(workspaceId: workspace.id).contains(panelId))
+        releaseProbe.signal()
+        XCTAssertTrue(
+            waitForCondition {
+                manager.activeWorkspaceGitProbePanelIdsForTesting(workspaceId: workspace.id).isEmpty
+            }
+        )
+    }
+
+    func testExplicitLocalClearBranchSignalClearsBranchImmediately() throws {
+        let fileManager = FileManager.default
+        let directoryURL = fileManager.temporaryDirectory.appendingPathComponent(
+            "cmux-git-osc7-local-clear-\(UUID().uuidString)",
+            isDirectory: true
+        )
+        try fileManager.createDirectory(at: directoryURL, withIntermediateDirectories: true)
+        defer { try? fileManager.removeItem(at: directoryURL) }
+
+        let manager = TabManager()
+        guard let workspace = manager.selectedWorkspace,
+              let panelId = workspace.focusedPanelId else {
+            XCTFail("Expected selected workspace with focused panel")
+            return
+        }
+
+        TabManager.commandRunnerForTesting = { _, _, _, _ in
+            TabManager.CommandResult(
+                stdout: "",
+                stderr: "",
+                exitStatus: 1,
+                timedOut: false,
+                executionError: nil
+            )
+        }
+        defer { TabManager.commandRunnerForTesting = nil }
+
+        manager.updateSurfaceLocation(
+            tabId: workspace.id,
+            surfaceId: panelId,
+            location: TerminalLocation(
+                host: nil,
+                path: directoryURL.path,
+                source: .osc7,
+                gitBranchSignal: .branch(SidebarGitBranchState(branch: "feature/osc7", isDirty: false))
+            )
+        )
+        workspace.updatePanelPullRequest(
+            panelId: panelId,
+            number: 3791,
+            label: "PR",
+            url: URL(string: "https://github.com/manaflow-ai/cmux/pull/3791")!,
+            status: .open,
+            branch: "feature/osc7"
+        )
+
+        manager.updateSurfaceLocation(
+            tabId: workspace.id,
+            surfaceId: panelId,
+            location: TerminalLocation(
+                host: nil,
+                path: directoryURL.path,
+                source: .osc7,
+                gitBranchSignal: .clear
+            )
+        )
+
+        XCTAssertNil(workspace.panelGitBranches[panelId])
+        XCTAssertNil(workspace.panelPullRequests[panelId])
+    }
+
+    func testLocalDirectoryUpdateClearsRemoteBranchBeforeGitProbeFinishes() throws {
+        let fileManager = FileManager.default
+        let directoryURL = fileManager.temporaryDirectory.appendingPathComponent(
+            "cmux-git-remote-to-local-clear-\(UUID().uuidString)",
+            isDirectory: true
+        )
+        try fileManager.createDirectory(at: directoryURL, withIntermediateDirectories: true)
+        defer { try? fileManager.removeItem(at: directoryURL) }
+
+        let manager = TabManager()
+        guard let workspace = manager.selectedWorkspace,
+              let panelId = workspace.focusedPanelId else {
+            XCTFail("Expected selected workspace with focused panel")
+            return
+        }
+
+        manager.updateSurfaceDirectory(
+            tabId: workspace.id,
+            surfaceId: panelId,
+            directory: "file://devbox.example/home/george/cmux?cmux_git_branch=feature%2Fremote&cmux_git_dirty=1"
+        )
+        XCTAssertEqual(workspace.panelGitBranches[panelId]?.branch, "feature/remote")
+
+        let releaseProbe = DispatchSemaphore(value: 0)
+        TabManager.commandRunnerForTesting = { _, executable, _, _ in
+            if URL(fileURLWithPath: executable).lastPathComponent == "git" {
+                _ = releaseProbe.wait(timeout: .now() + 2)
+            }
+            return TabManager.CommandResult(
+                stdout: "",
+                stderr: "",
+                exitStatus: 1,
+                timedOut: false,
+                executionError: nil
+            )
+        }
+        defer {
+            releaseProbe.signal()
+            TabManager.commandRunnerForTesting = nil
+        }
+
+        manager.updateSurfaceDirectory(tabId: workspace.id, surfaceId: panelId, directory: directoryURL.path)
+
+        XCTAssertNil(workspace.panelGitBranches[panelId])
+        releaseProbe.signal()
+        XCTAssertTrue(
+            waitForCondition {
+                manager.activeWorkspaceGitProbePanelIdsForTesting(workspaceId: workspace.id).isEmpty
+            }
+        )
+    }
+
     func testRemoteSplitSkipsInitialGitMetadataProbe() throws {
         let manager = TabManager()
         guard let workspace = manager.selectedWorkspace,

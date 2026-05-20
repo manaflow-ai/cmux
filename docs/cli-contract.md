@@ -97,6 +97,7 @@ Environment:
 | `list-workspaces` | List workspaces. |
 | `new-workspace` | Create a workspace, optionally with cwd, command, description, and layout. |
 | `ssh` | Open an SSH-backed workspace. |
+| `remote-shell-init` | Print a bash/zsh snippet that lets remote shells in regular ssh/mosh panes report cwd and git branch via OSC 7; set `CMUX_REMOTE_HOST=name` or `CMUX_REMOTE_DISABLE_GIT=1` before sourcing it to override the displayed host or emit cwd only. |
 | `remote-daemon-status` | Print bundled remote daemon version, asset, checksum, and cache status. |
 | `new-split` | Split from a surface in a direction. |
 | `list-panes` | List panes in a workspace. |
@@ -421,6 +422,7 @@ the expected text without connecting to a cmux socket.
 - `cmux new-workspace --help` -> `Usage: cmux new-workspace`
 - `cmux list-workspaces --help` -> `Usage: cmux list-workspaces`
 - `cmux ssh --help` -> `Usage: cmux ssh <destination>`
+- `cmux remote-shell-init --help` -> `Usage: cmux remote-shell-init`
 - `cmux new-split --help` -> `Usage: cmux new-split`
 - `cmux list-panes --help` -> `Usage: cmux list-panes`
 - `cmux list-pane-surfaces --help` -> `Usage: cmux list-pane-surfaces`

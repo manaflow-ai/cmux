@@ -1,5 +1,6 @@
 import XCTest
 import AppKit
+import Combine
 import SwiftUI
 import UniformTypeIdentifiers
 import WebKit
@@ -577,6 +578,394 @@ final class SidebarBranchOrderingTests: XCTestCase {
     }
 }
 
+final class TerminalOSC7LocationTests: XCTestCase {
+    func testRemoteOSC7SequenceCapturesHostPathAndBranch() throws {
+        let sequence = "\u{1B}]7;file://remotehost/Users/foo/work?cmux_git_branch=feature%2Fmosh&cmux_git_dirty=1\u{1B}\\"
+
+        let location = try XCTUnwrap(TerminalLocation.parseOSC7Sequence(sequence))
+
+        XCTAssertTrue(location.isRemote)
+        XCTAssertEqual(location.remoteHost, "remotehost")
+        XCTAssertEqual(location.path, "/Users/foo/work")
+        XCTAssertEqual(location.gitBranch, SidebarGitBranchState(branch: "feature/mosh", isDirty: true))
+    }
+
+    func testBareOSC7PayloadParserCapturesRemoteHostPathAndBranch() throws {
+        let location = try XCTUnwrap(
+            TerminalLocation.parseOSC7Sequence(
+                "7;file://remotehost/Users/foo/work?cmux_git_branch=feature%2Fmosh&cmux_git_dirty=1"
+            )
+        )
+
+        XCTAssertTrue(location.isRemote)
+        XCTAssertEqual(location.remoteHost, "remotehost")
+        XCTAssertEqual(location.path, "/Users/foo/work")
+        XCTAssertEqual(location.gitBranch, SidebarGitBranchState(branch: "feature/mosh", isDirty: true))
+    }
+
+    func testPlainPathBeginningWithOSC7PrefixStaysPlainPath() throws {
+        let location = try XCTUnwrap(
+            TerminalLocation.parseReportedDirectory("7;file://devbox.example/home/george/cmux")
+        )
+
+        XCTAssertFalse(location.isRemote)
+        XCTAssertEqual(location.path, "7;file://devbox.example/home/george/cmux")
+        XCTAssertEqual(location.displayDirectory, "7;file://devbox.example/home/george/cmux")
+    }
+
+    func testOSC7LoopbackIPv4RangeStaysLocal() throws {
+        let location = try XCTUnwrap(
+            TerminalLocation.parseReportedDirectory("file://127.0.1.1/Users/foo/work")
+        )
+
+        XCTAssertFalse(location.isRemote)
+        XCTAssertNil(location.remoteHost)
+        XCTAssertEqual(location.displayDirectory, "/Users/foo/work")
+    }
+
+    func testOSC7PreservesDecodedPathWhitespace() throws {
+        let location = try XCTUnwrap(
+            TerminalLocation.parseReportedDirectory("file://remotehost/tmp/repo%20")
+        )
+
+        XCTAssertEqual(location.path, "/tmp/repo ")
+        XCTAssertEqual(location.displayDirectory, "remotehost:/tmp/repo ")
+    }
+
+    func testPlainReportedDirectoryPreservesTrailingSpace() throws {
+        let location = try XCTUnwrap(
+            TerminalLocation.parseReportedDirectory("/tmp/repo ")
+        )
+
+        XCTAssertFalse(location.isRemote)
+        XCTAssertEqual(location.path, "/tmp/repo ")
+        XCTAssertEqual(location.displayDirectory, "/tmp/repo ")
+    }
+
+    func testOSC7DecodesEscapedRemoteHostAuthorityBytes() throws {
+        let location = try XCTUnwrap(
+            TerminalLocation.parseReportedDirectory("file://deploy%40server/home/george/cmux")
+        )
+
+        XCTAssertEqual(location.remoteHost, "deploy@server")
+        XCTAssertEqual(location.displayDirectory, "deploy@server:/home/george/cmux")
+    }
+
+    func testOSC7DecodesEscapedHostColonAsAuthorityByte() throws {
+        let location = try XCTUnwrap(
+            TerminalLocation.parseReportedDirectory("file://deploy%3A2222/home/george/cmux")
+        )
+
+        XCTAssertEqual(location.remoteHost, "deploy:2222")
+        XCTAssertEqual(location.displayDirectory, "deploy:2222:/home/george/cmux")
+    }
+
+    func testPersistedLocalOSC7HostNormalizesToNil() throws {
+        let location = try XCTUnwrap(
+            TerminalLocation.parseReportedDirectory("file://localhost/Users/foo/work")
+        )
+
+        let fileURLLocation = try XCTUnwrap(
+            TerminalLocation.parseReportedDirectory("file:///Users/foo/work")
+        )
+
+        XCTAssertEqual(location, fileURLLocation)
+        XCTAssertNil(location.sessionSnapshot.host)
+    }
+
+    func testLocalHostnameWithTrailingDotStaysLocal() throws {
+        var localHost = ProcessInfo.processInfo.hostName.trimmingCharacters(in: .whitespacesAndNewlines)
+        while localHost.last == "." {
+            localHost.removeLast()
+        }
+        try XCTSkipIf(localHost.isEmpty, "Local host name is unavailable")
+        let allowedHostCharacters = CharacterSet(charactersIn: "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789.-")
+        try XCTSkipIf(
+            localHost.rangeOfCharacter(from: allowedHostCharacters.inverted) != nil,
+            "Local host name contains characters that need URL authority escaping"
+        )
+
+        let location = try XCTUnwrap(
+            TerminalLocation.parseReportedDirectory("file://\(localHost)./Users/foo/work")
+        )
+
+        XCTAssertFalse(location.isRemote)
+        XCTAssertNil(location.remoteHost)
+        XCTAssertEqual(location.displayDirectory, "/Users/foo/work")
+    }
+
+    func testKittyShellCwdSequenceCapturesRemoteHostAndPath() throws {
+        let location = try XCTUnwrap(
+            TerminalLocation.parseReportedDirectory(
+                "kitty-shell-cwd://devbox.example/home/george/cmux?cmux_git_branch=feature%2Fkitty&cmux_git_dirty=true"
+            )
+        )
+
+        XCTAssertTrue(location.isRemote)
+        XCTAssertEqual(location.remoteHost, "devbox.example")
+        XCTAssertEqual(location.displayDirectory, "devbox.example:/home/george/cmux")
+        XCTAssertEqual(location.gitBranch, SidebarGitBranchState(branch: "feature/kitty", isDirty: true))
+    }
+
+    func testKittyShellCwdLoopbackHostStaysLocal() throws {
+        let location = try XCTUnwrap(
+            TerminalLocation.parseReportedDirectory("kitty-shell-cwd://127.0.1.1/Users/foo/work")
+        )
+
+        XCTAssertFalse(location.isRemote)
+        XCTAssertNil(location.remoteHost)
+        XCTAssertEqual(location.displayDirectory, "/Users/foo/work")
+    }
+
+    func testKittyShellCwdPreservesDecodedPathWhitespace() throws {
+        let location = try XCTUnwrap(
+            TerminalLocation.parseReportedDirectory("kitty-shell-cwd://devbox.example/tmp/repo%20")
+        )
+
+        XCTAssertEqual(location.path, "/tmp/repo ")
+        XCTAssertEqual(location.displayDirectory, "devbox.example:/tmp/repo ")
+    }
+
+    @MainActor
+    func testRemoteOSC7LocationUpdatesWorkspaceSidebarState() throws {
+        let manager = TabManager()
+        let workspace = try XCTUnwrap(manager.tabs.first)
+        let panelId = try XCTUnwrap(workspace.focusedPanelId)
+        let sequence = "\u{1B}]7;file://devbox.example/home/george/cmux?cmux_git_branch=remote-main&cmux_git_dirty=0\u{1B}\\"
+
+        manager.updateSurfaceDirectory(tabId: workspace.id, surfaceId: panelId, directory: sequence)
+
+        XCTAssertEqual(workspace.terminalLocation(for: panelId)?.remoteHost, "devbox.example")
+        XCTAssertNil(workspace.panelDirectories[panelId])
+        XCTAssertEqual(
+            workspace.sidebarBranchDirectoryEntriesInDisplayOrder(orderedPanelIds: [panelId]),
+            [
+                SidebarBranchOrdering.BranchDirectoryEntry(
+                    branch: "remote-main",
+                    isDirty: false,
+                    directory: "devbox.example:/home/george/cmux"
+                )
+            ]
+        )
+        XCTAssertEqual(workspace.surfaceTabBarDirectory, "devbox.example:/home/george/cmux")
+    }
+
+    @MainActor
+    func testRemoteOSC7GitStateChangeDoesNotRepublishTerminalLocation() throws {
+        let workspace = Workspace()
+        let panelId = try XCTUnwrap(workspace.focusedPanelId)
+        var locationUpdates = 0
+        let cancellable = workspace.$panelTerminalLocations
+            .dropFirst()
+            .sink { _ in locationUpdates += 1 }
+        defer { cancellable.cancel() }
+
+        workspace.updatePanelLocation(
+            panelId: panelId,
+            location: try XCTUnwrap(
+                TerminalLocation.parseReportedDirectory(
+                    "file://devbox.example/home/george/cmux?cmux_git_branch=main&cmux_git_dirty=0"
+                )
+            )
+        )
+        XCTAssertEqual(locationUpdates, 1)
+        XCTAssertNil(workspace.terminalLocation(for: panelId)?.gitBranch)
+
+        workspace.updatePanelLocation(
+            panelId: panelId,
+            location: try XCTUnwrap(
+                TerminalLocation.parseReportedDirectory(
+                    "file://devbox.example/home/george/cmux?cmux_git_branch=main&cmux_git_dirty=1"
+                )
+            )
+        )
+        XCTAssertEqual(locationUpdates, 1)
+        XCTAssertEqual(workspace.terminalLocation(for: panelId)?.displayDirectory, "devbox.example:/home/george/cmux")
+    }
+
+    @MainActor
+    func testRefocusingRemoteOSC7PanelKeepsTabBarDirectoryRemoteAware() throws {
+        let workspace = Workspace()
+        let remotePanelId = try XCTUnwrap(workspace.focusedPanelId)
+        let paneId = try XCTUnwrap(workspace.paneId(forPanelId: remotePanelId))
+        let localPanel = try XCTUnwrap(workspace.newTerminalSurface(inPane: paneId, focus: false))
+
+        workspace.updatePanelLocation(
+            panelId: remotePanelId,
+            location: try XCTUnwrap(
+                TerminalLocation.parseReportedDirectory("file://devbox.example/home/george/cmux")
+            )
+        )
+        workspace.updatePanelDirectory(panelId: localPanel.id, directory: "/tmp/local-cmux")
+
+        workspace.focusPanel(localPanel.id)
+        XCTAssertEqual(workspace.surfaceTabBarDirectory, "/tmp/local-cmux")
+
+        workspace.focusPanel(remotePanelId)
+        XCTAssertEqual(workspace.surfaceTabBarDirectory, "devbox.example:/home/george/cmux")
+    }
+
+    @MainActor
+    func testRemoteLocationClearsStaleLocalPanelDirectoryBeforeRefocus() throws {
+        let workspace = Workspace()
+        let panelId = try XCTUnwrap(workspace.focusedPanelId)
+
+        workspace.updatePanelDirectory(panelId: panelId, directory: "/tmp/local-before-ssh")
+        workspace.currentDirectory = "/tmp/fallback"
+        workspace.updatePanelLocation(
+            panelId: panelId,
+            location: try XCTUnwrap(
+                TerminalLocation.parseReportedDirectory("file://devbox.example/home/george/cmux")
+            )
+        )
+        workspace.focusPanel(panelId)
+
+        XCTAssertNil(workspace.panelDirectories[panelId])
+        XCTAssertEqual(workspace.currentDirectory, "/tmp/fallback")
+        XCTAssertEqual(workspace.surfaceTabBarDirectory, "devbox.example:/home/george/cmux")
+    }
+
+    @MainActor
+    func testWhitespaceOnlyDirectoryUpdateIsIgnored() throws {
+        let workspace = Workspace()
+        let panelId = try XCTUnwrap(workspace.focusedPanelId)
+
+        workspace.panelDirectories.removeValue(forKey: panelId)
+        workspace.updatePanelDirectory(panelId: panelId, directory: "   \n\t")
+
+        XCTAssertNil(workspace.panelDirectories[panelId])
+        XCTAssertNil(workspace.terminalLocation(for: panelId))
+    }
+
+    @MainActor
+    func testPlainDirectoryUpdatePreservesTrailingSpace() throws {
+        let workspace = Workspace()
+        let panelId = try XCTUnwrap(workspace.focusedPanelId)
+
+        workspace.updatePanelDirectory(panelId: panelId, directory: "/tmp/repo ")
+
+        XCTAssertEqual(workspace.terminalLocation(for: panelId)?.path, "/tmp/repo ")
+        XCTAssertEqual(workspace.panelDirectories[panelId], "/tmp/repo ")
+    }
+
+    @MainActor
+    func testRemoteOSC7LocationDoesNotDisableLocalTildeCanonicalization() throws {
+        let homeDirectory = FileManager.default.homeDirectoryForCurrentUser.path
+        let workspace = Workspace(title: "Tests", workingDirectory: homeDirectory, portOrdinal: 0)
+        let localAbsolutePanelId = UUID()
+        let localTildePanelId = UUID()
+        let remotePanelId = UUID()
+
+        workspace.updatePanelDirectory(panelId: localAbsolutePanelId, directory: "\(homeDirectory)/project")
+        workspace.updatePanelDirectory(panelId: localTildePanelId, directory: "~/project")
+        workspace.updatePanelLocation(
+            panelId: remotePanelId,
+            location: try XCTUnwrap(
+                TerminalLocation.parseReportedDirectory("file://devbox.example/home/george/project")
+            )
+        )
+
+        XCTAssertEqual(
+            workspace.sidebarDirectoriesInDisplayOrder(
+                orderedPanelIds: [localAbsolutePanelId, localTildePanelId, remotePanelId]
+            ),
+            [
+                "\(homeDirectory)/project",
+                "devbox.example:/home/george/project"
+            ]
+        )
+    }
+
+    @MainActor
+    func testSidebarFinderDirectorySkipsOSC7RemotePanels() throws {
+        let workspace = Workspace()
+        let remotePanelId = try XCTUnwrap(workspace.focusedPanelId)
+        let paneId = try XCTUnwrap(workspace.paneId(forPanelId: remotePanelId))
+        let localPanel = try XCTUnwrap(workspace.newTerminalSurface(inPane: paneId, focus: false))
+        let localDirectory = FileManager.default.temporaryDirectory.path
+
+        workspace.updatePanelLocation(
+            panelId: remotePanelId,
+            location: try XCTUnwrap(
+                TerminalLocation.parseReportedDirectory("file://devbox.example/home/george/project")
+            )
+        )
+        workspace.updatePanelDirectory(panelId: localPanel.id, directory: localDirectory)
+
+        XCTAssertEqual(workspace.sidebarFinderDirectory(), localDirectory)
+    }
+
+    @MainActor
+    func testSidebarFinderDirectoryReturnsNilWhenOnlyOSC7RemotePanelsRemain() throws {
+        let workspace = Workspace()
+        let panelId = try XCTUnwrap(workspace.focusedPanelId)
+
+        workspace.updatePanelLocation(
+            panelId: panelId,
+            location: try XCTUnwrap(
+                TerminalLocation.parseReportedDirectory("file://devbox.example/home/george/project")
+            )
+        )
+
+        XCTAssertNil(workspace.sidebarFinderDirectory())
+    }
+
+    @MainActor
+    func testRemoteOSC7BranchClearsStaleLocalPullRequestState() throws {
+        let manager = TabManager()
+        let workspace = try XCTUnwrap(manager.tabs.first)
+        let panelId = try XCTUnwrap(workspace.focusedPanelId)
+
+        workspace.updatePanelGitBranch(panelId: panelId, branch: "shared", isDirty: false)
+        workspace.updatePanelPullRequest(
+            panelId: panelId,
+            number: 3791,
+            label: "PR",
+            url: URL(string: "https://github.com/manaflow-ai/cmux/pull/3791")!,
+            status: .open,
+            branch: "shared"
+        )
+
+        manager.updateSurfaceDirectory(
+            tabId: workspace.id,
+            surfaceId: panelId,
+            directory: "\u{1B}]7;file://devbox.example/home/george/cmux?cmux_git_branch=shared&cmux_git_dirty=0\u{1B}\\"
+        )
+
+        XCTAssertNil(workspace.pullRequest)
+        XCTAssertNil(workspace.panelPullRequests[panelId])
+        XCTAssertTrue(workspace.sidebarPullRequestsInDisplayOrder().isEmpty)
+    }
+
+    @MainActor
+    func testSocketReportedRemoteFileURIReachesSidebarStateWithHostAndBranch() throws {
+        let controller = TerminalController.shared
+        let manager = TabManager()
+        controller.setActiveTabManager(manager)
+        defer { controller.setActiveTabManager(nil) }
+
+        let workspace = try XCTUnwrap(manager.selectedWorkspace)
+        let panelId = try XCTUnwrap(workspace.focusedPanelId)
+        let remoteReport = "file://devbox.example/tmp/cmux-issue3791-remote-test?cmux_git_branch=feature%2Fmosh&cmux_git_dirty=1"
+
+        XCTAssertEqual(controller.handleSocketLine("report_pwd \(remoteReport)"), "OK")
+
+        let sidebarState = controller.handleSocketLine("sidebar_state")
+        XCTAssertTrue(
+            sidebarState.contains("cwd=devbox.example:/tmp/cmux-issue3791-remote-test"),
+            sidebarState
+        )
+        XCTAssertTrue(
+            sidebarState.contains("focused_cwd=devbox.example:/tmp/cmux-issue3791-remote-test"),
+            sidebarState
+        )
+        XCTAssertTrue(sidebarState.contains("focused_panel=\(panelId.uuidString)"), sidebarState)
+        XCTAssertTrue(sidebarState.contains("git_branch=feature/mosh dirty"), sidebarState)
+        XCTAssertEqual(workspace.terminalLocation(for: panelId)?.remoteHost, "devbox.example")
+        XCTAssertNil(workspace.panelDirectories[panelId])
+    }
+}
+
 
 final class SidebarDropPlannerTests: XCTestCase {
     func testNoIndicatorForNoOpEdges() {
@@ -989,6 +1378,15 @@ final class TerminalControllerSidebarDedupeTests: XCTestCase {
         XCTAssertEqual(
             TerminalController.normalizeReportedDirectory("file:///Users/cmux/project"),
             "/Users/cmux/project"
+        )
+    }
+
+    func testNormalizeReportedDirectoryPreservesRemoteFileURLForLocationClassification() {
+        XCTAssertEqual(
+            TerminalController.normalizeReportedDirectory(
+                "file://devbox.example/tmp/cmux-issue3791-remote-test?cmux_git_branch=feature%2Fmosh&cmux_git_dirty=1"
+            ),
+            "file://devbox.example/tmp/cmux-issue3791-remote-test?cmux_git_branch=feature%2Fmosh&cmux_git_dirty=1"
         )
     }
 

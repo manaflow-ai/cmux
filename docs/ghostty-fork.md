@@ -13,15 +13,17 @@ When we change the fork, update this document and the parent submodule SHA.
 ## Current fork changes
 
 The fork was refreshed from upstream `main` again on May 1, 2026.
-Current cmux pinned fork head: `ff6e1260d`, based on `aef980e27`, with the
-manual embedded IO patch in https://github.com/manaflow-ai/ghostty/pull/53,
-the Metal renderer row rebuild guard for https://github.com/manaflow-ai/cmux/issues/3369, and the URL/path
-regex bound for spaced file paths followed by prose. This head keeps the cmux
-theme picker hooks, exposes the manual surface IO needed by libghostty iOS
-clients, bounds shaped glyph iteration during IME/preedit row rebuilds, and
-prevents Cmd-hover from highlighting normal sentence text after a file path.
+Current cmux pinned fork head: `d88335059`, based on `aef980e27` plus the
+Issue 3791 non-local OSC 7 URI patch, with the manual embedded IO patch in
+https://github.com/manaflow-ai/ghostty/pull/53, the Metal renderer row rebuild
+guard for https://github.com/manaflow-ai/cmux/issues/3369, and crash-report
+subdirectory support. This head keeps the cmux theme picker hooks, exposes the
+manual surface IO needed by libghostty iOS clients, bounds shaped glyph
+iteration during IME/preedit row rebuilds, saves crash diagnostics under the
+cmux state directory, and lets embedded clients classify remote OSC 7 cwd
+reports.
 The corresponding prebuilt archive is published at
-https://github.com/manaflow-ai/ghostty/releases/tag/xcframework-ff6e1260d2e7767de55b8d9307b328e4060545b7-crashsubdir-cmux-crash-v1
+https://github.com/manaflow-ai/ghostty/releases/tag/xcframework-d8833505936dd446140185ae2590ca1f906ec1d4-crashsubdir-cmux-crash-v1
 and pinned in `scripts/ghosttykit-checksums.txt`.
 
 ### 1) macOS display link restart on display changes
@@ -175,6 +177,11 @@ tend to conflict together during rebases.
     render-now C API, or output C API. Upstream already has internal
     `Termio.processOutput`, so prefer an upstream C bridge if one lands.
 
+The manual IO pin is reachable from `manaflow-ai/ghostty` `main` through
+https://github.com/manaflow-ai/ghostty/pull/53.
+Published `xcframework-22fa801f88f96fa842e54ecce6c34a5d36003d19` and pinned
+its archive checksum in `scripts/ghosttykit-checksums.txt`.
+
 ### 11) Metal renderer preedit row rebuild guard
 
 - Commits:
@@ -191,7 +198,7 @@ tend to conflict together during rebases.
   - The first commit intentionally preserves the panic so cmux can keep the
     required failing-test-then-fix history for https://github.com/manaflow-ai/cmux/issues/3369.
 
-### 12) URL/path regex bounds for spaced file paths
+### 12) Published URL/path regex bounds for spaced file paths
 
 - Commits:
   - `6e10706a7` (test: cover spaced file path link bounds)
@@ -208,14 +215,30 @@ tend to conflict together during rebases.
     that end at end-of-line.
   - Preserves versioned or dotted path components before the first space, such as
     `/tmp/v1.2 captures/video.mp4`.
+  - This published side branch remains checksummed for main-line Ghostty pins; the current
+    Issue 3791 pin keeps non-local OSC 7 forwarding until a combined prebuilt archive exists.
 
 The current cmux pin is the head listed above. It is reachable from
 `manaflow-ai/ghostty` through the
-`xcframework-ff6e1260d2e7767de55b8d9307b328e4060545b7-crashsubdir-cmux-crash-v1`
-release tag and branch `issue-cmd-hover-path-range`.
-Published `xcframework-ff6e1260d2e7767de55b8d9307b328e4060545b7-crashsubdir-cmux-crash-v1` and pinned its
-archive checksum in `scripts/ghosttykit-checksums.txt`. The release and checksum
-pin must be regenerated whenever this commit changes, even for comment-only
+`xcframework-d8833505936dd446140185ae2590ca1f906ec1d4-crashsubdir-cmux-crash-v1`
+release tag and branch `issue-3791-mosh-remote-cwd-detection-fe972`.
+
+### 13) Non-local OSC 7 URI forwarding for remote cwd
+
+- Commit: `ba4d6d1a6` (Let embedded apps classify remote OSC 7 cwd reports)
+- Files:
+  - `src/termio/stream_handler.zig`
+- Summary:
+  - Keeps Ghostty's decoded cwd path update for its own state while forwarding
+    the original non-local OSC 7 URI to embedded apps.
+  - Lets cmux classify `file://host/path` reports from ssh/mosh prompt hooks as
+    remote pane locations instead of flattening them into local paths.
+  - Replays the Issue 3791 patch on top of the Metal renderer guard so both fork
+    changes remain present in the current pin.
+
+Published `xcframework-d8833505936dd446140185ae2590ca1f906ec1d4-crashsubdir-cmux-crash-v1`
+and pinned its archive checksum in `scripts/ghosttykit-checksums.txt`. The release
+and checksum pin must be regenerated whenever this commit changes, even for comment-only
 amends, because the release tag is keyed by the Ghostty commit SHA.
 
 ## Upstreamed fork changes
