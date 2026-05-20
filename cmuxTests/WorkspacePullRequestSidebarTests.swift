@@ -1251,6 +1251,39 @@ final class WorkspacePullRequestSidebarTests: XCTestCase {
         )
     }
 
+    func testGitMetadataWatcherIncludesSubmoduleHeadAndRefs() throws {
+        let repoURL = FileManager.default.temporaryDirectory.appendingPathComponent(
+            "cmux-sidebar-gitlink-watch-\(UUID().uuidString)",
+            isDirectory: true
+        )
+        let submoduleURL = repoURL.appendingPathComponent("vendor/lib", isDirectory: true)
+        let indexedCommit = String(repeating: "1", count: 40)
+        try FileManager.default.createDirectory(at: submoduleURL, withIntermediateDirectories: true)
+        try writeMinimalGitRepository(at: repoURL)
+        try writeMinimalGitRepository(at: submoduleURL, headCommit: indexedCommit)
+        try writeGitIndexVersion2Entry(
+            at: repoURL,
+            trackedPath: "vendor/lib",
+            mode: 0o160000,
+            size: 0,
+            signatureByte: 0x77,
+            objectIDBytes: gitObjectIDBytes(indexedCommit)
+        )
+        defer {
+            try? FileManager.default.removeItem(at: repoURL)
+        }
+
+        let watchedPaths = TabManager.workspaceGitMetadataWatchedPathsForTesting(directory: repoURL.path)
+        XCTAssertTrue(
+            watchedPaths.contains(submoduleURL.appendingPathComponent(".git/HEAD").path),
+            "Submodule HEAD must be watched so detached HEAD changes refresh parent sidebar dirty state immediately."
+        )
+        XCTAssertTrue(
+            watchedPaths.contains(submoduleURL.appendingPathComponent(".git/refs").path),
+            "Submodule refs must be watched so branch checkout/ref updates refresh parent sidebar dirty state immediately."
+        )
+    }
+
     func testModeOnlyTrackedChangesMarkSidebarDirty() throws {
         let defaults = UserDefaults.standard
         let previousWatchGitStatus = defaults.object(forKey: SidebarWorkspaceDetailDefaults.watchGitStatusKey)

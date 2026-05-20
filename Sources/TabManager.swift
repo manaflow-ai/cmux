@@ -3062,15 +3062,10 @@ class TabManager: ObservableObject {
             return nil
         }
 
-        let configPaths = gitConfigURLs(repository: repository).map(\.path)
         let candidatePaths = [
             repository.workTreeRoot,
-            URL(fileURLWithPath: repository.gitDirectory).appendingPathComponent("HEAD").path,
-            URL(fileURLWithPath: repository.gitDirectory).appendingPathComponent("index").path,
-            URL(fileURLWithPath: repository.gitDirectory).appendingPathComponent("refs").path,
-            URL(fileURLWithPath: repository.commonDirectory).appendingPathComponent("refs").path,
-            URL(fileURLWithPath: repository.commonDirectory).appendingPathComponent("packed-refs").path,
-        ] + configPaths
+        ] + gitRepositoryMetadataWatchPaths(repository: repository)
+            + gitlinkMetadataWatchPaths(repository: repository)
         var watchedPaths: [String] = []
         var seen: Set<String> = []
         for path in candidatePaths {
@@ -3087,6 +3082,41 @@ class TabManager: ObservableObject {
             directory: repository.workTreeRoot,
             watchedPaths: watchedPaths.sorted()
         )
+    }
+
+    private nonisolated static func gitRepositoryMetadataWatchPaths(
+        repository: ResolvedGitRepository
+    ) -> [String] {
+        [
+            URL(fileURLWithPath: repository.gitDirectory).appendingPathComponent("HEAD").path,
+            URL(fileURLWithPath: repository.gitDirectory).appendingPathComponent("index").path,
+            URL(fileURLWithPath: repository.gitDirectory).appendingPathComponent("refs").path,
+            URL(fileURLWithPath: repository.commonDirectory).appendingPathComponent("refs").path,
+            URL(fileURLWithPath: repository.commonDirectory).appendingPathComponent("packed-refs").path,
+        ] + gitConfigURLs(repository: repository).map(\.path)
+    }
+
+    private nonisolated static func gitlinkMetadataWatchPaths(
+        repository: ResolvedGitRepository
+    ) -> [String] {
+        let indexURL = URL(fileURLWithPath: repository.gitDirectory).appendingPathComponent("index")
+        guard let indexSnapshot = gitIndexSnapshot(indexURL: indexURL) else {
+            return []
+        }
+
+        let gitlinkMode: UInt32 = 0o160000
+        var paths: [String] = []
+        for entry in indexSnapshot.entries where (entry.mode & 0o170000) == gitlinkMode {
+            let gitlinkURL = URL(fileURLWithPath: repository.workTreeRoot)
+                .appendingPathComponent(entry.path)
+                .standardizedFileURL
+            guard let submoduleRepository = resolveGitRepository(containing: gitlinkURL.path),
+                  submoduleRepository.workTreeRoot == gitlinkURL.path else {
+                continue
+            }
+            paths.append(contentsOf: gitRepositoryMetadataWatchPaths(repository: submoduleRepository))
+        }
+        return paths
     }
 
     private nonisolated static func gitBranchName(repository: ResolvedGitRepository) -> String? {
@@ -3154,22 +3184,28 @@ class TabManager: ObservableObject {
 
     private nonisolated static func gitRemoteVOutput(repository: ResolvedGitRepository) -> String? {
         var lines: [String] = []
-        for configURL in gitConfigURLs(repository: repository) {
-            guard let config = try? String(contentsOf: configURL, encoding: .utf8) else {
-                continue
-            }
-            lines.append(contentsOf: gitRemoteVLines(fromConfig: config))
+        var seenConfigPaths: Set<String> = []
+        for configURL in gitRootConfigURLs(repository: repository) {
+            appendGitRemoteVLines(
+                fromConfigURL: configURL,
+                repository: repository,
+                seenConfigPaths: &seenConfigPaths,
+                lines: &lines
+            )
         }
         return lines.isEmpty ? nil : lines.joined()
     }
 
-    private nonisolated static func gitConfigURLs(repository: ResolvedGitRepository) -> [URL] {
-        let rootConfigURLs = [
+    private nonisolated static func gitRootConfigURLs(repository: ResolvedGitRepository) -> [URL] {
+        [
             URL(fileURLWithPath: repository.commonDirectory).appendingPathComponent("config"),
             URL(fileURLWithPath: repository.gitDirectory).appendingPathComponent("config"),
         ]
+    }
+
+    private nonisolated static func gitConfigURLs(repository: ResolvedGitRepository) -> [URL] {
         var urls: [URL] = []
-        var pendingURLs = rootConfigURLs
+        var pendingURLs = gitRootConfigURLs(repository: repository)
         var seenConfigPaths: Set<String> = []
 
         while !pendingURLs.isEmpty {
@@ -3219,6 +3255,72 @@ class TabManager: ObservableObject {
         }
 
         return lines
+    }
+
+    private nonisolated static func appendGitRemoteVLines(
+        fromConfigURL configURL: URL,
+        repository: ResolvedGitRepository,
+        seenConfigPaths: inout Set<String>,
+        lines: inout [String]
+    ) {
+        let configURL = configURL.standardizedFileURL
+        guard seenConfigPaths.insert(configURL.path).inserted,
+              let config = try? String(contentsOf: configURL, encoding: .utf8) else {
+            return
+        }
+
+        var currentRemoteName: String?
+        var currentSectionAllowsIncludePath = false
+
+        for rawLine in config.components(separatedBy: .newlines) {
+            let line = gitConfigLineRemovingInlineComment(rawLine)
+                .trimmingCharacters(in: .whitespaces)
+            if line.hasPrefix("[") && line.hasSuffix("]") {
+                currentRemoteName = gitConfigRemoteName(fromSectionHeader: line)
+                if line == "[include]" {
+                    currentSectionAllowsIncludePath = true
+                } else if let condition = gitConfigIncludeIfCondition(fromSectionHeader: line) {
+                    currentSectionAllowsIncludePath = gitConfigIncludeIfConditionMatches(
+                        condition,
+                        repository: repository
+                    )
+                } else {
+                    currentSectionAllowsIncludePath = false
+                }
+                continue
+            }
+
+            let parts = line.split(separator: "=", maxSplits: 1).map {
+                $0.trimmingCharacters(in: .whitespaces)
+            }
+
+            if let currentRemoteName,
+               parts.count == 2,
+               parts[0] == "url" {
+                let remoteURL = gitConfigUnquotedValue(parts[1])
+                guard !remoteURL.isEmpty else {
+                    continue
+                }
+                lines.append("\(currentRemoteName)\t\(remoteURL) (fetch)\n")
+                continue
+            }
+
+            guard currentSectionAllowsIncludePath,
+                  parts.count == 2,
+                  parts[0] == "path",
+                  let includeURL = gitConfigIncludeURL(
+                      pathValue: parts[1],
+                      configURL: configURL
+                  ) else {
+                continue
+            }
+            appendGitRemoteVLines(
+                fromConfigURL: includeURL,
+                repository: repository,
+                seenConfigPaths: &seenConfigPaths,
+                lines: &lines
+            )
+        }
     }
 
     private nonisolated static func gitIncludedConfigURLs(
@@ -4691,9 +4793,7 @@ class TabManager: ObservableObject {
                 continue
             }
 
-            if slugByRemoteName[remoteName] == nil {
-                slugByRemoteName[remoteName] = repoSlug
-            }
+            slugByRemoteName[remoteName] = repoSlug
         }
 
         let orderedRemoteNames = slugByRemoteName.keys.sorted { lhs, rhs in
@@ -4718,6 +4818,10 @@ class TabManager: ObservableObject {
     }
 
 #if DEBUG
+    nonisolated static func workspaceGitMetadataWatchedPathsForTesting(directory: String) -> [String] {
+        workspaceGitMetadataWatcherDescriptor(for: directory)?.watchedPaths ?? []
+    }
+
     nonisolated static func githubRepositorySlugs(fromGitConfigForTesting config: String) -> [String] {
         githubRepositorySlugs(fromGitRemoteVOutput: gitRemoteVLines(fromConfig: config).joined())
     }
