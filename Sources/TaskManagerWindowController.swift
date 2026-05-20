@@ -127,7 +127,7 @@ final class CmuxTaskManagerModel: ObservableObject {
         if shouldShowIndicator {
             isRefreshing = true
         }
-        refreshTask = Task { [weak self] in
+        refreshTask = Task { @MainActor [weak self] in
             do {
                 let payload = try await TerminalController.shared.taskManagerTopPayload(includeProcesses: includeProcesses)
                 guard !Task.isCancelled else { return }

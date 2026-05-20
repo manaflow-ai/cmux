@@ -11866,7 +11866,7 @@ struct CMUXCLI {
         do {
             return try client.sendV2(method: "system.top", params: params, responseTimeout: responseTimeout)
         } catch let error as CLIError where error.message.hasPrefix("method_not_found:") {
-            throw CLIError(message: "cmux top requires a running cmux build with system.top support")
+            throw CLIError(message: "cmux top requires a running cmux build that supports process diagnostics")
         }
     }
 
@@ -11891,7 +11891,7 @@ struct CMUXCLI {
         do {
             return try client.sendV2(method: "system.memory", params: params)
         } catch let error as CLIError where error.message.hasPrefix("method_not_found:") {
-            throw CLIError(message: "cmux memory requires a running cmux build with system.memory support")
+            throw CLIError(message: "cmux memory requires a running cmux build that supports memory diagnostics")
         }
     }
 

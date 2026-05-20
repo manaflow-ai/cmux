@@ -64,7 +64,7 @@ struct CmuxTaskManagerSnapshot {
             rows: rows,
             agentRows: agentRows,
             aggregateRows: Self.programAggregateRows(from: rows),
-            childMemoryRows: [],
+            childMemoryRows: Self.childMemoryRows(from: memoryDiagnostic),
             total: total,
             sampledAt: sampledAt,
             memoryDiagnostic: memoryDiagnostic
