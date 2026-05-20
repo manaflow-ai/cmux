@@ -26,8 +26,6 @@ private let workspaceGitMetadataWatcherCallback: FSEventStreamCallback = { _, in
 }
 
 private final class WorkspaceGitMetadataWatcher: @unchecked Sendable {
-    private static let queueSpecificKey = DispatchSpecificKey<UInt8>()
-
     struct Descriptor: Equatable, Sendable {
         let directory: String
         let watchedPaths: [String]
@@ -36,6 +34,7 @@ private final class WorkspaceGitMetadataWatcher: @unchecked Sendable {
     let descriptor: Descriptor
 
     private let queue = DispatchQueue(label: "com.cmux.workspace-git-metadata-watcher", qos: .utility)
+    private let queueSpecificKey = DispatchSpecificKey<UInt8>()
     private var callbackBox: WorkspaceGitMetadataWatcherCallbackBox?
     private let onChange: @Sendable () -> Void
     private var stream: FSEventStreamRef?
@@ -45,7 +44,7 @@ private final class WorkspaceGitMetadataWatcher: @unchecked Sendable {
         guard !descriptor.watchedPaths.isEmpty else { return nil }
         self.descriptor = descriptor
         self.onChange = onChange
-        queue.setSpecific(key: Self.queueSpecificKey, value: 1)
+        queue.setSpecific(key: queueSpecificKey, value: 1)
         let callbackBox = WorkspaceGitMetadataWatcherCallbackBox { [weak self] in
             self?.scheduleChange()
         }
@@ -81,7 +80,7 @@ private final class WorkspaceGitMetadataWatcher: @unchecked Sendable {
     }
 
     func stop() {
-        if DispatchQueue.getSpecific(key: Self.queueSpecificKey) != nil {
+        if DispatchQueue.getSpecific(key: queueSpecificKey) != nil {
             stopOnQueue()
         } else {
             queue.sync {
@@ -101,7 +100,7 @@ private final class WorkspaceGitMetadataWatcher: @unchecked Sendable {
     }
 
     private func scheduleChange() {
-        if DispatchQueue.getSpecific(key: Self.queueSpecificKey) != nil {
+        if DispatchQueue.getSpecific(key: queueSpecificKey) != nil {
             scheduleChangeOnQueue()
         } else {
             queue.async { [weak self] in
