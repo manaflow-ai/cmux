@@ -251,7 +251,7 @@ def test_bundled_cli_path_is_used_for_socket_ping_when_cmux_not_on_path(failures
 
 
 def test_resume_and_fork_are_tracked_interactive_entrypoints(failures: list[str]) -> None:
-    for argv in (["resume", "codex-session-123"], ["fork", "--last"]):
+    for argv in (["resume", "codex-session-123"], ["resume", "help"], ["resume", "exec"], ["fork", "--last"]):
         code, real_argv, env, cmux_log, stderr = run_wrapper(socket_state="live", argv=argv)
         label = " ".join(argv)
         expect(code == 0, f"{label}: wrapper exited {code}: {stderr}", failures)

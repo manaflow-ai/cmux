@@ -147,6 +147,9 @@ should_track_codex_session() {
                     saw_interactive_command=true
                     continue
                 fi
+                if [[ "$saw_interactive_command" == true ]]; then
+                    continue
+                fi
                 if codex_command_like_invocation "$arg"; then
                     return 1
                 fi
