@@ -661,7 +661,7 @@ enum NotificationAuthorizationState: Equatable {
     }
 }
 
-enum TerminalNotificationClickAction: Hashable, Sendable {
+enum TerminalNotificationClickAction: Codable, Hashable, Sendable {
     case revealInFinder(path: String)
 
     private static let kindUserInfoKey = "cmuxClickAction"
@@ -1122,6 +1122,10 @@ final class TerminalNotificationStore: ObservableObject {
 
     func latestNotification(forTabId tabId: UUID) -> TerminalNotification? {
         indexes.latestByTabId[tabId]
+    }
+
+    func notifications(forTabId tabId: UUID, surfaceId: UUID?) -> [TerminalNotification] {
+        notifications.filter { $0.tabId == tabId && $0.surfaceId == surfaceId }
     }
 
     func clearLatestNotification(forTabId tabId: UUID) {
@@ -1675,6 +1679,30 @@ final class TerminalNotificationStore: ObservableObject {
         center.removeDeliveredNotificationsOffMain(withIdentifiers: [id.uuidString])
     }
 
+    func restoreSessionNotifications(_ restoredNotifications: [TerminalNotification], forTabId tabId: UUID) {
+        TerminalMutationBus.shared.discardPendingNotifications(forTabId: tabId)
+
+        let removedIds = notifications
+            .filter { $0.tabId == tabId }
+            .map { $0.id.uuidString }
+        let restoredForTab = restoredNotifications
+            .filter { $0.tabId == tabId }
+            .sorted(by: Self.notificationSortPrecedes)
+        let keptNotifications = notifications.filter { $0.tabId != tabId }
+        let nextNotifications = (restoredForTab + keptNotifications).sorted(by: Self.notificationSortPrecedes)
+
+        let didChangeNotifications = nextNotifications != notifications
+        if didChangeNotifications {
+            notifications = nextNotifications
+        }
+        clearFocusedReadIndicator(forTabId: tabId)
+
+        if didChangeNotifications, !removedIds.isEmpty {
+            center.removeDeliveredNotificationsOffMain(withIdentifiers: removedIds)
+            center.removePendingNotificationRequestsOffMain(withIdentifiers: removedIds)
+        }
+    }
+
     private func replaceNotificationsForClear(_ next: [TerminalNotification]) { suppressNotificationDiffPublishing = true; notifications = next; suppressNotificationDiffPublishing = false }
 
     func clearAll(discardQueuedNotifications: Bool = true) {
@@ -2092,6 +2120,13 @@ final class TerminalNotificationStore: ObservableObject {
             }
         }
         return indexes
+    }
+
+    private static func notificationSortPrecedes(_ lhs: TerminalNotification, _ rhs: TerminalNotification) -> Bool {
+        if lhs.createdAt != rhs.createdAt {
+            return lhs.createdAt > rhs.createdAt
+        }
+        return lhs.id.uuidString < rhs.id.uuidString
     }
 
 #if DEBUG
