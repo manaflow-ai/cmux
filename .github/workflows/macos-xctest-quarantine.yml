@@ -11,6 +11,13 @@ on:
         options:
           - warp-macos-15-arm64-6x
 
+permissions:
+  contents: read
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
 jobs:
   macos-xctest-quarantine:
     runs-on: ${{ inputs.runner || 'warp-macos-15-arm64-6x' }}
@@ -22,6 +29,7 @@ jobs:
         uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
         with:
           submodules: recursive
+          persist-credentials: false
 
       - name: Select Xcode
         run: |
@@ -109,15 +117,25 @@ jobs:
           set -euo pipefail
           SOURCE_PACKAGES_DIR="$PWD/.ci-source-packages"
           quarantine_test_args=()
+          has_app_delegate_shortcut_routing=false
           while IFS= read -r test_class; do
             if [ -z "$test_class" ] || [[ "$test_class" == \#* ]]; then
               continue
             fi
+            if [ "$test_class" = "AppDelegateShortcutRoutingTests" ]; then
+              has_app_delegate_shortcut_routing=true
+            fi
             quarantine_test_args+=("-only-testing:cmuxTests/$test_class")
           done < .github/xctest-quarantine.txt
-          quarantine_test_args+=(
-            -skip-testing:cmuxTests/AppDelegateShortcutRoutingTests/testCmdWClosesWindowWhenClosingLastSurfaceInLastWorkspace
-          )
+          if [ ${#quarantine_test_args[@]} -eq 0 ]; then
+            echo "No quarantined XCTest classes found; skipping quarantine workflow."
+            exit 0
+          fi
+          if [ "$has_app_delegate_shortcut_routing" = true ]; then
+            quarantine_test_args+=(
+              -skip-testing:cmuxTests/AppDelegateShortcutRoutingTests/testCmdWClosesWindowWhenClosingLastSurfaceInLastWorkspace
+            )
+          fi
           run_quarantine_tests() {
             xcodebuild -project cmux.xcodeproj -scheme cmux-unit -configuration Debug \
               -clonedSourcePackagesDirPath "$SOURCE_PACKAGES_DIR" \
