@@ -624,26 +624,55 @@ def test_passthrough_flags_bypass_hook_injection(failures: list[str]) -> None:
 
 
 def test_agents_subcommand_removes_cmux_terminal_fingerprint(failures: list[str]) -> None:
-    scenarios = [
-        ("agents env probe", {}),
-        ("agents hooks-disabled env probe", {"hooks_disabled": True}),
-    ]
-    for label, kwargs in scenarios:
-        code, observed_env, real_argv, stderr, expected_keys = run_wrapper_terminal_env_probe(["agents"], **kwargs)
-        expect(code == 0, f"{label}: wrapper exited {code}: {stderr}", failures)
-        expect(real_argv == ["agents"], f"{label}: expected raw argv, got {real_argv}", failures)
+    code, observed_env, real_argv, stderr, expected_keys = run_wrapper_terminal_env_probe(["agents"])
+    expect(code == 0, f"agents env probe: wrapper exited {code}: {stderr}", failures)
+    expect(real_argv == ["agents"], f"agents env probe: expected raw argv, got {real_argv}", failures)
+    expect(
+        set(observed_env) == expected_keys,
+        f"agents env probe: expected probed keys {sorted(expected_keys)}, got {sorted(observed_env)}",
+        failures,
+    )
+
+    for key, value in observed_env.items():
         expect(
-            set(observed_env) == expected_keys,
-            f"{label}: expected probed keys {sorted(expected_keys)}, got {sorted(observed_env)}",
+            value == "__UNSET__",
+            f"agents env probe: expected {key} unset, got {value!r}",
             failures,
         )
 
-        for key, value in observed_env.items():
-            expect(
-                value == "__UNSET__",
-                f"{label}: expected {key} unset, got {value!r}",
-                failures,
-            )
+
+def test_hooks_disabled_preserves_cmux_terminal_env_for_custom_hooks(failures: list[str]) -> None:
+    code, observed_env, real_argv, stderr, expected_keys = run_wrapper_terminal_env_probe(
+        ["hello"],
+        hooks_disabled=True,
+    )
+    expect(code == 0, f"hooks-disabled env probe: wrapper exited {code}: {stderr}", failures)
+    expect(real_argv == ["hello"], f"hooks-disabled env probe: expected raw argv, got {real_argv}", failures)
+    expect(
+        set(observed_env) == expected_keys,
+        f"hooks-disabled env probe: expected probed keys {sorted(expected_keys)}, got {sorted(observed_env)}",
+        failures,
+    )
+
+    for key, expected_value in {
+        "CMUX_BUNDLE_ID": "com.cmuxterm.app.debug.envprobe",
+        "CMUX_CLAUDE_HOOKS_DISABLED": "1",
+        "CMUX_PANEL_ID": "panel:test",
+        "CMUX_SURFACE_ID": "surface:test",
+        "CMUX_TAB_ID": "tab:test",
+        "CMUX_WORKSPACE_ID": "workspace:test",
+    }.items():
+        expect(
+            observed_env.get(key) == expected_value,
+            f"hooks-disabled env probe: expected {key} preserved as {expected_value!r}, got {observed_env.get(key)!r}",
+            failures,
+        )
+    for key in sorted(k for k in expected_keys if k.startswith("CMUX_")):
+        expect(
+            observed_env.get(key) != "__UNSET__",
+            f"hooks-disabled env probe: expected {key} to survive passthrough, got unset",
+            failures,
+        )
 
 
 def test_live_socket_preserves_third_party_claude_auth_for_fresh_launch(failures: list[str]) -> None:
@@ -1061,7 +1090,7 @@ def test_disabled_integration_skips_hook_injection(failures: list[str]) -> None:
     expect("--settings" not in real_argv, f"disabled integration: expected no --settings injection, got {real_argv}", failures)
     expect("notifications_disabled" not in " ".join(real_argv), f"disabled integration: expected no notification suppression, got {real_argv}", failures)
     expect(cmux_log == [], f"disabled integration: expected no cmux calls, got {cmux_log}", failures)
-    expect(claudecode == "__UNSET__", f"disabled integration: expected CLAUDECODE unset, got {claudecode!r}", failures)
+    expect(claudecode == "nested-session-sentinel", f"disabled integration: expected CLAUDECODE passthrough, got {claudecode!r}", failures)
     expect(node_options == "__UNSET__", f"disabled integration: expected NODE_OPTIONS passthrough, got {node_options!r}", failures)
     expect(runtime_node_options == "__UNSET__", f"disabled integration: expected runtime NODE_OPTIONS passthrough, got {runtime_node_options!r}", failures)
     expect(child_node_options == "__UNSET__", f"disabled integration: expected child NODE_OPTIONS passthrough, got {child_node_options!r}", failures)
@@ -1095,6 +1124,7 @@ def main() -> int:
     test_command_like_invocations_bypass_hook_injection(failures)
     test_passthrough_flags_bypass_hook_injection(failures)
     test_agents_subcommand_removes_cmux_terminal_fingerprint(failures)
+    test_hooks_disabled_preserves_cmux_terminal_env_for_custom_hooks(failures)
     test_live_socket_preserves_third_party_claude_auth_for_fresh_launch(failures)
     test_live_socket_normalizes_subrouter_claude_config_dir(failures)
     test_live_socket_preserves_claude_auth_for_resume_launch(failures)
