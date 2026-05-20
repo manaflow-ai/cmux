@@ -10890,6 +10890,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
     static func installWindowResponderSwizzlesForTesting() {
         _ = didInstallApplicationAccessibilitySwizzle
         _ = didInstallApplicationSendActionSwizzle
+        _ = didInstallApplicationSendEventSwizzle
         _ = didInstallWindowKeyEquivalentSwizzle
         _ = didInstallWindowFirstResponderSwizzle
         _ = didInstallWindowSendEventSwizzle
@@ -13098,6 +13099,13 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
     /// through the same app-level shortcut handler used by the local key monitor.
     @discardableResult
     func handleBrowserSurfaceKeyEquivalent(_ event: NSEvent) -> Bool {
+        handleConfiguredShortcutKeyEquivalent(event)
+    }
+
+    /// Route AppKit key-equivalent fallbacks through the same configured shortcut
+    /// dispatcher as the local key monitor before any stale menu item can run.
+    @discardableResult
+    func handleConfiguredShortcutKeyEquivalent(_ event: NSEvent) -> Bool {
         handleCustomShortcut(event: event)
     }
 
@@ -13526,23 +13534,43 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             .subtracting([.numericPad, .function, .capsLock])
         guard flags.contains(.command) else { return false }
 
-        for action in KeyboardShortcutSettings.Action.allCases {
+        let staleDefaultActions = KeyboardShortcutSettings.Action.allCases.filter { action in
+            isMenuBackedShortcutAction(action) &&
+                matchesKeyboardShortcutEvent(event, action: action, shortcut: action.defaultShortcut)
+        }
+        guard !staleDefaultActions.isEmpty else { return false }
+
+        for action in staleDefaultActions {
             let currentShortcut = KeyboardShortcutSettings.shortcut(for: action)
             if matchesKeyboardShortcutEvent(event, action: action, shortcut: currentShortcut) {
                 return false
             }
         }
 
-        for action in KeyboardShortcutSettings.Action.allCases where isMenuBackedShortcutAction(action) {
-            if matchesKeyboardShortcutEvent(event, action: action, shortcut: action.defaultShortcut) {
-                return true
+        if staleDefaultActions.contains(where: isCloseShortcutAction) {
+            return true
+        }
+
+        for action in KeyboardShortcutSettings.Action.allCases {
+            let currentShortcut = KeyboardShortcutSettings.shortcut(for: action)
+            if matchesKeyboardShortcutEvent(event, action: action, shortcut: currentShortcut) {
+                return false
             }
         }
-        return false
+        return true
     }
 
     private func isMenuBackedShortcutAction(_ action: KeyboardShortcutSettings.Action) -> Bool {
         action != .showHideAllWindows && action != .globalSearch
+    }
+
+    private func isCloseShortcutAction(_ action: KeyboardShortcutSettings.Action) -> Bool {
+        switch action {
+        case .closeTab, .closeWorkspace, .closeWindow:
+            return true
+        default:
+            return false
+        }
     }
 
     private func numberedShortcutDigit(event: NSEvent, stroke: ShortcutStroke) -> Int? {
@@ -14734,6 +14762,12 @@ private extension NSApplication {
             return
         }
         if AppDelegate.shared?.shouldSuppressStaleCmuxMenuShortcut(event: event) == true {
+            if AppDelegate.shared?.handleConfiguredShortcutKeyEquivalent(event) == true {
+#if DEBUG
+                cmuxDebugLog("app.sendEvent routed configured shortcut before stale cmux menu shortcut")
+#endif
+                return
+            }
             let responder = event.window?.firstResponder
                 ?? keyWindow?.firstResponder
                 ?? mainWindow?.firstResponder
@@ -15284,6 +15318,12 @@ private extension NSWindow {
             return true
         }
         if AppDelegate.shared?.shouldSuppressStaleCmuxMenuShortcut(event: event) == true {
+            if AppDelegate.shared?.handleConfiguredShortcutKeyEquivalent(event) == true {
+#if DEBUG
+                cmuxDebugLog("  → consumed by configured shortcut before stale cmux menu shortcut")
+#endif
+                return true
+            }
             if let firstResponderGhosttyView {
                 firstResponderGhosttyView.keyDown(with: event)
 #if DEBUG
