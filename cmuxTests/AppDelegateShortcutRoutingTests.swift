@@ -3366,8 +3366,8 @@ final class AppDelegateShortcutRoutingTests: XCTestCase {
             field.removeFromSuperview()
         }
 
-        _ = browserPanel.requestAddressBarFocus()
-        NotificationCenter.default.post(name: .browserDidFocusAddressBar, object: browserPanelId)
+        XCTAssertTrue(appDelegate.requestBrowserAddressBarFocus(panelId: browserPanelId))
+        XCTAssertEqual(appDelegate.focusedBrowserAddressBarPanelId(), browserPanelId)
         _ = window.makeFirstResponder(nil)
         XCTAssertTrue(window.firstResponder === window)
 
