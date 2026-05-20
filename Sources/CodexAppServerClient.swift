@@ -208,7 +208,7 @@ enum CodexAppServerRequestFactory {
                 [
                     "type": "text",
                     "text": text,
-                    "textElements": [],
+                    "text_elements": [],
                 ],
             ],
         ]
@@ -252,7 +252,7 @@ enum CodexAppServerRequestFactory {
                     [
                         "type": "text",
                         "text": text,
-                        "textElements": [],
+                        "text_elements": [],
                     ],
                 ],
             ]

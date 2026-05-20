@@ -223,7 +223,8 @@ final class CodexAppServerRequestFactoryTests: XCTestCase {
         XCTAssertEqual(input.count, 1)
         XCTAssertEqual(input[0]["type"] as? String, "text")
         XCTAssertEqual(input[0]["text"] as? String, "Summarize this repo")
-        XCTAssertNotNil(input[0]["textElements"] as? [Any])
+        XCTAssertNotNil(input[0]["text_elements"] as? [Any])
+        XCTAssertNil(input[0]["textElements"])
     }
 
     func testTurnStartRequestCanRequestReasoningSummary() throws {
@@ -310,6 +311,8 @@ final class CodexAppServerRequestFactoryTests: XCTestCase {
         XCTAssertEqual(input.count, 1)
         XCTAssertEqual(input[0]["type"] as? String, "text")
         XCTAssertEqual(input[0]["text"] as? String, "Adjust the current plan")
+        XCTAssertNotNil(input[0]["text_elements"] as? [Any])
+        XCTAssertNil(input[0]["textElements"])
     }
 
     func testTurnInterruptRequestTargetsThreadAndTurn() throws {
