@@ -128,6 +128,62 @@ final class SidebarWorkspaceSelectionColorTests: XCTestCase {
         assertColor(coloredSelected.color, equals: NSColor(hex: selectionHex))
     }
 
+    func testDefaultSelectedForegroundFallsBackForPaleSelectionBackground() throws {
+        let background = try XCTUnwrap(NSColor(hex: "#F7F7F7"))
+        let foreground = sidebarSelectedWorkspaceForegroundNSColor(
+            on: background,
+            opacity: 1.0
+        )
+
+        assertColor(foreground, equals: .black)
+        XCTAssertGreaterThanOrEqual(
+            cmuxContrastRatio(foreground: foreground, background: background),
+            4.5
+        )
+    }
+
+    func testSelectedForegroundPrefersWhiteForSaturatedSelectionBackground() throws {
+        let background = try XCTUnwrap(NSColor(hex: "#0088FF"))
+        let foreground = sidebarSelectedWorkspaceForegroundNSColor(
+            on: background,
+            opacity: 1.0
+        )
+
+        assertColor(foreground, equals: .white)
+        XCTAssertGreaterThanOrEqual(
+            cmuxContrastRatio(foreground: foreground, background: background),
+            3.0
+        )
+    }
+
+    func testSelectedForegroundKeepsWhiteForStandardInactiveSelectionBlue() throws {
+        let background = try XCTUnwrap(NSColor(hex: "#6795F5"))
+        let foreground = sidebarSelectedWorkspaceForegroundNSColor(
+            on: background,
+            opacity: 0.75
+        )
+
+        assertColor(foreground, equals: NSColor.white.withAlphaComponent(0.75))
+    }
+
+    func testTitlebarControlForegroundContrastsWithLightTerminalBackground() throws {
+        let background = try XCTUnwrap(NSColor(hex: "#F7F7F7"))
+        let snapshot = makeWindowAppearanceSnapshot(background: background)
+        let foreground = titlebarControlForegroundNSColor(
+            opacity: 1.0,
+            appearance: snapshot
+        )
+
+        assertColor(foreground, equals: .black)
+        XCTAssertGreaterThanOrEqual(
+            cmuxContrastRatio(
+                foreground: foreground,
+                background: snapshot.compositedTerminalBackgroundColor
+            ),
+            4.5
+        )
+    }
+
     private func assertColor(
         _ actual: NSColor?,
         equals expected: NSColor?,
@@ -145,6 +201,36 @@ final class SidebarWorkspaceSelectionColorTests: XCTestCase {
             "Expected \(colorDescription(actual)) to equal \(colorDescription(expected))",
             file: file,
             line: line
+        )
+    }
+
+    private func makeWindowAppearanceSnapshot(background: NSColor) -> WindowAppearanceSnapshot {
+        WindowAppearanceSnapshot(
+            terminalBackgroundColor: background,
+            terminalBackgroundOpacity: 1.0,
+            terminalBackgroundBlur: .disabled,
+            terminalRenderingMode: .windowHostBackdrop,
+            unifySurfaceBackdrops: true,
+            sidebarSettings: SidebarBackdropSettingsSnapshot(
+                materialRawValue: SidebarMaterialOption.sidebar.rawValue,
+                blendModeRawValue: SidebarBlendModeOption.withinWindow.rawValue,
+                stateRawValue: SidebarStateOption.followWindow.rawValue,
+                tintHex: SidebarTintDefaults.hex,
+                tintHexLight: nil,
+                tintHexDark: nil,
+                tintOpacity: SidebarTintDefaults.opacity,
+                cornerRadius: 0,
+                blurOpacity: 1,
+                colorScheme: .light
+            ),
+            windowGlassSettings: WindowGlassSettingsSnapshot(
+                sidebarBlendModeRawValue: SidebarBlendModeOption.withinWindow.rawValue,
+                isEnabled: false,
+                tintHex: "#000000",
+                tintOpacity: 0,
+                terminalBackgroundBlur: .disabled,
+                terminalGlassTintColor: background
+            )
         )
     }
 

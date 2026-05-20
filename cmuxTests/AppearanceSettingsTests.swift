@@ -113,6 +113,9 @@ final class AppearanceSettingsTests: XCTestCase {
                 XCTAssertTrue(soft)
                 events.append("reload:\(source)")
             },
+            applySurfaceColorScheme: {
+                events.append("color-scheme")
+            },
             refreshHostBackground: {
                 events.append("host-background")
             },
@@ -122,6 +125,7 @@ final class AppearanceSettingsTests: XCTestCase {
         )
 
         XCTAssertEqual(events, [
+            "color-scheme",
             "reload:appearanceSync:test",
             "host-background",
             "force-refresh:\(GhosttySurfaceConfigurationRefresh.forceRefreshReason)"
@@ -137,6 +141,9 @@ final class AppearanceSettingsTests: XCTestCase {
             reloadSurfaceConfiguration: { _, _, _ in
                 events.append("reload")
             },
+            applySurfaceColorScheme: {
+                events.append("color-scheme")
+            },
             refreshHostBackground: {
                 events.append("host-background")
             },
@@ -149,6 +156,65 @@ final class AppearanceSettingsTests: XCTestCase {
             "host-background",
             "force-refresh:\(GhosttySurfaceConfigurationRefresh.forceRefreshReason)"
         ])
+    }
+
+    func testAppConfigReloadRefreshAppliesSurfaceColorSchemeForPreviewReload() throws {
+        let fakeSurface = try XCTUnwrap(UnsafeMutableRawPointer(bitPattern: 0x3852))
+        var events: [String] = []
+
+        GhosttySurfaceConfigurationRefresh.applyAfterAppConfigReload(
+            to: fakeSurface,
+            source: GhosttySurfaceConfigurationRefresh.cmuxThemeReloadPreviewSource,
+            reloadSurfaceConfiguration: { _, soft, source in
+                XCTAssertTrue(soft)
+                events.append("reload:\(source)")
+            },
+            applySurfaceColorScheme: {
+                events.append("color-scheme")
+            },
+            refreshHostBackground: {
+                events.append("host-background")
+            },
+            forceRefresh: { reason in
+                events.append("force-refresh:\(reason)")
+            }
+        )
+
+        XCTAssertEqual(events, [
+            "color-scheme",
+            "reload:\(GhosttySurfaceConfigurationRefresh.cmuxThemeReloadPreviewSource)",
+            "host-background",
+            "force-refresh:\(GhosttySurfaceConfigurationRefresh.forceRefreshReason)"
+        ])
+    }
+
+    func testCmuxThemeFinalReloadUsesFinalSource() {
+        XCTAssertEqual(
+            GhosttySurfaceConfigurationRefresh.cmuxThemeReloadSource(phase: "final"),
+            GhosttySurfaceConfigurationRefresh.cmuxThemeReloadFinalSource
+        )
+    }
+
+    func testCmuxThemePreviewReloadIsDebounced() {
+        XCTAssertEqual(
+            GhosttySurfaceConfigurationRefresh.cmuxThemeReloadSource(phase: "preview"),
+            GhosttySurfaceConfigurationRefresh.cmuxThemeReloadPreviewSource
+        )
+        XCTAssertTrue(
+            GhosttySurfaceConfigurationRefresh.shouldDebounceCmuxThemeReload(
+                source: GhosttySurfaceConfigurationRefresh.cmuxThemeReloadPreviewSource
+            )
+        )
+        XCTAssertTrue(
+            GhosttySurfaceConfigurationRefresh.shouldDebounceCmuxThemeReload(
+                source: GhosttySurfaceConfigurationRefresh.cmuxThemeReloadLegacySource
+            )
+        )
+        XCTAssertFalse(
+            GhosttySurfaceConfigurationRefresh.shouldDebounceCmuxThemeReload(
+                source: GhosttySurfaceConfigurationRefresh.cmuxThemeReloadFinalSource
+            )
+        )
     }
 
     func testResolvedModeDefaultsToSystemWhenUnset() {
