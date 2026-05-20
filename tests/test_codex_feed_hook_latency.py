@@ -81,7 +81,7 @@ class SlowFeedPushSocket:
 
     def _handle_conn(self, conn: socket.socket) -> None:
         with conn:
-            data = b""
+            pending = b""
             conn.settimeout(0.1)
             while not self._stop.is_set():
                 try:
@@ -92,20 +92,28 @@ class SlowFeedPushSocket:
                     return
                 if not chunk:
                     return
-                data += chunk
-                if b"\n" in data:
-                    break
+                pending += chunk
 
-            line = data.split(b"\n", 1)[0]
-            if line:
-                try:
-                    frame = json.loads(line.decode("utf-8"))
-                except (UnicodeDecodeError, json.JSONDecodeError):
-                    frame = {"raw": line.decode("utf-8", errors="replace")}
-                with self._frames_lock:
-                    self.frames.append(frame)
+                while b"\n" in pending:
+                    line, pending = pending.split(b"\n", 1)
+                    if not line:
+                        continue
+                    if line.startswith(b"auth "):
+                        try:
+                            conn.sendall(b"OK: Authenticated\n")
+                        except OSError:
+                            return
+                        continue
 
-            self._stop.wait(timeout=self.response_delay)
+                    try:
+                        frame = json.loads(line.decode("utf-8"))
+                    except (UnicodeDecodeError, json.JSONDecodeError):
+                        frame = {"raw": line.decode("utf-8", errors="replace")}
+                    with self._frames_lock:
+                        self.frames.append(frame)
+
+                    self._stop.wait(timeout=self.response_delay)
+                    return
 
     def frames_snapshot(self) -> list[dict]:
         with self._frames_lock:
@@ -134,7 +142,9 @@ def hook_payload(index: int) -> str:
 
 def run_hook(cli_path: str, socket_path: Path, index: int, timeout: float) -> HookRun:
     state_dir = socket_path.parent / "hook-state" / str(index)
+    home_dir = socket_path.parent / "home" / str(index)
     state_dir.mkdir(parents=True, exist_ok=True)
+    home_dir.mkdir(parents=True, exist_ok=True)
 
     env = os.environ.copy()
     env["CMUX_SURFACE_ID"] = FAKE_SURFACE_ID
@@ -142,8 +152,11 @@ def run_hook(cli_path: str, socket_path: Path, index: int, timeout: float) -> Ho
     env["CMUX_SOCKET_PATH"] = str(socket_path)
     env["CMUX_SOCKET"] = str(socket_path)
     env["CMUX_AGENT_HOOK_STATE_DIR"] = str(state_dir)
+    env["HOME"] = str(home_dir)
     env["CMUX_CLI_SENTRY_DISABLED"] = "1"
     env["CMUX_CLAUDE_HOOK_SENTRY_DISABLED"] = "1"
+    env.pop("CMUX_SOCKET_PASSWORD", None)
+    env.pop("CMUX_TAG", None)
     env.pop("CMUXTERM_CLI_RESPONSE_TIMEOUT_SEC", None)
 
     started = time.perf_counter()
