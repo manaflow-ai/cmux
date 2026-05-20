@@ -1917,12 +1917,20 @@ class TabManager: ObservableObject {
         hasCurrentPullRequest: Bool,
         hasScheduledPoll: Bool
     ) -> String? {
-        guard let nextBranch = normalizedBranchName(nextBranch),
-              !Self.shouldSkipWorkspacePullRequestLookup(branch: nextBranch) else {
+        guard let nextBranch = normalizedBranchName(nextBranch) else {
             return nil
         }
 
-        if normalizedBranchName(previousBranch) != nextBranch {
+        let previousBranch = normalizedBranchName(previousBranch)
+        if Self.shouldSkipWorkspacePullRequestLookup(branch: nextBranch) {
+            guard previousBranch != nextBranch,
+                  hasCurrentPullRequest || hasScheduledPoll else {
+                return nil
+            }
+            return "branchChange"
+        }
+
+        if previousBranch != nextBranch {
             return "branchChange"
         }
 

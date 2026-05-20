@@ -603,6 +603,32 @@ final class TabManagerPullRequestProbeTests: XCTestCase {
                 hasScheduledPoll: false
             )
         )
+        XCTAssertEqual(
+            TabManager.workspacePullRequestRefreshReason(
+                previousBranch: "feat/mobile",
+                nextBranch: "main",
+                hasCurrentPullRequest: true,
+                hasScheduledPoll: false
+            ),
+            "branchChange"
+        )
+        XCTAssertEqual(
+            TabManager.workspacePullRequestRefreshReason(
+                previousBranch: "feat/mobile",
+                nextBranch: "master",
+                hasCurrentPullRequest: false,
+                hasScheduledPoll: true
+            ),
+            "branchChange"
+        )
+        XCTAssertNil(
+            TabManager.workspacePullRequestRefreshReason(
+                previousBranch: nil,
+                nextBranch: "main",
+                hasCurrentPullRequest: false,
+                hasScheduledPoll: false
+            )
+        )
     }
 
     func testWorkspacePullRequestShouldRefreshHonorsForcedRefreshForTerminalStates() {
