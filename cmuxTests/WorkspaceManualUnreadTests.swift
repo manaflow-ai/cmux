@@ -339,6 +339,57 @@ final class WorkspaceManualUnreadTests: XCTestCase {
         XCTAssertEqual(store.unreadCount(forTabId: workspace.id), 1)
     }
 
+    func testTerminalInteractionWithMappedSurfaceIdClearsPanelUnreadIndicators() throws {
+        let appDelegate = AppDelegate.shared ?? AppDelegate()
+        let manager = TabManager()
+        let store = TerminalNotificationStore.shared
+
+        let originalTabManager = appDelegate.tabManager
+        let originalNotificationStore = appDelegate.notificationStore
+
+        store.replaceNotificationsForTesting([])
+        appDelegate.tabManager = manager
+        appDelegate.notificationStore = store
+
+        defer {
+            store.replaceNotificationsForTesting([])
+            appDelegate.tabManager = originalTabManager
+            appDelegate.notificationStore = originalNotificationStore
+        }
+
+        let workspace = try XCTUnwrap(manager.selectedWorkspace)
+        let panelId = try XCTUnwrap(workspace.focusedPanelId)
+        let liveSurfaceId = UUID()
+        workspace.surfaceIdToPanelId[TabID(uuid: liveSurfaceId)] = panelId
+        workspace.markPanelUnread(panelId)
+        workspace.restorePanelUnreadIndicator(panelId)
+        store.replaceNotificationsForTesting([
+            TerminalNotification(
+                id: UUID(),
+                tabId: workspace.id,
+                surfaceId: liveSurfaceId,
+                panelId: panelId,
+                title: "Unread",
+                subtitle: "",
+                body: "",
+                createdAt: Date(timeIntervalSince1970: 1_700_000_000),
+                isRead: false
+            ),
+        ])
+
+        XCTAssertTrue(workspace.manualUnreadPanelIds.contains(panelId))
+        XCTAssertTrue(workspace.hasRestoredUnreadIndicator(panelId: panelId))
+        XCTAssertTrue(store.hasUnreadNotification(forTabId: workspace.id, surfaceId: liveSurfaceId))
+        XCTAssertTrue(store.hasUnreadNotification(forTabId: workspace.id, surfaceId: panelId))
+
+        XCTAssertTrue(manager.dismissNotificationOnTerminalInteraction(tabId: workspace.id, surfaceId: liveSurfaceId))
+
+        XCTAssertFalse(workspace.manualUnreadPanelIds.contains(panelId))
+        XCTAssertFalse(workspace.hasRestoredUnreadIndicator(panelId: panelId))
+        XCTAssertFalse(store.hasUnreadNotification(forTabId: workspace.id, surfaceId: liveSurfaceId))
+        XCTAssertFalse(store.hasUnreadNotification(forTabId: workspace.id, surfaceId: panelId))
+    }
+
     func testRestoredWorkspaceUnreadClearsFromReadAndClearFlows() {
         let store = TerminalNotificationStore.shared
 
