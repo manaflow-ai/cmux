@@ -86,6 +86,17 @@ def _run_case(
             encoding="utf-8",
         )
         (git_dir / "conditional-remotes.inc").write_text(remote_config, encoding="utf-8")
+    elif config_mode == "includeIf-gitdir-recursive":
+        (git_dir / "config").write_text(
+            textwrap.dedent(
+                f"""\
+                [includeIf "gitdir:{repo}/**"]
+                    path = recursive-conditional-remotes.inc
+                """
+            ),
+            encoding="utf-8",
+        )
+        (git_dir / "recursive-conditional-remotes.inc").write_text(remote_config, encoding="utf-8")
     elif config_mode == "worktree-config-overrides-common":
         common_dir = git_dir / "common"
         common_dir.mkdir()
@@ -137,6 +148,7 @@ def main() -> int:
                 "direct-last-url-wins",
                 "include",
                 "includeIf-gitdir",
+                "includeIf-gitdir-recursive",
                 "worktree-config-overrides-common",
             ):
                 rc, detail = _run_case(

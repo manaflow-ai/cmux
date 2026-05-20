@@ -594,7 +594,7 @@ _cmux_git_config_gitdir_pattern_matches() {
         done
         return 1
     fi
-    if [[ "$expanded" == *"/\*\*" ]]; then
+    if [[ "$expanded" == */'**' ]]; then
         prefix="${expanded%/\*\*}/"
         [[ "$case_insensitive" == "1" ]] && prefix="$(printf '%s' "$prefix" | tr '[:upper:]' '[:lower:]')"
         for candidate in "$git_dir" "$common_dir" "$repo_path"; do
