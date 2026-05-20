@@ -1265,7 +1265,7 @@ _cmux_start_git_head_watch() {
 
     local watch_pwd="$PWD"
     local watch_head_path
-    watch_head_path="$(_cmux_git_resolve_head_path 2>/dev/null || true)"
+    watch_head_path="$(_cmux_git_resolve_head_path "$watch_pwd" 2>/dev/null || true)"
     [[ -n "$watch_head_path" ]] || return 0
 
     local watch_head_signature

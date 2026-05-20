@@ -899,6 +899,7 @@ class TabManager: ObservableObject {
         let branch: String?
         let isDirty: Bool
         let indexSignature: String?
+        let indexContentSignature: String?
         let headSignature: String?
         let pullRequest: WorkspacePullRequestSnapshot
     }
@@ -921,6 +922,7 @@ class TabManager: ObservableObject {
     private struct GitIndexSnapshot: Sendable {
         let entries: [GitIndexEntryStat]
         let signature: String
+        let contentSignature: String
     }
 
     private struct WorkspaceGitMetadataWatcherDescriptorRequest: Equatable, Sendable {
@@ -1208,6 +1210,7 @@ class TabManager: ObservableObject {
     private var workspaceGitProbeTimersByKey: [WorkspaceGitProbeKey: [DispatchSourceTimer]] = [:]
     private var workspaceGitTrackedDirectoryByKey: [WorkspaceGitProbeKey: String] = [:]
     private var workspaceGitCleanIndexSignatureByKey: [WorkspaceGitProbeKey: String] = [:]
+    private var workspaceGitCleanIndexContentSignatureByKey: [WorkspaceGitProbeKey: String] = [:]
     private var workspaceGitHeadSignatureByKey: [WorkspaceGitProbeKey: String] = [:]
     private var workspaceGitMetadataWatchersByKey: [WorkspaceGitProbeKey: WorkspaceGitMetadataWatcher] = [:]
     private var workspaceGitMetadataWatcherSourceDirectoryByKey: [WorkspaceGitProbeKey: String] = [:]
@@ -1450,6 +1453,7 @@ class TabManager: ObservableObject {
             workspaceGitProbeTimersByKey.removeAll()
             workspaceGitTrackedDirectoryByKey.removeAll()
             workspaceGitCleanIndexSignatureByKey.removeAll()
+            workspaceGitCleanIndexContentSignatureByKey.removeAll()
             workspaceGitHeadSignatureByKey.removeAll()
             resetWorkspacePullRequestRefreshState()
             clearAllWorkspaceSidebarGitMetadata()
@@ -2711,6 +2715,7 @@ class TabManager: ObservableObject {
     private func clearWorkspaceGitProbe(_ key: WorkspaceGitProbeKey) {
         workspaceGitProbeStateByKey.removeValue(forKey: key)
         workspaceGitCleanIndexSignatureByKey.removeValue(forKey: key)
+        workspaceGitCleanIndexContentSignatureByKey.removeValue(forKey: key)
         workspaceGitHeadSignatureByKey.removeValue(forKey: key)
         cancelWorkspaceGitProbeTimers(for: key)
         stopWorkspaceGitMetadataWatcher(for: key)
@@ -2750,6 +2755,9 @@ class TabManager: ObservableObject {
             key.workspaceId != workspaceId
         }
         workspaceGitCleanIndexSignatureByKey = workspaceGitCleanIndexSignatureByKey.filter { key, _ in
+            key.workspaceId != workspaceId
+        }
+        workspaceGitCleanIndexContentSignatureByKey = workspaceGitCleanIndexContentSignatureByKey.filter { key, _ in
             key.workspaceId != workspaceId
         }
         workspaceGitHeadSignatureByKey = workspaceGitHeadSignatureByKey.filter { key, _ in
@@ -2848,6 +2856,7 @@ class TabManager: ObservableObject {
                 if let previousHeadSignature = workspaceGitHeadSignatureByKey[probeKey],
                    previousHeadSignature != headSignature {
                     workspaceGitCleanIndexSignatureByKey.removeValue(forKey: probeKey)
+                    workspaceGitCleanIndexContentSignatureByKey.removeValue(forKey: probeKey)
                 }
                 workspaceGitHeadSignatureByKey[probeKey] = headSignature
             } else {
@@ -2858,18 +2867,34 @@ class TabManager: ObservableObject {
                let indexSignature = snapshot.indexSignature,
                let cleanIndexSignature = workspaceGitCleanIndexSignatureByKey[probeKey],
                cleanIndexSignature != indexSignature {
-                isDirty = true
+                if let indexContentSignature = snapshot.indexContentSignature,
+                   let cleanIndexContentSignature = workspaceGitCleanIndexContentSignatureByKey[probeKey],
+                   cleanIndexContentSignature == indexContentSignature {
+                    workspaceGitCleanIndexSignatureByKey[probeKey] = indexSignature
+                } else {
+                    isDirty = true
+                }
             }
             workspace.updatePanelGitBranch(
                 panelId: probeKey.panelId,
                 branch: nextBranch,
                 isDirty: isDirty
             )
-            if let indexSignature = snapshot.indexSignature, !isDirty {
-                workspaceGitCleanIndexSignatureByKey[probeKey] = indexSignature
+            if !isDirty {
+                if let indexSignature = snapshot.indexSignature {
+                    workspaceGitCleanIndexSignatureByKey[probeKey] = indexSignature
+                } else {
+                    workspaceGitCleanIndexSignatureByKey.removeValue(forKey: probeKey)
+                }
+                if let indexContentSignature = snapshot.indexContentSignature {
+                    workspaceGitCleanIndexContentSignatureByKey[probeKey] = indexContentSignature
+                } else {
+                    workspaceGitCleanIndexContentSignatureByKey.removeValue(forKey: probeKey)
+                }
             }
         } else {
             workspaceGitCleanIndexSignatureByKey.removeValue(forKey: probeKey)
+            workspaceGitCleanIndexContentSignatureByKey.removeValue(forKey: probeKey)
             workspaceGitHeadSignatureByKey.removeValue(forKey: probeKey)
             workspace.clearPanelGitBranch(panelId: probeKey.panelId)
         }
@@ -2948,6 +2973,7 @@ class TabManager: ObservableObject {
                 branch: nil,
                 isDirty: false,
                 indexSignature: nil,
+                indexContentSignature: nil,
                 headSignature: nil,
                 pullRequest: .notFound
             )
@@ -2962,6 +2988,7 @@ class TabManager: ObservableObject {
                 branch: nil,
                 isDirty: trackedChanges.isDirty,
                 indexSignature: trackedChanges.indexSignature,
+                indexContentSignature: trackedChanges.indexContentSignature,
                 headSignature: headSignature,
                 pullRequest: .notFound
             )
@@ -2972,6 +2999,7 @@ class TabManager: ObservableObject {
             branch: branch,
             isDirty: trackedChanges.isDirty,
             indexSignature: trackedChanges.indexSignature,
+            indexContentSignature: trackedChanges.indexContentSignature,
             headSignature: headSignature,
             pullRequest: .deferred
         )
@@ -3666,10 +3694,10 @@ class TabManager: ObservableObject {
 
     private nonisolated static func gitTrackedChangesSnapshot(
         repository: ResolvedGitRepository
-    ) -> (isDirty: Bool, indexSignature: String?) {
+    ) -> (isDirty: Bool, indexSignature: String?, indexContentSignature: String?) {
         let indexURL = URL(fileURLWithPath: repository.gitDirectory).appendingPathComponent("index")
         guard let indexSnapshot = gitIndexSnapshot(indexURL: indexURL) else {
-            return (false, gitIndexFileSignature(indexURL: indexURL))
+            return (false, gitIndexFileSignature(indexURL: indexURL), nil)
         }
 
         for entry in indexSnapshot.entries {
@@ -3680,33 +3708,33 @@ class TabManager: ObservableObject {
                     parentRepository: repository,
                     gitlinkPath: entry.path
                 ) else {
-                    return (true, indexSnapshot.signature)
+                    return (true, indexSnapshot.signature, indexSnapshot.contentSignature)
                 }
                 if submoduleCommit.caseInsensitiveCompare(entry.objectID) != .orderedSame {
-                    return (true, indexSnapshot.signature)
+                    return (true, indexSnapshot.signature, indexSnapshot.contentSignature)
                 }
                 continue
             }
 
             var statValue = stat()
             guard lstat(fileURL.path, &statValue) == 0 else {
-                return (true, indexSnapshot.signature)
+                return (true, indexSnapshot.signature, indexSnapshot.contentSignature)
             }
             let size = gitIndexUInt32Field(statValue.st_size)
             let mtimeSeconds = gitIndexUInt32Field(statValue.st_mtimespec.tv_sec)
             let mtimeNanoseconds = gitIndexUInt32Field(statValue.st_mtimespec.tv_nsec)
             guard let mode = gitIndexComparableMode(for: statValue.st_mode) else {
-                return (true, indexSnapshot.signature)
+                return (true, indexSnapshot.signature, indexSnapshot.contentSignature)
             }
             if size != entry.size ||
                 mode != entry.mode ||
                 mtimeSeconds != entry.mtimeSeconds ||
                 mtimeNanoseconds != entry.mtimeNanoseconds {
-                return (true, indexSnapshot.signature)
+                return (true, indexSnapshot.signature, indexSnapshot.contentSignature)
             }
         }
 
-        return (false, indexSnapshot.signature)
+        return (false, indexSnapshot.signature, indexSnapshot.contentSignature)
     }
 
     private nonisolated static func gitIndexSnapshot(indexURL: URL) -> GitIndexSnapshot? {
@@ -3803,7 +3831,44 @@ class TabManager: ObservableObject {
         }
 
         let checksum = bytes[(bytes.count - 20)..<bytes.count].map { String(format: "%02x", $0) }.joined()
-        return GitIndexSnapshot(entries: entries, signature: checksum)
+        return GitIndexSnapshot(
+            entries: entries,
+            signature: checksum,
+            contentSignature: gitIndexContentSignature(entries: entries)
+        )
+    }
+
+    private nonisolated static func gitIndexContentSignature(entries: [GitIndexEntryStat]) -> String {
+        var hash: UInt64 = 14_695_981_039_346_656_037
+
+        func appendByte(_ byte: UInt8) {
+            hash ^= UInt64(byte)
+            hash = hash &* 1_099_511_628_211
+        }
+
+        func appendUInt32(_ value: UInt32) {
+            appendByte(UInt8((value >> 24) & 0xff))
+            appendByte(UInt8((value >> 16) & 0xff))
+            appendByte(UInt8((value >> 8) & 0xff))
+            appendByte(UInt8(value & 0xff))
+        }
+
+        func appendString(_ value: String) {
+            for byte in value.utf8 {
+                appendByte(byte)
+            }
+        }
+
+        appendUInt32(UInt32(truncatingIfNeeded: entries.count))
+        for entry in entries {
+            appendString(entry.path)
+            appendByte(0)
+            appendUInt32(entry.mode)
+            appendByte(0)
+            appendString(entry.objectID)
+            appendByte(0)
+        }
+        return String(format: "%016llx", CUnsignedLongLong(hash))
     }
 
     private nonisolated static func gitlinkWorktreeCommit(

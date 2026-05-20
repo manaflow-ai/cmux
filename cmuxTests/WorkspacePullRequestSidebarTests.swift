@@ -299,7 +299,8 @@ private func writeGitIndexVersion2EntryFromStat(
     at repoURL: URL,
     trackedPath: String,
     indexMode: UInt32,
-    signatureByte: UInt8
+    signatureByte: UInt8,
+    objectIDBytes: [UInt8] = Array(repeating: 0, count: 20)
 ) throws {
     let fileURL = repoURL.appendingPathComponent(trackedPath)
     var statValue = stat()
@@ -322,7 +323,7 @@ private func writeGitIndexVersion2EntryFromStat(
     appendBigEndianUInt32(gitIndexUInt32Field(statValue.st_uid), to: &data)
     appendBigEndianUInt32(gitIndexUInt32Field(statValue.st_gid), to: &data)
     appendBigEndianUInt32(gitIndexUInt32Field(statValue.st_size), to: &data)
-    data.append(Data(repeating: 0, count: 20))
+    data.append(contentsOf: objectIDBytes.prefix(20))
 
     let pathBytes = Array(trackedPath.utf8)
     appendBigEndianUInt16(UInt16(min(pathBytes.count, 0x0fff)), to: &data)
@@ -989,6 +990,148 @@ final class WorkspacePullRequestSidebarTests: XCTestCase {
                 workspace.panelGitBranches[panelId]?.isDirty == true
             },
             "Index v4 signature changes should keep staged/index-only changes visible as dirty."
+        )
+    }
+
+    func testCleanIndexSignatureRebaselinesWhenIndexRewriteKeepsTrackedContentClean() throws {
+        let defaults = UserDefaults.standard
+        let previousWatchGitStatus = defaults.object(forKey: SidebarWorkspaceDetailDefaults.watchGitStatusKey)
+        defer {
+            restoreUserDefault(previousWatchGitStatus, key: SidebarWorkspaceDetailDefaults.watchGitStatusKey)
+        }
+
+        let repoURL = FileManager.default.temporaryDirectory.appendingPathComponent(
+            "cmux-sidebar-stash-clean-\(UUID().uuidString)",
+            isDirectory: true
+        )
+        try FileManager.default.createDirectory(at: repoURL, withIntermediateDirectories: true)
+        try writeMinimalGitRepository(at: repoURL)
+        let trackedURL = repoURL.appendingPathComponent("tracked.txt")
+        try "seed\n".write(to: trackedURL, atomically: true, encoding: .utf8)
+        let cleanObjectID = Array(repeating: UInt8(0x11), count: 20)
+        try writeGitIndexVersion2EntryFromStat(
+            at: repoURL,
+            trackedPath: "tracked.txt",
+            indexMode: 0o100644,
+            signatureByte: 0x11,
+            objectIDBytes: cleanObjectID
+        )
+        defer {
+            try? FileManager.default.removeItem(at: repoURL)
+        }
+
+        defaults.set(true, forKey: SidebarWorkspaceDetailDefaults.watchGitStatusKey)
+        let manager = TabManager()
+        let workspace = try XCTUnwrap(manager.selectedWorkspace)
+        let panelId = try XCTUnwrap(workspace.focusedPanelId)
+
+        manager.updateSurfaceDirectory(
+            tabId: workspace.id,
+            surfaceId: panelId,
+            directory: repoURL.path
+        )
+        XCTAssertTrue(
+            waitForCondition {
+                workspace.panelGitBranches[panelId]?.branch == "main"
+                    && workspace.panelGitBranches[panelId]?.isDirty == false
+            },
+            "A matching index and worktree should establish a clean baseline."
+        )
+
+        try "changed\n".write(to: trackedURL, atomically: true, encoding: .utf8)
+        manager.refreshTrackedWorkspaceGitMetadataForTesting()
+        XCTAssertTrue(
+            waitForCondition {
+                workspace.panelGitBranches[panelId]?.isDirty == true
+            },
+            "A worktree edit should make the sidebar dirty before a simulated stash."
+        )
+
+        try "seed\n".write(to: trackedURL, atomically: true, encoding: .utf8)
+        try writeGitIndexVersion2EntryFromStat(
+            at: repoURL,
+            trackedPath: "tracked.txt",
+            indexMode: 0o100644,
+            signatureByte: 0x22,
+            objectIDBytes: cleanObjectID
+        )
+        manager.refreshTrackedWorkspaceGitMetadataForTesting()
+
+        XCTAssertTrue(
+            waitForCondition {
+                workspace.panelGitBranches[panelId]?.isDirty == false
+            },
+            "A stash-like index rewrite with unchanged tracked content should become the new clean baseline."
+        )
+    }
+
+    func testIndexContentChangeAfterWorktreeDirtyRemainsDirty() throws {
+        let defaults = UserDefaults.standard
+        let previousWatchGitStatus = defaults.object(forKey: SidebarWorkspaceDetailDefaults.watchGitStatusKey)
+        defer {
+            restoreUserDefault(previousWatchGitStatus, key: SidebarWorkspaceDetailDefaults.watchGitStatusKey)
+        }
+
+        let repoURL = FileManager.default.temporaryDirectory.appendingPathComponent(
+            "cmux-sidebar-staged-after-dirty-\(UUID().uuidString)",
+            isDirectory: true
+        )
+        try FileManager.default.createDirectory(at: repoURL, withIntermediateDirectories: true)
+        try writeMinimalGitRepository(at: repoURL)
+        let trackedURL = repoURL.appendingPathComponent("tracked.txt")
+        try "seed\n".write(to: trackedURL, atomically: true, encoding: .utf8)
+        try writeGitIndexVersion2EntryFromStat(
+            at: repoURL,
+            trackedPath: "tracked.txt",
+            indexMode: 0o100644,
+            signatureByte: 0x11,
+            objectIDBytes: Array(repeating: UInt8(0x11), count: 20)
+        )
+        defer {
+            try? FileManager.default.removeItem(at: repoURL)
+        }
+
+        defaults.set(true, forKey: SidebarWorkspaceDetailDefaults.watchGitStatusKey)
+        let manager = TabManager()
+        let workspace = try XCTUnwrap(manager.selectedWorkspace)
+        let panelId = try XCTUnwrap(workspace.focusedPanelId)
+
+        manager.updateSurfaceDirectory(
+            tabId: workspace.id,
+            surfaceId: panelId,
+            directory: repoURL.path
+        )
+        XCTAssertTrue(
+            waitForCondition {
+                workspace.panelGitBranches[panelId]?.branch == "main"
+                    && workspace.panelGitBranches[panelId]?.isDirty == false
+            },
+            "A matching index and worktree should establish a clean baseline."
+        )
+
+        try "changed\n".write(to: trackedURL, atomically: true, encoding: .utf8)
+        manager.refreshTrackedWorkspaceGitMetadataForTesting()
+        XCTAssertTrue(
+            waitForCondition {
+                workspace.panelGitBranches[panelId]?.isDirty == true
+            },
+            "A worktree edit should make the sidebar dirty before staging."
+        )
+
+        try writeGitIndexVersion2EntryFromStat(
+            at: repoURL,
+            trackedPath: "tracked.txt",
+            indexMode: 0o100644,
+            signatureByte: 0x22,
+            objectIDBytes: Array(repeating: UInt8(0x22), count: 20)
+        )
+        manager.refreshTrackedWorkspaceGitMetadataForTesting()
+
+        XCTAssertTrue(
+            waitForCondition {
+                workspace.panelGitBranches[panelId]?.isDirty == true
+            },
+            "Staging changed content should remain dirty even when the index stat cache matches the worktree."
         )
     }
 
