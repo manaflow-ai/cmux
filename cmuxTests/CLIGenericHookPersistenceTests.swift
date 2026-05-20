@@ -348,7 +348,7 @@ extension CLINotifyProcessIntegrationRegressionTests {
         let backgroundDuplicateCommandStart = state.commands.count
         let backgroundDuplicate = runAntigravityHook(
             "notification",
-            input: #"{"session_id":"\#(sessionId)","cwd":"\#(root.path)","hook_event_name":"Notification","message":"Turn complete in 1.0s."}"#
+            input: #"{"session_id":"\#(sessionId)","cwd":"\#(root.path)","hook_event_name":"Notification","message":"Turn complete in 1.0s.","fullyIdle":false}"#
         )
         XCTAssertFalse(backgroundDuplicate.timedOut, backgroundDuplicate.stderr)
         XCTAssertEqual(backgroundDuplicate.status, 0, backgroundDuplicate.stderr)
@@ -362,6 +362,42 @@ extension CLINotifyProcessIntegrationRegressionTests {
         XCTAssertFalse(
             backgroundDuplicateCommands.contains { $0.contains("set_status antigravity Idle") },
             "Idle-classified Antigravity notifications must not override the running status while background work is active, saw \(backgroundDuplicateCommands)"
+        )
+
+        let missingFullyIdleSessionId = "\(sessionId)-missing-fully-idle"
+        let missingFullyIdleStart = runAntigravityHook(
+            "session-start",
+            input: #"{"session_id":"\#(missingFullyIdleSessionId)","cwd":"\#(root.path)","hook_event_name":"SessionStart"}"#
+        )
+        XCTAssertFalse(missingFullyIdleStart.timedOut, missingFullyIdleStart.stderr)
+        XCTAssertEqual(missingFullyIdleStart.status, 0, missingFullyIdleStart.stderr)
+        XCTAssertEqual(missingFullyIdleStart.stdout, "{}\n")
+
+        let missingFullyIdleBackgroundStop = runAntigravityHook(
+            "stop",
+            input: #"{"session_id":"\#(missingFullyIdleSessionId)","cwd":"\#(root.path)","hook_event_name":"Stop","last_assistant_message":"Background work still running","fullyIdle":false}"#
+        )
+        XCTAssertFalse(missingFullyIdleBackgroundStop.timedOut, missingFullyIdleBackgroundStop.stderr)
+        XCTAssertEqual(missingFullyIdleBackgroundStop.status, 0, missingFullyIdleBackgroundStop.stderr)
+        XCTAssertEqual(missingFullyIdleBackgroundStop.stdout, "{}\n")
+
+        let missingFullyIdleNotificationCommandStart = state.commands.count
+        let missingFullyIdleNotification = runAntigravityHook(
+            "notification",
+            input: #"{"session_id":"\#(missingFullyIdleSessionId)","cwd":"\#(root.path)","hook_event_name":"Notification","message":"Turn complete in 2.0s."}"#
+        )
+        XCTAssertFalse(missingFullyIdleNotification.timedOut, missingFullyIdleNotification.stderr)
+        XCTAssertEqual(missingFullyIdleNotification.status, 0, missingFullyIdleNotification.stderr)
+        XCTAssertEqual(missingFullyIdleNotification.stdout, "{}\n")
+
+        let missingFullyIdleNotificationCommands = Array(state.commands.dropFirst(missingFullyIdleNotificationCommandStart))
+        XCTAssertTrue(
+            missingFullyIdleNotificationCommands.contains { $0.hasPrefix("notify_target_async ") },
+            "Antigravity idle notifications without fullyIdle must publish instead of staying suppressed, saw \(missingFullyIdleNotificationCommands)"
+        )
+        XCTAssertTrue(
+            missingFullyIdleNotificationCommands.contains { $0.contains("set_status antigravity Idle") },
+            "Antigravity idle notifications without fullyIdle should mark idle, saw \(missingFullyIdleNotificationCommands)"
         )
 
         let stopMessage = "Antigravity finished updating docs"

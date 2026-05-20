@@ -22748,6 +22748,9 @@ export default function cmuxPiSessionExtension(pi: ExtensionAPI) {
             }
             return "idle-turn"
         }
+        func hasActiveAntigravityBackgroundWork() -> Bool {
+            def.name == "antigravity" && (input.rawObject?["fullyIdle"] as? Bool) == false
+        }
         func shouldSendNotification(fingerprint: String?) -> Bool {
             guard let fingerprint else { return true }
             return (try? store.recentlyEmittedNotification(sessionId: sessionId, fingerprint: fingerprint)) != true
@@ -23062,8 +23065,7 @@ export default function cmuxPiSessionExtension(pi: ExtensionAPI) {
                     ),
                     def.displayName
                 )
-            let antigravityHasActiveBackgroundWork = def.name == "antigravity"
-                && (input.rawObject?["fullyIdle"] as? Bool) == false
+            let antigravityHasActiveBackgroundWork = hasActiveAntigravityBackgroundWork()
             let stopNotificationStatus: AgentHookNotificationStatus = (codexFailure == nil && antigravityFailure == nil) ? .idle : .error
 
             if !sessionId.isEmpty {
@@ -23219,7 +23221,7 @@ export default function cmuxPiSessionExtension(pi: ExtensionAPI) {
                 && summary.status == .idle
                 && mapped?.runtimeStatus == .running
                 && mapped?.lastNotificationStatus == .idle
-                && (input.rawObject?["fullyIdle"] as? Bool) != true
+                && hasActiveAntigravityBackgroundWork()
 
 #if DEBUG
             agentHookDebugLog(

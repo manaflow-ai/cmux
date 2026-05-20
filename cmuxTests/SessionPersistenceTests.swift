@@ -3560,6 +3560,66 @@ final class SocketListenerAcceptPolicyTests: XCTestCase {
         XCTAssertEqual(snapshot.launchCommand?.source, "process")
     }
 
+    func testAntigravityProcessDetectionDoesNotTreatTrailingFlagAsConversationID() throws {
+        let workspaceId = UUID()
+        let panelId = UUID()
+        let processId = 1_739_392_001
+        let panelKey = RestorableAgentSessionIndex.PanelKey(workspaceId: workspaceId, panelId: panelId)
+        let processSnapshot = CmuxTopProcessSnapshot(
+            processes: [
+                CmuxTopProcessInfo(
+                    pid: processId,
+                    parentPID: 1,
+                    name: "agy",
+                    path: "/usr/local/bin/agy",
+                    ttyDevice: nil,
+                    cmuxWorkspaceID: workspaceId,
+                    cmuxSurfaceID: panelId,
+                    cmuxAttributionReason: "cmux-test",
+                    processGroupID: nil,
+                    terminalProcessGroupID: nil,
+                    cpuPercent: 0,
+                    residentBytes: 0,
+                    virtualBytes: 0,
+                    threadCount: 1
+                )
+            ],
+            sampledAt: Date(timeIntervalSince1970: 0),
+            includesProcessDetails: true
+        )
+        let registry = CmuxVaultAgentRegistry(registrations: [.builtInAntigravity])
+
+        func detectedSnapshot(arguments: [String]) -> SessionRestorableAgentSnapshot? {
+            RestorableAgentSessionIndex.processDetectedSnapshots(
+                registry: registry,
+                fileManager: FileManager.default,
+                processSnapshot: processSnapshot,
+                capturedAt: 42,
+                processArgumentsProvider: { requestedProcessId in
+                    guard requestedProcessId == processId else { return nil }
+                    return CmuxTopProcessArguments(
+                        arguments: arguments,
+                        environment: ["PWD": "/tmp/antigravity repo"]
+                    )
+                }
+            )[panelKey]?.snapshot
+        }
+
+        XCTAssertNil(
+            detectedSnapshot(arguments: ["/usr/local/bin/agy", "--conversation", "--sandbox", "danger-full-access"])
+        )
+        XCTAssertNil(
+            detectedSnapshot(arguments: ["/usr/local/bin/agy", "--conversation=--sandbox"])
+        )
+
+        let validSnapshot = try XCTUnwrap(
+            detectedSnapshot(arguments: ["/usr/local/bin/agy", "--conversation", "conversation-123", "--sandbox", "danger-full-access"])
+        )
+        XCTAssertEqual(validSnapshot.sessionId, "conversation-123")
+        XCTAssertEqual(validSnapshot.workingDirectory, "/tmp/antigravity repo")
+        XCTAssertEqual(validSnapshot.launchCommand?.launcher, "antigravity")
+    }
+
 }
 
 final class SidebarDragFailsafePolicyTests: XCTestCase {

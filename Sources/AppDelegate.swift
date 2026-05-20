@@ -11021,17 +11021,21 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             queue: nil
         ) { [weak self] _ in
             if Thread.isMainThread {
-                self?.refreshConfiguredShortcutChordActions()
-                self?.clearConfiguredShortcutChordState()
-                self?.scheduleSplitButtonTooltipRefreshAcrossWorkspaces()
+                MainActor.assumeIsolated {
+                    self?.handleShortcutDefaultsDidChange()
+                }
             } else {
-                DispatchQueue.main.async { [weak self] in
-                    self?.refreshConfiguredShortcutChordActions()
-                    self?.clearConfiguredShortcutChordState()
-                    self?.scheduleSplitButtonTooltipRefreshAcrossWorkspaces()
+                Task { @MainActor [weak self] in
+                    self?.handleShortcutDefaultsDidChange()
                 }
             }
         }
+    }
+
+    private func handleShortcutDefaultsDidChange() {
+        refreshConfiguredShortcutChordActions()
+        clearConfiguredShortcutChordState()
+        scheduleSplitButtonTooltipRefreshAcrossWorkspaces()
     }
 
     private func refreshConfiguredShortcutChordActions() {
