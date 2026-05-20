@@ -241,6 +241,41 @@ private func writeGitIndexVersion2Entry(
     try data.write(to: repoURL.appendingPathComponent(".git/index"))
 }
 
+private func writeGitIndexVersion3SkipWorktreeEntry(
+    at repoURL: URL,
+    trackedPath: String,
+    signatureByte: UInt8
+) throws {
+    var data = Data()
+    data.append(contentsOf: [0x44, 0x49, 0x52, 0x43])
+    appendBigEndianUInt32(3, to: &data)
+    appendBigEndianUInt32(1, to: &data)
+
+    appendBigEndianUInt32(0, to: &data)
+    appendBigEndianUInt32(0, to: &data)
+    appendBigEndianUInt32(0, to: &data)
+    appendBigEndianUInt32(0, to: &data)
+    appendBigEndianUInt32(0, to: &data)
+    appendBigEndianUInt32(0, to: &data)
+    appendBigEndianUInt32(0o100644, to: &data)
+    appendBigEndianUInt32(0, to: &data)
+    appendBigEndianUInt32(0, to: &data)
+    appendBigEndianUInt32(0, to: &data)
+    data.append(Data(repeating: 0, count: 20))
+
+    let pathBytes = Array(trackedPath.utf8)
+    appendBigEndianUInt16(UInt16(min(pathBytes.count, 0x0fff)) | 0x4000, to: &data)
+    appendBigEndianUInt16(0x4000, to: &data)
+    data.append(contentsOf: pathBytes)
+    data.append(0)
+    while data.count % 8 != 0 {
+        data.append(0)
+    }
+    data.append(Data(repeating: signatureByte, count: 20))
+
+    try data.write(to: repoURL.appendingPathComponent(".git/index"))
+}
+
 private func writeGitIndexVersion2EntryFromStat(
     at repoURL: URL,
     trackedPath: String,
@@ -1040,6 +1075,52 @@ final class WorkspacePullRequestSidebarTests: XCTestCase {
                 workspace.panelGitBranches[panelId]?.isDirty == true
             },
             "Empty-index signature changes should keep staged deletes visible as dirty."
+        )
+    }
+
+    func testSkipWorktreeGitIndexEntriesDoNotMarkSparseCheckoutDirty() throws {
+        let defaults = UserDefaults.standard
+        let previousWatchGitStatus = defaults.object(forKey: SidebarWorkspaceDetailDefaults.watchGitStatusKey)
+        defer {
+            restoreUserDefault(previousWatchGitStatus, key: SidebarWorkspaceDetailDefaults.watchGitStatusKey)
+        }
+
+        let repoURL = FileManager.default.temporaryDirectory.appendingPathComponent(
+            "cmux-sidebar-sparse-index-\(UUID().uuidString)",
+            isDirectory: true
+        )
+        try FileManager.default.createDirectory(at: repoURL, withIntermediateDirectories: true)
+        try writeMinimalGitRepository(at: repoURL)
+        try writeGitIndexVersion3SkipWorktreeEntry(
+            at: repoURL,
+            trackedPath: "sparse-only.txt",
+            signatureByte: 0x44
+        )
+        XCTAssertFalse(
+            FileManager.default.fileExists(atPath: repoURL.appendingPathComponent("sparse-only.txt").path),
+            "The sparse-checkout entry should be absent from the worktree."
+        )
+        defer {
+            try? FileManager.default.removeItem(at: repoURL)
+        }
+
+        defaults.set(true, forKey: SidebarWorkspaceDetailDefaults.watchGitStatusKey)
+        let manager = TabManager()
+        let workspace = try XCTUnwrap(manager.selectedWorkspace)
+        let panelId = try XCTUnwrap(workspace.focusedPanelId)
+
+        manager.updateSurfaceDirectory(
+            tabId: workspace.id,
+            surfaceId: panelId,
+            directory: repoURL.path
+        )
+
+        XCTAssertTrue(
+            waitForCondition {
+                workspace.panelGitBranches[panelId]?.branch == "main"
+                    && workspace.panelGitBranches[panelId]?.isDirty == false
+            },
+            "Skip-worktree index entries should be ignored by dirty detection when sparse files are absent."
         )
     }
 

@@ -3263,9 +3263,11 @@ class TabManager: ObservableObject {
             let flags = readBigEndianUInt16(bytes, at: offset + 60)
             let pathLength = Int(flags & 0x0fff)
             let hasExtendedFlags = version >= 3 && (flags & 0x4000) != 0
+            var extendedFlags: UInt16 = 0
             offset += 62
             if hasExtendedFlags {
                 guard offset + 2 <= contentEnd else { return nil }
+                extendedFlags = readBigEndianUInt16(bytes, at: offset)
                 offset += 2
             }
 
@@ -3300,7 +3302,9 @@ class TabManager: ObservableObject {
                 return nil
             }
             previousPathBytes = pathBytes
-            if (mode & 0o170000) != 0o160000 {
+            let skipWorktreeExtendedFlag: UInt16 = 0x4000
+            if (extendedFlags & skipWorktreeExtendedFlag) == 0,
+               (mode & 0o170000) != 0o160000 {
                 entries.append(
                     GitIndexEntryStat(
                         path: path,
