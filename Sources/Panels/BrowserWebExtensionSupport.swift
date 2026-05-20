@@ -1261,23 +1261,21 @@ private final class BrowserWebExtensionRuntime: NSObject, WKWebExtensionControll
         }
         try? store.setLastError(nil, for: record.id, profileID: profileID)
         if webExtension.hasBackgroundContent {
-            context.loadBackgroundContent { error in
+            Task { @MainActor [weak self] in
+                do {
+                    try await context.loadBackgroundContent()
+                } catch {
 #if DEBUG
-                if let error {
                     cmuxDebugLog(
                         "browser.extensions.background.loadFailed label=\(record.displayName) error=\(error.localizedDescription)"
                     )
-                }
 #endif
-                if let error {
-                    Task { @MainActor [weak self] in
-                        try? self?.store.setLastError(
-                            error.localizedDescription,
-                            for: record.id,
-                            profileID: profileID
-                        )
-                        self?.postDidChange()
-                    }
+                    try? self?.store.setLastError(
+                        error.localizedDescription,
+                        for: record.id,
+                        profileID: profileID
+                    )
+                    self?.postDidChange()
                 }
             }
         }
@@ -2110,7 +2108,12 @@ private final class BrowserWebExtensionAuxiliaryUIDelegate: NSObject, WKUIDelega
     ) -> WKWebView? {
         if let url = navigationAction.request.url,
            browserShouldOpenURLExternally(url) {
-            NSWorkspace.shared.open(url)
+            Task { @MainActor in
+                _ = try? await NSWorkspace.shared.open(
+                    url,
+                    configuration: NSWorkspace.OpenConfiguration()
+                )
+            }
         }
         return nil
     }
