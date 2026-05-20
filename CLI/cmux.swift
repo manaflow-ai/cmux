@@ -1282,12 +1282,11 @@ final class SocketClient {
     }
 
     func sendOneWay(command: String, writeTimeout: TimeInterval) throws {
-        if relayEndpoint != nil, socketFD < 0 {
-            try connect()
-        }
         guard socketFD >= 0 else { throw CLIError(message: "Not connected") }
         defer { close() }
 
+        // One-way telemetry requires the caller to own connection setup. This
+        // method must not enter the retrying connect path on a hook boundary.
         try configureSocketWriteSafety(writeTimeout)
 
         var operation = CLISocketOperationTelemetry.State(

@@ -107,6 +107,10 @@ class SlowFeedPushSocket:
 
             self._stop.wait(timeout=self.response_delay)
 
+    def frames_snapshot(self) -> list[dict]:
+        with self._frames_lock:
+            return list(self.frames)
+
 
 def percentile(samples: list[float], pct: float) -> float:
     if not samples:
@@ -215,12 +219,24 @@ def main() -> int:
                 if (run.stdout.strip() or "{}") != "{}":
                     failures.append(f"run {run.index} emitted unexpected stdout {run.stdout!r}")
 
-            if len(fake.frames) != args.iterations:
-                failures.append(f"slow socket saw {len(fake.frames)} feed.push frames, expected {args.iterations}")
+            frame_deadline = time.monotonic() + 2.0
+            frames = fake.frames_snapshot()
+            while len(frames) < args.iterations and time.monotonic() < frame_deadline:
+                time.sleep(0.01)
+                frames = fake.frames_snapshot()
 
-            for frame in fake.frames[:5]:
-                params = frame.get("params") if isinstance(frame, dict) else None
-                event = params.get("event") if isinstance(params, dict) else None
+            if len(frames) != args.iterations:
+                failures.append(f"slow socket saw {len(frames)} feed.push frames, expected {args.iterations}")
+
+            for frame in frames:
+                if not isinstance(frame, dict):
+                    failures.append(f"unexpected non-object frame: {frame!r}")
+                    break
+                params = frame.get("params")
+                if not isinstance(params, dict):
+                    failures.append(f"unexpected params in frame: {frame!r}")
+                    break
+                event = params.get("event")
                 if frame.get("method") != "feed.push":
                     failures.append(f"unexpected method in frame: {frame!r}")
                     break
