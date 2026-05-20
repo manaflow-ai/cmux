@@ -342,7 +342,24 @@ extension AgentSessionWebRenderer {
             // Retained WKWebViews can finish loading before Bonsplit reattaches them
             // to a visible host. Reading layout after navigation forces WebKit to
             // commit the first page layer once the view is back in the pane.
-            webView.evaluateJavaScript("document.documentElement.getBoundingClientRect().width") { _, _ in
+            let script = """
+            new Promise((resolve) => {
+              const flush = () => {
+                const root = document.getElementById('root');
+                const shell = document.querySelector('.agent-shell');
+                void (document.body && document.body.innerText);
+                void (root && root.getBoundingClientRect().width);
+                void (shell && getComputedStyle(shell).backgroundColor);
+                resolve(true);
+              };
+              if (typeof requestAnimationFrame === 'function') {
+                requestAnimationFrame(() => requestAnimationFrame(flush));
+              } else {
+                queueMicrotask(flush);
+              }
+            })
+            """
+            webView.evaluateJavaScript(script) { _, _ in
                 webView.setNeedsDisplay(webView.bounds)
             }
         }
