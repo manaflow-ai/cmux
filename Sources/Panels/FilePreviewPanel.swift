@@ -652,20 +652,14 @@ enum FilePreviewKindResolver {
         "podfile"
     ]
 
-    // Single source of truth for markdown file extensions; FilePreviewPanel.isMarkdownFile
-    // also reads this so both the text-mode allowlist and the markdown-preview button
-    // recognize the same set of files.
-    static let markdownExtensions: Set<String> = [
-        "md", "markdown", "mkd", "mkdn", "mdwn", "mdown"
-    ]
-
-    private static let textExtensions: Set<String> = Set([
+    private static let textExtensions: Set<String> = [
         "bash", "c", "cc", "cfg", "conf", "cpp", "cs", "css", "csv", "env",
         "fish", "go", "h", "hpp", "htm", "html", "ini", "java", "js", "json",
-        "jsx", "kt", "log", "m", "mdx", "mm", "plist", "py",
+        "jsx", "kt", "log", "m", "markdown", "md", "mdown", "mdwn", "mdx",
+        "mkd", "mkdn", "mm", "plist", "py",
         "rb", "rs", "sh", "sql", "swift", "toml", "ts", "tsx", "tsv", "txt",
         "xml", "yaml", "yml", "zsh"
-    ]).union(markdownExtensions)
+    ]
 
     static func mode(for url: URL) -> FilePreviewMode {
         switch resolvedResolution(for: url) {
@@ -931,16 +925,6 @@ final class FilePreviewPanel: Panel, ObservableObject, FilePreviewTextEditingPan
 
     var fileURL: URL {
         URL(fileURLWithPath: filePath)
-    }
-
-    var isMarkdownFile: Bool {
-        FilePreviewKindResolver.markdownExtensions.contains(fileURL.pathExtension.lowercased())
-    }
-
-    // Mirrors TerminalSurface.owningWorkspace(): panel.workspaceId equals workspace.id,
-    // which is the tab ID in TabManager.tabs: [Workspace].
-    func owningWorkspace() -> Workspace? {
-        AppDelegate.shared?.workspaceFor(tabId: workspaceId)
     }
 
     init(workspaceId: UUID, filePath: String) {
@@ -1268,24 +1252,6 @@ struct FilePreviewPanelView: View {
                     isDisabled: !panel.isDirty || panel.isSaving,
                     action: { panel.saveTextContent() }
                 )
-
-                if panel.isMarkdownFile {
-                    PanelHeaderIconButton(
-                        systemName: "doc.richtext",
-                        label: panel.isDirty
-                            ? String(localized: "filePreview.openMarkdownPreview.savefirst", defaultValue: "Save before opening preview")
-                            : String(localized: "filePreview.openMarkdownPreview", defaultValue: "Open Preview"),
-                        isDisabled: panel.isDirty || panel.isSaving || panel.isFileUnavailable,
-                        action: {
-                            let fileURL = panel.fileURL
-                            guard let workspace = panel.owningWorkspace(),
-                                  workspace.openOrFocusMarkdownSplit(from: panel.id, filePath: panel.filePath) != nil else {
-                                FileExternalOpenAction.openDefault(fileURL: fileURL)
-                                return
-                            }
-                        }
-                    )
-                }
             }
 
             FileExternalOpenMenu(fileURL: panel.fileURL, isDisabled: panel.isFileUnavailable)
