@@ -386,19 +386,33 @@ extension CMUXCLI {
         arguments: [String] = ProcessInfo.processInfo.arguments
     ) -> String? {
         if let bundledPath = normalizedHookInstallValue(env["CMUX_BUNDLED_CLI_PATH"]) {
-            return NSString(string: bundledPath).expandingTildeInPath
+            let expanded = NSString(string: bundledPath).expandingTildeInPath
+            if isExecutableFilePath(expanded) {
+                return expanded
+            }
         }
         if let arg0 = normalizedHookInstallValue(arguments.first) {
             let expanded = NSString(string: arg0).expandingTildeInPath
-            if expanded.hasPrefix("/") {
+            if expanded.hasPrefix("/"), isExecutableFilePath(expanded) {
                 return expanded
             }
         }
         if let executablePath = Bundle.main.executableURL?.path,
-           !executablePath.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+           !executablePath.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty,
+           isExecutableFilePath(executablePath) {
             return executablePath
         }
         return nil
+    }
+
+    private static func isExecutableFilePath(_ path: String) -> Bool {
+        var isDirectory: ObjCBool = false
+        guard FileManager.default.fileExists(atPath: path, isDirectory: &isDirectory),
+              !isDirectory.boolValue
+        else {
+            return false
+        }
+        return FileManager.default.isExecutableFile(atPath: path)
     }
 
     private static func pinnedAgentHookSocketPath(

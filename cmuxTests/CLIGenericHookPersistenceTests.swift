@@ -501,6 +501,7 @@ extension CLINotifyProcessIntegrationRegressionTests {
             environment: [
                 "HOME": root.path,
                 "PATH": "/usr/bin:/bin:/usr/sbin:/sbin",
+                "CMUX_BUNDLED_CLI_PATH": root.path,
                 "CMUX_CLI_SENTRY_DISABLED": "1",
             ],
             timeout: 5
@@ -535,6 +536,10 @@ extension CLINotifyProcessIntegrationRegressionTests {
         XCTAssertTrue(
             allCommands.allSatisfy { $0.contains("cmux-antigravity-hook-v2") },
             "Expected Antigravity hooks to use the pinned dispatch path, saw \(allCommands)"
+        )
+        XCTAssertFalse(
+            allCommands.contains { $0.contains("'\(root.path)'") || $0.contains("\"\(root.path)\"") },
+            "Directory-valued CMUX_BUNDLED_CLI_PATH must not be embedded as a hook executable, saw \(allCommands)"
         )
         XCTAssertFalse(
             allCommands.contains { $0.contains(#"[ -n "$CMUX_SURFACE_ID" ]"#) },
