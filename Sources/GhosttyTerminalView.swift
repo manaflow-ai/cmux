@@ -5729,6 +5729,9 @@ final class TerminalSurface: Identifiable, ObservableObject {
            let integrationDir = Bundle.main.resourceURL?.appendingPathComponent("shell-integration").path {
             setManagedEnvironmentValue("CMUX_SHELL_INTEGRATION", "1")
             setManagedEnvironmentValue("CMUX_SHELL_INTEGRATION_DIR", integrationDir)
+            if !SidebarWorkspaceDetailDefaults.watchGitStatusValue(defaults: .standard) {
+                setManagedEnvironmentValue("CMUX_NO_GIT_WATCH", "1")
+            }
 
             let shell = (env["SHELL"]?.isEmpty == false ? env["SHELL"] : nil)
                 ?? getenv("SHELL").map { String(cString: $0) }

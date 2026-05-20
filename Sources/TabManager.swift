@@ -4,10 +4,125 @@ import Foundation
 import Bonsplit
 import CoreVideo
 import Combine
+import CoreServices
+import Darwin
 
 // MARK: - Tab Type Alias for Backwards Compatibility
 // The old Tab class is replaced by Workspace
 typealias Tab = Workspace
+
+private final class WorkspaceGitMetadataWatcherCallbackBox: @unchecked Sendable {
+    let handleEvent: @Sendable () -> Void
+
+    init(handleEvent: @escaping @Sendable () -> Void) {
+        self.handleEvent = handleEvent
+    }
+}
+
+private let workspaceGitMetadataWatcherCallback: FSEventStreamCallback = { _, info, _, _, _, _ in
+    guard let info else { return }
+    let box = Unmanaged<WorkspaceGitMetadataWatcherCallbackBox>.fromOpaque(info).takeUnretainedValue()
+    box.handleEvent()
+}
+
+private final class WorkspaceGitMetadataWatcher: @unchecked Sendable {
+    private static let queueSpecificKey = DispatchSpecificKey<UInt8>()
+
+    struct Descriptor: Equatable, Sendable {
+        let directory: String
+        let watchedPaths: [String]
+    }
+
+    let descriptor: Descriptor
+
+    private let queue = DispatchQueue(label: "com.cmux.workspace-git-metadata-watcher", qos: .utility)
+    private var callbackBox: WorkspaceGitMetadataWatcherCallbackBox?
+    private let onChange: @Sendable () -> Void
+    private var stream: FSEventStreamRef?
+    private var debounceWorkItem: DispatchWorkItem?
+
+    init?(descriptor: Descriptor, onChange: @escaping @Sendable () -> Void) {
+        guard !descriptor.watchedPaths.isEmpty else { return nil }
+        self.descriptor = descriptor
+        self.onChange = onChange
+        queue.setSpecific(key: Self.queueSpecificKey, value: 1)
+        let callbackBox = WorkspaceGitMetadataWatcherCallbackBox { [weak self] in
+            self?.scheduleChange()
+        }
+        self.callbackBox = callbackBox
+
+        var context = FSEventStreamContext(
+            version: 0,
+            info: Unmanaged.passUnretained(callbackBox).toOpaque(),
+            retain: nil,
+            release: nil,
+            copyDescription: nil
+        )
+        let flags = FSEventStreamCreateFlags(
+            kFSEventStreamCreateFlagFileEvents | kFSEventStreamCreateFlagNoDefer
+        )
+        guard let stream = FSEventStreamCreate(
+            nil,
+            workspaceGitMetadataWatcherCallback,
+            &context,
+            descriptor.watchedPaths as CFArray,
+            FSEventStreamEventId(kFSEventStreamEventIdSinceNow),
+            0.25,
+            flags
+        ) else {
+            return nil
+        }
+        self.stream = stream
+        FSEventStreamSetDispatchQueue(stream, queue)
+        guard FSEventStreamStart(stream) else {
+            stop()
+            return nil
+        }
+    }
+
+    func stop() {
+        if DispatchQueue.getSpecific(key: Self.queueSpecificKey) != nil {
+            stopOnQueue()
+        } else {
+            queue.sync {
+                stopOnQueue()
+            }
+        }
+    }
+
+    private func stopOnQueue() {
+        debounceWorkItem?.cancel()
+        debounceWorkItem = nil
+        guard let stream else { return }
+        FSEventStreamStop(stream)
+        FSEventStreamInvalidate(stream)
+        FSEventStreamRelease(stream)
+        self.stream = nil
+    }
+
+    private func scheduleChange() {
+        if DispatchQueue.getSpecific(key: Self.queueSpecificKey) != nil {
+            scheduleChangeOnQueue()
+        } else {
+            queue.async { [weak self] in
+                self?.scheduleChangeOnQueue()
+            }
+        }
+    }
+
+    private func scheduleChangeOnQueue() {
+        debounceWorkItem?.cancel()
+        let workItem = DispatchWorkItem { [weak self] in
+            self?.onChange()
+        }
+        debounceWorkItem = workItem
+        queue.asyncAfter(deadline: .now() + 0.25, execute: workItem)
+    }
+
+    deinit {
+        stop()
+    }
+}
 
 enum NewWorkspacePlacement: String, CaseIterable, Identifiable {
     case top
@@ -783,7 +898,27 @@ class TabManager: ObservableObject {
     private struct InitialWorkspaceGitMetadataSnapshot: Equatable {
         let branch: String?
         let isDirty: Bool
+        let indexSignature: String?
+        let headSignature: String?
         let pullRequest: WorkspacePullRequestSnapshot
+    }
+
+    private struct ResolvedGitRepository: Equatable, Sendable {
+        let workTreeRoot: String
+        let gitDirectory: String
+        let commonDirectory: String
+    }
+
+    private struct GitIndexEntryStat: Sendable {
+        let path: String
+        let mtimeSeconds: UInt32
+        let mtimeNanoseconds: UInt32
+        let size: UInt32
+    }
+
+    private struct GitIndexSnapshot: Sendable {
+        let entries: [GitIndexEntryStat]
+        let signature: String
     }
 
     struct CommandResult: Sendable {
@@ -958,6 +1093,7 @@ class TabManager: ObservableObject {
     /// Static so port ranges don't overlap across multiple windows (each window has its own TabManager).
     static var nextPortOrdinal: Int = 0
     private nonisolated static let initialWorkspaceGitProbeDelays: [TimeInterval] = [0, 0.5, 1.5, 3.0, 6.0, 10.0]
+    private nonisolated static let workspaceGitMetadataFallbackRefreshInterval: TimeInterval = 5 * 60
     private nonisolated static let backgroundPollInterval: TimeInterval = 60
     private nonisolated static let selectedPollInterval: TimeInterval = 10
     private nonisolated static let workspacePullRequestRepoCacheLifetime: TimeInterval = 15
@@ -1064,6 +1200,11 @@ class TabManager: ObservableObject {
     private var workspaceGitProbeStateByKey: [WorkspaceGitProbeKey: WorkspaceGitProbeState] = [:]
     private var workspaceGitProbeTimersByKey: [WorkspaceGitProbeKey: [DispatchSourceTimer]] = [:]
     private var workspaceGitTrackedDirectoryByKey: [WorkspaceGitProbeKey: String] = [:]
+    private var workspaceGitCleanIndexSignatureByKey: [WorkspaceGitProbeKey: String] = [:]
+    private var workspaceGitHeadSignatureByKey: [WorkspaceGitProbeKey: String] = [:]
+    private var workspaceGitMetadataWatchersByKey: [WorkspaceGitProbeKey: WorkspaceGitMetadataWatcher] = [:]
+    private var workspaceGitMetadataFallbackTimer: DispatchSourceTimer?
+    private var lastSidebarGitMetadataWatchEnabled = SidebarWorkspaceDetailDefaults.watchGitStatusValue(defaults: .standard)
     private var workspacePullRequestProbeStateByKey: [WorkspaceGitProbeKey: WorkspaceGitProbeState] = [:]
     private var workspacePullRequestNextPollAtByKey: [WorkspaceGitProbeKey: Date] = [:]
     private var workspacePullRequestLastTerminalStateRefreshAtByKey: [WorkspaceGitProbeKey: Date] = [:]
@@ -1087,8 +1228,6 @@ class TabManager: ObservableObject {
     private var closeConfirmationInFlight = false
     var confirmCloseHandler: ((String, String, Bool) -> Bool)?
     private var agentPIDSweepTimer: DispatchSourceTimer?
-    private var workspaceGitMetadataPollTimer: DispatchSourceTimer?
-    private var selectedWorkspaceGitMetadataPollTimer: DispatchSourceTimer?
 #if DEBUG
     private var debugWorkspaceSwitchCounter: UInt64 = 0
     private var debugWorkspaceSwitchId: UInt64 = 0
@@ -1147,9 +1286,17 @@ class TabManager: ObservableObject {
         })
 
         startAgentPIDSweepTimer()
-        startWorkspaceGitMetadataPollTimer()
-        startSelectedWorkspaceGitMetadataPollTimer()
         updateWorkspacePullRequestPollTimer()
+        updateWorkspaceGitMetadataFallbackTimer()
+        observers.append(NotificationCenter.default.addObserver(
+            forName: UserDefaults.didChangeNotification,
+            object: nil,
+            queue: .main
+        ) { [weak self] _ in
+            MainActor.assumeIsolated { [weak self] in
+                self?.sidebarGitMetadataWatchSettingsDidChange()
+            }
+        })
 #if DEBUG
         setupUITestFocusShortcutsIfNeeded()
         setupSplitCloseRightUITestIfNeeded()
@@ -1161,9 +1308,8 @@ class TabManager: ObservableObject {
     deinit {
         workspaceCycleCooldownTask?.cancel()
         agentPIDSweepTimer?.cancel()
-        workspaceGitMetadataPollTimer?.cancel()
-        selectedWorkspaceGitMetadataPollTimer?.cancel()
         workspacePullRequestPollTimer?.cancel()
+        workspaceGitMetadataFallbackTimer?.cancel()
         workspacePullRequestRefreshTask?.cancel()
     }
 
@@ -1186,43 +1332,13 @@ class TabManager: ObservableObject {
         agentPIDSweepTimer = timer
     }
 
-    /// Periodically refreshes git/PR metadata for tracked workspace branches so
-    /// remote GitHub state changes (e.g. PR open -> merged) reach sidebar state
-    /// even when the local branch/directory does not change.
-    private func startWorkspaceGitMetadataPollTimer() {
-        let timer = DispatchSource.makeTimerSource(queue: .global(qos: .utility))
-        let interval = Self.backgroundPollInterval
-        timer.schedule(deadline: .now() + interval, repeating: interval)
-        timer.setEventHandler { [weak self] in
-            guard let self else { return }
-            DispatchQueue.main.async { [weak self] in
-                guard let self else { return }
-                self.refreshTrackedWorkspaceGitMetadata()
-            }
-        }
-        timer.resume()
-        workspaceGitMetadataPollTimer = timer
-    }
-
-    /// Refresh the selected workspace more aggressively so branch checkouts and
-    /// newly created PRs show up in the sidebar without waiting for the slower
-    /// background sweep across every tracked workspace.
-    private func startSelectedWorkspaceGitMetadataPollTimer() {
-        let timer = DispatchSource.makeTimerSource(queue: .global(qos: .utility))
-        let interval = Self.selectedPollInterval
-        timer.schedule(deadline: .now() + interval, repeating: interval)
-        timer.setEventHandler { [weak self] in
-            guard let self else { return }
-            DispatchQueue.main.async { [weak self] in
-                guard let self else { return }
-                self.refreshSelectedWorkspaceGitMetadata()
-            }
-        }
-        timer.resume()
-        selectedWorkspaceGitMetadataPollTimer = timer
-    }
-
     private func updateWorkspacePullRequestPollTimer() {
+        guard sidebarGitMetadataWatchEnabled else {
+            workspacePullRequestPollTimer?.cancel()
+            workspacePullRequestPollTimer = nil
+            return
+        }
+
         guard workspacePullRequestRefreshTask == nil else {
             workspacePullRequestPollTimer?.cancel()
             workspacePullRequestPollTimer = nil
@@ -1255,7 +1371,34 @@ class TabManager: ObservableObject {
         )
     }
 
-    private func refreshTrackedWorkspaceGitMetadata() {
+    private func updateWorkspaceGitMetadataFallbackTimer() {
+        guard sidebarGitMetadataWatchEnabled,
+              !workspaceGitTrackedDirectoryByKey.isEmpty else {
+            workspaceGitMetadataFallbackTimer?.cancel()
+            workspaceGitMetadataFallbackTimer = nil
+            return
+        }
+
+        guard workspaceGitMetadataFallbackTimer == nil else {
+            return
+        }
+
+        let timer = DispatchSource.makeTimerSource(queue: .global(qos: .utility))
+        timer.setEventHandler { [weak self] in
+            DispatchQueue.main.async { [weak self] in
+                self?.refreshTrackedWorkspaceGitMetadata(reason: "fallbackTimer")
+            }
+        }
+        timer.schedule(
+            deadline: .now() + Self.workspaceGitMetadataFallbackRefreshInterval,
+            repeating: Self.workspaceGitMetadataFallbackRefreshInterval,
+            leeway: .seconds(15)
+        )
+        timer.resume()
+        workspaceGitMetadataFallbackTimer = timer
+    }
+
+    private func refreshTrackedWorkspaceGitMetadata(reason: String) {
         let activeProbeKeys = activeWorkspaceGitProbeKeys
 
         for workspace in tabs {
@@ -1266,37 +1409,125 @@ class TabManager: ObservableObject {
                 scheduleWorkspaceGitMetadataRefreshIfPossible(
                     workspaceId: workspace.id,
                     panelId: panelId,
-                    reason: "periodicPoll"
+                    reason: reason
                 )
             }
         }
     }
 
-    private func refreshSelectedWorkspaceGitMetadata() {
-        guard let workspace = selectedWorkspace,
-              let focusedPanelId = workspace.focusedPanelId else {
+    private var sidebarGitMetadataWatchEnabled: Bool {
+        SidebarWorkspaceDetailDefaults.watchGitStatusValue(defaults: .standard)
+    }
+
+    private func sidebarGitMetadataWatchSettingsDidChange() {
+        let isEnabled = sidebarGitMetadataWatchEnabled
+        guard isEnabled != lastSidebarGitMetadataWatchEnabled else {
+            return
+        }
+        lastSidebarGitMetadataWatchEnabled = isEnabled
+
+        guard isEnabled else {
+            stopAllWorkspaceGitMetadataWatchers()
+            workspaceGitMetadataFallbackTimer?.cancel()
+            workspaceGitMetadataFallbackTimer = nil
+            workspaceGitProbeStateByKey.removeAll()
+            for timers in workspaceGitProbeTimersByKey.values {
+                for timer in timers {
+                    timer.setEventHandler {}
+                    timer.cancel()
+                }
+            }
+            workspaceGitProbeTimersByKey.removeAll()
+            workspaceGitTrackedDirectoryByKey.removeAll()
+            workspaceGitCleanIndexSignatureByKey.removeAll()
+            workspaceGitHeadSignatureByKey.removeAll()
+            resetWorkspacePullRequestRefreshState()
+            clearAllWorkspaceSidebarGitMetadata()
             return
         }
 
-        let activeProbeKeys = activeWorkspaceGitProbeKeys
-        let candidatePanelIds = trackedWorkspaceGitMetadataPollCandidatePanelIds(
-            in: workspace,
-            activeProbeKeys: activeProbeKeys
-        )
-        guard candidatePanelIds.contains(focusedPanelId) else { return }
+        restartWorkspaceGitMetadataWatching(reason: "gitWatchSettingEnabled")
+        updateWorkspaceGitMetadataFallbackTimer()
+    }
 
-        scheduleWorkspaceGitMetadataRefreshIfPossible(
-            workspaceId: workspace.id,
-            panelId: focusedPanelId,
-            reason: "selectedPeriodicPoll"
-        )
+    private func restartWorkspaceGitMetadataWatching(reason: String) {
+        for workspace in tabs where !workspace.isRemoteWorkspace {
+            for panelId in workspace.panels.keys {
+                guard workspace.terminalPanel(for: panelId) != nil else {
+                    continue
+                }
+                if let directory = gitProbeDirectory(for: workspace, panelId: panelId) {
+                    let key = WorkspaceGitProbeKey(workspaceId: workspace.id, panelId: panelId)
+                    workspaceGitTrackedDirectoryByKey[key] = directory
+                    updateWorkspaceGitMetadataWatcher(for: key, directory: directory)
+                }
+                scheduleWorkspaceGitMetadataRefreshIfPossible(
+                    workspaceId: workspace.id,
+                    panelId: panelId,
+                    reason: reason
+                )
+            }
+        }
+        updateWorkspaceGitMetadataFallbackTimer()
+    }
 
+    private func updateWorkspaceGitMetadataWatcher(
+        for key: WorkspaceGitProbeKey,
+        directory: String
+    ) {
+        guard sidebarGitMetadataWatchEnabled,
+              let descriptor = Self.workspaceGitMetadataWatcherDescriptor(for: directory) else {
+            stopWorkspaceGitMetadataWatcher(for: key)
+            return
+        }
+
+        if workspaceGitMetadataWatchersByKey[key]?.descriptor == descriptor {
+            return
+        }
+
+        stopWorkspaceGitMetadataWatcher(for: key)
+        workspaceGitMetadataWatchersByKey[key] = WorkspaceGitMetadataWatcher(
+            descriptor: descriptor
+        ) { [weak self] in
+            Task { @MainActor [weak self] in
+                guard let self else { return }
+                self.scheduleWorkspaceGitMetadataRefreshIfPossible(
+                    workspaceId: key.workspaceId,
+                    panelId: key.panelId,
+                    reason: "filesystemEvent"
+                )
+            }
+        }
+    }
+
+    private func stopWorkspaceGitMetadataWatcher(for key: WorkspaceGitProbeKey) {
+        workspaceGitMetadataWatchersByKey.removeValue(forKey: key)?.stop()
+    }
+
+    private func stopWorkspaceGitMetadataWatchers(workspaceId: UUID) {
+        let keys = workspaceGitMetadataWatchersByKey.keys.filter { $0.workspaceId == workspaceId }
+        for key in keys {
+            stopWorkspaceGitMetadataWatcher(for: key)
+        }
+    }
+
+    private func stopAllWorkspaceGitMetadataWatchers() {
+        for watcher in workspaceGitMetadataWatchersByKey.values {
+            watcher.stop()
+        }
+        workspaceGitMetadataWatchersByKey.removeAll()
     }
 
     private func refreshTrackedWorkspacePullRequestsIfNeeded(
         reason: String,
         allowCachedResultsOverride: Bool? = nil
     ) {
+        guard sidebarGitMetadataWatchEnabled else {
+            resetWorkspacePullRequestRefreshState()
+            clearAllWorkspaceSidebarGitMetadata()
+            return
+        }
+
         let now = Date()
         var candidateSeeds: [WorkspacePullRequestCandidateSeed] = []
         var requestedKeys: [WorkspaceGitProbeKey] = []
@@ -1476,6 +1707,10 @@ class TabManager: ObservableObject {
         reason: String
     ) {
         let key = WorkspaceGitProbeKey(workspaceId: workspaceId, panelId: panelId)
+        guard sidebarGitMetadataWatchEnabled else {
+            clearWorkspaceGitMetadata(for: key)
+            return
+        }
         let shouldBypassRepoCache = !Self.workspacePullRequestRefreshAllowsRepoCache(reason: reason)
         if shouldBypassRepoCache, workspacePullRequestRefreshTask != nil {
             workspacePullRequestFollowUpShouldBypassRepoCache = true
@@ -1805,7 +2040,11 @@ class TabManager: ObservableObject {
     }
 
     func refreshTrackedWorkspaceGitMetadataForTesting() {
-        refreshTrackedWorkspaceGitMetadata()
+        refreshTrackedWorkspaceGitMetadata(reason: "test")
+    }
+
+    func sidebarGitMetadataWatchSettingsDidChangeForTesting() {
+        sidebarGitMetadataWatchSettingsDidChange()
     }
 
     func trackedWorkspaceGitMetadataPollCandidatePanelIdsForTesting(workspaceId: UUID) -> Set<UUID> {
@@ -1921,6 +2160,11 @@ class TabManager: ObservableObject {
         reason: String,
         delays: [TimeInterval] = [0]
     ) {
+        let key = WorkspaceGitProbeKey(workspaceId: workspaceId, panelId: panelId)
+        guard sidebarGitMetadataWatchEnabled else {
+            clearWorkspaceGitMetadata(for: key)
+            return
+        }
         guard let workspace = tabs.first(where: { $0.id == workspaceId }),
               workspace.panels[panelId] != nil,
               let directory = gitProbeDirectory(for: workspace, panelId: panelId) else {
@@ -2398,7 +2642,29 @@ class TabManager: ObservableObject {
 
     private func clearWorkspaceGitProbe(_ key: WorkspaceGitProbeKey) {
         workspaceGitProbeStateByKey.removeValue(forKey: key)
+        workspaceGitCleanIndexSignatureByKey.removeValue(forKey: key)
+        workspaceGitHeadSignatureByKey.removeValue(forKey: key)
         cancelWorkspaceGitProbeTimers(for: key)
+        stopWorkspaceGitMetadataWatcher(for: key)
+        updateWorkspaceGitMetadataFallbackTimer()
+    }
+
+    private func clearWorkspaceGitMetadata(for key: WorkspaceGitProbeKey) {
+        clearWorkspaceGitProbe(key)
+        workspaceGitTrackedDirectoryByKey.removeValue(forKey: key)
+        updateWorkspaceGitMetadataFallbackTimer()
+        clearWorkspacePullRequestTracking(for: key)
+        guard let workspace = tabs.first(where: { $0.id == key.workspaceId }) else {
+            return
+        }
+        workspace.clearPanelGitBranch(panelId: key.panelId)
+        workspace.clearPanelPullRequest(panelId: key.panelId)
+    }
+
+    private func clearAllWorkspaceSidebarGitMetadata() {
+        for workspace in tabs {
+            workspace.clearSidebarGitMetadata()
+        }
     }
 
     private func clearWorkspaceGitProbes(workspaceId: UUID) {
@@ -2410,6 +2676,14 @@ class TabManager: ObservableObject {
         workspaceGitTrackedDirectoryByKey = workspaceGitTrackedDirectoryByKey.filter { key, _ in
             key.workspaceId != workspaceId
         }
+        workspaceGitCleanIndexSignatureByKey = workspaceGitCleanIndexSignatureByKey.filter { key, _ in
+            key.workspaceId != workspaceId
+        }
+        workspaceGitHeadSignatureByKey = workspaceGitHeadSignatureByKey.filter { key, _ in
+            key.workspaceId != workspaceId
+        }
+        stopWorkspaceGitMetadataWatchers(workspaceId: workspaceId)
+        updateWorkspaceGitMetadataFallbackTimer()
         clearWorkspacePullRequestTracking(workspaceId: workspaceId)
     }
 
@@ -2485,18 +2759,42 @@ class TabManager: ObservableObject {
         let resolvedSidebarMetadata = snapshot.branch != nil || resolvedPullRequest != nil
         if resolvedSidebarMetadata {
             workspaceGitTrackedDirectoryByKey[probeKey] = expectedDirectory
-        } else if workspaceGitTrackedDirectoryByKey[probeKey] != expectedDirectory {
+            updateWorkspaceGitMetadataWatcher(for: probeKey, directory: expectedDirectory)
+        } else {
             workspaceGitTrackedDirectoryByKey.removeValue(forKey: probeKey)
+            stopWorkspaceGitMetadataWatcher(for: probeKey)
         }
+        updateWorkspaceGitMetadataFallbackTimer()
 
         let nextBranch = snapshot.branch
         if let nextBranch {
+            if let headSignature = snapshot.headSignature {
+                if let previousHeadSignature = workspaceGitHeadSignatureByKey[probeKey],
+                   previousHeadSignature != headSignature {
+                    workspaceGitCleanIndexSignatureByKey.removeValue(forKey: probeKey)
+                }
+                workspaceGitHeadSignatureByKey[probeKey] = headSignature
+            } else {
+                workspaceGitHeadSignatureByKey.removeValue(forKey: probeKey)
+            }
+            var isDirty = snapshot.isDirty
+            if !isDirty,
+               let indexSignature = snapshot.indexSignature,
+               let cleanIndexSignature = workspaceGitCleanIndexSignatureByKey[probeKey],
+               cleanIndexSignature != indexSignature {
+                isDirty = true
+            }
             workspace.updatePanelGitBranch(
                 panelId: probeKey.panelId,
                 branch: nextBranch,
-                isDirty: snapshot.isDirty
+                isDirty: isDirty
             )
+            if let indexSignature = snapshot.indexSignature, !isDirty {
+                workspaceGitCleanIndexSignatureByKey[probeKey] = indexSignature
+            }
         } else {
+            workspaceGitCleanIndexSignatureByKey.removeValue(forKey: probeKey)
+            workspaceGitHeadSignatureByKey.removeValue(forKey: probeKey)
             workspace.clearPanelGitBranch(panelId: probeKey.panelId)
         }
 
@@ -2565,31 +2863,417 @@ class TabManager: ObservableObject {
     private nonisolated static func initialWorkspaceGitMetadataSnapshot(
         for directory: String
     ) async -> InitialWorkspaceGitMetadataSnapshot {
-        let branchOutput = await runGitCommand(directory: directory, arguments: ["branch", "--show-current"])
-        let branch = normalizedBranchName(branchOutput)
-        guard let branch else {
+        guard let repository = resolveGitRepository(containing: directory) else {
             return InitialWorkspaceGitMetadataSnapshot(
                 branch: nil,
                 isDirty: false,
+                indexSignature: nil,
+                headSignature: nil,
+                pullRequest: .notFound
+            )
+        }
+        let trackedChanges = gitTrackedChangesSnapshot(repository: repository)
+        let headSignature = gitHeadSignature(repository: repository)
+
+        let branch = normalizedBranchName(gitBranchName(repository: repository))
+        guard let branch else {
+            return InitialWorkspaceGitMetadataSnapshot(
+                branch: nil,
+                isDirty: trackedChanges.isDirty,
+                indexSignature: trackedChanges.indexSignature,
+                headSignature: headSignature,
                 pullRequest: .notFound
             )
         }
 
-        let statusOutput = await runGitCommand(directory: directory, arguments: ["status", "--porcelain", "-uno"])
-        let isDirty = !(statusOutput?.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ?? true)
         return InitialWorkspaceGitMetadataSnapshot(
             branch: branch,
-            isDirty: isDirty,
+            isDirty: trackedChanges.isDirty,
+            indexSignature: trackedChanges.indexSignature,
+            headSignature: headSignature,
             pullRequest: .deferred
         )
     }
 
-    private nonisolated static func runGitCommand(directory: String, arguments: [String]) async -> String? {
-        await runCommand(
-            directory: directory,
-            executable: "git",
-            arguments: arguments
+    private nonisolated static func resolveGitRepository(containing directory: String) -> ResolvedGitRepository? {
+        let startURL = URL(fileURLWithPath: directory).standardizedFileURL
+        let fileManager = FileManager.default
+        var currentURL = startURL
+        var isDirectory: ObjCBool = false
+
+        if !fileManager.fileExists(atPath: currentURL.path, isDirectory: &isDirectory) || !isDirectory.boolValue {
+            currentURL.deleteLastPathComponent()
+        }
+
+        while true {
+            let dotGitURL = currentURL.appendingPathComponent(".git")
+            if fileManager.fileExists(atPath: dotGitURL.path, isDirectory: &isDirectory) {
+                let gitDirectory: String?
+                if isDirectory.boolValue {
+                    gitDirectory = dotGitURL.standardizedFileURL.path
+                } else {
+                    gitDirectory = gitDirectoryFromDotGitFile(dotGitURL, relativeTo: currentURL)
+                }
+
+                if let gitDirectory {
+                    let commonDirectory = gitCommonDirectory(gitDirectory: gitDirectory)
+                    return ResolvedGitRepository(
+                        workTreeRoot: currentURL.standardizedFileURL.path,
+                        gitDirectory: gitDirectory,
+                        commonDirectory: commonDirectory
+                    )
+                }
+            }
+
+            let parentURL = currentURL.deletingLastPathComponent()
+            if parentURL.path == currentURL.path {
+                return nil
+            }
+            currentURL = parentURL
+        }
+    }
+
+    private nonisolated static func gitDirectoryFromDotGitFile(
+        _ dotGitURL: URL,
+        relativeTo workTreeRootURL: URL
+    ) -> String? {
+        guard let contents = try? String(contentsOf: dotGitURL, encoding: .utf8) else {
+            return nil
+        }
+        let trimmed = contents.trimmingCharacters(in: .whitespacesAndNewlines)
+        let prefix = "gitdir:"
+        guard trimmed.lowercased().hasPrefix(prefix) else {
+            return nil
+        }
+
+        let rawPath = trimmed.dropFirst(prefix.count).trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !rawPath.isEmpty else { return nil }
+        if rawPath.hasPrefix("/") {
+            return URL(fileURLWithPath: String(rawPath)).standardizedFileURL.path
+        }
+        return workTreeRootURL
+            .appendingPathComponent(String(rawPath))
+            .standardizedFileURL
+            .path
+    }
+
+    private nonisolated static func gitCommonDirectory(gitDirectory: String) -> String {
+        let gitDirectoryURL = URL(fileURLWithPath: gitDirectory)
+        let commonDirURL = gitDirectoryURL.appendingPathComponent("commondir")
+        guard let contents = try? String(contentsOf: commonDirURL, encoding: .utf8) else {
+            return gitDirectory
+        }
+
+        let rawPath = contents.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !rawPath.isEmpty else { return gitDirectory }
+        if rawPath.hasPrefix("/") {
+            return URL(fileURLWithPath: rawPath).standardizedFileURL.path
+        }
+        return gitDirectoryURL
+            .appendingPathComponent(rawPath)
+            .standardizedFileURL
+            .path
+    }
+
+    private nonisolated static func workspaceGitMetadataWatcherDescriptor(
+        for directory: String
+    ) -> WorkspaceGitMetadataWatcher.Descriptor? {
+        guard let repository = resolveGitRepository(containing: directory) else {
+            return nil
+        }
+
+        let candidatePaths = [
+            repository.workTreeRoot,
+            URL(fileURLWithPath: repository.gitDirectory).appendingPathComponent("HEAD").path,
+            URL(fileURLWithPath: repository.gitDirectory).appendingPathComponent("index").path,
+            URL(fileURLWithPath: repository.gitDirectory).appendingPathComponent("refs").path,
+            URL(fileURLWithPath: repository.commonDirectory).appendingPathComponent("refs").path,
+            URL(fileURLWithPath: repository.commonDirectory).appendingPathComponent("packed-refs").path,
+            URL(fileURLWithPath: repository.commonDirectory).appendingPathComponent("config").path,
+        ]
+        var watchedPaths: [String] = []
+        var seen: Set<String> = []
+        for path in candidatePaths {
+            let normalized = URL(fileURLWithPath: path).standardizedFileURL.path
+            guard seen.insert(normalized).inserted else { continue }
+            var isDirectory: ObjCBool = false
+            guard FileManager.default.fileExists(atPath: normalized, isDirectory: &isDirectory) else {
+                continue
+            }
+            watchedPaths.append(normalized)
+        }
+
+        return WorkspaceGitMetadataWatcher.Descriptor(
+            directory: repository.workTreeRoot,
+            watchedPaths: watchedPaths.sorted()
         )
+    }
+
+    private nonisolated static func gitBranchName(repository: ResolvedGitRepository) -> String? {
+        let headURL = URL(fileURLWithPath: repository.gitDirectory).appendingPathComponent("HEAD")
+        guard let contents = try? String(contentsOf: headURL, encoding: .utf8) else {
+            return nil
+        }
+        let trimmed = contents.trimmingCharacters(in: .whitespacesAndNewlines)
+        let branchPrefix = "ref: refs/heads/"
+        guard trimmed.hasPrefix(branchPrefix) else {
+            return nil
+        }
+        let branch = String(trimmed.dropFirst(branchPrefix.count))
+        return branch.isEmpty ? nil : branch
+    }
+
+    private nonisolated static func gitHeadSignature(repository: ResolvedGitRepository) -> String? {
+        let headURL = URL(fileURLWithPath: repository.gitDirectory).appendingPathComponent("HEAD")
+        guard let contents = try? String(contentsOf: headURL, encoding: .utf8) else {
+            return nil
+        }
+        let trimmed = contents.trimmingCharacters(in: .whitespacesAndNewlines)
+        let refPrefix = "ref: "
+        guard trimmed.hasPrefix(refPrefix) else {
+            return trimmed.isEmpty ? nil : trimmed
+        }
+
+        let refName = String(trimmed.dropFirst(refPrefix.count))
+        guard !refName.isEmpty else { return trimmed }
+        let refValue = gitRefValue(repository: repository, refName: refName) ?? ""
+        return "\(trimmed)\n\(refValue)"
+    }
+
+    private nonisolated static func gitRefValue(repository: ResolvedGitRepository, refName: String) -> String? {
+        let refURLs = [
+            URL(fileURLWithPath: repository.gitDirectory).appendingPathComponent(refName),
+            URL(fileURLWithPath: repository.commonDirectory).appendingPathComponent(refName),
+        ]
+        var seenPaths: Set<String> = []
+        for refURL in refURLs {
+            let path = refURL.standardizedFileURL.path
+            guard seenPaths.insert(path).inserted,
+                  let contents = try? String(contentsOf: refURL, encoding: .utf8) else {
+                continue
+            }
+            let value = contents.trimmingCharacters(in: .whitespacesAndNewlines)
+            if !value.isEmpty {
+                return value
+            }
+        }
+
+        let packedRefsURL = URL(fileURLWithPath: repository.commonDirectory).appendingPathComponent("packed-refs")
+        guard let packedRefs = try? String(contentsOf: packedRefsURL, encoding: .utf8) else {
+            return nil
+        }
+        for rawLine in packedRefs.components(separatedBy: .newlines) {
+            let line = rawLine.trimmingCharacters(in: .whitespaces)
+            guard !line.isEmpty, !line.hasPrefix("#"), !line.hasPrefix("^") else { continue }
+            let parts = line.split(whereSeparator: { $0 == " " || $0 == "\t" })
+            guard parts.count == 2, String(parts[1]) == refName else { continue }
+            return String(parts[0])
+        }
+        return nil
+    }
+
+    private nonisolated static func gitRemoteVOutput(repository: ResolvedGitRepository) -> String? {
+        let configURLs = [
+            URL(fileURLWithPath: repository.commonDirectory).appendingPathComponent("config"),
+            URL(fileURLWithPath: repository.gitDirectory).appendingPathComponent("config"),
+        ]
+        var lines: [String] = []
+        var seenConfigPaths: Set<String> = []
+        for configURL in configURLs {
+            let path = configURL.standardizedFileURL.path
+            guard seenConfigPaths.insert(path).inserted,
+                  let config = try? String(contentsOf: configURL, encoding: .utf8) else {
+                continue
+            }
+            lines.append(contentsOf: gitRemoteVLines(fromConfig: config))
+        }
+        return lines.isEmpty ? nil : lines.joined()
+    }
+
+    private nonisolated static func gitRemoteVLines(fromConfig config: String) -> [String] {
+        var currentRemoteName: String?
+        var lines: [String] = []
+
+        for rawLine in config.components(separatedBy: .newlines) {
+            let line = rawLine.trimmingCharacters(in: .whitespaces)
+            if line.hasPrefix("[") && line.hasSuffix("]") {
+                currentRemoteName = gitConfigRemoteName(fromSectionHeader: line)
+                continue
+            }
+
+            guard let currentRemoteName else { continue }
+            let parts = line.split(separator: "=", maxSplits: 1).map {
+                $0.trimmingCharacters(in: .whitespaces)
+            }
+            guard parts.count == 2, parts[0] == "url", !parts[1].isEmpty else {
+                continue
+            }
+            lines.append("\(currentRemoteName)\t\(parts[1]) (fetch)\n")
+        }
+
+        return lines
+    }
+
+    private nonisolated static func gitConfigRemoteName(fromSectionHeader header: String) -> String? {
+        let prefix = "[remote \""
+        let suffix = "\"]"
+        guard header.hasPrefix(prefix), header.hasSuffix(suffix) else {
+            return nil
+        }
+        let name = header.dropFirst(prefix.count).dropLast(suffix.count)
+        return name.isEmpty ? nil : String(name)
+    }
+
+    private nonisolated static func gitTrackedChangesSnapshot(
+        repository: ResolvedGitRepository
+    ) -> (isDirty: Bool, indexSignature: String?) {
+        let indexURL = URL(fileURLWithPath: repository.gitDirectory).appendingPathComponent("index")
+        guard let indexSnapshot = gitIndexSnapshot(indexURL: indexURL) else {
+            return (false, gitIndexFileSignature(indexURL: indexURL))
+        }
+
+        for entry in indexSnapshot.entries {
+            let fileURL = URL(fileURLWithPath: repository.workTreeRoot).appendingPathComponent(entry.path)
+            var statValue = stat()
+            guard lstat(fileURL.path, &statValue) == 0 else {
+                return (true, indexSnapshot.signature)
+            }
+            let size = UInt32(clamping: statValue.st_size)
+            let mtimeSeconds = UInt32(clamping: statValue.st_mtimespec.tv_sec)
+            let mtimeNanoseconds = UInt32(clamping: statValue.st_mtimespec.tv_nsec)
+            if size != entry.size ||
+                mtimeSeconds != entry.mtimeSeconds ||
+                mtimeNanoseconds != entry.mtimeNanoseconds {
+                return (true, indexSnapshot.signature)
+            }
+        }
+
+        return (false, indexSnapshot.signature)
+    }
+
+    private nonisolated static func gitIndexSnapshot(indexURL: URL) -> GitIndexSnapshot? {
+        guard let data = try? Data(contentsOf: indexURL), data.count >= 32 else {
+            return nil
+        }
+        let bytes = [UInt8](data)
+        guard bytes[0] == 0x44, bytes[1] == 0x49, bytes[2] == 0x52, bytes[3] == 0x43 else {
+            return nil
+        }
+        let version = readBigEndianUInt32(bytes, at: 4)
+        guard version == 2 || version == 3 || version == 4 else {
+            return nil
+        }
+        let entryCount = Int(readBigEndianUInt32(bytes, at: 8))
+        let contentEnd = bytes.count - 20
+        var offset = 12
+        var entries: [GitIndexEntryStat] = []
+        entries.reserveCapacity(min(entryCount, 1024))
+        var previousPathBytes: [UInt8] = []
+
+        for _ in 0..<entryCount {
+            guard offset + 62 <= contentEnd else { return nil }
+            let entryStart = offset
+            let mtimeSeconds = readBigEndianUInt32(bytes, at: offset + 8)
+            let mtimeNanoseconds = readBigEndianUInt32(bytes, at: offset + 12)
+            let mode = readBigEndianUInt32(bytes, at: offset + 24)
+            let size = readBigEndianUInt32(bytes, at: offset + 36)
+            let flags = readBigEndianUInt16(bytes, at: offset + 60)
+            let pathLength = Int(flags & 0x0fff)
+            let hasExtendedFlags = version >= 3 && (flags & 0x4000) != 0
+            offset += 62
+            if hasExtendedFlags {
+                guard offset + 2 <= contentEnd else { return nil }
+                offset += 2
+            }
+
+            let pathBytes: [UInt8]
+            if version == 4 {
+                guard let stripLength = readGitIndexV4PathStripLength(bytes, offset: &offset),
+                      stripLength <= previousPathBytes.count else {
+                    return nil
+                }
+                let suffixStart = offset
+                while offset < contentEnd, bytes[offset] != 0 {
+                    offset += 1
+                }
+                guard offset < contentEnd else { return nil }
+                pathBytes = Array(previousPathBytes.dropLast(stripLength)) + Array(bytes[suffixStart..<offset])
+            } else {
+                let pathStart = offset
+                if pathLength < 0x0fff {
+                    offset += pathLength
+                    guard offset < contentEnd else { return nil }
+                } else {
+                    while offset < contentEnd, bytes[offset] != 0 {
+                        offset += 1
+                    }
+                    guard offset < contentEnd else { return nil }
+                }
+                pathBytes = Array(bytes[pathStart..<offset])
+            }
+
+            let pathData = Data(pathBytes)
+            guard let path = String(data: pathData, encoding: .utf8), !path.isEmpty else {
+                return nil
+            }
+            previousPathBytes = pathBytes
+            if (mode & 0o170000) != 0o160000 {
+                entries.append(
+                    GitIndexEntryStat(
+                        path: path,
+                        mtimeSeconds: mtimeSeconds,
+                        mtimeNanoseconds: mtimeNanoseconds,
+                        size: size
+                    )
+                )
+            }
+
+            offset += 1
+            if version != 4 {
+                let entryLength = offset - entryStart
+                let padding = (8 - (entryLength % 8)) % 8
+                offset += padding
+            }
+        }
+
+        let checksum = bytes[(bytes.count - 20)..<bytes.count].map { String(format: "%02x", $0) }.joined()
+        return GitIndexSnapshot(entries: entries, signature: checksum)
+    }
+
+    private nonisolated static func gitIndexFileSignature(indexURL: URL) -> String? {
+        guard let data = try? Data(contentsOf: indexURL), data.count >= 20 else {
+            return nil
+        }
+        return data.suffix(20).map { String(format: "%02x", $0) }.joined()
+    }
+
+    private nonisolated static func readGitIndexV4PathStripLength(
+        _ bytes: [UInt8],
+        offset: inout Int
+    ) -> Int? {
+        guard offset < bytes.count else { return nil }
+        var byte = bytes[offset]
+        offset += 1
+        var value = Int(byte & 0x7f)
+        while (byte & 0x80) != 0 {
+            guard offset < bytes.count else { return nil }
+            value += 1
+            byte = bytes[offset]
+            offset += 1
+            value = (value << 7) + Int(byte & 0x7f)
+        }
+        return value
+    }
+
+    private nonisolated static func readBigEndianUInt16(_ bytes: [UInt8], at offset: Int) -> UInt16 {
+        (UInt16(bytes[offset]) << 8) | UInt16(bytes[offset + 1])
+    }
+
+    private nonisolated static func readBigEndianUInt32(_ bytes: [UInt8], at offset: Int) -> UInt32 {
+        (UInt32(bytes[offset]) << 24) |
+            (UInt32(bytes[offset + 1]) << 16) |
+            (UInt32(bytes[offset + 2]) << 8) |
+            UInt32(bytes[offset + 3])
     }
 
     private nonisolated static func fetchWorkspacePullRequestRepoResults(
@@ -3514,7 +4198,8 @@ class TabManager: ObservableObject {
     }
 
     private nonisolated static func githubRepositorySlugs(directory: String) async -> [String] {
-        guard let output = await runGitCommand(directory: directory, arguments: ["remote", "-v"]) else {
+        guard let repository = resolveGitRepository(containing: directory),
+              let output = gitRemoteVOutput(repository: repository) else {
             return []
         }
         return githubRepositorySlugs(fromGitRemoteVOutput: output)
@@ -4046,6 +4731,10 @@ class TabManager: ObservableObject {
         tab.updatePanelDirectory(panelId: surfaceId, directory: normalized)
         let nextDirectory = normalizedWorkingDirectory(normalized)
         if previousDirectory != nextDirectory {
+            guard sidebarGitMetadataWatchEnabled else {
+                clearWorkspaceGitMetadata(for: WorkspaceGitProbeKey(workspaceId: tabId, panelId: surfaceId))
+                return
+            }
             scheduleWorkspacePullRequestRefresh(
                 workspaceId: tabId,
                 panelId: surfaceId,
@@ -4063,16 +4752,23 @@ class TabManager: ObservableObject {
         tabId: UUID,
         surfaceId: UUID,
         branch: String,
-        isDirty: Bool
+        isDirty: Bool?
     ) {
         guard let tab = tabs.first(where: { $0.id == tabId }) else { return }
+        let probeKey = WorkspaceGitProbeKey(workspaceId: tabId, panelId: surfaceId)
+        guard sidebarGitMetadataWatchEnabled else {
+            clearWorkspaceGitMetadata(for: probeKey)
+            return
+        }
         let current = tab.panelGitBranches[surfaceId]
         let normalizedBranch = Self.normalizedBranchName(branch) ?? branch
-        guard current?.branch != normalizedBranch || current?.isDirty != isDirty else { return }
-        tab.updatePanelGitBranch(panelId: surfaceId, branch: normalizedBranch, isDirty: isDirty)
+        let nextIsDirty = isDirty ?? (current?.branch == normalizedBranch ? current?.isDirty ?? false : false)
+        guard current?.branch != normalizedBranch || current?.isDirty != nextIsDirty else { return }
+        tab.updatePanelGitBranch(panelId: surfaceId, branch: normalizedBranch, isDirty: nextIsDirty)
         if let directory = gitProbeDirectory(for: tab, panelId: surfaceId) {
-            let probeKey = WorkspaceGitProbeKey(workspaceId: tabId, panelId: surfaceId)
             workspaceGitTrackedDirectoryByKey[probeKey] = directory
+            updateWorkspaceGitMetadataWatcher(for: probeKey, directory: directory)
+            updateWorkspaceGitMetadataFallbackTimer()
         }
         scheduleWorkspacePullRequestRefresh(
             workspaceId: tabId,
@@ -4094,6 +4790,10 @@ class TabManager: ObservableObject {
         clearWorkspacePullRequestTracking(
             for: WorkspaceGitProbeKey(workspaceId: tabId, panelId: surfaceId)
         )
+        let probeKey = WorkspaceGitProbeKey(workspaceId: tabId, panelId: surfaceId)
+        workspaceGitTrackedDirectoryByKey.removeValue(forKey: probeKey)
+        stopWorkspaceGitMetadataWatcher(for: probeKey)
+        updateWorkspaceGitMetadataFallbackTimer()
         tab.clearPanelGitBranch(panelId: surfaceId)
         tab.clearPanelPullRequest(panelId: surfaceId)
         scheduleWorkspaceGitMetadataRefreshIfPossible(
@@ -7722,6 +8422,7 @@ extension TabManager {
             clearWorkspaceGitProbe(key)
         }
         workspaceGitTrackedDirectoryByKey.removeAll()
+        updateWorkspaceGitMetadataFallbackTimer()
         resetWorkspacePullRequestRefreshState()
 
         // Clear non-@Published state without touching tabs/selectedTabId yet.

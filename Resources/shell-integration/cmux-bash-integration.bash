@@ -327,7 +327,7 @@ _cmux_tmux_sync_cmux_environment() {
 
 _cmux_git_resolve_head_path() {
     # Resolve the HEAD file path without invoking git (fast; works for worktrees).
-    local dir="$PWD"
+    local dir="${1:-$PWD}"
     while :; do
         if [[ -d "$dir/.git" ]]; then
             printf '%s\n' "$dir/.git/HEAD"
@@ -352,12 +352,30 @@ _cmux_git_resolve_head_path() {
     return 1
 }
 
+_cmux_git_resolve_git_dir() {
+    local repo_path="${1:-$PWD}"
+    local head_path
+    head_path="$(_cmux_git_resolve_head_path "$repo_path" 2>/dev/null || true)"
+    [[ -n "$head_path" ]] || return 1
+    dirname "$head_path"
+}
+
 _cmux_git_head_signature() {
     local head_path="$1"
     [[ -n "$head_path" && -r "$head_path" ]] || return 1
     local line
     IFS= read -r line < "$head_path" || return 1
     printf '%s\n' "$line"
+}
+
+_cmux_git_branch_for_path() {
+    local repo_path="$1"
+    local head_path="" head_line="" prefix="ref: refs/heads/"
+    head_path="$(_cmux_git_resolve_head_path "$repo_path" 2>/dev/null || true)"
+    [[ -n "$head_path" && -r "$head_path" ]] || return 1
+    IFS= read -r head_line < "$head_path" || return 1
+    [[ "$head_line" == "$prefix"* ]] || return 1
+    printf '%s\n' "${head_line#$prefix}"
 }
 
 _cmux_report_tty_payload() {
@@ -543,10 +561,26 @@ _cmux_pr_output_indicates_no_pull_request() {
 
 _cmux_github_repo_slug_for_path() {
     local repo_path="$1"
-    local remote_url="" path_part=""
+    local git_dir="" config_file="" remote_url="" path_part=""
     [[ -n "$repo_path" ]] || return 0
 
-    remote_url="$(git -C "$repo_path" remote get-url origin 2>/dev/null)"
+    git_dir="$(_cmux_git_resolve_git_dir "$repo_path" 2>/dev/null || true)"
+    [[ -n "$git_dir" ]] || return 0
+    config_file="$git_dir/config"
+    if [[ ! -r "$config_file" && -r "$git_dir/commondir" ]]; then
+        local common_dir
+        IFS= read -r common_dir < "$git_dir/commondir" || common_dir=""
+        common_dir="${common_dir## }"
+        common_dir="${common_dir%% }"
+        [[ "$common_dir" != /* ]] && common_dir="$git_dir/$common_dir"
+        config_file="$common_dir/config"
+    fi
+    [[ -r "$config_file" ]] || return 0
+    remote_url="$(awk '
+        $0 ~ /^\[remote \"origin\"\]/ { in_origin = 1; next }
+        $0 ~ /^\[/ { in_origin = 0 }
+        in_origin && $1 == "url" && $2 == "=" { print $3; exit }
+    ' "$config_file" 2>/dev/null)"
     [[ -n "$remote_url" ]] || return 0
 
     case "$remote_url" in
@@ -641,7 +675,7 @@ _cmux_report_pr_for_path() {
     local cache_branch="" cache_result="" cache_no_pr_branch=""
     local -a gh_repo_args=()
     now="$(_cmux_now)"
-    branch="$(git -C "$repo_path" branch --show-current 2>/dev/null)"
+    branch="$(_cmux_git_branch_for_path "$repo_path" 2>/dev/null || true)"
     if [[ -z "$branch" ]] || ! command -v gh >/dev/null 2>&1; then
         _cmux_pr_debug_log "$branch" "cache-miss:clear"
         _cmux_pr_cache_clear
@@ -825,6 +859,7 @@ _cmux_stop_pr_poll_loop() {
 }
 
 _cmux_start_pr_poll_loop() {
+    [[ "${CMUX_NO_GIT_WATCH:-}" == "1" ]] && return 0
     [[ -S "$CMUX_SOCKET_PATH" ]] || return 0
     [[ -n "$CMUX_TAB_ID" ]] || return 0
     [[ -n "$CMUX_PANEL_ID" ]] || return 0
@@ -1025,9 +1060,19 @@ _cmux_prompt_command() {
     # Branch can change via aliases/tools while an older probe is still in flight.
     # Track .git/HEAD content so we can restart stale probes immediately.
     local git_head_changed=0
+    if [[ "${CMUX_NO_GIT_WATCH:-}" == "1" ]]; then
+        _cmux_stop_pr_poll_loop
+        if [[ -n "$_CMUX_GIT_JOB_PID" ]] && kill -0 "$_CMUX_GIT_JOB_PID" 2>/dev/null; then
+            kill "$_CMUX_GIT_JOB_PID" >/dev/null 2>&1 || true
+        fi
+        _CMUX_GIT_JOB_PID=""
+        _CMUX_GIT_JOB_STARTED_AT=0
+        _CMUX_GIT_HEAD_LAST_PWD="$pwd"
+        _CMUX_GIT_LAST_PWD="$pwd"
+    fi
     if [[ "$pwd" != "$_CMUX_GIT_HEAD_LAST_PWD" ]]; then
         _CMUX_GIT_HEAD_LAST_PWD="$pwd"
-        _CMUX_GIT_HEAD_PATH="$(_cmux_git_resolve_head_path 2>/dev/null || true)"
+        _CMUX_GIT_HEAD_PATH="$(_cmux_git_resolve_head_path "$pwd" 2>/dev/null || true)"
         _CMUX_GIT_HEAD_SIGNATURE=""
     fi
     if [[ -n "$_CMUX_GIT_HEAD_PATH" ]]; then
@@ -1052,7 +1097,7 @@ _cmux_prompt_command() {
     # so update on every prompt (still async + de-duped by the running-job check).
     # When pwd changes (cd into a different repo), kill the old probe and start fresh
     # so the sidebar picks up the new branch immediately.
-    if [[ -n "$_CMUX_GIT_JOB_PID" ]] && kill -0 "$_CMUX_GIT_JOB_PID" 2>/dev/null; then
+    if [[ "${CMUX_NO_GIT_WATCH:-}" != "1" && -n "$_CMUX_GIT_JOB_PID" ]] && kill -0 "$_CMUX_GIT_JOB_PID" 2>/dev/null; then
         if [[ "$pwd" != "$_CMUX_GIT_LAST_PWD" || "$git_head_changed" == "1" ]]; then
             kill "$_CMUX_GIT_JOB_PID" >/dev/null 2>&1 || true
             _CMUX_GIT_JOB_PID=""
@@ -1060,18 +1105,13 @@ _cmux_prompt_command() {
         fi
     fi
 
-    if [[ -z "$_CMUX_GIT_JOB_PID" ]] || ! kill -0 "$_CMUX_GIT_JOB_PID" 2>/dev/null; then
+    if [[ "${CMUX_NO_GIT_WATCH:-}" != "1" ]] && { [[ -z "$_CMUX_GIT_JOB_PID" ]] || ! kill -0 "$_CMUX_GIT_JOB_PID" 2>/dev/null; }; then
         _CMUX_GIT_LAST_PWD="$pwd"
         _CMUX_GIT_LAST_RUN=$now
         {
-            # Skip git operations if not in a git repository to avoid TCC prompts
-            git rev-parse --git-dir >/dev/null 2>&1 || return 0
-            local branch dirty_opt=""
-            branch=$(git branch --show-current 2>/dev/null)
+            local branch dirty_opt="--status=unknown"
+            branch="$(_cmux_git_branch_for_path "$pwd" 2>/dev/null || true)"
             if [[ -n "$branch" ]]; then
-                local first
-                first=$(git status --porcelain -uno 2>/dev/null | head -1)
-                [[ -n "$first" ]] && dirty_opt="--status=dirty"
                 _cmux_send "report_git_branch $branch $dirty_opt --tab=$CMUX_TAB_ID --panel=$CMUX_PANEL_ID"
             else
                 _cmux_send "clear_git_branch --tab=$CMUX_TAB_ID --panel=$CMUX_PANEL_ID"

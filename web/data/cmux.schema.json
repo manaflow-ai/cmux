@@ -457,6 +457,11 @@
           "default": true,
           "description": "Show pull request metadata in the sidebar."
         },
+        "watchGitStatus": {
+          "type": "boolean",
+          "default": true,
+          "description": "Watch repository files for sidebar branch and pull request metadata without polling git."
+        },
         "makePullRequestsClickable": {
           "type": "boolean",
           "default": true,
