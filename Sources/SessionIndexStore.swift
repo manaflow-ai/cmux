@@ -2,6 +2,7 @@ import AppKit
 import Bonsplit
 import CMUXAgentLaunch
 import Combine
+import Darwin
 import Foundation
 import os
 import SQLite3
@@ -10,6 +11,51 @@ nonisolated private let sessionIndexLogger = Logger(
     subsystem: Bundle.main.bundleIdentifier ?? "com.cmuxterm.app",
     category: "SessionIndexStore"
 )
+
+final class SessionIndexRipgrepCancellation: @unchecked Sendable {
+    private let lock = NSLock()
+    private let sendSignal: @Sendable (pid_t, Int32) -> Int32
+    private var activeProcessIdentifier: pid_t?
+    private var finishedProcessIdentifiers = Set<pid_t>()
+
+    init(sendSignal: @escaping @Sendable (pid_t, Int32) -> Int32 = Darwin.kill) {
+        self.sendSignal = sendSignal
+    }
+
+    func markStarted(processIdentifier: pid_t) {
+        lock.lock()
+        defer { lock.unlock() }
+
+        if finishedProcessIdentifiers.contains(processIdentifier) {
+            activeProcessIdentifier = nil
+        } else {
+            activeProcessIdentifier = processIdentifier
+        }
+    }
+
+    func markFinished(processIdentifier: pid_t) {
+        lock.lock()
+        defer { lock.unlock() }
+
+        finishedProcessIdentifiers.insert(processIdentifier)
+        if finishedProcessIdentifiers.count > 16 {
+            finishedProcessIdentifiers.removeAll(keepingCapacity: true)
+            finishedProcessIdentifiers.insert(processIdentifier)
+        }
+        if activeProcessIdentifier == processIdentifier {
+            activeProcessIdentifier = nil
+        }
+    }
+
+    func cancel() {
+        lock.lock()
+        let processIdentifier = activeProcessIdentifier
+        lock.unlock()
+
+        guard let processIdentifier else { return }
+        _ = sendSignal(processIdentifier, SIGTERM)
+    }
+}
 
 // MARK: - Parsed metadata cache
 
@@ -1237,10 +1283,8 @@ final class SessionIndexStore: ObservableObject {
     /// URLs, or nil if rg isn't available or the run failed (caller falls back).
     ///
     /// Async by design so we can wire cancellation: when the awaiting Task is
-    /// cancelled (e.g. user types another key), `onCancel` calls
-    /// `process.terminate()`, killing the in-flight rg instead of letting it
-    /// grind to completion. Wait is also async (via `terminationHandler`) so we
-    /// don't tie up a cooperative-pool thread on `waitUntilExit`.
+    /// cancelled (e.g. user types another key), `onCancel` signals the launched
+    /// rg process instead of letting it grind to completion.
     nonisolated static func ripgrepMatchingPaths(
         needle: String, root: String, fileGlob: String
     ) async -> [URL]? {
@@ -1265,9 +1309,18 @@ final class SessionIndexStore: ObservableObject {
         if let nullDev = FileHandle(forWritingAtPath: "/dev/null") {
             process.standardError = nullDev
         }
+        let cancellation = SessionIndexRipgrepCancellation()
+        process.terminationHandler = { process in
+            cancellation.markFinished(processIdentifier: process.processIdentifier)
+        }
 
         return await withTaskCancellationHandler {
+            guard !Task.isCancelled else { return nil as [URL]? }
             do { try process.run() } catch { return nil as [URL]? }
+            cancellation.markStarted(processIdentifier: process.processIdentifier)
+            if Task.isCancelled {
+                cancellation.cancel()
+            }
             // Drain stdout BEFORE waitUntilExit. With many matches rg writes
             // more than the ~64 KB pipe buffer; reading until EOF lets rg
             // make progress and EOF arrives when rg closes its stdout on exit.
@@ -1278,6 +1331,7 @@ final class SessionIndexStore: ObservableObject {
             // late and never fires → deadlock.)
             let data = outPipe.fileHandleForReading.readDataToEndOfFile()
             process.waitUntilExit()
+            cancellation.markFinished(processIdentifier: process.processIdentifier)
             // rg exit codes: 0 = matches, 1 = no matches, 2 = error/terminated.
             switch process.terminationStatus {
             case 0:
@@ -1290,10 +1344,10 @@ final class SessionIndexStore: ObservableObject {
                 return nil
             }
         } onCancel: {
-            // Fires synchronously when the awaiting Task is cancelled. Sends
-            // SIGTERM to rg, which closes stdout, lets readDataToEndOfFile
-            // return, and unblocks the body so this call can complete cleanly.
-            process.terminate()
+            // Fires synchronously when the awaiting Task is cancelled. SIGTERM
+            // closes stdout, lets readDataToEndOfFile return, and unblocks the
+            // body so this call can complete cleanly.
+            cancellation.cancel()
         }
     }
 
