@@ -1274,7 +1274,12 @@ final class SessionIndexStore: ObservableObject {
                 terminationGate.markFinished()
                 return nil as [URL]?
             }
-            if terminationGate.markLaunched(), process.isRunning {
+            if terminationGate.markLaunched() {
+                guard process.isRunning else {
+                    process.waitUntilExit()
+                    terminationGate.markFinished()
+                    return nil as [URL]?
+                }
                 process.terminate()
             }
             // Drain stdout BEFORE waitUntilExit. With many matches rg writes

@@ -28,8 +28,8 @@ final class ProcessTerminationGate: @unchecked Sendable {
 
     func markFinished() {
         lock.lock()
+        defer { lock.unlock() }
         didFinish = true
-        lock.unlock()
     }
 }
 
@@ -155,8 +155,8 @@ enum AgentForkSupport {
             if terminationGate.markLaunched() {
                 if process.isRunning {
                     process.terminate()
+                    startKillTimer(processIdentifier: process.processIdentifier)
                 }
-                startKillTimer(processIdentifier: process.processIdentifier)
             }
         }
 
