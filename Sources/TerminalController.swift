@@ -3592,31 +3592,113 @@ class TerminalController {
         ]
     }
 
-    private func v2SystemTree(params: [String: Any]) -> V2CallResult {
-        let workspaceFilter = v2UUID(params, "workspace_id")
-        if params["workspace_id"] != nil && workspaceFilter == nil {
-            return .err(code: "invalid_params", message: "Missing or invalid workspace_id", data: nil)
+    private struct V2WindowRouting {
+        let includeAllWindows: Bool
+        let requestedWindowId: UUID?
+        let focused: [String: Any]
+        let caller: [String: Any]
+        let focusedWindowId: UUID?
+    }
+
+    private func v2WindowSelectorDetails(params: [String: Any]) -> [String: Any]? {
+        guard let rawWindowId = params["window_id"] else { return nil }
+        if let string = rawWindowId as? String {
+            return ["window_id": string]
         }
+        return ["window_id": String(describing: rawWindowId)]
+    }
+
+    private func parseV2WindowRouting(params: [String: Any]) -> (routing: V2WindowRouting?, error: V2CallResult?) {
+        if params["all_windows"] != nil, v2Bool(params, "all_windows") == nil {
+            return (
+                nil,
+                .err(
+                    code: "invalid_params",
+                    message: "Invalid all_windows. Pass true or false, or omit it. Use --window <id|ref|index> to target one window or --all-windows to target all windows.",
+                    data: nil
+                )
+            )
+        }
+
         let includeAllWindows = v2Bool(params, "all_windows") ?? false
+        let requestedWindowId = v2UUID(params, "window_id")
+        if params["window_id"] != nil && requestedWindowId == nil {
+            return (
+                nil,
+                .err(
+                    code: "invalid_params",
+                    message: "Invalid window selector. Use --window <id|ref|index> to target one window, or run `cmux list-windows` to see available windows and retry.",
+                    data: v2WindowSelectorDetails(params: params)
+                )
+            )
+        }
+        if includeAllWindows, requestedWindowId != nil {
+            return (
+                nil,
+                .err(
+                    code: "invalid_params",
+                    message: "Choose either --window <id|ref|index> or --all-windows, not both. Run `cmux list-windows` to see available windows and retry.",
+                    data: v2WindowSelectorDetails(params: params)
+                )
+            )
+        }
 
         var identifyParams: [String: Any] = [:]
         if let caller = params["caller"] as? [String: Any], !caller.isEmpty {
             identifyParams["caller"] = caller
         }
+        if let requestedWindowId {
+            identifyParams["window_id"] = requestedWindowId.uuidString
+        }
         let identifyPayload = v2Identify(params: identifyParams)
         let focused = identifyPayload["focused"] as? [String: Any] ?? [:]
         let caller = identifyPayload["caller"] as? [String: Any] ?? [:]
         let focusedWindowId = v2UUIDAny(focused["window_id"]) ?? v2UUIDAny(focused["window_ref"])
+        return (
+            V2WindowRouting(
+                includeAllWindows: includeAllWindows,
+                requestedWindowId: requestedWindowId,
+                focused: focused,
+                caller: caller,
+                focusedWindowId: focusedWindowId
+            ),
+            nil
+        )
+    }
+
+    private func v2WindowNotFoundResult(params: [String: Any], windowId: UUID) -> V2CallResult {
+        .err(
+            code: "not_found",
+            message: "Window not found. Run `cmux list-windows` to see available windows, then retry with --window <id|ref|index>.",
+            data: v2WindowSelectorDetails(params: params) ?? ["window_id": windowId.uuidString]
+        )
+    }
+
+    private func v2SystemTree(params: [String: Any]) -> V2CallResult {
+        let workspaceFilter = v2UUID(params, "workspace_id")
+        if params["workspace_id"] != nil && workspaceFilter == nil {
+            return .err(code: "invalid_params", message: "Missing or invalid workspace_id", data: nil)
+        }
+        let routingResult = parseV2WindowRouting(params: params)
+        if let error = routingResult.error { return error }
+        guard let routing = routingResult.routing else {
+            return .err(code: "internal_error", message: "Invalid window routing payload", data: nil)
+        }
 
         var windowNodes: [[String: Any]] = []
         var workspaceFound = (workspaceFilter == nil)
+        var windowFound = (routing.requestedWindowId == nil)
 
         v2MainSync {
             guard let app = AppDelegate.shared else { return }
             let summaries = app.listMainWindowSummaries()
-            let defaultWindowId = focusedWindowId ?? summaries.first?.windowId
+            let defaultWindowId = routing.requestedWindowId ?? routing.focusedWindowId ?? summaries.first?.windowId
 
             for (windowIndex, summary) in summaries.enumerated() {
+                if let requestedWindowId = routing.requestedWindowId, summary.windowId != requestedWindowId {
+                    continue
+                }
+                windowFound = true
                 guard let manager = app.tabManagerFor(windowId: summary.windowId) else { continue }
 
                 if let workspaceFilter {
@@ -3640,7 +3722,7 @@ class TerminalController {
                     break
                 }
 
-                if !includeAllWindows && summary.windowId != defaultWindowId {
+                if !routing.includeAllWindows && summary.windowId != defaultWindowId {
                     continue
                 }
 
@@ -3662,6 +3744,9 @@ class TerminalController {
             }
         }
 
+        if let requestedWindowId = routing.requestedWindowId, !windowFound {
+            return v2WindowNotFoundResult(params: params, windowId: requestedWindowId)
+        }
         if let workspaceFilter, !workspaceFound {
             return .err(
                 code: "not_found",
@@ -3674,8 +3759,8 @@ class TerminalController {
         }
 
         return .ok([
-            "active": focused.isEmpty ? (NSNull() as Any) : focused,
-            "caller": caller.isEmpty ? (NSNull() as Any) : caller,
+            "active": routing.focused.isEmpty ? (NSNull() as Any) : routing.focused,
+            "caller": routing.caller.isEmpty ? (NSNull() as Any) : routing.caller,
             "windows": windowNodes
         ])
     }
@@ -3907,28 +3992,27 @@ class TerminalController {
         if params["workspace_id"] != nil && workspaceFilter == nil {
             return .err(code: "invalid_params", message: "Missing or invalid workspace_id", data: nil)
         }
-        if params["all_windows"] != nil, v2Bool(params, "all_windows") == nil { return .err(code: "invalid_params", message: "Missing or invalid all_windows", data: nil) }
-        let includeAllWindows = v2Bool(params, "all_windows") ?? false
         if params["include_processes"] != nil, v2Bool(params, "include_processes") == nil { return .err(code: "invalid_params", message: "Missing or invalid include_processes", data: nil) }
         let includeProcesses = v2Bool(params, "include_processes") ?? false
-
-        var identifyParams: [String: Any] = [:]
-        if let caller = params["caller"] as? [String: Any], !caller.isEmpty {
-            identifyParams["caller"] = caller
+        let routingResult = parseV2WindowRouting(params: params)
+        if let error = routingResult.error { return error }
+        guard let routing = routingResult.routing else {
+            return .err(code: "internal_error", message: "Invalid window routing payload", data: nil)
         }
-        let identifyPayload = v2Identify(params: identifyParams)
-        let focused = identifyPayload["focused"] as? [String: Any] ?? [:]
-        let caller = identifyPayload["caller"] as? [String: Any] ?? [:]
-        let focusedWindowId = v2UUIDAny(focused["window_id"]) ?? v2UUIDAny(focused["window_ref"])
 
         var windowNodes: [[String: Any]] = []
         var workspaceFound = (workspaceFilter == nil)
+        var windowFound = (routing.requestedWindowId == nil)
 
         if let app = AppDelegate.shared {
             let summaries = app.listMainWindowSummaries()
-            let defaultWindowId = focusedWindowId ?? summaries.first?.windowId
+            let defaultWindowId = routing.requestedWindowId ?? routing.focusedWindowId ?? summaries.first?.windowId
 
             for (windowIndex, summary) in summaries.enumerated() {
+                if let requestedWindowId = routing.requestedWindowId, summary.windowId != requestedWindowId {
+                    continue
+                }
+                windowFound = true
                 guard let manager = app.tabManagerFor(windowId: summary.windowId) else { continue }
 
                 if let workspaceFilter {
@@ -3952,7 +4036,7 @@ class TerminalController {
                     break
                 }
 
-                if !includeAllWindows && summary.windowId != defaultWindowId {
+                if !routing.includeAllWindows && summary.windowId != defaultWindowId {
                     continue
                 }
 
@@ -3976,6 +4060,9 @@ class TerminalController {
 
         v2AttachTopApplicationProcess(to: &windowNodes, workspaceFilter: workspaceFilter)
 
+        if let requestedWindowId = routing.requestedWindowId, !windowFound {
+            return v2WindowNotFoundResult(params: params, windowId: requestedWindowId)
+        }
         if let workspaceFilter, !workspaceFound {
             return .err(
                 code: "not_found",
@@ -3988,8 +4075,8 @@ class TerminalController {
         }
 
         return .ok([
-            "active": focused.isEmpty ? (NSNull() as Any) : focused,
-            "caller": caller.isEmpty ? (NSNull() as Any) : caller,
+            "active": routing.focused.isEmpty ? (NSNull() as Any) : routing.focused,
+            "caller": routing.caller.isEmpty ? (NSNull() as Any) : routing.caller,
             "include_processes": includeProcesses,
             "windows": windowNodes
         ])
@@ -4595,7 +4682,8 @@ class TerminalController {
     func v2ResolveTabManager(params: [String: Any]) -> TabManager? {
         // Prefer explicit window_id routing. Fall back to global lookup by workspace_id/surface_id/tab_id,
         // and finally to the active window's TabManager.
-        if let windowId = v2UUID(params, "window_id") {
+        if v2HasNonNullParam(params, "window_id") {
+            guard let windowId = v2UUID(params, "window_id") else { return nil }
             return v2MainSync { AppDelegate.shared?.tabManagerFor(windowId: windowId) }
         }
         if let wsId = v2UUID(params, "workspace_id") {
@@ -6382,6 +6470,7 @@ class TerminalController {
         }
         if let paneId = v2UUID(params, "pane_id"),
            let located = v2LocatePane(paneId) {
+            guard located.tabManager === tabManager else { return nil }
             return located.workspace
         }
         guard let wsId = tabManager.selectedTabId else { return nil }
