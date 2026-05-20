@@ -92,6 +92,31 @@ def _wait_for_read_screen(cli: str, workspace_ref: str, surface_ref: str, token:
     raise cmuxError(f"read-screen never observed {token!r} for {surface_ref}: {last_output!r}")
 
 
+def _wait_for_read_screen_ready(cli: str, workspace_ref: str, surface_ref: str, label: str) -> None:
+    deadline = time.time() + 8.0
+    last_output = ""
+    while time.time() < deadline:
+        code, output = _run_cli(
+            cli,
+            [
+                "read-screen",
+                "--workspace",
+                workspace_ref,
+                "--surface",
+                surface_ref,
+                "--scrollback",
+                "--lines",
+                "80",
+            ],
+            check=False,
+        )
+        last_output = output
+        if code == 0:
+            return
+        time.sleep(0.1)
+    raise cmuxError(f"read-screen did not start {label} helper terminal {surface_ref}: {last_output!r}")
+
+
 def _exercise_helper(cli: str, workspace_ref: str, surface_ref: str, label: str) -> None:
     token = f"CMUX_HELPER_PTY_{label}_{int(time.time() * 1000)}"
     _run_cli(
@@ -179,6 +204,7 @@ def main() -> int:
                 ],
             )
             helper_surface_ref = _extract_ref(surface_output, "surface")
+            _wait_for_read_screen_ready(cli, workspace_ref, helper_surface_ref, "surface")
             _exercise_helper(cli, workspace_ref, helper_surface_ref, "surface")
 
             _, pane_output = _run_cli(
@@ -196,6 +222,7 @@ def main() -> int:
                 ],
             )
             helper_pane_surface_ref = _extract_ref(pane_output, "surface")
+            _wait_for_read_screen_ready(cli, workspace_ref, helper_pane_surface_ref, "pane")
             _exercise_helper(cli, workspace_ref, helper_pane_surface_ref, "pane")
 
             current = c._call("workspace.current") or {}
