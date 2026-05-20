@@ -16,8 +16,6 @@ enum CmuxApplicationSupportDirectories {
             }
         }
 
-        append(fileManager.urls(for: .applicationSupportDirectory, in: .userDomainMask).first)
-
         if let fixedHome = environment["CFFIXED_USER_HOME"]?.trimmingCharacters(in: .whitespacesAndNewlines),
            !fixedHome.isEmpty {
             append(
@@ -25,6 +23,16 @@ enum CmuxApplicationSupportDirectories {
                     .appendingPathComponent("Library/Application Support", isDirectory: true)
             )
         }
+
+        if let home = environment["HOME"]?.trimmingCharacters(in: .whitespacesAndNewlines),
+           !home.isEmpty {
+            append(
+                URL(fileURLWithPath: home, isDirectory: true)
+                    .appendingPathComponent("Library/Application Support", isDirectory: true)
+            )
+        }
+
+        append(fileManager.urls(for: .applicationSupportDirectory, in: .userDomainMask).first)
 
         append(
             URL(

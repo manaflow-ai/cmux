@@ -95,15 +95,15 @@ enum CLISocketPathResolver {
             bundleIdentifier: bundleIdentifier,
             environment: environment,
             isDebugBuild: false,
-            stableSocketPath: stableDefaultSocketPath,
+            stableSocketPath: stableDefaultSocketPath(environment: environment),
             debugSocketPath: fallbackSocketPath,
             nightlySocketPath: nightlySocketPath,
             stagingSocketPath: stagingSocketPath
         )
     }
 
-    private static var stableDefaultSocketPath: String {
-        let stablePath: String? = stableSocketDirectoryURL()?
+    private static func stableDefaultSocketPath(environment: [String: String]) -> String {
+        let stablePath: String? = stableSocketDirectoryURLs(environment: environment).first?
             .appendingPathComponent(stableSocketFileName, isDirectory: false)
             .path
         return stablePath ?? legacyDefaultSocketPath
@@ -155,24 +155,25 @@ enum CLISocketPathResolver {
         let variant = SocketPathMarkerFiles.variant(bundleIdentifier: bundleIdentifier, environment: environment)
         let defaultPath = defaultSocketPath(bundleIdentifier: bundleIdentifier, environment: environment)
 
-        candidates.append(defaultPath)
         if let last = readLastSocketPath(bundleIdentifier: bundleIdentifier, environment: environment) {
             candidates.append(last)
         }
+        candidates.append(defaultPath)
         if shouldIncludeImplicitRequestedPath(
             requestedPath,
             defaultPath: defaultPath,
-            variant: variant
+            variant: variant,
+            environment: environment
         ) {
             candidates.append(requestedPath)
         }
-        candidates.append(contentsOf: implicitFallbackCandidatePaths(for: variant))
+        candidates.append(contentsOf: implicitFallbackCandidatePaths(for: variant, environment: environment))
         if shouldDiscoverTaggedSockets(
             variant: variant,
             bundleIdentifier: bundleIdentifier,
             environment: environment
         ) {
-            candidates.append(contentsOf: discoverTaggedSockets(limit: 12))
+            candidates.append(contentsOf: discoverTaggedSockets(limit: 12, environment: environment))
         }
         return candidates
     }
@@ -180,20 +181,24 @@ enum CLISocketPathResolver {
     private static func shouldIncludeImplicitRequestedPath(
         _ requestedPath: String,
         defaultPath: String,
-        variant: SocketPathVariant
+        variant: SocketPathVariant,
+        environment: [String: String]
     ) -> Bool {
         switch variant {
         case .stable:
             return true
         case .nightly, .staging, .dev:
-            return requestedPath == defaultPath || !stableImplicitDefaultPaths().contains(requestedPath)
+            return requestedPath == defaultPath || !stableImplicitDefaultPaths(environment: environment).contains(requestedPath)
         }
     }
 
-    private static func implicitFallbackCandidatePaths(for variant: SocketPathVariant) -> [String] {
+    private static func implicitFallbackCandidatePaths(
+        for variant: SocketPathVariant,
+        environment: [String: String]
+    ) -> [String] {
         switch variant {
         case .stable:
-            return stableImplicitDefaultPaths()
+            return stableImplicitDefaultPaths(environment: environment)
         case .nightly, .staging, .dev:
             return []
         }
@@ -232,9 +237,9 @@ enum CLISocketPathResolver {
         return nil
     }
 
-    private static func discoverTaggedSockets(limit: Int) -> [String] {
+    private static func discoverTaggedSockets(limit: Int, environment: [String: String]) -> [String] {
         var discovered: [(path: String, mtime: TimeInterval)] = []
-        for directory in socketDiscoveryDirectories() {
+        for directory in socketDiscoveryDirectories(environment: environment) {
             guard let entries = try? FileManager.default.contentsOfDirectory(atPath: directory) else {
                 continue
             }
@@ -246,7 +251,7 @@ enum CLISocketPathResolver {
                 var st = stat()
                 guard lstat(path, &st) == 0 else { continue }
                 guard (st.st_mode & mode_t(S_IFMT)) == mode_t(S_IFSOCK) else { continue }
-                if allKnownDefaultSocketPaths().contains(path) {
+                if allKnownDefaultSocketPaths(environment: environment).contains(path) {
                     continue
                 }
                 let modified = TimeInterval(st.st_mtimespec.tv_sec) + TimeInterval(st.st_mtimespec.tv_nsec) / 1_000_000_000
@@ -320,20 +325,20 @@ enum CLISocketPathResolver {
     ) -> [String] {
         dedupe(
             [defaultSocketPath(bundleIdentifier: bundleIdentifier, environment: environment)]
-                + stableImplicitDefaultPaths()
+                + stableImplicitDefaultPaths(environment: environment)
         )
     }
 
-    private static func stableImplicitDefaultPaths() -> [String] {
+    private static func stableImplicitDefaultPaths(environment: [String: String]) -> [String] {
         dedupe([
-            stableDefaultSocketPath,
+            stableDefaultSocketPath(environment: environment),
             legacyDefaultSocketPath,
         ])
     }
 
-    private static func allKnownDefaultSocketPaths() -> Set<String> {
+    private static func allKnownDefaultSocketPaths(environment: [String: String]) -> Set<String> {
         Set(dedupe([
-            stableDefaultSocketPath,
+            stableDefaultSocketPath(environment: environment),
             legacyDefaultSocketPath,
             fallbackSocketPath,
             nightlySocketPath,
@@ -345,11 +350,13 @@ enum CLISocketPathResolver {
         bundleIdentifier: String?,
         environment: [String: String]
     ) -> [String] {
-        SocketPathMarkerFiles.paths(
-            bundleIdentifier: bundleIdentifier,
-            environment: environment,
-            appSupportDirectory: stableSocketDirectoryURL()
-        )
+        dedupe(stableSocketDirectoryURLs(environment: environment).flatMap { appSupportDirectory in
+            SocketPathMarkerFiles.paths(
+                bundleIdentifier: bundleIdentifier,
+                environment: environment,
+                appSupportDirectory: appSupportDirectory
+            )
+        })
     }
 
     static func currentAppBundleIdentifier() -> String? {
@@ -378,19 +385,17 @@ enum CLISocketPathResolver {
         return trimmed.isEmpty ? nil : trimmed
     }
 
-    private static func stableSocketDirectoryURL() -> URL? {
-        guard let appSupportDirectory = FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask).first else {
-            return nil
+    private static func stableSocketDirectoryURLs(environment: [String: String]) -> [URL] {
+        CmuxApplicationSupportDirectories.userDirectories(environment: environment).map {
+            $0.appendingPathComponent(appSupportDirectoryName, isDirectory: true)
         }
-        return appSupportDirectory.appendingPathComponent(appSupportDirectoryName, isDirectory: true)
     }
 
-    private static func socketDiscoveryDirectories() -> [String] {
-        let appSupportSocketDirectory: String = stableSocketDirectoryURL()?.path ?? ""
+    private static func socketDiscoveryDirectories(environment: [String: String]) -> [String] {
+        let appSupportSocketDirectories = stableSocketDirectoryURLs(environment: environment).map(\.path)
         return dedupe([
             "/tmp",
-            appSupportSocketDirectory,
-        ])
+        ] + appSupportSocketDirectories)
     }
 
     private static func dedupe(_ paths: [String]) -> [String] {
