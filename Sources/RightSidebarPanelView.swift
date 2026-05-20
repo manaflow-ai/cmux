@@ -552,6 +552,10 @@ private struct ModeBarButton: View {
                             weight: RightSidebarChromeControlStyle.iconWeight
                         )
                     )
+                    .reportRightSidebarChromeNamedGeometryForBonsplitUITest(
+                        keyPrefix: "rightSidebarModeIcon_\(mode.rawValue)",
+                        isVisible: true
+                    )
                 Text(mode.label)
                     .font(
                         .system(
