@@ -1,7 +1,8 @@
+import Observation
 import SwiftUI
 
 struct CmuxTaskManagerView: View {
-    @ObservedObject var model: CmuxTaskManagerModel
+    @Bindable var model: CmuxTaskManagerModel
 
     var body: some View {
         VStack(spacing: 0) {

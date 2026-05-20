@@ -323,13 +323,13 @@ struct CmuxTaskManagerResources {
     }
 }
 
-struct CmuxTaskManagerMemoryDiagnostic {
+struct CmuxTaskManagerMemoryDiagnostic: Sendable {
     let summary: String
     let appFootprintBytes: Int64
     let appResidentBytes: Int64
     let childRSSBytes: Int64
     let childProcessCount: Int
-    let groups: [[String: Any]]
+    let groups: [CmuxTaskManagerMemoryGroup]
 
     init?(_ payload: [String: Any]?) {
         guard let payload else { return nil }
@@ -340,10 +340,11 @@ struct CmuxTaskManagerMemoryDiagnostic {
         self.appResidentBytes = Self.int64(app["resident_bytes"])
         self.childRSSBytes = Self.int64(children["recursive_rss_bytes"])
         self.childProcessCount = Self.int(children["process_count"]) ?? 0
-        self.groups = children["groups"] as? [[String: Any]] ?? []
+        self.groups = (children["groups"] as? [[String: Any]] ?? [])
+            .compactMap(CmuxTaskManagerMemoryGroup.init)
     }
 
-    private static func string(_ raw: Any?) -> String? {
+    static func string(_ raw: Any?) -> String? {
         guard let value = raw as? String else { return nil }
         let trimmed = value.trimmingCharacters(in: .whitespacesAndNewlines)
         return trimmed.isEmpty ? nil : trimmed
@@ -373,6 +374,59 @@ struct CmuxTaskManagerMemoryDiagnostic {
         if let values = raw as? [Int] { return values }
         guard let values = raw as? [Any] else { return [] }
         return values.compactMap(int)
+    }
+}
+
+struct CmuxTaskManagerMemoryGroup: Sendable {
+    let id: String
+    let name: String
+    let rssBytes: Int64
+    let processCount: Int
+    let processIds: [Int]
+    let topAttribution: CmuxTaskManagerMemoryAttribution?
+
+    init?(_ payload: [String: Any]) {
+        guard let name = CmuxTaskManagerMemoryDiagnostic.string(payload["name"]) else {
+            return nil
+        }
+        let processCount = CmuxTaskManagerMemoryDiagnostic.int(payload["process_count"]) ?? 0
+        guard processCount > 0 else { return nil }
+        self.id = CmuxTaskManagerMemoryDiagnostic.string(payload["id"]) ?? name.lowercased()
+        self.name = name
+        self.rssBytes = CmuxTaskManagerMemoryDiagnostic.int64(payload["rss_bytes"])
+        self.processCount = processCount
+        self.processIds = CmuxTaskManagerMemoryDiagnostic.intArray(payload["pids"])
+        self.topAttribution = CmuxTaskManagerMemoryAttribution(payload["top_attribution"] as? [String: Any])
+    }
+}
+
+struct CmuxTaskManagerMemoryAttribution: Sendable {
+    let workspaceId: UUID?
+    let workspaceRef: String?
+    let surfaceId: UUID?
+    let surfaceRef: String?
+    let surfaceType: String?
+
+    init?(_ payload: [String: Any]?) {
+        guard let payload else { return nil }
+        self.workspaceId = Self.uuid(payload["workspace_id"])
+        self.workspaceRef = CmuxTaskManagerMemoryDiagnostic.string(payload["workspace_ref"])
+        self.surfaceId = Self.uuid(payload["surface_id"])
+        self.surfaceRef = CmuxTaskManagerMemoryDiagnostic.string(payload["surface_ref"])
+        self.surfaceType = CmuxTaskManagerMemoryDiagnostic.string(payload["surface_type"])
+        if workspaceId == nil, workspaceRef == nil, surfaceId == nil, surfaceRef == nil, surfaceType == nil {
+            return nil
+        }
+    }
+
+    private static func uuid(_ raw: Any?) -> UUID? {
+        if let value = raw as? UUID {
+            return value
+        }
+        guard let value = CmuxTaskManagerMemoryDiagnostic.string(raw) else {
+            return nil
+        }
+        return UUID(uuidString: value)
     }
 }
 

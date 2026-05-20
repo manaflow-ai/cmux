@@ -6,6 +6,8 @@ private nonisolated struct CmuxTopProcessSnapshotCacheState {
     var includeProcessDetails = false
 }
 
+// libproc snapshots are a short-lived platform bridge shared by the CLI, socket,
+// and Task Manager paths; keep the cache here so ownership stays with capture().
 private nonisolated let cmuxTopProcessSnapshotCache = OSAllocatedUnfairLock(
     initialState: CmuxTopProcessSnapshotCacheState()
 )

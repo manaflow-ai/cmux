@@ -98,58 +98,52 @@ struct CmuxTaskManagerSnapshot {
 
     private static func childMemoryRows(from diagnostic: CmuxTaskManagerMemoryDiagnostic?) -> [CmuxTaskManagerRow] {
         guard let diagnostic else { return [] }
-        return diagnostic.groups.compactMap { payload in
-            guard let title = nonEmptyString(payload["name"]) else { return nil }
-            let rssBytes = CmuxTaskManagerMemoryDiagnostic.int64(payload["rss_bytes"])
-            let processCount = CmuxTaskManagerMemoryDiagnostic.int(payload["process_count"]) ?? 0
-            guard processCount > 0 else { return nil }
-            let processIds = CmuxTaskManagerMemoryDiagnostic.intArray(payload["pids"])
-            let attribution = payload["top_attribution"] as? [String: Any]
-            let workspaceId = uuid(attribution?["workspace_id"])
-            let surfaceId = uuid(attribution?["surface_id"])
-            let surfaceType = nonEmptyString(attribution?["surface_type"])?.lowercased()
+        return diagnostic.groups.map { group in
+            let attribution = group.topAttribution
+            let workspaceId = attribution?.workspaceId
+            let surfaceId = attribution?.surfaceId
+            let surfaceType = attribution?.surfaceType?.lowercased()
             let detailParts = [
-                processCountDetail(processCount),
+                processCountDetail(group.processCount),
                 attributionDetail(attribution)
             ].compactMap { $0 }
-            let key = nonEmptyString(payload["id"]) ?? title.lowercased()
             return CmuxTaskManagerRow(
-                id: "childMemoryAggregate:\(key)",
+                id: "childMemoryAggregate:\(group.id)",
                 kind: .childMemoryAggregate,
                 level: 0,
-                title: title,
+                title: group.name,
                 detail: detailParts.joined(separator: " / "),
                 resources: CmuxTaskManagerResources(
                     cpuPercent: 0,
-                    residentBytes: rssBytes,
-                    memoryBytes: rssBytes,
-                    processCount: processCount,
-                    processIds: processIds
+                    residentBytes: group.rssBytes,
+                    memoryBytes: group.rssBytes,
+                    processCount: group.processCount,
+                    processIds: group.processIds
                 ),
                 isDimmed: false,
                 workspaceId: workspaceId,
                 surfaceId: surfaceId,
                 terminalSurfaceId: surfaceType == "terminal" ? surfaceId : nil,
                 processId: nil,
-                rootProcessIds: processIds,
+                rootProcessIds: group.processIds,
                 foregroundProcessGroupIds: [],
-                agentAssetName: agentAssetName(for: [title])
+                agentAssetName: agentAssetName(for: [group.name])
             )
         }
     }
 
-    private static func attributionDetail(_ attribution: [String: Any]?) -> String? {
+    private static func attributionDetail(_ attribution: CmuxTaskManagerMemoryAttribution?) -> String? {
         guard let attribution else {
             return String(localized: "taskManager.memory.unattributed", defaultValue: "Unattributed")
         }
         var parts: [String] = []
-        if let workspace = nonEmptyString(attribution["workspace_ref"]) ?? nonEmptyString(attribution["workspace_id"]) {
+        if let workspace = attribution.workspaceRef ?? attribution.workspaceId?.uuidString {
             parts.append(String(format: String(
                 localized: "taskManager.memory.workspace",
                 defaultValue: "Workspace %@"
             ), workspace))
         }
-        if let surface = nonEmptyString(attribution["surface_ref"]) ?? nonEmptyString(attribution["surface_id"]) {
+        if let surface = attribution.surfaceRef ?? attribution.surfaceId?.uuidString {
             parts.append(String(format: String(
                 localized: "taskManager.memory.surface",
                 defaultValue: "Surface %@"

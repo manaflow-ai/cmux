@@ -1,6 +1,6 @@
 import AppKit
-import Combine
 import Darwin
+import Observation
 import SwiftUI
 
 @MainActor
@@ -48,25 +48,26 @@ final class TaskManagerWindowController: NSWindowController, NSWindowDelegate {
 }
 
 @MainActor
-final class CmuxTaskManagerModel: ObservableObject {
-    @Published private(set) var snapshot = CmuxTaskManagerSnapshot.empty {
+@Observable
+final class CmuxTaskManagerModel {
+    private(set) var snapshot = CmuxTaskManagerSnapshot.empty {
         didSet { updateSortedRows() }
     }
-    @Published private(set) var isRefreshing = false
-    @Published private(set) var errorMessage: String?
-    @Published private(set) var sortOrder = CmuxTaskManagerSortOrder.defaultOrder {
+    private(set) var isRefreshing = false
+    private(set) var errorMessage: String?
+    private(set) var sortOrder = CmuxTaskManagerSortOrder.defaultOrder {
         didSet { updateSortedRows() }
     }
-    @Published var includesProcesses = false {
+    var includesProcesses = false {
         didSet {
             guard oldValue != includesProcesses else { return }
             refresh(force: true)
         }
     }
 
-    private var refreshTimer: Timer?
-    private var refreshTask: Task<Void, Never>?
-    private var terminationTimers: [UUID: Timer] = [:]
+    @ObservationIgnored private var refreshTimer: Timer?
+    @ObservationIgnored private var refreshTask: Task<Void, Never>?
+    @ObservationIgnored private var terminationTimers: [UUID: Timer] = [:]
     private let refreshInterval: TimeInterval = 3.0
     private let terminationGraceInterval: TimeInterval = 2.0
 
