@@ -104,7 +104,11 @@ extension CLINotifyProcessIntegrationRegressionTests {
         fulfillWhen: (@Sendable (String) -> Bool)? = nil,
         handler: @escaping @Sendable (String) -> String
     ) -> XCTestExpectation {
-        startMockServerAllowingNoResponse(listenerFD: listenerFD, state: state) { line in
+        startMockServerAllowingNoResponse(
+            listenerFD: listenerFD,
+            state: state,
+            fulfillWhen: fulfillWhen
+        ) { line in
             handler(line)
         }
     }
@@ -112,6 +116,7 @@ extension CLINotifyProcessIntegrationRegressionTests {
     func startMockServerAllowingNoResponse(
         listenerFD: Int32,
         state: MockSocketServerState,
+        fulfillWhen: (@Sendable (String) -> Bool)? = nil,
         handler: @escaping @Sendable (String) -> String?
     ) -> XCTestExpectation {
         let handled = expectation(description: "cli mock socket handled")
@@ -159,7 +164,8 @@ extension CLINotifyProcessIntegrationRegressionTests {
                     if fulfillWhen?(line) == true {
                         fulfillOnce()
                     }
-                    let response = handler(line) + "\n"
+                    guard let responsePayload = handler(line) else { continue }
+                    let response = responsePayload + "\n"
                     _ = response.withCString { ptr in
                         Darwin.write(clientFD, ptr, strlen(ptr))
                     }
@@ -205,8 +211,7 @@ extension CLINotifyProcessIntegrationRegressionTests {
                     pending.removeSubrange(0...newlineRange.lowerBound)
                     guard let line = String(data: lineData, encoding: .utf8) else { continue }
                     state.append(line)
-                    guard let responsePayload = handler(line) else { continue }
-                    let response = responsePayload + "\n"
+                    let response = handler(line) + "\n"
                     _ = response.withCString { ptr in
                         Darwin.write(clientFD, ptr, strlen(ptr))
                     }
