@@ -6375,6 +6375,7 @@ final class AppDelegateShortcutRoutingTests: XCTestCase {
             backing: .buffered,
             defer: false
         )
+        window.isReleasedWhenClosed = false
         window.identifier = NSUserInterfaceItemIdentifier("cmux.main.\(windowId.uuidString)")
         window.contentView = NSView(frame: NSRect(x: 0, y: 0, width: 160, height: 120))
         return window
