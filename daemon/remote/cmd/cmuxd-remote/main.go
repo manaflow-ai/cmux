@@ -1178,7 +1178,10 @@ func (s *rpcServer) untrackPTYAttachment(attachment *wsPTYAttachment) {
 	}
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	delete(s.ptyAttachments, rpcPTYAttachmentKey(attachment))
+	key := rpcPTYAttachmentKey(attachment)
+	if current := s.ptyAttachments[key]; current == attachment {
+		delete(s.ptyAttachments, key)
+	}
 }
 
 func rpcPTYAttachmentKey(attachment *wsPTYAttachment) string {

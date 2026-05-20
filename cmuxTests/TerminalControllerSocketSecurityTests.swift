@@ -167,6 +167,43 @@ final class TerminalControllerSocketSecurityTests: XCTestCase {
         XCTAssertEqual(payload["has_ssh_options"] as? Bool, true)
     }
 
+    func testRemotePTYResizeRunsOnSocketWorker() async throws {
+        let socketPath = makeSocketPath("pty-worker")
+        let tabManager = TabManager()
+        TerminalController.shared.start(
+            tabManager: tabManager,
+            socketPath: socketPath,
+            accessMode: .allowAll
+        )
+        try waitForSocket(at: socketPath)
+
+        let params: [String: Any] = [
+            "workspace_id": UUID().uuidString,
+            "session_id": "session",
+            "attachment_id": "attachment",
+            "cols": 100,
+            "rows": 30,
+        ]
+        let requestLine = try makeV2RequestLine(
+            method: "workspace.remote.pty_resize",
+            params: params
+        )
+
+        let mainEnvelope = try decodeV2Envelope(TerminalController.shared.handleSocketLine(requestLine))
+        let mainError = try XCTUnwrap(mainEnvelope["error"] as? [String: Any])
+        XCTAssertEqual(mainError["code"] as? String, "invalid_dispatch")
+
+        let workerEnvelope = try await sendV2RequestAsync(
+            method: "workspace.remote.pty_resize",
+            params: params,
+            to: socketPath
+        )
+        let workerError = try XCTUnwrap(workerEnvelope["error"] as? [String: Any])
+        XCTAssertNotEqual(workerError["code"] as? String, "invalid_dispatch")
+        XCTAssertNotEqual(workerError["code"] as? String, "method_not_found")
+        XCTAssertEqual(workerError["code"] as? String, "not_found")
+    }
+
     func testRightSidebarV1CommandsDriveExistingState() throws {
         let previousAppDelegate = AppDelegate.shared
         let appDelegate = AppDelegate()
@@ -720,6 +757,25 @@ final class TerminalControllerSocketSecurityTests: XCTestCase {
             responses.append(try readLine(from: fd))
         }
         return responses
+    }
+
+    private func makeV2RequestLine(method: String, params: [String: Any]) throws -> String {
+        let payload: [String: Any] = [
+            "jsonrpc": "2.0",
+            "id": 1,
+            "method": method,
+            "params": params,
+        ]
+        let data = try JSONSerialization.data(withJSONObject: payload)
+        return try XCTUnwrap(String(data: data, encoding: .utf8))
+    }
+
+    private func decodeV2Envelope(_ raw: String) throws -> [String: Any] {
+        let data = try XCTUnwrap(raw.data(using: .utf8))
+        return try XCTUnwrap(
+            try JSONSerialization.jsonObject(with: data) as? [String: Any],
+            "Expected JSON-RPC response object"
+        )
     }
 
     private nonisolated func sendV2Request(

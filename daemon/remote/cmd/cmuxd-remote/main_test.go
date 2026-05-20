@@ -680,6 +680,42 @@ func TestRPCServerCloseAllLeavesSharedPTYHubAlive(t *testing.T) {
 	hub.mu.Unlock()
 }
 
+func TestRPCServerUntrackPTYAttachmentKeepsNewerReattach(t *testing.T) {
+	sessionKey := persistentPTYSessionKey("reattach")
+	oldAttachment := &wsPTYAttachment{
+		sessionKey: sessionKey,
+		id:         "same",
+		send:       make(chan wsPTYOutgoingFrame, defaultWebSocketWriteQueueCap),
+		persistent: true,
+	}
+	newAttachment := &wsPTYAttachment{
+		sessionKey: sessionKey,
+		id:         "same",
+		send:       make(chan wsPTYOutgoingFrame, defaultWebSocketWriteQueueCap),
+		persistent: true,
+	}
+	server := &rpcServer{}
+
+	server.trackPTYAttachment(oldAttachment)
+	server.trackPTYAttachment(newAttachment)
+	server.untrackPTYAttachment(oldAttachment)
+
+	server.mu.Lock()
+	tracked := server.ptyAttachments[rpcPTYAttachmentKey(newAttachment)]
+	server.mu.Unlock()
+	if tracked != newAttachment {
+		t.Fatalf("tracked attachment = %p, want newer attachment %p", tracked, newAttachment)
+	}
+
+	server.untrackPTYAttachment(newAttachment)
+	server.mu.Lock()
+	_, exists := server.ptyAttachments[rpcPTYAttachmentKey(newAttachment)]
+	server.mu.Unlock()
+	if exists {
+		t.Fatalf("newer attachment remained tracked after untrack")
+	}
+}
+
 func waitForRPCEvent(t *testing.T, buffer *notifyingBuffer, startLine int, matches func(map[string]any) bool) map[string]any {
 	t.Helper()
 	deadline := time.Now().Add(2 * time.Second)
