@@ -688,7 +688,6 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
     private var pendingConfiguredShortcutChord: PendingConfiguredShortcutChord?
     var activeConfiguredShortcutChordPrefixForCurrentEvent: ShortcutStroke?
     var shortcutEventFocusContextCache: ShortcutEventFocusContextCache?
-    private var configuredShortcutChordActions: [KeyboardShortcutSettings.Action] = []
     private var ghosttyConfigObserver: NSObjectProtocol?
     private var ghosttyGotoSplitLeftShortcut: StoredShortcut?
     private var ghosttyGotoSplitRightShortcut: StoredShortcut?
@@ -11014,7 +11013,6 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
 
     private func installShortcutDefaultsObserver() {
         guard shortcutDefaultsObserver == nil else { return }
-        refreshConfiguredShortcutChordActions()
         shortcutDefaultsObserver = NotificationCenter.default.addObserver(
             forName: KeyboardShortcutSettings.didChangeNotification,
             object: nil,
@@ -11033,13 +11031,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
     }
 
     private func handleShortcutDefaultsDidChange() {
-        refreshConfiguredShortcutChordActions()
         clearConfiguredShortcutChordState()
         scheduleSplitButtonTooltipRefreshAcrossWorkspaces()
     }
 
-    private func refreshConfiguredShortcutChordActions() {
-        configuredShortcutChordActions = KeyboardShortcutSettings.Action.allCases.filter { action in
+    private func currentConfiguredShortcutChordActions() -> [KeyboardShortcutSettings.Action] {
+        KeyboardShortcutSettings.Action.allCases.filter { action in
             // System-wide hotkeys are dispatched via Carbon RegisterEventHotKey
             // and never routed through AppKit's local key handler. If a managed
             // cmux.json entry somehow stores one as a chord, arming the prefix
@@ -11715,7 +11712,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
 
         if activeConfiguredShortcutChordPrefixForCurrentEvent == nil {
             let focusContext = shortcutEventFocusContext(event)
-            let availableChordActions = configuredShortcutChordActions.filter { action in
+            let availableChordActions = currentConfiguredShortcutChordActions().filter { action in
                 action.shortcutContext.isAlwaysAvailable || action.shortcutContext.isAvailable(focusContext)
             }
             if armConfiguredShortcutChordIfNeeded(event: event, actions: availableChordActions) {
@@ -13214,7 +13211,6 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
     }
 
     func debugResetShortcutRoutingStateForTesting() {
-        refreshConfiguredShortcutChordActions()
         clearConfiguredShortcutChordState()
         shortcutEventFocusContextCache = nil
     }
@@ -13412,7 +13408,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         shortcuts: [StoredShortcut] = []
     ) -> Bool {
         var seen = Set<StoredShortcut>()
-        let configuredShortcuts = (actions ?? configuredShortcutChordActions).map {
+        let configuredShortcuts = (actions ?? currentConfiguredShortcutChordActions()).map {
             KeyboardShortcutSettings.shortcut(for: $0)
         } + shortcuts
         for shortcut in configuredShortcuts {
