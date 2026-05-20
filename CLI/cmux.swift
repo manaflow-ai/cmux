@@ -17418,6 +17418,8 @@ struct CMUXCLI {
                     cwd: parsedInput.cwd,
                     transcriptPath: parsedInput.transcriptPath,
                     isRestorable: true,
+                    lastNotificationStatus: .idle,
+                    updateLastNotificationStatus: true,
                     markActive: true,
                     turnId: parsedInput.turnId
                 )
