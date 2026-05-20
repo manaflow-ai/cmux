@@ -106,8 +106,7 @@ extension TerminalController {
     ) -> V2CallResult {
         var result: V2CallResult = .err(code: "internal_error", message: NoteRPCMessage.openFailed, data: nil)
         var resolvedWorkspaceId: UUID?
-        var resolvedProjectRoot: String?
-        var resolvedNotePath: String?
+        var resolvedCurrentDirectory: String?
         var resolvedSourceSurfaceId: UUID?
         var resolvedOrientation: SplitOrientation?
         var resolvedInsertFirst = false
@@ -122,11 +121,10 @@ extension TerminalController {
                 result = .err(code: "not_found", message: NoteRPCMessage.workspaceNotFound, data: nil)
                 return
             }
-            guard let projectRoot = ws.noteProjectRoot() else {
+            guard !ws.isRemoteWorkspace else {
                 result = .err(code: "unavailable", message: NoteRPCMessage.remoteUnavailable, data: nil)
                 return
             }
-            let notePath = NoteSupport.notePath(forSlug: slug, projectRoot: projectRoot)
 
             let sourceSurfaceId = v2UUID(params, "surface_id") ?? ws.focusedPanelId
             guard let sourceSurfaceId else {
@@ -156,8 +154,7 @@ extension TerminalController {
             let focusAllowed = v2FocusAllowed(requested: NoteRPCParam.bool(params, "focus") ?? false)
 
             resolvedWorkspaceId = ws.id
-            resolvedProjectRoot = projectRoot
-            resolvedNotePath = notePath
+            resolvedCurrentDirectory = ws.currentDirectory
             resolvedSourceSurfaceId = sourceSurfaceId
             resolvedOrientation = orientation
             resolvedInsertFirst = insertFirst
@@ -165,12 +162,13 @@ extension TerminalController {
         }
 
         guard let workspaceId = resolvedWorkspaceId,
-              let projectRoot = resolvedProjectRoot,
-              let notePath = resolvedNotePath,
+              let currentDirectory = resolvedCurrentDirectory,
               let sourceSurfaceId = resolvedSourceSurfaceId,
               let orientation = resolvedOrientation else {
             return result
         }
+        let projectRoot = NoteSupport.projectRoot(forCwd: currentDirectory)
+        let notePath = NoteSupport.notePath(forSlug: slug, projectRoot: projectRoot)
 
         let fileExistedBeforeCall: Bool
         do {
@@ -321,7 +319,7 @@ extension TerminalController {
 
     nonisolated func v2NoteList(params: [String: Any]) -> V2CallResult {
         var result: V2CallResult = .err(code: "internal_error", message: NoteRPCMessage.listFailed, data: nil)
-        var projectRoot: String?
+        var currentDirectory: String?
         v2MainSync {
             v2RefreshKnownRefs()
             guard let tabManager = v2ResolveTabManager(params: params) else {
@@ -332,14 +330,16 @@ extension TerminalController {
                 result = .err(code: "not_found", message: NoteRPCMessage.workspaceNotFound, data: nil)
                 return
             }
-            projectRoot = ws.noteProjectRoot()
-            if projectRoot == nil {
+            guard !ws.isRemoteWorkspace else {
                 result = .err(code: "unavailable", message: NoteRPCMessage.remoteUnavailable, data: nil)
+                return
             }
+            currentDirectory = ws.currentDirectory
         }
-        guard let projectRoot else {
+        guard let currentDirectory else {
             return result
         }
+        let projectRoot = NoteSupport.projectRoot(forCwd: currentDirectory)
         let entries = NoteSupport.listNotes(forProjectRoot: projectRoot)
         let payload: [[String: Any]] = entries.map { entry in
             [
@@ -370,7 +370,7 @@ extension TerminalController {
             return .err(code: "invalid_params", message: error.localizedDescription, data: nil)
         }
         var result: V2CallResult = .err(code: "internal_error", message: NoteRPCMessage.pathFailed, data: nil)
-        var projectRoot: String?
+        var currentDirectory: String?
         v2MainSync {
             v2RefreshKnownRefs()
             guard let tabManager = v2ResolveTabManager(params: params) else {
@@ -381,15 +381,16 @@ extension TerminalController {
                 result = .err(code: "not_found", message: NoteRPCMessage.workspaceNotFound, data: nil)
                 return
             }
-            guard let resolvedRoot = ws.noteProjectRoot() else {
+            guard !ws.isRemoteWorkspace else {
                 result = .err(code: "unavailable", message: NoteRPCMessage.remoteUnavailable, data: nil)
                 return
             }
-            projectRoot = resolvedRoot
+            currentDirectory = ws.currentDirectory
         }
-        guard let projectRoot else {
+        guard let currentDirectory else {
             return result
         }
+        let projectRoot = NoteSupport.projectRoot(forCwd: currentDirectory)
         let resolvedPath = NoteSupport.notePath(forSlug: slug, projectRoot: projectRoot)
         let exists: Bool
         do {
@@ -431,7 +432,7 @@ extension TerminalController {
             return .err(code: "invalid_params", message: error.localizedDescription, data: nil)
         }
         var result: V2CallResult = .err(code: "internal_error", message: NoteRPCMessage.deleteFailed, data: nil)
-        var projectRoot: String?
+        var currentDirectory: String?
         v2MainSync {
             v2RefreshKnownRefs()
             guard let tabManager = v2ResolveTabManager(params: params) else {
@@ -442,15 +443,16 @@ extension TerminalController {
                 result = .err(code: "not_found", message: NoteRPCMessage.workspaceNotFound, data: nil)
                 return
             }
-            guard let resolvedRoot = ws.noteProjectRoot() else {
+            guard !ws.isRemoteWorkspace else {
                 result = .err(code: "unavailable", message: NoteRPCMessage.remoteUnavailable, data: nil)
                 return
             }
-            projectRoot = resolvedRoot
+            currentDirectory = ws.currentDirectory
         }
-        guard let projectRoot else {
+        guard let currentDirectory else {
             return result
         }
+        let projectRoot = NoteSupport.projectRoot(forCwd: currentDirectory)
         do {
             let deleted = try NoteSupport.deleteNote(slug: slug, projectRoot: projectRoot)
             result = .ok([

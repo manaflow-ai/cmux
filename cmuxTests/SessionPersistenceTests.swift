@@ -50,6 +50,41 @@ final class SessionPersistenceTests: XCTestCase {
     }
 
     @MainActor
+    func testWorkspaceSessionSnapshotRestoresNoteSlugAgainstMovedCurrentDirectory() throws {
+        let root = FileManager.default.temporaryDirectory
+            .appendingPathComponent("cmux-session-note-move-\(UUID().uuidString)", isDirectory: true)
+        let oldRoot = root.appendingPathComponent("old-project", isDirectory: true)
+        let newRoot = root.appendingPathComponent("new-project", isDirectory: true)
+        try FileManager.default.createDirectory(at: oldRoot, withIntermediateDirectories: true)
+        try FileManager.default.createDirectory(at: newRoot, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: root) }
+
+        let oldNotePath = NoteSupport.notePath(forSlug: "todo", projectRoot: oldRoot.path)
+        let expectedRestoredPath = NoteSupport.notePath(forSlug: "todo", projectRoot: newRoot.path)
+
+        let workspace = Workspace()
+        workspace.currentDirectory = newRoot.path
+        let paneId = try XCTUnwrap(workspace.bonsplitController.allPaneIds.first)
+        _ = try XCTUnwrap(
+            workspace.newMarkdownSurface(
+                inPane: paneId,
+                filePath: oldNotePath,
+                focus: true
+            )
+        )
+
+        let snapshot = workspace.sessionSnapshot(includeScrollback: false)
+        XCTAssertEqual(snapshot.panels.compactMap(\.markdown).first?.noteSlug, "todo")
+
+        let restored = Workspace()
+        restored.restoreSessionSnapshot(snapshot)
+
+        let restoredPanelId = try XCTUnwrap(restored.focusedPanelId)
+        let restoredPanel = try XCTUnwrap(restored.markdownPanel(for: restoredPanelId))
+        XCTAssertEqual(restoredPanel.filePath, expectedRestoredPath)
+    }
+
+    @MainActor
     func testSessionSnapshotSkipsTransientRemoteListeningPorts() throws {
         let workspace = Workspace()
         let panelId = try XCTUnwrap(workspace.focusedPanelId)

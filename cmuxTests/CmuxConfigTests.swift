@@ -2137,6 +2137,23 @@ final class NoteSupportTests: XCTestCase {
         XCTAssertNil(NoteSupport.projectRoot(forNotePath: "/tmp/project/notes/todo-1.md"))
     }
 
+    func testRestoredProjectRootPrefersCurrentDirectoryWhenStoredNoteMoved() {
+        XCTAssertEqual(
+            NoteSupport.restoredProjectRoot(
+                forStoredNotePath: "/tmp/old-project/.cmux/notes/todo-1.md",
+                currentDirectory: "/tmp/new-project"
+            ),
+            "/tmp/new-project"
+        )
+        XCTAssertEqual(
+            NoteSupport.restoredProjectRoot(
+                forStoredNotePath: "/tmp/project/.cmux/notes/todo-1.md",
+                currentDirectory: "/tmp/project/subdir"
+            ),
+            "/tmp/project"
+        )
+    }
+
     func testConfigFallbackSlugIsDeterministicAndValid() throws {
         let first = NoteSupport.configFallbackSlug(seed: "root.0.surface.1")
         let second = NoteSupport.configFallbackSlug(seed: "root.0.surface.1")

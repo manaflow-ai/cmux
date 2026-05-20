@@ -131,6 +131,25 @@ enum NoteSupport {
         return projectRoot.isEmpty ? nil : projectRoot
     }
 
+    /// Pick the project root for restoring a persisted note snapshot without
+    /// touching the filesystem. If the workspace cwd no longer lives under the
+    /// stored note root, prefer the cwd so moved projects restore into the new tree.
+    static func restoredProjectRoot(forStoredNotePath path: String, currentDirectory: String) -> String? {
+        let standardizedCwd = (currentDirectory as NSString).standardizingPath
+        guard !standardizedCwd.isEmpty else {
+            return projectRoot(forNotePath: path)
+        }
+        guard let storedRoot = projectRoot(forNotePath: path) else {
+            return standardizedCwd
+        }
+        let standardizedStoredRoot = (storedRoot as NSString).standardizingPath
+        if standardizedCwd == standardizedStoredRoot ||
+            standardizedCwd.hasPrefix(standardizedStoredRoot + "/") {
+            return storedRoot
+        }
+        return standardizedCwd
+    }
+
     /// Project-root-aware reverse lookup for note files. This avoids treating an
     /// arbitrary `.cmux/notes/<slug>.md` path from another project as this
     /// workspace's note.

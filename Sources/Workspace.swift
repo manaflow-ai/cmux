@@ -1021,12 +1021,15 @@ extension Workspace {
             guard let snapshotMarkdown = snapshot.markdown else { return nil }
             // If this markdown panel was opened as a project-scoped note,
             // reconstruct the canonical note path from the persisted slug and
-            // stored path shape. This avoids filesystem probes on the main
-            // actor during session restore.
+            // current workspace root. This avoids filesystem probes on the main
+            // actor and keeps moved projects from restoring the old absolute path.
             let restorePath: String
             if let rawSlug = snapshotMarkdown.noteSlug,
                let slug = try? NoteSupport.validateSlug(rawSlug),
-               let projectRoot = NoteSupport.projectRoot(forNotePath: snapshotMarkdown.filePath) {
+               let projectRoot = NoteSupport.restoredProjectRoot(
+                    forStoredNotePath: snapshotMarkdown.filePath,
+                    currentDirectory: currentDirectory
+               ) {
                 restorePath = NoteSupport.notePath(forSlug: slug, projectRoot: projectRoot)
             } else {
                 restorePath = snapshotMarkdown.filePath
@@ -11159,14 +11162,6 @@ final class Workspace: Identifiable, ObservableObject {
 
     // MARK: - Notes
 
-    /// Resolve the `.cmux/notes/` project root for this workspace by walking
-    /// `currentDirectory` upward. Falls back to the cwd itself if no `.cmux/`
-    /// is found.
-    func noteProjectRoot() -> String? {
-        guard !isRemoteWorkspace else { return nil }
-        return NoteSupport.projectRoot(forCwd: currentDirectory)
-    }
-
     /// Open (or focus) a project-scoped note as a surface in the given pane.
     /// Internally this is a `MarkdownPanel` — the "note" distinction lives at
     /// the storage convention and at the `CmuxSurfaceType.note` public surface
@@ -11189,7 +11184,12 @@ final class Workspace: Identifiable, ObservableObject {
             )
             return nil
         }
-        guard let root = noteProjectRoot() else {
+        let workspaceCurrentDirectory = currentDirectory
+        let workspaceIsRemote = isRemoteWorkspace
+        guard let root = await Self.noteProjectRootOffMain(
+            currentDirectory: workspaceCurrentDirectory,
+            isRemoteWorkspace: workspaceIsRemote
+        ) else {
             workspaceLogger.error("Note surfaces are not available for remote workspaces")
             return nil
         }
@@ -11215,6 +11215,16 @@ final class Workspace: Identifiable, ObservableObject {
     private nonisolated static func ensureNoteFileOffMain(slug: String, projectRoot: String) async throws -> String {
         try await Task.detached(priority: .utility) {
             try NoteSupport.ensureNoteFile(slug: slug, projectRoot: projectRoot)
+        }.value
+    }
+
+    private nonisolated static func noteProjectRootOffMain(
+        currentDirectory: String,
+        isRemoteWorkspace: Bool
+    ) async -> String? {
+        guard !isRemoteWorkspace else { return nil }
+        return await Task.detached(priority: .utility) {
+            NoteSupport.projectRoot(forCwd: currentDirectory)
         }.value
     }
 
