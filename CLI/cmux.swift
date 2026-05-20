@@ -1281,6 +1281,34 @@ final class SocketClient {
         return response
     }
 
+    func sendOneWay(command: String, writeTimeout: TimeInterval) throws {
+        if relayEndpoint != nil, socketFD < 0 {
+            try connect()
+        }
+        guard socketFD >= 0 else { throw CLIError(message: "Not connected") }
+        defer { close() }
+
+        try configureSocketWriteSafety(writeTimeout)
+
+        var operation = CLISocketOperationTelemetry.State(
+            name: CLISocketOperationTelemetry.operationName(for: command),
+            timeout: writeTimeout,
+            startedAt: Date(),
+            phase: .writeRequest
+        )
+        recordOperation(operation)
+
+        let payload = command + "\n"
+        try writeAll(
+            Data(payload.utf8),
+            timeoutMessage: "Command timed out",
+            failureMessage: "Failed to write to socket"
+        )
+
+        operation.phase = .completed
+        recordOperation(operation)
+    }
+
     private func connectOnce() throws {
         if let relayEndpoint {
             try connectToRelay(endpoint: relayEndpoint)
@@ -24850,6 +24878,8 @@ export default function cmuxPiSessionExtension(pi: ExtensionAPI) {
 
     // MARK: - Feed (workstream) hook bridge
 
+    private static let nonActionableFeedHookWriteTimeoutSeconds: TimeInterval = 0.15
+
     /// Reads an agent hook JSON payload from stdin, forwards it to the
     /// running cmux app via the `feed.push` V2 socket verb, and (for
     /// actionable events: ExitPlanMode, AskUserQuestion, permission-
@@ -24984,6 +25014,9 @@ export default function cmuxPiSessionExtension(pi: ExtensionAPI) {
         // Wait is capped at 120s and the wrapper's hook timeout
         // is 125s so the socket always returns before Claude
         // would kill the hook subprocess itself.
+        //
+        // Non-actionable events are telemetry-only. They write the frame
+        // best-effort and never wait for a Feed acknowledgement.
         let waitTimeout: Double = isActionable ? 120 : 0
         let params: [String: Any] = [
             "event": eventDict,
@@ -24997,11 +25030,25 @@ export default function cmuxPiSessionExtension(pi: ExtensionAPI) {
         ])
         let line = String(data: payload, encoding: .utf8) ?? "{}"
 
+        if !isActionable {
+            do {
+                try client.sendOneWay(
+                    command: line,
+                    writeTimeout: Self.nonActionableFeedHookWriteTimeoutSeconds
+                )
+            } catch {
+                // Non-actionable hook events are best-effort telemetry. They
+                // must not extend the agent's tool-call critical path.
+            }
+            print("{}")
+            return
+        }
+
         let response: String
         do {
             response = try client.send(
                 command: line,
-                responseTimeout: waitTimeout > 0 ? waitTimeout + 5 : nil
+                responseTimeout: waitTimeout + 5
             )
         } catch {
             print("{}")
