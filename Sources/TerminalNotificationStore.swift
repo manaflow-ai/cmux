@@ -695,6 +695,7 @@ struct TerminalNotification: Identifiable, Hashable {
     let id: UUID
     let tabId: UUID
     let surfaceId: UUID?
+    let panelId: UUID?
     let title: String
     let subtitle: String
     let body: String
@@ -702,6 +703,32 @@ struct TerminalNotification: Identifiable, Hashable {
     var isRead: Bool
     var paneFlash: Bool = true
     var clickAction: TerminalNotificationClickAction?
+
+    init(
+        id: UUID,
+        tabId: UUID,
+        surfaceId: UUID?,
+        panelId: UUID? = nil,
+        title: String,
+        subtitle: String,
+        body: String,
+        createdAt: Date,
+        isRead: Bool,
+        paneFlash: Bool = true,
+        clickAction: TerminalNotificationClickAction? = nil
+    ) {
+        self.id = id
+        self.tabId = tabId
+        self.surfaceId = surfaceId
+        self.panelId = panelId
+        self.title = title
+        self.subtitle = subtitle
+        self.body = body
+        self.createdAt = createdAt
+        self.isRead = isRead
+        self.paneFlash = paneFlash
+        self.clickAction = clickAction
+    }
 }
 
 @MainActor
@@ -1267,11 +1294,13 @@ final class TerminalNotificationStore: ObservableObject {
         let cwd = workspace?.surfaceTabBarDirectory
             ?? workspace?.currentDirectory
             ?? FileManager.default.homeDirectoryForCurrentUser.path
+        let panelId: UUID? = surfaceId.flatMap { workspace?.panelIdFromSurfaceId(TabID(uuid: $0)) }
 
         return NotificationPolicyContext(
             request: TerminalNotificationPolicyRequest(
                 tabId: tabId,
                 surfaceId: surfaceId,
+                panelId: panelId,
                 title: title,
                 subtitle: subtitle,
                 body: body,
@@ -1296,6 +1325,7 @@ final class TerminalNotificationStore: ObservableObject {
             request: TerminalNotificationPolicyRequest(
                 tabId: request.tabId,
                 surfaceId: request.surfaceId,
+                panelId: request.panelId,
                 title: payload.title,
                 subtitle: payload.subtitle,
                 body: payload.body,
@@ -1325,6 +1355,7 @@ final class TerminalNotificationStore: ObservableObject {
             id: UUID(),
             tabId: request.tabId,
             surfaceId: request.surfaceId,
+            panelId: request.panelId,
             title: request.title,
             subtitle: request.subtitle,
             body: request.body,
@@ -1713,6 +1744,7 @@ final class TerminalNotificationStore: ObservableObject {
                 id: notification.id,
                 tabId: destinationTabId,
                 surfaceId: notification.surfaceId,
+                panelId: notification.panelId,
                 title: notification.title,
                 subtitle: notification.subtitle,
                 body: notification.body,
