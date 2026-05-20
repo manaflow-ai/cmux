@@ -3195,12 +3195,10 @@ struct ContentView: View {
             window.isRestorable = false
             setMinimalModeSidebarTitlebarControlsAvailable(sidebarState.isVisible, in: window)
             window.titlebarAppearsTransparent = true
-            // Keep background dragging disabled so app content gestures and
-            // minimal-mode titlebar controls still receive clicks, while the
-            // window itself stays movable for macOS tiling and third-party
-            // window managers.
-            window.isMovableByWindowBackground = false
-            window.isMovable = true
+            // Native AppKit titlebar dragging steals pane-tab drags in minimal
+            // mode. Keep the main window immovable by default; explicit chrome
+            // drag zones temporarily enable performDrag for real app moves.
+            configureCmuxMainWindowDragBehavior(window)
             window.styleMask.insert(.fullSizeContentView)
 
             // Track this window for fullscreen notifications

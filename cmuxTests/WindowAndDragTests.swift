@@ -7,7 +7,7 @@ import SwiftUI
 import UniformTypeIdentifiers
 import WebKit
 import ObjectiveC.runtime
-import Bonsplit
+@testable import Bonsplit
 import UserNotifications
 
 #if canImport(cmux_DEV)
@@ -15,6 +15,20 @@ import UserNotifications
 #elseif canImport(cmux)
 @testable import cmux
 #endif
+
+private final class FakeBonsplitTabItemRegionView: NSView, BonsplitTabItemHitRegionProviding {
+    nonisolated(unsafe) var tabFrames: [CGRect] = []
+
+    deinit {}
+
+    nonisolated func containsBonsplitTabItemHit(localPoint: NSPoint) -> Bool {
+        tabFrames.contains { $0.contains(localPoint) }
+    }
+
+    override func hitTest(_ point: NSPoint) -> NSView? {
+        nil
+    }
+}
 
 @MainActor
 final class WindowGlassEffectTests: XCTestCase {
@@ -902,6 +916,91 @@ final class WindowDragHandleHitTests: XCTestCase {
         XCTAssertTrue(windowDragHandleShouldCaptureHit(point, in: dragHandle, eventType: .leftMouseDown))
     }
 
+    func testDragHandleNeverCapturesRegisteredBonsplitPaneTab() {
+        let window = NSWindow(
+            contentRect: NSRect(x: 0, y: 0, width: 320, height: 120),
+            styleMask: [.titled, .closable],
+            backing: .buffered,
+            defer: false
+        )
+        defer { window.orderOut(nil) }
+        guard let contentView = window.contentView else {
+            XCTFail("Expected content view")
+            return
+        }
+
+        let container = NSView(frame: contentView.bounds)
+        contentView.addSubview(container)
+
+        let dragHandle = NSView(frame: container.bounds)
+        container.addSubview(dragHandle)
+
+        let tabRegion = FakeBonsplitTabItemRegionView(frame: NSRect(x: 20, y: 82, width: 220, height: 30))
+        tabRegion.tabFrames = [CGRect(x: 8, y: 0, width: 96, height: 30)]
+        container.addSubview(tabRegion)
+        BonsplitTabItemHitRegionRegistry.register(tabRegion)
+        defer { BonsplitTabItemHitRegionRegistry.unregister(tabRegion) }
+
+        let tabWindowPoint = tabRegion.convert(NSPoint(x: 48, y: 15), to: nil)
+        let tabDragHandlePoint = dragHandle.convert(tabWindowPoint, from: nil)
+        XCTAssertFalse(
+            windowDragHandleShouldCaptureHit(
+                tabDragHandlePoint,
+                in: dragHandle,
+                eventType: .leftMouseDown,
+                eventWindow: window
+            ),
+            "A visible pane tab must own its mouse-down; the titlebar drag handle must not turn it into a window drag"
+        )
+
+        let emptyWindowPoint = tabRegion.convert(NSPoint(x: 180, y: 15), to: nil)
+        let emptyDragHandlePoint = dragHandle.convert(emptyWindowPoint, from: nil)
+        XCTAssertTrue(
+            windowDragHandleShouldCaptureHit(
+                emptyDragHandlePoint,
+                in: dragHandle,
+                eventType: .leftMouseDown,
+                eventWindow: window
+            ),
+            "Empty tab-strip chrome should remain available for app-window dragging"
+        )
+    }
+
+    func testTabBarEmptyChromeOverlayNeverCapturesRegisteredBonsplitPaneTabWhenFrameCacheIsEmpty() {
+        let window = NSWindow(
+            contentRect: NSRect(x: 0, y: 0, width: 360, height: 120),
+            styleMask: [.titled, .closable],
+            backing: .buffered,
+            defer: false
+        )
+        defer { window.orderOut(nil) }
+        guard let contentView = window.contentView else {
+            XCTFail("Expected content view")
+            return
+        }
+
+        let dragZone = TabBarDragZoneView.DragNSView(frame: NSRect(x: 0, y: 72, width: 320, height: 30))
+        dragZone.hitRegion = .trailingEmptyChrome(tabFrames: [], reservedTrailingWidth: 48)
+        dragZone.hitTestEventTypeOverride = .leftMouseDown
+        contentView.addSubview(dragZone)
+
+        let tabRegion = FakeBonsplitTabItemRegionView(frame: NSRect(x: 10, y: 72, width: 90, height: 30))
+        tabRegion.tabFrames = [tabRegion.bounds]
+        contentView.addSubview(tabRegion)
+        BonsplitTabItemHitRegionRegistry.register(tabRegion)
+        defer { BonsplitTabItemHitRegionRegistry.unregister(tabRegion) }
+
+        XCTAssertNil(
+            dragZone.hitTest(NSPoint(x: 40, y: 15)),
+            "The empty-chrome overlay must not turn a pane-tab mouse-down into an app-window drag while tab frames are still populating"
+        )
+        XCTAssertIdentical(
+            dragZone.hitTest(NSPoint(x: 140, y: 15)),
+            dragZone,
+            "Empty tab-strip chrome after the registered tab should still be available for app-window dragging"
+        )
+    }
+
     func testDragHandleSkipsForeignLeftMouseDownDuringLaunch() {
         let point = NSPoint(x: 180, y: 18)
         let window = NSWindow(
@@ -1590,6 +1689,44 @@ final class TitlebarLeadingInsetPassthroughViewTests: XCTestCase {
         let view = TitlebarLeadingInsetPassthroughView(frame: NSRect(x: 0, y: 0, width: 200, height: 40))
         XCTAssertFalse(view.mouseDownCanMoveWindow)
     }
+
+    func testMainWindowHostingViewCannotMoveWindowViaMouseDown() {
+        let view = MainWindowHostingView(rootView: Color.clear)
+        XCTAssertFalse(
+            view.mouseDownCanMoveWindow,
+            "Main content must never become an implicit AppKit window-drag region; explicit titlebar chrome owns app-window dragging"
+        )
+    }
+
+    func testMainWindowDragBehaviorRequiresExplicitDragZones() {
+        let window = CmuxMainWindow(
+            contentRect: NSRect(x: 0, y: 0, width: 320, height: 180),
+            styleMask: [.titled, .closable, .miniaturizable, .resizable, .fullSizeContentView],
+            backing: .buffered,
+            defer: false
+        )
+        defer { window.orderOut(nil) }
+        window.isMovable = true
+        window.isMovableByWindowBackground = true
+
+        configureCmuxMainWindowDragBehavior(window)
+
+        XCTAssertFalse(
+            window.isMovable,
+            "Main windows must not use native AppKit titlebar dragging because pane tabs live in the titlebar band"
+        )
+        XCTAssertFalse(window.isMovableByWindowBackground)
+
+        let previous = withTemporaryWindowMovableEnabled(window: window) {
+            XCTAssertTrue(window.isMovable)
+        }
+
+        XCTAssertEqual(previous, false)
+        XCTAssertFalse(
+            window.isMovable,
+            "Explicit chrome drag zones may temporarily enable movement, but the main window must return to pane-tab-safe immovable state"
+        )
+    }
 }
 
 
@@ -1651,6 +1788,25 @@ final class FolderWindowMoveSuppressionTests: XCTestCase {
         XCTAssertEqual(clearWindowDragSuppression(window: window), 0)
         XCTAssertEqual(windowDragSuppressionDepth(window: window), 0)
         XCTAssertFalse(window.isMovable)
+    }
+
+    func testClearWindowDragSuppressionFinishesActiveMoveSequence() {
+        let window = makeWindow()
+        window.isMovable = true
+
+        XCTAssertEqual(
+            beginWindowMoveSuppressionSequence(window: window, reason: .bonsplitPaneTabDrag),
+            .bonsplitPaneTabDrag
+        )
+        XCTAssertFalse(window.isMovable)
+        XCTAssertEqual(activeWindowMoveSuppressionSequenceReason(window: window), .bonsplitPaneTabDrag)
+
+        XCTAssertEqual(clearWindowDragSuppression(window: window), 0)
+
+        XCTAssertNil(activeWindowMoveSuppressionSequenceReason(window: window))
+        XCTAssertEqual(windowDragSuppressionDepth(window: window), 0)
+        XCTAssertFalse(isWindowDragSuppressed(window: window))
+        XCTAssertTrue(window.isMovable)
     }
 
     func testWindowDragSuppressionDepthLifecycle() {
@@ -1780,6 +1936,135 @@ final class WindowMoveSuppressionHitPathTests: XCTestCase {
 
         let dragged = makeMouseEvent(type: .leftMouseDragged, location: NSPoint(x: 20, y: 20), window: window)
         XCTAssertFalse(shouldSuppressWindowMoveForFolderDrag(window: window, event: dragged))
+    }
+
+    func testBonsplitPaneTabMouseDownSuppressesWindowMove() {
+        let (window, contentView) = makeWindowWithContentView()
+        window.isMovable = true
+        let tabRegion = FakeBonsplitTabItemRegionView(frame: NSRect(x: 20, y: 132, width: 240, height: 30))
+        tabRegion.tabFrames = [CGRect(x: 8, y: 0, width: 96, height: 30)]
+        contentView.addSubview(tabRegion)
+        BonsplitTabItemHitRegionRegistry.register(tabRegion)
+        defer { BonsplitTabItemHitRegionRegistry.unregister(tabRegion) }
+
+        let tabPoint = tabRegion.convert(NSPoint(x: 28, y: 15), to: nil)
+        let event = makeMouseEvent(type: .leftMouseDown, location: tabPoint, window: window)
+
+        XCTAssertTrue(shouldSuppressWindowMoveForBonsplitPaneTabDrag(window: window, event: event))
+        XCTAssertEqual(windowMoveSuppressionReason(window: window, event: event), .bonsplitPaneTabDrag)
+    }
+
+    func testBonsplitPaneTabDragSequenceKeepsWindowImmovableUntilMouseUp() {
+        let (window, contentView) = makeWindowWithContentView()
+        window.isMovable = true
+        let tabRegion = FakeBonsplitTabItemRegionView(frame: NSRect(x: 20, y: 132, width: 240, height: 30))
+        tabRegion.tabFrames = [CGRect(x: 8, y: 0, width: 96, height: 30)]
+        contentView.addSubview(tabRegion)
+        BonsplitTabItemHitRegionRegistry.register(tabRegion)
+        defer {
+            _ = finishWindowMoveSuppressionSequence(window: window)
+            BonsplitTabItemHitRegionRegistry.unregister(tabRegion)
+        }
+
+        let tabPoint = tabRegion.convert(NSPoint(x: 28, y: 15), to: nil)
+        let down = makeMouseEvent(type: .leftMouseDown, location: tabPoint, window: window)
+
+        XCTAssertEqual(beginOrContinueWindowMoveSuppressionSequenceForEvent(window: window, event: down), .bonsplitPaneTabDrag)
+        XCTAssertFalse(window.isMovable)
+        XCTAssertTrue(isWindowDragSuppressed(window: window))
+        XCTAssertEqual(activeWindowMoveSuppressionSequenceReason(window: window), .bonsplitPaneTabDrag)
+
+        let draggedOutsideTab = makeMouseEvent(
+            type: .leftMouseDragged,
+            location: NSPoint(x: contentView.bounds.midX, y: contentView.bounds.midY),
+            window: window
+        )
+        XCTAssertEqual(
+            beginOrContinueWindowMoveSuppressionSequenceForEvent(window: window, event: draggedOutsideTab),
+            .bonsplitPaneTabDrag
+        )
+        XCTAssertFalse(window.isMovable, "Window must remain immovable for the whole tab-drag mouse sequence")
+        XCTAssertFalse(shouldFinishWindowMoveSuppressionSequenceAfterDispatch(window: window, event: draggedOutsideTab))
+
+        let up = makeMouseEvent(type: .leftMouseUp, location: tabPoint, window: window)
+        XCTAssertEqual(beginOrContinueWindowMoveSuppressionSequenceForEvent(window: window, event: up), .bonsplitPaneTabDrag)
+        XCTAssertTrue(shouldFinishWindowMoveSuppressionSequenceAfterDispatch(window: window, event: up))
+        XCTAssertEqual(finishWindowMoveSuppressionSequence(window: window), .bonsplitPaneTabDrag)
+        XCTAssertTrue(window.isMovable)
+        XCTAssertFalse(isWindowDragSuppressed(window: window))
+        XCTAssertNil(activeWindowMoveSuppressionSequenceReason(window: window))
+    }
+
+    func testBonsplitPaneTabSuppressionRestoresImmovableMainWindow() {
+        let (window, contentView) = makeWindowWithContentView()
+        window.isMovable = false
+        let tabRegion = FakeBonsplitTabItemRegionView(frame: NSRect(x: 20, y: 132, width: 240, height: 30))
+        tabRegion.tabFrames = [CGRect(x: 8, y: 0, width: 96, height: 30)]
+        contentView.addSubview(tabRegion)
+        BonsplitTabItemHitRegionRegistry.register(tabRegion)
+        defer {
+            _ = finishWindowMoveSuppressionSequence(window: window)
+            BonsplitTabItemHitRegionRegistry.unregister(tabRegion)
+        }
+
+        let tabPoint = tabRegion.convert(NSPoint(x: 28, y: 15), to: nil)
+        let down = makeMouseEvent(type: .leftMouseDown, location: tabPoint, window: window)
+
+        XCTAssertEqual(beginOrContinueWindowMoveSuppressionSequenceForEvent(window: window, event: down), .bonsplitPaneTabDrag)
+        XCTAssertFalse(window.isMovable)
+        XCTAssertEqual(finishWindowMoveSuppressionSequence(window: window), .bonsplitPaneTabDrag)
+        XCTAssertFalse(
+            window.isMovable,
+            "Tab-drag suppression must not restore native AppKit window dragging when the main window baseline is immovable"
+        )
+    }
+
+    func testNewMouseDownReevaluatesAfterStaleBonsplitPaneTabSuppression() {
+        let (window, contentView) = makeWindowWithContentView()
+        window.isMovable = true
+        let tabRegion = FakeBonsplitTabItemRegionView(frame: NSRect(x: 20, y: 132, width: 240, height: 30))
+        tabRegion.tabFrames = [CGRect(x: 8, y: 0, width: 96, height: 30)]
+        contentView.addSubview(tabRegion)
+        BonsplitTabItemHitRegionRegistry.register(tabRegion)
+        defer {
+            _ = finishWindowMoveSuppressionSequence(window: window)
+            BonsplitTabItemHitRegionRegistry.unregister(tabRegion)
+        }
+
+        let tabPoint = tabRegion.convert(NSPoint(x: 28, y: 15), to: nil)
+        let down = makeMouseEvent(type: .leftMouseDown, location: tabPoint, window: window)
+        XCTAssertEqual(beginOrContinueWindowMoveSuppressionSequenceForEvent(window: window, event: down), .bonsplitPaneTabDrag)
+        XCTAssertFalse(window.isMovable)
+
+        let emptyChromePoint = tabRegion.convert(NSPoint(x: 180, y: 15), to: nil)
+        let nextDown = makeMouseEvent(type: .leftMouseDown, location: emptyChromePoint, window: window)
+        XCTAssertNil(
+            beginOrContinueWindowMoveSuppressionSequenceForEvent(
+                window: window,
+                event: nextDown,
+                pressedMouseButtons: 1
+            ),
+            "A fresh mouse-down must end stale tab suppression and re-check the actual hit target"
+        )
+        XCTAssertTrue(window.isMovable)
+        XCTAssertFalse(isWindowDragSuppressed(window: window))
+        XCTAssertNil(activeWindowMoveSuppressionSequenceReason(window: window))
+    }
+
+    func testBonsplitPaneTabSuppressionLeavesEmptyTabChromeDraggable() {
+        let (window, contentView) = makeWindowWithContentView()
+        window.isMovable = true
+        let tabRegion = FakeBonsplitTabItemRegionView(frame: NSRect(x: 20, y: 132, width: 240, height: 30))
+        tabRegion.tabFrames = [CGRect(x: 8, y: 0, width: 96, height: 30)]
+        contentView.addSubview(tabRegion)
+        BonsplitTabItemHitRegionRegistry.register(tabRegion)
+        defer { BonsplitTabItemHitRegionRegistry.unregister(tabRegion) }
+
+        let emptyChromePoint = tabRegion.convert(NSPoint(x: 180, y: 15), to: nil)
+        let event = makeMouseEvent(type: .leftMouseDown, location: emptyChromePoint, window: window)
+
+        XCTAssertFalse(shouldSuppressWindowMoveForBonsplitPaneTabDrag(window: window, event: event))
+        XCTAssertNil(windowMoveSuppressionReason(window: window, event: event))
     }
 }
 
