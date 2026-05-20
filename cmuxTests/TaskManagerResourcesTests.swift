@@ -31,6 +31,18 @@ final class TaskManagerResourcesTests: XCTestCase {
         XCTAssertEqual(definition.id, "grok")
     }
 
+    func testAntigravityCodingAgentDefinitionUsesBrandedIconAsset() throws {
+        let definition = try XCTUnwrap(CmuxTaskManagerCodingAgentDefinition.matchingDefinition(
+            processName: "agy",
+            processPath: "/Users/example/.local/bin/agy",
+            arguments: ["/Users/example/.local/bin/agy", "--conversation", "conversation-123"],
+            environment: [:]
+        ))
+
+        XCTAssertEqual(definition.id, "antigravity")
+        XCTAssertEqual(definition.assetName, "AgentIcons/Antigravity")
+    }
+
     func testAttributedPayloadProratesSharedResourceMeasurements() {
         let summary = resourceSummary()
 

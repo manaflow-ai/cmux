@@ -443,7 +443,7 @@ struct CmuxTaskManagerCodingAgentDefinition: Equatable {
         CmuxTaskManagerCodingAgentDefinition(
             id: "antigravity",
             displayName: "Antigravity",
-            assetName: nil,
+            assetName: "AgentIcons/Antigravity",
             launchKinds: ["antigravity", "agy"],
             directBasenames: ["agy", "antigravity"],
             argumentNeedles: ["antigravity-cli", "antigravity"]

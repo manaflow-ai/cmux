@@ -1115,7 +1115,7 @@ final class SessionPersistenceTests: XCTestCase {
         let agent = try XCTUnwrap(
             restored.sessionSnapshot(includeScrollback: false).panels.first?.terminal?.agent
         )
-        XCTAssertEqual(agent.kind, .antigravity)
+        XCTAssertEqual(agent.kind, .custom("antigravity"))
         XCTAssertEqual(agent.sessionId, "antigravity-conversation-123")
         XCTAssertEqual(
             agent.resumeCommand,

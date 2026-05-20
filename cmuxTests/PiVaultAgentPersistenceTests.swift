@@ -68,6 +68,13 @@ final class PiVaultAgentPersistenceTests: XCTestCase {
         XCTAssertEqual(SessionAgent.registered(agent).assetName, "AgentIcons/Pi")
     }
 
+    func testBuiltInAntigravityRegistrationUsesBrandedIconAsset() {
+        let agent = RegisteredSessionAgent(registration: CmuxVaultAgentRegistration.builtInAntigravity)
+
+        XCTAssertEqual(agent.iconAssetName, "AgentIcons/Antigravity")
+        XCTAssertEqual(SessionAgent.registered(agent).assetName, "AgentIcons/Antigravity")
+    }
+
     func testBuiltInAntigravityRegistrationLoadsHistoryDisplayAndWorkspace() async throws {
         let tempDir = FileManager.default.temporaryDirectory
             .appendingPathComponent("cmux-antigravity-vault-history-\(UUID().uuidString)", isDirectory: true)
