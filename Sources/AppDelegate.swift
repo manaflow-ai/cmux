@@ -2868,47 +2868,22 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             return false
         }
 
-        let snapshotWindows = Array(
-            snapshot.windows.prefix(SessionPersistencePolicy.maxWindowsPerSnapshot)
-        )
+        let snapshotWindows = Self.manualReopenSessionWindows(from: snapshot)
         guard !snapshotWindows.isEmpty else { return false }
 
-        let existingContexts = sortedMainWindowContextsForSessionSnapshot()
         isApplyingSessionRestore = true
         startupSessionSnapshot = nil
         didAttemptStartupSessionRestore = true
 
-        if existingContexts.isEmpty {
-            for windowSnapshot in snapshotWindows {
-                _ = createMainWindowForSessionRestore(windowSnapshot, shouldActivate: shouldActivate)
-            }
-        } else {
-            for (context, windowSnapshot) in zip(existingContexts, snapshotWindows) {
-                applySessionWindowSnapshot(
-                    windowSnapshot,
-                    to: context,
-                    window: context.window ?? windowForMainWindowId(context.windowId)
-                )
-            }
-
-            if snapshotWindows.count > existingContexts.count {
-                for windowSnapshot in snapshotWindows.dropFirst(existingContexts.count) {
-                    _ = createMainWindowForSessionRestore(windowSnapshot, shouldActivate: shouldActivate)
-                }
-            }
-
-            if existingContexts.count > snapshotWindows.count {
-                for context in existingContexts.dropFirst(snapshotWindows.count) {
-                    _ = closeMainWindow(windowId: context.windowId)
-                }
-            }
+        let restoredWindowIds = snapshotWindows.map { windowSnapshot in
+            createMainWindowForSessionRestore(windowSnapshot, shouldActivate: shouldActivate)
         }
 
         completeSessionRestoreOperation(isManualReopen: true)
 
         if shouldActivate,
-           let primaryWindow = sortedMainWindowContextsForSessionSnapshot()
-            .compactMap({ $0.window ?? windowForMainWindowId($0.windowId) })
+           let primaryWindow = restoredWindowIds
+            .compactMap({ mainWindow(for: $0) })
             .first {
             primaryWindow.makeKeyAndOrderFront(nil)
             setActiveMainWindow(primaryWindow)
@@ -2918,6 +2893,14 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         }
 
         return true
+    }
+
+    nonisolated static func manualReopenSessionWindows(
+        from snapshot: AppSessionSnapshot
+    ) -> [SessionWindowSnapshot] {
+        snapshot.windows
+            .prefix(SessionPersistencePolicy.maxWindowsPerSnapshot)
+            .filter { !$0.tabManager.workspaces.isEmpty }
     }
 
     private func loadReopenSessionSnapshot() -> AppSessionSnapshot? {
