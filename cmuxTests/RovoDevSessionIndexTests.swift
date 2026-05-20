@@ -51,6 +51,46 @@ final class RovoDevSessionIndexTests: XCTestCase {
         XCTAssertTrue(sentSignals.isEmpty)
     }
 
+    func testRipgrepMatchingPathsCancellationDoesNotReportFailure() async throws {
+        let fixture = try makeFixture()
+        defer { try? FileManager.default.removeItem(at: fixture.tempDir) }
+
+        let fakeRipgrep = fixture.tempDir.appendingPathComponent("rg")
+        try """
+        #!/bin/sh
+        exec /bin/sleep 10
+        """.write(to: fakeRipgrep, atomically: true, encoding: .utf8)
+        try FileManager.default.setAttributes(
+            [.posixPermissions: 0o755],
+            ofItemAtPath: fakeRipgrep.path
+        )
+
+        let defaults = UserDefaults.standard
+        let previousPath = defaults.string(forKey: RipgrepIntegrationSettings.customRipgrepPathKey)
+        defaults.set(fakeRipgrep.path, forKey: RipgrepIntegrationSettings.customRipgrepPathKey)
+        defer {
+            if let previousPath {
+                defaults.set(previousPath, forKey: RipgrepIntegrationSettings.customRipgrepPathKey)
+            } else {
+                defaults.removeObject(forKey: RipgrepIntegrationSettings.customRipgrepPathKey)
+            }
+        }
+
+        let task = Task {
+            await SessionIndexStore.ripgrepMatchingPaths(
+                needle: "needle",
+                root: fixture.tempDir.path,
+                fileGlob: "*.jsonl"
+            )
+        }
+        try await Task.sleep(for: .milliseconds(50))
+        task.cancel()
+
+        let matches = await task.value
+
+        XCTAssertEqual(matches, [])
+    }
+
     func testRovoDevSessionIndexReadsMetadataAndResumeCommand() throws {
         let fixture = try makeFixture()
         defer { try? FileManager.default.removeItem(at: fixture.tempDir) }

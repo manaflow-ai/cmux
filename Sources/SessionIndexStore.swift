@@ -1313,8 +1313,13 @@ final class SessionIndexStore: ObservableObject {
         }
 
         return await withTaskCancellationHandler {
-            guard !Task.isCancelled else { return nil as [URL]? }
-            do { try process.run() } catch { return nil as [URL]? }
+            guard !Task.isCancelled else { return [] }
+            do {
+                try process.run()
+            } catch {
+                if Task.isCancelled { return [] }
+                return nil as [URL]?
+            }
             cancellation.markStarted(processIdentifier: process.processIdentifier)
             if Task.isCancelled {
                 cancellation.cancel()
@@ -1330,6 +1335,7 @@ final class SessionIndexStore: ObservableObject {
             let data = outPipe.fileHandleForReading.readDataToEndOfFile()
             process.waitUntilExit()
             cancellation.markFinished(processIdentifier: process.processIdentifier)
+            if Task.isCancelled { return [] }
             // rg exit codes: 0 = matches, 1 = no matches, 2 = error/terminated.
             switch process.terminationStatus {
             case 0:
