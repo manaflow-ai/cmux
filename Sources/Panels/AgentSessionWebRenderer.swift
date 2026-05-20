@@ -22,6 +22,7 @@ struct AgentSessionWebRenderer: NSViewRepresentable {
         hostView.backgroundColor = backgroundColor
         hostView.onVisibleBounds = { [weak coordinator = context.coordinator] in
             coordinator?.loadShellIfNeeded()
+            coordinator?.flushVisiblePaintIfReady()
         }
         attachWebView(to: hostView, context: context)
         return hostView
@@ -38,10 +39,12 @@ struct AgentSessionWebRenderer: NSViewRepresentable {
         nsView.backgroundColor = backgroundColor
         nsView.onVisibleBounds = { [weak coordinator = context.coordinator] in
             coordinator?.loadShellIfNeeded()
+            coordinator?.flushVisiblePaintIfReady()
         }
         attachWebView(to: nsView, context: context)
         if nsView.hasVisibleBounds {
             context.coordinator.loadShellIfNeeded()
+            context.coordinator.flushVisiblePaintIfReady()
         }
     }
 
@@ -192,6 +195,8 @@ extension AgentSessionWebRenderer {
         private var initialProviderID: AgentSessionProviderID = .codex
         private var workingDirectory: String?
         private var loadedRendererKind: AgentSessionRendererKind?
+        private var hasFinishedNavigation = false
+        private var hasCompletedVisiblePaintFlush = false
         private var processStore = AgentSessionProcessStore()
 
         func bind(
@@ -205,6 +210,8 @@ extension AgentSessionWebRenderer {
             self.workspaceId = workspaceId
             if self.rendererKind != rendererKind {
                 loadedRendererKind = nil
+                hasFinishedNavigation = false
+                hasCompletedVisiblePaintFlush = false
             }
             self.rendererKind = rendererKind
             self.initialProviderID = initialProviderID
@@ -264,6 +271,8 @@ extension AgentSessionWebRenderer {
 #endif
                 webView?.loadHTMLString(html, baseURL: resourceDirectoryURL)
                 loadedRendererKind = rendererKind
+                hasFinishedNavigation = false
+                hasCompletedVisiblePaintFlush = false
             } catch {
 #if DEBUG
                 cmuxDebugLog(
@@ -293,6 +302,8 @@ extension AgentSessionWebRenderer {
             }
             webView = nil
             loadedRendererKind = nil
+            hasFinishedNavigation = false
+            hasCompletedVisiblePaintFlush = false
         }
 
         func userContentController(
@@ -317,6 +328,7 @@ extension AgentSessionWebRenderer {
 #if DEBUG
             cmuxDebugLog("agentSession.web.didFinish renderer=\(rendererKind.rawValue)")
 #endif
+            hasFinishedNavigation = true
             flushInitialPaint(for: webView)
         }
 
@@ -336,6 +348,16 @@ extension AgentSessionWebRenderer {
                 "error=\(error.localizedDescription)"
             )
 #endif
+        }
+
+        func flushVisiblePaintIfReady() {
+            guard hasFinishedNavigation,
+                  !hasCompletedVisiblePaintFlush,
+                  let webView else {
+                return
+            }
+            hasCompletedVisiblePaintFlush = true
+            flushInitialPaint(for: webView)
         }
 
         private func flushInitialPaint(for webView: WKWebView) {
