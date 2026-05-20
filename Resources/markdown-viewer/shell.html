@@ -334,7 +334,9 @@ html { scroll-behavior: smooth; }
     var hash = 0x811c9dc5;
     for (var i = 0, len = str.length; i < len; i++) {
       hash ^= str.charCodeAt(i);
-      hash = (hash * 0x01000193) >>> 0;
+      // Math.imul gives C-like 32-bit integer multiply; plain `*` would lose
+      // precision once the product exceeds 2^53, corrupting the hash.
+      hash = Math.imul(hash, 0x01000193) >>> 0;
     }
     return hash;
   }
@@ -920,7 +922,13 @@ html { scroll-behavior: smooth; }
   //                                remote images" privacy gate is bypassed.
   //                                Local (relative/file) images stay on the fast
   //                                path; rewriteLocalImageSources handles them.
-  var sanitizationPattern = /<(?:script|iframe|object|embed|link\b|meta|base|form|button|textarea|select|option|svg|math)\b|<input\b(?![^>]*type\s*=\s*["']?checkbox)|<img\b[^>]*\ssrc\s*=\s*["']?\s*https?:|(?:\son[a-z]+\s*=|\bstyle\s*=|\bsrcdoc\s*=|\bautofocus\b|\bformaction\s*=|\bxlink:href\s*=)|(?:href|src)\s*=\s*["']?\s*(?:javascript|vbscript|data):|(?:href|src)\s*=\s*["'][^"']*&/i;
+  //
+  // INVARIANT: this pattern must be a superset of everything
+  // sanitizeRenderedHTML() would act on. The tag list mirrors blockedTags
+  // (incl. style + media tags audio/video/picture/source/track), and the
+  // entity-reference branch matches quoted AND unquoted href/src values so
+  // forms like `href=&#106;avascript:` cannot skip the slow path.
+  var sanitizationPattern = /<(?:script|iframe|object|embed|link\b|meta|base|style|audio|video|picture|source|track|form|button|textarea|select|option|svg|math)\b|<input\b(?![^>]*type\s*=\s*["']?checkbox)|<img\b[^>]*\ssrc\s*=\s*["']?\s*https?:|(?:\son[a-z]+\s*=|\bstyle\s*=|\bsrcdoc\s*=|\bautofocus\b|\bformaction\s*=|\bxlink:href\s*=)|(?:href|src)\s*=\s*["']?\s*(?:javascript|vbscript|data):|(?:href|src)\s*=\s*(?:"[^"]*&|'[^']*&|[^"'\s>]*&)/i;
   function needsSanitization(html) {
     return sanitizationPattern.test(html || '');
   }
@@ -1619,6 +1627,11 @@ html { scroll-behavior: smooth; }
     var restoreImageSources = options.restoreImageSources !== false;
     var clone = contentEl.cloneNode(true);
     clone.querySelectorAll('.cmux-code-copy-button').forEach(function(el) {
+      el.remove();
+    });
+    // Line-number gutters are viewer chrome, not content — drop them so
+    // exported HTML and copied plain text don't carry "1 2 3 …" line numbers.
+    clone.querySelectorAll('.cmux-line-gutter').forEach(function(el) {
       el.remove();
     });
     clone.querySelectorAll('.cmux-remote-image-placeholder').forEach(function(el) {
