@@ -2116,7 +2116,8 @@ class TabManager: ObservableObject {
         selectedTerminalPanel?.hasSelection() == true
     }
 
-    func startSearch() {
+    @discardableResult
+    func startSearch() -> Bool {
         if let panel = selectedTerminalPanel {
             let hadExistingSearch = panel.searchState != nil
             panel.hostedView.preparePanelFocusIntentForActivation(.findField)
@@ -2136,9 +2137,11 @@ class TabManager: ObservableObject {
                 "firstResponder=\(String(describing: panel.surface.uiWindow?.firstResponder))"
             )
 #endif
-            return
+            return handled
         }
-        focusedBrowserPanel?.startFind()
+        guard let browserPanel = focusedBrowserPanel else { return false }
+        browserPanel.startFind()
+        return browserPanel.searchState != nil
     }
 
     func searchSelection() {
