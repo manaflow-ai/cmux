@@ -66,22 +66,12 @@ final class RovoDevSessionIndexTests: XCTestCase {
             ofItemAtPath: fakeRipgrep.path
         )
 
-        let defaults = UserDefaults.standard
-        let previousPath = defaults.string(forKey: RipgrepIntegrationSettings.customRipgrepPathKey)
-        defaults.set(fakeRipgrep.path, forKey: RipgrepIntegrationSettings.customRipgrepPathKey)
-        defer {
-            if let previousPath {
-                defaults.set(previousPath, forKey: RipgrepIntegrationSettings.customRipgrepPathKey)
-            } else {
-                defaults.removeObject(forKey: RipgrepIntegrationSettings.customRipgrepPathKey)
-            }
-        }
-
         let task = Task {
             await SessionIndexStore.ripgrepMatchingPaths(
                 needle: "needle",
                 root: fixture.tempDir.path,
-                fileGlob: "*.jsonl"
+                fileGlob: "*.jsonl",
+                ripgrepPath: fakeRipgrep.path
             )
         }
         try await Task.sleep(for: .milliseconds(50))

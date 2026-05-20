@@ -1285,9 +1285,9 @@ final class SessionIndexStore: ObservableObject {
     /// cancelled (e.g. user types another key), `onCancel` signals the launched
     /// rg process instead of letting it grind to completion.
     nonisolated static func ripgrepMatchingPaths(
-        needle: String, root: String, fileGlob: String
+        needle: String, root: String, fileGlob: String, ripgrepPath: String? = nil
     ) async -> [URL]? {
-        guard let rg = resolvedRipgrepPath() else { return nil }
+        guard let rg = ripgrepPath ?? resolvedRipgrepPath() else { return nil }
         let process = Process()
         process.executableURL = URL(fileURLWithPath: rg)
         process.arguments = [
