@@ -1640,7 +1640,7 @@ final class SocketClient {
 #endif
     }
 
-    private func readLine(maxBytes: Int = 16 * 1024, timeout: TimeInterval = Self.responseTimeoutSeconds) throws -> String {
+    private func readLine(maxBytes: Int = 16 * 1024, timeout: TimeInterval) throws -> String {
         var data = Data()
 
         while data.count < maxBytes {
