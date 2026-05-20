@@ -144,6 +144,33 @@ _cmux_restore_scrollback_once() {
     fi
 }
 _cmux_restore_scrollback_once
+_CMUX_GROK_WRAPPER="${_CMUX_GROK_WRAPPER:-}"
+_cmux_install_cli_wrapper() {
+    local command_name="$1"
+    local wrapper_variable="$2"
+    local integration_dir="${CMUX_SHELL_INTEGRATION_DIR:-}"
+    local existing_type=""
+    [[ -n "$integration_dir" ]] || return 0
+
+    integration_dir="${integration_dir%/}"
+    local bundle_dir="${integration_dir%/shell-integration}"
+    local wrapper_path="$bundle_dir/bin/$command_name"
+    [[ -x "$wrapper_path" ]] || return 0
+
+    existing_type="$(type -t "$command_name" 2>/dev/null || true)"
+    case "$existing_type" in
+        alias|function)
+            return 0
+            ;;
+    esac
+
+    # Keep the bundled wrapper ahead of later PATH mutations. Install it
+    # via eval so an existing alias cannot break parsing.
+    printf -v "$wrapper_variable" '%s' "$wrapper_path"
+    unalias "$command_name" >/dev/null 2>&1 || true
+    eval "$command_name() { \"\${$wrapper_variable}\" \"\$@\"; }"
+}
+_cmux_install_cli_wrapper grok _CMUX_GROK_WRAPPER
 _cmux_now() {
     printf '%s\n' "${EPOCHSECONDS:-$SECONDS}"
 }
