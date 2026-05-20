@@ -11710,6 +11710,13 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             return true
         }
 
+        // Fast path for normal typing and terminal navigation keys (for example Up-arrow
+        // history): after command-palette/notification handling and browser omnibar
+        // arrow navigation above, most plain key events have no app-level shortcut behavior.
+        if shouldBypassPlainKeyShortcutRouting(event: event, normalizedFlags: normalizedFlags) {
+            return false
+        }
+
         if activeConfiguredShortcutChordPrefixForCurrentEvent == nil {
             let focusContext = shortcutEventFocusContext(event)
             let availableChordActions = currentConfiguredShortcutChordActions().filter { action in
@@ -11718,13 +11725,6 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             if armConfiguredShortcutChordIfNeeded(event: event, actions: availableChordActions) {
                 return true
             }
-        }
-
-        // Fast path for normal typing and terminal navigation keys (for example Up-arrow
-        // history): after command-palette/notification handling and browser omnibar
-        // arrow navigation above, most plain key events have no app-level shortcut behavior.
-        if shouldBypassPlainKeyShortcutRouting(event: event, normalizedFlags: normalizedFlags) {
-            return false
         }
 
         let configuredCmuxShortcutContext = preferredMainWindowContextForShortcutRouting(event: event)

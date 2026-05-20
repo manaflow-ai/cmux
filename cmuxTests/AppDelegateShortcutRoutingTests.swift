@@ -823,7 +823,9 @@ final class AppDelegateShortcutRoutingTests: XCTestCase {
         )
 
         appDelegate.debugCreateMainWindowSourceIsNativeFullScreenOverride = nil
-        RunLoop.main.run(until: Date(timeIntervalSinceNow: 0.05))
+        waitUntil(timeout: 1.0) {
+            !newWindow.collectionBehavior.contains(.fullScreenDisallowsTiling)
+        }
 
         XCTAssertFalse(
             newWindow.collectionBehavior.contains(.fullScreenDisallowsTiling),
@@ -1694,12 +1696,16 @@ final class AppDelegateShortcutRoutingTests: XCTestCase {
         }
 
         let windowId = appDelegate.createMainWindow()
+        defer { closeWindow(withId: windowId) }
         guard let targetWindow = window(withId: windowId) else {
             XCTFail("Expected test window")
             return
         }
+        targetWindow.makeKeyAndOrderFront(nil)
+        RunLoop.main.run(until: Date(timeIntervalSinceNow: 0.05))
 
         appDelegate.debugCloseMainWindowConfirmationHandler = { _ in true }
+        defer { appDelegate.debugCloseMainWindowConfirmationHandler = nil }
 
         guard let event = makeKeyDownEvent(
             key: "w",
@@ -3343,6 +3349,8 @@ final class AppDelegateShortcutRoutingTests: XCTestCase {
             XCTFail("Expected focused browser panel")
             return
         }
+        window.makeKeyAndOrderFront(nil)
+        RunLoop.main.run(until: Date(timeIntervalSinceNow: 0.05))
 
         let field = OmnibarNativeTextField(frame: NSRect(x: 8, y: 8, width: 240, height: 24))
         field.identifier = browserOmnibarTextFieldIdentifier
@@ -4240,6 +4248,8 @@ final class AppDelegateShortcutRoutingTests: XCTestCase {
             XCTFail("Expected test window")
             return
         }
+        window.makeKeyAndOrderFront(nil)
+        RunLoop.main.run(until: Date(timeIntervalSinceNow: 0.05))
 
         let overlayContainer = NSView(frame: contentView.bounds)
         overlayContainer.identifier = commandPaletteOverlayContainerIdentifier
@@ -6084,6 +6094,8 @@ final class AppDelegateShortcutRoutingTests: XCTestCase {
             XCTFail("Expected focused terminal surface")
             return
         }
+        window.makeKeyAndOrderFront(nil)
+        RunLoop.main.run(until: Date(timeIntervalSinceNow: 0.05))
 
         appDelegate.noteTerminalKeyboardFocusIntent(workspaceId: workspace.id, panelId: terminalPanel.id, in: window)
 
@@ -6489,6 +6501,13 @@ final class AppDelegateShortcutRoutingTests: XCTestCase {
         defer { appDelegate?.debugCloseMainWindowConfirmationHandler = originalConfirmationHandler }
         window.performClose(nil)
         RunLoop.main.run(until: Date(timeIntervalSinceNow: 0.05))
+    }
+
+    private func waitUntil(timeout: TimeInterval, condition: () -> Bool) {
+        let deadline = Date(timeIntervalSinceNow: timeout)
+        while !condition(), Date() < deadline {
+            RunLoop.main.run(until: Date(timeIntervalSinceNow: 0.01))
+        }
     }
 
     private func restoreDefaultsValue(_ value: Any?, forKey key: String, defaults: UserDefaults) {
