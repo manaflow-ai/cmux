@@ -900,35 +900,63 @@ html { scroll-behavior: smooth; }
     }
   }
 
-  // Fast pre-check: most markdown files produce HTML with no dangerous
-  // elements or attributes. This regex tests for patterns the full
-  // TreeWalker sanitizer would act on — if none match, skip the walk.
-  //
-  // Notes on each alternation:
-  //   <link\b ...                  word-boundary, not <link(?:\s) — catches
-  //                                <link> with no following whitespace.
-  //   \son[a-z]+\s*=               whitespace before `=` is tolerated by
-  //                                browsers, so `onload =` must still match.
-  //   (?:href|src) ... &           any character reference inside an href/src
-  //                                value (e.g. `&#106;avascript:`) forces the
-  //                                full sanitizer; entity decoding happens at
-  //                                attribute-parse time, so the slow path
-  //                                gets the resolved value via attr.value.
-  //   <img ... src=...http(s):     remote images must reach sanitizeRenderedHTML
-  //                                (which runs on an inert <template>) so their
-  //                                live src is stripped into data-cmux-remote-src
-  //                                before insertion — otherwise the browser
-  //                                auto-fetches them and the "don't auto-load
-  //                                remote images" privacy gate is bypassed.
-  //                                Local (relative/file) images stay on the fast
-  //                                path; rewriteLocalImageSources handles them.
-  //
-  // INVARIANT: this pattern must be a superset of everything
-  // sanitizeRenderedHTML() would act on. The tag list mirrors blockedTags
-  // (incl. style + media tags audio/video/picture/source/track), and the
-  // entity-reference branch matches quoted AND unquoted href/src values so
-  // forms like `href=&#106;avascript:` cannot skip the slow path.
-  var sanitizationPattern = /<(?:script|iframe|object|embed|link\b|meta|base|style|audio|video|picture|source|track|form|button|textarea|select|option|svg|math)\b|<input\b(?![^>]*type\s*=\s*["']?checkbox)|<img\b[^>]*\ssrc\s*=\s*["']?\s*https?:|(?:\son[a-z]+\s*=|\bstyle\s*=|\bsrcset\s*=|\bbackground\s*=|\bsrcdoc\s*=|\bautofocus\b|\bformaction\s*=|\bxlink:href\s*=)|(?:href|src)\s*=\s*["']?\s*(?:javascript|vbscript|data):|(?:href|src)\s*=\s*(?:"[^"]*&|'[^']*&|[^"'\s>]*&)/i;
+  // Single source of truth for sanitization. Both the full TreeWalker
+  // sanitizer (sanitizeRenderedHTML) and the fast pre-check (needsSanitization)
+  // are derived from these lists, so the fast-path can never drift out of sync
+  // with what the sanitizer actually strips. Add a tag or attribute here once
+  // and both paths update together.
+  var SANITIZER_BLOCKED_TAGS = {
+    script: true, iframe: true, object: true, embed: true, link: true,
+    meta: true, base: true, style: true, audio: true, video: true,
+    picture: true, source: true, track: true, form: true, button: true,
+    textarea: true, select: true, option: true, svg: true, math: true
+  };
+  // Attributes the sanitizer strips outright. Any on* event handler is also
+  // stripped (handled by prefix, not listed here). `input` (checkbox-only) and
+  // remote <img> src are special-cased in both the sanitizer and the pattern.
+  var SANITIZER_BLOCKED_ATTRS = [
+    'style', 'background', 'srcset', 'srcdoc', 'autofocus', 'formaction', 'xlink:href'
+  ];
+  // Valueless-capable (boolean) attributes match on a word boundary in the
+  // fast-path regex rather than requiring `=` (e.g. bare `<button autofocus>`).
+  var SANITIZER_BOOLEAN_ATTRS = { autofocus: true };
+
+  function reEscapeForPattern(s) {
+    return String(s).replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+  }
+
+  // Build the fast pre-check regex from the same lists the sanitizer uses.
+  // Most markdown produces HTML with nothing dangerous; when none of these
+  // alternations match we skip the TreeWalker walk entirely.
+  //   - tag list           mirrors SANITIZER_BLOCKED_TAGS
+  //   - <input ...checkbox  input is allowed only as a checkbox
+  //   - <img ...src=http(s) remote images must reach sanitizeRenderedHTML
+  //                         (which runs on an inert <template>) so the live src
+  //                         is stripped before the browser auto-fetches it —
+  //                         the "don't auto-load remote images" privacy gate.
+  //                         Local/relative images stay on the fast path.
+  //   - on* / blocked attrs mirror SANITIZER_BLOCKED_ATTRS
+  //   - javascript:/...     active-protocol href/src
+  //   - href/src ... &      any character reference (quoted or unquoted) in an
+  //                         href/src value, so entity-encoded payloads like
+  //                         `href=&#106;avascript:` can't skip the slow path.
+  function buildSanitizationPattern() {
+    var tags = Object.keys(SANITIZER_BLOCKED_TAGS).map(reEscapeForPattern).join('|');
+    var attrs = SANITIZER_BLOCKED_ATTRS.map(function(a) {
+      var esc = reEscapeForPattern(a);
+      return SANITIZER_BOOLEAN_ATTRS[a] ? '\\b' + esc + '\\b' : '\\b' + esc + '\\s*=';
+    }).join('|');
+    return new RegExp(
+      '<(?:' + tags + ')\\b' +
+      '|<input\\b(?![^>]*type\\s*=\\s*["\']?checkbox)' +
+      '|<img\\b[^>]*\\ssrc\\s*=\\s*["\']?\\s*https?:' +
+      '|(?:\\son[a-z]+\\s*=|' + attrs + ')' +
+      '|(?:href|src)\\s*=\\s*["\']?\\s*(?:javascript|vbscript|data):' +
+      '|(?:href|src)\\s*=\\s*(?:"[^"]*&|\'[^\']*&|[^"\'\\s>]*&)',
+      'i'
+    );
+  }
+  var sanitizationPattern = buildSanitizationPattern();
   function needsSanitization(html) {
     return sanitizationPattern.test(html || '');
   }
@@ -937,28 +965,9 @@ html { scroll-behavior: smooth; }
     var template = document.createElement('template');
     template.innerHTML = String(html || '');
 
-    var blockedTags = {
-      script: true,
-      iframe: true,
-      object: true,
-      embed: true,
-      link: true,
-      style: true,
-      meta: true,
-      base: true,
-      audio: true,
-      form: true,
-      button: true,
-      picture: true,
-      source: true,
-      textarea: true,
-      track: true,
-      video: true,
-      select: true,
-      option: true,
-      svg: true,
-      math: true
-    };
+    // Reuse the shared block list so the sanitizer and the fast-path regex
+    // (buildSanitizationPattern) can never disagree about which tags to strip.
+    var blockedTags = SANITIZER_BLOCKED_TAGS;
 
     var walker = document.createTreeWalker(template.content, NodeFilter.SHOW_ELEMENT);
     var elements = [];
@@ -995,16 +1004,7 @@ html { scroll-behavior: smooth; }
           el.removeAttribute(attr.name);
           return;
         }
-        if (
-          name.indexOf('on') === 0 ||
-          name === 'style' ||
-          name === 'background' ||
-          name === 'srcset' ||
-          name === 'srcdoc' ||
-          name === 'autofocus' ||
-          name === 'formaction' ||
-          name === 'xlink:href'
-        ) {
+        if (name.indexOf('on') === 0 || SANITIZER_BLOCKED_ATTRS.indexOf(name) !== -1) {
           el.removeAttribute(attr.name);
           return;
         }
