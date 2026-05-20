@@ -64,12 +64,13 @@ type stdioFrameWriter struct {
 }
 
 type rpcServer struct {
-	mu            sync.Mutex
-	nextStreamID  uint64
-	nextSessionID uint64
-	streams       map[string]*streamState
-	sessions      map[string]*sessionState
-	frameWriter   rpcFrameWriter
+	mu              sync.Mutex
+	nextStreamID    uint64
+	nextSessionID   uint64
+	streams         map[string]*streamState
+	sessions        map[string]*sessionState
+	hostAttachments map[string]*hostAttachState
+	frameWriter     rpcFrameWriter
 }
 
 type sessionAttachment struct {
@@ -108,7 +109,7 @@ func shouldRunCLIForInvocation(argv0 string, args []string) bool {
 
 func isDaemonEntryCommand(arg string) bool {
 	switch arg {
-	case "version", "serve", "cli":
+	case "version", "serve", "cli", "attach-bridge":
 		return true
 	default:
 		return false
@@ -164,6 +165,8 @@ func run(args []string, stdin io.Reader, stdout, stderr io.Writer) int {
 		return 0
 	case "cli":
 		return runCLI(args[1:])
+	case "attach-bridge":
+		return runAttachBridge(args[1:])
 	default:
 		usage(stderr)
 		return 2
@@ -176,6 +179,7 @@ func usage(w io.Writer) {
 	_, _ = fmt.Fprintln(w, "  cmuxd-remote serve --stdio")
 	_, _ = fmt.Fprintln(w, "  cmuxd-remote serve --ws --auth-lease-file <path> [--rpc-auth-lease-file <path>] [--listen 127.0.0.1:7777]")
 	_, _ = fmt.Fprintln(w, "  cmuxd-remote cli <command> [args...]")
+	_, _ = fmt.Fprintln(w, "  cmuxd-remote attach-bridge --surface <ref> [--read-only] [--poll-ms <ms>] [--no-vt]")
 }
 
 func runStdioServer(stdin io.Reader, stdout io.Writer) error {
@@ -183,11 +187,12 @@ func runStdioServer(stdin io.Reader, stdout io.Writer) error {
 		writer: bufio.NewWriter(stdout),
 	}
 	server := &rpcServer{
-		nextStreamID:  1,
-		nextSessionID: 1,
-		streams:       map[string]*streamState{},
-		sessions:      map[string]*sessionState{},
-		frameWriter:   writer,
+		nextStreamID:    1,
+		nextSessionID:   1,
+		streams:         map[string]*streamState{},
+		sessions:        map[string]*sessionState{},
+		hostAttachments: map[string]*hostAttachState{},
+		frameWriter:     writer,
 	}
 	defer server.closeAll()
 
@@ -345,6 +350,7 @@ func (s *rpcServer) handleRequest(req rpcRequest) rpcResponse {
 					"proxy.socks5",
 					"proxy.stream",
 					"proxy.stream.push",
+					"host.attach",
 				},
 			},
 		}
@@ -376,6 +382,19 @@ func (s *rpcServer) handleRequest(req rpcRequest) rpcResponse {
 		return s.handleSessionDetach(req)
 	case "session.status":
 		return s.handleSessionStatus(req)
+	// Host attach: bridge to the host machine's local cmux instance
+	case "host.surface.list":
+		return s.handleHostSurfaceList(req)
+	case "host.surface.read_screen":
+		return s.handleHostSurfaceReadScreen(req)
+	case "host.surface.send_text":
+		return s.handleHostSurfaceSendText(req)
+	case "host.surface.send_key":
+		return s.handleHostSurfaceSendKey(req)
+	case "host.attach":
+		return s.handleHostAttach(req)
+	case "host.detach":
+		return s.handleHostDetach(req)
 	default:
 		return rpcResponse{
 			ID: req.ID,
@@ -1012,6 +1031,16 @@ func (s *rpcServer) closeAll() {
 	}
 	for id := range s.sessions {
 		delete(s.sessions, id)
+	}
+	// Clean up host attach sessions
+	for id, attach := range s.hostAttachments {
+		delete(s.hostAttachments, id)
+		attach.mu.Lock()
+		if !attach.stopped {
+			attach.stopped = true
+			close(attach.stopCh)
+		}
+		attach.mu.Unlock()
 	}
 	s.mu.Unlock()
 	for _, conn := range streams {

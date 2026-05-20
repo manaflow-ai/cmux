@@ -3113,6 +3113,9 @@ struct CMUXCLI {
             // nested under `cmux vm`.
             try runVMSSHAttach(commandArgs: commandArgs, client: client)
 
+        case "attach":
+            try runAttach(commandArgs: commandArgs, client: client, jsonOutput: jsonOutput, idFormat: idFormat)
+
         case "new-workspace":
             let (commandOpt, rem0) = parseOption(commandArgs, name: "--command")
             let (cwdOpt, rem1) = parseOption(rem0, name: "--cwd")
@@ -7383,6 +7386,136 @@ struct CMUXCLI {
             "surface_id": surfaceId,
             "relay_port": relayPort,
         ])
+    }
+
+    // MARK: - cmux attach
+
+    /// `cmux attach <destination> --surface <ref>` creates a local workspace
+    /// that mirrors an existing surface on the remote host's cmux instance.
+    ///
+    /// This reuses the `cmux ssh` infrastructure (SSH ControlMaster, cmuxd-remote
+    /// deployment, relay) but instead of creating a new shell session, it connects
+    /// to an existing surface on the host cmux via cmuxd-remote's host.* RPC methods.
+    private func runAttach(
+        commandArgs: [String],
+        client: SocketClient,
+        jsonOutput: Bool,
+        idFormat: CLIIDFormat
+    ) throws {
+        // Parse options
+        let (surfaceOpt, rem0) = parseOption(commandArgs, name: "--surface")
+        let (_, rem1) = parseOption(rem0, name: "--workspace") // reserved for future use
+        let (nameOpt, rem2) = parseOption(rem1, name: "--name")
+        let listMode = rem2.contains("--list")
+        let readOnly = rem2.contains("--read-only")
+        let remaining = rem2.filter { $0 != "--list" && $0 != "--read-only" }
+
+        guard let destination = remaining.first else {
+            throw CLIError(message: "attach requires a destination (e.g., cmux attach myhost --surface surface:4)")
+        }
+
+        // Step 1: Establish SSH connection (reuse cmux ssh infra)
+        // This deploys cmuxd-remote if needed and sets up the relay.
+        let localSocketPath = client.socketPath
+        let remoteRelayPort = generateRemoteRelayPort()
+        let relayID = UUID().uuidString.lowercased()
+        let relayToken = try randomHex(byteCount: 32)
+
+        // Build minimal SSH options for the attach connection
+        var sshArgs = ["--name", nameOpt ?? "attach:\(destination)"]
+        sshArgs += [destination]
+
+        let sshOptions = try parseSSHCommandOptions(sshArgs, localSocketPath: localSocketPath, remoteRelayPort: remoteRelayPort)
+
+        // Build the remote command that starts cmuxd-remote and then
+        // runs the appropriate host command
+        let remoteCommand: String
+        if listMode {
+            // --list mode: just list the host surfaces and exit
+            remoteCommand = buildAttachListCommand(relayPort: remoteRelayPort)
+        } else {
+            guard let surfaceRef = surfaceOpt else {
+                throw CLIError(message: "attach requires --surface <ref> (e.g., --surface surface:4). Use --list to see available surfaces.")
+            }
+            // Interactive mode: create a workspace that bridges to the host surface
+            remoteCommand = buildAttachBridgeCommand(
+                relayPort: remoteRelayPort,
+                surfaceRef: surfaceRef,
+                readOnly: readOnly
+            )
+        }
+
+        // Create a workspace with the SSH + attach command
+        let shellFeatures = scopedGhosttyShellFeaturesValue()
+        let sshCommand = buildSSHCommandText(sshOptions)
+        let startupCommand = try buildSSHStartupCommand(
+            sshCommand: sshCommand,
+            shellFeatures: shellFeatures,
+            remoteRelayPort: sshOptions.remoteRelayPort
+        )
+
+        let workspaceTitle = nameOpt ?? "attach:\(destination)/\(surfaceOpt ?? "list")"
+        let workspaceCreateParams: [String: Any] = [
+            "initial_command": startupCommand,
+            "title": workspaceTitle,
+        ]
+
+        let result = try client.sendV2(method: "workspace.create", params: workspaceCreateParams)
+        guard let workspaceId = result["workspace_id"] as? String, !workspaceId.isEmpty else {
+            throw CLIError(message: "workspace.create did not return workspace_id")
+        }
+
+        // Configure the workspace for remote attach
+        let configureParams: [String: Any] = [
+            "workspace_id": workspaceId,
+            "destination": destination,
+            "relay_port": remoteRelayPort,
+            "relay_id": relayID,
+            "relay_token": relayToken,
+            "ssh_command": sshCommand,
+            "mode": readOnly ? "read_only" : "interactive",
+        ]
+        do {
+            _ = try client.sendV2(method: "workspace.remote.configure", params: configureParams)
+        } catch {
+            // workspace.remote.configure may not exist on older cmux versions; log but continue
+            cliDebugLog("attach: workspace.remote.configure failed (non-fatal): \(error)")
+        }
+
+        let wsHandle = handleForID(workspaceId, kind: .workspace) ?? workspaceId
+        if jsonOutput {
+            let output: [String: Any] = [
+                "workspace_id": workspaceId,
+                "workspace": wsHandle,
+                "target": destination,
+                "surface": surfaceOpt ?? "",
+                "state": "connecting",
+            ]
+            if let data = try? JSONSerialization.data(withJSONObject: output),
+               let str = String(data: data, encoding: .utf8) {
+                print(str)
+            }
+        } else {
+            print("OK workspace=\(wsHandle) target=\(destination) state=connecting")
+        }
+    }
+
+    /// Builds the remote command for listing host surfaces.
+    private func buildAttachListCommand(relayPort: Int) -> String {
+        return [
+            "~/.cmux/bin/cmuxd-remote/*/darwin-*/cmuxd-remote cli host-list 2>/dev/null",
+            "|| echo 'cmuxd-remote not found; run cmux ssh first to deploy it'",
+        ].joined(separator: " ")
+    }
+
+    /// Builds the remote command for bridging to a host surface.
+    /// Uses cmuxd-remote's attach-bridge subcommand for full bidirectional PTY proxy.
+    private func buildAttachBridgeCommand(relayPort: Int, surfaceRef: String, readOnly: Bool) -> String {
+        var flags = "--surface \(surfaceRef)"
+        if readOnly {
+            flags += " --read-only"
+        }
+        return "exec ~/.cmux/bin/cmuxd-remote/*/darwin-*/cmuxd-remote attach-bridge \(flags)"
     }
 
     private func runRemoteDaemonStatus(commandArgs: [String], jsonOutput: Bool) throws {
@@ -26609,6 +26742,7 @@ export default function cmuxPiSessionExtension(pi: ExtensionAPI) {
           list-workspaces
           new-workspace [--name <title>] [--description <text>] [--cwd <path>] [--command <text>] [--layout <json>] [--window <id|ref|index>] [--focus <true|false>]
           ssh <destination> [--name <title>] [--port <n>] [--identity <path>] [--ssh-option <opt>] [--no-focus] [-- <remote-command-args>]
+          attach <destination> --surface <ref> [--name <title>] [--workspace <ref>] [--read-only] [--list]
           remote-daemon-status [--os <darwin|linux>] [--arch <arm64|amd64>]
           new-split <left|right|up|down> [--workspace <id|ref>] [--surface <id|ref>] [--panel <id|ref>] [--focus <true|false>]
           list-panes [--workspace <id|ref>]

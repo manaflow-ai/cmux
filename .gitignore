@@ -52,3 +52,4 @@ web/public/pagefind/
 # Local scratch (screenshots, etc.)
 tmp/
 tmp-*/
+daemon/remote/cmuxd-remote
