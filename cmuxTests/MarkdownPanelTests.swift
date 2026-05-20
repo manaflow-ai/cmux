@@ -523,23 +523,33 @@ final class MarkdownPanelTests: XCTestCase {
                 }
               });
               var directFound = window.__cmuxMarkdownPreviewSearch('Section 20', false) ? 1 : 0;
+              var promptCalls = 0;
+              window.prompt = function(prompt, defaultValue) {
+                promptCalls += 1;
+                return 'Section 21';
+              };
+              var promptFound = window.__cmuxMarkdownPreviewHandleKeyCommand('findForward') ? 1 : 0;
               var nextFound = window.__cmuxMarkdownPreviewHandleKeyCommand('findNext') ? 1 : 0;
               var previousFound = window.__cmuxMarkdownPreviewHandleKeyCommand('findPrevious') ? 1 : 0;
               return {
                 calls: calls.length,
                 firstFound: directFound,
+                promptFound: promptFound,
+                promptCalls: promptCalls,
                 nextFound: nextFound,
                 previousFound: previousFound,
                 firstBackwards: calls[0] ? calls[0].backwards : -1,
-                lastBackwards: calls[2] ? calls[2].backwards : -1,
+                lastBackwards: calls[3] ? calls[3].backwards : -1,
                 firstWrap: calls[0] ? calls[0].wrap : -1
               };
             })();
             """,
             in: webView
         )
-        XCTAssertEqual(searchSnapshot["calls"] ?? 0, 3)
+        XCTAssertEqual(searchSnapshot["calls"] ?? 0, 4)
         XCTAssertEqual(searchSnapshot["firstFound"] ?? 0, 1)
+        XCTAssertEqual(searchSnapshot["promptFound"] ?? 0, 1)
+        XCTAssertEqual(searchSnapshot["promptCalls"] ?? 0, 1)
         XCTAssertEqual(searchSnapshot["nextFound"] ?? 0, 1)
         XCTAssertEqual(searchSnapshot["previousFound"] ?? 0, 1)
         XCTAssertEqual(searchSnapshot["firstBackwards"] ?? -1, 0)

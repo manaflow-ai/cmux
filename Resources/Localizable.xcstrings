@@ -102672,6 +102672,23 @@
         }
       }
     },
+    "markdown.preview.dialog.title": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Markdown Preview"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Markdown プレビュー"
+          }
+        }
+      }
+    },
     "markdown.mode.showPreview": {
       "extractionState": "manual",
       "localizations": {

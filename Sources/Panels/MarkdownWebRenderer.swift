@@ -384,6 +384,59 @@ struct MarkdownWebRenderer: NSViewRepresentable {
             """
         }
 
+        // MARK: WKUIDelegate
+
+        func webView(
+            _ webView: WKWebView,
+            runJavaScriptTextInputPanelWithPrompt prompt: String,
+            defaultText: String?,
+            initiatedByFrame frame: WKFrameInfo,
+            completionHandler: @escaping (String?) -> Void
+        ) {
+            let alert = NSAlert()
+            alert.alertStyle = .informational
+            alert.messageText = markdownDialogTitle()
+            alert.informativeText = prompt
+            alert.addButton(withTitle: String(localized: "common.ok", defaultValue: "OK"))
+            alert.addButton(withTitle: String(localized: "common.cancel", defaultValue: "Cancel"))
+
+            let field = NSTextField(frame: NSRect(x: 0, y: 0, width: 320, height: 24))
+            field.stringValue = defaultText ?? ""
+            alert.accessoryView = field
+            alert.window.initialFirstResponder = field
+
+            presentDialog(alert, for: webView) { response in
+                if response == .alertFirstButtonReturn {
+                    completionHandler(field.stringValue)
+                } else {
+                    completionHandler(nil)
+                }
+            }
+        }
+
+        private func markdownDialogTitle() -> String {
+            let title = URL(fileURLWithPath: filePath).lastPathComponent
+                .trimmingCharacters(in: .whitespacesAndNewlines)
+            if !title.isEmpty {
+                return title
+            }
+            return String(localized: "markdown.preview.dialog.title", defaultValue: "Markdown Preview")
+        }
+
+        private func presentDialog(
+            _ alert: NSAlert,
+            for webView: WKWebView,
+            completion: @escaping (NSApplication.ModalResponse) -> Void
+        ) {
+            if let window = webView.window {
+                alert.beginSheetModal(for: window) { response in
+                    completion(response)
+                }
+            } else {
+                completion(alert.runModal())
+            }
+        }
+
         // MARK: WKScriptMessageHandler
 
         func userContentController(
