@@ -912,7 +912,15 @@ html { scroll-behavior: smooth; }
   //                                full sanitizer; entity decoding happens at
   //                                attribute-parse time, so the slow path
   //                                gets the resolved value via attr.value.
-  var sanitizationPattern = /<(?:script|iframe|object|embed|link\b|meta|base|form|button|textarea|select|option|svg|math)\b|<input\b(?![^>]*type\s*=\s*["']?checkbox)|(?:\son[a-z]+\s*=|\bstyle\s*=|\bsrcdoc\s*=|\bautofocus\b|\bformaction\s*=|\bxlink:href\s*=)|(?:href|src)\s*=\s*["']?\s*(?:javascript|vbscript|data):|(?:href|src)\s*=\s*["'][^"']*&/i;
+  //   <img ... src=...http(s):     remote images must reach sanitizeRenderedHTML
+  //                                (which runs on an inert <template>) so their
+  //                                live src is stripped into data-cmux-remote-src
+  //                                before insertion — otherwise the browser
+  //                                auto-fetches them and the "don't auto-load
+  //                                remote images" privacy gate is bypassed.
+  //                                Local (relative/file) images stay on the fast
+  //                                path; rewriteLocalImageSources handles them.
+  var sanitizationPattern = /<(?:script|iframe|object|embed|link\b|meta|base|form|button|textarea|select|option|svg|math)\b|<input\b(?![^>]*type\s*=\s*["']?checkbox)|<img\b[^>]*\ssrc\s*=\s*["']?\s*https?:|(?:\son[a-z]+\s*=|\bstyle\s*=|\bsrcdoc\s*=|\bautofocus\b|\bformaction\s*=|\bxlink:href\s*=)|(?:href|src)\s*=\s*["']?\s*(?:javascript|vbscript|data):|(?:href|src)\s*=\s*["'][^"']*&/i;
   function needsSanitization(html) {
     return sanitizationPattern.test(html || '');
   }
