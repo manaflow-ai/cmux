@@ -2394,10 +2394,6 @@ private final class WorkspaceRemoteDaemonRPCClient {
         return bestErrorLine(stderr: stderr) ?? "status=\(process.terminationStatus)"
     }
 
-    private static func shellSingleQuoted(_ value: String) -> String {
-        "'" + value.replacingOccurrences(of: "'", with: "'\"'\"'") + "'"
-    }
-
     private static func bestErrorLine(stderr: String) -> String? {
         let lines = stderr
             .split(separator: "\n")
@@ -4792,7 +4788,7 @@ final class WorkspaceRemoteSessionController {
         bootstrapRemoteTTYFetchInFlight = true
         defer { bootstrapRemoteTTYFetchInFlight = false }
 
-        let command = "sh -c \(Self.shellSingleQuoted("tty_path=\"$HOME/.cmux/relay/\(relayPort).tty\"; if [ -r \"$tty_path\" ]; then cat \"$tty_path\"; fi"))"
+        let command = "sh -c \(ShellArgumentQuoting.singleQuoted("tty_path=\"$HOME/.cmux/relay/\(relayPort).tty\"; if [ -r \"$tty_path\" ]; then cat \"$tty_path\"; fi"))"
         do {
             let result = try sshExec(
                 arguments: sshCommonArguments(batchMode: true) + [configuration.destination, command],
@@ -4907,16 +4903,16 @@ final class WorkspaceRemoteSessionController {
     private func sshCommonArguments(batchMode: Bool) -> [String] {
         let effectiveSSHOptions: [String] = {
             if batchMode {
-                return backgroundSSHOptions(configuration.sshOptions)
+                return SSHCommandArgumentSupport.backgroundOptions(configuration.sshOptions)
             }
-            return normalizedSSHOptions(configuration.sshOptions)
+            return SSHCommandArgumentSupport.normalizedOptions(configuration.sshOptions)
         }()
         var args: [String] = [
             "-o", "ConnectTimeout=6",
             "-o", "ServerAliveInterval=20",
             "-o", "ServerAliveCountMax=2",
         ]
-        if !hasSSHOptionKey(effectiveSSHOptions, key: "StrictHostKeyChecking") {
+        if !SSHCommandArgumentSupport.hasOptionKey(effectiveSSHOptions, key: "StrictHostKeyChecking") {
             args += ["-o", "StrictHostKeyChecking=accept-new"]
         }
         if batchMode {
@@ -4934,46 +4930,6 @@ final class WorkspaceRemoteSessionController {
             args += ["-o", option]
         }
         return args
-    }
-
-    private func hasSSHOptionKey(_ options: [String], key: String) -> Bool {
-        let loweredKey = key.lowercased()
-        for option in options {
-            let token = sshOptionKey(option)
-            if token == loweredKey {
-                return true
-            }
-        }
-        return false
-    }
-
-    private func normalizedSSHOptions(_ options: [String]) -> [String] {
-        options.compactMap { option in
-            let trimmed = option.trimmingCharacters(in: .whitespacesAndNewlines)
-            guard !trimmed.isEmpty else { return nil }
-            return trimmed
-        }
-    }
-
-    private func backgroundSSHOptions(_ options: [String]) -> [String] {
-        let batchSSHControlOptionKeys: Set<String> = [
-            "controlmaster",
-            "controlpersist",
-        ]
-        return normalizedSSHOptions(options).filter { option in
-            guard let key = sshOptionKey(option) else { return false }
-            return !batchSSHControlOptionKeys.contains(key)
-        }
-    }
-
-    private func sshOptionKey(_ option: String) -> String? {
-        let trimmed = option.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !trimmed.isEmpty else { return nil }
-        return trimmed
-            .split(whereSeparator: { $0 == "=" || $0.isWhitespace })
-            .first
-            .map(String.init)?
-            .lowercased()
     }
 
     private func sshExec(arguments: [String], stdin: Data? = nil, timeout: TimeInterval = 15) throws -> CommandResult {
@@ -5224,7 +5180,7 @@ final class WorkspaceRemoteSessionController {
             relayID: relayID,
             relayToken: relayToken
         )
-        let command = "sh -c \(Self.shellSingleQuoted(script))"
+        let command = "sh -c \(ShellArgumentQuoting.singleQuoted(script))"
         let result = try sshExec(arguments: sshCommonArguments(batchMode: true) + [configuration.destination, command], timeout: 8)
         guard result.status == 0 else {
             let detail = Self.bestErrorLine(stderr: result.stderr, stdout: result.stdout) ?? "ssh exited \(result.status)"
@@ -5243,7 +5199,7 @@ final class WorkspaceRemoteSessionController {
             return
         }
         let script = Self.remoteRelayMetadataCleanupScript(relayPort: relayPort)
-        let command = "sh -c \(Self.shellSingleQuoted(script))"
+        let command = "sh -c \(ShellArgumentQuoting.singleQuoted(script))"
         do {
             _ = try sshExec(arguments: sshCommonArguments(batchMode: true) + [configuration.destination, command], timeout: 8)
         } catch {
@@ -5286,7 +5242,7 @@ final class WorkspaceRemoteSessionController {
           printf '%sno\\n' '\(Self.remotePlatformProbeExistsMarker)'
         fi
         """
-        let command = "sh -c \(Self.shellSingleQuoted(script))"
+        let command = "sh -c \(ShellArgumentQuoting.singleQuoted(script))"
         let result = try sshExec(arguments: sshCommonArguments(batchMode: true) + [configuration.destination, command], timeout: 20)
 
         let lines = result.stdout
@@ -5580,8 +5536,8 @@ final class WorkspaceRemoteSessionController {
             "remote.upload.begin local=\(localBinary.path) remoteTemp=\(remoteTempPath) remote=\(remotePath)"
         )
 
-        let mkdirScript = "mkdir -p \(Self.shellSingleQuoted(remoteDirectory))"
-        let mkdirCommand = "sh -c \(Self.shellSingleQuoted(mkdirScript))"
+        let mkdirScript = "mkdir -p \(ShellArgumentQuoting.singleQuoted(remoteDirectory))"
+        let mkdirCommand = "sh -c \(ShellArgumentQuoting.singleQuoted(mkdirScript))"
         let mkdirResult = try sshExec(arguments: sshCommonArguments(batchMode: true) + [configuration.destination, mkdirCommand], timeout: 12)
         guard mkdirResult.status == 0 else {
             let detail = Self.bestErrorLine(stderr: mkdirResult.stderr, stdout: mkdirResult.stdout) ?? "ssh exited \(mkdirResult.status)"
@@ -5590,9 +5546,9 @@ final class WorkspaceRemoteSessionController {
             ])
         }
 
-        let scpSSHOptions = backgroundSSHOptions(configuration.sshOptions)
+        let scpSSHOptions = SSHCommandArgumentSupport.backgroundOptions(configuration.sshOptions)
         var scpArgs: [String] = ["-q"]
-        if !hasSSHOptionKey(scpSSHOptions, key: "StrictHostKeyChecking") {
+        if !SSHCommandArgumentSupport.hasOptionKey(scpSSHOptions, key: "StrictHostKeyChecking") {
             scpArgs += ["-o", "StrictHostKeyChecking=accept-new"]
         }
         scpArgs += ["-o", "ControlMaster=no"]
@@ -5616,10 +5572,10 @@ final class WorkspaceRemoteSessionController {
         }
 
         let finalizeScript = """
-        chmod 755 \(Self.shellSingleQuoted(remoteTempPath)) && \
-        mv \(Self.shellSingleQuoted(remoteTempPath)) \(Self.shellSingleQuoted(remotePath))
+        chmod 755 \(ShellArgumentQuoting.singleQuoted(remoteTempPath)) && \
+        mv \(ShellArgumentQuoting.singleQuoted(remoteTempPath)) \(ShellArgumentQuoting.singleQuoted(remotePath))
         """
-        let finalizeCommand = "sh -c \(Self.shellSingleQuoted(finalizeScript))"
+        let finalizeCommand = "sh -c \(ShellArgumentQuoting.singleQuoted(finalizeScript))"
         let finalizeResult = try sshExec(arguments: sshCommonArguments(batchMode: true) + [configuration.destination, finalizeCommand], timeout: 12)
         guard finalizeResult.status == 0 else {
             let detail = Self.bestErrorLine(stderr: finalizeResult.stderr, stdout: finalizeResult.stdout) ?? "ssh exited \(finalizeResult.status)"
@@ -5635,7 +5591,7 @@ final class WorkspaceRemoteSessionController {
     ) throws -> [String] {
         guard !fileURLs.isEmpty else { return [] }
 
-        let scpSSHOptions = backgroundSSHOptions(configuration.sshOptions)
+        let scpSSHOptions = SSHCommandArgumentSupport.backgroundOptions(configuration.sshOptions)
         var uploadedRemotePaths: [String] = []
         do {
             for localURL in fileURLs {
@@ -5648,7 +5604,7 @@ final class WorkspaceRemoteSessionController {
                 let remotePath = Self.remoteDropPath(for: normalizedLocalURL)
                 uploadedRemotePaths.append(remotePath)
                 var scpArgs: [String] = ["-q", "-o", "ControlMaster=no"]
-                if !hasSSHOptionKey(scpSSHOptions, key: "StrictHostKeyChecking") {
+                if !SSHCommandArgumentSupport.hasOptionKey(scpSSHOptions, key: "StrictHostKeyChecking") {
                     scpArgs += ["-o", "StrictHostKeyChecking=accept-new"]
                 }
                 if let port = configuration.port {
@@ -5685,8 +5641,8 @@ final class WorkspaceRemoteSessionController {
 
     private func cleanupUploadedRemotePaths(_ remotePaths: [String]) {
         guard !remotePaths.isEmpty else { return }
-        let cleanupScript = "rm -f -- " + remotePaths.map(Self.shellSingleQuoted).joined(separator: " ")
-        let cleanupCommand = "sh -c \(Self.shellSingleQuoted(cleanupScript))"
+        let cleanupScript = "rm -f -- " + remotePaths.map(ShellArgumentQuoting.singleQuoted).joined(separator: " ")
+        let cleanupCommand = "sh -c \(ShellArgumentQuoting.singleQuoted(cleanupScript))"
         _ = try? sshExec(
             arguments: sshCommonArguments(batchMode: true) + [configuration.destination, cleanupCommand],
             timeout: 8
@@ -5695,8 +5651,8 @@ final class WorkspaceRemoteSessionController {
 
     private func helloRemoteDaemonLocked(remotePath: String) throws -> DaemonHello {
         let request = #"{"id":1,"method":"hello","params":{}}"#
-        let script = "printf '%s\\n' \(Self.shellSingleQuoted(request)) | \(Self.shellSingleQuoted(remotePath)) serve --stdio"
-        let command = "sh -c \(Self.shellSingleQuoted(script))"
+        let script = "printf '%s\\n' \(ShellArgumentQuoting.singleQuoted(request)) | \(ShellArgumentQuoting.singleQuoted(remotePath)) serve --stdio"
+        let command = "sh -c \(ShellArgumentQuoting.singleQuoted(script))"
         let result = try sshExec(arguments: sshCommonArguments(batchMode: true) + [configuration.destination, command], timeout: 12)
         guard result.status == 0 else {
             let detail = Self.bestErrorLine(stderr: result.stderr, stdout: result.stdout) ?? "ssh exited \(result.status)"
@@ -5760,7 +5716,7 @@ final class WorkspaceRemoteSessionController {
 
     private func debugShellCommand(executable: String, arguments: [String]) -> String {
         ([URL(fileURLWithPath: executable).lastPathComponent] + arguments)
-            .map(Self.shellSingleQuoted)
+            .map(ShellArgumentQuoting.singleQuoted)
             .joined(separator: " ")
     }
 
@@ -5788,10 +5744,6 @@ final class WorkspaceRemoteSessionController {
             return normalized
         }
         return String(normalized.prefix(limit)) + "..."
-    }
-
-    private static func shellSingleQuoted(_ value: String) -> String {
-        "'" + value.replacingOccurrences(of: "'", with: "'\"'\"'") + "'"
     }
 
     static func remoteCLIWrapperScript() -> String {
@@ -5979,7 +5931,7 @@ final class WorkspaceRemoteSessionController {
     private static func remoteDaemonPathShellExpression(_ remotePath: String) -> String {
         let trimmedRemotePath = remotePath.trimmingCharacters(in: .whitespacesAndNewlines)
         if trimmedRemotePath.hasPrefix("/") {
-            return shellSingleQuoted(trimmedRemotePath)
+            return ShellArgumentQuoting.singleQuoted(trimmedRemotePath)
         }
         return "\"$HOME/\(trimmedRemotePath)\""
     }
@@ -6448,7 +6400,7 @@ final class WorkspaceRemoteSessionController {
         let ttyNames = Array(Set(ttyNamesByPanel.values)).sorted()
         guard !ttyNames.isEmpty else { return [:] }
 
-        let command = "sh -c \(Self.shellSingleQuoted(Self.remotePortScanScript(ttyNames: ttyNames, excluding: excludedRemoteScanPorts())))"
+        let command = "sh -c \(ShellArgumentQuoting.singleQuoted(Self.remotePortScanScript(ttyNames: ttyNames, excluding: excludedRemoteScanPorts())))"
         let result = try sshExec(
             arguments: sshCommonArguments(batchMode: true) + [configuration.destination, command],
             timeout: 8
@@ -6542,7 +6494,7 @@ final class WorkspaceRemoteSessionController {
             return
         }
 
-        let command = "sh -c \(Self.shellSingleQuoted(Self.remoteAllPortsScanScript(excluding: excludedRemoteScanPorts())))"
+        let command = "sh -c \(ShellArgumentQuoting.singleQuoted(Self.remoteAllPortsScanScript(excluding: excludedRemoteScanPorts())))"
         do {
             let result = try sshExec(
                 arguments: sshCommonArguments(batchMode: true) + [configuration.destination, command],
@@ -7337,6 +7289,7 @@ final class Workspace: Identifiable, ObservableObject {
     @Published private(set) var terminalScrollBarHidden: Bool = false
     @Published var currentDirectory: String
     @Published private(set) var surfaceTabBarDirectory: String?
+    private let initialLocalDirectory: String
     private(set) var preferredBrowserProfileID: UUID?
 
     /// Ordinal for CMUX_PORT range assignment (monotonically increasing per app session)
@@ -7612,6 +7565,10 @@ final class Workspace: Identifiable, ObservableObject {
     var surfaceDirectories: [UUID: String] {
         get { panelDirectories }
         set { panelDirectories = newValue }
+    }
+
+    var defaultLocalDownloadDirectory: String? {
+        LocalDirectoryPathNormalization.existingDirectoryPath(initialLocalDirectory)
     }
 
     private var processTitle: String
@@ -7944,6 +7901,7 @@ final class Workspace: Identifiable, ObservableObject {
         let initialDirectory = hasWorkingDirectory
             ? trimmedWorkingDirectory
             : FileManager.default.homeDirectoryForCurrentUser.path
+        self.initialLocalDirectory = initialDirectory
         self.currentDirectory = hasWorkingDirectory
             ? trimmedWorkingDirectory
             : FileManager.default.homeDirectoryForCurrentUser.path

@@ -26,9 +26,9 @@ enum SessionRestoredTerminalCommandStore {
                 "rm -f -- \"$0\" 2>/dev/null || true"
             ]
             if let workingDirectory = normalized(workingDirectory) {
-                lines.append("cd -- \(shellSingleQuoted(workingDirectory)) || exit $?")
+                lines.append("cd -- \(ShellArgumentQuoting.singleQuoted(workingDirectory)) || exit $?")
             }
-            lines.append("exec \"${SHELL:-/bin/zsh}\" -lc \(shellSingleQuoted(trimmedCommand))")
+            lines.append("exec \"${SHELL:-/bin/zsh}\" -lc \(ShellArgumentQuoting.singleQuoted(trimmedCommand))")
 
             try (lines.joined(separator: "\n") + "\n").write(
                 to: scriptURL,
@@ -50,7 +50,4 @@ enum SessionRestoredTerminalCommandStore {
         return trimmed
     }
 
-    private static func shellSingleQuoted(_ value: String) -> String {
-        "'" + value.replacingOccurrences(of: "'", with: "'\"'\"'") + "'"
-    }
 }

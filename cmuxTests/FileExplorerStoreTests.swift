@@ -42,10 +42,19 @@ private final class MockFileExplorerProvider: FileExplorerProvider {
 }
 
 private final class MockSSHFileExplorerTransport: SSHFileExplorerTransport {
+    struct DownloadRequest: Equatable {
+        let remotePath: String
+        let isDirectory: Bool
+        let connection: SSHFileExplorerConnection
+        let localDirectory: String
+    }
+
     var homePath: Result<String, Error>
     var listings: [String: Result<[FileExplorerEntry], Error>] = [:]
+    var downloadResult: Result<String, Error>?
     private(set) var resolvedHomeConnections: [SSHFileExplorerConnection] = []
     private(set) var listedPaths: [String] = []
+    private(set) var downloadRequests: [DownloadRequest] = []
 
     init(homePath: Result<String, Error> = .success("/home/dev")) {
         self.homePath = homePath
@@ -66,6 +75,24 @@ private final class MockSSHFileExplorerTransport: SSHFileExplorerTransport {
             return try result.get()
         }
         return []
+    }
+
+    func download(
+        remotePath: String,
+        isDirectory: Bool,
+        connection: SSHFileExplorerConnection,
+        toLocalDirectory localDirectory: String
+    ) async throws -> String {
+        downloadRequests.append(DownloadRequest(
+            remotePath: remotePath,
+            isDirectory: isDirectory,
+            connection: connection,
+            localDirectory: localDirectory
+        ))
+        if let downloadResult {
+            return try downloadResult.get()
+        }
+        return (localDirectory as NSString).appendingPathComponent((remotePath as NSString).lastPathComponent)
     }
 }
 
@@ -203,6 +230,177 @@ final class FileExplorerStoreTests: XCTestCase {
         XCTAssertEqual(store.displayRootPath, "ssh://dev@ubuntu-host:2222:/home/dev")
         XCTAssertEqual(transport.resolvedHomeConnections, [connection])
         XCTAssertEqual(transport.listedPaths, ["/home/dev"])
+    }
+
+    func testRemoteDownloadUsesSSHProviderConnection() async throws {
+        let transport = MockSSHFileExplorerTransport()
+        let connection = SSHFileExplorerConnection(
+            destination: "dev@ubuntu-host",
+            port: 2222,
+            identityFile: "/Users/alice/.ssh/id_ed25519",
+            sshOptions: ["ControlPath /tmp/cmux-ssh-%C"]
+        )
+        let provider = SSHFileExplorerProvider(
+            connection: connection,
+            displayTarget: "dev@ubuntu-host:2222",
+            homePath: "/home/dev",
+            isAvailable: true,
+            transport: transport
+        )
+
+        let localPath = try await provider.download(
+            remotePath: "/home/dev/report.txt",
+            isDirectory: false,
+            toLocalDirectory: "/Users/alice/Downloads"
+        )
+
+        XCTAssertEqual(localPath, "/Users/alice/Downloads/report.txt")
+        XCTAssertEqual(transport.downloadRequests, [
+            MockSSHFileExplorerTransport.DownloadRequest(
+                remotePath: "/home/dev/report.txt",
+                isDirectory: false,
+                connection: connection,
+                localDirectory: "/Users/alice/Downloads"
+            )
+        ])
+    }
+
+    func testRemoteDownloadRejectsUnavailableProvider() async {
+        let provider = SSHFileExplorerProvider(
+            destination: "dev@ubuntu-host",
+            port: nil,
+            identityFile: nil,
+            sshOptions: [],
+            homePath: "/home/dev",
+            isAvailable: false,
+            transport: MockSSHFileExplorerTransport()
+        )
+
+        do {
+            _ = try await provider.download(
+                remotePath: "/home/dev/report.txt",
+                isDirectory: false,
+                toLocalDirectory: "/Users/alice/Downloads"
+            )
+            XCTFail("Expected unavailable provider to reject remote download")
+        } catch FileExplorerError.providerUnavailable {
+        } catch {
+            XCTFail("Expected providerUnavailable, got \(error)")
+        }
+    }
+
+    func testRemoteDownloadTargetRejectsExistingLocalItem() throws {
+        let directory = FileManager.default.temporaryDirectory
+            .appendingPathComponent("cmux-file-explorer-download-\(UUID().uuidString)", isDirectory: true)
+        try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+        defer {
+            try? FileManager.default.removeItem(at: directory)
+        }
+
+        let existingFile = directory.appendingPathComponent("report.txt")
+        try Data("existing".utf8).write(to: existingFile)
+
+        do {
+            _ = try ProcessSSHFileExplorerTransport.downloadTargetPathForTesting(
+                remotePath: "/home/dev/report.txt",
+                localDirectory: directory.path
+            )
+            XCTFail("Expected existing local target to reject remote download")
+        } catch FileExplorerError.downloadFailed(let detail) {
+            XCTAssertTrue(detail.contains(existingFile.path))
+        } catch {
+            XCTFail("Expected downloadFailed, got \(error)")
+        }
+    }
+
+    func testRemoteDownloadSCPArgumentsShellQuoteRemotePathAndBracketIPv6() {
+        let args = ProcessSSHFileExplorerTransport.scpDownloadArgumentsForTesting(
+            remotePath: "/home/dev/Quarterly Report's.pdf",
+            isDirectory: true,
+            connection: SSHFileExplorerConnection(
+                destination: "dev@2001:db8::1",
+                port: 2222,
+                identityFile: "/Users/alice/.ssh/id_ed25519",
+                sshOptions: ["UserKnownHostsFile=/dev/null"]
+            ),
+            localDestinationPath: "/Users/alice/Downloads/Quarterly Report's.pdf"
+        )
+
+        XCTAssertTrue(args.contains("-r"))
+        XCTAssertTrue(args.contains("-O"))
+        XCTAssertTrue(args.contains("-P"))
+        XCTAssertTrue(args.contains("2222"))
+        XCTAssertTrue(args.contains("-i"))
+        XCTAssertTrue(args.contains("/Users/alice/.ssh/id_ed25519"))
+        XCTAssertEqual(
+            Array(args.suffix(2)),
+            [
+                "dev@[2001:db8::1]:'/home/dev/Quarterly Report'\\''s.pdf'",
+                "/Users/alice/Downloads/Quarterly Report's.pdf",
+            ]
+        )
+    }
+
+    func testRemoteDownloadSCPArgumentsUseBackgroundSSHOptions() {
+        let args = ProcessSSHFileExplorerTransport.scpDownloadArgumentsForTesting(
+            remotePath: "/home/dev/report.txt",
+            isDirectory: false,
+            connection: SSHFileExplorerConnection(
+                destination: "dev@ubuntu-host",
+                port: nil,
+                identityFile: nil,
+                sshOptions: [
+                    "ControlMaster=auto",
+                    "ControlPersist=10m",
+                    "ControlPath=/tmp/cmux-ssh-%C",
+                    "StrictHostKeyChecking=no",
+                ]
+            ),
+            localDestinationPath: "/Users/alice/Downloads/report.txt"
+        )
+
+        XCTAssertFalse(args.contains("ControlMaster=auto"))
+        XCTAssertFalse(args.contains("ControlPersist=10m"))
+        XCTAssertTrue(args.contains("ControlMaster=no"))
+        XCTAssertTrue(args.contains("ControlPath=/tmp/cmux-ssh-%C"))
+        XCTAssertTrue(args.contains("StrictHostKeyChecking=no"))
+        XCTAssertFalse(args.contains("StrictHostKeyChecking=accept-new"))
+    }
+
+    func testRemoteDownloadLaunchFailureUsesSanitizedError() async throws {
+        let directory = FileManager.default.temporaryDirectory
+            .appendingPathComponent("cmux-file-explorer-download-\(UUID().uuidString)", isDirectory: true)
+        try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+        defer {
+            try? FileManager.default.removeItem(at: directory)
+        }
+
+        let missingExecutable = directory.appendingPathComponent("missing-scp").path
+        ProcessSSHFileExplorerTransport.scpExecutablePathOverrideForTesting = missingExecutable
+        defer {
+            ProcessSSHFileExplorerTransport.scpExecutablePathOverrideForTesting = nil
+        }
+
+        do {
+            _ = try await ProcessSSHFileExplorerTransport.shared.download(
+                remotePath: "/home/dev/report.txt",
+                isDirectory: false,
+                connection: SSHFileExplorerConnection(
+                    destination: "dev@ubuntu-host",
+                    port: nil,
+                    identityFile: nil,
+                    sshOptions: []
+                ),
+                toLocalDirectory: directory.path
+            )
+            XCTFail("Expected missing scp executable to fail")
+        } catch FileExplorerError.downloadFailed(let detail) {
+            XCTAssertEqual(detail, "Unable to start the download helper.")
+            XCTAssertFalse(detail.contains(missingExecutable))
+            XCTAssertFalse(detail.contains("/usr/bin/scp"))
+        } catch {
+            XCTFail("Expected sanitized downloadFailed, got \(error)")
+        }
     }
 
     func testSwitchingFromLocalToRemoteRepointsTreeToRemoteHome() async throws {
@@ -694,6 +892,7 @@ final class FileSearchControllerTests: XCTestCase {
         let coordinator = FileExplorerPanelView.Coordinator(
             store: store,
             state: state,
+            workspaceId: nil,
             onOpenFilePreview: { _ in }
         )
         let container = FileExplorerContainerView(
@@ -731,6 +930,7 @@ final class FileSearchControllerTests: XCTestCase {
         let coordinator = FileExplorerPanelView.Coordinator(
             store: store,
             state: state,
+            workspaceId: nil,
             onOpenFilePreview: { _ in }
         )
         let container = FileExplorerContainerView(

@@ -2469,6 +2469,7 @@ struct ContentView: View {
             // No selection means we have no local cwd to scope by; clear so the
             // sessions panel doesn't keep filtering by a stale previous tab.
             sessionIndexStore.setCurrentDirectoryIfChanged(nil)
+            fileExplorerStore.setDefaultLocalDownloadDirectory(nil)
             fileExplorerStore.applyWorkspaceRoot(.none)
             return
         }
@@ -2477,6 +2478,7 @@ struct ContentView: View {
 
         if tab.isRemoteWorkspace {
             sessionIndexStore.setCurrentDirectoryIfChanged(nil)
+            fileExplorerStore.setDefaultLocalDownloadDirectory(tab.defaultLocalDownloadDirectory)
             guard let config = tab.remoteConfiguration, config.transport == .ssh else {
                 fileExplorerStore.applyWorkspaceRoot(.none)
                 return
@@ -2514,11 +2516,13 @@ struct ContentView: View {
         let dir = tab.currentDirectory.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !dir.isEmpty else {
             sessionIndexStore.setCurrentDirectoryIfChanged(nil)
+            fileExplorerStore.setDefaultLocalDownloadDirectory(nil)
             fileExplorerStore.applyWorkspaceRoot(.none)
             return
         }
 
         sessionIndexStore.setCurrentDirectoryIfChanged(dir)
+        fileExplorerStore.setDefaultLocalDownloadDirectory(dir)
         fileExplorerStore.applyWorkspaceRoot(.local(path: dir))
     }
 

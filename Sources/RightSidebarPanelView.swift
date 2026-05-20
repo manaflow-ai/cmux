@@ -369,6 +369,7 @@ struct RightSidebarPanelView: View {
             FileExplorerPanelView(
                 store: fileExplorerStore,
                 state: fileExplorerState,
+                workspaceId: workspaceId,
                 onOpenFilePreview: onOpenFilePreview,
                 presentation: .files
             )
@@ -376,6 +377,7 @@ struct RightSidebarPanelView: View {
             FileExplorerPanelView(
                 store: fileExplorerStore,
                 state: fileExplorerState,
+                workspaceId: workspaceId,
                 onOpenFilePreview: onOpenFilePreview,
                 presentation: .find
             )

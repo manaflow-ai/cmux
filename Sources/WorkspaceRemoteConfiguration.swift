@@ -8,11 +8,8 @@ private enum WorkspaceRemoteSSHOptionFilter {
     ]
 
     static func durableOptions(_ options: [String]) -> [String] {
-        options.compactMap { option in
-            let trimmed = option.trimmingCharacters(in: .whitespacesAndNewlines)
-            return trimmed.isEmpty ? nil : trimmed
-        }.filter { option in
-            guard let key = optionKey(option) else { return true }
+        SSHCommandArgumentSupport.normalizedOptions(options).filter { option in
+            guard let key = SSHCommandArgumentSupport.optionKey(option) else { return true }
             return !transientControlSocketKeys.contains(key)
         }
     }
@@ -29,22 +26,6 @@ private enum WorkspaceRemoteSSHOptionFilter {
         return normalizedOptional((trimmed as NSString).expandingTildeInPath) ?? trimmed
     }
 
-    static func hasOptionKey(_ options: [String], key: String) -> Bool {
-        let loweredKey = key.lowercased()
-        return options.contains { option in
-            optionKey(option) == loweredKey
-        }
-    }
-
-    private static func optionKey(_ option: String) -> String? {
-        let trimmed = option.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !trimmed.isEmpty else { return nil }
-        return trimmed
-            .split(whereSeparator: { $0 == "=" || $0.isWhitespace })
-            .first
-            .map(String.init)?
-            .lowercased()
-    }
 }
 
 nonisolated enum WorkspaceRemoteTransport: String, Codable, Equatable, Sendable {
@@ -176,7 +157,7 @@ extension SessionRemoteWorkspaceSnapshot {
             destination: normalizedDestination,
             port: normalizedPort,
             identityFile: Self.normalizedIdentityPath(identityFile),
-            sshOptions: Self.normalizedSSHOptions(sshOptions),
+            sshOptions: WorkspaceRemoteSSHOptionFilter.durableOptions(sshOptions),
             localProxyPort: nil,
             relayPort: nil,
             relayID: nil,
@@ -203,11 +184,11 @@ extension SessionRemoteWorkspaceSnapshot {
         if let identityFile = Self.normalizedIdentityPath(identityFile) {
             arguments += ["-i", identityFile]
         }
-        let normalizedOptions = Self.normalizedSSHOptions(sshOptions)
+        let normalizedOptions = WorkspaceRemoteSSHOptionFilter.durableOptions(sshOptions)
         for option in normalizedOptions {
             arguments += ["-o", option]
         }
-        if !Self.hasSSHOptionKey(normalizedOptions, key: "RequestTTY") {
+        if !SSHCommandArgumentSupport.hasOptionKey(normalizedOptions, key: "RequestTTY") {
             arguments.append("-tt")
         }
         arguments.append(normalizedDestination)
@@ -216,14 +197,6 @@ extension SessionRemoteWorkspaceSnapshot {
 
     private static func normalizedIdentityPath(_ value: String?) -> String? {
         WorkspaceRemoteSSHOptionFilter.normalizedIdentityPath(value)
-    }
-
-    private static func normalizedSSHOptions(_ options: [String]) -> [String] {
-        WorkspaceRemoteSSHOptionFilter.durableOptions(options)
-    }
-
-    private static func hasSSHOptionKey(_ options: [String], key: String) -> Bool {
-        WorkspaceRemoteSSHOptionFilter.hasOptionKey(options, key: key)
     }
 
     private static func shellQuote(_ value: String) -> String {

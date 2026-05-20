@@ -99,6 +99,7 @@ enum FileExplorerPanelPlacement: Equatable {
 struct FileExplorerPanelView: NSViewRepresentable {
     @ObservedObject var store: FileExplorerStore
     @ObservedObject var state: FileExplorerState
+    var workspaceId: UUID? = nil
     let onOpenFilePreview: (String) -> Void
     var presentation: FileExplorerPanelPresentation = .files
     var placement: FileExplorerPanelPlacement = .rightSidebar
@@ -109,6 +110,7 @@ struct FileExplorerPanelView: NSViewRepresentable {
         Coordinator(
             store: store,
             state: state,
+            workspaceId: workspaceId,
             onOpenFilePreview: onOpenFilePreview,
             placement: placement,
             onFocus: onFocus,
@@ -126,6 +128,7 @@ struct FileExplorerPanelView: NSViewRepresentable {
     func updateNSView(_ container: FileExplorerContainerView, context: Context) {
         context.coordinator.store = store
         context.coordinator.state = state
+        context.coordinator.workspaceId = workspaceId
         context.coordinator.onOpenFilePreview = onOpenFilePreview
         context.coordinator.placement = placement
         context.coordinator.onFocus = onFocus
@@ -147,6 +150,7 @@ struct FileExplorerPanelView: NSViewRepresentable {
     final class Coordinator: NSObject, NSOutlineViewDataSource, NSOutlineViewDelegate, NSMenuDelegate {
         var store: FileExplorerStore
         var state: FileExplorerState
+        var workspaceId: UUID?
         var onOpenFilePreview: (String) -> Void
         var placement: FileExplorerPanelPlacement
         var onFocus: (() -> Void)?
@@ -157,10 +161,13 @@ struct FileExplorerPanelView: NSViewRepresentable {
         private var observationCancellable: AnyCancellable?
         private var styleObserver: Any?
         private var isUpdatingOutlineProgrammatically = false
+        private var activeDownloadTask: Task<Void, Never>?
+        private var activeDownloadID: UUID?
 
         init(
             store: FileExplorerStore,
             state: FileExplorerState,
+            workspaceId: UUID?,
             onOpenFilePreview: @escaping (String) -> Void,
             placement: FileExplorerPanelPlacement = .rightSidebar,
             onFocus: (() -> Void)? = nil,
@@ -168,6 +175,7 @@ struct FileExplorerPanelView: NSViewRepresentable {
         ) {
             self.store = store
             self.state = state
+            self.workspaceId = workspaceId
             self.onOpenFilePreview = onOpenFilePreview
             self.placement = placement
             self.onFocus = onFocus
@@ -213,6 +221,7 @@ struct FileExplorerPanelView: NSViewRepresentable {
         }
 
         deinit {
+            activeDownloadTask?.cancel()
             if let observer = styleObserver {
                 NotificationCenter.default.removeObserver(observer)
             }
@@ -653,6 +662,21 @@ struct FileExplorerPanelView: NSViewRepresentable {
                 menu.addItem(.separator())
             }
 
+            if store.provider is SSHFileExplorerProvider {
+                let downloadItem = NSMenuItem(
+                    title: String(
+                        localized: "fileExplorer.contextMenu.downloadToLocal",
+                        defaultValue: "Download to Local…"
+                    ),
+                    action: #selector(contextMenuDownloadToLocal(_:)),
+                    keyEquivalent: ""
+                )
+                downloadItem.target = self
+                downloadItem.representedObject = node
+                menu.addItem(downloadItem)
+                menu.addItem(.separator())
+            }
+
             menu.addFileExplorerInsertPathItems(target: self, representedObject: node, insertAction: #selector(contextMenuInsertPath(_:)), insertRelativeAction: #selector(contextMenuInsertRelativePath(_:)))
 
             let copyPathItem = NSMenuItem(
@@ -684,6 +708,28 @@ struct FileExplorerPanelView: NSViewRepresentable {
             NSWorkspace.shared.selectFile(node.path, inFileViewerRootedAtPath: "")
         }
 
+        @MainActor
+        @objc private func contextMenuDownloadToLocal(_ sender: NSMenuItem) {
+            guard let node = sender.representedObject as? FileExplorerNode,
+                  store.provider is SSHFileExplorerProvider else {
+                return
+            }
+            let remotePath = node.path
+            let isDirectory = node.isDirectory
+            let itemName = node.name
+
+            chooseDownloadDirectory(for: node) { [weak self] directoryURL in
+                Task { @MainActor [weak self, remotePath, isDirectory, itemName] in
+                    self?.downloadRemoteItem(
+                        remotePath: remotePath,
+                        isDirectory: isDirectory,
+                        itemName: itemName,
+                        toLocalDirectory: directoryURL
+                    )
+                }
+            }
+        }
+
         @objc private func contextMenuCopyPath(_ sender: NSMenuItem) {
             guard let node = sender.representedObject as? FileExplorerNode else { return }
             NSPasteboard.general.clearContents()
@@ -695,6 +741,192 @@ struct FileExplorerPanelView: NSViewRepresentable {
             let relativePath = FileExplorerTerminalPathInsertion.relativePath(for: node.path, rootPath: store.rootPath)
             NSPasteboard.general.clearContents()
             NSPasteboard.general.setString(relativePath, forType: .string)
+        }
+
+        @MainActor
+        private func chooseDownloadDirectory(for node: FileExplorerNode, completion: @escaping (URL) -> Void) {
+            let panel = NSOpenPanel()
+            panel.identifier = NSUserInterfaceItemIdentifier("cmux.fileExplorerDownloadDirectory")
+            panel.canChooseFiles = false
+            panel.canChooseDirectories = true
+            panel.canCreateDirectories = true
+            panel.allowsMultipleSelection = false
+            panel.title = String(
+                localized: "fileExplorer.download.panelTitle",
+                defaultValue: "Download Remote Item"
+            )
+            panel.prompt = String(localized: "fileExplorer.download.panelPrompt", defaultValue: "Download")
+            panel.message = String.localizedStringWithFormat(
+                String(
+                    localized: "fileExplorer.download.panelMessage",
+                    defaultValue: "Choose where to download \"%@\"."
+                ),
+                node.name
+            )
+            panel.directoryURL = defaultDownloadDirectoryURL()
+
+            let handleResponse: (NSApplication.ModalResponse) -> Void = { response in
+                guard response == .OK, let url = panel.url else { return }
+                completion(url)
+            }
+            if let window = containerView?.window {
+                panel.beginSheetModal(for: window, completionHandler: handleResponse)
+            } else {
+                handleResponse(panel.runModal())
+            }
+        }
+
+        private func defaultDownloadDirectoryURL() -> URL? {
+            if let path = store.defaultLocalDownloadDirectory {
+                return URL(fileURLWithPath: path, isDirectory: true)
+            }
+            if let downloadsURL = FileManager.default.urls(for: .downloadsDirectory, in: .userDomainMask).first {
+                return downloadsURL
+            }
+            return FileManager.default.homeDirectoryForCurrentUser
+        }
+
+        @MainActor
+        private func downloadRemoteItem(
+            remotePath: String,
+            isDirectory: Bool,
+            itemName: String,
+            toLocalDirectory directoryURL: URL
+        ) {
+            guard let provider = store.provider as? SSHFileExplorerProvider else { return }
+            let localDirectory = directoryURL.standardizedFileURL.path
+            store.setDefaultLocalDownloadDirectory(localDirectory)
+            let workspaceId = workspaceId
+            let downloadID = UUID()
+
+            activeDownloadTask?.cancel()
+            activeDownloadID = downloadID
+            activeDownloadTask = Task { [weak self] in
+                do {
+                    let localPath = try await provider.download(
+                        remotePath: remotePath,
+                        isDirectory: isDirectory,
+                        toLocalDirectory: localDirectory
+                    )
+                    self?.completeDownloadTask(
+                        downloadID,
+                        itemName: itemName,
+                        localPath: localPath,
+                        workspaceId: workspaceId
+                    )
+                } catch is CancellationError {
+                    self?.cancelDownloadTask(downloadID)
+                } catch {
+                    self?.failDownloadTask(
+                        downloadID,
+                        itemName: itemName,
+                        error: error,
+                        workspaceId: workspaceId
+                    )
+                }
+            }
+        }
+
+        @MainActor
+        private func completeDownloadTask(
+            _ downloadID: UUID,
+            itemName: String,
+            localPath: String,
+            workspaceId: UUID?
+        ) {
+            guard finishDownloadTask(downloadID) else { return }
+            presentDownloadCompletion(
+                itemName: itemName,
+                localPath: localPath,
+                workspaceId: workspaceId
+            )
+        }
+
+        @MainActor
+        private func failDownloadTask(
+            _ downloadID: UUID,
+            itemName: String,
+            error: Error,
+            workspaceId: UUID?
+        ) {
+            guard finishDownloadTask(downloadID) else { return }
+            presentDownloadFailure(
+                itemName: itemName,
+                error: error,
+                workspaceId: workspaceId
+            )
+        }
+
+        @MainActor
+        private func cancelDownloadTask(_ downloadID: UUID) {
+            _ = finishDownloadTask(downloadID)
+        }
+
+        @MainActor
+        private func finishDownloadTask(_ downloadID: UUID) -> Bool {
+            guard activeDownloadID == downloadID else { return false }
+            activeDownloadID = nil
+            activeDownloadTask = nil
+            return true
+        }
+
+        @MainActor
+        private func presentDownloadCompletion(itemName: String, localPath: String, workspaceId: UUID?) {
+            let title = String(localized: "fileExplorer.download.complete.title", defaultValue: "Download Complete")
+            let body = String.localizedStringWithFormat(
+                String(localized: "fileExplorer.download.complete.body", defaultValue: "Saved to %@"),
+                localPath
+            )
+
+            if let workspaceId {
+                AppDelegate.shared?.notificationStore?.addNotification(
+                    tabId: workspaceId,
+                    surfaceId: nil,
+                    title: title,
+                    subtitle: itemName,
+                    body: body
+                )
+                return
+            }
+
+            let alert = NSAlert()
+            alert.alertStyle = .informational
+            alert.messageText = title
+            alert.informativeText = body
+            alert.addButton(withTitle: String(localized: "fileExplorer.download.alertOK", defaultValue: "OK"))
+            if let window = containerView?.window {
+                alert.beginSheetModal(for: window, completionHandler: nil)
+            } else {
+                _ = alert.runModal()
+            }
+        }
+
+        @MainActor
+        private func presentDownloadFailure(itemName: String, error: Error, workspaceId: UUID?) {
+            if let workspaceId {
+                AppDelegate.shared?.notificationStore?.addNotification(
+                    tabId: workspaceId,
+                    surfaceId: nil,
+                    title: String(localized: "fileExplorer.download.failed.title", defaultValue: "Download Failed"),
+                    subtitle: itemName,
+                    body: error.localizedDescription
+                )
+                return
+            }
+
+            let alert = NSAlert()
+            alert.alertStyle = .warning
+            alert.messageText = String(
+                localized: "fileExplorer.download.failed.title",
+                defaultValue: "Download Failed"
+            )
+            alert.informativeText = error.localizedDescription
+            alert.addButton(withTitle: String(localized: "fileExplorer.download.alertOK", defaultValue: "OK"))
+            if let window = containerView?.window {
+                alert.beginSheetModal(for: window, completionHandler: nil)
+            } else {
+                _ = alert.runModal()
+            }
         }
     }
 }

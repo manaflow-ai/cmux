@@ -58,6 +58,7 @@ final class RightSidebarToolPanel: Panel, ObservableObject {
 
     var displayTitle: String { mode.label }
     var displayIcon: String? { mode.symbolName }
+    var workspaceId: UUID? { workspace?.id }
 
     func reattach(to workspace: Workspace) {
         self.workspace = workspace
@@ -246,6 +247,7 @@ struct RightSidebarToolPanelView: View {
             FileExplorerPanelView(
                 store: panel.fileExplorerStore,
                 state: panel.fileExplorerState,
+                workspaceId: panel.workspaceId,
                 onOpenFilePreview: panel.openFilePreview,
                 presentation: .files,
                 placement: .pane,
@@ -256,6 +258,7 @@ struct RightSidebarToolPanelView: View {
             FileExplorerPanelView(
                 store: panel.fileExplorerStore,
                 state: panel.fileExplorerState,
+                workspaceId: panel.workspaceId,
                 onOpenFilePreview: panel.openFilePreview,
                 presentation: .find,
                 placement: .pane,
