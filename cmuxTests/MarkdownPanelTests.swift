@@ -287,6 +287,12 @@ final class MarkdownPanelTests: XCTestCase {
         )
         XCTAssertEqual(
             MarkdownPreviewKeyboardShortcutResolver.command(
+                for: try keyDownEvent("f", keyCode: 3, modifiers: [.command])
+            ),
+            .findForward
+        )
+        XCTAssertEqual(
+            MarkdownPreviewKeyboardShortcutResolver.command(
                 for: try keyDownEvent("?", charactersIgnoringModifiers: "/", keyCode: 44, modifiers: [.shift])
             ),
             .findBackward
@@ -297,7 +303,31 @@ final class MarkdownPanelTests: XCTestCase {
         )
         XCTAssertEqual(
             MarkdownPreviewKeyboardShortcutResolver.command(
+                for: try keyDownEvent("n", keyCode: 45, modifiers: [.control])
+            ),
+            .findNext
+        )
+        XCTAssertEqual(
+            MarkdownPreviewKeyboardShortcutResolver.command(
+                for: try keyDownEvent("g", keyCode: 5, modifiers: [.command])
+            ),
+            .findNext
+        )
+        XCTAssertEqual(
+            MarkdownPreviewKeyboardShortcutResolver.command(
                 for: try keyDownEvent("N", charactersIgnoringModifiers: "n", keyCode: 45, modifiers: [.shift])
+            ),
+            .findPrevious
+        )
+        XCTAssertEqual(
+            MarkdownPreviewKeyboardShortcutResolver.command(
+                for: try keyDownEvent("p", keyCode: 35, modifiers: [.control])
+            ),
+            .findPrevious
+        )
+        XCTAssertEqual(
+            MarkdownPreviewKeyboardShortcutResolver.command(
+                for: try keyDownEvent("g", keyCode: 5, modifiers: [.command, .option])
             ),
             .findPrevious
         )

@@ -205,8 +205,10 @@ Markdown preview shortcuts are local to the focused Markdown panel and are custo
 |----------|--------|
 | H J K L | Scroll left/down/up/right |
 | ⌃ U / ⌃ D | Move up/down half a page |
-| / / ⇧ / | Search forward/backward |
-| N / ⇧ N | Find next/previous |
+| / / ⌘ F | Search forward |
+| ⇧ / | Search backward |
+| N / ⌃ N / ⌘ G | Find next |
+| ⇧ N / ⌃ P / ⌥ ⌘ G | Find previous |
 
 ### Notifications
 

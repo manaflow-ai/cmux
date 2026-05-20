@@ -11634,6 +11634,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             return false
         }
         if cmuxCloseFocusedTerminalFindForEscape(event: event, appDelegate: self) { return true }
+        if handleFocusedMarkdownPreviewShortcut(event) { return true }
         if matchConfiguredShortcut(event: event, action: .find) {
             let shortcutWindow = resolvedShortcutEventWindow(event)
             cmuxRememberFindSelectionBeforePanelFocusMove(tabManager: tabManager, window: shortcutWindow ?? NSApp.keyWindow); return performFindShortcutInActiveMainWindow(preferredWindow: shortcutWindow)
@@ -14167,6 +14168,22 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             responder: shortcutResponder,
             owningWebView: owningWebView
         )
+    }
+
+    private func handleFocusedMarkdownPreviewShortcut(_ event: NSEvent) -> Bool {
+        let shortcutWindow = resolvedShortcutEventWindow(event) ?? NSApp.keyWindow ?? NSApp.mainWindow
+        if let responder = shortcutWindow?.firstResponder,
+           cmuxOwningGhosttyView(for: responder) != nil {
+            return false
+        }
+        guard let context = preferredRegisteredMainWindowContext(preferredWindow: shortcutWindow),
+              context.keyboardFocusCoordinator.findShortcutTarget(currentResponder: shortcutWindow?.firstResponder) == .mainPanelFind,
+              let workspace = context.tabManager.selectedWorkspace,
+              let focusedPanelId = workspace.focusedPanelId,
+              let markdownPanel = workspace.markdownPanel(for: focusedPanelId) else {
+            return false
+        }
+        return markdownPanel.handlePreviewKeyboardShortcut(event)
     }
 
     private func browserPanelOwning(_ webView: CmuxWebView) -> BrowserPanel? {

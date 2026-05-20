@@ -29,6 +29,21 @@ enum MarkdownPreviewKeyboardShortcutResolver {
         (.findPrevious, .markdownFindPrevious),
     ]
 
+    private static let globalFindCommandActions: [(MarkdownPreviewKeyCommand, KeyboardShortcutSettings.Action)] = [
+        (.findForward, .find),
+        (.findNext, .findNext),
+        (.findPrevious, .findPrevious),
+    ]
+
+    private static let defaultAliasCommandShortcuts: [(MarkdownPreviewKeyCommand, StoredShortcut)] = [
+        (.findNext, StoredShortcut(key: "n", command: false, shift: false, option: false, control: true)),
+        (.findPrevious, StoredShortcut(key: "p", command: false, shift: false, option: false, control: true)),
+    ]
+
+    private static var configuredCommandActions: [(MarkdownPreviewKeyCommand, KeyboardShortcutSettings.Action)] {
+        commandActions + globalFindCommandActions
+    }
+
     static var actions: [KeyboardShortcutSettings.Action] {
         commandActions.map(\.1)
     }
@@ -46,9 +61,13 @@ enum MarkdownPreviewKeyboardShortcutResolver {
             )
         }
 
-        for (command, action) in commandActions {
+        for (command, action) in configuredCommandActions {
             let shortcut = shortcutForAction(action)
             guard !shortcut.hasChord, shortcut.matches(event: event) else { continue }
+            return command
+        }
+        for (command, shortcut) in defaultAliasCommandShortcuts {
+            guard shortcut.matches(event: event) else { continue }
             return command
         }
         return nil
@@ -58,7 +77,7 @@ enum MarkdownPreviewKeyboardShortcutResolver {
         for event: NSEvent,
         shortcutForAction: ShortcutProvider = KeyboardShortcutSettings.shortcut(for:)
     ) -> ShortcutStroke? {
-        for (_, action) in commandActions {
+        for (_, action) in configuredCommandActions {
             let shortcut = shortcutForAction(action)
             guard shortcut.hasChord,
                   shortcut.firstStroke.matches(event: event) else { continue }
@@ -72,7 +91,7 @@ enum MarkdownPreviewKeyboardShortcutResolver {
         pendingFirstStroke: ShortcutStroke,
         shortcutForAction: ShortcutProvider
     ) -> MarkdownPreviewKeyCommand? {
-        for (command, action) in commandActions {
+        for (command, action) in configuredCommandActions {
             let shortcut = shortcutForAction(action)
             guard let secondStroke = shortcut.secondStroke,
                   shortcut.firstStroke == pendingFirstStroke,

@@ -103,6 +103,11 @@ final class MarkdownRendererSession {
         ownedCoordinator.close()
     }
 
+    @discardableResult
+    func handleKeyboardShortcut(_ event: NSEvent) -> Bool {
+        ownedCoordinator.handleKeyboardShortcut(event)
+    }
+
     func renderedHTML(markdown: String? = nil) async -> String? {
         await ownedCoordinator.renderedHTML(markdown: markdown)
     }

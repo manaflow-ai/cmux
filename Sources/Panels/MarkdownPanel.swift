@@ -53,6 +53,12 @@ final class MarkdownPanel: Panel, ObservableObject, FilePreviewTextEditingPanel 
     /// layout churn does not recreate the WKWebView and flash existing content.
     let rendererSession = MarkdownRendererSession()
 
+    @discardableResult
+    func handlePreviewKeyboardShortcut(_ event: NSEvent) -> Bool {
+        guard displayMode == .preview else { return false }
+        return rendererSession.handleKeyboardShortcut(event)
+    }
+
     // MARK: - File watching
 
     // nonisolated(unsafe) because deinit is not guaranteed to run on the

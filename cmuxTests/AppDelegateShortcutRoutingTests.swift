@@ -122,6 +122,7 @@ final class AppDelegateShortcutRoutingTests: XCTestCase {
     override func tearDown() {
         #if DEBUG
         KeyboardShortcutSettings.shortcutLookupObserver = nil
+        MarkdownWebRenderer.Coordinator.keyboardCommandObserver = nil
         #endif
         KeyboardShortcutSettings.settingsFileStore = originalSettingsFileStore
         AppDelegate.shared?.shortcutLayoutCharacterProvider = KeyboardLayout.character(forKeyCode:modifierFlags:)
@@ -5144,6 +5145,78 @@ final class AppDelegateShortcutRoutingTests: XCTestCase {
         #else
         XCTFail("shortcutLookupObserver is only available in DEBUG")
         #endif
+    }
+
+    func testFocusedMarkdownPreviewOwnsFindFamilyShortcuts() throws {
+        guard let appDelegate = AppDelegate.shared else {
+            XCTFail("Expected AppDelegate.shared")
+            return
+        }
+
+        let windowId = appDelegate.createMainWindow()
+        defer { closeWindow(withId: windowId) }
+
+        guard let window = window(withId: windowId),
+              let manager = appDelegate.tabManagerFor(windowId: windowId),
+              let workspace = manager.selectedWorkspace,
+              let sourcePanelId = workspace.focusedPanelId else {
+            XCTFail("Expected test window, manager, workspace, and focused source panel")
+            return
+        }
+
+        let fileURL = FileManager.default.temporaryDirectory
+            .appendingPathComponent("cmux-markdown-find-\(UUID().uuidString).md")
+        try "# Markdown\n\nFind target\n".write(to: fileURL, atomically: true, encoding: .utf8)
+        defer { try? FileManager.default.removeItem(at: fileURL) }
+
+        let markdownPanel = try XCTUnwrap(
+            workspace.newMarkdownSplit(
+                from: sourcePanelId,
+                orientation: .horizontal,
+                filePath: fileURL.path,
+                focus: true
+            )
+        )
+        workspace.focusPanel(markdownPanel.id)
+
+        let responder = FocusableTestView(frame: .zero)
+        window.contentView?.addSubview(responder)
+        defer { responder.removeFromSuperview() }
+        XCTAssertTrue(window.makeFirstResponder(responder))
+
+        var observedCommands: [MarkdownPreviewKeyCommand] = []
+#if DEBUG
+        MarkdownWebRenderer.Coordinator.keyboardCommandObserver = { command in
+            observedCommands.append(command)
+        }
+#else
+        XCTFail("keyboardCommandObserver is only available in DEBUG")
+#endif
+
+        let cases: [(command: MarkdownPreviewKeyCommand, modifiers: NSEvent.ModifierFlags, key: String, keyCode: UInt16)] = [
+            (.findForward, [.command], "f", 3),
+            (.findNext, [.command], "g", 5),
+            (.findPrevious, [.command, .option], "g", 5),
+            (.findNext, [.control], "n", 45),
+            (.findPrevious, [.control], "p", 35),
+        ]
+
+        for testCase in cases {
+            let event = try XCTUnwrap(
+                makeKeyDownEvent(
+                    key: testCase.key,
+                    modifiers: testCase.modifiers,
+                    keyCode: testCase.keyCode,
+                    windowNumber: window.windowNumber
+                )
+            )
+#if DEBUG
+            XCTAssertTrue(appDelegate.debugHandleCustomShortcut(event: event))
+#else
+            XCTFail("debugHandleCustomShortcut is only available in DEBUG")
+#endif
+            XCTAssertEqual(observedCommands.last, testCase.command)
+        }
     }
 
     // MARK: - Browser find shortcut routing tests

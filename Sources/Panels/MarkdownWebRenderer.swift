@@ -118,6 +118,10 @@ struct MarkdownWebRenderer: NSViewRepresentable {
 
     @MainActor
     final class Coordinator: NSObject, WKNavigationDelegate, WKUIDelegate, WKScriptMessageHandler, WKURLSchemeHandler {
+#if DEBUG
+        static var keyboardCommandObserver: ((MarkdownPreviewKeyCommand) -> Void)?
+#endif
+
         var webView: MarkdownWebView?
         var panelId: UUID = UUID()
         var workspaceId: UUID = UUID()
@@ -313,6 +317,9 @@ struct MarkdownWebRenderer: NSViewRepresentable {
         }
 
         private func performKeyboardCommand(_ command: MarkdownPreviewKeyCommand) {
+#if DEBUG
+            Self.keyboardCommandObserver?(command)
+#endif
             guard let webView else { return }
             let commandLiteral = (try? JSONSerialization.data(withJSONObject: [command.rawValue]))
                 .flatMap { String(data: $0, encoding: .utf8) } ?? "[\"\"]"
