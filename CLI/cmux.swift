@@ -452,7 +452,10 @@ private struct AgentNeedsInputPublisher {
         guard let sessionId = normalized(sessionId) else { return nil }
         let bodyFingerprint = normalizedSingleLineForNeedsInput(body).lowercased()
         guard !bodyFingerprint.isEmpty else { return nil }
-        return "needs-input:\(agentKind):\(sessionId):\(bodyFingerprint)"
+        let digest = SHA256.hash(data: Data(bodyFingerprint.utf8))
+            .map { String(format: "%02x", $0) }
+            .joined()
+        return "needs-input:\(agentKind):\(sessionId):\(digest)"
     }
 
     private static func normalized(_ value: String?) -> String? {
@@ -17423,7 +17426,14 @@ struct CMUXCLI {
                     markActive: true,
                     turnId: parsedInput.turnId
                 )
-                try? sessionStore.clearNotificationEmission(sessionId: sessionId)
+                do {
+                    try sessionStore.clearNotificationEmission(sessionId: sessionId)
+                } catch {
+                    telemetry.breadcrumb(
+                        "claude-hook.clear-notification-emission.error",
+                        data: ["error": String(describing: error)]
+                    )
+                }
                 publishAgentSurfaceResumeBinding(
                     client: client,
                     workspaceId: workspaceId,
@@ -17696,7 +17706,14 @@ struct CMUXCLI {
 
             _ = try? sendV1Command("clear_notifications --tab=\(workspaceId)", client: client)
             if let sessionId = parsedInput.sessionId {
-                try? sessionStore.clearNotificationEmission(sessionId: sessionId)
+                do {
+                    try sessionStore.clearNotificationEmission(sessionId: sessionId)
+                } catch {
+                    telemetry.breadcrumb(
+                        "claude-hook.clear-notification-emission.error",
+                        data: ["error": String(describing: error)]
+                    )
+                }
             }
 
             let statusValue: String
@@ -19911,8 +19928,11 @@ struct CMUXCLI {
     }
 
     private func claudeNotificationBodyIsGenericAttentionPlaceholder(_ body: String) -> Bool {
-        let lower = body.lowercased()
-        return lower.contains("needs your attention") || lower.contains("needs your input")
+        let normalized = normalizedSingleLine(body).lowercased()
+        return normalized == "claude needs your attention"
+            || normalized == "claude needs your input"
+            || normalized == "claude code needs your attention"
+            || normalized == "claude code needs your input"
     }
 
     private func containsCompletionCue(_ lowercasedText: String) -> Bool {

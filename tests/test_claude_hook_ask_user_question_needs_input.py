@@ -25,11 +25,11 @@ def resolve_cmux_cli() -> str:
 
     candidates: list[str] = []
     candidates.extend(glob.glob(os.path.expanduser("~/Library/Developer/Xcode/DerivedData/*/Build/Products/Debug/cmux")))
-    candidates.extend(glob.glob("/tmp/cmux-*/Build/Products/Debug/cmux"))
     candidates = [path for path in candidates if os.path.exists(path) and os.access(path, os.X_OK)]
-    if candidates:
-        candidates.sort(key=os.path.getmtime, reverse=True)
+    if len(candidates) == 1:
         return candidates[0]
+    if len(candidates) > 1:
+        raise RuntimeError("Multiple cmux binaries found. Set CMUX_CLI_BIN to the intended build.")
 
     in_path = shutil.which("cmux")
     if in_path:
@@ -178,6 +178,17 @@ def notify_commands(server: HookSocketServer) -> list[str]:
     return [line for line in server.commands_snapshot() if line.startswith("notify_target_async ")]
 
 
+def wait_for_notify_count(server: HookSocketServer, expected_at_least: int, timeout: float = 1.0) -> list[str]:
+    deadline = time.time() + timeout
+    latest = notify_commands(server)
+    while time.time() < deadline:
+        latest = notify_commands(server)
+        if len(latest) >= expected_at_least:
+            return latest
+        time.sleep(0.01)
+    return latest
+
+
 def ask_user_question_payload(session_id: str, index: int) -> dict[str, object]:
     return {
         "session_id": session_id,
@@ -266,7 +277,7 @@ def main() -> int:
             print(f"commands={server.commands_snapshot()!r}")
             return 1
 
-        notifications = notify_commands(server)
+        notifications = wait_for_notify_count(server, 1)
         if len(notifications) != 1:
             print("FAIL: AskUserQuestion should immediately publish exactly one notification")
             print(f"notify_commands={notifications!r}")
@@ -305,7 +316,7 @@ def main() -> int:
             print(f"stderr={non_question_proc.stderr!r}")
             print(f"commands={server.commands_snapshot()!r}")
             return 1
-        notify_after_non_question = notify_commands(server)
+        notify_after_non_question = wait_for_notify_count(server, 1)
         if len(notify_after_non_question) != 1:
             print("FAIL: non-question pre-tool-use should not publish an extra notification")
             print(f"notify_commands={notify_after_non_question!r}")
@@ -325,7 +336,7 @@ def main() -> int:
             print(f"stderr={repeated_after_tool_proc.stderr!r}")
             print(f"commands={server.commands_snapshot()!r}")
             return 1
-        notify_after_tool_repeat = notify_commands(server)
+        notify_after_tool_repeat = wait_for_notify_count(server, 2)
         if len(notify_after_tool_repeat) != 2:
             print("FAIL: non-question pre-tool-use should clear the needs-input dedup fingerprint for future matching questions")
             print(f"notify_commands={notify_after_tool_repeat!r}")
@@ -345,7 +356,7 @@ def main() -> int:
             print(f"stderr={duplicate_proc.stderr!r}")
             print(f"commands={server.commands_snapshot()!r}")
             return 1
-        notify_after_duplicate = notify_commands(server)
+        notify_after_duplicate = wait_for_notify_count(server, 2)
         if len(notify_after_duplicate) != 2:
             print("FAIL: generic attention Notification should be deduped after AskUserQuestion and non-question pre-tool-use")
             print(f"notify_commands={notify_after_duplicate!r}")
@@ -384,7 +395,7 @@ def main() -> int:
             print(f"stderr={post_answer_attention_proc.stderr!r}")
             print(f"commands={server.commands_snapshot()!r}")
             return 1
-        notify_after_post_answer = notify_commands(server)
+        notify_after_post_answer = wait_for_notify_count(server, 3)
         if len(notify_after_post_answer) != 3:
             print("FAIL: prompt-submit should stop suppressing later generic attention notifications")
             print(f"notify_commands={notify_after_post_answer!r}")
@@ -404,7 +415,7 @@ def main() -> int:
             print(f"stderr={repeated_proc.stderr!r}")
             print(f"commands={server.commands_snapshot()!r}")
             return 1
-        notify_after_repeat = notify_commands(server)
+        notify_after_repeat = wait_for_notify_count(server, 4)
         if len(notify_after_repeat) != 4:
             print("FAIL: prompt-submit should clear the needs-input dedup fingerprint")
             print(f"notify_commands={notify_after_repeat!r}")
@@ -426,7 +437,7 @@ def main() -> int:
                 print(f"stderr={proc.stderr!r}")
                 print(f"commands={server.commands_snapshot()!r}")
                 return 1
-            after_question_count = len(notify_commands(server))
+            after_question_count = len(wait_for_notify_count(server, before_question_count + 1))
             if after_question_count != before_question_count + 1:
                 print(f"FAIL: AskUserQuestion should publish exactly one notification at loop {index}")
                 print(f"before={before_question_count}")
@@ -447,7 +458,7 @@ def main() -> int:
                 print(f"stderr={dup.stderr!r}")
                 print(f"commands={server.commands_snapshot()!r}")
                 return 1
-            after_duplicate_count = len(notify_commands(server))
+            after_duplicate_count = len(wait_for_notify_count(server, after_question_count))
             if after_duplicate_count != after_question_count:
                 print(f"FAIL: generic attention Notification should not add a duplicate at loop {index}")
                 print(f"before={after_question_count}")
@@ -455,8 +466,8 @@ def main() -> int:
                 print(f"notify_commands={notify_commands(server)!r}")
                 return 1
 
-        loop_notify_commands = notify_commands(server)
         expected_total = len(notify_after_repeat) + 100
+        loop_notify_commands = wait_for_notify_count(server, expected_total)
         if len(loop_notify_commands) != expected_total:
             print("FAIL: AskUserQuestion loop should have zero drops and zero duplicate generic notifications")
             print(f"expected_total={expected_total}")
