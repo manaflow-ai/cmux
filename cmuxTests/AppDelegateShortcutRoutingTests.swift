@@ -130,8 +130,6 @@ final class AppDelegateShortcutRoutingTests: XCTestCase {
         #if DEBUG
         KeyboardShortcutRecorderActivity.resetForTesting()
         AppDelegate.shared?.debugResetShortcutRoutingStateForTesting()
-        #endif
-        #if DEBUG
         KeyboardShortcutSettings.shortcutLookupObserver = nil
         #endif
         KeyboardShortcutSettings.settingsFileStore = originalSettingsFileStore
@@ -182,7 +180,8 @@ final class AppDelegateShortcutRoutingTests: XCTestCase {
     }
 
     func testStopAllRecordingClearsStaleRecorderActivityCount() {
-#if DEBUG
+        defer { KeyboardShortcutRecorderActivity.stopAllRecording() }
+
         KeyboardShortcutRecorderActivity.beginRecording()
         KeyboardShortcutRecorderActivity.beginRecording()
         XCTAssertTrue(KeyboardShortcutRecorderActivity.isAnyRecorderActive)
@@ -190,9 +189,6 @@ final class AppDelegateShortcutRoutingTests: XCTestCase {
         KeyboardShortcutRecorderActivity.stopAllRecording()
 
         XCTAssertFalse(KeyboardShortcutRecorderActivity.isAnyRecorderActive)
-#else
-        XCTFail("KeyboardShortcutRecorderActivity reset hooks are only available in DEBUG")
-#endif
     }
 
     func testCmdNUsesEventWindowContextWhenActiveManagerIsStale() {
