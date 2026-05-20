@@ -2,6 +2,7 @@ import AppKit
 import Bonsplit
 import CMUXAgentLaunch
 import Combine
+import Darwin
 import Foundation
 import os
 import SQLite3
@@ -43,6 +44,62 @@ final class ClaudeMetadataCache: @unchecked Sendable {
                 .map(\.key)
             for k in oldestKeys { entries.removeValue(forKey: k) }
         }
+    }
+}
+
+// Safe to mark @unchecked Sendable: `lock` guards every mutable field. `onCancel`
+// is synchronous and cannot await an actor hop, so this helper uses NSLock instead.
+private final class SessionIndexCancellableProcess: @unchecked Sendable {
+    private let process: Process
+    private let lock = NSLock()
+    private var processIdentifier: pid_t?
+    private var cancelled = false
+    private var completed = false
+
+    init(process: Process) {
+        self.process = process
+    }
+
+    func shouldStart() -> Bool {
+        lock.lock()
+        defer { lock.unlock() }
+        return !cancelled && !completed
+    }
+
+    func markStarted() {
+        let pid = process.processIdentifier
+        let shouldTerminate: Bool
+        lock.lock()
+        processIdentifier = pid
+        shouldTerminate = cancelled && !completed
+        lock.unlock()
+
+        if shouldTerminate {
+            terminate(pid: pid)
+        }
+    }
+
+    func cancel() {
+        let pidToTerminate: pid_t?
+        lock.lock()
+        cancelled = true
+        pidToTerminate = completed ? nil : processIdentifier
+        lock.unlock()
+
+        if let pidToTerminate {
+            terminate(pid: pidToTerminate)
+        }
+    }
+
+    func complete() {
+        lock.lock()
+        completed = true
+        lock.unlock()
+    }
+
+    private func terminate(pid: pid_t) {
+        guard pid > 0, process.isRunning else { return }
+        _ = Darwin.kill(pid, SIGTERM)
     }
 }
 
@@ -1265,9 +1322,19 @@ final class SessionIndexStore: ObservableObject {
         if let nullDev = FileHandle(forWritingAtPath: "/dev/null") {
             process.standardError = nullDev
         }
+        let cancellableProcess = SessionIndexCancellableProcess(process: process)
 
         return await withTaskCancellationHandler {
-            do { try process.run() } catch { return nil as [URL]? }
+            guard cancellableProcess.shouldStart() else {
+                return []
+            }
+            do {
+                try process.run()
+            } catch {
+                return Task.isCancelled ? [] : nil
+            }
+            cancellableProcess.markStarted()
+            defer { cancellableProcess.complete() }
             // Drain stdout BEFORE waitUntilExit. With many matches rg writes
             // more than the ~64 KB pipe buffer; reading until EOF lets rg
             // make progress and EOF arrives when rg closes its stdout on exit.
@@ -1287,13 +1354,13 @@ final class SessionIndexStore: ObservableObject {
             case 1:
                 return []
             default:
-                return nil
+                return Task.isCancelled ? [] : nil
             }
         } onCancel: {
             // Fires synchronously when the awaiting Task is cancelled. Sends
             // SIGTERM to rg, which closes stdout, lets readDataToEndOfFile
             // return, and unblocks the body so this call can complete cleanly.
-            process.terminate()
+            cancellableProcess.cancel()
         }
     }
 
@@ -1322,6 +1389,7 @@ final class SessionIndexStore: ObservableObject {
                     root: root.projectsRoot,
                     fileGlob: "*.jsonl"
                 ) else {
+                    if Task.isCancelled { return [] }
                     candidates.append(
                         contentsOf: enumerateClaudeJSONLCandidates(
                             root: root,
