@@ -60926,6 +60926,98 @@
         }
       }
     },
+    "settings.automation.amp": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Amp Integration"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Amp連携"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Amp 연동"
+          }
+        }
+      }
+    },
+    "settings.automation.amp.note": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Hooks must be installed with `cmux hooks amp install`. They no-op outside cmux terminals. When disabled, cmux sets `CMUX_AMP_HOOKS_DISABLED=1` so the installed plugin stays inert."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "フックは`cmux hooks amp install`でインストールする必要があります。cmuxターミナル外では動作しません。無効にすると、cmuxは`CMUX_AMP_HOOKS_DISABLED=1`を設定し、インストール済みプラグインを停止状態に保ちます。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "`cmux hooks amp install`로 훅을 설치해야 합니다. cmux 터미널 외부에서는 작동하지 않습니다. 비활성화하면 cmux가 `CMUX_AMP_HOOKS_DISABLED=1`을 설정하여 설치된 플러그인을 비활성 상태로 유지합니다."
+          }
+        }
+      }
+    },
+    "settings.automation.amp.subtitleOff": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Amp runs without cmux integration."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "AmpはCmux連携なしで動作します。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Amp가 cmux 연동 없이 실행됩니다."
+          }
+        }
+      }
+    },
+    "settings.automation.amp.subtitleOn": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Sidebar shows Amp agent status and notifications."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "サイドバーにAmpエージェントのステータスと通知が表示されます。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "사이드바에 Amp 에이전트 상태와 알림이 표시됩니다."
+          }
+        }
+      }
+    },
     "settings.automation.claudeCode": {
       "extractionState": "manual",
       "localizations": {
