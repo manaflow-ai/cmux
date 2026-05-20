@@ -1337,13 +1337,7 @@ private extension CodexAppServerTranscriptItem {
         guard presentation == .plain else { return false }
         let titleText = title.trimmingCharacters(in: .whitespacesAndNewlines)
         let bodyText = body.trimmingCharacters(in: .whitespacesAndNewlines)
-        let quietMethods: Set<String> = [
-            "mcpServer/startupStatus/updated",
-            "remoteControl/status/changed",
-            "thread/status/changed",
-            "thread/tokenUsage/updated",
-        ]
-        if quietMethods.contains(titleText) {
+        if CodexAppServerQuietNotificationPolicy.shouldSuppressTranscript(method: titleText) {
             return true
         }
 

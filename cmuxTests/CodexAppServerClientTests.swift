@@ -27,6 +27,7 @@ private final class FakeCodexAppServerClient: CodexAppServerClienting {
     var resumeThreadCallCount = 0
     var stopCallCount = 0
     var resumeThreadError: Error?
+    var resumeThreadResponse: [String: Any]?
     var startTurnCalls: [TurnStartCall] = []
     var steerTurnCalls: [SteerCall] = []
     var steerTurnCallCount = 0
@@ -80,6 +81,9 @@ private final class FakeCodexAppServerClient: CodexAppServerClienting {
         resumeThreadCallCount += 1
         if let resumeThreadError {
             throw resumeThreadError
+        }
+        if let resumeThreadResponse {
+            return resumeThreadResponse
         }
         return ["thread": ["id": threadId]]
     }
@@ -338,7 +342,7 @@ final class CodexAppServerRequestFactoryTests: XCTestCase {
     }
 
     @MainActor
-    func testCodexPanelAutoStartsForFreshAndResumedThreads() {
+    func testCodexPanelAutoStartIsExplicitLifecycleState() {
         let workspaceId = UUID()
         let freshPanel = CodexAppServerPanel(
             workspaceId: workspaceId,
@@ -349,9 +353,16 @@ final class CodexAppServerRequestFactoryTests: XCTestCase {
             cwd: "/tmp",
             resumeThreadId: "019d6637-e5cc-7cc0-a321-2c43b799036b"
         )
+        let restoredPanel = CodexAppServerPanel(
+            workspaceId: workspaceId,
+            cwd: "/tmp",
+            resumeThreadId: "019d6637-e5cc-7cc0-a321-2c43b799036b",
+            autoStartOnAppear: false
+        )
 
         XCTAssertTrue(freshPanel.shouldAutoStart)
         XCTAssertTrue(resumingPanel.shouldAutoStart)
+        XCTAssertFalse(restoredPanel.shouldAutoStart)
     }
 
     @MainActor
@@ -406,6 +417,83 @@ final class CodexAppServerRequestFactoryTests: XCTestCase {
         XCTAssertEqual(client.resumeThreadCallCount, 1)
         XCTAssertEqual(panel.status, .ready)
         XCTAssertNil(panel.resumableThreadId)
+    }
+
+    @MainActor
+    func testSendingPromptFromStoppedMissingRolloutResumeStartsFreshThreadAndKeepsUserMessage() async throws {
+        let client = FakeCodexAppServerClient()
+        client.resumeThreadError = CodexAppServerClientError.requestFailed(
+            "no rollout found for thread id 019d6637-e5cc-7cc0-a321-2c43b799036b"
+        )
+        let panel = CodexAppServerPanel(
+            workspaceId: UUID(),
+            cwd: "/tmp",
+            resumeThreadId: "019d6637-e5cc-7cc0-a321-2c43b799036b",
+            client: client
+        )
+        panel.promptText = "start over"
+
+        await panel.sendPrompt()
+
+        let freshThreadId = FakeCodexAppServerClient.generatedThreadId(1)
+        XCTAssertEqual(client.startAndInitializeCallCount, 1)
+        XCTAssertEqual(client.resumeThreadCallCount, 1)
+        XCTAssertEqual(client.startThreadCallCount, 1)
+        XCTAssertEqual(client.startTurnCalls, [
+            FakeCodexAppServerClient.TurnStartCall(threadId: freshThreadId, text: "start over"),
+        ])
+        XCTAssertEqual(panel.status, .running)
+        XCTAssertEqual(panel.resumableThreadId, freshThreadId)
+        XCTAssertEqual(panel.transcriptItems.filter { $0.role == .user }.map(\.body), ["start over"])
+    }
+
+    @MainActor
+    func testSendingPromptFromStoppedSuccessfulResumePreservesCurrentUserMessage() async throws {
+        let threadId = "019d6637-e5cc-7cc0-a321-2c43b799036b"
+        let client = FakeCodexAppServerClient()
+        client.resumeThreadResponse = [
+            "thread": [
+                "id": threadId,
+                "turns": [
+                    [
+                        "items": [
+                            [
+                                "type": "userMessage",
+                                "content": [
+                                    [
+                                        "type": "text",
+                                        "text": "previous prompt",
+                                    ],
+                                ],
+                            ],
+                            [
+                                "type": "agentMessage",
+                                "text": "previous answer",
+                            ],
+                        ],
+                    ],
+                ],
+            ],
+        ]
+        let panel = CodexAppServerPanel(
+            workspaceId: UUID(),
+            cwd: "/tmp",
+            resumeThreadId: threadId,
+            client: client
+        )
+        panel.promptText = "current prompt"
+
+        await panel.sendPrompt()
+
+        XCTAssertEqual(client.resumeThreadCallCount, 1)
+        XCTAssertEqual(client.startThreadCallCount, 0)
+        XCTAssertEqual(client.startTurnCalls, [
+            FakeCodexAppServerClient.TurnStartCall(threadId: threadId, text: "current prompt"),
+        ])
+        XCTAssertEqual(
+            panel.transcriptItems.filter { $0.role == .user }.map(\.body),
+            ["previous prompt", "current prompt"]
+        )
     }
 
     @MainActor
@@ -484,6 +572,26 @@ final class CodexAppServerRequestFactoryTests: XCTestCase {
 
         XCTAssertTrue(didFail)
         XCTAssertEqual(panel.resumableThreadId, threadId)
+    }
+
+    @MainActor
+    func testQuietCodexNotificationsDoNotAppendTranscriptRows() async throws {
+        let client = FakeCodexAppServerClient()
+        let panel = CodexAppServerPanel(
+            workspaceId: UUID(),
+            cwd: "/tmp",
+            client: client
+        )
+        await panel.start()
+
+        for method in ["skills/changed", "app/list/updated", "fs/changed", "thread/goal/cleared"] {
+            client.onEvent?(
+                .notification(CodexAppServerServerNotification(method: method, params: [:]))
+            )
+        }
+        await Task.yield()
+
+        XCTAssertTrue(panel.transcriptItems.isEmpty)
     }
 
     @MainActor
@@ -2084,6 +2192,8 @@ final class CodexAppServerRequestFactoryTests: XCTestCase {
             ),
             CodexAppServerTranscriptItem(role: .event, title: "mcpServer/startupStatus/updated", body: "{}"),
             CodexAppServerTranscriptItem(role: .event, title: "thread/status/changed", body: "idle"),
+            CodexAppServerTranscriptItem(role: .event, title: "skills/changed", body: "{}"),
+            CodexAppServerTranscriptItem(role: .event, title: "thread/goal/cleared", body: "{}"),
             CodexAppServerTranscriptItem(role: .event, title: "Warning", body: "needs attention"),
             CodexAppServerTranscriptItem(role: .assistant, title: "Codex", body: "visible"),
         ])

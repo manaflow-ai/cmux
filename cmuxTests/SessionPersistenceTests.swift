@@ -72,6 +72,7 @@ final class SessionPersistenceTests: XCTestCase {
         let restoredPanel = try XCTUnwrap(restored.codexAppServerPanel(for: restoredPanelId))
         XCTAssertEqual(restoredPanel.cwd, "/tmp/codex-project")
         XCTAssertEqual(restoredPanel.resumableThreadId, threadId)
+        XCTAssertFalse(restoredPanel.shouldAutoStart)
     }
 
     @MainActor

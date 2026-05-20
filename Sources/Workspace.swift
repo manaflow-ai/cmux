@@ -1045,7 +1045,8 @@ extension Workspace {
                 inPane: paneId,
                 cwd: snapshot.directory,
                 resumeThreadId: snapshot.codexAppServer?.threadId,
-                focus: false
+                focus: false,
+                autoStartOnAppear: false
             ) else {
                 return nil
             }
@@ -11112,6 +11113,7 @@ final class Workspace: Identifiable, ObservableObject {
         cwd: String? = nil,
         resumeThreadId: String? = nil,
         focus: Bool = true,
+        autoStartOnAppear: Bool = true,
         initialDividerPosition: CGFloat? = nil
     ) -> CodexAppServerPanel? {
         guard let sourceTabId = surfaceIdFromPanelId(panelId) else { return nil }
@@ -11133,7 +11135,8 @@ final class Workspace: Identifiable, ObservableObject {
         let codexPanel = CodexAppServerPanel(
             workspaceId: id,
             cwd: resolvedCwd,
-            resumeThreadId: resumeThreadId
+            resumeThreadId: resumeThreadId,
+            autoStartOnAppear: autoStartOnAppear
         )
         panels[codexPanel.id] = codexPanel
         panelTitles[codexPanel.id] = codexPanel.displayTitle
@@ -11184,7 +11187,8 @@ final class Workspace: Identifiable, ObservableObject {
         inPane paneId: PaneID,
         cwd: String? = nil,
         resumeThreadId: String? = nil,
-        focus: Bool? = nil
+        focus: Bool? = nil,
+        autoStartOnAppear: Bool = true
     ) -> CodexAppServerPanel? {
         let shouldFocusNewTab = focus ?? (bonsplitController.focusedPaneId == paneId)
         let previousFocusedPanelId = focusedPanelId
@@ -11198,7 +11202,8 @@ final class Workspace: Identifiable, ObservableObject {
         let codexPanel = CodexAppServerPanel(
             workspaceId: id,
             cwd: resolvedCwd,
-            resumeThreadId: resumeThreadId
+            resumeThreadId: resumeThreadId,
+            autoStartOnAppear: autoStartOnAppear
         )
         panels[codexPanel.id] = codexPanel
         panelTitles[codexPanel.id] = codexPanel.displayTitle

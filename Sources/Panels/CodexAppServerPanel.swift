@@ -186,6 +186,28 @@ enum CodexAppServerTranscriptPresentation: Equatable, Sendable {
     case hookEvent(method: String)
 }
 
+enum CodexAppServerQuietNotificationPolicy {
+    static let methodNames: Set<String> = [
+        "account/updated",
+        "app/list/updated",
+        "fs/changed",
+        "fuzzyFileSearch/sessionCompleted",
+        "fuzzyFileSearch/sessionUpdated",
+        "mcpServer/startupStatus/updated",
+        "remoteControl/status/changed",
+        "skills/changed",
+        "thread/goal/cleared",
+        "thread/goal/updated",
+        "thread/name/updated",
+        "thread/status/changed",
+        "thread/tokenUsage/updated",
+    ]
+
+    static func shouldSuppressTranscript(method: String) -> Bool {
+        methodNames.contains(method)
+    }
+}
+
 struct CodexAppServerRateLimitWindow: Equatable, Sendable {
     var name: String
     var usedPercent: Double?
@@ -865,6 +887,7 @@ final class CodexAppServerPanel: Panel, ObservableObject {
 
     private let client: any CodexAppServerClienting
     private let initialResumeThreadId: String?
+    private let autoStartOnAppear: Bool
     private var threadId: String?
     private var currentTurnId: String?
     private var activeAssistantItemId: UUID?
@@ -877,6 +900,7 @@ final class CodexAppServerPanel: Panel, ObservableObject {
     private var isClosed = false
     private var didResumeInitialThread = false
     private var isStartingNewTurn = false
+    private var startupUserItemsToPreserve: [CodexAppServerTranscriptItem] = []
     private var lifecycleGeneration = 0
     private var initialHistoryRestoreThreadId: String?
     private var initialHistoryRestoreTask: Task<CodexSessionHistorySnapshot, Never>?
@@ -916,7 +940,7 @@ final class CodexAppServerPanel: Panel, ObservableObject {
     }
 
     var shouldAutoStart: Bool {
-        true
+        autoStartOnAppear
     }
 
     private var hasActiveTurn: Bool {
@@ -991,6 +1015,7 @@ final class CodexAppServerPanel: Panel, ObservableObject {
         workspaceId: UUID,
         cwd: String,
         resumeThreadId: String? = nil,
+        autoStartOnAppear: Bool = true,
         provider: AgentSessionProvider = .provider(.codex),
         client: (any CodexAppServerClienting)? = nil
     ) {
@@ -999,6 +1024,7 @@ final class CodexAppServerPanel: Panel, ObservableObject {
         self.cwd = cwd
         self.provider = provider
         self.initialResumeThreadId = Self.normalizedCodexThreadId(resumeThreadId)
+        self.autoStartOnAppear = autoStartOnAppear
         self.client = client ?? CodexAppServerClient(provider: provider)
     }
 
@@ -1070,6 +1096,7 @@ final class CodexAppServerPanel: Panel, ObservableObject {
                     "items_before": transcriptItems.count,
                 ])
 #endif
+                let renderedUserItemsToPreserve = isStartingNewTurn ? startupUserItemsToPreserve : []
                 let response: [String: Any]
                 do {
                     response = try await client.resumeThread(
@@ -1098,7 +1125,7 @@ final class CodexAppServerPanel: Panel, ObservableObject {
                     didResumeInitialThread = true
                     threadId = nil
                     currentTurnId = nil
-                    transcriptItems.removeAll()
+                    transcriptItems = renderedUserItemsToPreserve
                     pendingRequests.removeAll()
                     contextSummary = nil
                     status = .ready
@@ -1138,6 +1165,7 @@ final class CodexAppServerPanel: Panel, ObservableObject {
                     transcriptLoadingPhase = .restoringHistory
                     await loadLocalHistory(for: snapshot.threadId, generation: generation)
                 }
+                preserveRenderedUserItemsAfterResume(renderedUserItemsToPreserve)
                 guard isCurrentLifecycle(generation) else {
                     client.stop()
                     return
@@ -1248,6 +1276,7 @@ final class CodexAppServerPanel: Panel, ObservableObject {
         lastRenderedUserMessageText = nil
         didResumeInitialThread = false
         isStartingNewTurn = false
+        startupUserItemsToPreserve.removeAll(keepingCapacity: false)
         pendingRequests.removeAll()
         pendingSteers.removeAll()
         queuedFollowUps.removeAll()
@@ -1368,10 +1397,14 @@ final class CodexAppServerPanel: Panel, ObservableObject {
         defer {
             if lifecycleGeneration == generation {
                 isStartingNewTurn = false
+                startupUserItemsToPreserve.removeAll(keepingCapacity: false)
             }
         }
         if renderUserImmediately {
-            appendUser(cleanedText)
+            let renderedUserItem = appendUser(cleanedText)
+            if !isStarted, let renderedUserItem {
+                startupUserItemsToPreserve = [renderedUserItem]
+            }
         }
 
         do {
@@ -1675,7 +1708,8 @@ final class CodexAppServerPanel: Panel, ObservableObject {
                 ),
                 presentation: .warning
             )
-        case "mcpServer/startupStatus/updated", "thread/status/changed", "remoteControl/status/changed":
+        case let quietMethod where CodexAppServerQuietNotificationPolicy
+            .shouldSuppressTranscript(method: quietMethod):
             break
         default:
             appendEvent(title: method, body: Self.prettyJSON(params))
@@ -1750,9 +1784,10 @@ final class CodexAppServerPanel: Panel, ObservableObject {
         }
     }
 
-    private func appendUser(_ text: String) {
+    @discardableResult
+    private func appendUser(_ text: String) -> CodexAppServerTranscriptItem? {
         lastRenderedUserMessageText = text.trimmingCharacters(in: .whitespacesAndNewlines)
-        append(
+        return append(
             role: .user,
             title: String(localized: "codexAppServer.role.user", defaultValue: "You"),
             body: text
@@ -2352,25 +2387,26 @@ final class CodexAppServerPanel: Panel, ObservableObject {
         }
     }
 
+    @discardableResult
     private func append(
         role: CodexAppServerTranscriptRole,
         title: String,
         body: String,
         presentation: CodexAppServerTranscriptPresentation = .plain,
         preservesBodyWhitespace: Bool = false
-    ) {
+    ) -> CodexAppServerTranscriptItem? {
         let rawBody = preservesBodyWhitespace ? body : body.trimmingCharacters(in: .whitespacesAndNewlines)
         let trimmedBody = Self.truncatedTranscriptBody(rawBody)
-        guard !trimmedBody.isEmpty else { return }
-        transcriptItems.append(
-            CodexAppServerTranscriptItem(
-                role: role,
-                title: title,
-                body: trimmedBody,
-                presentation: presentation
-            )
+        guard !trimmedBody.isEmpty else { return nil }
+        let item = CodexAppServerTranscriptItem(
+            role: role,
+            title: title,
+            body: trimmedBody,
+            presentation: presentation
         )
+        transcriptItems.append(item)
         trimTranscriptItemsIfNeeded()
+        return item
     }
 
     private func trimTranscriptItemsIfNeeded() {
@@ -2386,6 +2422,18 @@ final class CodexAppServerPanel: Panel, ObservableObject {
             remainingToRemove -= 1
             return true
         }
+    }
+
+    private func preserveRenderedUserItemsAfterResume(_ items: [CodexAppServerTranscriptItem]) {
+        guard !items.isEmpty else { return }
+        let existingItemIDs = Set(transcriptItems.map(\.id))
+        let additions = items.filter { item in
+            !existingItemIDs.contains(item.id)
+                && !item.body.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+        }
+        guard !additions.isEmpty else { return }
+        transcriptItems.append(contentsOf: additions)
+        trimTranscriptItemsIfNeeded()
     }
 
     private static func truncatedTranscriptBody(_ body: String) -> String {
