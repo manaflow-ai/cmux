@@ -500,6 +500,69 @@ final class CodexAppServerRequestFactoryTests: XCTestCase {
     }
 
     @MainActor
+    func testTruncatedResumeWithRenderedPromptStillAppliesSmallLocalHistory() async throws {
+        let threadId = "019d6637-e5cc-7cc0-a321-2c43b799036b"
+        let codexHome = FileManager.default.temporaryDirectory
+            .appendingPathComponent("cmux-codex-home-\(UUID().uuidString)", isDirectory: true)
+        defer { try? FileManager.default.removeItem(at: codexHome) }
+
+        let sessionsRoot = codexHome.appendingPathComponent("sessions", isDirectory: true)
+        try FileManager.default.createDirectory(at: sessionsRoot, withIntermediateDirectories: true)
+        let fileURL = sessionsRoot
+            .appendingPathComponent("rollout-2026-04-06T21-33-52-\(threadId).jsonl")
+        let records: [[String: Any]] = [
+            [
+                "timestamp": "2026-04-06T21:33:52.000Z",
+                "type": "session_meta",
+                "payload": ["id": threadId],
+            ],
+            [
+                "timestamp": "2026-04-06T21:33:53.000Z",
+                "type": "event_msg",
+                "payload": [
+                    "type": "user_message",
+                    "message": "previous prompt",
+                ],
+            ],
+        ]
+        try records.map(Self.jsonLine).joined(separator: "\n")
+            .write(to: fileURL, atomically: true, encoding: .utf8)
+
+        let originalCodexHome = getenv("CODEX_HOME").map { String(cString: $0) }
+        setenv("CODEX_HOME", codexHome.path, 1)
+        defer {
+            if let originalCodexHome {
+                setenv("CODEX_HOME", originalCodexHome, 1)
+            } else {
+                unsetenv("CODEX_HOME")
+            }
+        }
+
+        let client = FakeCodexAppServerClient()
+        client.resumeThreadResponse = [
+            "_cmuxResponseTruncated": true,
+            "thread": [
+                "id": threadId,
+                "turns": [],
+            ],
+        ]
+        let panel = CodexAppServerPanel(
+            workspaceId: UUID(),
+            cwd: "/tmp",
+            resumeThreadId: threadId,
+            client: client
+        )
+        panel.promptText = "current prompt"
+
+        await panel.sendPrompt()
+
+        XCTAssertEqual(
+            panel.transcriptItems.filter { $0.role == .user }.map(\.body),
+            ["previous prompt", "current prompt"]
+        )
+    }
+
+    @MainActor
     func testStartupFailureAfterInitializeStopsClientBeforeFailedState() async throws {
         let client = FakeCodexAppServerClient()
         client.resumeThreadError = CodexAppServerClientError.requestFailed("permission denied")

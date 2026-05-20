@@ -2195,9 +2195,22 @@ final class CodexAppServerPanel: Panel, ObservableObject {
             return
         }
 
-        if !transcriptItems.isEmpty,
-           snapshot.totalDisplayableItemCount <= transcriptItems.count {
-            return
+        if !transcriptItems.isEmpty {
+            let comparableTranscriptItemCount: Int
+            if showEmptyFallback {
+                let preservedStartupUserItemIDs = Set(startupUserItemsToPreserve.map(\.id))
+                comparableTranscriptItemCount = transcriptItems.reduce(into: 0) { count, item in
+                    if !preservedStartupUserItemIDs.contains(item.id) {
+                        count += 1
+                    }
+                }
+            } else {
+                comparableTranscriptItemCount = transcriptItems.count
+            }
+            if comparableTranscriptItemCount > 0,
+               snapshot.totalDisplayableItemCount <= comparableTranscriptItemCount {
+                return
+            }
         }
 
         activeAssistantItemId = nil
@@ -2745,8 +2758,7 @@ enum CodexSessionHistoryLoader {
     }
 
     private static func defaultSearchRoots() -> [URL] {
-        let environment = ProcessInfo.processInfo.environment
-        let configuredCodexHome = environment["CODEX_HOME"]?.trimmingCharacters(in: .whitespacesAndNewlines)
+        let configuredCodexHome = environmentValue("CODEX_HOME")?.trimmingCharacters(in: .whitespacesAndNewlines)
         let codexHome = if let configuredCodexHome, !configuredCodexHome.isEmpty {
             URL(fileURLWithPath: configuredCodexHome, isDirectory: true)
         } else {
@@ -2757,6 +2769,11 @@ enum CodexSessionHistoryLoader {
             codexHome.appendingPathComponent("sessions", isDirectory: true),
             codexHome.appendingPathComponent("archived_sessions", isDirectory: true),
         ]
+    }
+
+    private static func environmentValue(_ name: String) -> String? {
+        guard let rawValue = getenv(name) else { return nil }
+        return String(cString: rawValue)
     }
 
     private static func emptySnapshot(threadId: String, fileURL: URL?) -> CodexSessionHistorySnapshot {
