@@ -169,6 +169,8 @@ private struct ShortcutRecorderButton: NSViewRepresentable {
 }
 
 final class ShortcutRecorderNSButton: NSButton {
+    private static weak var activeRecorder: ShortcutRecorderNSButton?
+
     var shortcut: StoredShortcut = KeyboardShortcutSettings.showNotificationsDefault {
         didSet {
             if shortcut != oldValue {
@@ -278,6 +280,7 @@ final class ShortcutRecorderNSButton: NSButton {
         isRecording = true
         hasPendingRejection = false
         pendingChordStart = nil
+        Self.activeRecorder = self
         previousFirstResponder = window?.firstResponder
         window?.makeFirstResponder(self)
         registerRecordingActivityIfNeeded()
@@ -286,7 +289,8 @@ final class ShortcutRecorderNSButton: NSButton {
         updateTitle()
 
         eventMonitor = NSEvent.addLocalMonitorForEvents(matching: [.keyDown, .systemDefined]) { [weak self] event in
-            self?.handleRecordingEvent(event) ?? event
+            guard let self else { return event }
+            return self.handleMonitoredRecordingEvent(event)
         }
 
         NotificationCenter.default.addObserver(
@@ -319,7 +323,6 @@ final class ShortcutRecorderNSButton: NSButton {
                     onRecorderFeedbackChanged?(
                         ShortcutRecorderRejectedAttempt(reason: reason, proposedShortcut: firstShortcut)
                     )
-                    stopRecording()
                     return nil
                 }
             case let .rejected(reason):
@@ -327,7 +330,6 @@ final class ShortcutRecorderNSButton: NSButton {
                 onRecorderFeedbackChanged?(
                     ShortcutRecorderRejectedAttempt(reason: reason, proposedShortcut: nil)
                 )
-                stopRecording()
                 return nil
             case .unsupportedKey:
                 return nil
@@ -352,7 +354,6 @@ final class ShortcutRecorderNSButton: NSButton {
                 onRecorderFeedbackChanged?(
                     ShortcutRecorderRejectedAttempt(reason: reason, proposedShortcut: newShortcut)
                 )
-                stopRecording()
                 return nil
             }
         }
@@ -361,10 +362,17 @@ final class ShortcutRecorderNSButton: NSButton {
         return nil
     }
 
+    private func handleMonitoredRecordingEvent(_ event: NSEvent) -> NSEvent? {
+        handleRecordingEvent(event)
+    }
+
     private func stopRecording() {
         guard isRecording else { return }
         isRecording = false
         pendingChordStart = nil
+        if Self.activeRecorder === self {
+            Self.activeRecorder = nil
+        }
         unregisterRecordingActivityIfNeeded()
         onRecordingChanged?(false)
         updateTitle()
@@ -408,6 +416,39 @@ final class ShortcutRecorderNSButton: NSButton {
         KeyboardShortcutRecorderActivity.endRecording()
     }
 
+    fileprivate static func dispatchActiveRecordingEvent(
+        _ event: NSEvent,
+        preferredWindow: NSWindow?
+    ) -> Bool {
+        guard KeyboardShortcutRecorderActivity.isAnyRecorderActive,
+              event.type == .keyDown || event.type == .systemDefined,
+              let recorder = activeRecordingCandidate(preferredWindow: preferredWindow) else {
+            return false
+        }
+
+        return recorder.consumeRecordingEvent(event)
+    }
+
+    private static func activeRecordingCandidate(preferredWindow: NSWindow?) -> ShortcutRecorderNSButton? {
+        if let activeRecorder, activeRecorder.isRecording {
+            return activeRecorder
+        }
+
+        let responders = [
+            preferredWindow?.firstResponder,
+            NSApp.keyWindow?.firstResponder,
+            NSApp.mainWindow?.firstResponder,
+        ]
+
+        return responders.compactMap { $0 as? ShortcutRecorderNSButton }.first { $0.isRecording }
+    }
+
+    private func consumeRecordingEvent(_ event: NSEvent) -> Bool {
+        guard isRecording else { return false }
+        _ = handleRecordingEvent(event)
+        return true
+    }
+
 #if DEBUG
     var debugIsRecording: Bool {
         isRecording
@@ -426,6 +467,10 @@ final class ShortcutRecorderNSButton: NSButton {
     func debugHandleRecordingEvent(_ event: NSEvent) -> NSEvent? {
         handleRecordingEvent(event)
     }
+
+    func debugHandleMonitoredRecordingEvent(_ event: NSEvent) -> NSEvent? {
+        handleMonitoredRecordingEvent(event)
+    }
 #endif
 
     deinit {
@@ -435,5 +480,14 @@ final class ShortcutRecorderNSButton: NSButton {
             name: KeyboardShortcutRecorderActivity.stopAllNotification,
             object: nil
         )
+    }
+}
+
+enum ShortcutRecorderEventRouter {
+    static func dispatchActiveRecordingEvent(
+        _ event: NSEvent,
+        preferredWindow: NSWindow?
+    ) -> Bool {
+        ShortcutRecorderNSButton.dispatchActiveRecordingEvent(event, preferredWindow: preferredWindow)
     }
 }

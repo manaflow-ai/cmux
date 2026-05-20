@@ -49,27 +49,43 @@ When you click Allow / Deny / Submit (either in Feed or in the notification's in
 
 All events (actionable and telemetry) are appended to `~/.cmuxterm/workstream.jsonl` for audit. Memory holds the most recent 2000 items in a ring; older items remain available in the JSONL audit log.
 
+The reconnectable [events stream](events.md) also publishes Feed and agent-hook
+activity as it happens:
+
+```bash
+cmux events --category feed --category agent --cursor-file ~/.cache/cmux/feed-events.seq --reconnect
+```
+
+Use `feed.item.received` to observe incoming hook work, `feed.item.completed`
+to observe the eventual hook result, and `agent.hook.<HookEventName>` to consume
+Claude Code, Codex, OpenCode, and other agent events by their native hook name.
+
 ## Installing hooks
 
 ```bash
 cmux hooks setup
 cmux hooks setup --agent codex
+cmux hooks setup rovo
 cmux hooks uninstall
+cmux hooks uninstall rovo
 ```
 
-Installs Feed-relevant hooks for every supported CLI whose binary is on `PATH`:
+Installs supported agent hooks whose binaries are on `PATH`. See [Agent hook integrations](agent-hooks.md) for the complete session restore and Feed support matrix.
 
 | Agent        | Config                                    | Feed trigger             |
 |--------------|-------------------------------------------|--------------------------|
 | Claude Code  | wrapper-injected                          | PermissionRequest        |
-| Codex        | `~/.codex/hooks.json`                     | PreToolUse               |
+| Codex        | `~/.codex/hooks.json`                     | PermissionRequest        |
+| Grok         | `~/.grok/hooks/cmux-session.json`         | PreToolUse               |
+| OpenCode     | `~/.config/opencode/plugins/cmux-feed.js` | plugin event bus         |
 | Cursor CLI   | `~/.cursor/hooks.json`                    | beforeShellExecution     |
 | Gemini       | `~/.gemini/settings.json`                 | PreToolUse               |
 | Copilot      | `~/.copilot/config.json`                  | PreToolUse               |
 | CodeBuddy    | `~/.codebuddy/settings.json`              | PreToolUse               |
 | Factory      | `~/.factory/settings.json`                | PreToolUse               |
 | Qoder        | `~/.qoder/settings.json`                  | PreToolUse               |
-| OpenCode     | `~/.config/opencode/plugins/cmux-feed.js` | plugin event bus         |
+| Pi           | `~/.pi/agent/extensions/cmux-session.ts`  | lifecycle only           |
+| Rovo Dev     | `~/.rovodev/config.yml`                   | lifecycle only           |
 
 Individual agents:
 
@@ -80,7 +96,7 @@ cmux hooks opencode install --project     # .opencode/plugins/cmux-feed.js in cw
 cmux hooks <agent> uninstall
 ```
 
-Agents without a binary on `PATH` are skipped at install time, and `cmux hooks setup` prints a summary line naming the ones it skipped. Use `cmux hooks setup --agent <name>` to install one integration, or `cmux hooks uninstall --agent <name>` to remove one.
+Agents without a binary on `PATH` are skipped at install time, and `cmux hooks setup` prints a summary line naming the ones it skipped. Use `cmux hooks setup --agent <name>` or `cmux hooks setup <name>` to install one integration, and `cmux hooks uninstall --agent <name>` or `cmux hooks uninstall <name>` to remove one. Rovo Dev accepts either `rovodev` or `rovo`.
 
 ## Decision semantics
 
@@ -109,9 +125,11 @@ For Claude Code, the cmux wrapper launches Claude with `--allow-dangerously-skip
 
 For Claude Code, AskUserQuestion is answered by allowing the PermissionRequest with an updated tool input containing the selected answers. Other agents use their native question reply shape where available.
 
+Codex's `request_user_input` and `update_plan` currently surface through its app-server request/notification path, not through command hooks. A stock `codex` TUI running in a cmux terminal keeps those frames inside Codex's in-process app-server client, so its plan-mode questions still fall back to Codex's own TUI. cmux can route Codex permission approvals through `PermissionRequest`; showing Codex plan questions in Feed would require launching Codex against a shared standalone app server and adding a Codex app-server Feed adapter, or upstream Codex hook coverage for those frames.
+
 ## Timeout behavior
 
-Feed is advisory, not blocking. The hook waits at most 120 seconds for a user decision. On timeout the bridge emits `{}` (no decision) and the agent falls through to its own in-TUI prompt. This matches Vibe Island's "soft wait" model — it never freezes a workflow forever.
+Feed is advisory, not blocking. The hook waits at most 120 seconds for a user decision. On timeout the bridge emits `{}` (no decision) and the agent falls through to its own in-TUI prompt. This matches Vibe Island's "soft wait" model, it never freezes a workflow forever.
 
 Per-event timeout inside agent hook configs is raised to roughly 120 to 125 seconds for Feed bridge entries (Claude uses 125 seconds for PermissionRequest), so a user taking 30 seconds to approve something does not trip default 5 000 ms hook timeouts.
 
@@ -138,6 +156,8 @@ Double-click a Feed row and cmux focuses the cmux workspace + surface where the 
 ## Troubleshooting
 
 **Feed shows nothing even though the agent is running.** Check that the hook got installed: `cat ~/.codex/hooks.json` (or similar) should contain a `cmux hooks feed --source codex` entry. Re-run `cmux hooks setup`.
+
+**Codex plan-mode question stays in the terminal.** Codex `request_user_input` is not a hook event in the stock TUI path. Feed only sees Codex permission hooks today.
 
 **Agent hangs on a permission request.** Feed never blocks the agent longer than 120 seconds; if you see a longer hang, the hook failed to reach the socket. Verify `$CMUX_SOCKET_PATH` matches the running app (default is `~/.config/cmux/cmux.sock`).
 

@@ -12,13 +12,17 @@ When we change the fork, update this document and the parent submodule SHA.
 
 ## Current fork changes
 
-The fork was refreshed from upstream `main` again on April 28, 2026.
-Current cmux pinned fork head: `4265d3428`, based on `04ec69173`, which was
-merged into fork `main` via `manaflow-ai/ghostty` PR
-https://github.com/manaflow-ai/ghostty/pull/50
-(`xcframework-d3117e03ea19665bc83a28f7e0428c63937e6140-8-g04ec69173`).
-This head restores the cmux theme picker hooks on top of `d3117e03e` and fixes
-the cmux picker search-mode Enter apply path.
+The fork was refreshed from upstream `main` again on May 1, 2026.
+Current cmux pinned fork head: `ff6e1260d`, based on `aef980e27`, with the
+manual embedded IO patch in https://github.com/manaflow-ai/ghostty/pull/53,
+the Metal renderer row rebuild guard for https://github.com/manaflow-ai/cmux/issues/3369, and the URL/path
+regex bound for spaced file paths followed by prose. This head keeps the cmux
+theme picker hooks, exposes the manual surface IO needed by libghostty iOS
+clients, bounds shaped glyph iteration during IME/preedit row rebuilds, and
+prevents Cmd-hover from highlighting normal sentence text after a file path.
+The corresponding prebuilt archive is published at
+https://github.com/manaflow-ai/ghostty/releases/tag/xcframework-ff6e1260d2e7767de55b8d9307b328e4060545b7-crashsubdir-cmux-crash-v1
+and pinned in `scripts/ghosttykit-checksums.txt`.
 
 ### 1) macOS display link restart on display changes
 
@@ -144,9 +148,75 @@ tend to conflict together during rebases.
   - Adds a C API for loading Ghostty config from an in-memory string.
   - Lets cmux parse generated or override config without materializing a separate config file first.
 
-The current cmux pin is the head listed above. It is reachable from the
-`manaflow-ai/ghostty` fork branch `fix-cmux-theme-search-enter` and has a matching
-prebuilt release tag `xcframework-4265d34282ce2023c27da851c454dabe6cdc76ce`.
+### 10) Manual embedded IO for libghostty iOS
+
+- Commit: `22fa801f8` (Expose manual embedded IO for iOS)
+- PR: https://github.com/manaflow-ai/ghostty/pull/53
+- Files:
+  - `include/ghostty.h`
+  - `src/Surface.zig`
+  - `src/apprt/embedded.zig`
+  - `src/input.zig`
+  - `src/input/text.zig`
+  - `src/renderer/Thread.zig`
+  - `src/termio.zig`
+  - `src/termio/Manual.zig`
+  - `src/termio/Termio.zig`
+  - `src/termio/backend.zig`
+- Summary:
+  - Exposes `GHOSTTY_SURFACE_IO_MANUAL`, `io_write_cb`, `ghostty_surface_process_output`,
+    `ghostty_surface_text_input`, and `ghostty_surface_render_now` through the embedded C API.
+  - Wires the existing manual termio backend into embedded surfaces without taking stale
+    xcframework or build-system changes from the old iOS branch.
+  - Keeps manual surface writes inline so iOS typing does not wait on the termio thread wakeup path.
+  - Comments each fork-only API/runtime hook with its upstream-removal condition.
+  - Checked upstream `ghostty-org/ghostty` `4dcb09ada` on May 1, 2026. It does not expose
+    equivalent libghostty surface IO selection, write callback, text-input callback,
+    render-now C API, or output C API. Upstream already has internal
+    `Termio.processOutput`, so prefer an upstream C bridge if one lands.
+
+### 11) Metal renderer preedit row rebuild guard
+
+- Commits:
+  - `70b95dada` (Expose unsafe preedit catch-up in renderer rows)
+  - `fe972c095` (Bound renderer preedit catch-up to shaped glyphs)
+- Files:
+  - `src/renderer/generic.zig`
+- Summary:
+  - Adds a regression test for the row-rebuild path where IME/preedit covers the
+    only shaped glyph in a row and the remaining terminal cells are empty.
+  - Bounds the shaped glyph cursor before reading from the shaped-cell slice, so
+    `GenericRenderer(Metal).rebuildRow` no longer assumes terminal cells and
+    shaped glyph cells have one-to-one cardinality.
+  - The first commit intentionally preserves the panic so cmux can keep the
+    required failing-test-then-fix history for https://github.com/manaflow-ai/cmux/issues/3369.
+
+### 12) URL/path regex bounds for spaced file paths
+
+- Commits:
+  - `6e10706a7` (test: cover spaced file path link bounds)
+  - `6eed7af92` (fix: bound spaced file path links)
+  - `ff6e1260d` (fix: handle dotted spaced path prefixes)
+- Files:
+  - `src/config/url.zig`
+- Summary:
+  - Adds coverage for a path with spaces ending in `.mp4` followed by a normal sentence.
+  - Routes dotted paths with spaced directory names through the stricter dotted-path branch.
+  - Keeps single-space path components such as `Recovered Screen Recordings` while preserving
+    the existing double-space stop case.
+  - Trims trailing sentence punctuation when more text follows, without breaking dotted paths
+    that end at end-of-line.
+  - Preserves versioned or dotted path components before the first space, such as
+    `/tmp/v1.2 captures/video.mp4`.
+
+The current cmux pin is the head listed above. It is reachable from
+`manaflow-ai/ghostty` through the
+`xcframework-ff6e1260d2e7767de55b8d9307b328e4060545b7-crashsubdir-cmux-crash-v1`
+release tag and branch `issue-cmd-hover-path-range`.
+Published `xcframework-ff6e1260d2e7767de55b8d9307b328e4060545b7-crashsubdir-cmux-crash-v1` and pinned its
+archive checksum in `scripts/ghosttykit-checksums.txt`. The release and checksum
+pin must be regenerated whenever this commit changes, even for comment-only
+amends, because the release tag is keyed by the Ghostty commit SHA.
 
 ## Upstreamed fork changes
 
@@ -196,6 +266,21 @@ These files change frequently upstream; be careful when rebasing the fork:
   - Verified with `./scripts/reload.sh --tag thmenter`.
   - Published `xcframework-4265d34282ce2023c27da851c454dabe6cdc76ce` and pinned
     its archive checksum in `scripts/ghosttykit-checksums.txt`.
+
+- May 1, 2026, manual embedded IO for libghostty iOS:
+  - Added only the manual embedded IO API/runtime pieces on top of fork `main` `495316732`.
+  - Avoided old iOS branch `.gitignore`, package, and xcframework build-system changes.
+  - Checked upstream `ghostty-org/ghostty` `4dcb09ada`; no equivalent public libghostty
+    surface IO API exists yet.
+  - Added comments to the fork-only hunks stating that they should be deleted in favor of
+    an upstream implementation when one exists.
+  - Verified with `zig build test`.
+  - Verified the universal macOS plus iOS xcframework path with
+    `CMUX_GHOSTTYKIT_NO_PREBUILT=1 ./scripts/ensure-ghosttykit.sh`.
+  - Published `xcframework-22fa801f88f96fa842e54ecce6c34a5d36003d19` and pinned
+    its archive checksum in `scripts/ghosttykit-checksums.txt`.
+  - Merged https://github.com/manaflow-ai/ghostty/pull/53 so the submodule SHA is
+    reachable from fork `main`.
 
 - `src/terminal/osc.zig`
   - OSC dispatch logic moves often. Re-check the integration points for the OSC 99 parser and keep

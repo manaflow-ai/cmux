@@ -4212,134 +4212,6 @@ final class TerminalCmdClickPathPunctuationTrimmingTests: XCTestCase {
 }
 
 
-final class TerminalControllerSocketTextChunkTests: XCTestCase {
-    func testSocketTextChunksReturnsSingleChunkForPlainText() {
-        XCTAssertEqual(
-            TerminalController.socketTextChunks("echo hello"),
-            [.text("echo hello")]
-        )
-    }
-
-    func testSocketTextChunksSplitsControlScalars() {
-        XCTAssertEqual(
-            TerminalController.socketTextChunks("abc\rdef\tghi"),
-            [
-                .text("abc"),
-                .control("\r".unicodeScalars.first!),
-                .text("def"),
-                .control("\t".unicodeScalars.first!),
-                .text("ghi")
-            ]
-        )
-    }
-
-    func testSocketTextChunksDoesNotEmitEmptyTextChunksAroundConsecutiveControls() {
-        XCTAssertEqual(
-            TerminalController.socketTextChunks("\r\n\t"),
-            [
-                .control("\r".unicodeScalars.first!),
-                .control("\n".unicodeScalars.first!),
-                .control("\t".unicodeScalars.first!)
-            ]
-        )
-    }
-}
-
-
-final class GhosttyTerminalViewVisibilityPolicyTests: XCTestCase {
-    func testTerminalLaunchEnvironmentClearsInheritedClaudeCodeMarker() {
-        var environment = [
-            "CLAUDECODE": "1",
-            "PATH": "/usr/bin:/bin",
-        ]
-
-        GhosttyTerminalView.removeInheritedAgentEnvironment(from: &environment)
-
-        XCTAssertNil(environment["CLAUDECODE"])
-        XCTAssertEqual(environment["PATH"], "/usr/bin:/bin")
-    }
-
-    func testTerminalLaunchEnvironmentClearsClaudeCodeAfterStartupEnvironmentMerge() {
-        var environment = TerminalSurface.mergedStartupEnvironment(
-            base: ["PATH": "/usr/bin:/bin"],
-            protectedKeys: [],
-            additionalEnvironment: ["CLAUDECODE": "1"],
-            initialEnvironmentOverrides: ["CLAUDECODE": "2"]
-        )
-
-        GhosttyTerminalView.removeInheritedAgentEnvironment(from: &environment)
-
-        XCTAssertNil(environment["CLAUDECODE"])
-        XCTAssertEqual(environment["PATH"], "/usr/bin:/bin")
-    }
-
-    func testTerminalLaunchTemporarilyClearsInheritedClaudeCodeProcessEnvironment() {
-        let originalValue = getenv("CLAUDECODE").map { String(cString: $0) }
-        setenv("CLAUDECODE", "nested-session", 1)
-        defer {
-            if let originalValue {
-                setenv("CLAUDECODE", originalValue, 1)
-            } else {
-                unsetenv("CLAUDECODE")
-            }
-        }
-
-        let removedDuringLaunch = GhosttyTerminalView.withRemovedInheritedAgentProcessEnvironment {
-            getenv("CLAUDECODE") == nil
-        }
-
-        XCTAssertTrue(removedDuringLaunch)
-        XCTAssertEqual(getenv("CLAUDECODE").map { String(cString: $0) }, "nested-session")
-    }
-
-    func testImmediateStateUpdateAllowedWhenHostNotInWindow() {
-        XCTAssertTrue(
-            GhosttyTerminalView.shouldApplyImmediateHostedStateUpdate(
-                hostedViewHasSuperview: false,
-                isBoundToCurrentHost: false
-            )
-        )
-    }
-
-    func testImmediateStateUpdateAllowedWhenBoundToCurrentHost() {
-        XCTAssertTrue(
-            GhosttyTerminalView.shouldApplyImmediateHostedStateUpdate(
-                hostedViewHasSuperview: true,
-                isBoundToCurrentHost: true
-            )
-        )
-    }
-
-    func testImmediateStateUpdateSkippedForStaleHostBoundElsewhere() {
-        XCTAssertFalse(
-            GhosttyTerminalView.shouldApplyImmediateHostedStateUpdate(
-                hostedViewHasSuperview: true,
-                isBoundToCurrentHost: false
-            )
-        )
-    }
-
-    func testImmediateStateUpdateAllowedWhenUnboundAndNotAttachedAnywhere() {
-        XCTAssertTrue(
-            GhosttyTerminalView.shouldApplyImmediateHostedStateUpdate(
-                hostedViewHasSuperview: false,
-                isBoundToCurrentHost: false
-            )
-        )
-    }
-
-    func testInteractiveGeometryResizeUsesImmediatePortalSyncDecision() {
-        XCTAssertTrue(
-            GhosttyTerminalView.shouldSynchronizePortalGeometryImmediately(
-                hostInLiveResize: false,
-                windowInLiveResize: false,
-                interactiveGeometryResizeActive: true
-            ),
-            "Interactive resize should use the immediate portal sync path"
-        )
-    }
-}
-
 final class GhosttyModifierFlagsChangedActionTests: XCTestCase {
     func testLeftShiftPressReturnsPress() {
         XCTAssertEqual(
@@ -4662,7 +4534,8 @@ final class TerminalControllerSocketListenerHealthTests: XCTestCase {
             isRunning: true,
             acceptLoopAlive: true,
             socketPathMatches: true,
-            socketPathExists: true
+            socketPathExists: true,
+            socketPathOwnedByListener: true
         )
         XCTAssertTrue(health.isHealthy)
         XCTAssertTrue(health.failureSignals.isEmpty)
@@ -4673,7 +4546,8 @@ final class TerminalControllerSocketListenerHealthTests: XCTestCase {
             isRunning: false,
             acceptLoopAlive: false,
             socketPathMatches: false,
-            socketPathExists: false
+            socketPathExists: false,
+            socketPathOwnedByListener: false
         )
         XCTAssertFalse(health.isHealthy)
         XCTAssertEqual(

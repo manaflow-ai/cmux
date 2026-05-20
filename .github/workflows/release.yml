@@ -33,10 +33,16 @@ jobs:
         with:
           script: |
             const { evaluateReleaseAssetGuard } = require('./scripts/release_asset_guard');
-            const tag = context.ref.replace('refs/tags/', '');
+            const tag = context.ref.startsWith('refs/tags/')
+              ? context.ref.replace('refs/tags/', '')
+              : null;
             core.setOutput('skip_all', 'false');
             core.setOutput('skip_upload', 'false');
             core.setOutput('release_state', 'clear');
+            if (!tag) {
+              core.notice('workflow_dispatch is not running from a tag; release guard is in dry-run mode.');
+              return;
+            }
             try {
               const release = await github.rest.repos.getReleaseByTag({
                 owner: context.repo.owner,
@@ -105,19 +111,20 @@ jobs:
       - name: Install build deps
         if: steps.guard_release_assets.outputs.skip_all != 'true'
         run: |
-          ZIG_REQUIRED="0.15.2"
-          if command -v zig >/dev/null 2>&1 && zig version 2>/dev/null | grep -q "^${ZIG_REQUIRED}"; then
-            echo "zig ${ZIG_REQUIRED} already installed"
-          else
-            echo "Installing zig ${ZIG_REQUIRED} from tarball"
-            curl -fSL "https://ziglang.org/download/${ZIG_REQUIRED}/zig-aarch64-macos-${ZIG_REQUIRED}.tar.xz" -o /tmp/zig.tar.xz
-            tar xf /tmp/zig.tar.xz -C /tmp
-            sudo mkdir -p /usr/local/bin /usr/local/lib
-            sudo cp -f /tmp/zig-aarch64-macos-${ZIG_REQUIRED}/zig /usr/local/bin/zig
-            sudo cp -rf /tmp/zig-aarch64-macos-${ZIG_REQUIRED}/lib /usr/local/lib/zig
-            export PATH="/usr/local/bin:$PATH"
-            zig version
+          export PATH="$HOME/.cargo/bin:$PATH"
+          echo "$HOME/.cargo/bin" >> "$GITHUB_PATH"
+          if ! command -v rustup >/dev/null 2>&1; then
+            export HOMEBREW_NO_AUTO_UPDATE=1
+            export HOMEBREW_NO_INSTALL_CLEANUP=1
+            export HOMEBREW_NO_ENV_HINTS=1
+            brew install rustup-init
+            rustup-init -y --profile minimal --default-toolchain stable
           fi
+          if ! rustup show active-toolchain >/dev/null 2>&1; then
+            rustup default stable
+          fi
+          rustup target add aarch64-apple-darwin x86_64-apple-darwin
+          ./scripts/install-zig-ci.sh
           npm install --global "create-dmg@${CREATE_DMG_VERSION}"
 
       - name: Download pre-built GhosttyKit.xcframework
@@ -130,7 +137,7 @@ jobs:
         uses: actions/cache@27d5ce7f107fe9357f9df03efb73ab90386fccae # v5.0.5
         with:
           path: .spm-cache
-          key: spm-${{ hashFiles('GhosttyTabs.xcodeproj/project.xcworkspace/xcshareddata/swiftpm/Package.resolved') }}
+          key: spm-${{ hashFiles('cmux.xcodeproj/project.xcworkspace/xcshareddata/swiftpm/Package.resolved') }}
           restore-keys: spm-
 
       - name: Setup Go
@@ -323,6 +330,8 @@ jobs:
           xcrun stapler staple "$APP_PATH"
           xcrun stapler validate "$APP_PATH"
           spctl -a -vv --type execute "$APP_PATH"
+          ./scripts/smoke-launch-macos-app.sh "$APP_PATH"
+          ./scripts/verify-app-bundle-channel-metadata.sh "$APP_PATH" stable
           rm -f "$ZIP_SUBMIT"
           # create-dmg generates a styled drag-to-install DMG
           create-dmg \

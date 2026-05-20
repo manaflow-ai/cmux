@@ -15,6 +15,7 @@ final class FeedSidebarUITests: XCTestCase {
     private var dockConfigPath = ""
     private var requestId = ""
     private let modeKey = "socketControlMode"
+    private let dockBetaFeatureKey = "rightSidebar.beta.dock.enabled"
     private let launchTag = "ui-tests-feed-sidebar"
 
     override func setUp() {
@@ -39,6 +40,7 @@ final class FeedSidebarUITests: XCTestCase {
         let app = XCUIApplication()
         app.launchArguments += [
             "-\(modeKey)", "allowAll",
+            "-\(dockBetaFeatureKey)", "YES",
             "-AppleLanguages", "(en)",
             "-AppleLocale", "en_US"
         ]

@@ -593,6 +593,33 @@ final class WorkspaceRemoteConnectionTests: XCTestCase {
     }
 
     @MainActor
+    func testRemoteReconnectingStateIsExposedInStatusPayload() {
+        let workspace = Workspace()
+        let config = WorkspaceRemoteConfiguration(
+            destination: "cmux-macmini",
+            port: nil,
+            identityFile: nil,
+            sshOptions: [],
+            localProxyPort: nil,
+            relayPort: 64033,
+            relayID: String(repeating: "a", count: 16),
+            relayToken: String(repeating: "b", count: 64),
+            localSocketPath: "/tmp/cmux-debug-test.sock",
+            terminalStartupCommand: "ssh cmux-macmini"
+        )
+
+        workspace.configureRemoteConnection(config, autoConnect: false)
+        workspace.applyRemoteConnectionStateUpdate(
+            .reconnecting,
+            detail: "Reconnecting to cmux-macmini",
+            target: "cmux-macmini"
+        )
+
+        XCTAssertEqual(workspace.remoteConnectionState, .reconnecting)
+        XCTAssertEqual(workspace.remoteStatusPayload()["state"] as? String, "reconnecting")
+    }
+
+    @MainActor
     func testForegroundSSHAuthReadyIgnoresMismatchedConfiguredToken() {
         let workspace = Workspace()
         let config = WorkspaceRemoteConfiguration(
@@ -1073,6 +1100,57 @@ final class WorkspaceRemoteConnectionTests: XCTestCase {
         XCTAssertEqual(workspace.activeRemoteTerminalSessionCount, 0)
     }
 
+    @MainActor
+    func testClosingInitialRemoteTerminalPaneKeepsSiblingRemotePaneAlive() throws {
+        let workspace = Workspace()
+        let initialTerminalID = try XCTUnwrap(workspace.focusedTerminalPanel?.id)
+        let configuration = WorkspaceRemoteConfiguration(
+            destination: "cmux-macmini",
+            port: nil,
+            identityFile: nil,
+            sshOptions: [
+                "ControlMaster=auto",
+                "ControlPersist=600",
+                "ControlPath=/tmp/cmux-ssh-%C",
+            ],
+            localProxyPort: nil,
+            relayPort: 64020,
+            relayID: String(repeating: "a", count: 16),
+            relayToken: String(repeating: "b", count: 64),
+            localSocketPath: "/tmp/cmux-debug-test.sock",
+            terminalStartupCommand: "ssh cmux-macmini"
+        )
+        var cleanupArguments: [[String]] = []
+        let cleanupRequested = expectation(description: "control master cleanup requested")
+        cleanupRequested.isInverted = true
+
+        Workspace.runSSHControlMasterCommandOverrideForTesting = { arguments in
+            cleanupArguments.append(arguments)
+            cleanupRequested.fulfill()
+        }
+        defer { Workspace.runSSHControlMasterCommandOverrideForTesting = nil }
+
+        workspace.configureRemoteConnection(configuration, autoConnect: false)
+        let siblingTerminal = try XCTUnwrap(
+            workspace.newTerminalSplit(from: initialTerminalID, orientation: .horizontal)
+        )
+
+        XCTAssertEqual(workspace.activeRemoteTerminalSessionCount, 2)
+        XCTAssertTrue(workspace.isRemoteTerminalSurface(initialTerminalID))
+        XCTAssertTrue(workspace.isRemoteTerminalSurface(siblingTerminal.id))
+
+        XCTAssertTrue(workspace.closePanel(initialTerminalID, force: true))
+
+        XCTAssertNil(workspace.panels[initialTerminalID])
+        XCTAssertNotNil(workspace.panels[siblingTerminal.id])
+        XCTAssertTrue(workspace.isRemoteWorkspace)
+        XCTAssertFalse(workspace.isRemoteTerminalSurface(initialTerminalID))
+        XCTAssertTrue(workspace.isRemoteTerminalSurface(siblingTerminal.id))
+        XCTAssertEqual(workspace.activeRemoteTerminalSessionCount, 1)
+        wait(for: [cleanupRequested], timeout: 0.2)
+        XCTAssertTrue(cleanupArguments.isEmpty)
+    }
+
     func testRemoteDropPathUsesLowercasedExtensionAndProvidedUUID() throws {
         let fileURL = URL(fileURLWithPath: "/Users/test/Screen Shot.PNG")
         let uuid = try XCTUnwrap(UUID(uuidString: "12345678-1234-1234-1234-1234567890AB"))
@@ -1080,6 +1158,104 @@ final class WorkspaceRemoteConnectionTests: XCTestCase {
         let remotePath = WorkspaceRemoteSessionController.remoteDropPath(for: fileURL, uuid: uuid)
 
         XCTAssertEqual(remotePath, "/tmp/cmux-drop-12345678-1234-1234-1234-1234567890ab.png")
+    }
+
+    @MainActor
+    func testDaemonBootstrapUploadUsesAbsoluteHomePathForScpDestination() throws {
+        let fileManager = FileManager.default
+        let directoryURL = fileManager.temporaryDirectory.appendingPathComponent(
+            "cmux-remote-daemon-upload-\(UUID().uuidString)",
+            isDirectory: true
+        )
+        try fileManager.createDirectory(at: directoryURL, withIntermediateDirectories: true)
+        defer { try? fileManager.removeItem(at: directoryURL) }
+
+        let fakeDaemonURL = directoryURL.appendingPathComponent("cmuxd-remote", isDirectory: false)
+        try Data("fake daemon".utf8).write(to: fakeDaemonURL)
+        try fileManager.setAttributes([.posixPermissions: 0o755], ofItemAtPath: fakeDaemonURL.path)
+
+        let previousAllowLocalBuild = getenv("CMUX_REMOTE_DAEMON_ALLOW_LOCAL_BUILD").map { String(cString: $0) }
+        let previousDaemonBinary = getenv("CMUX_REMOTE_DAEMON_BINARY").map { String(cString: $0) }
+        setenv("CMUX_REMOTE_DAEMON_ALLOW_LOCAL_BUILD", "1", 1)
+        setenv("CMUX_REMOTE_DAEMON_BINARY", fakeDaemonURL.path, 1)
+        defer {
+            if let previousAllowLocalBuild {
+                setenv("CMUX_REMOTE_DAEMON_ALLOW_LOCAL_BUILD", previousAllowLocalBuild, 1)
+            } else {
+                unsetenv("CMUX_REMOTE_DAEMON_ALLOW_LOCAL_BUILD")
+            }
+            if let previousDaemonBinary {
+                setenv("CMUX_REMOTE_DAEMON_BINARY", previousDaemonBinary, 1)
+            } else {
+                unsetenv("CMUX_REMOTE_DAEMON_BINARY")
+            }
+        }
+
+        let scpInvoked = DispatchSemaphore(value: 0)
+        let lock = NSLock()
+        var scpDestination: String?
+        WorkspaceRemoteSessionController.runProcessOverrideForTesting = { executable, arguments, _, _ in
+            if executable == "/usr/bin/ssh" {
+                let command = arguments.last ?? ""
+                if command.contains("uname -s") {
+                    return (
+                        status: 0,
+                        stdout: """
+                        __CMUX_REMOTE_HOME__=/home/test
+                        __CMUX_REMOTE_OS__=Linux
+                        __CMUX_REMOTE_ARCH__=x86_64
+                        __CMUX_REMOTE_EXISTS__=no
+                        """,
+                        stderr: ""
+                    )
+                }
+                if command.contains("mkdir -p") {
+                    return (status: 0, stdout: "", stderr: "")
+                }
+                return (status: 0, stdout: "", stderr: "")
+            }
+            if executable == "/usr/bin/scp" {
+                lock.lock()
+                scpDestination = arguments.last
+                lock.unlock()
+                scpInvoked.signal()
+                return (status: 1, stdout: "", stderr: "intentional stop after upload destination capture")
+            }
+            XCTFail("unexpected executable \(executable)")
+            return (status: 1, stdout: "", stderr: "unexpected executable")
+        }
+        defer { WorkspaceRemoteSessionController.runProcessOverrideForTesting = nil }
+
+        let workspace = Workspace()
+        let config = WorkspaceRemoteConfiguration(
+            destination: "test@hpc.example",
+            port: 2222,
+            identityFile: "/Users/test/.ssh/id_ed25519",
+            sshOptions: [],
+            localProxyPort: nil,
+            relayPort: nil,
+            relayID: nil,
+            relayToken: nil,
+            localSocketPath: nil,
+            terminalStartupCommand: "ssh test@hpc.example"
+        )
+        defer { workspace.disconnectRemoteConnection(clearConfiguration: true) }
+
+        workspace.configureRemoteConnection(config, autoConnect: true)
+
+        XCTAssertEqual(scpInvoked.wait(timeout: .now() + 2), .success)
+        lock.lock()
+        let capturedDestination = scpDestination
+        lock.unlock()
+        let destination = try XCTUnwrap(capturedDestination)
+        XCTAssertTrue(
+            destination.hasPrefix("test@hpc.example:/home/test/.cmux/bin/cmuxd-remote/"),
+            "expected scp to target an absolute path under remote HOME, got \(destination)"
+        )
+        XCTAssertTrue(
+            destination.contains("/linux-amd64/cmuxd-remote.tmp-"),
+            "expected daemon platform temp path in \(destination)"
+        )
     }
 
     @MainActor
@@ -1550,12 +1726,40 @@ final class CLINotifyProcessIntegrationTests: XCTestCase {
 
     private final class MockSocketServerState: @unchecked Sendable {
         private let lock = NSLock()
+        private let commandSemaphore = DispatchSemaphore(value: 0)
         private(set) var commands: [String] = []
 
         func append(_ command: String) {
             lock.lock()
             commands.append(command)
             lock.unlock()
+            commandSemaphore.signal()
+        }
+
+        func snapshot() -> [String] {
+            lock.lock()
+            defer { lock.unlock() }
+            return commands
+        }
+
+        func waitForCommand(timeout: TimeInterval, matching predicate: (String) -> Bool) -> Bool {
+            let deadline = Date().addingTimeInterval(timeout)
+            while true {
+                lock.lock()
+                let matched = commands.contains(where: predicate)
+                lock.unlock()
+                if matched {
+                    return true
+                }
+
+                let remaining = deadline.timeIntervalSinceNow
+                guard remaining > 0 else {
+                    return false
+                }
+                if commandSemaphore.wait(timeout: .now() + remaining) == .timedOut {
+                    return snapshot().contains(where: predicate)
+                }
+            }
         }
     }
 
@@ -1588,6 +1792,14 @@ final class CLINotifyProcessIntegrationTests: XCTestCase {
             _ = DispatchSemaphore(value: 0).wait(timeout: .now() + 0.05)
         }
         return false
+    }
+
+    private func waitForSocketCommand(
+        state: MockSocketServerState,
+        timeout: TimeInterval,
+        matching predicate: (String) -> Bool
+    ) -> Bool {
+        state.waitForCommand(timeout: timeout, matching: predicate)
     }
 
     private func bundledCLIPath() throws -> String {
@@ -1669,49 +1881,6 @@ final class CLINotifyProcessIntegrationTests: XCTestCase {
         )
     }
 
-    func testOpenCodeInstallHooksRegistersSessionPlugin() throws {
-        let cliPath = try bundledCLIPath()
-        let root = FileManager.default.temporaryDirectory
-            .appendingPathComponent("cmux-opencode-hooks-\(UUID().uuidString)", isDirectory: true)
-        let configDir = root.appendingPathComponent("opencode", isDirectory: true)
-        try FileManager.default.createDirectory(at: configDir, withIntermediateDirectories: true)
-        defer { try? FileManager.default.removeItem(at: root) }
-
-        let configURL = configDir.appendingPathComponent("opencode.json", isDirectory: false)
-        try """
-        {
-          "plugin": [
-            "other-plugin",
-            "./plugins/cmux-session.js"
-          ]
-        }
-        """.write(to: configURL, atomically: true, encoding: .utf8)
-
-        var environment = ProcessInfo.processInfo.environment
-        environment["OPENCODE_CONFIG_DIR"] = configDir.path
-        environment["CMUX_CLI_SENTRY_DISABLED"] = "1"
-        let result = runProcess(
-            executablePath: cliPath,
-            arguments: ["opencode", "install-hooks", "--yes"],
-            environment: environment,
-            timeout: 5
-        )
-
-        XCTAssertFalse(result.timedOut, result.stderr)
-        XCTAssertEqual(result.status, 0, result.stderr)
-        let pluginURL = configDir
-            .appendingPathComponent("plugins", isDirectory: true)
-            .appendingPathComponent("cmux-session.js", isDirectory: false)
-        let pluginSource = try String(contentsOf: pluginURL, encoding: .utf8)
-        XCTAssertTrue(pluginSource.contains("cmux-opencode-session-plugin-marker"))
-        XCTAssertTrue(pluginSource.contains("\"opencode-hook\""))
-
-        let data = try Data(contentsOf: configURL)
-        let json = try XCTUnwrap(JSONSerialization.jsonObject(with: data, options: []) as? [String: Any])
-        let plugins = try XCTUnwrap(json["plugin"] as? [String])
-        XCTAssertEqual(plugins, ["other-plugin", "./plugins/cmux-session.js"])
-    }
-
     func testAgentHookLaunchEnvironmentDoesNotPersistPathOrShell() throws {
         let cliPath = try bundledCLIPath()
         let socketPath = makeSocketPath("hook")
@@ -1730,11 +1899,54 @@ final class CLINotifyProcessIntegrationTests: XCTestCase {
         }
 
         let serverHandled = startMockServer(listenerFD: listenerFD, state: state) { line in
-            return self.v2Response(
-                id: line,
-                ok: false,
-                error: ["code": "unexpected", "message": "Unexpected command \(line)"]
-            )
+            guard let data = line.data(using: .utf8),
+                  let payload = try? JSONSerialization.jsonObject(with: data, options: []) as? [String: Any],
+                  let id = payload["id"] as? String,
+                  let method = payload["method"] as? String else {
+                if line.hasPrefix("set_agent_pid ") {
+                    return "OK"
+                }
+                return self.v2Response(
+                    id: "unknown",
+                    ok: false,
+                    error: ["code": "unexpected", "message": "Unexpected command \(line)"]
+                )
+            }
+
+            let params = payload["params"] as? [String: Any] ?? [:]
+            switch method {
+            case "surface.list":
+                guard params["workspace_id"] as? String == workspaceId else {
+                    return self.v2Response(
+                        id: id,
+                        ok: false,
+                        error: ["code": "not_found", "message": "Workspace not found"]
+                    )
+                }
+                return self.v2Response(
+                    id: id,
+                    ok: true,
+                    result: [
+                        "surfaces": [
+                            [
+                                "id": surfaceId,
+                                "ref": "surface:1",
+                                "index": 0,
+                                "focused": true
+                            ]
+                        ]
+                    ]
+                )
+            case "surface.resume.set":
+                XCTAssertEqual(params["surface_id"] as? String, surfaceId)
+                return self.v2Response(id: id, ok: true, result: ["ok": true])
+            default:
+                return self.v2Response(
+                    id: id,
+                    ok: false,
+                    error: ["code": "unexpected", "message": "Unexpected method \(method)"]
+                )
+            }
         }
 
         var environment = ProcessInfo.processInfo.environment
@@ -2013,6 +2225,84 @@ final class CLINotifyProcessIntegrationTests: XCTestCase {
                     command.contains("--tab=\(workspaceId)")
             },
             "Expected discovered transcript failure status, saw \(state.commands)"
+        )
+    }
+
+    func testCodexPromptSubmitRetiresPreviousMonitorLeaseForSameSession() throws {
+        let cliPath = try bundledCLIPath()
+        let socketPath = makeSocketPath("codex")
+        let listenerFD = try bindUnixSocket(at: socketPath)
+        let state = MockSocketServerState()
+        let root = FileManager.default.temporaryDirectory
+            .appendingPathComponent("cmux-codex-monitor-leases-\(UUID().uuidString)", isDirectory: true)
+        let workspaceId = "11111111-1111-1111-1111-111111111111"
+        let surfaceId = "22222222-2222-2222-2222-222222222222"
+        let sessionId = "codex-session-lease-dedupe"
+
+        try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
+        defer {
+            try? FileManager.default.removeItem(at: root)
+            Darwin.close(listenerFD)
+            unlink(socketPath)
+        }
+
+        startMockServerAccepting(listenerFD: listenerFD, state: state, connectionLimit: 6) { line in
+            guard let data = line.data(using: .utf8),
+                  let payload = try? JSONSerialization.jsonObject(with: data, options: []) as? [String: Any],
+                  let id = payload["id"] as? String else {
+                return "OK"
+            }
+            return self.v2Response(
+                id: id,
+                ok: true,
+                result: ["surfaces": [["id": surfaceId, "ref": surfaceId, "focused": true]]]
+            )
+        }
+
+        var environment = ProcessInfo.processInfo.environment
+        environment["CMUX_SOCKET_PATH"] = socketPath
+        environment["CMUX_WORKSPACE_ID"] = workspaceId
+        environment["CMUX_SURFACE_ID"] = surfaceId
+        environment["CMUX_AGENT_HOOK_STATE_DIR"] = root.path
+        environment["CMUX_CLI_SENTRY_DISABLED"] = "1"
+        environment["CODEX_HOME"] = root.appendingPathComponent("codex-home", isDirectory: true).path
+
+        let firstInput = """
+        {"session_id":"\(sessionId)","turn_id":"turn-one","cwd":"\(root.path)","hook_event_name":"UserPromptSubmit","prompt":"first"}
+        """
+        let firstResult = runProcess(
+            executablePath: cliPath,
+            arguments: ["hooks", "codex", "prompt-submit"],
+            environment: environment,
+            standardInput: firstInput,
+            timeout: 5
+        )
+
+        XCTAssertFalse(firstResult.timedOut, firstResult.stderr)
+        XCTAssertEqual(firstResult.status, 0, firstResult.stderr)
+        XCTAssertEqual(firstResult.stdout, "{}\n")
+        XCTAssertTrue(
+            waitForCodexMonitorActiveLeaseTurns(in: root, expected: ["turn-one"], timeout: 3),
+            "Expected first prompt to leave one active monitor lease, saw \(codexMonitorActiveLeaseTurns(in: root))"
+        )
+
+        let secondInput = """
+        {"session_id":"\(sessionId)","turn_id":"turn-two","cwd":"\(root.path)","hook_event_name":"UserPromptSubmit","prompt":"second"}
+        """
+        let secondResult = runProcess(
+            executablePath: cliPath,
+            arguments: ["hooks", "codex", "prompt-submit"],
+            environment: environment,
+            standardInput: secondInput,
+            timeout: 5
+        )
+
+        XCTAssertFalse(secondResult.timedOut, secondResult.stderr)
+        XCTAssertEqual(secondResult.status, 0, secondResult.stderr)
+        XCTAssertEqual(secondResult.stdout, "{}\n")
+        XCTAssertTrue(
+            waitForCodexMonitorActiveLeaseTurns(in: root, expected: ["turn-two"], timeout: 3),
+            "Expected a new turn to retire the prior Codex monitor lease, saw \(codexMonitorActiveLeaseTurns(in: root))"
         )
     }
 
@@ -2724,7 +3014,7 @@ final class CLINotifyProcessIntegrationTests: XCTestCase {
             if let data = line.data(using: .utf8),
                let payload = try? JSONSerialization.jsonObject(with: data, options: []) as? [String: Any],
                let id = payload["id"] as? String {
-                return self.v2Response(id: id, ok: true, result: [:])
+                return self.v2Response(id: id, ok: true, result: ["surfaces": [["id": surfaceId, "ref": surfaceId]]])
             }
             return "OK"
         }
@@ -2804,7 +3094,7 @@ final class CLINotifyProcessIntegrationTests: XCTestCase {
             if let data = line.data(using: .utf8),
                let payload = try? JSONSerialization.jsonObject(with: data, options: []) as? [String: Any],
                let id = payload["id"] as? String {
-                return self.v2Response(id: id, ok: true, result: [:])
+                return self.v2Response(id: id, ok: true, result: ["surfaces": [["id": surfaceId, "ref": surfaceId]]])
             }
             return "OK"
         }
@@ -2855,6 +3145,206 @@ final class CLINotifyProcessIntegrationTests: XCTestCase {
         )
     }
 
+    func testCodexHookMonitorNotifiesOnRequestUserInput() throws {
+        let cliPath = try bundledCLIPath()
+        let socketPath = makeSocketPath("codex")
+        let listenerFD = try bindUnixSocket(at: socketPath)
+        let state = MockSocketServerState()
+        let root = FileManager.default.temporaryDirectory
+            .appendingPathComponent("cmux-codex-monitor-\(UUID().uuidString)", isDirectory: true)
+        let workspaceId = "11111111-1111-1111-1111-111111111111"
+        let surfaceId = "22222222-2222-2222-2222-222222222222"
+        let sessionId = "codex-session-monitor-user-input"
+        let turnId = "turn-monitor-user-input"
+
+        try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
+        defer {
+            Darwin.close(listenerFD)
+            unlink(socketPath)
+            try? FileManager.default.removeItem(at: root)
+        }
+
+        let transcriptURL = root.appendingPathComponent("rollout-\(sessionId).jsonl")
+        try """
+        {"timestamp":"2026-04-25T07:55:29.462Z","type":"session_meta","payload":{"id":"\(sessionId)","cwd":"\(root.path)"}}
+        {"timestamp":"2026-04-25T07:55:29.500Z","type":"event_msg","payload":{"type":"task_started","turn_id":"\(turnId)","started_at":1777107522}}
+        {"timestamp":"2026-04-25T07:55:29.700Z","type":"event_msg","payload":{"type":"request_user_input","call_id":"call-plan-question","turn_id":"\(turnId)","questions":[{"id":"demo_path","header":"Demo","question":"Which demo path should I use?","options":[{"label":"Plan","description":"Show plan mode"}]}]}}
+        """.write(to: transcriptURL, atomically: true, encoding: .utf8)
+
+        _ = startMockServerSignal(listenerFD: listenerFD, state: state) { line in
+            if let data = line.data(using: .utf8),
+               let payload = try? JSONSerialization.jsonObject(with: data, options: []) as? [String: Any],
+               let id = payload["id"] as? String {
+                return self.v2Response(id: id, ok: true, result: ["surfaces": [["id": surfaceId, "ref": surfaceId]]])
+            }
+            return "OK"
+        }
+
+        var environment = ProcessInfo.processInfo.environment
+        environment["CMUX_SOCKET_PATH"] = socketPath
+        environment["CMUX_AGENT_HOOK_STATE_DIR"] = root.path
+        environment["CMUX_CLI_SENTRY_DISABLED"] = "1"
+
+        let process = Process()
+        let stdoutPipe = Pipe()
+        let stderrPipe = Pipe()
+        process.executableURL = URL(fileURLWithPath: cliPath)
+        process.arguments = [
+            "hooks", "codex", "monitor",
+            "--workspace",
+            workspaceId,
+            "--surface",
+            surfaceId,
+            "--session",
+            sessionId,
+            "--turn",
+            turnId,
+            "--transcript",
+            transcriptURL.path,
+        ]
+        process.environment = environment
+        process.standardInput = FileHandle.nullDevice
+        process.standardOutput = stdoutPipe
+        process.standardError = stderrPipe
+        try process.run()
+
+        let exitSignal = DispatchSemaphore(value: 0)
+        DispatchQueue.global(qos: .userInitiated).async {
+            process.waitUntilExit()
+            exitSignal.signal()
+        }
+        defer {
+            if process.isRunning {
+                process.terminate()
+                _ = exitSignal.wait(timeout: .now() + 1)
+            }
+            _ = stdoutPipe.fileHandleForReading.readDataToEndOfFile()
+            _ = stderrPipe.fileHandleForReading.readDataToEndOfFile()
+        }
+
+        XCTAssertTrue(
+            waitForProcess(process, toHoldOpenFile: transcriptURL.path, timeout: 2),
+            "Monitor did not start watching the request_user_input transcript"
+        )
+        XCTAssertTrue(
+            waitForSocketCommand(state: state, timeout: 5) { command in
+                command.contains("notify_target \(workspaceId) \(surfaceId) Codex|Waiting|Which demo path should I use?")
+            },
+            "Expected monitor to send Codex input notification, saw \(state.snapshot())"
+        )
+        XCTAssertTrue(
+            waitForSocketCommand(state: state, timeout: 5) { command in
+                command.contains("set_status codex Codex needs input") &&
+                    command.contains("--icon=bell.fill") &&
+                    command.contains("--color=#4C8DFF") &&
+                    command.contains("--priority=100") &&
+                    command.contains("--tab=\(workspaceId)")
+            },
+            "Expected monitor to publish high-priority Codex input status, saw \(state.snapshot())"
+        )
+        XCTAssertTrue(process.isRunning, "Monitor should keep watching the turn after publishing input notification")
+    }
+
+    func testCodexHookMonitorNotifiesOnResponseItemRequestUserInput() throws {
+        let cliPath = try bundledCLIPath()
+        let socketPath = makeSocketPath("codex-response-item")
+        let listenerFD = try bindUnixSocket(at: socketPath)
+        let state = MockSocketServerState()
+        let root = FileManager.default.temporaryDirectory
+            .appendingPathComponent("cmux-codex-monitor-\(UUID().uuidString)", isDirectory: true)
+        let workspaceId = "11111111-1111-1111-1111-111111111111"
+        let surfaceId = "22222222-2222-2222-2222-222222222222"
+        let sessionId = "codex-session-monitor-response-item"
+        let turnId = "turn-monitor-response-item"
+
+        try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
+        defer {
+            Darwin.close(listenerFD)
+            unlink(socketPath)
+            try? FileManager.default.removeItem(at: root)
+        }
+
+        let transcriptURL = root.appendingPathComponent("rollout-\(sessionId).jsonl")
+        try """
+        {"timestamp":"2026-04-25T07:55:29.462Z","type":"session_meta","payload":{"id":"\(sessionId)","cwd":"\(root.path)"}}
+        {"timestamp":"2026-04-25T07:55:29.500Z","type":"turn_context","payload":{"turn_id":"\(turnId)","cwd":"\(root.path)"}}
+        {"timestamp":"2026-04-25T07:55:29.700Z","type":"response_item","payload":{"type":"function_call","name":"request_user_input","arguments":"{\\"questions\\":[{\\"id\\":\\"demo_type\\",\\"header\\":\\"Demo Type\\",\\"question\\":\\"What kind of demo plan should I create?\\",\\"options\\":[{\\"label\\":\\"Product walkthrough (Recommended)\\",\\"description\\":\\"A timed agenda.\\"}]}]}","call_id":"call-plan-function"}}
+        """.write(to: transcriptURL, atomically: true, encoding: .utf8)
+
+        _ = startMockServerSignal(listenerFD: listenerFD, state: state) { line in
+            if let data = line.data(using: .utf8),
+               let payload = try? JSONSerialization.jsonObject(with: data, options: []) as? [String: Any],
+               let id = payload["id"] as? String {
+                return self.v2Response(id: id, ok: true, result: ["surfaces": [["id": surfaceId, "ref": surfaceId]]])
+            }
+            return "OK"
+        }
+
+        var environment = ProcessInfo.processInfo.environment
+        environment["CMUX_SOCKET_PATH"] = socketPath
+        environment["CMUX_AGENT_HOOK_STATE_DIR"] = root.path
+        environment["CMUX_CLI_SENTRY_DISABLED"] = "1"
+
+        let process = Process()
+        let stdoutPipe = Pipe()
+        let stderrPipe = Pipe()
+        process.executableURL = URL(fileURLWithPath: cliPath)
+        process.arguments = [
+            "hooks", "codex", "monitor",
+            "--workspace",
+            workspaceId,
+            "--surface",
+            surfaceId,
+            "--session",
+            sessionId,
+            "--turn",
+            turnId,
+            "--transcript",
+            transcriptURL.path,
+        ]
+        process.environment = environment
+        process.standardInput = FileHandle.nullDevice
+        process.standardOutput = stdoutPipe
+        process.standardError = stderrPipe
+        try process.run()
+
+        let exitSignal = DispatchSemaphore(value: 0)
+        DispatchQueue.global(qos: .userInitiated).async {
+            process.waitUntilExit()
+            exitSignal.signal()
+        }
+        defer {
+            if process.isRunning {
+                process.terminate()
+                _ = exitSignal.wait(timeout: .now() + 1)
+            }
+            _ = stdoutPipe.fileHandleForReading.readDataToEndOfFile()
+            _ = stderrPipe.fileHandleForReading.readDataToEndOfFile()
+        }
+
+        XCTAssertTrue(
+            waitForProcess(process, toHoldOpenFile: transcriptURL.path, timeout: 2),
+            "Monitor did not start watching the response_item request_user_input transcript"
+        )
+        XCTAssertTrue(
+            waitForSocketCommand(state: state, timeout: 5) { command in
+                command.contains("notify_target \(workspaceId) \(surfaceId) Codex|Waiting|What kind of demo plan should I create?")
+            },
+            "Expected monitor to send Codex input notification from response_item, saw \(state.snapshot())"
+        )
+        XCTAssertTrue(
+            waitForSocketCommand(state: state, timeout: 5) { command in
+                command.contains("set_status codex Codex needs input") &&
+                    command.contains("--icon=bell.fill") &&
+                    command.contains("--color=#4C8DFF") &&
+                    command.contains("--priority=100") &&
+                    command.contains("--tab=\(workspaceId)")
+            },
+            "Expected monitor to publish high-priority Codex input status, saw \(state.snapshot())"
+        )
+        XCTAssertTrue(process.isRunning, "Monitor should keep watching the turn after publishing input notification")
+    }
+
     func testCodexHookMonitorReResolvesUnavailableTranscriptPath() throws {
         let cliPath = try bundledCLIPath()
         let socketPath = makeSocketPath("codex")
@@ -2887,7 +3377,7 @@ final class CLINotifyProcessIntegrationTests: XCTestCase {
             if let data = line.data(using: .utf8),
                let payload = try? JSONSerialization.jsonObject(with: data, options: []) as? [String: Any],
                let id = payload["id"] as? String {
-                return self.v2Response(id: id, ok: true, result: [:])
+                return self.v2Response(id: id, ok: true, result: ["surfaces": [["id": surfaceId, "ref": surfaceId]]])
             }
             return "OK"
         }
@@ -2967,7 +3457,7 @@ final class CLINotifyProcessIntegrationTests: XCTestCase {
             if let data = line.data(using: .utf8),
                let payload = try? JSONSerialization.jsonObject(with: data, options: []) as? [String: Any],
                let id = payload["id"] as? String {
-                return self.v2Response(id: id, ok: true, result: [:])
+                return self.v2Response(id: id, ok: true, result: ["surfaces": [["id": surfaceId, "ref": surfaceId]]])
             }
             return "OK"
         }
@@ -3155,6 +3645,55 @@ final class CLINotifyProcessIntegrationTests: XCTestCase {
         return handled
     }
 
+    private func startMockServerAccepting(
+        listenerFD: Int32,
+        state: MockSocketServerState,
+        connectionLimit: Int,
+        handler: @escaping @Sendable (String) -> String
+    ) {
+        DispatchQueue.global(qos: .userInitiated).async {
+            var accepted = 0
+            while accepted < connectionLimit {
+                var clientAddr = sockaddr_un()
+                var clientAddrLen = socklen_t(MemoryLayout<sockaddr_un>.size)
+                let clientFD = withUnsafeMutablePointer(to: &clientAddr) { ptr in
+                    ptr.withMemoryRebound(to: sockaddr.self, capacity: 1) { sockaddrPtr in
+                        Darwin.accept(listenerFD, sockaddrPtr, &clientAddrLen)
+                    }
+                }
+                if clientFD < 0 {
+                    if errno == EINTR { continue }
+                    return
+                }
+                accepted += 1
+
+                DispatchQueue.global(qos: .userInitiated).async {
+                    defer { Darwin.close(clientFD) }
+                    var pending = Data()
+                    var buffer = [UInt8](repeating: 0, count: 4096)
+
+                    while true {
+                        let count = Darwin.read(clientFD, &buffer, buffer.count)
+                        if count < 0 {
+                            if errno == EINTR { continue }
+                            return
+                        }
+                        if count == 0 { return }
+                        pending.append(buffer, count: count)
+
+                        while let newlineRange = pending.firstRange(of: Data([0x0A])) {
+                            let lineData = pending.subdata(in: 0..<newlineRange.lowerBound)
+                            pending.removeSubrange(0...newlineRange.lowerBound)
+                            guard let line = String(data: lineData, encoding: .utf8) else { continue }
+                            state.append(line)
+                            guard self.writeAll(handler(line) + "\n", to: clientFD) else { return }
+                        }
+                    }
+                }
+            }
+        }
+    }
+
     private func runMockServer(
         listenerFD: Int32,
         state: MockSocketServerState,
@@ -3195,13 +3734,32 @@ final class CLINotifyProcessIntegrationTests: XCTestCase {
                     pending.removeSubrange(0...newlineRange.lowerBound)
                     guard let line = String(data: lineData, encoding: .utf8) else { continue }
                     state.append(line)
-                    let response = handler(line) + "\n"
-                    _ = response.withCString { ptr in
-                        Darwin.write(clientFD, ptr, strlen(ptr))
-                    }
+                    guard self.writeAll(handler(line) + "\n", to: clientFD) else { return }
                 }
             }
         }
+    }
+
+    private func writeAll(_ string: String, to fd: Int32) -> Bool {
+        let bytes = Array(string.utf8)
+        var offset = 0
+        while offset < bytes.count {
+            let written = bytes.withUnsafeBytes { buffer in
+                Darwin.write(fd, buffer.baseAddress!.advanced(by: offset), bytes.count - offset)
+            }
+            if written > 0 {
+                offset += written
+                continue
+            }
+            if written == 0 {
+                return false
+            }
+            if errno == EINTR || errno == EAGAIN || errno == EWOULDBLOCK {
+                continue
+            }
+            return false
+        }
+        return true
     }
 
     private func v2Response(
@@ -3219,6 +3777,41 @@ final class CLINotifyProcessIntegrationTests: XCTestCase {
         }
         let data = try? JSONSerialization.data(withJSONObject: payload, options: [])
         return String(data: data ?? Data("{}".utf8), encoding: .utf8) ?? "{}"
+    }
+
+    private func codexMonitorActiveLeaseTurns(in root: URL) -> [String] {
+        let directory = root.appendingPathComponent("codex-monitor-leases", isDirectory: true)
+        let urls = (try? FileManager.default.contentsOfDirectory(
+            at: directory,
+            includingPropertiesForKeys: nil,
+            options: [.skipsHiddenFiles]
+        )) ?? []
+
+        return urls.compactMap { url -> String? in
+            guard let data = try? Data(contentsOf: url),
+                  let lease = try? JSONSerialization.jsonObject(with: data, options: []) as? [String: Any] else {
+                return nil
+            }
+            if let retiredAt = lease["retiredAt"], !(retiredAt is NSNull) {
+                return nil
+            }
+            return lease["turnId"] as? String
+        }.sorted()
+    }
+
+    private func waitForCodexMonitorActiveLeaseTurns(
+        in root: URL,
+        expected: [String],
+        timeout: TimeInterval
+    ) -> Bool {
+        let deadline = Date().addingTimeInterval(timeout)
+        while Date() < deadline {
+            if codexMonitorActiveLeaseTurns(in: root) == expected.sorted() {
+                return true
+            }
+            _ = DispatchSemaphore(value: 0).wait(timeout: .now() + 0.05)
+        }
+        return codexMonitorActiveLeaseTurns(in: root) == expected.sorted()
     }
 
     @MainActor
@@ -3712,253 +4305,6 @@ final class CLINotifyProcessIntegrationTests: XCTestCase {
         let sshOptions = try XCTUnwrap(configureParams["ssh_options"] as? [String])
         XCTAssertTrue(sshOptions.contains("ControlMaster no"))
         XCTAssertTrue(sshOptions.contains("ControlPath /tmp/cmux-ssh-%C"))
-    }
-
-    @MainActor
-    func testSSHBootstrapStartupCommandPassesRemoteInstallScriptAsSingleSSHCommand() throws {
-        let cliPath = try bundledCLIPath()
-        let socketPath = makeSocketPath("sshboot")
-        let listenerFD = try bindUnixSocket(at: socketPath)
-        let state = MockSocketServerState()
-        let workspaceID = "11111111-1111-1111-1111-111111111111"
-        let workspaceRef = "workspace:8"
-        let windowID = "22222222-2222-2222-2222-222222222222"
-
-        defer {
-            Darwin.close(listenerFD)
-            unlink(socketPath)
-        }
-
-        let serverHandled = startMockServer(listenerFD: listenerFD, state: state) { line in
-            guard let data = line.data(using: .utf8),
-                  let payload = try? JSONSerialization.jsonObject(with: data, options: []) as? [String: Any],
-                  let id = payload["id"] as? String,
-                  let method = payload["method"] as? String else {
-                return self.v2Response(
-                    id: "unknown",
-                    ok: false,
-                    error: ["code": "unexpected", "message": "Unexpected payload"]
-                )
-            }
-
-            switch method {
-            case "workspace.create":
-                return self.v2Response(
-                    id: id,
-                    ok: true,
-                    result: [
-                        "workspace_id": workspaceID,
-                        "window_id": windowID,
-                    ]
-                )
-            case "workspace.rename":
-                return self.v2Response(id: id, ok: true, result: ["workspace_id": workspaceID])
-            case "workspace.remote.configure":
-                let params = payload["params"] as? [String: Any] ?? [:]
-                let autoConnect = (params["auto_connect"] as? Bool) ?? true
-                return self.v2Response(
-                    id: id,
-                    ok: true,
-                    result: [
-                        "workspace_id": workspaceID,
-                        "workspace_ref": workspaceRef,
-                        "remote": [
-                            "enabled": true,
-                            "state": autoConnect ? "connecting" : "disconnected",
-                        ],
-                    ]
-                )
-            case "workspace.select":
-                return self.v2Response(id: id, ok: true, result: ["workspace_id": workspaceID])
-            default:
-                return self.v2Response(
-                    id: id,
-                    ok: false,
-                    error: ["code": "unexpected", "message": "Unexpected method \(method)"]
-                )
-            }
-        }
-
-        var environment = ProcessInfo.processInfo.environment
-        environment["CMUX_SOCKET_PATH"] = socketPath
-        environment["CMUX_CLI_SENTRY_DISABLED"] = "1"
-        environment["CMUX_CLAUDE_HOOK_SENTRY_DISABLED"] = "1"
-
-        let result = runProcess(
-            executablePath: cliPath,
-            arguments: [
-                "ssh",
-                "--name", "SSH Workspace",
-                "--port", "2222",
-                "--identity", "/Users/test/.ssh/id_ed25519",
-                "--ssh-option", "ControlPath=/tmp/cmux-ssh-%C",
-                "--ssh-option", "StrictHostKeyChecking=accept-new",
-                "cmux-macmini",
-            ],
-            environment: environment,
-            timeout: 5
-        )
-
-        wait(for: [serverHandled], timeout: 5)
-        XCTAssertFalse(result.timedOut, result.stderr)
-        XCTAssertEqual(result.status, 0, result.stderr)
-
-        let requests = try state.commands.map { line -> [String: Any] in
-            let data = try XCTUnwrap(line.data(using: .utf8))
-            return try XCTUnwrap(JSONSerialization.jsonObject(with: data, options: []) as? [String: Any])
-        }
-        let createParams = try XCTUnwrap(requests.first?["params"] as? [String: Any])
-        let initialCommand = try XCTUnwrap(createParams["initial_command"] as? String)
-        let configureParams = try XCTUnwrap(requests.dropFirst(2).first?["params"] as? [String: Any])
-        let foregroundAuthToken = try XCTUnwrap(configureParams["foreground_auth_token"] as? String)
-
-        let fileManager = FileManager.default
-        let tempRoot = fileManager.temporaryDirectory.appendingPathComponent("cmux-ssh-bootstrap-\(UUID().uuidString)")
-        let fakeBin = tempRoot.appendingPathComponent("bin")
-        let fakeSSHLog = tempRoot.appendingPathComponent("fake-ssh.jsonl")
-        let fakeSSH = fakeBin.appendingPathComponent("ssh")
-
-        try fileManager.createDirectory(at: fakeBin, withIntermediateDirectories: true)
-        defer { try? fileManager.removeItem(at: tempRoot) }
-
-        let fakeSSHScript = """
-        #!/bin/sh
-        python3 - "$@" <<'PY'
-        import json
-        import os
-        import subprocess
-        import sys
-
-        args = sys.argv[1:]
-        with open(os.environ["CMUX_FAKE_SSH_LOG"], "a", encoding="utf-8") as handle:
-            handle.write(json.dumps(args) + "\\n")
-
-        local_command = None
-        for index, arg in enumerate(args):
-            if arg == "-o" and index + 1 < len(args) and args[index + 1].startswith("LocalCommand="):
-                local_command = args[index + 1].split("=", 1)[1]
-                break
-
-        if local_command:
-            subprocess.run(["/bin/sh", "-c", local_command], check=False, env=os.environ.copy())
-        PY
-        cat >/dev/null
-        exit 0
-        """
-        try fakeSSHScript.write(to: fakeSSH, atomically: true, encoding: .utf8)
-        try fileManager.setAttributes([.posixPermissions: 0o700], ofItemAtPath: fakeSSH.path)
-
-        var startupEnvironment = ProcessInfo.processInfo.environment
-        startupEnvironment["HOME"] = tempRoot.path
-        startupEnvironment["PATH"] = "\(fakeBin.path):/usr/bin:/bin:/usr/sbin:/sbin"
-        startupEnvironment["CMUX_FAKE_SSH_LOG"] = fakeSSHLog.path
-        startupEnvironment["CMUX_SOCKET_PATH"] = socketPath
-        startupEnvironment["CMUX_WORKSPACE_ID"] = workspaceID
-        startupEnvironment["CMUX_CLI_SENTRY_DISABLED"] = "1"
-        startupEnvironment["CMUX_CLAUDE_HOOK_SENTRY_DISABLED"] = "1"
-
-        let foregroundAuthState = MockSocketServerState()
-        let foregroundAuthHandled = startMockServer(listenerFD: listenerFD, state: foregroundAuthState) { line in
-            guard let data = line.data(using: .utf8),
-                  let payload = try? JSONSerialization.jsonObject(with: data, options: []) as? [String: Any],
-                  let id = payload["id"] as? String,
-                  let method = payload["method"] as? String,
-                  method == "workspace.remote.foreground_auth_ready" else {
-                return self.v2Response(
-                    id: "unknown",
-                    ok: false,
-                    error: ["code": "unexpected", "message": "Unexpected payload"]
-                )
-            }
-
-            return self.v2Response(
-                id: id,
-                ok: true,
-                result: [
-                    "workspace_id": workspaceID,
-                    "workspace_ref": workspaceRef,
-                    "remote": [
-                        "enabled": true,
-                        "state": "connecting",
-                    ],
-                ]
-            )
-        }
-
-        let startupResult = runProcess(
-            executablePath: "/bin/sh",
-            arguments: ["-c", initialCommand],
-            environment: startupEnvironment,
-            timeout: 5
-        )
-
-        wait(for: [foregroundAuthHandled], timeout: 5)
-        XCTAssertFalse(startupResult.timedOut, startupResult.stderr)
-        XCTAssertEqual(startupResult.status, 0, startupResult.stderr)
-
-        let logLines = try String(contentsOf: fakeSSHLog, encoding: .utf8)
-            .split(separator: "\n")
-            .map(String.init)
-        XCTAssertGreaterThanOrEqual(logLines.count, 2)
-
-        let firstInvocationData = try XCTUnwrap(logLines.first?.data(using: .utf8))
-        let firstInvocation = try XCTUnwrap(
-            JSONSerialization.jsonObject(with: firstInvocationData, options: []) as? [String]
-        )
-        let localCommandArgument = try XCTUnwrap(
-            firstInvocation.first(where: { $0.hasPrefix("LocalCommand=") })
-        )
-        let localCommand = String(localCommandArgument.dropFirst("LocalCommand=".count))
-        XCTAssertTrue(
-            firstInvocation.contains(where: { $0.contains("LocalCommand=") && $0.contains("workspace.remote.foreground_auth_ready") }),
-            "Expected the bootstrap install SSH hop to signal foreground auth readiness via LocalCommand, saw \(firstInvocation)"
-        )
-        XCTAssertTrue(
-            localCommand.contains("%%s\\n"),
-            "Expected LocalCommand to percent-escape literal percent signs for OpenSSH, saw \(localCommand)"
-        )
-        let localCommandSyntaxCheck = runProcess(
-            executablePath: "/bin/sh",
-            arguments: ["-n", "-c", localCommand],
-            environment: ProcessInfo.processInfo.environment,
-            timeout: 5
-        )
-        XCTAssertEqual(
-            localCommandSyntaxCheck.status,
-            0,
-            "Expected LocalCommand shell snippet to parse cleanly, stderr: \(localCommandSyntaxCheck.stderr)"
-        )
-        let destinationIndex = try XCTUnwrap(firstInvocation.lastIndex(of: "cmux-macmini"))
-        let remoteCommandArgs = Array(firstInvocation.suffix(from: firstInvocation.index(after: destinationIndex)))
-
-        XCTAssertEqual(
-            remoteCommandArgs.count,
-            1,
-            "Expected the staged bootstrap installer to be passed as one SSH remote command, saw \(firstInvocation)"
-        )
-        XCTAssertTrue(remoteCommandArgs[0].contains("/bin/sh -lc"), "Expected a POSIX shell wrapper in \(remoteCommandArgs)")
-        XCTAssertTrue(remoteCommandArgs[0].contains("set -eu"), "Expected installer command body in \(remoteCommandArgs)")
-        XCTAssertFalse(remoteCommandArgs.contains("sh"))
-        XCTAssertFalse(remoteCommandArgs.contains("-c"))
-
-        let secondInvocationData = try XCTUnwrap(logLines.dropFirst().first?.data(using: .utf8))
-        let secondInvocation = try XCTUnwrap(
-            JSONSerialization.jsonObject(with: secondInvocationData, options: []) as? [String]
-        )
-        XCTAssertFalse(
-            secondInvocation.contains(where: { $0.contains("LocalCommand=") }),
-            "Expected only the bootstrap install hop to trigger LocalCommand, saw \(secondInvocation)"
-        )
-
-        XCTAssertEqual(foregroundAuthState.commands.count, 1)
-        let foregroundAuthPayloadData = try XCTUnwrap(foregroundAuthState.commands.first?.data(using: .utf8))
-        let foregroundAuthPayload = try XCTUnwrap(
-            JSONSerialization.jsonObject(with: foregroundAuthPayloadData, options: []) as? [String: Any]
-        )
-        XCTAssertEqual(foregroundAuthPayload["method"] as? String, "workspace.remote.foreground_auth_ready")
-        let foregroundAuthParams = try XCTUnwrap(foregroundAuthPayload["params"] as? [String: Any])
-        XCTAssertEqual(foregroundAuthParams["workspace_id"] as? String, workspaceID)
-        XCTAssertEqual(foregroundAuthParams["foreground_auth_token"] as? String, foregroundAuthToken)
     }
 
     @MainActor

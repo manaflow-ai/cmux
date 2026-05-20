@@ -9,6 +9,7 @@ public enum PanelType: String, Codable, Sendable {
     case markdown
     case codexAppServer = "codex-app-server"
     case filePreview = "filepreview"
+    case rightSidebarTool
 
     public init?(surfaceType rawValue: String) {
         let trimmed = rawValue.trimmingCharacters(in: .whitespacesAndNewlines)
@@ -32,6 +33,8 @@ public enum PanelType: String, Codable, Sendable {
             self = .codexAppServer
         case Self.filePreview.rawValue:
             self = .filePreview
+        case Self.rightSidebarTool.rawValue.lowercased():
+            self = .rightSidebarTool
         default:
             return nil
         }
@@ -40,6 +43,10 @@ public enum PanelType: String, Codable, Sendable {
     public init(from decoder: Decoder) throws {
         let container = try decoder.singleValueContainer()
         let rawValue = try container.decode(String.self)
+        if let type = Self(rawValue: rawValue) {
+            self = type
+            return
+        }
         if let type = Self(surfaceType: rawValue) {
             self = type
             return

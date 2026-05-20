@@ -92,7 +92,7 @@ extension CMUXCLI {
                 )
             }
 
-            let projectMarker = current.appendingPathComponent("GhosttyTabs.xcodeproj/project.pbxproj", isDirectory: false)
+            let projectMarker = current.appendingPathComponent("cmux.xcodeproj/project.pbxproj", isDirectory: false)
             let repoHelper = current
                 .appendingPathComponent("ghostty", isDirectory: true)
                 .appendingPathComponent("zig-out", isDirectory: true)
@@ -153,7 +153,7 @@ extension CMUXCLI {
                 }
             }
 
-            let projectMarker = current.appendingPathComponent("GhosttyTabs.xcodeproj/project.pbxproj", isDirectory: false)
+            let projectMarker = current.appendingPathComponent("cmux.xcodeproj/project.pbxproj", isDirectory: false)
             let repoResources = current
                 .appendingPathComponent("Resources", isDirectory: true)
                 .appendingPathComponent("ghostty", isDirectory: true)

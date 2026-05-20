@@ -2,6 +2,11 @@ import AppKit
 import Foundation
 import SwiftUI
 
+enum SidebarMatchTerminalBackgroundSettings {
+    static let userDefaultsKey = "sidebarMatchTerminalBackground"
+    static let legacyAppliedSettingsFileDefaultKey = "cmux.settingsFile.sidebarMatchTerminalBackground.appliedDefault.v1"
+}
+
 extension Color {
     init?(hex: String) {
         let hex = hex.trimmingCharacters(in: .init(charactersIn: "#"))

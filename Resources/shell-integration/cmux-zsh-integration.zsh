@@ -156,6 +156,32 @@ _cmux_now() {
     print -r -- "${EPOCHSECONDS:-$SECONDS}"
 }
 
+_cmux_normalize_claude_config_dir() {
+    [[ -n "${CLAUDE_CONFIG_DIR:-}" && -n "${HOME:-}" ]] || return 0
+
+    local value="$CLAUDE_CONFIG_DIR"
+    if [[ "$value" == "~/"* ]]; then
+        value="$HOME/${value#~/}"
+    fi
+
+    local legacy_root="$HOME/.subrouter/codex/claude"
+    local account_root="$HOME/.codex-accounts/claude"
+    local suffix candidate
+
+    if [[ "$value" == "$legacy_root" ]]; then
+        candidate="$account_root"
+    elif [[ "$value" == "$legacy_root/"* ]]; then
+        suffix="${value#$legacy_root/}"
+        candidate="$account_root/$suffix"
+    else
+        return 0
+    fi
+
+    [[ -d "$candidate" ]] || return 0
+    export CLAUDE_CONFIG_DIR="$candidate"
+}
+_cmux_normalize_claude_config_dir
+
 # Throttle heavy work to avoid prompt latency.
 typeset -g _CMUX_PWD_LAST_PWD=""
 typeset -g _CMUX_GIT_LAST_PWD=""
@@ -482,6 +508,13 @@ _cmux_report_shell_activity_state() {
     [[ "$_CMUX_SHELL_ACTIVITY_LAST" == "$state" ]] && return 0
     _CMUX_SHELL_ACTIVITY_LAST="$state"
     _cmux_send_bg "report_shell_state $state --tab=$CMUX_TAB_ID --panel=$CMUX_PANEL_ID"
+}
+
+_cmux_reset_terminal_keyboard_protocols() {
+    [[ -t 1 || -n "${CMUX_TEST_FORCE_KEYBOARD_RESET:-}${CMUX_TEST_FORCE_KITTY_RESET:-}" ]] || return 0
+    # A crashed TUI may leave keyboard protocol state pushed. At a fresh shell
+    # prompt, return terminal input encoding to plain readline bytes.
+    printf '\033[>m\033[<8u'
 }
 
 _cmux_ports_kick() {
@@ -1047,6 +1080,7 @@ _cmux_command_starts_nested_shell() {
 }
 
 _cmux_preexec() {
+    _cmux_normalize_claude_config_dir
     if (( ! _CMUX_DELAY_TERM_RESTORE_UNTIL_FIRST_PROMPT )); then
         _cmux_restore_terminal_identity_after_startup
     fi
@@ -1084,6 +1118,7 @@ _cmux_preexec() {
 
 _cmux_precmd() {
     local last_status=$?
+    _cmux_normalize_claude_config_dir
     if (( _CMUX_DELAY_TERM_RESTORE_UNTIL_FIRST_PROMPT )); then
         _CMUX_DELAY_TERM_RESTORE_UNTIL_FIRST_PROMPT=0
     fi
@@ -1095,6 +1130,7 @@ _cmux_precmd() {
     (( cmux_has_unix_socket )) || _cmux_has_port_scan_transport || return 0
     [[ -n "$CMUX_TAB_ID" ]] || return 0
     if [[ -n "$CMUX_PANEL_ID" ]]; then
+        _cmux_reset_terminal_keyboard_protocols
         _cmux_report_shell_activity_state prompt
     fi
 

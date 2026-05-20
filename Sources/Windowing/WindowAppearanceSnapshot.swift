@@ -289,23 +289,6 @@ struct WindowAppearanceSnapshot {
         terminalBackgroundColor.withAlphaComponent(terminalBackgroundOpacity)
     }
 
-    var appKitWindowMutationID: String {
-        [
-            terminalBackgroundColor.hexString(includeAlpha: true),
-            String(format: "%.4f", Double(terminalBackgroundOpacity)),
-            String(describing: terminalBackgroundBlur),
-            String(describing: terminalRenderingMode),
-            String(unifySurfaceBackdrops),
-            sidebarSettings.appKitMutationID,
-            windowGlassSettings.appKitMutationID,
-        ].joined(separator: "|")
-    }
-
-    func shouldUseTransparentHosting(glassEffectAvailable: Bool = WindowGlassEffect.isAvailable) -> Bool {
-        windowGlassSettings.shouldApply(glassEffectAvailable: glassEffectAvailable)
-            || compositedTerminalBackgroundColor.alphaComponent < 0.999
-    }
-
     func policy(for role: WindowBackdropRole) -> WindowBackdropPolicy {
         switch role {
         case .windowRoot:
@@ -320,7 +303,7 @@ struct WindowAppearanceSnapshot {
         }
     }
 
-    private func terminalBackdropPolicy() -> WindowBackdropPolicy {
+    func terminalBackdropPolicy() -> WindowBackdropPolicy {
         if terminalBackgroundBlur.isMacOSGlassStyle {
             return .clear
         }

@@ -99,6 +99,40 @@ final class CmuxConfigDecodingTests: XCTestCase {
         XCTAssertEqual(config.newWorkspaceCommand, "Dev Environment")
     }
 
+    func testDecodeNotificationHook() throws {
+        let json = """
+        {
+          "notifications": {
+            "hooks": [{
+              "id": "agent-filter",
+              "command": "jq '.effects.desktop = false'",
+              "timeoutSeconds": 12
+            }]
+          }
+        }
+        """
+        let config = try decode(json)
+        let hook = try XCTUnwrap(config.notifications?.hooks?.first)
+        XCTAssertEqual(hook.id, "agent-filter")
+        XCTAssertEqual(hook.command, "jq '.effects.desktop = false'")
+        XCTAssertEqual(hook.timeoutSeconds, 12)
+        XCTAssertTrue(hook.enabled)
+    }
+
+    func testDecodeNotificationHookRejectsBlankCommand() {
+        let json = """
+        {
+          "notifications": {
+            "hooks": [{
+              "id": "agent-filter",
+              "command": "   "
+            }]
+          }
+        }
+        """
+        XCTAssertThrowsError(try decode(json))
+    }
+
     func testDecodeNewWorkspaceCommandTrimsWhitespace() throws {
         let json = """
         {
@@ -302,10 +336,8 @@ final class CmuxConfigDecodingTests: XCTestCase {
 
     @MainActor
     func testSurfaceTabBarActionReferenceUsesActionSourcePath() throws {
-        let root = FileManager.default.temporaryDirectory.appendingPathComponent(
-            "cmux-config-store-\(UUID().uuidString)",
-            isDirectory: true
-        )
+        let root = FileManager.default.temporaryDirectory
+            .appendingPathComponent("cmux-config-store-\(UUID().uuidString)", isDirectory: true)
         let globalDirectory = root.appendingPathComponent("global", isDirectory: true)
         let localDirectory = root.appendingPathComponent("project", isDirectory: true)
         try FileManager.default.createDirectory(at: globalDirectory, withIntermediateDirectories: true)
@@ -591,10 +623,8 @@ final class CmuxConfigDecodingTests: XCTestCase {
 
     @MainActor
     func testInvalidConfigExposesSchemaIssueAndClearsAfterFix() throws {
-        let root = FileManager.default.temporaryDirectory.appendingPathComponent(
-            "cmux-config-store-\(UUID().uuidString)",
-            isDirectory: true
-        )
+        let root = FileManager.default.temporaryDirectory
+            .appendingPathComponent("cmux-config-store-\(UUID().uuidString)", isDirectory: true)
         try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
         defer { try? FileManager.default.removeItem(at: root) }
 
@@ -641,6 +671,113 @@ final class CmuxConfigDecodingTests: XCTestCase {
 
         XCTAssertTrue(store.configurationIssues.isEmpty)
         XCTAssertNotNil(store.resolvedAction(id: "bad"))
+    }
+
+    @MainActor
+    func testConfigChangesRequireExplicitLoadByDefault() async throws {
+        let root = FileManager.default.temporaryDirectory.appendingPathComponent(
+            "cmux-config-store-\(UUID().uuidString)",
+            isDirectory: true
+        )
+        try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: root) }
+
+        let configURL = root.appendingPathComponent("cmux.json")
+        try """
+        {
+          "actions": {
+            "first": { "type": "command", "command": "echo first" }
+          }
+        }
+        """.write(to: configURL, atomically: true, encoding: .utf8)
+
+        let store = CmuxConfigStore(globalConfigPath: configURL.path)
+        store.loadAll()
+        XCTAssertNotNil(store.resolvedAction(id: "first"))
+        XCTAssertNil(store.resolvedAction(id: "second"))
+
+        let didAutoReload = expectation(description: "cmux.json should not hot reload")
+        didAutoReload.isInverted = true
+        var cancellable: AnyCancellable?
+        cancellable = store.$loadedActions.dropFirst().sink { actions in
+            if actions.contains(where: { $0.id == "second" }) {
+                didAutoReload.fulfill()
+            }
+        }
+
+        try """
+        {
+          "actions": {
+            "second": { "type": "command", "command": "echo second" }
+          }
+        }
+        """.write(to: configURL, atomically: true, encoding: .utf8)
+
+        await fulfillment(of: [didAutoReload], timeout: 0.25)
+        XCTAssertNotNil(store.resolvedAction(id: "first"))
+        XCTAssertNil(store.resolvedAction(id: "second"))
+
+        store.loadAll()
+        XCTAssertNil(store.resolvedAction(id: "first"))
+        XCTAssertNotNil(store.resolvedAction(id: "second"))
+        cancellable?.cancel()
+    }
+
+    @MainActor
+    func testConfigStoreParsesGlobalCmuxJSONCSettingsAndActionSections() throws {
+        let root = FileManager.default.temporaryDirectory.appendingPathComponent(
+            "cmux-config-store-\(UUID().uuidString)",
+            isDirectory: true
+        )
+        try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: root) }
+
+        let configURL = root.appendingPathComponent("cmux.json")
+        let data = """
+        {
+          // cmux-owned app settings share the global cmux.json file.
+          "app": {
+            "appearance": "dark",
+          },
+          "actions": {
+            "first": {
+              "type": "workspaceCommand",
+              "commandName": "Dev",
+            },
+          },
+          "ui": { "newWorkspace": { "action": "first" } },
+          "commands": [{ "name": "Dev", "workspace": { "name": "Dev" } }],
+        }
+        """.data(using: .utf16LittleEndian)!
+        try data.write(to: configURL)
+
+        let store = CmuxConfigStore(globalConfigPath: configURL.path, startFileWatchers: false)
+        store.loadAll()
+
+        XCTAssertTrue(store.configurationIssues.isEmpty)
+        XCTAssertNotNil(store.resolvedAction(id: "first"))
+        XCTAssertEqual(store.newWorkspaceActionID, "first")
+        XCTAssertEqual(store.loadedCommands.map(\.name), ["Dev"])
+    }
+
+    @MainActor
+    func testConfigStoreReportsJSONCPreprocessingErrors() throws {
+        let root = FileManager.default.temporaryDirectory.appendingPathComponent(
+            "cmux-config-store-\(UUID().uuidString)",
+            isDirectory: true
+        )
+        try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: root) }
+
+        let configURL = root.appendingPathComponent("cmux.json")
+        try "{\n/* missing close\n\"actions\": {}\n}".write(to: configURL, atomically: true, encoding: .utf8)
+
+        let store = CmuxConfigStore(globalConfigPath: configURL.path, startFileWatchers: false)
+        store.loadAll()
+
+        let issue = try XCTUnwrap(store.configurationIssues.first)
+        XCTAssertEqual(issue.kind, .schemaError)
+        XCTAssertEqual(issue.message, "JSONC preprocessing failed: unterminated block comment")
     }
 
     @MainActor
@@ -811,6 +948,190 @@ final class CmuxConfigDecodingTests: XCTestCase {
     }
 
     @MainActor
+    func testNotificationHooksAppendThroughConfigHierarchy() throws {
+        let root = FileManager.default.temporaryDirectory.appendingPathComponent(
+            "cmux-config-store-\(UUID().uuidString)",
+            isDirectory: true
+        )
+        let globalDirectory = root.appendingPathComponent("global", isDirectory: true)
+        let projectDirectory = root.appendingPathComponent("project", isDirectory: true)
+        let parentConfigDirectory = projectDirectory.appendingPathComponent(".cmux", isDirectory: true)
+        let childDirectory = projectDirectory.appendingPathComponent("child", isDirectory: true)
+        let childConfigDirectory = childDirectory.appendingPathComponent(".cmux", isDirectory: true)
+        try FileManager.default.createDirectory(at: globalDirectory, withIntermediateDirectories: true)
+        try FileManager.default.createDirectory(at: parentConfigDirectory, withIntermediateDirectories: true)
+        try FileManager.default.createDirectory(at: childConfigDirectory, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: root) }
+
+        let globalConfigURL = globalDirectory.appendingPathComponent("cmux.json")
+        let parentConfigURL = parentConfigDirectory.appendingPathComponent("cmux.json")
+        let childConfigURL = childConfigDirectory.appendingPathComponent("cmux.json")
+        try """
+        {
+          "notifications": {
+            "hooks": [{ "id": "global", "command": "cat" }]
+          }
+        }
+        """.write(to: globalConfigURL, atomically: true, encoding: .utf8)
+        try """
+        {
+          "notifications": {
+            "hooks": [{ "id": "parent", "command": "cat" }]
+          }
+        }
+        """.write(to: parentConfigURL, atomically: true, encoding: .utf8)
+        try """
+        {
+          "notifications": {
+            "hooks": [{ "id": "child", "command": "cat", "enabled": false }, { "id": "nearest", "command": "cat" }]
+          }
+        }
+        """.write(to: childConfigURL, atomically: true, encoding: .utf8)
+
+        let store = CmuxConfigStore(
+            globalConfigPath: globalConfigURL.path,
+            localConfigPath: childConfigURL.path,
+            startFileWatchers: false
+        )
+        store.loadAll()
+
+        XCTAssertEqual(store.notificationHooks.map(\.id), ["global", "parent", "nearest"])
+        XCTAssertNil(store.notificationHooks[0].trustDescriptor)
+        XCTAssertEqual(store.notificationHooks[1].trustDescriptor?.kind, "notificationHook")
+        XCTAssertEqual(store.notificationHooks[1].trustDescriptor?.command, "cat")
+        XCTAssertEqual(store.notificationHooks[1].trustDescriptor?.configPath, parentConfigURL.path)
+        XCTAssertEqual(store.notificationHooks[2].trustDescriptor?.kind, "notificationHook")
+        XCTAssertEqual(store.notificationHooks[1].cwd, projectDirectory.path)
+        XCTAssertEqual(store.notificationHooks[2].cwd, childDirectory.path)
+        XCTAssertTrue(store.configurationIssues.isEmpty)
+    }
+
+    @MainActor
+    func testNotificationHooksIncludeExplicitLocalConfigOutsideDiscoveredHierarchy() throws {
+        let root = FileManager.default.temporaryDirectory.appendingPathComponent(
+            "cmux-config-store-\(UUID().uuidString)",
+            isDirectory: true
+        )
+        let globalDirectory = root.appendingPathComponent("global", isDirectory: true)
+        let explicitDirectory = root.appendingPathComponent("explicit", isDirectory: true)
+        try FileManager.default.createDirectory(at: globalDirectory, withIntermediateDirectories: true)
+        try FileManager.default.createDirectory(at: explicitDirectory, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: root) }
+
+        let globalConfigURL = globalDirectory.appendingPathComponent("cmux.json")
+        let explicitConfigURL = explicitDirectory.appendingPathComponent("custom-cmux.json")
+        try """
+        {
+          "notifications": {
+            "hooks": [{ "id": "global", "command": "cat" }]
+          }
+        }
+        """.write(to: globalConfigURL, atomically: true, encoding: .utf8)
+        try """
+        {
+          "notifications": {
+            "hooks": [{ "id": "explicit", "command": "cat" }]
+          }
+        }
+        """.write(to: explicitConfigURL, atomically: true, encoding: .utf8)
+
+        let store = CmuxConfigStore(
+            globalConfigPath: globalConfigURL.path,
+            localConfigPath: explicitConfigURL.path,
+            startFileWatchers: false
+        )
+        store.loadAll()
+
+        XCTAssertEqual(store.notificationHooks.map(\.id), ["global", "explicit"])
+        XCTAssertEqual(store.notificationHooks[1].sourcePath, explicitConfigURL.path)
+    }
+
+    @MainActor
+    func testNotificationHooksReplaceInheritedHooks() throws {
+        let root = FileManager.default.temporaryDirectory.appendingPathComponent(
+            "cmux-config-store-\(UUID().uuidString)",
+            isDirectory: true
+        )
+        let globalDirectory = root.appendingPathComponent("global", isDirectory: true)
+        let projectDirectory = root.appendingPathComponent("project", isDirectory: true)
+        let childConfigDirectory = projectDirectory
+            .appendingPathComponent("child", isDirectory: true)
+            .appendingPathComponent(".cmux", isDirectory: true)
+        try FileManager.default.createDirectory(at: globalDirectory, withIntermediateDirectories: true)
+        try FileManager.default.createDirectory(at: childConfigDirectory, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: root) }
+
+        let globalConfigURL = globalDirectory.appendingPathComponent("cmux.json")
+        let childConfigURL = childConfigDirectory.appendingPathComponent("cmux.json")
+        try """
+        {
+          "notifications": {
+            "hooks": [{ "id": "global", "command": "cat" }]
+          }
+        }
+        """.write(to: globalConfigURL, atomically: true, encoding: .utf8)
+        try """
+        {
+          "notifications": {
+            "hooksMode": "replace",
+            "hooks": [{ "id": "child", "command": "cat" }]
+          }
+        }
+        """.write(to: childConfigURL, atomically: true, encoding: .utf8)
+
+        let store = CmuxConfigStore(
+            globalConfigPath: globalConfigURL.path,
+            localConfigPath: childConfigURL.path,
+            startFileWatchers: false
+        )
+        store.loadAll()
+
+        XCTAssertEqual(store.notificationHooks.map(\.id), ["child"])
+    }
+
+    @MainActor
+    func testNotificationHooksResolveFromExplicitWorkspaceDirectory() throws {
+        let root = FileManager.default.temporaryDirectory.appendingPathComponent(
+            "cmux-config-store-\(UUID().uuidString)",
+            isDirectory: true
+        )
+        let globalDirectory = root.appendingPathComponent("global", isDirectory: true)
+        let projectDirectory = root.appendingPathComponent("project", isDirectory: true)
+        let childDirectory = projectDirectory.appendingPathComponent("child", isDirectory: true)
+        let childConfigDirectory = childDirectory.appendingPathComponent(".cmux", isDirectory: true)
+        try FileManager.default.createDirectory(at: globalDirectory, withIntermediateDirectories: true)
+        try FileManager.default.createDirectory(at: childConfigDirectory, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: root) }
+
+        let globalConfigURL = globalDirectory.appendingPathComponent("cmux.json")
+        let childConfigURL = childConfigDirectory.appendingPathComponent("cmux.json")
+        try """
+        {
+          "notifications": {
+            "hooks": [{ "id": "global", "command": "cat" }]
+          }
+        }
+        """.write(to: globalConfigURL, atomically: true, encoding: .utf8)
+        try """
+        {
+          "notifications": {
+            "hooks": [{ "id": "child", "command": "cat" }]
+          }
+        }
+        """.write(to: childConfigURL, atomically: true, encoding: .utf8)
+
+        let store = CmuxConfigStore(
+            globalConfigPath: globalConfigURL.path,
+            startFileWatchers: false
+        )
+
+        XCTAssertEqual(
+            store.notificationHooks(startingFrom: childDirectory.path).map(\.id),
+            ["global", "child"]
+        )
+    }
+
+    @MainActor
     func testResolvedNewWorkspaceCommandExposesMissingCommandIssue() throws {
         let root = FileManager.default.temporaryDirectory.appendingPathComponent(
             "cmux-config-store-\(UUID().uuidString)",
@@ -878,7 +1199,7 @@ final class CmuxConfigDecodingTests: XCTestCase {
     }
 
     @MainActor
-    func testResolvedNewWorkspaceActionExposesNonWorkspaceActionIssue() throws {
+    func testResolvedNewWorkspaceActionAllowsCommandAction() throws {
         let root = FileManager.default.temporaryDirectory.appendingPathComponent(
             "cmux-config-store-\(UUID().uuidString)",
             isDirectory: true
@@ -907,8 +1228,10 @@ final class CmuxConfigDecodingTests: XCTestCase {
         store.loadAll()
 
         XCTAssertNil(store.resolvedNewWorkspaceCommand())
-        XCTAssertEqual(store.configurationIssues.first?.kind, .newWorkspaceActionRequiresWorkspaceCommand)
-        XCTAssertEqual(store.configurationIssues.first?.sourcePath, configURL.path)
+        let action = try XCTUnwrap(store.resolvedNewWorkspaceAction())
+        XCTAssertEqual(action.id, "start-codex")
+        XCTAssertEqual(action.terminalCommand, "codex")
+        XCTAssertTrue(store.configurationIssues.isEmpty)
     }
 
     func testDecodeActionsSurfaceTabBarButtonSupportsWorkspaceCommand() throws {
@@ -1045,7 +1368,7 @@ final class CmuxConfigDecodingTests: XCTestCase {
     }
 
     func testDecodeRestartBehaviors() throws {
-        for behavior in ["recreate", "ignore", "confirm"] {
+        for behavior in ["new", "recreate", "ignore", "confirm"] {
             let json = """
             {
               "commands": [{
@@ -1536,6 +1859,108 @@ final class CmuxCommandIdentityTests: XCTestCase {
         let cmd = CmuxCommandDefinition(name: "palette.newWorkspace", command: "echo")
         XCTAssertTrue(cmd.id.hasPrefix("cmux.config.command."))
         XCTAssertNotEqual(cmd.id, "palette.newWorkspace")
+    }
+}
+
+// MARK: - Workspace command execution
+
+@MainActor
+final class CmuxConfigWorkspaceCommandExecutionTests: XCTestCase {
+
+    func testWorkspaceCommandCreatesNewWorkspaceByDefaultWhenNameAlreadyExists() {
+        let manager = TabManager()
+        let existingWorkspace = manager.tabs[0]
+        existingWorkspace.setCustomTitle("Dev")
+
+        let command = CmuxCommandDefinition(
+            name: "Dev command",
+            workspace: CmuxWorkspaceDefinition(name: "Dev")
+        )
+
+        XCTAssertTrue(CmuxConfigExecutor.execute(
+            command: command,
+            tabManager: manager,
+            baseCwd: NSTemporaryDirectory(),
+            configSourcePath: nil,
+            globalConfigPath: "/tmp/cmux-test-global-config.json"
+        ))
+
+        XCTAssertEqual(manager.tabs.count, 2)
+        XCTAssertTrue(manager.tabs.contains(where: { $0.id == existingWorkspace.id }))
+        XCTAssertEqual(manager.tabs.filter { $0.customTitle == "Dev" }.count, 2)
+        XCTAssertEqual(manager.selectedWorkspace?.customTitle, "Dev")
+    }
+
+    func testWorkspaceCommandHonorsExplicitNewRestartPolicy() {
+        let manager = TabManager()
+        let existingWorkspace = manager.tabs[0]
+        existingWorkspace.setCustomTitle("Dev")
+
+        let command = CmuxCommandDefinition(
+            name: "Dev command",
+            restart: .new,
+            workspace: CmuxWorkspaceDefinition(name: "Dev")
+        )
+
+        XCTAssertTrue(CmuxConfigExecutor.execute(
+            command: command,
+            tabManager: manager,
+            baseCwd: NSTemporaryDirectory(),
+            configSourcePath: nil,
+            globalConfigPath: "/tmp/cmux-test-global-config.json"
+        ))
+
+        XCTAssertEqual(manager.tabs.count, 2)
+        XCTAssertTrue(manager.tabs.contains(where: { $0.id == existingWorkspace.id }))
+        XCTAssertEqual(manager.tabs.filter { $0.customTitle == "Dev" }.count, 2)
+        XCTAssertEqual(manager.selectedWorkspace?.customTitle, "Dev")
+    }
+
+    func testWorkspaceCommandHonorsIgnoreRestartPolicy() {
+        let manager = TabManager()
+        let existingWorkspace = manager.tabs[0]
+        existingWorkspace.setCustomTitle("Dev")
+
+        let command = CmuxCommandDefinition(
+            name: "Dev command",
+            restart: .ignore,
+            workspace: CmuxWorkspaceDefinition(name: "Dev")
+        )
+
+        XCTAssertTrue(CmuxConfigExecutor.execute(
+            command: command,
+            tabManager: manager,
+            baseCwd: NSTemporaryDirectory(),
+            configSourcePath: nil,
+            globalConfigPath: "/tmp/cmux-test-global-config.json"
+        ))
+
+        XCTAssertEqual(manager.tabs.map(\.id), [existingWorkspace.id])
+        XCTAssertEqual(manager.selectedWorkspace?.id, existingWorkspace.id)
+    }
+
+    func testWorkspaceCommandHonorsRecreateRestartPolicy() {
+        let manager = TabManager()
+        let existingWorkspace = manager.tabs[0]
+        existingWorkspace.setCustomTitle("Dev")
+
+        let command = CmuxCommandDefinition(
+            name: "Dev command",
+            restart: .recreate,
+            workspace: CmuxWorkspaceDefinition(name: "Dev")
+        )
+
+        XCTAssertTrue(CmuxConfigExecutor.execute(
+            command: command,
+            tabManager: manager,
+            baseCwd: NSTemporaryDirectory(),
+            configSourcePath: nil,
+            globalConfigPath: "/tmp/cmux-test-global-config.json"
+        ))
+
+        XCTAssertEqual(manager.tabs.count, 1)
+        XCTAssertFalse(manager.tabs.contains(where: { $0.id == existingWorkspace.id }))
+        XCTAssertEqual(manager.selectedWorkspace?.customTitle, "Dev")
     }
 }
 

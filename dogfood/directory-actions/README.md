@@ -8,6 +8,7 @@ Use a terminal pane in cmux and `cd` into these directories:
 - `dogfood/directory-actions/alpha/nested`
 - `dogfood/directory-actions/legacy`
 - `dogfood/directory-actions/legacy/prefer-dot-cmux`
+- `dogfood/directory-actions/many-tab-actions`
 
 What each one demonstrates:
 
@@ -25,6 +26,9 @@ What each one demonstrates:
 - `legacy/prefer-dot-cmux`
   - Contains both `./cmux.json` and `./.cmux/cmux.json`
   - The `./.cmux/cmux.json` file should win
+- `many-tab-actions`
+  - Defines 24 custom actions plus the 4 built-ins
+  - Replaces the surface tab bar button list to stress wide action rows
 
 General expectations:
 

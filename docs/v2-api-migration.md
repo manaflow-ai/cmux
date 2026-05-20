@@ -138,8 +138,8 @@ v2 suite lives in `tests_v2/` and should:
 - avoid depending on v1 text output formats
 
 VM runners:
-- v1: `ssh cmux-vm 'cd /Users/cmux/GhosttyTabs && ./scripts/run-tests-v1.sh'`
-- v2: `ssh cmux-vm 'cd /Users/cmux/GhosttyTabs && ./scripts/run-tests-v2.sh'`
+- v1: `ssh cmux-vm 'cd /Users/cmux/cmux && ./scripts/run-tests-v1.sh'`
+- v2: `ssh cmux-vm 'cd /Users/cmux/cmux && ./scripts/run-tests-v2.sh'`
 
 ## Open Questions
 

@@ -1,5 +1,6 @@
 import AppKit
 import Combine
+import SQLite3
 import SwiftUI
 import XCTest
 
@@ -55,31 +56,84 @@ final class SessionIndexViewTests: XCTestCase {
         )
     }
 
-    func testClaudeResumeCommandPinsConfigDirectoryFromFileURL() {
+    func testClaudeResumeCommandPinsSnapshotConfigDirectory() throws {
+        let root = FileManager.default.temporaryDirectory
+            .appendingPathComponent("cmux-session-index-\(UUID().uuidString)", isDirectory: true)
+        defer { try? FileManager.default.removeItem(at: root) }
+
+        let configDir = root.appendingPathComponent("claude config", isDirectory: true)
+        let transcriptURL = configDir
+            .appendingPathComponent("projects", isDirectory: true)
+            .appendingPathComponent("-tmp", isDirectory: true)
+            .appendingPathComponent("claude-session-123.jsonl", isDirectory: false)
+        try FileManager.default.createDirectory(
+            at: transcriptURL.deletingLastPathComponent(),
+            withIntermediateDirectories: true
+        )
+        try Data(#"{"oauthAccount":{"email":"user@example.com"}}"#.utf8)
+            .write(to: configDir.appendingPathComponent(".claude.json", isDirectory: false))
+
         let entry = makeEntry(
             sessionId: "claude-session-123",
             title: "resume me",
-            fileURL: URL(fileURLWithPath: "/tmp/claude config/projects/-tmp/claude-session-123.jsonl")
+            fileURL: transcriptURL,
+            claudeConfigDirectoryForResume: configDir.path
         )
 
         XCTAssertEqual(
             entry.resumeCommand,
-            "env CLAUDE_CONFIG_DIR='/tmp/claude config' claude --resume claude-session-123"
+            "env CLAUDE_CONFIG_DIR='\(configDir.path)' CMUX_PRESERVE_CLAUDE_AUTH_SELECTION_ENV=1 CMUX_PRESERVE_CLAUDE_AUTH_SELECTION_ENV_KEYS=CLAUDE_CONFIG_DIR claude --resume claude-session-123"
         )
     }
 
-    func testClaudeResumeCommandUsesNearestProjectsDirectory() {
+    func testClaudeResumeCommandUsesSnapshotConfigDirectoryWithNestedProjectsPath() throws {
+        let root = FileManager.default.temporaryDirectory
+            .appendingPathComponent("cmux-session-index-\(UUID().uuidString)", isDirectory: true)
+        defer { try? FileManager.default.removeItem(at: root) }
+
+        let configDir = root
+            .appendingPathComponent("projects", isDirectory: true)
+            .appendingPathComponent("claude config", isDirectory: true)
+        let transcriptURL = configDir
+            .appendingPathComponent("projects", isDirectory: true)
+            .appendingPathComponent("-tmp", isDirectory: true)
+            .appendingPathComponent("claude-session-123.jsonl", isDirectory: false)
+        try FileManager.default.createDirectory(
+            at: transcriptURL.deletingLastPathComponent(),
+            withIntermediateDirectories: true
+        )
+        try Data(#"{"oauthAccount":{"email":"user@example.com"}}"#.utf8)
+            .write(to: configDir.appendingPathComponent(".claude.json", isDirectory: false))
+
         let entry = makeEntry(
             sessionId: "claude-session-123",
             title: "resume me",
-            fileURL: URL(
-                fileURLWithPath: "/tmp/projects/claude config/projects/-tmp/claude-session-123.jsonl"
+            fileURL: transcriptURL,
+            claudeConfigDirectoryForResume: configDir.path
+        )
+
+        XCTAssertEqual(
+            entry.resumeCommand,
+            "env CLAUDE_CONFIG_DIR='\(configDir.path)' CMUX_PRESERVE_CLAUDE_AUTH_SELECTION_ENV=1 CMUX_PRESERVE_CLAUDE_AUTH_SELECTION_ENV_KEYS=CLAUDE_CONFIG_DIR claude --resume claude-session-123"
+        )
+    }
+
+    func testGrokResumeCommandPreservesSpecifics() {
+        let entry = makeEntry(
+            agent: .grok,
+            sessionId: "grok-session-123",
+            title: "resume me",
+            specifics: .grok(
+                model: "grok-4",
+                permissionMode: "auto",
+                sandboxMode: "danger-full-access",
+                grokHome: "/tmp/grok home"
             )
         )
 
         XCTAssertEqual(
             entry.resumeCommand,
-            "env CLAUDE_CONFIG_DIR='/tmp/projects/claude config' claude --resume claude-session-123"
+            "env GROK_HOME='/tmp/grok home' grok -r grok-session-123 -m grok-4 --permission-mode auto --sandbox danger-full-access"
         )
     }
 
@@ -95,6 +149,41 @@ final class SessionIndexViewTests: XCTestCase {
         store.setCurrentDirectoryIfChanged("/foo")
 
         XCTAssertEqual(emittedValues, ["/foo"])
+    }
+
+    func testCodexSQLSearchMatchesRolloutTranscriptContent() async throws {
+        let tempDir = FileManager.default.temporaryDirectory
+            .appendingPathComponent("cmux-session-index-\(UUID().uuidString)", isDirectory: true)
+        try FileManager.default.createDirectory(at: tempDir, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: tempDir) }
+
+        let sessionsRoot = tempDir.appendingPathComponent("sessions", isDirectory: true)
+        try FileManager.default.createDirectory(at: sessionsRoot, withIntermediateDirectories: true)
+
+        let rolloutURL = sessionsRoot.appendingPathComponent("rollout-codex-transcript-match.jsonl")
+        let transcript = """
+        {"timestamp":"2026-05-01T09:00:00.000Z","type":"session_meta","payload":{"id":"codex-transcript-match","cwd":"/tmp/project"}}
+        {"timestamp":"2026-05-01T09:01:00.000Z","type":"response_item","payload":{"type":"function_call","name":"exec_command","arguments":"{\\"cmd\\":\\"tail -n 80 /tmp/cmux-debug-task-activation-performance-harness.log\\"}","call_id":"call_1"}}
+        """
+        try transcript.write(to: rolloutURL, atomically: true, encoding: .utf8)
+
+        let stateDB = tempDir.appendingPathComponent("state_5.sqlite")
+        try makeCodexStateDatabase(
+            at: stateDB,
+            rolloutURL: rolloutURL,
+            sessionId: "codex-transcript-match"
+        )
+
+        let outcome = await SessionIndexStore.loadCodexEntriesForTesting(
+            stateDBPath: stateDB.path,
+            needle: "/tmp/cmux-debug-task-activation-performance-harness.log",
+            offset: 0,
+            limit: 10,
+            sessionsRoot: sessionsRoot.path
+        )
+
+        XCTAssertEqual(outcome.errors, [])
+        XCTAssertEqual(outcome.entries.map(\.sessionId), ["codex-transcript-match"])
     }
 
     func testSectionPopoverHostCoordinatorSkipsHiddenRefreshes() {
@@ -194,13 +283,16 @@ final class SessionIndexViewTests: XCTestCase {
     }
 
     private func makeEntry(
+        agent: SessionAgent = .claude,
         sessionId: String = UUID().uuidString,
         title: String,
-        fileURL: URL? = nil
+        fileURL: URL? = nil,
+        specifics: AgentSpecifics? = nil,
+        claudeConfigDirectoryForResume: String? = nil
     ) -> SessionEntry {
         SessionEntry(
             id: UUID().uuidString,
-            agent: .claude,
+            agent: agent,
             sessionId: sessionId,
             title: title,
             cwd: nil,
@@ -208,12 +300,112 @@ final class SessionIndexViewTests: XCTestCase {
             pullRequest: nil,
             modified: Date(timeIntervalSince1970: 0),
             fileURL: fileURL,
-            specifics: .claude(model: nil, permissionMode: nil)
+            specifics: specifics ?? agent.defaultSpecificsForTesting(
+                claudeConfigDirectoryForResume: claudeConfigDirectoryForResume
+            )
         )
     }
 
     private func pumpRunLoop() {
         RunLoop.current.run(until: Date().addingTimeInterval(0.05))
+    }
+
+    private func makeCodexStateDatabase(
+        at url: URL,
+        rolloutURL: URL,
+        sessionId: String
+    ) throws {
+        var db: OpaquePointer?
+        guard sqlite3_open(url.path, &db) == SQLITE_OK, let db else {
+            throw SQLiteTestError(message: "open failed")
+        }
+        defer { sqlite3_close(db) }
+
+        try executeSQL(
+            """
+            CREATE TABLE threads (
+                id TEXT PRIMARY KEY,
+                rollout_path TEXT NOT NULL,
+                cwd TEXT NOT NULL,
+                title TEXT NOT NULL,
+                model TEXT,
+                git_branch TEXT,
+                approval_mode TEXT NOT NULL,
+                sandbox_policy TEXT NOT NULL,
+                reasoning_effort TEXT,
+                first_user_message TEXT NOT NULL,
+                updated_at_ms INTEGER,
+                archived INTEGER NOT NULL DEFAULT 0
+            );
+            """,
+            db: db
+        )
+
+        let sql = """
+            INSERT INTO threads (
+                id, rollout_path, cwd, title, model, git_branch,
+                approval_mode, sandbox_policy, reasoning_effort,
+                first_user_message, updated_at_ms, archived
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 0);
+            """
+        var stmt: OpaquePointer?
+        guard sqlite3_prepare_v2(db, sql, -1, &stmt, nil) == SQLITE_OK, let stmt else {
+            throw SQLiteTestError(message: sqliteMessage(db) ?? "insert prepare failed")
+        }
+        defer { sqlite3_finalize(stmt) }
+
+        let transient = unsafeBitCast(OpaquePointer(bitPattern: -1), to: sqlite3_destructor_type.self)
+        sqlite3_bind_text(stmt, 1, sessionId, -1, transient)
+        sqlite3_bind_text(stmt, 2, rolloutURL.path, -1, transient)
+        sqlite3_bind_text(stmt, 3, "/tmp/project", -1, transient)
+        sqlite3_bind_text(stmt, 4, "unrelated title", -1, transient)
+        sqlite3_bind_text(stmt, 5, "gpt-5.5", -1, transient)
+        sqlite3_bind_text(stmt, 6, "main", -1, transient)
+        sqlite3_bind_text(stmt, 7, "never", -1, transient)
+        sqlite3_bind_text(stmt, 8, #"{"type":"danger-full-access"}"#, -1, transient)
+        sqlite3_bind_text(stmt, 9, "medium", -1, transient)
+        sqlite3_bind_text(stmt, 10, "metadata does not contain the query", -1, transient)
+        sqlite3_bind_int64(stmt, 11, 1_777_624_800_000)
+
+        guard sqlite3_step(stmt) == SQLITE_DONE else {
+            throw SQLiteTestError(message: sqliteMessage(db) ?? "insert failed")
+        }
+    }
+
+    private func executeSQL(_ sql: String, db: OpaquePointer) throws {
+        guard sqlite3_exec(db, sql, nil, nil, nil) == SQLITE_OK else {
+            throw SQLiteTestError(message: sqliteMessage(db) ?? "exec failed")
+        }
+    }
+
+    private func sqliteMessage(_ db: OpaquePointer) -> String? {
+        guard let cString = sqlite3_errmsg(db) else { return nil }
+        return String(cString: cString)
+    }
+}
+
+private extension SessionAgent {
+    func defaultSpecificsForTesting(
+        claudeConfigDirectoryForResume: String? = nil
+    ) -> AgentSpecifics {
+        switch self {
+        case .claude:
+            return .claude(
+                model: nil,
+                permissionMode: nil,
+                configDirectoryForResume: claudeConfigDirectoryForResume
+            )
+        case .codex:
+            return .codex(model: nil, approvalPolicy: nil, sandboxMode: nil, effort: nil)
+        case .grok:
+            return .grok(model: nil, permissionMode: nil, sandboxMode: nil, grokHome: nil)
+        case .opencode:
+            return .opencode(providerModel: nil, agentName: nil)
+        case .rovodev:
+            return .rovodev
+        case .hermesAgent:
+            return .hermesAgent(source: nil, model: nil, hermesHome: nil)
+        }
     }
 }
 
@@ -222,4 +414,8 @@ private struct SessionPopoverHarness {
     let section: IndexSection
     let search: SessionSearchFn
     let loadSnapshot: DirectorySnapshotFn
+}
+
+private struct SQLiteTestError: Error {
+    let message: String
 }

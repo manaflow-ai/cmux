@@ -1,6 +1,7 @@
 import { sql } from "drizzle-orm";
 import {
   index,
+  integer,
   jsonb,
   pgEnum,
   pgTable,
@@ -99,5 +100,27 @@ export const cloudVmUsageEvents = pgTable(
     index("cloud_vm_usage_events_billing_team_created_idx").on(table.billingTeamId, table.createdAt),
     index("cloud_vm_usage_events_vm_created_idx").on(table.vmId, table.createdAt),
     index("cloud_vm_usage_events_type_created_idx").on(table.eventType, table.createdAt),
+  ],
+);
+
+export const cloudVmBillingGrants = pgTable(
+  "cloud_vm_billing_grants",
+  {
+    id: uuid("id").defaultRandom().primaryKey(),
+    billingCustomerType: text("billing_customer_type").notNull(),
+    billingCustomerId: text("billing_customer_id").notNull(),
+    billingPlanId: text("billing_plan_id").notNull(),
+    itemId: text("item_id").notNull(),
+    amount: integer("amount").notNull(),
+    reason: text("reason").notNull(),
+    appliedAt: timestamp("applied_at", { withTimezone: true }),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+    updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (table) => [
+    index("cloud_vm_billing_grants_customer_created_idx")
+      .on(table.billingCustomerType, table.billingCustomerId, table.createdAt),
+    uniqueIndex("cloud_vm_billing_grants_customer_item_reason_unique")
+      .on(table.billingCustomerType, table.billingCustomerId, table.itemId, table.reason),
   ],
 );

@@ -180,6 +180,89 @@ final class BonsplitTabDragUITests: XCTestCase {
         }
     }
 
+    func testRightSidebarCloseButtonLivesInsideSidebarChrome() {
+        let (app, dataPath) = launchConfiguredApp(showRightSidebar: true, alwaysShowShortcutHints: true)
+
+        XCTAssertTrue(
+            ensureForegroundAfterLaunch(app, timeout: launchTimeout),
+            "Expected app to launch for right-sidebar close button UI test. state=\(app.state.rawValue)"
+        )
+        XCTAssertTrue(waitForAnyJSON(atPath: dataPath, timeout: setupTimeout), "Expected tab-drag setup data at \(dataPath)")
+        guard let ready = waitForJSONKey("ready", equals: "1", atPath: dataPath, timeout: setupTimeout) else {
+            XCTFail("Timed out waiting for ready=1. data=\(loadJSON(atPath: dataPath) ?? [:])")
+            return
+        }
+
+        if let setupError = ready["setupError"], !setupError.isEmpty {
+            XCTFail("Setup failed: \(setupError)")
+            return
+        }
+
+        let titlebarToggle = app.descendants(matching: .any).matching(identifier: "titlebarControl.toggleRightSidebar").firstMatch
+        XCTAssertFalse(
+            titlebarToggle.waitForExistence(timeout: 1.0),
+            "Expected right sidebar toggle to be removed from the global titlebar."
+        )
+
+        let closeButton = app.buttons["RightSidebar.closeButton"]
+        XCTAssertTrue(closeButton.waitForExistence(timeout: 5.0), "Expected close button inside the right sidebar chrome.")
+        XCTAssertTrue(
+            waitForCondition(timeout: 3.0) { closeButton.isHittable },
+            "Expected right sidebar close button to be hittable. button=\(closeButton.debugDescription)"
+        )
+
+        let shortcutHint = app.staticTexts["rightSidebarCloseShortcutHint"]
+        XCTAssertTrue(shortcutHint.waitForExistence(timeout: 5.0), "Expected Cmd+Option+B hint over the close button.")
+        let focusShortcutHint = app.staticTexts["rightSidebarFocusShortcutHint"]
+        XCTAssertTrue(focusShortcutHint.waitForExistence(timeout: 5.0), "Expected Cmd+Shift+E hint inside the right sidebar.")
+        let window = app.windows.element(boundBy: 0)
+        XCTAssertTrue(window.waitForExistence(timeout: 5.0), "Expected main window to exist.")
+        XCTAssertGreaterThanOrEqual(
+            shortcutHint.frame.minY,
+            window.frame.minY - 1,
+            "Expected close shortcut hint to stay inside the visible window bounds. hint=\(shortcutHint.frame) window=\(window.frame)"
+        )
+        XCTAssertGreaterThanOrEqual(
+            focusShortcutHint.frame.minY,
+            window.frame.minY - 1,
+            "Expected focus shortcut hint to stay inside the visible window bounds. hint=\(focusShortcutHint.frame) window=\(window.frame)"
+        )
+        XCTAssertLessThanOrEqual(
+            abs(shortcutHint.frame.midX - closeButton.frame.midX),
+            40,
+            "Expected close shortcut hint to stay attached to the close button. hint=\(shortcutHint.frame) button=\(closeButton.frame)"
+        )
+        XCTAssertLessThan(
+            shortcutHint.frame.midY,
+            closeButton.frame.midY,
+            "Expected close shortcut hint to render above the close button so it does not shift titlebar controls. hint=\(shortcutHint.frame) button=\(closeButton.frame)"
+        )
+
+        closeButton.click()
+        XCTAssertTrue(
+            waitForCondition(timeout: 3.0) {
+                !closeButton.exists || !closeButton.isHittable
+            },
+            "Expected clicking the right sidebar close button to hide the sidebar."
+        )
+
+        app.typeKey("b", modifierFlags: [.command, .option])
+        XCTAssertTrue(
+            waitForCondition(timeout: 3.0) {
+                closeButton.exists && closeButton.isHittable
+            },
+            "Expected Cmd+Option+B to reopen the right sidebar."
+        )
+
+        app.typeKey("b", modifierFlags: [.command, .option])
+        XCTAssertTrue(
+            waitForCondition(timeout: 3.0) {
+                !closeButton.exists || !closeButton.isHittable
+            },
+            "Expected Cmd+Option+B to hide the right sidebar when it is open."
+        )
+    }
+
     func testMinimalModeTitlebarDoubleClickZoomsWindow() {
         let (app, dataPath) = launchConfiguredApp(windowSize: "640x420")
 
@@ -549,6 +632,73 @@ final class BonsplitTabDragUITests: XCTestCase {
         )
     }
 
+    func testManyPaneTabBarActionsUseTrailingWhitespaceBeforeClipping() {
+        let actionButtonCount = 10
+        let (app, dataPath) = launchConfiguredApp(
+            startWithHiddenSidebar: true,
+            windowSize: "760x420",
+            actionButtonCount: actionButtonCount
+        )
+
+        XCTAssertTrue(
+            ensureForegroundAfterLaunch(app, timeout: launchTimeout),
+            "Expected app to launch for narrow action-lane UI test. state=\(app.state.rawValue)"
+        )
+        XCTAssertTrue(waitForAnyJSON(atPath: dataPath, timeout: setupTimeout), "Expected tab-drag setup data at \(dataPath)")
+        guard let ready = waitForJSONKey("ready", equals: "1", atPath: dataPath, timeout: setupTimeout) else {
+            XCTFail("Timed out waiting for ready=1. data=\(loadJSON(atPath: dataPath) ?? [:])")
+            return
+        }
+
+        if let setupError = ready["setupError"], !setupError.isEmpty {
+            XCTFail("Setup failed: \(setupError)")
+            return
+        }
+
+        let window = app.windows.element(boundBy: 0)
+        XCTAssertTrue(window.waitForExistence(timeout: 5.0), "Expected main window to exist")
+
+        let alphaTitle = ready["alphaTitle"] ?? "UITest Alpha"
+        let betaTitle = ready["betaTitle"] ?? "UITest Beta"
+        let alphaTab = app.buttons[alphaTitle]
+        let betaTab = app.buttons[betaTitle]
+        XCTAssertTrue(alphaTab.waitForExistence(timeout: 5.0), "Expected alpha tab to exist")
+        XCTAssertTrue(betaTab.waitForExistence(timeout: 5.0), "Expected beta tab to exist")
+
+        let firstActionButton = app.descendants(matching: .any)
+            .matching(identifier: "paneTabBarControl.custom.cmux-ui-test-action-1")
+            .firstMatch
+        let lastActionButton = app.descendants(matching: .any)
+            .matching(identifier: "paneTabBarControl.custom.cmux-ui-test-action-\(actionButtonCount)")
+            .firstMatch
+
+        hover(
+            in: window,
+            at: CGPoint(
+                x: min(window.frame.maxX - 140, betaTab.frame.maxX + 80),
+                y: alphaTab.frame.midY
+            )
+        )
+
+        XCTAssertTrue(
+            waitForCondition(timeout: 2.0) {
+                firstActionButton.exists && firstActionButton.isHittable &&
+                    lastActionButton.exists && lastActionButton.isHittable
+            },
+            "Expected all custom pane tab bar action buttons to be hittable in trailing whitespace. window=\(window.frame) alphaTab=\(alphaTab.frame) betaTab=\(betaTab.frame) first=\(firstActionButton.debugDescription) last=\(lastActionButton.debugDescription)"
+        )
+        XCTAssertLessThan(
+            firstActionButton.frame.minX,
+            lastActionButton.frame.minX,
+            "Expected custom action buttons to lay out in configured order. first=\(firstActionButton.frame) last=\(lastActionButton.frame)"
+        )
+        XCTAssertLessThanOrEqual(
+            lastActionButton.frame.maxX,
+            window.frame.maxX + 1,
+            "Expected the rightmost custom action button to stay inside the window. window=\(window.frame) last=\(lastActionButton.frame)"
+        )
+    }
+
     private enum WorkspacePresentationMode: String {
         case standard
         case minimal
@@ -558,7 +708,9 @@ final class BonsplitTabDragUITests: XCTestCase {
         startWithHiddenSidebar: Bool = false,
         presentationMode: WorkspacePresentationMode = .minimal,
         showRightSidebar: Bool = false,
-        windowSize: String? = nil
+        alwaysShowShortcutHints: Bool = false,
+        windowSize: String? = nil,
+        actionButtonCount: Int? = nil
     ) -> (XCUIApplication, String) {
         let app = XCUIApplication()
         let dataPath = "/tmp/cmux-ui-test-bonsplit-tab-drag-\(UUID().uuidString).json"
@@ -573,8 +725,14 @@ final class BonsplitTabDragUITests: XCTestCase {
         if let windowSize {
             app.launchEnvironment["CMUX_UI_TEST_BONSPLIT_WINDOW_SIZE"] = windowSize
         }
+        if let actionButtonCount {
+            app.launchEnvironment["CMUX_UI_TEST_BONSPLIT_ACTION_BUTTON_COUNT"] = String(actionButtonCount)
+        }
         if showRightSidebar {
             app.launchEnvironment["CMUX_UI_TEST_BONSPLIT_SHOW_RIGHT_SIDEBAR"] = "1"
+        }
+        if alwaysShowShortcutHints {
+            app.launchEnvironment["CMUX_UI_TEST_SHORTCUT_HINTS_ALWAYS_SHOW"] = "1"
         }
         app.launchArguments += ["-workspacePresentationMode", presentationMode.rawValue]
         let options = XCTExpectedFailure.Options()

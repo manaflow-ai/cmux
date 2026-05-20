@@ -55,7 +55,11 @@ def main() -> int:
             print("FAIL: missing opencode resolution fell through to execvp current-directory lookup")
             return 1
 
-        if "opencode is not installed or not on PATH" not in proc.stderr:
+        if (
+            "OpenCode was not found" not in proc.stderr
+            or '"opencode"' not in proc.stderr
+            or "PATH" not in proc.stderr
+        ):
             print("FAIL: expected a clear missing opencode binary error")
             print(f"stderr={proc.stderr.strip()}")
             return 1

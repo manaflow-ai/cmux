@@ -87,7 +87,7 @@ final class RightSidebarChromeHeightUITests: XCTestCase {
         }
         XCTAssertEqual(feedSecondaryBarHeight, modeBarHeight, accuracy: 0.5, "Expected feed secondary bar to match the mode bar. geometry=\(feedGeometry)")
         XCTAssertEqual(actionableControlHeight, modeControlHeight, accuracy: 0.5, "Expected Feed Actionable pill to match mode button height. geometry=\(feedGeometry)")
-        XCTAssertEqual(activityControlHeight, modeControlHeight, accuracy: 0.5, "Expected Feed Activity pill to match mode button height. geometry=\(feedGeometry)")
+        XCTAssertEqual(activityControlHeight, modeControlHeight, accuracy: 0.5, "Expected Feed All Activity pill to match mode button height. geometry=\(feedGeometry)")
     }
 
     private func waitForJSONNumbers(_ keys: [String], greaterThan threshold: Double, atPath path: String, timeout: TimeInterval) -> [String: String]? {

@@ -1,10 +1,12 @@
 import Foundation
 
 extension CMUXCLI {
-    private static let settingsDocsURL = "https://cmux.com/docs/configuration#settings-json"
-    private static let settingsSchemaURL = "https://raw.githubusercontent.com/manaflow-ai/cmux/main/web/data/cmux-settings.schema.json"
-    private static let primarySettingsDisplayPath = "~/.config/cmux/settings.json"
-    private static let fallbackSettingsDisplayPath = "~/Library/Application Support/com.cmuxterm.app/settings.json"
+    static let settingsDocsURL = "https://cmux.com/docs/configuration#cmux-json"
+    static let settingsSchemaURL = "https://raw.githubusercontent.com/manaflow-ai/cmux/main/web/data/cmux.schema.json"
+    static let primarySettingsDisplayPath = "~/.config/cmux/cmux.json"
+    static let legacySettingsDisplayPath = "~/.config/cmux/settings.json"
+    static let fallbackSettingsDisplayPath = "~/Library/Application Support/com.cmuxterm.app/settings.json"
+    static let ghosttyConfigDisplayPath = "~/.config/ghostty/config"
 
     private struct DocsResource {
         let label: String
@@ -23,8 +25,8 @@ extension CMUXCLI {
     private static let docsReferences: [DocsReference] = [
         DocsReference(
             topic: "settings",
-            aliases: ["configuration", "config", "settings-json", "schema"],
-            summary: "cmux-owned settings, settings.json locations, schema, and reload flow.",
+            aliases: ["configuration", "config", "cmux-json", "settings-json", "settingsjson", "schema"],
+            summary: "cmux-owned settings, cmux.json locations, schema, and reload flow.",
             webURL: settingsDocsURL,
             rawResources: [
                 DocsResource(label: "settings schema", url: settingsSchemaURL),
@@ -32,7 +34,8 @@ extension CMUXCLI {
             ],
             commands: [
                 "cmux settings path",
-                "cmux settings json",
+                "cmux settings cmux-json",
+                "cmux config doctor",
                 "cmux reload-config",
             ]
         ),
@@ -82,16 +85,34 @@ extension CMUXCLI {
         DocsReference(
             topic: "agents",
             aliases: ["integrations", "agent-integrations"],
-            summary: "Codex, Claude Code, OpenCode, and agent workflow integrations.",
+            summary: "Agent hook integrations, Feed approvals, notifications, and session restore.",
             webURL: "https://cmux.com/docs/agent-integrations/oh-my-codex",
             rawResources: [
+                DocsResource(label: "agent hook docs", url: "https://raw.githubusercontent.com/manaflow-ai/cmux/main/docs/agent-hooks.md"),
                 DocsResource(label: "feed docs", url: "https://raw.githubusercontent.com/manaflow-ai/cmux/main/docs/feed.md"),
                 DocsResource(label: "notifications docs", url: "https://raw.githubusercontent.com/manaflow-ai/cmux/main/docs/notifications.md"),
             ],
             commands: [
-                "cmux codex install-hooks",
-                "cmux hooks opencode install",
                 "cmux hooks setup",
+                "cmux hooks setup <agent>",
+                "cmux hooks hermes-agent install",
+                "cmux hooks hermes-agent uninstall",
+                "cmux hooks <agent> uninstall",
+            ]
+        ),
+        DocsReference(
+            topic: "dock",
+            aliases: ["doc", "controls", "right-sidebar", "dock-json"],
+            summary: "Custom right-sidebar terminal controls from .cmux/dock.json or ~/.config/cmux/dock.json.",
+            webURL: "https://cmux.com/docs/dock",
+            rawResources: [
+                DocsResource(label: "dock docs", url: "https://raw.githubusercontent.com/manaflow-ai/cmux/main/docs/dock.md"),
+                DocsResource(label: "dock web copy", url: "https://raw.githubusercontent.com/manaflow-ai/cmux/main/web/messages/en.json"),
+            ],
+            commands: [
+                "cmux docs dock",
+                "cmux docs dock --json",
+                "python3 -m json.tool .cmux/dock.json",
             ]
         ),
     ]
@@ -116,7 +137,7 @@ extension CMUXCLI {
         }
 
         guard args.count == 1 else {
-            throw CLIError(message: "Usage: cmux docs [settings|shortcuts|api|browser|agents]")
+            throw CLIError(message: "Usage: cmux docs [settings|shortcuts|api|browser|agents|dock]")
         }
 
         if topic == "list" || topic == "all" {
@@ -141,14 +162,15 @@ extension CMUXCLI {
 
     func docsUsage() -> String {
         return """
-        Usage: cmux docs [settings|shortcuts|api|browser|agents]
+        Usage: cmux docs [settings|shortcuts|api|browser|agents|dock]
 
         Print the canonical docs URL, raw GitHub resources, and useful commands for a cmux topic.
         This command does not require a running cmux app or socket.
 
         Agents:
-          Use `cmux docs settings` before editing ~/.config/cmux/settings.json.
-          Back up any existing settings file to a timestamped .bak copy before editing so the user can revert.
+          Use `cmux docs settings` before editing ~/.config/cmux/cmux.json.
+          Use `cmux docs dock` before creating or editing .cmux/dock.json.
+          Back up any existing cmux.json file to a timestamped .bak copy before editing so the user can revert.
           Fetch raw resources with the printed curl commands when you need the latest schema.
         """
     }
@@ -178,10 +200,16 @@ extension CMUXCLI {
         if reference.topic == "settings" {
             payload["settings_files"] = [
                 "primary": Self.primarySettingsDisplayPath,
+                "legacy": Self.legacySettingsDisplayPath,
                 "fallback": Self.fallbackSettingsDisplayPath,
             ]
-            payload["backup"] = "Back up any existing settings file to a timestamped .bak copy before editing so the user can revert."
+            payload["ghostty_config"] = [
+                "path": Self.ghosttyConfigDisplayPath,
+                "note": "Not cmux-owned, but cmux reads it. Use for terminal transparency (background-opacity), blur, font, theme, etc.",
+            ]
+            payload["backup"] = "Back up any existing cmux.json file to a timestamped .bak copy before editing so the user can revert."
             payload["reload_command"] = "cmux reload-config"
+            payload["reload_scope"] = "Reloads Ghostty config + cmux.json and refreshes terminals in place. No app restart needed."
         }
         return payload
     }
@@ -223,15 +251,20 @@ extension CMUXCLI {
         }
         if reference.topic == "settings" {
             print()
-            print("Settings files:")
-            print("  \(Self.primarySettingsDisplayPath)")
-            print("  \(Self.fallbackSettingsDisplayPath)")
+            print("Config files:")
+            print("  primary: \(Self.primarySettingsDisplayPath)")
+            print("  legacy config: \(Self.legacySettingsDisplayPath)")
+            print("  legacy app support: \(Self.fallbackSettingsDisplayPath)")
             print()
-            print("Before editing settings.json:")
-            print("  Back up any existing settings file to a timestamped .bak copy so the user can revert.")
+            print("Related (not cmux-owned, but cmux reads it for terminal behavior):")
+            print("  \(Self.ghosttyConfigDisplayPath)")
+            print("  Use this for terminal transparency (background-opacity), blur, font, theme, etc.")
             print()
-            print("After editing settings.json:")
-            print("  cmux reload-config")
+            print("Before editing cmux.json:")
+            print("  Back up any existing cmux.json file to a timestamped .bak copy so the user can revert.")
+            print()
+            print("Reload after editing cmux.json or Ghostty config:")
+            print("  cmux reload-config   (reloads BOTH and refreshes terminals; no app restart needed)")
         }
     }
 
@@ -292,7 +325,7 @@ extension CMUXCLI {
                 throw CLIError(message: "Unknown settings subcommand '\(subcommand)'. Run 'cmux settings --help'.")
             }
             guard args.count == 1 else {
-                throw CLIError(message: "Usage: cmux settings [open|path|docs|target]")
+                throw CLIError(message: "Usage: cmux settings [open [target]|path|docs|<target>]")
             }
             try openSettingsTarget(
                 targetRaw,
@@ -312,65 +345,34 @@ extension CMUXCLI {
 
     func settingsUsage() -> String {
         return """
-        Usage: cmux settings [open|path|docs|target]
+        Usage: cmux settings [open [target]|path|docs|<target>]
 
-        Open cmux Settings, print settings file paths, or show settings documentation.
+        Open cmux Settings, print cmux.json paths, or show settings documentation.
 
         Subcommands:
           open [target]       Open Settings, optionally to a target section.
-          path                Print settings.json paths, docs URL, and schema URL.
+          path                Print cmux.json paths, docs URL, and schema URL.
           docs                Print the same output as `cmux docs settings`.
 
         Targets:
           account, app, terminal, sidebar-appearance, automation, browser,
           browser-import, global-hotkey, keyboard-shortcuts, shortcuts,
-          workspace-colors, settings-json, json, reset
+          workspace-colors, cmux-json, json, reset
 
-        Settings file:
+        Config file:
           \(Self.primarySettingsDisplayPath)
-          \(Self.fallbackSettingsDisplayPath)
+          legacy config: \(Self.legacySettingsDisplayPath)
+          legacy app support: \(Self.fallbackSettingsDisplayPath)
 
-        Before editing settings.json:
-          Back up any existing settings file to a timestamped .bak copy so the user can revert.
+        Related (not cmux-owned, but cmux reads it for terminal behavior):
+          \(Self.ghosttyConfigDisplayPath)
 
-        After editing settings.json:
-          cmux reload-config
+        Before editing cmux.json:
+          Back up any existing cmux.json file to a timestamped .bak copy so the user can revert.
 
-        Full docs:
-          cmux docs settings
+        Reload after editing cmux.json or Ghostty config:
+          cmux reload-config   (reloads BOTH and refreshes terminals; no app restart needed)
         """
-    }
-
-    private func printSettingsPaths(jsonOutput: Bool) {
-        let payload: [String: Any] = [
-            "primary": Self.primarySettingsDisplayPath,
-            "fallback": Self.fallbackSettingsDisplayPath,
-            "docs_url": Self.settingsDocsURL,
-            "schema_url": Self.settingsSchemaURL,
-            "reload_command": "cmux reload-config",
-            "backup": "Back up any existing settings file to a timestamped .bak copy before editing so the user can revert.",
-        ]
-
-        if jsonOutput {
-            print(jsonString(payload))
-            return
-        }
-
-        print("Settings files:")
-        print("  primary:  \(Self.primarySettingsDisplayPath)")
-        print("  fallback: \(Self.fallbackSettingsDisplayPath)")
-        print()
-        print("Docs:")
-        print("  \(Self.settingsDocsURL)")
-        print()
-        print("Schema:")
-        print("  \(Self.settingsSchemaURL)")
-        print()
-        print("Before editing settings.json:")
-        print("  Back up any existing settings file to a timestamped .bak copy so the user can revert.")
-        print()
-        print("After editing settings.json:")
-        print("  cmux reload-config")
     }
 
     private func settingsTargetRawValue(for rawValue: String) -> String? {
@@ -400,7 +402,7 @@ extension CMUXCLI {
             return "keyboardShortcuts"
         case "workspace-colors", "workspacecolors", "colors":
             return "workspaceColors"
-        case "settings-json", "settingsjson", "json", "file", "settings-file":
+        case "cmux-json", "cmuxjson", "settings-json", "settingsjson", "json", "file", "settings-file":
             return "settingsJSON"
         case "reset":
             return "reset"
@@ -465,7 +467,7 @@ extension CMUXCLI {
         }
     }
 
-    private func docsSettingsArguments(_ commandArgs: [String]) -> (head: [String], arguments: [String]) {
+    func docsSettingsArguments(_ commandArgs: [String]) -> (head: [String], arguments: [String]) {
         let separatorIndex = commandArgs.firstIndex(of: "--")
         let head = separatorIndex.map { Array(commandArgs[..<$0]) } ?? commandArgs
         let tail = separatorIndex.map { Array(commandArgs[commandArgs.index(after: $0)...]) } ?? []
@@ -473,7 +475,7 @@ extension CMUXCLI {
         return (head, headArguments + tail)
     }
 
-    private func hasHelpRequest(beforeSeparator args: [String]) -> Bool {
+    func hasHelpRequest(beforeSeparator args: [String]) -> Bool {
         let positionalArgs = args.filter { $0 != "--json" }
         return args.contains("--help") || args.contains("-h") || positionalArgs.first?.lowercased() == "help"
     }
