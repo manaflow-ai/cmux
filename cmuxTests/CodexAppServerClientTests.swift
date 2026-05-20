@@ -1596,6 +1596,59 @@ final class CodexAppServerRequestFactoryTests: XCTestCase {
         XCTAssertFalse(snapshot.didTruncate)
     }
 
+    func testLocalCodexHistoryLoaderPreservesISO8601Timestamps() throws {
+        let fileManager = FileManager.default
+        let threadId = "019d6637-e5cc-7cc0-a321-2c43b7990370"
+        let tempDirectory = fileManager.temporaryDirectory
+            .appendingPathComponent("cmux-codex-history-\(UUID().uuidString)", isDirectory: true)
+        defer { try? fileManager.removeItem(at: tempDirectory) }
+
+        let sessionDirectory = tempDirectory
+            .appendingPathComponent("2026/04/06", isDirectory: true)
+        try fileManager.createDirectory(at: sessionDirectory, withIntermediateDirectories: true)
+        let fileURL = sessionDirectory
+            .appendingPathComponent("rollout-2026-04-06T21-33-52-\(threadId).jsonl")
+
+        let expectedTimestamp = "2026-04-06T03:02:30.747Z"
+        let records: [[String: Any]] = [
+            [
+                "timestamp": "2026-04-06T03:02:29.000Z",
+                "type": "session_meta",
+                "payload": ["id": threadId],
+            ],
+            [
+                "timestamp": expectedTimestamp,
+                "type": "response_item",
+                "payload": [
+                    "type": "message",
+                    "role": "assistant",
+                    "content": [
+                        [
+                            "type": "output_text",
+                            "text": "timestamped reply",
+                        ],
+                    ],
+                ],
+            ],
+        ]
+
+        let jsonl = try records.map(Self.jsonLine).joined(separator: "\n")
+        try jsonl.write(to: fileURL, atomically: true, encoding: .utf8)
+
+        let snapshot = CodexSessionHistoryLoader.loadHistorySync(
+            threadId: threadId,
+            limit: 10,
+            searchRoots: [tempDirectory]
+        )
+
+        let expectedFormatter = ISO8601DateFormatter()
+        expectedFormatter.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
+        let expectedDate = try XCTUnwrap(expectedFormatter.date(from: expectedTimestamp))
+        let restoredDate = try XCTUnwrap(snapshot.transcriptItems.first?.date)
+        XCTAssertEqual(snapshot.transcriptItems.map(\.body), ["timestamped reply"])
+        XCTAssertEqual(restoredDate.timeIntervalSince1970, expectedDate.timeIntervalSince1970, accuracy: 0.001)
+    }
+
     func testLocalCodexHistoryLoaderIgnoresPlainUserResponseWarnings() throws {
         let fileManager = FileManager.default
         let threadId = "019d6637-e5cc-7cc0-a321-2c43b799036e"

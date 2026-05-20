@@ -2541,6 +2541,18 @@ final class CodexAppServerPanel: Panel, ObservableObject {
 
     private static func dateValue(named key: String, in object: [String: Any]?) -> Date? {
         guard let value = object?[key] else { return nil }
+        if let value = value as? String {
+            let trimmed = value.trimmingCharacters(in: .whitespacesAndNewlines)
+            if let seconds = TimeInterval(trimmed) {
+                return Date(timeIntervalSince1970: seconds)
+            }
+            let fractionalFormatter = ISO8601DateFormatter()
+            fractionalFormatter.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
+            if let date = fractionalFormatter.date(from: trimmed) {
+                return date
+            }
+            return ISO8601DateFormatter().date(from: trimmed)
+        }
         if let value = value as? NSNumber {
             return Date(timeIntervalSince1970: value.doubleValue)
         }
@@ -3499,12 +3511,16 @@ enum CodexSessionHistoryLoader {
     private static func dateValue(named key: String, in object: [String: Any]?) -> Date? {
         guard let value = object?[key] else { return nil }
         if let value = value as? String {
-            let formatter = ISO8601DateFormatter()
-            formatter.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
-            if let date = formatter.date(from: value) {
+            let trimmed = value.trimmingCharacters(in: .whitespacesAndNewlines)
+            if let seconds = TimeInterval(trimmed) {
+                return Date(timeIntervalSince1970: seconds)
+            }
+            let fractionalFormatter = ISO8601DateFormatter()
+            fractionalFormatter.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
+            if let date = fractionalFormatter.date(from: trimmed) {
                 return date
             }
-            return ISO8601DateFormatter().date(from: value)
+            return ISO8601DateFormatter().date(from: trimmed)
         }
         if let value = value as? NSNumber {
             return Date(timeIntervalSince1970: value.doubleValue)
