@@ -43,30 +43,6 @@ extension CMUXCLI {
 
         append(searchPath)
 
-        let environment = ProcessInfo.processInfo.environment
-        let home = environment["HOME"].flatMap { $0.isEmpty ? nil : $0 } ?? NSHomeDirectory()
-        append([
-            "\(home)/.bun/bin",
-            "\(home)/.local/bin",
-            "\(home)/bin",
-            "\(home)/.volta/bin",
-            "\(home)/.asdf/shims",
-            "\(home)/.deno/bin",
-            "\(home)/Library/pnpm",
-            "\(home)/.nvm/current/bin",
-            "\(home)/.fnm/current/bin",
-            "\(home)/.local/share/mise/shims",
-            "/opt/homebrew/bin",
-            "/opt/homebrew/sbin",
-            "/usr/local/bin",
-            "/usr/local/sbin",
-            "/opt/local/bin",
-            "/usr/bin",
-            "/bin",
-            "/usr/sbin",
-            "/sbin"
-        ].joined(separator: ":"))
-
         return entries
     }
 
