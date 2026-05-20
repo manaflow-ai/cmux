@@ -14659,7 +14659,6 @@ extension Workspace: BonsplitDelegate {
         if !isDetaching, let cleanupConfiguration = closedRemoteCleanupConfiguration {
             Self.requestSSHControlMasterCleanupIfNeeded(configuration: cleanupConfiguration)
         }
-        AppDelegate.shared?.notificationStore?.clearNotifications(forTabId: id, surfaceId: panelId)
         syncCodexAppServerSidebarStatus()
 
         // Keep the workspace invariant for normal close paths.
