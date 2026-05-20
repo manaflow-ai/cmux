@@ -441,7 +441,11 @@ private struct AgentNeedsInputPublisher {
               let dedupKey = normalized(event.dedupKey) else {
             return
         }
-        try sessionStore.markNotificationEmitted(sessionId: sessionId, fingerprint: dedupKey)
+        try sessionStore.markNotificationEmitted(
+            sessionId: sessionId,
+            fingerprint: dedupKey,
+            marksAskUserQuestion: event.sourceSignal == .claudeAskUserQuestion
+        )
     }
 
     static func dedupKey(agentKind: String, sessionId: String?, body: String) -> String? {
@@ -544,6 +548,8 @@ private struct ClaudeHookSessionRecord: Codable {
     var lastNotificationStatus: AgentHookNotificationStatus?
     var lastEmittedNotificationFingerprint: String?
     var lastEmittedNotificationAt: TimeInterval?
+    var lastAskUserQuestionNotificationFingerprint: String?
+    var lastAskUserQuestionNotificationAt: TimeInterval?
     var runtimeStatus: AgentHookRuntimeStatus?
     var startedAt: TimeInterval
     var updatedAt: TimeInterval
@@ -673,6 +679,8 @@ private final class ClaudeHookSessionStore {
                 lastNotificationStatus: nil,
                 lastEmittedNotificationFingerprint: nil,
                 lastEmittedNotificationAt: nil,
+                lastAskUserQuestionNotificationFingerprint: nil,
+                lastAskUserQuestionNotificationAt: nil,
                 runtimeStatus: nil,
                 startedAt: now,
                 updatedAt: now
@@ -755,7 +763,30 @@ private final class ClaudeHookSessionStore {
         }
     }
 
-    func markNotificationEmitted(sessionId: String, fingerprint: String) throws {
+    func recentlyEmittedAskUserQuestionNotification(
+        sessionId: String,
+        fingerprint: String,
+        within interval: TimeInterval = 60 * 60
+    ) throws -> Bool {
+        let normalized = normalizeSessionId(sessionId)
+        guard !normalized.isEmpty else { return false }
+        let normalizedFingerprint = fingerprint.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !normalizedFingerprint.isEmpty else { return false }
+        return try withLockedState { state in
+            guard let record = state.sessions[normalized],
+                  record.lastAskUserQuestionNotificationFingerprint == normalizedFingerprint,
+                  let emittedAt = record.lastAskUserQuestionNotificationAt else {
+                return false
+            }
+            return Date().timeIntervalSince1970 - emittedAt <= interval
+        }
+    }
+
+    func markNotificationEmitted(
+        sessionId: String,
+        fingerprint: String,
+        marksAskUserQuestion: Bool = false
+    ) throws {
         let normalized = normalizeSessionId(sessionId)
         guard !normalized.isEmpty else { return }
         let normalizedFingerprint = fingerprint.trimmingCharacters(in: .whitespacesAndNewlines)
@@ -765,6 +796,10 @@ private final class ClaudeHookSessionStore {
             let now = Date().timeIntervalSince1970
             record.lastEmittedNotificationFingerprint = normalizedFingerprint
             record.lastEmittedNotificationAt = now
+            if marksAskUserQuestion {
+                record.lastAskUserQuestionNotificationFingerprint = normalizedFingerprint
+                record.lastAskUserQuestionNotificationAt = now
+            }
             record.updatedAt = now
             state.sessions[normalized] = record
         }
@@ -17430,9 +17465,12 @@ struct CMUXCLI {
                 print("OK")
                 return
             }
-            if let mappedSession,
-               let savedBody = mappedSession.lastBody, !savedBody.isEmpty,
-               summary.body.contains("needs your attention") || summary.body.contains("needs your input") {
+            let usesSavedAskUserQuestionBody =
+                mappedSession?.lastNotificationStatus == .needsInput
+                && claudeNotificationBodyIsGenericAttentionPlaceholder(summary.body)
+            if usesSavedAskUserQuestionBody,
+               let mappedSession,
+               let savedBody = mappedSession.lastBody, !savedBody.isEmpty {
                 summary = (subtitle: mappedSession.lastSubtitle ?? summary.subtitle, body: savedBody)
             }
 
@@ -17464,6 +17502,22 @@ struct CMUXCLI {
                 )
             }
 
+            let dedupKey = AgentNeedsInputPublisher.dedupKey(
+                agentKind: "claude",
+                sessionId: parsedInput.sessionId,
+                body: summary.body
+            )
+            if usesSavedAskUserQuestionBody,
+               let sessionId = parsedInput.sessionId,
+               let dedupKey,
+               try sessionStore.recentlyEmittedAskUserQuestionNotification(
+                sessionId: sessionId,
+                fingerprint: dedupKey
+               ) {
+                print("OK")
+                return
+            }
+
             let event = AgentNeedsInputEvent(
                 agentKind: "claude",
                 statusKey: "claude_code",
@@ -17473,11 +17527,7 @@ struct CMUXCLI {
                 sessionId: parsedInput.sessionId,
                 subtitle: summary.subtitle,
                 body: summary.body,
-                dedupKey: AgentNeedsInputPublisher.dedupKey(
-                    agentKind: "claude",
-                    sessionId: parsedInput.sessionId,
-                    body: summary.body
-                ),
+                dedupKey: dedupKey,
                 sourceSignal: .claudeNotification,
                 firstSeenAt: Date()
             )
@@ -17643,6 +17693,9 @@ struct CMUXCLI {
             }
 
             _ = try? sendV1Command("clear_notifications --tab=\(workspaceId)", client: client)
+            if let sessionId = parsedInput.sessionId {
+                try? sessionStore.clearNotificationEmission(sessionId: sessionId)
+            }
 
             let statusValue: String
             if UserDefaults.standard.bool(forKey: "claudeCodeVerboseStatus"),
@@ -19853,6 +19906,11 @@ struct CMUXCLI {
             return ("Attention", message)
         }
         return ("Attention", "Claude needs your attention")
+    }
+
+    private func claudeNotificationBodyIsGenericAttentionPlaceholder(_ body: String) -> Bool {
+        let lower = body.lowercased()
+        return lower.contains("needs your attention") || lower.contains("needs your input")
     }
 
     private func containsCompletionCue(_ lowercasedText: String) -> Bool {
