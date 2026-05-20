@@ -10,6 +10,7 @@ REQUIRED_PATTERNS=(
   "Could not resolve package dependencies"
   "rm -rf ~/Library/Caches/org.swift.swiftpm"
   "run_unit_tests | tee /tmp/test-output.txt"
+  "Stable unit test lane failed"
 )
 
 for pattern in "${REQUIRED_PATTERNS[@]}"; do

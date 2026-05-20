@@ -1758,10 +1758,16 @@ final class GhosttyBackgroundThemeTests: XCTestCase {
         let base = NSColor(srgbRed: 0.10, green: 0.20, blue: 0.30, alpha: 1.0)
 
         let lowerClamped = GhosttyBackgroundTheme.color(backgroundColor: base, opacity: -2.0)
-        XCTAssertEqual(lowerClamped.alphaComponent, 0.0, accuracy: 0.0001)
+        assertColor(
+            lowerClamped,
+            matches: WindowAppearanceSnapshot.compositedTerminalColor(backgroundColor: base, opacity: 0.0)
+        )
 
         let upperClamped = GhosttyBackgroundTheme.color(backgroundColor: base, opacity: 5.0)
-        XCTAssertEqual(upperClamped.alphaComponent, 1.0, accuracy: 0.0001)
+        assertColor(
+            upperClamped,
+            matches: WindowAppearanceSnapshot.compositedTerminalColor(backgroundColor: base, opacity: 1.0)
+        )
     }
 
     func testColorFromNotificationUsesBackgroundAndOpacity() {
@@ -1786,10 +1792,11 @@ final class GhosttyBackgroundThemeTests: XCTestCase {
             return
         }
 
-        XCTAssertEqual(srgb.redComponent, 0.18, accuracy: 0.005)
-        XCTAssertEqual(srgb.greenComponent, 0.29, accuracy: 0.005)
-        XCTAssertEqual(srgb.blueComponent, 0.44, accuracy: 0.005)
-        XCTAssertEqual(srgb.alphaComponent, 0.57, accuracy: 0.005)
+        let expected = WindowAppearanceSnapshot.compositedTerminalColor(
+            backgroundColor: NSColor(srgbRed: 0.18, green: 0.29, blue: 0.44, alpha: 1.0),
+            opacity: 0.57
+        )
+        assertColor(srgb, matches: expected)
     }
 
     func testColorFromNotificationFallsBackWhenPayloadMissing() {
@@ -1807,10 +1814,28 @@ final class GhosttyBackgroundThemeTests: XCTestCase {
             return
         }
 
-        XCTAssertEqual(srgb.redComponent, 0.12, accuracy: 0.005)
-        XCTAssertEqual(srgb.greenComponent, 0.34, accuracy: 0.005)
-        XCTAssertEqual(srgb.blueComponent, 0.56, accuracy: 0.005)
-        XCTAssertEqual(srgb.alphaComponent, 0.42, accuracy: 0.005)
+        let expected = WindowAppearanceSnapshot.compositedTerminalColor(
+            backgroundColor: fallbackColor,
+            opacity: fallbackOpacity
+        )
+        assertColor(srgb, matches: expected)
+    }
+
+    private func assertColor(
+        _ actual: NSColor,
+        matches expected: NSColor,
+        file: StaticString = #filePath,
+        line: UInt = #line
+    ) {
+        guard let actualSRGB = actual.usingColorSpace(.sRGB),
+              let expectedSRGB = expected.usingColorSpace(.sRGB) else {
+            XCTFail("Expected sRGB-convertible colors", file: file, line: line)
+            return
+        }
+        XCTAssertEqual(actualSRGB.redComponent, expectedSRGB.redComponent, accuracy: 0.005, file: file, line: line)
+        XCTAssertEqual(actualSRGB.greenComponent, expectedSRGB.greenComponent, accuracy: 0.005, file: file, line: line)
+        XCTAssertEqual(actualSRGB.blueComponent, expectedSRGB.blueComponent, accuracy: 0.005, file: file, line: line)
+        XCTAssertEqual(actualSRGB.alphaComponent, expectedSRGB.alphaComponent, accuracy: 0.005, file: file, line: line)
     }
 }
 
@@ -1825,7 +1850,13 @@ final class PanelAppearanceBackgroundTests: XCTestCase {
 
         XCTAssertTrue(appearance.usesClearContentBackground)
         XCTAssertFalse(appearance.drawsContentBackground)
-        XCTAssertEqual(appearance.backgroundColor.alphaComponent, 0.42, accuracy: 0.0001)
+        assertColor(
+            appearance.backgroundColor,
+            matches: GhosttyBackgroundTheme.color(
+                backgroundColor: config.backgroundColor,
+                opacity: config.backgroundOpacity
+            )
+        )
         XCTAssertEqual(appearance.contentBackgroundColor.alphaComponent, 0.0, accuracy: 0.0001)
     }
 
@@ -1889,6 +1920,23 @@ final class PanelAppearanceBackgroundTests: XCTestCase {
         XCTAssertFalse(appearance.drawsContentBackground)
         XCTAssertEqual(appearance.backgroundColor.alphaComponent, 1.0, accuracy: 0.0001)
         XCTAssertEqual(appearance.contentBackgroundColor.alphaComponent, 0.0, accuracy: 0.0001)
+    }
+
+    private func assertColor(
+        _ actual: NSColor,
+        matches expected: NSColor,
+        file: StaticString = #filePath,
+        line: UInt = #line
+    ) {
+        guard let actualSRGB = actual.usingColorSpace(.sRGB),
+              let expectedSRGB = expected.usingColorSpace(.sRGB) else {
+            XCTFail("Expected sRGB-convertible colors", file: file, line: line)
+            return
+        }
+        XCTAssertEqual(actualSRGB.redComponent, expectedSRGB.redComponent, accuracy: 0.005, file: file, line: line)
+        XCTAssertEqual(actualSRGB.greenComponent, expectedSRGB.greenComponent, accuracy: 0.005, file: file, line: line)
+        XCTAssertEqual(actualSRGB.blueComponent, expectedSRGB.blueComponent, accuracy: 0.005, file: file, line: line)
+        XCTAssertEqual(actualSRGB.alphaComponent, expectedSRGB.alphaComponent, accuracy: 0.005, file: file, line: line)
     }
 }
 

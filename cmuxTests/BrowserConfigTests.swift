@@ -1848,7 +1848,9 @@ final class BrowserDeveloperToolsConfigurationTests: XCTestCase {
         )
 
         guard let actual = panel.webView.underPageBackgroundColor?.usingColorSpace(.sRGB),
-              let expected = updatedColor.withAlphaComponent(updatedOpacity).usingColorSpace(.sRGB) else {
+              let expected = GhosttyBackgroundTheme
+                  .color(backgroundColor: updatedColor, opacity: updatedOpacity)
+                  .usingColorSpace(.sRGB) else {
             XCTFail("Expected sRGB-convertible under-page background colors")
             return
         }
@@ -1904,7 +1906,9 @@ final class BrowserDeveloperToolsConfigurationTests: XCTestCase {
         )
 
         guard let actual = panel.webView.underPageBackgroundColor?.usingColorSpace(.sRGB),
-              let expected = updatedColor.withAlphaComponent(0.57).usingColorSpace(.sRGB) else {
+              let expected = GhosttyBackgroundTheme
+                  .color(backgroundColor: updatedColor, opacity: 0.57)
+                  .usingColorSpace(.sRGB) else {
             XCTFail("Expected sRGB-convertible under-page background colors")
             return
         }
