@@ -911,6 +911,7 @@ class TabManager: ObservableObject {
 
     private struct GitIndexEntryStat: Sendable {
         let path: String
+        let mode: UInt32
         let mtimeSeconds: UInt32
         let mtimeNanoseconds: UInt32
         let size: UInt32
@@ -919,6 +920,11 @@ class TabManager: ObservableObject {
     private struct GitIndexSnapshot: Sendable {
         let entries: [GitIndexEntryStat]
         let signature: String
+    }
+
+    private struct WorkspaceGitMetadataWatcherDescriptorRequest: Equatable, Sendable {
+        let generation: UInt64
+        let directory: String
     }
 
     struct CommandResult: Sendable {
@@ -1203,6 +1209,9 @@ class TabManager: ObservableObject {
     private var workspaceGitCleanIndexSignatureByKey: [WorkspaceGitProbeKey: String] = [:]
     private var workspaceGitHeadSignatureByKey: [WorkspaceGitProbeKey: String] = [:]
     private var workspaceGitMetadataWatchersByKey: [WorkspaceGitProbeKey: WorkspaceGitMetadataWatcher] = [:]
+    private var workspaceGitMetadataWatcherSourceDirectoryByKey: [WorkspaceGitProbeKey: String] = [:]
+    private var workspaceGitMetadataWatcherDescriptorRequestsByKey: [WorkspaceGitProbeKey: WorkspaceGitMetadataWatcherDescriptorRequest] = [:]
+    private var workspaceGitMetadataWatcherDescriptorGeneration: UInt64 = 0
     private var workspaceGitMetadataFallbackTimer: DispatchSourceTimer?
     private var lastSidebarGitMetadataWatchEnabled = SidebarWorkspaceDetailDefaults.watchGitStatusValue(defaults: .standard)
     private var workspacePullRequestProbeStateByKey: [WorkspaceGitProbeKey: WorkspaceGitProbeState] = [:]
@@ -1475,13 +1484,60 @@ class TabManager: ObservableObject {
         for key: WorkspaceGitProbeKey,
         directory: String
     ) {
+        guard sidebarGitMetadataWatchEnabled else {
+            stopWorkspaceGitMetadataWatcher(for: key)
+            return
+        }
+
+        if workspaceGitMetadataWatcherSourceDirectoryByKey[key] == directory,
+           workspaceGitMetadataWatchersByKey[key] != nil {
+            return
+        }
+
+        if workspaceGitMetadataWatcherDescriptorRequestsByKey[key]?.directory == directory {
+            return
+        }
+
+        workspaceGitMetadataWatcherDescriptorGeneration &+= 1
+        let request = WorkspaceGitMetadataWatcherDescriptorRequest(
+            generation: workspaceGitMetadataWatcherDescriptorGeneration,
+            directory: directory
+        )
+        workspaceGitMetadataWatcherDescriptorRequestsByKey[key] = request
+
+        Task { [weak self] in
+            let descriptor = await Task.detached(priority: .utility) {
+                Self.workspaceGitMetadataWatcherDescriptor(for: directory)
+            }.value
+            await MainActor.run { [weak self] in
+                self?.applyWorkspaceGitMetadataWatcherDescriptor(
+                    descriptor,
+                    for: key,
+                    request: request
+                )
+            }
+        }
+    }
+
+    private func applyWorkspaceGitMetadataWatcherDescriptor(
+        _ descriptor: WorkspaceGitMetadataWatcher.Descriptor?,
+        for key: WorkspaceGitProbeKey,
+        request: WorkspaceGitMetadataWatcherDescriptorRequest
+    ) {
+        guard workspaceGitMetadataWatcherDescriptorRequestsByKey[key] == request else {
+            return
+        }
+        workspaceGitMetadataWatcherDescriptorRequestsByKey.removeValue(forKey: key)
+
         guard sidebarGitMetadataWatchEnabled,
-              let descriptor = Self.workspaceGitMetadataWatcherDescriptor(for: directory) else {
+              workspaceGitTrackedDirectoryByKey[key] == request.directory,
+              let descriptor else {
             stopWorkspaceGitMetadataWatcher(for: key)
             return
         }
 
         if workspaceGitMetadataWatchersByKey[key]?.descriptor == descriptor {
+            workspaceGitMetadataWatcherSourceDirectoryByKey[key] = request.directory
             return
         }
 
@@ -1498,9 +1554,12 @@ class TabManager: ObservableObject {
                 )
             }
         }
+        workspaceGitMetadataWatcherSourceDirectoryByKey[key] = request.directory
     }
 
     private func stopWorkspaceGitMetadataWatcher(for key: WorkspaceGitProbeKey) {
+        workspaceGitMetadataWatcherDescriptorRequestsByKey.removeValue(forKey: key)
+        workspaceGitMetadataWatcherSourceDirectoryByKey.removeValue(forKey: key)
         workspaceGitMetadataWatchersByKey.removeValue(forKey: key)?.stop()
     }
 
@@ -1516,6 +1575,8 @@ class TabManager: ObservableObject {
             watcher.stop()
         }
         workspaceGitMetadataWatchersByKey.removeAll()
+        workspaceGitMetadataWatcherSourceDirectoryByKey.removeAll()
+        workspaceGitMetadataWatcherDescriptorRequestsByKey.removeAll()
     }
 
     private func refreshTrackedWorkspacePullRequestsIfNeeded(
@@ -3141,7 +3202,11 @@ class TabManager: ObservableObject {
             let size = UInt32(clamping: statValue.st_size)
             let mtimeSeconds = UInt32(clamping: statValue.st_mtimespec.tv_sec)
             let mtimeNanoseconds = UInt32(clamping: statValue.st_mtimespec.tv_nsec)
+            guard let mode = gitIndexComparableMode(for: statValue.st_mode) else {
+                return (true, indexSnapshot.signature)
+            }
             if size != entry.size ||
+                mode != entry.mode ||
                 mtimeSeconds != entry.mtimeSeconds ||
                 mtimeNanoseconds != entry.mtimeNanoseconds {
                 return (true, indexSnapshot.signature)
@@ -3221,6 +3286,7 @@ class TabManager: ObservableObject {
                 entries.append(
                     GitIndexEntryStat(
                         path: path,
+                        mode: mode,
                         mtimeSeconds: mtimeSeconds,
                         mtimeNanoseconds: mtimeNanoseconds,
                         size: size
@@ -3238,6 +3304,18 @@ class TabManager: ObservableObject {
 
         let checksum = bytes[(bytes.count - 20)..<bytes.count].map { String(format: "%02x", $0) }.joined()
         return GitIndexSnapshot(entries: entries, signature: checksum)
+    }
+
+    private nonisolated static func gitIndexComparableMode(for statMode: mode_t) -> UInt32? {
+        let type = statMode & mode_t(S_IFMT)
+        switch type {
+        case mode_t(S_IFREG):
+            return (statMode & 0o111) == 0 ? 0o100644 : 0o100755
+        case mode_t(S_IFLNK):
+            return 0o120000
+        default:
+            return nil
+        }
     }
 
     private nonisolated static func gitIndexFileSignature(indexURL: URL) -> String? {

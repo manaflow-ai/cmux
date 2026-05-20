@@ -241,6 +241,47 @@ private func writeGitIndexVersion2Entry(
     try data.write(to: repoURL.appendingPathComponent(".git/index"))
 }
 
+private func writeGitIndexVersion2EntryFromStat(
+    at repoURL: URL,
+    trackedPath: String,
+    indexMode: UInt32,
+    signatureByte: UInt8
+) throws {
+    let fileURL = repoURL.appendingPathComponent(trackedPath)
+    var statValue = stat()
+    guard lstat(fileURL.path, &statValue) == 0 else {
+        throw POSIXError(POSIXErrorCode(rawValue: errno) ?? .ENOENT)
+    }
+
+    var data = Data()
+    data.append(contentsOf: [0x44, 0x49, 0x52, 0x43])
+    appendBigEndianUInt32(2, to: &data)
+    appendBigEndianUInt32(1, to: &data)
+
+    appendBigEndianUInt32(UInt32(clamping: statValue.st_ctimespec.tv_sec), to: &data)
+    appendBigEndianUInt32(UInt32(clamping: statValue.st_ctimespec.tv_nsec), to: &data)
+    appendBigEndianUInt32(UInt32(clamping: statValue.st_mtimespec.tv_sec), to: &data)
+    appendBigEndianUInt32(UInt32(clamping: statValue.st_mtimespec.tv_nsec), to: &data)
+    appendBigEndianUInt32(UInt32(clamping: statValue.st_dev), to: &data)
+    appendBigEndianUInt32(UInt32(clamping: statValue.st_ino), to: &data)
+    appendBigEndianUInt32(indexMode, to: &data)
+    appendBigEndianUInt32(UInt32(clamping: statValue.st_uid), to: &data)
+    appendBigEndianUInt32(UInt32(clamping: statValue.st_gid), to: &data)
+    appendBigEndianUInt32(UInt32(clamping: statValue.st_size), to: &data)
+    data.append(Data(repeating: 0, count: 20))
+
+    let pathBytes = Array(trackedPath.utf8)
+    appendBigEndianUInt16(UInt16(min(pathBytes.count, 0x0fff)), to: &data)
+    data.append(contentsOf: pathBytes)
+    data.append(0)
+    while data.count % 8 != 0 {
+        data.append(0)
+    }
+    data.append(Data(repeating: signatureByte, count: 20))
+
+    try data.write(to: repoURL.appendingPathComponent(".git/index"))
+}
+
 private func writeGitIndexVersion4(
     at repoURL: URL,
     trackedPath: String,
@@ -608,6 +649,22 @@ final class WorkspacePullRequestSidebarTests: XCTestCase {
         XCTAssertTrue(workspace.panelGitBranches.isEmpty)
         XCTAssertTrue(workspace.panelPullRequests.isEmpty)
         XCTAssertEqual(workspace.sidebarPullRequestsInDisplayOrder(orderedPanelIds: [panelId]), [])
+
+        TerminalController.shared.setActiveTabManager(manager)
+        defer {
+            TerminalController.shared.setActiveTabManager(nil)
+        }
+        let response = TerminalController.shared.handleSocketLine(
+            "report_pr 2722 https://github.com/manaflow-ai/cmux/pull/2722 --label=PR --state=open --branch=issue-2722-git-index-lock-poll --tab=\(workspace.id.uuidString) --panel=\(panelId.uuidString)"
+        )
+        XCTAssertEqual(response, "OK")
+        TerminalMutationBus.shared.drainForTesting()
+
+        XCTAssertTrue(
+            workspace.panelPullRequests.isEmpty,
+            "Stale shell report_pr messages must not repopulate PR badges while sidebar.watchGitStatus is disabled."
+        )
+        XCTAssertEqual(workspace.sidebarPullRequestsInDisplayOrder(orderedPanelIds: [panelId]), [])
     }
 
     func testReenablingGitWatchRestartsRefreshFromCurrentPanelDirectories() throws {
@@ -832,6 +889,62 @@ final class WorkspacePullRequestSidebarTests: XCTestCase {
                     && workspace.panelGitBranches[panelId]?.isDirty == false
             },
             "Gitlink entries represent submodule commits and should not be compared to directory stats."
+        )
+    }
+
+    func testModeOnlyTrackedChangesMarkSidebarDirty() throws {
+        let defaults = UserDefaults.standard
+        let previousWatchGitStatus = defaults.object(forKey: SidebarWorkspaceDetailDefaults.watchGitStatusKey)
+        defer {
+            restoreUserDefault(previousWatchGitStatus, key: SidebarWorkspaceDetailDefaults.watchGitStatusKey)
+        }
+
+        let repoURL = FileManager.default.temporaryDirectory.appendingPathComponent(
+            "cmux-sidebar-mode-only-\(UUID().uuidString)",
+            isDirectory: true
+        )
+        try FileManager.default.createDirectory(at: repoURL, withIntermediateDirectories: true)
+        try writeMinimalGitRepository(at: repoURL)
+        let scriptURL = repoURL.appendingPathComponent("script.sh")
+        try "echo ok\n".write(to: scriptURL, atomically: true, encoding: .utf8)
+        XCTAssertEqual(chmod(scriptURL.path, 0o644), 0)
+        try writeGitIndexVersion2EntryFromStat(
+            at: repoURL,
+            trackedPath: "script.sh",
+            indexMode: 0o100644,
+            signatureByte: 0x44
+        )
+        defer {
+            try? FileManager.default.removeItem(at: repoURL)
+        }
+
+        defaults.set(true, forKey: SidebarWorkspaceDetailDefaults.watchGitStatusKey)
+        let manager = TabManager()
+        let workspace = try XCTUnwrap(manager.selectedWorkspace)
+        let panelId = try XCTUnwrap(workspace.focusedPanelId)
+
+        manager.updateSurfaceDirectory(
+            tabId: workspace.id,
+            surfaceId: panelId,
+            directory: repoURL.path
+        )
+
+        XCTAssertTrue(
+            waitForCondition {
+                workspace.panelGitBranches[panelId]?.branch == "main"
+                    && workspace.panelGitBranches[panelId]?.isDirty == false
+            },
+            "A tracked file with matching size, mtime, and mode should establish a clean baseline."
+        )
+
+        XCTAssertEqual(chmod(scriptURL.path, 0o755), 0)
+        manager.refreshTrackedWorkspaceGitMetadataForTesting()
+
+        XCTAssertTrue(
+            waitForCondition {
+                workspace.panelGitBranches[panelId]?.isDirty == true
+            },
+            "Mode-only changes should be visible as dirty without invoking git."
         )
     }
 }
