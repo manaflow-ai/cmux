@@ -28,7 +28,7 @@ def main() -> int:
     with tempfile.TemporaryDirectory(prefix="cmux-claude-teams-wrapper-") as td:
         tmp = Path(td)
         wrapper_bin = tmp / "wrapper-bin"
-        real_bin = tmp / "real-bin"
+        real_bin = tmp / "OtherAgent.app" / "Contents" / "Resources" / "bin"
         logs = tmp / "logs"
         wrapper_bin.mkdir(parents=True, exist_ok=True)
         real_bin.mkdir(parents=True, exist_ok=True)

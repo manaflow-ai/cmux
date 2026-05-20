@@ -72,9 +72,6 @@ extension CMUXCLI {
 
     private func shouldSkipProviderSearchDirectory(_ path: String) -> Bool {
         let standardized = ((path as NSString).expandingTildeInPath as NSString).standardizingPath
-        if standardized.hasSuffix("/Contents/Resources/bin") {
-            return true
-        }
         if let resourceBin = Bundle.main.resourceURL?
             .appendingPathComponent("bin", isDirectory: true)
             .path {

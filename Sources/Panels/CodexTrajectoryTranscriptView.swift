@@ -11,11 +11,15 @@ struct CodexTrajectoryTranscriptView: NSViewRepresentable {
         CodexTrajectoryTranscriptScrollView()
     }
 
+    func makeCoordinator() -> Coordinator {
+        Coordinator()
+    }
+
     func updateNSView(_ nsView: CodexTrajectoryTranscriptScrollView, context: Context) {
 #if DEBUG
         let start = CodexAppServerTiming.now()
 #endif
-        let entries = CodexTrajectoryTranscriptDisplayEntry.entries(from: items)
+        let entries = context.coordinator.entries(for: items)
 #if DEBUG
         if items.count >= 100 {
             CodexAppServerTiming.log("transcript.entries", [
@@ -35,6 +39,21 @@ struct CodexTrajectoryTranscriptView: NSViewRepresentable {
             bottomSpacerHeight: bottomSpacerHeight,
             transcriptFontSize: transcriptFontSize
         )
+    }
+
+    final class Coordinator {
+        private var cachedItems: [CodexAppServerTranscriptItem]?
+        private var cachedEntries: [CodexTrajectoryTranscriptDisplayEntry] = []
+
+        func entries(for items: [CodexAppServerTranscriptItem]) -> [CodexTrajectoryTranscriptDisplayEntry] {
+            if let cachedItems, cachedItems == items {
+                return cachedEntries
+            }
+            let entries = CodexTrajectoryTranscriptDisplayEntry.entries(from: items)
+            cachedItems = items
+            cachedEntries = entries
+            return entries
+        }
     }
 }
 
@@ -1404,9 +1423,11 @@ final class CodexTrajectoryTranscriptScrollView: NSScrollView {
     ) {
         let shouldStickToBottom = isScrolledNearBottom
         let normalizedBottomSpacerHeight = max(0, bottomSpacerHeight)
+        let entriesChanged = entries != self.entries
         let spacerChanged = abs(normalizedBottomSpacerHeight - self.bottomSpacerHeight) > 0.5
         let normalizedFontSize = CodexAppServerUISettings.clampedTranscriptFontSize(Double(transcriptFontSize))
         let fontSizeChanged = abs(normalizedFontSize - self.transcriptFontSize) > 0.1
+        guard entriesChanged || spacerChanged || fontSizeChanged else { return }
         self.entries = entries
         self.bottomSpacerHeight = normalizedBottomSpacerHeight
         self.transcriptFontSize = normalizedFontSize

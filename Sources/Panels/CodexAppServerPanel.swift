@@ -1571,7 +1571,6 @@ final class CodexAppServerPanel: Panel, ObservableObject {
                     Int(statusCode)
                 )
             )
-            threadId = nil
             currentTurnId = nil
             activeAssistantItemId = nil
             activeReasoningItemIDs.removeAll(keepingCapacity: false)

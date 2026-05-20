@@ -650,11 +650,6 @@
           "default": true,
           "description": "Enable cmux integration hooks for Claude Code."
         },
-        "claudeBinaryPath": {
-          "type": "string",
-          "default": "",
-          "description": "Custom path to the claude binary."
-        },
         "ripgrepBinaryPath": {
           "type": "string",
           "default": "",

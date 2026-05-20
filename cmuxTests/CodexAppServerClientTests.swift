@@ -434,6 +434,37 @@ final class CodexAppServerRequestFactoryTests: XCTestCase {
     }
 
     @MainActor
+    func testTerminatedAppServerPreservesStartedThreadForRestore() async throws {
+        let client = FakeCodexAppServerClient()
+        let panel = CodexAppServerPanel(
+            workspaceId: UUID(),
+            cwd: "/tmp",
+            client: client
+        )
+        await panel.start()
+
+        let threadId = FakeCodexAppServerClient.generatedThreadId(7)
+        client.onEvent?(
+            .notification(CodexAppServerServerNotification(
+                method: "thread/started",
+                params: ["thread": ["id": threadId]]
+            ))
+        )
+        let didCaptureThread = await waitForMainActorCondition {
+            panel.resumableThreadId == threadId
+        }
+        XCTAssertTrue(didCaptureThread)
+
+        client.onEvent?(.terminated(42))
+        let didFail = await waitForMainActorCondition {
+            panel.status.isFailed
+        }
+
+        XCTAssertTrue(didFail)
+        XCTAssertEqual(panel.resumableThreadId, threadId)
+    }
+
+    @MainActor
     func testStaleModelRefreshDoesNotClearCurrentLoadingState() async throws {
         let client = FakeCodexAppServerClient()
         client.holdListModels = true
