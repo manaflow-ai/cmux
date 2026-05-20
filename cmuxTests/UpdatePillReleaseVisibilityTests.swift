@@ -382,6 +382,55 @@ final class TitlebarControlsHoverPolicyTests: XCTestCase {
             )
         }
     }
+
+    func testMinimalModeHoverTrackerPassesMouseMovedThroughWhenButtonsAreVisible() {
+        XCTAssertTrue(
+            minimalModePassthroughHoverTrackerCapturesHit(
+                capturesPassiveHits: true,
+                eventType: .mouseMoved,
+                pressedMouseButtons: 0,
+                boundsContainsPoint: true
+            ),
+            "Expected the hidden minimal-mode hover tracker to capture passive hover so controls reveal"
+        )
+
+        XCTAssertFalse(
+            minimalModePassthroughHoverTrackerCapturesHit(
+                capturesPassiveHits: false,
+                eventType: .mouseMoved,
+                pressedMouseButtons: 0,
+                boundsContainsPoint: true
+            ),
+            "Expected revealed minimal-mode buttons to receive mouseMoved so their hover style can update"
+        )
+    }
+
+    func testMinimalModeHoverTrackerDoesNotCaptureMouseDownOrDraggedHover() {
+        XCTAssertFalse(
+            minimalModePassthroughHoverTrackerCapturesHit(
+                capturesPassiveHits: true,
+                eventType: .leftMouseDown,
+                pressedMouseButtons: 0,
+                boundsContainsPoint: true
+            )
+        )
+        XCTAssertFalse(
+            minimalModePassthroughHoverTrackerCapturesHit(
+                capturesPassiveHits: true,
+                eventType: .mouseMoved,
+                pressedMouseButtons: 1,
+                boundsContainsPoint: true
+            )
+        )
+        XCTAssertFalse(
+            minimalModePassthroughHoverTrackerCapturesHit(
+                capturesPassiveHits: true,
+                eventType: .mouseMoved,
+                pressedMouseButtons: 0,
+                boundsContainsPoint: false
+            )
+        )
+    }
 }
 
 @MainActor

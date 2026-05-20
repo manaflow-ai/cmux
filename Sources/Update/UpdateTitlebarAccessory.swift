@@ -1455,6 +1455,21 @@ enum TitlebarControlsVisibilityMode {
     case onHover
 }
 
+func minimalModePassthroughHoverTrackerCapturesHit(
+    capturesPassiveHits: Bool,
+    eventType: NSEvent.EventType?,
+    pressedMouseButtons: Int,
+    boundsContainsPoint: Bool
+) -> Bool {
+    guard boundsContainsPoint, pressedMouseButtons == 0 else { return false }
+    switch eventType {
+    case nil, .mouseMoved, .mouseEntered, .mouseExited:
+        return capturesPassiveHits
+    default:
+        return false
+    }
+}
+
 private struct PassthroughHoverTrackingView: NSViewRepresentable {
     let capturesPassiveHits: Bool
     let onHoverChanged: (Bool) -> Void
@@ -1490,13 +1505,17 @@ private struct PassthroughHoverTrackingView: NSViewRepresentable {
             switch event?.type {
             case .none:
                 refreshHoverForHitTest(event: event)
-                return capturesPassiveHits ? self : nil
             case .mouseMoved, .mouseEntered, .mouseExited:
                 refreshHoverForHitTest(event: event)
-                return self
             default:
                 return nil
             }
+            return minimalModePassthroughHoverTrackerCapturesHit(
+                capturesPassiveHits: capturesPassiveHits,
+                eventType: event?.type,
+                pressedMouseButtons: NSEvent.pressedMouseButtons,
+                boundsContainsPoint: true
+            ) ? self : nil
         }
 
         override func viewDidMoveToWindow() {
