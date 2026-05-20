@@ -17400,7 +17400,11 @@ class TerminalController {
             guard let candidate = URL(string: rawURL),
                   let scheme = candidate.scheme,
                   !scheme.isEmpty else {
-                return "ERROR: Invalid metadata URL '\(rawURL)' — must include a scheme (e.g. https://, obsidian://, file://)"
+                let format = String(
+                    localized: "socket.sidebarMetadata.invalidURL",
+                    defaultValue: "ERROR: Invalid metadata URL '%@' — must include a scheme (e.g. https://, obsidian://, file://)"
+                )
+                return String.localizedStringWithFormat(format, rawURL)
             }
             parsedURL = candidate
         } else {
