@@ -166,7 +166,10 @@ nonisolated extension CmuxTopProcessSnapshot {
             }
             groups[key]?.append(
                 process: process,
-                attribution: attributionByPID[pid] ?? nearestCMUXAttribution(for: pid)
+                attribution: nearestCMUXAttribution(
+                    for: pid,
+                    attributionByPID: attributionByPID
+                )
             )
         }
 
@@ -182,10 +185,16 @@ nonisolated extension CmuxTopProcessSnapshot {
             .map { $0.payload() }
     }
 
-    private func nearestCMUXAttribution(for pid: Int) -> CmuxTopProcessAttribution? {
+    private func nearestCMUXAttribution(
+        for pid: Int,
+        attributionByPID: [Int: CmuxTopProcessAttribution]
+    ) -> CmuxTopProcessAttribution? {
         var visited: Set<Int> = []
         var currentPID = pid
         while currentPID > 0, visited.insert(currentPID).inserted {
+            if let attribution = attributionByPID[currentPID] {
+                return attribution
+            }
             guard let process = processesByPID[currentPID] else { return nil }
             if process.cmuxWorkspaceID != nil || process.cmuxSurfaceID != nil {
                 return CmuxTopProcessAttribution(

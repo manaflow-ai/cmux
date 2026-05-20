@@ -150,23 +150,38 @@ nonisolated extension CmuxTopProcessSnapshot {
 
     private static func allBSDProcesses() -> [proc_bsdinfo] {
         let pidStride = MemoryLayout<pid_t>.stride
+        func bsdInfos(from pids: [pid_t], count: Int) -> [proc_bsdinfo] {
+            pids.prefix(count).compactMap { pid in
+                guard pid > 0 else { return nil }
+                return bsdInfo(for: Int(pid))
+            }
+        }
+
+        let initialPIDCount = Int(proc_listallpids(nil, 0))
+        guard initialPIDCount > 0 else { return [] }
+        var capacity = max(1, initialPIDCount + 32)
+        var lastPIDs: [pid_t] = []
+        var lastCount = 0
         for _ in 0..<3 {
-            let pidCount = Int(proc_listallpids(nil, 0))
-            guard pidCount > 0 else { return [] }
-            var pids = Array(repeating: pid_t(), count: max(1, pidCount + 32))
+            var pids = Array(repeating: pid_t(), count: capacity)
             let returnedCount = pids.withUnsafeMutableBufferPointer { buffer in
                 proc_listallpids(buffer.baseAddress, Int32(buffer.count * pidStride))
             }
-            guard returnedCount >= 0 else { return [] }
-            let count = min(pids.count, Int(returnedCount))
-            if count < pids.count {
-                return pids.prefix(count).compactMap { pid in
-                    guard pid > 0 else { return nil }
-                    return bsdInfo(for: Int(pid))
-                }
+            guard returnedCount >= 0 else {
+                return lastCount > 0 ? bsdInfos(from: lastPIDs, count: lastCount) : []
             }
+            let returnedPIDCount = Int(returnedCount)
+            let count = min(pids.count, returnedPIDCount)
+            if count > 0 {
+                lastPIDs = pids
+                lastCount = count
+            }
+            if returnedPIDCount < pids.count {
+                return bsdInfos(from: pids, count: count)
+            }
+            capacity = max(pids.count * 2, returnedPIDCount + 32)
         }
-        return []
+        return lastCount > 0 ? bsdInfos(from: lastPIDs, count: lastCount) : []
     }
 
     private static func bsdInfo(for pid: Int) -> proc_bsdinfo? {
