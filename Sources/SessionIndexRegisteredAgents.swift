@@ -8,6 +8,14 @@ extension SessionIndexStore {
         var sessionId: String?
     }
 
+    private struct AntigravityHistoryMetadata {
+        let sessionId: String
+        let title: String
+        let cwd: String?
+        let modified: Date
+        let fileURL: URL
+    }
+
     nonisolated static func loadRegisteredAgentEntries(
         registration: CmuxVaultAgentRegistration,
         needle: String,
@@ -15,6 +23,16 @@ extension SessionIndexStore {
         offset: Int,
         limit: Int
     ) async -> [SessionEntry] {
+        if registration.id == CmuxVaultAgentRegistration.builtInAntigravity.id {
+            return loadAntigravityHistoryEntries(
+                registration: registration,
+                needle: needle,
+                cwdFilter: cwdFilter,
+                offset: offset,
+                limit: limit
+            )
+        }
+
         let roots = registeredSessionRoots(registration: registration, cwdFilter: cwdFilter)
         guard !roots.isEmpty else { return [] }
         let fm = FileManager.default
@@ -85,6 +103,92 @@ extension SessionIndexStore {
         return Array(matches.dropFirst(offset).prefix(limit))
     }
 
+    nonisolated private static func loadAntigravityHistoryEntries(
+        registration: CmuxVaultAgentRegistration,
+        needle: String,
+        cwdFilter: String?,
+        offset: Int,
+        limit: Int
+    ) -> [SessionEntry] {
+        let roots = registeredSessionRoots(registration: registration, cwdFilter: cwdFilter)
+        guard !roots.isEmpty else { return [] }
+
+        let fm = FileManager.default
+        var latestBySessionID: [String: AntigravityHistoryMetadata] = [:]
+
+        for root in roots {
+            if Task.isCancelled { break }
+            let historyURL = URL(fileURLWithPath: root, isDirectory: true)
+                .appendingPathComponent("history.jsonl", isDirectory: false)
+            var isDirectory: ObjCBool = false
+            guard fm.fileExists(atPath: historyURL.path, isDirectory: &isDirectory),
+                  !isDirectory.boolValue else {
+                continue
+            }
+            let fallbackModified = ((try? fm.attributesOfItem(atPath: historyURL.path))?[.modificationDate] as? Date)
+                ?? Date.distantPast
+
+            forEachJSONLine(url: historyURL, maxBytes: Int.max) { object in
+                if Task.isCancelled { return true }
+                guard let sessionId = firstString(in: object, keys: antigravitySessionIDKeys()) else {
+                    return false
+                }
+                let cwd = firstString(in: object, keys: registeredJSONLCWDKeys())
+                if let cwdFilter, cwd != cwdFilter { return false }
+
+                let title = firstTopLevelTitle(in: object) ?? ""
+                guard antigravityHistoryMatchesNeedle(
+                    needle: needle,
+                    sessionId: sessionId,
+                    title: title,
+                    cwd: cwd
+                ) else {
+                    return false
+                }
+
+                let modified = antigravityHistoryModifiedDate(in: object, fallback: fallbackModified)
+                let metadata = AntigravityHistoryMetadata(
+                    sessionId: sessionId,
+                    title: title,
+                    cwd: cwd,
+                    modified: modified,
+                    fileURL: historyURL
+                )
+                if let existing = latestBySessionID[sessionId] {
+                    if metadata.modified >= existing.modified {
+                        latestBySessionID[sessionId] = metadata
+                    }
+                } else {
+                    latestBySessionID[sessionId] = metadata
+                }
+                return false
+            }
+        }
+
+        let entries = latestBySessionID.values
+            .sorted {
+                if $0.modified == $1.modified {
+                    return $0.sessionId < $1.sessionId
+                }
+                return $0.modified > $1.modified
+            }
+            .map { metadata in
+                SessionEntry(
+                    id: "\(registration.id):\(metadata.sessionId)",
+                    agent: .registered(RegisteredSessionAgent(registration: registration)),
+                    sessionId: metadata.sessionId,
+                    title: metadata.title,
+                    cwd: metadata.cwd,
+                    gitBranch: nil,
+                    pullRequest: nil,
+                    modified: metadata.modified,
+                    fileURL: metadata.fileURL,
+                    specifics: .registered(registration)
+                )
+            }
+        return Array(entries.dropFirst(offset).prefix(limit))
+    }
+
     nonisolated private static func registeredSessionRoots(
         registration: CmuxVaultAgentRegistration,
         cwdFilter: String?
@@ -136,7 +240,7 @@ extension SessionIndexStore {
         }
         forEachJSONLine(url: url, maxBytes: 512 * 1024) { object in
             if metadata.sessionId == nil {
-                metadata.sessionId = firstString(in: object, keys: ["sessionId", "session_id", "id"])
+                metadata.sessionId = firstString(in: object, keys: antigravitySessionIDKeys())
             }
             if metadata.cwd == nil {
                 metadata.cwd = firstString(in: object, keys: registeredJSONLCWDKeys())
@@ -175,6 +279,44 @@ extension SessionIndexStore {
 
     nonisolated private static func registeredJSONLCWDKeys() -> [String] {
         ["cwd", "workingDirectory", "workspacePath", "workspace", "projectPath", "directory"]
+    }
+
+    nonisolated private static func antigravitySessionIDKeys() -> [String] {
+        ["conversationId", "conversation_id", "sessionId", "session_id", "id"]
+    }
+
+    nonisolated private static func antigravityHistoryMatchesNeedle(
+        needle: String,
+        sessionId: String,
+        title: String,
+        cwd: String?
+    ) -> Bool {
+        guard !needle.isEmpty else { return true }
+        return [sessionId, title, cwd ?? ""].contains { value in
+            value.range(of: needle, options: [.caseInsensitive, .literal]) != nil
+        }
+    }
+
+    nonisolated private static func antigravityHistoryModifiedDate(
+        in object: [String: Any],
+        fallback: Date
+    ) -> Date {
+        guard let timestamp = antigravityNumericTimestamp(object["timestamp"]) else {
+            return fallback
+        }
+        let seconds = timestamp > 10_000_000_000 ? timestamp / 1_000 : timestamp
+        guard seconds.isFinite, seconds > 0 else { return fallback }
+        return Date(timeIntervalSince1970: seconds)
+    }
+
+    nonisolated private static func antigravityNumericTimestamp(_ value: Any?) -> Double? {
+        if let number = value as? NSNumber {
+            return number.doubleValue
+        }
+        if let string = value as? String {
+            return Double(string.trimmingCharacters(in: .whitespacesAndNewlines))
+        }
+        return nil
     }
 
     nonisolated private static func fileContains(_ url: URL, needle: String) -> Bool {

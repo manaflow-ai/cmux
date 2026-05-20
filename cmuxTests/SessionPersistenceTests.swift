@@ -1084,6 +1084,46 @@ final class SessionPersistenceTests: XCTestCase {
     }
 
     @MainActor
+    func testRestoredAntigravityAgentAutoResumeUsesConversationCommand() throws {
+        let source = Workspace()
+        let sourcePanelId = try XCTUnwrap(source.focusedPanelId)
+        let sourceIndex = try makeRestorableAgentIndex(
+            kind: .antigravity,
+            workspaceId: source.id,
+            panelId: sourcePanelId,
+            sessionId: "antigravity-conversation-123",
+            arguments: [
+                "/usr/local/bin/agy",
+                "--conversation",
+                "old-conversation",
+                "--sandbox",
+                "danger-full-access",
+                "startup prompt should not replay",
+            ],
+            environment: [:]
+        )
+        let snapshot = source.sessionSnapshot(
+            includeScrollback: false,
+            restorableAgentIndex: sourceIndex
+        )
+
+        let restored = Workspace()
+        restored.restoreSessionSnapshot(snapshot)
+        let restoredPanelId = try XCTUnwrap(restored.focusedPanelId)
+        restored.updatePanelShellActivityState(panelId: restoredPanelId, state: .commandRunning)
+
+        let agent = try XCTUnwrap(
+            restored.sessionSnapshot(includeScrollback: false).panels.first?.terminal?.agent
+        )
+        XCTAssertEqual(agent.kind, .antigravity)
+        XCTAssertEqual(agent.sessionId, "antigravity-conversation-123")
+        XCTAssertEqual(
+            agent.resumeCommand,
+            "cd '/tmp/repo' && '/usr/local/bin/agy' '--conversation' 'antigravity-conversation-123' '--sandbox' 'danger-full-access'"
+        )
+    }
+
+    @MainActor
     func testRestoredAgentWithoutResumeCommandInvalidatesOnFirstCommand() throws {
         let source = Workspace()
         let sourcePanelId = try XCTUnwrap(source.focusedPanelId)
