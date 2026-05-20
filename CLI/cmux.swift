@@ -4073,6 +4073,10 @@ struct CMUXCLI {
         case "markdown":
             try runMarkdownCommand(commandArgs: commandArgs, client: client, jsonOutput: jsonOutput, idFormat: idFormat)
 
+        // Roughdraft markdown review integration
+        case "roughdraft":
+            try runRoughdraftCommand(commandArgs: commandArgs, client: client, jsonOutput: jsonOutput, idFormat: idFormat)
+
         default:
             print(usage())
             throw CLIError(message: "Unknown command: \(command)")
@@ -4231,6 +4235,117 @@ struct CMUXCLI {
         if arg.hasPrefix("/") || arg.hasPrefix("./") || arg.hasPrefix("../") || arg.hasPrefix("~") { return true }
         if arg.contains("/") { return true }
         return false
+    }
+
+    // MARK: - Roughdraft Commands
+
+    private func runRoughdraftCommand(
+        commandArgs: [String],
+        client: SocketClient,
+        jsonOutput: Bool,
+        idFormat: CLIIDFormat
+    ) throws {
+        var args = commandArgs
+
+        let (workspaceOpt, argsAfterWorkspace) = parseOption(args, name: "--workspace")
+        let (windowOpt, argsAfterWindow) = parseOption(argsAfterWorkspace, name: "--window")
+        let (surfaceOpt, argsAfterSurface) = parseOption(argsAfterWindow, name: "--surface")
+        let (focusOpt, argsAfterFocus) = parseOption(argsAfterSurface, name: "--focus")
+        args = argsAfterFocus
+
+        let subArgs: [String]
+        if let first = args.first, first.lowercased() == "open" {
+            subArgs = Array(args.dropFirst())
+        } else if args.count == 1, let first = args.first, !first.hasPrefix("-") {
+            subArgs = [first]
+        } else {
+            if let first = args.first, first.hasPrefix("-") {
+                throw CLIError(message: "roughdraft open: unknown flag '\(first)'. Usage: cmux roughdraft open <path> [--workspace <id|ref|index>] [--surface <id|ref|index>] [--window <id|ref|index>] [--focus <true|false>]")
+            } else if let first = args.first, looksLikePath(first) || first.contains(".") {
+                subArgs = args
+            } else if let first = args.first {
+                throw CLIError(message: "Unknown roughdraft subcommand: \(first). Usage: cmux roughdraft open <path>")
+            } else {
+                subArgs = []
+            }
+        }
+
+        guard let rawPath = subArgs.first, !rawPath.isEmpty else {
+            throw CLIError(message: "roughdraft open requires a Markdown file path. Usage: cmux roughdraft open <path>")
+        }
+        let trailingArgs = Array(subArgs.dropFirst())
+        if let unknownFlag = trailingArgs.first(where: { $0.hasPrefix("-") }) {
+            throw CLIError(message: "roughdraft open: unknown flag '\(unknownFlag)'. Usage: cmux roughdraft open <path> [--workspace <id|ref|index>] [--surface <id|ref|index>] [--window <id|ref|index>] [--focus <true|false>]")
+        }
+        if let extraArg = trailingArgs.first {
+            throw CLIError(message: "roughdraft open: unexpected argument '\(extraArg)'. Usage: cmux roughdraft open <path> [--workspace <id|ref|index>] [--surface <id|ref|index>] [--window <id|ref|index>] [--focus <true|false>]")
+        }
+
+        let absolutePath = resolvePath(rawPath)
+        let roughdraftURL = try roughdraftDocumentURL(for: absolutePath)
+
+        var params: [String: Any] = ["url": roughdraftURL]
+        if let surfaceRaw = surfaceOpt {
+            if let surface = try normalizeSurfaceHandle(surfaceRaw, client: client) {
+                params["surface_id"] = surface
+            }
+        }
+        let workspaceRaw = workspaceOpt ?? (windowOpt == nil ? ProcessInfo.processInfo.environment["CMUX_WORKSPACE_ID"] : nil)
+        if let workspaceRaw {
+            if let workspace = try normalizeWorkspaceHandle(workspaceRaw, client: client) {
+                params["workspace_id"] = workspace
+            }
+        }
+        if let windowRaw = windowOpt {
+            if let window = try normalizeWindowHandle(windowRaw, client: client) {
+                params["window_id"] = window
+            }
+        }
+        try applyFocusOption(focusOpt, defaultValue: false, to: &params)
+
+        var payload = try client.sendV2(method: "browser.open_split", params: params)
+        payload["roughdraft_url"] = roughdraftURL
+        payload["path"] = absolutePath
+
+        if jsonOutput {
+            print(jsonString(formatIDs(payload, mode: idFormat)))
+        } else {
+            let surfaceText = formatHandle(payload, kind: "surface", idFormat: idFormat) ?? "unknown"
+            let paneText = formatHandle(payload, kind: "pane", idFormat: idFormat) ?? "unknown"
+            let placement = ((payload["created_split"] as? Bool) == true) ? "split" : "reuse"
+            print("OK surface=\(surfaceText) pane=\(paneText) placement=\(placement) path=\(absolutePath) url=\(roughdraftURL)")
+        }
+    }
+
+    private func roughdraftDocumentURL(for path: String) throws -> String {
+        let result = runProcess(
+            executablePath: "/usr/bin/env",
+            arguments: ["roughdraft", "open", path, "--print-url", "--no-watch"],
+            timeout: 30
+        )
+
+        guard result.status == 0 else {
+            let message = [result.stderr, result.stdout]
+                .map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }
+                .filter { !$0.isEmpty }
+                .joined(separator: "\n")
+            let detail = message.isEmpty ? "roughdraft exited with status \(result.status)" : message
+            throw CLIError(message: "Failed to open Roughdraft. Install it with `npm i -g roughdraft`, then retry.\n\(detail)")
+        }
+
+        let lines = result.stdout.split(whereSeparator: \.isNewline)
+            .map { String($0).trimmingCharacters(in: .whitespacesAndNewlines) }
+        for line in lines {
+            guard let url = URL(string: line),
+                  let scheme = url.scheme?.lowercased(),
+                  scheme == "http" || scheme == "https",
+                  url.host?.isEmpty == false else {
+                continue
+            }
+            return line
+        }
+
+        throw CLIError(message: "Roughdraft did not print a document URL.")
     }
 
     /// Open a path in cmux by creating a new workspace with the given directory.
@@ -11746,6 +11861,26 @@ struct CMUXCLI {
               cmux markdown ~/project/CHANGELOG.md
               cmux markdown open ./docs/design.md --workspace 0
               cmux markdown open plan.md --direction down
+            """
+        case "roughdraft":
+            return """
+            Usage: cmux roughdraft open <path> [options]
+                   cmux roughdraft <path>       (shorthand for 'open')
+
+            Open a local Markdown file in Roughdraft inside a cmux browser pane.
+            This requires the Roughdraft CLI (`npm i -g roughdraft`). cmux asks
+            Roughdraft for a local document URL without launching an external
+            browser, then opens that URL in the workspace browser surface.
+
+            Options:
+              --workspace <id|ref|index>   Target workspace (default: $CMUX_WORKSPACE_ID)
+              --surface <id|ref|index>     Source surface to split from (default: focused surface)
+              --window <id|ref|index>      Target window
+              --focus <true|false>         Focus the Roughdraft browser pane (default: false)
+
+            Examples:
+              cmux roughdraft open plan.md
+              cmux roughdraft ~/project/README.md --focus true
             """
         default:
             return nil
@@ -27457,6 +27592,7 @@ export default function cmuxPiSessionExtension(pi: ExtensionAPI) {
           display-message [-p|--print] <text>
 
           markdown [open] <path> [--focus <true|false>] (open markdown file in formatted viewer panel with live reload)
+          roughdraft [open] <path> [--focus <true|false>] (open markdown file in Roughdraft inside a cmux browser pane)
 
           browser [--surface <id|ref|index> | <surface>] <subcommand> ...
           browser disable | enable | status
