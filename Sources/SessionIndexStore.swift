@@ -1095,9 +1095,9 @@ final class SessionIndexStore: ObservableObject {
                 registry = await Self.vaultAgentRegistry(workingDirectory: cwdFilter)
             } else if a == .grok {
                 let scopedCwd = currentDirectory?.trimmingCharacters(in: .whitespacesAndNewlines)
-                cwdFilter = nil
+                cwdFilter = scopedCwd?.isEmpty == false ? scopedCwd : nil
                 registry = await Self.vaultAgentRegistry(
-                    workingDirectory: scopedCwd?.isEmpty == false ? scopedCwd : nil
+                    workingDirectory: cwdFilter
                 )
             } else {
                 cwdFilter = nil

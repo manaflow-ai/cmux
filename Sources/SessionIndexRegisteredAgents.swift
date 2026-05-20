@@ -525,6 +525,7 @@ extension SessionIndexStore {
 
     nonisolated private static func extractGrokSessionMetadata(url: URL) -> GrokSessionMetadata {
         var metadata = GrokSessionMetadata()
+        var remainingBranchProbeLines: Int?
         forEachJSONLine(url: url, maxBytes: 512 * 1024) { object in
             if metadata.title.isEmpty {
                 metadata.title = grokTitle(in: object) ?? ""
@@ -554,10 +555,14 @@ extension SessionIndexStore {
             if metadata.branch == nil {
                 metadata.branch = firstString(in: object, keys: ["gitBranch", "branch"])
             }
-            return !metadata.title.isEmpty
+            let hasStableMetadata = !metadata.title.isEmpty
                 && metadata.model != nil
                 && metadata.permissionMode != nil
                 && metadata.sandboxMode != nil
+            guard hasStableMetadata else { return false }
+            guard metadata.branch == nil else { return true }
+            remainingBranchProbeLines = (remainingBranchProbeLines ?? 32) - 1
+            return (remainingBranchProbeLines ?? 0) <= 0
         }
         return metadata
     }
