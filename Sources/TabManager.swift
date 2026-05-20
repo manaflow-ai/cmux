@@ -3186,13 +3186,48 @@ class TabManager: ObservableObject {
             let parts = line.split(separator: "=", maxSplits: 1).map {
                 $0.trimmingCharacters(in: .whitespaces)
             }
-            guard parts.count == 2, parts[0] == "url", !parts[1].isEmpty else {
+            guard parts.count == 2, parts[0] == "url" else {
                 continue
             }
-            lines.append("\(currentRemoteName)\t\(parts[1]) (fetch)\n")
+            let remoteURL = gitConfigUnquotedValue(parts[1])
+            guard !remoteURL.isEmpty else {
+                continue
+            }
+            lines.append("\(currentRemoteName)\t\(remoteURL) (fetch)\n")
         }
 
         return lines
+    }
+
+    private nonisolated static func gitConfigUnquotedValue(_ value: String) -> String {
+        let trimmedValue = value.trimmingCharacters(in: .whitespaces)
+        guard trimmedValue.first == "\"",
+              trimmedValue.last == "\"",
+              trimmedValue.count >= 2 else {
+            return trimmedValue
+        }
+
+        var result = ""
+        var isEscaped = false
+        for character in trimmedValue.dropFirst().dropLast() {
+            if isEscaped {
+                result.append(character)
+                isEscaped = false
+                continue
+            }
+
+            if character == "\\" {
+                isEscaped = true
+                continue
+            }
+
+            result.append(character)
+        }
+
+        if isEscaped {
+            result.append("\\")
+        }
+        return result
     }
 
     private nonisolated static func gitConfigLineRemovingInlineComment(_ line: String) -> String {

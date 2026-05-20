@@ -711,9 +711,84 @@ _cmux_github_repo_slug_for_path() {
     fi
     [[ -r "$config_file" ]] || return 0
     remote_url="$(awk '
-        $0 ~ /^\[remote \"origin\"\]/ { in_origin = 1; next }
-        $0 ~ /^\[/ { in_origin = 0 }
-        in_origin && $1 == "url" && $2 == "=" { print $3; exit }
+        function trim(s) {
+            sub(/^[[:space:]]+/, "", s)
+            sub(/[[:space:]]+$/, "", s)
+            return s
+        }
+        function strip_inline_comment(s, i, c, out, previous_was_space, in_quote, escaped) {
+            out = ""
+            previous_was_space = 1
+            in_quote = 0
+            escaped = 0
+            for (i = 1; i <= length(s); i++) {
+                c = substr(s, i, 1)
+                if (escaped) {
+                    out = out c
+                    escaped = 0
+                    previous_was_space = (c ~ /[[:space:]]/)
+                    continue
+                }
+                if (in_quote && c == "\\") {
+                    out = out c
+                    escaped = 1
+                    previous_was_space = 0
+                    continue
+                }
+                if (c == "\"") {
+                    out = out c
+                    in_quote = !in_quote
+                    previous_was_space = 0
+                    continue
+                }
+                if (!in_quote && previous_was_space && (c == "#" || c == ";")) {
+                    break
+                }
+                out = out c
+                previous_was_space = (c ~ /[[:space:]]/)
+            }
+            return out
+        }
+        function unquote_config_value(s, i, c, out, escaped) {
+            s = trim(s)
+            if (length(s) >= 2 && substr(s, 1, 1) == "\"" && substr(s, length(s), 1) == "\"") {
+                out = ""
+                escaped = 0
+                for (i = 2; i < length(s); i++) {
+                    c = substr(s, i, 1)
+                    if (escaped) {
+                        out = out c
+                        escaped = 0
+                        continue
+                    }
+                    if (c == "\\") {
+                        escaped = 1
+                        continue
+                    }
+                    out = out c
+                }
+                if (escaped) {
+                    out = out "\\"
+                }
+                return out
+            }
+            return s
+        }
+        {
+            line = strip_inline_comment($0)
+            if (line ~ /^\[remote[[:space:]]+"origin"\][[:space:]]*$/) {
+                in_origin = 1
+                next
+            }
+            if (line ~ /^\[/) {
+                in_origin = 0
+            }
+            if (in_origin && line ~ /^[[:space:]]*url[[:space:]]*=/) {
+                sub(/^[^=]*=/, "", line)
+                print unquote_config_value(line)
+                exit
+            }
+        }
     ' "$config_file" 2>/dev/null)"
     [[ -n "$remote_url" ]] || return 0
 

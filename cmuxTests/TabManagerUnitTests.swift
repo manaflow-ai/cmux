@@ -367,6 +367,22 @@ final class TabManagerPullRequestProbeTests: XCTestCase {
         )
     }
 
+    func testGitHubRepositorySlugsFromGitConfigUnquotesUrlValues() {
+        let config = """
+        [remote "origin"] ; user's main fork
+            url = "git@github.com:austinwang/cmux.git" # main origin
+            fetch = +refs/heads/*:refs/remotes/origin/*
+        [remote "upstream"] # canonical repo
+            url = "https://github.com/manaflow-ai/cmux.git" ; upstream source
+            fetch = +refs/heads/*:refs/remotes/upstream/*
+        """
+
+        XCTAssertEqual(
+            TabManager.githubRepositorySlugs(fromGitConfigForTesting: config),
+            ["manaflow-ai/cmux", "austinwang/cmux"]
+        )
+    }
+
     func testPreferredPullRequestPrefersOpenOverMergedAndClosed() {
         let candidates = [
             TabManager.GitHubPullRequestProbeItem(
