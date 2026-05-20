@@ -4,6 +4,7 @@ import Darwin
 
 /// Coordinates cancellation with `Process.run()`: Foundation raises an
 /// Objective-C exception if termination APIs touch a task before launch.
+/// `@unchecked Sendable` is safe here because all mutable state is protected by `lock`.
 final class ProcessTerminationGate: @unchecked Sendable {
     private let lock = NSLock()
     private var didLaunch = false

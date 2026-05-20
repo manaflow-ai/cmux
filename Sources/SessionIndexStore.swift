@@ -1293,6 +1293,9 @@ final class SessionIndexStore: ObservableObject {
             let data = outPipe.fileHandleForReading.readDataToEndOfFile()
             process.waitUntilExit()
             terminationGate.markFinished()
+            guard !Task.isCancelled else {
+                return nil
+            }
             // rg exit codes: 0 = matches, 1 = no matches, 2 = error/terminated.
             switch process.terminationStatus {
             case 0:

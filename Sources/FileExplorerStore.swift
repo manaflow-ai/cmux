@@ -478,6 +478,12 @@ final class ProcessSSHFileExplorerTransport: SSHFileExplorerTransport {
             let stderrData = errPipe.fileHandleForReading.readDataToEndOfFile()
             process.waitUntilExit()
             terminationGate.markFinished()
+            lock.lock()
+            let wasCancelled = cancelled
+            lock.unlock()
+            if wasCancelled {
+                throw CancellationError()
+            }
 
             return SSHCommandResult(
                 stdout: String(data: data, encoding: .utf8) ?? "",
