@@ -21293,11 +21293,10 @@ export default function cmuxPiSessionExtension(pi: ExtensionAPI) {
             print(String.localizedStringWithFormat(
                 String(
                     localized: "cli.hooks.antigravity.malformedJSON",
-                    defaultValue: "Malformed %@ at %@: %@"
+                    defaultValue: "Malformed %@ at %@. Fix or remove it before uninstalling hooks."
                 ),
                 def.configFile,
-                filePath,
-                error.localizedDescription
+                filePath
             ))
             jsonObject = nil
             malformedJSON = true
