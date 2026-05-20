@@ -15,6 +15,7 @@ import stat
 import subprocess
 import tempfile
 import time
+from contextlib import suppress
 from pathlib import Path
 
 
@@ -69,7 +70,7 @@ class BoundUnixSocket:
         self.path = path
         self.sock: socket.socket | None = None
 
-    def __enter__(self) -> "BoundUnixSocket":
+    def __enter__(self) -> BoundUnixSocket:
         self.path.parent.mkdir(parents=True, exist_ok=True)
         self.sock = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
         self.sock.bind(str(self.path))
@@ -103,6 +104,22 @@ def _write_executable(path: Path, contents: str) -> None:
 
 def _clean_line(raw: str) -> str:
     return ANSI_ESCAPE_RE.sub("", raw).replace("\r", "").strip()
+
+
+def _drain_pty(fd: int, output: bytearray, *, quiet_after: float = 0.2) -> None:
+    deadline = time.time() + quiet_after
+    while time.time() < deadline:
+        readable, _, _ = select.select([fd], [], [], 0.05)
+        if fd not in readable:
+            continue
+        try:
+            chunk = os.read(fd, 4096)
+        except OSError:
+            return
+        if not chunk:
+            return
+        output.extend(chunk)
+        deadline = time.time() + quiet_after
 
 
 def _run_interactive_bash(bash_path: str, tmp: Path) -> tuple[int, str]:
@@ -164,16 +181,13 @@ def _run_interactive_bash(bash_path: str, tmp: Path) -> tuple[int, str]:
             waited_pid, status = os.waitpid(pid, os.WNOHANG)
             if waited_pid == pid:
                 exit_status = os.waitstatus_to_exitcode(status)
+                _drain_pty(fd, output)
                 break
         else:
-            try:
+            with suppress(ProcessLookupError):
                 os.kill(pid, 15)
-            except ProcessLookupError:
-                pass
-            try:
+            with suppress(ChildProcessError):
                 os.waitpid(pid, 0)
-            except ChildProcessError:
-                pass
             return 124, output.decode(errors="replace")
 
     return exit_status, output.decode(errors="replace")
@@ -182,6 +196,9 @@ def _run_interactive_bash(bash_path: str, tmp: Path) -> tuple[int, str]:
 def main() -> int:
     bash_path = _find_bash_with_inline_ps0()
     if bash_path is None:
+        if os.environ.get("CI"):
+            print("FAIL: CI must provide Bash >= 5.3 for inline PS0 regression coverage")
+            return 1
         print("SKIP: no Bash >= 5.3 found for inline PS0 regression coverage")
         return 0
 
