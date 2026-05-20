@@ -1,6 +1,12 @@
 import AppKit
 import Foundation
+import OSLog
 import WebKit
+
+nonisolated private let browserWebExtensionLogger = Logger(
+    subsystem: "com.cmuxterm.app",
+    category: "BrowserExtensions"
+)
 
 struct BrowserWebExtensionInstalledSummary: Identifiable, Equatable, Sendable {
     let id: UUID
@@ -677,13 +683,17 @@ final class BrowserWebExtensionInstallStore {
             let data = try JSONEncoder.cmuxBrowserExtensions.encode(recordsToPersist)
             try data.write(to: registryURL, options: .atomic)
         } catch {
-            NSLog("[BrowserExtensions] Failed to save extension registry: \(error.localizedDescription)")
+            browserWebExtensionLogger.error(
+                "Failed to save extension registry: \(error.localizedDescription, privacy: .private)"
+            )
             throw BrowserWebExtensionInstallError.persistFailed(error.localizedDescription)
         }
     }
 
     private func quarantineCorruptRegistry(after error: Error) {
-        NSLog("[BrowserExtensions] Failed to reload extension registry: \(error.localizedDescription)")
+        browserWebExtensionLogger.error(
+            "Failed to reload extension registry: \(error.localizedDescription, privacy: .private)"
+        )
         let formatter = ISO8601DateFormatter()
         formatter.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
         let timestamp = formatter.string(from: Date())
@@ -693,7 +703,9 @@ final class BrowserWebExtensionInstallStore {
         do {
             try fileManager.moveItem(at: registryURL, to: quarantineURL)
         } catch {
-            NSLog("[BrowserExtensions] Failed to quarantine extension registry: \(error.localizedDescription)")
+            browserWebExtensionLogger.error(
+                "Failed to quarantine extension registry: \(error.localizedDescription, privacy: .private)"
+            )
         }
     }
 
@@ -1080,7 +1092,9 @@ private final class BrowserWebExtensionRuntime: NSObject, WKWebExtensionControll
                 code != .invalidBackgroundPersistence
         }
         if let firstError = fatalParseErrors.first {
-            NSLog("[BrowserExtensions] Failed to load extension during install: \(firstError.localizedDescription)")
+            browserWebExtensionLogger.error(
+                "Failed to load extension during install: \(firstError.localizedDescription, privacy: .private)"
+            )
             throw BrowserWebExtensionInstallError.loadFailed(firstError.localizedDescription)
         }
         try await promptForInstallConsent(webExtension: webExtension, sourceKind: source.kind)
@@ -1398,7 +1412,9 @@ private final class BrowserWebExtensionRuntime: NSObject, WKWebExtensionControll
         } catch let installError as BrowserWebExtensionInstallError {
             throw installError
         } catch {
-            NSLog("[BrowserExtensions] Failed to load extension bundle: \(error.localizedDescription)")
+            browserWebExtensionLogger.error(
+                "Failed to load extension bundle: \(error.localizedDescription, privacy: .private)"
+            )
             throw BrowserWebExtensionInstallError.loadFailed(error.localizedDescription)
         }
     }
