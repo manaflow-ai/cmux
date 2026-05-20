@@ -9,6 +9,7 @@ ROOT_DIR="$(cd "$(dirname "$0")/.." && pwd)"
 CI_FILE="$ROOT_DIR/.github/workflows/ci.yml"
 GHOSTTYKIT_FILE="$ROOT_DIR/.github/workflows/build-ghosttykit.yml"
 COMPAT_FILE="$ROOT_DIR/.github/workflows/ci-macos-compat.yml"
+QUARANTINE_FILE="$ROOT_DIR/.github/workflows/macos-xctest-quarantine.yml"
 
 check_warp_runner() {
   local file="$1" job="$2"
@@ -36,3 +37,6 @@ check_warp_runner "$GHOSTTYKIT_FILE" "build-ghosttykit"
 
 # ci-macos-compat.yml (uses matrix.os with WarpBuild runners)
 check_warp_runner "$COMPAT_FILE" "compat-tests"
+
+# macos-xctest-quarantine.yml
+check_warp_runner "$QUARANTINE_FILE" "macos-xctest-quarantine"
