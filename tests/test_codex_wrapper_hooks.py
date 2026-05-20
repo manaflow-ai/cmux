@@ -125,6 +125,15 @@ exit 0
             """#!/usr/bin/env bash
 set -euo pipefail
 printf 'bundled %s timeout=%s\\n' "$*" "${CMUXTERM_CLI_RESPONSE_TIMEOUT_SEC-__UNSET__}" >> "$FAKE_CMUX_LOG"
+if [[ "${1:-}" == "--socket" ]]; then
+  shift 2
+fi
+if [[ "${1:-}" == "ping" ]]; then
+  if [[ "${FAKE_CMUX_PING_OK:-0}" == "1" ]]; then
+    exit 0
+  fi
+  exit 1
+fi
 exit 0
 """,
         )
