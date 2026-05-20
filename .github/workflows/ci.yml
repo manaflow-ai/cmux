@@ -5,13 +5,18 @@ on:
     branches:
       - main
   pull_request:
+  workflow_dispatch:
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
 jobs:
   workflow-guard-tests:
     runs-on: ubuntu-latest
     steps:
       - name: Checkout
-        uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
 
       - name: Validate WarpBuild runner guards
         run: ./tests/test_ci_self_hosted_guard.sh
@@ -34,16 +39,35 @@ jobs:
       - name: Validate current GhosttyKit checksum pin
         run: ./tests/test_ci_ghosttykit_checksum_present.sh
 
+      - name: Validate Swift warning budget guard
+        run: ./tests/test_ci_swift_warning_budget.sh
+
+      - name: Validate Swift file length budget guard
+        run: ./tests/test_ci_swift_file_length_budget.sh
+
+      - name: Validate auxiliary window close shortcut lint
+        run: ./tests/test_ci_auxiliary_window_close_shortcuts.sh
+
+      # Paused: stale-base merge races (two PRs each fitting the budget can
+      # overshoot when merged back-to-back without rebasing). CodeRabbit and
+      # Greptile already flag large-file growth on PRs. Re-enable by uncommenting
+      # this step (and refresh the budget tsv first):
+      #   python3 scripts/swift_file_length_budget.py \
+      #     --budget .github/swift-file-length-budget.tsv --write-budget
+      # - name: Validate Swift file length budget
+      #   run: python3 scripts/swift_file_length_budget.py --budget .github/swift-file-length-budget.tsv
+
   remote-daemon-tests:
     runs-on: ubuntu-latest
     steps:
       - name: Checkout
-        uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
 
       - name: Setup Go
-        uses: actions/setup-go@d35c59abb061a4a6fb18e82ac0862c26744d6ab5 # v5.5.0
+        uses: actions/setup-go@4a3601121dd01d1626a1e23e37211e3254c1c06c # v6.4.0
         with:
           go-version-file: daemon/remote/go.mod
+          cache-dependency-path: daemon/remote/go.sum
 
       - name: Run remote daemon tests
         working-directory: daemon/remote
@@ -59,10 +83,10 @@ jobs:
         working-directory: web
     steps:
       - name: Checkout
-        uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
 
       - name: Setup Bun
-        uses: oven-sh/setup-bun@3d267786b128fe76c2f16a390aa2448b815359f3 # v2
+        uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2
 
       - name: Install dependencies
         run: bun install --frozen-lockfile
@@ -70,14 +94,70 @@ jobs:
       - name: Typecheck
         run: bun tsc --noEmit
 
-  tests:
-    # Never run WarpBuild jobs for fork pull requests (avoid billing on external PRs).
-    if: github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository
-    runs-on: warp-macos-15-arm64-6x
-    timeout-minutes: 30
+      - name: Web tests
+        run: bun test
+
+  web-db-migrations:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: web
+    services:
+      postgres:
+        image: postgres:16-alpine
+        env:
+          POSTGRES_DB: cmux_test
+          POSTGRES_PASSWORD: cmux
+          POSTGRES_USER: cmux
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U cmux -d cmux_test"
+          --health-interval 1s
+          --health-timeout 5s
+          --health-retries 30
     steps:
       - name: Checkout
-        uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+
+      - name: Setup Bun
+        uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2
+
+      - name: Install dependencies
+        run: bun install --frozen-lockfile
+
+      - name: Apply migrations
+        env:
+          DATABASE_URL: postgres://cmux:cmux@localhost:5432/cmux_test
+          DIRECT_DATABASE_URL: postgres://cmux:cmux@localhost:5432/cmux_test
+        run: bunx drizzle-kit migrate --config drizzle.config.ts
+
+      - name: Re-apply migrations
+        env:
+          DATABASE_URL: postgres://cmux:cmux@localhost:5432/cmux_test
+          DIRECT_DATABASE_URL: postgres://cmux:cmux@localhost:5432/cmux_test
+        run: bunx drizzle-kit migrate --config drizzle.config.ts
+
+      - name: Database behavior tests
+        env:
+          CMUX_DB_TEST: "1"
+          DATABASE_URL: postgres://cmux:cmux@localhost:5432/cmux_test
+          DIRECT_DATABASE_URL: postgres://cmux:cmux@localhost:5432/cmux_test
+        run: |
+          bun test tests/db-schema.test.ts
+          bun test tests/drizzle-effect.test.ts
+          bun test tests/vm-db-read-model.test.ts
+
+  tests:
+    runs-on: warp-macos-15-arm64-6x
+    timeout-minutes: 45
+    env:
+      CMUX_SKIP_ZIG_BUILD: "1"
+      # Keep Swift crash backtraces from opening the 30s interactive prompt in CI.
+      SWIFT_BACKTRACE: "interactive=no,color=no"
+    steps:
+      - name: Checkout
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
         with:
           submodules: recursive
 
@@ -101,7 +181,7 @@ jobs:
 
       - name: Cache GhosttyKit.xcframework
         id: cache-ghosttykit
-        uses: actions/cache@5a3ec84eff668545956fd18022155c47e93e2684 # v4
+        uses: actions/cache@27d5ce7f107fe9357f9df03efb73ab90386fccae # v5.0.5
         with:
           path: GhosttyKit.xcframework
           key: ghosttykit-${{ hashFiles('.gitmodules', 'ghostty') }}
@@ -113,34 +193,33 @@ jobs:
 
       - name: Install zig
         run: |
-          ZIG_REQUIRED="0.15.2"
-          if command -v zig >/dev/null 2>&1 && zig version 2>/dev/null | grep -q "^${ZIG_REQUIRED}"; then
-            echo "zig ${ZIG_REQUIRED} already installed"
-          else
-            echo "Installing zig ${ZIG_REQUIRED} from tarball"
-            curl -fSL "https://ziglang.org/download/${ZIG_REQUIRED}/zig-aarch64-macos-${ZIG_REQUIRED}.tar.xz" -o /tmp/zig.tar.xz
-            tar xf /tmp/zig.tar.xz -C /tmp
-            sudo mkdir -p /usr/local/bin /usr/local/lib
-            sudo cp -f /tmp/zig-aarch64-macos-${ZIG_REQUIRED}/zig /usr/local/bin/zig
-            sudo cp -rf /tmp/zig-aarch64-macos-${ZIG_REQUIRED}/lib /usr/local/lib/zig
-            export PATH="/usr/local/bin:$PATH"
-            zig version
-          fi
+          ./scripts/install-zig-ci.sh
+
+      - name: Install Rust
+        run: |
+          ./scripts/install-rust-ci.sh
+
+      - name: Cache Zig packages
+        uses: actions/cache@27d5ce7f107fe9357f9df03efb73ab90386fccae # v5.0.5
+        with:
+          path: ~/.cache/zig
+          key: zig-packages-${{ hashFiles('ghostty/build.zig.zon', 'ghostty/build.zig.zon.json') }}
+          restore-keys: zig-packages-
 
       - name: Cache DerivedData
-        uses: actions/cache@5a3ec84eff668545956fd18022155c47e93e2684 # v4
+        uses: actions/cache@27d5ce7f107fe9357f9df03efb73ab90386fccae # v5.0.5
         with:
-          path: ~/Library/Developer/Xcode/DerivedData/GhosttyTabs-*
-          key: deriveddata-tests-${{ hashFiles('GhosttyTabs.xcodeproj/project.xcworkspace/xcshareddata/swiftpm/Package.resolved') }}-${{ hashFiles('GhosttyTabs.xcodeproj/project.pbxproj') }}
+          path: ~/Library/Developer/Xcode/DerivedData/cmux-*
+          key: deriveddata-tests-${{ hashFiles('cmux.xcodeproj/project.xcworkspace/xcshareddata/swiftpm/Package.resolved') }}-${{ hashFiles('cmux.xcodeproj/project.pbxproj') }}
           restore-keys: |
-            deriveddata-tests-${{ hashFiles('GhosttyTabs.xcodeproj/project.xcworkspace/xcshareddata/swiftpm/Package.resolved') }}-
+            deriveddata-tests-${{ hashFiles('cmux.xcodeproj/project.xcworkspace/xcshareddata/swiftpm/Package.resolved') }}-
             deriveddata-tests-
 
       - name: Cache Swift packages
-        uses: actions/cache@5a3ec84eff668545956fd18022155c47e93e2684 # v4
+        uses: actions/cache@27d5ce7f107fe9357f9df03efb73ab90386fccae # v5.0.5
         with:
           path: .ci-source-packages
-          key: spm-${{ hashFiles('GhosttyTabs.xcodeproj/project.xcworkspace/xcshareddata/swiftpm/Package.resolved') }}
+          key: spm-${{ hashFiles('cmux.xcodeproj/project.xcworkspace/xcshareddata/swiftpm/Package.resolved') }}
           restore-keys: spm-
 
       - name: Resolve Swift packages
@@ -150,7 +229,7 @@ jobs:
           mkdir -p "$SOURCE_PACKAGES_DIR"
 
           for attempt in 1 2 3; do
-            if xcodebuild -project GhosttyTabs.xcodeproj -scheme cmux-unit -configuration Debug \
+            if xcodebuild -project cmux.xcodeproj -scheme cmux-unit -configuration Debug \
               -clonedSourcePackagesDirPath "$SOURCE_PACKAGES_DIR" \
               -resolvePackageDependencies; then
               exit 0
@@ -168,10 +247,11 @@ jobs:
           set -euo pipefail
           SOURCE_PACKAGES_DIR="$PWD/.ci-source-packages"
           run_unit_tests() {
-            xcodebuild -project GhosttyTabs.xcodeproj -scheme cmux-unit -configuration Debug \
+            xcodebuild -project cmux.xcodeproj -scheme cmux-unit -configuration Debug \
               -clonedSourcePackagesDirPath "$SOURCE_PACKAGES_DIR" \
               -disableAutomaticPackageResolution \
               -destination "platform=macOS" \
+              CMUX_SKIP_ZIG_BUILD=1 \
               -skip-testing:cmuxTests/AppDelegateShortcutRoutingTests/testCmdWClosesWindowWhenClosingLastSurfaceInLastWorkspace \
               test 2>&1
           }
@@ -191,7 +271,7 @@ jobs:
             echo "SwiftPM package resolution failed, clearing caches and retrying once"
             rm -rf ~/Library/Caches/org.swift.swiftpm
             mkdir -p ~/Library/Caches/org.swift.swiftpm
-            rm -rf ~/Library/Developer/Xcode/DerivedData/GhosttyTabs-*
+            rm -rf ~/Library/Developer/Xcode/DerivedData/cmux-*
             set +e
             run_unit_tests | tee /tmp/test-output.txt
             EXIT_CODE=${PIPESTATUS[0]}
@@ -215,7 +295,10 @@ jobs:
           CMUX_SOURCE_PACKAGES_DIR="$PWD/.ci-source-packages" \
             ./tests/test_bundled_ghostty_theme_picker_helper.sh
 
-      - name: Run CLI version memory guard regression
+      - name: Setup Bun
+        uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2
+
+      - name: Run CLI no-socket regressions
         run: |
           set -euo pipefail
 
@@ -231,18 +314,26 @@ jobs:
           fi
 
           CMUX_CLI_BIN="$CLI_BIN" python3 tests/test_cli_version_memory_guard.py
+          CMUX_CLI_BIN="$CLI_BIN" python3 tests/test_cli_contract_help.py
+          CMUX_CLI_BIN="$CLI_BIN" python3 tests/test_cli_layout_focus_contract.py
+          CMUX_CLI_BIN="$CLI_BIN" python3 tests/test_cli_socket_operation_deadline.py
+          CMUX_CLI_BIN="$CLI_BIN" python3 tests/test_cli_omo_openagent_plugin_migration.py
+          CMUX_CLI_BIN="$CLI_BIN" python3 tests/test_cli_socket_autodiscovery.py
+          python3 tests/test_claude_wrapper_hooks.py
+          CMUX_CLI_BIN="$CLI_BIN" python3 tests/test_claude_hook_stop_last_assistant.py
+          CMUX_CLI_BIN="$CLI_BIN" python3 tests/test_claude_hook_clear_running_status.py
+          CMUX_CLI_BIN="$CLI_BIN" python3 tests/test_pi_extension_install.py
 
   tests-build-and-lag:
     # Build the full cmux scheme and run the lag regression on WarpBuild.
-    # XCUITests cannot run on WarpBuild (Virtualization.framework limitation:
-    # XCUIApplication stuck "Running Background", 62s activation timeout per
-    # test). Interactive UI tests run via test-e2e.yml on GitHub-hosted runners.
-    if: github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository
+    # Keep lag validation separate from UI regressions so functional UI failures
+    # and performance regressions stay isolated. Broader interactive UI suites
+    # still run via test-e2e.yml on GitHub-hosted runners.
     runs-on: warp-macos-15-arm64-6x
     timeout-minutes: 20
     steps:
       - name: Checkout
-        uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
         with:
           submodules: recursive
 
@@ -266,7 +357,7 @@ jobs:
 
       - name: Cache GhosttyKit.xcframework
         id: cache-ghosttykit-lag
-        uses: actions/cache@5a3ec84eff668545956fd18022155c47e93e2684 # v4
+        uses: actions/cache@27d5ce7f107fe9357f9df03efb73ab90386fccae # v5.0.5
         with:
           path: GhosttyKit.xcframework
           key: ghosttykit-${{ hashFiles('.gitmodules', 'ghostty') }}
@@ -278,34 +369,33 @@ jobs:
 
       - name: Install zig
         run: |
-          ZIG_REQUIRED="0.15.2"
-          if command -v zig >/dev/null 2>&1 && zig version 2>/dev/null | grep -q "^${ZIG_REQUIRED}"; then
-            echo "zig ${ZIG_REQUIRED} already installed"
-          else
-            echo "Installing zig ${ZIG_REQUIRED} from tarball"
-            curl -fSL "https://ziglang.org/download/${ZIG_REQUIRED}/zig-aarch64-macos-${ZIG_REQUIRED}.tar.xz" -o /tmp/zig.tar.xz
-            tar xf /tmp/zig.tar.xz -C /tmp
-            sudo mkdir -p /usr/local/bin /usr/local/lib
-            sudo cp -f /tmp/zig-aarch64-macos-${ZIG_REQUIRED}/zig /usr/local/bin/zig
-            sudo cp -rf /tmp/zig-aarch64-macos-${ZIG_REQUIRED}/lib /usr/local/lib/zig
-            export PATH="/usr/local/bin:$PATH"
-            zig version
-          fi
+          ./scripts/install-zig-ci.sh
+
+      - name: Install Rust
+        run: |
+          ./scripts/install-rust-ci.sh
+
+      - name: Cache Zig packages
+        uses: actions/cache@27d5ce7f107fe9357f9df03efb73ab90386fccae # v5.0.5
+        with:
+          path: ~/.cache/zig
+          key: zig-packages-${{ hashFiles('ghostty/build.zig.zon', 'ghostty/build.zig.zon.json') }}
+          restore-keys: zig-packages-
 
       - name: Cache DerivedData
-        uses: actions/cache@5a3ec84eff668545956fd18022155c47e93e2684 # v4
+        uses: actions/cache@27d5ce7f107fe9357f9df03efb73ab90386fccae # v5.0.5
         with:
-          path: ~/Library/Developer/Xcode/DerivedData/GhosttyTabs-*
-          key: deriveddata-build-${{ hashFiles('GhosttyTabs.xcodeproj/project.xcworkspace/xcshareddata/swiftpm/Package.resolved') }}-${{ hashFiles('GhosttyTabs.xcodeproj/project.pbxproj') }}
+          path: ~/Library/Developer/Xcode/DerivedData/cmux-*
+          key: deriveddata-build-${{ hashFiles('cmux.xcodeproj/project.xcworkspace/xcshareddata/swiftpm/Package.resolved') }}-${{ hashFiles('cmux.xcodeproj/project.pbxproj') }}
           restore-keys: |
-            deriveddata-build-${{ hashFiles('GhosttyTabs.xcodeproj/project.xcworkspace/xcshareddata/swiftpm/Package.resolved') }}-
+            deriveddata-build-${{ hashFiles('cmux.xcodeproj/project.xcworkspace/xcshareddata/swiftpm/Package.resolved') }}-
             deriveddata-build-
 
       - name: Cache Swift packages
-        uses: actions/cache@5a3ec84eff668545956fd18022155c47e93e2684 # v4
+        uses: actions/cache@27d5ce7f107fe9357f9df03efb73ab90386fccae # v5.0.5
         with:
           path: .ci-source-packages
-          key: spm-build-${{ hashFiles('GhosttyTabs.xcodeproj/project.xcworkspace/xcshareddata/swiftpm/Package.resolved') }}
+          key: spm-build-${{ hashFiles('cmux.xcodeproj/project.xcworkspace/xcshareddata/swiftpm/Package.resolved') }}
           restore-keys: spm-build-
 
       - name: Resolve Swift packages
@@ -315,7 +405,7 @@ jobs:
           mkdir -p "$SOURCE_PACKAGES_DIR"
 
           for attempt in 1 2 3; do
-            if xcodebuild -project GhosttyTabs.xcodeproj -scheme cmux -configuration Debug \
+            if xcodebuild -project cmux.xcodeproj -scheme cmux -configuration Debug \
               -clonedSourcePackagesDirPath "$SOURCE_PACKAGES_DIR" \
               -resolvePackageDependencies; then
               exit 0
@@ -332,10 +422,32 @@ jobs:
         run: |
           set -euo pipefail
           SOURCE_PACKAGES_DIR="$PWD/.ci-source-packages"
-          xcodebuild -project GhosttyTabs.xcodeproj -scheme cmux -configuration Debug \
+          xcodebuild -project cmux.xcodeproj -scheme cmux -configuration Debug \
             -clonedSourcePackagesDirPath "$SOURCE_PACKAGES_DIR" \
             -disableAutomaticPackageResolution \
-            -destination "platform=macOS" build
+            -destination "platform=macOS" build 2>&1 | tee /tmp/cmux-build-output.txt
+
+      - name: Validate Swift warning budget
+        run: python3 scripts/swift_warning_budget.py --log /tmp/cmux-build-output.txt
+
+      - name: Run CoreAnimation main-thread startup regression
+        run: |
+          set -euo pipefail
+          APP="$(
+            find "$HOME/Library/Developer/Xcode/DerivedData" -path "*/Build/Products/Debug/cmux DEV.app" -exec stat -f '%m %N' {} \; \
+              | sort -nr \
+              | head -1 \
+              | cut -d' ' -f2-
+          )"
+          if [ -z "${APP:-}" ] || [ ! -d "$APP" ]; then
+            echo "cmux DEV.app not found in DerivedData" >&2
+            exit 1
+          fi
+
+          CMUX_ALLOW_UNTAGGED_CA_REGRESSION=1 \
+          CMUX_CA_ASSERT_HOLD_SECONDS=15 \
+          CMUX_TAG="ci-ca-main-thread" \
+          ./scripts/verify-main-thread-ca-transactions.sh "$APP"
 
       - name: Create virtual display
         run: |
@@ -346,6 +458,7 @@ jobs:
           VDISPLAY_PID=$!
           echo "VDISPLAY_PID=$VDISPLAY_PID" >> "$GITHUB_ENV"
           sleep 3
+          kill -0 "$VDISPLAY_PID"
 
       - name: Run workspace churn typing-lag regression
         run: |
@@ -389,13 +502,107 @@ jobs:
           CMUX_LAG_KEY_EVENTS=180 \
           python3 tests/test_workspace_churn_up_arrow_lag.py
 
-  ui-display-resolution-regression:
-    if: github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository
+      - name: Cleanup virtual display
+        if: always()
+        run: |
+          set -euo pipefail
+          if [ -n "${VDISPLAY_PID:-}" ]; then
+            kill "$VDISPLAY_PID" >/dev/null 2>&1 || true
+          fi
+          rm -f /tmp/create-virtual-display
+
+  release-build:
+    # Compile the same unsigned universal Release app that nightly builds before
+    # signing, notarization, and publishing. This catches DEBUG/Release boundary
+    # mistakes before they reach main.
+    runs-on: warp-macos-26-arm64-6x
+    timeout-minutes: 20
+    steps:
+      - name: Checkout
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          submodules: recursive
+
+      - name: Select Xcode
+        run: |
+          set -euo pipefail
+          if [ -d "/Applications/Xcode.app/Contents/Developer" ]; then
+            XCODE_DIR="/Applications/Xcode.app/Contents/Developer"
+          else
+            XCODE_APP="$(ls -d /Applications/Xcode*.app 2>/dev/null | sort | tail -n 1 || true)"
+            if [ -n "$XCODE_APP" ]; then
+              XCODE_DIR="$XCODE_APP/Contents/Developer"
+            else
+              echo "No Xcode.app found under /Applications" >&2
+              exit 1
+            fi
+          fi
+          echo "DEVELOPER_DIR=$XCODE_DIR" >> "$GITHUB_ENV"
+          export DEVELOPER_DIR="$XCODE_DIR"
+          xcodebuild -version
+          xcrun --sdk macosx --show-sdk-path
+
+      - name: Cache GhosttyKit.xcframework
+        id: cache-ghosttykit-release
+        uses: actions/cache@27d5ce7f107fe9357f9df03efb73ab90386fccae # v5.0.5
+        with:
+          path: GhosttyKit.xcframework
+          key: ghosttykit-${{ hashFiles('.gitmodules', 'ghostty') }}
+
+      - name: Download pre-built GhosttyKit.xcframework
+        if: steps.cache-ghosttykit-release.outputs.cache-hit != 'true'
+        run: |
+          ./scripts/download-prebuilt-ghosttykit.sh
+
+      - name: Install zig
+        run: |
+          ./scripts/install-zig-ci.sh
+
+      - name: Install Rust
+        run: |
+          ./scripts/install-rust-ci.sh
+
+      - name: Cache Zig packages
+        uses: actions/cache@27d5ce7f107fe9357f9df03efb73ab90386fccae # v5.0.5
+        with:
+          path: ~/.cache/zig
+          key: zig-packages-${{ hashFiles('ghostty/build.zig.zon', 'ghostty/build.zig.zon.json') }}
+          restore-keys: zig-packages-
+
+      - name: Cache DerivedData
+        uses: actions/cache@27d5ce7f107fe9357f9df03efb73ab90386fccae # v5.0.5
+        with:
+          path: build-universal
+          key: deriveddata-release-${{ hashFiles('cmux.xcodeproj/project.xcworkspace/xcshareddata/swiftpm/Package.resolved') }}-${{ hashFiles('cmux.xcodeproj/project.pbxproj') }}
+          restore-keys: |
+            deriveddata-release-${{ hashFiles('cmux.xcodeproj/project.xcworkspace/xcshareddata/swiftpm/Package.resolved') }}-
+            deriveddata-release-
+
+      - name: Cache Swift packages
+        uses: actions/cache@27d5ce7f107fe9357f9df03efb73ab90386fccae # v5.0.5
+        with:
+          path: .spm-cache
+          key: spm-release-${{ hashFiles('cmux.xcodeproj/project.xcworkspace/xcshareddata/swiftpm/Package.resolved') }}
+          restore-keys: |
+            spm-release-
+            spm-
+
+      - name: Build universal app (Release)
+        run: |
+          set -euo pipefail
+          xcodebuild -project cmux.xcodeproj -scheme cmux -configuration Release -derivedDataPath build-universal \
+            -destination 'generic/platform=macOS' \
+            -clonedSourcePackagesDirPath .spm-cache \
+            ARCHS="arm64 x86_64" \
+            ONLY_ACTIVE_ARCH=NO \
+            CODE_SIGNING_ALLOWED=NO ASSETCATALOG_COMPILER_APPICON_NAME=AppIcon-Nightly build
+
+  ui-regressions:
     runs-on: warp-macos-15-arm64-6x
     timeout-minutes: 25
     steps:
       - name: Checkout
-        uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
         with:
           submodules: recursive
 
@@ -423,26 +630,25 @@ jobs:
 
       - name: Install zig
         run: |
-          ZIG_REQUIRED="0.15.2"
-          if command -v zig >/dev/null 2>&1 && zig version 2>/dev/null | grep -q "^${ZIG_REQUIRED}"; then
-            echo "zig ${ZIG_REQUIRED} already installed"
-          else
-            echo "Installing zig ${ZIG_REQUIRED} from tarball"
-            curl -fSL "https://ziglang.org/download/${ZIG_REQUIRED}/zig-aarch64-macos-${ZIG_REQUIRED}.tar.xz" -o /tmp/zig.tar.xz
-            tar xf /tmp/zig.tar.xz -C /tmp
-            sudo mkdir -p /usr/local/bin /usr/local/lib
-            sudo cp -f /tmp/zig-aarch64-macos-${ZIG_REQUIRED}/zig /usr/local/bin/zig
-            sudo cp -rf /tmp/zig-aarch64-macos-${ZIG_REQUIRED}/lib /usr/local/lib/zig
-            export PATH="/usr/local/bin:$PATH"
-            zig version
-          fi
+          ./scripts/install-zig-ci.sh
+
+      - name: Install Rust
+        run: |
+          ./scripts/install-rust-ci.sh
+
+      - name: Cache Zig packages
+        uses: actions/cache@27d5ce7f107fe9357f9df03efb73ab90386fccae # v5.0.5
+        with:
+          path: ~/.cache/zig
+          key: zig-packages-${{ hashFiles('ghostty/build.zig.zon', 'ghostty/build.zig.zon.json') }}
+          restore-keys: zig-packages-
 
       - name: Cache Swift packages
-        uses: actions/cache@5a3ec84eff668545956fd18022155c47e93e2684 # v4
+        uses: actions/cache@27d5ce7f107fe9357f9df03efb73ab90386fccae # v5.0.5
         with:
           path: .ci-source-packages
-          key: spm-ui-display-resolution-${{ hashFiles('GhosttyTabs.xcodeproj/project.xcworkspace/xcshareddata/swiftpm/Package.resolved') }}
-          restore-keys: spm-ui-display-resolution-
+          key: spm-ui-regressions-${{ hashFiles('cmux.xcodeproj/project.xcworkspace/xcshareddata/swiftpm/Package.resolved') }}
+          restore-keys: spm-ui-regressions-
 
       - name: Resolve Swift packages
         run: |
@@ -451,7 +657,7 @@ jobs:
           mkdir -p "$SOURCE_PACKAGES_DIR"
 
           for attempt in 1 2 3; do
-            if xcodebuild -project GhosttyTabs.xcodeproj -scheme cmux -configuration Debug \
+            if xcodebuild -project cmux.xcodeproj -scheme cmux -configuration Debug \
               -clonedSourcePackagesDirPath "$SOURCE_PACKAGES_DIR" \
               -resolvePackageDependencies; then
               exit 0
@@ -464,26 +670,225 @@ jobs:
             sleep $((attempt * 5))
           done
 
+      - name: Build for testing (display resolution)
+        run: |
+          set -euo pipefail
+          SOURCE_PACKAGES_DIR="$PWD/.ci-source-packages"
+          xcodebuild -project cmux.xcodeproj -scheme cmux -configuration Debug \
+            -clonedSourcePackagesDirPath "$SOURCE_PACKAGES_DIR" \
+            -disableAutomaticPackageResolution \
+            -destination "platform=macOS" \
+            build-for-testing
+
+      - name: Create persistent virtual display
+        run: |
+          set -euo pipefail
+          HELPER_PATH="/tmp/create-virtual-display"
+          clang -framework Foundation -framework CoreGraphics \
+            -o "$HELPER_PATH" scripts/create-virtual-display.m
+
+          VDISPLAY_READY="/tmp/cmux-vdisplay-persistent.ready"
+          VDISPLAY_ID_PATH="/tmp/cmux-vdisplay-persistent.id"
+          rm -f "$VDISPLAY_READY" "$VDISPLAY_ID_PATH"
+
+          "$HELPER_PATH" \
+            --modes "1920x1080" \
+            --ready-path "$VDISPLAY_READY" \
+            --display-id-path "$VDISPLAY_ID_PATH" \
+            > /tmp/cmux-vdisplay-persistent.log 2>&1 &
+          echo "VDISPLAY_PERSISTENT_PID=$!" >> "$GITHUB_ENV"
+
+          echo "Waiting for persistent virtual display..."
+          for i in $(seq 1 24); do
+            if [ -f "$VDISPLAY_READY" ]; then break; fi
+            sleep 0.5
+          done
+          if [ ! -f "$VDISPLAY_READY" ]; then
+            echo "ERROR: Persistent virtual display not ready after 12s" >&2
+            cat /tmp/cmux-vdisplay-persistent.log 2>/dev/null || true
+            exit 1
+          fi
+          echo "Persistent virtual display ready: ID=$(cat "$VDISPLAY_ID_PATH")"
+
       - name: Run display resolution churn UI regression
         run: |
           set -euo pipefail
           SOURCE_PACKAGES_DIR="$PWD/.ci-source-packages"
           HELPER_PATH="/tmp/create-virtual-display"
-          MANIFEST_PATH="/tmp/cmux-ui-test-display-harness.json"
+          TOKEN="$(uuidgen)"
+          DIAG_PATH="/tmp/cmux-ui-test-display-churn-${TOKEN}.json"
+          DISPLAY_READY="/tmp/cmux-ui-test-display-${TOKEN}.ready"
+          DISPLAY_ID_PATH="/tmp/cmux-ui-test-display-${TOKEN}.id"
+          DISPLAY_START="/tmp/cmux-ui-test-display-${TOKEN}.start"
+          DISPLAY_DONE="/tmp/cmux-ui-test-display-${TOKEN}.done"
+          HELPER_LOG="/tmp/cmux-ui-test-display-${TOKEN}-helper.log"
 
-          rm -f "$MANIFEST_PATH"
-          trap 'rm -f "$MANIFEST_PATH"' EXIT
+          cleanup() {
+            pkill -x "cmux DEV" 2>/dev/null || true
+            rm -f "$DIAG_PATH" "$DISPLAY_READY" "$DISPLAY_ID_PATH" "$DISPLAY_START" "$DISPLAY_DONE" "$HELPER_LOG"
+            rm -f /tmp/cmux-ui-test-prelaunch.json /tmp/cmux-ui-test-display-harness.json
+          }
+          trap cleanup EXIT
 
+          # Build display helper
           clang -framework Foundation -framework CoreGraphics \
             -o "$HELPER_PATH" scripts/create-virtual-display.m
 
-          cat >"$MANIFEST_PATH" <<EOF
-          {"helperBinaryPath":"$HELPER_PATH"}
-          EOF
+          # Find the app binary
+          APP_BINARY=$(find ~/Library/Developer/Xcode/DerivedData -path "*/Build/Products/Debug/cmux DEV.app/Contents/MacOS/cmux DEV" -print -quit 2>/dev/null || true)
+          if [ -z "$APP_BINARY" ]; then
+            echo "ERROR: App binary not found in DerivedData" >&2
+            exit 1
+          fi
+          echo "App binary: $APP_BINARY"
 
-          xcodebuild -project GhosttyTabs.xcodeproj -scheme cmux -configuration Debug \
+          for attempt in 1 2; do
+            cleanup 2>/dev/null || true
+
+            # Launch display helper from shell (non-sandboxed).
+            # Use --start-delay-ms instead of --start-path because the XCTest
+            # runner is sandboxed and can't write to /tmp/ for the start signal.
+            # 10s delay gives the test time to capture baseline render stats.
+            "$HELPER_PATH" \
+              --modes "1920x1080,1728x1117,1600x900,1440x810" \
+              --ready-path "$DISPLAY_READY" \
+              --display-id-path "$DISPLAY_ID_PATH" \
+              --done-path "$DISPLAY_DONE" \
+              --iterations 40 \
+              --interval-ms 40 \
+              --start-delay-ms 10000 \
+              > "$HELPER_LOG" 2>&1 &
+            HELPER_PID=$!
+
+            # Wait for display ready
+            echo "Waiting for virtual display..."
+            for i in $(seq 1 24); do
+              if [ -f "$DISPLAY_READY" ]; then break; fi
+              sleep 0.5
+            done
+            if [ ! -f "$DISPLAY_READY" ]; then
+              echo "ERROR: Virtual display not ready after 12s" >&2
+              cat "$HELPER_LOG" 2>/dev/null || true
+              continue
+            fi
+            DISPLAY_ID=$(cat "$DISPLAY_ID_PATH")
+            echo "Virtual display ready: ID=$DISPLAY_ID"
+
+            # Launch app from shell (non-sandboxed, outside XCTest sandbox)
+            CMUX_UI_TEST_MODE=1 \
+            CMUX_UI_TEST_DIAGNOSTICS_PATH="$DIAG_PATH" \
+            CMUX_UI_TEST_DISPLAY_RENDER_STATS=1 \
+            CMUX_UI_TEST_TARGET_DISPLAY_ID="$DISPLAY_ID" \
+            CMUX_TAG="ui-tests-display-resolution" \
+            "$APP_BINARY" > /tmp/cmux-ui-test-app.log 2>&1 &
+            APP_PID=$!
+            echo "App launched: PID=$APP_PID"
+
+            # Wait for app diagnostics
+            echo "Waiting for app diagnostics..."
+            APP_READY=false
+            for i in $(seq 1 30); do
+              if [ -f "$DIAG_PATH" ]; then
+                if python3 -c "import json; d=json.load(open('$DIAG_PATH')); assert d.get('pid')" 2>/dev/null; then
+                  APP_READY=true
+                  break
+                fi
+              fi
+              if ! kill -0 "$APP_PID" 2>/dev/null; then
+                echo "ERROR: App crashed during startup"
+                cat /tmp/cmux-ui-test-app.log 2>/dev/null | tail -30 || true
+                break
+              fi
+              sleep 0.5
+            done
+
+            if [ "$APP_READY" != "true" ]; then
+              echo "Attempt $attempt: App not ready after 15s"
+              pkill -x "cmux DEV" 2>/dev/null || true
+              kill "$HELPER_PID" 2>/dev/null || true
+              if [ "$attempt" -eq 2 ]; then
+                echo "Display resolution UI regression failed after 2 attempts" >&2
+                echo "--- App log ---"
+                cat /tmp/cmux-ui-test-app.log 2>/dev/null | tail -50 || true
+                echo "--- Helper log ---"
+                cat "$HELPER_LOG" 2>/dev/null | tail -20 || true
+                echo "--- Diagnostics ---"
+                cat "$DIAG_PATH" 2>/dev/null || echo "(not found)"
+                exit 1
+              fi
+              sleep 3
+              continue
+            fi
+
+            echo "App started. Diagnostics:"
+            cat "$DIAG_PATH"
+
+            # Wait for render stats (terminal surface initialization)
+            echo "Waiting for render stats..."
+            RENDER_READY=false
+            for i in $(seq 1 40); do
+              if python3 -c "import json; d=json.load(open('$DIAG_PATH')); assert d.get('renderStatsAvailable') == '1'" 2>/dev/null; then
+                RENDER_READY=true
+                echo "Render stats available after $((i / 2))s"
+                break
+              fi
+              sleep 0.5
+            done
+            if [ "$RENDER_READY" != "true" ]; then
+              echo "WARNING: Render stats not available after 20s. Diagnostics:"
+              cat "$DIAG_PATH" 2>/dev/null || true
+              echo "--- App log ---"
+              cat /tmp/cmux-ui-test-app.log 2>/dev/null | tail -30 || true
+            fi
+
+            # Write manifests so test can find the pre-launched state
+            MANIFEST_PATH="/tmp/cmux-ui-test-display-harness.json"
+            cat >"$MANIFEST_PATH" <<MANIFEST_EOF
+          {"readyPath":"$DISPLAY_READY","displayIDPath":"$DISPLAY_ID_PATH","donePath":"$DISPLAY_DONE","logPath":"$HELPER_LOG"}
+          MANIFEST_EOF
+
+            PRELAUNCH_PATH="/tmp/cmux-ui-test-prelaunch.json"
+            cat >"$PRELAUNCH_PATH" <<PRELAUNCH_EOF
+          {"diagnosticsPath":"$DIAG_PATH"}
+          PRELAUNCH_EOF
+
+            # Run test — app is already launched from shell
+            if xcodebuild -project cmux.xcodeproj -scheme cmux -configuration Debug \
+              -clonedSourcePackagesDirPath "$SOURCE_PACKAGES_DIR" \
+              -disableAutomaticPackageResolution \
+              -destination "platform=macOS" \
+              -only-testing:cmuxUITests/DisplayResolutionRegressionUITests \
+              test-without-building; then
+              exit 0
+            fi
+
+            pkill -x "cmux DEV" 2>/dev/null || true
+            kill "$HELPER_PID" 2>/dev/null || true
+
+            if [ "$attempt" -eq 2 ]; then
+              echo "Display resolution UI regression failed after 2 attempts" >&2
+              exit 1
+            fi
+            echo "Attempt $attempt failed, retrying..."
+            sleep 3
+          done
+
+      - name: Run browser find focus UI regression
+        run: |
+          set -euo pipefail
+          SOURCE_PACKAGES_DIR="$PWD/.ci-source-packages"
+          xcodebuild -project cmux.xcodeproj -scheme cmux -configuration Debug \
             -clonedSourcePackagesDirPath "$SOURCE_PACKAGES_DIR" \
             -disableAutomaticPackageResolution \
             -destination "platform=macOS" \
-            -only-testing:cmuxUITests/DisplayResolutionRegressionUITests \
-            test
+            -maximum-test-execution-time-allowance 180 \
+            -only-testing:cmuxUITests/BrowserPaneNavigationKeybindUITests/testCmdFOpensBrowserFindAfterCmdDCmdLNavigation \
+            test-without-building
+
+      - name: Cleanup persistent virtual display
+        if: always()
+        run: |
+          if [ -n "${VDISPLAY_PERSISTENT_PID:-}" ]; then
+            kill "$VDISPLAY_PERSISTENT_PID" >/dev/null 2>&1 || true
+          fi
+          rm -f /tmp/cmux-vdisplay-persistent.ready /tmp/cmux-vdisplay-persistent.id /tmp/cmux-vdisplay-persistent.log

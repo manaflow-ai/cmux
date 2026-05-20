@@ -10,12 +10,13 @@
 </p>
 
 <p align="center">
-  <a href="README.md">English</a> | <a href="README.ja.md">日本語</a> | <a href="README.zh-CN.md">简体中文</a> | <a href="README.zh-TW.md">繁體中文</a> | <a href="README.ko.md">한국어</a> | <a href="README.de.md">Deutsch</a> | <a href="README.es.md">Español</a> | <a href="README.fr.md">Français</a> | <a href="README.it.md">Italiano</a> | <a href="README.da.md">Dansk</a> | <a href="README.pl.md">Polski</a> | <a href="README.ru.md">Русский</a> | Bosanski | <a href="README.ar.md">العربية</a> | <a href="README.no.md">Norsk</a> | <a href="README.pt-BR.md">Português (Brasil)</a> | <a href="README.th.md">ไทย</a> | <a href="README.tr.md">Türkçe</a> | <a href="README.km.md">ភាសាខ្មែរ</a>
+  <a href="README.md">English</a> | <a href="README.ja.md">日本語</a> | <a href="README.zh-CN.md">简体中文</a> | <a href="README.zh-TW.md">繁體中文</a> | <a href="README.ko.md">한국어</a> | <a href="README.de.md">Deutsch</a> | <a href="README.es.md">Español</a> | <a href="README.fr.md">Français</a> | <a href="README.it.md">Italiano</a> | <a href="README.da.md">Dansk</a> | <a href="README.pl.md">Polski</a> | <a href="README.ru.md">Русский</a> | Bosanski | <a href="README.ar.md">العربية</a> | <a href="README.no.md">Norsk</a> | <a href="README.pt-BR.md">Português (Brasil)</a> | <a href="README.th.md">ไทย</a> | <a href="README.tr.md">Türkçe</a> | <a href="README.km.md">ភាសាខ្មែរ</a> | <a href="README.uk.md">Українська</a>
 </p>
 
 <p align="center">
   <a href="https://x.com/manaflowai"><img src="https://img.shields.io/badge/@manaflow-555?logo=x" alt="X / Twitter" /></a>
   <a href="https://discord.gg/xsgFEVrWCZ"><img src="https://img.shields.io/badge/Discord-555?logo=discord" alt="Discord" /></a>
+  <a href="https://github.com/manaflow-ai/cmux"><img src="https://img.shields.io/github/stars/manaflow-ai/cmux?style=flat&logo=github&label=stars&color=4c71f2" alt="GitHub stars" /></a>
 </p>
 
 <p align="center">
@@ -65,8 +66,28 @@ Bočna traka prikazuje git granu, status/broj povezanog PR-a, radni direktorij, 
 <img src="./docs/assets/vertical-horizontal-tabs-and-splits.png" alt="Vertikalni tabovi i podijeljeni paneli" width="100%" />
 </td>
 </tr>
+<tr>
+<td width="40%" valign="middle">
+<h3>SSH</h3>
+<code>cmux ssh user@remote</code> kreira radni prostor za udaljenu mašinu. Paneli preglednika se usmjeravaju kroz udaljenu mrežu tako da localhost jednostavno radi. Prevucite sliku u udaljenu sesiju za upload putem scp.
+</td>
+<td width="60%">
+<img src="./docs/assets/ssh.png" alt="cmux SSH" width="100%" />
+</td>
+</tr>
+<tr>
+<td width="40%" valign="middle">
+<h3>Claude Code Teams</h3>
+<code>cmux claude-teams</code> pokreće teammate režim Claude Code sa jednom komandom. Članovi tima se pojavljuju kao nativni podijeljeni paneli sa metapodacima u bočnoj traci i obavještenjima. Nije potreban tmux.
+</td>
+<td width="60%">
+<img src="./docs/assets/claude-code-teams.png" alt="Claude Code Teams" width="100%" />
+</td>
+</tr>
 </table>
 
+- **Uvoz preglednika** — Uvezite kolačiće, historiju i sesije iz Chrome, Firefox, Arc i 20+ preglednika tako da paneli preglednika počnu autentificirani
+- **Prilagođene komande** — Definirajte akcije specifične za projekt u [`cmux.json`](https://cmux.com/docs/custom-commands) koje se pokreću iz palete komandi
 - **Skriptabilan** — CLI i socket API za kreiranje radnih prostora, dijeljenje panela, slanje pritisaka tipki i automatizaciju preglednika
 - **Nativna macOS aplikacija** — Izgrađena sa Swift i AppKit, ne Electron. Brzo pokretanje, niska potrošnja memorije.
 - **Kompatibilan sa Ghostty** — Čita vašu postojeću konfiguraciju `~/.config/ghostty/config` za teme, fontove i boje
@@ -215,15 +236,33 @@ Prečice razvojnih alata preglednika prate Safari zadane postavke i mogu se pril
 
 cmux NIGHTLY je zasebna aplikacija sa vlastitim bundle ID-om, tako da radi uporedo sa stabilnom verzijom. Automatski se gradi iz najnovijeg `main` commita i ažurira se putem vlastitog Sparkle feeda.
 
-## Vraćanje sesije (trenutno ponašanje)
+## Vraćanje sesije
 
-Prilikom ponovnog pokretanja, cmux trenutno vraća samo raspored aplikacije i metapodatke:
+Kada zatvorite cmux, trenutna sesija se sprema. Pri ponovnom pokretanju cmux vraća stanje kojim upravlja aplikacija:
 - Raspored prozora/radnih prostora/panela
 - Radne direktorije
 - Scrollback terminala (po mogućnosti)
 - URL preglednika i historija navigacije
 
-cmux **ne** vraća stanje živih procesa unutar terminalnih aplikacija. Na primjer, aktivne sesije Claude Code/tmux/vim se još ne nastavljaju nakon restarta.
+cmux ne pravi checkpoint proizvoljnog stanja živih procesa. tmux, vim, shellovi i nepodržane terminalne aplikacije ponovo se otvaraju kao obični terminali.
+
+Podržane agent sesije mogu se nastaviti kada hooks spreme izvorni ID sesije:
+
+```bash
+cmux hooks setup
+cmux hooks setup codex
+cmux hooks setup --agent opencode
+```
+
+Napredni korisnici i integracije mogu vezati prilagođenu komandu za nastavak na trenutni terminal surface. To je korisno za alate s vlastitim trajnim stanjem, poput tmux sesija ili prilagođenih agent CLI alata:
+
+```bash
+cmux surface resume set --kind tmux --checkpoint work --shell "tmux attach -t work"
+cmux surface resume show --json
+cmux surface resume clear --checkpoint work
+```
+
+Binding ostaje vezan za cmux surface. Bindingi napravljeni javnim CLI-jem ili socketom čuvaju se za pregled i ručni nastavak. cmux automatski pokreće samo resume bindinge koje označi pouzdanim, poput tmux bindinga otkrivenih iz živih procesa. Osjetljivi ključevi okruženja, poput tokena, lozinki, tajni i API ključeva, odbacuju se prije spremanja resume bindinga.
 
 ## Historija zvjezdica
 
@@ -268,6 +307,6 @@ cmux je besplatan, otvorenog koda i uvijek će biti. Ako želite podržati razvo
 
 ## Licenca
 
-Ovaj projekat je licenciran pod GNU Affero General Public License v3.0 ili novijom (`AGPL-3.0-or-later`).
+cmux je otvorenog koda pod [GPL-3.0-or-later](LICENSE) licencom.
 
-Pogledajte `LICENSE` za puni tekst.
+Ako vaša organizacija ne može ispuniti uslove GPL-a, dostupna je komercijalna licenca. Kontaktirajte [founders@manaflow.com](mailto:founders@manaflow.com) za detalje.

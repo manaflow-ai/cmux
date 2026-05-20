@@ -3,8 +3,8 @@
 Regression test: command palette list navigation keys.
 
 Validates:
-- Down: ArrowDown, Ctrl+N, Ctrl+J
-- Up: ArrowUp, Ctrl+P, Ctrl+K
+- Down: ArrowDown, Ctrl+N
+- Up: ArrowUp, Ctrl+P
 """
 
 import os
@@ -16,7 +16,7 @@ sys.path.insert(0, str(Path(__file__).parent))
 from cmux import cmux, cmuxError
 
 
-SOCKET_PATH = os.environ.get("CMUX_SOCKET", "/tmp/cmux-debug.sock")
+SOCKET_PATH = os.environ.get("CMUX_SOCKET_PATH", "/tmp/cmux-debug.sock")
 
 
 def _wait_until(
@@ -125,10 +125,10 @@ def main() -> int:
             message="no focused surface available for command palette context",
         )
 
-        for combo in ("down", "ctrl+n", "ctrl+j"):
+        for combo in ("down", "ctrl+n"):
             _assert_move(client, window_id, combo, start_index=0, expected_index=1)
 
-        for combo in ("up", "ctrl+p", "ctrl+k"):
+        for combo in ("up", "ctrl+p"):
             _assert_move(client, window_id, combo, start_index=1, expected_index=0)
 
         _assert_can_navigate_past_ten_results(client, window_id)

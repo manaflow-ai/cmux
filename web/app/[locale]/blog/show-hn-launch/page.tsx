@@ -1,6 +1,7 @@
 import Image from "next/image";
 import { useTranslations } from "next-intl";
 import { getTranslations } from "next-intl/server";
+import { buildAlternates } from "../../../../i18n/seo";
 import { Link } from "../../../../i18n/navigation";
 import { Tweet } from "react-tweet";
 import starHistory from "./star-history.png";
@@ -8,7 +9,6 @@ import starHistory from "./star-history.png";
 export async function generateMetadata({ params }: { params: Promise<{ locale: string }> }) {
   const { locale } = await params;
   const t = await getTranslations({ locale, namespace: "blog.showHnLaunch" });
-  const url = locale === "en" ? "/blog/show-hn-launch" : `/${locale}/blog/show-hn-launch`;
   return {
     title: t("metaTitle"),
     description: t("metaDescription"),
@@ -22,14 +22,13 @@ export async function generateMetadata({ params }: { params: Promise<{ locale: s
       description: t("metaDescription"),
       type: "article",
       publishedTime: "2026-02-21T00:00:00Z",
-      url,
     },
     twitter: {
-      card: "summary",
+      card: "summary_large_image",
       title: t("metaTitle"),
       description: t("metaDescription"),
     },
-    alternates: { canonical: url },
+    alternates: buildAlternates(locale, "/blog/show-hn-launch"),
   };
 }
 

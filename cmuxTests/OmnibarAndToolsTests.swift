@@ -14,6 +14,16 @@ import UserNotifications
 #endif
 
 final class FinderServicePathResolverTests: XCTestCase {
+    private func withTemporaryDirectory<T>(_ body: (URL) throws -> T) throws -> T {
+        let root = FileManager.default.temporaryDirectory.appendingPathComponent(
+            "cmux-finder-service-tests-\(UUID().uuidString)",
+            isDirectory: true
+        )
+        try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: root) }
+        return try body(root)
+    }
+
     func testOrderedUniqueDirectoriesUsesParentForFilesAndDedupes() {
         let input: [URL] = [
             URL(fileURLWithPath: "/tmp/cmux-services/project", isDirectory: true),
@@ -48,6 +58,115 @@ final class FinderServicePathResolverTests: XCTestCase {
                 "/tmp/cmux-services/a",
             ]
         )
+    }
+
+    func testOrderedUniqueDirectoriesSkipsBundleAndEmbeddedPathsWhenExcludingBundleRoot() {
+        let bundleURL = URL(fileURLWithPath: "/Applications/Tools/../cmux.app", isDirectory: true)
+        let input: [URL] = [
+            bundleURL,
+            URL(fileURLWithPath: "/Applications/cmux.app/Contents/MacOS/cmux", isDirectory: false),
+            URL(fileURLWithPath: "/Applications/cmux.app/Contents/Resources/bin/cmux", isDirectory: false),
+            URL(fileURLWithPath: "/Users/tester/Projects/cmux", isDirectory: true),
+            URL(fileURLWithPath: "/Users/tester/Projects/cmux/README.md", isDirectory: false),
+        ]
+
+        let directories = FinderServicePathResolver.orderedUniqueDirectories(
+            from: input,
+            excludingDescendantsOf: [bundleURL]
+        )
+
+        XCTAssertEqual(
+            directories,
+            [
+                "/Users/tester/Projects/cmux",
+            ]
+        )
+    }
+
+    func testOrderedUniqueDirectoriesExclusionDoesNotFilterSiblingPaths() {
+        let bundleURL = URL(fileURLWithPath: "/Applications/cmux.app", isDirectory: true)
+        let input: [URL] = [
+            URL(fileURLWithPath: "/Applications/cmux.app backup/project", isDirectory: true),
+            URL(fileURLWithPath: "/Applications/cmux.app.beta/project/file.txt", isDirectory: false),
+        ]
+
+        let directories = FinderServicePathResolver.orderedUniqueDirectories(
+            from: input,
+            excludingDescendantsOf: [bundleURL]
+        )
+
+        XCTAssertEqual(
+            directories,
+            [
+                "/Applications/cmux.app backup/project",
+                "/Applications/cmux.app.beta/project",
+            ]
+        )
+    }
+
+    func testOrderedUniqueDirectoriesPreservesSymlinkAliasPaths() throws {
+        try withTemporaryDirectory { root in
+            let actualDirectory = root.appendingPathComponent("actual/project", isDirectory: true)
+            let aliasDirectory = root.appendingPathComponent("alias-project", isDirectory: true)
+            let actualFile = actualDirectory.appendingPathComponent("README.md", isDirectory: false)
+            let aliasFile = aliasDirectory.appendingPathComponent("README.md", isDirectory: false)
+
+            try FileManager.default.createDirectory(at: actualDirectory, withIntermediateDirectories: true)
+            FileManager.default.createFile(atPath: actualFile.path, contents: Data())
+            try FileManager.default.createSymbolicLink(at: aliasDirectory, withDestinationURL: actualDirectory)
+
+            let directories = FinderServicePathResolver.orderedUniqueDirectories(
+                from: [aliasDirectory, aliasFile]
+            )
+
+            XCTAssertEqual(directories, [aliasDirectory.standardizedFileURL.path])
+            XCTAssertNotEqual(directories, [actualDirectory.standardizedFileURL.path])
+        }
+    }
+
+    func testOrderedUniqueDirectoriesDedupesSymlinkAndRealPaths() throws {
+        try withTemporaryDirectory { root in
+            let actualDirectory = root.appendingPathComponent("actual/project", isDirectory: true)
+            let aliasDirectory = root.appendingPathComponent("alias-project", isDirectory: true)
+
+            try FileManager.default.createDirectory(at: actualDirectory, withIntermediateDirectories: true)
+            try FileManager.default.createSymbolicLink(at: aliasDirectory, withDestinationURL: actualDirectory)
+
+            let directories = FinderServicePathResolver.orderedUniqueDirectories(
+                from: [aliasDirectory, actualDirectory]
+            )
+
+            XCTAssertEqual(directories, [aliasDirectory.standardizedFileURL.path])
+        }
+    }
+
+    func testOrderedUniqueDirectoriesResolvesSymlinksOnlyForExcludedRootComparison() throws {
+        try withTemporaryDirectory { root in
+            let applicationsDirectory = root.appendingPathComponent("Applications", isDirectory: true)
+            let actualBundle = applicationsDirectory.appendingPathComponent("cmux.app", isDirectory: true)
+            let actualBinary = actualBundle.appendingPathComponent("Contents/MacOS/cmux", isDirectory: false)
+            let aliasApplications = root.appendingPathComponent("Launcher", isDirectory: true)
+            let aliasWorkspace = aliasApplications.appendingPathComponent("workspace", isDirectory: true)
+
+            try FileManager.default.createDirectory(at: actualBinary.deletingLastPathComponent(), withIntermediateDirectories: true)
+            FileManager.default.createFile(atPath: actualBinary.path, contents: Data())
+            try FileManager.default.createDirectory(
+                at: applicationsDirectory.appendingPathComponent("workspace", isDirectory: true),
+                withIntermediateDirectories: true
+            )
+            try FileManager.default.createSymbolicLink(at: aliasApplications, withDestinationURL: applicationsDirectory)
+
+            let directories = FinderServicePathResolver.orderedUniqueDirectories(
+                from: [
+                    aliasApplications.appendingPathComponent("cmux.app", isDirectory: true),
+                    aliasApplications.appendingPathComponent("cmux.app/Contents/MacOS/cmux", isDirectory: false),
+                    aliasWorkspace,
+                ],
+                excludingDescendantsOf: [actualBundle]
+            )
+
+            XCTAssertEqual(directories, [aliasWorkspace.standardizedFileURL.path])
+        }
     }
 }
 
@@ -280,6 +399,47 @@ final class VSCodeServeWebControllerTests: XCTestCase {
 
 
 final class OmnibarStateMachineTests: XCTestCase {
+    func testPointerFocusCanPreserveInitialClickSelection() throws {
+        var state = OmnibarState()
+
+        let effects = omnibarReduce(
+            state: &state,
+            event: .focusGained(currentURLString: "https://example.com/", shouldSelectAll: false)
+        )
+
+        XCTAssertTrue(state.isFocused)
+        XCTAssertEqual(state.buffer, "https://example.com/")
+        XCTAssertFalse(effects.shouldSelectAll)
+    }
+
+    func testRefocusRequestPreservesEditingBuffer() throws {
+        var state = OmnibarState()
+
+        _ = omnibarReduce(
+            state: &state,
+            event: .focusGained(currentURLString: "https://example.com/")
+        )
+        _ = omnibarReduce(state: &state, event: .bufferChanged("abcdef"))
+
+        let effects = omnibarReduce(
+            state: &state,
+            event: .focusReasserted(
+                shouldSelectAll: browserOmnibarShouldSelectAllOnFocusReassertion(isUserEditing: state.isUserEditing)
+            )
+        )
+
+        XCTAssertTrue(state.isFocused)
+        XCTAssertTrue(state.isUserEditing)
+        XCTAssertEqual(state.currentURLString, "https://example.com/")
+        XCTAssertEqual(state.buffer, "abcdef")
+        XCTAssertFalse(effects.shouldSelectAll)
+    }
+
+    func testFocusReassertionDoesNotSelectAllDuringUserEdit() throws {
+        XCTAssertFalse(browserOmnibarShouldSelectAllOnFocusReassertion(isUserEditing: true))
+        XCTAssertTrue(browserOmnibarShouldSelectAllOnFocusReassertion(isUserEditing: false))
+    }
+
     func testEscapeRevertsWhenEditingThenBlursOnSecondEscape() throws {
         var state = OmnibarState()
 
@@ -408,6 +568,393 @@ final class OmnibarStateMachineTests: XCTestCase {
         XCTAssertEqual(state.selectedSuggestionID, rows[2].id)
         XCTAssertTrue(omnibarSuggestionSupportsAutocompletion(query: "gm", suggestion: state.suggestions[state.selectedSuggestionIndex]))
         XCTAssertEqual(state.suggestions[state.selectedSuggestionIndex].completion, "https://gmail.com/")
+    }
+
+    @MainActor
+    func testCommandBackspaceClearsInlineCompletionTypedPrefix() throws {
+        let harness = OmnibarInlineDeletionHarness(
+            typedText: "gma",
+            displayText: "gmail.com",
+            suggestions: [
+                .history(url: "https://gmail.com/", title: "Gmail"),
+            ]
+        )
+
+        try harness.dispatchBackspace(
+            modifiers: [.command],
+            fallbackCommand: #selector(NSResponder.deleteToBeginningOfLine(_:))
+        )
+
+        XCTAssertEqual(harness.state.buffer, "")
+        XCTAssertNil(harness.inlineCompletion)
+        XCTAssertTrue(harness.state.suggestions.isEmpty)
+    }
+
+    @MainActor
+    func testOptionBackspaceDeletesWordBeforeInlineCompletion() throws {
+        let harness = OmnibarInlineDeletionHarness(
+            typedText: "gmail account info",
+            displayText: "gmail account information",
+            suggestions: [
+                .remoteSearchSuggestion("gmail account information"),
+            ]
+        )
+
+        try harness.dispatchBackspace(
+            modifiers: [.option],
+            fallbackCommand: #selector(NSResponder.deleteWordBackward(_:))
+        )
+
+        XCTAssertEqual(harness.state.buffer, "gmail account ")
+        XCTAssertNil(harness.inlineCompletion)
+        XCTAssertTrue(harness.state.suggestions.isEmpty)
+    }
+
+    @MainActor
+    func testPlainBackspaceStillDeletesSingleCharacterWithInlineCompletion() throws {
+        let harness = OmnibarInlineDeletionHarness(
+            typedText: "gma",
+            displayText: "gmail.com",
+            suggestions: [
+                .history(url: "https://gmail.com/", title: "Gmail"),
+            ]
+        )
+
+        try harness.dispatchBackspace(modifiers: [], fallbackCommand: #selector(NSResponder.deleteBackward(_:)))
+
+        XCTAssertEqual(harness.state.buffer, "gm")
+        XCTAssertEqual(harness.inlineCompletion?.typedText, "gm")
+        XCTAssertEqual(harness.inlineCompletion?.displayText, "gmail.com")
+    }
+}
+
+@MainActor
+final class BrowserOmnibarNativeFieldRegistryWindowSelectionTests: XCTestCase {
+    func testFieldLookupPrefersMatchingWindowAndNilWindowPrefersAttachedField() throws {
+        let panelId = UUID()
+        let registry = BrowserOmnibarNativeFieldRegistry()
+        let window = NSWindow(
+            contentRect: NSRect(x: 0, y: 0, width: 240, height: 32),
+            styleMask: [.borderless],
+            backing: .buffered,
+            defer: false
+        )
+        let contentView = NSView(frame: NSRect(x: 0, y: 0, width: 240, height: 32))
+        let visibleField = OmnibarNativeTextField(frame: NSRect(x: 0, y: 0, width: 200, height: 24))
+        let offWindowField = OmnibarNativeTextField(frame: NSRect(x: 0, y: 0, width: 200, height: 24))
+        visibleField.panelId = panelId
+        offWindowField.panelId = panelId
+        contentView.addSubview(visibleField)
+        window.contentView = contentView
+        defer {
+            registry.unregister(visibleField, panelId: panelId)
+            registry.unregister(offWindowField, panelId: panelId)
+            visibleField.removeFromSuperview()
+            window.contentView = nil
+            window.orderOut(nil)
+        }
+
+        registry.register(visibleField, panelId: panelId)
+        registry.register(offWindowField, panelId: panelId)
+
+        XCTAssertTrue(registry.field(for: panelId, in: window) === visibleField)
+        XCTAssertTrue(registry.field(for: panelId, in: nil) === visibleField)
+        XCTAssertTrue(registry.field(for: panelId) === visibleField)
+
+        registry.unregister(offWindowField, panelId: panelId)
+
+        XCTAssertTrue(registry.field(for: panelId) === visibleField)
+    }
+
+    func testWindowLookupDoesNotFallBackAcrossWindows() throws {
+        let panelId = UUID()
+        let registry = BrowserOmnibarNativeFieldRegistry()
+        let sourceWindow = NSWindow(
+            contentRect: NSRect(x: 0, y: 0, width: 240, height: 32),
+            styleMask: [.borderless],
+            backing: .buffered,
+            defer: false
+        )
+        let requestedWindow = NSWindow(
+            contentRect: NSRect(x: 0, y: 0, width: 240, height: 32),
+            styleMask: [.borderless],
+            backing: .buffered,
+            defer: false
+        )
+        let contentView = NSView(frame: NSRect(x: 0, y: 0, width: 240, height: 32))
+        let sourceField = OmnibarNativeTextField(frame: NSRect(x: 0, y: 0, width: 200, height: 24))
+        sourceField.panelId = panelId
+        contentView.addSubview(sourceField)
+        sourceWindow.contentView = contentView
+        defer {
+            registry.unregister(sourceField, panelId: panelId)
+            sourceField.removeFromSuperview()
+            sourceWindow.contentView = nil
+            sourceWindow.orderOut(nil)
+            requestedWindow.orderOut(nil)
+        }
+
+        registry.register(sourceField, panelId: panelId)
+
+        XCTAssertTrue(registry.field(for: panelId, in: sourceWindow) === sourceField)
+        XCTAssertNil(registry.field(for: panelId, in: requestedWindow))
+    }
+
+    func testInteractionOverlayPassesThroughUntilFieldIsRegisteredInWindow() throws {
+        let panelId = UUID()
+        let window = NSWindow(
+            contentRect: NSRect(x: 0, y: 0, width: 240, height: 32),
+            styleMask: [.borderless],
+            backing: .buffered,
+            defer: false
+        )
+        let contentView = NSView(frame: NSRect(x: 0, y: 0, width: 240, height: 32))
+        let field = OmnibarNativeTextField(frame: NSRect(x: 0, y: 0, width: 200, height: 24))
+        let interactionView = BrowserOmnibarInteractionView(frame: NSRect(x: 0, y: 0, width: 200, height: 24))
+        field.panelId = panelId
+        interactionView.panelId = panelId
+        contentView.addSubview(field)
+        contentView.addSubview(interactionView)
+        window.contentView = contentView
+        defer {
+            BrowserOmnibarNativeFieldRegistry.shared.unregister(field, panelId: panelId)
+            field.removeFromSuperview()
+            interactionView.removeFromSuperview()
+            window.contentView = nil
+            window.orderOut(nil)
+        }
+
+        XCTAssertNil(
+            interactionView.hitTest(NSPoint(x: 12, y: 12)),
+            "The overlay must not swallow the first click before it has a forwarding target"
+        )
+
+        BrowserOmnibarNativeFieldRegistry.shared.register(field, panelId: panelId)
+
+        XCTAssertTrue(
+            interactionView.hitTest(NSPoint(x: 12, y: 12)) === interactionView,
+            "The overlay should capture events once it can forward to the same-window native field"
+        )
+    }
+}
+
+@MainActor
+final class BrowserPortalOmnibarSuggestionsTests: XCTestCase {
+    func testPortalSuggestionsOverlayPassesHitTestingOutsidePopupFrame() {
+        let slot = WindowBrowserSlotView(frame: NSRect(x: 0, y: 0, width: 420, height: 260))
+        let item = OmnibarSuggestion.search(engineName: "Google", query: "news")
+        let popupFrame = CGRect(
+            x: 40,
+            y: 12,
+            width: 220,
+            height: OmnibarSuggestionsView.popupHeight(for: [item])
+        )
+
+        slot.setOmnibarSuggestions(
+            BrowserPortalOmnibarSuggestionsConfiguration(
+                panelId: UUID(),
+                popupFrame: popupFrame,
+                colorScheme: .dark,
+                engineName: "Google",
+                items: [item],
+                selectedIndex: 0,
+                isLoadingRemoteSuggestions: false,
+                searchSuggestionsEnabled: true,
+                onCommit: { _ in XCTFail("Unexpected commit") },
+                onHighlight: { _ in XCTFail("Unexpected highlight") }
+            )
+        )
+        slot.layoutSubtreeIfNeeded()
+
+        let overlay = slot.subviews.first {
+            String(describing: type(of: $0)).contains("OmnibarSuggestionsHostingView")
+        }
+        XCTAssertNotNil(overlay)
+        guard let overlay else { return }
+
+        XCTAssertNil(overlay.hitTest(NSPoint(x: 8, y: 8)))
+
+        let insideTopLeftPoint = NSPoint(x: popupFrame.midX, y: popupFrame.midY)
+        let insidePoint = overlay.isFlipped
+            ? insideTopLeftPoint
+            : NSPoint(x: insideTopLeftPoint.x, y: overlay.bounds.height - insideTopLeftPoint.y)
+        XCTAssertNotNil(overlay.hitTest(insidePoint))
+    }
+}
+
+@MainActor
+private final class OmnibarInlineDeletionHarness {
+    var state = OmnibarState()
+    var inlineCompletion: OmnibarInlineCompletion?
+
+    init(
+        typedText: String,
+        displayText: String,
+        suggestions: [OmnibarSuggestion]
+    ) {
+        state.isFocused = true
+        state.currentURLString = ""
+        state.buffer = typedText
+        state.suggestions = suggestions
+        inlineCompletion = OmnibarInlineCompletion(
+            typedText: typedText,
+            displayText: displayText,
+            acceptedText: displayText
+        )
+    }
+
+    func dispatchBackspace(
+        modifiers: NSEvent.ModifierFlags,
+        fallbackCommand: Selector,
+        file: StaticString = #filePath,
+        line: UInt = #line
+    ) throws {
+        let coordinator = makeCoordinator()
+        let editor = NSTextView()
+        editor.string = inlineCompletion?.displayText ?? state.buffer
+        if let inlineCompletion {
+            editor.setSelectedRange(inlineCompletion.suffixRange)
+        }
+
+        let event = try XCTUnwrap(
+            NSEvent.keyEvent(
+                with: .keyDown,
+                location: .zero,
+                modifierFlags: modifiers,
+                timestamp: ProcessInfo.processInfo.systemUptime,
+                windowNumber: 0,
+                context: nil,
+                characters: "\u{7F}",
+                charactersIgnoringModifiers: "\u{7F}",
+                isARepeat: false,
+                keyCode: 51
+            ),
+            file: file,
+            line: line
+        )
+
+        let handledInKeyDown = coordinator.handleKeyEvent(event, editor: editor)
+        if !handledInKeyDown {
+            _ = coordinator.control(NSTextField(), textView: editor, doCommandBy: fallbackCommand)
+        }
+    }
+
+    private func makeCoordinator() -> OmnibarTextFieldRepresentable.Coordinator {
+        OmnibarTextFieldRepresentable.Coordinator(
+            parent: OmnibarTextFieldRepresentable(
+                panelId: UUID(),
+                text: Binding(
+                    get: { self.state.buffer },
+                    set: { self.state.buffer = $0 }
+                ),
+                isFocused: Binding(
+                    get: { self.state.isFocused },
+                    set: { self.state.isFocused = $0 }
+                ),
+                selectAllRequestId: 0,
+                inlineCompletion: inlineCompletion,
+                placeholder: "",
+                onTap: {},
+                onSubmit: {},
+                onEscape: {},
+                onFieldLostFocus: {},
+                onMoveSelection: { _ in },
+                onDeleteSelectedSuggestion: {},
+                onAcceptInlineCompletion: {},
+                onDeleteBackwardWithInlineSelection: { self.deleteSingleCharacterBeforeInlineCompletion() },
+                onClearTypedPrefixWithInlineSelection: { self.clearTypedPrefix() },
+                onDeleteWordBackwardWithInlineSelection: { self.deleteWordBeforeInlineCompletion() },
+                onSelectionChanged: { _, _ in },
+                shouldSuppressWebViewFocus: { false }
+            )
+        )
+    }
+
+    private func deleteSingleCharacterBeforeInlineCompletion() {
+        guard let inlineCompletion else { return }
+        let updated = String(inlineCompletion.typedText.dropLast())
+        replaceTypedPrefix(with: updated)
+    }
+
+    private func clearTypedPrefix() {
+        replaceTypedPrefixAndDismissSuggestions(with: "")
+    }
+
+    private func deleteWordBeforeInlineCompletion() {
+        guard let inlineCompletion else { return }
+        let updated = omnibarPrefixAfterDeletingTrailingWord(from: inlineCompletion.typedText)
+        replaceTypedPrefixAndDismissSuggestions(with: updated)
+    }
+
+    private func replaceTypedPrefix(with updated: String) {
+        let effects = omnibarReduce(state: &state, event: .bufferChanged(updated))
+        XCTAssertTrue(effects.shouldRefreshSuggestions)
+        inlineCompletion = omnibarInlineCompletionForDisplay(
+            typedText: state.buffer,
+            suggestions: state.suggestions,
+            isFocused: state.isFocused,
+            selectionRange: NSRange(location: updated.utf16.count, length: 0),
+            hasMarkedText: false
+        )
+    }
+
+    private func replaceTypedPrefixAndDismissSuggestions(with updated: String) {
+        _ = omnibarReduce(state: &state, event: .bufferChanged(updated))
+        let effects = omnibarReduce(state: &state, event: .suggestionsUpdated([]))
+        XCTAssertFalse(effects.shouldRefreshSuggestions)
+        inlineCompletion = nil
+    }
+
+}
+
+
+@MainActor
+final class BrowserOmnibarFieldEditorResolutionTests: XCTestCase {
+    func testPanelIdResolutionUsesLiveOmnibarFieldWhenFieldEditorResponderChainIsStale() {
+        _ = NSApplication.shared
+
+        let panelId = UUID()
+        let window = NSWindow(
+            contentRect: NSRect(x: 0, y: 0, width: 420, height: 80),
+            styleMask: [.borderless],
+            backing: .buffered,
+            defer: false
+        )
+        let contentView = NSView(frame: window.contentRect(forFrameRect: window.frame))
+        window.contentView = contentView
+
+        let staleWebView = CmuxWebView(frame: NSRect(x: 0, y: 0, width: 420, height: 80), configuration: WKWebViewConfiguration())
+        contentView.addSubview(staleWebView)
+
+        let field = OmnibarNativeTextField(frame: NSRect(x: 8, y: 28, width: 300, height: 24))
+        field.panelId = panelId
+        contentView.addSubview(field)
+
+        window.makeKeyAndOrderFront(nil)
+        defer {
+            field.removeFromSuperview()
+            staleWebView.removeFromSuperview()
+            window.contentView = nil
+            window.orderOut(nil)
+        }
+
+        XCTAssertTrue(window.makeFirstResponder(field))
+        guard let editor = field.currentEditor() as? NSTextView else {
+            XCTFail("Expected omnibar field editor after focusing text field")
+            return
+        }
+
+        let originalNextResponder = editor.nextResponder
+        editor.nextResponder = staleWebView
+        defer {
+            editor.nextResponder = originalNextResponder
+        }
+
+        XCTAssertEqual(
+            browserOmnibarPanelId(for: editor),
+            panelId,
+            "A live omnibar field editor must resolve to its owning omnibar field even when AppKit leaves a stale browser responder chain behind"
+        )
     }
 }
 

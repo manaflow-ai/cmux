@@ -7,6 +7,7 @@ class UpdateViewModel: ObservableObject {
     @Published var state: UpdateState = .idle
     @Published var overrideState: UpdateState?
     @Published var detectedUpdateVersion: String?
+    @Published private(set) var detectedUpdateItem: SUAppcastItem?
     #if DEBUG
     @Published var debugOverrideText: String?
     #endif
@@ -19,16 +20,54 @@ class UpdateViewModel: ObservableObject {
         effectiveState.isIdle && detectedUpdateVersion != nil
     }
 
+    var hasCachedDetectedUpdateDetails: Bool {
+        detectedUpdateItem != nil
+    }
+
     var showsPill: Bool {
         !effectiveState.isIdle || showsDetectedBackgroundUpdate
     }
 
     func recordDetectedUpdate(_ item: SUAppcastItem) {
-        detectedUpdateVersion = Self.normalizedDetectedUpdateVersion(from: item.displayVersionString)
+        let version = Self.normalizedDetectedUpdateVersion(from: item.displayVersionString)
+        detectedUpdateItem = version == nil ? nil : item
+        detectedUpdateVersion = version
     }
 
     func clearDetectedUpdate() {
+        detectedUpdateItem = nil
         detectedUpdateVersion = nil
+    }
+
+    func dismissDetectedAvailableUpdate() {
+        clearDetectedUpdate()
+
+        var didDismissUpdate = false
+        if case .updateAvailable(let update) = state {
+            update.reply(.dismiss)
+            didDismissUpdate = true
+            state = .idle
+        }
+
+        if let overrideState, case .updateAvailable(let update) = overrideState {
+            if !didDismissUpdate {
+                update.reply(.dismiss)
+            }
+            self.overrideState = nil
+        }
+    }
+
+    func cancelActiveStateForNewCheck() {
+        state.cancel()
+        state = .idle
+        overrideState = nil
+    }
+
+    func applyDriverState(_ newState: UpdateState) {
+        if case .updateAvailable(let update) = newState {
+            recordDetectedUpdate(update.appcastItem)
+        }
+        state = newState
     }
 
     var text: String {

@@ -10,12 +10,13 @@
 </p>
 
 <p align="center">
-  <a href="README.md">English</a> | <a href="README.ja.md">日本語</a> | <a href="README.zh-CN.md">简体中文</a> | <a href="README.zh-TW.md">繁體中文</a> | <a href="README.ko.md">한국어</a> | <a href="README.de.md">Deutsch</a> | Español | <a href="README.fr.md">Français</a> | <a href="README.it.md">Italiano</a> | <a href="README.da.md">Dansk</a> | <a href="README.pl.md">Polski</a> | <a href="README.ru.md">Русский</a> | <a href="README.bs.md">Bosanski</a> | <a href="README.ar.md">العربية</a> | <a href="README.no.md">Norsk</a> | <a href="README.pt-BR.md">Português (Brasil)</a> | <a href="README.th.md">ไทย</a> | <a href="README.tr.md">Türkçe</a> | <a href="README.km.md">ភាសាខ្មែរ</a>
+  <a href="README.md">English</a> | <a href="README.ja.md">日本語</a> | <a href="README.zh-CN.md">简体中文</a> | <a href="README.zh-TW.md">繁體中文</a> | <a href="README.ko.md">한국어</a> | <a href="README.de.md">Deutsch</a> | Español | <a href="README.fr.md">Français</a> | <a href="README.it.md">Italiano</a> | <a href="README.da.md">Dansk</a> | <a href="README.pl.md">Polski</a> | <a href="README.ru.md">Русский</a> | <a href="README.bs.md">Bosanski</a> | <a href="README.ar.md">العربية</a> | <a href="README.no.md">Norsk</a> | <a href="README.pt-BR.md">Português (Brasil)</a> | <a href="README.th.md">ไทย</a> | <a href="README.tr.md">Türkçe</a> | <a href="README.km.md">ភាសាខ្មែរ</a> | <a href="README.uk.md">Українська</a>
 </p>
 
 <p align="center">
   <a href="https://x.com/manaflowai"><img src="https://img.shields.io/badge/@manaflow-555?logo=x" alt="X / Twitter" /></a>
   <a href="https://discord.gg/xsgFEVrWCZ"><img src="https://img.shields.io/badge/Discord-555?logo=discord" alt="Discord" /></a>
+  <a href="https://github.com/manaflow-ai/cmux"><img src="https://img.shields.io/github/stars/manaflow-ai/cmux?style=flat&logo=github&label=stars&color=4c71f2" alt="GitHub stars" /></a>
 </p>
 
 <p align="center">
@@ -65,8 +66,28 @@ La barra lateral muestra la rama de git, el estado/número del PR vinculado, el 
 <img src="./docs/assets/vertical-horizontal-tabs-and-splits.png" alt="Pestañas verticales y paneles divididos" width="100%" />
 </td>
 </tr>
+<tr>
+<td width="40%" valign="middle">
+<h3>SSH</h3>
+<code>cmux ssh user@remote</code> crea un espacio de trabajo para una máquina remota. Los paneles del navegador se enrutan a través de la red remota, así que localhost simplemente funciona. Arrastra una imagen a una sesión remota para subirla vía scp.
+</td>
+<td width="60%">
+<img src="./docs/assets/ssh.png" alt="cmux SSH" width="100%" />
+</td>
+</tr>
+<tr>
+<td width="40%" valign="middle">
+<h3>Claude Code Teams</h3>
+<code>cmux claude-teams</code> ejecuta el modo de compañeros de equipo de Claude Code con un solo comando. Los compañeros aparecen como divisiones nativas con metadatos en la barra lateral y notificaciones. No se requiere tmux.
+</td>
+<td width="60%">
+<img src="./docs/assets/claude-code-teams.png" alt="Claude Code Teams" width="100%" />
+</td>
+</tr>
 </table>
 
+- **Importación de navegador** — Importa cookies, historial y sesiones de Chrome, Firefox, Arc y más de 20 navegadores para que los paneles del navegador inicien autenticados
+- **Comandos personalizados** — Define acciones específicas del proyecto en [`cmux.json`](https://cmux.com/docs/custom-commands) que se lanzan desde la paleta de comandos
 - **Programable** — CLI y API de socket para crear espacios de trabajo, dividir paneles, enviar pulsaciones de teclas y automatizar el navegador
 - **App nativa de macOS** — Construida con Swift y AppKit, no con Electron. Inicio rápido, bajo consumo de memoria.
 - **Compatible con Ghostty** — Lee tu configuración existente en `~/.config/ghostty/config` para temas, fuentes y colores
@@ -215,15 +236,33 @@ Los atajos de herramientas de desarrollo del navegador siguen los valores predet
 
 cmux NIGHTLY es una app separada con su propio bundle ID, por lo que se ejecuta junto a la versión estable. Se compila automáticamente desde el último commit de `main` y se actualiza automáticamente a través de su propio feed de Sparkle.
 
-## Restauración de sesión (comportamiento actual)
+## Restauración de sesión
 
-Al relanzar, cmux actualmente restaura solo el diseño y los metadatos de la aplicación:
+Al salir, cmux guarda la sesión actual. Al relanzar, cmux restaura el estado que pertenece a la app:
 - Diseño de ventanas/espacios de trabajo/paneles
 - Directorios de trabajo
 - Historial de desplazamiento del terminal (mejor esfuerzo)
 - URL del navegador e historial de navegación
 
-cmux **no** restaura el estado de los procesos activos dentro de las aplicaciones de terminal. Por ejemplo, las sesiones activas de Claude Code/tmux/vim no se reanudan después de reiniciar todavía.
+cmux no guarda puntos de control de procesos activos arbitrarios. tmux, vim, shells y apps de terminal no compatibles se vuelven a abrir como terminales normales.
+
+Las sesiones de agentes compatibles pueden reanudarse cuando los hooks han guardado un ID de sesión nativo:
+
+```bash
+cmux hooks setup
+cmux hooks setup codex
+cmux hooks setup --agent opencode
+```
+
+Los usuarios avanzados y las integraciones pueden asociar un comando de reanudación personalizado a la superficie de terminal actual. Esto es útil para herramientas con estado duradero propio, como sesiones tmux o CLIs de agentes personalizados:
+
+```bash
+cmux surface resume set --kind tmux --checkpoint work --shell "tmux attach -t work"
+cmux surface resume show --json
+cmux surface resume clear --checkpoint work
+```
+
+La asociación queda ligada a la superficie de cmux. Las asociaciones creadas por el CLI público o el socket se guardan para inspección y reanudación manual. cmux solo ejecuta automáticamente las asociaciones de reanudación que marca como confiables, como las de tmux detectadas desde procesos activos. Las claves de entorno sensibles, como tokens, contraseñas, secretos y claves de API, se descartan antes de guardar una asociación de reanudación.
 
 ## Historial de estrellas
 
@@ -268,6 +307,6 @@ cmux es gratuito, de código abierto, y siempre lo será. Si deseas apoyar el de
 
 ## Licencia
 
-Este proyecto está licenciado bajo la Licencia Pública General Affero de GNU v3.0 o posterior (`AGPL-3.0-or-later`).
+cmux es código abierto bajo [GPL-3.0-or-later](LICENSE).
 
-Consulta el archivo `LICENSE` para el texto completo.
+Si su organización no puede cumplir con GPL, hay una licencia comercial disponible. Contacte a [founders@manaflow.com](mailto:founders@manaflow.com) para más detalles.

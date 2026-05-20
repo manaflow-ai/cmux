@@ -10,12 +10,13 @@
 </p>
 
 <p align="center">
-  <a href="README.md">English</a> | <a href="README.ja.md">日本語</a> | 简体中文 | <a href="README.zh-TW.md">繁體中文</a> | <a href="README.ko.md">한국어</a> | <a href="README.de.md">Deutsch</a> | <a href="README.es.md">Español</a> | <a href="README.fr.md">Français</a> | <a href="README.it.md">Italiano</a> | <a href="README.da.md">Dansk</a> | <a href="README.pl.md">Polski</a> | <a href="README.ru.md">Русский</a> | <a href="README.bs.md">Bosanski</a> | <a href="README.ar.md">العربية</a> | <a href="README.no.md">Norsk</a> | <a href="README.pt-BR.md">Português (Brasil)</a> | <a href="README.th.md">ไทย</a> | <a href="README.tr.md">Türkçe</a> | <a href="README.km.md">ភាសាខ្មែរ</a>
+  <a href="README.md">English</a> | <a href="README.ja.md">日本語</a> | 简体中文 | <a href="README.zh-TW.md">繁體中文</a> | <a href="README.ko.md">한국어</a> | <a href="README.de.md">Deutsch</a> | <a href="README.es.md">Español</a> | <a href="README.fr.md">Français</a> | <a href="README.it.md">Italiano</a> | <a href="README.da.md">Dansk</a> | <a href="README.pl.md">Polski</a> | <a href="README.ru.md">Русский</a> | <a href="README.bs.md">Bosanski</a> | <a href="README.ar.md">العربية</a> | <a href="README.no.md">Norsk</a> | <a href="README.pt-BR.md">Português (Brasil)</a> | <a href="README.th.md">ไทย</a> | <a href="README.tr.md">Türkçe</a> | <a href="README.km.md">ភាសាខ្មែរ</a> | <a href="README.uk.md">Українська</a>
 </p>
 
 <p align="center">
   <a href="https://x.com/manaflowai"><img src="https://img.shields.io/badge/@manaflow-555?logo=x" alt="X / Twitter" /></a>
   <a href="https://discord.gg/xsgFEVrWCZ"><img src="https://img.shields.io/badge/Discord-555?logo=discord" alt="Discord" /></a>
+  <a href="https://github.com/manaflow-ai/cmux"><img src="https://img.shields.io/github/stars/manaflow-ai/cmux?style=flat&logo=github&label=stars&color=4c71f2" alt="GitHub stars" /></a>
 </p>
 
 <p align="center">
@@ -65,8 +66,28 @@
 <img src="./docs/assets/vertical-horizontal-tabs-and-splits.png" alt="垂直标签页和分割窗格" width="100%" />
 </td>
 </tr>
+<tr>
+<td width="40%" valign="middle">
+<h3>SSH</h3>
+<code>cmux ssh user@remote</code> 为远程机器创建工作区。浏览器窗格通过远程网络路由，因此 localhost 直接可用。将图片拖入远程会话即可通过 scp 上传。
+</td>
+<td width="60%">
+<img src="./docs/assets/ssh.png" alt="cmux SSH" width="100%" />
+</td>
+</tr>
+<tr>
+<td width="40%" valign="middle">
+<h3>Claude Code Teams</h3>
+<code>cmux claude-teams</code> 一条命令运行 Claude Code 的队友模式。队友以原生分割的形式生成，侧边栏显示元数据和通知。无需 tmux。
+</td>
+<td width="60%">
+<img src="./docs/assets/claude-code-teams.png" alt="Claude Code Teams" width="100%" />
+</td>
+</tr>
 </table>
 
+- **浏览器导入** — 从 Chrome、Firefox、Arc 及 20 多种浏览器导入 Cookie、历史记录和会话，让浏览器窗格启动即已登录
+- **自定义命令** — 在 [`cmux.json`](https://cmux.com/docs/custom-commands) 中定义项目专属操作，通过命令面板启动
 - **可脚本化** — 通过 CLI 和 socket API 创建工作区、分割窗格、发送按键和自动化浏览器操作
 - **原生 macOS 应用** — 使用 Swift 和 AppKit 构建，非 Electron。启动快速，内存占用低。
 - **兼容 Ghostty** — 读取您现有的 `~/.config/ghostty/config` 配置文件中的主题、字体和颜色设置
@@ -215,15 +236,33 @@ cmux 是原语，而非解决方案。它提供终端、浏览器、通知、工
 
 cmux NIGHTLY 是一个拥有独立 Bundle ID 的单独应用，因此可以与稳定版并行运行。它从最新的 `main` 提交自动构建，并通过独立的 Sparkle 更新源自动更新。
 
-## 会话恢复（当前行为）
+## 会话恢复
 
-重新启动时，cmux 目前仅恢复应用布局和元数据：
+退出 cmux 会保存当前会话。重新启动时，cmux 会恢复应用管理的状态：
 - 窗口/工作区/窗格布局
 - 工作目录
 - 终端回滚缓冲区（尽力恢复）
 - 浏览器 URL 和导航历史
 
-cmux **不会**恢复终端应用内部的实时进程状态。例如，活动的 Claude Code/tmux/vim 会话在重启后尚无法恢复。
+cmux 不会为任意实时进程状态做检查点。tmux、vim、shell 和不支持的终端应用会作为普通终端重新打开。
+
+当 hooks 保存了原生会话 ID 时，受支持的 agent 会话可以恢复：
+
+```bash
+cmux hooks setup
+cmux hooks setup codex
+cmux hooks setup --agent opencode
+```
+
+高级用户和集成可以把自定义恢复命令绑定到当前终端 surface。这适用于 tmux 会话或自定义 agent CLI 等拥有持久状态的工具：
+
+```bash
+cmux surface resume set --kind tmux --checkpoint work --shell "tmux attach -t work"
+cmux surface resume show --json
+cmux surface resume clear --checkpoint work
+```
+
+这个绑定会继续关联到 cmux surface。通过公开 CLI 或 socket 创建的绑定会保存用于检查和手动恢复。cmux 只会自动运行被标记为可信的恢复绑定，例如从运行中进程检测到的 tmux 绑定。 令牌、密码、密钥和 API key 等敏感环境变量键会在保存恢复绑定前被丢弃。
 
 ## Star History
 
@@ -268,6 +307,6 @@ cmux 免费、开源，并将一直如此。如果您想支持开发并提前体
 
 ## 许可证
 
-本项目采用 GNU Affero 通用公共许可证 v3.0 或更高版本（`AGPL-3.0-or-later`）授权。
+cmux 以 [GPL-3.0-or-later](LICENSE) 开源。
 
-完整许可证文本请参见 `LICENSE` 文件。
+如果您的组织无法遵守 GPL，可提供商业许可证。详情请联系 [founders@manaflow.com](mailto:founders@manaflow.com)。

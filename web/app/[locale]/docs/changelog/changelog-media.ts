@@ -26,6 +26,177 @@ export interface VersionMedia {
 }
 
 export const changelogMedia: Record<string, VersionMedia> = {
+  "0.64.7": {
+    title:
+      "Grok Build CLI, Browser Memory & Background Preload, Conversation Forks",
+    features: [
+      {
+        title: "Grok Build CLI Integration",
+        description:
+          "Grok Build joins the supported coding-agent lineup with notifications, task manager attribution, and session restore, the same way Claude, Codex, and Gemini already work in cmux.",
+      },
+      {
+        title: "Browser Memory Reclaim and Background Preload",
+        description:
+          "Hidden browser webviews can now discard their renderer process to release memory and reappear instantly when you switch back. CLI-created browser panes preload offscreen so the page is ready the moment the workspace becomes visible. Thanks @lidge-jun for the community contributions.",
+      },
+      {
+        title: "Agent Conversation Forks",
+        description:
+          "New socket commands let you fork an agent conversation off its current turn, so you can branch into a what-if without losing the original thread.",
+      },
+      {
+        title: "Crash Diagnostics from Notifications",
+        description:
+          "When cmux logs a crash, the notification now opens directly into the crash diagnostics view so you can inspect the breadcrumb trail without digging through state.",
+      },
+      {
+        title: "Bug Fixes",
+        description:
+          "Fixes for browser deep-link popups (slack://, discord://, zoom://), Cmd-click reload duplicating browser tabs, omnibar arrow key focus races, light-theme foreground rendering with conditional themes, Cmd-hover bounds for spaced file paths, markdown viewer image rendering, surface tab bar action button clipping, task manager attribution, SSH pane sibling kills, background workspace PTY startup, browser IME candidate windows for Japanese / Zhuyin, ripgrep resolution on Nix installs, and Claude sidebar resume config dir overrides.",
+      },
+    ],
+  },
+  "0.64.6": {
+    title: "SSH Typing Restored, Command Palette Settings Toggles",
+    features: [
+      {
+        title: "SSH Typing Restored",
+        description:
+          "Fixes a critical regression in 0.64.5 where cmux ssh sessions would connect and render the remote prompt but drop every keystroke. The backgrounded ssh inside the startup wrapper now inherits the wrapper's stdin via <&0, so typing reaches the remote shell again. Thanks @kays0x for the community fix.",
+      },
+      {
+        title: "Command Palette Settings Toggles",
+        description:
+          "Boolean Settings rows are now reachable from the command palette, including iMessage Mode. Toggle features without opening Settings.",
+      },
+      {
+        title: "Sidebar Reorder Stays in View",
+        description:
+          "Reordering a selected workspace now keeps it visible — the sidebar scrolls along so the selected item never disappears off-screen after a move.",
+      },
+      {
+        title: "Cloud VM Error Guidance",
+        description:
+          "cmux vm errors now include actionable next steps: sign-in instructions when not authenticated, suggested fixes for unknown flags, and usage examples for missing arguments.",
+      },
+    ],
+  },
+  "0.64.5": {
+    title: "Codex Teams, Menubar Global Search, Markdown Viewer, Feed by Default",
+    features: [
+      {
+        title: "Codex Teams Subagent Panes",
+        description:
+          "cmux codex-teams now maps Codex's subagent sessions into native cmux panes, the same way claude-teams does for Claude Code. Spawned subagents stack in a right column with sidebar metadata and notifications routed through cmux.",
+      },
+      {
+        title: "Menubar Global Search",
+        description:
+          "A new global search command surfaces windows, workspaces, panes, surfaces, and right-sidebar tools from the menu bar so you can jump anywhere without reaching for the sidebar.",
+      },
+      {
+        title: "Rewritten Markdown Viewer",
+        description:
+          "The Markdown viewer now uses a webview-based renderer with richer formatting, better selection, and faster scrolling. Thanks @tobi for the contribution.",
+      },
+      {
+        title: "Feed on by Default",
+        description:
+          "The Feed is now enabled by default for new and existing users, surfacing notifications, agent events, and workspace activity in one chronological stream.",
+      },
+      {
+        title: "Quality-of-life Polish",
+        description:
+          "Open right sidebar tools as panes, workspace cwd inheritance, an unread defer shortcut, iMessage workspace ordering and previews, and right-sidebar CLI parity. Bug fixes for Korean IME arrows, garbled Chinese paste, Metal renderer crashes, terminal portal resize lag, multi-monitor sleep/wake window position, and Cloud VM SSH attach.",
+      },
+    ],
+  },
+  "0.64.4": {
+    title: "SSH Files Polish, Vault Pi & Hermes, Browser Cookie Import",
+    features: [
+      {
+        title: "SSH Files Polish",
+        description:
+          "The Files sidebar now follows SSH workspaces and shows the remote root instead of the local macOS path. SSH workspace descriptors restore on relaunch, and new guarded cmux://ssh deep links prompt before launching ssh so unfamiliar links can't run arbitrary commands.",
+      },
+      {
+        title: "Vault Pi and Hermes",
+        description:
+          "Pi sessions now restore across relaunch via Vault, and Hermes Agent hooks pipe into the sidebar like Claude, Codex, OpenCode, Gemini, and Rovo Dev. Per-agent toggles let you hide individual agent session restores from Vault.",
+      },
+      {
+        title: "Browser Cookie Import",
+        description:
+          "A new cmux browser cookies import CLI brings cookies from other browsers into cmux's browser panes so logged-in sessions follow you over.",
+      },
+      {
+        title: "Quality-of-life Polish",
+        description:
+          "Welcome sidebar toggle shortcuts, Insert Path and Insert Relative Path in the file explorer right-click menu, a warnBeforeClosingTab toggle to opt back into the close confirmation prompt, plus fixes for IME, command palette Escape, modified Backspace in the omnibar, and stale terminal colors after theme switches.",
+      },
+    ],
+  },
+  "0.64.0": {
+    title: "Session Restore on Quit, Passkeys, File Explorer, Task Manager",
+    features: [
+      {
+        title: "Session Restore on Quit",
+        description:
+          "Closing the last window with the red X no longer drops your work. cmux restores prior panes on relaunch and resumes Claude Code, Codex, OpenCode, Gemini, and Rovo Dev sessions where you left off.",
+      },
+      {
+        title: "Passkeys, WebAuthn, and FIDO2",
+        description:
+          "Sign in to passkey-protected sites directly inside cmux browser panes. Reworked inside-out signing keeps the notarized Developer ID build compatible with macOS authentication services.",
+      },
+      {
+        title: "File Explorer",
+        description:
+          "A Finder-like file explorer sidebar with full SSH support so remote workspaces get the same tree view as local ones.",
+      },
+      {
+        title: "Task Manager",
+        description:
+          "A built-in Task Manager window plus cmux top CLI shows a live snapshot of windows, workspaces, panes, surfaces, and browser webviews, with jumps from the manager into the matching surface.",
+      },
+    ],
+  },
+  "0.63.0": {
+    title: "SSH, Claude Code Teams, oh-my-openagent, Browser Import, Minimal Mode",
+    features: [
+      {
+        title: "SSH",
+        description:
+          "cmux ssh user@remote creates a workspace for a remote machine. Browser panes route through the remote network so localhost just works. Drag an image into a remote session to upload via scp. Coding agent notifications come home to your local sidebar. Reconnects on drops.",
+      },
+      {
+        title: "Claude Code Teams",
+        description:
+          "cmux claude-teams launches Claude Code's experimental teammate mode with one command. It sets up the environment, fakes a tmux session, and translates tmux commands into native cmux splits. Teammates stack vertically in a right column with sidebar metadata and notifications.",
+      },
+      {
+        title: "oh-my-openagent",
+        description:
+          "cmux omo integrates oh-my-openagent (formerly oh-my-opencode), which orchestrates specialist agents across Claude, GPT, and Gemini in parallel. Same tmux shim as claude-teams, auto-installs the plugin, notifications route through cmux.",
+      },
+      {
+        title: "Browser Profile Import",
+        description:
+          "Import cookies, history, and sessions from Chrome, Arc, Brave, Firefox, Safari, and 20+ browsers. The import wizard detects installed browsers, lets you pick profiles, and injects everything into cmux's browser panes so you're already logged in.",
+      },
+      {
+        title: "Minimal Mode",
+        description:
+          "Hide the titlebar for a distraction-free terminal. Controls move to the sidebar and appear on hover. Toggle from the command palette or Settings.",
+      },
+      {
+        title: "Custom Commands",
+        description:
+          "Define project-specific actions in cmux.json that launch from the command palette. One file per repo, no global config needed.",
+      },
+    ],
+  },
   "0.62.0": {
     title: "Markdown Viewer, Browser Find, Vi Copy Mode, and Localization",
     features: [

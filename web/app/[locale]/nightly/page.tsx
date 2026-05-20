@@ -1,5 +1,6 @@
 import { useTranslations } from "next-intl";
 import { getTranslations } from "next-intl/server";
+import { buildAlternates } from "../../../i18n/seo";
 import { SiteHeader } from "../components/site-header";
 
 export async function generateMetadata({
@@ -12,7 +13,7 @@ export async function generateMetadata({
   return {
     title: t("metaTitle"),
     description: t("metaDescription"),
-    alternates: { canonical: "./" },
+    alternates: buildAlternates(locale, "/nightly"),
   };
 }
 

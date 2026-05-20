@@ -10,12 +10,13 @@
 </p>
 
 <p align="center">
-  <a href="README.md">English</a> | <a href="README.ja.md">日本語</a> | <a href="README.zh-CN.md">简体中文</a> | <a href="README.zh-TW.md">繁體中文</a> | <a href="README.ko.md">한국어</a> | <a href="README.de.md">Deutsch</a> | <a href="README.es.md">Español</a> | <a href="README.fr.md">Français</a> | <a href="README.it.md">Italiano</a> | Dansk | <a href="README.pl.md">Polski</a> | <a href="README.ru.md">Русский</a> | <a href="README.bs.md">Bosanski</a> | <a href="README.ar.md">العربية</a> | <a href="README.no.md">Norsk</a> | <a href="README.pt-BR.md">Português (Brasil)</a> | <a href="README.th.md">ไทย</a> | <a href="README.tr.md">Türkçe</a> | <a href="README.km.md">ភាសាខ្មែរ</a>
+  <a href="README.md">English</a> | <a href="README.ja.md">日本語</a> | <a href="README.zh-CN.md">简体中文</a> | <a href="README.zh-TW.md">繁體中文</a> | <a href="README.ko.md">한국어</a> | <a href="README.de.md">Deutsch</a> | <a href="README.es.md">Español</a> | <a href="README.fr.md">Français</a> | <a href="README.it.md">Italiano</a> | Dansk | <a href="README.pl.md">Polski</a> | <a href="README.ru.md">Русский</a> | <a href="README.bs.md">Bosanski</a> | <a href="README.ar.md">العربية</a> | <a href="README.no.md">Norsk</a> | <a href="README.pt-BR.md">Português (Brasil)</a> | <a href="README.th.md">ไทย</a> | <a href="README.tr.md">Türkçe</a> | <a href="README.km.md">ភាសាខ្មែរ</a> | <a href="README.uk.md">Українська</a>
 </p>
 
 <p align="center">
   <a href="https://x.com/manaflowai"><img src="https://img.shields.io/badge/@manaflow-555?logo=x" alt="X / Twitter" /></a>
   <a href="https://discord.gg/xsgFEVrWCZ"><img src="https://img.shields.io/badge/Discord-555?logo=discord" alt="Discord" /></a>
+  <a href="https://github.com/manaflow-ai/cmux"><img src="https://img.shields.io/github/stars/manaflow-ai/cmux?style=flat&logo=github&label=stars&color=4c71f2" alt="GitHub stars" /></a>
 </p>
 
 <p align="center">
@@ -65,8 +66,28 @@ Sidebjælken viser git-branch, tilknyttet PR-status/nummer, arbejdsmappe, lytten
 <img src="./docs/assets/vertical-horizontal-tabs-and-splits.png" alt="Lodrette faner og delte paneler" width="100%" />
 </td>
 </tr>
+<tr>
+<td width="40%" valign="middle">
+<h3>SSH</h3>
+<code>cmux ssh user@remote</code> opretter et workspace til en fjernmaskine. Browserpaneler rutes gennem fjernnetværket, så localhost bare virker. Træk et billede ind i en fjernsession for at uploade via scp.
+</td>
+<td width="60%">
+<img src="./docs/assets/ssh.png" alt="cmux SSH" width="100%" />
+</td>
+</tr>
+<tr>
+<td width="40%" valign="middle">
+<h3>Claude Code Teams</h3>
+<code>cmux claude-teams</code> kører Claude Codes holdkammeratstilstand med én kommando. Holdkammerater oprettes som native opdelinger med metadata i sidebjælken og notifikationer. Ingen tmux påkrævet.
+</td>
+<td width="60%">
+<img src="./docs/assets/claude-code-teams.png" alt="Claude Code Teams" width="100%" />
+</td>
+</tr>
 </table>
 
+- **Browserimport** — Importér cookies, historik og sessioner fra Chrome, Firefox, Arc og 20+ andre browsere, så browserpaneler starter autentificerede
+- **Brugerdefinerede kommandoer** — Definér projektspecifikke handlinger i [`cmux.json`](https://cmux.com/docs/custom-commands), der startes fra kommandopaletten
 - **Scriptbar** — CLI og socket API til at oprette workspaces, dele paneler, sende tastetryk og automatisere browseren
 - **Nativ macOS-app** — Bygget med Swift og AppKit, ikke Electron. Hurtig opstart, lavt hukommelsesforbrug.
 - **Ghostty-kompatibel** — Læser din eksisterende `~/.config/ghostty/config` til temaer, skrifttyper og farver
@@ -215,15 +236,33 @@ Browserens udviklerværktøjsgenveje følger Safaris standarder og kan tilpasses
 
 cmux NIGHTLY er en separat app med sit eget bundle-ID, så den kører side om side med den stabile version. Bygges automatisk fra det seneste `main`-commit og opdaterer sig selv automatisk via sit eget Sparkle-feed.
 
-## Sessionsgenoprettelse (nuværende adfærd)
+## Sessionsgenoprettelse
 
-Ved genstart genopretter cmux i øjeblikket kun app-layout og metadata:
+Når du afslutter cmux, gemmes den aktuelle session. Ved genstart genopretter cmux app-ejet tilstand:
 - Vindue/workspace/panel-layout
 - Arbejdsmapper
 - Terminal-scrollback (best effort)
 - Browser-URL og navigationshistorik
 
-cmux genopretter **ikke** aktive procestilstande i terminalapps. For eksempel genoptages aktive Claude Code/tmux/vim-sessioner endnu ikke efter genstart.
+cmux tager ikke checkpoints af vilkårlig aktiv procestilstand. tmux, vim, shells og ikke-understøttede terminalapps åbnes igen som normale terminaler.
+
+Understøttede agent-sessioner kan genoptages, når hooks har gemt et native sessions-ID:
+
+```bash
+cmux hooks setup
+cmux hooks setup codex
+cmux hooks setup --agent opencode
+```
+
+Avancerede brugere og integrationer kan knytte en brugerdefineret genoptagelseskommando til den aktuelle terminal-surface. Det er nyttigt for værktøjer med egen varig tilstand, som tmux-sessioner eller brugerdefinerede agent-CLI'er:
+
+```bash
+cmux surface resume set --kind tmux --checkpoint work --shell "tmux attach -t work"
+cmux surface resume show --json
+cmux surface resume clear --checkpoint work
+```
+
+Bindingen forbliver knyttet til cmux-surfacen. Bindinger oprettet via offentlig CLI eller socket gemmes til inspektion og manuel genoptagelse. cmux auto-kører kun resume-bindinger, som den markerer som betroede, for eksempel tmux-bindinger fundet fra live processer. Følsomme miljønøgler som tokens, adgangskoder, hemmeligheder og API-nøgler fjernes, før en resume-binding gemmes.
 
 ## Stjernehistorik
 
@@ -268,6 +307,6 @@ cmux er gratis, open source og vil altid være det. Hvis du gerne vil støtte ud
 
 ## Licens
 
-Dette projekt er licenseret under GNU Affero General Public License v3.0 eller senere (`AGPL-3.0-or-later`).
+cmux er open source under [GPL-3.0-or-later](LICENSE).
 
-Se `LICENSE` for den fulde tekst.
+Hvis din organisation ikke kan overholde GPL, er en kommerciel licens tilgængelig. Kontakt [founders@manaflow.com](mailto:founders@manaflow.com) for detaljer.

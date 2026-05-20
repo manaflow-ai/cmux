@@ -1,4 +1,5 @@
 import Darwin
+import CMUXSocketPathDomain
 import Foundation
 #if canImport(Security)
 import Security
@@ -63,6 +64,7 @@ enum SocketControlMode: String, CaseIterable, Identifiable {
 enum SocketControlPasswordStore {
     static let directoryName = "cmux"
     static let fileName = "socket-control-password"
+    static let didChangeNotification = Notification.Name("cmux.socketControlPasswordDidChange")
     private static let keychainMigrationDefaultsKey = "socketControlPasswordMigrationVersion"
     private static let keychainMigrationVersion = 1
     private static let legacyKeychainService = "com.cmuxterm.app.socket-control"
@@ -196,6 +198,7 @@ enum SocketControlPasswordStore {
         let data = Data(normalized.utf8)
         try data.write(to: fileURL, options: .atomic)
         try FileManager.default.setAttributes([.posixPermissions: 0o600], ofItemAtPath: fileURL.path)
+        NotificationCenter.default.post(name: didChangeNotification, object: nil)
     }
 
     static func clearPassword(fileURL: URL? = nil) throws {
@@ -206,6 +209,7 @@ enum SocketControlPasswordStore {
             return
         }
         try FileManager.default.removeItem(at: fileURL)
+        NotificationCenter.default.post(name: didChangeNotification, object: nil)
     }
 
     static func resetLazyKeychainFallbackCacheForTests() {
@@ -295,16 +299,10 @@ struct SocketControlSettings {
     static let baseDebugBundleIdentifier = "com.cmuxterm.app.debug"
     private static let socketDirectoryName = "cmux"
     private static let stableSocketFileName = "cmux.sock"
-    private static let lastSocketPathFileName = "last-socket-path"
     static let legacyStableDefaultSocketPath = "/tmp/cmux.sock"
-    static let legacyLastSocketPathFile = "/tmp/cmux-last-socket-path"
 
     static var stableDefaultSocketPath: String {
         stableSocketFileURL()?.path ?? legacyStableDefaultSocketPath
-    }
-
-    static var lastSocketPathFile: String {
-        lastSocketPathFileURL()?.path ?? legacyLastSocketPathFile
     }
 
     enum StableDefaultSocketPathEntry: Equatable {
@@ -429,24 +427,19 @@ struct SocketControlSettings {
     ) -> String {
         let fallback = defaultSocketPath(
             bundleIdentifier: bundleIdentifier,
+            environment: environment,
             isDebugBuild: isDebugBuild,
             currentUserID: currentUserID,
             probeStableDefaultPathEntry: probeStableDefaultPathEntry
         )
 
-        if let taggedDebugPath = taggedDebugSocketPath(
-            bundleIdentifier: bundleIdentifier,
-            environment: environment
-        ) {
-            if isTruthy(environment[allowSocketPathOverrideKey]),
-               let override = environment["CMUX_SOCKET_PATH"],
-               !override.isEmpty {
-                return override
-            }
-            return taggedDebugPath
+        guard let override = environment["CMUX_SOCKET_PATH"], !override.isEmpty else {
+            return fallback
         }
 
-        guard let override = environment["CMUX_SOCKET_PATH"], !override.isEmpty else {
+        if isTaggedDevBuild(bundleIdentifier: bundleIdentifier),
+           !isTruthy(environment[allowSocketPathOverrideKey]),
+           !pathsMatch(override, fallback) {
             return fallback
         }
 
@@ -461,27 +454,26 @@ struct SocketControlSettings {
         return fallback
     }
 
+    private static func pathsMatch(_ lhs: String, _ rhs: String) -> Bool {
+        (lhs as NSString).standardizingPath == (rhs as NSString).standardizingPath
+    }
+
     static func defaultSocketPath(
         bundleIdentifier: String?,
+        environment: [String: String] = ProcessInfo.processInfo.environment,
         isDebugBuild: Bool,
         currentUserID: uid_t = getuid(),
         probeStableDefaultPathEntry: (String) -> StableDefaultSocketPathEntry = inspectStableDefaultSocketPathEntry
     ) -> String {
-        if let taggedDebugPath = taggedDebugSocketPath(bundleIdentifier: bundleIdentifier, environment: [:]) {
-            return taggedDebugPath
-        }
-        if bundleIdentifier == "com.cmuxterm.app.nightly" {
-            return "/tmp/cmux-nightly.sock"
-        }
-        if isDebugLikeBundleIdentifier(bundleIdentifier) || isDebugBuild {
-            return "/tmp/cmux-debug.sock"
-        }
-        if isStagingBundleIdentifier(bundleIdentifier) {
-            return "/tmp/cmux-staging.sock"
-        }
-        return resolvedStableDefaultSocketPath(
-            currentUserID: currentUserID,
-            probeStableDefaultPathEntry: probeStableDefaultPathEntry
+        SocketPathMarkerFiles.defaultSocketPath(
+            bundleIdentifier: bundleIdentifier,
+            environment: environment,
+            isDebugBuild: isDebugBuild,
+            stableSocketPath: resolvedStableDefaultSocketPath(
+                currentUserID: currentUserID,
+                probeStableDefaultPathEntry: probeStableDefaultPathEntry
+            ),
+            baseDebugBundleIdentifier: baseDebugBundleIdentifier
         )
     }
 
@@ -505,14 +497,6 @@ struct SocketControlSettings {
         }
     }
 
-    static func recordLastSocketPath(_ path: String, filePath: String = lastSocketPathFile) {
-        let payload = Data((path + "\n").utf8)
-        writeSocketPathMarker(payload, to: filePath)
-        if filePath != legacyLastSocketPathFile {
-            writeSocketPathMarker(payload, to: legacyLastSocketPathFile)
-        }
-    }
-
     static func shouldHonorSocketPathOverride(
         environment: [String: String],
         bundleIdentifier: String?,
@@ -521,10 +505,30 @@ struct SocketControlSettings {
         if isTruthy(environment[allowSocketPathOverrideKey]) {
             return true
         }
+        if inheritedBundleIdentifierConflicts(environment: environment, bundleIdentifier: bundleIdentifier) {
+            return false
+        }
         if isDebugLikeBundleIdentifier(bundleIdentifier) || isStagingBundleIdentifier(bundleIdentifier) {
             return true
         }
         return isDebugBuild
+    }
+
+    private static func inheritedBundleIdentifierConflicts(
+        environment: [String: String],
+        bundleIdentifier: String?
+    ) -> Bool {
+        guard let inheritedBundleIdentifier = normalizedBundleIdentifier(environment["CMUX_BUNDLE_ID"]),
+              let bundleIdentifier = normalizedBundleIdentifier(bundleIdentifier) else {
+            return false
+        }
+        return inheritedBundleIdentifier != bundleIdentifier
+    }
+
+    private static func normalizedBundleIdentifier(_ value: String?) -> String? {
+        guard let value else { return nil }
+        let trimmed = value.trimmingCharacters(in: .whitespacesAndNewlines)
+        return trimmed.isEmpty ? nil : trimmed
     }
 
     static func isDebugLikeBundleIdentifier(_ bundleIdentifier: String?) -> Bool {
@@ -533,37 +537,11 @@ struct SocketControlSettings {
             || bundleIdentifier.hasPrefix("com.cmuxterm.app.debug.")
     }
 
-    static func taggedDebugSocketPath(
-        bundleIdentifier: String?,
-        environment: [String: String]
-    ) -> String? {
-        let bundleId = bundleIdentifier?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
-        if bundleId.hasPrefix("\(baseDebugBundleIdentifier).") {
-            let suffix = String(bundleId.dropFirst(baseDebugBundleIdentifier.count + 1))
-            let slug = suffix
-                .replacingOccurrences(of: ".", with: "-")
-                .trimmingCharacters(in: CharacterSet(charactersIn: "-"))
-            if !slug.isEmpty {
-                return "/tmp/cmux-debug-\(slug).sock"
-            }
-        }
-
-        let tag = launchTag(environment: environment)?
-            .lowercased()
-            .replacingOccurrences(of: ".", with: "-")
-            .replacingOccurrences(of: "_", with: "-")
-            .components(separatedBy: CharacterSet.alphanumerics.inverted)
-            .filter { !$0.isEmpty }
-            .joined(separator: "-")
-
-        guard bundleId == baseDebugBundleIdentifier,
-              let tag,
-              !tag.isEmpty else {
-            return nil
-        }
-        return "/tmp/cmux-debug-\(tag).sock"
+    /// Tagged DEV builds have bundle IDs like `com.cmuxterm.app.debug.<tag>`.
+    static func isTaggedDevBuild(bundleIdentifier: String? = Bundle.main.bundleIdentifier) -> Bool {
+        guard let bundleIdentifier else { return false }
+        return bundleIdentifier.hasPrefix("\(baseDebugBundleIdentifier).")
     }
-
     static func isStagingBundleIdentifier(_ bundleIdentifier: String?) -> Bool {
         guard let bundleIdentifier else { return false }
         return bundleIdentifier == "com.cmuxterm.app.staging"
@@ -580,22 +558,6 @@ struct SocketControlSettings {
     static func stableSocketFileURL(fileManager: FileManager = .default) -> URL? {
         stableSocketDirectoryURL(fileManager: fileManager)?
             .appendingPathComponent(stableSocketFileName, isDirectory: false)
-    }
-
-    static func lastSocketPathFileURL(fileManager: FileManager = .default) -> URL? {
-        stableSocketDirectoryURL(fileManager: fileManager)?
-            .appendingPathComponent(lastSocketPathFileName, isDirectory: false)
-    }
-
-    private static func writeSocketPathMarker(_ payload: Data, to filePath: String) {
-        let fileURL = URL(fileURLWithPath: filePath)
-        let parentURL = fileURL.deletingLastPathComponent()
-        try? FileManager.default.createDirectory(
-            at: parentURL,
-            withIntermediateDirectories: true,
-            attributes: [.posixPermissions: 0o700]
-        )
-        try? payload.write(to: fileURL, options: .atomic)
     }
 
     private static func inspectStableDefaultSocketPathEntry(_ path: String) -> StableDefaultSocketPathEntry {

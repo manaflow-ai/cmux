@@ -6,6 +6,7 @@ import WebKit
 import ObjectiveC.runtime
 import Bonsplit
 import UserNotifications
+import Sparkle
 
 #if canImport(cmux_DEV)
 @testable import cmux_DEV
@@ -56,6 +57,208 @@ final class SplitShortcutTransientFocusGuardTests: XCTestCase {
                 hostedAttachedToWindow: true
             )
         )
+    }
+}
+
+final class CommandEquivalentTransientFocusRepairTests: XCTestCase {
+    func testRepairsCommandEquivalentWhenFirstResponderFallsBackToWindow() {
+        XCTAssertTrue(
+            shouldRepairFocusedTerminalCommandEquivalentInputs(
+                flags: [.command],
+                responderIsWindow: true,
+                responderHasViableKeyRoutingOwner: false
+            )
+        )
+    }
+
+    func testRepairsCommandEquivalentWhenResponderHasNoViableOwner() {
+        XCTAssertTrue(
+            shouldRepairFocusedTerminalCommandEquivalentInputs(
+                flags: [.command],
+                responderIsWindow: false,
+                responderHasViableKeyRoutingOwner: false
+            )
+        )
+    }
+
+    func testDoesNotRepairCommandEquivalentWhenLiveResponderDiffersFromSelectedPane() {
+        XCTAssertFalse(
+            shouldRepairFocusedTerminalCommandEquivalentInputs(
+                flags: [.command],
+                responderIsWindow: false,
+                responderHasViableKeyRoutingOwner: true
+            )
+        )
+    }
+
+    func testDoesNotRepairCommandEquivalentWhenResponderHasViableOwner() {
+        XCTAssertFalse(
+            shouldRepairFocusedTerminalCommandEquivalentInputs(
+                flags: [.command],
+                responderIsWindow: false,
+                responderHasViableKeyRoutingOwner: true
+            )
+        )
+    }
+
+    func testIgnoresNonCommandEvents() {
+        XCTAssertFalse(
+            shouldRepairFocusedTerminalCommandEquivalentInputs(
+                flags: [],
+                responderIsWindow: true,
+                responderHasViableKeyRoutingOwner: false
+            )
+        )
+    }
+}
+
+final class ReactGrabShortcutRouteTests: XCTestCase {
+    func testFocusedBrowserRoutesDirectlyWithoutPasteback() {
+        let browserId = UUID()
+        let terminalId = UUID()
+
+        let route = resolveReactGrabShortcutRoute(
+            panels: [
+                ReactGrabShortcutPanelSnapshot(id: terminalId, panelType: .terminal, isFocused: false),
+                ReactGrabShortcutPanelSnapshot(id: browserId, panelType: .browser, isFocused: true),
+            ]
+        )
+
+        XCTAssertEqual(
+            route,
+            ReactGrabShortcutRoute(browserPanelId: browserId, returnTerminalPanelId: nil)
+        )
+    }
+
+    func testFocusedTerminalRoutesToOnlyBrowserAndRemembersPastebackTarget() {
+        let browserId = UUID()
+        let terminalId = UUID()
+
+        let route = resolveReactGrabShortcutRoute(
+            panels: [
+                ReactGrabShortcutPanelSnapshot(id: terminalId, panelType: .terminal, isFocused: true),
+                ReactGrabShortcutPanelSnapshot(id: browserId, panelType: .browser, isFocused: false),
+            ]
+        )
+
+        XCTAssertEqual(
+            route,
+            ReactGrabShortcutRoute(browserPanelId: browserId, returnTerminalPanelId: terminalId)
+        )
+    }
+
+    func testFocusedTerminalDoesNotRouteWhenMultipleBrowsersExist() {
+        let route = resolveReactGrabShortcutRoute(
+            panels: [
+                ReactGrabShortcutPanelSnapshot(id: UUID(), panelType: .terminal, isFocused: true),
+                ReactGrabShortcutPanelSnapshot(id: UUID(), panelType: .browser, isFocused: false),
+                ReactGrabShortcutPanelSnapshot(id: UUID(), panelType: .browser, isFocused: false),
+            ]
+        )
+
+        XCTAssertNil(route)
+    }
+
+    func testFocusedTerminalDoesNotRouteWithoutBrowser() {
+        let route = resolveReactGrabShortcutRoute(
+            panels: [
+                ReactGrabShortcutPanelSnapshot(id: UUID(), panelType: .terminal, isFocused: true),
+            ]
+        )
+
+        XCTAssertNil(route)
+    }
+}
+
+
+@MainActor
+final class ReactGrabPastebackTargetTests: XCTestCase {
+    func testPrefersExplicitTerminalTargetWhenBrowserPanelIsFocused() {
+        let workspace = Workspace(title: "Tests")
+        guard let terminalId = workspace.focusedPanelId else {
+            XCTFail("Expected initial terminal panel")
+            return
+        }
+        guard let browserPanel = workspace.newBrowserSplit(
+            from: terminalId,
+            orientation: .horizontal
+        ) else {
+            XCTFail("Expected browser split panel")
+            return
+        }
+
+        workspace.focusPanel(browserPanel.id)
+
+        XCTAssertEqual(workspace.focusedPanelId, browserPanel.id)
+        XCTAssertEqual(
+            AppDelegate.resolveTerminalPanelForTextSend(
+                in: workspace,
+                preferredPanelId: terminalId
+            )?.id,
+            terminalId
+        )
+    }
+
+    func testDoesNotFallbackWhenPreferredTerminalTargetIsMissing() {
+        let workspace = Workspace(title: "Tests")
+        guard let terminalId = workspace.focusedPanelId,
+              let browserPanel = workspace.newBrowserSplit(
+                from: terminalId,
+                orientation: .horizontal
+              ) else {
+            XCTFail("Expected initial workspace split")
+            return
+        }
+
+        workspace.focusPanel(browserPanel.id)
+
+        XCTAssertNil(
+            AppDelegate.resolveTerminalPanelForTextSend(
+                in: workspace,
+                preferredPanelId: UUID()
+            )
+        )
+    }
+
+    func testShortcutStillRoutesTerminalPastebackWhenWebViewFocusIsDeferred() {
+        let manager = TabManager()
+        guard let workspace = manager.selectedWorkspace,
+              let terminalId = workspace.focusedPanelId,
+              let browserPanel = workspace.newBrowserSplit(
+                from: terminalId,
+                orientation: .horizontal
+              ) else {
+            XCTFail("Expected initial workspace with terminal and browser split")
+            return
+        }
+
+        workspace.focusPanel(terminalId)
+
+        XCTAssertTrue(manager.toggleReactGrabFromCurrentFocus())
+        XCTAssertEqual(workspace.focusedPanelId, browserPanel.id)
+        XCTAssertEqual(browserPanel.pendingReactGrabReturnTargetPanelId, terminalId)
+    }
+
+    func testShortcutClearsSplitZoomBeforeRoutingToBrowserPane() {
+        let manager = TabManager()
+        guard let workspace = manager.selectedWorkspace,
+              let terminalId = workspace.focusedPanelId,
+              let browserPanel = workspace.newBrowserSplit(
+                from: terminalId,
+                orientation: .horizontal
+              ) else {
+            XCTFail("Expected initial workspace with terminal and browser split")
+            return
+        }
+
+        workspace.focusPanel(terminalId)
+        XCTAssertTrue(workspace.toggleSplitZoom(panelId: terminalId))
+        XCTAssertTrue(workspace.bonsplitController.isSplitZoomed)
+
+        XCTAssertTrue(manager.toggleReactGrabFromCurrentFocus())
+        XCTAssertFalse(workspace.bonsplitController.isSplitZoomed)
+        XCTAssertEqual(workspace.focusedPanelId, browserPanel.id)
+        XCTAssertEqual(browserPanel.pendingReactGrabReturnTargetPanelId, terminalId)
     }
 }
 
@@ -186,7 +389,7 @@ final class FullScreenShortcutTests: XCTestCase {
 }
 
 
-final class CommandPaletteKeyboardNavigationTests: XCTestCase {
+@MainActor final class CommandPaletteKeyboardNavigationTests: XCTestCase {
     func testArrowKeysMoveSelectionWithoutModifiers() {
         XCTAssertEqual(
             commandPaletteSelectionDeltaForKeyboardNavigation(
@@ -213,7 +416,7 @@ final class CommandPaletteKeyboardNavigationTests: XCTestCase {
         )
     }
 
-    func testControlLetterNavigationSupportsPrintableAndControlChars() {
+    func testControlLetterNavigationSupportsPrintableAndControlCharsForNPOnly() {
         XCTAssertEqual(
             commandPaletteSelectionDeltaForKeyboardNavigation(
                 flags: [.control],
@@ -246,37 +449,55 @@ final class CommandPaletteKeyboardNavigationTests: XCTestCase {
             ),
             -1
         )
+    }
+
+    func testNavigationIgnoresCapsLockModifier() {
         XCTAssertEqual(
+            commandPaletteSelectionDeltaForKeyboardNavigation(
+                flags: [.capsLock],
+                chars: "",
+                keyCode: 125
+            ),
+            1
+        )
+        XCTAssertEqual(
+            commandPaletteSelectionDeltaForKeyboardNavigation(
+                flags: [.control, .capsLock],
+                chars: "p",
+                keyCode: 35
+            ),
+            -1
+        )
+    }
+
+    func testDoesNotTreatControlJKAsPaletteNavigation() {
+        XCTAssertNil(
             commandPaletteSelectionDeltaForKeyboardNavigation(
                 flags: [.control],
                 chars: "j",
                 keyCode: 38
-            ),
-            1
+            )
         )
-        XCTAssertEqual(
+        XCTAssertNil(
             commandPaletteSelectionDeltaForKeyboardNavigation(
                 flags: [.control],
                 chars: "\u{0a}",
                 keyCode: 38
-            ),
-            1
+            )
         )
-        XCTAssertEqual(
+        XCTAssertNil(
             commandPaletteSelectionDeltaForKeyboardNavigation(
                 flags: [.control],
                 chars: "k",
                 keyCode: 40
-            ),
-            -1
+            )
         )
-        XCTAssertEqual(
+        XCTAssertNil(
             commandPaletteSelectionDeltaForKeyboardNavigation(
                 flags: [.control],
                 chars: "\u{0b}",
                 keyCode: 40
-            ),
-            -1
+            )
         )
     }
 
@@ -300,6 +521,37 @@ final class CommandPaletteKeyboardNavigationTests: XCTestCase {
                 flags: [.control],
                 chars: "x",
                 keyCode: 7
+            )
+        )
+    }
+
+    func testInlineTextHandlingDisablesPaletteSelectionNavigationRouting() {
+        XCTAssertTrue(
+            shouldRouteCommandPaletteSelectionNavigation(
+                delta: -1,
+                isInteractive: true,
+                usesInlineTextHandling: false
+            )
+        )
+        XCTAssertFalse(
+            shouldRouteCommandPaletteSelectionNavigation(
+                delta: -1,
+                isInteractive: true,
+                usesInlineTextHandling: true
+            )
+        )
+        XCTAssertFalse(
+            shouldRouteCommandPaletteSelectionNavigation(
+                delta: nil,
+                isInteractive: true,
+                usesInlineTextHandling: false
+            )
+        )
+        XCTAssertFalse(
+            shouldRouteCommandPaletteSelectionNavigation(
+                delta: 1,
+                isInteractive: false,
+                usesInlineTextHandling: false
             )
         )
     }
@@ -404,6 +656,91 @@ final class CommandPaletteOpenShortcutConsumptionTests: XCTestCase {
 }
 
 
+final class CommandPaletteFocusStealerClassificationTests: XCTestCase {
+    private final class NonViewTextDelegate: NSObject, NSTextViewDelegate {}
+    private final class UnrelatedViewTextDelegate: NSView, NSTextViewDelegate {}
+    private final class DelegateTrackingTextView: NSTextView {
+        private(set) var delegateReadCount = 0
+
+        override var delegate: NSTextViewDelegate? {
+            get {
+                delegateReadCount += 1
+                return super.delegate
+            }
+            set {
+                super.delegate = newValue
+            }
+        }
+    }
+
+    func testTreatsGhosttySurfaceViewAsFocusStealer() {
+        let surfaceView = GhosttyNSView(frame: NSRect(x: 0, y: 0, width: 120, height: 80))
+
+        XCTAssertTrue(isCommandPaletteFocusStealingTerminalOrBrowserResponder(surfaceView))
+    }
+
+    func testTreatsTextFieldInsideTerminalHostedViewAsFocusStealer() {
+        let hostedView = GhosttySurfaceScrollView(
+            surfaceView: GhosttyNSView(frame: NSRect(x: 0, y: 0, width: 120, height: 80))
+        )
+        let textField = NSTextField(frame: NSRect(x: 0, y: 0, width: 120, height: 24))
+        hostedView.addSubview(textField)
+
+        XCTAssertTrue(
+            isCommandPaletteFocusStealingTerminalOrBrowserResponder(textField),
+            "Terminal-owned overlay text inputs should not be allowed to reclaim focus from the command palette"
+        )
+    }
+
+    func testDoesNotTreatUnrelatedTextFieldAsFocusStealer() {
+        let textField = NSTextField(frame: NSRect(x: 0, y: 0, width: 120, height: 24))
+
+        XCTAssertFalse(isCommandPaletteFocusStealingTerminalOrBrowserResponder(textField))
+    }
+
+    func testDoesNotReadTextViewDelegateForFocusStealerClassification() {
+        let textView = DelegateTrackingTextView(frame: NSRect(x: 0, y: 0, width: 120, height: 24))
+
+        XCTAssertFalse(isCommandPaletteFocusStealingTerminalOrBrowserResponder(textView))
+        XCTAssertEqual(
+            textView.delegateReadCount,
+            0,
+            "Command palette focus-stealer classification must avoid NSTextView.delegate because AppKit exposes it as unsafe-unretained"
+        )
+    }
+
+    func testTreatsTextViewInsideTerminalHostedViewAsFocusStealerWhenDelegateIsNotAView() {
+        let hostedView = GhosttySurfaceScrollView(
+            surfaceView: GhosttyNSView(frame: NSRect(x: 0, y: 0, width: 120, height: 80))
+        )
+        let textView = NSTextView(frame: NSRect(x: 0, y: 0, width: 120, height: 24))
+        let delegate = NonViewTextDelegate()
+        textView.delegate = delegate
+        hostedView.addSubview(textView)
+
+        XCTAssertTrue(
+            isCommandPaletteFocusStealingTerminalOrBrowserResponder(textView),
+            "NSTextView responders should still be blocked via the NSView hierarchy walk when the delegate is not a view"
+        )
+    }
+
+    func testTreatsTextViewInsideTerminalHostedViewAsFocusStealerWhenDelegateViewIsUnrelated() {
+        let hostedView = GhosttySurfaceScrollView(
+            surfaceView: GhosttyNSView(frame: NSRect(x: 0, y: 0, width: 120, height: 80))
+        )
+        let textView = NSTextView(frame: NSRect(x: 0, y: 0, width: 120, height: 24))
+        let delegateView = UnrelatedViewTextDelegate(frame: .zero)
+        textView.delegate = delegateView
+        hostedView.addSubview(textView)
+
+        XCTAssertTrue(
+            isCommandPaletteFocusStealingTerminalOrBrowserResponder(textView),
+            "NSTextView responders should still be blocked via the NSView hierarchy walk when the delegate view is unrelated"
+        )
+    }
+}
+
+
 final class CommandPaletteRestoreFocusStateMachineTests: XCTestCase {
     func testRestoresBrowserAddressBarWhenPaletteOpenedFromFocusedAddressBar() {
         let panelId = UUID()
@@ -503,12 +840,44 @@ final class CommandPaletteSelectionScrollBehaviorTests: XCTestCase {
 
 
 final class ShortcutHintModifierPolicyTests: XCTestCase {
-    func testShortcutHintRequiresEnabledCommandOnlyModifier() {
-        withDefaultsSuite { defaults in
-            defaults.set(true, forKey: ShortcutHintDebugSettings.showHintsOnCommandHoldKey)
+    func testTitlebarShortcutHintAlwaysShowAllowsBoundNonCommandShortcut() {
+        let controlShortcut = StoredShortcut(key: "R", command: false, shift: false, option: false, control: true)
+        let commandShortcut = StoredShortcut(key: "R", command: true, shift: false, option: false, control: false)
 
+        XCTAssertTrue(
+            titlebarShortcutHintShouldShow(
+                shortcut: controlShortcut,
+                alwaysShowShortcutHints: true,
+                modifierPressed: false
+            )
+        )
+        XCTAssertFalse(
+            titlebarShortcutHintShouldShow(
+                shortcut: controlShortcut,
+                alwaysShowShortcutHints: false,
+                modifierPressed: true
+            )
+        )
+        XCTAssertTrue(
+            titlebarShortcutHintShouldShow(
+                shortcut: commandShortcut,
+                alwaysShowShortcutHints: false,
+                modifierPressed: true
+            )
+        )
+        XCTAssertFalse(
+            titlebarShortcutHintShouldShow(
+                shortcut: .unbound,
+                alwaysShowShortcutHints: true,
+                modifierPressed: true
+            )
+        )
+    }
+
+    func testShortcutHintRequiresEnabledCommandOrControlOnlyModifier() {
+        withDefaultsSuite { defaults in
             XCTAssertTrue(ShortcutHintModifierPolicy.shouldShowHints(for: [.command], defaults: defaults))
-            XCTAssertFalse(ShortcutHintModifierPolicy.shouldShowHints(for: [.control], defaults: defaults))
+            XCTAssertTrue(ShortcutHintModifierPolicy.shouldShowHints(for: [.control], defaults: defaults))
             XCTAssertFalse(ShortcutHintModifierPolicy.shouldShowHints(for: [], defaults: defaults))
             XCTAssertFalse(ShortcutHintModifierPolicy.shouldShowHints(for: [.command, .shift], defaults: defaults))
             XCTAssertFalse(ShortcutHintModifierPolicy.shouldShowHints(for: [.control, .shift], defaults: defaults))
@@ -518,21 +887,83 @@ final class ShortcutHintModifierPolicyTests: XCTestCase {
         }
     }
 
-    func testCommandHintCanBeDisabledInSettings() {
+    func testShortcutHintShowsForControlModifier() {
         withDefaultsSuite { defaults in
-            defaults.set(false, forKey: ShortcutHintDebugSettings.showHintsOnCommandHoldKey)
-
-            XCTAssertFalse(ShortcutHintModifierPolicy.shouldShowHints(for: [.command], defaults: defaults))
-            XCTAssertFalse(ShortcutHintModifierPolicy.shouldShowHints(for: [.control], defaults: defaults))
+            XCTAssertTrue(ShortcutHintModifierPolicy.shouldShowHints(for: [.control], defaults: defaults))
         }
     }
 
-    func testCommandHintDefaultsToEnabledWhenSettingMissing() {
+    func testControlOnlyShortcutHintRequiresControlModifier() {
         withDefaultsSuite { defaults in
-            defaults.removeObject(forKey: ShortcutHintDebugSettings.showHintsOnCommandHoldKey)
+            XCTAssertTrue(ShortcutHintModifierPolicy.shouldShowControlHints(for: [.control], defaults: defaults))
+            XCTAssertFalse(ShortcutHintModifierPolicy.shouldShowControlHints(for: [.command], defaults: defaults))
+            XCTAssertFalse(ShortcutHintModifierPolicy.shouldShowControlHints(for: [.control, .shift], defaults: defaults))
+            XCTAssertFalse(ShortcutHintModifierPolicy.shouldShowControlHints(for: [.control, .option], defaults: defaults))
+            XCTAssertFalse(ShortcutHintModifierPolicy.shouldShowControlHints(for: [], defaults: defaults))
+        }
+    }
 
+    func testCommandOnlyShortcutHintRequiresCommandModifier() {
+        withDefaultsSuite { defaults in
+            XCTAssertTrue(ShortcutHintModifierPolicy.shouldShowCommandHints(for: [.command], defaults: defaults))
+            XCTAssertFalse(ShortcutHintModifierPolicy.shouldShowCommandHints(for: [.control], defaults: defaults))
+            XCTAssertFalse(ShortcutHintModifierPolicy.shouldShowCommandHints(for: [.command, .shift], defaults: defaults))
+            XCTAssertFalse(ShortcutHintModifierPolicy.shouldShowCommandHints(for: [.command, .option], defaults: defaults))
+            XCTAssertFalse(ShortcutHintModifierPolicy.shouldShowCommandHints(for: [], defaults: defaults))
+        }
+    }
+
+    func testCommandAndControlHintsAreHardcodedEnabled() {
+        withDefaultsSuite { defaults in
             XCTAssertTrue(ShortcutHintModifierPolicy.shouldShowHints(for: [.command], defaults: defaults))
-            XCTAssertFalse(ShortcutHintModifierPolicy.shouldShowHints(for: [.control], defaults: defaults))
+            XCTAssertTrue(ShortcutHintModifierPolicy.shouldShowHints(for: [.control], defaults: defaults))
+        }
+    }
+
+    func testShortcutHintIgnoresCustomizedWorkspaceShortcutModifiers() {
+        let action = KeyboardShortcutSettings.Action.selectWorkspaceByNumber
+        let originalShortcut = KeyboardShortcutSettings.shortcut(for: action)
+        defer {
+            KeyboardShortcutSettings.setShortcut(originalShortcut, for: action)
+        }
+
+        KeyboardShortcutSettings.setShortcut(
+            StoredShortcut(key: "1", command: false, shift: false, option: false, control: true),
+            for: action
+        )
+
+        withDefaultsSuite { defaults in
+            XCTAssertTrue(ShortcutHintModifierPolicy.shouldShowHints(for: [.command], defaults: defaults))
+            XCTAssertTrue(ShortcutHintModifierPolicy.shouldShowHints(for: [.control], defaults: defaults))
+        }
+    }
+
+    func testShortcutHintIgnoresWorkspaceShortcutChords() {
+        let action = KeyboardShortcutSettings.Action.selectWorkspaceByNumber
+        let originalShortcut = KeyboardShortcutSettings.shortcut(for: action)
+        defer {
+            KeyboardShortcutSettings.setShortcut(originalShortcut, for: action)
+        }
+
+        KeyboardShortcutSettings.setShortcut(
+            StoredShortcut(
+                key: "1",
+                command: false,
+                shift: false,
+                option: false,
+                control: true,
+                chordKey: "2",
+                chordCommand: true,
+                chordShift: false,
+                chordOption: false,
+                chordControl: false
+            ),
+            for: action
+        )
+
+        withDefaultsSuite { defaults in
+            XCTAssertTrue(ShortcutHintModifierPolicy.shouldShowHints(for: [.command], defaults: defaults))
+            XCTAssertTrue(ShortcutHintModifierPolicy.shouldShowHints(for: [.control], defaults: defaults))
         }
     }
 
@@ -571,8 +1002,6 @@ final class ShortcutHintModifierPolicyTests: XCTestCase {
 
     func testWindowScopedShortcutHintsUseKeyWindowWhenNoEventWindowIsAvailable() {
         withDefaultsSuite { defaults in
-            defaults.set(true, forKey: ShortcutHintDebugSettings.showHintsOnCommandHoldKey)
-
             XCTAssertTrue(
                 ShortcutHintModifierPolicy.shouldShowHints(
                     for: [.command],
@@ -596,17 +1025,6 @@ final class ShortcutHintModifierPolicyTests: XCTestCase {
             )
 
             XCTAssertTrue(
-                ShortcutHintModifierPolicy.shouldShowHints(
-                    for: [.command],
-                    hostWindowNumber: 42,
-                    hostWindowIsKey: true,
-                    eventWindowNumber: nil,
-                    keyWindowNumber: 42,
-                    defaults: defaults
-                )
-            )
-
-            XCTAssertFalse(
                 ShortcutHintModifierPolicy.shouldShowHints(
                     for: [.control],
                     hostWindowNumber: 42,
@@ -633,6 +1051,348 @@ final class ShortcutHintModifierPolicyTests: XCTestCase {
 }
 
 
+final class RightSidebarModeShortcutHintTests: XCTestCase {
+    private let touchedShortcutActions: [KeyboardShortcutSettings.Action] = [
+        .focusRightSidebar,
+        .switchRightSidebarToFiles,
+        .switchRightSidebarToFind,
+        .switchRightSidebarToSessions,
+        .switchRightSidebarToFeed,
+        .switchRightSidebarToDock,
+    ]
+    private var originalSettingsFileStore: KeyboardShortcutSettingsFileStore!
+    private var savedShortcutData: [KeyboardShortcutSettings.Action: Data?] = [:]
+    private var temporaryDirectoryURL: URL?
+
+    override func setUpWithError() throws {
+        try super.setUpWithError()
+        originalSettingsFileStore = KeyboardShortcutSettings.settingsFileStore
+        savedShortcutData = Dictionary(
+            uniqueKeysWithValues: touchedShortcutActions.map { action in
+                (action, UserDefaults.standard.data(forKey: action.defaultsKey))
+            }
+        )
+
+        let directoryURL = FileManager.default.temporaryDirectory
+            .appendingPathComponent(UUID().uuidString, isDirectory: true)
+        try FileManager.default.createDirectory(at: directoryURL, withIntermediateDirectories: true)
+        temporaryDirectoryURL = directoryURL
+        KeyboardShortcutSettings.settingsFileStore = KeyboardShortcutSettingsFileStore(
+            primaryPath: directoryURL.appendingPathComponent("cmux.json", isDirectory: false).path,
+            fallbackPath: nil,
+            startWatching: false
+        )
+        for action in touchedShortcutActions {
+            UserDefaults.standard.removeObject(forKey: action.defaultsKey)
+        }
+        KeyboardShortcutSettings.notifySettingsFileDidChange()
+    }
+
+    override func tearDownWithError() throws {
+        for action in touchedShortcutActions {
+            if case let .some(.some(data)) = savedShortcutData[action] {
+                UserDefaults.standard.set(data, forKey: action.defaultsKey)
+            } else {
+                UserDefaults.standard.removeObject(forKey: action.defaultsKey)
+            }
+        }
+        KeyboardShortcutSettings.settingsFileStore = originalSettingsFileStore
+        KeyboardShortcutSettings.notifySettingsFileDidChange()
+        if let temporaryDirectoryURL {
+            try? FileManager.default.removeItem(at: temporaryDirectoryURL)
+        }
+        try super.tearDownWithError()
+    }
+
+    func testModeShortcutActionsMatchModeSwitchingActions() {
+        XCTAssertEqual(RightSidebarMode.files.shortcutAction, .switchRightSidebarToFiles)
+        XCTAssertEqual(RightSidebarMode.find.shortcutAction, .switchRightSidebarToFind)
+        XCTAssertEqual(RightSidebarMode.sessions.shortcutAction, .switchRightSidebarToSessions)
+        XCTAssertEqual(RightSidebarMode.feed.shortcutAction, .switchRightSidebarToFeed)
+        XCTAssertEqual(RightSidebarMode.dock.shortcutAction, .switchRightSidebarToDock)
+    }
+
+    func testModeShortcutsUsePrivateControlDigitDefaults() {
+        XCTAssertEqual(
+            RightSidebarMode.modeShortcut(for: makeKeyDownEvent(key: "1", modifiers: [.control], keyCode: 18)),
+            .files
+        )
+        XCTAssertEqual(
+            RightSidebarMode.modeShortcut(for: makeKeyDownEvent(key: "2", modifiers: [.control], keyCode: 19)),
+            .find
+        )
+        XCTAssertEqual(
+            RightSidebarMode.modeShortcut(for: makeKeyDownEvent(key: "3", modifiers: [.control], keyCode: 20)),
+            .sessions
+        )
+        XCTAssertEqual(
+            RightSidebarMode.modeShortcut(for: makeKeyDownEvent(key: "4", modifiers: [.control], keyCode: 21)),
+            .feed
+        )
+        XCTAssertEqual(
+            RightSidebarMode.modeShortcut(for: makeKeyDownEvent(key: "5", modifiers: [.control], keyCode: 23)),
+            .dock
+        )
+    }
+
+    func testModeShortcutUsesConfiguredBindings() {
+        let customFilesShortcut = StoredShortcut(
+            key: "4",
+            command: false,
+            shift: false,
+            option: false,
+            control: true
+        )
+        KeyboardShortcutSettings.setShortcut(customFilesShortcut, for: .switchRightSidebarToFiles)
+
+        XCTAssertEqual(
+            RightSidebarMode.modeShortcut(for: makeKeyDownEvent(key: "4", modifiers: [.control], keyCode: 21)),
+            .files
+        )
+        XCTAssertNil(
+            RightSidebarMode.modeShortcut(for: makeKeyDownEvent(key: "1", modifiers: [.control], keyCode: 18))
+        )
+    }
+
+    func testModeShortcutUsesSettingsFileBindings() throws {
+        let settingsFileURL = try XCTUnwrap(temporaryDirectoryURL)
+            .appendingPathComponent("cmux.json", isDirectory: false)
+        try """
+        {
+          "shortcuts": {
+            "switchRightSidebarToFiles": "ctrl+8"
+          }
+        }
+        """.write(to: settingsFileURL, atomically: true, encoding: .utf8)
+        KeyboardShortcutSettings.settingsFileStore.reload()
+        KeyboardShortcutSettings.notifySettingsFileDidChange()
+
+        XCTAssertEqual(
+            RightSidebarMode.modeShortcut(for: makeKeyDownEvent(key: "8", modifiers: [.control], keyCode: 28)),
+            .files
+        )
+        XCTAssertNil(
+            RightSidebarMode.modeShortcut(for: makeKeyDownEvent(key: "1", modifiers: [.control], keyCode: 18))
+        )
+        XCTAssertEqual(
+            RightSidebarMode.modeShortcut(for: makeKeyDownEvent(key: "2", modifiers: [.control], keyCode: 19)),
+            .find
+        )
+        XCTAssertEqual(
+            RightSidebarMode.modeShortcut(for: makeKeyDownEvent(key: "3", modifiers: [.control], keyCode: 20)),
+            .sessions
+        )
+        XCTAssertEqual(
+            RightSidebarMode.modeShortcut(for: makeKeyDownEvent(key: "4", modifiers: [.control], keyCode: 21)),
+            .feed
+        )
+        XCTAssertEqual(
+            RightSidebarMode.modeShortcut(for: makeKeyDownEvent(key: "5", modifiers: [.control], keyCode: 23)),
+            .dock
+        )
+    }
+
+    func testFocusRightSidebarShortcutCanBeOverwrittenForHintRendering() {
+        let customShortcut = StoredShortcut(
+            key: "e",
+            command: true,
+            shift: true,
+            option: true,
+            control: false
+        )
+        KeyboardShortcutSettings.setShortcut(customShortcut, for: .focusRightSidebar)
+
+        let resolvedShortcut = KeyboardShortcutSettings.shortcut(for: .focusRightSidebar)
+        XCTAssertEqual(resolvedShortcut, customShortcut)
+        XCTAssertEqual(
+            KeyboardShortcutSettings.Action.focusRightSidebar.displayedShortcutString(for: resolvedShortcut),
+            customShortcut.displayString
+        )
+    }
+
+    private func makeKeyDownEvent(
+        key: String,
+        modifiers: NSEvent.ModifierFlags,
+        keyCode: UInt16
+    ) -> NSEvent {
+        guard let event = NSEvent.keyEvent(
+            with: .keyDown,
+            location: .zero,
+            modifierFlags: modifiers,
+            timestamp: ProcessInfo.processInfo.systemUptime,
+            windowNumber: 0,
+            context: nil,
+            characters: key,
+            charactersIgnoringModifiers: key,
+            isARepeat: false,
+            keyCode: keyCode
+        ) else {
+            fatalError("Failed to construct key event")
+        }
+        return event
+    }
+}
+
+final class MainWindowFocusControllerRightSidebarHideTests: XCTestCase {
+    private final class TestRightSidebarResponder: NSView, FeedKeyboardFocusResponder {
+        override var acceptsFirstResponder: Bool { true }
+    }
+
+    @MainActor
+    func testHiddenRightSidebarClearsFocusIntentWhenNoTerminalCanRestore() {
+        let controller = MainWindowFocusController(
+            windowId: UUID(),
+            window: nil,
+            tabManager: TabManager(),
+            fileExplorerState: FileExplorerState()
+        )
+        let workspaceId = UUID()
+        let panelId = UUID()
+
+        XCTAssertTrue(controller.allowsTerminalFocus(workspaceId: workspaceId, panelId: panelId))
+        controller.noteRightSidebarInteraction(mode: .feed)
+        XCTAssertFalse(controller.allowsTerminalFocus(workspaceId: workspaceId, panelId: panelId))
+
+        XCTAssertFalse(controller.restoreTerminalFocusAfterRightSidebarHiddenIfNeeded())
+        XCTAssertTrue(controller.allowsTerminalFocus(workspaceId: workspaceId, panelId: panelId))
+    }
+
+    @MainActor
+    func testHiddenRightSidebarDoesNotRestoreWhenTerminalAlreadyOwnsFocus() {
+        let controller = MainWindowFocusController(
+            windowId: UUID(),
+            window: nil,
+            tabManager: TabManager(),
+            fileExplorerState: FileExplorerState()
+        )
+        let workspaceId = UUID()
+        let panelId = UUID()
+
+        controller.noteTerminalInteraction(workspaceId: workspaceId, panelId: panelId)
+
+        XCTAssertFalse(controller.shouldRestoreTerminalFocusWhenRightSidebarHides(currentResponder: nil))
+        XCTAssertTrue(controller.allowsTerminalFocus(workspaceId: workspaceId, panelId: panelId))
+    }
+
+    @MainActor
+    func testMainPanelInteractionKeepsFeedSelectionInactive() {
+        let controller = MainWindowFocusController(
+            windowId: UUID(),
+            window: nil,
+            tabManager: TabManager(),
+            fileExplorerState: FileExplorerState()
+        )
+        let itemId = UUID()
+        let workspaceId = UUID()
+        let panelId = UUID()
+
+        XCTAssertTrue(controller.selectFeedItem(itemId, focusFeed: false))
+        XCTAssertEqual(controller.feedFocusSnapshot().selectedItemId, itemId)
+        XCTAssertTrue(controller.feedFocusSnapshot().isKeyboardActive)
+
+        controller.noteMainPanelInteraction(workspaceId: workspaceId, panelId: panelId)
+
+        XCTAssertEqual(controller.feedFocusSnapshot().selectedItemId, itemId)
+        XCTAssertFalse(controller.feedFocusSnapshot().isKeyboardActive)
+        XCTAssertTrue(controller.allowsTerminalFocus(workspaceId: workspaceId, panelId: panelId))
+        XCTAssertEqual(controller.focusToggleDestination(), .rightSidebar)
+    }
+
+    @MainActor
+    func testFocusShortcutToggleUsesActualRightSidebarResponderOverStaleIntent() {
+        let controller = MainWindowFocusController(
+            windowId: UUID(),
+            window: nil,
+            tabManager: TabManager(),
+            fileExplorerState: FileExplorerState()
+        )
+        let responder = TestRightSidebarResponder(frame: NSRect(x: 0, y: 0, width: 24, height: 24))
+
+        let workspaceId = UUID()
+        let panelId = UUID()
+        controller.noteTerminalInteraction(workspaceId: workspaceId, panelId: panelId)
+
+        XCTAssertEqual(controller.focusToggleDestination(currentResponder: responder), .terminal)
+        XCTAssertTrue(controller.allowsTerminalFocus(workspaceId: workspaceId, panelId: panelId))
+    }
+
+    @MainActor
+    func testPendingSessionsFocusSurvivesStaleFeedResponderDuringModeSwitch() {
+        let fileExplorerState = FileExplorerState()
+        let controller = MainWindowFocusController(
+            windowId: UUID(),
+            window: nil,
+            tabManager: TabManager(),
+            fileExplorerState: fileExplorerState
+        )
+        let staleFeedResponder = TestRightSidebarResponder(frame: NSRect(x: 0, y: 0, width: 24, height: 24))
+
+        XCTAssertTrue(controller.selectFeedItem(UUID(), focusFeed: false))
+        XCTAssertTrue(controller.focusRightSidebar(mode: .sessions, focusFirstItem: true))
+        XCTAssertEqual(controller.intent, .rightSidebar(mode: .sessions))
+        XCTAssertEqual(fileExplorerState.mode, .sessions)
+        XCTAssertEqual(controller.debugPendingRightSidebarFocusMode, .sessions)
+
+        controller.debugSyncAfterResponderChange(responder: staleFeedResponder)
+
+        XCTAssertEqual(controller.intent, .rightSidebar(mode: .sessions))
+        XCTAssertEqual(controller.debugPendingRightSidebarFocusMode, .sessions)
+    }
+
+    @MainActor
+    func testPendingSessionsFocusCompletesWhenRightSidebarHostRegisters() {
+        let fileExplorerState = FileExplorerState()
+        let window = NSWindow(
+            contentRect: NSRect(x: 0, y: 0, width: 240, height: 180),
+            styleMask: [.titled],
+            backing: .buffered,
+            defer: false
+        )
+        let contentView = NSView(frame: window.contentView?.bounds ?? .zero)
+        window.contentView = contentView
+        let controller = MainWindowFocusController(
+            windowId: UUID(),
+            window: window,
+            tabManager: TabManager(),
+            fileExplorerState: fileExplorerState
+        )
+
+        XCTAssertTrue(controller.focusRightSidebar(mode: .sessions, focusFirstItem: true))
+        XCTAssertEqual(controller.debugPendingRightSidebarFocusMode, .sessions)
+
+        let focusHost = RightSidebarKeyboardFocusView(frame: NSRect(x: 0, y: 0, width: 24, height: 24))
+        defer {
+            _ = window.makeFirstResponder(nil)
+            focusHost.removeFromSuperview()
+            window.contentView = nil
+            window.orderOut(nil)
+        }
+        contentView.addSubview(focusHost)
+        controller.registerRightSidebarHost(focusHost)
+
+        XCTAssertNil(controller.debugPendingRightSidebarFocusMode)
+        XCTAssertTrue(window.firstResponder === focusHost)
+    }
+
+    @MainActor
+    func testFocusShortcutToggleClearsRightSidebarIntentWhenTerminalIsUnavailable() {
+        let controller = MainWindowFocusController(
+            windowId: UUID(),
+            window: nil,
+            tabManager: TabManager(),
+            fileExplorerState: FileExplorerState()
+        )
+        let workspaceId = UUID()
+        let panelId = UUID()
+
+        controller.noteRightSidebarInteraction(mode: .feed)
+        XCTAssertFalse(controller.allowsTerminalFocus(workspaceId: workspaceId, panelId: panelId))
+
+        XCTAssertFalse(controller.toggleRightSidebarOrTerminalFocus())
+        XCTAssertTrue(controller.allowsTerminalFocus(workspaceId: workspaceId, panelId: panelId))
+    }
+}
+
 final class ShortcutHintDebugSettingsTests: XCTestCase {
     func testClampKeepsValuesWithinSupportedRange() {
         XCTAssertEqual(ShortcutHintDebugSettings.clamped(0.0), 0.0)
@@ -648,11 +1408,25 @@ final class ShortcutHintDebugSettingsTests: XCTestCase {
         XCTAssertEqual(ShortcutHintDebugSettings.defaultTitlebarHintY, 0.0)
         XCTAssertEqual(ShortcutHintDebugSettings.defaultPaneHintX, 0.0)
         XCTAssertEqual(ShortcutHintDebugSettings.defaultPaneHintY, 0.0)
+        XCTAssertEqual(ShortcutHintDebugSettings.defaultRightSidebarCloseHintX, -10.0)
+        XCTAssertEqual(ShortcutHintDebugSettings.defaultRightSidebarCloseHintY, 3.3)
+        XCTAssertEqual(ShortcutHintDebugSettings.defaultRightSidebarFocusHintX, -1.6)
+        XCTAssertEqual(ShortcutHintDebugSettings.defaultRightSidebarFocusHintY, 1.7)
         XCTAssertFalse(ShortcutHintDebugSettings.defaultAlwaysShowHints)
         XCTAssertTrue(ShortcutHintDebugSettings.defaultShowHintsOnCommandHold)
+        XCTAssertTrue(ShortcutHintDebugSettings.defaultShowHintsOnControlHold)
     }
 
-    func testShowHintsOnCommandHoldSettingRespectsStoredValue() {
+    func testAlwaysShowHintsIsOnlyEnabledForUITests() {
+        XCTAssertFalse(ShortcutHintDebugSettings.alwaysShowHints(environment: [:]))
+        XCTAssertTrue(
+            ShortcutHintDebugSettings.alwaysShowHints(
+                environment: ["CMUX_UI_TEST_SHORTCUT_HINTS_ALWAYS_SHOW": "1"]
+            )
+        )
+    }
+
+    func testShowHintsOnCommandHoldIsHardcodedEnabled() {
         let suiteName = "ShortcutHintDebugSettingsTests-\(UUID().uuidString)"
         guard let defaults = UserDefaults(suiteName: suiteName) else {
             XCTFail("Failed to create defaults suite")
@@ -662,17 +1436,10 @@ final class ShortcutHintDebugSettingsTests: XCTestCase {
         defaults.removePersistentDomain(forName: suiteName)
         defer { defaults.removePersistentDomain(forName: suiteName) }
 
-        defaults.removeObject(forKey: ShortcutHintDebugSettings.showHintsOnCommandHoldKey)
-        XCTAssertTrue(ShortcutHintDebugSettings.showHintsOnCommandHoldEnabled(defaults: defaults))
-
-        defaults.set(false, forKey: ShortcutHintDebugSettings.showHintsOnCommandHoldKey)
-        XCTAssertFalse(ShortcutHintDebugSettings.showHintsOnCommandHoldEnabled(defaults: defaults))
-
-        defaults.set(true, forKey: ShortcutHintDebugSettings.showHintsOnCommandHoldKey)
         XCTAssertTrue(ShortcutHintDebugSettings.showHintsOnCommandHoldEnabled(defaults: defaults))
     }
 
-    func testResetVisibilityDefaultsRestoresAlwaysShowAndCommandHoldFlags() {
+    func testShowHintsOnControlHoldIsHardcodedEnabled() {
         let suiteName = "ShortcutHintDebugSettingsTests-\(UUID().uuidString)"
         guard let defaults = UserDefaults(suiteName: suiteName) else {
             XCTFail("Failed to create defaults suite")
@@ -682,19 +1449,7 @@ final class ShortcutHintDebugSettingsTests: XCTestCase {
         defaults.removePersistentDomain(forName: suiteName)
         defer { defaults.removePersistentDomain(forName: suiteName) }
 
-        defaults.set(true, forKey: ShortcutHintDebugSettings.alwaysShowHintsKey)
-        defaults.set(false, forKey: ShortcutHintDebugSettings.showHintsOnCommandHoldKey)
-
-        ShortcutHintDebugSettings.resetVisibilityDefaults(defaults: defaults)
-
-        XCTAssertEqual(
-            defaults.object(forKey: ShortcutHintDebugSettings.alwaysShowHintsKey) as? Bool,
-            ShortcutHintDebugSettings.defaultAlwaysShowHints
-        )
-        XCTAssertEqual(
-            defaults.object(forKey: ShortcutHintDebugSettings.showHintsOnCommandHoldKey) as? Bool,
-            ShortcutHintDebugSettings.defaultShowHintsOnCommandHold
-        )
+        XCTAssertTrue(ShortcutHintDebugSettings.showHintsOnControlHoldEnabled(defaults: defaults))
     }
 }
 
@@ -803,25 +1558,6 @@ final class LastSurfaceCloseShortcutSettingsTests: XCTestCase {
     }
 }
 
-
-final class AppearanceSettingsTests: XCTestCase {
-    func testResolvedModeDefaultsToSystemWhenUnset() {
-        let suiteName = "AppearanceSettingsTests.Default.\(UUID().uuidString)"
-        guard let defaults = UserDefaults(suiteName: suiteName) else {
-            XCTFail("Failed to create isolated UserDefaults suite")
-            return
-        }
-        defer { defaults.removePersistentDomain(forName: suiteName) }
-
-        defaults.removeObject(forKey: AppearanceSettings.appearanceModeKey)
-
-        let resolved = AppearanceSettings.resolvedMode(defaults: defaults)
-        XCTAssertEqual(resolved, .system)
-        XCTAssertEqual(defaults.string(forKey: AppearanceSettings.appearanceModeKey), AppearanceMode.system.rawValue)
-    }
-}
-
-
 final class QuitWarningSettingsTests: XCTestCase {
     func testDefaultWarnBeforeQuitIsEnabledWhenUnset() {
         let suiteName = "QuitWarningSettingsTests.Default.\(UUID().uuidString)"
@@ -849,6 +1585,24 @@ final class QuitWarningSettingsTests: XCTestCase {
 
         defaults.set(true, forKey: QuitWarningSettings.warnBeforeQuitKey)
         XCTAssertTrue(QuitWarningSettings.isEnabled(defaults: defaults))
+    }
+
+    func testShouldShowConfirmationFollowsEnabledPreference() {
+        let suiteName = "QuitWarningSettingsTests.ShouldShow.\(UUID().uuidString)"
+        guard let defaults = UserDefaults(suiteName: suiteName) else {
+            XCTFail("Failed to create isolated UserDefaults suite")
+            return
+        }
+        defer { defaults.removePersistentDomain(forName: suiteName) }
+
+        defaults.set(true, forKey: QuitWarningSettings.warnBeforeQuitKey)
+        XCTAssertTrue(QuitWarningSettings.shouldShowConfirmation(isQuitWarningConfirmed: false, defaults: defaults))
+
+        XCTAssertFalse(QuitWarningSettings.shouldShowConfirmation(isQuitWarningConfirmed: true, defaults: defaults))
+
+        defaults.set(false, forKey: QuitWarningSettings.warnBeforeQuitKey)
+        XCTAssertFalse(QuitWarningSettings.shouldShowConfirmation(isQuitWarningConfirmed: false, defaults: defaults))
+        XCTAssertFalse(QuitWarningSettings.shouldShowConfirmation(isQuitWarningConfirmed: true, defaults: defaults))
     }
 }
 
@@ -948,6 +1702,91 @@ final class UpdateViewModelPresentationTests: XCTestCase {
         XCTAssertTrue(viewModel.showsPill)
         XCTAssertFalse(viewModel.showsDetectedBackgroundUpdate)
         XCTAssertEqual(viewModel.text, "Checking for Updates…")
+    }
+
+    func testDismissDetectedAvailableUpdateRepliesAndClearsState() throws {
+        let viewModel = UpdateViewModel()
+        let item = try XCTUnwrap(makeAppcastItem(displayVersion: "9.9.9"))
+        let recorder = UpdateChoiceRecorder()
+
+        viewModel.recordDetectedUpdate(item)
+        viewModel.state = .updateAvailable(.init(
+            appcastItem: item,
+            reply: { recorder.record($0) }
+        ))
+
+        viewModel.dismissDetectedAvailableUpdate()
+
+        XCTAssertEqual(recorder.snapshot(), [.dismiss])
+        XCTAssertEqual(viewModel.state, .idle)
+        XCTAssertNil(viewModel.detectedUpdateVersion)
+        XCTAssertNil(viewModel.detectedUpdateItem)
+        XCTAssertFalse(viewModel.showsPill)
+    }
+
+    func testCancelActiveStateForNewCheckDismissesAndClearsTransientState() throws {
+        let viewModel = UpdateViewModel()
+        let item = try XCTUnwrap(makeAppcastItem(displayVersion: "9.9.9"))
+        let recorder = UpdateChoiceRecorder()
+
+        viewModel.state = .updateAvailable(.init(
+            appcastItem: item,
+            reply: { recorder.record($0) }
+        ))
+        viewModel.overrideState = .checking(.init(cancel: {}))
+
+        viewModel.cancelActiveStateForNewCheck()
+
+        XCTAssertEqual(recorder.snapshot(), [.dismiss])
+        XCTAssertEqual(viewModel.state, .idle)
+        XCTAssertNil(viewModel.overrideState)
+    }
+
+    func testApplyDriverStateRecordsDetectedUpdateMetadata() throws {
+        let viewModel = UpdateViewModel()
+        let item = try XCTUnwrap(makeAppcastItem(displayVersion: "9.9.9"))
+
+        viewModel.applyDriverState(.updateAvailable(.init(
+            appcastItem: item,
+            reply: { _ in }
+        )))
+        viewModel.state = .idle
+
+        XCTAssertEqual(viewModel.detectedUpdateVersion, "9.9.9")
+        XCTAssertTrue(viewModel.hasCachedDetectedUpdateDetails)
+        XCTAssertTrue(viewModel.showsDetectedBackgroundUpdate)
+    }
+
+    private func makeAppcastItem(displayVersion: String) -> SUAppcastItem? {
+        let enclosure: [String: Any] = [
+            "url": "https://example.com/cmux.zip",
+            "length": "1024",
+            "sparkle:version": displayVersion,
+            "sparkle:shortVersionString": displayVersion,
+        ]
+        let dict: [String: Any] = [
+            "title": "cmux \(displayVersion)",
+            "pubDate": "Wed, 25 Mar 2026 12:00:00 +0000",
+            "enclosure": enclosure,
+        ]
+        return SUAppcastItem(dictionary: dict)
+    }
+}
+
+private final class UpdateChoiceRecorder: @unchecked Sendable {
+    private let lock = NSLock()
+    private var choices: [SPUUserUpdateChoice] = []
+
+    func record(_ choice: SPUUserUpdateChoice) {
+        lock.lock()
+        choices.append(choice)
+        lock.unlock()
+    }
+
+    func snapshot() -> [SPUUserUpdateChoice] {
+        lock.lock()
+        defer { lock.unlock() }
+        return choices
     }
 }
 

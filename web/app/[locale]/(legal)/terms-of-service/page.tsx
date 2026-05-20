@@ -3,7 +3,7 @@ import type { Metadata } from "next";
 export const metadata: Metadata = {
   title: "Terms of Service — cmux",
   description: "Terms of service for cmux",
-  alternates: { canonical: "./" },
+  alternates: { canonical: "https://cmux.com/terms-of-service" },
 };
 
 export default function TermsOfServicePage() {

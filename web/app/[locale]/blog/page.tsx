@@ -1,5 +1,6 @@
 import { useTranslations } from "next-intl";
 import { getTranslations } from "next-intl/server";
+import { buildAlternates } from "../../../i18n/seo";
 import { Link } from "../../../i18n/navigation";
 
 export async function generateMetadata({
@@ -12,10 +13,16 @@ export async function generateMetadata({
   return {
     title: t("metaTitle"),
     description: t("metaDescription"),
+    alternates: buildAlternates(locale, "/blog"),
   };
 }
 
 const blogSlugs = [
+  "sessionRestore",
+  "cmuxSsh",
+  "cmuxClaudeTeams",
+  "cmuxOmo",
+  "gpl",
   "cmdShiftU",
   "zenOfCmux",
   "showHnLaunch",
@@ -23,6 +30,11 @@ const blogSlugs = [
 ] as const;
 
 const slugToPath: Record<string, string> = {
+  sessionRestore: "session-restore",
+  cmuxOmo: "cmux-omo",
+  cmuxClaudeTeams: "cmux-claude-teams",
+  cmuxSsh: "cmux-ssh",
+  gpl: "gpl",
   cmdShiftU: "cmd-shift-u",
   zenOfCmux: "zen-of-cmux",
   showHnLaunch: "show-hn-launch",

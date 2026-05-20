@@ -6,15 +6,17 @@ struct NotificationsPage: View {
     @EnvironmentObject var tabManager: TabManager
     @Binding var selection: SidebarSelection
     @FocusState private var focusedNotificationId: UUID?
-    @AppStorage(KeyboardShortcutSettings.Action.jumpToUnread.defaultsKey) private var jumpToUnreadShortcutData = Data()
+    @ObservedObject private var keyboardShortcutSettingsObserver = KeyboardShortcutSettingsObserver.shared
 
     var body: some View {
         VStack(spacing: 0) {
             header
             Divider()
 
-            if notificationStore.notifications.isEmpty {
+            if !notificationStore.notificationMenuSnapshot.hasNotifications {
                 emptyState
+            } else if notificationStore.notifications.isEmpty {
+                workspaceUnreadIndicatorState
             } else {
                 ScrollView {
                     LazyVStack(spacing: 8) {
@@ -26,12 +28,10 @@ struct NotificationsPage: View {
                                     // SwiftUI action closures are not guaranteed to run on the main actor.
                                     // Ensure window focus + tab selection happens on the main thread.
                                     DispatchQueue.main.async {
-                                        _ = AppDelegate.shared?.openNotification(
-                                            tabId: notification.tabId,
-                                            surfaceId: notification.surfaceId,
-                                            notificationId: notification.id
-                                        )
-                                        selection = .tabs
+                                        _ = AppDelegate.shared?.openTerminalNotification(notification)
+                                        if notification.clickAction == nil {
+                                            selection = .tabs
+                                        }
                                     }
                                 },
                                 onClear: {
@@ -74,7 +74,7 @@ struct NotificationsPage: View {
 
             Spacer()
 
-            if !notificationStore.notifications.isEmpty {
+            if notificationStore.notificationMenuSnapshot.hasNotifications {
                 jumpToUnreadButton
 
                 Button(String(localized: "notifications.clearAll", defaultValue: "Clear All")) {
@@ -97,6 +97,17 @@ struct NotificationsPage: View {
             Text(String(localized: "notifications.empty.description", defaultValue: "Desktop notifications will appear here for quick review."))
                 .font(.subheadline)
                 .foregroundColor(.secondary)
+        }
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
+    }
+
+    private var workspaceUnreadIndicatorState: some View {
+        VStack(spacing: 8) {
+            Image(systemName: "bell.badge")
+                .font(.system(size: 32))
+                .foregroundColor(.secondary)
+            Text(notificationStore.notificationMenuSnapshot.stateHintTitle)
+                .font(.headline)
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
     }
@@ -132,26 +143,16 @@ struct NotificationsPage: View {
     }
 
     private var jumpToUnreadShortcut: StoredShortcut {
-        decodeShortcut(
-            from: jumpToUnreadShortcutData,
-            fallback: KeyboardShortcutSettings.Action.jumpToUnread.defaultShortcut
-        )
-    }
-
-    private var hasUnreadNotifications: Bool {
-        notificationStore.notifications.contains(where: { !$0.isRead })
-    }
-
-    private func decodeShortcut(from data: Data, fallback: StoredShortcut) -> StoredShortcut {
-        guard !data.isEmpty,
-              let shortcut = try? JSONDecoder().decode(StoredShortcut.self, from: data) else {
-            return fallback
-        }
-        return shortcut
+        let _ = keyboardShortcutSettingsObserver.revision
+        return KeyboardShortcutSettings.shortcut(for: .jumpToUnread)
     }
 
     private func tabTitle(for tabId: UUID) -> String? {
         AppDelegate.shared?.tabTitle(for: tabId) ?? tabManager.tabs.first(where: { $0.id == tabId })?.title
+    }
+
+    private var hasUnreadNotifications: Bool {
+        notificationStore.notificationMenuSnapshot.hasUnreadNotifications
     }
 }
 

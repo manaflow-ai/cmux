@@ -21,6 +21,29 @@ private func drainBrowserPanelMainQueue() {
     XCTWaiter().wait(for: [expectation], timeout: 1.0)
 }
 
+private final class BrowserPanelTestNavigationDelegate: NSObject, WKNavigationDelegate {
+    let expectation: XCTestExpectation
+    var error: Error?
+
+    init(expectation: XCTestExpectation) {
+        self.expectation = expectation
+    }
+
+    func webView(_ webView: WKWebView, didFinish navigation: WKNavigation!) {
+        expectation.fulfill()
+    }
+
+    func webView(_ webView: WKWebView, didFail navigation: WKNavigation!, withError error: Error) {
+        self.error = error
+        expectation.fulfill()
+    }
+
+    func webView(_ webView: WKWebView, didFailProvisionalNavigation navigation: WKNavigation!, withError error: Error) {
+        self.error = error
+        expectation.fulfill()
+    }
+}
+
 @MainActor
 private func makeTemporaryBrowserPanelProfile(named prefix: String) throws -> BrowserProfileDefinition {
     try XCTUnwrap(
@@ -61,6 +84,146 @@ final class BrowserPanelChromeBackgroundColorTests: XCTestCase {
         XCTAssertEqual(actual.greenComponent, expected.greenComponent, accuracy: 0.001, file: file, line: line)
         XCTAssertEqual(actual.blueComponent, expected.blueComponent, accuracy: 0.001, file: file, line: line)
         XCTAssertEqual(actual.alphaComponent, expected.alphaComponent, accuracy: 0.001, file: file, line: line)
+    }
+}
+
+
+@MainActor
+final class BrowserPanelFileSystemAccessBridgeTests: XCTestCase {
+    func testShowOpenFilePickerIsInstalledInBrowserPages() async throws {
+        let panel = try await loadFilePickerTestPage()
+
+        let result = try await panel.evaluateJavaScript("typeof window.showOpenFilePicker")
+        XCTAssertEqual(result as? String, "function")
+    }
+
+    func testShowOpenFilePickerRejectsWhenWindowFocusReturnsWithoutCancelEvent() async throws {
+        let panel = try await loadFilePickerTestPage()
+
+        let result = try await panel.webView.callAsyncJavaScript(
+            """
+            const inputCount = () => document.querySelectorAll("input[type='file']").length;
+            const originalClick = HTMLInputElement.prototype.click;
+            HTMLInputElement.prototype.click = function() {};
+            const pickerPromise = window.showOpenFilePicker();
+            HTMLInputElement.prototype.click = originalClick;
+
+            return await new Promise((resolve) => {
+              pickerPromise.then(
+                () => resolve({ status: "resolved", inputCount: inputCount() }),
+                (error) => resolve({
+                  status: "rejected",
+                  name: error && error.name,
+                  inputCount: inputCount(),
+                })
+              );
+
+              window.dispatchEvent(new Event("focus"));
+              setTimeout(() => resolve({ status: "pending", inputCount: inputCount() }), 100);
+            });
+            """,
+            arguments: [:],
+            in: nil,
+            contentWorld: .page
+        )
+        let dictionary = try XCTUnwrap(result as? [String: Any])
+        let inputCount = try XCTUnwrap(dictionary["inputCount"] as? NSNumber)
+        XCTAssertEqual(dictionary["status"] as? String, "rejected")
+        XCTAssertEqual(dictionary["name"] as? String, "AbortError")
+        XCTAssertEqual(inputCount.intValue, 0)
+    }
+
+    func testShowOpenFilePickerDoesNotRejectOnElementFocus() async throws {
+        let panel = try await loadFilePickerTestPage()
+
+        let result = try await panel.webView.callAsyncJavaScript(
+            """
+            const inputCount = () => document.querySelectorAll("input[type='file']").length;
+            const originalClick = HTMLInputElement.prototype.click;
+            HTMLInputElement.prototype.click = function() {};
+            const pickerPromise = window.showOpenFilePicker();
+            HTMLInputElement.prototype.click = originalClick;
+
+            let settled = false;
+            pickerPromise.finally(() => { settled = true; }).catch(() => {});
+
+            const textInput = document.createElement("input");
+            textInput.type = "text";
+            document.body.appendChild(textInput);
+            textInput.focus();
+
+            await new Promise((resolve) => setTimeout(resolve, 50));
+            const beforeWindowFocus = {
+              settled,
+              inputCount: inputCount(),
+            };
+
+            window.dispatchEvent(new Event("focus"));
+            const afterWindowFocus = await new Promise((resolve) => {
+              pickerPromise.then(
+                () => resolve({ status: "resolved", inputCount: inputCount() }),
+                (error) => resolve({
+                  status: "rejected",
+                  name: error && error.name,
+                  inputCount: inputCount(),
+                })
+              );
+            });
+
+            return { beforeWindowFocus, afterWindowFocus };
+            """,
+            arguments: [:],
+            in: nil,
+            contentWorld: .page
+        )
+        let dictionary = try XCTUnwrap(result as? [String: Any])
+        let beforeWindowFocus = try XCTUnwrap(dictionary["beforeWindowFocus"] as? [String: Any])
+        let beforeInputCount = try XCTUnwrap(beforeWindowFocus["inputCount"] as? NSNumber)
+        XCTAssertEqual(beforeWindowFocus["settled"] as? Bool, false)
+        XCTAssertEqual(beforeInputCount.intValue, 1)
+
+        let afterWindowFocus = try XCTUnwrap(dictionary["afterWindowFocus"] as? [String: Any])
+        let afterInputCount = try XCTUnwrap(afterWindowFocus["inputCount"] as? NSNumber)
+        XCTAssertEqual(afterWindowFocus["status"] as? String, "rejected")
+        XCTAssertEqual(afterWindowFocus["name"] as? String, "AbortError")
+        XCTAssertEqual(afterInputCount.intValue, 0)
+    }
+
+    private func loadFilePickerTestPage() async throws -> BrowserPanel {
+        let panel = BrowserPanel(workspaceId: UUID())
+        let baseURL = try XCTUnwrap(URL(string: "https://example.test/file-picker"))
+        let loaded = expectation(description: "browser panel test page loaded")
+        let previousDelegate = panel.webView.navigationDelegate
+        let loadDelegate = BrowserPanelTestNavigationDelegate(expectation: loaded)
+        panel.webView.navigationDelegate = loadDelegate
+        defer { panel.webView.navigationDelegate = previousDelegate }
+
+        panel.webView.loadHTMLString(
+            "<!doctype html><html><body>browser panel test page</body></html>",
+            baseURL: baseURL
+        )
+        await fulfillment(of: [loaded], timeout: 5)
+        if let error = loadDelegate.error {
+            throw error
+        }
+        return panel
+    }
+}
+
+
+@MainActor
+final class BrowserPanelInitialNavigationTests: XCTestCase {
+    func testInitialURLCanBePreservedWithoutRenderingWebView() throws {
+        let url = try XCTUnwrap(URL(string: "https://example.com/custom-layout"))
+        let panel = BrowserPanel(
+            workspaceId: UUID(),
+            initialURL: url,
+            renderInitialNavigation: false
+        )
+
+        XCTAssertEqual(panel.currentURL, url)
+        XCTAssertFalse(panel.shouldRenderWebView)
+        XCTAssertFalse(panel.shouldRenderWebViewForSessionSnapshot())
     }
 }
 
@@ -199,8 +362,207 @@ final class BrowserPanelAddressBarFocusRequestTests: XCTestCase {
 
 
 @MainActor
+final class BrowserPanelReactGrabBridgeTests: XCTestCase {
+    @MainActor
+    func testExplicitWebViewFocusDoesNotSuppressOmnibarAutofocusWhenFocusFails() {
+        let panel = BrowserPanel(workspaceId: UUID())
+
+        XCTAssertFalse(panel.shouldSuppressOmnibarAutofocus())
+        XCTAssertFalse(panel.requestExplicitWebViewFocus())
+        XCTAssertFalse(panel.shouldSuppressOmnibarAutofocus())
+    }
+
+    func testCopySuccessPostsPastebackNotificationAndClearsPendingTarget() throws {
+        let workspaceId = UUID()
+        let terminalId = UUID()
+        let panel = BrowserPanel(workspaceId: workspaceId)
+        let browserId = panel.id
+        let expectation = expectation(description: "react grab pasteback notification")
+
+        let observer = NotificationCenter.default.addObserver(
+            forName: .reactGrabDidCopySelection,
+            object: nil,
+            queue: .main
+        ) { notification in
+            XCTAssertEqual(notification.userInfo?[ReactGrabPastebackNotificationKey.workspaceId] as? UUID, workspaceId)
+            XCTAssertEqual(notification.userInfo?[ReactGrabPastebackNotificationKey.browserPanelId] as? UUID, browserId)
+            XCTAssertEqual(notification.userInfo?[ReactGrabPastebackNotificationKey.returnPanelId] as? UUID, terminalId)
+            XCTAssertEqual(notification.userInfo?[ReactGrabPastebackNotificationKey.content] as? String, "<button>Save</button>")
+            expectation.fulfill()
+        }
+        defer { NotificationCenter.default.removeObserver(observer) }
+
+        panel.armReactGrabRoundTrip(returnTo: terminalId)
+        XCTAssertEqual(panel.pendingReactGrabReturnTargetPanelId, terminalId)
+        let token = try XCTUnwrap(panel.pendingReactGrabRoundTripToken)
+
+        panel.handleReactGrabBridgeMessage(.copySuccess(content: "<button>Save</button>", token: token))
+
+        wait(for: [expectation], timeout: 1.0)
+        XCTAssertNil(panel.pendingReactGrabReturnTargetPanelId)
+        XCTAssertNil(panel.pendingReactGrabRoundTripToken)
+    }
+
+    func testInactiveStateKeepsPendingTargetUntilCopySuccess() throws {
+        let workspaceId = UUID()
+        let terminalId = UUID()
+        let panel = BrowserPanel(workspaceId: workspaceId)
+        let browserId = panel.id
+        let expectation = expectation(description: "react grab pasteback notification after deactivate")
+
+        let observer = NotificationCenter.default.addObserver(
+            forName: .reactGrabDidCopySelection,
+            object: nil,
+            queue: .main
+        ) { notification in
+            XCTAssertEqual(notification.userInfo?[ReactGrabPastebackNotificationKey.workspaceId] as? UUID, workspaceId)
+            XCTAssertEqual(notification.userInfo?[ReactGrabPastebackNotificationKey.browserPanelId] as? UUID, browserId)
+            XCTAssertEqual(notification.userInfo?[ReactGrabPastebackNotificationKey.returnPanelId] as? UUID, terminalId)
+            XCTAssertEqual(notification.userInfo?[ReactGrabPastebackNotificationKey.content] as? String, "<button>Save</button>")
+            expectation.fulfill()
+        }
+        defer { NotificationCenter.default.removeObserver(observer) }
+
+        panel.armReactGrabRoundTrip(returnTo: terminalId)
+        XCTAssertEqual(panel.pendingReactGrabReturnTargetPanelId, terminalId)
+        let token = try XCTUnwrap(panel.pendingReactGrabRoundTripToken)
+
+        panel.handleReactGrabBridgeMessage(.stateChange(isActive: false))
+
+        XCTAssertEqual(panel.pendingReactGrabReturnTargetPanelId, terminalId)
+        XCTAssertFalse(panel.isReactGrabActive)
+
+        panel.handleReactGrabBridgeMessage(.copySuccess(content: "<button>Save</button>", token: token))
+
+        wait(for: [expectation], timeout: 1.0)
+        XCTAssertNil(panel.pendingReactGrabReturnTargetPanelId)
+        XCTAssertNil(panel.pendingReactGrabRoundTripToken)
+    }
+
+    func testResetStateCanPreservePendingTargetUntilCopySuccess() throws {
+        let workspaceId = UUID()
+        let terminalId = UUID()
+        let panel = BrowserPanel(workspaceId: workspaceId)
+        let browserId = panel.id
+        let expectation = expectation(description: "react grab pasteback notification after reset")
+
+        let observer = NotificationCenter.default.addObserver(
+            forName: .reactGrabDidCopySelection,
+            object: nil,
+            queue: .main
+        ) { notification in
+            XCTAssertEqual(notification.userInfo?[ReactGrabPastebackNotificationKey.workspaceId] as? UUID, workspaceId)
+            XCTAssertEqual(notification.userInfo?[ReactGrabPastebackNotificationKey.browserPanelId] as? UUID, browserId)
+            XCTAssertEqual(notification.userInfo?[ReactGrabPastebackNotificationKey.returnPanelId] as? UUID, terminalId)
+            XCTAssertEqual(notification.userInfo?[ReactGrabPastebackNotificationKey.content] as? String, "<button>Save</button>")
+            expectation.fulfill()
+        }
+        defer { NotificationCenter.default.removeObserver(observer) }
+
+        panel.armReactGrabRoundTrip(returnTo: terminalId)
+        panel.handleReactGrabBridgeMessage(.stateChange(isActive: true))
+        let token = try XCTUnwrap(panel.pendingReactGrabRoundTripToken)
+
+        panel.resetReactGrabState(
+            preserveRoundTrip: true,
+            reason: "test.navigation"
+        )
+
+        XCTAssertFalse(panel.isReactGrabActive)
+        XCTAssertEqual(panel.pendingReactGrabReturnTargetPanelId, terminalId)
+
+        panel.handleReactGrabBridgeMessage(.copySuccess(content: "<button>Save</button>", token: token))
+
+        wait(for: [expectation], timeout: 1.0)
+        XCTAssertNil(panel.pendingReactGrabReturnTargetPanelId)
+        XCTAssertNil(panel.pendingReactGrabRoundTripToken)
+    }
+
+    func testMismatchedCopyTokenDropsPastebackAndClearsPendingTarget() {
+        let terminalId = UUID()
+        let panel = BrowserPanel(workspaceId: UUID())
+        let invertedExpectation = expectation(description: "react grab pasteback notification")
+        invertedExpectation.isInverted = true
+
+        let observer = NotificationCenter.default.addObserver(
+            forName: .reactGrabDidCopySelection,
+            object: nil,
+            queue: .main
+        ) { _ in
+            invertedExpectation.fulfill()
+        }
+        defer { NotificationCenter.default.removeObserver(observer) }
+
+        panel.armReactGrabRoundTrip(returnTo: terminalId)
+        XCTAssertEqual(panel.pendingReactGrabReturnTargetPanelId, terminalId)
+        XCTAssertNotNil(panel.pendingReactGrabRoundTripToken)
+
+        panel.handleReactGrabBridgeMessage(.copySuccess(content: "<button>Save</button>", token: nil))
+
+        wait(for: [invertedExpectation], timeout: 0.1)
+        XCTAssertNil(panel.pendingReactGrabReturnTargetPanelId)
+        XCTAssertNil(panel.pendingReactGrabRoundTripToken)
+    }
+
+    func testCopySuccessStripsDangerousInvisibleScalarsBeforePastebackNotification() throws {
+        let workspaceId = UUID()
+        let terminalId = UUID()
+        let panel = BrowserPanel(workspaceId: workspaceId)
+        let expectation = expectation(description: "react grab pasteback notification")
+        let rawContent = "<button>Sa\u{202E}v\u{200B}e</button>\u{2069}\n"
+
+        let observer = NotificationCenter.default.addObserver(
+            forName: .reactGrabDidCopySelection,
+            object: nil,
+            queue: .main
+        ) { notification in
+            XCTAssertEqual(notification.userInfo?[ReactGrabPastebackNotificationKey.content] as? String, "<button>Save</button>\n")
+            expectation.fulfill()
+        }
+        defer { NotificationCenter.default.removeObserver(observer) }
+
+        panel.armReactGrabRoundTrip(returnTo: terminalId)
+        let token = try XCTUnwrap(panel.pendingReactGrabRoundTripToken)
+
+        panel.handleReactGrabBridgeMessage(.copySuccess(content: rawContent, token: token))
+
+        wait(for: [expectation], timeout: 1.0)
+    }
+
+    func testEnsureReactGrabActiveRefreshesBridgeSessionTokenWhenAlreadyActive() async throws {
+        let panel = BrowserPanel(workspaceId: UUID())
+
+        _ = try await panel.evaluateJavaScript(
+            """
+            window['\(panel.reactGrabBridgeSessionUpdaterName)'] = function(token) {
+                window.__cmuxTestRoundTripToken = token;
+                return true;
+            };
+            true;
+            """
+        )
+
+        panel.handleReactGrabBridgeMessage(.stateChange(isActive: true))
+        panel.armReactGrabRoundTrip(returnTo: UUID())
+        let token = try XCTUnwrap(panel.pendingReactGrabRoundTripToken)
+
+        await panel.ensureReactGrabActive()
+
+        let refreshedToken = try await panel.evaluateJavaScript("window.__cmuxTestRoundTripToken") as? String
+        XCTAssertEqual(refreshedToken, token)
+    }
+}
+
+
+@MainActor
 final class WindowBrowserHostViewTests: XCTestCase {
     private final class CapturingView: NSView {
+        override func hitTest(_ point: NSPoint) -> NSView? {
+            bounds.contains(point) ? self : nil
+        }
+    }
+
+    private final class FakeTabBarBackgroundNSView: NSView {
         override func hitTest(_ point: NSPoint) -> NSView? {
             bounds.contains(point) ? self : nil
         }
@@ -262,6 +624,84 @@ final class WindowBrowserHostViewTests: XCTestCase {
             return true
         }
         return inspectorView.isDescendant(of: hit) && !(pageView === hit || pageView.isDescendant(of: hit))
+    }
+
+    private struct TabStripPassThroughFixture {
+        let host: WindowBrowserHostView
+        let pointInHost: NSPoint
+    }
+
+    private func installTabStripPassThroughFixture(in window: NSWindow) -> TabStripPassThroughFixture? {
+        guard let contentView = window.contentView,
+              let container = contentView.superview else {
+            XCTFail("Expected window content container")
+            return nil
+        }
+
+        let tabStripHeight: CGFloat = 44
+        let tabStrip = FakeTabBarBackgroundNSView(
+            frame: NSRect(
+                x: 0,
+                y: contentView.bounds.maxY - tabStripHeight,
+                width: contentView.bounds.width,
+                height: tabStripHeight
+            )
+        )
+        tabStrip.autoresizingMask = [.width, .minYMargin]
+        contentView.addSubview(tabStrip)
+
+        let hostFrame = container.convert(contentView.bounds, from: contentView)
+        let host = WindowBrowserHostView(frame: hostFrame)
+        host.autoresizingMask = [.width, .height]
+        let child = CapturingView(frame: host.bounds)
+        child.autoresizingMask = [.width, .height]
+        host.addSubview(child)
+        container.addSubview(host, positioned: .above, relativeTo: contentView)
+
+        let titlebarBandHeight = max(28, min(72, window.frame.height - window.contentLayoutRect.height))
+        let pointInContent = NSPoint(
+            x: contentView.bounds.midX,
+            y: contentView.bounds.maxY - titlebarBandHeight - 8
+        )
+        let pointInWindow = contentView.convert(pointInContent, to: nil)
+        let pointInHost = host.convert(pointInWindow, from: nil)
+        return TabStripPassThroughFixture(host: host, pointInHost: pointInHost)
+    }
+
+    func testHostViewPassesThroughUnderlyingTabStripInSecondWindowBelowTitlebarBand() {
+        // The reported regression (#3193) was that the original window kept
+        // working but later-created windows did not. Set up two windows and
+        // assert the pass-through holds in BOTH to lock in per-instance wiring.
+        let firstWindow = NSWindow(
+            contentRect: NSRect(x: 0, y: 0, width: 420, height: 260),
+            styleMask: [.titled, .closable],
+            backing: .buffered,
+            defer: false
+        )
+        let secondWindow = NSWindow(
+            contentRect: NSRect(x: 32, y: 32, width: 420, height: 260),
+            styleMask: [.titled, .closable],
+            backing: .buffered,
+            defer: false
+        )
+        defer {
+            secondWindow.orderOut(nil)
+            firstWindow.orderOut(nil)
+        }
+
+        guard let firstFixture = installTabStripPassThroughFixture(in: firstWindow),
+              let secondFixture = installTabStripPassThroughFixture(in: secondWindow) else {
+            return
+        }
+
+        XCTAssertNil(
+            firstFixture.host.hitTest(firstFixture.pointInHost),
+            "Browser portal should defer to the minimal tab strip in the original window just below the titlebar interaction band"
+        )
+        XCTAssertNil(
+            secondFixture.host.hitTest(secondFixture.pointInHost),
+            "Browser portal should defer to the minimal tab strip in later-created windows just below the titlebar interaction band"
+        )
     }
 
     func testHostViewPassesThroughDividerWhenAdjacentPaneIsCollapsed() {
@@ -402,10 +842,47 @@ final class WindowBrowserHostViewTests: XCTestCase {
     }
 
     func testDragHoverEventsDoNotPassThroughForUnrelatedPasteboardTypes() {
+        let externalPayloads: [[NSPasteboard.PasteboardType]] = [
+            [.fileURL],
+            [.URL],
+            [.png],
+            [.tiff],
+            [.html],
+            [.string],
+            [.fileURL, .png],
+        ]
+
+        for pasteboardTypes in externalPayloads {
+            XCTAssertFalse(
+                WindowBrowserHostView.shouldPassThroughToDragTargets(
+                    pasteboardTypes: pasteboardTypes,
+                    eventType: .cursorUpdate
+                ),
+                "Browser host should keep external drag payload in WebKit: \(pasteboardTypes)"
+            )
+        }
         XCTAssertFalse(
             WindowBrowserHostView.shouldPassThroughToDragTargets(
                 pasteboardTypes: [.fileURL],
-                eventType: .cursorUpdate
+                eventType: .leftMouseDragged
+            )
+        )
+        XCTAssertFalse(
+            DragOverlayRoutingPolicy.shouldPassThroughPortalHitTesting(
+                pasteboardTypes: [.fileURL],
+                eventType: .leftMouseDragged
+            )
+        )
+        XCTAssertTrue(
+            DragOverlayRoutingPolicy.shouldPassThroughTerminalPortalHitTesting(
+                pasteboardTypes: [.fileURL],
+                eventType: .leftMouseDragged
+            )
+        )
+        XCTAssertFalse(
+            DragOverlayRoutingPolicy.shouldPassThroughTerminalPortalHitTesting(
+                pasteboardTypes: [.fileURL],
+                eventType: .mouseMoved
             )
         )
     }
@@ -547,7 +1024,7 @@ final class WindowBrowserHostViewTests: XCTestCase {
 
         XCTAssertLessThanOrEqual(inspectorSplit.arrangedSubviews[0].frame.width, 1.5)
         XCTAssertTrue(
-            abs(dividerPointInHost.x - slot.frame.minX) <= SidebarResizeInteraction.hitWidthPerSide,
+            abs(dividerPointInHost.x - slot.frame.minX) <= 2,
             "Expected collapsed hosted divider to overlap the browser slot leading-edge resizer zone"
         )
 
@@ -905,7 +1382,7 @@ final class WindowBrowserHostViewTests: XCTestCase {
         let dividerPointInWindow = slot.convert(dividerPointInSlot, to: nil)
         let dividerPointInHost = host.convert(dividerPointInWindow, from: nil)
 
-        XCTAssertLessThanOrEqual(dividerPointInHost.x - slot.frame.minX, SidebarResizeInteraction.hitWidthPerSide)
+        XCTAssertLessThanOrEqual(dividerPointInHost.x - slot.frame.minX, 2)
         let dividerHit = host.hitTest(dividerPointInHost)
         XCTAssertTrue(
             isInspectorOwnedHit(dividerHit, inspectorView: inspectorView, pageView: pageView),
@@ -1660,127 +2137,6 @@ final class BrowserPanelHostContainerViewTests: XCTestCase {
             slot.bounds,
             "Reattaching a plain web view should restore full-bounds hosting instead of preserving a stale inset frame from a hidden host"
         )
-    }
-}
-
-
-@MainActor
-final class BrowserPaneDropRoutingTests: XCTestCase {
-    func testVerticalZonesFollowAppKitCoordinates() {
-        let size = CGSize(width: 240, height: 180)
-
-        XCTAssertEqual(
-            BrowserPaneDropRouting.zone(for: CGPoint(x: size.width * 0.5, y: size.height - 8), in: size),
-            .top
-        )
-        XCTAssertEqual(
-            BrowserPaneDropRouting.zone(for: CGPoint(x: size.width * 0.5, y: 8), in: size),
-            .bottom
-        )
-    }
-
-    func testTopChromeHeightPushesTopSplitThresholdIntoWebView() {
-        let size = CGSize(width: 240, height: 180)
-
-        XCTAssertEqual(
-            BrowserPaneDropRouting.zone(
-                for: CGPoint(x: size.width * 0.5, y: 110),
-                in: size,
-                topChromeHeight: 36
-            ),
-            .center
-        )
-        XCTAssertEqual(
-            BrowserPaneDropRouting.zone(
-                for: CGPoint(x: size.width * 0.5, y: 150),
-                in: size,
-                topChromeHeight: 36
-            ),
-            .top
-        )
-    }
-
-    func testHitTestingCapturesOnlyForRelevantDragEvents() {
-        XCTAssertTrue(
-            BrowserPaneDropTargetView.shouldCaptureHitTesting(
-                pasteboardTypes: [DragOverlayRoutingPolicy.bonsplitTabTransferType],
-                eventType: .cursorUpdate
-            )
-        )
-        XCTAssertFalse(
-            BrowserPaneDropTargetView.shouldCaptureHitTesting(
-                pasteboardTypes: [DragOverlayRoutingPolicy.bonsplitTabTransferType],
-                eventType: .leftMouseDown
-            )
-        )
-        XCTAssertFalse(
-            BrowserPaneDropTargetView.shouldCaptureHitTesting(
-                pasteboardTypes: [.fileURL],
-                eventType: .cursorUpdate
-            )
-        )
-    }
-
-    func testCenterDropOnSamePaneIsNoOp() {
-        let paneId = PaneID(id: UUID())
-        let target = BrowserPaneDropContext(
-            workspaceId: UUID(),
-            panelId: UUID(),
-            paneId: paneId
-        )
-        let transfer = BrowserPaneDragTransfer(
-            tabId: UUID(),
-            sourcePaneId: paneId.id,
-            sourceProcessId: Int32(ProcessInfo.processInfo.processIdentifier)
-        )
-
-        XCTAssertEqual(
-            BrowserPaneDropRouting.action(for: transfer, target: target, zone: .center),
-            .noOp
-        )
-    }
-
-    func testRightEdgeDropBuildsSplitMoveAction() {
-        let paneId = PaneID(id: UUID())
-        let target = BrowserPaneDropContext(
-            workspaceId: UUID(),
-            panelId: UUID(),
-            paneId: paneId
-        )
-        let tabId = UUID()
-        let transfer = BrowserPaneDragTransfer(
-            tabId: tabId,
-            sourcePaneId: UUID(),
-            sourceProcessId: Int32(ProcessInfo.processInfo.processIdentifier)
-        )
-
-        XCTAssertEqual(
-            BrowserPaneDropRouting.action(for: transfer, target: target, zone: .right),
-            .move(
-                tabId: tabId,
-                targetWorkspaceId: target.workspaceId,
-                targetPane: paneId,
-                splitTarget: BrowserPaneSplitTarget(orientation: .horizontal, insertFirst: false)
-            )
-        )
-    }
-
-    func testDecodeTransferPayloadReadsTabAndSourcePane() {
-        let tabId = UUID()
-        let sourcePaneId = UUID()
-        let payload = try! JSONSerialization.data(
-            withJSONObject: [
-                "tab": ["id": tabId.uuidString],
-                "sourcePaneId": sourcePaneId.uuidString,
-                "sourceProcessId": ProcessInfo.processInfo.processIdentifier,
-            ]
-        )
-
-        let transfer = BrowserPaneDragTransfer.decode(from: payload)
-
-        XCTAssertEqual(transfer?.tabId, tabId)
-        XCTAssertEqual(transfer?.sourcePaneId, sourcePaneId)
-        XCTAssertTrue(transfer?.isFromCurrentProcess == true)
     }
 }
 

@@ -10,12 +10,13 @@
 </p>
 
 <p align="center">
-  <a href="README.md">English</a> | <a href="README.ja.md">日本語</a> | <a href="README.zh-CN.md">简体中文</a> | <a href="README.zh-TW.md">繁體中文</a> | <a href="README.ko.md">한국어</a> | <a href="README.de.md">Deutsch</a> | <a href="README.es.md">Español</a> | Français | <a href="README.it.md">Italiano</a> | <a href="README.da.md">Dansk</a> | <a href="README.pl.md">Polski</a> | <a href="README.ru.md">Русский</a> | <a href="README.bs.md">Bosanski</a> | <a href="README.ar.md">العربية</a> | <a href="README.no.md">Norsk</a> | <a href="README.pt-BR.md">Português (Brasil)</a> | <a href="README.th.md">ไทย</a> | <a href="README.tr.md">Türkçe</a> | <a href="README.km.md">ភាសាខ្មែរ</a>
+  <a href="README.md">English</a> | <a href="README.ja.md">日本語</a> | <a href="README.zh-CN.md">简体中文</a> | <a href="README.zh-TW.md">繁體中文</a> | <a href="README.ko.md">한국어</a> | <a href="README.de.md">Deutsch</a> | <a href="README.es.md">Español</a> | Français | <a href="README.it.md">Italiano</a> | <a href="README.da.md">Dansk</a> | <a href="README.pl.md">Polski</a> | <a href="README.ru.md">Русский</a> | <a href="README.bs.md">Bosanski</a> | <a href="README.ar.md">العربية</a> | <a href="README.no.md">Norsk</a> | <a href="README.pt-BR.md">Português (Brasil)</a> | <a href="README.th.md">ไทย</a> | <a href="README.tr.md">Türkçe</a> | <a href="README.km.md">ភាសាខ្មែរ</a> | <a href="README.uk.md">Українська</a>
 </p>
 
 <p align="center">
   <a href="https://x.com/manaflowai"><img src="https://img.shields.io/badge/@manaflow-555?logo=x" alt="X / Twitter" /></a>
   <a href="https://discord.gg/xsgFEVrWCZ"><img src="https://img.shields.io/badge/Discord-555?logo=discord" alt="Discord" /></a>
+  <a href="https://github.com/manaflow-ai/cmux"><img src="https://img.shields.io/github/stars/manaflow-ai/cmux?style=flat&logo=github&label=stars&color=4c71f2" alt="GitHub stars" /></a>
 </p>
 
 <p align="center">
@@ -65,8 +66,28 @@ La barre latérale affiche la branche git, le statut/numéro de PR lié, le rép
 <img src="./docs/assets/vertical-horizontal-tabs-and-splits.png" alt="Onglets verticaux et panneaux divisés" width="100%" />
 </td>
 </tr>
+<tr>
+<td width="40%" valign="middle">
+<h3>SSH</h3>
+<code>cmux ssh user@remote</code> crée un espace de travail pour une machine distante. Les panneaux navigateur sont routés via le réseau distant, donc localhost fonctionne directement. Glissez une image dans une session distante pour la transférer via scp.
+</td>
+<td width="60%">
+<img src="./docs/assets/ssh.png" alt="cmux SSH" width="100%" />
+</td>
+</tr>
+<tr>
+<td width="40%" valign="middle">
+<h3>Claude Code Teams</h3>
+<code>cmux claude-teams</code> lance le mode coéquipier de Claude Code en une seule commande. Les coéquipiers apparaissent comme des divisions natives avec des métadonnées dans la barre latérale et des notifications. Pas besoin de tmux.
+</td>
+<td width="60%">
+<img src="./docs/assets/claude-code-teams.png" alt="Claude Code Teams" width="100%" />
+</td>
+</tr>
 </table>
 
+- **Import navigateur** — Importez les cookies, l'historique et les sessions depuis Chrome, Firefox, Arc et plus de 20 navigateurs pour que les panneaux navigateur démarrent authentifiés
+- **Commandes personnalisées** — Définissez des actions spécifiques au projet dans [`cmux.json`](https://cmux.com/docs/custom-commands) qui se lancent depuis la palette de commandes
 - **Scriptable** — CLI et API socket pour créer des espaces de travail, diviser des panneaux, envoyer des frappes clavier et automatiser le navigateur
 - **Application macOS native** — Construite avec Swift et AppKit, pas Electron. Démarrage rapide, faible consommation mémoire.
 - **Compatible Ghostty** — Lit votre fichier `~/.config/ghostty/config` existant pour les thèmes, polices et couleurs
@@ -215,15 +236,33 @@ Les raccourcis des outils de développement du navigateur suivent les valeurs pa
 
 cmux NIGHTLY est une application séparée avec son propre identifiant de bundle, elle fonctionne donc en parallèle de la version stable. Construite automatiquement à partir du dernier commit `main` et mise à jour automatiquement via son propre flux Sparkle.
 
-## Restauration de session (comportement actuel)
+## Restauration de session
 
-Au relancement, cmux restaure actuellement uniquement la disposition et les métadonnées de l'application :
+À la fermeture, cmux enregistre la session en cours. Au relancement, cmux restaure l'état géré par l'application :
 - Disposition des fenêtres/espaces de travail/panneaux
 - Répertoires de travail
 - Historique de défilement du terminal (au mieux)
 - URL du navigateur et historique de navigation
 
-cmux ne restaure **pas** l'état des processus actifs dans les applications du terminal. Par exemple, les sessions actives de Claude Code/tmux/vim ne sont pas encore reprises après un redémarrage.
+cmux ne crée pas de point de contrôle pour n'importe quel processus actif. tmux, vim, les shells et les applications de terminal non prises en charge se rouvrent comme des terminaux normaux.
+
+Les sessions d'agents prises en charge peuvent reprendre lorsque les hooks ont enregistré un ID de session natif :
+
+```bash
+cmux hooks setup
+cmux hooks setup codex
+cmux hooks setup --agent opencode
+```
+
+Les utilisateurs avancés et les intégrations peuvent associer une commande de reprise personnalisée à la surface de terminal active. C'est utile pour les outils qui ont leur propre état durable, comme les sessions tmux ou les CLI d'agents personnalisés :
+
+```bash
+cmux surface resume set --kind tmux --checkpoint work --shell "tmux attach -t work"
+cmux surface resume show --json
+cmux surface resume clear --checkpoint work
+```
+
+Cette association reste liée à la surface cmux. Les associations créées par le CLI public ou le socket sont conservées pour inspection et reprise manuelle. cmux exécute automatiquement seulement les associations de reprise qu'il marque comme fiables, comme les associations tmux détectées depuis des processus actifs. Les clés d’environnement sensibles, comme les jetons, mots de passe, secrets et clés API, sont supprimées avant l’enregistrement d’une association de reprise.
 
 ## Historique des étoiles
 
@@ -268,6 +307,6 @@ cmux est gratuit, open source, et le restera toujours. Si vous souhaitez souteni
 
 ## Licence
 
-Ce projet est sous licence GNU Affero General Public License v3.0 ou ultérieure (`AGPL-3.0-or-later`).
+cmux est open source sous [GPL-3.0-or-later](LICENSE).
 
-Consultez le fichier `LICENSE` pour le texte complet.
+Si votre organisation ne peut pas se conformer à la GPL, une licence commerciale est disponible. Contactez [founders@manaflow.com](mailto:founders@manaflow.com) pour plus de détails.

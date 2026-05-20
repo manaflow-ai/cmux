@@ -10,12 +10,13 @@
 </p>
 
 <p align="center">
-  <a href="README.md">English</a> | <a href="README.ja.md">日本語</a> | <a href="README.zh-CN.md">简体中文</a> | <a href="README.zh-TW.md">繁體中文</a> | <a href="README.ko.md">한국어</a> | <a href="README.de.md">Deutsch</a> | <a href="README.es.md">Español</a> | <a href="README.fr.md">Français</a> | <a href="README.it.md">Italiano</a> | <a href="README.da.md">Dansk</a> | <a href="README.pl.md">Polski</a> | <a href="README.ru.md">Русский</a> | <a href="README.bs.md">Bosanski</a> | <a href="README.ar.md">العربية</a> | <a href="README.no.md">Norsk</a> | Português (Brasil) | <a href="README.th.md">ไทย</a> | <a href="README.tr.md">Türkçe</a> | <a href="README.km.md">ភាសាខ្មែរ</a>
+  <a href="README.md">English</a> | <a href="README.ja.md">日本語</a> | <a href="README.zh-CN.md">简体中文</a> | <a href="README.zh-TW.md">繁體中文</a> | <a href="README.ko.md">한국어</a> | <a href="README.de.md">Deutsch</a> | <a href="README.es.md">Español</a> | <a href="README.fr.md">Français</a> | <a href="README.it.md">Italiano</a> | <a href="README.da.md">Dansk</a> | <a href="README.pl.md">Polski</a> | <a href="README.ru.md">Русский</a> | <a href="README.bs.md">Bosanski</a> | <a href="README.ar.md">العربية</a> | <a href="README.no.md">Norsk</a> | Português (Brasil) | <a href="README.th.md">ไทย</a> | <a href="README.tr.md">Türkçe</a> | <a href="README.km.md">ភាសាខ្មែរ</a> | <a href="README.uk.md">Українська</a>
 </p>
 
 <p align="center">
   <a href="https://x.com/manaflowai"><img src="https://img.shields.io/badge/@manaflow-555?logo=x" alt="X / Twitter" /></a>
   <a href="https://discord.gg/xsgFEVrWCZ"><img src="https://img.shields.io/badge/Discord-555?logo=discord" alt="Discord" /></a>
+  <a href="https://github.com/manaflow-ai/cmux"><img src="https://img.shields.io/github/stars/manaflow-ai/cmux?style=flat&logo=github&label=stars&color=4c71f2" alt="GitHub stars" /></a>
 </p>
 
 <p align="center">
@@ -65,8 +66,28 @@ A barra lateral mostra o branch do git, status/número do PR vinculado, diretór
 <img src="./docs/assets/vertical-horizontal-tabs-and-splits.png" alt="Abas verticais e painéis divididos" width="100%" />
 </td>
 </tr>
+<tr>
+<td width="40%" valign="middle">
+<h3>SSH</h3>
+<code>cmux ssh user@remote</code> cria um workspace para uma máquina remota. Painéis do navegador são roteados pela rede remota, então localhost simplesmente funciona. Arraste uma imagem para uma sessão remota para fazer upload via scp.
+</td>
+<td width="60%">
+<img src="./docs/assets/ssh.png" alt="cmux SSH" width="100%" />
+</td>
+</tr>
+<tr>
+<td width="40%" valign="middle">
+<h3>Claude Code Teams</h3>
+<code>cmux claude-teams</code> executa o modo de companheiros de equipe do Claude Code com um único comando. Os companheiros aparecem como divisões nativas com metadados na barra lateral e notificações. Sem necessidade de tmux.
+</td>
+<td width="60%">
+<img src="./docs/assets/claude-code-teams.png" alt="Claude Code Teams" width="100%" />
+</td>
+</tr>
 </table>
 
+- **Import de navegador** — Importe cookies, histórico e sessões do Chrome, Firefox, Arc e mais de 20 navegadores para que painéis do navegador iniciem autenticados
+- **Comandos personalizados** — Defina ações específicas do projeto em [`cmux.json`](https://cmux.com/docs/custom-commands) que são lançadas pela paleta de comandos
 - **Programável** — CLI e socket API para criar workspaces, dividir painéis, enviar teclas e automatizar o navegador
 - **App nativo macOS** — Construído com Swift e AppKit, não Electron. Inicialização rápida, baixo consumo de memória.
 - **Compatível com Ghostty** — Lê sua configuração existente em `~/.config/ghostty/config` para temas, fontes e cores
@@ -215,15 +236,33 @@ Os atalhos de ferramentas do desenvolvedor do navegador seguem os padrões do Sa
 
 O cmux NIGHTLY é um app separado com seu próprio bundle ID, então roda ao lado da versão estável. Construído automaticamente a partir do último commit em `main` e se atualiza automaticamente via seu próprio feed Sparkle.
 
-## Restauração de sessão (comportamento atual)
+## Restauração de sessão
 
-Ao reiniciar, o cmux atualmente restaura apenas o layout do app e metadados:
+Ao sair, o cmux salva a sessão atual. Ao abrir novamente, o cmux restaura o estado pertencente ao app:
 - Layout de janelas/workspaces/painéis
 - Diretórios de trabalho
 - Histórico de rolagem do terminal (melhor esforço)
 - URL do navegador e histórico de navegação
 
-O cmux **não** restaura o estado de processos ativos dentro de apps de terminal. Por exemplo, sessões ativas de Claude Code/tmux/vim não são retomadas após reiniciar ainda.
+O cmux não cria checkpoints de processos ativos arbitrários. tmux, vim, shells e apps de terminal sem suporte reabrem como terminais normais.
+
+Sessões de agentes compatíveis podem ser retomadas quando os hooks salvam um ID de sessão nativo:
+
+```bash
+cmux hooks setup
+cmux hooks setup codex
+cmux hooks setup --agent opencode
+```
+
+Usuários avançados e integrações podem associar um comando personalizado de retomada à surface de terminal atual. Isso é útil para ferramentas com estado durável próprio, como sessões tmux ou CLIs de agentes customizados:
+
+```bash
+cmux surface resume set --kind tmux --checkpoint work --shell "tmux attach -t work"
+cmux surface resume show --json
+cmux surface resume clear --checkpoint work
+```
+
+A associação fica ligada à surface do cmux. Associações criadas pela CLI pública ou pelo socket são salvas para inspeção e retomada manual. O cmux só executa automaticamente associações de retomada que marca como confiáveis, como associações tmux detectadas a partir de processos ativos. Chaves de ambiente sensíveis, como tokens, senhas, segredos e chaves de API, são descartadas antes de salvar uma associação de retomada.
 
 ## Histórico de Estrelas
 
@@ -268,6 +307,6 @@ O cmux é gratuito, open source, e sempre será. Se você gostaria de apoiar o d
 
 ## Licença
 
-Este projeto é licenciado sob a GNU Affero General Public License v3.0 ou posterior (`AGPL-3.0-or-later`).
+cmux é open source sob [GPL-3.0-or-later](LICENSE).
 
-Veja `LICENSE` para o texto completo.
+Se sua organização não puder cumprir a GPL, uma licença comercial está disponível. Entre em contato com [founders@manaflow.com](mailto:founders@manaflow.com) para detalhes.

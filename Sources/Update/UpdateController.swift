@@ -193,7 +193,10 @@ class UpdateController {
                     return
                 }
 
-                guard self.didObserveAttemptUpdateProgress, !state.isInstallable else {
+                // Only stop on terminal failure states (.notFound, .error).
+                // Don't stop on .idle — the check may still be starting up
+                // (e.g. retry loop, background probe finishing).
+                guard self.didObserveAttemptUpdateProgress, !state.isInstallable, !state.isIdle else {
                     return
                 }
                 self.stopAttemptUpdateMonitoring()
@@ -208,6 +211,11 @@ class UpdateController {
         checkForUpdatesWhenReady(retries: readyRetryCount)
     }
 
+    /// Check for updates using the custom popover-based UI.
+    func checkForUpdatesInCustomUI() {
+        checkForUpdatesWhenReady(retries: readyRetryCount)
+    }
+
     private func performCheckForUpdates() {
         startUpdaterIfNeeded()
         ensureSparkleInstallationCache()
@@ -217,7 +225,7 @@ class UpdateController {
         }
 
         installCancellable?.cancel()
-        viewModel.state.cancel()
+        viewModel.cancelActiveStateForNewCheck()
 
         DispatchQueue.main.asyncAfter(deadline: .now() + .milliseconds(100)) { [weak self] in
             self?.updater.checkForUpdates()

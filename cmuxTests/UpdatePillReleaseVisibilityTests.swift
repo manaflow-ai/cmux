@@ -12,13 +12,16 @@ final class BrowserInsecureHTTPSettingsTests: XCTestCase {
     func testDefaultAllowlistPatternsArePresent() {
         XCTAssertEqual(
             BrowserInsecureHTTPSettings.normalizedAllowlistPatterns(rawValue: nil),
-            ["localhost", "127.0.0.1", "::1", "0.0.0.0", "*.localtest.me"]
+            ["localhost", "*.localhost", "127.0.0.1", "::1", "0.0.0.0", "*.localtest.me"]
         )
     }
 
     func testWildcardAndExactHostMatching() {
         XCTAssertTrue(BrowserInsecureHTTPSettings.isHostAllowed("localhost", rawAllowlist: nil))
+        XCTAssertTrue(BrowserInsecureHTTPSettings.isHostAllowed("a.localhost", rawAllowlist: nil))
+        XCTAssertTrue(BrowserInsecureHTTPSettings.isHostAllowed("deep.a.localhost", rawAllowlist: nil))
         XCTAssertTrue(BrowserInsecureHTTPSettings.isHostAllowed("127.0.0.1", rawAllowlist: nil))
+        XCTAssertFalse(BrowserInsecureHTTPSettings.isHostAllowed("a.127.0.0.1", rawAllowlist: nil))
         XCTAssertTrue(BrowserInsecureHTTPSettings.isHostAllowed("::1", rawAllowlist: nil))
         XCTAssertTrue(BrowserInsecureHTTPSettings.isHostAllowed("0.0.0.0", rawAllowlist: nil))
         XCTAssertTrue(BrowserInsecureHTTPSettings.isHostAllowed("api.localtest.me", rawAllowlist: nil))
@@ -46,6 +49,9 @@ final class BrowserInsecureHTTPSettingsTests: XCTestCase {
     func testBlockDecisionUsesAllowlistAndSchemeRules() throws {
         let localURL = try XCTUnwrap(URL(string: "http://foo.localtest.me:3000"))
         XCTAssertFalse(browserShouldBlockInsecureHTTPURL(localURL, rawAllowlist: nil))
+
+        let localhostSubdomainURL = try XCTUnwrap(URL(string: "http://a.localhost:3000"))
+        XCTAssertFalse(browserShouldBlockInsecureHTTPURL(localhostSubdomainURL, rawAllowlist: nil))
 
         let insecureURL = try XCTUnwrap(URL(string: "http://neverssl.com"))
         XCTAssertTrue(browserShouldBlockInsecureHTTPURL(insecureURL, rawAllowlist: nil))
@@ -154,6 +160,7 @@ final class TitlebarControlsSizingPolicyTests: XCTestCase {
         let baseline = TitlebarControlsLayoutSnapshot(
             contentSize: NSSize(width: 128, height: 22),
             containerHeight: 28,
+            xOffset: 0,
             yOffset: 3
         )
         XCTAssertTrue(titlebarControlsShouldApplyLayout(previous: nil, next: baseline))
@@ -162,9 +169,18 @@ final class TitlebarControlsSizingPolicyTests: XCTestCase {
         let changed = TitlebarControlsLayoutSnapshot(
             contentSize: NSSize(width: 132, height: 22),
             containerHeight: 28,
+            xOffset: 0,
             yOffset: 3
         )
         XCTAssertTrue(titlebarControlsShouldApplyLayout(previous: baseline, next: changed))
+
+        let offsetChanged = TitlebarControlsLayoutSnapshot(
+            contentSize: NSSize(width: 128, height: 22),
+            containerHeight: 28,
+            xOffset: 1,
+            yOffset: 3
+        )
+        XCTAssertTrue(titlebarControlsShouldApplyLayout(previous: baseline, next: offsetChanged))
     }
 
     func testShortcutHintVerticalOffsetKeepsPillInsideButtonLane() {
@@ -190,5 +206,137 @@ final class TitlebarControlsHoverPolicyTests: XCTestCase {
         XCTAssertFalse(titlebarControlsShouldTrackButtonHover(config: TitlebarControlsStyle.roomy.config))
         XCTAssertTrue(titlebarControlsShouldTrackButtonHover(config: TitlebarControlsStyle.pillGroup.config))
         XCTAssertFalse(titlebarControlsShouldTrackButtonHover(config: TitlebarControlsStyle.softButtons.config))
+    }
+}
+
+final class AppIconAppearanceObserverTests: XCTestCase {
+    private final class ObservationToken: AppIconAppearanceObservation {
+        private(set) var invalidateCallCount = 0
+
+        func invalidate() {
+            invalidateCallCount += 1
+        }
+    }
+
+    private final class Harness {
+        var isFinishedLaunching = false
+        var isDark = false
+        var startObservationCallCount = 0
+        var currentAppearanceIsDarkCallCount = 0
+        var imageRequests: [String] = []
+        var appliedIconCount = 0
+        var didFinishLaunchingObserverCount = 0
+        private(set) var didFinishLaunchingHandler: (() -> Void)?
+        private(set) var appearanceHandler: (() -> Void)?
+        let observation = ObservationToken()
+
+        lazy var environment = AppIconAppearanceObserver.Environment(
+            isApplicationFinishedLaunching: { [unowned self] in
+                self.isFinishedLaunching
+            },
+            startEffectiveAppearanceObservation: { [unowned self] handler in
+                self.startObservationCallCount += 1
+                self.appearanceHandler = handler
+                return self.observation
+            },
+            addDidFinishLaunchingObserver: { [unowned self] handler in
+                self.didFinishLaunchingObserverCount += 1
+                self.didFinishLaunchingHandler = handler
+                return NSObject()
+            },
+            removeObserver: { _ in },
+            currentAppearanceIsDark: { [unowned self] in
+                self.currentAppearanceIsDarkCallCount += 1
+                return self.isDark
+            },
+            imageForName: { [unowned self] imageName in
+                self.imageRequests.append(imageName)
+                return NSImage(size: NSSize(width: 1, height: 1))
+            },
+            setApplicationIconImage: { [unowned self] _ in
+                self.appliedIconCount += 1
+            }
+        )
+
+        func fireDidFinishLaunching() {
+            didFinishLaunchingHandler?()
+        }
+
+        func fireAppearanceChanged() {
+            appearanceHandler?()
+        }
+    }
+
+    func testStartObservingDefersInitialApplyUntilLaunch() {
+        let harness = Harness()
+        let observer = AppIconAppearanceObserver(environment: harness.environment)
+
+        observer.startObserving()
+
+        XCTAssertEqual(harness.didFinishLaunchingObserverCount, 1)
+        XCTAssertEqual(harness.startObservationCallCount, 0)
+        XCTAssertEqual(harness.currentAppearanceIsDarkCallCount, 0)
+        XCTAssertTrue(harness.imageRequests.isEmpty)
+
+        harness.isFinishedLaunching = true
+        harness.fireDidFinishLaunching()
+
+        XCTAssertEqual(harness.startObservationCallCount, 1)
+        XCTAssertEqual(harness.currentAppearanceIsDarkCallCount, 1)
+        XCTAssertEqual(harness.imageRequests, ["AppIconLight"])
+        XCTAssertEqual(harness.appliedIconCount, 1)
+    }
+
+    func testStopObservingCancelsDeferredLaunchApply() {
+        let harness = Harness()
+        let observer = AppIconAppearanceObserver(environment: harness.environment)
+
+        observer.startObserving()
+        observer.stopObserving()
+        harness.isFinishedLaunching = true
+        harness.fireDidFinishLaunching()
+
+        XCTAssertEqual(harness.startObservationCallCount, 0)
+        XCTAssertEqual(harness.currentAppearanceIsDarkCallCount, 0)
+        XCTAssertTrue(harness.imageRequests.isEmpty)
+        XCTAssertEqual(harness.appliedIconCount, 0)
+    }
+
+    func testStopObservingInvalidatesActiveObservation() {
+        let harness = Harness()
+        harness.isFinishedLaunching = true
+        let observer = AppIconAppearanceObserver(environment: harness.environment)
+
+        observer.startObserving()
+        observer.stopObserving()
+
+        XCTAssertEqual(harness.startObservationCallCount, 1)
+        XCTAssertEqual(harness.observation.invalidateCallCount, 1)
+    }
+
+    func testUnchangedAutomaticAppearanceDoesNotReapplyIcon() {
+        let harness = Harness()
+        harness.isFinishedLaunching = true
+        let observer = AppIconAppearanceObserver(environment: harness.environment)
+
+        observer.startObserving()
+        harness.fireAppearanceChanged()
+
+        XCTAssertEqual(harness.currentAppearanceIsDarkCallCount, 2)
+        XCTAssertEqual(harness.imageRequests, ["AppIconLight"])
+        XCTAssertEqual(harness.appliedIconCount, 1)
+    }
+
+    func testAutomaticAppearanceChangeAppliesNewIcon() {
+        let harness = Harness()
+        harness.isFinishedLaunching = true
+        let observer = AppIconAppearanceObserver(environment: harness.environment)
+
+        observer.startObserving()
+        harness.isDark = true
+        harness.fireAppearanceChanged()
+
+        XCTAssertEqual(harness.imageRequests, ["AppIconLight", "AppIconDark"])
+        XCTAssertEqual(harness.appliedIconCount, 2)
     }
 }
