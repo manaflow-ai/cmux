@@ -416,6 +416,8 @@
         "workspacesBlurb": "Les espaces de travail se trouvent dans la barre latérale. Chaque espace de travail a ses propres panneaux et surfaces.",
         "surfaces": "Surfaces",
         "surfacesBlurb": "Les surfaces sont des onglets à l'intérieur d'un panneau.",
+        "markdownPreview": "Aperçu Markdown",
+        "markdownPreviewBlurb": "Les raccourcis de l'aperçu Markdown ne fonctionnent que dans le panneau Markdown actif, donc les touches Vim seules n'affectent pas les terminaux.",
         "splitPanes": "Panneaux divisés",
         "browser": "Navigateur",
         "notifications": "Notifications",

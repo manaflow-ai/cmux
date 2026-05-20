@@ -416,6 +416,8 @@
         "workspacesBlurb": "Los workspaces se encuentran en la barra lateral. Cada workspace tiene sus propios paneles y superficies.",
         "surfaces": "Superficies",
         "surfacesBlurb": "Las superficies son pestañas dentro de un panel.",
+        "markdownPreview": "Vista previa de Markdown",
+        "markdownPreviewBlurb": "Los atajos de la vista previa de Markdown solo funcionan en el panel de Markdown enfocado, por lo que las teclas Vim sueltas no afectan a las terminales.",
         "splitPanes": "Paneles divididos",
         "browser": "Navegador",
         "notifications": "Notificaciones",

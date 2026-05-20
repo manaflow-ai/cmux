@@ -416,6 +416,8 @@
         "workspacesBlurb": "Workspaces ficam na barra lateral. Cada workspace tem seu próprio conjunto de painéis e superfícies.",
         "surfaces": "Superfícies",
         "surfacesBlurb": "Superfícies são abas dentro de um painel.",
+        "markdownPreview": "Prévia de Markdown",
+        "markdownPreviewBlurb": "Os atalhos da prévia de Markdown funcionam apenas no painel Markdown em foco, então teclas Vim isoladas não afetam os terminais.",
         "splitPanes": "Painéis Divididos",
         "browser": "Navegador",
         "notifications": "Notificações",

@@ -416,6 +416,8 @@
         "workspacesBlurb": "مساحات العمل موجودة في الشريط الجانبي. كل مساحة عمل لها مجموعتها الخاصة من الألواح والأسطح.",
         "surfaces": "الأسطح",
         "surfacesBlurb": "الأسطح هي علامات تبويب داخل اللوح.",
+        "markdownPreview": "معاينة Markdown",
+        "markdownPreviewBlurb": "تعمل اختصارات معاينة Markdown داخل لوحة Markdown المركزة فقط، لذلك لا تؤثر مفاتيح Vim المنفردة على الطرفيات.",
         "splitPanes": "الألواح المقسمة",
         "browser": "المتصفح",
         "notifications": "الإشعارات",

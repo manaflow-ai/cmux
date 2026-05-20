@@ -354,6 +354,39 @@ final class MarkdownPanelTests: XCTestCase {
         )
     }
 
+    func testMarkdownPreviewShortcutChordMissConsumesSecondStroke() throws {
+        let fileURL = FileManager.default.temporaryDirectory
+            .appendingPathComponent("cmux-markdown-shortcut-miss-\(UUID().uuidString).json")
+        try """
+        {
+          "shortcuts": {
+            "bindings": {
+              "markdownFindForward": ["ctrl+b", "/"]
+            }
+          }
+        }
+        """.write(to: fileURL, atomically: true, encoding: .utf8)
+        defer { try? FileManager.default.removeItem(at: fileURL) }
+
+        let originalStore = KeyboardShortcutSettings.settingsFileStore
+        KeyboardShortcutSettings.settingsFileStore = KeyboardShortcutSettingsFileStore(
+            primaryPath: fileURL.path,
+            fallbackPath: nil,
+            additionalFallbackPaths: [],
+            startWatching: false
+        )
+        defer {
+            KeyboardShortcutSettings.settingsFileStore = originalStore
+            KeyboardShortcutSettings.resetAll()
+        }
+
+        let coordinator = MarkdownWebRenderer.Coordinator()
+        XCTAssertTrue(
+            coordinator.handleKeyboardShortcut(try keyDownEvent("b", keyCode: 11, modifiers: [.control]))
+        )
+        XCTAssertTrue(coordinator.handleKeyboardShortcut(try keyDownEvent("j", keyCode: 38)))
+    }
+
     func testMarkdownPreviewKeyCommandHandlersScrollAndSearch() async throws {
         let frame = NSRect(x: 0, y: 0, width: 720, height: 360)
         let webView = WKWebView(frame: frame, configuration: WKWebViewConfiguration())

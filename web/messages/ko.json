@@ -416,6 +416,8 @@
         "workspacesBlurb": "워크스페이스는 사이드바에 있습니다. 각 워크스페이스에는 자체 패널과 서피스가 있습니다.",
         "surfaces": "서피스",
         "surfacesBlurb": "서피스는 패널 내의 탭입니다.",
+        "markdownPreview": "Markdown 미리보기",
+        "markdownPreviewBlurb": "Markdown 미리보기 단축키는 포커스된 Markdown 패널에서만 동작하므로 단일 Vim 키가 터미널에 영향을 주지 않습니다.",
         "splitPanes": "분할 패널",
         "browser": "브라우저",
         "notifications": "알림",

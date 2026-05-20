@@ -416,6 +416,8 @@
         "workspacesBlurb": "Workspaces bor i sidebaren. Hvert workspace har sit eget sæt af paneler og surfaces.",
         "surfaces": "Surfaces",
         "surfacesBlurb": "Surfaces er faner inde i et panel.",
+        "markdownPreview": "Markdown-forhåndsvisning",
+        "markdownPreviewBlurb": "Genveje til Markdown-forhåndsvisning virker kun i det fokuserede Markdown-panel, så enkelte Vim-taster påvirker ikke terminaler.",
         "splitPanes": "Opdelte paneler",
         "browser": "Browser",
         "notifications": "Notifikationer",

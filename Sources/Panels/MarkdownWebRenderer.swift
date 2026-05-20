@@ -288,12 +288,12 @@ struct MarkdownWebRenderer: NSViewRepresentable {
 
         func handleKeyboardShortcut(_ event: NSEvent) -> Bool {
             if let pendingShortcutChord {
-                defer { self.pendingShortcutChord = nil }
+                self.pendingShortcutChord = nil
                 guard let command = MarkdownPreviewKeyboardShortcutResolver.command(
                     for: event,
                     pendingFirstStroke: pendingShortcutChord
                 ) else {
-                    return false
+                    return !ShortcutStroke.isEscapeCancelEvent(event)
                 }
                 performKeyboardCommand(command)
                 return true

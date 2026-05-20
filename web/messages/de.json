@@ -416,6 +416,8 @@
         "workspacesBlurb": "Workspaces befinden sich in der Seitenleiste. Jeder Workspace hat seine eigenen Bereiche und Oberflächen.",
         "surfaces": "Oberflächen",
         "surfacesBlurb": "Oberflächen sind Tabs innerhalb eines Bereichs.",
+        "markdownPreview": "Markdown-Vorschau",
+        "markdownPreviewBlurb": "Markdown-Vorschau-Kurzbefehle gelten nur im fokussierten Markdown-Panel, sodass einzelne Vim-Tasten Terminals nicht beeinflussen.",
         "splitPanes": "Geteilte Bereiche",
         "browser": "Browser",
         "notifications": "Benachrichtigungen",

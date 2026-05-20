@@ -416,6 +416,8 @@
         "workspacesBlurb": "Arbeidsområder lever i sidefeltet. Hvert arbeidsområde har sitt eget sett med paneler og overflater.",
         "surfaces": "Overflater",
         "surfacesBlurb": "Overflater er faner inne i et panel.",
+        "markdownPreview": "Markdown-forhåndsvisning",
+        "markdownPreviewBlurb": "Snarveier for Markdown-forhåndsvisning virker bare i det fokuserte Markdown-panelet, så enkle Vim-taster påvirker ikke terminaler.",
         "splitPanes": "Delte paneler",
         "browser": "Nettleser",
         "notifications": "Varsler",

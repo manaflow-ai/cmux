@@ -416,6 +416,8 @@
         "workspacesBlurb": "Workspace อยู่ในแถบด้านข้าง Workspace แต่ละอันมีชุดพาเนลและ surface ของตัวเอง",
         "surfaces": "Surface",
         "surfacesBlurb": "Surface คือแท็บภายในพาเนล",
+        "markdownPreview": "ตัวอย่าง Markdown",
+        "markdownPreviewBlurb": "ปุ่มลัดตัวอย่าง Markdown ทำงานเฉพาะในแผง Markdown ที่โฟกัสอยู่ ดังนั้นปุ่ม Vim แบบเดี่ยวจะไม่กระทบเทอร์มินัล",
         "splitPanes": "พาเนลแบ่ง",
         "browser": "เบราว์เซอร์",
         "notifications": "การแจ้งเตือน",

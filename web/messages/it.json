@@ -416,6 +416,8 @@
         "workspacesBlurb": "I workspace si trovano nella barra laterale. Ogni workspace ha i propri pannelli e superfici.",
         "surfaces": "Superfici",
         "surfacesBlurb": "Le superfici sono tab all'interno di un pannello.",
+        "markdownPreview": "Anteprima Markdown",
+        "markdownPreviewBlurb": "Le scorciatoie dell'anteprima Markdown funzionano solo nel pannello Markdown attivo, quindi i tasti Vim singoli non influenzano i terminali.",
         "splitPanes": "Pannelli divisi",
         "browser": "Browser",
         "notifications": "Notifiche",

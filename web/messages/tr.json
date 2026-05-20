@@ -416,6 +416,8 @@
         "workspacesBlurb": "Çalışma alanları kenar çubuğunda bulunur. Her çalışma alanının kendi panel ve yüzey seti vardır.",
         "surfaces": "Yüzeyler",
         "surfacesBlurb": "Yüzeyler, bir panel içindeki sekmelerdir.",
+        "markdownPreview": "Markdown Önizleme",
+        "markdownPreviewBlurb": "Markdown önizleme kısayolları yalnızca odaktaki Markdown panelinde çalışır, bu yüzden tek Vim tuşları terminalleri etkilemez.",
         "splitPanes": "Bölünmüş Paneller",
         "browser": "Tarayıcı",
         "notifications": "Bildirimler",

@@ -416,6 +416,8 @@
         "workspacesBlurb": "Radni prostori se nalaze u bočnoj traci. Svaki radni prostor ima vlastiti set panela i površina.",
         "surfaces": "Površine",
         "surfacesBlurb": "Površine su tabovi unutar panela.",
+        "markdownPreview": "Markdown pregled",
+        "markdownPreviewBlurb": "Prečice za Markdown pregled rade samo u fokusiranom Markdown panelu, pa samostalne Vim tipke ne utiču na terminale.",
         "splitPanes": "Podijeljeni paneli",
         "browser": "Preglednik",
         "notifications": "Notifikacije",

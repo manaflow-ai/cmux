@@ -416,6 +416,8 @@
         "workspacesBlurb": "Workspace'y znajdują się w pasku bocznym. Każdy workspace ma własny zestaw paneli i surface'ów.",
         "surfaces": "Surface'y",
         "surfacesBlurb": "Surface'y to karty wewnątrz panelu.",
+        "markdownPreview": "Podgląd Markdown",
+        "markdownPreviewBlurb": "Skróty podglądu Markdown działają tylko w aktywnym panelu Markdown, więc pojedyncze klawisze Vim nie wpływają na terminale.",
         "splitPanes": "Dzielone panele",
         "browser": "Przeglądarka",
         "notifications": "Powiadomienia",

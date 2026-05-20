@@ -416,6 +416,8 @@
         "workspacesBlurb": "工作区位于侧边栏中。每个工作区有自己的面板和 surface。",
         "surfaces": "Surface",
         "surfacesBlurb": "Surface 是面板内的标签页。",
+        "markdownPreview": "Markdown 预览",
+        "markdownPreviewBlurb": "Markdown 预览快捷键只在当前聚焦的 Markdown 面板中生效，因此单独的 Vim 风格按键不会影响终端。",
         "splitPanes": "分屏面板",
         "browser": "浏览器",
         "notifications": "通知",

@@ -416,6 +416,8 @@
         "workspacesBlurb": "Workspace មាននៅក្នុងរបារចំហៀង។ Workspace នីមួយៗមានសំណុំបន្ទះនិង surface ផ្ទាល់ខ្លួន។",
         "surfaces": "Surface",
         "surfacesBlurb": "Surface គឺជាផ្ទាំងក្នុងបន្ទះ។",
+        "markdownPreview": "ការមើលជាមុន Markdown",
+        "markdownPreviewBlurb": "ផ្លូវកាត់ការមើលជាមុន Markdown ដំណើរការតែក្នុងផ្ទាំង Markdown ដែលកំពុងផ្ដោត ដូច្នេះគ្រាប់ចុច Vim ដាច់ដោយឡែកមិនប៉ះពាល់ដល់ terminal ទេ។",
         "splitPanes": "បន្ទះបំបែក",
         "browser": "កម្មវិធីរុករក",
         "notifications": "ជូនដំណឹង",
