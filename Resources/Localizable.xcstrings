@@ -21182,6 +21182,23 @@
         }
       }
     },
+    "agent.generic.status.running": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Running"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "実行中"
+          }
+        }
+      }
+    },
     "agent.codex.error.subtitle.auth": {
       "extractionState": "manual",
       "localizations": {

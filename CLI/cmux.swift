@@ -22908,8 +22908,9 @@ export default function cmuxPiSessionExtension(pi: ExtensionAPI) {
                 "clear_notifications --tab=\(workspaceId)\(socketPanelOption(surfaceId))",
                 client: client
             )
+            let runningStatus = String(localized: "agent.generic.status.running", defaultValue: "Running")
             _ = try sendV1Command(
-                "set_status \(def.statusKey) Running --icon=bolt.fill --color=#4C8DFF --tab=\(workspaceId)\(socketPanelOption(surfaceId))",
+                "set_status \(def.statusKey) \(runningStatus) --icon=bolt.fill --color=#4C8DFF --tab=\(workspaceId)\(socketPanelOption(surfaceId))",
                 client: client
             )
             if def.name == "codex", !sessionId.isEmpty {
