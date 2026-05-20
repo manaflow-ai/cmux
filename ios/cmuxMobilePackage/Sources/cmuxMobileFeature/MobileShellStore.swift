@@ -693,6 +693,8 @@ public final class CMUXMobileShellStore {
         return normalizedMessage.contains("unknown method")
             || normalizedMessage.contains("method not found")
             || normalizedMessage.contains("unsupported method")
+            || normalizedMessage.contains("ticket unavailable")
+            || normalizedMessage.contains("ticket not available")
     }
 
     private static func manualHostTicket(

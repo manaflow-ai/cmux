@@ -44,7 +44,9 @@ struct CMUXMobileRootView: View {
 
     var body: some View {
         Group {
-            if !isAuthenticated {
+            if shouldShowRestoringSession {
+                RestoringSessionView()
+            } else if !isAuthenticated {
                 SignInView()
             } else if store.connectionState != .connected {
                 DisconnectedWorkspaceShellView(
@@ -124,6 +126,14 @@ struct CMUXMobileRootView: View {
         )
     }
 
+    private var shouldShowRestoringSession: Bool {
+        MobileRootAuthGate.shouldShowRestoringSession(
+            stackAuthenticated: authManager.isAuthenticated,
+            attachTicketAuthenticated: didAuthenticateWithAttachTicket,
+            isRestoringSession: authManager.isRestoringSession
+        )
+    }
+
     private func syncShellAuthentication(_ isAuthenticated: Bool) {
         MobileRootAuthGate.syncShellAuthentication(
             stackAuthenticated: isAuthenticated,
@@ -179,6 +189,17 @@ enum MobileRootAuthGate {
         attachTicketAuthenticated: Bool = false
     ) -> Bool {
         stackAuthenticated || attachTicketAuthenticated
+    }
+
+    static func shouldShowRestoringSession(
+        stackAuthenticated: Bool,
+        attachTicketAuthenticated: Bool = false,
+        isRestoringSession: Bool
+    ) -> Bool {
+        isRestoringSession && !isAuthenticated(
+            stackAuthenticated: stackAuthenticated,
+            attachTicketAuthenticated: attachTicketAuthenticated
+        )
     }
 
     static func isAttachURL(_ url: URL) -> Bool {
@@ -685,6 +706,34 @@ enum SignInCodeInputPolicy {
 
     static func shouldVerifyAfterChange(_ normalizedCode: String) -> Bool {
         normalizedCode.count == maximumCodeLength
+    }
+}
+
+struct RestoringSessionView: View {
+    var body: some View {
+        NavigationStack {
+            ZStack {
+                GameOfLifeHeader()
+                    .ignoresSafeArea()
+
+                VStack(spacing: 14) {
+                    Image("CmuxLogo")
+                        .resizable()
+                        .renderingMode(.original)
+                        .scaledToFit()
+                        .frame(width: 30, height: 30)
+                        .accessibilityHidden(true)
+
+                    ProgressView(L10n.string("mobile.signIn.restoring", defaultValue: "Restoring session"))
+                        .controlSize(.regular)
+                }
+                .font(.headline)
+                .foregroundStyle(.primary)
+                .frame(maxWidth: .infinity, maxHeight: .infinity)
+                .accessibilityIdentifier("MobileRestoringSessionView")
+            }
+            .mobileInlineNavigationTitle()
+        }
     }
 }
 

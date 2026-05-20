@@ -208,6 +208,29 @@ import UIKit
     #expect(!MobileRootAuthGate.isAttachURL(otherURL))
 }
 
+@Test func rootAuthGateShowsRestoringSessionOnlyBeforeAuthentication() {
+    #expect(MobileRootAuthGate.shouldShowRestoringSession(
+        stackAuthenticated: false,
+        attachTicketAuthenticated: false,
+        isRestoringSession: true
+    ))
+    #expect(!MobileRootAuthGate.shouldShowRestoringSession(
+        stackAuthenticated: true,
+        attachTicketAuthenticated: false,
+        isRestoringSession: true
+    ))
+    #expect(!MobileRootAuthGate.shouldShowRestoringSession(
+        stackAuthenticated: false,
+        attachTicketAuthenticated: true,
+        isRestoringSession: true
+    ))
+    #expect(!MobileRootAuthGate.shouldShowRestoringSession(
+        stackAuthenticated: false,
+        attachTicketAuthenticated: false,
+        isRestoringSession: false
+    ))
+}
+
 @MainActor
 @Test func rootAuthGateSynchronizesStackAuthIntoShellStore() {
     let store = CMUXMobileShellStore.preview()

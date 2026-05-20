@@ -365,6 +365,13 @@
         "ja" : { "stringUnit" : { "state" : "translated", "value" : "Google でサインイン" } }
       }
     },
+    "mobile.signIn.restoring" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : { "stringUnit" : { "state" : "translated", "value" : "Restoring session" } },
+        "ja" : { "stringUnit" : { "state" : "translated", "value" : "セッションを復元しています" } }
+      }
+    },
     "mobile.signIn.sentCodeFormat" : {
       "extractionState" : "manual",
       "localizations" : {

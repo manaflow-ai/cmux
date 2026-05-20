@@ -179,6 +179,20 @@ import Testing
     #expect(snapshot.cursor.column == 0)
 }
 
+@Test func ghosttyTextBuilderPreservesBlankRowsFromNewlineOnlyCursorMovement() throws {
+    let snapshot = try MobileTerminalGhosttySnapshot.fromGhosttyText(
+        terminalID: "terminal-newline-blank-rows",
+        columns: 12,
+        rows: 4,
+        scrollbackText: nil,
+        viewportText: "prompt\n\n"
+    )
+
+    #expect(snapshot.renderedVisibleLines == ["prompt", "", "", ""])
+    #expect(snapshot.cursor.column == 0)
+    #expect(snapshot.cursor.row == 2)
+}
+
 @Test func ghosttyTextBuilderKeepsTopAddressedRowsFromFullVTScreenExport() throws {
     let viewportText =
         "\u{001B}[1;1Hfirst line" +

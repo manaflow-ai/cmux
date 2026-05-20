@@ -389,7 +389,8 @@ public struct MobileTerminalGhosttySnapshot: Codable, Equatable, Sendable {
                 columns: columns,
                 count: rows,
                 cursorRow: resolvedCursor.isVisible ? resolvedCursor.row : nil,
-                sourceCursorRow: sourceCursorRow
+                sourceCursorRow: sourceCursorRow,
+                alignRowsToCursor: visibleGrid.usesAbsoluteCursorAddressing
             ),
             cursor: resolvedCursor,
             modes: resolvedModes,
@@ -439,7 +440,8 @@ public struct MobileTerminalGhosttySnapshot: Codable, Equatable, Sendable {
         columns: Int,
         count: Int,
         cursorRow: Int? = nil,
-        sourceCursorRow: Int? = nil
+        sourceCursorRow: Int? = nil,
+        alignRowsToCursor: Bool = false
     ) -> [MobileTerminalGhosttyRow] {
         var padded = visibleRows(
             from: rows,
@@ -447,7 +449,7 @@ public struct MobileTerminalGhosttySnapshot: Codable, Equatable, Sendable {
             cursorRow: cursorRow,
             sourceCursorRow: sourceCursorRow
         )
-        if let cursorRow {
+        if alignRowsToCursor, let cursorRow {
             padded = rowsAlignedToCursor(
                 rows: padded,
                 columns: columns,
@@ -562,6 +564,7 @@ public struct MobileTerminalGhosttySnapshot: Codable, Equatable, Sendable {
         var rows: [MobileTerminalGhosttyRow]
         var cursorColumn: Int
         var cursorRow: Int
+        var usesAbsoluteCursorAddressing: Bool
     }
 
     private static func styledRows(from text: String, columns: Int) -> [MobileTerminalGhosttyRow] {
@@ -573,7 +576,7 @@ public struct MobileTerminalGhosttySnapshot: Codable, Equatable, Sendable {
         let text = text
             .replacingOccurrences(of: "\r\n", with: "\n")
         guard !text.isEmpty else {
-            return StyledTerminalGrid(rows: [], cursorColumn: 0, cursorRow: 0)
+            return StyledTerminalGrid(rows: [], cursorColumn: 0, cursorRow: 0, usesAbsoluteCursorAddressing: false)
         }
         let wrapsOverflow = text.contains("\u{001B}")
 
@@ -582,6 +585,7 @@ public struct MobileTerminalGhosttySnapshot: Codable, Equatable, Sendable {
         var row = 0
         var column = 0
         var wrapPending = false
+        var usesAbsoluteCursorAddressing = false
         var style = MobileTerminalGhosttyCellStyle()
         var index = text.startIndex
 
@@ -676,12 +680,14 @@ public struct MobileTerminalGhosttySnapshot: Codable, Equatable, Sendable {
             case .none:
                 return
             case let .cursorPosition(newRow, newColumn):
+                usesAbsoluteCursorAddressing = true
                 moveCursor(row: newRow, column: newColumn)
             case let .cursorMove(rowDelta, columnDelta):
                 moveCursor(row: row + rowDelta, column: column + columnDelta)
             case let .cursorColumn(newColumn):
                 moveCursor(row: row, column: newColumn)
             case let .cursorRow(newRow):
+                usesAbsoluteCursorAddressing = true
                 moveCursor(row: newRow, column: column)
             case let .eraseDisplay(mode):
                 eraseDisplay(mode: mode)
@@ -794,7 +800,8 @@ public struct MobileTerminalGhosttySnapshot: Codable, Equatable, Sendable {
         return StyledTerminalGrid(
             rows: normalizedRows(),
             cursorColumn: min(max(column, 0), resolvedColumns - 1),
-            cursorRow: max(row, 0)
+            cursorRow: max(row, 0),
+            usesAbsoluteCursorAddressing: usesAbsoluteCursorAddressing
         )
     }
 
