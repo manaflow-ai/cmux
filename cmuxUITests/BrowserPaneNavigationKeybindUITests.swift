@@ -796,6 +796,77 @@ final class BrowserPaneNavigationKeybindUITests: XCTestCase {
         )
     }
 
+    func testCanvasTabChipClickSwitchesSurfaceWithSecondWindowPresent() {
+        let app = XCUIApplication()
+        app.launchEnvironment["CMUX_SOCKET_PATH"] = socketPath
+        app.launchEnvironment["CMUX_UI_TEST_MODE"] = "1"
+        app.launchEnvironment["CMUX_UI_TEST_GOTO_SPLIT_SETUP"] = "1"
+        app.launchEnvironment["CMUX_UI_TEST_GOTO_SPLIT_PATH"] = dataPath
+        app.launchEnvironment["CMUX_UI_TEST_FOCUS_SHORTCUTS"] = "1"
+        app.launchEnvironment["CMUX_UI_TEST_GOTO_SPLIT_ALLOW_UNFOCUSED_BROWSER"] = "1"
+        app.launchEnvironment["CMUX_UI_TEST_GOTO_SPLIT_OPEN_CANVAS"] = "1"
+        app.launchEnvironment["CMUX_UI_TEST_GOTO_SPLIT_CANVAS_TAB_CLICK_SETUP"] = "1"
+        app.launchEnvironment["CMUX_UI_TEST_GOTO_SPLIT_SECOND_WINDOW"] = "1"
+        launchAndEnsureForeground(app)
+
+        XCTAssertTrue(
+            waitForData(keys: [
+                "terminalPaneId",
+                "terminalSurfaceTabId",
+                "extraTerminalSurfaceTabId",
+                "secondaryWindowId",
+                "secondaryWorkspaceId"
+            ], timeout: 12.0),
+            "Expected canvas tab-click setup data. data=\(loadData() ?? [:])"
+        )
+
+        guard let setup = loadData(),
+              let terminalPaneId = setup["terminalPaneId"],
+              let originalSurfaceId = setup["terminalSurfaceTabId"],
+              let extraSurfaceId = setup["extraTerminalSurfaceTabId"],
+              let secondaryWindowId = setup["secondaryWindowId"] else {
+            XCTFail("Missing canvas tab-click setup data. data=\(loadData() ?? [:])")
+            return
+        }
+
+        XCTAssertGreaterThanOrEqual(
+            Int(setup["terminalPaneTabCount"] ?? "") ?? 0,
+            2,
+            "Expected at least two surface tabs in the terminal pane. data=\(setup)"
+        )
+        XCTAssertEqual(
+            setup["secondaryCanvasOverviewActive"],
+            "true",
+            "Expected second window to start in canvas overview. data=\(setup)"
+        )
+        XCTAssertGreaterThanOrEqual(
+            Int(setup["mainWindowCount"] ?? "") ?? 0,
+            2,
+            "Expected the setup to create a second main window. data=\(setup)"
+        )
+        XCTAssertGreaterThanOrEqual(
+            canvasItemCount(windowId: secondaryWindowId),
+            1,
+            "Expected the second window canvas to expose canvas items"
+        )
+
+        let extraChip = canvasTabChip(app, paneId: terminalPaneId, surfaceId: extraSurfaceId)
+        XCTAssertTrue(extraChip.waitForExistence(timeout: 8.0), "Expected extra terminal canvas tab chip")
+        extraChip.click()
+        XCTAssertTrue(
+            waitForSelectedCanvasSurface(inPane: terminalPaneId, selectedTabId: extraSurfaceId, timeout: 5.0),
+            "Expected clicking the extra canvas tab chip to select that surface. layout=\(String(describing: canvasLayout()))"
+        )
+
+        let originalChip = canvasTabChip(app, paneId: terminalPaneId, surfaceId: originalSurfaceId)
+        XCTAssertTrue(originalChip.waitForExistence(timeout: 8.0), "Expected original terminal canvas tab chip")
+        originalChip.click()
+        XCTAssertTrue(
+            waitForSelectedCanvasSurface(inPane: terminalPaneId, selectedTabId: originalSurfaceId, timeout: 5.0),
+            "Expected clicking the original canvas tab chip to switch back. layout=\(String(describing: canvasLayout()))"
+        )
+    }
+
     func testCmdDSplitsRightWhenOmnibarFocused() {
         let app = XCUIApplication()
         app.launchEnvironment["CMUX_SOCKET_PATH"] = socketPath
@@ -1465,8 +1536,12 @@ final class BrowserPaneNavigationKeybindUITests: XCTestCase {
         return ControlSocketClient(path: socketPath, responseTimeout: 2.0).sendJSON(request)
     }
 
-    private func canvasLayout() -> [String: Any]? {
-        guard let envelope = socketJSON(method: "debug.layout", params: [:]),
+    private func canvasLayout(windowId: String? = nil) -> [String: Any]? {
+        var params: [String: Any] = [:]
+        if let windowId {
+            params["window_id"] = windowId
+        }
+        guard let envelope = socketJSON(method: "debug.layout", params: params),
               let result = envelope["result"] as? [String: Any],
               let layout = result["layout"] as? [String: Any] else {
             return nil
@@ -1474,12 +1549,12 @@ final class BrowserPaneNavigationKeybindUITests: XCTestCase {
         return layout
     }
 
-    private func canvasItems() -> [[String: Any]] {
-        canvasLayout()?["canvasItems"] as? [[String: Any]] ?? []
+    private func canvasItems(windowId: String? = nil) -> [[String: Any]] {
+        canvasLayout(windowId: windowId)?["canvasItems"] as? [[String: Any]] ?? []
     }
 
-    private func canvasItemCount() -> Int {
-        canvasItems().count
+    private func canvasItemCount(windowId: String? = nil) -> Int {
+        canvasItems(windowId: windowId).count
     }
 
     private func canvasItemId(paneId: String) -> String? {
@@ -1495,6 +1570,31 @@ final class BrowserPaneNavigationKeybindUITests: XCTestCase {
             return itemId != nil
         }
         return matched ? itemId : nil
+    }
+
+    private func canvasTabChip(_ app: XCUIApplication, paneId: String, surfaceId: String) -> XCUIElement {
+        app.descendants(matching: .any)
+            .matching(identifier: "WorkspaceCanvasTabChip.\(paneId).\(surfaceId)")
+            .firstMatch
+    }
+
+    private func selectedCanvasSurface(inPane paneId: String) -> String? {
+        guard let selectedPanels = canvasLayout()?["selectedPanels"] as? [[String: Any]] else {
+            return nil
+        }
+        return selectedPanels.first { selectedPanel in
+            selectedPanel["paneId"] as? String == paneId
+        }?["selectedTabId"] as? String
+    }
+
+    private func waitForSelectedCanvasSurface(
+        inPane paneId: String,
+        selectedTabId: String,
+        timeout: TimeInterval
+    ) -> Bool {
+        waitForCondition(timeout: timeout) {
+            self.selectedCanvasSurface(inPane: paneId) == selectedTabId
+        }
     }
 
     private func canvasItemFrame(itemId: String) -> CGRect? {

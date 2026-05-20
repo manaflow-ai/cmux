@@ -559,6 +559,7 @@ private final class CanvasPanEventMonitorView: NSView {
     private var activeMiddlePanPointInWindow: NSPoint?
 
     override var isOpaque: Bool { false }
+    override var isFlipped: Bool { true }
 
     override func hitTest(_ point: NSPoint) -> NSView? {
         nil
@@ -2382,6 +2383,7 @@ private struct WorkspaceCanvasOverviewView<Content: View, EmptyContent: View>: V
         .buttonStyle(.plain)
         .foregroundStyle(selected ? canvasForegroundColor.opacity(0.84) : canvasForegroundColor.opacity(0.56))
         .disabled(paneID == nil)
+        .accessibilityIdentifier("WorkspaceCanvasTabChip.\(paneID?.id.uuidString ?? item.id.description).\(tab.id.uuid.uuidString)")
     }
 
     @ViewBuilder

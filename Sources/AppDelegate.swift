@@ -9098,6 +9098,37 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
                     "ghosttyGotoSplitDownShortcut": ghosttyGotoSplitDownShortcut?.displayString ?? "",
                     "webViewFocused": "false"
                 ]
+                if env["CMUX_UI_TEST_GOTO_SPLIT_CANVAS_TAB_CLICK_SETUP"] == "1" {
+                    let selectedTerminalSurface = tab.layoutController.selectedTab(inPane: terminalPaneId)?.id
+                    updates["terminalSurfaceTabId"] = selectedTerminalSurface?.uuid.uuidString ?? ""
+                    if let extraTerminal = tab.newTerminalSurface(inPane: terminalPaneId, focus: false),
+                       let extraSurface = tab.surfaceIdFromPanelId(extraTerminal.id) {
+                        tab.setPanelCustomTitle(panelId: extraTerminal.id, title: "UITest Canvas Extra")
+                        updates["extraTerminalPanelId"] = extraTerminal.id.uuidString
+                        updates["extraTerminalSurfaceTabId"] = extraSurface.uuid.uuidString
+                    } else {
+                        updates["canvasTabClickSetupError"] = "Failed to create extra terminal surface"
+                    }
+                    updates["terminalPaneTabCount"] = String(tab.layoutController.tabs(inPane: terminalPaneId).count)
+                }
+                if env["CMUX_UI_TEST_GOTO_SPLIT_SECOND_WINDOW"] == "1" {
+                    let secondaryWindowId = self.createMainWindow(
+                        initialWorkspaceTitle: "UITest Canvas Secondary",
+                        shouldActivate: false,
+                        sourceWindow: NSApp.mainWindow
+                    )
+                    if let secondaryManager = self.tabManagerFor(windowId: secondaryWindowId),
+                       let secondaryWorkspace = secondaryManager.tabs.first {
+                        secondaryWorkspace.enterCanvasOverview()
+                        updates["secondaryWindowId"] = secondaryWindowId.uuidString
+                        updates["secondaryWorkspaceId"] = secondaryWorkspace.id.uuidString
+                        updates["secondaryCanvasOverviewActive"] =
+                            secondaryWorkspace.layoutController.isCanvasOverviewActive ? "true" : "false"
+                        updates["mainWindowCount"] = String(self.mainWindowContexts.count)
+                    } else {
+                        updates["canvasSecondWindowSetupError"] = "Failed to resolve secondary window"
+                    }
+                }
                 if env["CMUX_UI_TEST_GOTO_SPLIT_CANVAS_SELFTEST"] == "1" {
                     updates.merge(
                         self.runGotoSplitCanvasSelfTest(tab: tab, terminalPaneId: terminalPaneId)
