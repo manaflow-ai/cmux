@@ -29,6 +29,7 @@ final class RovoDevSessionIndexTests: XCTestCase {
 
         cancellation.markStarted(processIdentifier: 12345)
         cancellation.cancel()
+        cancellation.cancel()
         cancellation.markFinished(processIdentifier: 12345)
         cancellation.cancel()
 

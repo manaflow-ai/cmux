@@ -48,6 +48,7 @@ final class SessionIndexRipgrepCancellation: @unchecked Sendable {
     func cancel() {
         lock.lock()
         let processIdentifier = activeProcessIdentifier
+        activeProcessIdentifier = nil
         lock.unlock()
 
         guard let processIdentifier else { return }
