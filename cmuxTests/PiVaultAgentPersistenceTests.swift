@@ -598,6 +598,7 @@ final class PiVaultAgentPersistenceTests: XCTestCase {
         }
 
         try writeHistory(cwd: "/tmp/current grok repo", sessionId: "current-session", prompt: "current")
+        try writeHistory(cwd: "/tmp/current grok repo/../current grok repo", sessionId: "current-session", prompt: "duplicate")
         try writeHistory(cwd: "/tmp/other grok repo", sessionId: "other-session", prompt: "other")
 
         var registration = CmuxVaultAgentRegistration.builtInGrok

@@ -274,7 +274,7 @@ extension SessionIndexStore {
                     fileGlob: "chat_history.jsonl"
                 ) else {
                     candidates.append(
-                        contentsOf: enumerateGrokHistoryCandidates(root: root).map {
+                        contentsOf: enumerateGrokHistoryCandidates(root: root, fileManager: fileManager).map {
                             (url: $0.0, modified: $0.1, prefilteredByRipgrep: false, root: root)
                         }
                     )
@@ -291,7 +291,7 @@ extension SessionIndexStore {
         } else {
             for root in roots {
                 candidates.append(
-                    contentsOf: enumerateGrokHistoryCandidates(root: root).map {
+                    contentsOf: enumerateGrokHistoryCandidates(root: root, fileManager: fileManager).map {
                         (url: $0.0, modified: $0.1, prefilteredByRipgrep: false, root: root)
                     }
                 )
@@ -301,6 +301,7 @@ extension SessionIndexStore {
         candidates.sort { $0.modified > $1.modified }
         let target = offset + limit
         var matches: [SessionEntry] = []
+        var seenSessionIds = Set<String>()
         var scanned = 0
         for candidate in candidates {
             if Task.isCancelled { break }
@@ -323,6 +324,7 @@ extension SessionIndexStore {
 
             let metadata = extractGrokSessionMetadata(url: candidate.url)
             let sessionId = sessionDirectory.lastPathComponent
+            guard seenSessionIds.insert(sessionId).inserted else { continue }
             let specifics: AgentSpecifics
             switch agent {
             case .grok:
@@ -476,8 +478,11 @@ extension SessionIndexStore {
         return copy
     }
 
-    nonisolated private static func enumerateGrokHistoryCandidates(root: GrokSessionRoot) -> [(URL, Date)] {
-        let fm = FileManager.default
+    nonisolated private static func enumerateGrokHistoryCandidates(
+        root: GrokSessionRoot,
+        fileManager: FileManager
+    ) -> [(URL, Date)] {
+        let fm = fileManager
         var isDirectory: ObjCBool = false
         guard fm.fileExists(atPath: root.sessionsRoot, isDirectory: &isDirectory),
               isDirectory.boolValue,
