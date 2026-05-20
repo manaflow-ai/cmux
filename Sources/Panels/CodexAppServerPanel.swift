@@ -454,15 +454,32 @@ struct CodexAppServerPendingRequest: Identifiable {
     let summary: String
 
     var supportsDecisionResponse: Bool {
+        approvalResponseResult(for: .decline) != nil
+    }
+
+    func approvalResponseResult(for decision: CodexAppServerApprovalDecision) -> [String: Any]? {
         switch method {
         case "item/commandExecution/requestApproval",
-             "item/fileChange/requestApproval",
-             "item/permissions/requestApproval",
-             "applyPatchApproval",
+             "item/fileChange/requestApproval":
+            return ["decision": decision.rawValue]
+        case "item/permissions/requestApproval":
+            switch decision {
+            case .accept:
+                return [
+                    "permissions": params?["permissions"] as? [String: Any] ?? [:],
+                    "scope": "turn",
+                ]
+            case .decline, .cancel:
+                return [
+                    "permissions": [:],
+                    "scope": "turn",
+                ]
+            }
+        case "applyPatchApproval",
              "execCommandApproval":
-            return true
+            return ["decision": decision.legacyReviewDecision]
         default:
-            return false
+            return nil
         }
     }
 }
@@ -664,6 +681,17 @@ enum CodexAppServerApprovalDecision: String {
     case accept
     case decline
     case cancel
+
+    var legacyReviewDecision: String {
+        switch self {
+        case .accept:
+            return "approved"
+        case .decline:
+            return "denied"
+        case .cancel:
+            return "abort"
+        }
+    }
 }
 
 enum CodexAppServerPromptQueueKind: Equatable, Sendable {
@@ -1451,7 +1479,7 @@ final class CodexAppServerPanel: Panel, ObservableObject {
 
     func resolvePendingRequest(_ request: CodexAppServerPendingRequest, decision: CodexAppServerApprovalDecision) {
         do {
-            guard request.supportsDecisionResponse else {
+            guard let result = request.approvalResponseResult(for: decision) else {
                 try client.rejectServerRequest(
                     id: request.id,
                     message: String(
@@ -1463,7 +1491,7 @@ final class CodexAppServerPanel: Panel, ObservableObject {
                 return
             }
 
-            try client.respondToServerRequest(id: request.id, result: ["decision": decision.rawValue])
+            try client.respondToServerRequest(id: request.id, result: result)
             removePendingRequest(id: request.id)
             appendEvent(
                 title: String(localized: "codexAppServer.event.approvalSent", defaultValue: "Approval response sent"),

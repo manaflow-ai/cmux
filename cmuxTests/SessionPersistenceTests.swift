@@ -51,18 +51,19 @@ final class SessionPersistenceTests: XCTestCase {
     func testWorkspaceSessionSnapshotRestoresCodexAppServerThreadId() throws {
         let workspace = Workspace()
         let paneId = try XCTUnwrap(workspace.bonsplitController.allPaneIds.first)
+        let threadId = "019d6637-e5cc-7cc0-a321-2c43b7991234"
         let panel = try XCTUnwrap(
             workspace.newCodexAppServerSurface(
                 inPane: paneId,
                 cwd: "/tmp/codex-project",
-                resumeThreadId: " thread-123 ",
+                resumeThreadId: " \(threadId) ",
                 focus: true
             )
         )
 
         let snapshot = workspace.sessionSnapshot(includeScrollback: false)
         let panelSnapshot = try XCTUnwrap(snapshot.panels.first { $0.id == panel.id })
-        XCTAssertEqual(panelSnapshot.codexAppServer?.threadId, "thread-123")
+        XCTAssertEqual(panelSnapshot.codexAppServer?.threadId, threadId)
 
         let restored = Workspace()
         restored.restoreSessionSnapshot(snapshot)
@@ -70,7 +71,7 @@ final class SessionPersistenceTests: XCTestCase {
         let restoredPanelId = try XCTUnwrap(restored.focusedPanelId)
         let restoredPanel = try XCTUnwrap(restored.codexAppServerPanel(for: restoredPanelId))
         XCTAssertEqual(restoredPanel.cwd, "/tmp/codex-project")
-        XCTAssertEqual(restoredPanel.resumableThreadId, "thread-123")
+        XCTAssertEqual(restoredPanel.resumableThreadId, threadId)
     }
 
     @MainActor

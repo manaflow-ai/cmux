@@ -1837,19 +1837,61 @@ final class CodexAppServerRequestFactoryTests: XCTestCase {
         XCTAssertEqual(values?["flag"] as? Bool, true)
     }
 
-    func testApprovalRequestSupportIncludesCurrentAndLegacyMethods() {
-        let supportedMethods = [
-            "item/commandExecution/requestApproval",
-            "item/fileChange/requestApproval",
-            "item/permissions/requestApproval",
-            "applyPatchApproval",
-            "execCommandApproval",
-        ]
+    func testApprovalResponsePayloadsMatchRequestMethodContracts() throws {
+        let commandRequest = CodexAppServerPendingRequest(
+            id: .int(1),
+            method: "item/commandExecution/requestApproval",
+            params: nil,
+            summary: ""
+        )
+        XCTAssertEqual(commandRequest.approvalResponseResult(for: .accept)?["decision"] as? String, "accept")
 
-        for method in supportedMethods {
-            let request = CodexAppServerPendingRequest(id: .int(1), method: method, params: nil, summary: "")
-            XCTAssertTrue(request.supportsDecisionResponse, "Expected \(method) to support decision responses")
-        }
+        let fileChangeRequest = CodexAppServerPendingRequest(
+            id: .int(2),
+            method: "item/fileChange/requestApproval",
+            params: nil,
+            summary: ""
+        )
+        XCTAssertEqual(fileChangeRequest.approvalResponseResult(for: .cancel)?["decision"] as? String, "cancel")
+
+        let permissionsRequest = CodexAppServerPendingRequest(
+            id: .int(3),
+            method: "item/permissions/requestApproval",
+            params: [
+                "permissions": [
+                    "network": [
+                        "enabled": true,
+                    ],
+                ],
+            ],
+            summary: ""
+        )
+        let grantedPermissions = try XCTUnwrap(permissionsRequest.approvalResponseResult(for: .accept))
+        let permissions = try XCTUnwrap(grantedPermissions["permissions"] as? [String: Any])
+        let network = try XCTUnwrap(permissions["network"] as? [String: Any])
+        XCTAssertEqual(network["enabled"] as? Bool, true)
+        XCTAssertEqual(grantedPermissions["scope"] as? String, "turn")
+
+        let deniedPermissions = try XCTUnwrap(permissionsRequest.approvalResponseResult(for: .decline))
+        XCTAssertTrue((deniedPermissions["permissions"] as? [String: Any])?.isEmpty == true)
+        XCTAssertEqual(deniedPermissions["scope"] as? String, "turn")
+
+        let applyPatchRequest = CodexAppServerPendingRequest(
+            id: .int(4),
+            method: "applyPatchApproval",
+            params: nil,
+            summary: ""
+        )
+        XCTAssertEqual(applyPatchRequest.approvalResponseResult(for: .accept)?["decision"] as? String, "approved")
+
+        let execRequest = CodexAppServerPendingRequest(
+            id: .int(5),
+            method: "execCommandApproval",
+            params: nil,
+            summary: ""
+        )
+        XCTAssertEqual(execRequest.approvalResponseResult(for: .decline)?["decision"] as? String, "denied")
+        XCTAssertEqual(execRequest.approvalResponseResult(for: .cancel)?["decision"] as? String, "abort")
     }
 
     func testTranscriptDisplayCollapsesOnlyCurrentTurnProgress() {

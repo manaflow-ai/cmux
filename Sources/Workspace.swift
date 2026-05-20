@@ -11215,6 +11215,7 @@ final class Workspace: Identifiable, ObservableObject {
         }
 
         surfaceIdToPanelId[newTabId] = codexPanel.id
+        publishCmuxSurfaceCreated(codexPanel.id, paneId: paneId, kind: "codex_app_server", origin: "codex_app_server_tab", focused: shouldFocusNewTab)
         if shouldFocusNewTab {
             bonsplitController.focusPane(paneId)
             bonsplitController.selectTab(newTabId)
