@@ -1877,10 +1877,6 @@ class TerminalController {
             return v2VmCall(id: request.id, timeoutSeconds: 120) {
                 try await BrowserExtensionAutomation.reload(params: request.params)
             }
-        case "browser.extensions.activate":
-            return v2MainSync {
-                self.v2BrowserExtensionActivate(id: request.id, params: request.params)
-            }
         case "browser.extensions.enable":
             return v2VmCall(id: request.id, timeoutSeconds: 120) {
                 try await BrowserExtensionAutomation.setEnabled(params: request.params, enabled: true)
