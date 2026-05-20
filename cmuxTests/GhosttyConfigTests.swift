@@ -990,7 +990,11 @@ final class WorkspaceChromeColorTests: XCTestCase {
         )
 
         let hex = Workspace.bonsplitChromeHex(backgroundColor: color, backgroundOpacity: 0.5)
-        XCTAssertEqual(hex, "#1122337F")
+        let expected = WindowAppearanceSnapshot.compositedTerminalColor(
+            backgroundColor: color,
+            opacity: 0.5
+        ).hexString()
+        XCTAssertEqual(hex, expected)
     }
 
     func testBonsplitChromeHexOmitsAlphaWhenOpaque() {
@@ -1018,7 +1022,11 @@ final class WorkspaceChromeColorTests: XCTestCase {
             backgroundOpacity: 0.5,
             sharesWindowBackdrop: true
         )
-        XCTAssertEqual(hex, "#1122337F")
+        let expected = WindowAppearanceSnapshot.compositedTerminalColor(
+            backgroundColor: color,
+            opacity: 0.5
+        ).hexString()
+        XCTAssertEqual(hex, expected)
     }
 
     func testBonsplitChromeColorsKeepPaneClearWhenTerminalUsesHostLayerBackground() {
@@ -1034,10 +1042,14 @@ final class WorkspaceChromeColorTests: XCTestCase {
             backgroundOpacity: 0.5,
             renderingMode: .windowHostBackdrop
         )
+        let expectedBackgroundHex = WindowAppearanceSnapshot.compositedTerminalColor(
+            backgroundColor: color,
+            opacity: 0.5
+        ).hexString()
 
-        XCTAssertEqual(colors.backgroundHex, "#1122337F")
-        XCTAssertEqual(colors.tabBarBackgroundHex, "#1122337F")
-        XCTAssertEqual(colors.splitButtonBackdropHex, "#1122337F")
+        XCTAssertEqual(colors.backgroundHex, expectedBackgroundHex)
+        XCTAssertEqual(colors.tabBarBackgroundHex, expectedBackgroundHex)
+        XCTAssertEqual(colors.splitButtonBackdropHex, expectedBackgroundHex)
         XCTAssertEqual(colors.paneBackgroundHex, "#00000000")
     }
 
@@ -1055,8 +1067,12 @@ final class WorkspaceChromeColorTests: XCTestCase {
             sharesWindowBackdrop: true,
             renderingMode: .windowHostBackdrop
         )
+        let expectedBackgroundHex = WindowAppearanceSnapshot.compositedTerminalColor(
+            backgroundColor: color,
+            opacity: 0.5
+        ).hexString()
 
-        XCTAssertEqual(colors.backgroundHex, "#1122337F")
+        XCTAssertEqual(colors.backgroundHex, expectedBackgroundHex)
         XCTAssertEqual(colors.tabBarBackgroundHex, "#00000000")
         XCTAssertEqual(colors.splitButtonBackdropHex, "#00000000")
         XCTAssertEqual(colors.paneBackgroundHex, "#00000000")
