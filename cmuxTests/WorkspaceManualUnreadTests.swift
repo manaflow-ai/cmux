@@ -588,6 +588,62 @@ final class WorkspaceManualUnreadTests: XCTestCase {
         XCTAssertTrue(store.workspaceIsUnread(forTabId: laterWorkspace.id))
     }
 
+    func testJumpToLatestManualWorkspaceUnreadFlashesAfterSwitchingAway() throws {
+        let appDelegate = AppDelegate.shared ?? AppDelegate()
+        let store = TerminalNotificationStore.shared
+        let defaults = UserDefaults.standard
+
+        let originalNotificationStore = appDelegate.notificationStore
+        let originalAppFocusOverride = AppFocusState.overrideIsFocused
+        let originalExperimentEnabled = defaults.object(forKey: TmuxOverlayExperimentSettings.enabledKey)
+        let originalExperimentTarget = defaults.object(forKey: TmuxOverlayExperimentSettings.targetKey)
+
+        store.replaceNotificationsForTesting([])
+        appDelegate.notificationStore = store
+        AppFocusState.overrideIsFocused = true
+        defaults.set(true, forKey: TmuxOverlayExperimentSettings.enabledKey)
+        defaults.set(TmuxOverlayExperimentTarget.bonsplitPane.rawValue, forKey: TmuxOverlayExperimentSettings.targetKey)
+        let windowId = appDelegate.createMainWindow(shouldActivate: false)
+
+        defer {
+            appDelegate.windowForMainWindowId(windowId)?.performClose(nil)
+            RunLoop.main.run(until: Date(timeIntervalSinceNow: 0.05))
+            store.replaceNotificationsForTesting([])
+            appDelegate.notificationStore = originalNotificationStore
+            AppFocusState.overrideIsFocused = originalAppFocusOverride
+            if let originalExperimentEnabled {
+                defaults.set(originalExperimentEnabled, forKey: TmuxOverlayExperimentSettings.enabledKey)
+            } else {
+                defaults.removeObject(forKey: TmuxOverlayExperimentSettings.enabledKey)
+            }
+            if let originalExperimentTarget {
+                defaults.set(originalExperimentTarget, forKey: TmuxOverlayExperimentSettings.targetKey)
+            } else {
+                defaults.removeObject(forKey: TmuxOverlayExperimentSettings.targetKey)
+            }
+        }
+
+        let window = try XCTUnwrap(appDelegate.windowForMainWindowId(windowId))
+        let manager = try XCTUnwrap(appDelegate.tabManagerFor(windowId: windowId))
+        let unreadWorkspace = try XCTUnwrap(manager.selectedWorkspace)
+        let unreadPanelId = try XCTUnwrap(unreadWorkspace.focusedPanelId)
+
+        XCTAssertTrue(appDelegate.toggleFocusedNotificationUnread(preferredWindow: window))
+        XCTAssertTrue(store.workspaceIsUnread(forTabId: unreadWorkspace.id))
+
+        let otherWorkspace = manager.addWorkspace(select: true, eagerLoadTerminal: false)
+        XCTAssertEqual(manager.selectedTabId, otherWorkspace.id)
+        XCTAssertEqual(unreadWorkspace.tmuxWorkspaceFlashToken, 0)
+
+        _ = appDelegate.jumpToLatestUnread()
+
+        XCTAssertEqual(manager.selectedTabId, unreadWorkspace.id)
+        XCTAssertFalse(store.workspaceIsUnread(forTabId: unreadWorkspace.id))
+        XCTAssertEqual(unreadWorkspace.tmuxWorkspaceFlashToken, 1)
+        XCTAssertEqual(unreadWorkspace.tmuxWorkspaceFlashPanelId, unreadPanelId)
+        XCTAssertEqual(unreadWorkspace.tmuxWorkspaceFlashReason, .unreadIndicatorDismiss)
+    }
+
     func testMarkLatestNotificationAsOldestUnreadAppendsWhenNoOtherUnreadNotificationsRemain() {
         let store = TerminalNotificationStore.shared
         let currentWorkspaceId = UUID()
