@@ -2180,7 +2180,7 @@ extension ShortcutStroke {
     private static func parseConfigKeyToken(_ rawValue: String) -> String? {
         let trimmed = rawValue.trimmingCharacters(in: .whitespacesAndNewlines)
         if trimmed.isEmpty {
-            return !rawValue.isEmpty && rawValue.allSatisfy { $0 == " " } ? "space" : nil
+            return rawValue == " " ? "space" : nil
         }
 
         let lowered = trimmed.lowercased()
@@ -2281,8 +2281,9 @@ extension StoredShortcut {
 
     private static func isUnboundConfigToken(_ rawValue: String) -> Bool {
         if rawValue.isEmpty { return true }
+        if rawValue == " " { return false }
         let normalized = rawValue.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
-        guard !normalized.isEmpty else { return false }
+        guard !normalized.isEmpty else { return true }
         return normalized == "none" || normalized == "clear" || normalized == "unbound" || normalized == "disabled"
     }
 }
