@@ -159,7 +159,12 @@ final class CmuxTaskManagerModel: ObservableObject {
         if let windowId = appDelegate.windowId(for: manager) {
             _ = appDelegate.focusMainWindow(windowId: windowId)
         }
-        manager.focusTab(workspaceId, surfaceId: row.surfaceId, suppressFlash: true)
+        manager.focusTab(
+            workspaceId,
+            surfaceId: row.surfaceId,
+            suppressFlash: true,
+            dismissRestoredUnreadOnResume: true
+        )
         flashSelection(workspaceId: workspaceId, surfaceId: row.surfaceId)
     }
 
@@ -171,7 +176,12 @@ final class CmuxTaskManagerModel: ObservableObject {
         if let windowId = appDelegate.windowId(for: manager) {
             _ = appDelegate.focusMainWindow(windowId: windowId)
         }
-        manager.focusTab(workspaceId, surfaceId: terminalSurfaceId, suppressFlash: true)
+        manager.focusTab(
+            workspaceId,
+            surfaceId: terminalSurfaceId,
+            suppressFlash: true,
+            dismissRestoredUnreadOnResume: true
+        )
         flashSelection(workspaceId: workspaceId, surfaceId: terminalSurfaceId)
     }
 

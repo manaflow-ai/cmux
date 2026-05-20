@@ -5656,6 +5656,144 @@ final class AppDelegateShortcutRoutingTests: XCTestCase {
         }
     }
 
+    func testCurrentNumberedDigitShortcutIsNotSuppressedAsStaleMenuShortcut() {
+        guard let appDelegate = AppDelegate.shared else {
+            XCTFail("Expected AppDelegate.shared")
+            return
+        }
+
+        guard let event = makeKeyDownEvent(
+            key: "2",
+            modifiers: [.command],
+            keyCode: 19,
+            windowNumber: 0
+        ) else {
+            XCTFail("Failed to construct Cmd+2 event")
+            return
+        }
+
+        let remappedWorkspaceNumber = StoredShortcut(
+            key: "1",
+            command: false,
+            shift: false,
+            option: false,
+            control: true
+        )
+        let currentSurfaceNumber = StoredShortcut(
+            key: "1",
+            command: true,
+            shift: false,
+            option: false,
+            control: false
+        )
+
+        withTemporaryShortcut(action: .selectWorkspaceByNumber, shortcut: remappedWorkspaceNumber) {
+            withTemporaryShortcut(action: .selectSurfaceByNumber, shortcut: currentSurfaceNumber) {
+                XCTAssertFalse(
+                    appDelegate.shouldSuppressStaleCmuxMenuShortcut(event: event),
+                    "A current numbered-digit shortcut must own Cmd+2 before stale menu suppression"
+                )
+            }
+        }
+    }
+
+    func testStaleCloseDefaultShortcutsSuppressMenuFallbackAfterReassignment() {
+        assertStaleCloseDefaultShortcutSuppressesMenuFallback(
+            staleAction: .closeTab,
+            replacementAction: .newTab,
+            replacementShortcut: StoredShortcut(key: "w", command: true, shift: false, option: false, control: false),
+            remappedStaleShortcut: StoredShortcut(key: "w", command: true, shift: false, option: true, control: false)
+        )
+
+        assertStaleCloseDefaultShortcutSuppressesMenuFallback(
+            staleAction: .closeWorkspace,
+            replacementAction: .newWindow,
+            replacementShortcut: StoredShortcut(key: "w", command: true, shift: true, option: false, control: false),
+            remappedStaleShortcut: StoredShortcut(key: "w", command: true, shift: true, option: true, control: false)
+        )
+
+        assertStaleCloseDefaultShortcutSuppressesMenuFallback(
+            staleAction: .closeWindow,
+            replacementAction: .toggleFullScreen,
+            replacementShortcut: StoredShortcut(key: "w", command: true, shift: false, option: false, control: true),
+            remappedStaleShortcut: StoredShortcut(key: "w", command: true, shift: false, option: true, control: true)
+        )
+    }
+
+    func testApplicationSendEventRoutesReassignedCmdWBeforeStaleCloseTabMenuEquivalent() {
+        guard let appDelegate = AppDelegate.shared else {
+            XCTFail("Expected AppDelegate.shared")
+            return
+        }
+
+        AppDelegate.installWindowResponderSwizzlesForTesting()
+
+        let windowId = appDelegate.createMainWindow()
+        guard let window = appDelegate.windowForMainWindowId(windowId),
+              let manager = appDelegate.tabManagerFor(windowId: windowId),
+              let initialSidebarVisible = appDelegate.sidebarVisibility(windowId: windowId) else {
+            closeWindow(withId: windowId)
+            XCTFail("Expected a main window context")
+            return
+        }
+
+        let previousMainMenu = NSApp.mainMenu
+        let menuProbe = MenuActionProbe()
+
+        defer {
+            NSApp.mainMenu = previousMainMenu
+            closeWindow(withId: windowId)
+        }
+
+        let staleMenu = NSMenu(title: "Test")
+        let staleCloseItem = NSMenuItem(
+            title: "Close Tab",
+            action: #selector(MenuActionProbe.perform(_:)),
+            keyEquivalent: "w"
+        )
+        staleCloseItem.keyEquivalentModifierMask = [.command]
+        staleCloseItem.target = menuProbe
+        staleMenu.addItem(staleCloseItem)
+        NSApp.mainMenu = staleMenu
+
+        window.makeKeyAndOrderFront(nil)
+        window.displayIfNeeded()
+
+        guard let event = makeKeyDownEvent(
+            key: "w",
+            modifiers: [.command],
+            keyCode: 13,
+            windowNumber: window.windowNumber
+        ) else {
+            XCTFail("Failed to construct Cmd+W event")
+            return
+        }
+
+        let initialWorkspaceCount = manager.tabs.count
+        let remappedCloseTab = StoredShortcut(key: "w", command: true, shift: false, option: true, control: false)
+        let reassignedSidebarToggle = StoredShortcut(key: "w", command: true, shift: false, option: false, control: false)
+
+        withTemporaryShortcut(action: .closeTab, shortcut: remappedCloseTab) {
+            withTemporaryShortcut(action: .toggleSidebar, shortcut: reassignedSidebarToggle) {
+                NSApp.sendEvent(event)
+            }
+        }
+
+        RunLoop.main.run(until: Date(timeIntervalSinceNow: 0.05))
+
+        XCTAssertEqual(menuProbe.callCount, 0, "A stale Cmd+W Close Tab menu item must not run after Cmd+W is reassigned")
+        XCTAssertEqual(
+            manager.tabs.count,
+            initialWorkspaceCount,
+            "Plain Cmd+W must not close a tab after Close Tab is remapped away"
+        )
+        XCTAssertEqual(
+            appDelegate.sidebarVisibility(windowId: windowId),
+            !initialSidebarVisible,
+            "The action currently assigned to Cmd+W should run before stale Close Tab menu fallback"
+        )
+    }
+
     func testApplicationSendEventSuppressesRemappedCmdDStaleMenuShortcut() {
         let previousMainMenu = NSApp.mainMenu
         let probeWindow = NSWindow(
@@ -6209,6 +6347,35 @@ final class AppDelegateShortcutRoutingTests: XCTestCase {
         body()
     }
 
+    private func assertStaleCloseDefaultShortcutSuppressesMenuFallback(
+        staleAction: KeyboardShortcutSettings.Action,
+        replacementAction: KeyboardShortcutSettings.Action,
+        replacementShortcut: StoredShortcut,
+        remappedStaleShortcut: StoredShortcut,
+        file: StaticString = #filePath,
+        line: UInt = #line
+    ) {
+        guard let appDelegate = AppDelegate.shared else {
+            XCTFail("Expected AppDelegate.shared", file: file, line: line)
+            return
+        }
+        guard let event = makeKeyDownEvent(shortcut: replacementShortcut, windowNumber: 0) else {
+            XCTFail("Failed to construct reassigned close-default shortcut event", file: file, line: line)
+            return
+        }
+
+        withTemporaryShortcut(action: staleAction, shortcut: remappedStaleShortcut) {
+            withTemporaryShortcut(action: replacementAction, shortcut: replacementShortcut) {
+                XCTAssertTrue(
+                    appDelegate.shouldSuppressStaleCmuxMenuShortcut(event: event),
+                    "\(staleAction.rawValue) should suppress its stale default menu fallback after that key is reassigned",
+                    file: file,
+                    line: line
+                )
+            }
+        }
+    }
+
     private func assertEscapeKeyUpIsConsumedAfterCommandPaletteOpenRequest(
         _ openRequest: (_ appDelegate: AppDelegate, _ window: NSWindow) -> Void,
         file: StaticString = #filePath,
@@ -6321,6 +6488,10 @@ final class AppDelegateShortcutRoutingTests: XCTestCase {
 
     private func closeWindow(withId windowId: UUID) {
         guard let window = window(withId: windowId) else { return }
+        let appDelegate = AppDelegate.shared
+        let originalConfirmationHandler = appDelegate?.debugCloseMainWindowConfirmationHandler
+        appDelegate?.debugCloseMainWindowConfirmationHandler = { _ in true }
+        defer { appDelegate?.debugCloseMainWindowConfirmationHandler = originalConfirmationHandler }
         window.performClose(nil)
         RunLoop.main.run(until: Date(timeIntervalSinceNow: 0.05))
     }
