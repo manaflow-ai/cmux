@@ -3217,9 +3217,9 @@ class TabManager: ObservableObject {
             guard lstat(fileURL.path, &statValue) == 0 else {
                 return (true, indexSnapshot.signature)
             }
-            let size = UInt32(clamping: statValue.st_size)
-            let mtimeSeconds = UInt32(clamping: statValue.st_mtimespec.tv_sec)
-            let mtimeNanoseconds = UInt32(clamping: statValue.st_mtimespec.tv_nsec)
+            let size = gitIndexUInt32Field(statValue.st_size)
+            let mtimeSeconds = gitIndexUInt32Field(statValue.st_mtimespec.tv_sec)
+            let mtimeNanoseconds = gitIndexUInt32Field(statValue.st_mtimespec.tv_nsec)
             guard let mode = gitIndexComparableMode(for: statValue.st_mode) else {
                 return (true, indexSnapshot.signature)
             }
@@ -3334,6 +3334,10 @@ class TabManager: ObservableObject {
         default:
             return nil
         }
+    }
+
+    private nonisolated static func gitIndexUInt32Field<T: BinaryInteger>(_ value: T) -> UInt32 {
+        UInt32(truncatingIfNeeded: UInt64(truncatingIfNeeded: value))
     }
 
     private nonisolated static func gitIndexFileSignature(indexURL: URL) -> String? {

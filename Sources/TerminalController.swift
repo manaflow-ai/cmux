@@ -17873,6 +17873,10 @@ class TerminalController {
                 let validSurfaceIds = Set(tab.panels.keys)
                 tab.pruneSurfaceMetadata(validSurfaceIds: validSurfaceIds)
                 guard validSurfaceIds.contains(scope.panelId) else { return }
+                guard SidebarWorkspaceDetailDefaults.watchGitStatusValue(defaults: .standard) else {
+                    tabManager.clearSurfaceGitBranch(tabId: scope.workspaceId, surfaceId: scope.panelId)
+                    return
+                }
                 tabManager.updateSurfaceGitBranch(
                     tabId: scope.workspaceId,
                     surfaceId: scope.panelId,
@@ -17887,6 +17891,10 @@ class TerminalController {
         v2MainSync {
             guard let tab = resolveTabForReport(args) else {
                 result = parsed.options["tab"] != nil ? "ERROR: Tab not found" : "ERROR: No tab selected"
+                return
+            }
+            guard SidebarWorkspaceDetailDefaults.watchGitStatusValue(defaults: .standard) else {
+                tab.gitBranch = nil
                 return
             }
             tab.gitBranch = SidebarGitBranchState(

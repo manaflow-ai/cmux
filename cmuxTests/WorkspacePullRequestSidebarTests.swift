@@ -258,16 +258,16 @@ private func writeGitIndexVersion2EntryFromStat(
     appendBigEndianUInt32(2, to: &data)
     appendBigEndianUInt32(1, to: &data)
 
-    appendBigEndianUInt32(UInt32(clamping: statValue.st_ctimespec.tv_sec), to: &data)
-    appendBigEndianUInt32(UInt32(clamping: statValue.st_ctimespec.tv_nsec), to: &data)
-    appendBigEndianUInt32(UInt32(clamping: statValue.st_mtimespec.tv_sec), to: &data)
-    appendBigEndianUInt32(UInt32(clamping: statValue.st_mtimespec.tv_nsec), to: &data)
-    appendBigEndianUInt32(UInt32(clamping: statValue.st_dev), to: &data)
-    appendBigEndianUInt32(UInt32(clamping: statValue.st_ino), to: &data)
+    appendBigEndianUInt32(gitIndexUInt32Field(statValue.st_ctimespec.tv_sec), to: &data)
+    appendBigEndianUInt32(gitIndexUInt32Field(statValue.st_ctimespec.tv_nsec), to: &data)
+    appendBigEndianUInt32(gitIndexUInt32Field(statValue.st_mtimespec.tv_sec), to: &data)
+    appendBigEndianUInt32(gitIndexUInt32Field(statValue.st_mtimespec.tv_nsec), to: &data)
+    appendBigEndianUInt32(gitIndexUInt32Field(statValue.st_dev), to: &data)
+    appendBigEndianUInt32(gitIndexUInt32Field(statValue.st_ino), to: &data)
     appendBigEndianUInt32(indexMode, to: &data)
-    appendBigEndianUInt32(UInt32(clamping: statValue.st_uid), to: &data)
-    appendBigEndianUInt32(UInt32(clamping: statValue.st_gid), to: &data)
-    appendBigEndianUInt32(UInt32(clamping: statValue.st_size), to: &data)
+    appendBigEndianUInt32(gitIndexUInt32Field(statValue.st_uid), to: &data)
+    appendBigEndianUInt32(gitIndexUInt32Field(statValue.st_gid), to: &data)
+    appendBigEndianUInt32(gitIndexUInt32Field(statValue.st_size), to: &data)
     data.append(Data(repeating: 0, count: 20))
 
     let pathBytes = Array(trackedPath.utf8)
@@ -298,16 +298,16 @@ private func writeGitIndexVersion4(
     appendBigEndianUInt32(4, to: &data)
     appendBigEndianUInt32(1, to: &data)
 
-    appendBigEndianUInt32(UInt32(clamping: statValue.st_ctimespec.tv_sec), to: &data)
-    appendBigEndianUInt32(UInt32(clamping: statValue.st_ctimespec.tv_nsec), to: &data)
-    appendBigEndianUInt32(UInt32(clamping: statValue.st_mtimespec.tv_sec), to: &data)
-    appendBigEndianUInt32(UInt32(clamping: statValue.st_mtimespec.tv_nsec), to: &data)
-    appendBigEndianUInt32(UInt32(clamping: statValue.st_dev), to: &data)
-    appendBigEndianUInt32(UInt32(clamping: statValue.st_ino), to: &data)
-    appendBigEndianUInt32(UInt32(clamping: statValue.st_mode), to: &data)
-    appendBigEndianUInt32(UInt32(clamping: statValue.st_uid), to: &data)
-    appendBigEndianUInt32(UInt32(clamping: statValue.st_gid), to: &data)
-    appendBigEndianUInt32(UInt32(clamping: statValue.st_size), to: &data)
+    appendBigEndianUInt32(gitIndexUInt32Field(statValue.st_ctimespec.tv_sec), to: &data)
+    appendBigEndianUInt32(gitIndexUInt32Field(statValue.st_ctimespec.tv_nsec), to: &data)
+    appendBigEndianUInt32(gitIndexUInt32Field(statValue.st_mtimespec.tv_sec), to: &data)
+    appendBigEndianUInt32(gitIndexUInt32Field(statValue.st_mtimespec.tv_nsec), to: &data)
+    appendBigEndianUInt32(gitIndexUInt32Field(statValue.st_dev), to: &data)
+    appendBigEndianUInt32(gitIndexUInt32Field(statValue.st_ino), to: &data)
+    appendBigEndianUInt32(gitIndexUInt32Field(statValue.st_mode), to: &data)
+    appendBigEndianUInt32(gitIndexUInt32Field(statValue.st_uid), to: &data)
+    appendBigEndianUInt32(gitIndexUInt32Field(statValue.st_gid), to: &data)
+    appendBigEndianUInt32(gitIndexUInt32Field(statValue.st_size), to: &data)
     data.append(Data(repeating: 0, count: 20))
 
     let pathBytes = Array(trackedPath.utf8)
@@ -330,6 +330,10 @@ private func appendBigEndianUInt32(_ value: UInt32, to data: inout Data) {
     data.append(UInt8((value >> 16) & 0xff))
     data.append(UInt8((value >> 8) & 0xff))
     data.append(UInt8(value & 0xff))
+}
+
+private func gitIndexUInt32Field<T: BinaryInteger>(_ value: T) -> UInt32 {
+    UInt32(truncatingIfNeeded: UInt64(truncatingIfNeeded: value))
 }
 
 @MainActor
@@ -665,6 +669,24 @@ final class WorkspacePullRequestSidebarTests: XCTestCase {
             "Stale shell report_pr messages must not repopulate PR badges while sidebar.watchGitStatus is disabled."
         )
         XCTAssertEqual(workspace.sidebarPullRequestsInDisplayOrder(orderedPanelIds: [panelId]), [])
+
+        workspace.updatePanelGitBranch(
+            panelId: panelId,
+            branch: "issue-2722-git-index-lock-poll",
+            isDirty: false
+        )
+        XCTAssertFalse(workspace.panelGitBranches.isEmpty)
+
+        let branchResponse = TerminalController.shared.handleSocketLine(
+            "report_git_branch main --status=unknown --tab=\(workspace.id.uuidString) --panel=\(panelId.uuidString)"
+        )
+        XCTAssertEqual(branchResponse, "OK")
+        TerminalMutationBus.shared.drainForTesting()
+
+        XCTAssertTrue(
+            workspace.panelGitBranches.isEmpty,
+            "Stale shell report_git_branch messages must not repopulate branch badges while sidebar.watchGitStatus is disabled."
+        )
     }
 
     func testReenablingGitWatchRestartsRefreshFromCurrentPanelDirectories() throws {
@@ -1001,6 +1023,54 @@ final class WorkspacePullRequestSidebarTests: XCTestCase {
                 workspace.panelGitBranches[panelId]?.isDirty == true
             },
             "Mode-only changes should be visible as dirty without invoking git."
+        )
+    }
+
+    func testLargeTrackedFileSizeMatchesGitIndexTruncation() throws {
+        let defaults = UserDefaults.standard
+        let previousWatchGitStatus = defaults.object(forKey: SidebarWorkspaceDetailDefaults.watchGitStatusKey)
+        defer {
+            restoreUserDefault(previousWatchGitStatus, key: SidebarWorkspaceDetailDefaults.watchGitStatusKey)
+        }
+
+        let repoURL = FileManager.default.temporaryDirectory.appendingPathComponent(
+            "cmux-sidebar-large-file-\(UUID().uuidString)",
+            isDirectory: true
+        )
+        try FileManager.default.createDirectory(at: repoURL, withIntermediateDirectories: true)
+        try writeMinimalGitRepository(at: repoURL)
+        let largeURL = repoURL.appendingPathComponent("large.bin")
+        XCTAssertTrue(FileManager.default.createFile(atPath: largeURL.path, contents: Data(), attributes: nil))
+        let handle = try FileHandle(forWritingTo: largeURL)
+        try handle.truncate(atOffset: UInt64(UInt32.max) + 257)
+        try handle.close()
+        try writeGitIndexVersion2EntryFromStat(
+            at: repoURL,
+            trackedPath: "large.bin",
+            indexMode: 0o100644,
+            signatureByte: 0x55
+        )
+        defer {
+            try? FileManager.default.removeItem(at: repoURL)
+        }
+
+        defaults.set(true, forKey: SidebarWorkspaceDetailDefaults.watchGitStatusKey)
+        let manager = TabManager()
+        let workspace = try XCTUnwrap(manager.selectedWorkspace)
+        let panelId = try XCTUnwrap(workspace.focusedPanelId)
+
+        manager.updateSurfaceDirectory(
+            tabId: workspace.id,
+            surfaceId: panelId,
+            directory: repoURL.path
+        )
+
+        XCTAssertTrue(
+            waitForCondition {
+                workspace.panelGitBranches[panelId]?.branch == "main"
+                    && workspace.panelGitBranches[panelId]?.isDirty == false
+            },
+            "Git index stores file size as a 32-bit field; matching large sparse files should compare with truncation, not clamping."
         )
     }
 }
