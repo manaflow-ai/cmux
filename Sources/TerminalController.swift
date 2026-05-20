@@ -17897,9 +17897,11 @@ class TerminalController {
                 tab.gitBranch = nil
                 return
             }
+            let existingGitBranch = tab.gitBranch
+            let nextIsDirty = isDirty ?? (existingGitBranch?.branch == branch ? existingGitBranch?.isDirty ?? false : false)
             tab.gitBranch = SidebarGitBranchState(
                 branch: branch,
-                isDirty: isDirty ?? tab.gitBranch?.isDirty ?? false
+                isDirty: nextIsDirty
             )
         }
         return result

@@ -608,6 +608,36 @@ final class WorkspacePullRequestSidebarTests: XCTestCase {
         )
     }
 
+    func testTabScopedGitBranchUnknownStatusClearsDirtyWhenBranchChanges() throws {
+        let defaults = UserDefaults.standard
+        let previousWatchGitStatus = defaults.object(forKey: SidebarWorkspaceDetailDefaults.watchGitStatusKey)
+        defer {
+            restoreUserDefault(previousWatchGitStatus, key: SidebarWorkspaceDetailDefaults.watchGitStatusKey)
+        }
+
+        defaults.set(true, forKey: SidebarWorkspaceDetailDefaults.watchGitStatusKey)
+        let manager = TabManager()
+        let workspace = try XCTUnwrap(manager.selectedWorkspace)
+        workspace.gitBranch = SidebarGitBranchState(branch: "main", isDirty: true)
+
+        TerminalController.shared.setActiveTabManager(manager)
+        defer {
+            TerminalController.shared.setActiveTabManager(nil)
+        }
+
+        let response = TerminalController.shared.handleSocketLine(
+            "report_git_branch feature/new --status=unknown --tab=\(workspace.id.uuidString)"
+        )
+
+        XCTAssertEqual(response, "OK")
+        XCTAssertEqual(workspace.gitBranch?.branch, "feature/new")
+        XCTAssertEqual(
+            workspace.gitBranch?.isDirty,
+            false,
+            "Tab-scoped branch-only reports for a new branch must not reuse the previous branch's dirty state."
+        )
+    }
+
     func testDisablingGitWatchClearsCachedPullRequestBadgesWhenPullRequestsAreShownByDefault() throws {
         let defaults = UserDefaults.standard
         let previousWatchGitStatus = defaults.object(forKey: SidebarWorkspaceDetailDefaults.watchGitStatusKey)
