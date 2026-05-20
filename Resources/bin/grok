@@ -4,15 +4,20 @@
 find_real_grok() {
     local self_dir
     self_dir="$(cd "$(dirname "$0")" && pwd)"
+    local names=(grok grok-macos-aarch64 grok-macos-aarch)
     local IFS=:
     for d in $PATH; do
         [[ "$d" == "$self_dir" ]] && continue
-        [[ -x "$d/grok" ]] || continue
-        if [[ "$d/grok" -ef "$0" ]]; then
-            continue
-        fi
-        printf '%s' "$d/grok"
-        return 0
+        local name candidate
+        for name in "${names[@]}"; do
+            candidate="$d/$name"
+            [[ -x "$candidate" ]] || continue
+            if [[ "$candidate" -ef "$0" ]]; then
+                continue
+            fi
+            printf '%s' "$candidate"
+            return 0
+        done
     done
     return 1
 }
