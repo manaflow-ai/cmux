@@ -3843,8 +3843,25 @@ class TerminalController {
         }
         func intParam(_ key: String) -> Int? {
             if let i = params[key] as? Int { return i }
-            if let n = params[key] as? NSNumber { return n.intValue }
-            if let s = params[key] as? String { return Int(s) }
+            if let n = params[key] as? NSNumber {
+                guard CFGetTypeID(n) != CFBooleanGetTypeID() else { return nil }
+                let value = n.doubleValue
+                guard value.isFinite,
+                      value.rounded(.towardZero) == value,
+                      value >= Double(Int.min),
+                      value <= Double(Int.max) else {
+                    return nil
+                }
+                return n.intValue
+            }
+            if let s = params[key] as? String {
+                let trimmed = s.trimmingCharacters(in: .whitespacesAndNewlines)
+                guard !trimmed.isEmpty,
+                      trimmed.range(of: #"^[+-]?\d+$"#, options: .regularExpression) != nil else {
+                    return nil
+                }
+                return Int(trimmed)
+            }
             return nil
         }
         var invalidLimitKey: String?

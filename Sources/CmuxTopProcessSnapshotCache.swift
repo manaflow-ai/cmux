@@ -17,8 +17,11 @@ nonisolated extension CmuxTopProcessSnapshot {
     ) -> CmuxTopProcessSnapshot {
         let now = Date()
         if let cached = cmuxTopProcessSnapshotCache.withLock({ state -> CmuxTopProcessSnapshot? in
-            guard state.includeProcessDetails == includeProcessDetails,
-                  let snapshot = state.snapshot,
+            guard let snapshot = state.snapshot,
+                  Self.cachedSnapshotDetailsSatisfy(
+                      state.includeProcessDetails,
+                      requested: includeProcessDetails
+                  ),
                   now.timeIntervalSince(snapshot.sampledAt) <= maximumAge else {
                 return nil
             }
@@ -28,10 +31,26 @@ nonisolated extension CmuxTopProcessSnapshot {
         }
 
         let snapshot = capture(includeProcessDetails: includeProcessDetails)
-        cmuxTopProcessSnapshotCache.withLock { state in
+        return cmuxTopProcessSnapshotCache.withLock { state in
+            let storeTime = Date()
+            if let cached = state.snapshot,
+               Self.cachedSnapshotDetailsSatisfy(
+                   state.includeProcessDetails,
+                   requested: includeProcessDetails
+               ),
+               storeTime.timeIntervalSince(cached.sampledAt) <= maximumAge {
+                return cached
+            }
             state.snapshot = snapshot
             state.includeProcessDetails = includeProcessDetails
+            return snapshot
         }
-        return snapshot
+    }
+
+    private static func cachedSnapshotDetailsSatisfy(
+        _ cachedIncludesProcessDetails: Bool,
+        requested: Bool
+    ) -> Bool {
+        cachedIncludesProcessDetails || !requested
     }
 }
