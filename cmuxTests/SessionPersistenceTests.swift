@@ -87,10 +87,11 @@ final class SessionPersistenceTests: XCTestCase {
 
         let workspace = Workspace()
         let panelId = try XCTUnwrap(workspace.focusedPanelId)
+        let liveSurfaceId = UUID()
         let notification = TerminalNotification(
             id: UUID(),
             tabId: workspace.id,
-            surfaceId: panelId,
+            surfaceId: liveSurfaceId,
             panelId: panelId,
             title: "Agent finished",
             subtitle: "codex",

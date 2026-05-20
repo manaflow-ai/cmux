@@ -729,6 +729,14 @@ struct TerminalNotification: Identifiable, Hashable {
         self.paneFlash = paneFlash
         self.clickAction = clickAction
     }
+
+    func matches(tabId targetTabId: UUID, surfaceId targetSurfaceId: UUID?) -> Bool {
+        guard tabId == targetTabId else { return false }
+        guard let targetSurfaceId else {
+            return surfaceId == nil && panelId == nil
+        }
+        return surfaceId == targetSurfaceId || panelId == targetSurfaceId
+    }
 }
 
 @MainActor
@@ -1108,8 +1116,7 @@ final class TerminalNotificationStore: ObservableObject {
 
     func hasUnreadNotificationRequiringPaneFlash(forTabId tabId: UUID, surfaceId: UUID?) -> Bool {
         notifications.contains { notification in
-            notification.tabId == tabId &&
-                notification.surfaceId == surfaceId &&
+            notification.matches(tabId: tabId, surfaceId: surfaceId) &&
                 !notification.isRead &&
                 notification.paneFlash
         }
@@ -1125,7 +1132,7 @@ final class TerminalNotificationStore: ObservableObject {
     }
 
     func notifications(forTabId tabId: UUID, surfaceId: UUID?) -> [TerminalNotification] {
-        notifications.filter { $0.tabId == tabId && $0.surfaceId == surfaceId }
+        notifications.filter { $0.matches(tabId: tabId, surfaceId: surfaceId) }
     }
 
     func clearLatestNotification(forTabId tabId: UUID) {
@@ -1298,7 +1305,12 @@ final class TerminalNotificationStore: ObservableObject {
         let cwd = workspace?.surfaceTabBarDirectory
             ?? workspace?.currentDirectory
             ?? FileManager.default.homeDirectoryForCurrentUser.path
-        let panelId: UUID? = surfaceId.flatMap { workspace?.panelIdFromSurfaceId(TabID(uuid: $0)) }
+        let panelId: UUID? = surfaceId.flatMap { surfaceId in
+            if workspace?.panels[surfaceId] != nil {
+                return surfaceId
+            }
+            return workspace?.panelIdFromSurfaceId(TabID(uuid: surfaceId))
+        }
 
         return NotificationPolicyContext(
             request: TerminalNotificationPolicyRequest(
@@ -1568,8 +1580,7 @@ final class TerminalNotificationStore: ObservableObject {
         var updated = notifications
         var idsToClear: [String] = []
         for index in updated.indices {
-            if updated[index].tabId == tabId,
-               updated[index].surfaceId == surfaceId,
+            if updated[index].matches(tabId: tabId, surfaceId: surfaceId),
                !updated[index].isRead {
                 updated[index].isRead = true
                 idsToClear.append(updated[index].id.uuidString)
@@ -1614,7 +1625,7 @@ final class TerminalNotificationStore: ObservableObject {
     }
 
     private func latestNotificationIndex(forTabId tabId: UUID, surfaceId: UUID?, in notifications: [TerminalNotification]) -> Int? {
-        if let exactIndex = notifications.firstIndex(where: { $0.tabId == tabId && $0.surfaceId == surfaceId }) {
+        if let exactIndex = notifications.firstIndex(where: { $0.matches(tabId: tabId, surfaceId: surfaceId) }) {
             return exactIndex
         }
         if surfaceId != nil,
@@ -1737,7 +1748,7 @@ final class TerminalNotificationStore: ObservableObject {
         updated.reserveCapacity(notifications.count)
         var idsToClear: [String] = []
         for notification in notifications {
-            if notification.tabId == tabId, notification.surfaceId == surfaceId {
+            if notification.matches(tabId: tabId, surfaceId: surfaceId) {
                 idsToClear.append(notification.id.uuidString)
             } else {
                 updated.append(notification)
@@ -1764,7 +1775,7 @@ final class TerminalNotificationStore: ObservableObject {
 
         var didMoveNotification = false
         let updated = notifications.map { notification -> TerminalNotification in
-            guard notification.tabId == sourceTabId, notification.surfaceId == surfaceId else {
+            guard notification.matches(tabId: sourceTabId, surfaceId: surfaceId) else {
                 return notification
             }
             didMoveNotification = true
@@ -2115,6 +2126,11 @@ final class TerminalNotificationStore: ObservableObject {
             indexes.unreadByTabSurface.insert(
                 TabSurfaceKey(tabId: notification.tabId, surfaceId: notification.surfaceId)
             )
+            if let panelId = notification.panelId, panelId != notification.surfaceId {
+                indexes.unreadByTabSurface.insert(
+                    TabSurfaceKey(tabId: notification.tabId, surfaceId: panelId)
+                )
+            }
             if indexes.latestUnreadByTabId[notification.tabId] == nil {
                 indexes.latestUnreadByTabId[notification.tabId] = notification
             }
