@@ -23,18 +23,46 @@ private enum NoteRPCMessage {
 
     static func invalidDirection(_ direction: String) -> String {
         String(
-            localized: "rpc.note.error.invalidDirection",
-            defaultValue: "Invalid direction '\(direction)' (left|right|up|down)"
+            format: String(
+                localized: "rpc.note.error.invalidDirection",
+                defaultValue: "Invalid direction '%@' (left|right|up|down)"
+            ),
+            locale: .current,
+            direction
         )
+    }
+}
+
+private enum NoteRPCParam {
+    static func string(_ params: [String: Any], _ key: String) -> String? {
+        guard let raw = params[key] as? String else { return nil }
+        let trimmed = raw.trimmingCharacters(in: .whitespacesAndNewlines)
+        return trimmed.isEmpty ? nil : trimmed
+    }
+
+    static func bool(_ params: [String: Any], _ key: String) -> Bool? {
+        if let value = params[key] as? Bool { return value }
+        if let value = params[key] as? NSNumber { return value.boolValue }
+        if let value = params[key] as? String {
+            switch value.trimmingCharacters(in: .whitespacesAndNewlines).lowercased() {
+            case "1", "true", "yes", "on":
+                return true
+            case "0", "false", "no", "off":
+                return false
+            default:
+                return nil
+            }
+        }
+        return nil
     }
 }
 
 extension TerminalController {
     // MARK: - Notes
 
-    func v2NoteCreate(params: [String: Any]) -> V2CallResult {
+    nonisolated func v2NoteCreate(params: [String: Any]) -> V2CallResult {
         let hasSlugParameter = params.keys.contains("slug")
-        let providedSlug = v2String(params, "slug")
+        let providedSlug = NoteRPCParam.string(params, "slug")
         let slug: String
         if hasSlugParameter {
             guard let providedSlug, !providedSlug.isEmpty else {
@@ -51,11 +79,11 @@ extension TerminalController {
         return v2NoteOpenSplit(slug: slug, params: params, createIfMissing: true)
     }
 
-    func v2NoteOpen(params: [String: Any]) -> V2CallResult {
+    nonisolated func v2NoteOpen(params: [String: Any]) -> V2CallResult {
         guard params.keys.contains("slug") else {
             return .err(code: "invalid_params", message: NoteRPCMessage.missingSlug, data: nil)
         }
-        guard let rawSlug = v2String(params, "slug"), !rawSlug.isEmpty else {
+        guard let rawSlug = NoteRPCParam.string(params, "slug"), !rawSlug.isEmpty else {
             return .err(code: "invalid_params", message: NoteRPCMessage.emptySlug, data: nil)
         }
         let slug: String
@@ -71,16 +99,13 @@ extension TerminalController {
     /// caller's pane (or focused pane) and opens the note as a markdown
     /// surface. When `createIfMissing` is true the file is ensured to exist;
     /// otherwise opening a missing slug returns `not_found`.
-    private func v2NoteOpenSplit(
+    private nonisolated func v2NoteOpenSplit(
         slug: String,
         params: [String: Any],
         createIfMissing: Bool
     ) -> V2CallResult {
-        guard let tabManager = v2ResolveTabManager(params: params) else {
-            return .err(code: "unavailable", message: NoteRPCMessage.tabManagerUnavailable, data: nil)
-        }
         var result: V2CallResult = .err(code: "internal_error", message: NoteRPCMessage.openFailed, data: nil)
-        var resolvedWorkspace: Workspace?
+        var resolvedWorkspaceId: UUID?
         var resolvedProjectRoot: String?
         var resolvedNotePath: String?
         var resolvedSourceSurfaceId: UUID?
@@ -88,6 +113,11 @@ extension TerminalController {
         var resolvedInsertFirst = false
         var resolvedFocusAllowed = false
         v2MainSync {
+            v2RefreshKnownRefs()
+            guard let tabManager = v2ResolveTabManager(params: params) else {
+                result = .err(code: "unavailable", message: NoteRPCMessage.tabManagerUnavailable, data: nil)
+                return
+            }
             guard let ws = v2ResolveWorkspace(params: params, tabManager: tabManager) else {
                 result = .err(code: "not_found", message: NoteRPCMessage.workspaceNotFound, data: nil)
                 return
@@ -112,7 +142,7 @@ extension TerminalController {
                 return
             }
 
-            let directionStr = v2String(params, "direction") ?? "right"
+            let directionStr = NoteRPCParam.string(params, "direction") ?? "right"
             guard let direction = parseSplitDirection(directionStr) else {
                 result = .err(
                     code: "invalid_params",
@@ -123,9 +153,9 @@ extension TerminalController {
             }
             let orientation: SplitOrientation = direction.isHorizontal ? .horizontal : .vertical
             let insertFirst = (direction == .left || direction == .up)
-            let focusAllowed = v2FocusAllowed(requested: v2Bool(params, "focus") ?? false)
+            let focusAllowed = v2FocusAllowed(requested: NoteRPCParam.bool(params, "focus") ?? false)
 
-            resolvedWorkspace = ws
+            resolvedWorkspaceId = ws.id
             resolvedProjectRoot = projectRoot
             resolvedNotePath = notePath
             resolvedSourceSurfaceId = sourceSurfaceId
@@ -134,7 +164,7 @@ extension TerminalController {
             resolvedFocusAllowed = focusAllowed
         }
 
-        guard let ws = resolvedWorkspace,
+        guard let workspaceId = resolvedWorkspaceId,
               let projectRoot = resolvedProjectRoot,
               let notePath = resolvedNotePath,
               let sourceSurfaceId = resolvedSourceSurfaceId,
@@ -191,6 +221,11 @@ extension TerminalController {
         let openInTextMode = !fileExistedBeforeCall
 
         v2MainSync {
+            guard let tabManager = AppDelegate.shared?.tabManagerFor(tabId: workspaceId),
+                  let ws = tabManager.tabs.first(where: { $0.id == workspaceId }) else {
+                result = .err(code: "not_found", message: NoteRPCMessage.workspaceNotFound, data: nil)
+                return
+            }
             v2MaybeFocusWindow(for: tabManager)
             v2MaybeSelectWorkspace(tabManager, workspace: ws)
             guard ws.panels[sourceSurfaceId] != nil else {
@@ -281,13 +316,15 @@ extension TerminalController {
         return result
     }
 
-    func v2NoteList(params: [String: Any]) -> V2CallResult {
-        guard let tabManager = v2ResolveTabManager(params: params) else {
-            return .err(code: "unavailable", message: NoteRPCMessage.tabManagerUnavailable, data: nil)
-        }
+    nonisolated func v2NoteList(params: [String: Any]) -> V2CallResult {
         var result: V2CallResult = .err(code: "internal_error", message: NoteRPCMessage.listFailed, data: nil)
         var projectRoot: String?
         v2MainSync {
+            v2RefreshKnownRefs()
+            guard let tabManager = v2ResolveTabManager(params: params) else {
+                result = .err(code: "unavailable", message: NoteRPCMessage.tabManagerUnavailable, data: nil)
+                return
+            }
             guard let ws = v2ResolveWorkspace(params: params, tabManager: tabManager) else {
                 result = .err(code: "not_found", message: NoteRPCMessage.workspaceNotFound, data: nil)
                 return
@@ -316,14 +353,11 @@ extension TerminalController {
         return result
     }
 
-    func v2NotePath(params: [String: Any]) -> V2CallResult {
-        guard let tabManager = v2ResolveTabManager(params: params) else {
-            return .err(code: "unavailable", message: NoteRPCMessage.tabManagerUnavailable, data: nil)
-        }
+    nonisolated func v2NotePath(params: [String: Any]) -> V2CallResult {
         guard params.keys.contains("slug") else {
             return .err(code: "invalid_params", message: NoteRPCMessage.missingSlug, data: nil)
         }
-        guard let rawSlug = v2String(params, "slug"), !rawSlug.isEmpty else {
+        guard let rawSlug = NoteRPCParam.string(params, "slug"), !rawSlug.isEmpty else {
             return .err(code: "invalid_params", message: NoteRPCMessage.emptySlug, data: nil)
         }
         let slug: String
@@ -335,6 +369,11 @@ extension TerminalController {
         var result: V2CallResult = .err(code: "internal_error", message: NoteRPCMessage.pathFailed, data: nil)
         var projectRoot: String?
         v2MainSync {
+            v2RefreshKnownRefs()
+            guard let tabManager = v2ResolveTabManager(params: params) else {
+                result = .err(code: "unavailable", message: NoteRPCMessage.tabManagerUnavailable, data: nil)
+                return
+            }
             guard let ws = v2ResolveWorkspace(params: params, tabManager: tabManager) else {
                 result = .err(code: "not_found", message: NoteRPCMessage.workspaceNotFound, data: nil)
                 return
@@ -375,14 +414,11 @@ extension TerminalController {
         return result
     }
 
-    func v2NoteDelete(params: [String: Any]) -> V2CallResult {
-        guard let tabManager = v2ResolveTabManager(params: params) else {
-            return .err(code: "unavailable", message: NoteRPCMessage.tabManagerUnavailable, data: nil)
-        }
+    nonisolated func v2NoteDelete(params: [String: Any]) -> V2CallResult {
         guard params.keys.contains("slug") else {
             return .err(code: "invalid_params", message: NoteRPCMessage.missingSlug, data: nil)
         }
-        guard let rawSlug = v2String(params, "slug"), !rawSlug.isEmpty else {
+        guard let rawSlug = NoteRPCParam.string(params, "slug"), !rawSlug.isEmpty else {
             return .err(code: "invalid_params", message: NoteRPCMessage.emptySlug, data: nil)
         }
         let slug: String
@@ -394,6 +430,11 @@ extension TerminalController {
         var result: V2CallResult = .err(code: "internal_error", message: NoteRPCMessage.deleteFailed, data: nil)
         var projectRoot: String?
         v2MainSync {
+            v2RefreshKnownRefs()
+            guard let tabManager = v2ResolveTabManager(params: params) else {
+                result = .err(code: "unavailable", message: NoteRPCMessage.tabManagerUnavailable, data: nil)
+                return
+            }
             guard let ws = v2ResolveWorkspace(params: params, tabManager: tabManager) else {
                 result = .err(code: "not_found", message: NoteRPCMessage.workspaceNotFound, data: nil)
                 return

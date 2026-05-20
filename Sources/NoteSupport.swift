@@ -251,7 +251,11 @@ enum NoteSupport {
         var description: String {
             switch self {
             case .invalidSlug(let reason):
-                return String(localized: "note.error.invalidSlug", defaultValue: "Invalid note slug: \(reason)")
+                return String(
+                    format: String(localized: "note.error.invalidSlug", defaultValue: "Invalid note slug: %@"),
+                    locale: .current,
+                    reason
+                )
             case .notRegularFile:
                 return String(localized: "note.error.notRegularFile", defaultValue: "Note path is not a regular file")
             }
