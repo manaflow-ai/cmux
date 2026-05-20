@@ -305,6 +305,7 @@ extension TerminalController {
 
     private nonisolated func v2TopMemoryAttributionByPID(in windows: [[String: Any]]) -> [Int: CmuxTopProcessAttribution] {
         var result: [Int: CmuxTopProcessAttribution] = [:]
+        var ambiguousSpecificityByPID: [Int: Int] = [:]
         for window in windows {
             let workspaces = window["workspaces"] as? [[String: Any]] ?? []
             for workspace in workspaces {
@@ -323,7 +324,12 @@ extension TerminalController {
                         surfaceType: nil,
                         reason: "status-tag-process-tree"
                     )
-                    assignTopMemoryAttribution(attribution, from: tag, to: &result)
+                    assignTopMemoryAttribution(
+                        attribution,
+                        from: tag,
+                        to: &result,
+                        ambiguousSpecificityByPID: &ambiguousSpecificityByPID
+                    )
                 }
 
                 let panes = workspace["panes"] as? [[String: Any]] ?? []
@@ -342,11 +348,21 @@ extension TerminalController {
                             surfaceType: v2TopString(surface["type"]),
                             reason: "surface-process-tree"
                         )
-                        assignTopMemoryAttribution(attribution, from: surface, to: &result)
+                        assignTopMemoryAttribution(
+                            attribution,
+                            from: surface,
+                            to: &result,
+                            ambiguousSpecificityByPID: &ambiguousSpecificityByPID
+                        )
 
                         let webviews = surface["webviews"] as? [[String: Any]] ?? []
                         for webview in webviews {
-                            assignTopMemoryAttribution(attribution, from: webview, to: &result)
+                            assignTopMemoryAttribution(
+                                attribution,
+                                from: webview,
+                                to: &result,
+                                ambiguousSpecificityByPID: &ambiguousSpecificityByPID
+                            )
                         }
                     }
                 }
@@ -358,16 +374,31 @@ extension TerminalController {
     private nonisolated func assignTopMemoryAttribution(
         _ attribution: CmuxTopProcessAttribution,
         from node: [String: Any],
-        to result: inout [Int: CmuxTopProcessAttribution]
+        to result: inout [Int: CmuxTopProcessAttribution],
+        ambiguousSpecificityByPID: inout [Int: Int]
     ) {
         let resources = node["resources"] as? [String: Any] ?? [:]
-        for pid in v2TopIntArray(resources["pids"]) {
-            if let existing = result[pid],
-               v2TopMemoryAttributionSpecificity(existing) >= v2TopMemoryAttributionSpecificity(attribution)
-            {
+        let newSpecificity = v2TopMemoryAttributionSpecificity(attribution)
+        var seenPIDs = Set<Int>()
+        for pid in v2TopIntArray(resources["pids"]) where seenPIDs.insert(pid).inserted {
+            if let ambiguousSpecificity = ambiguousSpecificityByPID[pid] {
+                guard newSpecificity > ambiguousSpecificity else { continue }
+                ambiguousSpecificityByPID.removeValue(forKey: pid)
+            }
+            guard let existing = result[pid] else {
+                result[pid] = attribution
                 continue
             }
-            result[pid] = attribution
+            if existing == attribution { continue }
+            let existingSpecificity = v2TopMemoryAttributionSpecificity(existing)
+            if newSpecificity > existingSpecificity {
+                result[pid] = attribution
+            } else if newSpecificity == existingSpecificity {
+                result.removeValue(forKey: pid)
+                ambiguousSpecificityByPID[pid] = newSpecificity
+            } else {
+                continue
+            }
         }
     }
 
