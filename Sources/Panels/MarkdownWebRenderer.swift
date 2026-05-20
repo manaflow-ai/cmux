@@ -25,6 +25,9 @@ struct MarkdownWebRenderer: NSViewRepresentable {
                 webView.removeFromSuperview()
             }
             webView.onPointerDown = onRequestPanelFocus
+            webView.onKeyboardShortcut = { [weak coordinator = context.coordinator] event in
+                coordinator?.handleKeyboardShortcut(event) ?? false
+            }
             webView.navigationDelegate = context.coordinator
             webView.uiDelegate = context.coordinator
             applyBackground(to: webView)
@@ -48,6 +51,9 @@ struct MarkdownWebRenderer: NSViewRepresentable {
         )
         let webView = MarkdownWebView(frame: .zero, configuration: config)
         webView.onPointerDown = onRequestPanelFocus
+        webView.onKeyboardShortcut = { [weak coordinator = context.coordinator] event in
+            coordinator?.handleKeyboardShortcut(event) ?? false
+        }
         webView.setValue(false, forKey: "drawsBackground")
         applyBackground(to: webView)
         webView.allowsBackForwardNavigationGestures = false
@@ -73,6 +79,9 @@ struct MarkdownWebRenderer: NSViewRepresentable {
         // the panel-owned renderer session kept the same coordinator.
         context.coordinator.bind(panelId: panelId, workspaceId: workspaceId, filePath: filePath)
         (nsView as? MarkdownWebView)?.onPointerDown = onRequestPanelFocus
+        (nsView as? MarkdownWebView)?.onKeyboardShortcut = { [weak coordinator = context.coordinator] event in
+            coordinator?.handleKeyboardShortcut(event) ?? false
+        }
         applyBackground(to: nsView)
         applyAppearance(to: nsView, isDark: theme.isDark)
         context.coordinator.update(markdown: markdown, theme: theme)
@@ -86,6 +95,7 @@ struct MarkdownWebRenderer: NSViewRepresentable {
         nsView.navigationDelegate = nil
         nsView.uiDelegate = nil
         (nsView as? MarkdownWebView)?.onPointerDown = nil
+        (nsView as? MarkdownWebView)?.onKeyboardShortcut = nil
         coordinator.cancelImageLoads()
     }
 
@@ -120,6 +130,7 @@ struct MarkdownWebRenderer: NSViewRepresentable {
         private var isShellLoading = false
         private var webContentProcessRecoveryAttempts = 0
         private let maxWebContentProcessRecoveryAttempts = 2
+        private var pendingShortcutChord: ShortcutStroke?
 
         private struct ImageLoadResult {
             let data: Data
@@ -160,11 +171,13 @@ struct MarkdownWebRenderer: NSViewRepresentable {
                 webView.navigationDelegate = nil
                 webView.uiDelegate = nil
                 webView.onPointerDown = nil
+                webView.onKeyboardShortcut = nil
             }
             self.webView = nil
             isLoaded = false
             isShellLoading = false
             webContentProcessRecoveryAttempts = 0
+            pendingShortcutChord = nil
             cancelImageLoads()
             requestedLibs.removeAll()
         }
@@ -271,6 +284,42 @@ struct MarkdownWebRenderer: NSViewRepresentable {
             })(\(json));
             """
             webView.evaluateJavaScript(js, completionHandler: nil)
+        }
+
+        func handleKeyboardShortcut(_ event: NSEvent) -> Bool {
+            if let pendingShortcutChord {
+                defer { self.pendingShortcutChord = nil }
+                guard let command = MarkdownPreviewKeyboardShortcutResolver.command(
+                    for: event,
+                    pendingFirstStroke: pendingShortcutChord
+                ) else {
+                    return false
+                }
+                performKeyboardCommand(command)
+                return true
+            }
+
+            if let command = MarkdownPreviewKeyboardShortcutResolver.command(for: event) {
+                performKeyboardCommand(command)
+                return true
+            }
+
+            if let prefix = MarkdownPreviewKeyboardShortcutResolver.chordPrefix(for: event) {
+                pendingShortcutChord = prefix
+                return true
+            }
+
+            return false
+        }
+
+        private func performKeyboardCommand(_ command: MarkdownPreviewKeyCommand) {
+            guard let webView else { return }
+            let commandLiteral = (try? JSONSerialization.data(withJSONObject: [command.rawValue]))
+                .flatMap { String(data: $0, encoding: .utf8) } ?? "[\"\"]"
+            webView.evaluateJavaScript(
+                "window.__cmuxMarkdownPreviewHandleKeyCommand && window.__cmuxMarkdownPreviewHandleKeyCommand(\(commandLiteral)[0]);",
+                completionHandler: nil
+            )
         }
 
         // MARK: Bridge

@@ -113623,6 +113623,90 @@
         "ja": { "stringUnit": { "state": "translated", "value": "グローバル検索" } }
       }
     },
+    "shortcut.markdownScrollLeft.label": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Markdown Preview: Scroll Left" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "Markdown プレビュー: 左へスクロール" } }
+      }
+    },
+    "shortcut.markdownScrollDown.label": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Markdown Preview: Scroll Down" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "Markdown プレビュー: 下へスクロール" } }
+      }
+    },
+    "shortcut.markdownScrollUp.label": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Markdown Preview: Scroll Up" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "Markdown プレビュー: 上へスクロール" } }
+      }
+    },
+    "shortcut.markdownScrollRight.label": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Markdown Preview: Scroll Right" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "Markdown プレビュー: 右へスクロール" } }
+      }
+    },
+    "shortcut.markdownPageUp.label": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Markdown Preview: Page Up" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "Markdown プレビュー: 上へページ移動" } }
+      }
+    },
+    "shortcut.markdownPageDown.label": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Markdown Preview: Page Down" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "Markdown プレビュー: 下へページ移動" } }
+      }
+    },
+    "shortcut.markdownFindForward.label": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Markdown Preview: Search Forward" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "Markdown プレビュー: 前方検索" } }
+      }
+    },
+    "shortcut.markdownFindBackward.label": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Markdown Preview: Search Backward" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "Markdown プレビュー: 後方検索" } }
+      }
+    },
+    "shortcut.markdownFindNext.label": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Markdown Preview: Find Next" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "Markdown プレビュー: 次を検索" } }
+      }
+    },
+    "shortcut.markdownFindPrevious.label": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Markdown Preview: Find Previous" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "Markdown プレビュー: 前を検索" } }
+      }
+    },
+    "markdown.web.searchPromptForward": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Search Markdown" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "Markdown を検索" } }
+      }
+    },
+    "markdown.web.searchPromptBackward": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Search Markdown backward" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "Markdown を後方検索" } }
+      }
+    },
     "statusMenu.searchAllWindows": {
       "extractionState": "manual",
       "localizations": {

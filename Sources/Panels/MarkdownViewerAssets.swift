@@ -121,6 +121,14 @@ final class MarkdownViewerAssets {
             "remoteImageURL": String(
                 localized: "markdown.web.remoteImageURL",
                 defaultValue: "Image URL: {url}"
+            ),
+            "searchPromptForward": String(
+                localized: "markdown.web.searchPromptForward",
+                defaultValue: "Search Markdown"
+            ),
+            "searchPromptBackward": String(
+                localized: "markdown.web.searchPromptBackward",
+                defaultValue: "Search Markdown backward"
             )
         ]
         guard let data = try? JSONSerialization.data(withJSONObject: strings),

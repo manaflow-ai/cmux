@@ -1089,11 +1089,13 @@ html { scroll-behavior: smooth; }
 
   function restoreMarkdownScrollState(state) {
     if (!state) { return; }
+    if (state.nearTop) {
+      setMarkdownScrollY(0);
+      return;
+    }
     function apply() {
       var targetY;
-      if (state.nearTop) {
-        targetY = 0;
-      } else if (state.nearBottom) {
+      if (state.nearBottom) {
         targetY = markdownMaxScrollY();
       } else if (state.anchor && state.anchor.id) {
         var anchor = document.getElementById(state.anchor.id);
@@ -1416,6 +1418,94 @@ html { scroll-behavior: smooth; }
     // so click can be deterministic and immediate.
     openMarkdownCandidate(rawPath);
   }, true);
+
+  var markdownPreviewSearchQuery = '';
+
+  function markdownPreviewScroller() {
+    return document.scrollingElement || document.documentElement || document.body;
+  }
+
+  function markdownPreviewScrollBy(deltaX, deltaY) {
+    var scroller = markdownPreviewScroller();
+    var nextLeft = Math.max(0, (window.scrollX || scroller.scrollLeft || 0) + deltaX);
+    var nextTop = clampScrollY((window.scrollY || scroller.scrollTop || 0) + deltaY);
+    var root = document.documentElement;
+    var previousBehavior = root.style.scrollBehavior;
+    root.style.scrollBehavior = 'auto';
+    try {
+      window.scrollTo(nextLeft, nextTop);
+    } finally {
+      root.style.scrollBehavior = previousBehavior;
+    }
+    scroller.scrollLeft = nextLeft;
+    setMarkdownScrollY(nextTop);
+    return true;
+  }
+
+  function markdownPreviewScrollSelectionIntoView() {
+    if (!window.getSelection) { return; }
+    var selection = window.getSelection();
+    if (!selection || selection.rangeCount < 1) { return; }
+    var range = selection.getRangeAt(0);
+    var rect = range.getBoundingClientRect();
+    if (!rect || (!rect.top && !rect.bottom)) { return; }
+    var targetY = markdownScrollY() + rect.top - Math.max(24, Math.round(window.innerHeight * 0.25));
+    setMarkdownScrollY(targetY);
+  }
+
+  function markdownPreviewPromptSearch(backwards) {
+    var promptKey = backwards ? 'searchPromptBackward' : 'searchPromptForward';
+    var fallback = backwards ? 'Search Markdown backward' : 'Search Markdown';
+    var query = window.prompt(cmuxString(promptKey, fallback), markdownPreviewSearchQuery);
+    if (query == null) { return false; }
+    markdownPreviewSearchQuery = String(query);
+    return markdownPreviewSearch(markdownPreviewSearchQuery, backwards);
+  }
+
+  function markdownPreviewSearch(query, backwards) {
+    var value = String(query == null ? '' : query);
+    if (!value) { return false; }
+    markdownPreviewSearchQuery = value;
+    if (typeof window.find !== 'function') { return false; }
+    var found = !!window.find(value, false, !!backwards, true, false, false, false);
+    if (found) {
+      markdownPreviewScrollSelectionIntoView();
+    }
+    return found;
+  }
+
+  window.__cmuxMarkdownPreviewSearch = markdownPreviewSearch;
+
+  window.__cmuxMarkdownPreviewHandleKeyCommand = function(command) {
+    switch (command) {
+    case 'scrollLeft':
+      return markdownPreviewScrollBy(-72, 0);
+    case 'scrollDown':
+      return markdownPreviewScrollBy(0, 72);
+    case 'scrollUp':
+      return markdownPreviewScrollBy(0, -72);
+    case 'scrollRight':
+      return markdownPreviewScrollBy(72, 0);
+    case 'pageUp':
+      return markdownPreviewScrollBy(0, -Math.max(120, Math.round(window.innerHeight * 0.5)));
+    case 'pageDown':
+      return markdownPreviewScrollBy(0, Math.max(120, Math.round(window.innerHeight * 0.5)));
+    case 'findForward':
+      return markdownPreviewPromptSearch(false);
+    case 'findBackward':
+      return markdownPreviewPromptSearch(true);
+    case 'findNext':
+      return markdownPreviewSearchQuery
+        ? markdownPreviewSearch(markdownPreviewSearchQuery, false)
+        : markdownPreviewPromptSearch(false);
+    case 'findPrevious':
+      return markdownPreviewSearchQuery
+        ? markdownPreviewSearch(markdownPreviewSearchQuery, true)
+        : markdownPreviewPromptSearch(true);
+    default:
+      return false;
+    }
+  };
 
   window.__cmuxRenderMarkdown = function(md) {
     try {

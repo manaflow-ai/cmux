@@ -197,6 +197,17 @@ Command palette navigation shortcuts, including ⌃ P, are also customizable and
 | ⌥ ⌘ I | Toggle Developer Tools (Safari default) |
 | ⌥ ⌘ C | Show JavaScript Console (Safari default) |
 
+### Markdown Preview
+
+Markdown preview shortcuts are local to the focused Markdown panel and are customizable in `Settings → Keyboard Shortcuts`.
+
+| Shortcut | Action |
+|----------|--------|
+| H J K L | Scroll left/down/up/right |
+| ⌃ U / ⌃ D | Move up/down half a page |
+| / / ⇧ / | Search forward/backward |
+| N / ⇧ N | Find next/previous |
+
 ### Notifications
 
 | Shortcut | Action |

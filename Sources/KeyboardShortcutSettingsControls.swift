@@ -192,6 +192,7 @@ struct ShortcutRecorderSettingsControl: View {
             subtitle: subtitle,
             shortcut: $shortcut,
             displayString: displayString,
+            requireFirstStrokeModifier: !action.allowsBareFirstStroke,
             transformRecordedShortcut: { action.normalizedRecordedShortcutResult($0) },
             validationMessage: validationPresentation?.message,
             validationButtonTitle: validationPresentation?.swapButtonTitle,

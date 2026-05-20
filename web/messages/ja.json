@@ -482,6 +482,8 @@
         "workspacesBlurb": "ワークスペースはサイドバーに表示されます。各ワークスペースには独自のペインとサーフェスがあります。",
         "surfaces": "サーフェス",
         "surfacesBlurb": "サーフェスはペイン内のタブです。",
+        "markdownPreview": "Markdown プレビュー",
+        "markdownPreviewBlurb": "Markdown プレビューのショートカットはフォーカス中の Markdown パネルだけで動作するため、Vim 風の単独キーはターミナルに影響しません。",
         "splitPanes": "分割ペイン",
         "browser": "ブラウザ",
         "notifications": "通知",

@@ -123,6 +123,23 @@ export const shortcutCategories: ShortcutCategory[] = [
     ],
   },
   {
+    id: "markdown-preview",
+    titleKey: "markdownPreview",
+    blurbKey: "markdownPreviewBlurb",
+    shortcuts: [
+      { id: "markdownScrollLeft", combos: [["H"]], description: { en: "Scroll Markdown preview left", ja: "Markdown プレビューを左へスクロール" } },
+      { id: "markdownScrollDown", combos: [["J"]], description: { en: "Scroll Markdown preview down", ja: "Markdown プレビューを下へスクロール" } },
+      { id: "markdownScrollUp", combos: [["K"]], description: { en: "Scroll Markdown preview up", ja: "Markdown プレビューを上へスクロール" } },
+      { id: "markdownScrollRight", combos: [["L"]], description: { en: "Scroll Markdown preview right", ja: "Markdown プレビューを右へスクロール" } },
+      { id: "markdownPageUp", combos: [["⌃", "U"]], description: { en: "Move Markdown preview up half a page", ja: "Markdown プレビューを半ページ上へ移動" } },
+      { id: "markdownPageDown", combos: [["⌃", "D"]], description: { en: "Move Markdown preview down half a page", ja: "Markdown プレビューを半ページ下へ移動" } },
+      { id: "markdownFindForward", combos: [["/"]], description: { en: "Search Markdown preview forward", ja: "Markdown プレビューを前方検索" } },
+      { id: "markdownFindBackward", combos: [["⇧", "/"]], description: { en: "Search Markdown preview backward", ja: "Markdown プレビューを後方検索" } },
+      { id: "markdownFindNext", combos: [["N"]], description: { en: "Find next match in Markdown preview", ja: "Markdown プレビューで次を検索" } },
+      { id: "markdownFindPrevious", combos: [["⇧", "N"]], description: { en: "Find previous match in Markdown preview", ja: "Markdown プレビューで前を検索" } },
+    ],
+  },
+  {
     id: "split-panes",
     titleKey: "splitPanes",
     shortcuts: [

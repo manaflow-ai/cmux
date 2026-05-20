@@ -16,6 +16,7 @@ extension KeyboardShortcutSettings.Action {
         case application
         case nonBrowserPanel
         case browserPanel
+        case markdownPanel
         case rightSidebarFocus
 
         var isAlwaysAvailable: Bool {
@@ -30,6 +31,8 @@ extension KeyboardShortcutSettings.Action {
                 return !focusedBrowserPanel && !rightSidebarFocused
             case .browserPanel:
                 return focusedBrowserPanel
+            case .markdownPanel:
+                return false
             case .rightSidebarFocus:
                 return rightSidebarFocused
             }
@@ -49,6 +52,17 @@ extension KeyboardShortcutSettings.Action {
 
     var shortcutContext: ShortcutContext {
         switch self {
+        case .markdownScrollLeft,
+             .markdownScrollDown,
+             .markdownScrollUp,
+             .markdownScrollRight,
+             .markdownPageUp,
+             .markdownPageDown,
+             .markdownFindForward,
+             .markdownFindBackward,
+             .markdownFindNext,
+             .markdownFindPrevious:
+            return .markdownPanel
         case .switchRightSidebarToFiles, .switchRightSidebarToFind, .switchRightSidebarToSessions, .switchRightSidebarToFeed, .switchRightSidebarToDock:
             return .rightSidebarFocus
         case .renameTab, .renameWorkspace:

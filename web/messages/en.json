@@ -550,6 +550,8 @@
         "workspacesBlurb": "Workspaces live in the sidebar. Each workspace has its own set of panes and surfaces.",
         "surfaces": "Surfaces",
         "surfacesBlurb": "Surfaces are tabs inside a pane.",
+        "markdownPreview": "Markdown Preview",
+        "markdownPreviewBlurb": "Markdown preview shortcuts are local to the focused Markdown panel, so bare Vim-style keys do not affect terminals.",
         "splitPanes": "Split Panes",
         "browser": "Browser",
         "notifications": "Notifications",

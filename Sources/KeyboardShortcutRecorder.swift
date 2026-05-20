@@ -7,6 +7,7 @@ struct KeyboardShortcutRecorder: View {
     var subtitle: String? = nil
     @Binding var shortcut: StoredShortcut
     var displayString: (StoredShortcut) -> String = { $0.displayString }
+    var requireFirstStrokeModifier: Bool = true
     var transformRecordedShortcut: (StoredShortcut) -> KeyboardShortcutSettings.RecordedShortcutResolution = {
         .accepted($0)
     }
@@ -41,6 +42,7 @@ struct KeyboardShortcutRecorder: View {
                     isRecording: $isRecording,
                     hasPendingRejection: hasPendingRejection,
                     displayString: displayString,
+                    requireFirstStrokeModifier: requireFirstStrokeModifier,
                     transformRecordedShortcut: transformRecordedShortcut,
                     onRecordingChanged: onRecordingChanged,
                     onRecorderFeedbackChanged: onRecorderFeedbackChanged
@@ -130,6 +132,7 @@ private struct ShortcutRecorderButton: NSViewRepresentable {
     @Binding var isRecording: Bool
     var hasPendingRejection: Bool = false
     let displayString: (StoredShortcut) -> String
+    let requireFirstStrokeModifier: Bool
     let transformRecordedShortcut: (StoredShortcut) -> KeyboardShortcutSettings.RecordedShortcutResolution
     let onRecordingChanged: (Bool) -> Void
     let onRecorderFeedbackChanged: (ShortcutRecorderRejectedAttempt?) -> Void
@@ -138,6 +141,7 @@ private struct ShortcutRecorderButton: NSViewRepresentable {
         let button = ShortcutRecorderNSButton()
         button.shortcut = shortcut
         button.displayString = displayString
+        button.requireFirstStrokeModifier = requireFirstStrokeModifier
         button.transformRecordedShortcut = transformRecordedShortcut
         button.onShortcutRecorded = { newShortcut in
             shortcut = newShortcut
@@ -155,6 +159,7 @@ private struct ShortcutRecorderButton: NSViewRepresentable {
     func updateNSView(_ nsView: ShortcutRecorderNSButton, context: Context) {
         nsView.shortcut = shortcut
         nsView.displayString = displayString
+        nsView.requireFirstStrokeModifier = requireFirstStrokeModifier
         nsView.transformRecordedShortcut = transformRecordedShortcut
         nsView.onRecordingChanged = { recording in
             isRecording = recording
@@ -179,6 +184,7 @@ final class ShortcutRecorderNSButton: NSButton {
         }
     }
     var displayString: (StoredShortcut) -> String = { $0.displayString }
+    var requireFirstStrokeModifier = true
     var transformRecordedShortcut: (StoredShortcut) -> KeyboardShortcutSettings.RecordedShortcutResolution = {
         .accepted($0)
     }
@@ -308,7 +314,7 @@ final class ShortcutRecorderNSButton: NSButton {
         }
 
         if pendingChordStart == nil {
-            switch ShortcutStroke.recordingResult(from: event, requireModifier: true) {
+            switch ShortcutStroke.recordingResult(from: event, requireModifier: requireFirstStrokeModifier) {
             case let .accepted(firstStroke):
                 let firstShortcut = StoredShortcut(first: firstStroke)
                 switch transformRecordedShortcut(firstShortcut) {

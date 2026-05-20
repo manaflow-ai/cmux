@@ -20,6 +20,7 @@ final class WeakMarkdownScriptMessageHandler: NSObject, WKScriptMessageHandler {
 @MainActor
 final class MarkdownWebView: WKWebView {
     var onPointerDown: (() -> Void)?
+    var onKeyboardShortcut: ((NSEvent) -> Bool)?
 
     override func acceptsFirstMouse(for event: NSEvent?) -> Bool {
         PaneFirstClickFocusSettings.isEnabled()
@@ -28,6 +29,20 @@ final class MarkdownWebView: WKWebView {
     override func mouseDown(with event: NSEvent) {
         onPointerDown?()
         super.mouseDown(with: event)
+    }
+
+    override func keyDown(with event: NSEvent) {
+        if onKeyboardShortcut?(event) == true {
+            return
+        }
+        super.keyDown(with: event)
+    }
+
+    override func performKeyEquivalent(with event: NSEvent) -> Bool {
+        if onKeyboardShortcut?(event) == true {
+            return true
+        }
+        return super.performKeyEquivalent(with: event)
     }
 }
 

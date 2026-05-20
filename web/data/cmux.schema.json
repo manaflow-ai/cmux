@@ -839,6 +839,16 @@
               "splitBrowserDown",
               "toggleFileExplorer",
               "saveFilePreview",
+              "markdownScrollLeft",
+              "markdownScrollDown",
+              "markdownScrollUp",
+              "markdownScrollRight",
+              "markdownPageUp",
+              "markdownPageDown",
+              "markdownFindForward",
+              "markdownFindBackward",
+              "markdownFindNext",
+              "markdownFindPrevious",
               "openBrowser",
               "focusBrowserAddressBar",
               "browserBack",
@@ -923,22 +933,8 @@
       "enum": ["", "none", "clear", "unbound", "disabled"]
     },
     "shortcutFirstStroke": {
-      "allOf": [
-        {
-          "$ref": "#/$defs/shortcutStroke"
-        },
-        {
-          "anyOf": [
-            {
-              "pattern": "^(?:(?:[cC][mM][dD]|[cC][oO][mM][mM][aA][nN][dD]|[sS][hH][iI][fF][tT]|[oO][pP][tT]|[oO][pP][tT][iI][oO][nN]|[aA][lL][tT]|[cC][tT][rR][lL]|[cC][oO][nN][tT][rR][oO][lL]|[cC][tT][lL]|⌘|⇧|⌥|⌃)\\+)+"
-            },
-            {
-              "pattern": "^(?: |[sS][pP][aA][cC][eE]|[sS][pP][aA][cC][eE][bB][aA][rR]|<[sS][pP][aA][cC][eE]>)$"
-            }
-          ]
-        }
-      ],
-      "description": "First or only shortcut stroke. Must include a modifier unless the key is Space."
+      "$ref": "#/$defs/shortcutStroke",
+      "description": "First or only shortcut stroke. Most actions require a modifier unless the key is Space. Markdown preview actions also accept bare first strokes such as h, j, k, l, /, and n."
     },
     "shortcutStroke": {
       "type": "string",

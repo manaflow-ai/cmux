@@ -11014,7 +11014,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             // here would swallow the first stroke and leave the second one
             // orphaned, breaking that keystroke for the focused terminal/browser
             // input.
-            guard action != .showHideAllWindows && action != .globalSearch else { return false }
+            guard action != .showHideAllWindows,
+                  action != .globalSearch,
+                  !action.isSurfaceLocalShortcutAction else { return false }
             return KeyboardShortcutSettings.shortcut(for: action).hasChord
         }
     }
