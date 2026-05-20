@@ -4196,11 +4196,12 @@ final class BrowserPanel: Panel, ObservableObject {
         let observedWebViewInstanceID = webViewInstanceID
 
         // URL changes
-        let urlObserver = webView.observe(\.url, options: [.new]) { [weak self] webView, _ in
-            Task { @MainActor in
+        let urlObserver = webView.observe(\.url, options: [.new]) { [weak self] webView, change in
+            let observedURL = change.newValue ?? webView.url
+            MainActor.assumeIsolated {
                 guard let self, self.isCurrentWebView(webView, instanceID: observedWebViewInstanceID) else { return }
                 guard !self.isMainFrameProvisionalNavigationActive else { return }
-                self.currentURL = Self.remoteProxyDisplayURL(for: webView.url)
+                self.currentURL = Self.remoteProxyDisplayURL(for: observedURL)
                 GlobalSearchCoordinator.shared.captureBrowserPanel(self)
             }
         }
