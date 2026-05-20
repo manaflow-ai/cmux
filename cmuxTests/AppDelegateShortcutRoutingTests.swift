@@ -1384,22 +1384,36 @@ final class AppDelegateShortcutRoutingTests: XCTestCase {
             return
         }
 
-        let firstWindowId = appDelegate.createMainWindow()
-        let secondWindowId = appDelegate.createMainWindow()
+        let firstWindowId = UUID()
+        let secondWindowId = UUID()
+        let firstWindow = makeRegisteredShortcutRoutingWindow(id: firstWindowId)
+        let secondWindow = makeRegisteredShortcutRoutingWindow(id: secondWindowId)
+        let firstManager = TabManager()
+        let secondManager = TabManager()
+        let firstSidebarState = SidebarState(isVisible: true)
+        let secondSidebarState = SidebarState(isVisible: true)
 
+        appDelegate.registerMainWindow(
+            firstWindow,
+            windowId: firstWindowId,
+            tabManager: firstManager,
+            sidebarState: firstSidebarState,
+            sidebarSelectionState: SidebarSelectionState()
+        )
+        appDelegate.registerMainWindow(
+            secondWindow,
+            windowId: secondWindowId,
+            tabManager: secondManager,
+            sidebarState: secondSidebarState,
+            sidebarSelectionState: SidebarSelectionState()
+        )
         defer {
-            closeWindow(withId: firstWindowId)
-            closeWindow(withId: secondWindowId)
+            firstWindow.performClose(nil)
+            secondWindow.performClose(nil)
         }
 
-        guard let firstManager = appDelegate.tabManagerFor(windowId: firstWindowId),
-              let secondManager = appDelegate.tabManagerFor(windowId: secondWindowId),
-              let secondWindow = window(withId: secondWindowId),
-              let firstVisibleBefore = appDelegate.sidebarVisibility(windowId: firstWindowId),
-              let secondVisibleBefore = appDelegate.sidebarVisibility(windowId: secondWindowId) else {
-            XCTFail("Expected both window contexts to exist")
-            return
-        }
+        let firstVisibleBefore = firstSidebarState.isVisible
+        let secondVisibleBefore = secondSidebarState.isVisible
 
         appDelegate.tabManager = firstManager
         XCTAssertTrue(appDelegate.tabManager === firstManager)
@@ -1437,26 +1451,39 @@ final class AppDelegateShortcutRoutingTests: XCTestCase {
             return
         }
 
-        let firstWindowId = appDelegate.createMainWindow()
-        let secondWindowId = appDelegate.createMainWindow()
+        let firstWindowId = UUID()
+        let secondWindowId = UUID()
+        let firstWindow = makeRegisteredShortcutRoutingWindow(id: firstWindowId)
+        let secondWindow = makeRegisteredShortcutRoutingWindow(id: secondWindowId)
+        let firstManager = TabManager()
+        let secondManager = TabManager()
+        let firstSidebarState = SidebarState(isVisible: true)
+        let secondSidebarState = SidebarState(isVisible: true)
 
+        appDelegate.registerMainWindow(
+            firstWindow,
+            windowId: firstWindowId,
+            tabManager: firstManager,
+            sidebarState: firstSidebarState,
+            sidebarSelectionState: SidebarSelectionState()
+        )
+        appDelegate.registerMainWindow(
+            secondWindow,
+            windowId: secondWindowId,
+            tabManager: secondManager,
+            sidebarState: secondSidebarState,
+            sidebarSelectionState: SidebarSelectionState()
+        )
         defer {
-            closeWindow(withId: firstWindowId)
-            closeWindow(withId: secondWindowId)
-        }
-
-        guard let firstManager = appDelegate.tabManagerFor(windowId: firstWindowId),
-              let secondManager = appDelegate.tabManagerFor(windowId: secondWindowId),
-              let firstWindow = window(withId: firstWindowId),
-              let secondWindow = window(withId: secondWindowId),
-              let firstVisibleBefore = appDelegate.sidebarVisibility(windowId: firstWindowId),
-              let secondVisibleBefore = appDelegate.sidebarVisibility(windowId: secondWindowId) else {
-            XCTFail("Expected both window contexts to exist")
-            return
+            firstWindow.performClose(nil)
+            secondWindow.performClose(nil)
         }
 
         firstWindow.makeKeyAndOrderFront(nil)
         RunLoop.main.run(until: Date(timeIntervalSinceNow: 0.05))
+
+        let firstVisibleBefore = firstSidebarState.isVisible
+        let secondVisibleBefore = secondSidebarState.isVisible
 
         appDelegate.tabManager = firstManager
         XCTAssertTrue(appDelegate.tabManager === firstManager)
@@ -6277,6 +6304,17 @@ final class AppDelegateShortcutRoutingTests: XCTestCase {
             "Typing should repair focus back to the terminal search field"
         )
         XCTAssertEqual(searchField.stringValue, "a", "Typing repair should preserve the first key in the search field")
+    }
+
+    private func makeRegisteredShortcutRoutingWindow(id: UUID) -> NSWindow {
+        let window = NSWindow(
+            contentRect: NSRect(x: 0, y: 0, width: 320, height: 240),
+            styleMask: [.titled, .closable, .resizable],
+            backing: .buffered,
+            defer: false
+        )
+        window.identifier = NSUserInterfaceItemIdentifier("cmux.main.\(id.uuidString)")
+        return window
     }
 
     private func makeKeyDownEvent(
