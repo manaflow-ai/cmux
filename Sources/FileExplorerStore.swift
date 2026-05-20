@@ -437,6 +437,7 @@ final class ProcessSSHFileExplorerTransport: SSHFileExplorerTransport {
         private let outPipe = Pipe()
         private let errPipe = Pipe()
         private let lock = NSLock()
+        private let terminationGate = ProcessTerminationGate()
         private var cancelled = false
 
         init(connection: SSHFileExplorerConnection, command: String) {
@@ -454,18 +455,29 @@ final class ProcessSSHFileExplorerTransport: SSHFileExplorerTransport {
                 throw CancellationError()
             }
 
-            try process.run()
+            do {
+                try process.run()
+            } catch {
+                terminationGate.markFinished()
+                throw error
+            }
 
             lock.lock()
-            let shouldTerminate = cancelled && process.isRunning
+            let shouldTerminate = cancelled
             lock.unlock()
-            if shouldTerminate {
+            if terminationGate.markLaunched() || shouldTerminate {
+                guard process.isRunning else {
+                    process.waitUntilExit()
+                    terminationGate.markFinished()
+                    throw CancellationError()
+                }
                 process.terminate()
             }
 
             let data = outPipe.fileHandleForReading.readDataToEndOfFile()
             let stderrData = errPipe.fileHandleForReading.readDataToEndOfFile()
             process.waitUntilExit()
+            terminationGate.markFinished()
 
             return SSHCommandResult(
                 stdout: String(data: data, encoding: .utf8) ?? "",
@@ -477,12 +489,15 @@ final class ProcessSSHFileExplorerTransport: SSHFileExplorerTransport {
         func terminate() {
             lock.lock()
             cancelled = true
-            let isRunning = process.isRunning
             lock.unlock()
 
-            if isRunning {
-                process.terminate()
+            guard terminationGate.requestTermination() else {
+                return
             }
+            guard process.isRunning else {
+                return
+            }
+            process.terminate()
         }
     }
 

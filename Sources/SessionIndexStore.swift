@@ -1265,9 +1265,18 @@ final class SessionIndexStore: ObservableObject {
         if let nullDev = FileHandle(forWritingAtPath: "/dev/null") {
             process.standardError = nullDev
         }
+        let terminationGate = ProcessTerminationGate()
 
         return await withTaskCancellationHandler {
-            do { try process.run() } catch { return nil as [URL]? }
+            do {
+                try process.run()
+            } catch {
+                terminationGate.markFinished()
+                return nil as [URL]?
+            }
+            if terminationGate.markLaunched(), process.isRunning {
+                process.terminate()
+            }
             // Drain stdout BEFORE waitUntilExit. With many matches rg writes
             // more than the ~64 KB pipe buffer; reading until EOF lets rg
             // make progress and EOF arrives when rg closes its stdout on exit.
@@ -1278,6 +1287,7 @@ final class SessionIndexStore: ObservableObject {
             // late and never fires → deadlock.)
             let data = outPipe.fileHandleForReading.readDataToEndOfFile()
             process.waitUntilExit()
+            terminationGate.markFinished()
             // rg exit codes: 0 = matches, 1 = no matches, 2 = error/terminated.
             switch process.terminationStatus {
             case 0:
@@ -1293,6 +1303,12 @@ final class SessionIndexStore: ObservableObject {
             // Fires synchronously when the awaiting Task is cancelled. Sends
             // SIGTERM to rg, which closes stdout, lets readDataToEndOfFile
             // return, and unblocks the body so this call can complete cleanly.
+            guard terminationGate.requestTermination() else {
+                return
+            }
+            guard process.isRunning else {
+                return
+            }
             process.terminate()
         }
     }
