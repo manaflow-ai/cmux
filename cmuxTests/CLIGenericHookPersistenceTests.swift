@@ -321,6 +321,49 @@ extension CLINotifyProcessIntegrationRegressionTests {
         XCTAssertEqual(start.status, 0, start.stderr)
         XCTAssertEqual(start.stdout, "{}\n")
 
+        let backgroundMessage = "Antigravity is waiting on background work"
+        let backgroundStopCommandStart = state.commands.count
+        let backgroundStop = runAntigravityHook(
+            "stop",
+            input: #"{"session_id":"\#(sessionId)","cwd":"\#(root.path)","hook_event_name":"Stop","last_assistant_message":"\#(backgroundMessage)","fullyIdle":false}"#
+        )
+        XCTAssertFalse(backgroundStop.timedOut, backgroundStop.stderr)
+        XCTAssertEqual(backgroundStop.status, 0, backgroundStop.stderr)
+        XCTAssertEqual(backgroundStop.stdout, "{}\n")
+
+        let backgroundStopCommands = Array(state.commands.dropFirst(backgroundStopCommandStart))
+        XCTAssertFalse(
+            backgroundStopCommands.contains { $0.hasPrefix("notify_target_async ") },
+            "Antigravity Stop with active background work must not publish idle notifications, saw \(backgroundStopCommands)"
+        )
+        XCTAssertTrue(
+            backgroundStopCommands.contains { $0.contains("set_status antigravity Running") },
+            "Antigravity Stop with active background work should keep the session running, saw \(backgroundStopCommands)"
+        )
+        XCTAssertFalse(
+            backgroundStopCommands.contains { $0.contains("set_status antigravity Idle") },
+            "Antigravity Stop with active background work must not mark idle, saw \(backgroundStopCommands)"
+        )
+
+        let backgroundDuplicateCommandStart = state.commands.count
+        let backgroundDuplicate = runAntigravityHook(
+            "notification",
+            input: #"{"session_id":"\#(sessionId)","cwd":"\#(root.path)","hook_event_name":"Notification","message":"Turn complete in 1.0s."}"#
+        )
+        XCTAssertFalse(backgroundDuplicate.timedOut, backgroundDuplicate.stderr)
+        XCTAssertEqual(backgroundDuplicate.status, 0, backgroundDuplicate.stderr)
+        XCTAssertEqual(backgroundDuplicate.stdout, "{}\n")
+
+        let backgroundDuplicateCommands = Array(state.commands.dropFirst(backgroundDuplicateCommandStart))
+        XCTAssertFalse(
+            backgroundDuplicateCommands.contains { $0.hasPrefix("notify_target_async ") },
+            "Idle-classified Antigravity notifications must not double-notify while background work is active, saw \(backgroundDuplicateCommands)"
+        )
+        XCTAssertFalse(
+            backgroundDuplicateCommands.contains { $0.contains("set_status antigravity Idle") },
+            "Idle-classified Antigravity notifications must not override the running status while background work is active, saw \(backgroundDuplicateCommands)"
+        )
+
         let stopMessage = "Antigravity finished updating docs"
         let stopCommandStart = state.commands.count
         let stop = runAntigravityHook(
@@ -497,6 +540,84 @@ extension CLINotifyProcessIntegrationRegressionTests {
         XCTAssertNotNil(cmuxGroup["SessionStart"])
         XCTAssertNotNil(cmuxGroup["SessionEnd"])
         XCTAssertNotNil(cmuxGroup["turn-completion"])
+    }
+
+    func testAntigravityFeedHookMissingSessionIdUsesStableFallback() throws {
+        let cliPath = try bundledCLIPath()
+        let socketPath = makeSocketPath("antigravity-feed-stable-session")
+        let listenerFD = try bindUnixSocket(at: socketPath)
+        let state = MockSocketServerState()
+        let root = FileManager.default.temporaryDirectory
+            .appendingPathComponent("cmux-antigravity-feed-stable-session-\(UUID().uuidString)", isDirectory: true)
+        let workspaceId = "33333333-3333-3333-3333-333333333333"
+        let surfaceId = "44444444-4444-4444-4444-444444444444"
+
+        try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
+        defer {
+            Darwin.close(listenerFD)
+            unlink(socketPath)
+            try? FileManager.default.removeItem(at: root)
+        }
+
+        let environment: [String: String] = [
+            "HOME": root.path,
+            "PATH": "/usr/bin:/bin:/usr/sbin:/sbin",
+            "PWD": root.path,
+            "CMUX_SOCKET_PATH": socketPath,
+            "CMUX_WORKSPACE_ID": workspaceId,
+            "CMUX_SURFACE_ID": surfaceId,
+            "CMUX_ANTIGRAVITY_PID": "424242",
+            "CMUX_CLI_SENTRY_DISABLED": "1",
+        ]
+
+        func runFeedHook(input: String) -> ProcessRunResult {
+            let serverHandled = startMockServer(listenerFD: listenerFD, state: state) { line in
+                guard let payload = self.jsonObject(line) else {
+                    return self.malformedRequestResponse(raw: line)
+                }
+                guard let id = payload["id"] as? String, let method = payload["method"] as? String else {
+                    return self.malformedRequestResponse(id: payload["id"] as? String, raw: line)
+                }
+                XCTAssertEqual(method, "feed.push")
+                return self.v2Response(id: id, ok: true, result: ["status": "acknowledged"])
+            }
+            let result = runProcess(
+                executablePath: cliPath,
+                arguments: ["hooks", "feed", "--source", "antigravity", "--event", "PreToolUse"],
+                environment: environment,
+                standardInput: input,
+                timeout: 5
+            )
+            wait(for: [serverHandled], timeout: 5)
+            return result
+        }
+
+        let input = #"{"hook_event_name":"PreToolUse","workspacePaths":["\#(root.path)"],"toolCall":{"name":"read_file","args":{"path":"README.md"}}}"#
+        let first = runFeedHook(input: input)
+        XCTAssertFalse(first.timedOut, first.stderr)
+        XCTAssertEqual(first.status, 0, first.stderr)
+        XCTAssertEqual(first.stdout, "{}\n")
+
+        let second = runFeedHook(input: input)
+        XCTAssertFalse(second.timedOut, second.stderr)
+        XCTAssertEqual(second.status, 0, second.stderr)
+        XCTAssertEqual(second.stdout, "{}\n")
+
+        let sessionIds = state.commands.compactMap { command -> String? in
+            guard let payload = self.jsonObject(command),
+                  payload["method"] as? String == "feed.push",
+                  let params = payload["params"] as? [String: Any],
+                  let event = params["event"] as? [String: Any] else {
+                return nil
+            }
+            return event["session_id"] as? String
+        }
+        XCTAssertEqual(sessionIds.count, 2, "Expected two feed events, saw \(state.commands)")
+        XCTAssertEqual(sessionIds[0], sessionIds[1])
+        XCTAssertTrue(
+            sessionIds[0].hasPrefix("antigravity-fallback-"),
+            "Expected deterministic Antigravity fallback session id, saw \(sessionIds[0])"
+        )
     }
 
     func testGrokNotificationHookUsesPayloadMessageAndStopDoesNotSendGenericNotification() throws {

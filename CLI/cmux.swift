@@ -21182,7 +21182,13 @@ export default function cmuxPiSessionExtension(pi: ExtensionAPI) {
         var existing: [String: Any] = [:]
         if let data = fm.contents(atPath: filePath) {
             guard let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any] else {
-                throw CLIError(message: "\(filePath) exists but is not valid JSON. Fix or remove it before installing hooks.")
+                throw CLIError(message: String.localizedStringWithFormat(
+                    String(
+                        localized: "cli.hooks.antigravity.error.invalidJSON",
+                        defaultValue: "%@ exists but is not valid JSON. Fix or remove it before installing hooks."
+                    ),
+                    filePath
+                ))
             }
             existing = json
         }
@@ -23039,8 +23045,9 @@ export default function cmuxPiSessionExtension(pi: ExtensionAPI) {
                     client: client
                 )
             } else if antigravityHasActiveBackgroundWork {
+                let runningStatus = String(localized: "agent.generic.status.running", defaultValue: "Running")
                 _ = try? sendV1Command(
-                    "set_status \(def.statusKey) Running --icon=bolt.fill --color=#4C8DFF --tab=\(workspaceId)\(socketPanelOption(surfaceId))",
+                    "set_status \(def.statusKey) \(runningStatus) --icon=bolt.fill --color=#4C8DFF --tab=\(workspaceId)\(socketPanelOption(surfaceId))",
                     client: client
                 )
             } else {
@@ -23095,6 +23102,11 @@ export default function cmuxPiSessionExtension(pi: ExtensionAPI) {
                     isFallback: false
                 )
             }
+            let antigravitySuppressDuplicateIdleWhileBackgroundWork = def.name == "antigravity"
+                && summary.status == .idle
+                && mapped?.runtimeStatus == .running
+                && mapped?.lastNotificationStatus == .idle
+                && (input.rawObject?["fullyIdle"] as? Bool) != true
 
 #if DEBUG
             agentHookDebugLog(
@@ -23112,6 +23124,19 @@ export default function cmuxPiSessionExtension(pi: ExtensionAPI) {
                     env: env
                 )
 #endif
+                print("{}")
+                return
+            }
+
+            if antigravitySuppressDuplicateIdleWhileBackgroundWork {
+#if DEBUG
+                agentHookDebugLog(
+                    "agentHook.notification.skip agent=\(def.name) session=\(agentHookDebugShort(sessionId)) reason=backgroundWorkIdleDuplicate",
+                    socketPath: client.socketPath,
+                    env: env
+                )
+#endif
+                sendAgentFeedTelemetry(workspaceId: workspaceId)
                 print("{}")
                 return
             }
@@ -23263,7 +23288,12 @@ export default function cmuxPiSessionExtension(pi: ExtensionAPI) {
         let promptText = hookEventName == "UserPromptSubmit"
             ? (feedPromptText(from: parsedInput.object) ?? parsedInput.rawFallback)
             : nil
-        let sessionId = parsedInput.sessionId ?? UUID().uuidString
+        let fallbackObject = parsedInput.rawObject ?? parsedInput.object ?? [:]
+        let sessionId = parsedInput.sessionId ?? stableFallbackFeedSessionId(
+            source: source,
+            rawObject: fallbackObject,
+            agentPid: ProcessInfo.processInfo.processIdentifier
+        )
         var event: [String: Any] = [
             "session_id": "\(source)-\(sessionId)",
             "hook_event_name": hookEventName,
@@ -23411,6 +23441,32 @@ export default function cmuxPiSessionExtension(pi: ExtensionAPI) {
             return direct
         }
         return nil
+    }
+
+    private func stableFallbackFeedSessionId(
+        source: String,
+        rawObject: [String: Any],
+        agentPid: Int
+    ) -> String {
+        var components = [
+            "source=\(source)",
+            "pid=\(max(agentPid, 0))",
+        ]
+        if let workspaceId = feedWorkspaceId(rawObject: rawObject, fallback: nil) {
+            components.append("workspace=\(workspaceId)")
+        }
+        if let cwd = extractClaudeHookCWD(from: rawObject) {
+            components.append("cwd=\(cwd)")
+        }
+        if let transcriptPath = firstString(in: rawObject, keys: ["transcript_path", "transcriptPath"]) {
+            components.append("transcript=\(transcriptPath)")
+        }
+
+        let seed = components.joined(separator: "\n")
+        let digest = SHA256.hash(data: Data(seed.utf8))
+            .map { String(format: "%02x", $0) }
+            .joined()
+        return "fallback-\(String(digest.prefix(16)))"
     }
 
     private func enrichUserPromptSubmitFeedEvent(
@@ -25136,11 +25192,6 @@ export default function cmuxPiSessionExtension(pi: ExtensionAPI) {
         let toolName = firstString(in: stdinObj, keys: ["tool_name", "toolName"])
             ?? toolCall.flatMap { firstString(in: $0, keys: ["name"]) }
             ?? ""
-        let sessionId = (stdinObj["session_id"] as? String)
-            ?? (stdinObj["sessionId"] as? String)
-            ?? (stdinObj["conversation_id"] as? String)
-            ?? (stdinObj["conversationId"] as? String)
-            ?? UUID().uuidString
 
         // Decide whether this event is Feed-actionable. Non-actionable
         // events are forwarded as telemetry (non-blocking) and exit `{}`
@@ -25177,6 +25228,10 @@ export default function cmuxPiSessionExtension(pi: ExtensionAPI) {
             }
             return Int(getppid())
         }()
+        let sessionId = firstString(
+            in: stdinObj,
+            keys: ["session_id", "sessionId", "conversation_id", "conversationId"]
+        ) ?? stableFallbackFeedSessionId(source: source, rawObject: stdinObj, agentPid: agentPid)
 
         var eventDict: [String: Any] = [
             "session_id": "\(source)-\(sessionId)",
