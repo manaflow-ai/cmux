@@ -117,6 +117,8 @@ final class SessionPersistenceTests: XCTestCase {
         XCTAssertEqual(restoredNotification.body, "Tests passed")
         XCTAssertFalse(restoredNotification.isRead)
         XCTAssertTrue(store.hasUnreadNotification(forTabId: restored.id, surfaceId: restoredPanelId))
+        let restoredSurfaceId = try XCTUnwrap(restored.surfaceIdFromPanelId(restoredPanelId))
+        XCTAssertEqual(restored.bonsplitController.tab(restoredSurfaceId)?.showsNotificationBadge, true)
         XCTAssertEqual(store.unreadCount(forTabId: restored.id), 1)
         XCTAssertFalse(restored.hasRestoredUnreadIndicator(panelId: restoredPanelId))
         XCTAssertTrue(store.notificationMenuSnapshot.hasNotifications)
