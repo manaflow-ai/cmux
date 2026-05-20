@@ -12,11 +12,13 @@ nonisolated private let sessionIndexLogger = Logger(
     category: "SessionIndexStore"
 )
 
+/// Locked cancellation state shared by synchronous `Process` callbacks.
+/// `onCancel` cannot await an actor, so mutable state stays behind `lock`.
 final class SessionIndexRipgrepCancellation: @unchecked Sendable {
     private let lock = NSLock()
     private let sendSignal: @Sendable (pid_t, Int32) -> Int32
     private var activeProcessIdentifier: pid_t?
-    private var finishedProcessIdentifiers = Set<pid_t>()
+    private var finishedProcessIdentifier: pid_t?
 
     init(sendSignal: @escaping @Sendable (pid_t, Int32) -> Int32 = Darwin.kill) {
         self.sendSignal = sendSignal
@@ -26,7 +28,7 @@ final class SessionIndexRipgrepCancellation: @unchecked Sendable {
         lock.lock()
         defer { lock.unlock() }
 
-        if finishedProcessIdentifiers.contains(processIdentifier) {
+        if finishedProcessIdentifier == processIdentifier {
             activeProcessIdentifier = nil
         } else {
             activeProcessIdentifier = processIdentifier
@@ -37,11 +39,7 @@ final class SessionIndexRipgrepCancellation: @unchecked Sendable {
         lock.lock()
         defer { lock.unlock() }
 
-        finishedProcessIdentifiers.insert(processIdentifier)
-        if finishedProcessIdentifiers.count > 16 {
-            finishedProcessIdentifiers.removeAll(keepingCapacity: true)
-            finishedProcessIdentifiers.insert(processIdentifier)
-        }
+        finishedProcessIdentifier = processIdentifier
         if activeProcessIdentifier == processIdentifier {
             activeProcessIdentifier = nil
         }
