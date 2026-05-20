@@ -18217,7 +18217,7 @@ struct CMUXCLI {
     }
 
     private func extractClaudeHookCWD(from object: [String: Any]) -> String? {
-        let cwdKeys = ["cwd", "working_directory", "workingDirectory", "workspace", "project_dir", "projectDir", "project_path", "projectPath"]
+        let cwdKeys = ["cwd", "working_directory", "workingDirectory", "project_dir", "projectDir", "project_path", "projectPath"]
         if let cwd = firstString(in: object, keys: cwdKeys) {
             return cwd
         }
@@ -21285,8 +21285,10 @@ export default function cmuxPiSessionExtension(pi: ExtensionAPI) {
             return
         }
         let jsonObject: Any?
+        let malformedJSON: Bool
         do {
             jsonObject = try JSONSerialization.jsonObject(with: data)
+            malformedJSON = false
         } catch {
             print(String.localizedStringWithFormat(
                 String(
@@ -21295,21 +21297,24 @@ export default function cmuxPiSessionExtension(pi: ExtensionAPI) {
                 ),
                 def.configFile,
                 filePath,
-                String(describing: error)
+                error.localizedDescription
             ))
             jsonObject = nil
+            malformedJSON = true
         }
         var json = jsonObject as? [String: Any] ?? [:]
 
         guard let group = json[Self.antigravityHookGroupName],
               Self.jsonHookValueContainsCmuxOwnedCommand(group, for: def) else {
-            print(String.localizedStringWithFormat(
-                String(
-                    localized: "cli.hooks.antigravity.removedZero",
-                    defaultValue: "Removed 0 cmux hook(s) from %@"
-                ),
-                filePath
-            ))
+            if !malformedJSON {
+                print(String.localizedStringWithFormat(
+                    String(
+                        localized: "cli.hooks.antigravity.removedZero",
+                        defaultValue: "Removed 0 cmux hook(s) from %@"
+                    ),
+                    filePath
+                ))
+            }
             return
         }
 

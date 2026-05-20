@@ -390,6 +390,13 @@ struct AgentLaunchSanitizerTests {
                 fallbackKind: "antigravity"
             ) == ["agy", "--log-file", "/tmp/agy.log"]
         )
+        #expect(
+            AgentLaunchSanitizer.sanitizedLaunchArguments(
+                ["agy", "--conversation", "--sandbox", "danger-full-access"],
+                launcher: "antigravity",
+                fallbackKind: "antigravity"
+            ) == ["agy", "--sandbox", "danger-full-access"]
+        )
     }
 
     @Test("Rejects noninteractive Antigravity launches")

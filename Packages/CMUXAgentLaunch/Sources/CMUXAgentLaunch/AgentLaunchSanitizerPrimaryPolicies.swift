@@ -435,6 +435,9 @@ extension AgentLaunchSanitizer {
             "-p",
             "--sandbox",
         ],
+        optionalValueOptions: [
+            "--conversation",
+        ],
         nonRestorableCommands: [
             "changelog",
             "help",

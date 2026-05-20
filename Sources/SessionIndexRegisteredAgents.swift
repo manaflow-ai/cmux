@@ -139,10 +139,7 @@ extension SessionIndexStore {
                 metadata.sessionId = firstString(in: object, keys: ["sessionId", "session_id", "id"])
             }
             if metadata.cwd == nil {
-                metadata.cwd = firstString(
-                    in: object,
-                    keys: ["cwd", "workingDirectory", "workspacePath", "workspace", "projectPath", "directory"]
-                )
+                metadata.cwd = firstString(in: object, keys: registeredJSONLCWDKeys(for: registration))
             }
             if metadata.branch == nil, let git = object["git"] as? [String: Any] {
                 metadata.branch = firstString(in: git, keys: ["branch", "gitBranch"])
@@ -174,6 +171,15 @@ extension SessionIndexStore {
             metadata.cwd = fallbackCWD ?? piCWDInferred(from: url)
         }
         return metadata
+    }
+
+    nonisolated private static func registeredJSONLCWDKeys(for registration: CmuxVaultAgentRegistration) -> [String] {
+        var keys = ["cwd", "workingDirectory", "workspacePath", "projectPath", "directory"]
+        if registration.id == "antigravity" {
+            let index = keys.firstIndex(of: "workspacePath").map { keys.index(after: $0) } ?? keys.endIndex
+            keys.insert("workspace", at: index)
+        }
+        return keys
     }
 
     nonisolated private static func fileContains(_ url: URL, needle: String) -> Bool {
