@@ -767,7 +767,7 @@ _cmux_git_config_include_condition_matches() {
 _cmux_git_origin_url_read_config_file() {
     local repo_path="$1" git_dir="$2" common_dir="$3" config_file="$4"
     local config_dir="" output=""
-    local kind="" condition="" value="" include_path=""
+    local kind="" entry_payload="" entry_value="" include_path=""
 
     [[ -r "$config_file" ]] || return 0
     case "$_cmux_git_origin_url_seen" in
@@ -883,16 +883,16 @@ _cmux_git_origin_url_read_config_file() {
         }
     ' "$config_file" 2>/dev/null)"
 
-    while IFS=$'\t' read -r kind condition value; do
+    while IFS=$'\t' read -r kind entry_payload entry_value; do
         case "$kind" in
             remote)
-                [[ -n "$condition" ]] && _cmux_git_origin_url_result="$condition" ;;
+                [[ -n "$entry_payload" ]] && _cmux_git_origin_url_result="$entry_payload" ;;
             include)
-                include_path="$(_cmux_git_config_resolve_include_path "$condition" "$config_dir")"
+                include_path="$(_cmux_git_config_resolve_include_path "$entry_payload" "$config_dir")"
                 [[ -r "$include_path" ]] && _cmux_git_origin_url_read_config_file "$repo_path" "$git_dir" "$common_dir" "$include_path" ;;
             includeIf)
-                if _cmux_git_config_include_condition_matches "$condition" "$repo_path" "$git_dir" "$common_dir"; then
-                    include_path="$(_cmux_git_config_resolve_include_path "$value" "$config_dir")"
+                if _cmux_git_config_include_condition_matches "$entry_payload" "$repo_path" "$git_dir" "$common_dir"; then
+                    include_path="$(_cmux_git_config_resolve_include_path "$entry_value" "$config_dir")"
                     [[ -r "$include_path" ]] && _cmux_git_origin_url_read_config_file "$repo_path" "$git_dir" "$common_dir" "$include_path"
                 fi ;;
         esac
