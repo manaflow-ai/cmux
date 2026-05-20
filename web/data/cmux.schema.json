@@ -655,6 +655,11 @@
           "default": "",
           "description": "Custom path to the claude binary."
         },
+        "ripgrepBinaryPath": {
+          "type": "string",
+          "default": "",
+          "description": "Custom path to the ripgrep (rg) binary used by project search."
+        },
         "cursorIntegration": {
           "type": "boolean",
           "default": true,
@@ -704,7 +709,7 @@
         },
         "discardHiddenWebViews": {
           "type": "boolean",
-          "default": true,
+          "default": false,
           "description": "Allow hidden browser tabs to release page memory and restore when shown again."
         },
         "hiddenWebViewDiscardDelaySeconds": {
