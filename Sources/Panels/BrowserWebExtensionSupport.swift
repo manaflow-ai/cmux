@@ -248,7 +248,6 @@ struct BrowserWebExtensionProfileState: Codable, Equatable, Sendable {
 
 struct BrowserWebExtensionInstallRecord: Codable, Equatable, Identifiable, Sendable {
     enum SourceKind: String, Codable, Sendable {
-        case legacyResourceBaseURL = "resourceBaseURL"
         case appExtensionBundle
     }
 
@@ -334,6 +333,63 @@ struct BrowserWebExtensionInstallRecord: Codable, Equatable, Identifiable, Senda
     }
 }
 
+private struct BrowserWebExtensionPersistedInstallRecord: Decodable {
+    let id: UUID
+    let displayName: String
+    let displayVersion: String?
+    let sourceKind: String
+    let sourcePath: String
+    let isEnabled: Bool
+    let grantedPermissions: [String]
+    let grantedPermissionMatchPatterns: [String]
+    let profileStates: [String: BrowserWebExtensionProfileState]
+
+    func installRecord() -> BrowserWebExtensionInstallRecord? {
+        guard let sourceKind = BrowserWebExtensionInstallRecord.SourceKind(rawValue: sourceKind) else {
+            return nil
+        }
+        return BrowserWebExtensionInstallRecord(
+            id: id,
+            displayName: displayName,
+            displayVersion: displayVersion,
+            sourceKind: sourceKind,
+            sourcePath: sourcePath,
+            isEnabled: isEnabled,
+            grantedPermissions: grantedPermissions,
+            grantedPermissionMatchPatterns: grantedPermissionMatchPatterns,
+            profileStates: profileStates
+        )
+    }
+
+    enum CodingKeys: String, CodingKey {
+        case id
+        case displayName
+        case displayVersion
+        case sourceKind
+        case sourcePath
+        case isEnabled
+        case grantedPermissions
+        case grantedPermissionMatchPatterns
+        case profileStates
+    }
+
+    init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        id = try container.decode(UUID.self, forKey: .id)
+        displayName = try container.decode(String.self, forKey: .displayName)
+        displayVersion = try container.decodeIfPresent(String.self, forKey: .displayVersion)
+        sourceKind = try container.decode(String.self, forKey: .sourceKind)
+        sourcePath = try container.decode(String.self, forKey: .sourcePath)
+        isEnabled = try container.decode(Bool.self, forKey: .isEnabled)
+        grantedPermissions = try container.decode([String].self, forKey: .grantedPermissions)
+        grantedPermissionMatchPatterns = try container.decode([String].self, forKey: .grantedPermissionMatchPatterns)
+        profileStates = try container.decodeIfPresent(
+            [String: BrowserWebExtensionProfileState].self,
+            forKey: .profileStates
+        ) ?? [:]
+    }
+}
+
 struct BrowserWebExtensionInstallSource: Equatable, Sendable {
     let kind: BrowserWebExtensionInstallRecord.SourceKind
     let url: URL
@@ -345,8 +401,6 @@ func browserWebExtensionSourceDescription(
     switch sourceKind {
     case .appExtensionBundle:
         return String(localized: "browser.extensions.summary.appExtension", defaultValue: "Safari app extension")
-    case .legacyResourceBaseURL:
-        return String(localized: "browser.extensions.summary.unsupportedLocalExtension", defaultValue: "Unsupported legacy extension")
     }
 }
 
@@ -375,8 +429,6 @@ func browserWebExtensionContextUniqueIdentifier(
     profileID: UUID
 ) -> String? {
     switch record.sourceKind {
-    case .legacyResourceBaseURL:
-        return nil
     case .appExtensionBundle:
         let bundleIdentifier = Bundle(url: URL(fileURLWithPath: record.sourcePath))?
             .bundleIdentifier?
@@ -494,9 +546,10 @@ final class BrowserWebExtensionInstallStore {
 
         do {
             let data = try Data(contentsOf: registryURL)
-            let decoded = try JSONDecoder().decode([BrowserWebExtensionInstallRecord].self, from: data)
+            let persisted = try JSONDecoder().decode([BrowserWebExtensionPersistedInstallRecord].self, from: data)
+            let decoded = persisted.compactMap { $0.installRecord() }
             records = decoded.compactMap(sanitizedRecord)
-            if records != decoded {
+            if records.count != persisted.count || records != decoded {
                 try? persist()
             }
         } catch {
@@ -1420,8 +1473,6 @@ private final class BrowserWebExtensionRuntime: NSObject, WKWebExtensionControll
     private func loadWebExtension(from source: BrowserWebExtensionInstallSource) async throws -> WKWebExtension {
         do {
             switch source.kind {
-            case .legacyResourceBaseURL:
-                throw BrowserWebExtensionInstallError.unsupportedSource(source.url)
             case .appExtensionBundle:
                 guard let bundle = Bundle(url: source.url) else {
                     throw BrowserWebExtensionInstallError.unsupportedSource(source.url)

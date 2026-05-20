@@ -212,8 +212,10 @@ final class BrowserWebExtensionInstallStoreTests: XCTestCase {
         defer { try? FileManager.default.removeItem(at: root) }
 
         let registryURL = root.appendingPathComponent("registry.json")
+        let staleID = UUID()
+        let legacyID = UUID()
         let staleRecord = BrowserWebExtensionInstallRecord(
-            id: UUID(),
+            id: staleID,
             displayName: "Bitwarden",
             displayVersion: nil,
             sourceKind: .appExtensionBundle,
@@ -222,17 +224,21 @@ final class BrowserWebExtensionInstallStoreTests: XCTestCase {
             grantedPermissions: ["storage", "nativeMessaging", "webNavigation", "webRequestAuthProvider", "menus"],
             grantedPermissionMatchPatterns: ["https://example.com/*"]
         )
-        let legacyLocalRecord = BrowserWebExtensionInstallRecord(
-            id: UUID(),
-            displayName: "Legacy Local Extension",
-            displayVersion: nil,
-            sourceKind: .legacyResourceBaseURL,
-            sourcePath: root.appendingPathComponent("LegacyLocalExtension").path,
-            isEnabled: true,
-            grantedPermissions: ["storage"],
-            grantedPermissionMatchPatterns: []
-        )
-        try JSONEncoder().encode([staleRecord, legacyLocalRecord]).write(to: registryURL)
+        let staleJSON = try XCTUnwrap(String(data: JSONEncoder().encode(staleRecord), encoding: .utf8))
+        let legacyJSON = """
+        {
+          "id": "\(legacyID.uuidString)",
+          "displayName": "Legacy Local Extension",
+          "displayVersion": null,
+          "sourceKind": "resourceBaseURL",
+          "sourcePath": "\(root.appendingPathComponent("LegacyLocalExtension").path)",
+          "isEnabled": true,
+          "grantedPermissions": ["storage"],
+          "grantedPermissionMatchPatterns": [],
+          "profileStates": {}
+        }
+        """
+        try "[\(staleJSON),\(legacyJSON)]".write(to: registryURL, atomically: true, encoding: .utf8)
 
         let store = BrowserWebExtensionInstallStore(registryURL: registryURL)
 
@@ -685,17 +691,10 @@ final class BrowserWebExtensionWebKitLoadingTests: XCTestCase {
         XCTAssertFalse(unsupportedAPIs.contains("chrome.webNavigation"))
     }
 
-    func testHostCapabilityPolicyGrantsOnlySafariAppExtensionSources() {
+    func testHostCapabilityPolicyGrantsSafariAppExtensionPermissions() {
         let policy = BrowserWebExtensionHostCapabilityPolicy.current
         let requestedPermissions = ["storage", "nativeMessaging"]
 
-        XCTAssertEqual(
-            policy.grantablePermissionNames(
-                from: requestedPermissions,
-                sourceKind: .legacyResourceBaseURL
-            ),
-            []
-        )
         XCTAssertEqual(
             Set(policy.grantablePermissionNames(
                 from: requestedPermissions,
