@@ -3652,7 +3652,7 @@ final class AppDelegateShortcutRoutingTests: XCTestCase {
         }
 
         withTemporaryShortcut(
-            action: .triggerFlash,
+            action: .toggleReactGrab,
             shortcut: StoredShortcut(key: "/", command: true, shift: true, option: false, control: false)
         ) {
             guard let event = NSEvent.keyEvent(
