@@ -1062,6 +1062,18 @@ final class SocketClient {
         return defaultResponseTimeoutSeconds
     }()
 
+    private static func notConnectedMessage() -> String {
+        String(localized: "cli.socket.error.notConnected", defaultValue: "Not connected")
+    }
+
+    private static func commandTimedOutMessage() -> String {
+        String(localized: "cli.socket.error.commandTimedOut", defaultValue: "Command timed out")
+    }
+
+    private static func writeFailedMessage() -> String {
+        String(localized: "cli.socket.error.writeFailed", defaultValue: "Failed to write to socket")
+    }
+
     private static func isCompleteSingleLineResponse(_ data: Data) -> Bool {
         guard data.contains(UInt8(0x0A)),
               let response = String(data: data, encoding: .utf8) else {
@@ -1187,7 +1199,7 @@ final class SocketClient {
         if relayEndpoint != nil, socketFD < 0 {
             try connect()
         }
-        guard socketFD >= 0 else { throw CLIError(message: "Not connected") }
+        guard socketFD >= 0 else { throw CLIError(message: Self.notConnectedMessage()) }
         let shouldCloseAfterSend = relayEndpoint != nil
         defer {
             if shouldCloseAfterSend {
@@ -1210,8 +1222,8 @@ final class SocketClient {
         let payload = command + "\n"
         try writeAll(
             Data(payload.utf8),
-            timeoutMessage: "Command timed out",
-            failureMessage: "Failed to write to socket"
+            timeoutMessage: Self.commandTimedOutMessage(),
+            failureMessage: Self.writeFailedMessage()
         )
 
         var data = Data()
@@ -1282,7 +1294,7 @@ final class SocketClient {
     }
 
     func sendOneWay(command: String, writeTimeout: TimeInterval) throws {
-        guard socketFD >= 0 else { throw CLIError(message: "Not connected") }
+        guard socketFD >= 0 else { throw CLIError(message: Self.notConnectedMessage()) }
         defer { close() }
 
         // One-way telemetry requires the caller to own connection setup. This
@@ -1300,8 +1312,8 @@ final class SocketClient {
         let payload = command + "\n"
         try writeAll(
             Data(payload.utf8),
-            timeoutMessage: "Command timed out",
-            failureMessage: "Failed to write to socket"
+            timeoutMessage: Self.commandTimedOutMessage(),
+            failureMessage: Self.writeFailedMessage()
         )
 
         operation.phase = .completed
