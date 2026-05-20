@@ -688,7 +688,6 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
     private var pendingConfiguredShortcutChord: PendingConfiguredShortcutChord?
     var activeConfiguredShortcutChordPrefixForCurrentEvent: ShortcutStroke?
     var shortcutEventFocusContextCache: ShortcutEventFocusContextCache?
-    private var configuredShortcutChordActions: [KeyboardShortcutSettings.Action] = []
     private var ghosttyConfigObserver: NSObjectProtocol?
     private var ghosttyGotoSplitLeftShortcut: StoredShortcut?
     private var ghosttyGotoSplitRightShortcut: StoredShortcut?
@@ -6243,8 +6242,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         case .rightSidebarFileSearch:
             result = context.keyboardFocusCoordinator.focusFileSearch()
         case .mainPanelFind:
-            context.tabManager.startSearch()
-            result = context.tabManager.isFindVisible
+            result = context.tabManager.startSearch()
         case .none:
             result = false
         }
@@ -7403,8 +7401,20 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             )
         }
         if shouldTemporarilyDisallowFullScreenTiling {
-            DispatchQueue.main.async { [weak window] in
-                window?.collectionBehavior.remove(.fullScreenDisallowsTiling)
+            let clearFullScreenTilingOptOut: () -> Void = { [weak window] in
+                guard let window else { return }
+                window.collectionBehavior.remove(.fullScreenDisallowsTiling)
+                if window.collectionBehavior.contains(.fullScreenDisallowsTiling) {
+                    var behavior = window.collectionBehavior
+                    behavior.remove(.fullScreenDisallowsTiling)
+                    window.collectionBehavior = behavior
+                }
+            }
+            RunLoop.main.perform {
+                clearFullScreenTilingOptOut()
+            }
+            DispatchQueue.main.async {
+                clearFullScreenTilingOptOut()
             }
         }
         if let explicitInitialFrame {
@@ -11014,7 +11024,6 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
 
     private func installShortcutDefaultsObserver() {
         guard shortcutDefaultsObserver == nil else { return }
-        refreshConfiguredShortcutChordActions()
         shortcutDefaultsObserver = NotificationCenter.default.addObserver(
             forName: KeyboardShortcutSettings.didChangeNotification,
             object: nil,
@@ -11033,13 +11042,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
     }
 
     private func handleShortcutDefaultsDidChange() {
-        refreshConfiguredShortcutChordActions()
         clearConfiguredShortcutChordState()
         scheduleSplitButtonTooltipRefreshAcrossWorkspaces()
     }
 
-    private func refreshConfiguredShortcutChordActions() {
-        configuredShortcutChordActions = KeyboardShortcutSettings.Action.allCases.filter { action in
+    private func currentConfiguredShortcutChordActions() -> [KeyboardShortcutSettings.Action] {
+        KeyboardShortcutSettings.Action.allCases.filter { action in
             // System-wide hotkeys are dispatched via Carbon RegisterEventHotKey
             // and never routed through AppKit's local key handler. If a managed
             // cmux.json entry somehow stores one as a chord, arming the prefix
@@ -11720,12 +11728,23 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             return false
         }
 
+        if activeConfiguredShortcutChordPrefixForCurrentEvent == nil {
+            let focusContext = shortcutEventFocusContext(event)
+            let availableChordActions = currentConfiguredShortcutChordActions().filter { action in
+                action.shortcutContext.isAlwaysAvailable || action.shortcutContext.isAvailable(focusContext)
+            }
+            if armConfiguredShortcutChordIfNeeded(event: event, actions: availableChordActions) {
+                return true
+            }
+        }
+
         let configuredCmuxShortcutContext = preferredMainWindowContextForShortcutRouting(event: event)
         let configuredCmuxShortcutActions = configuredCmuxShortcutActions(for: configuredCmuxShortcutContext)
 
         if activeConfiguredShortcutChordPrefixForCurrentEvent == nil,
            armConfiguredShortcutChordIfNeeded(
                event: event,
+               actions: [],
                shortcuts: configuredCmuxShortcutActions.compactMap(\.shortcut)
            ) {
             return true
@@ -11814,7 +11833,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             // deferring the toggle, NSAnimationContext implicitly animates the
             // layout change.
             let preferredWindow = mainWindowForShortcutEvent(event) ?? event.window ?? NSApp.keyWindow ?? NSApp.mainWindow
-            Task { @MainActor [weak self, weak preferredWindow] in
+            DispatchQueue.main.async { [weak self, weak preferredWindow] in
                 _ = self?.toggleRightSidebarInActiveMainWindow(preferredWindow: preferredWindow)
             }
             return true
@@ -13204,7 +13223,6 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
     }
 
     func debugResetShortcutRoutingStateForTesting() {
-        refreshConfiguredShortcutChordActions()
         clearConfiguredShortcutChordState()
         shortcutEventFocusContextCache = nil
     }
@@ -13398,11 +13416,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
 
     private func armConfiguredShortcutChordIfNeeded(
         event: NSEvent,
-        actions: [KeyboardShortcutSettings.Action]? = nil,
+        actions: [KeyboardShortcutSettings.Action],
         shortcuts: [StoredShortcut] = []
     ) -> Bool {
         var seen = Set<StoredShortcut>()
-        let configuredShortcuts = (actions ?? configuredShortcutChordActions).map {
+        let configuredShortcuts = actions.map {
             KeyboardShortcutSettings.shortcut(for: $0)
         } + shortcuts
         for shortcut in configuredShortcuts {

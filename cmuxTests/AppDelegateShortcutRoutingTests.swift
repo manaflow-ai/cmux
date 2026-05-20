@@ -344,6 +344,9 @@ final class AppDelegateShortcutRoutingTests: XCTestCase {
             fallbackPath: nil,
             startWatching: false
         )
+        #if DEBUG
+        appDelegate.debugResetShortcutRoutingStateForTesting()
+        #endif
 
         window.makeKeyAndOrderFront(nil)
         RunLoop.main.run(until: Date(timeIntervalSinceNow: 0.05))
@@ -820,7 +823,9 @@ final class AppDelegateShortcutRoutingTests: XCTestCase {
         )
 
         appDelegate.debugCreateMainWindowSourceIsNativeFullScreenOverride = nil
-        RunLoop.main.run(until: Date(timeIntervalSinceNow: 0.05))
+        waitUntil(timeout: 1.0) {
+            !newWindow.collectionBehavior.contains(.fullScreenDisallowsTiling)
+        }
 
         XCTAssertFalse(
             newWindow.collectionBehavior.contains(.fullScreenDisallowsTiling),
@@ -1691,12 +1696,16 @@ final class AppDelegateShortcutRoutingTests: XCTestCase {
         }
 
         let windowId = appDelegate.createMainWindow()
+        defer { closeWindow(withId: windowId) }
         guard let targetWindow = window(withId: windowId) else {
             XCTFail("Expected test window")
             return
         }
+        targetWindow.makeKeyAndOrderFront(nil)
+        RunLoop.main.run(until: Date(timeIntervalSinceNow: 0.05))
 
         appDelegate.debugCloseMainWindowConfirmationHandler = { _ in true }
+        defer { appDelegate.debugCloseMainWindowConfirmationHandler = nil }
 
         guard let event = makeKeyDownEvent(
             key: "w",
@@ -1714,9 +1723,14 @@ final class AppDelegateShortcutRoutingTests: XCTestCase {
         XCTFail("debugHandleCustomShortcut is only available in DEBUG")
 #endif
 
-        RunLoop.main.run(until: Date(timeIntervalSinceNow: 0.05))
+        waitUntil(timeout: 1.0) {
+            self.window(withId: windowId)?.isVisible != true
+        }
 
-        XCTAssertNil(self.window(withId: windowId), "Confirming Cmd+Ctrl+W should close the window")
+        XCTAssertFalse(
+            self.window(withId: windowId)?.isVisible == true,
+            "Confirming Cmd+Ctrl+W should close the window"
+        )
     }
 
     // NOTE: This test is skipped in CI via -skip-testing in ci.yml because closing
@@ -1839,6 +1853,16 @@ final class AppDelegateShortcutRoutingTests: XCTestCase {
 
         AppDelegate.installWindowResponderSwizzlesForTesting()
 
+        let windowId = appDelegate.createMainWindow()
+        defer { closeWindow(withId: windowId) }
+
+        guard let mainWindow = window(withId: windowId) else {
+            XCTFail("Expected test main window")
+            return
+        }
+        mainWindow.makeKeyAndOrderFront(nil)
+        RunLoop.main.run(until: Date(timeIntervalSinceNow: 0.05))
+
         let previousMainMenu = NSApp.mainMenu
         let probeWindow = NSWindow(
             contentRect: NSRect(x: 0, y: 0, width: 320, height: 240),
@@ -1846,6 +1870,7 @@ final class AppDelegateShortcutRoutingTests: XCTestCase {
             backing: .buffered,
             defer: false
         )
+        probeWindow.isReleasedWhenClosed = false
         probeWindow.identifier = NSUserInterfaceItemIdentifier("cmux.browser-popup")
         let contentView = NSView(frame: probeWindow.contentRect(forFrameRect: probeWindow.frame))
         let probeView = GhosttyCommandEquivalentProbeView(frame: NSRect(x: 0, y: 0, width: 200, height: 120))
@@ -1854,6 +1879,8 @@ final class AppDelegateShortcutRoutingTests: XCTestCase {
         defer {
             NSApp.mainMenu = previousMainMenu
             probeWindow.orderOut(nil)
+            probeWindow.close()
+            RunLoop.main.run(until: Date(timeIntervalSinceNow: 0.05))
         }
 
         let staleMenu = NSMenu(title: "Test")
@@ -3327,6 +3354,8 @@ final class AppDelegateShortcutRoutingTests: XCTestCase {
             XCTFail("Expected focused browser panel")
             return
         }
+        window.makeKeyAndOrderFront(nil)
+        RunLoop.main.run(until: Date(timeIntervalSinceNow: 0.05))
 
         let field = OmnibarNativeTextField(frame: NSRect(x: 8, y: 8, width: 240, height: 24))
         field.identifier = browserOmnibarTextFieldIdentifier
@@ -3340,8 +3369,8 @@ final class AppDelegateShortcutRoutingTests: XCTestCase {
             field.removeFromSuperview()
         }
 
-        _ = browserPanel.requestAddressBarFocus()
-        NotificationCenter.default.post(name: .browserDidFocusAddressBar, object: browserPanelId)
+        XCTAssertTrue(appDelegate.requestBrowserAddressBarFocus(panelId: browserPanelId))
+        XCTAssertEqual(appDelegate.focusedBrowserAddressBarPanelId(), browserPanelId)
         _ = window.makeFirstResponder(nil)
         XCTAssertTrue(window.firstResponder === window)
 
@@ -4224,12 +4253,15 @@ final class AppDelegateShortcutRoutingTests: XCTestCase {
             XCTFail("Expected test window")
             return
         }
+        window.makeKeyAndOrderFront(nil)
+        RunLoop.main.run(until: Date(timeIntervalSinceNow: 0.05))
 
-        let overlayContainer = NSView(frame: contentView.bounds)
+        let overlayHost = contentView.superview ?? contentView
+        let overlayContainer = NSView(frame: overlayHost.bounds)
         overlayContainer.identifier = commandPaletteOverlayContainerIdentifier
         overlayContainer.alphaValue = 1
         overlayContainer.isHidden = false
-        contentView.addSubview(overlayContainer)
+        overlayHost.addSubview(overlayContainer)
 
         let fieldEditor = CommandPaletteMarkedTextFieldEditor(frame: NSRect(x: 0, y: 0, width: 200, height: 24))
         fieldEditor.isFieldEditor = true
@@ -4257,6 +4289,12 @@ final class AppDelegateShortcutRoutingTests: XCTestCase {
             moveExpectation.fulfill()
         }
         defer { NotificationCenter.default.removeObserver(moveToken) }
+
+        window.displayIfNeeded()
+        XCTAssertTrue(
+            window.makeFirstResponder(fieldEditor),
+            "Expected command palette field editor to own first responder"
+        )
 
         guard let downArrowEvent = makeKeyDownEvent(
             key: String(UnicodeScalar(NSDownArrowFunctionKey)!),
@@ -6068,6 +6106,19 @@ final class AppDelegateShortcutRoutingTests: XCTestCase {
             XCTFail("Expected focused terminal surface")
             return
         }
+        window.makeKeyAndOrderFront(nil)
+        window.displayIfNeeded()
+        terminalPanel.hostedView.setVisibleInUI(true)
+        terminalPanel.hostedView.setActive(true)
+        terminalPanel.hostedView.moveFocus()
+        waitUntil(timeout: 1.0) {
+            terminalPanel.hostedView.isSurfaceViewFirstResponder()
+        }
+        XCTAssertTrue(
+            terminalPanel.hostedView.isSurfaceViewFirstResponder(),
+            "Expected terminal surface to own first responder before Cmd+F"
+        )
+        RunLoop.main.run(until: Date(timeIntervalSinceNow: 0.05))
 
         appDelegate.noteTerminalKeyboardFocusIntent(workspaceId: workspace.id, panelId: terminalPanel.id, in: window)
 
@@ -6087,6 +6138,9 @@ final class AppDelegateShortcutRoutingTests: XCTestCase {
         XCTFail("debugHandleCustomShortcut is only available in DEBUG")
 #endif
 
+        waitUntil(timeout: 1.0) {
+            terminalPanel.searchState != nil
+        }
         XCTAssertNotNil(terminalPanel.searchState, "Cmd+F from terminal focus should create terminal search state")
     }
 
@@ -6473,6 +6527,13 @@ final class AppDelegateShortcutRoutingTests: XCTestCase {
         defer { appDelegate?.debugCloseMainWindowConfirmationHandler = originalConfirmationHandler }
         window.performClose(nil)
         RunLoop.main.run(until: Date(timeIntervalSinceNow: 0.05))
+    }
+
+    private func waitUntil(timeout: TimeInterval, condition: () -> Bool) {
+        let deadline = Date(timeIntervalSinceNow: timeout)
+        while !condition(), Date() < deadline {
+            RunLoop.main.run(until: Date(timeIntervalSinceNow: 0.01))
+        }
     }
 
     private func restoreDefaultsValue(_ value: Any?, forKey key: String, defaults: UserDefaults) {
