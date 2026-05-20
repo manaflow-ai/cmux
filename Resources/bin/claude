@@ -194,6 +194,10 @@ exec_real_claude_passthrough() {
 
 if [[ "$CMUX_CLAUDE_HOOKS_DISABLED" == "1" ]]; then
     # User-managed hooks need the original cmux terminal environment.
+    if [[ "$IN_CMUX" == "1" ]]; then
+        unset CLAUDECODE
+    fi
+    clear_inherited_claude_auth_selection_env
     REAL_CLAUDE="$(find_real_claude)" || { echo "Error: claude not found in PATH" >&2; exit 127; }
     exec "$REAL_CLAUDE" "$@"
 fi

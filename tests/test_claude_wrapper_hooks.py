@@ -345,6 +345,7 @@ def run_wrapper_auth_env(
     *,
     argv: list[str],
     inherited_env: dict[str, str],
+    hooks_disabled: bool = False,
     setup_env=None,
 ) -> tuple[int, dict[str, str], list[str], str]:
     with tempfile.TemporaryDirectory(prefix="cmux-claude-wrapper-auth-env-") as td:
@@ -440,6 +441,8 @@ exit 0
             env["CMUX_SOCKET_PATH"] = socket_path
             env["FAKE_AUTH_ENV_LOG"] = str(auth_env_log)
             env["FAKE_ARGS_LOG"] = str(args_log)
+            if hooks_disabled:
+                env["CMUX_CLAUDE_HOOKS_DISABLED"] = "1"
             if setup_env is not None:
                 env.update(setup_env(tmp))
             env.update(inherited_env)
@@ -701,6 +704,29 @@ def test_live_socket_preserves_third_party_claude_auth_for_fresh_launch(failures
     ]:
         expect(auth_env.get(key) == "__UNSET__", f"fresh auth env: expected {key} unset, got {auth_env.get(key)!r}", failures)
     expect("--session-id" in real_argv, f"fresh auth env: expected session injection, got {real_argv}", failures)
+
+
+def test_hooks_disabled_clears_stale_auth_selection_before_passthrough(failures: list[str]) -> None:
+    inherited = {
+        "CLAUDE_CONFIG_DIR": "/tmp/claude-config",
+        "ANTHROPIC_API_KEY": "stale-api-key",
+        "ANTHROPIC_MODEL": "stale-model",
+        "ANTHROPIC_SMALL_FAST_MODEL": "stale-small-model",
+    }
+    code, auth_env, real_argv, stderr = run_wrapper_auth_env(
+        argv=["hello"],
+        hooks_disabled=True,
+        inherited_env=inherited,
+    )
+    expect(code == 0, f"hooks-disabled auth env: wrapper exited {code}: {stderr}", failures)
+    expect(auth_env.get("CLAUDE_CONFIG_DIR") == "/tmp/claude-config", f"hooks-disabled auth env: expected CLAUDE_CONFIG_DIR preserved, got {auth_env.get('CLAUDE_CONFIG_DIR')!r}", failures)
+    for key in [
+        "ANTHROPIC_API_KEY",
+        "ANTHROPIC_MODEL",
+        "ANTHROPIC_SMALL_FAST_MODEL",
+    ]:
+        expect(auth_env.get(key) == "__UNSET__", f"hooks-disabled auth env: expected {key} unset, got {auth_env.get(key)!r}", failures)
+    expect(real_argv == ["hello"], f"hooks-disabled auth env: expected passthrough args, got {real_argv}", failures)
 
 
 def test_live_socket_normalizes_subrouter_claude_config_dir(failures: list[str]) -> None:
@@ -1090,7 +1116,7 @@ def test_disabled_integration_skips_hook_injection(failures: list[str]) -> None:
     expect("--settings" not in real_argv, f"disabled integration: expected no --settings injection, got {real_argv}", failures)
     expect("notifications_disabled" not in " ".join(real_argv), f"disabled integration: expected no notification suppression, got {real_argv}", failures)
     expect(cmux_log == [], f"disabled integration: expected no cmux calls, got {cmux_log}", failures)
-    expect(claudecode == "nested-session-sentinel", f"disabled integration: expected CLAUDECODE passthrough, got {claudecode!r}", failures)
+    expect(claudecode == "__UNSET__", f"disabled integration: expected CLAUDECODE unset, got {claudecode!r}", failures)
     expect(node_options == "__UNSET__", f"disabled integration: expected NODE_OPTIONS passthrough, got {node_options!r}", failures)
     expect(runtime_node_options == "__UNSET__", f"disabled integration: expected runtime NODE_OPTIONS passthrough, got {runtime_node_options!r}", failures)
     expect(child_node_options == "__UNSET__", f"disabled integration: expected child NODE_OPTIONS passthrough, got {child_node_options!r}", failures)
@@ -1126,6 +1152,7 @@ def main() -> int:
     test_agents_subcommand_removes_cmux_terminal_fingerprint(failures)
     test_hooks_disabled_preserves_cmux_terminal_env_for_custom_hooks(failures)
     test_live_socket_preserves_third_party_claude_auth_for_fresh_launch(failures)
+    test_hooks_disabled_clears_stale_auth_selection_before_passthrough(failures)
     test_live_socket_normalizes_subrouter_claude_config_dir(failures)
     test_live_socket_preserves_claude_auth_for_resume_launch(failures)
     test_live_socket_preserves_only_listed_claude_auth_keys(failures)
