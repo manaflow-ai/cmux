@@ -2318,7 +2318,11 @@ enum KeyboardShortcutRecorderActivity {
 
 #if DEBUG
     static func resetForTesting(center: NotificationCenter = .default) {
-        stopAllRecording(center: center)
+        let wasActive = isAnyRecorderActive
+        activeRecorderCount = 0
+        if wasActive {
+            center.post(name: didChangeNotification, object: nil)
+        }
     }
 #endif
 }
