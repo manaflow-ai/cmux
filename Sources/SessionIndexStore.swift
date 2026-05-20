@@ -1094,8 +1094,11 @@ final class SessionIndexStore: ObservableObject {
                 cwdFilter = scopedCwd?.isEmpty == false ? scopedCwd : nil
                 registry = await Self.vaultAgentRegistry(workingDirectory: cwdFilter)
             } else if a == .grok {
+                let scopedCwd = currentDirectory?.trimmingCharacters(in: .whitespacesAndNewlines)
                 cwdFilter = nil
-                registry = await Self.vaultAgentRegistry(workingDirectory: nil)
+                registry = await Self.vaultAgentRegistry(
+                    workingDirectory: scopedCwd?.isEmpty == false ? scopedCwd : nil
+                )
             } else {
                 cwdFilter = nil
                 registry = CmuxVaultAgentRegistry(registrations: [])

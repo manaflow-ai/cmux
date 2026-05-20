@@ -19524,49 +19524,78 @@ struct CMUXCLI {
               !cwd.isEmpty else {
             return nil
         }
-        let projectURL = grokSessionsRoot(env: env)
-            .appendingPathComponent(grokEncodedSessionCWD(cwd), isDirectory: true)
+        let sessionsRoot = grokSessionsRoot(env: env)
         let fileManager = FileManager.default
-        var isDirectory = ObjCBool(false)
-        guard fileManager.fileExists(atPath: projectURL.path, isDirectory: &isDirectory),
-              isDirectory.boolValue else {
+        let projectURLs = grokEncodedSessionCWDs(cwd).compactMap { encodedCWD -> URL? in
+            let projectURL = sessionsRoot.appendingPathComponent(encodedCWD, isDirectory: true)
+            var isDirectory = ObjCBool(false)
+            guard fileManager.fileExists(atPath: projectURL.path, isDirectory: &isDirectory),
+                  isDirectory.boolValue else {
+                return nil
+            }
+            return projectURL
+        }
+        guard !projectURLs.isEmpty else {
             return nil
         }
 
         if let sessionId = sessionId?.trimmingCharacters(in: .whitespacesAndNewlines),
            !sessionId.isEmpty {
-            let sessionURL = projectURL.appendingPathComponent(sessionId, isDirectory: true)
-            if fileManager.fileExists(atPath: sessionURL.path, isDirectory: &isDirectory),
-               isDirectory.boolValue {
-                return sessionURL
+            for projectURL in projectURLs {
+                let sessionURL = projectURL.appendingPathComponent(sessionId, isDirectory: true)
+                var isDirectory = ObjCBool(false)
+                if fileManager.fileExists(atPath: sessionURL.path, isDirectory: &isDirectory),
+                   isDirectory.boolValue {
+                    return sessionURL
+                }
             }
             return nil
         }
 
-        guard let sessionURLs = try? fileManager.contentsOfDirectory(
-            at: projectURL,
-            includingPropertiesForKeys: [.contentModificationDateKey, .isDirectoryKey],
-            options: [.skipsHiddenFiles]
-        ) else {
+        return projectURLs.compactMap { projectURL -> URL? in
+            guard let sessionURLs = try? fileManager.contentsOfDirectory(
+                at: projectURL,
+                includingPropertiesForKeys: [.contentModificationDateKey, .isDirectoryKey],
+                options: [.skipsHiddenFiles]
+            ) else {
+                return nil
+            }
+            return sessionURLs
+                .filter { url in
+                    ((try? url.resourceValues(forKeys: [.isDirectoryKey]).isDirectory) ?? false)
+                        && fileManager.fileExists(atPath: url.appendingPathComponent("chat_history.jsonl").path)
+                }
+                .max { lhs, rhs in
+                    grokHistoryModifiedDate(lhs) < grokHistoryModifiedDate(rhs)
+                }
+        }.max { lhs, rhs in
+            grokHistoryModifiedDate(lhs) < grokHistoryModifiedDate(rhs)
+        }
+    }
+
+    private func grokHistoryModifiedDate(_ sessionURL: URL) -> Date {
+        (try? sessionURL
+            .appendingPathComponent("chat_history.jsonl")
+            .resourceValues(forKeys: [.contentModificationDateKey])
+            .contentModificationDate) ?? .distantPast
+    }
+
+    private func grokEncodedSessionCWDs(_ cwd: String) -> [String] {
+        guard let rawCwd = grokNormalizedHookPath(cwd) else {
+            return []
+        }
+        var seen = Set<String>()
+        return [rawCwd, (rawCwd as NSString).standardizingPath]
+            .map(grokEncodedSessionCWD)
+            .filter { seen.insert($0).inserted }
+    }
+
+    private func grokNormalizedHookPath(_ value: String?) -> String? {
+        let trimmed = value?.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard let trimmed, !trimmed.isEmpty else {
             return nil
         }
-
-        return sessionURLs
-            .filter { url in
-                ((try? url.resourceValues(forKeys: [.isDirectoryKey]).isDirectory) ?? false)
-                    && fileManager.fileExists(atPath: url.appendingPathComponent("chat_history.jsonl").path)
-            }
-            .max { lhs, rhs in
-                let leftDate = (try? lhs
-                    .appendingPathComponent("chat_history.jsonl")
-                    .resourceValues(forKeys: [.contentModificationDateKey])
-                    .contentModificationDate) ?? .distantPast
-                let rightDate = (try? rhs
-                    .appendingPathComponent("chat_history.jsonl")
-                    .resourceValues(forKeys: [.contentModificationDateKey])
-                    .contentModificationDate) ?? .distantPast
-                return leftDate < rightDate
-            }
+        return trimmed
     }
 
     private func grokSessionsRoot(env: [String: String]) -> URL {

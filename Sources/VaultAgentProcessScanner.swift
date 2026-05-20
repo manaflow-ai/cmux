@@ -743,12 +743,16 @@ private struct VaultObservedAgentProcess: Sendable {
 
 private extension CmuxVaultAgentDetectRule {
     func matches(_ process: VaultObservedAgentProcess) -> Bool {
-        guard processName != nil || !argvContains.isEmpty else { return false }
-        let processNameMatch = processName.map { expected in
+        var expectedNames = processNames
+        if let processName {
+            expectedNames.append(processName)
+        }
+        guard !expectedNames.isEmpty || !argvContains.isEmpty else { return false }
+        let processNameMatch = expectedNames.isEmpty || expectedNames.contains { expected in
             process.executableBasenames.contains { candidate in
                 candidate.compare(expected, options: [.caseInsensitive, .literal]) == .orderedSame
             }
-        } ?? true
+        }
         let argvContainsMatch = argvContains.isEmpty || argvContains.allSatisfy { needle in
             if needle.contains(" ") {
                 let joinedArguments = process.arguments.joined(separator: " ")
@@ -794,13 +798,7 @@ private extension CmuxVaultAgentSessionIDSource {
                 ?? process.arguments.value(afterOption: "--resume") {
                 return session
             }
-            let cwd = process.environment["CMUX_AGENT_LAUNCH_CWD"] ?? process.environment["PWD"]
-            return GrokSessionLocator.latestSessionId(
-                cwd: cwd,
-                registration: registration,
-                environment: process.environment,
-                fileManager: fileManager
-            )
+            return nil
         }
     }
 }

@@ -106,6 +106,10 @@ struct CmuxVaultAgentRegistration: Codable, Hashable, Sendable {
            !processName.isEmpty {
             return processName
         }
+        if let processName = detect.processNames.first?.trimmingCharacters(in: .whitespacesAndNewlines),
+           !processName.isEmpty {
+            return processName
+        }
         return id
     }
 
@@ -126,7 +130,7 @@ struct CmuxVaultAgentRegistration: Codable, Hashable, Sendable {
         CmuxVaultAgentRegistration(
             id: "grok",
             name: "Grok",
-            detect: CmuxVaultAgentDetectRule(argvContains: ["grok"]),
+            detect: CmuxVaultAgentDetectRule(processNames: ["grok", "grok-macos-aarch64", "grok-macos-aarch"]),
             sessionIdSource: .grokSessionDirectory,
             resumeCommand: "{{executable}} -r {{sessionId}}",
             cwd: .preserve,
@@ -137,14 +141,19 @@ struct CmuxVaultAgentRegistration: Codable, Hashable, Sendable {
 
 struct CmuxVaultAgentDetectRule: Codable, Hashable, Sendable {
     var processName: String?
+    var processNames: [String]
     var argvContains: [String]
 
     private enum CodingKeys: String, CodingKey {
-        case processName, argvContains
+        case processName, processNames, argvContains
     }
 
-    init(processName: String? = nil, argvContains: [String] = []) {
-        self.processName = processName?.trimmingCharacters(in: .whitespacesAndNewlines)
+    init(processName: String? = nil, processNames: [String] = [], argvContains: [String] = []) {
+        let name = processName?.trimmingCharacters(in: .whitespacesAndNewlines)
+        self.processName = name?.isEmpty == true ? nil : name
+        self.processNames = processNames
+            .map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }
+            .filter { !$0.isEmpty }
         self.argvContains = argvContains
             .map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }
             .filter { !$0.isEmpty }
@@ -155,6 +164,7 @@ struct CmuxVaultAgentDetectRule: Codable, Hashable, Sendable {
         let name = try container.decodeIfPresent(String.self, forKey: .processName)?
             .trimmingCharacters(in: .whitespacesAndNewlines)
         processName = name?.isEmpty == true ? nil : name
+        processNames = try Self.decodeOneOrManyStrings(forKey: .processNames, in: container)
         argvContains = try Self.decodeOneOrManyStrings(forKey: .argvContains, in: container)
     }
 

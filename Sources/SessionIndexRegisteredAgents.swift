@@ -33,8 +33,22 @@ enum GrokSessionLocator {
 
     static func workingDirectory(fromProjectDirectoryName name: String) -> String? {
         let decoded = name.removingPercentEncoding ?? name
-        let trimmed = decoded.trimmingCharacters(in: .whitespacesAndNewlines)
-        return trimmed.isEmpty ? nil : trimmed
+        return normalizedWorkingDirectory(decoded)
+    }
+
+    static func normalizedWorkingDirectory(_ value: String?) -> String? {
+        let trimmed = normalized(value)
+        return trimmed.map { ($0 as NSString).standardizingPath }
+    }
+
+    static func encodedSessionCWDs(for cwd: String) -> [String] {
+        guard let rawCwd = normalized(cwd) else {
+            return []
+        }
+        var seen = Set<String>()
+        return [rawCwd, (rawCwd as NSString).standardizingPath]
+            .map(encodedSessionCWD)
+            .filter { seen.insert($0).inserted }
     }
 
     static func sessionRoot(
@@ -78,51 +92,10 @@ enum GrokSessionLocator {
         guard let cwdFilter = normalized(cwdFilter) else {
             return [root]
         }
-        let scopedRoot = (root.sessionsRoot as NSString).appendingPathComponent(encodedSessionCWD(cwdFilter))
-        return [GrokSessionRoot(sessionsRoot: scopedRoot, grokHomeForResume: root.grokHomeForResume)]
-    }
-
-    static func latestSessionId(
-        cwd: String?,
-        registration: CmuxVaultAgentRegistration,
-        environment: [String: String],
-        fileManager: FileManager = .default
-    ) -> String? {
-        guard let cwd = normalized(cwd) else { return nil }
-        let root = sessionRoot(registration: registration, environment: environment)
-        let projectDirectory = (root.sessionsRoot as NSString).appendingPathComponent(encodedSessionCWD(cwd))
-        var isDirectory: ObjCBool = false
-        guard fileManager.fileExists(atPath: projectDirectory, isDirectory: &isDirectory),
-              isDirectory.boolValue,
-              let sessionURLs = try? fileManager.contentsOfDirectory(
-                  at: URL(fileURLWithPath: projectDirectory, isDirectory: true),
-                  includingPropertiesForKeys: [.contentModificationDateKey, .isDirectoryKey],
-                  options: [.skipsHiddenFiles]
-              ) else {
-            return nil
+        return encodedSessionCWDs(for: cwdFilter).map { encodedCwd in
+            let scopedRoot = (root.sessionsRoot as NSString).appendingPathComponent(encodedCwd)
+            return GrokSessionRoot(sessionsRoot: scopedRoot, grokHomeForResume: root.grokHomeForResume)
         }
-        return newestSessionDirectory(in: sessionURLs, fileManager: fileManager)?.lastPathComponent
-    }
-
-    private static func newestSessionDirectory(in urls: [URL], fileManager: FileManager) -> URL? {
-        urls
-            .filter { url in
-                let values = try? url.resourceValues(forKeys: [.isDirectoryKey])
-                guard values?.isDirectory == true else { return false }
-                return fileManager.fileExists(atPath: url.appendingPathComponent("chat_history.jsonl").path)
-            }
-            .max { lhs, rhs in
-                let leftDate = historyModifiedDate(for: lhs) ?? .distantPast
-                let rightDate = historyModifiedDate(for: rhs) ?? .distantPast
-                return leftDate < rightDate
-            }
-    }
-
-    private static func historyModifiedDate(for sessionDirectory: URL) -> Date? {
-        try? sessionDirectory
-            .appendingPathComponent("chat_history.jsonl", isDirectory: false)
-            .resourceValues(forKeys: [.contentModificationDateKey])
-            .contentModificationDate
     }
 
     private static func grokHomeForResume(sessionsRoot: String, defaultSessionsRoot: String) -> String? {
@@ -160,7 +133,8 @@ extension SessionIndexStore {
         needle: String,
         cwdFilter: String?,
         offset: Int,
-        limit: Int
+        limit: Int,
+        agent: SessionAgent = .grok
     ) async -> [SessionEntry] {
         let roots = GrokSessionLocator.sessionRoots(registration: registration, cwdFilter: cwdFilter)
         guard !roots.isEmpty else { return [] }
@@ -216,13 +190,29 @@ extension SessionIndexStore {
             let sessionDirectory = candidate.url.deletingLastPathComponent()
             let projectDirectory = sessionDirectory.deletingLastPathComponent().lastPathComponent
             let cwd = GrokSessionLocator.workingDirectory(fromProjectDirectoryName: projectDirectory)
-            if let cwdFilter, cwd != cwdFilter { continue }
+            if let cwdFilter,
+               GrokSessionLocator.normalizedWorkingDirectory(cwd)
+                != GrokSessionLocator.normalizedWorkingDirectory(cwdFilter) {
+                continue
+            }
 
             let metadata = extractGrokSessionMetadata(url: candidate.url)
             let sessionId = sessionDirectory.lastPathComponent
+            let specifics: AgentSpecifics
+            switch agent {
+            case .grok:
+                specifics = .grok(
+                    model: metadata.model,
+                    permissionMode: metadata.permissionMode,
+                    sandboxMode: metadata.sandboxMode,
+                    grokHome: candidate.root.grokHomeForResume
+                )
+            default:
+                specifics = .registered(registration)
+            }
             matches.append(SessionEntry(
-                id: "grok:\(sessionId)",
-                agent: .grok,
+                id: "\(registration.id):\(sessionId)",
+                agent: agent,
                 sessionId: sessionId,
                 title: metadata.title,
                 cwd: cwd,
@@ -230,12 +220,7 @@ extension SessionIndexStore {
                 pullRequest: nil,
                 modified: candidate.modified,
                 fileURL: candidate.url,
-                specifics: .grok(
-                    model: metadata.model,
-                    permissionMode: metadata.permissionMode,
-                    sandboxMode: metadata.sandboxMode,
-                    grokHome: candidate.root.grokHomeForResume
-                )
+                specifics: specifics
             ))
         }
         return Array(matches.dropFirst(offset).prefix(limit))
@@ -248,6 +233,16 @@ extension SessionIndexStore {
         offset: Int,
         limit: Int
     ) async -> [SessionEntry] {
+        if case .grokSessionDirectory = registration.sessionIdSource {
+            return await loadGrokEntries(
+                registration: registration,
+                needle: needle,
+                cwdFilter: cwdFilter,
+                offset: offset,
+                limit: limit,
+                agent: .registered(RegisteredSessionAgent(registration: registration))
+            )
+        }
         let roots = registeredSessionRoots(registration: registration, cwdFilter: cwdFilter)
         guard !roots.isEmpty else { return [] }
         let fm = FileManager.default

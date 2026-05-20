@@ -74,6 +74,8 @@ final class PiVaultAgentPersistenceTests: XCTestCase {
         XCTAssertEqual(registration.id, "grok")
         XCTAssertEqual(registration.sessionIdSource, .grokSessionDirectory)
         XCTAssertEqual(registration.sessionDirectory, "~/.grok/sessions")
+        XCTAssertEqual(registration.detect.processNames, ["grok", "grok-macos-aarch64", "grok-macos-aarch"])
+        XCTAssertTrue(registration.detect.argvContains.isEmpty)
     }
 
     func testRegisteredAgentTemplateFailsClosedWhenPlaceholderIsUnavailable() {
@@ -461,6 +463,54 @@ final class PiVaultAgentPersistenceTests: XCTestCase {
         )
     }
 
+    func testRegisteredGrokSessionDirectoryUsesNativeDirectoryLayout() async throws {
+        let tempDir = FileManager.default.temporaryDirectory
+            .appendingPathComponent("cmux-registered-grok-vault-\(UUID().uuidString)", isDirectory: true)
+        try FileManager.default.createDirectory(at: tempDir, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: tempDir) }
+
+        let cwd = "/tmp/custom grok repo"
+        let sessionId = "custom-grok-session-123"
+        let sessionsRoot = tempDir.appendingPathComponent("sessions", isDirectory: true)
+        let historyURL = sessionsRoot
+            .appendingPathComponent(GrokSessionLocator.encodedSessionCWD(cwd), isDirectory: true)
+            .appendingPathComponent(sessionId, isDirectory: true)
+            .appendingPathComponent("chat_history.jsonl", isDirectory: false)
+        try FileManager.default.createDirectory(
+            at: historyURL.deletingLastPathComponent(),
+            withIntermediateDirectories: true
+        )
+        try """
+        {"type":"user","content":"Resume a custom Grok-compatible agent","git":{"branch":"issue-4394-grok-vault-resume"}}
+        """.write(to: historyURL, atomically: true, encoding: .utf8)
+
+        let registration = CmuxVaultAgentRegistration(
+            id: "custom-grok",
+            name: "Custom Grok",
+            detect: CmuxVaultAgentDetectRule(processName: "custom-grok"),
+            sessionIdSource: .grokSessionDirectory,
+            resumeCommand: "custom-grok -r {{sessionId}}",
+            cwd: .preserve,
+            sessionDirectory: sessionsRoot.path
+        )
+        let entries = await SessionIndexStore.loadRegisteredAgentEntries(
+            registration: registration,
+            needle: "",
+            cwdFilter: nil,
+            offset: 0,
+            limit: 10
+        )
+
+        let entry = try XCTUnwrap(entries.first)
+        XCTAssertEqual(entry.id, "custom-grok:\(sessionId)")
+        XCTAssertEqual(entry.agent, .registered(RegisteredSessionAgent(registration: registration)))
+        XCTAssertEqual(entry.sessionId, sessionId)
+        XCTAssertEqual(entry.title, "Resume a custom Grok-compatible agent")
+        XCTAssertEqual(entry.cwd, cwd)
+        XCTAssertEqual(entry.gitBranch, "issue-4394-grok-vault-resume")
+        XCTAssertEqual(entry.resumeCommand, "cd '/tmp/custom grok repo' && 'custom-grok' '-r' '\(sessionId)'")
+    }
+
     func testGrokVaultCWDFilterUsesEncodedProjectDirectory() async throws {
         let tempDir = FileManager.default.temporaryDirectory
             .appendingPathComponent("cmux-grok-vault-filter-\(UUID().uuidString)", isDirectory: true)
@@ -489,7 +539,7 @@ final class PiVaultAgentPersistenceTests: XCTestCase {
         let entries = await SessionIndexStore.loadGrokEntries(
             registration: registration,
             needle: "",
-            cwdFilter: "/tmp/current grok repo",
+            cwdFilter: "/tmp/current grok repo/../current grok repo",
             offset: 0,
             limit: 10
         )

@@ -1408,10 +1408,14 @@ private enum SessionTranscriptLoader {
         id: Int
     ) -> SessionTranscriptTurn? {
         let fallbackRole: SessionTranscriptRole? = { if case .registered = agent { return .event }; return nil }()
-        let grokTypeRole: SessionTranscriptRole? = agent == .grok
+        let rawRole = object["role"] as? String
+        let parsedRole = transcriptRole(from: rawRole)
+        let shouldUseGrokTypeRole = agent == .grok
+            && (parsedRole == nil || (parsedRole == .event && rawRole?.caseInsensitiveCompare("event") != .orderedSame))
+        let roleFromType: SessionTranscriptRole? = shouldUseGrokTypeRole
             ? transcriptRole(from: object["type"] as? String)
             : nil
-        guard let role = transcriptRole(from: object["role"] as? String) ?? grokTypeRole ?? fallbackRole else {
+        guard let role = roleFromType ?? parsedRole ?? fallbackRole else {
             return nil
         }
         let content = object["content"] ?? object["text"] ?? object["message"]
