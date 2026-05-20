@@ -10574,7 +10574,7 @@ final class Workspace: Identifiable, ObservableObject {
 
     private func maybeDemoteRemoteWorkspaceAfterSSHSessionEnded() {
         guard activeRemoteTerminalSurfaceIds.isEmpty, remoteConfiguration != nil else { return }
-        if remoteConfiguration?.terminalStartupCommand?.contains("ssh-pty-attach") == true {
+        if remoteConfiguration?.preserveAfterTerminalExit == true {
             return
         }
         let hasBrowserPanels = panels.values.contains { $0 is BrowserPanel }
@@ -10697,7 +10697,8 @@ final class Workspace: Identifiable, ObservableObject {
         // away through `untrackRemoteTerminalSurface` → `disconnectRemoteConnection`.
         // The banner only matters if we end up demoting this workspace to local, so
         // `createReplacementTerminalPanel` consumes and clears the value.
-        if let displayTarget = remoteConfiguration?.displayTarget {
+        if remoteConfiguration?.preserveAfterTerminalExit != true,
+           let displayTarget = remoteConfiguration?.displayTarget {
             pendingReplacementBannerRemoteTarget = displayTarget
         }
         pendingRemoteTerminalChildExitSurfaceIds.insert(surfaceId)

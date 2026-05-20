@@ -92,6 +92,7 @@ struct WorkspaceRemoteConfiguration: Equatable {
     let terminalStartupCommand: String?
     let foregroundAuthToken: String?
     let daemonWebSocketEndpoint: WorkspaceRemoteWebSocketDaemonEndpoint?
+    let preserveAfterTerminalExit: Bool
     /// True for cloud-VM remotes (Freestyle snapshots) where cmuxd-remote is pre-baked in
     /// the image and started via systemd. Skip the upload+exec bootstrap entirely and synthesize
     /// a `DaemonHello`. Reverse-relay still stays off, but SSH-backed VM workspaces can talk to
@@ -112,6 +113,7 @@ struct WorkspaceRemoteConfiguration: Equatable {
         terminalStartupCommand: String?,
         foregroundAuthToken: String? = nil,
         daemonWebSocketEndpoint: WorkspaceRemoteWebSocketDaemonEndpoint? = nil,
+        preserveAfterTerminalExit: Bool = false,
         skipDaemonBootstrap: Bool = false
     ) {
         self.transport = transport
@@ -127,6 +129,7 @@ struct WorkspaceRemoteConfiguration: Equatable {
         self.terminalStartupCommand = terminalStartupCommand
         self.foregroundAuthToken = foregroundAuthToken
         self.daemonWebSocketEndpoint = daemonWebSocketEndpoint
+        self.preserveAfterTerminalExit = preserveAfterTerminalExit
         self.skipDaemonBootstrap = skipDaemonBootstrap
     }
 

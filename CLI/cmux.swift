@@ -5670,6 +5670,9 @@ struct CMUXCLI {
             if sshOptions.skipDaemonBootstrap {
                 configureParams["skip_daemon_bootstrap"] = true
             }
+            if usesPersistentSSHPTY {
+                configureParams["preserve_after_terminal_exit"] = true
+            }
 
             cliDebugLog(
                 "cli.ssh.remote.configure workspace=\(String(workspaceId.prefix(8))) " +

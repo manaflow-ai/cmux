@@ -716,6 +716,63 @@ func TestRPCServerUntrackPTYAttachmentKeepsNewerReattach(t *testing.T) {
 	}
 }
 
+func TestPTYReplayIsChunkedBelowRPCFrameBuffer(t *testing.T) {
+	const swiftRPCMaxFrameBytes = 256 * 1024
+
+	sessionKey := persistentPTYSessionKey("chunked")
+	attachment := &wsPTYAttachment{
+		sessionKey: sessionKey,
+		id:         "att-chunked",
+		send:       make(chan wsPTYOutgoingFrame, defaultWebSocketWriteQueueCap),
+		cancel:     func() {},
+		persistent: true,
+	}
+	replay := bytes.Repeat([]byte("x"), defaultWebSocketReplayChunkBytes*2+17)
+
+	if ok := enqueuePTYReplay(attachment, replay); !ok {
+		t.Fatalf("enqueuePTYReplay returned false")
+	}
+
+	var joined []byte
+	frameCount := 0
+	for {
+		select {
+		case frame := <-attachment.send:
+			frameCount++
+			if len(frame.payload) > defaultWebSocketReplayChunkBytes {
+				t.Fatalf("replay chunk length = %d, want <= %d", len(frame.payload), defaultWebSocketReplayChunkBytes)
+			}
+			event := rpcPTYEventForFrame(attachment, frame)
+			if event.Event != "pty.data" {
+				t.Fatalf("event = %q, want pty.data", event.Event)
+			}
+			eventLine, err := json.Marshal(event)
+			if err != nil {
+				t.Fatalf("marshal pty event: %v", err)
+			}
+			if len(eventLine)+1 >= swiftRPCMaxFrameBytes {
+				t.Fatalf("event line length = %d, want < %d", len(eventLine)+1, swiftRPCMaxFrameBytes)
+			}
+			decoded, err := base64.StdEncoding.DecodeString(event.DataBase64)
+			if err != nil {
+				t.Fatalf("decode pty event data: %v", err)
+			}
+			if !bytes.Equal(decoded, frame.payload) {
+				t.Fatalf("event data did not match frame payload")
+			}
+			joined = append(joined, frame.payload...)
+		default:
+			if frameCount < 2 {
+				t.Fatalf("frame count = %d, want multiple replay chunks", frameCount)
+			}
+			if !bytes.Equal(joined, replay) {
+				t.Fatalf("rejoined replay length = %d, want %d", len(joined), len(replay))
+			}
+			return
+		}
+	}
+}
+
 func waitForRPCEvent(t *testing.T, buffer *notifyingBuffer, startLine int, matches func(map[string]any) bool) map[string]any {
 	t.Helper()
 	deadline := time.Now().Add(2 * time.Second)

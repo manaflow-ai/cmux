@@ -78,13 +78,14 @@ var (
 )
 
 const (
-	defaultPTYCols                 = 80
-	defaultPTYRows                 = 24
-	maxPTYDimension                = 65535
-	defaultWebSocketScrollbackCap  = 1 << 20
-	defaultWebSocketWriteQueueCap  = 256
-	defaultWebSocketWriteTimeout   = 10 * time.Second
-	defaultWebSocketSessionIdleTTL = 24 * time.Hour
+	defaultPTYCols                   = 80
+	defaultPTYRows                   = 24
+	maxPTYDimension                  = 65535
+	defaultWebSocketScrollbackCap    = 1 << 20
+	defaultWebSocketReplayChunkBytes = 96 * 1024
+	defaultWebSocketWriteQueueCap    = 256
+	defaultWebSocketWriteTimeout     = 10 * time.Second
+	defaultWebSocketSessionIdleTTL   = 24 * time.Hour
 )
 
 type wsPTYOutgoingFrame struct {
@@ -653,15 +654,13 @@ func (h *wsPTYHub) prepareAttachment(
 		}
 		return nil, nil, nil, errors.New("failed to queue ready frame")
 	}
-	if len(replay) > 0 {
-		if ok := attachment.enqueueBinary(replay); !ok {
-			cancel()
-			h.mu.Unlock()
-			if superseded != nil {
-				superseded.closeNow()
-			}
-			return nil, nil, nil, errors.New("failed to queue replay frame")
+	if ok := enqueuePTYReplay(attachment, replay); !ok {
+		cancel()
+		h.mu.Unlock()
+		if superseded != nil {
+			superseded.closeNow()
 		}
+		return nil, nil, nil, errors.New("failed to queue replay frame")
 	}
 	session.attachments[attachmentID] = attachment
 	shouldApplySize := h.recomputeSessionSizeLocked(session)
@@ -1276,6 +1275,19 @@ func (h *wsPTYHub) resize(attachment *wsPTYAttachment, cols int, rows int) {
 
 func (a *wsPTYAttachment) enqueueBinary(payload []byte) bool {
 	return a.enqueue(websocket.MessageBinary, payload)
+}
+
+func enqueuePTYReplay(attachment *wsPTYAttachment, replay []byte) bool {
+	for start := 0; start < len(replay); start += defaultWebSocketReplayChunkBytes {
+		end := start + defaultWebSocketReplayChunkBytes
+		if end > len(replay) {
+			end = len(replay)
+		}
+		if ok := attachment.enqueueBinary(replay[start:end]); !ok {
+			return false
+		}
+	}
+	return true
 }
 
 func (a *wsPTYAttachment) enqueueJSON(payload any) bool {
