@@ -12,6 +12,7 @@ nonisolated struct CmuxTopProcessAttribution: Hashable, Sendable {
     let paneRef: String?
     let surfaceID: UUID?
     let surfaceRef: String?
+    let surfaceType: String?
     let reason: String
 
     func payload() -> [String: Any] {
@@ -22,6 +23,7 @@ nonisolated struct CmuxTopProcessAttribution: Hashable, Sendable {
             "pane_ref": paneRef as Any? ?? NSNull(),
             "surface_id": surfaceID?.uuidString as Any? ?? NSNull(),
             "surface_ref": surfaceRef as Any? ?? NSNull(),
+            "surface_type": surfaceType as Any? ?? NSNull(),
             "reason": reason
         ]
     }
@@ -828,6 +830,7 @@ nonisolated final class CmuxTopProcessSnapshot: @unchecked Sendable {
                     paneRef: nil,
                     surfaceID: process.cmuxSurfaceID,
                     surfaceRef: nil,
+                    surfaceType: "terminal",
                     reason: process.cmuxAttributionReason ?? "cmux-process-scope"
                 )
             }
@@ -841,34 +844,38 @@ nonisolated final class CmuxTopProcessSnapshot: @unchecked Sendable {
         childRSSBytes: Int64,
         topGroup: [String: Any]?
     ) -> String {
-        var summary = "\(Self.formatDiagnosticBytes(appFootprintBytes)) app footprint + \(Self.formatDiagnosticBytes(childRSSBytes)) child RSS"
+        var summary = String.localizedStringWithFormat(
+            String(localized: "memoryDiagnostic.summary.base", defaultValue: "%@ app footprint + %@ child RSS"),
+            Self.formatDiagnosticBytes(appFootprintBytes),
+            Self.formatDiagnosticBytes(childRSSBytes)
+        )
         guard let topGroup,
               let name = topGroup["name"] as? String,
               let rssBytes = topGroup["rss_bytes"] as? Int64 ?? (topGroup["rss_bytes"] as? NSNumber)?.int64Value else {
             return summary
         }
 
-        summary += "; top child group: \(name) \(Self.formatDiagnosticBytes(rssBytes))"
+        summary += String.localizedStringWithFormat(
+            String(localized: "memoryDiagnostic.summary.topGroup", defaultValue: "; top child group: %@ %@"),
+            name,
+            Self.formatDiagnosticBytes(rssBytes)
+        )
         if let attribution = topGroup["top_attribution"] as? [String: Any],
            let workspace = attribution["workspace_ref"] as? String ?? attribution["workspace_id"] as? String,
            !workspace.isEmpty {
-            summary += " from workspace \(workspace)"
+            summary += String.localizedStringWithFormat(
+                String(localized: "memoryDiagnostic.summary.workspace", defaultValue: " from workspace %@"),
+                workspace
+            )
         }
         return summary
     }
 
     private static func formatDiagnosticBytes(_ bytes: Int64) -> String {
-        let units = ["B", "KB", "MB", "GB", "TB"]
-        var value = Double(max(0, bytes))
-        var unitIndex = 0
-        while value >= 1024, unitIndex < units.count - 1 {
-            value /= 1024
-            unitIndex += 1
-        }
-        if unitIndex == 0 {
-            return "\(Int(value)) \(units[unitIndex])"
-        }
-        return String(format: "%.1f %@", value, units[unitIndex])
+        let formatter = ByteCountFormatter()
+        formatter.countStyle = .memory
+        formatter.allowedUnits = .useAll
+        return formatter.string(fromByteCount: max(0, bytes))
     }
 
     private static func allProcesses(includeProcessDetails: Bool) -> [CmuxTopProcessInfo] {
@@ -998,14 +1005,14 @@ nonisolated final class CmuxTopProcessSnapshot: @unchecked Sendable {
     private static func allBSDProcesses() -> [proc_bsdinfo] {
         let pidStride = MemoryLayout<pid_t>.stride
         for _ in 0..<3 {
-            let byteCount = Int(proc_listallpids(nil, 0))
-            guard byteCount > 0 else { return [] }
-            var pids = Array(repeating: pid_t(), count: max(1, byteCount / pidStride + 32))
-            let returnedBytes = pids.withUnsafeMutableBufferPointer { buffer in
+            let pidCount = Int(proc_listallpids(nil, 0))
+            guard pidCount > 0 else { return [] }
+            var pids = Array(repeating: pid_t(), count: max(1, pidCount + 32))
+            let returnedCount = pids.withUnsafeMutableBufferPointer { buffer in
                 proc_listallpids(buffer.baseAddress, Int32(buffer.count * pidStride))
             }
-            guard returnedBytes >= 0 else { return [] }
-            let count = min(pids.count, Int(returnedBytes) / pidStride)
+            guard returnedCount >= 0 else { return [] }
+            let count = min(pids.count, Int(returnedCount))
             if count < pids.count {
                 return pids.prefix(count).compactMap { pid in
                     guard pid > 0 else { return nil }

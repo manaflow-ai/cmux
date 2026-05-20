@@ -10260,7 +10260,7 @@ struct CMUXCLI {
               cmux --json top --all
             """
         case "memory":
-            return """
+            return String(localized: "cli.help.memory", defaultValue: """
             Usage: cmux memory [flags]
 
             Diagnose cmux app memory separately from recursive terminal child-process RSS.
@@ -10280,7 +10280,7 @@ struct CMUXCLI {
               cmux memory
               cmux memory --groups 20
               cmux --json memory --all
-            """
+            """)
         case "focus-pane":
             return """
             Usage: cmux focus-pane [--pane <id|ref> | <id|ref>] [flags]
@@ -11707,11 +11707,11 @@ struct CMUXCLI {
     private func parseMemoryCommandOptions(_ args: [String]) throws -> MemoryCommandOptions {
         let (workspaceOpt, rem0) = parseOption(args, name: "--workspace")
         if rem0.contains("--workspace") {
-            throw CLIError(message: "memory requires --workspace <id|ref|index>")
+            throw CLIError(message: String(localized: "cli.memory.error.workspaceRequiresValue", defaultValue: "memory requires --workspace <id|ref|index>"))
         }
         let (groupsOpt, rem1) = parseOption(rem0, name: "--groups")
         if rem1.contains("--groups") {
-            throw CLIError(message: "memory requires --groups <count>")
+            throw CLIError(message: String(localized: "cli.memory.error.groupsRequiresValue", defaultValue: "memory requires --groups <count>"))
         }
 
         var includeAll = false
@@ -11730,18 +11730,27 @@ struct CMUXCLI {
         }
 
         if let unknown = remaining.first(where: { $0.hasPrefix("--") }) {
-            throw CLIError(message: "memory: unknown flag '\(unknown)'. Known flags: --all --workspace <id|ref|index> --groups <count> --json")
+            throw CLIError(message: String.localizedStringWithFormat(
+                String(localized: "cli.memory.error.unknownFlag", defaultValue: "memory: unknown flag '%@'. Known flags: --all --workspace <id|ref|index> --groups <count> --json"),
+                unknown
+            ))
         }
         if let extra = remaining.first {
-            throw CLIError(message: "memory: unexpected argument '\(extra)'")
+            throw CLIError(message: String.localizedStringWithFormat(
+                String(localized: "cli.memory.error.unexpectedArgument", defaultValue: "memory: unexpected argument '%@'"),
+                extra
+            ))
         }
 
         let topGroupLimit: Int
         if let groupsOpt {
-            guard let parsed = Int(groupsOpt), parsed > 0 else {
-                throw CLIError(message: "memory: invalid --groups value '\(groupsOpt)'. Use a positive integer")
+            guard let parsed = Int(groupsOpt), (1...100).contains(parsed) else {
+                throw CLIError(message: String.localizedStringWithFormat(
+                    String(localized: "cli.memory.error.invalidGroups", defaultValue: "memory: invalid --groups value '%@'. Use an integer from 1 to 100"),
+                    groupsOpt
+                ))
             }
-            topGroupLimit = min(parsed, 100)
+            topGroupLimit = parsed
         } else {
             topGroupLimit = 12
         }
@@ -11866,7 +11875,7 @@ struct CMUXCLI {
         do {
             return try client.sendV2(method: "system.top", params: params, responseTimeout: responseTimeout)
         } catch let error as CLIError where error.message.hasPrefix("method_not_found:") {
-            throw CLIError(message: "cmux top requires a running cmux build that supports process diagnostics")
+            throw CLIError(message: String(localized: "cli.top.error.processDiagnosticsUnsupported", defaultValue: "cmux top requires a running cmux build that supports process diagnostics"))
         }
     }
 
@@ -11891,7 +11900,7 @@ struct CMUXCLI {
         do {
             return try client.sendV2(method: "system.memory", params: params)
         } catch let error as CLIError where error.message.hasPrefix("method_not_found:") {
-            throw CLIError(message: "cmux memory requires a running cmux build that supports memory diagnostics")
+            throw CLIError(message: String(localized: "cli.memory.error.diagnosticsUnsupported", defaultValue: "cmux memory requires a running cmux build that supports memory diagnostics"))
         }
     }
 
@@ -12495,7 +12504,7 @@ struct CMUXCLI {
         idFormat: CLIIDFormat
     ) -> String {
         guard let diagnostic = payload["memory_diagnostic"] as? [String: Any] else {
-            return "No memory diagnostic available"
+            return String(localized: "cli.memory.output.noDiagnostic", defaultValue: "No memory diagnostic available")
         }
 
         let app = diagnostic["app"] as? [String: Any] ?? [:]
@@ -12513,23 +12522,33 @@ struct CMUXCLI {
             lines.append(summary)
             lines.append("")
         }
-        lines.append("APP")
+        lines.append(String(localized: "cli.memory.output.appHeader", defaultValue: "APP"))
         lines.append("  \(appName.isEmpty ? "cmux" : appName) pid=\(appPID)")
-        lines.append("  footprint \(formatBytes(appFootprint))")
-        lines.append("  rss       \(formatBytes(appRSS))")
+        lines.append(String.localizedStringWithFormat(
+            String(localized: "cli.memory.output.appFootprint", defaultValue: "  footprint %@"),
+            formatBytes(appFootprint)
+        ))
+        lines.append(String.localizedStringWithFormat(
+            String(localized: "cli.memory.output.appRSS", defaultValue: "  rss       %@"),
+            formatBytes(appRSS)
+        ))
         lines.append("")
-        lines.append("CHILD PROCESSES")
-        lines.append("  recursive RSS \(formatBytes(childRSS)) across \(childCount) process\(childCount == 1 ? "" : "es")")
+        lines.append(String(localized: "cli.memory.output.childrenHeader", defaultValue: "CHILD PROCESSES"))
+        lines.append(String.localizedStringWithFormat(
+            String(localized: "cli.memory.output.recursiveRSS", defaultValue: "  recursive RSS %@ across %@"),
+            formatBytes(childRSS),
+            memoryProcessCountText(childCount)
+        ))
 
         let groups = children["groups"] as? [[String: Any]] ?? []
         guard !groups.isEmpty else {
-            lines.append("  no child process groups")
+            lines.append(String(localized: "cli.memory.output.noChildGroups", defaultValue: "  no child process groups"))
             return lines.joined(separator: "\n")
         }
 
         lines.append("")
-        lines.append("TOP CHILD GROUPS")
-        lines.append("      RSS  PROC  COMMAND                    ATTRIBUTION")
+        lines.append(String(localized: "cli.memory.output.topGroupsHeader", defaultValue: "TOP CHILD GROUPS"))
+        lines.append(String(localized: "cli.memory.output.topGroupsColumns", defaultValue: "      RSS  PROC  COMMAND                    ATTRIBUTION"))
         for group in groups {
             let rss = padLeft(formatBytes(topInt64(group["rss_bytes"])), width: 9)
             let processCount = padLeft(String(topInt(group["process_count"]) ?? 0), width: 5)
@@ -12542,22 +12561,41 @@ struct CMUXCLI {
         return lines.joined(separator: "\n")
     }
 
+    private func memoryProcessCountText(_ count: Int) -> String {
+        if count == 1 {
+            return String(localized: "cli.memory.output.processCount.one", defaultValue: "1 process")
+        }
+        return String.localizedStringWithFormat(
+            String(localized: "cli.memory.output.processCount.other", defaultValue: "%lld processes"),
+            count
+        )
+    }
+
     private func memoryAttributionText(_ raw: Any?, idFormat: CLIIDFormat) -> String {
         guard let attribution = raw as? [String: Any] else {
-            return "unattributed"
+            return String(localized: "cli.memory.output.unattributed", defaultValue: "unattributed")
         }
 
         var parts: [String] = []
         if let workspace = memoryAttributionHandle(attribution, prefix: "workspace", idFormat: idFormat) {
-            parts.append("workspace \(workspace)")
+            parts.append(String.localizedStringWithFormat(
+                String(localized: "cli.memory.output.workspaceAttribution", defaultValue: "workspace %@"),
+                workspace
+            ))
         }
         if let pane = memoryAttributionHandle(attribution, prefix: "pane", idFormat: idFormat) {
-            parts.append("pane \(pane)")
+            parts.append(String.localizedStringWithFormat(
+                String(localized: "cli.memory.output.paneAttribution", defaultValue: "pane %@"),
+                pane
+            ))
         }
         if let surface = memoryAttributionHandle(attribution, prefix: "surface", idFormat: idFormat) {
-            parts.append("surface \(surface)")
+            parts.append(String.localizedStringWithFormat(
+                String(localized: "cli.memory.output.surfaceAttribution", defaultValue: "surface %@"),
+                surface
+            ))
         }
-        return parts.isEmpty ? "unattributed" : parts.joined(separator: " / ")
+        return parts.isEmpty ? String(localized: "cli.memory.output.unattributed", defaultValue: "unattributed") : parts.joined(separator: " / ")
     }
 
     private func memoryAttributionHandle(

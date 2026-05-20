@@ -320,6 +320,7 @@ extension TerminalController {
                         paneRef: nil,
                         surfaceID: nil,
                         surfaceRef: nil,
+                        surfaceType: nil,
                         reason: "status-tag-process-tree"
                     )
                     assignTopMemoryAttribution(attribution, from: tag, to: &result)
@@ -338,6 +339,7 @@ extension TerminalController {
                             paneRef: paneRef,
                             surfaceID: v2TopUUID(surface["id"]),
                             surfaceRef: v2TopString(surface["ref"]),
+                            surfaceType: v2TopString(surface["type"]),
                             reason: "surface-process-tree"
                         )
                         assignTopMemoryAttribution(attribution, from: surface, to: &result)

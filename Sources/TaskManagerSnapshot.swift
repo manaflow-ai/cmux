@@ -107,6 +107,7 @@ struct CmuxTaskManagerSnapshot {
             let attribution = payload["top_attribution"] as? [String: Any]
             let workspaceId = uuid(attribution?["workspace_id"])
             let surfaceId = uuid(attribution?["surface_id"])
+            let surfaceType = nonEmptyString(attribution?["surface_type"])?.lowercased()
             let detailParts = [
                 processCountDetail(processCount),
                 attributionDetail(attribution)
@@ -128,7 +129,7 @@ struct CmuxTaskManagerSnapshot {
                 isDimmed: false,
                 workspaceId: workspaceId,
                 surfaceId: surfaceId,
-                terminalSurfaceId: surfaceId,
+                terminalSurfaceId: surfaceType == "terminal" ? surfaceId : nil,
                 processId: nil,
                 rootProcessIds: processIds,
                 foregroundProcessGroupIds: [],

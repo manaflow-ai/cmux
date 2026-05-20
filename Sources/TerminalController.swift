@@ -3847,10 +3847,24 @@ class TerminalController {
             if let s = params[key] as? String { return Int(s) }
             return nil
         }
-        let requestedLimit = intParam("top_group_limit")
-            ?? intParam("group_limit")
-            ?? 12
-        let topGroupLimit = min(max(1, requestedLimit), 100)
+        var invalidLimitKey: String?
+        func groupLimitParam(_ key: String) -> Int? {
+            guard params[key] != nil else { return nil }
+            guard let value = intParam(key), (1...100).contains(value) else {
+                invalidLimitKey = key
+                return nil
+            }
+            return value
+        }
+        let topGroupLimitValue = groupLimitParam("top_group_limit")
+        if let invalidLimitKey {
+            return .err(code: "invalid_params", message: "\(invalidLimitKey) must be an integer from 1 to 100", data: nil)
+        }
+        let groupLimitValue = groupLimitParam("group_limit")
+        if let invalidLimitKey {
+            return .err(code: "invalid_params", message: "\(invalidLimitKey) must be an integer from 1 to 100", data: nil)
+        }
+        let topGroupLimit = topGroupLimitValue ?? groupLimitValue ?? 12
         let processSnapshot = CmuxTopProcessSnapshot.captureCached(
             includeProcessDetails: true,
             maximumAge: 2
