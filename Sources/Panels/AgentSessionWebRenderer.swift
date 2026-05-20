@@ -317,6 +317,7 @@ extension AgentSessionWebRenderer {
 #if DEBUG
             cmuxDebugLog("agentSession.web.didFinish renderer=\(rendererKind.rawValue)")
 #endif
+            flushInitialPaint(for: webView)
         }
 
         func webView(_ webView: WKWebView, didFail navigation: WKNavigation!, withError error: Error) {
@@ -335,6 +336,15 @@ extension AgentSessionWebRenderer {
                 "error=\(error.localizedDescription)"
             )
 #endif
+        }
+
+        private func flushInitialPaint(for webView: WKWebView) {
+            // Retained WKWebViews can finish loading before Bonsplit reattaches them
+            // to a visible host. Reading layout after navigation forces WebKit to
+            // commit the first page layer once the view is back in the pane.
+            webView.evaluateJavaScript("document.documentElement.getBoundingClientRect().width") { _, _ in
+                webView.setNeedsDisplay(webView.bounds)
+            }
         }
 
         private func handle(_ request: AgentSessionBridgeRequest) async throws -> Any {
