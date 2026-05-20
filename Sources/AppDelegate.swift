@@ -517,6 +517,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
     private var isRunningUnderXCTestCached: Bool {
         Self.cachedIsRunningUnderXCTest
     }
+    private var cmuxThemePreviewReloadGeneration = 0
+    private var cmuxThemePreviewReloadWorkItem: DispatchWorkItem?
 
     private static func detectRunningUnderXCTest(_ env: [String: String]) -> Bool {
         if env["XCTestConfigurationFilePath"] != nil { return true }
@@ -5049,7 +5051,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         return nil
     }
 
-    func refreshTerminalSurfacesAfterGhosttyConfigReload(source: String) {
+    func refreshTerminalSurfacesAfterGhosttyConfigReload(
+        source: String,
+        preferredColorScheme: GhosttyConfig.ColorSchemePreference
+    ) {
         var refreshedCount = 0
         forEachTerminalPanel { terminalPanel in
             let liveSurface = terminalPanel.surface.liveSurfaceForGhosttyAccess(
@@ -5059,7 +5064,17 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
                 to: liveSurface,
                 source: source,
                 reloadSurfaceConfiguration: { surface, soft, source in
-                    GhosttyApp.shared.reloadSurfaceConfiguration(surface, soft: soft, source: source)
+                    GhosttyApp.shared.reloadSurfaceConfiguration(
+                        surface,
+                        soft: soft,
+                        source: source,
+                        preferredColorScheme: preferredColorScheme
+                    )
+                },
+                applySurfaceColorScheme: {
+                    terminalPanel.hostedView.reapplySurfaceColorSchemeAfterGhosttyConfigReload(
+                        preferredColorScheme: preferredColorScheme
+                    )
                 },
                 refreshHostBackground: {
                     terminalPanel.hostedView.refreshHostBackgroundAfterGhosttyConfigReload()
@@ -5893,6 +5908,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             } else {
                 state.setVisible(true)
                 state.mode = mode
+                context?.keyboardFocusCoordinator.rememberRightSidebarMode(mode)
             }
             return .ok
 
@@ -7326,13 +7342,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         // cmux persists and restores main windows itself. Disable AppKit window
         // restoration so the OS cannot resurrect stale duplicate main windows.
         window.isRestorable = false
-        window.isMovableByWindowBackground = false
-        // Keep background dragging disabled so app content gestures and titlebar
-        // controls still receive clicks, while the OS-level movable flag lets
-        // macOS tiling and window-management tools such as Swish treat cmux as
-        // a movable/resizable window. Empty titlebar drags are routed through
-        // WindowDragHandleView instead of background dragging.
-        window.isMovable = true
+        configureCmuxMainWindowDragBehavior(window)
         let explicitInitialFrame = restoredFrame ?? persistedGeometryFrame
         if let explicitInitialFrame {
             window.setFrame(explicitInitialFrame, display: false)
@@ -14899,9 +14909,50 @@ private extension AppDelegate {
     }
 
     @objc func handleThemesReloadNotification(_ notification: Notification) {
-        DispatchQueue.main.async {
-            GhosttyApp.shared.reloadConfiguration(source: "distributed.cmux.themes")
+        let targetBundleIdentifier =
+            notification.userInfo?["bundleIdentifier"] as? String
+            ?? notification.object as? String
+        if let targetBundleIdentifier,
+           let bundleIdentifier = Bundle.main.bundleIdentifier,
+           !targetBundleIdentifier.isEmpty,
+           targetBundleIdentifier != bundleIdentifier {
+            return
         }
+
+        let source = GhosttySurfaceConfigurationRefresh.cmuxThemeReloadSource(
+            phase: notification.userInfo?["phase"] as? String
+        )
+        DispatchQueue.main.async {
+            self.reloadGhosttyConfigurationForCmuxThemeSource(source)
+        }
+    }
+
+    func reloadGhosttyConfigurationForCmuxThemeSource(_ source: String) {
+        if GhosttySurfaceConfigurationRefresh.shouldDebounceCmuxThemeReload(source: source) {
+            cmuxThemePreviewReloadGeneration += 1
+            let generation = cmuxThemePreviewReloadGeneration
+            cmuxThemePreviewReloadWorkItem?.cancel()
+
+            let workItem = DispatchWorkItem { [weak self] in
+                guard let self,
+                      self.cmuxThemePreviewReloadGeneration == generation else { return }
+                self.cmuxThemePreviewReloadWorkItem = nil
+                GhosttyApp.shared.reloadConfiguration(source: source)
+            }
+            cmuxThemePreviewReloadWorkItem = workItem
+            DispatchQueue.main.asyncAfter(
+                deadline: .now() + .milliseconds(
+                    GhosttySurfaceConfigurationRefresh.cmuxThemePreviewReloadDebounceMilliseconds
+                ),
+                execute: workItem
+            )
+            return
+        }
+
+        cmuxThemePreviewReloadGeneration += 1
+        cmuxThemePreviewReloadWorkItem?.cancel()
+        cmuxThemePreviewReloadWorkItem = nil
+        GhosttyApp.shared.reloadConfiguration(source: source)
     }
 }
 
@@ -15187,8 +15238,9 @@ private extension NSWindow {
             cmuxFirstResponderGuardContextWindowNumber = previousContextWindowNumber
         }
 
-        guard shouldSuppressWindowMoveForFolderDrag(window: self, event: event),
-              let contentView = self.contentView else {
+        let suppressionReason = beginOrContinueWindowMoveSuppressionSequenceForEvent(window: self, event: event)
+        let hasActiveSuppressionSequence = activeWindowMoveSuppressionSequenceReason(window: self) != nil
+        guard suppressionReason != nil || hasActiveSuppressionSequence else {
 #if DEBUG
             if event.type == .keyDown {
                 folderGuardMs = (ProcessInfo.processInfo.systemUptime - folderGuardStart) * 1000.0
@@ -15207,21 +15259,33 @@ private extension NSWindow {
         }
         let originalDispatchStart = event.type == .keyDown ? ProcessInfo.processInfo.systemUptime : 0
 #endif
+        let shouldFinishSuppression = shouldFinishWindowMoveSuppressionSequenceAfterDispatch(window: self, event: event)
 
-        let contentPoint = contentView.convert(event.locationInWindow, from: nil)
-        let hitView = contentView.hitTest(contentPoint)
-        let previousMovableState = temporarilyDisableWindowDragging(window: self)
+#if DEBUG
+        let hitView = Self.cmuxHitViewForEventDispatch(in: self, event: event)
+#endif
         defer {
-            restoreWindowDragging(window: self, previousMovableState: previousMovableState)
+            let finishedReason: WindowMoveSuppressionReason?
+            if shouldFinishSuppression {
+                finishedReason = finishWindowMoveSuppressionSequence(window: self)
+            } else {
+                finishedReason = nil
+            }
             #if DEBUG
-            cmuxDebugLog("window.sendEvent.folderDown restore nowMovable=\(isMovable)")
+            let reasonDescription = finishedReason?.rawValue ?? suppressionReason?.rawValue ?? "activeSequence"
+            if shouldFinishSuppression {
+                cmuxDebugLog("window.sendEvent.\(reasonDescription) finish nowMovable=\(isMovable)")
+            } else {
+                cmuxDebugLog("window.sendEvent.\(reasonDescription) keepSuppressed nowMovable=\(isMovable)")
+            }
             #endif
         }
 
         #if DEBUG
         let hitDesc = hitView.map { String(describing: type(of: $0)) } ?? "nil"
-        let previousMovableDescription = previousMovableState.map { String($0) } ?? "nil"
-        cmuxDebugLog("window.sendEvent.folderDown suppress=1 hit=\(hitDesc) wasMovable=\(previousMovableDescription)")
+        let depth = windowDragSuppressionDepth(window: self)
+        let reasonDescription = suppressionReason?.rawValue ?? "activeSequence"
+        cmuxDebugLog("window.sendEvent.\(reasonDescription) suppress=1 hit=\(hitDesc) movable=\(isMovable) depth=\(depth)")
         #endif
 
         cmux_sendEvent(event)
