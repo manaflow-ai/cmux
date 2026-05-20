@@ -1,0 +1,4 @@
+interface:
+  display_name: "cmux Keyboard Shortcuts"
+  short_description: "Customize cmux shortcuts and preset layouts."
+  default_prompt: "Use $cmux-keyboard-shortcuts to help me choose and apply a cmux keyboard shortcut template."
