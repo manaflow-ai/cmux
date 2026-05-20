@@ -575,6 +575,38 @@ final class CodexAppServerRequestFactoryTests: XCTestCase {
     }
 
     @MainActor
+    func testCleanAppServerExitLeavesPanelReusable() async throws {
+        let client = FakeCodexAppServerClient()
+        let panel = CodexAppServerPanel(
+            workspaceId: UUID(),
+            cwd: "/tmp",
+            client: client
+        )
+        await panel.start()
+
+        let threadId = FakeCodexAppServerClient.generatedThreadId(8)
+        client.onEvent?(
+            .notification(CodexAppServerServerNotification(
+                method: "thread/started",
+                params: ["thread": ["id": threadId]]
+            ))
+        )
+        client.onEvent?(.terminated(0))
+
+        let didStop = await waitForMainActorCondition {
+            panel.status == .stopped
+        }
+        XCTAssertTrue(didStop)
+        XCTAssertFalse(panel.isDirty)
+        XCTAssertEqual(panel.displayTitle, "Codex")
+        XCTAssertEqual(panel.resumableThreadId, threadId)
+        XCTAssertTrue(panel.transcriptItems.isEmpty)
+
+        panel.promptText = "continue"
+        XCTAssertTrue(panel.canSendPrompt)
+    }
+
+    @MainActor
     func testQuietCodexNotificationsDoNotAppendTranscriptRows() async throws {
         let client = FakeCodexAppServerClient()
         let panel = CodexAppServerPanel(

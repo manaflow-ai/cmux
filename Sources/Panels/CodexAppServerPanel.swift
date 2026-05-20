@@ -1600,16 +1600,6 @@ final class CodexAppServerPanel: Panel, ObservableObject {
         case .terminated(let statusCode):
             flushPendingStderr()
             isStarted = false
-            status = .failed(
-                String(
-                    format: String(
-                        localized: "codexAppServer.error.terminatedUnexpectedly",
-                        defaultValue: "Codex app-server exited unexpectedly with status %1$ld."
-                    ),
-                    locale: Locale.current,
-                    Int(statusCode)
-                )
-            )
             currentTurnId = nil
             activeAssistantItemId = nil
             activeReasoningItemIDs.removeAll(keepingCapacity: false)
@@ -1620,6 +1610,20 @@ final class CodexAppServerPanel: Panel, ObservableObject {
             pendingSteers.removeAll()
             queuedFollowUps.removeAll()
             transcriptLoadingPhase = .idle
+            guard statusCode != 0 else {
+                status = .stopped
+                return
+            }
+            status = .failed(
+                String(
+                    format: String(
+                        localized: "codexAppServer.error.terminatedUnexpectedly",
+                        defaultValue: "Codex app-server exited unexpectedly with status %1$ld."
+                    ),
+                    locale: Locale.current,
+                    Int(statusCode)
+                )
+            )
             appendEvent(
                 title: String(localized: "codexAppServer.event.terminated", defaultValue: "App server exited"),
                 body: String(statusCode)
