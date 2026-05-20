@@ -222,6 +222,17 @@ def generic_attention_payload(session_id: str, index: int) -> dict[str, object]:
     }
 
 
+def specific_attention_payload(session_id: str, index: int) -> dict[str, object]:
+    return {
+        "session_id": session_id,
+        "turn_id": f"turn-{index}",
+        "hook_event_name": "Notification",
+        "cwd": "/Users/example/project",
+        "notification_type": "permission",
+        "message": "Claude needs permission to read /tmp/cmux-config.json",
+    }
+
+
 def non_question_pre_tool_payload(session_id: str, index: int) -> dict[str, object]:
     return {
         "session_id": session_id,
@@ -343,6 +354,26 @@ def main() -> int:
             print(f"commands={server.commands_snapshot()!r}")
             return 1
 
+        intervening_proc = run_claude_hook(
+            cli_path,
+            server.socket_path,
+            "notification",
+            specific_attention_payload(session_id, 97),
+            env,
+        )
+        if intervening_proc.returncode != 0:
+            print("FAIL: intervening claude-hook notification failed")
+            print(f"stdout={intervening_proc.stdout!r}")
+            print(f"stderr={intervening_proc.stderr!r}")
+            print(f"commands={server.commands_snapshot()!r}")
+            return 1
+        notify_after_intervening = wait_for_notify_count(server, 3)
+        if len(notify_after_intervening) != 3:
+            print("FAIL: specific attention notification should still publish")
+            print(f"notify_commands={notify_after_intervening!r}")
+            print(f"commands={server.commands_snapshot()!r}")
+            return 1
+
         duplicate_proc = run_claude_hook(
             cli_path,
             server.socket_path,
@@ -356,9 +387,9 @@ def main() -> int:
             print(f"stderr={duplicate_proc.stderr!r}")
             print(f"commands={server.commands_snapshot()!r}")
             return 1
-        notify_after_duplicate = wait_for_notify_count(server, 2)
-        if len(notify_after_duplicate) != 2:
-            print("FAIL: generic attention Notification should be deduped after AskUserQuestion and non-question pre-tool-use")
+        notify_after_duplicate = wait_for_notify_count(server, 3)
+        if len(notify_after_duplicate) != 3:
+            print("FAIL: generic attention Notification should stay deduped after another notification overwrites lastBody")
             print(f"notify_commands={notify_after_duplicate!r}")
             print(f"commands={server.commands_snapshot()!r}")
             return 1
@@ -395,8 +426,8 @@ def main() -> int:
             print(f"stderr={post_answer_attention_proc.stderr!r}")
             print(f"commands={server.commands_snapshot()!r}")
             return 1
-        notify_after_post_answer = wait_for_notify_count(server, 3)
-        if len(notify_after_post_answer) != 3:
+        notify_after_post_answer = wait_for_notify_count(server, 4)
+        if len(notify_after_post_answer) != 4:
             print("FAIL: prompt-submit should stop suppressing later generic attention notifications")
             print(f"notify_commands={notify_after_post_answer!r}")
             print(f"commands={server.commands_snapshot()!r}")
@@ -415,8 +446,8 @@ def main() -> int:
             print(f"stderr={repeated_proc.stderr!r}")
             print(f"commands={server.commands_snapshot()!r}")
             return 1
-        notify_after_repeat = wait_for_notify_count(server, 4)
-        if len(notify_after_repeat) != 4:
+        notify_after_repeat = wait_for_notify_count(server, 5)
+        if len(notify_after_repeat) != 5:
             print("FAIL: prompt-submit should clear the needs-input dedup fingerprint")
             print(f"notify_commands={notify_after_repeat!r}")
             print(f"commands={server.commands_snapshot()!r}")
