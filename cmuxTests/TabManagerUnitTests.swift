@@ -383,6 +383,55 @@ final class TabManagerPullRequestProbeTests: XCTestCase {
         )
     }
 
+    func testGitHubRepositorySlugsFromGitConfigReadsIncludedConfigFiles() throws {
+        let repoURL = FileManager.default.temporaryDirectory.appendingPathComponent(
+            "cmux-git-config-includes-\(UUID().uuidString)",
+            isDirectory: true
+        )
+        let gitURL = repoURL.appendingPathComponent(".git", isDirectory: true)
+        try FileManager.default.createDirectory(at: gitURL, withIntermediateDirectories: true)
+        defer {
+            try? FileManager.default.removeItem(at: repoURL)
+        }
+
+        try "ref: refs/heads/main\n".write(
+            to: gitURL.appendingPathComponent("HEAD"),
+            atomically: true,
+            encoding: .utf8
+        )
+        try """
+        [include]
+            path = remotes.inc
+        [includeIf "gitdir:\(gitURL.path)/**"]
+            path = conditional-remotes.inc
+        """.write(
+            to: gitURL.appendingPathComponent("config"),
+            atomically: true,
+            encoding: .utf8
+        )
+        try """
+        [remote "origin"]
+            url = "git@github.com:austinwang/cmux.git" # user's main fork
+        """.write(
+            to: gitURL.appendingPathComponent("remotes.inc"),
+            atomically: true,
+            encoding: .utf8
+        )
+        try """
+        [remote "upstream"]
+            url = https://github.com/manaflow-ai/cmux.git ; canonical repo
+        """.write(
+            to: gitURL.appendingPathComponent("conditional-remotes.inc"),
+            atomically: true,
+            encoding: .utf8
+        )
+
+        XCTAssertEqual(
+            TabManager.githubRepositorySlugs(directoryForTesting: repoURL.path),
+            ["manaflow-ai/cmux", "austinwang/cmux"]
+        )
+    }
+
     func testPreferredPullRequestPrefersOpenOverMergedAndClosed() {
         let candidates = [
             TabManager.GitHubPullRequestProbeItem(

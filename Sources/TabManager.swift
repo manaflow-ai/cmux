@@ -3062,6 +3062,7 @@ class TabManager: ObservableObject {
             return nil
         }
 
+        let configPaths = gitConfigURLs(repository: repository).map(\.path)
         let candidatePaths = [
             repository.workTreeRoot,
             URL(fileURLWithPath: repository.gitDirectory).appendingPathComponent("HEAD").path,
@@ -3069,8 +3070,7 @@ class TabManager: ObservableObject {
             URL(fileURLWithPath: repository.gitDirectory).appendingPathComponent("refs").path,
             URL(fileURLWithPath: repository.commonDirectory).appendingPathComponent("refs").path,
             URL(fileURLWithPath: repository.commonDirectory).appendingPathComponent("packed-refs").path,
-            URL(fileURLWithPath: repository.commonDirectory).appendingPathComponent("config").path,
-        ]
+        ] + configPaths
         var watchedPaths: [String] = []
         var seen: Set<String> = []
         for path in candidatePaths {
@@ -3153,21 +3153,43 @@ class TabManager: ObservableObject {
     }
 
     private nonisolated static func gitRemoteVOutput(repository: ResolvedGitRepository) -> String? {
-        let configURLs = [
-            URL(fileURLWithPath: repository.commonDirectory).appendingPathComponent("config"),
-            URL(fileURLWithPath: repository.gitDirectory).appendingPathComponent("config"),
-        ]
         var lines: [String] = []
-        var seenConfigPaths: Set<String> = []
-        for configURL in configURLs {
-            let path = configURL.standardizedFileURL.path
-            guard seenConfigPaths.insert(path).inserted,
-                  let config = try? String(contentsOf: configURL, encoding: .utf8) else {
+        for configURL in gitConfigURLs(repository: repository) {
+            guard let config = try? String(contentsOf: configURL, encoding: .utf8) else {
                 continue
             }
             lines.append(contentsOf: gitRemoteVLines(fromConfig: config))
         }
         return lines.isEmpty ? nil : lines.joined()
+    }
+
+    private nonisolated static func gitConfigURLs(repository: ResolvedGitRepository) -> [URL] {
+        let rootConfigURLs = [
+            URL(fileURLWithPath: repository.commonDirectory).appendingPathComponent("config"),
+            URL(fileURLWithPath: repository.gitDirectory).appendingPathComponent("config"),
+        ]
+        var urls: [URL] = []
+        var pendingURLs = rootConfigURLs
+        var seenConfigPaths: Set<String> = []
+
+        while !pendingURLs.isEmpty {
+            let configURL = pendingURLs.removeFirst().standardizedFileURL
+            let path = configURL.path
+            guard seenConfigPaths.insert(path).inserted else { continue }
+            urls.append(configURL)
+            guard let config = try? String(contentsOf: configURL, encoding: .utf8) else {
+                continue
+            }
+            pendingURLs.append(
+                contentsOf: gitIncludedConfigURLs(
+                    fromConfig: config,
+                    configURL: configURL,
+                    repository: repository
+                )
+            )
+        }
+
+        return urls
     }
 
     private nonisolated static func gitRemoteVLines(fromConfig config: String) -> [String] {
@@ -3197,6 +3219,49 @@ class TabManager: ObservableObject {
         }
 
         return lines
+    }
+
+    private nonisolated static func gitIncludedConfigURLs(
+        fromConfig config: String,
+        configURL: URL,
+        repository: ResolvedGitRepository
+    ) -> [URL] {
+        var currentSectionAllowsPath = false
+        var urls: [URL] = []
+
+        for rawLine in config.components(separatedBy: .newlines) {
+            let line = gitConfigLineRemovingInlineComment(rawLine)
+                .trimmingCharacters(in: .whitespaces)
+            if line.hasPrefix("[") && line.hasSuffix("]") {
+                if line == "[include]" {
+                    currentSectionAllowsPath = true
+                } else if let condition = gitConfigIncludeIfCondition(fromSectionHeader: line) {
+                    currentSectionAllowsPath = gitConfigIncludeIfConditionMatches(
+                        condition,
+                        repository: repository
+                    )
+                } else {
+                    currentSectionAllowsPath = false
+                }
+                continue
+            }
+
+            guard currentSectionAllowsPath else { continue }
+            let parts = line.split(separator: "=", maxSplits: 1).map {
+                $0.trimmingCharacters(in: .whitespaces)
+            }
+            guard parts.count == 2,
+                  parts[0].lowercased() == "path",
+                  let includeURL = gitConfigIncludeURL(
+                    fromPathValue: parts[1],
+                    relativeTo: configURL
+                  ) else {
+                continue
+            }
+            urls.append(includeURL)
+        }
+
+        return urls
     }
 
     private nonisolated static func gitConfigUnquotedValue(_ value: String) -> String {
@@ -3281,6 +3346,109 @@ class TabManager: ObservableObject {
         return name.isEmpty ? nil : String(name)
     }
 
+    private nonisolated static func gitConfigIncludeIfCondition(fromSectionHeader header: String) -> String? {
+        let prefix = "[includeIf \""
+        let suffix = "\"]"
+        guard header.hasPrefix(prefix), header.hasSuffix(suffix) else {
+            return nil
+        }
+        let condition = header.dropFirst(prefix.count).dropLast(suffix.count)
+        return condition.isEmpty ? nil : String(condition)
+    }
+
+    private nonisolated static func gitConfigIncludeURL(
+        fromPathValue pathValue: String,
+        relativeTo configURL: URL
+    ) -> URL? {
+        let path = gitConfigUnquotedValue(pathValue)
+        guard !path.isEmpty else { return nil }
+        if path == "~" {
+            return FileManager.default.homeDirectoryForCurrentUser.standardizedFileURL
+        }
+        if path.hasPrefix("~/") {
+            let relativePath = String(path.dropFirst(2))
+            return FileManager.default.homeDirectoryForCurrentUser
+                .appendingPathComponent(relativePath)
+                .standardizedFileURL
+        }
+        if path.hasPrefix("/") {
+            return URL(fileURLWithPath: path).standardizedFileURL
+        }
+        return configURL
+            .deletingLastPathComponent()
+            .appendingPathComponent(path)
+            .standardizedFileURL
+    }
+
+    private nonisolated static func gitConfigIncludeIfConditionMatches(
+        _ condition: String,
+        repository: ResolvedGitRepository
+    ) -> Bool {
+        let lowercasedCondition = condition.lowercased()
+        if lowercasedCondition.hasPrefix("gitdir/i:") {
+            let pattern = String(condition.dropFirst("gitdir/i:".count))
+            return gitConfigGitdirPatternMatches(pattern, repository: repository, caseInsensitive: true)
+        }
+        if lowercasedCondition.hasPrefix("gitdir:") {
+            let pattern = String(condition.dropFirst("gitdir:".count))
+            return gitConfigGitdirPatternMatches(pattern, repository: repository, caseInsensitive: false)
+        }
+        if lowercasedCondition.hasPrefix("onbranch:") {
+            let pattern = String(condition.dropFirst("onbranch:".count))
+            guard let branch = gitBranchName(repository: repository) else { return false }
+            return gitConfigGlobMatches(branch, pattern: pattern, caseInsensitive: false)
+        }
+        return false
+    }
+
+    private nonisolated static func gitConfigGitdirPatternMatches(
+        _ pattern: String,
+        repository: ResolvedGitRepository,
+        caseInsensitive: Bool
+    ) -> Bool {
+        var expandedPattern = gitConfigExpandedPattern(pattern)
+        if expandedPattern.hasSuffix("/") {
+            expandedPattern.append("**")
+        }
+        let candidates = [
+            repository.gitDirectory,
+            repository.commonDirectory,
+            repository.workTreeRoot,
+        ].map { URL(fileURLWithPath: $0).standardizedFileURL.path }
+
+        for candidate in candidates {
+            if gitConfigGlobMatches(candidate, pattern: expandedPattern, caseInsensitive: caseInsensitive) ||
+                gitConfigGlobMatches(candidate + "/", pattern: expandedPattern, caseInsensitive: caseInsensitive) {
+                return true
+            }
+        }
+        return false
+    }
+
+    private nonisolated static func gitConfigExpandedPattern(_ pattern: String) -> String {
+        if pattern == "~" {
+            return FileManager.default.homeDirectoryForCurrentUser.standardizedFileURL.path
+        }
+        if pattern.hasPrefix("~/") {
+            let relativePath = String(pattern.dropFirst(2))
+            return FileManager.default.homeDirectoryForCurrentUser
+                .appendingPathComponent(relativePath)
+                .standardizedFileURL
+                .path
+        }
+        return URL(fileURLWithPath: pattern).standardizedFileURL.path
+    }
+
+    private nonisolated static func gitConfigGlobMatches(
+        _ value: String,
+        pattern: String,
+        caseInsensitive: Bool
+    ) -> Bool {
+        let candidateValue = caseInsensitive ? value.lowercased() : value
+        let candidatePattern = caseInsensitive ? pattern.lowercased() : pattern
+        return fnmatch(candidatePattern, candidateValue, 0) == 0
+    }
+
     private nonisolated static func gitTrackedChangesSnapshot(
         repository: ResolvedGitRepository
     ) -> (isDirty: Bool, indexSignature: String?) {
@@ -3297,7 +3465,7 @@ class TabManager: ObservableObject {
                     parentRepository: repository,
                     gitlinkPath: entry.path
                 ) else {
-                    continue
+                    return (true, indexSnapshot.signature)
                 }
                 if submoduleCommit.caseInsensitiveCompare(entry.objectID) != .orderedSame {
                     return (true, indexSnapshot.signature)
@@ -4441,6 +4609,14 @@ class TabManager: ObservableObject {
 #if DEBUG
     nonisolated static func githubRepositorySlugs(fromGitConfigForTesting config: String) -> [String] {
         githubRepositorySlugs(fromGitRemoteVOutput: gitRemoteVLines(fromConfig: config).joined())
+    }
+
+    nonisolated static func githubRepositorySlugs(directoryForTesting directory: String) -> [String] {
+        guard let repository = resolveGitRepository(containing: directory),
+              let output = gitRemoteVOutput(repository: repository) else {
+            return []
+        }
+        return githubRepositorySlugs(fromGitRemoteVOutput: output)
     }
 #endif
 

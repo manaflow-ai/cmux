@@ -1143,7 +1143,7 @@ final class WorkspacePullRequestSidebarTests: XCTestCase {
         )
     }
 
-    func testGitlinkIndexEntriesDoNotMakeSubmoduleReposPermanentlyDirty() throws {
+    func testMissingGitlinkSubmoduleMarksSidebarDirty() throws {
         let defaults = UserDefaults.standard
         let previousWatchGitStatus = defaults.object(forKey: SidebarWorkspaceDetailDefaults.watchGitStatusKey)
         defer {
@@ -1182,9 +1182,9 @@ final class WorkspacePullRequestSidebarTests: XCTestCase {
         XCTAssertTrue(
             waitForCondition {
                 workspace.panelGitBranches[panelId]?.branch == "main"
-                    && workspace.panelGitBranches[panelId]?.isDirty == false
+                    && workspace.panelGitBranches[panelId]?.isDirty == true
             },
-            "Gitlink entries represent submodule commits and should not be compared to directory stats."
+            "Missing or uninitialized gitlink submodules should make the parent sidebar dirty."
         )
     }
 
