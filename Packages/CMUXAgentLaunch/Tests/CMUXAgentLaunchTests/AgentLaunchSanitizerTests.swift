@@ -395,7 +395,7 @@ struct AgentLaunchSanitizerTests {
                 ["agy", "--conversation", "--sandbox", "danger-full-access"],
                 launcher: "antigravity",
                 fallbackKind: "antigravity"
-            ) == ["agy", "--sandbox", "danger-full-access"]
+            ) == ["agy"]
         )
         #expect(
             AgentLaunchSanitizer.sanitizedLaunchArguments(

@@ -437,7 +437,6 @@ extension AgentLaunchSanitizer {
         ],
         optionalValueOptions: [
             "--continue",
-            "--conversation",
             "-c",
         ],
         nonRestorableCommands: [
