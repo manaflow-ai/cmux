@@ -1339,19 +1339,37 @@ final class WorkspaceManualUnreadTests: XCTestCase {
         resetUnreadState()
         let cleanFingerprint = manager.sessionAutosaveFingerprint()
 
+        let notificationId = UUID()
+        let notificationCreatedAt = Date(timeIntervalSince1970: 1_700_000_000)
         store.replaceNotificationsForTesting([
             TerminalNotification(
-                id: UUID(),
+                id: notificationId,
                 tabId: workspace.id,
                 surfaceId: panelId,
                 title: "Unread",
                 subtitle: "",
                 body: "",
-                createdAt: Date(),
+                createdAt: notificationCreatedAt,
                 isRead: false
             ),
         ])
         XCTAssertNotEqual(cleanFingerprint, manager.sessionAutosaveFingerprint())
+        let notificationWithoutPanelIdFingerprint = manager.sessionAutosaveFingerprint()
+
+        store.replaceNotificationsForTesting([
+            TerminalNotification(
+                id: notificationId,
+                tabId: workspace.id,
+                surfaceId: panelId,
+                panelId: panelId,
+                title: "Unread",
+                subtitle: "",
+                body: "",
+                createdAt: notificationCreatedAt,
+                isRead: false
+            ),
+        ])
+        XCTAssertNotEqual(notificationWithoutPanelIdFingerprint, manager.sessionAutosaveFingerprint())
 
         resetUnreadState()
         store.setFocusedReadIndicator(forTabId: workspace.id, surfaceId: panelId)

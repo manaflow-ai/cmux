@@ -7597,6 +7597,7 @@ extension TabManager {
             hasher.combine(notification.createdAt.timeIntervalSince1970)
             hasher.combine(notification.isRead)
             hasher.combine(notification.paneFlash)
+            hasher.combine(notification.panelId)
             hasher.combine(notification.clickAction)
         }
     }
