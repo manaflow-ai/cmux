@@ -5731,24 +5731,29 @@ struct SettingsView: View {
 
         let urls = panel.urls
         Task { @MainActor in
-            do {
-                var warnings: [String] = []
-                for url in urls {
+            var warnings: [String] = []
+            var failures: [String] = []
+            for url in urls {
+                do {
                     let result = try await BrowserWebExtensionSupport.installExtension(from: url)
-                    warnings.append(contentsOf: result.parseErrors)
+                    if !result.parseErrors.isEmpty {
+                        NSLog("[BrowserExtensions] Installed \(url.lastPathComponent) with parser warnings: \(result.parseErrors.joined(separator: "; "))")
+                        warnings.append(url.lastPathComponent)
+                    }
+                } catch {
+                    failures.append("\(url.lastPathComponent): \(error.localizedDescription)")
                 }
-                refreshBrowserExtensionSummaries()
-                if let firstWarning = warnings.first {
-                    browserExtensionErrorAlertMessage = String(
-                        format: String(localized: "settings.browser.extensions.install.warning", defaultValue: "The extension was installed, but WebKit reported:\n\n%@"),
-                        firstWarning
-                    )
-                    showBrowserExtensionErrorAlert = true
-                }
-            } catch {
-                browserExtensionErrorAlertMessage = error.localizedDescription
+            }
+            refreshBrowserExtensionSummaries()
+            if !failures.isEmpty {
+                browserExtensionErrorAlertMessage = failures.joined(separator: "\n")
                 showBrowserExtensionErrorAlert = true
-                refreshBrowserExtensionSummaries()
+            } else if !warnings.isEmpty {
+                browserExtensionErrorAlertMessage = String(
+                    localized: "settings.browser.extensions.install.warningGeneric",
+                    defaultValue: "The extension was installed but may not function correctly."
+                )
+                showBrowserExtensionErrorAlert = true
             }
         }
     }

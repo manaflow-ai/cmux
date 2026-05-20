@@ -2,7 +2,7 @@ import AppKit
 import Foundation
 import WebKit
 
-struct BrowserWebExtensionInstalledSummary: Identifiable, Equatable {
+struct BrowserWebExtensionInstalledSummary: Identifiable, Equatable, Sendable {
     let id: UUID
     let displayName: String
     let detail: String
@@ -15,7 +15,7 @@ struct BrowserWebExtensionInstalledSummary: Identifiable, Equatable {
     let lastError: String?
 }
 
-struct BrowserWebExtensionActionSnapshot: Identifiable, Equatable {
+struct BrowserWebExtensionActionSnapshot: Identifiable, Equatable, Sendable {
     let id: UUID
     let label: String
     let badgeText: String
@@ -166,12 +166,12 @@ func browserWebExtensionUnsupportedAPIs(
     )
 }
 
-struct BrowserWebExtensionInstallResult: Equatable {
+struct BrowserWebExtensionInstallResult: Equatable, Sendable {
     let summary: BrowserWebExtensionInstalledSummary
     let parseErrors: [String]
 }
 
-struct BrowserWebExtensionProfileState: Codable, Equatable {
+struct BrowserWebExtensionProfileState: Codable, Equatable, Sendable {
     var isEnabled: Bool
     var grantedPermissions: [String]
     var grantedPermissionMatchPatterns: [String]
@@ -190,8 +190,8 @@ struct BrowserWebExtensionProfileState: Codable, Equatable {
     }
 }
 
-struct BrowserWebExtensionInstallRecord: Codable, Equatable, Identifiable {
-    enum SourceKind: String, Codable {
+struct BrowserWebExtensionInstallRecord: Codable, Equatable, Identifiable, Sendable {
+    enum SourceKind: String, Codable, Sendable {
         case legacyResourceBaseURL = "resourceBaseURL"
         case appExtensionBundle
     }
@@ -278,7 +278,7 @@ struct BrowserWebExtensionInstallRecord: Codable, Equatable, Identifiable {
     }
 }
 
-struct BrowserWebExtensionInstallSource: Equatable {
+struct BrowserWebExtensionInstallSource: Equatable, Sendable {
     let kind: BrowserWebExtensionInstallRecord.SourceKind
     let url: URL
 }
@@ -343,6 +343,7 @@ enum BrowserWebExtensionInstallError: LocalizedError, Equatable {
     case ambiguousExtension(String)
     case loadFailed(String)
     case persistFailed(String)
+    case invalidRequest(String)
 
     var errorDescription: String? {
         switch self {
@@ -353,7 +354,7 @@ enum BrowserWebExtensionInstallError: LocalizedError, Equatable {
         case .noManifest(let url):
             return String(
                 format: String(localized: "browser.extensions.error.noManifest", defaultValue: "No manifest.json was found in %@."),
-                url.path
+                url.lastPathComponent
             )
         case .noWebExtensionInApp(let url):
             return String(
@@ -380,9 +381,11 @@ enum BrowserWebExtensionInstallError: LocalizedError, Equatable {
                 format: String(localized: "browser.extensions.error.ambiguous", defaultValue: "Multiple installed browser extensions match '%@'. Use the extension ID instead."),
                 query
             )
-        case .loadFailed(let message):
-            return message
-        case .persistFailed(let message):
+        case .loadFailed:
+            return String(localized: "browser.extensions.error.loadFailed", defaultValue: "The extension could not be loaded. Check that the app contains a valid Safari Web Extension.")
+        case .persistFailed:
+            return String(localized: "browser.extensions.error.persistFailed", defaultValue: "The extension registry could not be saved.")
+        case .invalidRequest(let message):
             return message
         }
     }
@@ -577,15 +580,16 @@ final class BrowserWebExtensionInstallStore {
         _ = record
     }
 
-    func discoverSource(
+    static func discoverSource(
         from url: URL,
-        developerModeEnabled: Bool = BrowserExtensionDeveloperModeSettings.isEnabled()
+        developerModeEnabled: Bool = BrowserExtensionDeveloperModeSettings.isEnabled(),
+        fileManager: FileManager = .default
     ) throws -> BrowserWebExtensionInstallSource {
         let resolvedURL = url.standardizedFileURL
         let pathExtension = resolvedURL.pathExtension.lowercased()
 
         if pathExtension == "app" {
-            guard let appExtensionURL = firstWebExtensionAppExtension(in: resolvedURL) else {
+            guard let appExtensionURL = firstWebExtensionAppExtension(in: resolvedURL, fileManager: fileManager) else {
                 throw BrowserWebExtensionInstallError.noWebExtensionInApp(resolvedURL)
             }
             return BrowserWebExtensionInstallSource(kind: .appExtensionBundle, url: appExtensionURL)
@@ -595,7 +599,7 @@ final class BrowserWebExtensionInstallStore {
             guard developerModeEnabled else {
                 throw BrowserWebExtensionInstallError.developerModeRequired(resolvedURL)
             }
-            switch appExtensionValidationResult(for: resolvedURL) {
+            switch appExtensionValidationResult(for: resolvedURL, fileManager: fileManager) {
             case .valid:
                 return BrowserWebExtensionInstallSource(kind: .appExtensionBundle, url: resolvedURL)
             case .missingManifest:
@@ -608,6 +612,17 @@ final class BrowserWebExtensionInstallStore {
         }
 
         throw BrowserWebExtensionInstallError.unsupportedSource(resolvedURL)
+    }
+
+    func discoverSource(
+        from url: URL,
+        developerModeEnabled: Bool = BrowserExtensionDeveloperModeSettings.isEnabled()
+    ) throws -> BrowserWebExtensionInstallSource {
+        try Self.discoverSource(
+            from: url,
+            developerModeEnabled: developerModeEnabled,
+            fileManager: fileManager
+        )
     }
 
     private func existingRecord(for source: BrowserWebExtensionInstallSource) -> BrowserWebExtensionInstallRecord? {
@@ -631,6 +646,7 @@ final class BrowserWebExtensionInstallStore {
             let data = try JSONEncoder.cmuxBrowserExtensions.encode(recordsToPersist)
             try data.write(to: registryURL, options: .atomic)
         } catch {
+            NSLog("[BrowserExtensions] Failed to save extension registry: \(error.localizedDescription)")
             throw BrowserWebExtensionInstallError.persistFailed(error.localizedDescription)
         }
     }
@@ -670,7 +686,10 @@ final class BrowserWebExtensionInstallStore {
         return record
     }
 
-    private func firstWebExtensionAppExtension(in appURL: URL) -> URL? {
+    private static func firstWebExtensionAppExtension(
+        in appURL: URL,
+        fileManager: FileManager
+    ) -> URL? {
         let pluginsURL = appURL
             .appendingPathComponent("Contents", isDirectory: true)
             .appendingPathComponent("PlugIns", isDirectory: true)
@@ -684,29 +703,35 @@ final class BrowserWebExtensionInstallStore {
         let validAppExtensions = children
             .filter { $0.pathExtension.lowercased() == "appex" }
             .sorted { $0.lastPathComponent.localizedCaseInsensitiveCompare($1.lastPathComponent) == .orderedAscending }
-            .filter { appExtensionValidationResult(for: $0) == .valid }
+            .filter { appExtensionValidationResult(for: $0, fileManager: fileManager) == .valid }
         guard validAppExtensions.count == 1 else {
             return nil
         }
         return validAppExtensions[0]
     }
 
-    private func appExtensionValidationResult(for appexURL: URL) -> AppExtensionValidationResult {
-        guard appExtensionHasManifest(appexURL) else {
+    private static func appExtensionValidationResult(
+        for appexURL: URL,
+        fileManager: FileManager
+    ) -> AppExtensionValidationResult {
+        guard appExtensionHasManifest(appexURL, fileManager: fileManager) else {
             return .missingManifest
         }
 
-        guard appExtensionInfoPlistExists(appexURL) else {
+        guard appExtensionInfoPlistExists(appexURL, fileManager: fileManager) else {
             return .missingInfoPlist
         }
 
-        guard appExtensionPointIdentifier(in: appexURL) == Self.safariWebExtensionPointIdentifier else {
+        guard appExtensionPointIdentifier(in: appexURL, fileManager: fileManager) == Self.safariWebExtensionPointIdentifier else {
             return .notSafariWebExtension
         }
         return .valid
     }
 
-    private func appExtensionHasManifest(_ appexURL: URL) -> Bool {
+    private static func appExtensionHasManifest(
+        _ appexURL: URL,
+        fileManager: FileManager
+    ) -> Bool {
         fileManager.fileExists(
             atPath: appexURL
                 .appendingPathComponent("Contents", isDirectory: true)
@@ -716,12 +741,18 @@ final class BrowserWebExtensionInstallStore {
         )
     }
 
-    private func appExtensionInfoPlistExists(_ appexURL: URL) -> Bool {
+    private static func appExtensionInfoPlistExists(
+        _ appexURL: URL,
+        fileManager: FileManager
+    ) -> Bool {
         fileManager.fileExists(atPath: appExtensionInfoPlistURL(for: appexURL).path)
     }
 
-    private func appExtensionPointIdentifier(in appexURL: URL) -> String? {
-        guard let data = try? Data(contentsOf: appExtensionInfoPlistURL(for: appexURL)),
+    private static func appExtensionPointIdentifier(
+        in appexURL: URL,
+        fileManager: FileManager
+    ) -> String? {
+        guard let data = fileManager.contents(atPath: appExtensionInfoPlistURL(for: appexURL).path),
               let plist = try? PropertyListSerialization.propertyList(from: data, options: [], format: nil),
               let dictionary = plist as? [String: Any],
               let extensionDictionary = dictionary["NSExtension"] as? [String: Any] else {
@@ -730,7 +761,7 @@ final class BrowserWebExtensionInstallStore {
         return extensionDictionary["NSExtensionPointIdentifier"] as? String
     }
 
-    private func appExtensionInfoPlistURL(for appexURL: URL) -> URL {
+    private static func appExtensionInfoPlistURL(for appexURL: URL) -> URL {
         appexURL
             .appendingPathComponent("Contents", isDirectory: true)
             .appendingPathComponent("Info.plist", isDirectory: false)
@@ -897,6 +928,8 @@ private final class BrowserWebExtensionRuntime: NSObject, WKWebExtensionControll
     private var actionPopupPresentationsByID: [UUID: BrowserWebExtensionActionPopupPresentation] = [:]
     private var actionPopupAnchorViewsByPanelID: [UUID: BrowserWebExtensionWeakView] = [:]
     private var windowAdaptersByProfileID: [UUID: BrowserWebExtensionWindowAdapter] = [:]
+    private var runtimePermissionPromptTasks: [UUID: Task<Void, Never>] = [:]
+    private var runtimePermissionPromptDenyHandlers: [UUID: () -> Void] = [:]
     private var loadedProfileIDs: Set<UUID> = []
 
     override init() {
@@ -938,7 +971,9 @@ private final class BrowserWebExtensionRuntime: NSObject, WKWebExtensionControll
         if existingAdapter == nil || existingAdapter?.profileID != profileID {
             controller.didOpenTab(adapter)
         }
-        controller.didFocusWindow(windowAdapter)
+        if shouldNotifyWindowFocus(for: panel) {
+            controller.didFocusWindow(windowAdapter)
+        }
         controller.didChangeTabProperties(WKWebExtension.TabChangedProperties([.title, .URL, .loading]), for: adapter)
         Task { @MainActor [weak self] in
             await self?.loadInstalledRecordsIfNeeded(profileID: profileID)
@@ -1014,6 +1049,7 @@ private final class BrowserWebExtensionRuntime: NSObject, WKWebExtensionControll
                 code != .invalidBackgroundPersistence
         }
         if let firstError = fatalParseErrors.first {
+            NSLog("[BrowserExtensions] Failed to load extension during install: \(firstError.localizedDescription)")
             throw BrowserWebExtensionInstallError.loadFailed(firstError.localizedDescription)
         }
         try await promptForInstallConsent(webExtension: webExtension, sourceKind: source.kind)
@@ -1050,6 +1086,7 @@ private final class BrowserWebExtensionRuntime: NSObject, WKWebExtensionControll
     }
 
     func reloadInstalledExtensions() async {
+        cancelRuntimePermissionPrompts()
         closeAllActionPopups()
         closeAllAuxiliaryWindows()
         for (profileID, contextsByRecordID) in contextsByProfileID {
@@ -1096,6 +1133,7 @@ private final class BrowserWebExtensionRuntime: NSObject, WKWebExtensionControll
     }
 
     func removeExtension(id: UUID) throws {
+        cancelRuntimePermissionPrompts()
         closeAllActionPopups()
         for profileID in controllersByProfileID.keys {
             unload(recordID: id, profileID: profileID)
@@ -1283,8 +1321,9 @@ private final class BrowserWebExtensionRuntime: NSObject, WKWebExtensionControll
             try controller.load(context)
         } catch {
             contextsByProfileID[profileID]?[record.id] = nil
-            try? store.setLastError(error.localizedDescription, for: record.id, profileID: profileID)
-            throw error
+            let loadError = BrowserWebExtensionInstallError.loadFailed(error.localizedDescription)
+            try? store.setLastError(loadError.localizedDescription, for: record.id, profileID: profileID)
+            throw loadError
         }
         try? store.setLastError(nil, for: record.id, profileID: profileID)
         if webExtension.hasBackgroundContent {
@@ -1298,7 +1337,7 @@ private final class BrowserWebExtensionRuntime: NSObject, WKWebExtensionControll
                     )
 #endif
                     try? self?.store.setLastError(
-                        error.localizedDescription,
+                        BrowserWebExtensionInstallError.loadFailed(error.localizedDescription).localizedDescription,
                         for: record.id,
                         profileID: profileID
                     )
@@ -1328,6 +1367,7 @@ private final class BrowserWebExtensionRuntime: NSObject, WKWebExtensionControll
         } catch let installError as BrowserWebExtensionInstallError {
             throw installError
         } catch {
+            NSLog("[BrowserExtensions] Failed to load extension bundle: \(error.localizedDescription)")
             throw BrowserWebExtensionInstallError.loadFailed(error.localizedDescription)
         }
     }
@@ -1688,10 +1728,42 @@ private final class BrowserWebExtensionRuntime: NSObject, WKWebExtensionControll
         alert.addButton(withTitle: String(localized: "browser.extensions.permission.allow", defaultValue: "Allow"))
         alert.addButton(withTitle: String(localized: "browser.extensions.permission.deny", defaultValue: "Deny"))
         alert.alertStyle = .informational
-        Task { @MainActor in
+        let promptID = UUID()
+        runtimePermissionPromptDenyHandlers[promptID] = {
+            completion(false)
+        }
+        let task = Task { @MainActor [weak self] in
+            guard let self else {
+                completion(false)
+                return
+            }
             let response = await runModal(alert)
+            guard self.runtimePermissionPromptDenyHandlers.removeValue(forKey: promptID) != nil else {
+                return
+            }
+            self.runtimePermissionPromptTasks[promptID] = nil
             completion(response == .alertFirstButtonReturn)
         }
+        runtimePermissionPromptTasks[promptID] = task
+    }
+
+    private func cancelRuntimePermissionPrompts() {
+        let denyHandlers = runtimePermissionPromptDenyHandlers
+        runtimePermissionPromptDenyHandlers.removeAll()
+        for task in runtimePermissionPromptTasks.values {
+            task.cancel()
+        }
+        runtimePermissionPromptTasks.removeAll()
+        for handler in denyHandlers.values {
+            handler()
+        }
+    }
+
+    private func shouldNotifyWindowFocus(for panel: BrowserPanel) -> Bool {
+        if let focusedPanelID = AppDelegate.shared?.tabManager?.selectedWorkspace?.focusedPanelId {
+            return focusedPanelID == panel.id
+        }
+        return panel.webView.window?.isKeyWindow == true
     }
 
     fileprivate func activeTabAdapter(profileID: UUID? = nil) -> BrowserWebExtensionTabAdapter? {

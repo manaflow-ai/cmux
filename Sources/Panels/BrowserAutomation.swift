@@ -379,10 +379,14 @@ enum BrowserExtensionAutomation {
 
     static func discover(params: [String: Any]) async throws -> [String: Any] {
         let path = try requiredString(params, keys: ["path", "source"])
-        let source = try BrowserWebExtensionInstallStore().discoverSource(
-            from: URL(fileURLWithPath: expandedPath(path)),
-            developerModeEnabled: BrowserExtensionDeveloperModeSettings.isEnabled()
-        )
+        let resolvedPath = expandedPath(path)
+        let developerModeEnabled = BrowserExtensionDeveloperModeSettings.isEnabled()
+        let source = try await Task.detached {
+            try BrowserWebExtensionInstallStore.discoverSource(
+                from: URL(fileURLWithPath: resolvedPath),
+                developerModeEnabled: developerModeEnabled
+            )
+        }.value
         return [
             "source": [
                 "kind": source.kind.rawValue,
@@ -511,7 +515,19 @@ enum BrowserExtensionAutomation {
         if let value = optionalString(params, keys: keys) {
             return value
         }
-        throw BrowserWebExtensionInstallError.extensionNotFound(keys.joined(separator: "/"))
+        if keys.contains("path") || keys.contains("source") {
+            throw BrowserWebExtensionInstallError.invalidRequest(
+                String(localized: "browser.extensions.error.missingPath", defaultValue: "A browser extension app path is required.")
+            )
+        }
+        if keys.contains("extension") || keys.contains("id") || keys.contains("name") {
+            throw BrowserWebExtensionInstallError.invalidRequest(
+                String(localized: "browser.extensions.error.missingExtension", defaultValue: "An installed browser extension name or ID is required.")
+            )
+        }
+        throw BrowserWebExtensionInstallError.invalidRequest(
+            String(localized: "browser.extensions.error.invalidRequest", defaultValue: "The browser extension request is invalid.")
+        )
     }
 
     private static func optionalString(_ params: [String: Any], keys: [String]) -> String? {
