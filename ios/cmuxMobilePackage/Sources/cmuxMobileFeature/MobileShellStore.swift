@@ -963,9 +963,26 @@ public final class CMUXMobileShellStore {
                 startTerminalRefreshPolling()
                 connectionError = nil
                 applyRemoteWorkspaceList(response, preferActiveTicketTarget: true)
+                let refreshFullWorkspaceListAfterFirstSnapshot = route.kind == .debugLoopback
+                if !refreshFullWorkspaceListAfterFirstSnapshot {
+                    _ = await refreshAllWorkspacesWithStackAuthIfAvailable(
+                        client: client,
+                        route: route,
+                        generation: generation
+                    )
+                }
                 syncSelectedTerminalForWorkspace()
                 connectionState = .connected
                 await refreshSelectedTerminalSnapshot()
+                if refreshFullWorkspaceListAfterFirstSnapshot,
+                   await refreshAllWorkspacesWithStackAuthIfAvailable(
+                        client: client,
+                        route: route,
+                        generation: generation
+                   ) {
+                    syncSelectedTerminalForWorkspace()
+                    await refreshSelectedTerminalSnapshot()
+                }
                 return
             } catch {
                 lastError = error
@@ -1006,6 +1023,40 @@ public final class CMUXMobileShellStore {
         return params
     }
 
+    private func refreshAllWorkspacesWithStackAuthIfAvailable(
+        client: MobileCoreRPCClient,
+        route: CmxAttachRoute,
+        generation: UUID
+    ) async -> Bool {
+        guard MobileShellRouteAuthPolicy.routeAllowsStackAuth(route),
+              let attachToken = activeTicket?.authToken?.trimmingCharacters(in: .whitespacesAndNewlines),
+              !attachToken.isEmpty else {
+            return false
+        }
+        do {
+            let resultData = try await client.sendRequest(
+                MobileCoreRPCClient.requestData(
+                    method: "workspace.list",
+                    params: [:]
+                ),
+                timeoutNanoseconds: runtime?.pairingRequestTimeoutNanoseconds
+            )
+            let response = try MobileSyncWorkspaceListResponse.decode(resultData)
+            guard isCurrentRemoteConnection(client: client, generation: generation) else {
+                return false
+            }
+            let activeTicketWorkspaceID = activeTicket.map { MobileWorkspacePreview.ID(rawValue: $0.workspaceID) }
+            applyRemoteWorkspaceList(
+                response,
+                preferActiveTicketTarget: selectedWorkspaceID == nil || selectedWorkspaceID == activeTicketWorkspaceID
+            )
+            return true
+        } catch {
+            mobileShellLog.info("full mobile workspace list unavailable after scoped attach: \(String(describing: error), privacy: .private)")
+            return false
+        }
+    }
+
     private func clearActiveConnectionContext() {
         activeTicket = nil
         activeRoute = nil
@@ -1042,10 +1093,14 @@ public final class CMUXMobileShellStore {
     }
 
     private func isCurrentRemoteOperation(client: MobileCoreRPCClient, generation: UUID) -> Bool {
+        isCurrentRemoteConnection(client: client, generation: generation)
+            && connectionState == .connected
+    }
+
+    private func isCurrentRemoteConnection(client: MobileCoreRPCClient, generation: UUID) -> Bool {
         generation == connectionGeneration
             && client === remoteClient
             && isSignedIn
-            && connectionState == .connected
     }
 
     private func syncSelectedTerminalForWorkspace() {
@@ -1171,16 +1226,26 @@ public final class CMUXMobileShellStore {
             )
             let response = try MobileSyncTerminalSnapshotResponse.decode(resultData)
             guard isCurrentRemoteOperation(client: client, generation: generation) else { return }
+            let responseTerminalID = MobileTerminalPreview.ID(rawValue: response.surfaceID ?? terminalID)
+            if shouldDeferLowerFidelityTerminalSnapshot(
+                workspaceID: workspace.id,
+                terminalID: responseTerminalID,
+                snapshot: response.snapshot,
+                fidelity: response.fidelity
+            ) {
+                scheduleSelectedTerminalSnapshotRefresh()
+                return
+            }
             replaceTerminalSnapshot(
                 workspaceID: workspace.id,
-                terminalID: MobileTerminalPreview.ID(rawValue: response.surfaceID ?? terminalID),
+                terminalID: responseTerminalID,
                 snapshot: response.snapshot,
                 isReady: true,
                 viewportFit: response.viewportFit
             )
             scheduleViewportSettlingRefreshIfNeeded(
                 workspaceID: workspace.id,
-                terminalID: MobileTerminalPreview.ID(rawValue: response.surfaceID ?? terminalID),
+                terminalID: responseTerminalID,
                 viewportFit: response.viewportFit
             )
         } catch {
@@ -1550,6 +1615,30 @@ public final class CMUXMobileShellStore {
         updatedWorkspaces[workspaceIndex].terminals[terminalIndex].viewportFit = viewportFit
         workspaces = updatedWorkspaces
         mobileShellLog.info("replaced terminal snapshot workspace=\(workspaceID.rawValue, privacy: .private) terminal=\(terminalID.rawValue, privacy: .private) rows=\(snapshot.visibleRows.count, privacy: .public)")
+    }
+
+    private func shouldDeferLowerFidelityTerminalSnapshot(
+        workspaceID: MobileWorkspacePreview.ID,
+        terminalID: MobileTerminalPreview.ID,
+        snapshot: MobileTerminalGhosttySnapshot,
+        fidelity: String?
+    ) -> Bool {
+        guard fidelity == "plain_text",
+              !snapshot.hasExplicitCellStyles,
+              let workspaceIndex = workspaces.firstIndex(where: { $0.id == workspaceID }),
+              let terminalIndex = workspaces[workspaceIndex].terminals.firstIndex(where: { $0.id == terminalID }),
+              workspaces[workspaceIndex].terminals[terminalIndex].snapshot.hasExplicitCellStyles else {
+            return false
+        }
+
+        let key = viewportKey(workspaceID: workspaceID, terminalID: terminalID)
+        guard let remainingRefreshes = viewportSettlingRefreshesByTerminalKey[key],
+              remainingRefreshes > 0 else {
+            return false
+        }
+        viewportSettlingRefreshesByTerminalKey[key] = remainingRefreshes - 1
+        mobileShellLog.info("deferred lower fidelity terminal snapshot workspace=\(workspaceID.rawValue, privacy: .private) terminal=\(terminalID.rawValue, privacy: .private) remaining=\(remainingRefreshes - 1, privacy: .public)")
+        return true
     }
 
     private static func isTerminalSurfaceNotReady(_ error: Error) -> Bool {
@@ -2117,11 +2206,13 @@ private struct MobileSyncWorkspaceListResponse: Decodable, Sendable {
 private struct MobileSyncTerminalSnapshotResponse: Decodable, Sendable {
     let snapshot: MobileTerminalGhosttySnapshot
     let surfaceID: String?
+    let fidelity: String?
     let viewportFit: MobileTerminalViewportFit?
 
     private enum CodingKeys: String, CodingKey {
         case snapshot
         case surfaceID = "surface_id"
+        case fidelity
         case viewportFit = "viewport_fit"
     }
 
@@ -2131,6 +2222,20 @@ private struct MobileSyncTerminalSnapshotResponse: Decodable, Sendable {
         let response = try decoder.decode(Self.self, from: data)
         try response.snapshot.validate()
         return response
+    }
+}
+
+private extension MobileTerminalGhosttySnapshot {
+    var hasExplicitCellStyles: Bool {
+        visibleRows.contains { row in
+            row.cells.contains { cell in
+                cell.style != MobileTerminalGhosttyCellStyle()
+            }
+        } || scrollbackRows.contains { row in
+            row.cells.contains { cell in
+                cell.style != MobileTerminalGhosttyCellStyle()
+            }
+        }
     }
 }
 

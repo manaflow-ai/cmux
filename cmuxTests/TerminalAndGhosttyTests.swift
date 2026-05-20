@@ -1319,6 +1319,35 @@ final class TerminalOffscreenStartupTests: XCTestCase {
         )
     }
 
+    func testMobileTerminalInputInvalidationAllowsImmediateStyledVTExportRetry() {
+        let surfaceID = UUID()
+        let now = Date(timeIntervalSince1970: 1_000)
+
+        TerminalController.shared.debugRecordMobileTerminalVTExportAttemptForTesting(
+            surfaceID: surfaceID,
+            now: now
+        )
+        XCTAssertFalse(
+            TerminalController.shared.debugShouldAttemptMobileTerminalVTExportForTesting(
+                surfaceID: surfaceID,
+                now: now.addingTimeInterval(0.01)
+            )
+        )
+
+        TerminalController.shared.debugRecordMobileTerminalVTExportAttemptForTesting(
+            surfaceID: surfaceID,
+            now: now
+        )
+        TerminalController.shared.debugInvalidateMobileTerminalSnapshotAfterInputForTesting(surfaceID: surfaceID)
+        XCTAssertTrue(
+            TerminalController.shared.debugShouldAttemptMobileTerminalVTExportForTesting(
+                surfaceID: surfaceID,
+                now: now.addingTimeInterval(0.01)
+            ),
+            "Mobile input must invalidate stale snapshots without throttling the immediately following styled VT export."
+        )
+    }
+
     func testMobileRPCRejectsMalformedWorkspaceIDBeforeImplicitFallback() async throws {
         let previousManager = TerminalController.shared.activeTabManagerForCallerNotification()
         let manager = TabManager()

@@ -8048,6 +8048,20 @@ class TerminalController {
         return true
     }
 
+#if DEBUG
+    func debugRecordMobileTerminalVTExportAttemptForTesting(surfaceID: UUID, now: Date) {
+        mobileTerminalVTExportLastAttemptBySurfaceID[surfaceID] = now
+    }
+
+    func debugInvalidateMobileTerminalSnapshotAfterInputForTesting(surfaceID: UUID) {
+        invalidateMobileTerminalSnapshotAfterInput(surfaceID: surfaceID)
+    }
+
+    func debugShouldAttemptMobileTerminalVTExportForTesting(surfaceID: UUID, now: Date) -> Bool {
+        shouldAttemptMobileTerminalVTExport(surfaceID: surfaceID, now: now)
+    }
+#endif
+
     private func readPlainTerminalTextForSnapshot(
         terminalPanel: TerminalPanel,
         includeScrollback: Bool = false,
@@ -19305,8 +19319,7 @@ class TerminalController {
         let sendStart = ProcessInfo.processInfo.systemUptime
         #endif
         let sendResult = terminalPanel.surface.sendInputResult(text)
-        mobileTerminalSnapshotCacheBySurfaceID[terminalPanel.id] = nil
-        mobileTerminalVTExportLastAttemptBySurfaceID[terminalPanel.id] = Date()
+        invalidateMobileTerminalSnapshotAfterInput(surfaceID: terminalPanel.id)
         switch sendResult {
         case .sent:
             terminalPanel.surface.forceRefresh(reason: "mobileHost.terminalInput")
@@ -19330,6 +19343,11 @@ class TerminalController {
             "surface_id": terminalPanel.id.uuidString,
             "queued": sendResult == .queued,
         ])
+    }
+
+    private func invalidateMobileTerminalSnapshotAfterInput(surfaceID: UUID) {
+        mobileTerminalSnapshotCacheBySurfaceID[surfaceID] = nil
+        mobileTerminalVTExportLastAttemptBySurfaceID[surfaceID] = nil
     }
 
     private func applyMobileViewportReport(
