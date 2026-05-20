@@ -456,7 +456,13 @@ enum KeyboardShortcutSettings {
                 return normalized
             }
 
-            return usesNumberedDigitMatching || self == .showHideAllWindows || self == .globalSearch ? nil : shortcut
+            // Preserve invalid settings-file values for the show/hide hotkey so managed
+            // configuration remains visible instead of silently falling back to defaults.
+            // Runtime registration still rejects unsupported Carbon hotkey shapes.
+            if usesNumberedDigitMatching || self == .globalSearch {
+                return nil
+            }
+            return shortcut
         }
 
         func resolvedRecordedShortcutIgnoringConflicts(_ shortcut: StoredShortcut, checkingSystemWideConflicts: Bool = true) -> RecordedShortcutResolution {
@@ -2276,7 +2282,8 @@ extension StoredShortcut {
     private static func isUnboundConfigToken(_ rawValue: String) -> Bool {
         if rawValue.isEmpty { return true }
         let normalized = rawValue.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
-        return normalized.isEmpty || normalized == "none" || normalized == "clear" || normalized == "unbound" || normalized == "disabled"
+        guard !normalized.isEmpty else { return false }
+        return normalized == "none" || normalized == "clear" || normalized == "unbound" || normalized == "disabled"
     }
 }
 
