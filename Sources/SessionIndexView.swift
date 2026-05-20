@@ -1033,6 +1033,21 @@ private enum SessionTranscriptPreviewState: Equatable {
     case loaded([SessionTranscriptDisplayRow])
 }
 
+private extension SessionEntry {
+    var usesGrokTranscriptLayout: Bool {
+        if agent == .grok {
+            return true
+        }
+        guard case .registered(let registration) = specifics else {
+            return false
+        }
+        if case .grokSessionDirectory = registration.sessionIdSource {
+            return true
+        }
+        return false
+    }
+}
+
 private enum SessionTranscriptLoader {
     private static let streamChunkSize = 256 * 1024
     private static let maxPreviewRecordBytes = 2 * 1024 * 1024
@@ -1092,12 +1107,21 @@ private enum SessionTranscriptLoader {
             throw SessionTranscriptLoadError.missingFile
         }
         let agent = entry.agent
+        let usesGrokTranscriptLayout = entry.usesGrokTranscriptLayout
         return try await Task.detached(priority: .userInitiated) {
-            try loadSynchronously(from: url, agent: agent)
+            try loadSynchronously(
+                from: url,
+                agent: agent,
+                usesGrokTranscriptLayout: usesGrokTranscriptLayout
+            )
         }.value
     }
 
-    private static func loadSynchronously(from url: URL, agent: SessionAgent) throws -> [SessionTranscriptTurn] {
+    private static func loadSynchronously(
+        from url: URL,
+        agent: SessionAgent,
+        usesGrokTranscriptLayout: Bool
+    ) throws -> [SessionTranscriptTurn] {
         guard FileManager.default.fileExists(atPath: url.path) else {
             throw SessionTranscriptLoadError.missingFile
         }
@@ -1138,7 +1162,12 @@ private enum SessionTranscriptLoader {
                 didHitTurnLimit = turns.count >= maxPreviewTurns
                 return
             }
-            guard let parsed = parseLineData(lineData, agent: agent, id: lineIndex) else {
+            guard let parsed = parseLineData(
+                lineData,
+                agent: agent,
+                usesGrokTranscriptLayout: usesGrokTranscriptLayout,
+                id: lineIndex
+            ) else {
                 return
             }
             turns.append(parsed)
@@ -1153,8 +1182,16 @@ private enum SessionTranscriptLoader {
                 if remainingCapacity > 0 {
                     lineData.append(contentsOf: segment.prefix(remainingCapacity))
                 }
-                if shouldParseRawLine(lineData, agent: agent) {
-                    oversizedPreviewRole = inferredRole(from: lineData, agent: agent) ?? .event
+                if shouldParseRawLine(
+                    lineData,
+                    agent: agent,
+                    usesGrokTranscriptLayout: usesGrokTranscriptLayout
+                ) {
+                    oversizedPreviewRole = inferredRole(
+                        from: lineData,
+                        agent: agent,
+                        usesGrokTranscriptLayout: usesGrokTranscriptLayout
+                    ) ?? .event
                 }
                 lineData.removeAll(keepingCapacity: true)
                 isSkippingOversizedLine = true
@@ -1316,19 +1353,26 @@ private enum SessionTranscriptLoader {
     private static func parseLineData(
         _ lineData: Data,
         agent: SessionAgent,
+        usesGrokTranscriptLayout: Bool,
         id: Int
     ) -> SessionTranscriptTurn? {
         guard !lineData.isEmpty,
-              shouldParseRawLine(lineData, agent: agent),
+              shouldParseRawLine(lineData, agent: agent, usesGrokTranscriptLayout: usesGrokTranscriptLayout),
               let object = try? JSONSerialization.jsonObject(with: lineData) as? [String: Any] else {
             return nil
         }
-        return parseLine(object, agent: agent, id: id)
+        return parseLine(
+            object,
+            agent: agent,
+            usesGrokTranscriptLayout: usesGrokTranscriptLayout,
+            id: id
+        )
     }
 
     private static func parseLine(
         _ object: [String: Any],
         agent: SessionAgent,
+        usesGrokTranscriptLayout: Bool,
         id: Int
     ) -> SessionTranscriptTurn? {
         switch agent {
@@ -1337,7 +1381,12 @@ private enum SessionTranscriptLoader {
         case .codex:
             return parseCodexLine(object, id: id)
         case .grok, .opencode, .rovodev, .registered:
-            return parseGenericLine(object, agent: agent, id: id)
+            return parseGenericLine(
+                object,
+                agent: agent,
+                usesGrokTranscriptLayout: usesGrokTranscriptLayout,
+                id: id
+            )
         case .hermesAgent:
             return nil
         }
@@ -1386,17 +1435,33 @@ private enum SessionTranscriptLoader {
     private static func parseGenericLine(
         _ object: [String: Any],
         agent: SessionAgent,
+        usesGrokTranscriptLayout: Bool,
         id: Int
     ) -> SessionTranscriptTurn? {
-        if let parsed = parseGenericMessage(object, agent: agent, id: id) {
+        if let parsed = parseGenericMessage(
+            object,
+            agent: agent,
+            usesGrokTranscriptLayout: usesGrokTranscriptLayout,
+            id: id
+        ) {
             return parsed
         }
         if let payload = object["payload"] as? [String: Any],
-           let parsed = parseGenericMessage(payload, agent: agent, id: id) {
+           let parsed = parseGenericMessage(
+               payload,
+               agent: agent,
+               usesGrokTranscriptLayout: usesGrokTranscriptLayout,
+               id: id
+           ) {
             return parsed
         }
         if let message = object["message"] as? [String: Any],
-           let parsed = parseGenericMessage(message, agent: agent, id: id) {
+           let parsed = parseGenericMessage(
+               message,
+               agent: agent,
+               usesGrokTranscriptLayout: usesGrokTranscriptLayout,
+               id: id
+           ) {
             return parsed
         }
         return nil
@@ -1405,12 +1470,13 @@ private enum SessionTranscriptLoader {
     private static func parseGenericMessage(
         _ object: [String: Any],
         agent: SessionAgent,
+        usesGrokTranscriptLayout: Bool,
         id: Int
     ) -> SessionTranscriptTurn? {
         let fallbackRole: SessionTranscriptRole? = { if case .registered = agent { return .event }; return nil }()
         let rawRole = object["role"] as? String
         let parsedRole = transcriptRole(from: rawRole)
-        let shouldUseGrokTypeRole = agent == .grok
+        let shouldUseGrokTypeRole = usesGrokTranscriptLayout
             && (parsedRole == nil || (parsedRole == .event && rawRole?.caseInsensitiveCompare("event") != .orderedSame))
         let roleFromType: SessionTranscriptRole? = shouldUseGrokTypeRole
             ? transcriptRole(from: object["type"] as? String)
@@ -1619,7 +1685,14 @@ private enum SessionTranscriptLoader {
         }
     }
 
-    private static func shouldParseRawLine(_ data: Data, agent: SessionAgent) -> Bool {
+    private static func shouldParseRawLine(
+        _ data: Data,
+        agent: SessionAgent,
+        usesGrokTranscriptLayout: Bool
+    ) -> Bool {
+        if usesGrokTranscriptLayout {
+            return containsAny(data, needles: grokRoleNeedles)
+        }
         switch agent {
         case .claude:
             return containsAny(data, needles: claudeUserNeedles)
@@ -1637,7 +1710,14 @@ private enum SessionTranscriptLoader {
         }
     }
 
-    private static func inferredRole(from data: Data, agent: SessionAgent) -> SessionTranscriptRole? {
+    private static func inferredRole(
+        from data: Data,
+        agent: SessionAgent,
+        usesGrokTranscriptLayout: Bool
+    ) -> SessionTranscriptRole? {
+        if usesGrokTranscriptLayout {
+            return inferredGrokRole(from: data)
+        }
         switch agent {
         case .claude:
             if containsAny(data, needles: [Data(#""type":"assistant""#.utf8), Data(#""type": "assistant""#.utf8)]) {
@@ -1657,24 +1737,29 @@ private enum SessionTranscriptLoader {
                 return .tool
             }
         case .grok:
-            if containsAny(data, needles: [
-                Data(#""role":"assistant""#.utf8),
-                Data(#""role": "assistant""#.utf8),
-                Data(#""type":"assistant""#.utf8),
-                Data(#""type": "assistant""#.utf8),
-            ]) {
-                return .assistant
-            }
-            if containsAny(data, needles: [
-                Data(#""role":"user""#.utf8),
-                Data(#""role": "user""#.utf8),
-                Data(#""type":"user""#.utf8),
-                Data(#""type": "user""#.utf8),
-            ]) {
-                return .user
-            }
+            return inferredGrokRole(from: data)
         case .hermesAgent:
             return nil
+        }
+        return nil
+    }
+
+    private static func inferredGrokRole(from data: Data) -> SessionTranscriptRole? {
+        if containsAny(data, needles: [
+            Data(#""role":"assistant""#.utf8),
+            Data(#""role": "assistant""#.utf8),
+            Data(#""type":"assistant""#.utf8),
+            Data(#""type": "assistant""#.utf8),
+        ]) {
+            return .assistant
+        }
+        if containsAny(data, needles: [
+            Data(#""role":"user""#.utf8),
+            Data(#""role": "user""#.utf8),
+            Data(#""type":"user""#.utf8),
+            Data(#""type": "user""#.utf8),
+        ]) {
+            return .user
         }
         return nil
     }
