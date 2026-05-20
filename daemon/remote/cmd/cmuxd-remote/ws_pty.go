@@ -5,6 +5,7 @@ import (
 	"context"
 	"crypto/sha256"
 	"crypto/subtle"
+	"encoding/base64"
 	"encoding/hex"
 	"encoding/json"
 	"errors"
@@ -15,6 +16,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"sort"
 	"strings"
 	"sync"
 	"syscall"
@@ -82,7 +84,7 @@ const (
 	defaultWebSocketScrollbackCap  = 1 << 20
 	defaultWebSocketWriteQueueCap  = 256
 	defaultWebSocketWriteTimeout   = 10 * time.Second
-	defaultWebSocketSessionIdleTTL = 5 * time.Minute
+	defaultWebSocketSessionIdleTTL = 24 * time.Hour
 )
 
 type wsPTYOutgoingFrame struct {
@@ -427,6 +429,8 @@ func handleWebSocketRPC(w http.ResponseWriter, r *http.Request, cfg wsPTYServerC
 		nextSessionID: 1,
 		streams:       map[string]*streamState{},
 		sessions:      map[string]*sessionState{},
+		ptyHub:        cfg.PTYHub,
+		ownsPTYHub:    false,
 		frameWriter: &wsRPCFrameWriter{
 			conn:    conn,
 			writeMu: writeMu,
@@ -556,7 +560,50 @@ func (h *wsPTYHub) attach(ctx context.Context, conn *websocket.Conn, auth wsAuth
 	cols, rows := normalizePTYSize(auth.Cols, auth.Rows)
 	attachmentID := strings.TrimSpace(auth.AttachmentID)
 	persistent := attachmentID != "" && auth.SessionIDExplicit
+	attachment, attachmentCtx, sessionDone, err := h.prepareAttachment(
+		ctx,
+		conn,
+		sessionID,
+		attachmentID,
+		cols,
+		rows,
+		persistent,
+		"",
+	)
+	if err != nil {
+		return nil, err
+	}
+	go attachment.writeLoop(attachmentCtx, conn, sessionDone)
+	return attachment, nil
+}
 
+func (h *wsPTYHub) attachRPC(
+	ctx context.Context,
+	sessionID string,
+	attachmentID string,
+	cols int,
+	rows int,
+	command string,
+) (*wsPTYAttachment, context.Context, <-chan struct{}, error) {
+	sessionID = strings.TrimSpace(sessionID)
+	if sessionID == "" {
+		return nil, nil, nil, errors.New("session_id is required")
+	}
+	attachmentID = strings.TrimSpace(attachmentID)
+	cols, rows = normalizePTYSize(cols, rows)
+	return h.prepareAttachment(ctx, nil, sessionID, attachmentID, cols, rows, true, command)
+}
+
+func (h *wsPTYHub) prepareAttachment(
+	ctx context.Context,
+	conn *websocket.Conn,
+	sessionID string,
+	attachmentID string,
+	cols int,
+	rows int,
+	persistent bool,
+	command string,
+) (*wsPTYAttachment, context.Context, <-chan struct{}, error) {
 	h.mu.Lock()
 
 	sessionKey := persistentPTYSessionKey(sessionID)
@@ -567,10 +614,10 @@ func (h *wsPTYHub) attach(ctx context.Context, conn *websocket.Conn, auth wsAuth
 	session := h.sessions[sessionKey]
 	if session == nil || session.closed {
 		var err error
-		session, err = h.startSessionLocked(sessionKey, sessionID, cols, rows)
+		session, err = h.startSessionLocked(sessionKey, sessionID, cols, rows, command)
 		if err != nil {
 			h.mu.Unlock()
-			return nil, err
+			return nil, nil, nil, err
 		}
 		h.sessions[sessionKey] = session
 	}
@@ -604,7 +651,7 @@ func (h *wsPTYHub) attach(ctx context.Context, conn *websocket.Conn, auth wsAuth
 		if superseded != nil {
 			superseded.closeNow()
 		}
-		return nil, errors.New("failed to queue ready frame")
+		return nil, nil, nil, errors.New("failed to queue ready frame")
 	}
 	if len(replay) > 0 {
 		if ok := attachment.enqueueBinary(replay); !ok {
@@ -613,7 +660,7 @@ func (h *wsPTYHub) attach(ctx context.Context, conn *websocket.Conn, auth wsAuth
 			if superseded != nil {
 				superseded.closeNow()
 			}
-			return nil, errors.New("failed to queue replay frame")
+			return nil, nil, nil, errors.New("failed to queue replay frame")
 		}
 	}
 	session.attachments[attachmentID] = attachment
@@ -627,14 +674,18 @@ func (h *wsPTYHub) attach(ctx context.Context, conn *websocket.Conn, auth wsAuth
 	if shouldApplySize {
 		h.applyCurrentPTYSize(session)
 	}
-
-	go attachment.writeLoop(attachmentCtx, conn, sessionDone)
-	return attachment, nil
+	return attachment, attachmentCtx, sessionDone, nil
 }
 
-func (h *wsPTYHub) startSessionLocked(sessionKey wsPTYSessionKey, sessionID string, cols int, rows int) (*wsPTYSession, error) {
+func (h *wsPTYHub) startSessionLocked(sessionKey wsPTYSessionKey, sessionID string, cols int, rows int, command string) (*wsPTYSession, error) {
 	shellPath := resolvePTYShell(h.shell)
-	cmd := exec.Command(shellPath)
+	trimmedCommand := strings.TrimSpace(command)
+	var cmd *exec.Cmd
+	if trimmedCommand == "" {
+		cmd = exec.Command(shellPath)
+	} else {
+		cmd = exec.Command("/bin/sh", "-c", trimmedCommand)
+	}
 	cmd.Env = defaultWebSocketPTYEnv(shellPath)
 	ptyFile, ttyFile, err := startPTYCommand(cmd, cols, rows)
 	if err != nil {
@@ -776,6 +827,124 @@ func (h *wsPTYHub) closeAll() {
 			_ = session.cmd.Process.Kill()
 		}
 		session.closePTYFiles()
+	}
+}
+
+func (h *wsPTYHub) writeInputByID(sessionID string, attachmentID string, payload []byte) bool {
+	attachment := h.attachmentByID(sessionID, attachmentID)
+	if attachment == nil {
+		return false
+	}
+	return h.writeInput(attachment, payload)
+}
+
+func (h *wsPTYHub) resizeByID(sessionID string, attachmentID string, cols int, rows int) bool {
+	attachment := h.attachmentByID(sessionID, attachmentID)
+	if attachment == nil {
+		return false
+	}
+	h.resize(attachment, cols, rows)
+	return true
+}
+
+func (h *wsPTYHub) detachByID(sessionID string, attachmentID string) bool {
+	attachment := h.attachmentByID(sessionID, attachmentID)
+	if attachment == nil {
+		return false
+	}
+	return h.detach(attachment)
+}
+
+func (h *wsPTYHub) closeSessionByID(sessionID string) bool {
+	sessionID = strings.TrimSpace(sessionID)
+	if sessionID == "" {
+		return false
+	}
+	sessionKey := persistentPTYSessionKey(sessionID)
+
+	h.mu.Lock()
+	session := h.sessions[sessionKey]
+	if session == nil || session.closed {
+		h.mu.Unlock()
+		return false
+	}
+	delete(h.sessions, sessionKey)
+	h.cancelIdleReapLocked(session)
+	session.closed = true
+	h.mu.Unlock()
+
+	if session.cmd != nil && session.cmd.Process != nil {
+		_ = session.cmd.Process.Kill()
+	}
+	session.closePTYFiles()
+	return true
+}
+
+func (h *wsPTYHub) sessionSnapshots() []map[string]any {
+	h.mu.Lock()
+	defer h.mu.Unlock()
+
+	keys := make([]wsPTYSessionKey, 0, len(h.sessions))
+	for key, session := range h.sessions {
+		if key.kind == wsPTYPersistentSession && session != nil && !session.closed {
+			keys = append(keys, key)
+		}
+	}
+	sort.Slice(keys, func(i, j int) bool {
+		return keys[i].sessionID < keys[j].sessionID
+	})
+
+	snapshots := make([]map[string]any, 0, len(keys))
+	for _, key := range keys {
+		if session := h.sessions[key]; session != nil {
+			snapshots = append(snapshots, h.sessionSnapshotLocked(session))
+		}
+	}
+	return snapshots
+}
+
+func (h *wsPTYHub) attachmentByID(sessionID string, attachmentID string) *wsPTYAttachment {
+	sessionID = strings.TrimSpace(sessionID)
+	attachmentID = strings.TrimSpace(attachmentID)
+	if sessionID == "" || attachmentID == "" {
+		return nil
+	}
+
+	h.mu.Lock()
+	defer h.mu.Unlock()
+	session := h.sessions[persistentPTYSessionKey(sessionID)]
+	if session == nil || session.closed {
+		return nil
+	}
+	return session.attachments[attachmentID]
+}
+
+func (h *wsPTYHub) sessionSnapshotLocked(session *wsPTYSession) map[string]any {
+	attachmentIDs := make([]string, 0, len(session.attachments))
+	for attachmentID := range session.attachments {
+		attachmentIDs = append(attachmentIDs, attachmentID)
+	}
+	sort.Strings(attachmentIDs)
+
+	attachments := make([]map[string]any, 0, len(attachmentIDs))
+	for _, attachmentID := range attachmentIDs {
+		attachment := session.attachments[attachmentID]
+		attachments = append(attachments, map[string]any{
+			"attachment_id": attachmentID,
+			"cols":          attachment.cols,
+			"rows":          attachment.rows,
+			"persistent":    attachment.persistent,
+		})
+	}
+
+	return map[string]any{
+		"session_id":       session.id,
+		"attachments":      attachments,
+		"effective_cols":   session.effectiveCols,
+		"effective_rows":   session.effectiveRows,
+		"last_known_cols":  session.lastKnownCols,
+		"last_known_rows":  session.lastKnownRows,
+		"scrollback_bytes": len(session.scrollback),
 	}
 }
 
@@ -1174,6 +1343,33 @@ func (a *wsPTYAttachment) writeFrame(ctx context.Context, conn *websocket.Conn, 
 		return false
 	}
 	return true
+}
+
+func rpcPTYEventForFrame(attachment *wsPTYAttachment, frame wsPTYOutgoingFrame) rpcEvent {
+	event := rpcEvent{
+		Event:        "pty.data",
+		SessionID:    attachment.sessionKey.sessionID,
+		AttachmentID: attachment.id,
+	}
+	if frame.messageType == websocket.MessageText {
+		var wsEvent wsPTYEventFrame
+		if err := json.Unmarshal(frame.payload, &wsEvent); err == nil && strings.TrimSpace(wsEvent.Type) != "" {
+			event.Event = "pty." + strings.TrimSpace(wsEvent.Type)
+			event.Message = wsEvent.Message
+			if strings.TrimSpace(wsEvent.SessionID) != "" {
+				event.SessionID = strings.TrimSpace(wsEvent.SessionID)
+			}
+			if strings.TrimSpace(wsEvent.AttachmentID) != "" {
+				event.AttachmentID = strings.TrimSpace(wsEvent.AttachmentID)
+			}
+			return event
+		}
+		event.Event = "pty.message"
+		event.Message = string(frame.payload)
+		return event
+	}
+	event.DataBase64 = base64.StdEncoding.EncodeToString(frame.payload)
+	return event
 }
 
 func (a *wsPTYAttachment) closeNow() {

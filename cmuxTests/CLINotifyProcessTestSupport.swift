@@ -18,6 +18,13 @@ extension CLINotifyProcessIntegrationRegressionTests {
             commands.append(command)
             lock.unlock()
         }
+
+        func snapshot() -> [String] {
+            lock.lock()
+            let value = commands
+            lock.unlock()
+            return value
+        }
     }
 
     func bundledCLIPath() throws -> String {
@@ -94,9 +101,69 @@ extension CLINotifyProcessIntegrationRegressionTests {
     func startMockServer(
         listenerFD: Int32,
         state: MockSocketServerState,
+        fulfillWhen: (@Sendable (String) -> Bool)? = nil,
         handler: @escaping @Sendable (String) -> String
     ) -> XCTestExpectation {
         let handled = expectation(description: "cli mock socket handled")
+        DispatchQueue.global(qos: .userInitiated).async {
+            var didFulfill = false
+            func fulfillOnce() {
+                if !didFulfill {
+                    didFulfill = true
+                    handled.fulfill()
+                }
+            }
+
+            var clientAddr = sockaddr_un()
+            var clientAddrLen = socklen_t(MemoryLayout<sockaddr_un>.size)
+            let clientFD = withUnsafeMutablePointer(to: &clientAddr) { ptr in
+                ptr.withMemoryRebound(to: sockaddr.self, capacity: 1) { sockaddrPtr in
+                    Darwin.accept(listenerFD, sockaddrPtr, &clientAddrLen)
+                }
+            }
+            guard clientFD >= 0 else {
+                fulfillOnce()
+                return
+            }
+            defer {
+                Darwin.close(clientFD)
+                fulfillOnce()
+            }
+
+            var pending = Data()
+            var buffer = [UInt8](repeating: 0, count: 4096)
+            while true {
+                let count = Darwin.read(clientFD, &buffer, buffer.count)
+                if count < 0 {
+                    if errno == EINTR { continue }
+                    return
+                }
+                if count == 0 { return }
+                pending.append(buffer, count: count)
+
+                while let newlineRange = pending.firstRange(of: Data([0x0A])) {
+                    let lineData = pending.subdata(in: 0..<newlineRange.lowerBound)
+                    pending.removeSubrange(0...newlineRange.lowerBound)
+                    guard let line = String(data: lineData, encoding: .utf8) else { continue }
+                    state.append(line)
+                    if fulfillWhen?(line) == true {
+                        fulfillOnce()
+                    }
+                    let response = handler(line) + "\n"
+                    _ = response.withCString { ptr in
+                        Darwin.write(clientFD, ptr, strlen(ptr))
+                    }
+                }
+            }
+        }
+        return handled
+    }
+
+    func startDetachedMockServer(
+        listenerFD: Int32,
+        state: MockSocketServerState,
+        handler: @escaping @Sendable (String) -> String
+    ) {
         DispatchQueue.global(qos: .userInitiated).async {
             var clientAddr = sockaddr_un()
             var clientAddrLen = socklen_t(MemoryLayout<sockaddr_un>.size)
@@ -106,12 +173,10 @@ extension CLINotifyProcessIntegrationRegressionTests {
                 }
             }
             guard clientFD >= 0 else {
-                handled.fulfill()
                 return
             }
             defer {
                 Darwin.close(clientFD)
-                handled.fulfill()
             }
 
             var pending = Data()
@@ -137,7 +202,6 @@ extension CLINotifyProcessIntegrationRegressionTests {
                 }
             }
         }
-        return handled
     }
 
     func v2Response(
@@ -220,13 +284,16 @@ extension CLINotifyProcessIntegrationRegressionTests {
         let timedOut = exitSignal.wait(timeout: .now() + timeout) == .timedOut
         if timedOut {
             process.terminate()
-            _ = exitSignal.wait(timeout: .now() + 1)
+            if exitSignal.wait(timeout: .now() + 1) == .timedOut {
+                kill(process.processIdentifier, SIGKILL)
+                _ = exitSignal.wait(timeout: .now() + 1)
+            }
         }
 
         let stdout = String(data: stdoutPipe.fileHandleForReading.readDataToEndOfFile(), encoding: .utf8) ?? ""
         let stderr = String(data: stderrPipe.fileHandleForReading.readDataToEndOfFile(), encoding: .utf8) ?? ""
         return ProcessRunResult(
-            status: process.terminationStatus,
+            status: process.isRunning ? SIGKILL : process.terminationStatus,
             stdout: stdout,
             stderr: stderr,
             timedOut: timedOut

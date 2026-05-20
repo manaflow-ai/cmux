@@ -456,6 +456,268 @@ func TestProxyStreamEOFPayloadIsNotDuplicatedAcrossDataAndEOFEvents(t *testing.T
 	}
 }
 
+func TestPTYRPCSessionReattachListAndClose(t *testing.T) {
+	eventOutput := newNotifyingBuffer()
+	server := &rpcServer{
+		nextStreamID:  1,
+		nextSessionID: 1,
+		streams:       map[string]*streamState{},
+		sessions:      map[string]*sessionState{},
+		ptyHub: newWebSocketPTYHub(wsPTYServerConfig{
+			ScrollbackLimit: 4096,
+			SessionIdleTTL:  time.Hour,
+		}, io.Discard),
+		ownsPTYHub: true,
+		frameWriter: &stdioFrameWriter{
+			writer: bufio.NewWriter(eventOutput),
+		},
+	}
+	defer server.closeAll()
+
+	attachResp := server.handleRequest(rpcRequest{
+		ID:     1,
+		Method: "pty.attach",
+		Params: map[string]any{
+			"session_id":    "pty-rpc",
+			"attachment_id": "a1",
+			"cols":          80,
+			"rows":          24,
+			"command":       "printf 'hello-rpc\\n'; sleep 60",
+		},
+	})
+	if !attachResp.OK {
+		t.Fatalf("pty.attach failed: %+v", attachResp)
+	}
+
+	ready := waitForRPCEvent(t, eventOutput, 0, func(event map[string]any) bool {
+		return event["event"] == "pty.ready" && event["attachment_id"] == "a1"
+	})
+	if ready["session_id"] != "pty-rpc" {
+		t.Fatalf("pty.ready session_id = %v, want pty-rpc", ready["session_id"])
+	}
+	waitForRPCEvent(t, eventOutput, 0, func(event map[string]any) bool {
+		if event["event"] != "pty.data" || event["attachment_id"] != "a1" {
+			return false
+		}
+		payload, err := base64.StdEncoding.DecodeString(event["data_base64"].(string))
+		return err == nil && strings.Contains(string(payload), "hello-rpc")
+	})
+
+	listResp := server.handleRequest(rpcRequest{
+		ID:     2,
+		Method: "pty.list",
+		Params: map[string]any{},
+	})
+	if !listResp.OK {
+		t.Fatalf("pty.list failed: %+v", listResp)
+	}
+	listResult, _ := listResp.Result.(map[string]any)
+	sessions, _ := listResult["sessions"].([]map[string]any)
+	if len(sessions) != 1 {
+		t.Fatalf("pty.list sessions = %v, want one session", listResult["sessions"])
+	}
+	if sessions[0]["session_id"] != "pty-rpc" {
+		t.Fatalf("pty.list session_id = %v, want pty-rpc", sessions[0]["session_id"])
+	}
+
+	detachResp := server.handleRequest(rpcRequest{
+		ID:     3,
+		Method: "pty.detach",
+		Params: map[string]any{
+			"session_id":    "pty-rpc",
+			"attachment_id": "a1",
+		},
+	})
+	if !detachResp.OK {
+		t.Fatalf("pty.detach failed: %+v", detachResp)
+	}
+
+	lineCountBeforeReattach := rpcEventLineCount(eventOutput)
+	reattachResp := server.handleRequest(rpcRequest{
+		ID:     4,
+		Method: "pty.attach",
+		Params: map[string]any{
+			"session_id":    "pty-rpc",
+			"attachment_id": "a2",
+			"cols":          100,
+			"rows":          30,
+			"command":       "printf 'should-not-run\\n'",
+		},
+	})
+	if !reattachResp.OK {
+		t.Fatalf("pty reattach failed: %+v", reattachResp)
+	}
+	waitForRPCEvent(t, eventOutput, lineCountBeforeReattach, func(event map[string]any) bool {
+		if event["event"] != "pty.data" || event["attachment_id"] != "a2" {
+			return false
+		}
+		payload, err := base64.StdEncoding.DecodeString(event["data_base64"].(string))
+		return err == nil && strings.Contains(string(payload), "hello-rpc")
+	})
+
+	lineCountBeforeClose := rpcEventLineCount(eventOutput)
+	closeResp := server.handleRequest(rpcRequest{
+		ID:     5,
+		Method: "pty.close",
+		Params: map[string]any{
+			"session_id": "pty-rpc",
+		},
+	})
+	if !closeResp.OK {
+		t.Fatalf("pty.close failed: %+v", closeResp)
+	}
+	waitForRPCEvent(t, eventOutput, lineCountBeforeClose, func(event map[string]any) bool {
+		return event["event"] == "pty.exit" && event["attachment_id"] == "a2"
+	})
+	emptyListResp := server.handleRequest(rpcRequest{
+		ID:     6,
+		Method: "pty.list",
+		Params: map[string]any{},
+	})
+	if !emptyListResp.OK {
+		t.Fatalf("pty.list after close failed: %+v", emptyListResp)
+	}
+	emptyResult, _ := emptyListResp.Result.(map[string]any)
+	emptySessions, _ := emptyResult["sessions"].([]map[string]any)
+	if len(emptySessions) != 0 {
+		t.Fatalf("pty.list after close sessions = %v, want none", emptyResult["sessions"])
+	}
+}
+
+func TestPTYRPCCommandUsesPOSIXShellForConfiguredLoginShell(t *testing.T) {
+	if _, err := os.Stat("/usr/bin/false"); err != nil {
+		t.Skip("/usr/bin/false is not available")
+	}
+	eventOutput := newNotifyingBuffer()
+	server := &rpcServer{
+		nextStreamID:  1,
+		nextSessionID: 1,
+		streams:       map[string]*streamState{},
+		sessions:      map[string]*sessionState{},
+		ptyHub: newWebSocketPTYHub(wsPTYServerConfig{
+			Shell:           "/usr/bin/false",
+			ScrollbackLimit: 4096,
+			SessionIdleTTL:  time.Hour,
+		}, io.Discard),
+		ownsPTYHub: true,
+		frameWriter: &stdioFrameWriter{
+			writer: bufio.NewWriter(eventOutput),
+		},
+	}
+	defer server.closeAll()
+
+	attachResp := server.handleRequest(rpcRequest{
+		ID:     1,
+		Method: "pty.attach",
+		Params: map[string]any{
+			"session_id":    "pty-posix-shell",
+			"attachment_id": "a1",
+			"cols":          80,
+			"rows":          24,
+			"command":       "printf 'posix-shell-ok\\n'; sleep 60",
+		},
+	})
+	if !attachResp.OK {
+		t.Fatalf("pty.attach failed: %+v", attachResp)
+	}
+	waitForRPCEvent(t, eventOutput, 0, func(event map[string]any) bool {
+		if event["event"] != "pty.data" || event["attachment_id"] != "a1" {
+			return false
+		}
+		payload, err := base64.StdEncoding.DecodeString(event["data_base64"].(string))
+		return err == nil && strings.Contains(string(payload), "posix-shell-ok")
+	})
+}
+
+func TestRPCServerCloseAllLeavesSharedPTYHubAlive(t *testing.T) {
+	hub := newWebSocketPTYHub(wsPTYServerConfig{}, io.Discard)
+	sessionKey := persistentPTYSessionKey("shared")
+	canceled := false
+	attachment := &wsPTYAttachment{
+		sessionKey: sessionKey,
+		id:         "a1",
+		cols:       80,
+		rows:       24,
+		send:       make(chan wsPTYOutgoingFrame, defaultWebSocketWriteQueueCap),
+		cancel: func() {
+			canceled = true
+		},
+		persistent: true,
+	}
+	session := &wsPTYSession{
+		id:            "shared",
+		key:           sessionKey,
+		attachments:   map[string]*wsPTYAttachment{"a1": attachment},
+		effectiveCols: 80,
+		effectiveRows: 24,
+		lastKnownCols: 80,
+		lastKnownRows: 24,
+		done:          make(chan struct{}),
+	}
+	hub.sessions[sessionKey] = session
+	server := &rpcServer{
+		nextStreamID:   1,
+		nextSessionID:  1,
+		streams:        map[string]*streamState{},
+		sessions:       map[string]*sessionState{},
+		ptyHub:         hub,
+		ownsPTYHub:     false,
+		ptyAttachments: map[string]*wsPTYAttachment{rpcPTYAttachmentKey(attachment): attachment},
+	}
+
+	server.closeAll()
+	if got := hub.activeSessionCount(); got != 1 {
+		t.Fatalf("shared PTY hub session count = %d, want 1", got)
+	}
+	if len(session.attachments) != 0 {
+		t.Fatalf("shared PTY hub attachment count = %d, want 0", len(session.attachments))
+	}
+	if !canceled {
+		t.Fatalf("shared PTY attachment was not canceled")
+	}
+	hub.mu.Lock()
+	delete(hub.sessions, sessionKey)
+	hub.mu.Unlock()
+}
+
+func waitForRPCEvent(t *testing.T, buffer *notifyingBuffer, startLine int, matches func(map[string]any) bool) map[string]any {
+	t.Helper()
+	deadline := time.Now().Add(2 * time.Second)
+	for {
+		lines := rpcEventLines(buffer)
+		for _, line := range lines[min(startLine, len(lines)):] {
+			var event map[string]any
+			if err := json.Unmarshal([]byte(line), &event); err != nil {
+				continue
+			}
+			if matches(event) {
+				return event
+			}
+		}
+		remaining := time.Until(deadline)
+		if remaining <= 0 {
+			t.Fatalf("timed out waiting for matching RPC event after line %d: %q", startLine, buffer.String())
+		}
+		select {
+		case <-buffer.notify:
+		case <-time.After(remaining):
+			t.Fatalf("timed out waiting for matching RPC event after line %d: %q", startLine, buffer.String())
+		}
+	}
+}
+
+func rpcEventLineCount(buffer *notifyingBuffer) int {
+	return len(rpcEventLines(buffer))
+}
+
+func rpcEventLines(buffer *notifyingBuffer) []string {
+	trimmed := strings.TrimSpace(buffer.String())
+	if trimmed == "" {
+		return nil
+	}
+	return strings.Split(trimmed, "\n")
+}
+
 func boolToInt(value bool) int {
 	if value {
 		return 1

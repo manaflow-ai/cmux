@@ -2909,6 +2909,12 @@ struct CMUXCLI {
 
         case "ssh":
             try runSSH(commandArgs: commandArgs, client: client, jsonOutput: jsonOutput, idFormat: idFormat)
+        case "ssh-pty-attach":
+            try runSSHPTYAttach(commandArgs: commandArgs, client: client)
+        case "ssh-session-list":
+            try runSSHSessionList(commandArgs: commandArgs, client: client, jsonOutput: jsonOutput, idFormat: idFormat)
+        case "ssh-session-cleanup":
+            try runSSHSessionCleanup(commandArgs: commandArgs, client: client, jsonOutput: jsonOutput, idFormat: idFormat)
         case "ssh-session-end":
             try runSSHSessionEnd(commandArgs: commandArgs, client: client)
         case "vm-pty-attach":
@@ -5326,7 +5332,14 @@ struct CMUXCLI {
             deferredRemoteReconnectCommandScript,
             sshConnectionTimingCommandScript,
         ])
-        let configuredForegroundAuthToken = deferredRemoteReconnectCommandScript == nil ? nil : deferredRemoteReconnectToken
+        let configuredForegroundAuthToken = deferredRemoteReconnectCommandScript == nil
+            ? nil
+            : deferredRemoteReconnectToken
+        let usesPersistentSSHPTY =
+            !sshOptions.skipDaemonBootstrap &&
+            sshOptions.extraArguments.isEmpty &&
+            remoteTerminalBootstrapScript?.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty == false &&
+            deferredRemoteReconnectCommandScript != nil
         let startupInitialSSHCommand = buildSSHCommandText(
             sshOptions,
             localCommandScript: combinedLocalCommandScript
@@ -5336,8 +5349,9 @@ struct CMUXCLI {
             remoteBootstrapScript: remoteTerminalBootstrapScript,
             localCommandScript: combinedLocalCommandScript
         )
-        let initialSSHStartupCommand: String
-        let remoteTerminalSSHStartupCommand: String
+        let persistentPTYSessionID = "ssh-\(UUID().uuidString.lowercased())"
+        var initialSSHStartupCommand: String
+        var remoteTerminalSSHStartupCommand: String
         if let remoteTerminalBootstrapScript, !remoteTerminalBootstrapScript.isEmpty {
             initialSSHStartupCommand = try buildBootstrapSSHStartupCommand(
                 options: sshOptions,
@@ -5368,6 +5382,21 @@ struct CMUXCLI {
                 remoteRelayPort: sshOptions.remoteRelayPort,
                 controlPathPreflightShellFunction: controlPathPreflightShellFunction
             )
+        }
+        if usesPersistentSSHPTY,
+           let remoteTerminalBootstrapScript {
+            let ptyStartupCommand = buildReusableSSHPTYAttachStartupCommand(
+                sessionID: persistentPTYSessionID,
+                remoteShellCommand: remoteTerminalBootstrapScript
+            )
+            initialSSHStartupCommand = buildReusableForegroundAuthThenSSHPTYAttachStartupCommand(
+                options: sshOptions,
+                sessionID: persistentPTYSessionID,
+                remoteShellCommand: remoteTerminalBootstrapScript,
+                localCommandScript: combinedLocalCommandScript,
+                controlPathPreflightShellFunction: controlPathPreflightShellFunction
+            )
+            remoteTerminalSSHStartupCommand = ptyStartupCommand
         }
         let reusableTerminalStartupCommand: String
         if let vmIDForSplitAttach,
@@ -5510,6 +5539,9 @@ struct CMUXCLI {
             "GHOSTTY_SHELL_FEATURES": shellFeaturesValue,
         ]
         payload["remote_relay_port"] = sshOptions.remoteRelayPort
+        if usesPersistentSSHPTY {
+            payload["ssh_pty_session_id"] = persistentPTYSessionID
+        }
         logSSHTiming("complete", extra: "workspace=\(String(workspaceId.prefix(8)))")
         if jsonOutput {
             print(jsonString(formatIDs(payload, mode: idFormat)))
@@ -6277,6 +6309,75 @@ struct CMUXCLI {
             scriptBody: script,
             tempPrefix: "cmux-ssh-startup"
         )
+    }
+
+    private func buildReusableSSHPTYAttachStartupCommand(
+        sessionID: String,
+        remoteShellCommand: String
+    ) -> String {
+        let attachCommand = buildSSHPTYAttachCommand(
+            sessionID: sessionID,
+            remoteShellCommand: remoteShellCommand
+        )
+        return reusableShellStartupCommand(
+            scriptBody: "exec \(attachCommand)",
+            tempPrefix: "cmux-ssh-pty"
+        )
+    }
+
+    private func buildReusableForegroundAuthThenSSHPTYAttachStartupCommand(
+        options: SSHCommandOptions,
+        sessionID: String,
+        remoteShellCommand: String,
+        localCommandScript: String?,
+        controlPathPreflightShellFunction: String?
+    ) -> String {
+        var authArguments = baseSSHArguments(options, localCommandScript: localCommandScript)
+        authArguments += ["-T", options.destination, "true"]
+        let authCommand = authArguments.map(shellQuote).joined(separator: " ")
+        let attachCommand = buildSSHPTYAttachCommand(
+            sessionID: sessionID,
+            remoteShellCommand: remoteShellCommand
+        )
+        let trimmedControlPathPreflight = controlPathPreflightShellFunction?
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+        let trimmedLocalCommandScript = localCommandScript?
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+        var scriptLines: [String] = []
+        if let trimmedControlPathPreflight, !trimmedControlPathPreflight.isEmpty {
+            scriptLines += [
+                trimmedControlPathPreflight,
+                "cmux_ssh_preflight_control_path",
+            ]
+        }
+        scriptLines += [
+            "command \(authCommand) <&0",
+            "cmux_auth_status=$?",
+            "if [ \"$cmux_auth_status\" -ne 0 ]; then exit \"$cmux_auth_status\"; fi",
+        ]
+        if let trimmedLocalCommandScript, !trimmedLocalCommandScript.isEmpty {
+            scriptLines.append(trimmedLocalCommandScript)
+        }
+        scriptLines.append("exec \(attachCommand)")
+        return reusableShellStartupCommand(
+            scriptBody: scriptLines.joined(separator: "\n"),
+            tempPrefix: "cmux-ssh-pty-auth"
+        )
+    }
+
+    private func buildSSHPTYAttachCommand(
+        sessionID: String,
+        remoteShellCommand: String
+    ) -> String {
+        let executablePath = resolvedExecutableURL()?.path ?? (args.first ?? "cmux")
+        let commandB64 = Data(remoteShellCommand.utf8).base64EncodedString()
+        return [
+            shellQuote(executablePath),
+            "ssh-pty-attach",
+            "--wait",
+            "--session-id", shellQuote(sessionID),
+            "--command-b64", shellQuote(commandB64),
+        ].joined(separator: " ")
     }
 
     private func buildSSHStartupScriptBody(
@@ -7165,6 +7266,412 @@ struct CMUXCLI {
         }
     }
 
+    private func runSSHSessionList(
+        commandArgs: [String],
+        client: SocketClient,
+        jsonOutput: Bool,
+        idFormat: CLIIDFormat
+    ) throws {
+        let (workspaceOpt, rem0) = parseOption(commandArgs, name: "--workspace")
+        let allWorkspaces = rem0.contains("--all-workspaces")
+        let remaining = rem0.filter { $0 != "--all-workspaces" }
+        if let unknown = remaining.first(where: { Self.isFlagToken($0) }) {
+            throw CLIError(message: "ssh-session-list: unknown flag '\(unknown)'. Known flags: --workspace <workspace>, --all-workspaces")
+        }
+        guard remaining.isEmpty else {
+            throw CLIError(message: "Usage: cmux ssh-session-list [--workspace <workspace> | --all-workspaces]")
+        }
+        if allWorkspaces, workspaceOpt != nil {
+            throw CLIError(message: "ssh-session-list: --all-workspaces cannot be combined with --workspace")
+        }
+
+        let params = try sshSessionTargetParams(
+            commandName: "ssh-session-list",
+            workspaceOpt: workspaceOpt,
+            allWorkspaces: allWorkspaces,
+            client: client
+        )
+
+        let response = try client.sendV2(method: "workspace.remote.pty_sessions", params: params)
+        if jsonOutput {
+            print(jsonString(formatIDs(response, mode: idFormat)))
+            return
+        }
+
+        let sessions = response["sessions"] as? [[String: Any]] ?? []
+        if sessions.isEmpty {
+            print("No persisted SSH PTY sessions")
+            return
+        }
+        for session in sessions {
+            let sessionID = (session["session_id"] as? String) ?? "unknown"
+            let workspaceLabel = debugString(session["workspace_ref"])
+                ?? (debugString(session["workspace_id"])?.prefix(8).description)
+                ?? "workspace:?"
+            let workspaceTitle = debugString(session["workspace_title"]) ?? ""
+            let effectiveCols = debugString(session["effective_cols"]) ?? "?"
+            let effectiveRows = debugString(session["effective_rows"]) ?? "?"
+            let scrollbackBytes = debugString(session["scrollback_bytes"]) ?? "0"
+            let attachments = session["attachments"] as? [[String: Any]] ?? []
+            let workspacePrefix = allWorkspaces
+                ? "\(workspaceLabel)\(workspaceTitle.isEmpty ? "" : " \(workspaceTitle)") "
+                : ""
+            print("\(workspacePrefix)\(sessionID) attachments=\(attachments.count) size=\(effectiveCols)x\(effectiveRows) scrollback_bytes=\(scrollbackBytes)")
+        }
+    }
+
+    private func runSSHSessionCleanup(
+        commandArgs: [String],
+        client: SocketClient,
+        jsonOutput: Bool,
+        idFormat: CLIIDFormat
+    ) throws {
+        let (workspaceOpt, rem0) = parseOption(commandArgs, name: "--workspace")
+        let (sessionIDOpt, rem1) = parseOption(rem0, name: "--session-id")
+        let closeAll = rem1.contains("--all")
+        let allWorkspaces = rem1.contains("--all-workspaces")
+        let remaining = rem1.filter { $0 != "--all" && $0 != "--all-workspaces" }
+        if let unknown = remaining.first(where: { Self.isFlagToken($0) }) {
+            throw CLIError(message: "ssh-session-cleanup: unknown flag '\(unknown)'. Known flags: --workspace <workspace>, --session-id <id>, --all, --all-workspaces")
+        }
+        guard remaining.isEmpty else {
+            throw CLIError(message: "Usage: cmux ssh-session-cleanup [--workspace <workspace> | --all-workspaces] (--session-id <id> | --all)")
+        }
+        if closeAll == (sessionIDOpt != nil) {
+            throw CLIError(message: "ssh-session-cleanup requires exactly one of --session-id <id> or --all")
+        }
+        if allWorkspaces, workspaceOpt != nil {
+            throw CLIError(message: "ssh-session-cleanup: --all-workspaces cannot be combined with --workspace")
+        }
+
+        let baseParams = try sshSessionTargetParams(
+            commandName: "ssh-session-cleanup",
+            workspaceOpt: workspaceOpt,
+            allWorkspaces: allWorkspaces,
+            client: client
+        )
+
+        var closed: [String] = []
+        var errors: [[String: Any]] = []
+        if closeAll {
+            let listResponse = try client.sendV2(method: "workspace.remote.pty_sessions", params: baseParams)
+            let sessions = listResponse["sessions"] as? [[String: Any]] ?? []
+            for session in sessions {
+                guard let sessionID = (session["session_id"] as? String)?
+                    .trimmingCharacters(in: .whitespacesAndNewlines),
+                      !sessionID.isEmpty else {
+                    continue
+                }
+                var params: [String: Any] = [:]
+                if let workspaceID = (session["workspace_id"] as? String)?
+                    .trimmingCharacters(in: .whitespacesAndNewlines),
+                   !workspaceID.isEmpty {
+                    params["workspace_id"] = workspaceID
+                } else if let workspaceID = baseParams["workspace_id"] {
+                    params["workspace_id"] = workspaceID
+                }
+                params["session_id"] = sessionID
+                do {
+                    _ = try client.sendV2(method: "workspace.remote.pty_close", params: params)
+                    closed.append(sessionID)
+                } catch {
+                    errors.append([
+                        "session_id": sessionID,
+                        "workspace_id": params["workspace_id"] ?? NSNull(),
+                        "error": error.localizedDescription,
+                    ])
+                }
+            }
+        } else if let sessionID = sessionIDOpt?.trimmingCharacters(in: .whitespacesAndNewlines),
+                  !sessionID.isEmpty {
+            if allWorkspaces {
+                let listResponse = try client.sendV2(method: "workspace.remote.pty_sessions", params: baseParams)
+                let sessions = (listResponse["sessions"] as? [[String: Any]] ?? []).filter {
+                    (($0["session_id"] as? String)?.trimmingCharacters(in: .whitespacesAndNewlines) ?? "") == sessionID
+                }
+                for session in sessions {
+                    guard let workspaceID = (session["workspace_id"] as? String)?
+                        .trimmingCharacters(in: .whitespacesAndNewlines),
+                          !workspaceID.isEmpty else {
+                        continue
+                    }
+                    do {
+                        _ = try client.sendV2(method: "workspace.remote.pty_close", params: [
+                            "workspace_id": workspaceID,
+                            "session_id": sessionID,
+                        ])
+                        closed.append(sessionID)
+                    } catch {
+                        errors.append([
+                            "session_id": sessionID,
+                            "workspace_id": workspaceID,
+                            "error": error.localizedDescription,
+                        ])
+                    }
+                }
+            } else {
+                var params = baseParams
+                params["session_id"] = sessionID
+                _ = try client.sendV2(method: "workspace.remote.pty_close", params: params)
+                closed.append(sessionID)
+            }
+        } else {
+            throw CLIError(message: "ssh-session-cleanup: --session-id requires a value")
+        }
+
+        let payload: [String: Any] = [
+            "closed": closed,
+            "count": closed.count,
+            "errors": errors,
+        ]
+        if jsonOutput {
+            print(jsonString(formatIDs(payload, mode: idFormat)))
+        } else if closed.isEmpty {
+            print("No persisted SSH PTY sessions closed")
+        } else {
+            print("Closed \(closed.count) persisted SSH PTY session\(closed.count == 1 ? "" : "s")")
+        }
+    }
+
+    private func sshSessionTargetParams(
+        commandName: String,
+        workspaceOpt: String?,
+        allWorkspaces: Bool,
+        client: SocketClient
+    ) throws -> [String: Any] {
+        if allWorkspaces {
+            return ["all_workspaces": true]
+        }
+        let workspaceRaw = workspaceOpt ?? ProcessInfo.processInfo.environment["CMUX_WORKSPACE_ID"]
+        guard let workspaceRaw,
+              !workspaceRaw.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else {
+            return [:]
+        }
+        guard let workspaceId = try normalizeWorkspaceHandle(workspaceRaw, client: client) else {
+            throw CLIError(message: "\(commandName): workspace not found")
+        }
+        return ["workspace_id": workspaceId]
+    }
+
+    private func runSSHPTYAttach(commandArgs: [String], client: SocketClient) throws {
+        let (workspaceOpt, rem0) = parseOption(commandArgs, name: "--workspace")
+        let (sessionIDOpt, rem1) = parseOption(rem0, name: "--session-id")
+        let (attachmentIDOpt, rem2) = parseOption(rem1, name: "--attachment-id")
+        let (commandB64Opt, rem3) = parseOption(rem2, name: "--command-b64")
+        let waitForReady = rem3.contains("--wait")
+        let remaining = rem3.filter { $0 != "--wait" }
+        if let unknown = remaining.first(where: { Self.isFlagToken($0) }) {
+            throw CLIError(message: "ssh-pty-attach: unknown flag '\(unknown)'")
+        }
+        guard remaining.isEmpty else {
+            throw CLIError(message: "Usage: cmux ssh-pty-attach --workspace <workspace> --session-id <id> [--attachment-id <id>] [--command-b64 <base64>]")
+        }
+        let workspaceRaw = workspaceOpt ?? ProcessInfo.processInfo.environment["CMUX_WORKSPACE_ID"]
+        guard let workspaceRaw,
+              let workspaceId = try normalizeWorkspaceHandle(workspaceRaw, client: client),
+              !workspaceId.isEmpty else {
+            throw CLIError(message: "ssh-pty-attach requires --workspace or CMUX_WORKSPACE_ID")
+        }
+        guard let sessionID = sessionIDOpt?.trimmingCharacters(in: .whitespacesAndNewlines),
+              !sessionID.isEmpty else {
+            throw CLIError(message: "ssh-pty-attach requires --session-id <id>")
+        }
+        let attachmentID = [
+            attachmentIDOpt,
+            ProcessInfo.processInfo.environment["CMUX_SURFACE_ID"],
+            UUID().uuidString.lowercased(),
+        ]
+            .compactMap { $0?.trimmingCharacters(in: .whitespacesAndNewlines) }
+            .first { !$0.isEmpty }!
+        let command: String? = try commandB64Opt.flatMap { encoded in
+            guard let data = Data(base64Encoded: encoded),
+                  var decoded = String(data: data, encoding: .utf8) else {
+                throw CLIError(message: "ssh-pty-attach: --command-b64 must be valid UTF-8 base64")
+            }
+            decoded = decoded
+                .replacingOccurrences(of: "__CMUX_WORKSPACE_ID__", with: workspaceId)
+                .replacingOccurrences(
+                    of: "__CMUX_SURFACE_ID__",
+                    with: ProcessInfo.processInfo.environment["CMUX_SURFACE_ID"] ?? ""
+                )
+            return decoded
+        }
+
+        let size = currentCLITerminalSize()
+        let bridge = try waitForReady
+            ? waitForSSHPTYBridge(client: client, workspaceId: workspaceId, sessionID: sessionID, attachmentID: attachmentID, command: command)
+            : client.sendV2(method: "workspace.remote.pty_bridge", params: [
+                "workspace_id": workspaceId,
+                "session_id": sessionID,
+                "attachment_id": attachmentID,
+                "command": command ?? "",
+            ])
+        let host = (bridge["host"] as? String) ?? "127.0.0.1"
+        guard let port = cliStrictInt(bridge["port"]), port > 0, port <= 65535 else {
+            throw CLIError(message: "ssh-pty-attach: bridge did not return a valid port")
+        }
+        guard let token = bridge["token"] as? String, !token.isEmpty else {
+            throw CLIError(message: "ssh-pty-attach: bridge did not return a token")
+        }
+
+        let fd = try connectLoopbackTCP(host: host, port: port)
+        defer { Darwin.close(fd) }
+        var handshakeData = try JSONSerialization.data(withJSONObject: [
+            "token": token,
+            "cols": size.cols,
+            "rows": size.rows,
+        ], options: [])
+        handshakeData.append(0x0A)
+        try writeAll(fd: fd, data: handshakeData)
+
+        let rawMode = TerminalRawMode()
+        defer { rawMode?.restore() }
+        let resizeSource = startSSHPTYResizeSource(
+            client: client,
+            workspaceId: workspaceId,
+            sessionID: sessionID,
+            attachmentID: attachmentID
+        )
+        defer { resizeSource.cancel() }
+
+        DispatchQueue.global(qos: .userInteractive).async {
+            var buffer = [UInt8](repeating: 0, count: 8192)
+            while true {
+                let count = Darwin.read(STDIN_FILENO, &buffer, buffer.count)
+                if count > 0 {
+                    do {
+                        try self.writeAll(fd: fd, data: Data(buffer.prefix(count)))
+                    } catch {
+                        _ = shutdown(fd, SHUT_WR)
+                        return
+                    }
+                } else if count == 0 {
+                    _ = shutdown(fd, SHUT_WR)
+                    return
+                } else if errno != EINTR {
+                    _ = shutdown(fd, SHUT_WR)
+                    return
+                }
+            }
+        }
+
+        var outputBuffer = [UInt8](repeating: 0, count: 32768)
+        while true {
+            let count = Darwin.read(fd, &outputBuffer, outputBuffer.count)
+            if count > 0 {
+                FileHandle.standardOutput.write(Data(outputBuffer.prefix(count)))
+            } else if count == 0 {
+                return
+            } else if errno != EINTR {
+                throw CLIError(message: "ssh-pty-attach: bridge read failed")
+            }
+        }
+    }
+
+    private func startSSHPTYResizeSource(
+        client: SocketClient,
+        workspaceId: String,
+        sessionID: String,
+        attachmentID: String
+    ) -> DispatchSourceSignal {
+        signal(SIGWINCH, SIG_IGN)
+        let source = DispatchSource.makeSignalSource(
+            signal: SIGWINCH,
+            queue: DispatchQueue(label: "com.cmux.ssh-pty.resize")
+        )
+        source.setEventHandler {
+            let size = self.currentCLITerminalSize()
+            _ = try? client.sendV2(method: "workspace.remote.pty_resize", params: [
+                "workspace_id": workspaceId,
+                "session_id": sessionID,
+                "attachment_id": attachmentID,
+                "cols": size.cols,
+                "rows": size.rows,
+            ])
+        }
+        source.resume()
+        return source
+    }
+
+    private func waitForSSHPTYBridge(
+        client: SocketClient,
+        workspaceId: String,
+        sessionID: String,
+        attachmentID: String,
+        command: String?
+    ) throws -> [String: Any] {
+        let deadline = Date().addingTimeInterval(90)
+        var lastError: Error?
+        repeat {
+            do {
+                return try client.sendV2(method: "workspace.remote.pty_bridge", params: [
+                    "workspace_id": workspaceId,
+                    "session_id": sessionID,
+                    "attachment_id": attachmentID,
+                    "command": command ?? "",
+                ])
+            } catch {
+                lastError = error
+                _ = DispatchSemaphore(value: 0).wait(timeout: .now() + 0.5)
+            }
+        } while Date() < deadline
+        throw lastError ?? CLIError(message: "ssh-pty-attach: timed out waiting for remote PTY bridge")
+    }
+
+    private func connectLoopbackTCP(host: String, port: Int) throws -> Int32 {
+        guard host == "127.0.0.1" || host == "localhost" else {
+            throw CLIError(message: "ssh-pty-attach: bridge host must be loopback")
+        }
+        let fd = socket(AF_INET, SOCK_STREAM, 0)
+        guard fd >= 0 else {
+            throw CLIError(message: "ssh-pty-attach: failed to create bridge socket")
+        }
+        var addr = sockaddr_in()
+        addr.sin_len = UInt8(MemoryLayout<sockaddr_in>.size)
+        addr.sin_family = sa_family_t(AF_INET)
+        addr.sin_port = in_port_t(UInt16(port).bigEndian)
+        addr.sin_addr = in_addr(s_addr: inet_addr("127.0.0.1"))
+        let result = withUnsafePointer(to: &addr) {
+            $0.withMemoryRebound(to: sockaddr.self, capacity: 1) {
+                Darwin.connect(fd, $0, socklen_t(MemoryLayout<sockaddr_in>.size))
+            }
+        }
+        guard result == 0 else {
+            Darwin.close(fd)
+            throw CLIError(message: "ssh-pty-attach: failed to connect to bridge")
+        }
+        return fd
+    }
+
+    private func cliStrictInt(_ value: Any?) -> Int? {
+        if let int = value as? Int { return int }
+        if let number = value as? NSNumber {
+            let double = number.doubleValue
+            guard double.rounded(.towardZero) == double else { return nil }
+            return number.intValue
+        }
+        return nil
+    }
+
+    private func writeAll(fd: Int32, data: Data) throws {
+        try data.withUnsafeBytes { rawBuffer in
+            guard let base = rawBuffer.bindMemory(to: UInt8.self).baseAddress else { return }
+            var remaining = rawBuffer.count
+            var cursor = base
+            while remaining > 0 {
+                let written = Darwin.write(fd, cursor, remaining)
+                if written > 0 {
+                    remaining -= written
+                    cursor = cursor.advanced(by: written)
+                } else if written < 0 && errno == EINTR {
+                    continue
+                } else {
+                    throw CLIError(message: "ssh-pty-attach: bridge write failed")
+                }
+            }
+        }
+    }
+
     private func runSSHSessionEnd(commandArgs: [String], client: SocketClient) throws {
         guard let relayPortRaw = optionValue(commandArgs, name: "--relay-port"),
               let relayPort = Int(relayPortRaw),
@@ -7412,6 +7919,10 @@ struct CMUXCLI {
     }
 
     private func shouldDeferRemoteReconnect(in options: [String]) -> Bool {
+        sshOptionsSupportReusableForegroundAuth(options)
+    }
+
+    internal func sshOptionsSupportReusableForegroundAuth(_ options: [String]) -> Bool {
         guard !hasSSHOptionKey(options, key: "LocalCommand"),
               !hasSSHOptionKey(options, key: "PermitLocalCommand") else {
             return false
@@ -7426,13 +7937,20 @@ struct CMUXCLI {
 
         let controlMaster = sshOptionValue(named: "ControlMaster", in: options)?
             .trimmingCharacters(in: .whitespacesAndNewlines)
-            .lowercased() ?? "auto"
-        switch controlMaster {
-        case "no", "false", "off":
+        if sshOptionValueIsDisabled(controlMaster) {
             return false
-        default:
-            return true
         }
+
+        let controlPersist = sshOptionValue(named: "ControlPersist", in: options)?
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+        return !sshOptionValueIsDisabled(controlPersist)
+    }
+
+    private func sshOptionValueIsDisabled(_ rawValue: String?) -> Bool {
+        let normalized = rawValue?
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+            .lowercased()
+        return ["no", "false", "off", "0"].contains(normalized ?? "")
     }
 
     private func defaultSSHControlPathTemplate(remoteRelayPort: Int? = nil) -> String {
@@ -9951,6 +10469,38 @@ struct CMUXCLI {
               cmux ssh dev@my-host
               cmux ssh dev@my-host --name "gpu-box" --port 2222 --identity ~/.ssh/id_ed25519
               cmux ssh dev@my-host --ssh-option UserKnownHostsFile=/dev/null --ssh-option StrictHostKeyChecking=no
+            """
+        case "ssh-session-list":
+            return """
+            Usage: cmux ssh-session-list [--workspace <id|ref|index> | --all-workspaces]
+
+            List persisted cmux ssh PTY sessions for a remote workspace.
+
+            Flags:
+              --workspace <id|ref|index>  Target workspace (default: $CMUX_WORKSPACE_ID)
+              --all-workspaces            List sessions in every active remote workspace
+
+            Example:
+              cmux ssh-session-list
+              cmux ssh-session-list --workspace workspace:2
+              cmux ssh-session-list --all-workspaces
+            """
+        case "ssh-session-cleanup":
+            return """
+            Usage: cmux ssh-session-cleanup [--workspace <id|ref|index> | --all-workspaces] (--session-id <id> | --all)
+
+            Close persisted cmux ssh PTY sessions for a remote workspace.
+
+            Flags:
+              --workspace <id|ref|index>  Target workspace (default: $CMUX_WORKSPACE_ID)
+              --all-workspaces            Target every active remote workspace
+              --session-id <id>           Close one PTY session
+              --all                       Close every persisted PTY session in the target scope
+
+            Example:
+              cmux ssh-session-cleanup --session-id ssh-abc
+              cmux ssh-session-cleanup --workspace workspace:2 --all
+              cmux ssh-session-cleanup --all-workspaces --all
             """
         case "remote-daemon-status":
             return """
@@ -24869,6 +25419,8 @@ export default function cmuxPiSessionExtension(pi: ExtensionAPI) {
           list-workspaces
           new-workspace [--name <title>] [--description <text>] [--cwd <path>] [--command <text>] [--layout <json>] [--window <id|ref|index>] [--focus <true|false>]
           ssh <destination> [--name <title>] [--port <n>] [--identity <path>] [--ssh-option <opt>] [--no-focus] [-- <remote-command-args>]
+          ssh-session-list [--workspace <id|ref|index> | --all-workspaces]
+          ssh-session-cleanup [--workspace <id|ref|index> | --all-workspaces] (--session-id <id> | --all)
           remote-daemon-status [--os <darwin|linux>] [--arch <arm64|amd64>]
           new-split <left|right|up|down> [--workspace <id|ref>] [--surface <id|ref>] [--panel <id|ref>] [--focus <true|false>]
           list-panes [--workspace <id|ref>]

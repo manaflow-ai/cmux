@@ -516,6 +516,56 @@ final class CLINotifyProcessIntegrationRegressionTests: XCTestCase {
         XCTAssertFalse(result.stderr.contains("Socket"), result.stderr)
     }
 
+    func testSSHPersistentPTYUsesReusableForegroundAuthControlConnection() throws {
+        let run = try runMockedSSH(arguments: [])
+        let createParams = try XCTUnwrap(params(for: "workspace.create", in: run.requests))
+        let configureParams = try XCTUnwrap(params(for: "workspace.remote.configure", in: run.requests))
+        let initialCommand = try XCTUnwrap(createParams["initial_command"] as? String)
+        let terminalStartupCommand = try XCTUnwrap(configureParams["terminal_startup_command"] as? String)
+        let initialScript = try XCTUnwrap(decodedReusableStartupScript(from: initialCommand))
+        let terminalStartupScript = try XCTUnwrap(decodedReusableStartupScript(from: terminalStartupCommand))
+
+        XCTAssertTrue(initialScript.contains("ssh-pty-attach"), initialScript)
+        XCTAssertTrue(initialScript.contains("--wait"), initialScript)
+        XCTAssertTrue(terminalStartupScript.contains("ssh-pty-attach"), terminalStartupScript)
+        XCTAssertEqual(configureParams["auto_connect"] as? Bool, false)
+        XCTAssertNotNil(configureParams["foreground_auth_token"] as? String)
+    }
+
+    func testSSHPersistentPTYFallsBackWhenForegroundAuthCannotBeReused() throws {
+        let cases: [(name: String, arguments: [String])] = [
+            ("control-master-no", ["--ssh-option", "ControlMaster=no"]),
+            ("control-persist-no", ["--ssh-option", "ControlPersist=no"]),
+            ("control-persist-zero", ["--ssh-option", "ControlPersist=0"]),
+            ("local-command", ["--ssh-option", "LocalCommand=echo cmux-test"]),
+            ("permit-local-command", ["--ssh-option", "PermitLocalCommand=no"]),
+        ]
+
+        for testCase in cases {
+            let run = try runMockedSSH(arguments: testCase.arguments)
+            let createParams = try XCTUnwrap(
+                params(for: "workspace.create", in: run.requests),
+                testCase.name
+            )
+            let configureParams = try XCTUnwrap(
+                params(for: "workspace.remote.configure", in: run.requests),
+                testCase.name
+            )
+            let initialCommand = try XCTUnwrap(createParams["initial_command"] as? String, testCase.name)
+            let terminalStartupCommand = try XCTUnwrap(
+                configureParams["terminal_startup_command"] as? String,
+                testCase.name
+            )
+            let initialScript = decodedReusableStartupScript(from: initialCommand) ?? initialCommand
+            let terminalStartupScript = decodedReusableStartupScript(from: terminalStartupCommand) ?? terminalStartupCommand
+
+            XCTAssertFalse(initialScript.contains("ssh-pty-attach"), testCase.name)
+            XCTAssertFalse(terminalStartupScript.contains("ssh-pty-attach"), testCase.name)
+            XCTAssertEqual(configureParams["auto_connect"] as? Bool, true, testCase.name)
+            XCTAssertNil(configureParams["foreground_auth_token"], testCase.name)
+        }
+    }
+
     func testRightSidebarCLIResolvesWindowAndWorkspaceHandlesBeforeForwarding() throws {
         let cliPath = try bundledCLIPath()
         let socketPath = makeSocketPath("rs-target")
@@ -2302,6 +2352,117 @@ final class CLINotifyProcessIntegrationRegressionTests: XCTestCase {
                 "Expected \(testCase.expectedMethod), saw \(state.commands)"
             )
         }
+    }
+
+    private struct MockedSSHRun {
+        let requests: [[String: Any]]
+    }
+
+    private func runMockedSSH(
+        arguments sshArguments: [String],
+        file: StaticString = #filePath,
+        line: UInt = #line
+    ) throws -> MockedSSHRun {
+        let cliPath = try bundledCLIPath()
+        let socketPath = makeSocketPath("ssh")
+        let listenerFD = try bindUnixSocket(at: socketPath)
+        let state = MockSocketServerState()
+        let workspaceId = "11111111-1111-1111-1111-111111111111"
+        let windowId = "22222222-2222-2222-2222-222222222222"
+
+        defer {
+            Darwin.close(listenerFD)
+            unlink(socketPath)
+        }
+
+        startDetachedMockServer(listenerFD: listenerFD, state: state) { line in
+            guard let payload = self.jsonObject(line),
+                  let id = payload["id"] as? String,
+                  let method = payload["method"] as? String else {
+                return self.malformedRequestResponse(raw: line)
+            }
+
+            switch method {
+            case "workspace.create":
+                return self.v2Response(
+                    id: id,
+                    ok: true,
+                    result: [
+                        "workspace_id": workspaceId,
+                        "window_id": windowId,
+                    ]
+                )
+            case "workspace.remote.configure":
+                return self.v2Response(
+                    id: id,
+                    ok: true,
+                    result: ["remote": ["state": "connected"]]
+                )
+            default:
+                return self.v2Response(
+                    id: id,
+                    ok: false,
+                    error: ["code": "unexpected_method", "message": "Unexpected method \(method)"]
+                )
+            }
+        }
+
+        var environment = ProcessInfo.processInfo.environment
+        for key in Array(environment.keys) where key.hasPrefix("CMUX_") {
+            environment.removeValue(forKey: key)
+        }
+        environment["CMUX_SOCKET_PATH"] = socketPath
+        environment["CMUX_CLI_SENTRY_DISABLED"] = "1"
+
+        let result = runProcess(
+            executablePath: cliPath,
+            arguments: ["ssh", "example.test", "--no-focus"] + sshArguments,
+            environment: environment,
+            timeout: 5
+        )
+
+        let sawConfigureRequest = waitForMockSocketCommand(in: state) { line in
+            line.contains(#""method":"workspace.remote.configure""#)
+        }
+        XCTAssertTrue(sawConfigureRequest, "Expected workspace.remote.configure, saw \(state.snapshot())", file: file, line: line)
+        XCTAssertFalse(result.timedOut, result.stderr, file: file, line: line)
+        XCTAssertEqual(result.status, 0, result.stderr, file: file, line: line)
+        XCTAssertTrue(result.stderr.isEmpty, result.stderr, file: file, line: line)
+
+        let requests = state.snapshot().compactMap { jsonObject($0) }
+        return MockedSSHRun(requests: requests)
+    }
+
+    private func waitForMockSocketCommand(
+        in state: MockSocketServerState,
+        timeout: TimeInterval = 5,
+        predicate: (String) -> Bool
+    ) -> Bool {
+        let deadline = Date().addingTimeInterval(timeout)
+        while Date() < deadline {
+            if state.snapshot().contains(where: predicate) {
+                return true
+            }
+            RunLoop.current.run(until: Date().addingTimeInterval(0.01))
+        }
+        return state.snapshot().contains(where: predicate)
+    }
+
+    private func decodedReusableStartupScript(from command: String) -> String? {
+        guard let markerRange = command.range(of: "printf %s ") else {
+            return nil
+        }
+        let remainder = command[markerRange.upperBound...]
+        guard let encoded = remainder.split(separator: " ", maxSplits: 1, omittingEmptySubsequences: true).first,
+              let data = Data(base64Encoded: String(encoded)) else {
+            return nil
+        }
+        return String(data: data, encoding: .utf8)
+    }
+
+    private func params(for method: String, in requests: [[String: Any]]) -> [String: Any]? {
+        requests
+            .first { $0["method"] as? String == method }?["params"] as? [String: Any]
     }
 
     private func notificationRows(from stdout: String) throws -> [[String: Any]] {

@@ -2886,6 +2886,14 @@ class TerminalController {
             return v2Result(id: id, self.v2WorkspaceRemoteDisconnect(params: params))
         case "workspace.remote.status":
             return v2Result(id: id, self.v2WorkspaceRemoteStatus(params: params))
+        case "workspace.remote.pty_sessions":
+            return v2Result(id: id, self.v2WorkspaceRemotePTYSessions(params: params))
+        case "workspace.remote.pty_close":
+            return v2Result(id: id, self.v2WorkspaceRemotePTYClose(params: params))
+        case "workspace.remote.pty_bridge":
+            return v2Result(id: id, self.v2WorkspaceRemotePTYBridge(params: params))
+        case "workspace.remote.pty_resize":
+            return v2Result(id: id, self.v2WorkspaceRemotePTYResize(params: params))
         case "workspace.remote.terminal_session_end":
             return v2Result(id: id, self.v2WorkspaceRemoteTerminalSessionEnd(params: params))
         case "session.restore_previous":
@@ -5469,6 +5477,295 @@ class TerminalController {
         }
 
         return result
+    }
+
+    private func v2WorkspaceRemotePTYSessions(params: [String: Any]) -> V2CallResult {
+        if v2HasNonNullParam(params, "all_workspaces"), v2Bool(params, "all_workspaces") == nil {
+            return .err(code: "invalid_params", message: "Missing or invalid all_workspaces", data: nil)
+        }
+        let allWorkspaces = v2Bool(params, "all_workspaces") ?? false
+        let requestedWorkspaceId = v2UUID(params, "workspace_id")
+        if v2HasNonNullParam(params, "workspace_id"), requestedWorkspaceId == nil {
+            return .err(code: "invalid_params", message: "Missing or invalid workspace_id", data: nil)
+        }
+        if allWorkspaces, requestedWorkspaceId != nil {
+            return .err(code: "invalid_params", message: "all_workspaces cannot be combined with workspace_id", data: nil)
+        }
+        if allWorkspaces {
+            var targets: [(workspace: Workspace, windowId: UUID?)] = []
+            v2MainSync {
+                guard let app = AppDelegate.shared else { return }
+                for summary in app.listMainWindowSummaries() {
+                    guard let owner = app.tabManagerFor(windowId: summary.windowId) else { continue }
+                    for workspace in owner.tabs where workspace.isRemoteWorkspace {
+                        targets.append((workspace: workspace, windowId: summary.windowId))
+                    }
+                }
+            }
+
+            var sessions: [[String: Any]] = []
+            var errors: [[String: Any]] = []
+            for target in targets {
+                do {
+                    let workspaceSessions = try target.workspace.listRemotePTYSessions()
+                    sessions.append(contentsOf: workspaceSessions.map {
+                        v2RemotePTYSessionPayload($0, workspace: target.workspace, windowId: target.windowId)
+                    })
+                } catch {
+                    errors.append([
+                        "window_id": v2OrNull(target.windowId?.uuidString),
+                        "window_ref": v2Ref(kind: .window, uuid: target.windowId),
+                        "workspace_id": target.workspace.id.uuidString,
+                        "workspace_ref": v2Ref(kind: .workspace, uuid: target.workspace.id),
+                        "workspace_title": target.workspace.title,
+                        "error": error.localizedDescription,
+                    ])
+                }
+            }
+
+            return .ok([
+                "all_workspaces": true,
+                "workspace_count": targets.count,
+                "sessions": sessions,
+                "errors": errors,
+            ])
+        }
+
+        let fallbackTabManager = v2ResolveTabManager(params: params)
+        let workspaceId = requestedWorkspaceId ?? fallbackTabManager?.selectedTabId
+        guard let workspaceId else {
+            return .err(code: "invalid_params", message: "Missing workspace_id", data: nil)
+        }
+
+        var workspace: Workspace?
+        var windowId: UUID?
+        v2MainSync {
+            guard let owner = AppDelegate.shared?.tabManagerFor(tabId: workspaceId),
+                  let foundWorkspace = owner.tabs.first(where: { $0.id == workspaceId }) else {
+                return
+            }
+            workspace = foundWorkspace
+            windowId = v2ResolveWindowId(tabManager: owner)
+        }
+        guard let workspace else {
+            return .err(code: "not_found", message: "Workspace not found", data: [
+                "workspace_id": workspaceId.uuidString,
+                "workspace_ref": v2Ref(kind: .workspace, uuid: workspaceId),
+            ])
+        }
+
+        do {
+            let sessions = try workspace.listRemotePTYSessions()
+            return .ok([
+                "window_id": v2OrNull(windowId?.uuidString),
+                "window_ref": v2Ref(kind: .window, uuid: windowId),
+                "workspace_id": workspace.id.uuidString,
+                "workspace_ref": v2Ref(kind: .workspace, uuid: workspace.id),
+                "workspace_title": workspace.title,
+                "sessions": sessions.map {
+                    v2RemotePTYSessionPayload($0, workspace: workspace, windowId: windowId)
+                },
+            ])
+        } catch {
+            return .err(code: "remote_pty_error", message: error.localizedDescription, data: [
+                "workspace_id": workspace.id.uuidString,
+                "workspace_ref": v2Ref(kind: .workspace, uuid: workspace.id),
+            ])
+        }
+    }
+
+    private func v2RemotePTYSessionPayload(_ session: [String: Any], workspace: Workspace, windowId: UUID?) -> [String: Any] {
+        var payload = session
+        payload["window_id"] = v2OrNull(windowId?.uuidString)
+        payload["window_ref"] = v2Ref(kind: .window, uuid: windowId)
+        payload["workspace_id"] = workspace.id.uuidString
+        payload["workspace_ref"] = v2Ref(kind: .workspace, uuid: workspace.id)
+        payload["workspace_title"] = workspace.title
+        return payload
+    }
+
+    private func v2WorkspaceRemotePTYClose(params: [String: Any]) -> V2CallResult {
+        let requestedWorkspaceId = v2UUID(params, "workspace_id")
+        if v2HasNonNullParam(params, "workspace_id"), requestedWorkspaceId == nil {
+            return .err(code: "invalid_params", message: "Missing or invalid workspace_id", data: nil)
+        }
+        let fallbackTabManager = v2ResolveTabManager(params: params)
+        let workspaceId = requestedWorkspaceId ?? fallbackTabManager?.selectedTabId
+        guard let workspaceId else {
+            return .err(code: "invalid_params", message: "Missing workspace_id", data: nil)
+        }
+        guard let sessionID = v2RawString(params, "session_id")?
+            .trimmingCharacters(in: .whitespacesAndNewlines),
+              !sessionID.isEmpty else {
+            return .err(code: "invalid_params", message: "Missing session_id", data: nil)
+        }
+
+        var workspace: Workspace?
+        var windowId: UUID?
+        v2MainSync {
+            guard let owner = AppDelegate.shared?.tabManagerFor(tabId: workspaceId),
+                  let foundWorkspace = owner.tabs.first(where: { $0.id == workspaceId }) else {
+                return
+            }
+            workspace = foundWorkspace
+            windowId = v2ResolveWindowId(tabManager: owner)
+        }
+        guard let workspace else {
+            return .err(code: "not_found", message: "Workspace not found", data: [
+                "workspace_id": workspaceId.uuidString,
+                "workspace_ref": v2Ref(kind: .workspace, uuid: workspaceId),
+            ])
+        }
+
+        do {
+            try workspace.closeRemotePTYSession(sessionID: sessionID)
+            return .ok([
+                "window_id": v2OrNull(windowId?.uuidString),
+                "window_ref": v2Ref(kind: .window, uuid: windowId),
+                "workspace_id": workspace.id.uuidString,
+                "workspace_ref": v2Ref(kind: .workspace, uuid: workspace.id),
+                "session_id": sessionID,
+                "closed": true,
+            ])
+        } catch {
+            return .err(code: "remote_pty_error", message: error.localizedDescription, data: [
+                "workspace_id": workspace.id.uuidString,
+                "workspace_ref": v2Ref(kind: .workspace, uuid: workspace.id),
+                "session_id": sessionID,
+            ])
+        }
+    }
+
+    private func v2WorkspaceRemotePTYBridge(params: [String: Any]) -> V2CallResult {
+        let requestedWorkspaceId = v2UUID(params, "workspace_id")
+        if v2HasNonNullParam(params, "workspace_id"), requestedWorkspaceId == nil {
+            return .err(code: "invalid_params", message: "Missing or invalid workspace_id", data: nil)
+        }
+        let fallbackTabManager = v2ResolveTabManager(params: params)
+        let workspaceId = requestedWorkspaceId ?? fallbackTabManager?.selectedTabId
+        guard let workspaceId else {
+            return .err(code: "invalid_params", message: "Missing workspace_id", data: nil)
+        }
+        guard let sessionID = v2RawString(params, "session_id")?
+            .trimmingCharacters(in: .whitespacesAndNewlines),
+              !sessionID.isEmpty else {
+            return .err(code: "invalid_params", message: "Missing session_id", data: nil)
+        }
+        let attachmentID = (v2RawString(params, "attachment_id")?
+            .trimmingCharacters(in: .whitespacesAndNewlines))
+            .flatMap { $0.isEmpty ? nil : $0 }
+            ?? UUID().uuidString.lowercased()
+        let command = v2RawString(params, "command")?
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+
+        var workspace: Workspace?
+        var windowId: UUID?
+        v2MainSync {
+            guard let owner = AppDelegate.shared?.tabManagerFor(tabId: workspaceId),
+                  let foundWorkspace = owner.tabs.first(where: { $0.id == workspaceId }) else {
+                return
+            }
+            workspace = foundWorkspace
+            windowId = v2ResolveWindowId(tabManager: owner)
+        }
+        guard let workspace else {
+            return .err(code: "not_found", message: "Workspace not found", data: [
+                "workspace_id": workspaceId.uuidString,
+                "workspace_ref": v2Ref(kind: .workspace, uuid: workspaceId),
+            ])
+        }
+
+        do {
+            let endpoint = try workspace.startRemotePTYBridge(
+                sessionID: sessionID,
+                attachmentID: attachmentID,
+                command: command?.isEmpty == true ? nil : command
+            )
+            return .ok([
+                "window_id": v2OrNull(windowId?.uuidString),
+                "window_ref": v2Ref(kind: .window, uuid: windowId),
+                "workspace_id": workspace.id.uuidString,
+                "workspace_ref": v2Ref(kind: .workspace, uuid: workspace.id),
+                "host": endpoint.host,
+                "port": endpoint.port,
+                "token": endpoint.token,
+                "session_id": endpoint.sessionID,
+                "attachment_id": endpoint.attachmentID,
+            ])
+        } catch {
+            return .err(code: "remote_pty_error", message: error.localizedDescription, data: [
+                "workspace_id": workspace.id.uuidString,
+                "workspace_ref": v2Ref(kind: .workspace, uuid: workspace.id),
+                "session_id": sessionID,
+                "attachment_id": attachmentID,
+            ])
+        }
+    }
+
+    private func v2WorkspaceRemotePTYResize(params: [String: Any]) -> V2CallResult {
+        let requestedWorkspaceId = v2UUID(params, "workspace_id")
+        if v2HasNonNullParam(params, "workspace_id"), requestedWorkspaceId == nil {
+            return .err(code: "invalid_params", message: "Missing or invalid workspace_id", data: nil)
+        }
+        let fallbackTabManager = v2ResolveTabManager(params: params)
+        let workspaceId = requestedWorkspaceId ?? fallbackTabManager?.selectedTabId
+        guard let workspaceId else {
+            return .err(code: "invalid_params", message: "Missing workspace_id", data: nil)
+        }
+        guard let sessionID = v2RawString(params, "session_id")?
+            .trimmingCharacters(in: .whitespacesAndNewlines),
+              !sessionID.isEmpty else {
+            return .err(code: "invalid_params", message: "Missing session_id", data: nil)
+        }
+        guard let attachmentID = v2RawString(params, "attachment_id")?
+            .trimmingCharacters(in: .whitespacesAndNewlines),
+              !attachmentID.isEmpty else {
+            return .err(code: "invalid_params", message: "Missing attachment_id", data: nil)
+        }
+        guard let cols = v2StrictInt(params, "cols"), cols > 0,
+              let rows = v2StrictInt(params, "rows"), rows > 0 else {
+            return .err(code: "invalid_params", message: "cols and rows must be positive integers", data: nil)
+        }
+
+        var workspace: Workspace?
+        v2MainSync {
+            guard let owner = AppDelegate.shared?.tabManagerFor(tabId: workspaceId),
+                  let foundWorkspace = owner.tabs.first(where: { $0.id == workspaceId }) else {
+                return
+            }
+            workspace = foundWorkspace
+        }
+        guard let workspace else {
+            return .err(code: "not_found", message: "Workspace not found", data: [
+                "workspace_id": workspaceId.uuidString,
+                "workspace_ref": v2Ref(kind: .workspace, uuid: workspaceId),
+            ])
+        }
+
+        do {
+            try workspace.resizeRemotePTY(
+                sessionID: sessionID,
+                attachmentID: attachmentID,
+                cols: cols,
+                rows: rows
+            )
+            return .ok([
+                "workspace_id": workspace.id.uuidString,
+                "workspace_ref": v2Ref(kind: .workspace, uuid: workspace.id),
+                "session_id": sessionID,
+                "attachment_id": attachmentID,
+                "cols": cols,
+                "rows": rows,
+                "resized": true,
+            ])
+        } catch {
+            return .err(code: "remote_pty_error", message: error.localizedDescription, data: [
+                "workspace_id": workspace.id.uuidString,
+                "workspace_ref": v2Ref(kind: .workspace, uuid: workspace.id),
+                "session_id": sessionID,
+                "attachment_id": attachmentID,
+            ])
+        }
     }
 
     private func v2WorkspaceRemoteTerminalSessionEnd(params: [String: Any]) -> V2CallResult {
