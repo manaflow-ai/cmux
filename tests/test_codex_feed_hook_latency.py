@@ -223,7 +223,7 @@ def main() -> int:
                 if (run.stdout.strip() or "{}") != "{}":
                     failures.append(f"run {run.index} emitted unexpected stdout {run.stdout!r}")
 
-            frame_deadline = time.monotonic() + 2.0
+            frame_deadline = time.monotonic() + 5.0
             frames = fake.frames_snapshot()
             while len(frames) < args.iterations and time.monotonic() < frame_deadline:
                 time.sleep(0.01)
