@@ -1,0 +1,136 @@
+name: Macfleet CI
+
+on:
+  workflow_dispatch:
+    inputs:
+      ref:
+        description: "Branch, tag, or SHA to build"
+        required: true
+        default: main
+      mode:
+        description: "Local macfleet runner mode"
+        required: true
+        default: core-ci
+        type: choice
+        options:
+          - core-ci
+          - full-ci
+          - workflow-guards
+          - remote-daemon
+          - web
+          - web-db-migrations
+          - debug-build
+          - release-build
+          - unit-test
+          - tests
+          - tests-build-and-lag
+          - ui-regressions
+          - cleanup
+      fanout:
+        description: "How many Mac mini runners to use"
+        required: true
+        default: one-per-host
+        type: choice
+        options:
+          - one-per-host
+          - all-15
+
+permissions:
+  contents: read
+
+concurrency:
+  group: macfleet-ci-${{ inputs.ref }}-${{ inputs.mode }}-${{ inputs.fanout }}
+  cancel-in-progress: false
+
+jobs:
+  one-per-host:
+    name: ${{ matrix.host }} slot 1 ${{ inputs.mode }}
+    if: ${{ inputs.fanout == 'one-per-host' }}
+    timeout-minutes: 120
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - host: mac3
+            slot: slot-1
+          - host: mac4
+            slot: slot-1
+          - host: mac6
+            slot: slot-1
+    runs-on:
+      - self-hosted
+      - macfleet
+      - cmux
+      - mac-mini
+      - xcode-26-3
+      - ${{ matrix.host }}
+      - ${{ matrix.slot }}
+    steps:
+      - name: Run cmux macfleet CI
+        env:
+          CMUX_REF: ${{ inputs.ref }}
+          CMUX_MODE: ${{ inputs.mode }}
+        run: |
+          set -euo pipefail
+          hostname
+          whoami
+          df -h /
+          ~/cmux-ci/run-ci.sh "$CMUX_REF" "$CMUX_MODE"
+
+  all-15:
+    name: ${{ matrix.host }} ${{ matrix.slot }} ${{ inputs.mode }}
+    if: ${{ inputs.fanout == 'all-15' }}
+    timeout-minutes: 120
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - host: mac3
+            slot: slot-1
+          - host: mac3
+            slot: slot-2
+          - host: mac3
+            slot: slot-3
+          - host: mac3
+            slot: slot-4
+          - host: mac3
+            slot: slot-5
+          - host: mac4
+            slot: slot-1
+          - host: mac4
+            slot: slot-2
+          - host: mac4
+            slot: slot-3
+          - host: mac4
+            slot: slot-4
+          - host: mac4
+            slot: slot-5
+          - host: mac6
+            slot: slot-1
+          - host: mac6
+            slot: slot-2
+          - host: mac6
+            slot: slot-3
+          - host: mac6
+            slot: slot-4
+          - host: mac6
+            slot: slot-5
+    runs-on:
+      - self-hosted
+      - macfleet
+      - cmux
+      - mac-mini
+      - xcode-26-3
+      - ${{ matrix.host }}
+      - ${{ matrix.slot }}
+    steps:
+      - name: Run cmux macfleet CI
+        env:
+          CMUX_REF: ${{ inputs.ref }}
+          CMUX_MODE: ${{ inputs.mode }}
+        run: |
+          set -euo pipefail
+          hostname
+          whoami
+          df -h /
+          ~/cmux-ci/run-ci.sh "$CMUX_REF" "$CMUX_MODE"
