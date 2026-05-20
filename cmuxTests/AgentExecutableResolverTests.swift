@@ -66,7 +66,13 @@ final class AgentExecutableResolverTests: XCTestCase {
             bundleResourceURL: root.appendingPathComponent("Contents/Resources", isDirectory: true)
         )
 
-        XCTAssertThrowsError(try resolver.resolve(.claude))
+        XCTAssertThrowsError(try resolver.resolve(.claude)) { error in
+            guard case AgentExecutableResolverError.missing(let displayName, let executableName, _) = error else {
+                return XCTFail("Expected missing executable error, got \(error)")
+            }
+            XCTAssertEqual(displayName, AgentSessionProviderID.claude.displayName)
+            XCTAssertEqual(executableName, "claude")
+        }
     }
 
     func testProviderLaunchPlansNeverUseEnvFallback() throws {

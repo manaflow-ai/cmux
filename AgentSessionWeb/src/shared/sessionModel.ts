@@ -135,19 +135,25 @@ function applyEvent(state: SessionState, event: AgentEvent): SessionState {
         ...state,
         runningSessionId: event.sessionId,
         status: "running",
-        log: appendLog(state, "info", `${event.providerId} ${event.executablePath} ${event.arguments.join(" ")}`),
+        log: appendLog(state, "info", "provider started"),
       };
     case "provider.output":
+      if (event.sessionId !== state.runningSessionId) {
+        return state;
+      }
       return {
         ...state,
         log: appendLog(state, event.stream, event.text),
       };
     case "provider.exit":
+      if (event.sessionId !== state.runningSessionId) {
+        return state;
+      }
       return {
         ...state,
         runningSessionId: undefined,
         status: event.status === 0 ? "idle" : "failed",
-        log: appendLog(state, event.status === 0 ? "info" : "error", `${event.providerId} exited ${event.status}`),
+        log: appendLog(state, event.status === 0 ? "info" : "error", `provider exited ${event.status}`),
       };
   }
 }

@@ -570,7 +570,7 @@ extension Workspace {
             agentSessionSnapshot = SessionAgentSessionPanelSnapshot(
                 rendererKind: agentPanel.rendererKind,
                 providerID: agentPanel.initialProviderID,
-                workingDirectory: agentPanel.workingDirectory ?? directory
+                workingDirectory: directory ?? agentPanel.workingDirectory
             )
         }
 

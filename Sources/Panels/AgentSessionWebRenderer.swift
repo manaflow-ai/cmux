@@ -613,7 +613,7 @@ private final class AgentSessionProcessStore {
         }
         let payload = text.hasSuffix("\n") ? text : text + "\n"
         guard let data = payload.data(using: .utf8) else { return }
-        session.stdin.fileHandleForWriting.write(data)
+        try session.stdin.fileHandleForWriting.write(contentsOf: data)
     }
 
     func stop(sessionId: String) throws {
@@ -676,10 +676,13 @@ private final class AgentSessionProcessStore {
 
 private enum AgentSessionHTTPBridge {
     static func perform(request: AgentSessionBridgeRequest) async throws -> [String: Any] {
-        guard let url = URL(string: try request.requiredString("url")) else {
+        guard let url = URL(string: try request.requiredString("url")),
+              let scheme = url.scheme?.lowercased(),
+              scheme == "http" || scheme == "https" else {
             throw AgentSessionBridgeError.missingParameter("url")
         }
         var urlRequest = URLRequest(url: url)
+        urlRequest.timeoutInterval = 30
         urlRequest.httpMethod = request.string("method") ?? "GET"
         if let headers = request.params["headers"] as? [String: String] {
             for (key, value) in headers {

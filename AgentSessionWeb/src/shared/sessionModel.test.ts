@@ -16,7 +16,7 @@ test("provider started event records running session", () => {
 
   expect(state.status).toBe("running");
   expect(state.runningSessionId).toBe("session-1");
-  expect(state.log.at(-1)?.text).toContain("/usr/local/bin/codex");
+  expect(state.log.at(-1)?.text).toBe("provider started");
 });
 
 test("provider output is appended without changing running session", () => {
@@ -41,6 +41,45 @@ test("provider output is appended without changing running session", () => {
   expect(state.log.at(-1)?.level).toBe("stdout");
 });
 
+test("provider output for a different session is ignored", () => {
+  const running = {
+    ...initialState("solid"),
+    status: "running" as const,
+    runningSessionId: "session-1",
+  };
+  const state = reduceSession(running, {
+    type: "event",
+    event: {
+      type: "provider.output",
+      providerId: "claude",
+      sessionId: "session-x",
+      stream: "stdout",
+      text: "{\"type\":\"assistant\"}",
+    },
+  });
+
+  expect(state).toBe(running);
+});
+
+test("provider exit for a different session is ignored", () => {
+  const running = {
+    ...initialState("solid"),
+    status: "running" as const,
+    runningSessionId: "session-1",
+  };
+  const state = reduceSession(running, {
+    type: "event",
+    event: {
+      type: "provider.exit",
+      providerId: "claude",
+      sessionId: "session-x",
+      status: 143,
+    },
+  });
+
+  expect(state).toBe(running);
+});
+
 test("client ids do not require crypto.randomUUID", () => {
   const descriptor = Object.getOwnPropertyDescriptor(globalThis, "crypto");
   Object.defineProperty(globalThis, "crypto", {
@@ -59,6 +98,8 @@ test("client ids do not require crypto.randomUUID", () => {
   } finally {
     if (descriptor) {
       Object.defineProperty(globalThis, "crypto", descriptor);
+    } else {
+      delete (globalThis as { crypto?: unknown }).crypto;
     }
   }
 });
