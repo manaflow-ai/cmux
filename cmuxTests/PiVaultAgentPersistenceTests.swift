@@ -185,6 +185,44 @@ final class PiVaultAgentPersistenceTests: XCTestCase {
         XCTAssertEqual(entry.cwd, "/tmp/acme-workspace")
     }
 
+    func testRegisteredAgentJSONLDisplayFieldIsNotSharedTitleMetadata() async throws {
+        let tempDir = FileManager.default.temporaryDirectory
+            .appendingPathComponent("cmux-registered-display-title-\(UUID().uuidString)", isDirectory: true)
+        try FileManager.default.createDirectory(at: tempDir, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: tempDir) }
+
+        let sessionFile = tempDir.appendingPathComponent("metadata.jsonl")
+        try """
+        {"sessionId":"native-session-123","cwd":"/tmp/acme","display":"Antigravity-only prompt"}
+        """.write(to: sessionFile, atomically: true, encoding: .utf8)
+
+        let registration = CmuxVaultAgentRegistration(
+            id: "acme-agent",
+            name: "Acme Agent",
+            detect: CmuxVaultAgentDetectRule(processName: "acme-agent"),
+            sessionIdSource: .argvOption("--session"),
+            resumeCommand: "acme-agent --session {{sessionId}}",
+            cwd: .preserve,
+            sessionDirectory: tempDir.path
+        )
+
+        let entries = await SessionIndexStore.loadRegisteredAgentEntries(
+            registration: registration,
+            needle: "",
+            cwdFilter: nil,
+            offset: 0,
+            limit: 10
+        )
+
+        let entry = try XCTUnwrap(entries.first)
+        XCTAssertEqual(entry.sessionId, "native-session-123")
+        XCTAssertEqual(entry.title, "")
+        XCTAssertEqual(
+            entry.displayTitle,
+            String(localized: "sessionIndex.untitled", defaultValue: "Untitled chat")
+        )
+    }
+
     func testRegisteredAgentJSONLSessionIDDoesNotUseAntigravityConversationID() async throws {
         let tempDir = FileManager.default.temporaryDirectory
             .appendingPathComponent("cmux-registered-session-id-\(UUID().uuidString)", isDirectory: true)

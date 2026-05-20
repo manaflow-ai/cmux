@@ -1592,7 +1592,7 @@ private enum SessionTranscriptLoader {
         guard let role = roleFromType ?? roleFromRole ?? (shouldUseFallbackRole ? fallbackRole : nil) else {
             return nil
         }
-        let content = object["content"] ?? object["text"] ?? object["message"] ?? object["display"]
+        let content = object["content"] ?? object["text"] ?? object["message"]
         guard let text = normalizedText(from: content, role: role, agent: agent) else {
             return nil
         }
@@ -1707,7 +1707,7 @@ private enum SessionTranscriptLoader {
             break
         }
 
-        for key in ["text", "content", "output", "result", "message", "display"] {
+        for key in ["text", "content", "output", "result", "message"] {
             let fragments = textFragments(from: object[key])
             if !fragments.isEmpty {
                 return fragments

@@ -496,7 +496,7 @@ extension SessionIndexStore {
                 let cwd = firstString(in: object, keys: registeredJSONLCWDKeys())
                 if let cwdFilter, cwd != cwdFilter { return false }
 
-                let title = firstTopLevelTitle(in: object) ?? ""
+                let title = antigravityHistoryTitle(in: object) ?? ""
                 guard antigravityHistoryMatchesNeedle(
                     needle: needle,
                     sessionId: sessionId,
@@ -735,6 +735,11 @@ extension SessionIndexStore {
         ["conversationId", "conversation_id", "sessionId", "session_id", "id"]
     }
 
+    nonisolated private static func antigravityHistoryTitle(in object: [String: Any]) -> String? {
+        firstText(in: object, keys: ["title", "prompt", "display"])
+            ?? firstTopLevelTitle(in: object)
+    }
+
     nonisolated private static func antigravityHistoryMatchesNeedle(
         needle: String,
         sessionId: String,
@@ -812,7 +817,7 @@ extension SessionIndexStore {
     }
 
     nonisolated private static func firstTopLevelTitle(in object: [String: Any]) -> String? {
-        if let title = firstText(in: object, keys: ["title", "prompt", "display"]) {
+        if let title = firstText(in: object, keys: ["title", "prompt"]) {
             return title
         }
         guard shouldUseMessageAsTitle(object) else { return nil }
