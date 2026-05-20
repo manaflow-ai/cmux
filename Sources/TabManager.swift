@@ -3309,8 +3309,8 @@ class TabManager: ObservableObject {
                   parts.count == 2,
                   parts[0] == "path",
                   let includeURL = gitConfigIncludeURL(
-                      pathValue: parts[1],
-                      configURL: configURL
+                      fromPathValue: parts[1],
+                      relativeTo: configURL
                   ) else {
                 continue
             }
