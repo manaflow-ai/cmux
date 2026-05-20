@@ -3720,7 +3720,11 @@ final class WindowBrowserPortal: NSObject {
 
         _ = synchronizeHostFrameToReference()
         let anchorFrameInWindow = effectiveAnchorFrameInWindow(for: anchorView)
-        let canvasSurfacePresentation = canvasSurfacePresentationsByWebViewId[webViewId]
+        let storedCanvasSurfacePresentation = canvasSurfacePresentationsByWebViewId[webViewId]
+        let canvasSurfacePresentation = storedCanvasSurfacePresentation.flatMap {
+            WindowPortalClipRegistry.clippedCanvasPresentation($0, in: window)
+        }
+        let canvasPresentationClippedOut = storedCanvasSurfacePresentation != nil && canvasSurfacePresentation == nil
         let interactiveFrameInWindow: NSRect? = {
             guard let overrideFrame = interactiveFrameOverridesInWindowByWebViewId[webViewId] else { return nil }
             if Self.rectApproximatelyEqual(anchorFrameInWindow, overrideFrame, epsilon: 1.0) {
@@ -3729,7 +3733,7 @@ final class WindowBrowserPortal: NSObject {
             }
             return overrideFrame
         }()
-        let frameInWindow = canvasSurfacePresentation?.frameInWindow ?? interactiveFrameInWindow ?? anchorFrameInWindow
+        let frameInWindow = canvasSurfacePresentation?.frameInWindow ?? storedCanvasSurfacePresentation?.frameInWindow ?? interactiveFrameInWindow ?? anchorFrameInWindow
         let frameInHostRaw = hostView.convert(frameInWindow, from: nil)
         let frameInHost = Self.pixelSnappedRect(frameInHostRaw, in: hostView)
         let hostBounds = hostView.bounds
@@ -3803,7 +3807,7 @@ final class WindowBrowserPortal: NSObject {
             interactiveFrameInWindow == nil &&
             Self.isHiddenOrAncestorHidden(anchorView)
         let tinyFrame = targetFrame.width <= 1 || targetFrame.height <= 1
-        let outsideHostBounds = !hasVisibleIntersection
+        let outsideHostBounds = canvasPresentationClippedOut || !hasVisibleIntersection
         let shouldHide =
             !entry.visibleInUI ||
             anchorHidden ||
@@ -3896,7 +3900,7 @@ final class WindowBrowserPortal: NSObject {
         }
 
         let expectedContainerBounds = NSRect(
-            origin: .zero,
+            origin: canvasSurfacePresentation?.nativeContentOrigin ?? .zero,
             size: canvasSurfacePresentation?.nativeContentSize ?? targetFrame.size
         )
         if !Self.rectApproximatelyEqual(containerView.bounds, expectedContainerBounds) {
@@ -3919,6 +3923,9 @@ final class WindowBrowserPortal: NSObject {
         let containerOwnsWebView = webView.superview === containerView
         let containerBounds = containerView.bounds
         let preNormalizeWebFrame = containerOwnsWebView ? webView.frame : .zero
+        let expectedHostedWebFrame = canvasSurfacePresentation != nil
+            ? NSRect(origin: .zero, size: containerBounds.size)
+            : containerBounds
         let hasVisibleHostedInspector = Self.hasVisibleInspectorDescendant(in: containerView)
         let inspectorHeightFromInsets = max(0, containerBounds.height - preNormalizeWebFrame.height)
         let inspectorHeightFromOverflow = max(0, preNormalizeWebFrame.maxY - containerBounds.maxY)
@@ -3951,11 +3958,11 @@ final class WindowBrowserPortal: NSObject {
             refreshReasons.append("webFrameBottomDock")
         } else if containerOwnsWebView &&
             !hasVisibleHostedInspector &&
-            !Self.rectApproximatelyEqual(preNormalizeWebFrame, containerBounds, epsilon: 0.5) {
+            !Self.rectApproximatelyEqual(preNormalizeWebFrame, expectedHostedWebFrame, epsilon: 0.5) {
             let oldWebFrame = preNormalizeWebFrame
             CATransaction.begin()
             CATransaction.setDisableActions(true)
-            webView.frame = containerBounds
+            webView.frame = expectedHostedWebFrame
             CATransaction.commit()
 #if DEBUG
             cmuxDebugLog(
@@ -3970,11 +3977,13 @@ final class WindowBrowserPortal: NSObject {
             )
 #endif
             refreshReasons.append("webFrameFill")
-        } else if containerOwnsWebView && Self.frameExtendsOutsideBounds(preNormalizeWebFrame, bounds: containerBounds) {
+        } else if containerOwnsWebView &&
+            canvasSurfacePresentation == nil &&
+            Self.frameExtendsOutsideBounds(preNormalizeWebFrame, bounds: containerBounds) {
             let oldWebFrame = preNormalizeWebFrame
             CATransaction.begin()
             CATransaction.setDisableActions(true)
-            webView.frame = containerBounds
+            webView.frame = expectedHostedWebFrame
             CATransaction.commit()
 #if DEBUG
             cmuxDebugLog(

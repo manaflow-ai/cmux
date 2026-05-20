@@ -68,6 +68,7 @@ public final class CanvasIOSurfacePreviewHostView: NSView {
 
         wantsLayer = true
         layer?.isOpaque = true
+        layer?.backgroundColor = backgroundColor.cgColor
 
         metalView.delegate = renderer
         metalView.translatesAutoresizingMaskIntoConstraints = false
@@ -77,6 +78,7 @@ public final class CanvasIOSurfacePreviewHostView: NSView {
         metalView.preferredFramesPerSecond = max(1, preferredFramesPerSecond)
         metalView.clearColor = renderer.clearColor
         metalView.layer?.isOpaque = true
+        metalView.layer?.backgroundColor = backgroundColor.cgColor
 
         addSubview(metalView)
         NSLayoutConstraint.activate([
@@ -99,6 +101,8 @@ public final class CanvasIOSurfacePreviewHostView: NSView {
         preferredFramesPerSecond: Int
     ) {
         renderer.update(surface: surface, backgroundColor: backgroundColor, contentMode: contentMode)
+        layer?.backgroundColor = backgroundColor.cgColor
+        metalView.layer?.backgroundColor = backgroundColor.cgColor
         metalView.preferredFramesPerSecond = max(1, preferredFramesPerSecond)
         metalView.clearColor = renderer.clearColor
         metalView.setNeedsDisplay(metalView.bounds)
@@ -299,7 +303,15 @@ private final class CanvasIOSurfacePreviewRenderer: NSObject, MTKViewDelegate {
         let descriptor = MTLRenderPipelineDescriptor()
         descriptor.vertexFunction = vertexFunction
         descriptor.fragmentFunction = fragmentFunction
-        descriptor.colorAttachments[0].pixelFormat = .bgra8Unorm
+        let colorAttachment = descriptor.colorAttachments[0]
+        colorAttachment?.pixelFormat = .bgra8Unorm
+        colorAttachment?.isBlendingEnabled = true
+        colorAttachment?.sourceRGBBlendFactor = .one
+        colorAttachment?.destinationRGBBlendFactor = .oneMinusSourceAlpha
+        colorAttachment?.rgbBlendOperation = .add
+        colorAttachment?.sourceAlphaBlendFactor = .one
+        colorAttachment?.destinationAlphaBlendFactor = .oneMinusSourceAlpha
+        colorAttachment?.alphaBlendOperation = .add
         return try? device.makeRenderPipelineState(descriptor: descriptor)
     }
 }

@@ -2472,7 +2472,7 @@ private struct WorkspaceCanvasOverviewView<Content: View, EmptyContent: View>: V
                let surface = terminalPanel.hostedView.currentCanvasIOSurface() {
                 CanvasIOSurfacePreview(
                     surface: surface,
-                    backgroundColor: appearance.backgroundColor,
+                    backgroundColor: terminalPanel.hostedView.canvasPreviewBackgroundColor(),
                     contentMode: .fit,
                     preferredFramesPerSecond: 120
                 )

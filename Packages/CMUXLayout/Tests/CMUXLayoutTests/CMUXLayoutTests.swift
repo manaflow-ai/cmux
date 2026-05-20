@@ -3909,9 +3909,36 @@ final class CMUXLayoutTests: XCTestCase {
 
         XCTAssertEqual(presentation.frameInWindow, CGRect(x: 10, y: 20, width: 400, height: 300))
         XCTAssertEqual(presentation.nativeContentSize, CGSize(width: 1_000, height: 700))
+        XCTAssertEqual(presentation.nativeContentOrigin, .zero)
         XCTAssertEqual(presentation.visualContentSize, CGSize(width: 400, height: 300))
         XCTAssertEqual(presentation.horizontalScale, 0.4, accuracy: 0.0001)
         XCTAssertEqual(presentation.verticalScale, 300.0 / 700.0, accuracy: 0.0001)
+    }
+
+    func testCanvasSurfacePresentationClipsToVisiblePortalFrame() {
+        let presentation = CanvasSurfacePresentation(
+            frameInWindow: CGRect(x: 100, y: 50, width: 800, height: 500),
+            nativeContentSize: CGSize(width: 1_600, height: 1_000),
+            scale: 0.5
+        )
+
+        let clipped = presentation.clipped(to: CGRect(x: 180, y: 90, width: 420, height: 260))
+
+        XCTAssertNotNil(clipped)
+        XCTAssertEqual(clipped!.frameInWindow, CGRect(x: 180, y: 90, width: 420, height: 260))
+        XCTAssertEqual(clipped!.nativeContentSize, CGSize(width: 1_600, height: 1_000))
+        XCTAssertEqual(clipped!.nativeContentOrigin, CGPoint(x: 160, y: 80))
+        XCTAssertEqual(clipped!.scale, 0.5, accuracy: 0.0001)
+    }
+
+    func testCanvasSurfacePresentationReturnsNilWhenClipIsOutside() {
+        let presentation = CanvasSurfacePresentation(
+            frameInWindow: CGRect(x: 100, y: 50, width: 800, height: 500),
+            nativeContentSize: CGSize(width: 1_600, height: 1_000),
+            scale: 0.5
+        )
+
+        XCTAssertNil(presentation.clipped(to: CGRect(x: 1_200, y: 90, width: 420, height: 260)))
     }
 
     @MainActor

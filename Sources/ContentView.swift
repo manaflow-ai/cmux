@@ -26,6 +26,165 @@ private func windowContentOverlayInstallationTarget(for window: NSWindow) -> (co
     return (themeFrame, contentView)
 }
 
+@MainActor
+enum WindowPortalClipRegistry {
+    private static var visibleContentFramesByWindowID: [ObjectIdentifier: CGRect] = [:]
+
+    static func setVisibleContentFrame(_ frameInWindow: CGRect?, for window: NSWindow) {
+        let windowID = ObjectIdentifier(window)
+        guard let frameInWindow,
+              frameInWindow.origin.x.isFinite,
+              frameInWindow.origin.y.isFinite,
+              frameInWindow.size.width.isFinite,
+              frameInWindow.size.height.isFinite,
+              frameInWindow.width > 1,
+              frameInWindow.height > 1 else {
+            visibleContentFramesByWindowID.removeValue(forKey: windowID)
+            return
+        }
+        visibleContentFramesByWindowID[windowID] = frameInWindow
+    }
+
+    static func clear(for window: NSWindow?) {
+        guard let window else { return }
+        visibleContentFramesByWindowID.removeValue(forKey: ObjectIdentifier(window))
+    }
+
+    static func clippedCanvasPresentation(
+        _ presentation: CanvasSurfacePresentation,
+        in window: NSWindow
+    ) -> CanvasSurfacePresentation? {
+        guard let visibleContentFrame = visibleContentFramesByWindowID[ObjectIdentifier(window)] else {
+            return presentation
+        }
+        return presentation.clipped(to: visibleContentFrame)
+    }
+}
+
+private struct PortalVisibleContentClipReporter: NSViewRepresentable {
+    var leadingInset: CGFloat
+    var trailingInset: CGFloat
+    var topInset: CGFloat
+    var bottomInset: CGFloat
+
+    func makeNSView(context: Context) -> PortalVisibleContentClipReportingView {
+        let view = PortalVisibleContentClipReportingView()
+        view.update(
+            leadingInset: leadingInset,
+            trailingInset: trailingInset,
+            topInset: topInset,
+            bottomInset: bottomInset
+        )
+        return view
+    }
+
+    func updateNSView(_ nsView: PortalVisibleContentClipReportingView, context: Context) {
+        nsView.update(
+            leadingInset: leadingInset,
+            trailingInset: trailingInset,
+            topInset: topInset,
+            bottomInset: bottomInset
+        )
+    }
+
+    static func dismantleNSView(_ nsView: PortalVisibleContentClipReportingView, coordinator: ()) {
+        nsView.clearPublishedWindow()
+    }
+}
+
+private final class PortalVisibleContentClipReportingView: NSView {
+    private var leadingInset: CGFloat = 0
+    private var trailingInset: CGFloat = 0
+    private var topInset: CGFloat = 0
+    private var bottomInset: CGFloat = 0
+    private var hasPendingPublish = false
+    private weak var publishedWindow: NSWindow?
+
+    override var isOpaque: Bool { false }
+
+    override func hitTest(_ point: NSPoint) -> NSView? {
+        nil
+    }
+
+    func update(
+        leadingInset: CGFloat,
+        trailingInset: CGFloat,
+        topInset: CGFloat,
+        bottomInset: CGFloat
+    ) {
+        self.leadingInset = max(0, leadingInset.isFinite ? leadingInset : 0)
+        self.trailingInset = max(0, trailingInset.isFinite ? trailingInset : 0)
+        self.topInset = max(0, topInset.isFinite ? topInset : 0)
+        self.bottomInset = max(0, bottomInset.isFinite ? bottomInset : 0)
+        schedulePublish()
+    }
+
+    override func layout() {
+        super.layout()
+        schedulePublish()
+    }
+
+    override func viewDidMoveToWindow() {
+        super.viewDidMoveToWindow()
+        schedulePublish()
+    }
+
+    override func viewDidMoveToSuperview() {
+        super.viewDidMoveToSuperview()
+        schedulePublish()
+    }
+
+    override func setFrameSize(_ newSize: NSSize) {
+        super.setFrameSize(newSize)
+        schedulePublish()
+    }
+
+    func clearPublishedWindow() {
+        WindowPortalClipRegistry.clear(for: publishedWindow)
+        publishedWindow = nil
+    }
+
+    private func schedulePublish() {
+        guard !hasPendingPublish else { return }
+        hasPendingPublish = true
+        Task { @MainActor [weak self] in
+            guard let self else { return }
+            hasPendingPublish = false
+            publish()
+        }
+    }
+
+    private func publish() {
+        guard let window else {
+            clearPublishedWindow()
+            return
+        }
+        if publishedWindow !== window {
+            clearPublishedWindow()
+            publishedWindow = window
+        }
+
+        let maxLeadingInset = min(leadingInset, max(0, bounds.width - 1))
+        let maxTrailingInset = min(trailingInset, max(0, bounds.width - maxLeadingInset - 1))
+        let maxBottomInset = min(bottomInset, max(0, bounds.height - 1))
+        let maxTopInset = min(topInset, max(0, bounds.height - maxBottomInset - 1))
+        let visibleBounds = CGRect(
+            x: bounds.minX + maxLeadingInset,
+            y: bounds.minY + maxBottomInset,
+            width: max(0, bounds.width - maxLeadingInset - maxTrailingInset),
+            height: max(0, bounds.height - maxTopInset - maxBottomInset)
+        )
+
+        guard visibleBounds.width > 1,
+              visibleBounds.height > 1 else {
+            WindowPortalClipRegistry.setVisibleContentFrame(nil, for: window)
+            return
+        }
+
+        WindowPortalClipRegistry.setVisibleContentFrame(convert(visibleBounds, to: nil), for: window)
+    }
+}
+
 enum CommandPaletteOverlayPromotionPolicy {
     static func shouldPromote(previouslyVisible: Bool, isVisible: Bool) -> Bool {
         isVisible && !previouslyVisible
@@ -2577,6 +2736,15 @@ struct ContentView: View {
 
         return AnyView(
             layout
+                .background {
+                    PortalVisibleContentClipReporter(
+                        leadingInset: sidebarState.isVisible ? sidebarWidth : 0,
+                        trailingInset: rightSidebarWidth,
+                        topInset: 0,
+                        bottomInset: 0
+                    )
+                    .allowsHitTesting(false)
+                }
                 .overlay(alignment: .leading) {
                     if sidebarState.isVisible {
                         sidebarResizerOverlay

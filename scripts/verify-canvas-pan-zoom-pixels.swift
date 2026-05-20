@@ -120,7 +120,7 @@ let terminalProbes = [
         green > 0.60 && green > red + 0.20 && green > blue + 0.15
     },
     ProbeColor(name: "blue", minimumPixels: 120, minimumInset: 12) { red, green, blue, _ in
-        blue > 0.80 && red < 0.36 && green < 0.50
+        blue > 0.80 && blue > red + 0.40 && blue > green + 0.35
     }
 ]
 

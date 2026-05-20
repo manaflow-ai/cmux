@@ -244,13 +244,23 @@ public struct CanvasContentBounds: Sendable, Equatable {
 public struct CanvasSurfacePresentation: Sendable, Equatable {
     public var frameInWindow: CGRect
     public var nativeContentSize: CGSize
+    public var nativeContentOrigin: CGPoint
     public var scale: CGFloat
 
-    public init(frameInWindow: CGRect, nativeContentSize: CGSize, scale: CGFloat) {
+    public init(
+        frameInWindow: CGRect,
+        nativeContentSize: CGSize,
+        scale: CGFloat,
+        nativeContentOrigin: CGPoint = .zero
+    ) {
         self.frameInWindow = frameInWindow
         self.nativeContentSize = CGSize(
             width: max(1, nativeContentSize.width),
             height: max(1, nativeContentSize.height)
+        )
+        self.nativeContentOrigin = CGPoint(
+            x: nativeContentOrigin.x.isFinite ? nativeContentOrigin.x : 0,
+            y: nativeContentOrigin.y.isFinite ? nativeContentOrigin.y : 0
         )
         self.scale = max(0.0001, scale)
     }
@@ -268,6 +278,36 @@ public struct CanvasSurfacePresentation: Sendable, Equatable {
 
     public var verticalScale: CGFloat {
         frameInWindow.height / nativeContentSize.height
+    }
+
+    public func clipped(to visibleFrameInWindow: CGRect) -> CanvasSurfacePresentation? {
+        guard frameInWindow.origin.x.isFinite,
+              frameInWindow.origin.y.isFinite,
+              frameInWindow.size.width.isFinite,
+              frameInWindow.size.height.isFinite,
+              visibleFrameInWindow.origin.x.isFinite,
+              visibleFrameInWindow.origin.y.isFinite,
+              visibleFrameInWindow.size.width.isFinite,
+              visibleFrameInWindow.size.height.isFinite else {
+            return nil
+        }
+
+        let clippedFrame = frameInWindow.intersection(visibleFrameInWindow)
+        guard !clippedFrame.isNull,
+              clippedFrame.width > 1,
+              clippedFrame.height > 1 else {
+            return nil
+        }
+
+        return CanvasSurfacePresentation(
+            frameInWindow: clippedFrame,
+            nativeContentSize: nativeContentSize,
+            scale: scale,
+            nativeContentOrigin: CGPoint(
+                x: nativeContentOrigin.x + ((clippedFrame.minX - frameInWindow.minX) / scale),
+                y: nativeContentOrigin.y + ((clippedFrame.minY - frameInWindow.minY) / scale)
+            )
+        )
     }
 }
 

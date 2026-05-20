@@ -6778,7 +6778,7 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
         registerForDraggedTypes(Array(Self.dropTypes))
     }
 
-    private func effectiveBackgroundColor() -> NSColor {
+    fileprivate func effectiveBackgroundColor() -> NSColor {
         let base = backgroundColor ?? GhosttyApp.shared.defaultBackgroundColor
         let opacity = GhosttyApp.shared.defaultBackgroundOpacity
         return base.withAlphaComponent(opacity)
@@ -10271,6 +10271,10 @@ final class GhosttySurfaceScrollView: NSView {
         let cf = contents as CFTypeRef
         guard CFGetTypeID(cf) == IOSurfaceGetTypeID() else { return nil }
         return (contents as! IOSurfaceRef)
+    }
+
+    func canvasPreviewBackgroundColor() -> NSColor {
+        surfaceView.effectiveBackgroundColor()
     }
 
     private var lastFlashStyle: FlashStyle = .navigation
