@@ -3230,6 +3230,9 @@ struct CMUXCLI {
         case "top":
             try runTopCommand(commandArgs: commandArgs, client: client, jsonOutput: jsonOutput, idFormat: idFormat)
 
+        case "memory":
+            try runMemoryCommand(commandArgs: commandArgs, client: client, jsonOutput: jsonOutput, idFormat: idFormat)
+
         case "focus-pane":
             let workspaceArg = workspaceFromArgsOrEnv(commandArgs, windowOverride: windowId)
             guard let paneRaw = optionValue(commandArgs, name: "--pane") ?? commandArgs.first else {
@@ -10256,6 +10259,28 @@ struct CMUXCLI {
               cmux top --workspace workspace:2 --processes
               cmux --json top --all
             """
+        case "memory":
+            return """
+            Usage: cmux memory [flags]
+
+            Diagnose cmux app memory separately from recursive terminal child-process RSS.
+
+            Flags:
+              --all                         Include all windows (default: current window only)
+              --workspace <id|ref|index>   Limit workspace context for attribution labels
+              --groups <count>              Number of child command groups to show (default: 12)
+              --json                        Structured JSON output
+
+            Output:
+              App footprint is the direct cmux process physical footprint from macOS process accounting.
+              Child RSS is recursive resident memory for descendants of the cmux app process,
+              grouped by command name and attributed back to workspace, pane, and surface when known.
+
+            Example:
+              cmux memory
+              cmux memory --groups 20
+              cmux --json memory --all
+            """
         case "focus-pane":
             return """
             Usage: cmux focus-pane [--pane <id|ref> | <id|ref>] [flags]
@@ -11566,6 +11591,13 @@ struct CMUXCLI {
         let requestedFormat: Bool
     }
 
+    private struct MemoryCommandOptions {
+        let includeAllWindows: Bool
+        let workspaceHandle: String?
+        let jsonOutput: Bool
+        let topGroupLimit: Int
+    }
+
     private struct TreePath {
         let windowHandle: String?
         let workspaceHandle: String?
@@ -11655,6 +11687,71 @@ struct CMUXCLI {
                 ))
             }
         }
+    }
+
+    private func runMemoryCommand(
+        commandArgs: [String],
+        client: SocketClient,
+        jsonOutput: Bool,
+        idFormat: CLIIDFormat
+    ) throws {
+        let options = try parseMemoryCommandOptions(commandArgs)
+        let payload = try buildMemoryPayload(options: options, client: client)
+        if jsonOutput || options.jsonOutput {
+            print(jsonString(formatIDs(payload, mode: idFormat)))
+        } else {
+            print(renderMemoryText(payload: payload, idFormat: idFormat))
+        }
+    }
+
+    private func parseMemoryCommandOptions(_ args: [String]) throws -> MemoryCommandOptions {
+        let (workspaceOpt, rem0) = parseOption(args, name: "--workspace")
+        if rem0.contains("--workspace") {
+            throw CLIError(message: "memory requires --workspace <id|ref|index>")
+        }
+        let (groupsOpt, rem1) = parseOption(rem0, name: "--groups")
+        if rem1.contains("--groups") {
+            throw CLIError(message: "memory requires --groups <count>")
+        }
+
+        var includeAll = false
+        var jsonOutput = false
+        var remaining: [String] = []
+        for arg in rem1 {
+            if arg == "--all" {
+                includeAll = true
+                continue
+            }
+            if arg == "--json" {
+                jsonOutput = true
+                continue
+            }
+            remaining.append(arg)
+        }
+
+        if let unknown = remaining.first(where: { $0.hasPrefix("--") }) {
+            throw CLIError(message: "memory: unknown flag '\(unknown)'. Known flags: --all --workspace <id|ref|index> --groups <count> --json")
+        }
+        if let extra = remaining.first {
+            throw CLIError(message: "memory: unexpected argument '\(extra)'")
+        }
+
+        let topGroupLimit: Int
+        if let groupsOpt {
+            guard let parsed = Int(groupsOpt), parsed > 0 else {
+                throw CLIError(message: "memory: invalid --groups value '\(groupsOpt)'. Use a positive integer")
+            }
+            topGroupLimit = min(parsed, 100)
+        } else {
+            topGroupLimit = 12
+        }
+
+        return MemoryCommandOptions(
+            includeAllWindows: includeAll,
+            workspaceHandle: workspaceOpt,
+            jsonOutput: jsonOutput,
+            topGroupLimit: topGroupLimit
+        )
     }
 
     private func parseTopCommandOptions(_ args: [String]) throws -> TopCommandOptions {
@@ -11770,6 +11867,31 @@ struct CMUXCLI {
             return try client.sendV2(method: "system.top", params: params, responseTimeout: responseTimeout)
         } catch let error as CLIError where error.message.hasPrefix("method_not_found:") {
             throw CLIError(message: "cmux top requires a running cmux build with system.top support")
+        }
+    }
+
+    private func buildMemoryPayload(
+        options: MemoryCommandOptions,
+        client: SocketClient
+    ) throws -> [String: Any] {
+        var params: [String: Any] = [
+            "all_windows": options.includeAllWindows,
+            "top_group_limit": options.topGroupLimit
+        ]
+        if let workspaceRaw = options.workspaceHandle {
+            guard let workspaceHandle = try normalizeWorkspaceHandle(workspaceRaw, client: client) else {
+                throw CLIError(message: "Invalid workspace handle")
+            }
+            params["workspace_id"] = workspaceHandle
+        }
+        if let caller = treeCallerContextFromEnvironment() {
+            params["caller"] = caller
+        }
+
+        do {
+            return try client.sendV2(method: "system.memory", params: params)
+        } catch let error as CLIError where error.message.hasPrefix("method_not_found:") {
+            throw CLIError(message: "cmux memory requires a running cmux build with system.memory support")
         }
     }
 
@@ -12366,6 +12488,94 @@ struct CMUXCLI {
         }
 
         return lines.joined(separator: "\n")
+    }
+
+    private func renderMemoryText(
+        payload: [String: Any],
+        idFormat: CLIIDFormat
+    ) -> String {
+        guard let diagnostic = payload["memory_diagnostic"] as? [String: Any] else {
+            return "No memory diagnostic available"
+        }
+
+        let app = diagnostic["app"] as? [String: Any] ?? [:]
+        let children = diagnostic["children"] as? [String: Any] ?? [:]
+        let appName = topLabelText(app["name"] as? String)
+        let appPID = topInt(app["pid"]).map(String.init) ?? "?"
+        let appFootprint = topInt64(app["physical_footprint_bytes"])
+        let appRSS = topInt64(app["resident_bytes"])
+        let childRSS = topInt64(children["recursive_rss_bytes"])
+        let childCount = topInt(children["process_count"]) ?? 0
+        let summary = topLabelText(diagnostic["summary"] as? String)
+
+        var lines: [String] = []
+        if !summary.isEmpty {
+            lines.append(summary)
+            lines.append("")
+        }
+        lines.append("APP")
+        lines.append("  \(appName.isEmpty ? "cmux" : appName) pid=\(appPID)")
+        lines.append("  footprint \(formatBytes(appFootprint))")
+        lines.append("  rss       \(formatBytes(appRSS))")
+        lines.append("")
+        lines.append("CHILD PROCESSES")
+        lines.append("  recursive RSS \(formatBytes(childRSS)) across \(childCount) process\(childCount == 1 ? "" : "es")")
+
+        let groups = children["groups"] as? [[String: Any]] ?? []
+        guard !groups.isEmpty else {
+            lines.append("  no child process groups")
+            return lines.joined(separator: "\n")
+        }
+
+        lines.append("")
+        lines.append("TOP CHILD GROUPS")
+        lines.append("      RSS  PROC  COMMAND                    ATTRIBUTION")
+        for group in groups {
+            let rss = padLeft(formatBytes(topInt64(group["rss_bytes"])), width: 9)
+            let processCount = padLeft(String(topInt(group["process_count"]) ?? 0), width: 5)
+            let name = topLabelText(group["name"] as? String)
+            let command = name.padding(toLength: 26, withPad: " ", startingAt: 0)
+            let attribution = memoryAttributionText(group["top_attribution"], idFormat: idFormat)
+            lines.append("\(rss) \(processCount)  \(command) \(attribution)")
+        }
+
+        return lines.joined(separator: "\n")
+    }
+
+    private func memoryAttributionText(_ raw: Any?, idFormat: CLIIDFormat) -> String {
+        guard let attribution = raw as? [String: Any] else {
+            return "unattributed"
+        }
+
+        var parts: [String] = []
+        if let workspace = memoryAttributionHandle(attribution, prefix: "workspace", idFormat: idFormat) {
+            parts.append("workspace \(workspace)")
+        }
+        if let pane = memoryAttributionHandle(attribution, prefix: "pane", idFormat: idFormat) {
+            parts.append("pane \(pane)")
+        }
+        if let surface = memoryAttributionHandle(attribution, prefix: "surface", idFormat: idFormat) {
+            parts.append("surface \(surface)")
+        }
+        return parts.isEmpty ? "unattributed" : parts.joined(separator: " / ")
+    }
+
+    private func memoryAttributionHandle(
+        _ attribution: [String: Any],
+        prefix: String,
+        idFormat: CLIIDFormat
+    ) -> String? {
+        let ref = topLabelText(attribution["\(prefix)_ref"] as? String)
+        let id = topLabelText(attribution["\(prefix)_id"] as? String)
+        switch idFormat {
+        case .refs:
+            return ref.isEmpty ? (id.isEmpty ? nil : id) : ref
+        case .uuids:
+            return id.isEmpty ? (ref.isEmpty ? nil : ref) : id
+        case .both:
+            let values = [ref, id].filter { !$0.isEmpty }
+            return values.isEmpty ? nil : values.joined(separator: " ")
+        }
     }
 
     private enum TopWindowChild {
@@ -26205,6 +26415,7 @@ export default function cmuxPiSessionExtension(pi: ExtensionAPI) {
           list-pane-surfaces [--workspace <id|ref>] [--pane <id|ref>]
           tree [--all] [--workspace <id|ref|index>]
           top [--all] [--workspace <id|ref|index>] [--processes] [--sort <cpu|mem|proc>] [--flat] [--format <tree|tsv>]
+          memory [--all] [--workspace <id|ref|index>] [--groups <count>]
           focus-pane --pane <id|ref> [--workspace <id|ref>]
           new-pane [--type <terminal|browser>] [--direction <left|right|up|down>] [--workspace <id|ref>] [--url <url>] [--focus <true|false>]
           new-surface [--type <terminal|browser>] [--pane <id|ref>] [--workspace <id|ref>] [--url <url>] [--focus <true|false>]

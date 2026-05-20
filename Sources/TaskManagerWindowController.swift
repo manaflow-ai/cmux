@@ -73,6 +73,7 @@ final class CmuxTaskManagerModel: ObservableObject {
     private(set) var sortedRows: [CmuxTaskManagerRow] = []
     private(set) var sortedAgentRows: [CmuxTaskManagerRow] = []
     private(set) var sortedAggregateRows: [CmuxTaskManagerRow] = []
+    private(set) var sortedChildMemoryRows: [CmuxTaskManagerRow] = []
 
     init() {
         updateSortedRows()
@@ -270,6 +271,7 @@ final class CmuxTaskManagerModel: ObservableObject {
         sortedRows = sortOrder.sortedRows(snapshot.rows)
         sortedAgentRows = sortOrder.sortedRows(snapshot.agentRows)
         sortedAggregateRows = sortOrder.sortedRows(snapshot.aggregateRows)
+        sortedChildMemoryRows = sortOrder.sortedRows(snapshot.childMemoryRows)
     }
 
     private func sendSignal(_ signal: Int32, toProcessId processId: Int) -> String? {

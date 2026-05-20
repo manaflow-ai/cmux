@@ -37,6 +37,18 @@ extension TerminalController {
         return counts
     }
 
+    nonisolated func v2TopMemoryDiagnosticPayload(
+        processSnapshot: CmuxTopProcessSnapshot,
+        annotatedWindows: [[String: Any]],
+        topGroupLimit: Int = 12
+    ) -> [String: Any] {
+        processSnapshot.memoryDiagnosticPayload(
+            appPID: Int(Darwin.getpid()),
+            topGroupLimit: topGroupLimit,
+            attributionByPID: v2TopMemoryAttributionByPID(in: annotatedWindows)
+        )
+    }
+
     nonisolated func v2AnnotateTopWindows(
         _ windows: inout [[String: Any]],
         processSnapshot: CmuxTopProcessSnapshot,
@@ -275,6 +287,12 @@ extension TerminalController {
         return values.compactMap(v2TopInt)
     }
 
+    nonisolated func v2TopString(_ raw: Any?) -> String? {
+        guard let value = raw as? String else { return nil }
+        let trimmed = value.trimmingCharacters(in: .whitespacesAndNewlines)
+        return trimmed.isEmpty ? nil : trimmed
+    }
+
     nonisolated func v2TopUUID(_ raw: Any?) -> UUID? {
         if let value = raw as? UUID {
             return value
@@ -283,6 +301,67 @@ extension TerminalController {
             return UUID(uuidString: value.trimmingCharacters(in: .whitespacesAndNewlines))
         }
         return nil
+    }
+
+    private nonisolated func v2TopMemoryAttributionByPID(in windows: [[String: Any]]) -> [Int: CmuxTopProcessAttribution] {
+        var result: [Int: CmuxTopProcessAttribution] = [:]
+        for window in windows {
+            let workspaces = window["workspaces"] as? [[String: Any]] ?? []
+            for workspace in workspaces {
+                let workspaceID = v2TopUUID(workspace["id"])
+                let workspaceRef = v2TopString(workspace["ref"])
+
+                let tags = workspace["tags"] as? [[String: Any]] ?? []
+                for tag in tags {
+                    let attribution = CmuxTopProcessAttribution(
+                        workspaceID: workspaceID,
+                        workspaceRef: workspaceRef,
+                        paneID: nil,
+                        paneRef: nil,
+                        surfaceID: nil,
+                        surfaceRef: nil,
+                        reason: "status-tag-process-tree"
+                    )
+                    assignTopMemoryAttribution(attribution, from: tag, to: &result)
+                }
+
+                let panes = workspace["panes"] as? [[String: Any]] ?? []
+                for pane in panes {
+                    let paneID = v2TopUUID(pane["id"])
+                    let paneRef = v2TopString(pane["ref"])
+                    let surfaces = pane["surfaces"] as? [[String: Any]] ?? []
+                    for surface in surfaces {
+                        let attribution = CmuxTopProcessAttribution(
+                            workspaceID: workspaceID,
+                            workspaceRef: workspaceRef,
+                            paneID: paneID,
+                            paneRef: paneRef,
+                            surfaceID: v2TopUUID(surface["id"]),
+                            surfaceRef: v2TopString(surface["ref"]),
+                            reason: "surface-process-tree"
+                        )
+                        assignTopMemoryAttribution(attribution, from: surface, to: &result)
+
+                        let webviews = surface["webviews"] as? [[String: Any]] ?? []
+                        for webview in webviews {
+                            assignTopMemoryAttribution(attribution, from: webview, to: &result)
+                        }
+                    }
+                }
+            }
+        }
+        return result
+    }
+
+    private nonisolated func assignTopMemoryAttribution(
+        _ attribution: CmuxTopProcessAttribution,
+        from node: [String: Any],
+        to result: inout [Int: CmuxTopProcessAttribution]
+    ) {
+        let resources = node["resources"] as? [String: Any] ?? [:]
+        for pid in v2TopIntArray(resources["pids"]) where result[pid] == nil {
+            result[pid] = attribution
+        }
     }
 
     nonisolated func v2AttachTopApplicationProcess(

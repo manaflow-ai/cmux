@@ -113210,6 +113210,20 @@
         "ja": { "stringUnit": { "state": "translated", "value": "メモリ" } }
       }
     },
+    "taskManager.summary.appFootprint": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "App Footprint" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "アプリフットプリント" } }
+      }
+    },
+    "taskManager.summary.childRSS": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Child RSS" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "子プロセスRSS" } }
+      }
+    },
     "taskManager.summary.processes": {
       "extractionState": "manual",
       "localizations": {
@@ -113266,11 +113280,39 @@
         "ja": { "stringUnit": { "state": "translated", "value": "プログラム合計" } }
       }
     },
+    "taskManager.section.childProcessRSS": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Child Process RSS" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "子プロセスRSS" } }
+      }
+    },
     "taskManager.section.hierarchy": {
       "extractionState": "manual",
       "localizations": {
         "en": { "stringUnit": { "state": "translated", "value": "Hierarchy" } },
         "ja": { "stringUnit": { "state": "translated", "value": "階層" } }
+      }
+    },
+    "taskManager.memory.unattributed": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Unattributed" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "未割り当て" } }
+      }
+    },
+    "taskManager.memory.workspace": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Workspace %@" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "ワークスペース %@" } }
+      }
+    },
+    "taskManager.memory.surface": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Surface %@" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "サーフェス %@" } }
       }
     },
     "taskManager.aggregate.processCount.one": {
