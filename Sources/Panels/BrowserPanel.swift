@@ -3456,20 +3456,20 @@ final class BrowserPanel: Panel, ObservableObject {
         let boundHistoryStore = historyStore
 
         navigationDelegate.didStartProvisionalNavigation = { [weak self] webView in
-            Task { @MainActor [weak self] in
+            MainActor.assumeIsolated {
                 guard let self, self.isCurrentWebView(webView, instanceID: boundWebViewInstanceID) else { return }
                 self.isMainFrameProvisionalNavigationActive = true
             }
         }
         navigationDelegate.didCommit = { [weak self] webView in
-            Task { @MainActor [weak self] in
+            MainActor.assumeIsolated {
                 guard let self, self.isCurrentWebView(webView, instanceID: boundWebViewInstanceID) else { return }
                 self.isMainFrameProvisionalNavigationActive = false
                 self.publishCommittedURL(from: webView)
             }
         }
         navigationDelegate.didFinish = { [weak self] webView in
-            Task { @MainActor [weak self] in
+            MainActor.assumeIsolated {
                 guard let self, self.isCurrentWebView(webView, instanceID: boundWebViewInstanceID) else { return }
                 self.isMainFrameProvisionalNavigationActive = false
                 self.publishCommittedURL(from: webView)
@@ -3478,11 +3478,10 @@ final class BrowserPanel: Panel, ObservableObject {
                 self.refreshFavicon(from: webView)
                 // Keep find-in-page open through load completion and refresh matches for the new DOM.
                 self.restoreFindStateAfterNavigation(replaySearch: true)
-                GlobalSearchCoordinator.shared.captureBrowserPanel(self)
             }
         }
         navigationDelegate.didFailNavigation = { [weak self] failedWebView, failedURL in
-            Task { @MainActor in
+            MainActor.assumeIsolated {
                 guard let self, self.isCurrentWebView(failedWebView, instanceID: boundWebViewInstanceID) else { return }
                 self.isMainFrameProvisionalNavigationActive = false
                 if let url = URL(string: failedURL) {
@@ -3498,7 +3497,7 @@ final class BrowserPanel: Panel, ObservableObject {
             }
         }
         navigationDelegate.didCancelProvisionalNavigation = { [weak self] webView in
-            Task { @MainActor [weak self] in
+            MainActor.assumeIsolated {
                 guard let self, self.isCurrentWebView(webView, instanceID: boundWebViewInstanceID) else { return }
                 self.isMainFrameProvisionalNavigationActive = false
             }
@@ -7583,6 +7582,7 @@ private class BrowserNavigationDelegate: NSObject, WKNavigationDelegate {
         // navigation response is converted into a download via .download policy.
         // This is expected and should not show an error page.
         if nsError.domain == "WebKitErrorDomain", nsError.code == 102 {
+            didCancelProvisionalNavigation?(webView)
             return
         }
 

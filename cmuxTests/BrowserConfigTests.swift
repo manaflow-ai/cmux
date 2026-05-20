@@ -2445,6 +2445,7 @@ final class BrowserSessionHistoryRestoreTests: XCTestCase {
             case listenerPortUnavailable
         }
 
+        private static let queueKey = DispatchSpecificKey<Void>()
         private let listener: NWListener
         private let queue = DispatchQueue(label: "cmux.browser.provisional-navigation-race-server")
         private let lock = NSLock()
@@ -2459,6 +2460,7 @@ final class BrowserSessionHistoryRestoreTests: XCTestCase {
                 port: .any
             )
             listener = try NWListener(using: parameters)
+            queue.setSpecific(key: Self.queueKey, value: ())
 
             let ready = DispatchSemaphore(value: 0)
             listener.stateUpdateHandler = { state in
@@ -2490,13 +2492,16 @@ final class BrowserSessionHistoryRestoreTests: XCTestCase {
             URL(string: "http://127.0.0.1:\(port)\(path)")!
         }
 
-        func releaseHeldBResponses() {
-            queue.async { [weak self] in
-                self?.releaseHeldBResponsesOnQueue()
+        func releaseHeldBResponses() -> Int {
+            if DispatchQueue.getSpecific(key: Self.queueKey) != nil {
+                return releaseHeldBResponsesOnQueue()
+            }
+            return queue.sync {
+                releaseHeldBResponsesOnQueue()
             }
         }
 
-        private func releaseHeldBResponsesOnQueue() {
+        private func releaseHeldBResponsesOnQueue() -> Int {
             let connections: [NWConnection]
             lock.lock()
             connections = heldBConnections
@@ -2506,11 +2511,12 @@ final class BrowserSessionHistoryRestoreTests: XCTestCase {
             for connection in connections {
                 sendPage("B", on: connection)
             }
+            return connections.count
         }
 
         func stop() {
             listener.cancel()
-            releaseHeldBResponses()
+            _ = releaseHeldBResponses()
         }
 
         private func handle(_ connection: NWConnection) {
@@ -2771,7 +2777,8 @@ final class BrowserSessionHistoryRestoreTests: XCTestCase {
             panel.currentURL?.path == pageA.path && !panel.webView.isLoading
         }
 
-        server.releaseHeldBResponses()
+        let releasedBResponseCount = server.releaseHeldBResponses()
+        XCTAssertGreaterThan(releasedBResponseCount, 0)
         try waitUntil("browser to remain on page A after held page B response is released") {
             !panel.webView.isLoading &&
                 panel.pageTitle == "Race A" &&
