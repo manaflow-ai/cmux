@@ -517,6 +517,30 @@ extension CLINotifyProcessIntegrationRegressionTests {
         XCTAssertNil(json["hooks"])
 
         let cmuxGroup = try XCTUnwrap(json["cmux"] as? [String: Any])
+        let allCommands = cmuxGroup.values
+            .compactMap { $0 as? [[String: Any]] }
+            .flatMap { entries in
+                entries.flatMap { entry -> [String] in
+                    var commands: [String] = []
+                    if let command = entry["command"] as? String {
+                        commands.append(command)
+                    }
+                    if let hooks = entry["hooks"] as? [[String: Any]] {
+                        commands += hooks.compactMap { $0["command"] as? String }
+                    }
+                    return commands
+                }
+            }
+        XCTAssertFalse(allCommands.isEmpty)
+        XCTAssertTrue(
+            allCommands.allSatisfy { $0.contains("cmux-antigravity-hook-v2") },
+            "Expected Antigravity hooks to use the pinned dispatch path, saw \(allCommands)"
+        )
+        XCTAssertFalse(
+            allCommands.contains { $0.contains(#"[ -n "$CMUX_SURFACE_ID" ]"#) },
+            "Antigravity hooks must still dispatch when agy does not preserve CMUX_SURFACE_ID, saw \(allCommands)"
+        )
+
         let preToolUse = try XCTUnwrap(cmuxGroup["PreToolUse"] as? [[String: Any]])
         let preToolCommands = preToolUse
             .compactMap { $0["hooks"] as? [[String: Any]] }
@@ -541,6 +565,7 @@ extension CLINotifyProcessIntegrationRegressionTests {
         XCTAssertNotNil(cmuxGroup["SessionEnd"])
         XCTAssertNotNil(cmuxGroup["turn-completion"])
         XCTAssertNotNil(cmuxGroup["Notification"])
+        XCTAssertNotNil(cmuxGroup["PostToolUse"])
     }
 
     func testAntigravityFeedHookMissingSessionIdUsesStableFallback() throws {
