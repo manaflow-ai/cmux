@@ -7326,13 +7326,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         // cmux persists and restores main windows itself. Disable AppKit window
         // restoration so the OS cannot resurrect stale duplicate main windows.
         window.isRestorable = false
-        window.isMovableByWindowBackground = false
-        // Keep background dragging disabled so app content gestures and titlebar
-        // controls still receive clicks, while the OS-level movable flag lets
-        // macOS tiling and window-management tools such as Swish treat cmux as
-        // a movable/resizable window. Empty titlebar drags are routed through
-        // WindowDragHandleView instead of background dragging.
-        window.isMovable = true
+        configureCmuxMainWindowDragBehavior(window)
         let explicitInitialFrame = restoredFrame ?? persistedGeometryFrame
         if let explicitInitialFrame {
             window.setFrame(explicitInitialFrame, display: false)
@@ -15187,8 +15181,9 @@ private extension NSWindow {
             cmuxFirstResponderGuardContextWindowNumber = previousContextWindowNumber
         }
 
-        guard shouldSuppressWindowMoveForFolderDrag(window: self, event: event),
-              let contentView = self.contentView else {
+        let suppressionReason = beginOrContinueWindowMoveSuppressionSequenceForEvent(window: self, event: event)
+        let hasActiveSuppressionSequence = activeWindowMoveSuppressionSequenceReason(window: self) != nil
+        guard suppressionReason != nil || hasActiveSuppressionSequence else {
 #if DEBUG
             if event.type == .keyDown {
                 folderGuardMs = (ProcessInfo.processInfo.systemUptime - folderGuardStart) * 1000.0
@@ -15207,21 +15202,33 @@ private extension NSWindow {
         }
         let originalDispatchStart = event.type == .keyDown ? ProcessInfo.processInfo.systemUptime : 0
 #endif
+        let shouldFinishSuppression = shouldFinishWindowMoveSuppressionSequenceAfterDispatch(window: self, event: event)
 
-        let contentPoint = contentView.convert(event.locationInWindow, from: nil)
-        let hitView = contentView.hitTest(contentPoint)
-        let previousMovableState = temporarilyDisableWindowDragging(window: self)
+#if DEBUG
+        let hitView = Self.cmuxHitViewForEventDispatch(in: self, event: event)
+#endif
         defer {
-            restoreWindowDragging(window: self, previousMovableState: previousMovableState)
+            let finishedReason: WindowMoveSuppressionReason?
+            if shouldFinishSuppression {
+                finishedReason = finishWindowMoveSuppressionSequence(window: self)
+            } else {
+                finishedReason = nil
+            }
             #if DEBUG
-            cmuxDebugLog("window.sendEvent.folderDown restore nowMovable=\(isMovable)")
+            let reasonDescription = finishedReason?.rawValue ?? suppressionReason?.rawValue ?? "activeSequence"
+            if shouldFinishSuppression {
+                cmuxDebugLog("window.sendEvent.\(reasonDescription) finish nowMovable=\(isMovable)")
+            } else {
+                cmuxDebugLog("window.sendEvent.\(reasonDescription) keepSuppressed nowMovable=\(isMovable)")
+            }
             #endif
         }
 
         #if DEBUG
         let hitDesc = hitView.map { String(describing: type(of: $0)) } ?? "nil"
-        let previousMovableDescription = previousMovableState.map { String($0) } ?? "nil"
-        cmuxDebugLog("window.sendEvent.folderDown suppress=1 hit=\(hitDesc) wasMovable=\(previousMovableDescription)")
+        let depth = windowDragSuppressionDepth(window: self)
+        let reasonDescription = suppressionReason?.rawValue ?? "activeSequence"
+        cmuxDebugLog("window.sendEvent.\(reasonDescription) suppress=1 hit=\(hitDesc) movable=\(isMovable) depth=\(depth)")
         #endif
 
         cmux_sendEvent(event)
