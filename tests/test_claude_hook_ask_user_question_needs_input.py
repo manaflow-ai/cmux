@@ -211,6 +211,17 @@ def generic_attention_payload(session_id: str, index: int) -> dict[str, object]:
     }
 
 
+def non_question_pre_tool_payload(session_id: str, index: int) -> dict[str, object]:
+    return {
+        "session_id": session_id,
+        "turn_id": f"turn-{index}",
+        "hook_event_name": "PreToolUse",
+        "cwd": "/Users/example/project",
+        "tool_name": "Bash",
+        "tool_input": {"command": "pwd"},
+    }
+
+
 def main() -> int:
     try:
         cli_path = resolve_cmux_cli()
@@ -281,6 +292,26 @@ def main() -> int:
             print(f"commands={commands!r}")
             return 1
 
+        non_question_proc = run_claude_hook(
+            cli_path,
+            server.socket_path,
+            "pre-tool-use",
+            non_question_pre_tool_payload(session_id, 0),
+            env,
+        )
+        if non_question_proc.returncode != 0:
+            print("FAIL: claude-hook non-question pre-tool-use failed")
+            print(f"stdout={non_question_proc.stdout!r}")
+            print(f"stderr={non_question_proc.stderr!r}")
+            print(f"commands={server.commands_snapshot()!r}")
+            return 1
+        notify_after_non_question = notify_commands(server)
+        if len(notify_after_non_question) != 1:
+            print("FAIL: non-question pre-tool-use should not publish an extra notification")
+            print(f"notify_commands={notify_after_non_question!r}")
+            print(f"commands={server.commands_snapshot()!r}")
+            return 1
+
         duplicate_proc = run_claude_hook(
             cli_path,
             server.socket_path,
@@ -296,7 +327,7 @@ def main() -> int:
             return 1
         notify_after_duplicate = notify_commands(server)
         if len(notify_after_duplicate) != 1:
-            print("FAIL: generic attention Notification should be deduped after AskUserQuestion")
+            print("FAIL: generic attention Notification should be deduped after AskUserQuestion and non-question pre-tool-use")
             print(f"notify_commands={notify_after_duplicate!r}")
             print(f"commands={server.commands_snapshot()!r}")
             return 1
