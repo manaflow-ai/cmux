@@ -141,6 +141,32 @@ final class AgentSessionProviderTests: XCTestCase {
         }
     }
 
+    func testExecutableResolverFindsMiseShimWithoutLoginShellPath() throws {
+        let fixture = try ProviderExecutableFixture()
+        defer { fixture.remove() }
+
+        let shimDirectory = fixture.root
+            .appendingPathComponent(".local/share/mise/shims", isDirectory: true)
+        try FileManager.default.createDirectory(at: shimDirectory, withIntermediateDirectories: true)
+        let executableName = "cmux-mise-provider-\(UUID().uuidString)"
+        try ProviderExecutableFixture.writeExecutable(named: executableName, in: shimDirectory)
+
+        let provider = AgentSessionProvider(
+            id: .codex,
+            displayName: "Codex",
+            transport: .stdioJSONRPC,
+            unixSocketSupport: .notApplicable,
+            launchPlan: AgentSessionLaunchPlan(executableName: executableName, arguments: ["app-server"])
+        )
+        let environment = [
+            "HOME": fixture.root.path,
+            "PATH": "",
+        ]
+
+        let resolved = try AgentExecutableResolver(baseEnvironment: environment).resolveLaunchPlan(for: provider)
+        XCTAssertEqual(resolved.executablePath, shimDirectory.appendingPathComponent(executableName).path)
+    }
+
     func testProviderEnvironmentPreservesOwnBundleResourceBinForBundledCmuxHooks() throws {
         let bundleResourceBin = try XCTUnwrap(Bundle.main.resourceURL)
             .appendingPathComponent("bin", isDirectory: true)

@@ -3064,37 +3064,57 @@ enum CodexSessionHistoryLoader {
     ) -> CodexSessionHistorySnapshot {
         var reversedItems: [CodexAppServerTranscriptItem] = []
         reversedItems.reserveCapacity(limit)
+        var foundOlderDisplayableItem = false
 
         data.withUnsafeBytes { rawBuffer in
             guard let base = rawBuffer.bindMemory(to: UInt8.self).baseAddress else { return }
             var lineEnd = data.count
             var index = data.count
 
-            func consumeLine(start: Int, end: Int) {
-                guard end > start else { return }
-                if skipFirstLine && start == 0 { return }
+            func displayableItem(start: Int, end: Int) -> CodexAppServerTranscriptItem? {
+                guard end > start else { return nil }
+                if skipFirstLine && start == 0 { return nil }
                 let line = Data(bytes: base.advanced(by: start), count: end - start)
                 guard shouldParseLine(line),
                       let item = transcriptItem(from: line) else {
-                    return
+                    return nil
                 }
-                reversedItems.append(item)
+                return item
             }
 
             while index > 0 && reversedItems.count < limit {
                 index -= 1
                 guard base[index] == 0x0A else { continue }
-                consumeLine(start: index + 1, end: lineEnd)
+                if let item = displayableItem(start: index + 1, end: lineEnd) {
+                    reversedItems.append(item)
+                }
                 lineEnd = index
             }
 
             if reversedItems.count < limit {
-                consumeLine(start: 0, end: lineEnd)
+                if let item = displayableItem(start: 0, end: lineEnd) {
+                    reversedItems.append(item)
+                }
+            } else if !omittedPrefix {
+                var prefixLineEnd = lineEnd
+                var prefixIndex = index
+                while prefixIndex > 0 && !foundOlderDisplayableItem {
+                    prefixIndex -= 1
+                    guard base[prefixIndex] == 0x0A else { continue }
+                    foundOlderDisplayableItem = displayableItem(
+                        start: prefixIndex + 1,
+                        end: prefixLineEnd
+                    ) != nil
+                    prefixLineEnd = prefixIndex
+                }
+                if !foundOlderDisplayableItem {
+                    foundOlderDisplayableItem = displayableItem(start: 0, end: prefixLineEnd) != nil
+                }
             }
         }
 
         let transcriptItems = reversedItems.reversed()
-        let exactTotal = !omittedPrefix && reversedItems.count < limit
+        let exactTotal = !omittedPrefix && !foundOlderDisplayableItem
         let reportedTotal = exactTotal
             ? transcriptItems.count
             : max(transcriptItems.count + 1, limit + 1)
@@ -3104,7 +3124,7 @@ enum CodexSessionHistoryLoader {
             transcriptItems: Array(transcriptItems),
             totalDisplayableItemCount: reportedTotal,
             totalDisplayableItemCountIsExact: exactTotal,
-            didTruncate: omittedPrefix || reportedTotal > transcriptItems.count
+            didTruncate: omittedPrefix || foundOlderDisplayableItem
         )
     }
 

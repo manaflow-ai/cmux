@@ -1412,6 +1412,47 @@ final class CodexAppServerRequestFactoryTests: XCTestCase {
         XCTAssertGreaterThan(snapshot.totalDisplayableItemCount, snapshot.transcriptItems.count)
     }
 
+    func testLocalCodexHistoryLoaderTailReportsExactTotalAtLimitWhenFullFileWasRead() throws {
+        let fileManager = FileManager.default
+        let threadId = "019d6637-e5cc-7cc0-a321-2c43b799036f"
+        let tempDirectory = fileManager.temporaryDirectory
+            .appendingPathComponent("cmux-codex-history-\(UUID().uuidString)", isDirectory: true)
+        defer { try? fileManager.removeItem(at: tempDirectory) }
+
+        let sessionDirectory = tempDirectory
+            .appendingPathComponent("2026/04/06", isDirectory: true)
+        try fileManager.createDirectory(at: sessionDirectory, withIntermediateDirectories: true)
+        let fileURL = sessionDirectory
+            .appendingPathComponent("rollout-2026-04-06T21-33-52-\(threadId).jsonl")
+
+        let records: [[String: Any]] = [
+            [
+                "timestamp": "2026-04-06T21:33:52.000Z",
+                "type": "session_meta",
+                "payload": ["id": threadId],
+            ],
+            Self.responseItem(role: "assistant", text: "first"),
+            Self.responseItem(role: "assistant", text: "second"),
+        ]
+
+        let jsonl = try records.map(Self.jsonLine).joined(separator: "\n")
+        try jsonl.write(to: fileURL, atomically: true, encoding: .utf8)
+
+        let snapshot = CodexSessionHistoryLoader.loadHistorySync(
+            threadId: threadId,
+            limit: 2,
+            searchRoots: [tempDirectory],
+            tailParsingThreshold: 1,
+            tailInitialReadLimit: 16 * 1024,
+            tailMaxReadLimit: 16 * 1024
+        )
+
+        XCTAssertEqual(snapshot.transcriptItems.map(\.body), ["first", "second"])
+        XCTAssertEqual(snapshot.totalDisplayableItemCount, 2)
+        XCTAssertTrue(snapshot.totalDisplayableItemCountIsExact)
+        XCTAssertFalse(snapshot.didTruncate)
+    }
+
     func testLocalCodexHistoryLoaderIgnoresPlainUserResponseWarnings() throws {
         let fileManager = FileManager.default
         let threadId = "019d6637-e5cc-7cc0-a321-2c43b799036e"

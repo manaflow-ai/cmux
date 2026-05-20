@@ -170,6 +170,7 @@ struct AgentExecutableResolver: Sendable {
         append((home as NSString).appendingPathComponent(".asdf/shims"))
         append((home as NSString).appendingPathComponent(".deno/bin"))
         append((home as NSString).appendingPathComponent("Library/pnpm"))
+        append((home as NSString).appendingPathComponent(".local/share/mise/shims"))
         appendNodeVersionManagerPaths(home: home, append: append)
         append("/opt/homebrew/bin:/opt/homebrew/sbin:/usr/local/bin:/usr/local/sbin:/opt/local/bin")
         append("/usr/bin:/bin:/usr/sbin:/sbin")
