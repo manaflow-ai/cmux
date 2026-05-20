@@ -191,19 +191,21 @@ enum AgentForkSupport {
         }
 
         private func markTimedOutAndTerminate() {
-            let process: Process?
             lock.lock()
             guard !completed else {
                 lock.unlock()
                 return
             }
             timedOut = true
-            process = self.process
             lock.unlock()
 
             guard terminationGate.requestTermination() else {
                 return
             }
+            let process: Process?
+            lock.lock()
+            process = self.process
+            lock.unlock()
             guard let process else {
                 return
             }
