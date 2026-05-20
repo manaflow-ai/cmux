@@ -361,9 +361,27 @@ extension TerminalController {
         to result: inout [Int: CmuxTopProcessAttribution]
     ) {
         let resources = node["resources"] as? [String: Any] ?? [:]
-        for pid in v2TopIntArray(resources["pids"]) where result[pid] == nil {
+        for pid in v2TopIntArray(resources["pids"]) {
+            if let existing = result[pid],
+               v2TopMemoryAttributionSpecificity(existing) >= v2TopMemoryAttributionSpecificity(attribution)
+            {
+                continue
+            }
             result[pid] = attribution
         }
+    }
+
+    private nonisolated func v2TopMemoryAttributionSpecificity(_ attribution: CmuxTopProcessAttribution) -> Int {
+        if attribution.surfaceID != nil {
+            return 3
+        }
+        if attribution.paneID != nil {
+            return 2
+        }
+        if attribution.workspaceID != nil {
+            return 1
+        }
+        return 0
     }
 
     nonisolated func v2AttachTopApplicationProcess(
