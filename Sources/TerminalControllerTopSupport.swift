@@ -1,4 +1,5 @@
 import Foundation
+import Darwin
 
 extension TerminalController {
     func v2TopTagIdentifier(workspaceId: UUID, key: String) -> String {
@@ -45,7 +46,8 @@ extension TerminalController {
         var allPIDs: Set<Int> = []
         for index in windows.indices {
             var workspaces = windows[index]["workspaces"] as? [[String: Any]] ?? []
-            var windowPIDs: Set<Int> = []
+            let appProcessPIDs = Set(v2TopIntArray(windows[index]["app_process_pids"]))
+            var windowPIDs = appProcessPIDs
             var windowTopLevelPIDs: Set<Int> = []
             var windowForegroundProcessGroupIDs: Set<Int> = []
             for workspaceIndex in workspaces.indices {
@@ -61,9 +63,14 @@ extension TerminalController {
                 windowForegroundProcessGroupIDs.formUnion(v2TopIntArray(workspaces[workspaceIndex]["foreground_pgids"]))
             }
             windows[index]["workspaces"] = workspaces
+            windows[index]["app_process_pids"] = appProcessPIDs.sorted()
+            windowTopLevelPIDs.formUnion(processSnapshot.topLevelPIDs(for: appProcessPIDs))
             windows[index]["top_level_pids"] = windowTopLevelPIDs.sorted()
             windows[index]["foreground_pgids"] = windowForegroundProcessGroupIDs.sorted()
-            windows[index]["resources"] = processSnapshot.summaryPayload(for: windowPIDs)
+            windows[index]["resources"] = processSnapshot.summaryPayload(for: windowPIDs, rootPIDs: appProcessPIDs)
+            windows[index]["processes"] = includeProcesses
+                ? processSnapshot.processTreePayload(for: appProcessPIDs, rootPIDs: appProcessPIDs)
+                : []
             allPIDs.formUnion(windowPIDs)
         }
         return allPIDs
@@ -212,11 +219,13 @@ extension TerminalController {
 
         let rootPIDs: Set<Int> = [pid]
         let pids = processSnapshot.expandedPIDs(rootPIDs: rootPIDs)
-        webview["shared_process_count"] = browserPIDOccurrences[pid] ?? 1
+        let sharedProcessCount = max(1, browserPIDOccurrences[pid] ?? 1)
+        let resources = processSnapshot.summary(for: pids, rootPIDs: rootPIDs)
+        webview["shared_process_count"] = sharedProcessCount
         webview["root_pids"] = rootPIDs.sorted()
         webview["top_level_pids"] = processSnapshot.topLevelPIDs(for: pids).sorted()
         webview["foreground_pgids"] = processSnapshot.foregroundProcessGroupIDs(for: pids).sorted()
-        webview["resources"] = processSnapshot.summaryPayload(for: pids, rootPIDs: rootPIDs)
+        webview["resources"] = resources.attributedPayload(sharedAcross: sharedProcessCount)
         webview["processes"] = includeProcesses ? processSnapshot.processTreePayload(for: pids, rootPIDs: rootPIDs) : []
         return pids
     }
@@ -274,6 +283,35 @@ extension TerminalController {
             return UUID(uuidString: value.trimmingCharacters(in: .whitespacesAndNewlines))
         }
         return nil
+    }
+
+    nonisolated func v2AttachTopApplicationProcess(
+        to windows: inout [[String: Any]],
+        workspaceFilter: UUID? = nil
+    ) {
+        guard workspaceFilter == nil else {
+            for index in windows.indices {
+                windows[index]["app_process_pids"] = []
+            }
+            return
+        }
+        guard let firstIndex = windows.indices.first else { return }
+
+        let appProcessID = Int(Darwin.getpid())
+        let targetIndex = windows.indices.first { index in
+            if let isKeyWindow = windows[index]["key"] as? Bool {
+                return isKeyWindow
+            }
+            if let isKeyWindow = windows[index]["key"] as? NSNumber {
+                return isKeyWindow.boolValue
+            }
+            return false
+        } ?? firstIndex
+
+        windows[targetIndex]["app_process_pids"] = [appProcessID]
+        for index in windows.indices where index != targetIndex {
+            windows[index]["app_process_pids"] = []
+        }
     }
 
 }

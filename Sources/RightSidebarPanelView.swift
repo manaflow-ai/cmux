@@ -1,7 +1,6 @@
 import AppKit
 import Bonsplit
 import CMUXWorkstream
-import Observation
 import SwiftUI
 
 private func rightSidebarDebugResponder(_ responder: NSResponder?) -> String {
@@ -10,7 +9,7 @@ private func rightSidebarDebugResponder(_ responder: NSResponder?) -> String {
 }
 
 /// Mode shown in the right sidebar (the panel toggled by ⌘⌥B).
-enum RightSidebarMode: String, CaseIterable {
+nonisolated enum RightSidebarMode: String, CaseIterable, Codable, Sendable {
     case files
     case find
     case sessions
@@ -45,6 +44,14 @@ enum RightSidebarMode: String, CaseIterable {
         case .feed: return .switchRightSidebarToFeed
         case .dock: return .switchRightSidebarToDock
         }
+    }
+}
+
+extension RightSidebarMode {
+    static let paneModes: [RightSidebarMode] = [.files, .find, .sessions]
+
+    var canOpenAsPane: Bool {
+        Self.paneModes.contains(self)
     }
 }
 
@@ -148,18 +155,22 @@ struct RightSidebarPanelView: View {
     let workspaceId: UUID?
     let onResumeSession: ((SessionEntry) -> Void)?
     let onOpenFilePreview: (String) -> Void
+    let onOpenAsPane: (RightSidebarMode) -> Void
+    let onClose: () -> Void
 
-    @StateObject private var modeShortcutHintMonitor = WindowScopedShortcutHintModifierMonitor(activation: .commandOrControl) { window in
+    @State private var modeShortcutHintMonitor = WindowScopedShortcutHintModifierMonitor(activation: .commandOrControl) { window in
         guard let responder = window.firstResponder else { return false }
         return AppDelegate.shared?.isRightSidebarFocusResponder(responder, in: window) == true
     }
-    @StateObject private var focusShortcutHintMonitor = WindowScopedShortcutHintModifierMonitor(activation: .commandOnly)
+    @State private var focusShortcutHintMonitor = WindowScopedShortcutHintModifierMonitor(activation: .commandOnly)
+    @State private var closeShortcutHintMonitor = WindowScopedShortcutHintModifierMonitor(activation: .commandOnly)
     @StateObject private var dockStore = DockControlsStore()
     @ObservedObject private var keyboardShortcutSettingsObserver = KeyboardShortcutSettingsObserver.shared
-    @AppStorage(ShortcutHintDebugSettings.alwaysShowHintsKey)
-    private var alwaysShowShortcutHints = ShortcutHintDebugSettings.defaultAlwaysShowHints
-    @AppStorage(RightSidebarBetaFeatureSettings.feedEnabledKey)
-    private var feedEnabled = RightSidebarBetaFeatureSettings.defaultFeedEnabled
+    private let alwaysShowShortcutHints = ShortcutHintDebugSettings.alwaysShowHints()
+    private let closeShortcutHintXOffset = ShortcutHintDebugSettings.defaultRightSidebarCloseHintX
+    private let closeShortcutHintYOffset = ShortcutHintDebugSettings.defaultRightSidebarCloseHintY
+    private let focusShortcutHintXOffset = ShortcutHintDebugSettings.defaultRightSidebarFocusHintX
+    private let focusShortcutHintYOffset = ShortcutHintDebugSettings.defaultRightSidebarFocusHintY
     @AppStorage(RightSidebarBetaFeatureSettings.dockEnabledKey)
     private var dockEnabled = RightSidebarBetaFeatureSettings.defaultDockEnabled
 
@@ -171,19 +182,15 @@ struct RightSidebarPanelView: View {
     }
 
     private var availableModes: [RightSidebarMode] {
-        RightSidebarMode.availableModes(feedEnabled: feedEnabled, dockEnabled: dockEnabled)
+        RightSidebarMode.availableModes(dockEnabled: dockEnabled)
     }
 
     var body: some View {
-        ZStack(alignment: .topLeading) {
-            VStack(spacing: 0) {
-                modeBar
-                    .rightSidebarChromeBottomBorder()
-                contentForMode
-                    .frame(maxWidth: .infinity, maxHeight: .infinity)
-            }
-
-            focusShortcutHintOverlay
+        VStack(spacing: 0) {
+            modeBar
+                .rightSidebarChromeBottomBorder()
+            contentForMode
+                .frame(maxWidth: .infinity, maxHeight: .infinity)
         }
         .shortcutHintVisibilityAnimation(value: focusShortcutHintMonitor.isModifierPressed)
         .frame(maxWidth: .infinity, maxHeight: .infinity)
@@ -195,6 +202,7 @@ struct RightSidebarPanelView: View {
             WindowAccessor { window in
                 modeShortcutHintMonitor.setHostWindow(window)
                 focusShortcutHintMonitor.setHostWindow(window)
+                closeShortcutHintMonitor.setHostWindow(window)
             }
             .frame(width: 0, height: 0)
         )
@@ -202,44 +210,57 @@ struct RightSidebarPanelView: View {
         .onAppear {
             modeShortcutHintMonitor.start()
             focusShortcutHintMonitor.start()
+            closeShortcutHintMonitor.start()
             fileExplorerState.refreshModeAvailability()
         }
         .onDisappear {
             modeShortcutHintMonitor.stop()
             focusShortcutHintMonitor.stop()
+            closeShortcutHintMonitor.stop()
         }
         .onChange(of: fileExplorerState.mode) { _, mode in
             if mode != .dock { dockStore.deactivate() }
         }
         .onChange(of: fileExplorerState.isVisible) { _, visible in if !visible { dockStore.deactivate() } }
-        .onChange(of: feedEnabled) { _, _ in refreshModeAvailabilityAndFocusIfNeeded() }
         .onChange(of: dockEnabled) { _, _ in refreshModeAvailabilityAndFocusIfNeeded() }
     }
 
     private var modeBar: some View {
         let _ = keyboardShortcutSettingsObserver.revision
         let showsModeShortcutHints = alwaysShowShortcutHints || modeShortcutHintMonitor.isModifierPressed
-        return HStack(spacing: 4) {
-            ForEach(availableModes, id: \.rawValue) { mode in
-                ModeBarButton(
-                    mode: mode,
-                    isSelected: fileExplorerState.mode == mode,
-                    badgeCount: mode == .feed ? feedPendingCount : 0,
-                    shortcutHint: KeyboardShortcutSettings.shortcut(for: mode.shortcutAction),
-                    showsShortcutHint: showsModeShortcutHints
-                ) {
-                    if AppDelegate.shared?.focusRightSidebarInActiveMainWindow(
+        return ZStack {
+            WindowDragHandleView()
+
+            HStack(spacing: 4) {
+                ForEach(availableModes, id: \.rawValue) { mode in
+                    ModeBarButton(
                         mode: mode,
-                        focusFirstItem: true,
-                        preferredWindow: NSApp.keyWindow ?? NSApp.mainWindow
-                    ) != true {
-                        selectMode(mode)
+                        isSelected: fileExplorerState.mode == mode,
+                        badgeCount: mode == .feed ? feedPendingCount : 0,
+                        shortcutHint: KeyboardShortcutSettings.shortcut(for: mode.shortcutAction),
+                        showsShortcutHint: showsModeShortcutHints
+                    ) {
+                        if AppDelegate.shared?.focusRightSidebarInActiveMainWindow(
+                            mode: mode,
+                            focusFirstItem: true,
+                            preferredWindow: NSApp.keyWindow ?? NSApp.mainWindow
+                        ) != true {
+                            selectMode(mode)
+                        }
                     }
                 }
+                Spacer(minLength: 0)
+                if fileExplorerState.mode.canOpenAsPane {
+                    openAsPaneButton(mode: fileExplorerState.mode)
+                }
+                closeButton
             }
-            Spacer(minLength: 0)
         }
         .rightSidebarChromeBar(leadingPadding: 4, trailingPadding: 6, height: titlebarHeight)
+        .overlay(alignment: .topLeading) {
+            focusShortcutHintOverlay
+        }
+        .background(TitlebarDoubleClickMonitorView())
         .background(MinimalModeTitlebarControlHitRegionView())
         .accessibilityElement(children: .contain)
         .accessibilityIdentifier("RightSidebarModeBar")
@@ -249,26 +270,96 @@ struct RightSidebarPanelView: View {
         )
     }
 
-    @ViewBuilder
-    private var focusShortcutHintOverlay: some View {
+    private func openAsPaneButton(mode: RightSidebarMode) -> some View {
+        Button {
+            onOpenAsPane(mode)
+        } label: {
+            Image(systemName: "rectangle.split.2x1")
+                .font(.system(size: 11, weight: .semibold))
+                .frame(width: RightSidebarChromeMetrics.controlHeight, height: RightSidebarChromeMetrics.controlHeight)
+                .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
+        .foregroundColor(.secondary)
+        .safeHelp(String(localized: "rightSidebar.openAsPane.tooltip", defaultValue: "Open as pane"))
+        .accessibilityLabel(
+            String.localizedStringWithFormat(
+                String(localized: "rightSidebar.openAsPane.accessibilityLabel", defaultValue: "Open %@ as Pane"),
+                mode.label
+            )
+        )
+        .accessibilityIdentifier("RightSidebar.openAsPaneButton")
+    }
+
+    private var closeButton: some View {
         let _ = keyboardShortcutSettingsObserver.revision
-        let showsFocusShortcutHint = focusShortcutHintMonitor.isModifierPressed
-        ZStack(alignment: .topLeading) {
-            if showsFocusShortcutHint {
-                ShortcutHintPill(
-                    shortcut: KeyboardShortcutSettings.shortcut(for: .focusRightSidebar),
-                    fontSize: 9,
-                    emphasis: 1.05
+        let shortcut = KeyboardShortcutSettings.shortcut(for: .toggleRightSidebar)
+        let showsShortcutHint = titlebarShortcutHintShouldShow(
+            shortcut: shortcut,
+            alwaysShowShortcutHints: alwaysShowShortcutHints,
+            modifierPressed: closeShortcutHintMonitor.isModifierPressed
+        )
+        return ZStack {
+            Button(action: onClose) {
+                Image(systemName: "xmark")
+                    .font(.system(size: 11, weight: .semibold))
+                    .frame(width: RightSidebarChromeMetrics.controlHeight, height: RightSidebarChromeMetrics.controlHeight)
+                    .contentShape(Rectangle())
+            }
+            .buttonStyle(.plain)
+            .foregroundColor(.secondary)
+            .safeHelp(
+                KeyboardShortcutSettings.Action.toggleRightSidebar.tooltip(
+                    String(localized: "rightSidebar.toggle.tooltip", defaultValue: "Toggle right sidebar")
                 )
-                    .padding(.leading, 6)
-                    .padding(.top, 5)
+            )
+            .accessibilityLabel(String(localized: "rightSidebar.close.accessibilityLabel", defaultValue: "Close Right Sidebar"))
+            .accessibilityIdentifier("RightSidebar.closeButton")
+        }
+        .frame(width: RightSidebarChromeMetrics.controlHeight, height: RightSidebarChromeMetrics.controlHeight)
+        .overlay(alignment: .top) {
+            if showsShortcutHint {
+                ShortcutHintPill(shortcut: shortcut, fontSize: 9, emphasis: 1.05)
+                    .fixedSize(horizontal: true, vertical: false)
+                    .offset(
+                        x: CGFloat(ShortcutHintDebugSettings.clamped(closeShortcutHintXOffset)),
+                        y: CGFloat(ShortcutHintDebugSettings.clamped(closeShortcutHintYOffset))
+                    )
                     .shortcutHintTransition()
-                    .accessibilityIdentifier("rightSidebarFocusShortcutHint")
+                    .accessibilityIdentifier("rightSidebarCloseShortcutHint")
+                    .allowsHitTesting(false)
                     .zIndex(10)
             }
         }
-        .allowsHitTesting(false)
-        .shortcutHintVisibilityAnimation(value: showsFocusShortcutHint)
+        .shortcutHintVisibilityAnimation(value: showsShortcutHint)
+    }
+
+    @ViewBuilder
+    private var focusShortcutHintOverlay: some View {
+        let _ = keyboardShortcutSettingsObserver.revision
+        let shortcut = KeyboardShortcutSettings.shortcut(for: .focusRightSidebar)
+        let showsFocusShortcutHint = titlebarShortcutHintShouldShow(
+            shortcut: shortcut,
+            alwaysShowShortcutHints: alwaysShowShortcutHints,
+            modifierPressed: focusShortcutHintMonitor.isModifierPressed
+        )
+        if showsFocusShortcutHint {
+            ShortcutHintPill(
+                shortcut: shortcut,
+                fontSize: 9,
+                emphasis: 1.05
+            )
+                .padding(.leading, 6)
+                .padding(.top, 5)
+                .offset(
+                    x: CGFloat(ShortcutHintDebugSettings.clamped(focusShortcutHintXOffset)),
+                    y: CGFloat(ShortcutHintDebugSettings.clamped(focusShortcutHintYOffset))
+                )
+                .shortcutHintTransition()
+                .accessibilityIdentifier("rightSidebarFocusShortcutHint")
+                .allowsHitTesting(false)
+                .zIndex(10)
+        }
     }
 
     @ViewBuilder

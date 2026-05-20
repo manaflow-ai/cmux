@@ -1,10 +1,15 @@
 import { describe, test, expect } from "bun:test";
-import { isNativeReturnScheme, shouldEmitNativeHandoff } from "../app/handler/after-sign-in/native-handoff";
+import {
+  isNativeReturnScheme,
+  nativeAuthCallbackForReturnTo,
+  shouldEmitNativeHandoff,
+} from "../app/handler/after-sign-in/native-handoff";
 
 describe("native-handoff", () => {
   describe("isNativeReturnScheme", () => {
     test("returns true for valid cmux schemes", () => {
       expect(isNativeReturnScheme("cmux://auth-callback")).toBe(true);
+      expect(isNativeReturnScheme("cmux-nightly://auth-callback")).toBe(true);
       expect(isNativeReturnScheme("cmux-dev://auth-callback")).toBe(true);
     });
 
@@ -17,13 +22,33 @@ describe("native-handoff", () => {
     });
   });
 
+  describe("nativeAuthCallbackForReturnTo", () => {
+    test("preserves the requested native scheme for fallback callbacks", () => {
+      expect(nativeAuthCallbackForReturnTo("cmux://custom-callback")).toBe(
+        "cmux://auth-callback",
+      );
+      expect(
+        nativeAuthCallbackForReturnTo("cmux-nightly://custom-callback"),
+      ).toBe("cmux-nightly://auth-callback");
+      expect(nativeAuthCallbackForReturnTo("cmux-dev://custom-callback")).toBe(
+        "cmux-dev://auth-callback",
+      );
+    });
+
+    test("returns null when no native scheme can be resolved", () => {
+      expect(nativeAuthCallbackForReturnTo(null)).toBe(null);
+      expect(nativeAuthCallbackForReturnTo(undefined)).toBe(null);
+      expect(nativeAuthCallbackForReturnTo("https://cmux.app")).toBe(null);
+    });
+  });
+
   describe("shouldEmitNativeHandoff", () => {
     test("returns true when both tokens are present", () => {
       expect(
         shouldEmitNativeHandoff({
           refreshToken: "refresh",
           accessToken: "access",
-        })
+        }),
       ).toBe(true);
     });
 
@@ -32,7 +57,7 @@ describe("native-handoff", () => {
         shouldEmitNativeHandoff({
           refreshToken: undefined,
           accessToken: "access",
-        })
+        }),
       ).toBe(false);
     });
 
@@ -41,7 +66,7 @@ describe("native-handoff", () => {
         shouldEmitNativeHandoff({
           refreshToken: "refresh",
           accessToken: "",
-        })
+        }),
       ).toBe(false);
     });
 
@@ -50,7 +75,7 @@ describe("native-handoff", () => {
         shouldEmitNativeHandoff({
           refreshToken: "refresh",
           accessToken: undefined,
-        })
+        }),
       ).toBe(false);
     });
   });

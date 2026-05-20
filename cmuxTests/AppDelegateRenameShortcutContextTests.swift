@@ -52,7 +52,7 @@ final class AppDelegateRenameShortcutContextTests: XCTestCase {
                 (action, KeyboardShortcutSettings.shortcut(for: action))
             }
         )
-        originalSettingsFileStore = KeyboardShortcutSettings.settingsFileStore
+        originalSettingsFileStore = KeyboardShortcutSettings.installIsolatedTestFileStore(prefix: "cmux-rename-shortcut-context")
         KeyboardShortcutSettings.resetAll()
     }
 

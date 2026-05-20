@@ -385,4 +385,68 @@ extension AgentLaunchSanitizer {
             "-o"
         ]
     )
+
+    static let hermesAgentPolicy = Policy(
+        // Boolean flags such as --tui pass through by default unless they are
+        // explicitly rejected or dropped below.
+        valueOptions: [
+            "--api-key",
+            "--base-url",
+            "--image",
+            "--max-turns",
+            "--model",
+            "-m",
+            "--profile",
+            "-p",
+            "--provider",
+            "--resume",
+            "-r",
+            "--skills",
+            "-s",
+            "--source",
+            "--toolsets",
+            "-t",
+            "--worktree",
+            "-w"
+        ],
+        optionalValueOptions: [
+            "--continue",
+            "-c"
+        ],
+        nonRestorableCommands: [],
+        droppedOptions: [
+            "--api-key",
+            "--continue",
+            "-c",
+            "--image",
+            "--resume",
+            "-r",
+            "--source",
+            "--verbose",
+            "-v",
+            "--worktree",
+            "-w"
+        ],
+        droppedOptionPrefixes: [
+            "--api-key=",
+            "--continue=",
+            "-c=",
+            "--image=",
+            "--resume=",
+            "-r=",
+            "--source=",
+            "--worktree=",
+            "-w="
+        ],
+        rejectOptions: [
+            "--oneshot",
+            "-z",
+            "--query",
+            "-q",
+            "--quiet",
+            "-Q",
+            "--list-tools",
+            "--list-toolsets"
+        ]
+    )
 }
