@@ -14361,7 +14361,7 @@ class TerminalController {
           list_log [--limit=N] [--tab=X] - List log entries
           set_progress <0.0-1.0> [--label=X] [--tab=X] - Set progress bar
           clear_progress [--tab=X] - Clear progress bar
-          report_git_branch <branch> [--status=dirty] [--tab=X] [--panel=Y] - Report git branch
+          report_git_branch <branch> [--status=dirty|clean|unknown] [--tab=X] [--panel=Y] - Report git branch
           clear_git_branch [--tab=X] [--panel=Y] - Clear git branch
           report_pr <number> <url> [--label=PR] [--state=open|merged|closed] [--branch=<name>] [--tab=X] [--panel=Y] - Report pull request / review item
           report_review <number> <url> [--label=MR] [--state=open|merged|closed] [--tab=X] [--panel=Y] - Alias for provider-specific review item
@@ -18023,9 +18023,19 @@ class TerminalController {
     private func reportGitBranch(_ args: String) -> String {
         let parsed = parseOptions(args)
         guard let branch = parsed.positional.first else {
-            return "ERROR: Missing branch name — usage: report_git_branch <branch> [--status=dirty] [--tab=X]"
+            return "ERROR: Missing branch name — usage: report_git_branch <branch> [--status=dirty|clean|unknown] [--tab=X]"
         }
-        let isDirty = parsed.options["status"]?.lowercased() == "dirty"
+        let status = parsed.options["status"]?.lowercased()
+        let isDirty: Bool? = {
+            switch status {
+            case "dirty":
+                return true
+            case "unknown":
+                return nil
+            default:
+                return false
+            }
+        }()
 
         // Shell integration always includes explicit workspace/panel IDs.
         // Keep this telemetry path off-main so wake/main-thread stalls don't
@@ -18039,6 +18049,10 @@ class TerminalController {
                 let validSurfaceIds = Set(tab.panels.keys)
                 tab.pruneSurfaceMetadata(validSurfaceIds: validSurfaceIds)
                 guard validSurfaceIds.contains(scope.panelId) else { return }
+                guard SidebarWorkspaceDetailDefaults.watchGitStatusValue(defaults: .standard) else {
+                    tabManager.clearSurfaceGitBranch(tabId: scope.workspaceId, surfaceId: scope.panelId)
+                    return
+                }
                 tabManager.updateSurfaceGitBranch(
                     tabId: scope.workspaceId,
                     surfaceId: scope.panelId,
@@ -18055,7 +18069,16 @@ class TerminalController {
                 result = parsed.options["tab"] != nil ? "ERROR: Tab not found" : "ERROR: No tab selected"
                 return
             }
-            tab.gitBranch = SidebarGitBranchState(branch: branch, isDirty: isDirty)
+            guard SidebarWorkspaceDetailDefaults.watchGitStatusValue(defaults: .standard) else {
+                tab.gitBranch = nil
+                return
+            }
+            let existingGitBranch = tab.gitBranch
+            let nextIsDirty = isDirty ?? (existingGitBranch?.branch == branch ? existingGitBranch?.isDirty ?? false : false)
+            tab.gitBranch = SidebarGitBranchState(
+                branch: branch,
+                isDirty: nextIsDirty
+            )
         }
         return result
     }
@@ -18131,6 +18154,11 @@ class TerminalController {
             options: parsed.options,
             missingPanelUsage: "report_pr <number> <url> [--label=PR] [--state=open|merged|closed] [--branch=<name>] [--tab=X] [--panel=Y]"
         ) { tab, surfaceId in
+            guard SidebarWorkspaceDetailDefaults.watchGitStatusValue(defaults: .standard) else {
+                tab.clearPanelPullRequest(panelId: surfaceId)
+                return
+            }
+
             guard Self.shouldReplacePullRequest(
                 current: tab.panelPullRequests[surfaceId],
                 number: number,
@@ -18363,6 +18391,11 @@ class TerminalController {
             options: parsed.options,
             missingPanelUsage: "report_pr_action <merge|close|reopen|create|checkout|ready|edit|view> [--target=X] [--tab=X] [--panel=Y]"
         ) { tab, surfaceId in
+            guard SidebarWorkspaceDetailDefaults.watchGitStatusValue(defaults: .standard) else {
+                tab.clearPanelPullRequest(panelId: surfaceId)
+                return
+            }
+
             guard let tabManager = AppDelegate.shared?.tabManagerFor(tabId: tab.id) else { return }
             tabManager.handleWorkspacePullRequestCommandHint(
                 tabId: tab.id,

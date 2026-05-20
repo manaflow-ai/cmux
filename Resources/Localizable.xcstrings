@@ -57531,6 +57531,244 @@
         }
       }
     },
+    "settings.app.watchGitStatus": {
+      "extractionState": "manual",
+      "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "مراقبة حالة Git في الشريط الجانبي"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Prati Git status u bočnoj traci"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Overvåg Git-status i sidepanelet"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Git-Status in der Seitenleiste überwachen"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Watch Git Status in Sidebar"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Vigilar el estado de Git en la barra lateral"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Surveiller l’état Git dans la barre latérale"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Monitora lo stato Git nella barra laterale"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "サイドバーで Git 状態を監視"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "사이드바에서 Git 상태 감시"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Overvåk Git-status i sidepanelet"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Monitoruj status Git na pasku bocznym"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Monitorar status do Git na barra lateral"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Отслеживать состояние Git на боковой панели"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ติดตามสถานะ Git ในแถบด้านข้าง"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Kenar çubuğunda Git durumunu izle"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Відстежувати стан Git на бічній панелі"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "在侧边栏监视 Git 状态"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "在側邊欄監視 Git 狀態"
+          }
+        }
+      }
+    },
+    "settings.app.watchGitStatus.subtitle": {
+      "extractionState": "manual",
+      "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "حدّث بيانات الفرع وطلبات السحب في الشريط الجانبي من تغييرات ملفات المستودع دون استطلاع git."
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ažuriraj granu i PR metapodatke u bočnoj traci iz promjena datoteka repozitorija bez anketiranja git-a."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Opdater sidepanelets gren- og PR-metadata fra ændringer i repositoryfiler uden at polle git."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Aktualisiert Branch- und PR-Metadaten in der Seitenleiste aus Repository-Dateiänderungen, ohne git abzufragen."
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Update sidebar branch and PR metadata from repository file changes without polling git."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Actualiza la rama y los metadatos de PR de la barra lateral desde cambios de archivos del repositorio sin consultar git periódicamente."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Met à jour la branche et les métadonnées de PR de la barre latérale depuis les changements de fichiers du dépôt, sans interroger git."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Aggiorna ramo e metadati PR nella barra laterale dalle modifiche ai file del repository senza interrogare git."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "git をポーリングせず、リポジトリのファイル変更からサイドバーのブランチと PR メタデータを更新します。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "git을 폴링하지 않고 저장소 파일 변경으로 사이드바 브랜치와 PR 메타데이터를 업데이트합니다."
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Oppdater sidepanelets gren- og PR-metadata fra endringer i repositoryfiler uten å spørre git."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Aktualizuj gałąź i metadane PR na pasku bocznym na podstawie zmian plików repozytorium bez odpytywania git."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Atualize a branch e os metadados de PR da barra lateral a partir de mudanças nos arquivos do repositório sem consultar o git periodicamente."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Обновлять ветку и метаданные PR на боковой панели по изменениям файлов репозитория без опроса git."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "อัปเดตสาขาและข้อมูลเมตา PR ในแถบด้านข้างจากการเปลี่ยนแปลงไฟล์ของที่เก็บโดยไม่ต้อง polling git"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Kenar çubuğu dal ve PR meta verilerini git’i yoklamadan depo dosyası değişikliklerinden güncelle."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Оновлювати гілку та метадані PR на бічній панелі за змінами файлів репозиторію без опитування git."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "根据仓库文件变化更新侧边栏分支和 PR 元数据，而不轮询 git。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "根據儲存庫檔案變更更新側邊欄分支與 PR 中繼資料，而不輪詢 git。"
+          }
+        }
+      }
+    },
     "settings.app.showPullRequests.subtitle.basic": {
       "extractionState": "manual",
       "localizations": {
@@ -76159,6 +76397,125 @@
                 "stringUnit": {
                     "state": "translated",
                     "value": "sidebar.showPullRequests pr mr review github gitlab bitbucket pull request merge програма загальні параметри поведінка док рядок меню статус бічна панель навігація ліворуч деталі приховати макет git гілка каталог папка репозиторій огляд"
+                }
+            }
+        }
+    },
+    "settings.search.alias.setting.app.watch-git-status": {
+        "extractionState": "manual",
+        "localizations": {
+            "ar": {
+                "stringUnit": {
+                    "state": "translated",
+                    "value": "sidebar.watchGitStatus git status branch watcher index lock حالة git فرع مراقبة الشريط الجانبي"
+                }
+            },
+            "bs": {
+                "stringUnit": {
+                    "state": "translated",
+                    "value": "sidebar.watchGitStatus git status branch watcher index lock git status grana bočna traka"
+                }
+            },
+            "da": {
+                "stringUnit": {
+                    "state": "translated",
+                    "value": "sidebar.watchGitStatus git status branch watcher index lock git-status gren sidepanel"
+                }
+            },
+            "de": {
+                "stringUnit": {
+                    "state": "translated",
+                    "value": "sidebar.watchGitStatus git status branch watcher index lock git-status branch seitenleiste"
+                }
+            },
+            "en": {
+                "stringUnit": {
+                    "state": "translated",
+                    "value": "sidebar.watchGitStatus git status branch watcher index lock"
+                }
+            },
+            "es": {
+                "stringUnit": {
+                    "state": "translated",
+                    "value": "sidebar.watchGitStatus git status branch watcher index lock estado git rama barra lateral"
+                }
+            },
+            "fr": {
+                "stringUnit": {
+                    "state": "translated",
+                    "value": "sidebar.watchGitStatus git status branch watcher index lock état git branche barre latérale"
+                }
+            },
+            "it": {
+                "stringUnit": {
+                    "state": "translated",
+                    "value": "sidebar.watchGitStatus git status branch watcher index lock stato git ramo barra laterale"
+                }
+            },
+            "ja": {
+                "stringUnit": {
+                    "state": "translated",
+                    "value": "sidebar.watchGitStatus git status branch watcher index lock git 状態 ブランチ 監視 index lock"
+                }
+            },
+            "ko": {
+                "stringUnit": {
+                    "state": "translated",
+                    "value": "sidebar.watchGitStatus git status branch watcher index lock git 상태 브랜치 사이드바"
+                }
+            },
+            "nb": {
+                "stringUnit": {
+                    "state": "translated",
+                    "value": "sidebar.watchGitStatus git status branch watcher index lock git-status gren sidepanel"
+                }
+            },
+            "pl": {
+                "stringUnit": {
+                    "state": "translated",
+                    "value": "sidebar.watchGitStatus git status branch watcher index lock status git gałąź pasek boczny"
+                }
+            },
+            "pt-BR": {
+                "stringUnit": {
+                    "state": "translated",
+                    "value": "sidebar.watchGitStatus git status branch watcher index lock status git branch barra lateral"
+                }
+            },
+            "ru": {
+                "stringUnit": {
+                    "state": "translated",
+                    "value": "sidebar.watchGitStatus git status branch watcher index lock состояние git ветка боковая панель"
+                }
+            },
+            "th": {
+                "stringUnit": {
+                    "state": "translated",
+                    "value": "sidebar.watchGitStatus git status branch watcher index lock สถานะ git สาขา แถบด้านข้าง"
+                }
+            },
+            "tr": {
+                "stringUnit": {
+                    "state": "translated",
+                    "value": "sidebar.watchGitStatus git status branch watcher index lock git durumu dal kenar çubuğu"
+                }
+            },
+            "uk": {
+                "stringUnit": {
+                    "state": "translated",
+                    "value": "sidebar.watchGitStatus git status branch watcher index lock стан git гілка бічна панель"
+                }
+            },
+            "zh-Hans": {
+                "stringUnit": {
+                    "state": "translated",
+                    "value": "sidebar.watchGitStatus git status branch watcher index lock git 状态 分支 侧边栏"
+                }
+            },
+            "zh-Hant": {
+                "stringUnit": {
+                    "state": "translated",
+                    "value": "sidebar.watchGitStatus git status branch watcher index lock git 狀態 分支 側邊欄"
                 }
             }
         }

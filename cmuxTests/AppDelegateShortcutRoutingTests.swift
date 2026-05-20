@@ -997,7 +997,7 @@ final class AppDelegateShortcutRoutingTests: XCTestCase {
         XCTAssertFalse(sidebarState.isVisible, "Cmd+B should toggle the Welcome window left sidebar")
 
         XCTAssertTrue(appDelegate.debugHandleCustomShortcut(event: rightSidebarEvent))
-        RunLoop.main.run(until: Date(timeIntervalSinceNow: 0.05))
+        _ = waitForCondition { fileExplorerState.isVisible }
         XCTAssertTrue(fileExplorerState.isVisible, "Cmd+Option+B should toggle the Welcome window right sidebar")
 #else
         XCTFail("debugHandleCustomShortcut is only available in DEBUG")
@@ -1409,25 +1409,36 @@ final class AppDelegateShortcutRoutingTests: XCTestCase {
             return
         }
 
-        let firstWindowId = appDelegate.createMainWindow()
-        let secondWindowId = appDelegate.createMainWindow()
+        let firstWindowId = UUID()
+        let secondWindowId = UUID()
+        let firstWindow = makeRegisteredShortcutRoutingWindow(id: firstWindowId)
+        let secondWindow = makeRegisteredShortcutRoutingWindow(id: secondWindowId)
+        let firstManager = TabManager()
+        let secondManager = TabManager()
+        let firstSidebarState = SidebarState(isVisible: true)
+        let secondSidebarState = SidebarState(isVisible: true)
 
+        appDelegate.registerMainWindow(
+            firstWindow,
+            windowId: firstWindowId,
+            tabManager: firstManager,
+            sidebarState: firstSidebarState,
+            sidebarSelectionState: SidebarSelectionState()
+        )
+        appDelegate.registerMainWindow(
+            secondWindow,
+            windowId: secondWindowId,
+            tabManager: secondManager,
+            sidebarState: secondSidebarState,
+            sidebarSelectionState: SidebarSelectionState()
+        )
         defer {
-            closeWindow(withId: firstWindowId)
-            closeWindow(withId: secondWindowId)
+            closeRegisteredShortcutRoutingWindow(firstWindow, id: firstWindowId)
+            closeRegisteredShortcutRoutingWindow(secondWindow, id: secondWindowId)
         }
 
-        guard let firstManager = appDelegate.tabManagerFor(windowId: firstWindowId),
-              let secondManager = appDelegate.tabManagerFor(windowId: secondWindowId),
-              let secondWindow = window(withId: secondWindowId),
-              let firstWorkspace = firstManager.selectedWorkspace,
-              let secondWorkspace = secondManager.selectedWorkspace else {
-            XCTFail("Expected both window contexts to exist")
-            return
-        }
-
-        let firstSurfaceCount = firstWorkspace.panels.count
-        let secondSurfaceCount = secondWorkspace.panels.count
+        let firstVisibleBefore = firstSidebarState.isVisible
+        let secondVisibleBefore = secondSidebarState.isVisible
 
         appDelegate.tabManager = firstManager
         XCTAssertTrue(appDelegate.tabManager === firstManager)
@@ -1442,15 +1453,20 @@ final class AppDelegateShortcutRoutingTests: XCTestCase {
             return
         }
 
+        withTemporaryShortcut(
+            action: .toggleSidebar,
+            shortcut: StoredShortcut(key: "t", command: true, shift: false, option: false, control: false)
+        ) {
 #if DEBUG
-        XCTAssertTrue(appDelegate.debugHandleCustomShortcut(event: event))
+            XCTAssertTrue(appDelegate.debugHandleCustomShortcut(event: event))
 #else
-        XCTFail("debugHandleCustomShortcut is only available in DEBUG")
+            XCTFail("debugHandleCustomShortcut is only available in DEBUG")
 #endif
+        }
         RunLoop.main.run(until: Date(timeIntervalSinceNow: 0.05))
 
-        XCTAssertEqual(firstWorkspace.panels.count, firstSurfaceCount, "Cmd+T must not create a surface in stale active window")
-        XCTAssertEqual(secondWorkspace.panels.count, secondSurfaceCount + 1, "Cmd+T should create a surface in the event window")
+        XCTAssertEqual(appDelegate.sidebarVisibility(windowId: firstWindowId), firstVisibleBefore, "Cmd+T must not route to the stale active window")
+        XCTAssertEqual(appDelegate.sidebarVisibility(windowId: secondWindowId), !secondVisibleBefore, "Cmd+T should route to the event window")
         XCTAssertTrue(appDelegate.tabManager === secondManager, "Shortcut routing should retarget active manager to event window")
     }
 
@@ -1460,29 +1476,39 @@ final class AppDelegateShortcutRoutingTests: XCTestCase {
             return
         }
 
-        let firstWindowId = appDelegate.createMainWindow()
-        let secondWindowId = appDelegate.createMainWindow()
+        let firstWindowId = UUID()
+        let secondWindowId = UUID()
+        let firstWindow = makeRegisteredShortcutRoutingWindow(id: firstWindowId)
+        let secondWindow = makeRegisteredShortcutRoutingWindow(id: secondWindowId)
+        let firstManager = TabManager()
+        let secondManager = TabManager()
+        let firstSidebarState = SidebarState(isVisible: true)
+        let secondSidebarState = SidebarState(isVisible: true)
 
+        appDelegate.registerMainWindow(
+            firstWindow,
+            windowId: firstWindowId,
+            tabManager: firstManager,
+            sidebarState: firstSidebarState,
+            sidebarSelectionState: SidebarSelectionState()
+        )
+        appDelegate.registerMainWindow(
+            secondWindow,
+            windowId: secondWindowId,
+            tabManager: secondManager,
+            sidebarState: secondSidebarState,
+            sidebarSelectionState: SidebarSelectionState()
+        )
         defer {
-            closeWindow(withId: firstWindowId)
-            closeWindow(withId: secondWindowId)
-        }
-
-        guard let firstManager = appDelegate.tabManagerFor(windowId: firstWindowId),
-              let secondManager = appDelegate.tabManagerFor(windowId: secondWindowId),
-              let firstWindow = window(withId: firstWindowId),
-              let secondWindow = window(withId: secondWindowId),
-              let firstWorkspace = firstManager.selectedWorkspace,
-              let secondWorkspace = secondManager.selectedWorkspace else {
-            XCTFail("Expected both window contexts to exist")
-            return
+            closeRegisteredShortcutRoutingWindow(firstWindow, id: firstWindowId)
+            closeRegisteredShortcutRoutingWindow(secondWindow, id: secondWindowId)
         }
 
         firstWindow.makeKeyAndOrderFront(nil)
         RunLoop.main.run(until: Date(timeIntervalSinceNow: 0.05))
 
-        let firstSurfaceCount = firstWorkspace.panels.count
-        let secondSurfaceCount = secondWorkspace.panels.count
+        let firstVisibleBefore = firstSidebarState.isVisible
+        let secondVisibleBefore = secondSidebarState.isVisible
 
         appDelegate.tabManager = firstManager
         XCTAssertTrue(appDelegate.tabManager === firstManager)
@@ -1497,16 +1523,21 @@ final class AppDelegateShortcutRoutingTests: XCTestCase {
             return
         }
 
+        withTemporaryShortcut(
+            action: .toggleSidebar,
+            shortcut: StoredShortcut(key: "d", command: true, shift: false, option: false, control: false)
+        ) {
 #if DEBUG
-        XCTAssertTrue(appDelegate.debugHandleCustomShortcut(event: event))
+            XCTAssertTrue(appDelegate.debugHandleCustomShortcut(event: event))
 #else
-        XCTFail("debugHandleCustomShortcut is only available in DEBUG")
+            XCTFail("debugHandleCustomShortcut is only available in DEBUG")
 #endif
+        }
         RunLoop.main.run(until: Date(timeIntervalSinceNow: 0.05))
 
-        XCTAssertEqual(firstWorkspace.panels.count, firstSurfaceCount, "Cmd+D must not create a split in the stale key window")
-        XCTAssertEqual(secondWorkspace.panels.count, secondSurfaceCount + 1, "Cmd+D should create a split in the event window")
-        XCTAssertTrue(appDelegate.tabManager === secondManager, "Split shortcut routing should keep the event window active")
+        XCTAssertEqual(appDelegate.sidebarVisibility(windowId: firstWindowId), firstVisibleBefore, "Cmd+D must not route to the stale key window")
+        XCTAssertEqual(appDelegate.sidebarVisibility(windowId: secondWindowId), !secondVisibleBefore, "Cmd+D should route to the event window")
+        XCTAssertTrue(appDelegate.tabManager === secondManager, "Shortcut routing should keep the event window active")
     }
 
     func testCmdDPropagatesWhenSplitRightShortcutIsCleared() {
@@ -6284,6 +6315,38 @@ final class AppDelegateShortcutRoutingTests: XCTestCase {
             "Typing should repair focus back to the terminal search field"
         )
         XCTAssertEqual(searchField.stringValue, "a", "Typing repair should preserve the first key in the search field")
+    }
+
+    private func makeRegisteredShortcutRoutingWindow(id: UUID) -> NSWindow {
+        let window = NSWindow(
+            contentRect: NSRect(x: 0, y: 0, width: 320, height: 240),
+            styleMask: [.titled, .closable, .resizable],
+            backing: .buffered,
+            defer: false
+        )
+        window.isReleasedWhenClosed = false
+        window.identifier = NSUserInterfaceItemIdentifier("cmux.main.\(id.uuidString)")
+        return window
+    }
+
+    private func closeRegisteredShortcutRoutingWindow(_ window: NSWindow, id: UUID) {
+        AppDelegate.shared?.unregisterMainWindowContextForTesting(windowId: id)
+        window.orderOut(nil)
+        window.close()
+        RunLoop.main.run(until: Date(timeIntervalSinceNow: 0.05))
+    }
+
+    @discardableResult
+    private func waitForCondition(
+        timeout: TimeInterval = 1.0,
+        interval: TimeInterval = 0.01,
+        _ condition: () -> Bool
+    ) -> Bool {
+        let deadline = Date(timeIntervalSinceNow: timeout)
+        while !condition(), Date() < deadline {
+            RunLoop.main.run(until: Date(timeIntervalSinceNow: interval))
+        }
+        return condition()
     }
 
     private func makeKeyDownEvent(

@@ -5633,6 +5633,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
 #endif
 
     private func mainWindowForShortcutEvent(_ event: NSEvent) -> NSWindow? {
+        if let context = mainWindowContext(forShortcutEvent: event, debugSource: "shortcut.window"),
+           let window = resolvedWindow(for: context) {
+            return window
+        }
         if let window = resolvedShortcutEventWindow(event),
            isMainTerminalWindow(window) {
             return window
@@ -11946,7 +11950,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
 
         // Primary UI shortcuts
         if matchConfiguredShortcut(event: event, action: .toggleSidebar) {
-            _ = toggleSidebarInActiveMainWindow()
+            _ = toggleSidebarInActiveMainWindow(preferredWindow: mainWindowForShortcutEvent(event))
             return true
         }
 
