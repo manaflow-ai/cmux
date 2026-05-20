@@ -157,22 +157,26 @@ _cmux_now() {
 }
 
 typeset -g _CMUX_CLAUDE_WRAPPER=""
-_cmux_install_claude_wrapper() {
+typeset -g _CMUX_GROK_WRAPPER=""
+_cmux_install_cli_wrapper() {
+    local command_name="$1"
+    local wrapper_variable="$2"
     local integration_dir="${CMUX_SHELL_INTEGRATION_DIR:-}"
     [[ -n "$integration_dir" ]] || return 0
 
     integration_dir="${integration_dir%/}"
     local bundle_dir="${integration_dir%/shell-integration}"
-    local wrapper_path="$bundle_dir/bin/claude"
+    local wrapper_path="$bundle_dir/bin/$command_name"
     [[ -x "$wrapper_path" ]] || return 0
 
-    # Keep the bundled claude wrapper ahead of later PATH mutations. Install it
-    # via eval so an existing `alias claude=...` cannot break parsing.
-    _CMUX_CLAUDE_WRAPPER="$wrapper_path"
-    builtin unalias claude >/dev/null 2>&1 || true
-    eval 'claude() { "$_CMUX_CLAUDE_WRAPPER" "$@"; }'
+    # Keep the bundled wrapper ahead of later PATH mutations. Install it
+    # via eval so an existing alias cannot break parsing.
+    typeset -g "$wrapper_variable=$wrapper_path"
+    builtin unalias "$command_name" >/dev/null 2>&1 || true
+    eval "$command_name() { \"\${$wrapper_variable}\" \"\$@\"; }"
 }
-_cmux_install_claude_wrapper
+_cmux_install_cli_wrapper claude _CMUX_CLAUDE_WRAPPER
+_cmux_install_cli_wrapper grok _CMUX_GROK_WRAPPER
 
 _cmux_normalize_claude_config_dir() {
     [[ -n "${CLAUDE_CONFIG_DIR:-}" && -n "${HOME:-}" ]] || return 0

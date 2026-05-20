@@ -911,6 +911,8 @@ final class FilePreviewPanel: Panel, ObservableObject, FilePreviewTextEditingPan
     @Published private(set) var focusFlashToken = 0
     @Published private(set) var previewMode: FilePreviewMode
 
+    let nativeViewSessions = FilePreviewNativeViewSessions()
+
     private var originalTextContent = ""
     private var textEncoding: String.Encoding = .utf8
     private var previewModeGeneration = 0
@@ -950,6 +952,7 @@ final class FilePreviewPanel: Panel, ObservableObject, FilePreviewTextEditingPan
     }
 
     func close() {
+        nativeViewSessions.closeAll()
         textView = nil
         focusCoordinator.unregisterAll()
     }
@@ -1084,6 +1087,7 @@ final class FilePreviewPanel: Panel, ObservableObject, FilePreviewTextEditingPan
         previewMode = mode
         displayIcon = FilePreviewKindResolver.iconName(for: mode)
         focusCoordinator.notePreferredIntent(Self.defaultFocusIntent(for: mode))
+        nativeViewSessions.closeInactive(except: mode)
         prepareContentForPreviewMode()
     }
 
@@ -1352,19 +1356,22 @@ private struct FilePreviewPDFView: NSViewRepresentable {
     let drawsBackground: Bool
 
     func makeNSView(context: Context) -> FilePreviewPDFContainerView {
-        let view = FilePreviewPDFContainerView()
-        view.isHidden = !isVisibleInUI
-        view.setBackgroundAppearance(backgroundColor: backgroundColor, drawsBackground: drawsBackground)
-        view.setPanel(panel)
-        view.setURL(panel.fileURL)
-        return view
+        panel.nativeViewSessions.pdf.view(
+            panel: panel,
+            isVisibleInUI: isVisibleInUI,
+            backgroundColor: backgroundColor,
+            drawsBackground: drawsBackground
+        )
     }
 
     func updateNSView(_ nsView: FilePreviewPDFContainerView, context: Context) {
-        nsView.isHidden = !isVisibleInUI
-        nsView.setBackgroundAppearance(backgroundColor: backgroundColor, drawsBackground: drawsBackground)
-        nsView.setPanel(panel)
-        nsView.setURL(panel.fileURL)
+        panel.nativeViewSessions.pdf.update(
+            nsView,
+            panel: panel,
+            isVisibleInUI: isVisibleInUI,
+            backgroundColor: backgroundColor,
+            drawsBackground: drawsBackground
+        )
     }
 }
 
@@ -2413,6 +2420,17 @@ final class FilePreviewPDFContainerView: NSView, NSSplitViewDelegate, NSOutlineV
     func setPanel(_ panel: FilePreviewPanel) {
         self.panel = panel
         registerFocusEndpoint()
+    }
+
+    func close() {
+        removeFromSuperview()
+        removePDFScrollObserver()
+        NotificationCenter.default.removeObserver(self)
+        pdfView.document = nil
+        thumbnailView.setDocument(nil)
+        outlineRoot = nil
+        currentURL = nil
+        panel = nil
     }
 
     func setBackgroundAppearance(backgroundColor: NSColor, drawsBackground: Bool) {
@@ -3487,19 +3505,22 @@ private struct FilePreviewImageView: NSViewRepresentable {
     let drawsBackground: Bool
 
     func makeNSView(context: Context) -> FilePreviewImageContainerView {
-        let view = FilePreviewImageContainerView()
-        view.isHidden = !isVisibleInUI
-        view.setBackgroundAppearance(backgroundColor: backgroundColor, drawsBackground: drawsBackground)
-        view.setPanel(panel)
-        view.setURL(panel.fileURL)
-        return view
+        panel.nativeViewSessions.image.view(
+            panel: panel,
+            isVisibleInUI: isVisibleInUI,
+            backgroundColor: backgroundColor,
+            drawsBackground: drawsBackground
+        )
     }
 
     func updateNSView(_ nsView: FilePreviewImageContainerView, context: Context) {
-        nsView.isHidden = !isVisibleInUI
-        nsView.setBackgroundAppearance(backgroundColor: backgroundColor, drawsBackground: drawsBackground)
-        nsView.setPanel(panel)
-        nsView.setURL(panel.fileURL)
+        panel.nativeViewSessions.image.update(
+            nsView,
+            panel: panel,
+            isVisibleInUI: isVisibleInUI,
+            backgroundColor: backgroundColor,
+            drawsBackground: drawsBackground
+        )
     }
 }
 
@@ -3566,7 +3587,7 @@ private struct FilePreviewImageChromeView: View {
     }
 }
 
-private final class FilePreviewImageContainerView: NSView {
+final class FilePreviewImageContainerView: NSView {
     private let scrollView = FilePreviewImageScrollView()
     private let documentView = FilePreviewImageDocumentView()
     private let chromeHost = FilePreviewPDFChromeHostingView(rootView: AnyView(EmptyView()))
@@ -3626,6 +3647,13 @@ private final class FilePreviewImageContainerView: NSView {
     func setPanel(_ panel: FilePreviewPanel) {
         self.panel = panel
         registerFocusEndpoint()
+    }
+
+    func close() {
+        removeFromSuperview()
+        documentView.imageView.image = nil
+        currentURL = nil
+        panel = nil
     }
 
     func setBackgroundAppearance(backgroundColor: NSColor, drawsBackground: Bool) {
@@ -4228,65 +4256,23 @@ private struct FilePreviewMediaView: NSViewRepresentable {
     let backgroundColor: NSColor
     let drawsBackground: Bool
 
-    func makeCoordinator() -> Coordinator {
-        Coordinator()
-    }
-
     func makeNSView(context: Context) -> AVPlayerView {
-        let playerView = AVPlayerView()
-        playerView.isHidden = !isVisibleInUI
-        playerView.controlsStyle = .floating
-        playerView.showsFullScreenToggleButton = true
-        playerView.videoGravity = .resizeAspect
-        Self.applyBackgroundAppearance(
-            to: playerView,
+        panel.nativeViewSessions.media.view(
+            panel: panel,
+            isVisibleInUI: isVisibleInUI,
             backgroundColor: backgroundColor,
             drawsBackground: drawsBackground
         )
-        panel.attachPreviewFocus(root: playerView, primaryResponder: playerView, intent: .mediaPlayer)
-        context.coordinator.update(playerView: playerView, url: panel.fileURL)
-        return playerView
     }
 
     func updateNSView(_ nsView: AVPlayerView, context: Context) {
-        nsView.isHidden = !isVisibleInUI
-        Self.applyBackgroundAppearance(
-            to: nsView,
+        panel.nativeViewSessions.media.update(
+            nsView,
+            panel: panel,
+            isVisibleInUI: isVisibleInUI,
             backgroundColor: backgroundColor,
             drawsBackground: drawsBackground
         )
-        panel.attachPreviewFocus(root: nsView, primaryResponder: nsView, intent: .mediaPlayer)
-        context.coordinator.update(playerView: nsView, url: panel.fileURL)
-    }
-
-    private static func applyBackgroundAppearance(
-        to playerView: AVPlayerView,
-        backgroundColor: NSColor,
-        drawsBackground: Bool
-    ) {
-        FilePreviewNativeBackground.applyRootLayer(
-            to: playerView,
-            backgroundColor: backgroundColor,
-            drawsBackground: drawsBackground
-        )
-    }
-
-    final class Coordinator {
-        private var currentURL: URL?
-        private var player: AVPlayer?
-
-        deinit {
-            player?.pause()
-        }
-
-        func update(playerView: AVPlayerView, url: URL) {
-            guard currentURL != url else { return }
-            player?.pause()
-            currentURL = url
-            let player = AVPlayer(url: url)
-            self.player = player
-            playerView.player = player
-        }
     }
 }
 
@@ -4297,104 +4283,22 @@ private struct QuickLookPreviewView: NSViewRepresentable {
     let drawsBackground: Bool
 
     func makeNSView(context: Context) -> NSView {
-        guard let previewView = QLPreviewView(frame: .zero, style: .normal) else {
-            let view = NSView()
-            view.isHidden = !isVisibleInUI
-            Self.applyBackgroundAppearance(
-                to: view,
-                backgroundColor: backgroundColor,
-                drawsBackground: drawsBackground
-            )
-            return view
-        }
-        previewView.isHidden = !isVisibleInUI
-        previewView.autostarts = true
-        panel.attachPreviewFocus(root: previewView, primaryResponder: previewView, intent: .quickLook)
-        previewView.previewItem = context.coordinator.item(for: panel.fileURL, title: panel.displayTitle)
-        Self.applyBackgroundAppearance(
-            to: previewView,
+        panel.nativeViewSessions.quickLook.view(
+            panel: panel,
+            isVisibleInUI: isVisibleInUI,
             backgroundColor: backgroundColor,
             drawsBackground: drawsBackground
         )
-        return previewView
     }
 
     func updateNSView(_ nsView: NSView, context: Context) {
-        nsView.isHidden = !isVisibleInUI
-        guard let previewView = nsView as? QLPreviewView else {
-            Self.applyBackgroundAppearance(
-                to: nsView,
-                backgroundColor: backgroundColor,
-                drawsBackground: drawsBackground
-            )
-            return
-        }
-        panel.attachPreviewFocus(root: previewView, primaryResponder: previewView, intent: .quickLook)
-        previewView.previewItem = context.coordinator.item(for: panel.fileURL, title: panel.displayTitle)
-        Self.applyBackgroundAppearance(
-            to: previewView,
+        panel.nativeViewSessions.quickLook.update(
+            nsView,
+            panel: panel,
+            isVisibleInUI: isVisibleInUI,
             backgroundColor: backgroundColor,
             drawsBackground: drawsBackground
         )
-    }
-
-    static func dismantleNSView(_ nsView: NSView, coordinator: Coordinator) {
-        if let previewView = nsView as? QLPreviewView {
-            previewView.close()
-            previewView.previewItem = nil
-        }
-        coordinator.clear()
-    }
-
-    func makeCoordinator() -> Coordinator {
-        Coordinator()
-    }
-
-    private static func applyBackgroundAppearance(
-        to view: NSView,
-        backgroundColor: NSColor,
-        drawsBackground: Bool
-    ) {
-        FilePreviewNativeBackground.applyRootLayer(
-            to: view,
-            backgroundColor: backgroundColor,
-            drawsBackground: drawsBackground
-        )
-    }
-
-    final class Coordinator {
-        private var item: FilePreviewQLItem?
-
-        func item(for url: URL, title: String) -> FilePreviewQLItem {
-            if let item, item.url == url, item.title == title {
-                return item
-            }
-            let next = FilePreviewQLItem(url: url, title: title)
-            item = next
-            return next
-        }
-
-        func clear() {
-            item = nil
-        }
-    }
-}
-
-private final class FilePreviewQLItem: NSObject, QLPreviewItem {
-    let url: URL
-    let title: String
-
-    init(url: URL, title: String) {
-        self.url = url
-        self.title = title
-    }
-
-    var previewItemURL: URL? {
-        url
-    }
-
-    var previewItemTitle: String? {
-        title
     }
 }
 

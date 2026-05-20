@@ -234,7 +234,7 @@ struct CmuxTaskManagerSortOrder: Equatable {
         case .cpu:
             return valueComparison(lhs.resources.cpuPercent, rhs.resources.cpuPercent)
         case .memory:
-            return valueComparison(lhs.resources.residentBytes, rhs.resources.residentBytes)
+            return valueComparison(lhs.resources.memoryBytes, rhs.resources.memoryBytes)
         case .processes:
             return valueComparison(lhs.resources.processCount, rhs.resources.processCount)
         }
@@ -256,12 +256,20 @@ struct CmuxTaskManagerResources {
     static let zero = CmuxTaskManagerResources(cpuPercent: 0, residentBytes: 0, processCount: 0)
 
     let cpuPercent: Double
+    let memoryBytes: Int64
     let residentBytes: Int64
     let processCount: Int
     let processIds: [Int]
 
-    init(cpuPercent: Double, residentBytes: Int64, processCount: Int, processIds: [Int] = []) {
+    init(
+        cpuPercent: Double,
+        residentBytes: Int64,
+        memoryBytes: Int64? = nil,
+        processCount: Int,
+        processIds: [Int] = []
+    ) {
         self.cpuPercent = cpuPercent
+        self.memoryBytes = memoryBytes ?? residentBytes
         self.residentBytes = residentBytes
         self.processCount = processCount
         self.processIds = processIds
@@ -269,6 +277,7 @@ struct CmuxTaskManagerResources {
 
     init(_ payload: [String: Any]) {
         self.cpuPercent = Self.double(payload["cpu_percent"])
+        self.memoryBytes = Self.int64(payload["memory_bytes"] ?? payload["resident_bytes"])
         self.residentBytes = Self.int64(payload["resident_bytes"])
         self.processCount = Self.int(payload["process_count"]) ?? 0
         self.processIds = Self.intArray(payload["pids"])
@@ -384,6 +393,14 @@ struct CmuxTaskManagerCodingAgentDefinition: Equatable {
             argumentNeedles: ["codex", "@openai/codex", "oh-my-codex"]
         ),
         CmuxTaskManagerCodingAgentDefinition(
+            id: "grok",
+            displayName: "Grok",
+            assetName: nil,
+            launchKinds: ["grok"],
+            directBasenames: ["grok", "grok-macos-aarch64", "grok-macos-aarch"],
+            argumentNeedles: ["grok", "grok-build", "@xai/grok"]
+        ),
+        CmuxTaskManagerCodingAgentDefinition(
             id: "opencode",
             displayName: "OpenCode",
             assetName: "AgentIcons/OpenCode",
@@ -422,6 +439,14 @@ struct CmuxTaskManagerCodingAgentDefinition: Equatable {
             launchKinds: ["gemini"],
             directBasenames: ["gemini"],
             argumentNeedles: ["gemini"]
+        ),
+        CmuxTaskManagerCodingAgentDefinition(
+            id: "antigravity",
+            displayName: "Antigravity",
+            assetName: "AgentIcons/Antigravity",
+            launchKinds: ["antigravity", "agy"],
+            directBasenames: ["agy", "antigravity"],
+            argumentNeedles: ["antigravity-cli", "antigravity"]
         ),
         CmuxTaskManagerCodingAgentDefinition(
             id: "rovodev",
