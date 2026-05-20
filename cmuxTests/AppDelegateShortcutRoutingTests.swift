@@ -6488,6 +6488,10 @@ final class AppDelegateShortcutRoutingTests: XCTestCase {
 
     private func closeWindow(withId windowId: UUID) {
         guard let window = window(withId: windowId) else { return }
+        let appDelegate = AppDelegate.shared
+        let originalConfirmationHandler = appDelegate?.debugCloseMainWindowConfirmationHandler
+        appDelegate?.debugCloseMainWindowConfirmationHandler = { _ in true }
+        defer { appDelegate?.debugCloseMainWindowConfirmationHandler = originalConfirmationHandler }
         window.performClose(nil)
         RunLoop.main.run(until: Date(timeIntervalSinceNow: 0.05))
     }

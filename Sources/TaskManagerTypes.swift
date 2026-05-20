@@ -441,6 +441,14 @@ struct CmuxTaskManagerCodingAgentDefinition: Equatable {
             argumentNeedles: ["gemini"]
         ),
         CmuxTaskManagerCodingAgentDefinition(
+            id: "antigravity",
+            displayName: "Antigravity",
+            assetName: "AgentIcons/Antigravity",
+            launchKinds: ["antigravity", "agy"],
+            directBasenames: ["agy", "antigravity"],
+            argumentNeedles: ["antigravity-cli", "antigravity"]
+        ),
+        CmuxTaskManagerCodingAgentDefinition(
             id: "rovodev",
             displayName: "Rovo Dev",
             assetName: "AgentIcons/RovoDev",
