@@ -336,6 +336,24 @@ struct cmuxApp: App {
                     appDelegate.openDebugScrollbackTab(nil)
                 }
 
+                Button(
+                    String(
+                        localized: "debug.menu.openAgentGuiReact",
+                        defaultValue: "Open Agent GUI (React)"
+                    )
+                ) {
+                    appDelegate.openDebugAgentSessionReact(nil)
+                }
+
+                Button(
+                    String(
+                        localized: "debug.menu.openAgentGuiSolid",
+                        defaultValue: "Open Agent GUI (Solid)"
+                    )
+                ) {
+                    appDelegate.openDebugAgentSessionSolid(nil)
+                }
+
                 Button("Open Workspaces for All Workspace Colors") {
                     appDelegate.openDebugColorComparisonWorkspaces(nil)
                 }

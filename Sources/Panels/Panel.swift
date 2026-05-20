@@ -9,6 +9,7 @@ public enum PanelType: String, Codable, Sendable {
     case markdown
     case filePreview = "filepreview"
     case rightSidebarTool
+    case agentSession
 
     public init(from decoder: Decoder) throws {
         let container = try decoder.singleValueContainer()
@@ -23,6 +24,10 @@ public enum PanelType: String, Codable, Sendable {
         }
         if rawValue.lowercased() == Self.rightSidebarTool.rawValue.lowercased() {
             self = .rightSidebarTool
+            return
+        }
+        if rawValue.lowercased() == Self.agentSession.rawValue.lowercased() {
+            self = .agentSession
             return
         }
         throw DecodingError.dataCorruptedError(

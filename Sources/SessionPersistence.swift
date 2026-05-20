@@ -1083,6 +1083,12 @@ struct SessionRightSidebarToolPanelSnapshot: Codable, Sendable {
     var mode: RightSidebarMode
 }
 
+struct SessionAgentSessionPanelSnapshot: Codable, Sendable {
+    var rendererKind: AgentSessionRendererKind
+    var providerID: AgentSessionProviderID
+    var workingDirectory: String?
+}
+
 struct SessionPanelSnapshot: Codable, Sendable {
     var id: UUID
     var type: PanelType
@@ -1100,6 +1106,7 @@ struct SessionPanelSnapshot: Codable, Sendable {
     var markdown: SessionMarkdownPanelSnapshot?
     var filePreview: SessionFilePreviewPanelSnapshot?
     var rightSidebarTool: SessionRightSidebarToolPanelSnapshot?
+    var agentSession: SessionAgentSessionPanelSnapshot?
 }
 
 enum SessionSplitOrientation: String, Codable, Sendable {

@@ -340,6 +340,8 @@ final class PaneDropTargetView: NSView {
             return nil
         case .rightSidebarTool:
             return nil
+        case .agentSession:
+            return nil
         }
     }
 
