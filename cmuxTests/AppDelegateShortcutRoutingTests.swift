@@ -3036,13 +3036,8 @@ final class AppDelegateShortcutRoutingTests: XCTestCase {
             return
         }
 
-        let windowId = appDelegate.createMainWindow()
-        defer { closeWindow(withId: windowId) }
-
-        guard let window = window(withId: windowId) else {
-            XCTFail("Expected test window")
-            return
-        }
+        let window = makeCommandPaletteShortcutTestWindow()
+        defer { window.close() }
 
         appDelegate.setCommandPaletteVisible(true, for: window)
         defer { appDelegate.setCommandPaletteVisible(false, for: window) }
@@ -3085,13 +3080,8 @@ final class AppDelegateShortcutRoutingTests: XCTestCase {
             return
         }
 
-        let windowId = appDelegate.createMainWindow()
-        defer { closeWindow(withId: windowId) }
-
-        guard let window = window(withId: windowId) else {
-            XCTFail("Expected test window")
-            return
-        }
+        let window = makeCommandPaletteShortcutTestWindow()
+        defer { window.close() }
 
         appDelegate.setCommandPaletteVisible(true, for: window)
         defer { appDelegate.setCommandPaletteVisible(false, for: window) }
@@ -6375,6 +6365,19 @@ final class AppDelegateShortcutRoutingTests: XCTestCase {
         AppDelegate.shared?.debugResetShortcutRoutingStateForTesting()
         #endif
         body()
+    }
+
+    private func makeCommandPaletteShortcutTestWindow() -> NSWindow {
+        let windowId = UUID()
+        let window = NSWindow(
+            contentRect: NSRect(x: 0, y: 0, width: 160, height: 120),
+            styleMask: [.titled],
+            backing: .buffered,
+            defer: false
+        )
+        window.identifier = NSUserInterfaceItemIdentifier("cmux.main.\(windowId.uuidString)")
+        window.contentView = NSView(frame: NSRect(x: 0, y: 0, width: 160, height: 120))
+        return window
     }
 
     private func assertStaleCloseDefaultShortcutSuppressesMenuFallback(
