@@ -429,6 +429,7 @@ final class BrowserWebExtensionInstallStore {
 
     func reload() {
         guard fileManager.fileExists(atPath: registryURL.path) else {
+            records = []
             return
         }
 
@@ -478,8 +479,27 @@ final class BrowserWebExtensionInstallStore {
         guard source.kind == .appExtensionBundle else {
             throw BrowserWebExtensionInstallError.unsupportedSource(source.url)
         }
-        let recordID = existingRecordID(for: source) ?? UUID()
+        let existingRecord = existingRecord(for: source)
+        let recordID = existingRecord?.id ?? UUID()
         let previousRecords = records
+        let sanitizedPermissions = browserWebExtensionHostGrantablePermissionNames(
+            from: grantedPermissions,
+            sourceKind: source.kind
+        ).sorted()
+        let sanitizedMatchPatterns = grantedPermissionMatchPatterns.sorted()
+        let profileStates = Dictionary(
+            uniqueKeysWithValues: (existingRecord?.profileStates ?? [:]).map { key, state in
+                (
+                    key,
+                    BrowserWebExtensionProfileState(
+                        isEnabled: state.isEnabled,
+                        grantedPermissions: sanitizedPermissions,
+                        grantedPermissionMatchPatterns: sanitizedMatchPatterns,
+                        lastError: state.lastError
+                    ).sanitized(sourceKind: source.kind)
+                )
+            }
+        )
 
         let record = BrowserWebExtensionInstallRecord(
             id: recordID,
@@ -487,12 +507,10 @@ final class BrowserWebExtensionInstallStore {
             displayVersion: displayVersion,
             sourceKind: source.kind,
             sourcePath: source.url.path,
-            isEnabled: true,
-            grantedPermissions: browserWebExtensionHostGrantablePermissionNames(
-                from: grantedPermissions,
-                sourceKind: source.kind
-            ).sorted(),
-            grantedPermissionMatchPatterns: grantedPermissionMatchPatterns.sorted()
+            isEnabled: existingRecord?.isEnabled ?? true,
+            grantedPermissions: sanitizedPermissions,
+            grantedPermissionMatchPatterns: sanitizedMatchPatterns,
+            profileStates: profileStates
         )
 
         var nextRecords = previousRecords
@@ -592,11 +610,11 @@ final class BrowserWebExtensionInstallStore {
         throw BrowserWebExtensionInstallError.unsupportedSource(resolvedURL)
     }
 
-    private func existingRecordID(for source: BrowserWebExtensionInstallSource) -> UUID? {
+    private func existingRecord(for source: BrowserWebExtensionInstallSource) -> BrowserWebExtensionInstallRecord? {
         guard source.kind == .appExtensionBundle else { return nil }
         return records.first { record in
             record.sourceKind == source.kind && URL(fileURLWithPath: record.sourcePath).standardizedFileURL == source.url.standardizedFileURL
-        }?.id
+        }
     }
 
 
@@ -790,11 +808,18 @@ enum BrowserWebExtensionSupport {
         BrowserWebExtensionRuntime.shared.setActionPopupAnchorView(view, forPanelID: panelID)
     }
 
-    static func installExtension(from url: URL) async throws -> BrowserWebExtensionInstallResult {
+    static func installExtension(
+        from url: URL,
+        profileID: UUID? = nil
+    ) async throws -> BrowserWebExtensionInstallResult {
         guard #available(macOS 15.4, *) else {
             throw BrowserWebExtensionInstallError.unsupportedOS
         }
-        return try await BrowserWebExtensionRuntime.shared.installExtension(from: url)
+        let resolvedProfileID = profileID ?? BrowserProfileStore.shared.effectiveLastUsedProfileID
+        return try await BrowserWebExtensionRuntime.shared.installExtension(
+            from: url,
+            profileID: resolvedProfileID
+        )
     }
 
     static func reloadInstalledExtensions() async {
@@ -973,7 +998,10 @@ private final class BrowserWebExtensionRuntime: NSObject, WKWebExtensionControll
         postDidChange()
     }
 
-    func installExtension(from url: URL) async throws -> BrowserWebExtensionInstallResult {
+    func installExtension(
+        from url: URL,
+        profileID: UUID
+    ) async throws -> BrowserWebExtensionInstallResult {
         let source = try store.discoverSource(from: url)
         let webExtension = try await loadWebExtension(from: source)
         let parseErrors = webExtension.errors.map(\.localizedDescription)
@@ -997,12 +1025,11 @@ private final class BrowserWebExtensionRuntime: NSObject, WKWebExtensionControll
             grantedPermissions: webExtension.requestedPermissions.map { String($0.rawValue) },
             grantedPermissionMatchPatterns: requiredMatchPatternStrings(for: webExtension)
         )
-        let activeProfileID = BrowserProfileStore.shared.effectiveLastUsedProfileID
-        try await load(record: record, profileID: activeProfileID)
+        try await load(record: record, profileID: profileID)
         postDidChange()
         let summary = store.summaries(
-            profileID: activeProfileID,
-            loadedRecordIDs: Set(contextsByProfileID[activeProfileID, default: [:]].keys)
+            profileID: profileID,
+            loadedRecordIDs: Set(contextsByProfileID[profileID, default: [:]].keys)
         ).first { $0.id == record.id }
             ?? BrowserWebExtensionInstalledSummary(
                 id: record.id,
@@ -1013,11 +1040,11 @@ private final class BrowserWebExtensionRuntime: NSObject, WKWebExtensionControll
                 ),
                 sourceKind: record.sourceKind,
                 sourcePath: record.sourcePath,
-                grantedPermissions: record.profileState(for: activeProfileID).grantedPermissions,
-                grantedPermissionMatchPatterns: record.profileState(for: activeProfileID).grantedPermissionMatchPatterns,
-                isEnabled: record.profileState(for: activeProfileID).isEnabled,
-                isLoaded: contextsByProfileID[activeProfileID]?[record.id] != nil,
-                lastError: record.profileState(for: activeProfileID).lastError
+                grantedPermissions: record.profileState(for: profileID).grantedPermissions,
+                grantedPermissionMatchPatterns: record.profileState(for: profileID).grantedPermissionMatchPatterns,
+                isEnabled: record.profileState(for: profileID).isEnabled,
+                isLoaded: contextsByProfileID[profileID]?[record.id] != nil,
+                lastError: record.profileState(for: profileID).lastError
             )
         return BrowserWebExtensionInstallResult(summary: summary, parseErrors: parseErrors)
     }
@@ -2204,7 +2231,11 @@ private final class BrowserWebExtensionAuxiliaryTabAdapter: NSObject, WKWebExten
     }
 
     func activate(for context: WKWebExtensionContext, completionHandler: @escaping (Error?) -> Void) {
-        windowAdapter?.focus(for: context, completionHandler: completionHandler)
+        guard let windowAdapter else {
+            completionHandler(nil)
+            return
+        }
+        windowAdapter.focus(for: context, completionHandler: completionHandler)
     }
 
     func isSelected(for context: WKWebExtensionContext) -> Bool {

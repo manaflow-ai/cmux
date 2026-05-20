@@ -5,6 +5,47 @@ import SQLite3
 import SwiftUI
 import UniformTypeIdentifiers
 
+@MainActor
+enum SessionEntryResumeCoordinator {
+    static func resume(_ entry: SessionEntry, tabManager: TabManager) {
+        guard let resumeCommand = entry.resumeCommandWithCwd else { return }
+        let inputWithReturn = resumeCommand + "\n"
+        let targetCwd = entry.resumeWorkingDirectory
+
+        let selected = tabManager.selectedWorkspace
+        let selectedTab = tabManager.selectedTabId.flatMap { id in
+            tabManager.tabs.first(where: { $0.id == id })
+        }
+        let isRemoteSelection = selectedTab?.isRemoteWorkspace ?? false
+        let workspaceCwd = selected?.currentDirectory
+        let pwdMatches: Bool = {
+            guard !isRemoteSelection,
+                  let targetCwd, !targetCwd.isEmpty,
+                  let workspaceCwd, !workspaceCwd.isEmpty else { return false }
+            let lhs = (targetCwd as NSString).standardizingPath
+            let rhs = (workspaceCwd as NSString).standardizingPath
+            return lhs == rhs
+        }()
+
+        if pwdMatches,
+           let workspace = selected,
+           let paneId = workspace.bonsplitController.focusedPaneId {
+            workspace.newTerminalSurface(
+                inPane: paneId,
+                focus: true,
+                workingDirectory: targetCwd,
+                initialInput: inputWithReturn
+            )
+            return
+        }
+
+        tabManager.addWorkspace(
+            workingDirectory: targetCwd,
+            initialTerminalInput: inputWithReturn
+        )
+    }
+}
+
 struct SessionIndexView: View {
     @ObservedObject var store: SessionIndexStore
     /// Lives alongside the store but is owned by this view so drag-state
@@ -639,7 +680,7 @@ private func sessionRowMenuItems(entry: SessionEntry, onResume: ((SessionEntry) 
             Text(String(localized: "sessionIndex.row.copyPath", defaultValue: "Copy File Path"))
         }
     }
-    if let resumeCommand = entry.resumeCommandWithCwd {
+    if let resumeCommand = entry.resumeCommand {
         Button {
             let pb = NSPasteboard.general
             pb.clearContents()
@@ -1287,7 +1328,7 @@ private enum SessionTranscriptLoader {
             return parseClaudeLine(object, id: id)
         case .codex:
             return parseCodexLine(object, id: id)
-        case .opencode, .rovodev, .registered:
+        case .grok, .opencode, .rovodev, .registered:
             return parseGenericLine(object, agent: agent, id: id)
         case .hermesAgent:
             return nil
@@ -1570,7 +1611,7 @@ private enum SessionTranscriptLoader {
         case .codex:
             return containsAny(data, needles: codexResponseItemNeedles)
                 && containsAny(data, needles: codexPreviewNeedles)
-        case .opencode, .rovodev:
+        case .grok, .opencode, .rovodev:
             return containsAny(data, needles: genericRoleNeedles)
         case .registered:
             return true
@@ -1588,7 +1629,7 @@ private enum SessionTranscriptLoader {
             if containsAny(data, needles: [Data(#""type":"user""#.utf8), Data(#""type": "user""#.utf8)]) {
                 return .user
             }
-        case .codex, .opencode, .rovodev, .registered:
+        case .codex, .grok, .opencode, .rovodev, .registered:
             if containsAny(data, needles: [Data(#""role":"assistant""#.utf8), Data(#""role": "assistant""#.utf8)]) {
                 return .assistant
             }

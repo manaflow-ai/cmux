@@ -13,10 +13,16 @@ When we change the fork, update this document and the parent submodule SHA.
 ## Current fork changes
 
 The fork was refreshed from upstream `main` again on May 1, 2026.
-Current cmux pinned fork head: `22fa801f8`, based on `495316732`, with the
-manual embedded IO patch in https://github.com/manaflow-ai/ghostty/pull/53.
-This head keeps the cmux theme picker hooks and exposes the manual surface IO
-needed by libghostty iOS clients.
+Current cmux pinned fork head: `ff6e1260d`, based on `aef980e27`, with the
+manual embedded IO patch in https://github.com/manaflow-ai/ghostty/pull/53,
+the Metal renderer row rebuild guard for https://github.com/manaflow-ai/cmux/issues/3369, and the URL/path
+regex bound for spaced file paths followed by prose. This head keeps the cmux
+theme picker hooks, exposes the manual surface IO needed by libghostty iOS
+clients, bounds shaped glyph iteration during IME/preedit row rebuilds, and
+prevents Cmd-hover from highlighting normal sentence text after a file path.
+The corresponding prebuilt archive is published at
+https://github.com/manaflow-ai/ghostty/releases/tag/xcframework-ff6e1260d2e7767de55b8d9307b328e4060545b7-crashsubdir-cmux-crash-v1
+and pinned in `scripts/ghosttykit-checksums.txt`.
 
 ### 1) macOS display link restart on display changes
 
@@ -169,12 +175,48 @@ tend to conflict together during rebases.
     render-now C API, or output C API. Upstream already has internal
     `Termio.processOutput`, so prefer an upstream C bridge if one lands.
 
+### 11) Metal renderer preedit row rebuild guard
+
+- Commits:
+  - `70b95dada` (Expose unsafe preedit catch-up in renderer rows)
+  - `fe972c095` (Bound renderer preedit catch-up to shaped glyphs)
+- Files:
+  - `src/renderer/generic.zig`
+- Summary:
+  - Adds a regression test for the row-rebuild path where IME/preedit covers the
+    only shaped glyph in a row and the remaining terminal cells are empty.
+  - Bounds the shaped glyph cursor before reading from the shaped-cell slice, so
+    `GenericRenderer(Metal).rebuildRow` no longer assumes terminal cells and
+    shaped glyph cells have one-to-one cardinality.
+  - The first commit intentionally preserves the panic so cmux can keep the
+    required failing-test-then-fix history for https://github.com/manaflow-ai/cmux/issues/3369.
+
+### 12) URL/path regex bounds for spaced file paths
+
+- Commits:
+  - `6e10706a7` (test: cover spaced file path link bounds)
+  - `6eed7af92` (fix: bound spaced file path links)
+  - `ff6e1260d` (fix: handle dotted spaced path prefixes)
+- Files:
+  - `src/config/url.zig`
+- Summary:
+  - Adds coverage for a path with spaces ending in `.mp4` followed by a normal sentence.
+  - Routes dotted paths with spaced directory names through the stricter dotted-path branch.
+  - Keeps single-space path components such as `Recovered Screen Recordings` while preserving
+    the existing double-space stop case.
+  - Trims trailing sentence punctuation when more text follows, without breaking dotted paths
+    that end at end-of-line.
+  - Preserves versioned or dotted path components before the first space, such as
+    `/tmp/v1.2 captures/video.mp4`.
+
 The current cmux pin is the head listed above. It is reachable from
-`manaflow-ai/ghostty` `main` through https://github.com/manaflow-ai/ghostty/pull/53.
-Published `xcframework-22fa801f88f96fa842e54ecce6c34a5d36003d19` and pinned
-its archive checksum in `scripts/ghosttykit-checksums.txt`. The release and
-checksum pin must be regenerated whenever this commit changes, even for
-comment-only amends, because the release tag is keyed by the Ghostty commit SHA.
+`manaflow-ai/ghostty` through the
+`xcframework-ff6e1260d2e7767de55b8d9307b328e4060545b7-crashsubdir-cmux-crash-v1`
+release tag and branch `issue-cmd-hover-path-range`.
+Published `xcframework-ff6e1260d2e7767de55b8d9307b328e4060545b7-crashsubdir-cmux-crash-v1` and pinned its
+archive checksum in `scripts/ghosttykit-checksums.txt`. The release and checksum
+pin must be regenerated whenever this commit changes, even for comment-only
+amends, because the release tag is keyed by the Ghostty commit SHA.
 
 ## Upstreamed fork changes
 

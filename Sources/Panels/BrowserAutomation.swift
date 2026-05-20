@@ -396,7 +396,8 @@ enum BrowserExtensionAutomation {
         let path = try requiredString(params, keys: ["path", "source"])
         let profileID = try await resolveProfileID(params: params)
         let result = try await BrowserWebExtensionSupport.installExtension(
-            from: URL(fileURLWithPath: expandedPath(path))
+            from: URL(fileURLWithPath: expandedPath(path)),
+            profileID: profileID
         )
         let summary = await MainActor.run {
             BrowserWebExtensionSupport.installedExtensionSummaries(profileID: profileID).first {

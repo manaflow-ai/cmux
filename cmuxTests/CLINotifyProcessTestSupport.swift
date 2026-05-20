@@ -80,10 +80,31 @@ extension CLINotifyProcessIntegrationRegressionTests {
         return fd
     }
 
+    func waitForSocketFile(at path: String, timeout: TimeInterval = 5.0) -> Bool {
+        let deadline = Date().addingTimeInterval(timeout)
+        while Date() < deadline {
+            if FileManager.default.fileExists(atPath: path) {
+                return true
+            }
+            RunLoop.current.run(until: Date().addingTimeInterval(0.01))
+        }
+        return FileManager.default.fileExists(atPath: path)
+    }
+
     func startMockServer(
         listenerFD: Int32,
         state: MockSocketServerState,
         handler: @escaping @Sendable (String) -> String
+    ) -> XCTestExpectation {
+        startMockServerAllowingNoResponse(listenerFD: listenerFD, state: state) { line in
+            handler(line)
+        }
+    }
+
+    func startMockServerAllowingNoResponse(
+        listenerFD: Int32,
+        state: MockSocketServerState,
+        handler: @escaping @Sendable (String) -> String?
     ) -> XCTestExpectation {
         let handled = expectation(description: "cli mock socket handled")
         DispatchQueue.global(qos: .userInitiated).async {
@@ -119,7 +140,8 @@ extension CLINotifyProcessIntegrationRegressionTests {
                     pending.removeSubrange(0...newlineRange.lowerBound)
                     guard let line = String(data: lineData, encoding: .utf8) else { continue }
                     state.append(line)
-                    let response = handler(line) + "\n"
+                    guard let responsePayload = handler(line) else { continue }
+                    let response = responsePayload + "\n"
                     _ = response.withCString { ptr in
                         Darwin.write(clientFD, ptr, strlen(ptr))
                     }
