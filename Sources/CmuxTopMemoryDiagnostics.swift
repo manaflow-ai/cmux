@@ -204,7 +204,7 @@ nonisolated extension CmuxTopProcessSnapshot {
                     paneRef: nil,
                     surfaceID: process.cmuxSurfaceID,
                     surfaceRef: nil,
-                    surfaceType: process.cmuxSurfaceID == nil ? nil : "terminal",
+                    surfaceType: nil,
                     reason: process.cmuxAttributionReason ?? "cmux-process-scope"
                 )
             }

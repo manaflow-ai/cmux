@@ -11865,8 +11865,8 @@ struct CMUXCLI {
         if let workspaceRaw = options.workspaceHandle {
             guard let workspaceHandle = try normalizeWorkspaceHandle(workspaceRaw, client: client) else {
                 throw CLIError(message: String(format: String(
-                    localized: "cli.memory.error.invalidWorkspace",
-                    defaultValue: "memory: invalid workspace handle '%@'"
+                    localized: "cli.top.error.invalidWorkspace",
+                    defaultValue: "top: invalid workspace handle '%@'"
                 ), workspaceRaw))
             }
             params["workspace_id"] = workspaceHandle
@@ -11892,7 +11892,10 @@ struct CMUXCLI {
         ]
         if let workspaceRaw = options.workspaceHandle {
             guard let workspaceHandle = try normalizeWorkspaceHandle(workspaceRaw, client: client) else {
-                throw CLIError(message: "Invalid workspace handle")
+                throw CLIError(message: String(format: String(
+                    localized: "cli.memory.error.invalidWorkspace",
+                    defaultValue: "memory: invalid workspace handle '%@'"
+                ), workspaceRaw))
             }
             params["workspace_id"] = workspaceHandle
         }
