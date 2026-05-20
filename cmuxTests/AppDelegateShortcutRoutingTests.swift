@@ -1408,8 +1408,8 @@ final class AppDelegateShortcutRoutingTests: XCTestCase {
             sidebarSelectionState: SidebarSelectionState()
         )
         defer {
-            firstWindow.performClose(nil)
-            secondWindow.performClose(nil)
+            closeRegisteredShortcutRoutingWindow(firstWindow, id: firstWindowId)
+            closeRegisteredShortcutRoutingWindow(secondWindow, id: secondWindowId)
         }
 
         let firstVisibleBefore = firstSidebarState.isVisible
@@ -1475,8 +1475,8 @@ final class AppDelegateShortcutRoutingTests: XCTestCase {
             sidebarSelectionState: SidebarSelectionState()
         )
         defer {
-            firstWindow.performClose(nil)
-            secondWindow.performClose(nil)
+            closeRegisteredShortcutRoutingWindow(firstWindow, id: firstWindowId)
+            closeRegisteredShortcutRoutingWindow(secondWindow, id: secondWindowId)
         }
 
         firstWindow.makeKeyAndOrderFront(nil)
@@ -6313,8 +6313,16 @@ final class AppDelegateShortcutRoutingTests: XCTestCase {
             backing: .buffered,
             defer: false
         )
+        window.isReleasedWhenClosed = false
         window.identifier = NSUserInterfaceItemIdentifier("cmux.main.\(id.uuidString)")
         return window
+    }
+
+    private func closeRegisteredShortcutRoutingWindow(_ window: NSWindow, id: UUID) {
+        AppDelegate.shared?.unregisterMainWindowContextForTesting(windowId: id)
+        window.orderOut(nil)
+        window.close()
+        RunLoop.main.run(until: Date(timeIntervalSinceNow: 0.05))
     }
 
     private func makeKeyDownEvent(
