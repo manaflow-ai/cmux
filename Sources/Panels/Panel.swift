@@ -69,7 +69,7 @@ public enum WorkspaceAttentionFlashReason: String, Equatable, Sendable {
     case navigation
     case notificationArrival
     case notificationDismiss
-    case manualUnreadDismiss
+    case unreadIndicatorDismiss
     case debug
 }
 
@@ -129,7 +129,7 @@ enum WorkspaceAttentionCoordinator {
 
     static func flashStyle(for reason: WorkspaceAttentionFlashReason) -> WorkspaceAttentionFlashPresentation {
         switch reason {
-        case .navigation, .notificationArrival, .notificationDismiss, .manualUnreadDismiss, .debug:
+        case .navigation, .notificationArrival, .notificationDismiss, .unreadIndicatorDismiss, .debug:
             return flashRingStyle
         }
     }
@@ -143,7 +143,7 @@ enum WorkspaceAttentionCoordinator {
         switch reason {
         case .navigation:
             isAllowed = !persistentState.hasCompetingIndicator(for: targetPanelID)
-        case .notificationArrival, .notificationDismiss, .manualUnreadDismiss, .debug:
+        case .notificationArrival, .notificationDismiss, .unreadIndicatorDismiss, .debug:
             isAllowed = true
         }
 

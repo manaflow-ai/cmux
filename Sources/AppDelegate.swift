@@ -518,6 +518,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
     private var isRunningUnderXCTestCached: Bool {
         Self.cachedIsRunningUnderXCTest
     }
+    private var cmuxThemePreviewReloadGeneration = 0
+    private var cmuxThemePreviewReloadWorkItem: DispatchWorkItem?
 
     private static func detectRunningUnderXCTest(_ env: [String: String]) -> Bool {
         if env["XCTestConfigurationFilePath"] != nil { return true }
@@ -888,6 +890,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
     private var sessionAutosaveTimer: DispatchSourceTimer?
     private var sessionAutosaveTickInFlight = false
     private var sessionAutosaveDeferredRetryPending = false
+    private var processDetectedSessionSaveGeneration: UInt64 = 0
     private let sessionPersistenceQueue = DispatchQueue(
         label: "com.cmuxterm.app.sessionPersistence",
         qos: .utility
@@ -1045,6 +1048,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             ]
         )
         AppIconLaunchState.markDidFinishLaunching()
+        AppearanceSettingsUserDefaultsObserver.shared.startObserving()
         if isRunningUnderXCTest {
             NSApp.setActivationPolicy(.regular)
         } else {
@@ -1347,6 +1351,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             payload["socketAcceptLoopAlive"] = "0"
             payload["socketPathMatches"] = "0"
             payload["socketPathExists"] = "0"
+            payload["socketPathOwnedByListener"] = "0"
             payload["socketFailureSignals"] = "socket_disabled"
             return
         }
@@ -1370,6 +1375,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         payload["socketAcceptLoopAlive"] = health.acceptLoopAlive ? "1" : "0"
         payload["socketPathMatches"] = health.socketPathMatches ? "1" : "0"
         payload["socketPathExists"] = health.socketPathExists ? "1" : "0"
+        payload["socketPathOwnedByListener"] = health.socketPathOwnedByListener ? "1" : "0"
         payload["socketFailureSignals"] = failureSignals.joined(separator: ",")
     }
 
@@ -1562,28 +1568,14 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             ]
         )
         isTerminatingApp = true
-        _ = saveSessionSnapshot(includeScrollback: true, removeWhenEmpty: false)
+        _ = saveSessionSnapshotIncludingProcessDetectedIndexes(includeScrollback: true, removeWhenEmpty: false)
 
-        // Tagged DEV builds are ephemeral, skip quit confirmation entirely.
-        if SocketControlSettings.isTaggedDevBuild() {
+        // If the user already confirmed via the Cmd+Q shortcut warning dialog,
+        // or disabled the setting, skip the check to avoid a second alert.
+        if !QuitWarningSettings.shouldShowConfirmation(isQuitWarningConfirmed: isQuitWarningConfirmed) {
             closeAllWebInspectorsBeforeAppTeardown()
-            StartupBreadcrumbLog.append("appDelegate.shouldTerminate.terminateNow", fields: ["reason": "taggedDev"])
-            return .terminateNow
-        }
-
-        // If the user already confirmed via the Cmd+Q shortcut warning dialog
-        // (handleQuitShortcutWarning), skip the check to avoid a second alert.
-        if isQuitWarningConfirmed {
-            closeAllWebInspectorsBeforeAppTeardown()
-            StartupBreadcrumbLog.append("appDelegate.shouldTerminate.terminateNow", fields: ["reason": "confirmed"])
-            return .terminateNow
-        }
-
-        // Respect the "Warn Before Quit" setting even when Cmd+Q arrives via
-        // the Cmd+Tab app switcher, bypassing handleCustomShortcut.
-        guard QuitWarningSettings.isEnabled() else {
-            closeAllWebInspectorsBeforeAppTeardown()
-            StartupBreadcrumbLog.append("appDelegate.shouldTerminate.terminateNow", fields: ["reason": "warningDisabled"])
+            let reason = isQuitWarningConfirmed ? "confirmed" : "warningDisabled"
+            StartupBreadcrumbLog.append("appDelegate.shouldTerminate.terminateNow", fields: ["reason": reason])
             return .terminateNow
         }
 
@@ -1629,7 +1621,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         StartupBreadcrumbLog.append("appDelegate.willTerminate.begin")
         isTerminatingApp = true
         closeAllWebInspectorsBeforeAppTeardown()
-        _ = saveSessionSnapshot(includeScrollback: true, removeWhenEmpty: false)
+        _ = saveSessionSnapshotIncludingProcessDetectedIndexes(includeScrollback: true, removeWhenEmpty: false)
         stopSessionAutosaveTimer()
         CloudVMActionLauncher.shared.terminateAll()
         CmuxSSHURLProcessLauncher.shared.terminateAll()
@@ -1651,12 +1643,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
     func applicationWillResignActive(_ notification: Notification) {
         guard !isTerminatingApp else { return }
         clearConfiguredShortcutChordState()
-        _ = saveSessionSnapshot(includeScrollback: false)
+        saveSessionSnapshotAfterLoadingProcessDetectedIndexes(includeScrollback: false)
     }
 
     func persistSessionForUpdateRelaunch() {
         isTerminatingApp = true
-        _ = saveSessionSnapshot(includeScrollback: true, removeWhenEmpty: false)
+        _ = saveSessionSnapshotIncludingProcessDetectedIndexes(includeScrollback: true, removeWhenEmpty: false)
     }
 
     func configure(tabManager: TabManager, notificationStore: TerminalNotificationStore, sidebarState: SidebarState) {
@@ -2812,11 +2804,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         )
     }
 
-    private func attemptStartupSessionRestoreIfNeeded(primaryWindow: NSWindow) {
-        guard !didAttemptStartupSessionRestore else { return }
+    @discardableResult
+    private func attemptStartupSessionRestoreIfNeeded(primaryWindow: NSWindow) -> Bool {
+        guard !didAttemptStartupSessionRestore else { return false }
         didAttemptStartupSessionRestore = true
-        guard !didHandleExplicitOpenIntentAtStartup else { return }
-        guard let primaryContext = contextForMainTerminalWindow(primaryWindow) else { return }
+        guard !didHandleExplicitOpenIntentAtStartup else { return false }
+        guard let primaryContext = contextForMainTerminalWindow(primaryWindow) else { return false }
 
         let startupSnapshot = startupSessionSnapshot
         let primaryWindowSnapshot = startupSnapshot?.windows.first
@@ -2848,38 +2841,41 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             }
         }
 
-        if let startupSnapshot {
-            let additionalWindows = Array(startupSnapshot
-                .windows
-                .dropFirst()
-                .prefix(max(0, SessionPersistencePolicy.maxWindowsPerSnapshot - 1)))
+        guard let startupSnapshot else { return false }
+
+        let additionalWindows = Array(startupSnapshot
+            .windows
+            .dropFirst()
+            .prefix(max(0, SessionPersistencePolicy.maxWindowsPerSnapshot - 1)))
 #if DEBUG
-            for (index, windowSnapshot) in additionalWindows.enumerated() {
-                cmuxDebugLog(
-                    "session.restore.enqueueAdditional idx=\(index + 1) " +
-                        "frame={\(debugSessionRectDescription(windowSnapshot.frame))} " +
-                        "display={\(debugSessionDisplayDescription(windowSnapshot.display))}"
-                )
-            }
-#endif
-            if !additionalWindows.isEmpty {
-                DispatchQueue.main.async { [weak self] in
-                    guard let self else { return }
-                    for windowSnapshot in additionalWindows {
-                        _ = self.createMainWindow(sessionWindowSnapshot: windowSnapshot)
-                    }
-                    self.completeSessionRestoreOperation(isManualReopen: false)
-                }
-            } else {
-                completeSessionRestoreOperation(isManualReopen: false)
-            }
+        for (index, windowSnapshot) in additionalWindows.enumerated() {
+            cmuxDebugLog(
+                "session.restore.enqueueAdditional idx=\(index + 1) " +
+                    "frame={\(debugSessionRectDescription(windowSnapshot.frame))} " +
+                    "display={\(debugSessionDisplayDescription(windowSnapshot.display))}"
+            )
         }
+#endif
+        if !additionalWindows.isEmpty {
+            DispatchQueue.main.async { [weak self] in
+                guard let self else { return }
+                for windowSnapshot in additionalWindows {
+                    _ = self.createMainWindow(sessionWindowSnapshot: windowSnapshot)
+                }
+                self.completeSessionRestoreOperation(isManualReopen: false)
+            }
+        } else {
+            completeSessionRestoreOperation(isManualReopen: false)
+        }
+        return true
     }
 
     private func completeSessionRestoreOperation(isManualReopen: Bool) {
         startupSessionSnapshot = nil
         isApplyingSessionRestore = false
         if Self.shouldSaveSessionSnapshotOnRestoreCompletion(isManualReopen: isManualReopen) {
+            // Auto-resume input can be queued before tmux has spawned; preserve
+            // restored process-detected bindings until a later live scan.
             _ = saveSessionSnapshot(includeScrollback: false)
         }
     }
@@ -3466,7 +3462,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             Task { @MainActor [weak self] in
                 guard let self else { return }
                 self.isTerminatingApp = true
-                _ = self.saveSessionSnapshot(includeScrollback: true, removeWhenEmpty: false)
+                _ = self.saveSessionSnapshotIncludingProcessDetectedIndexes(includeScrollback: true, removeWhenEmpty: false)
             }
         }
         lifecycleSnapshotObservers.append(powerOffObserver)
@@ -3479,9 +3475,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             Task { @MainActor [weak self] in
                 guard let self else { return }
                 if self.isTerminatingApp {
-                    _ = self.saveSessionSnapshot(includeScrollback: true, removeWhenEmpty: false)
+                    _ = self.saveSessionSnapshotIncludingProcessDetectedIndexes(includeScrollback: true, removeWhenEmpty: false)
                 } else {
-                    _ = self.saveSessionSnapshot(includeScrollback: false)
+                    self.saveSessionSnapshotAfterLoadingProcessDetectedIndexes(includeScrollback: false)
                 }
             }
         }
@@ -3549,7 +3545,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
 
     private func sessionAutosaveFingerprint(
         includeScrollback: Bool,
-        restorableAgentIndex: RestorableAgentSessionIndex
+        restorableAgentIndex: RestorableAgentSessionIndex,
+        surfaceResumeBindingIndex: SurfaceResumeBindingIndex
     ) -> Int? {
         guard !includeScrollback else { return nil }
 
@@ -3563,7 +3560,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             hasher.combine(context.windowId)
             hasher.combine(
                 context.tabManager.sessionAutosaveFingerprint(
-                    restorableAgentIndex: restorableAgentIndex
+                    restorableAgentIndex: restorableAgentIndex,
+                    surfaceResumeBindingIndex: surfaceResumeBindingIndex
                 )
             )
             hasher.combine(context.sidebarState.isVisible)
@@ -3592,7 +3590,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
     private func saveSessionSnapshot(
         includeScrollback: Bool,
         removeWhenEmpty: Bool = false,
-        restorableAgentIndex: RestorableAgentSessionIndex? = nil
+        restorableAgentIndex: RestorableAgentSessionIndex? = nil,
+        surfaceResumeBindingIndex: SurfaceResumeBindingIndex? = nil
     ) -> Bool {
         if Self.shouldSkipSessionSaveDuringRestore(
             isApplyingSessionRestore: isApplyingSessionRestore,
@@ -3603,7 +3602,6 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
 #endif
             return false
         }
-
         let writeSynchronously = Self.shouldWriteSessionSnapshotSynchronously(
             isTerminatingApp: isTerminatingApp,
             includeScrollback: includeScrollback
@@ -3621,7 +3619,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
 
         guard let snapshot = buildSessionSnapshot(
             includeScrollback: includeScrollback,
-            restorableAgentIndex: restorableAgentIndex
+            restorableAgentIndex: restorableAgentIndex,
+            surfaceResumeBindingIndex: surfaceResumeBindingIndex
         ) else {
             persistSessionSnapshot(
                 nil,
@@ -3681,6 +3680,16 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         )
     }
 
+    func debugBuildSessionSnapshotForTesting(
+        includeScrollback: Bool,
+        surfaceResumeBindingIndex: SurfaceResumeBindingIndex? = nil
+    ) -> AppSessionSnapshot? {
+        buildSessionSnapshot(
+            includeScrollback: includeScrollback,
+            surfaceResumeBindingIndex: surfaceResumeBindingIndex
+        )
+    }
+
     func debugSeedSessionSnapshotScrollback(charactersPerTerminal: Int) -> [String: Any] {
         let workspaces = sortedMainWindowContextsForSessionSnapshot().flatMap { context in
             context.tabManager.tabs.filter { !$0.isRemoteWorkspace }
@@ -3694,6 +3703,14 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
 
     nonisolated static func shouldPersistSnapshotOnWindowUnregister(isTerminatingApp: Bool) -> Bool {
         !isTerminatingApp
+    }
+
+    nonisolated static func shouldSaveSessionSnapshotAfterMainWindowRegistration(
+        isTerminatingApp: Bool,
+        didApplyStartupSessionRestore: Bool,
+        isApplyingSessionRestore: Bool
+    ) -> Bool {
+        !isTerminatingApp && !didApplyStartupSessionRestore && !isApplyingSessionRestore
     }
 
     nonisolated static func shouldSkipSessionSaveDuringRestore(
@@ -3744,10 +3761,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         }
 
         sessionAutosaveTickInFlight = true
-        Task { @MainActor in await self.finishSessionAutosaveTick(source: source) }
+        let generation = nextProcessDetectedSessionSaveGeneration()
+        Task { @MainActor in await self.finishSessionAutosaveTick(source: source, generation: generation) }
     }
 
-    private func finishSessionAutosaveTick(source: String) async {
+    private func finishSessionAutosaveTick(source: String, generation: UInt64) async {
 #if DEBUG
         let timingStart = CmuxTypingTiming.start()
         let phaseStart = ProcessInfo.processInfo.systemUptime
@@ -3780,10 +3798,20 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
 #if DEBUG
         let fingerprintStart = ProcessInfo.processInfo.systemUptime
 #endif
-        let restorableAgentIndex = await RestorableAgentSessionIndex.loadIncludingProcessDetectedSnapshots()
+        let resumeIndexes = await ProcessDetectedResumeIndexes.load()
+        guard !isTerminatingApp,
+              isCurrentProcessDetectedSessionSaveGeneration(generation) else {
+#if DEBUG
+            cmuxDebugLog(
+                "session.save.skipped reason=stale_process_detected_scan includeScrollback=0 source=\(source)"
+            )
+#endif
+            return
+        }
         let autosaveFingerprint = sessionAutosaveFingerprint(
             includeScrollback: false,
-            restorableAgentIndex: restorableAgentIndex
+            restorableAgentIndex: resumeIndexes.restorableAgentIndex,
+            surfaceResumeBindingIndex: resumeIndexes.surfaceResumeBindingIndex
         )
 #if DEBUG
         fingerprintMs = (ProcessInfo.processInfo.systemUptime - fingerprintStart) * 1000.0
@@ -3809,7 +3837,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
 #endif
         _ = saveSessionSnapshot(
             includeScrollback: false,
-            restorableAgentIndex: restorableAgentIndex
+            restorableAgentIndex: resumeIndexes.restorableAgentIndex,
+            surfaceResumeBindingIndex: resumeIndexes.surfaceResumeBindingIndex
         )
 #if DEBUG
         saveMs = (ProcessInfo.processInfo.systemUptime - saveStart) * 1000.0
@@ -3819,6 +3848,49 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             persistedAt: now,
             fingerprint: autosaveFingerprint
         )
+    }
+
+    @discardableResult
+    private func saveSessionSnapshotIncludingProcessDetectedIndexes(
+        includeScrollback: Bool,
+        removeWhenEmpty: Bool = false
+    ) -> Bool {
+        let resumeIndexes = ProcessDetectedResumeIndexes.loadSynchronously()
+        return saveSessionSnapshot(
+            includeScrollback: includeScrollback,
+            removeWhenEmpty: removeWhenEmpty,
+            restorableAgentIndex: resumeIndexes.restorableAgentIndex,
+            surfaceResumeBindingIndex: resumeIndexes.surfaceResumeBindingIndex
+        )
+    }
+
+    private func saveSessionSnapshotAfterLoadingProcessDetectedIndexes(
+        includeScrollback: Bool,
+        removeWhenEmpty: Bool = false
+    ) {
+        let generation = nextProcessDetectedSessionSaveGeneration()
+        Task { @MainActor [weak self] in
+            let resumeIndexes = await ProcessDetectedResumeIndexes.load()
+            guard let self,
+                  !self.isTerminatingApp,
+                  self.isCurrentProcessDetectedSessionSaveGeneration(generation) else { return }
+            _ = self.saveSessionSnapshot(
+                includeScrollback: includeScrollback,
+                removeWhenEmpty: removeWhenEmpty,
+                restorableAgentIndex: resumeIndexes.restorableAgentIndex,
+                surfaceResumeBindingIndex: resumeIndexes.surfaceResumeBindingIndex
+            )
+        }
+    }
+
+    @discardableResult
+    private func nextProcessDetectedSessionSaveGeneration() -> UInt64 {
+        processDetectedSessionSaveGeneration &+= 1
+        return processDetectedSessionSaveGeneration
+    }
+
+    private func isCurrentProcessDetectedSessionSaveGeneration(_ generation: UInt64) -> Bool {
+        generation == processDetectedSessionSaveGeneration
     }
 
     fileprivate func recordTypingActivity() {
@@ -3918,7 +3990,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
 
     private func buildSessionSnapshot(
         includeScrollback: Bool,
-        restorableAgentIndex suppliedRestorableAgentIndex: RestorableAgentSessionIndex? = nil
+        restorableAgentIndex suppliedRestorableAgentIndex: RestorableAgentSessionIndex? = nil,
+        surfaceResumeBindingIndex suppliedSurfaceResumeBindingIndex: SurfaceResumeBindingIndex? = nil
     ) -> AppSessionSnapshot? {
         let contexts = sortedMainWindowContextsForSessionSnapshot()
 
@@ -3931,7 +4004,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
                 sessionWindowSnapshot(
                     for: context,
                     includeScrollback: includeScrollback,
-                    restorableAgentIndex: restorableAgentIndex
+                    restorableAgentIndex: restorableAgentIndex,
+                    surfaceResumeBindingIndex: suppliedSurfaceResumeBindingIndex
                 )
             }
 
@@ -3946,11 +4020,13 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
     private func sessionWindowSnapshot(
         for context: MainWindowContext,
         includeScrollback: Bool,
-        restorableAgentIndex: RestorableAgentSessionIndex
+        restorableAgentIndex: RestorableAgentSessionIndex,
+        surfaceResumeBindingIndex: SurfaceResumeBindingIndex? = nil
     ) -> SessionWindowSnapshot? {
         let tabManagerSnapshot = context.tabManager.sessionSnapshot(
             includeScrollback: includeScrollback,
-            restorableAgentIndex: restorableAgentIndex
+            restorableAgentIndex: restorableAgentIndex,
+            surfaceResumeBindingIndex: surfaceResumeBindingIndex
         )
         guard !tabManagerSnapshot.workspaces.isEmpty else { return nil }
 
@@ -4119,9 +4195,13 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             setActiveMainWindow(window)
         }
 
-        attemptStartupSessionRestoreIfNeeded(primaryWindow: window)
-        if !isTerminatingApp {
-            _ = saveSessionSnapshot(includeScrollback: false)
+        let didApplyStartupSessionRestore = attemptStartupSessionRestoreIfNeeded(primaryWindow: window)
+        if Self.shouldSaveSessionSnapshotAfterMainWindowRegistration(
+            isTerminatingApp: isTerminatingApp,
+            didApplyStartupSessionRestore: didApplyStartupSessionRestore,
+            isApplyingSessionRestore: isApplyingSessionRestore
+        ) {
+            saveSessionSnapshotAfterLoadingProcessDetectedIndexes(includeScrollback: false)
         }
     }
 
@@ -5110,7 +5190,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         return nil
     }
 
-    func refreshTerminalSurfacesAfterGhosttyConfigReload(source: String) {
+    func refreshTerminalSurfacesAfterGhosttyConfigReload(
+        source: String,
+        preferredColorScheme: GhosttyConfig.ColorSchemePreference
+    ) {
         var refreshedCount = 0
         forEachTerminalPanel { terminalPanel in
             let liveSurface = terminalPanel.surface.liveSurfaceForGhosttyAccess(
@@ -5120,7 +5203,17 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
                 to: liveSurface,
                 source: source,
                 reloadSurfaceConfiguration: { surface, soft, source in
-                    GhosttyApp.shared.reloadSurfaceConfiguration(surface, soft: soft, source: source)
+                    GhosttyApp.shared.reloadSurfaceConfiguration(
+                        surface,
+                        soft: soft,
+                        source: source,
+                        preferredColorScheme: preferredColorScheme
+                    )
+                },
+                applySurfaceColorScheme: {
+                    terminalPanel.hostedView.reapplySurfaceColorSchemeAfterGhosttyConfigReload(
+                        preferredColorScheme: preferredColorScheme
+                    )
                 },
                 refreshHostBackground: {
                     terminalPanel.hostedView.refreshHostBackgroundAfterGhosttyConfigReload()
@@ -5965,7 +6058,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             return .ok
 
         case .focus:
-            guard focusRightSidebarInActiveMainWindow(preferredWindow: preferredWindow) else {
+            // Remote focus should preserve the currently selected sidebar mode
+            // instead of reviving a stale keyboard-focus memory.
+            guard focusRightSidebarInActiveMainWindow(mode: state.mode, preferredWindow: preferredWindow) else {
                 return .failure(String(localized: "rightSidebar.remote.error.focusFailed", defaultValue: "ERROR: Failed to focus right sidebar"))
             }
             return .ok
@@ -5981,6 +6076,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             } else {
                 state.setVisible(true)
                 state.mode = mode
+                context?.keyboardFocusCoordinator.rememberRightSidebarMode(mode)
             }
             return .ok
 
@@ -7537,13 +7633,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         // cmux persists and restores main windows itself. Disable AppKit window
         // restoration so the OS cannot resurrect stale duplicate main windows.
         window.isRestorable = false
-        window.isMovableByWindowBackground = false
-        // Keep background dragging disabled so app content gestures and titlebar
-        // controls still receive clicks, while the OS-level movable flag lets
-        // macOS tiling and window-management tools such as Swish treat cmux as
-        // a movable/resizable window. Empty titlebar drags are routed through
-        // WindowDragHandleView instead of background dragging.
-        window.isMovable = true
+        configureCmuxMainWindowDragBehavior(window)
         let explicitInitialFrame = restoredFrame ?? persistedGeometryFrame
         if let explicitInitialFrame {
             window.setFrame(explicitInitialFrame, display: false)
@@ -10796,6 +10886,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
                 "socketAcceptLoopAlive": "0",
                 "socketPathMatches": "0",
                 "socketPathExists": "0",
+                "socketPathOwnedByListener": "0",
                 "socketFailureSignals": "socket_disabled",
             ], at: path)
             return
@@ -10840,6 +10931,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
                         "socketAcceptLoopAlive": health.acceptLoopAlive ? "1" : "0",
                         "socketPathMatches": health.socketPathMatches ? "1" : "0",
                         "socketPathExists": health.socketPathExists ? "1" : "0",
+                        "socketPathOwnedByListener": health.socketPathOwnedByListener ? "1" : "0",
                         "socketFailureSignals": failureSignals,
                     ], at: dataPath)
                     guard isReady || isTimedOut else { return }
@@ -11099,6 +11191,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
     static func installWindowResponderSwizzlesForTesting() {
         _ = didInstallApplicationAccessibilitySwizzle
         _ = didInstallApplicationSendActionSwizzle
+        _ = didInstallApplicationSendEventSwizzle
         _ = didInstallWindowKeyEquivalentSwizzle
         _ = didInstallWindowFirstResponderSwizzle
         _ = didInstallWindowSendEventSwizzle
@@ -11399,13 +11492,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
     }
 
     private func handleQuitShortcutWarning() -> Bool {
-        // Tagged DEV builds are ephemeral, skip quit confirmation entirely.
-        if SocketControlSettings.isTaggedDevBuild() {
-            NSApp.terminate(nil)
-            return true
-        }
-
-        if !QuitWarningSettings.isEnabled() {
+        if !QuitWarningSettings.shouldShowConfirmation(isQuitWarningConfirmed: false) {
             NSApp.terminate(nil)
             return true
         }
@@ -13326,6 +13413,13 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
     /// through the same app-level shortcut handler used by the local key monitor.
     @discardableResult
     func handleBrowserSurfaceKeyEquivalent(_ event: NSEvent) -> Bool {
+        handleConfiguredShortcutKeyEquivalent(event)
+    }
+
+    /// Route AppKit key-equivalent fallbacks through the same configured shortcut
+    /// dispatcher as the local key monitor before any stale menu item can run.
+    @discardableResult
+    func handleConfiguredShortcutKeyEquivalent(_ event: NSEvent) -> Bool {
         handleCustomShortcut(event: event)
     }
 
@@ -13754,23 +13848,52 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             .subtracting([.numericPad, .function, .capsLock])
         guard flags.contains(.command) else { return false }
 
-        for action in KeyboardShortcutSettings.Action.allCases {
-            let currentShortcut = KeyboardShortcutSettings.shortcut(for: action)
-            if matchesKeyboardShortcutEvent(event, action: action, shortcut: currentShortcut) {
+        let staleDefaultActions = KeyboardShortcutSettings.Action.allCases.filter { action in
+            isMenuBackedShortcutAction(action) &&
+                matchesKeyboardShortcutEvent(event, action: action, shortcut: action.defaultShortcut)
+        }
+        guard !staleDefaultActions.isEmpty else { return false }
+
+        for action in staleDefaultActions {
+            if currentShortcutMatchesKeyboardShortcutEvent(event, action: action) {
                 return false
             }
         }
 
-        for action in KeyboardShortcutSettings.Action.allCases where isMenuBackedShortcutAction(action) {
-            if matchesKeyboardShortcutEvent(event, action: action, shortcut: action.defaultShortcut) {
-                return true
+        if staleDefaultActions.contains(where: isCloseShortcutAction) {
+            return true
+        }
+
+        for action in KeyboardShortcutSettings.Action.allCases {
+            if currentShortcutMatchesKeyboardShortcutEvent(event, action: action) {
+                return false
             }
         }
-        return false
+        return true
+    }
+
+    private func currentShortcutMatchesKeyboardShortcutEvent(
+        _ event: NSEvent,
+        action: KeyboardShortcutSettings.Action
+    ) -> Bool {
+        let currentShortcut = KeyboardShortcutSettings.shortcut(for: action)
+        if action.usesNumberedDigitMatching {
+            return numberedShortcutDigit(event: event, shortcut: currentShortcut) != nil
+        }
+        return matchesKeyboardShortcutEvent(event, action: action, shortcut: currentShortcut)
     }
 
     private func isMenuBackedShortcutAction(_ action: KeyboardShortcutSettings.Action) -> Bool {
         action != .showHideAllWindows && action != .globalSearch
+    }
+
+    private func isCloseShortcutAction(_ action: KeyboardShortcutSettings.Action) -> Bool {
+        switch action {
+        case .closeTab, .closeWorkspace, .closeWindow:
+            return true
+        default:
+            return false
+        }
     }
 
     private func numberedShortcutDigit(event: NSEvent, stroke: ShortcutStroke) -> Int? {
@@ -14528,7 +14651,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         // in applicationShouldTerminate/applicationWillTerminate. Saving again here would
         // overwrite it as windows tear down one-by-one, dropping closed windows and replay.
         if Self.shouldPersistSnapshotOnWindowUnregister(isTerminatingApp: isTerminatingApp) {
-            _ = saveSessionSnapshot(includeScrollback: false, removeWhenEmpty: false)
+            saveSessionSnapshotAfterLoadingProcessDetectedIndexes(includeScrollback: false, removeWhenEmpty: false)
         }
     }
 
@@ -15016,6 +15139,12 @@ private extension NSApplication {
             return
         }
         if AppDelegate.shared?.shouldSuppressStaleCmuxMenuShortcut(event: event) == true {
+            if AppDelegate.shared?.handleConfiguredShortcutKeyEquivalent(event) == true {
+#if DEBUG
+                cmuxDebugLog("app.sendEvent routed configured shortcut before stale cmux menu shortcut")
+#endif
+                return
+            }
             let responder = event.window?.firstResponder
                 ?? keyWindow?.firstResponder
                 ?? mainWindow?.firstResponder
@@ -15181,9 +15310,50 @@ private extension AppDelegate {
     }
 
     @objc func handleThemesReloadNotification(_ notification: Notification) {
-        DispatchQueue.main.async {
-            GhosttyApp.shared.reloadConfiguration(source: "distributed.cmux.themes")
+        let targetBundleIdentifier =
+            notification.userInfo?["bundleIdentifier"] as? String
+            ?? notification.object as? String
+        if let targetBundleIdentifier,
+           let bundleIdentifier = Bundle.main.bundleIdentifier,
+           !targetBundleIdentifier.isEmpty,
+           targetBundleIdentifier != bundleIdentifier {
+            return
         }
+
+        let source = GhosttySurfaceConfigurationRefresh.cmuxThemeReloadSource(
+            phase: notification.userInfo?["phase"] as? String
+        )
+        DispatchQueue.main.async {
+            self.reloadGhosttyConfigurationForCmuxThemeSource(source)
+        }
+    }
+
+    func reloadGhosttyConfigurationForCmuxThemeSource(_ source: String) {
+        if GhosttySurfaceConfigurationRefresh.shouldDebounceCmuxThemeReload(source: source) {
+            cmuxThemePreviewReloadGeneration += 1
+            let generation = cmuxThemePreviewReloadGeneration
+            cmuxThemePreviewReloadWorkItem?.cancel()
+
+            let workItem = DispatchWorkItem { [weak self] in
+                guard let self,
+                      self.cmuxThemePreviewReloadGeneration == generation else { return }
+                self.cmuxThemePreviewReloadWorkItem = nil
+                GhosttyApp.shared.reloadConfiguration(source: source)
+            }
+            cmuxThemePreviewReloadWorkItem = workItem
+            DispatchQueue.main.asyncAfter(
+                deadline: .now() + .milliseconds(
+                    GhosttySurfaceConfigurationRefresh.cmuxThemePreviewReloadDebounceMilliseconds
+                ),
+                execute: workItem
+            )
+            return
+        }
+
+        cmuxThemePreviewReloadGeneration += 1
+        cmuxThemePreviewReloadWorkItem?.cancel()
+        cmuxThemePreviewReloadWorkItem = nil
+        GhosttyApp.shared.reloadConfiguration(source: source)
     }
 }
 
@@ -15469,8 +15639,9 @@ private extension NSWindow {
             cmuxFirstResponderGuardContextWindowNumber = previousContextWindowNumber
         }
 
-        guard shouldSuppressWindowMoveForFolderDrag(window: self, event: event),
-              let contentView = self.contentView else {
+        let suppressionReason = beginOrContinueWindowMoveSuppressionSequenceForEvent(window: self, event: event)
+        let hasActiveSuppressionSequence = activeWindowMoveSuppressionSequenceReason(window: self) != nil
+        guard suppressionReason != nil || hasActiveSuppressionSequence else {
 #if DEBUG
             if event.type == .keyDown {
                 folderGuardMs = (ProcessInfo.processInfo.systemUptime - folderGuardStart) * 1000.0
@@ -15489,21 +15660,33 @@ private extension NSWindow {
         }
         let originalDispatchStart = event.type == .keyDown ? ProcessInfo.processInfo.systemUptime : 0
 #endif
+        let shouldFinishSuppression = shouldFinishWindowMoveSuppressionSequenceAfterDispatch(window: self, event: event)
 
-        let contentPoint = contentView.convert(event.locationInWindow, from: nil)
-        let hitView = contentView.hitTest(contentPoint)
-        let previousMovableState = temporarilyDisableWindowDragging(window: self)
+#if DEBUG
+        let hitView = Self.cmuxHitViewForEventDispatch(in: self, event: event)
+#endif
         defer {
-            restoreWindowDragging(window: self, previousMovableState: previousMovableState)
+            let finishedReason: WindowMoveSuppressionReason?
+            if shouldFinishSuppression {
+                finishedReason = finishWindowMoveSuppressionSequence(window: self)
+            } else {
+                finishedReason = nil
+            }
             #if DEBUG
-            cmuxDebugLog("window.sendEvent.folderDown restore nowMovable=\(isMovable)")
+            let reasonDescription = finishedReason?.rawValue ?? suppressionReason?.rawValue ?? "activeSequence"
+            if shouldFinishSuppression {
+                cmuxDebugLog("window.sendEvent.\(reasonDescription) finish nowMovable=\(isMovable)")
+            } else {
+                cmuxDebugLog("window.sendEvent.\(reasonDescription) keepSuppressed nowMovable=\(isMovable)")
+            }
             #endif
         }
 
         #if DEBUG
         let hitDesc = hitView.map { String(describing: type(of: $0)) } ?? "nil"
-        let previousMovableDescription = previousMovableState.map { String($0) } ?? "nil"
-        cmuxDebugLog("window.sendEvent.folderDown suppress=1 hit=\(hitDesc) wasMovable=\(previousMovableDescription)")
+        let depth = windowDragSuppressionDepth(window: self)
+        let reasonDescription = suppressionReason?.rawValue ?? "activeSequence"
+        cmuxDebugLog("window.sendEvent.\(reasonDescription) suppress=1 hit=\(hitDesc) movable=\(isMovable) depth=\(depth)")
         #endif
 
         cmux_sendEvent(event)
@@ -15566,6 +15749,12 @@ private extension NSWindow {
             return true
         }
         if AppDelegate.shared?.shouldSuppressStaleCmuxMenuShortcut(event: event) == true {
+            if AppDelegate.shared?.handleConfiguredShortcutKeyEquivalent(event) == true {
+#if DEBUG
+                cmuxDebugLog("  → consumed by configured shortcut before stale cmux menu shortcut")
+#endif
+                return true
+            }
             if let firstResponderGhosttyView {
                 firstResponderGhosttyView.keyDown(with: event)
 #if DEBUG

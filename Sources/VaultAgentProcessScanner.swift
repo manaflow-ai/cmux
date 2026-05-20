@@ -34,7 +34,21 @@ extension RestorableAgentSessionIndex {
         fileManager: FileManager
     ) -> [PanelKey: (snapshot: SessionRestorableAgentSnapshot, updatedAt: TimeInterval)] {
         let capturedAt = Date().timeIntervalSince1970
-        let processSnapshot = CmuxTopProcessSnapshot.capture(includeProcessDetails: false)
+        let processSnapshot = CmuxTopProcessSnapshot.capture(includeProcessDetails: true)
+        return processDetectedSnapshots(
+            registry: registry,
+            fileManager: fileManager,
+            processSnapshot: processSnapshot,
+            capturedAt: capturedAt
+        )
+    }
+
+    static func processDetectedSnapshots(
+        registry: CmuxVaultAgentRegistry,
+        fileManager: FileManager,
+        processSnapshot: CmuxTopProcessSnapshot,
+        capturedAt: TimeInterval
+    ) -> [PanelKey: (snapshot: SessionRestorableAgentSnapshot, updatedAt: TimeInterval)] {
         var resolved = processDetectedOpenCodeSnapshots(
             processSnapshot: processSnapshot,
             capturedAt: capturedAt,
@@ -535,6 +549,67 @@ extension RestorableAgentSessionIndex {
     }
 }
 
+extension SurfaceResumeBindingIndex {
+    static func processDetectedTmuxBindings(
+        fileManager: FileManager
+    ) -> [PanelKey: (binding: SurfaceResumeBindingSnapshot, updatedAt: TimeInterval)] {
+        _ = fileManager
+        let capturedAt = Date().timeIntervalSince1970
+        let processSnapshot = CmuxTopProcessSnapshot.capture(includeProcessDetails: true)
+        return processDetectedTmuxBindings(
+            fileManager: fileManager,
+            processSnapshot: processSnapshot,
+            capturedAt: capturedAt
+        )
+    }
+
+    static func processDetectedTmuxBindings(
+        fileManager: FileManager,
+        processSnapshot: CmuxTopProcessSnapshot,
+        capturedAt: TimeInterval
+    ) -> [PanelKey: (binding: SurfaceResumeBindingSnapshot, updatedAt: TimeInterval)] {
+        _ = fileManager
+        var resolved: [PanelKey: (binding: SurfaceResumeBindingSnapshot, updatedAt: TimeInterval)] = [:]
+
+        for process in processSnapshot.cmuxScopedProcesses() {
+            guard let workspaceId = process.cmuxWorkspaceID,
+                  let panelId = process.cmuxSurfaceID,
+                  process.isTerminalForegroundProcessGroup,
+                  let processArguments = CmuxTopProcessSnapshot.processArgumentsAndEnvironment(for: process.pid) else {
+                continue
+            }
+            guard let binding = TmuxResumeParser.binding(
+                processName: process.name,
+                processPath: process.path,
+                arguments: processArguments.arguments,
+                environment: processArguments.environment,
+                capturedAt: capturedAt
+            ) else {
+                continue
+            }
+            resolved[PanelKey(workspaceId: workspaceId, panelId: panelId)] = (binding: binding, updatedAt: capturedAt)
+        }
+
+        return resolved
+    }
+
+    static func tmuxResumeBindingForTesting(
+        processName: String,
+        processPath: String?,
+        arguments: [String],
+        environment: [String: String],
+        capturedAt: TimeInterval = 1_777_777_777
+    ) -> SurfaceResumeBindingSnapshot? {
+        TmuxResumeParser.binding(
+            processName: processName,
+            processPath: processPath,
+            arguments: arguments,
+            environment: environment,
+            capturedAt: capturedAt
+        )
+    }
+}
+
 private struct VaultObservedAgentProcess: Sendable {
     let processName: String
     let processPath: String?
@@ -594,6 +669,18 @@ private struct VaultObservedAgentProcess: Sendable {
             basename == ".opencode" ||
             basename == "opencode-ai" ||
             basename == "open-code"
+    }
+
+    static func argumentLooksLikeTmux(_ argument: String) -> Bool {
+        TmuxResumeParser.argumentLooksLikeTmux(argument)
+    }
+
+    static func argumentLooksLikeTmuxProcessTitle(_ argument: String) -> Bool {
+        TmuxResumeParser.argumentLooksLikeTmuxProcessTitle(argument)
+    }
+
+    static func argumentLooksLikeTmuxServerProcessTitle(_ argument: String) -> Bool {
+        TmuxResumeParser.argumentLooksLikeTmuxServerProcessTitle(argument)
     }
 
     private static func wrapperLooksLikeNodeRuntime(_ basename: String) -> Bool {
@@ -656,12 +743,16 @@ private struct VaultObservedAgentProcess: Sendable {
 
 private extension CmuxVaultAgentDetectRule {
     func matches(_ process: VaultObservedAgentProcess) -> Bool {
-        guard processName != nil || !argvContains.isEmpty else { return false }
-        let processNameMatch = processName.map { expected in
+        var expectedNames = processNames
+        if let processName {
+            expectedNames.append(processName)
+        }
+        guard !expectedNames.isEmpty || !argvContains.isEmpty else { return false }
+        let processNameMatch = expectedNames.isEmpty || expectedNames.contains { expected in
             process.executableBasenames.contains { candidate in
                 candidate.compare(expected, options: [.caseInsensitive, .literal]) == .orderedSame
             }
-        } ?? true
+        }
         let argvContainsMatch = argvContains.isEmpty || argvContains.allSatisfy { needle in
             if needle.contains(" ") {
                 let joinedArguments = process.arguments.joined(separator: " ")
@@ -702,6 +793,11 @@ private extension CmuxVaultAgentSessionIDSource {
                 ) ?? session
             }
             return PiSessionLocator.latestSessionPath(for: process, registration: registration, fileManager: fileManager)
+        case .grokSessionDirectory:
+            if let session = process.arguments.grokResumeSessionID {
+                return session
+            }
+            return nil
         }
     }
 }
@@ -734,6 +830,31 @@ private extension Array where Element == String {
             if argument.hasPrefix(prefix) {
                 let value = String(argument.dropFirst(prefix.count)).trimmingCharacters(in: .whitespacesAndNewlines)
                 return value.isEmpty ? nil : value
+            }
+        }
+        return nil
+    }
+
+    var grokResumeSessionID: String? {
+        let options = ["-r", "--resume"]
+        for index in indices {
+            let argument = self[index]
+            if options.contains(argument) {
+                let nextIndex = self.index(after: index)
+                guard nextIndex < endIndex else { continue }
+                let value = self[nextIndex].trimmingCharacters(in: .whitespacesAndNewlines)
+                if !value.isEmpty, !value.hasPrefix("-") {
+                    return value
+                }
+                continue
+            }
+            for option in options {
+                let prefix = option + "="
+                guard argument.hasPrefix(prefix) else { continue }
+                let value = String(argument.dropFirst(prefix.count)).trimmingCharacters(in: .whitespacesAndNewlines)
+                if !value.isEmpty, !value.hasPrefix("-") {
+                    return value
+                }
             }
         }
         return nil

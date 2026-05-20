@@ -660,6 +660,7 @@ final class TitlebarChromeGeometryReportingView: NSView {
 
 struct TitlebarControlButton<Content: View>: View {
     let config: TitlebarControlsStyleConfig
+    let foregroundColor: Color
     let accessibilityIdentifier: String
     let accessibilityLabel: String
     let action: () -> Void
@@ -672,7 +673,7 @@ struct TitlebarControlButton<Content: View>: View {
             content()
         }
         .disabled(!isEnabled)
-        .buttonStyle(TitlebarControlButtonStyle(config: config))
+        .buttonStyle(TitlebarControlButtonStyle(config: config, foregroundColor: foregroundColor))
         .frame(width: config.buttonSize, height: config.buttonSize)
         .background(TitlebarChromeGeometryReporter(keyPrefix: accessibilityIdentifier.replacingOccurrences(of: ".", with: "_")))
         .contentShape(Rectangle())
@@ -710,26 +711,32 @@ func focusHistoryNavigationAvailability(preferredWindow: NSWindow?) -> FocusHist
 
 private struct TitlebarControlButtonStyle: ButtonStyle {
     let config: TitlebarControlsStyleConfig
+    let foregroundColor: Color
 
     func makeBody(configuration: Configuration) -> some View {
-        TitlebarControlButtonStyleBody(configuration: configuration, config: config)
+        TitlebarControlButtonStyleBody(
+            configuration: configuration,
+            config: config,
+            foregroundColor: foregroundColor
+        )
     }
 }
 
 private struct TitlebarControlButtonStyleBody: View {
     let configuration: ButtonStyle.Configuration
     let config: TitlebarControlsStyleConfig
+    let foregroundColor: Color
     @State private var isHovering = false
     @Environment(\.isEnabled) private var isEnabled
 
     var body: some View {
         configuration.label
             .frame(width: config.buttonSize, height: config.buttonSize)
-            .foregroundStyle(TitlebarControlIconStyle.foregroundColor.opacity(foregroundOpacity))
+            .foregroundStyle(foregroundColor.opacity(foregroundOpacity))
             .background {
                 if backgroundOpacity > 0 {
                     RoundedRectangle(cornerRadius: config.buttonCornerRadius, style: .continuous)
-                        .fill(Color.primary.opacity(backgroundOpacity))
+                        .fill(foregroundColor.opacity(backgroundOpacity))
                 } else if config.buttonBackground {
                     RoundedRectangle(cornerRadius: config.buttonCornerRadius, style: .continuous)
                         .fill(Color(nsColor: .controlBackgroundColor).opacity(0.45))
@@ -738,7 +745,7 @@ private struct TitlebarControlButtonStyleBody: View {
             .overlay {
                 if borderOpacity > 0 {
                     RoundedRectangle(cornerRadius: config.buttonCornerRadius, style: .continuous)
-                        .stroke(Color.primary.opacity(borderOpacity), lineWidth: 0.5)
+                        .stroke(foregroundColor.opacity(borderOpacity), lineWidth: 0.5)
                 }
             }
             .scaleEffect(titlebarControlPressedScale(isPressed: configuration.isPressed))
@@ -823,6 +830,7 @@ struct TitlebarControlsView: View {
     @ObservedObject private var popoverVisibilityState = NotificationsPopoverVisibilityState.shared
     @AppStorage("titlebarControlsStyle") private var styleRawValue = TitlebarControlsStyle.classic.rawValue
     @State private var shortcutRefreshTick = 0
+    @State private var appearanceRefreshTick = 0
     @State private var isHoveringControls = false
     @State private var hostWindowNumber: Int?
     @State private var focusHistoryAvailabilityRevision: UInt64 = 0
@@ -858,13 +866,15 @@ struct TitlebarControlsView: View {
         // Force the `.safeHelp(...)` tooltips to re-evaluate when shortcuts are changed in settings.
         // (The titlebar controls don't otherwise re-render on UserDefaults changes.)
         let _ = shortcutRefreshTick
+        let _ = appearanceRefreshTick
         let style = TitlebarControlsStyle(rawValue: styleRawValue) ?? .classic
         let config = style.config
         let contentSize = TitlebarControlsLayoutMetrics.contentSize(
             config: config,
             titlebarShortcutHintXOffset: titlebarShortcutHintXOffset
         )
-        controlsGroup(config: config)
+        let foregroundColor = Color(nsColor: titlebarControlForegroundNSColor(opacity: 1.0))
+        controlsGroup(config: config, foregroundColor: foregroundColor)
             .padding(.leading, 4)
             .padding(.trailing, titlebarHintTrailingInset)
             .frame(width: contentSize.width, height: contentSize.height, alignment: .leading)
@@ -900,6 +910,12 @@ struct TitlebarControlsView: View {
             .onReceive(NotificationCenter.default.publisher(for: NSWindow.didBecomeKeyNotification)) { _ in
                 focusHistoryAvailabilityRevision &+= 1
             }
+            .onReceive(NotificationCenter.default.publisher(for: .ghosttyConfigDidReload)) { _ in
+                appearanceRefreshTick &+= 1
+            }
+            .onReceive(NotificationCenter.default.publisher(for: .ghosttyDefaultBackgroundDidChange)) { _ in
+                appearanceRefreshTick &+= 1
+            }
             .onAppear {
                 modifierKeyMonitor.start()
             }
@@ -920,12 +936,13 @@ struct TitlebarControlsView: View {
 
     @MainActor
     @ViewBuilder
-    private func controlsGroup(config: TitlebarControlsStyleConfig) -> some View {
+    private func controlsGroup(config: TitlebarControlsStyleConfig, foregroundColor: Color) -> some View {
         let hintLayoutItems = titlebarHintLayoutItems(config: config)
         let focusHistoryAvailability = focusHistoryNavigationAvailabilitySnapshot
         let content = HStack(spacing: config.spacing) {
             TitlebarControlButton(
                 config: config,
+                foregroundColor: foregroundColor,
                 accessibilityIdentifier: "titlebarControl.toggleSidebar",
                 accessibilityLabel: String(localized: "titlebar.sidebar.accessibilityLabel", defaultValue: "Toggle Sidebar"),
                 action: {
@@ -940,6 +957,7 @@ struct TitlebarControlsView: View {
 
             TitlebarControlButton(
                 config: config,
+                foregroundColor: foregroundColor,
                 accessibilityIdentifier: "titlebarControl.showNotifications",
                 accessibilityLabel: String(localized: "titlebar.notifications.accessibilityLabel", defaultValue: "Notifications"),
                 action: {
@@ -973,6 +991,7 @@ struct TitlebarControlsView: View {
 
             TitlebarControlButton(
                 config: config,
+                foregroundColor: foregroundColor,
                 accessibilityIdentifier: "titlebarControl.newTab",
                 accessibilityLabel: String(localized: "titlebar.newWorkspace.accessibilityLabel", defaultValue: "New Workspace"),
                 action: {
@@ -990,6 +1009,7 @@ struct TitlebarControlsView: View {
 
             TitlebarControlButton(
                 config: config,
+                foregroundColor: foregroundColor,
                 accessibilityIdentifier: "titlebarControl.focusHistoryBack",
                 accessibilityLabel: String(localized: "menu.history.focusBack", defaultValue: "Focus Back"),
                 action: onFocusHistoryBack,
@@ -1004,6 +1024,7 @@ struct TitlebarControlsView: View {
 
             TitlebarControlButton(
                 config: config,
+                foregroundColor: foregroundColor,
                 accessibilityIdentifier: "titlebarControl.focusHistoryForward",
                 accessibilityLabel: String(localized: "menu.history.focusForward", defaultValue: "Focus Forward"),
                 action: onFocusHistoryForward,

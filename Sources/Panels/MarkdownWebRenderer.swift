@@ -2,72 +2,10 @@ import AppKit
 import SwiftUI
 import WebKit
 
-@MainActor
-private final class WeakMarkdownScriptMessageHandler: NSObject, WKScriptMessageHandler {
-    weak var target: WKScriptMessageHandler?
-
-    init(_ target: WKScriptMessageHandler) {
-        self.target = target
-    }
-
-    func userContentController(
-        _ userContentController: WKUserContentController,
-        didReceive message: WKScriptMessage
-    ) {
-        target?.userContentController(userContentController, didReceive: message)
-    }
-}
-
-@MainActor
-final class MarkdownWebView: WKWebView {
-    var onPointerDown: (() -> Void)?
-
-    override func acceptsFirstMouse(for event: NSEvent?) -> Bool {
-        PaneFirstClickFocusSettings.isEnabled()
-    }
-
-    override func mouseDown(with event: NSEvent) {
-        onPointerDown?()
-        super.mouseDown(with: event)
-    }
-}
-
-struct MarkdownWebTheme: Equatable {
-    let isDark: Bool
-    let background: String
-    let mutedBackground: String
-    let neutralMutedBackground: String
-    let border: String
-    let mutedBorder: String
-
-    static func resolve(backgroundColor: NSColor) -> MarkdownWebTheme {
-        let base = backgroundColor.markdownOpaqueSRGB
-        let isDark = !base.isLightColor
-        let overlayColor: NSColor = isDark ? .white : .black
-        let muted = base.markdownThemeOverlay(
-            targetContrast: isDark ? 1.09 : 1.06,
-            of: overlayColor
-        )
-        let neutralMuted = base.markdownThemeOverlay(
-            targetContrast: isDark ? 1.35 : 1.20,
-            of: overlayColor
-        )
-        let border = base.markdownThemeOverlay(
-            targetContrast: isDark ? 1.92 : 1.43,
-            of: overlayColor
-        )
-        return MarkdownWebTheme(
-            isDark: isDark,
-            background: "transparent",
-            mutedBackground: muted.markdownCSSColor,
-            neutralMutedBackground: neutralMuted.markdownCSSColor,
-            border: border.markdownCSSColor,
-            mutedBorder: border.withAlphaComponent(border.alphaComponent * 0.70).markdownCSSColor
-        )
-    }
-}
-
 struct MarkdownWebRenderer: NSViewRepresentable {
+    static let localImageURLScheme = "cmux-local-image"
+    static let remoteImageURLScheme = "cmux-remote-image"
+
     let markdown: String
     let theme: MarkdownWebTheme
     let backgroundColor: NSColor
@@ -100,6 +38,14 @@ struct MarkdownWebRenderer: NSViewRepresentable {
         // (mermaid / vega-lite). Swift fetches the bundled source from the
         // app bundle and injects it via evaluateJavaScript.
         config.userContentController.add(WeakMarkdownScriptMessageHandler(context.coordinator), name: "cmuxLib")
+        config.setURLSchemeHandler(
+            context.coordinator,
+            forURLScheme: Self.localImageURLScheme
+        )
+        config.setURLSchemeHandler(
+            context.coordinator,
+            forURLScheme: Self.remoteImageURLScheme
+        )
         let webView = MarkdownWebView(frame: .zero, configuration: config)
         webView.onPointerDown = onRequestPanelFocus
         webView.setValue(false, forKey: "drawsBackground")
@@ -136,7 +82,11 @@ struct MarkdownWebRenderer: NSViewRepresentable {
         if let retainedWebView = coordinator.webView, retainedWebView === nsView {
             return
         }
+        nsView.configuration.userContentController.removeScriptMessageHandler(forName: "cmuxLib")
+        nsView.navigationDelegate = nil
+        nsView.uiDelegate = nil
         (nsView as? MarkdownWebView)?.onPointerDown = nil
+        coordinator.cancelImageLoads()
     }
 
     /// WebKit's `prefers-color-scheme` media query reflects the WKWebView's
@@ -157,7 +107,7 @@ struct MarkdownWebRenderer: NSViewRepresentable {
     }
 
     @MainActor
-    final class Coordinator: NSObject, WKNavigationDelegate, WKUIDelegate, WKScriptMessageHandler {
+    final class Coordinator: NSObject, WKNavigationDelegate, WKUIDelegate, WKScriptMessageHandler, WKURLSchemeHandler {
         var webView: MarkdownWebView?
         var panelId: UUID = UUID()
         var workspaceId: UUID = UUID()
@@ -170,6 +120,22 @@ struct MarkdownWebRenderer: NSViewRepresentable {
         private var isShellLoading = false
         private var webContentProcessRecoveryAttempts = 0
         private let maxWebContentProcessRecoveryAttempts = 2
+
+        private struct ImageLoadResult {
+            let data: Data
+            let mimeType: String
+        }
+
+        private final class ImageLoad {
+            var reader: Task<ImageLoadResult, Never>?
+            var sender: Task<Void, Never>?
+
+            func cancel() {
+                reader?.cancel()
+                sender?.cancel()
+            }
+        }
+        private var imageLoads: [ObjectIdentifier: ImageLoad] = [:]
 
 #if DEBUG
         var isShellLoadingForTesting: Bool {
@@ -199,6 +165,7 @@ struct MarkdownWebRenderer: NSViewRepresentable {
             isLoaded = false
             isShellLoading = false
             webContentProcessRecoveryAttempts = 0
+            cancelImageLoads()
             requestedLibs.removeAll()
         }
 
@@ -394,6 +361,144 @@ struct MarkdownWebRenderer: NSViewRepresentable {
         }
 
         private var requestedLibs: Set<String> = []
+
+        // MARK: WKURLSchemeHandler
+
+        func webView(_ webView: WKWebView, start urlSchemeTask: WKURLSchemeTask) {
+            guard let requestURL = urlSchemeTask.request.url else {
+                urlSchemeTask.didFailWithError(NSError(domain: NSURLErrorDomain, code: NSURLErrorBadURL))
+                return
+            }
+
+            let taskId = ObjectIdentifier(urlSchemeTask as AnyObject)
+            let load = ImageLoad()
+            imageLoads[taskId] = load
+            let reader = imageLoadTask(for: requestURL)
+            load.reader = reader
+            let sender = Task { [weak self, weak load] in
+                defer {
+                    if let load, self?.imageLoads[taskId] === load {
+                        self?.imageLoads[taskId] = nil
+                    }
+                }
+                let result = await reader.value
+                guard !Task.isCancelled else { return }
+                let response = URLResponse(
+                    url: requestURL,
+                    mimeType: result.mimeType,
+                    expectedContentLength: result.data.count,
+                    textEncodingName: nil
+                )
+                urlSchemeTask.didReceive(response)
+                if !result.data.isEmpty {
+                    urlSchemeTask.didReceive(result.data)
+                }
+                urlSchemeTask.didFinish()
+            }
+            load.sender = sender
+        }
+
+        func webView(_ webView: WKWebView, stop urlSchemeTask: WKURLSchemeTask) {
+            let taskId = ObjectIdentifier(urlSchemeTask as AnyObject)
+            guard let load = imageLoads.removeValue(forKey: taskId) else { return }
+            load.cancel()
+        }
+
+        func cancelImageLoads() {
+            let loads = imageLoads.values
+            imageLoads.removeAll()
+            for load in loads {
+                load.cancel()
+            }
+        }
+
+        func cancelLocalImageLoads() {
+            cancelImageLoads()
+        }
+
+        private func imageLoadTask(for requestURL: URL) -> Task<ImageLoadResult, Never> {
+            let scheme = requestURL.scheme?.lowercased()
+            if scheme == MarkdownWebRenderer.localImageURLScheme {
+                let fileURL = localImageFileURL(from: requestURL)
+                let mimeType = fileURL
+                    .flatMap { Self.localImageMimeType(for: $0.pathExtension) } ?? "image/png"
+                return Task.detached(priority: .userInitiated) {
+                    guard let fileURL,
+                          FileManager.default.isReadableFile(atPath: fileURL.path) else {
+                        return ImageLoadResult(data: Data(), mimeType: mimeType)
+                    }
+                    let data = (try? Data(contentsOf: fileURL)) ?? Data()
+                    return ImageLoadResult(data: data, mimeType: mimeType)
+                }
+            }
+
+            if scheme == MarkdownWebRenderer.remoteImageURLScheme {
+                let remoteURL = MarkdownRemoteImageSecurity.remoteImageURL(from: requestURL)
+                return Task.detached(priority: .userInitiated) {
+                    guard let remoteURL,
+                          let fetched = await MarkdownRemoteImageFetcher.fetch(remoteURL) else {
+                        return ImageLoadResult(data: Data(), mimeType: "image/png")
+                    }
+                    return ImageLoadResult(data: fetched.data, mimeType: fetched.mimeType)
+                }
+            }
+
+            return Task.detached {
+                ImageLoadResult(data: Data(), mimeType: "image/png")
+            }
+        }
+
+        private func localImageFileURL(from requestURL: URL) -> URL? {
+            guard requestURL.scheme?.lowercased() == MarkdownWebRenderer.localImageURLScheme,
+                  let components = URLComponents(url: requestURL, resolvingAgainstBaseURL: false),
+                  let rawFileURL = components.queryItems?.first(where: { $0.name == "url" })?.value,
+                  let fileURL = URL(string: rawFileURL),
+                  fileURL.isFileURL else {
+                return nil
+            }
+
+            let markdownFilePath = filePath.trimmingCharacters(in: .whitespacesAndNewlines)
+            guard !markdownFilePath.isEmpty else {
+                return nil
+            }
+
+            let markdownDirectory = URL(fileURLWithPath: markdownFilePath)
+                .deletingLastPathComponent()
+                .standardizedFileURL
+                .resolvingSymlinksInPath()
+            guard markdownDirectory.path != "/" else {
+                return nil
+            }
+
+            let markdownRoot = markdownDirectory.path.hasSuffix("/")
+                ? markdownDirectory.path
+                : markdownDirectory.path + "/"
+            let standardizedURL = fileURL
+                .standardizedFileURL
+                .resolvingSymlinksInPath()
+            guard standardizedURL.path.hasPrefix(markdownRoot),
+                  Self.localImageMimeType(for: standardizedURL.pathExtension) != nil else {
+                return nil
+            }
+            return standardizedURL
+        }
+
+        private static func localImageMimeType(for pathExtension: String) -> String? {
+            switch pathExtension.lowercased() {
+            case "png":
+                return "image/png"
+            case "jpg", "jpeg":
+                return "image/jpeg"
+            case "gif":
+                return "image/gif"
+            case "webp":
+                return "image/webp"
+            case "avif":
+                return "image/avif"
+            default:
+                return nil
+            }
+        }
 
         private func resolveMarkdownFile(_ rawPath: String, requestId: String) {
             guard let webView else { return }
@@ -646,104 +751,5 @@ struct MarkdownWebRenderer: NSViewRepresentable {
             }
             return false
         }
-    }
-}
-
-/// Panel-owned renderer session for a markdown preview.
-///
-/// SwiftUI may recreate `MarkdownWebRenderer` wrappers during split/tab layout
-/// updates. The session keeps the WebKit coordinator identity tied to the
-/// logical `MarkdownPanel` instead of the transient representable instance.
-@MainActor
-final class MarkdownRendererSession {
-    private let ownedCoordinator = MarkdownWebRenderer.Coordinator()
-
-    func coordinator(
-        panelId: UUID,
-        workspaceId: UUID,
-        filePath: String
-    ) -> MarkdownWebRenderer.Coordinator {
-        ownedCoordinator.bind(panelId: panelId, workspaceId: workspaceId, filePath: filePath)
-        return ownedCoordinator
-    }
-
-    func close() {
-        ownedCoordinator.close()
-    }
-
-    func renderedHTML(markdown: String? = nil) async -> String? {
-        await ownedCoordinator.renderedHTML(markdown: markdown)
-    }
-
-    func renderedText() async -> String? {
-        await ownedCoordinator.renderedText()
-    }
-}
-
-extension NSColor {
-    var markdownOpaqueSRGB: NSColor {
-        (usingColorSpace(.sRGB) ?? self).withAlphaComponent(1)
-    }
-
-    var markdownCSSColor: String {
-        let color = usingColorSpace(.sRGB) ?? self
-        var red: CGFloat = 0
-        var green: CGFloat = 0
-        var blue: CGFloat = 0
-        var alpha: CGFloat = 1
-        color.getRed(&red, green: &green, blue: &blue, alpha: &alpha)
-        let r = min(255, max(0, Int((red * 255).rounded())))
-        let g = min(255, max(0, Int((green * 255).rounded())))
-        let b = min(255, max(0, Int((blue * 255).rounded())))
-        let a = min(1, max(0, alpha))
-        return String(format: "rgba(%d, %d, %d, %.3f)", r, g, b, Double(a))
-    }
-
-    func markdownThemeOverlay(targetContrast: CGFloat, of color: NSColor) -> NSColor {
-        let base = markdownOpaqueSRGB
-        let overlay = color.markdownOpaqueSRGB
-        var low: CGFloat = 0
-        var high: CGFloat = 1
-        var result: CGFloat = 1
-
-        for _ in 0..<18 {
-            let mid = (low + high) / 2
-            let candidate = base.blended(withFraction: mid, of: overlay) ?? base
-            if candidate.markdownContrastRatio(with: base) < Double(targetContrast) {
-                low = mid
-            } else {
-                high = mid
-                result = mid
-            }
-        }
-
-        return overlay.withAlphaComponent(result)
-    }
-
-    var markdownRelativeLuminance: Double {
-        let color = usingColorSpace(.sRGB) ?? self
-        var red: CGFloat = 0
-        var green: CGFloat = 0
-        var blue: CGFloat = 0
-        var alpha: CGFloat = 1
-        color.getRed(&red, green: &green, blue: &blue, alpha: &alpha)
-
-        func linear(_ component: CGFloat) -> Double {
-            let value = Double(component)
-            if value <= 0.04045 {
-                return value / 12.92
-            }
-            return pow((value + 0.055) / 1.055, 2.4)
-        }
-
-        return (0.2126 * linear(red)) + (0.7152 * linear(green)) + (0.0722 * linear(blue))
-    }
-
-    func markdownContrastRatio(with other: NSColor) -> Double {
-        let first = markdownRelativeLuminance
-        let second = other.markdownRelativeLuminance
-        let lighter = max(first, second)
-        let darker = min(first, second)
-        return (lighter + 0.05) / (darker + 0.05)
     }
 }
