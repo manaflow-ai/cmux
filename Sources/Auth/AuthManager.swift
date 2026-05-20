@@ -292,7 +292,6 @@ final class AuthManager: ObservableObject {
         if started {
             webAuthSession = session
         } else {
-            authLog("auth.webauth: session.start() returned false")
             finishBrowserSignInAttempt(attemptID)
         }
     }
@@ -545,7 +544,6 @@ final class AuthManager: ObservableObject {
         let teams: [AuthTeamSummary]
     }
 
-    @concurrent
     nonisolated static func signInWithCredentialDirectly(email: String, password: String) async throws -> SignInResult {
         authLog("signInDirectly: email=\(email)")
         let signInJSON = try await stackAPIRequest(
