@@ -17,44 +17,17 @@ struct AgentSessionWebRenderer: NSViewRepresentable {
         )
     }
 
-    func makeNSView(context: Context) -> WKWebView {
-        if let webView = context.coordinator.webView {
-            if webView.superview != nil {
-                webView.removeFromSuperview()
-            }
-            webView.onPointerDown = onRequestPanelFocus
-            applyBackground(to: webView)
-            return webView
+    func makeNSView(context: Context) -> AgentSessionWebHostView {
+        let hostView = AgentSessionWebHostView()
+        hostView.backgroundColor = backgroundColor
+        hostView.onVisibleBounds = { [weak coordinator = context.coordinator] in
+            coordinator?.loadShellIfNeeded()
         }
-
-        let configuration = WKWebViewConfiguration()
-        configuration.suppressesIncrementalRendering = false
-        configuration.userContentController.addScriptMessageHandler(
-            context.coordinator,
-            contentWorld: .page,
-            name: AgentSessionBridgeContract.handlerName
-        )
-        let webView = AgentSessionWebView(frame: .zero, configuration: configuration)
-        webView.onPointerDown = onRequestPanelFocus
-        webView.setValue(false, forKey: "drawsBackground")
-        webView.allowsBackForwardNavigationGestures = false
-        webView.allowsLinkPreview = false
-        webView.navigationDelegate = context.coordinator
-        webView.uiDelegate = context.coordinator
-        if #available(macOS 13.3, *) {
-#if DEBUG
-            webView.isInspectable = true
-#else
-            webView.isInspectable = false
-#endif
-        }
-        applyBackground(to: webView)
-        context.coordinator.webView = webView
-        context.coordinator.loadShell()
-        return webView
+        attachWebView(to: hostView, context: context)
+        return hostView
     }
 
-    func updateNSView(_ nsView: WKWebView, context: Context) {
+    func updateNSView(_ nsView: AgentSessionWebHostView, context: Context) {
         context.coordinator.bind(
             panelId: panel.id,
             workspaceId: panel.workspaceId,
@@ -62,21 +35,22 @@ struct AgentSessionWebRenderer: NSViewRepresentable {
             initialProviderID: panel.initialProviderID,
             workingDirectory: panel.workingDirectory
         )
-        (nsView as? AgentSessionWebView)?.onPointerDown = onRequestPanelFocus
-        applyBackground(to: nsView)
+        nsView.backgroundColor = backgroundColor
+        nsView.onVisibleBounds = { [weak coordinator = context.coordinator] in
+            coordinator?.loadShellIfNeeded()
+        }
+        attachWebView(to: nsView, context: context)
+        if nsView.hasVisibleBounds {
+            context.coordinator.loadShellIfNeeded()
+        }
     }
 
-    static func dismantleNSView(_ nsView: WKWebView, coordinator: Coordinator) {
-        if let retainedWebView = coordinator.webView, retainedWebView === nsView {
+    static func dismantleNSView(_ nsView: AgentSessionWebHostView, coordinator: Coordinator) {
+        if let retainedWebView = coordinator.webView {
+            nsView.detach(webView: retainedWebView)
             return
         }
-        nsView.configuration.userContentController.removeScriptMessageHandler(
-            forName: AgentSessionBridgeContract.handlerName,
-            contentWorld: .page
-        )
-        nsView.navigationDelegate = nil
-        nsView.uiDelegate = nil
-        (nsView as? AgentSessionWebView)?.onPointerDown = nil
+        nsView.detachHostedWebView()
     }
 
     private func applyBackground(to webView: WKWebView) {
@@ -84,6 +58,15 @@ struct AgentSessionWebRenderer: NSViewRepresentable {
         webView.wantsLayer = true
         webView.layer?.backgroundColor = backgroundColor.cgColor
         webView.layer?.isOpaque = backgroundColor.alphaComponent >= 0.999
+    }
+
+    private func attachWebView(to hostView: AgentSessionWebHostView, context: Context) {
+        let webView = context.coordinator.ensureWebView(onPointerDown: onRequestPanelFocus)
+        webView.onPointerDown = onRequestPanelFocus
+        webView.navigationDelegate = context.coordinator
+        webView.uiDelegate = context.coordinator
+        applyBackground(to: webView)
+        hostView.attach(webView)
     }
 }
 
@@ -102,6 +85,70 @@ final class AgentSessionWebView: WKWebView {
     override func mouseDown(with event: NSEvent) {
         onPointerDown?()
         super.mouseDown(with: event)
+    }
+}
+
+@MainActor
+final class AgentSessionWebHostView: NSView {
+    weak var hostedWebView: AgentSessionWebView?
+    var onVisibleBounds: (() -> Void)?
+
+    var backgroundColor: NSColor = .windowBackgroundColor {
+        didSet {
+            wantsLayer = true
+            layer?.backgroundColor = backgroundColor.cgColor
+            hostedWebView?.underPageBackgroundColor = backgroundColor
+        }
+    }
+
+    var hasVisibleBounds: Bool {
+        bounds.width > 1 && bounds.height > 1
+    }
+
+    override init(frame frameRect: NSRect) {
+        super.init(frame: frameRect)
+        wantsLayer = true
+        layer?.backgroundColor = backgroundColor.cgColor
+    }
+
+    required init?(coder: NSCoder) {
+        super.init(coder: coder)
+        wantsLayer = true
+        layer?.backgroundColor = backgroundColor.cgColor
+    }
+
+    func attach(_ webView: AgentSessionWebView) {
+        if webView.superview !== self {
+            webView.removeFromSuperview()
+            addSubview(webView, positioned: .above, relativeTo: nil)
+        }
+        webView.translatesAutoresizingMaskIntoConstraints = true
+        webView.autoresizingMask = [.width, .height]
+        webView.frame = bounds
+        hostedWebView = webView
+        needsLayout = true
+    }
+
+    func detach(webView: AgentSessionWebView) {
+        if hostedWebView === webView {
+            hostedWebView = nil
+        }
+        if webView.superview === self {
+            webView.removeFromSuperview()
+        }
+    }
+
+    func detachHostedWebView() {
+        hostedWebView?.removeFromSuperview()
+        hostedWebView = nil
+    }
+
+    override func layout() {
+        super.layout()
+        hostedWebView?.frame = bounds
+        if hasVisibleBounds {
+            onVisibleBounds?()
+        }
     }
 }
 
@@ -144,6 +191,7 @@ extension AgentSessionWebRenderer {
         private var rendererKind: AgentSessionRendererKind = .react
         private var initialProviderID: AgentSessionProviderID = .codex
         private var workingDirectory: String?
+        private var loadedRendererKind: AgentSessionRendererKind?
         private var processStore = AgentSessionProcessStore()
 
         func bind(
@@ -155,6 +203,9 @@ extension AgentSessionWebRenderer {
         ) {
             self.panelId = panelId
             self.workspaceId = workspaceId
+            if self.rendererKind != rendererKind {
+                loadedRendererKind = nil
+            }
             self.rendererKind = rendererKind
             self.initialProviderID = initialProviderID
             self.workingDirectory = workingDirectory
@@ -163,7 +214,41 @@ extension AgentSessionWebRenderer {
             }
         }
 
-        func loadShell() {
+        func ensureWebView(onPointerDown: @escaping () -> Void) -> AgentSessionWebView {
+            if let webView {
+                webView.onPointerDown = onPointerDown
+                return webView
+            }
+
+            let configuration = WKWebViewConfiguration()
+            configuration.suppressesIncrementalRendering = false
+            configuration.userContentController.addScriptMessageHandler(
+                self,
+                contentWorld: .page,
+                name: AgentSessionBridgeContract.handlerName
+            )
+            let webView = AgentSessionWebView(frame: .zero, configuration: configuration)
+            webView.onPointerDown = onPointerDown
+            webView.setValue(false, forKey: "drawsBackground")
+            webView.allowsBackForwardNavigationGestures = false
+            webView.allowsLinkPreview = false
+            webView.navigationDelegate = self
+            webView.uiDelegate = self
+            if #available(macOS 13.3, *) {
+#if DEBUG
+                webView.isInspectable = true
+#else
+                webView.isInspectable = false
+#endif
+            }
+            self.webView = webView
+            return webView
+        }
+
+        func loadShellIfNeeded() {
+            guard loadedRendererKind != rendererKind else {
+                return
+            }
             guard let resourceDirectoryURL = Bundle.main.resourceURL?
                 .appendingPathComponent(rendererKind.resourceDirectoryName, isDirectory: true) else {
                 return
@@ -178,6 +263,7 @@ extension AgentSessionWebRenderer {
                 )
 #endif
                 webView?.loadHTMLString(html, baseURL: resourceDirectoryURL)
+                loadedRendererKind = rendererKind
             } catch {
 #if DEBUG
                 cmuxDebugLog(
@@ -206,6 +292,7 @@ extension AgentSessionWebRenderer {
                 webView.onPointerDown = nil
             }
             webView = nil
+            loadedRendererKind = nil
         }
 
         func userContentController(
