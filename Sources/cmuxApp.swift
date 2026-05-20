@@ -5737,7 +5737,6 @@ struct SettingsView: View {
                 do {
                     let result = try await BrowserWebExtensionSupport.installExtension(from: url)
                     if !result.parseErrors.isEmpty {
-                        NSLog("[BrowserExtensions] Installed \(url.lastPathComponent) with parser warnings: \(result.parseErrors.joined(separator: "; "))")
                         warnings.append(url.lastPathComponent)
                     }
                 } catch {
