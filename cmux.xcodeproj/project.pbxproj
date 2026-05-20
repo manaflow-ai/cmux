@@ -313,6 +313,9 @@
 		A5001534 /* BrowserWindowPortal.swift in Sources */ = {isa = PBXBuildFile; fileRef = A5001533 /* BrowserWindowPortal.swift */; };
 		A5001540 /* PortScanner.swift in Sources */ = {isa = PBXBuildFile; fileRef = A5001541 /* PortScanner.swift */; };
 		C7A501000000000000000002 /* CmuxTopSnapshot.swift in Sources */ = {isa = PBXBuildFile; fileRef = C7A501000000000000000001 /* CmuxTopSnapshot.swift */; };
+		C7A510000000000000000002 /* CmuxTopMemoryDiagnostics.swift in Sources */ = {isa = PBXBuildFile; fileRef = C7A510000000000000000001 /* CmuxTopMemoryDiagnostics.swift */; };
+		C7A511000000000000000002 /* CmuxTopProcessEnumeration.swift in Sources */ = {isa = PBXBuildFile; fileRef = C7A511000000000000000001 /* CmuxTopProcessEnumeration.swift */; };
+		C7A512000000000000000002 /* CmuxTopProcessSnapshotCache.swift in Sources */ = {isa = PBXBuildFile; fileRef = C7A512000000000000000001 /* CmuxTopProcessSnapshotCache.swift */; };
 		B35750000000000000000004 /* CmuxTopProcessArguments.swift in Sources */ = {isa = PBXBuildFile; fileRef = B35750000000000000000003 /* CmuxTopProcessArguments.swift */; };
 		C7A508000000000000000002 /* CmuxTopSnapshotScopeCache.swift in Sources */ = {isa = PBXBuildFile; fileRef = C7A508000000000000000001 /* CmuxTopSnapshotScopeCache.swift */; };
 		C7A50D000000000000000002 /* CmuxTopProcessCPUTracker.swift in Sources */ = {isa = PBXBuildFile; fileRef = C7A50D000000000000000001 /* CmuxTopProcessCPUTracker.swift */; };
@@ -742,6 +745,9 @@
 		C7A50A000000000000000001 /* TerminalControllerPaneResizeSupport.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TerminalControllerPaneResizeSupport.swift; sourceTree = "<group>"; };
 		C7A50B000000000000000001 /* TerminalControllerV2ParamParsingSupport.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TerminalControllerV2ParamParsingSupport.swift; sourceTree = "<group>"; };
 		C7A501000000000000000001 /* CmuxTopSnapshot.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CmuxTopSnapshot.swift; sourceTree = "<group>"; };
+		C7A510000000000000000001 /* CmuxTopMemoryDiagnostics.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CmuxTopMemoryDiagnostics.swift; sourceTree = "<group>"; };
+		C7A511000000000000000001 /* CmuxTopProcessEnumeration.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CmuxTopProcessEnumeration.swift; sourceTree = "<group>"; };
+		C7A512000000000000000001 /* CmuxTopProcessSnapshotCache.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CmuxTopProcessSnapshotCache.swift; sourceTree = "<group>"; };
 		B35750000000000000000003 /* CmuxTopProcessArguments.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CmuxTopProcessArguments.swift; sourceTree = "<group>"; };
 		C7A508000000000000000001 /* CmuxTopSnapshotScopeCache.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CmuxTopSnapshotScopeCache.swift; sourceTree = "<group>"; };
 		C7A50D000000000000000001 /* CmuxTopProcessCPUTracker.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CmuxTopProcessCPUTracker.swift; sourceTree = "<group>"; };
@@ -1323,9 +1329,12 @@
 						C7A50A000000000000000001 /* TerminalControllerPaneResizeSupport.swift */,
 						C7A50B000000000000000001 /* TerminalControllerV2ParamParsingSupport.swift */,
 						C7A505000000000000000001 /* TerminalControllerTopSupport.swift */,
-				C7A501000000000000000001 /* CmuxTopSnapshot.swift */,
-				B35750000000000000000003 /* CmuxTopProcessArguments.swift */,
-				C7A508000000000000000001 /* CmuxTopSnapshotScopeCache.swift */,
+					C7A501000000000000000001 /* CmuxTopSnapshot.swift */,
+					C7A510000000000000000001 /* CmuxTopMemoryDiagnostics.swift */,
+					C7A511000000000000000001 /* CmuxTopProcessEnumeration.swift */,
+					C7A512000000000000000001 /* CmuxTopProcessSnapshotCache.swift */,
+					B35750000000000000000003 /* CmuxTopProcessArguments.swift */,
+					C7A508000000000000000001 /* CmuxTopSnapshotScopeCache.swift */,
 				C7A50D000000000000000001 /* CmuxTopProcessCPUTracker.swift */,
 				C7A50E000000000000000001 /* CmuxTopProcessDetails.swift */,
 				C7A502000000000000000001 /* TaskManagerWindowController.swift */,
@@ -2060,9 +2069,12 @@
 					C7A50A000000000000000002 /* TerminalControllerPaneResizeSupport.swift in Sources */,
 					C7A50B000000000000000002 /* TerminalControllerV2ParamParsingSupport.swift in Sources */,
 					C7A505000000000000000002 /* TerminalControllerTopSupport.swift in Sources */,
-				C7A501000000000000000002 /* CmuxTopSnapshot.swift in Sources */,
-				B35750000000000000000004 /* CmuxTopProcessArguments.swift in Sources */,
-				C7A508000000000000000002 /* CmuxTopSnapshotScopeCache.swift in Sources */,
+					C7A501000000000000000002 /* CmuxTopSnapshot.swift in Sources */,
+					C7A510000000000000000002 /* CmuxTopMemoryDiagnostics.swift in Sources */,
+					C7A511000000000000000002 /* CmuxTopProcessEnumeration.swift in Sources */,
+					C7A512000000000000000002 /* CmuxTopProcessSnapshotCache.swift in Sources */,
+					B35750000000000000000004 /* CmuxTopProcessArguments.swift in Sources */,
+					C7A508000000000000000002 /* CmuxTopSnapshotScopeCache.swift in Sources */,
 				C7A50D000000000000000002 /* CmuxTopProcessCPUTracker.swift in Sources */,
 				C7A50E000000000000000002 /* CmuxTopProcessDetails.swift in Sources */,
 				C7A502000000000000000002 /* TaskManagerWindowController.swift in Sources */,

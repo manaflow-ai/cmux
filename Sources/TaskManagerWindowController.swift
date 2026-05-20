@@ -136,7 +136,13 @@ final class CmuxTaskManagerModel: ObservableObject {
                 self?.errorMessage = nil
             } catch {
                 guard !Task.isCancelled else { return }
-                self?.errorMessage = String(describing: error)
+                #if DEBUG
+                cmuxDebugLog("taskManager.refresh.error \(String(describing: error))")
+                #endif
+                self?.errorMessage = String(
+                    localized: "taskManager.refresh.error",
+                    defaultValue: "Unable to refresh Task Manager data."
+                )
             }
             if shouldShowIndicator {
                 self?.isRefreshing = false
