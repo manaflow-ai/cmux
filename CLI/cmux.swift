@@ -790,6 +790,19 @@ private final class ClaudeHookSessionStore {
         }
     }
 
+    func hasPendingAskUserQuestionNotification(sessionId: String) throws -> Bool {
+        let normalized = normalizeSessionId(sessionId)
+        guard !normalized.isEmpty else { return false }
+        return try withLockedState { state in
+            guard let record = state.sessions[normalized],
+                  let fingerprint = record.lastAskUserQuestionNotificationFingerprint?
+                    .trimmingCharacters(in: .whitespacesAndNewlines) else {
+                return false
+            }
+            return !fingerprint.isEmpty
+        }
+    }
+
     func markNotificationEmitted(
         sessionId: String,
         fingerprint: String,
@@ -17496,15 +17509,8 @@ struct CMUXCLI {
             }
             if claudeNotificationBodyIsGenericAttentionPlaceholder(summary.body),
                let sessionId = parsedInput.sessionId,
-               let savedBody = mappedSession?.lastBody, !savedBody.isEmpty,
-               let savedAskUserQuestionDedupKey = AgentNeedsInputPublisher.dedupKey(
-                agentKind: "claude",
-                sessionId: parsedInput.sessionId,
-                body: savedBody
-               ),
                try sessionStore.hasPendingAskUserQuestionNotification(
-                sessionId: sessionId,
-                fingerprint: savedAskUserQuestionDedupKey
+                sessionId: sessionId
                ) {
                 print("OK")
                 return
