@@ -735,7 +735,7 @@ nonisolated final class CmuxTopProcessSnapshot: @unchecked Sendable {
                     return $0.displayKey < $1.displayKey
                 }
                 .map { $0.payload() }
-            let topAttribution = attributionPayloads.first ?? NSNull()
+            let topAttribution: Any = attributionPayloads.first.map { $0 as Any } ?? NSNull()
             return [
                 "id": id,
                 "name": name,
