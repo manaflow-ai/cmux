@@ -5112,54 +5112,68 @@ class TerminalController {
         v2MainSync {
             guard let ws = v2ResolveWorkspace(params: params, tabManager: tabManager) else { return }
             let tree = ws.bonsplitController.treeSnapshot()
-            let success = v2ProportionalEqualize(node: tree, controller: ws.bonsplitController, orientationFilter: orientationFilter)
+            let equalizeResult = Self.equalizeSplitsProportionally(
+                in: tree,
+                controller: ws.bonsplitController,
+                fromExternal: true,
+                orientationFilter: orientationFilter
+            )
             result = .ok([
                 "workspace_id": ws.id.uuidString,
                 "workspace_ref": v2Ref(kind: .workspace, uuid: ws.id),
-                "equalized": success
+                "equalized": equalizeResult.foundSplit
             ])
         }
         return result
     }
 
-    /// Count leaf panes in a tree node.
-    private func v2CountLeaves(_ node: ExternalTreeNode) -> Int {
-        switch node {
-        case .pane:
-            return 1
-        case .split(let s):
-            return v2CountLeaves(s.first) + v2CountLeaves(s.second)
-        }
+    struct EqualizeSplitsResult {
+        let foundSplit: Bool
+        let allSucceeded: Bool
+
+        var didFullyEqualize: Bool { foundSplit && allSucceeded }
     }
 
     /// Proportionally equalize splits so each leaf pane gets equal space.
-    /// For a split with N1 leaves on the left and N2 on the right,
-    /// the divider is set to N1/(N1+N2).
-    /// When orientationFilter is set (e.g. "vertical"), only splits matching
-    /// that orientation are equalized. This lets main-vertical layout equalize
-    /// the agent column without squishing the main pane.
+    /// When an orientation filter is set, only matching splits are adjusted, while leaf counts still come from the full subtree.
     @discardableResult
-    private func v2ProportionalEqualize(
-        node: ExternalTreeNode,
+    static func equalizeSplitsProportionally(
+        in node: ExternalTreeNode,
         controller: BonsplitController,
+        fromExternal: Bool,
         orientationFilter: String? = nil
-    ) -> Bool {
-        guard case .split(let s) = node else { return false }
-        guard let splitId = UUID(uuidString: s.id) else { return false }
+    ) -> EqualizeSplitsResult {
+        var foundSplit = false
+        var allSucceeded = true
 
-        var didEqualize = false
-        if orientationFilter == nil || s.orientation == orientationFilter {
-            let leftLeaves = v2CountLeaves(s.first)
-            let rightLeaves = v2CountLeaves(s.second)
-            let total = leftLeaves + rightLeaves
-            let position = CGFloat(leftLeaves) / CGFloat(total)
-            controller.setDividerPosition(position, forSplit: splitId, fromExternal: true)
-            didEqualize = true
+        @discardableResult
+        func equalize(_ node: ExternalTreeNode) -> Int {
+            switch node {
+            case .pane:
+                return 1
+            case .split(let split):
+                let firstLeafCount = equalize(split.first)
+                let secondLeafCount = equalize(split.second)
+                let totalLeafCount = firstLeafCount + secondLeafCount
+
+                if orientationFilter == nil || split.orientation == orientationFilter {
+                    foundSplit = true
+                    if let splitId = UUID(uuidString: split.id) {
+                        let position = CGFloat(firstLeafCount) / CGFloat(totalLeafCount)
+                        if !controller.setDividerPosition(position, forSplit: splitId, fromExternal: fromExternal) {
+                            allSucceeded = false
+                        }
+                    } else {
+                        allSucceeded = false
+                    }
+                }
+
+                return totalLeafCount
+            }
         }
 
-        let l = v2ProportionalEqualize(node: s.first, controller: controller, orientationFilter: orientationFilter)
-        let r = v2ProportionalEqualize(node: s.second, controller: controller, orientationFilter: orientationFilter)
-        return didEqualize || l || r
+        equalize(node)
+        return EqualizeSplitsResult(foundSplit: foundSplit, allSucceeded: allSucceeded)
     }
 
     private func v2WorkspaceRemoteConfigure(params: [String: Any]) -> V2CallResult {
