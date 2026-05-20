@@ -5121,7 +5121,7 @@ class TerminalController {
             result = .ok([
                 "workspace_id": ws.id.uuidString,
                 "workspace_ref": v2Ref(kind: .workspace, uuid: ws.id),
-                "equalized": equalizeResult.didFullyEqualize
+                "equalized": equalizeResult.foundSplit
             ])
         }
         return result
