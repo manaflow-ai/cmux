@@ -28,7 +28,6 @@ struct AgentSessionWebRenderer: NSViewRepresentable {
         }
 
         let configuration = WKWebViewConfiguration()
-        configuration.websiteDataStore = .nonPersistent()
         configuration.suppressesIncrementalRendering = false
         configuration.userContentController.addScriptMessageHandler(
             context.coordinator,
