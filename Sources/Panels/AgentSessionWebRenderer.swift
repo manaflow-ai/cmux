@@ -169,11 +169,7 @@ extension AgentSessionWebRenderer {
                 return
             }
             let indexURL = resourceDirectoryURL.appendingPathComponent("index.html", isDirectory: false)
-            if let html = try? String(contentsOf: indexURL, encoding: .utf8) {
-                webView?.loadHTMLString(html, baseURL: resourceDirectoryURL)
-            } else {
-                webView?.loadFileURL(indexURL, allowingReadAccessTo: resourceDirectoryURL)
-            }
+            webView?.loadFileURL(indexURL, allowingReadAccessTo: resourceDirectoryURL)
         }
 
         func focus() {
