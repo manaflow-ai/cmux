@@ -1115,6 +1115,7 @@ public final class CMUXMobileShellStore {
     private func createRemoteTerminal() async {
         guard let client = remoteClient,
               let workspaceID = selectedWorkspace?.id.rawValue else { return }
+        let requestedWorkspaceID = MobileWorkspacePreview.ID(rawValue: workspaceID)
         let generation = connectionGeneration
         do {
             let resultData = try await client.sendRequest(
@@ -1127,7 +1128,8 @@ public final class CMUXMobileShellStore {
             guard isCurrentRemoteOperation(client: client, generation: generation),
                   !Task.isCancelled else { return }
             applyRemoteWorkspaceList(response, mergeExistingWorkspaces: true)
-            if let createdID = response.createdTerminalID {
+            if selectedWorkspaceID == requestedWorkspaceID,
+               let createdID = response.createdTerminalID {
                 selectedTerminalID = MobileTerminalPreview.ID(rawValue: createdID)
             }
             await refreshSelectedTerminalSnapshot()

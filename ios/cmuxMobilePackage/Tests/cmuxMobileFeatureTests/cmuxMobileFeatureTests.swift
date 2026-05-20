@@ -1298,6 +1298,49 @@ import UIKit
 }
 
 @MainActor
+@Test func remoteCreateTerminalDoesNotStealSelectionAfterWorkspaceSwitch() async throws {
+    let route = try CmxAttachRoute(
+        id: "debug_loopback",
+        kind: .debugLoopback,
+        endpoint: .hostPort(host: "127.0.0.1", port: 56584)
+    )
+    let ticket = try CmxAttachTicket(
+        workspaceID: "workspace-main",
+        terminalID: "terminal-build",
+        macDeviceID: "test-mac",
+        macDisplayName: "Test Mac",
+        routes: [route],
+        expiresAt: Date(timeIntervalSince1970: 2_000_000_000)
+    )
+    let router = DelayedRemoteCreateTerminalRouter()
+    let runtime = testRuntime(
+        supportedRouteKinds: [.debugLoopback],
+        transportFactory: RequestAwareTransportFactory(router: router)
+    )
+    let store = CMUXMobileShellStore.preview(runtime: runtime)
+
+    store.signIn()
+    await store.connectPairingURL(try attachURL(for: ticket).absoluteString)
+    store.createTerminal()
+
+    await router.waitForTerminalCreateRequest()
+    await store.openWorkspace(.init(rawValue: "workspace-docs"))
+    await router.releaseTerminalCreateResponse()
+
+    for _ in 0..<200 where store.selectedTerminalID?.rawValue != "terminal-notes" ||
+        store.selectedWorkspace?.terminals.first?.lines.first != "docs after create race" {
+        try await Task.sleep(nanoseconds: 10_000_000)
+    }
+
+    let requests = await router.sentRequests()
+    #expect(store.connectionError == nil)
+    #expect(store.selectedWorkspace?.id.rawValue == "workspace-docs")
+    #expect(store.selectedTerminalID?.rawValue == "terminal-notes")
+    #expect(store.selectedWorkspace?.terminals.first?.lines.first == "docs after create race")
+    #expect(!requests.contains { $0.workspaceID == "workspace-docs" && $0.terminalID == "workspace-main-terminal-2" })
+}
+
+@MainActor
 @Test func selectingWorkspaceReconcilesTerminalSelection() {
     let store = CMUXMobileShellStore.preview()
     store.signIn()
@@ -2477,6 +2520,80 @@ private actor RemoteCreateTerminalRouter: RequestAwareTransportRouter {
             return try rpcTerminalCreateScopedFrame()
         default:
             return try rpcErrorFrame(message: "Unexpected method \(request.method ?? "nil")")
+        }
+    }
+}
+
+private actor DelayedRemoteCreateTerminalRouter: RequestAwareTransportRouter {
+    private var terminalCreateRequested = false
+    private var terminalCreateReleased = false
+    private var terminalCreateRequestWaiters: [CheckedContinuation<Void, Never>] = []
+    private var terminalCreateReleaseContinuation: CheckedContinuation<Void, Never>?
+    private var requests: [RecordedRPCRequest] = []
+
+    func record(_ request: RecordedRPCRequest) {
+        requests.append(request)
+    }
+
+    func sentRequests() -> [RecordedRPCRequest] {
+        requests
+    }
+
+    func waitForTerminalCreateRequest() async {
+        guard !terminalCreateRequested else { return }
+        await withCheckedContinuation { continuation in
+            terminalCreateRequestWaiters.append(continuation)
+        }
+    }
+
+    func releaseTerminalCreateResponse() {
+        terminalCreateReleased = true
+        terminalCreateReleaseContinuation?.resume()
+        terminalCreateReleaseContinuation = nil
+    }
+
+    func response(for request: RecordedRPCRequest) async throws -> Data? {
+        switch request.method {
+        case "workspace.list":
+            return try rpcTwoWorkspaceListFrame()
+        case "terminal.snapshot":
+            if request.workspaceID == "workspace-docs", request.terminalID == "terminal-notes" {
+                return try rpcSnapshotResultFrame(
+                    workspaceID: "workspace-docs",
+                    terminalID: "terminal-notes",
+                    visibleLines: ["docs after create race"]
+                )
+            }
+            if request.workspaceID == "workspace-main", request.terminalID == "terminal-build" {
+                return try rpcSnapshotResultFrame(
+                    workspaceID: "workspace-main",
+                    terminalID: "terminal-build",
+                    visibleLines: ["initial main"]
+                )
+            }
+            return try rpcErrorFrame(message: "Unexpected terminal snapshot request")
+        case "terminal.create":
+            markTerminalCreateRequested()
+            await waitForTerminalCreateRelease()
+            return try rpcTerminalCreateScopedFrame()
+        default:
+            return try rpcErrorFrame(message: "Unexpected method \(request.method ?? "nil")")
+        }
+    }
+
+    private func markTerminalCreateRequested() {
+        terminalCreateRequested = true
+        let waiters = terminalCreateRequestWaiters
+        terminalCreateRequestWaiters = []
+        for waiter in waiters {
+            waiter.resume()
+        }
+    }
+
+    private func waitForTerminalCreateRelease() async {
+        guard !terminalCreateReleased else { return }
+        await withCheckedContinuation { continuation in
+            terminalCreateReleaseContinuation = continuation
         }
     }
 }
