@@ -510,6 +510,7 @@ struct SessionRestorableAgentSnapshot: Codable, Sendable {
     var kind: RestorableAgentKind
     var sessionId: String
     var workingDirectory: String?
+    var resumeWorkingDirectory: String? = nil
     var launchCommand: AgentLaunchCommandSnapshot?
     var registration: CmuxVaultAgentRegistration? = nil
 
@@ -518,7 +519,7 @@ struct SessionRestorableAgentSnapshot: Codable, Sendable {
             kind: kind,
             sessionId: sessionId,
             launchCommand: launchCommand,
-            workingDirectory: workingDirectory,
+            workingDirectory: resumeWorkingDirectory ?? workingDirectory,
             registrationOverride: registration
         )
     }
@@ -769,6 +770,12 @@ struct RestorableAgentSessionIndex: Sendable {
                     kind: kind,
                     sessionId: normalizedSessionId,
                     workingDirectory: normalizedWorkingDirectory(record.cwd),
+                    resumeWorkingDirectory: resumeWorkingDirectory(
+                        for: record,
+                        kind: kind,
+                        fileManager: fileManager,
+                        claudeTranscriptLookup: claudeTranscriptLookup
+                    ),
                     launchCommand: record.launchCommand,
                     registration: registration
                 )
@@ -793,6 +800,61 @@ struct RestorableAgentSessionIndex: Sendable {
 
     private static func normalizedWorkingDirectory(_ rawValue: String?) -> String? {
         normalizedNonEmptyValue(rawValue)
+    }
+
+    private static func resumeWorkingDirectory(
+        for record: RestorableAgentHookSessionRecord,
+        kind: RestorableAgentKind,
+        fileManager: FileManager,
+        claudeTranscriptLookup: ClaudeTranscriptLookupCache
+    ) -> String? {
+        let hookCwd = normalizedWorkingDirectory(record.cwd)
+        guard kind == .claude else {
+            return nil
+        }
+
+        let launchCwd = normalizedWorkingDirectory(record.launchCommand?.workingDirectory)
+        var seenCandidates: Set<String> = []
+        let candidates = [launchCwd, hookCwd].compactMap { candidate -> String? in
+            guard let candidate, seenCandidates.insert(candidate).inserted else { return nil }
+            return candidate
+        }
+
+        func overrideIfNeeded(_ selected: String?) -> String? {
+            guard selected != hookCwd else { return nil }
+            return selected
+        }
+
+        if let transcriptPath = normalizedNonEmptyValue(record.transcriptPath) {
+            let expandedPath = (transcriptPath as NSString).expandingTildeInPath
+            for cwd in candidates where claudeTranscriptPath(expandedPath, matchesWorkingDirectory: cwd) {
+                return overrideIfNeeded(cwd)
+            }
+        }
+
+        if let sessionId = normalizedNonEmptyValue(record.sessionId),
+           claudeSessionIdIsSafeFilename(sessionId) {
+            let roots = claudeTranscriptLookup.configRoots(for: record)
+            for cwd in candidates {
+                for root in roots where claudeTranscriptFileExists(
+                    configRoot: root,
+                    projectDirName: encodeClaudeProjectDir(cwd),
+                    sessionId: sessionId,
+                    fileManager: fileManager
+                ) {
+                    return overrideIfNeeded(cwd)
+                }
+            }
+        }
+
+        return overrideIfNeeded(launchCwd ?? hookCwd)
+    }
+
+    private static func claudeTranscriptPath(_ transcriptPath: String, matchesWorkingDirectory cwd: String) -> Bool {
+        let projectDirName = URL(fileURLWithPath: transcriptPath)
+            .deletingLastPathComponent()
+            .lastPathComponent
+        return projectDirName == encodeClaudeProjectDir(cwd)
     }
 
     private static func hookRecordIsRestorable(

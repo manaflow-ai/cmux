@@ -948,6 +948,15 @@ extension Workspace {
                     "autoResume=\(autoResumeAgentSessions ? 1 : 0) " +
                     "replayScrollback=\(shouldReplayScrollback ? 1 : 0)"
                 )
+                if let cwd = restorableAgent.workingDirectory,
+                   let resumeCwd = restorableAgent.resumeWorkingDirectory,
+                   cwd != resumeCwd {
+                    cmuxDebugLog(
+                        "session.restore.agent.resumeCwd panel=\(snapshot.id.uuidString.prefix(5)) " +
+                        "kind=\(restorableAgent.kind.rawValue) session=\(sessionPreview) " +
+                        "cwd=\(String(cwd.prefix(160))) resumeCwd=\(String(resumeCwd.prefix(160)))"
+                    )
+                }
             }
             if let resumeBinding {
                 cmuxDebugLog(

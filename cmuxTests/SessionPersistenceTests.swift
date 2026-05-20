@@ -1500,6 +1500,72 @@ final class SessionPersistenceTests: XCTestCase {
         return RestorableAgentSessionIndex.load(homeDirectory: home.path)
     }
 
+    func testClaudeHookResumeUsesTranscriptProjectDirectoryWhenHookCwdMoved() throws {
+        let fileManager = FileManager.default
+        let home = fileManager.temporaryDirectory
+            .appendingPathComponent("cmux-claude-resume-cwd-\(UUID().uuidString)", isDirectory: true)
+        let storeDir = home.appendingPathComponent(".cmuxterm", isDirectory: true)
+        try fileManager.createDirectory(at: storeDir, withIntermediateDirectories: true)
+        defer { try? fileManager.removeItem(at: home) }
+
+        let sessionId = "1d1fb186-204f-4a4d-b1a9-d284e01a31ba"
+        let workspaceId = UUID()
+        let panelId = UUID()
+        let launchCwd = "/Users/test-user/git"
+        let hookCwd = "/Users/test-user/git/worktrees/products/DEV-219209-wonitemcache-event-logger"
+        let transcriptURL = home
+            .appendingPathComponent(".claude", isDirectory: true)
+            .appendingPathComponent("projects", isDirectory: true)
+            .appendingPathComponent("-Users-test-user-git", isDirectory: true)
+            .appendingPathComponent("\(sessionId).jsonl", isDirectory: false)
+        try fileManager.createDirectory(
+            at: transcriptURL.deletingLastPathComponent(),
+            withIntermediateDirectories: true
+        )
+        try #"{"type":"assistant","message":{"content":[{"type":"text","text":"done"}]}}"#
+            .write(to: transcriptURL, atomically: true, encoding: .utf8)
+
+        let storeURL = storeDir.appendingPathComponent("claude-hook-sessions.json", isDirectory: false)
+        let json = """
+        {
+          "version": 1,
+          "sessions": {
+            "\(sessionId)": {
+              "sessionId": "\(sessionId)",
+              "workspaceId": "\(workspaceId.uuidString)",
+              "surfaceId": "\(panelId.uuidString)",
+              "cwd": "\(hookCwd)",
+              "transcriptPath": "\(transcriptURL.path)",
+              "updatedAt": 123,
+              "launchCommand": {
+                "launcher": "claude",
+                "executablePath": "/opt/homebrew/bin/claude",
+                "arguments": [
+                  "/opt/homebrew/bin/claude",
+                  "--dangerously-skip-permissions"
+                ],
+                "workingDirectory": "\(launchCwd)",
+                "environment": {},
+                "capturedAt": 122,
+                "source": "environment"
+              }
+            }
+          }
+        }
+        """
+        try json.write(to: storeURL, atomically: true, encoding: .utf8)
+
+        let index = RestorableAgentSessionIndex.load(homeDirectory: home.path)
+        let snapshot = try XCTUnwrap(index.snapshot(workspaceId: workspaceId, panelId: panelId))
+
+        XCTAssertEqual(snapshot.workingDirectory, hookCwd)
+        XCTAssertEqual(snapshot.resumeWorkingDirectory, launchCwd)
+        XCTAssertEqual(
+            snapshot.resumeCommand,
+            "cd '/Users/test-user/git' && '/opt/homebrew/bin/claude' '--resume' '\(sessionId)' '--dangerously-skip-permissions'"
+        )
+    }
+
     private func makeSnapshot(version: Int) -> AppSessionSnapshot {
         let workspace = SessionWorkspaceSnapshot(
             processTitle: "Terminal",
