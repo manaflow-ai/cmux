@@ -334,6 +334,7 @@ final class SessionIndexRipgrepCancellationTests: XCTestCase {
         }
         task.cancel()
 
-        _ = await task.value
+        let matches = await task.value
+        XCTAssertEqual(matches, [])
     }
 }

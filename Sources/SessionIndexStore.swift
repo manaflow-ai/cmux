@@ -1326,9 +1326,13 @@ final class SessionIndexStore: ObservableObject {
 
         return await withTaskCancellationHandler {
             guard cancellableProcess.shouldStart() else {
-                return nil as [URL]?
+                return []
             }
-            do { try process.run() } catch { return nil as [URL]? }
+            do {
+                try process.run()
+            } catch {
+                return Task.isCancelled ? [] : nil
+            }
             cancellableProcess.markStarted()
             defer { cancellableProcess.complete() }
             // Drain stdout BEFORE waitUntilExit. With many matches rg writes
@@ -1350,7 +1354,7 @@ final class SessionIndexStore: ObservableObject {
             case 1:
                 return []
             default:
-                return nil
+                return Task.isCancelled ? [] : nil
             }
         } onCancel: {
             // Fires synchronously when the awaiting Task is cancelled. Sends
@@ -1385,6 +1389,7 @@ final class SessionIndexStore: ObservableObject {
                     root: root.projectsRoot,
                     fileGlob: "*.jsonl"
                 ) else {
+                    if Task.isCancelled { return [] }
                     candidates.append(
                         contentsOf: enumerateClaudeJSONLCandidates(
                             root: root,
