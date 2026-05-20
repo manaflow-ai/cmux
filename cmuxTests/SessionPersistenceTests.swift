@@ -34,6 +34,7 @@ final class SessionPersistenceTests: XCTestCase {
         )
         workspace.setCustomTitle("Docs")
         workspace.setPanelCustomTitle(panelId: panel.id, title: "Readme")
+        panel.setDisplayMode(.text)
 
         let snapshot = workspace.sessionSnapshot(includeScrollback: false)
 
@@ -43,6 +44,7 @@ final class SessionPersistenceTests: XCTestCase {
         let restoredPanelId = try XCTUnwrap(restored.focusedPanelId)
         let restoredPanel = try XCTUnwrap(restored.markdownPanel(for: restoredPanelId))
         XCTAssertEqual(restoredPanel.filePath, markdownURL.path)
+        XCTAssertEqual(restoredPanel.displayMode, .text)
         XCTAssertEqual(restored.customTitle, "Docs")
         XCTAssertEqual(restored.panelTitle(panelId: restoredPanelId), "Readme")
     }

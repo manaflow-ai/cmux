@@ -2,7 +2,7 @@ import AppKit
 import Combine
 import Foundation
 
-enum MarkdownPanelDisplayMode: String, CaseIterable, Identifiable {
+enum MarkdownPanelDisplayMode: String, CaseIterable, Codable, Identifiable, Sendable {
     case preview
     case text
 

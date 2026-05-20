@@ -4132,23 +4132,35 @@ struct CMUXCLI {
         }
 
         func missingSlugMessage(verb: String, usage: String) -> String {
-            String(
-                localized: "cli.note.error.missingSlug",
-                defaultValue: "cmux note \(verb): missing slug. Usage: \(usage)"
+            String.localizedStringWithFormat(
+                String(
+                    localized: "cli.note.error.missingSlug",
+                    defaultValue: "cmux note %@: missing slug. Usage: %@"
+                ),
+                verb,
+                usage
             )
         }
 
         func unknownFlagMessage(verb: String, flag: String) -> String {
-            String(
-                localized: "cli.note.error.unknownFlag",
-                defaultValue: "cmux note \(verb): unknown flag '\(flag)'"
+            String.localizedStringWithFormat(
+                String(
+                    localized: "cli.note.error.unknownFlag",
+                    defaultValue: "cmux note %@: unknown flag '%@'"
+                ),
+                verb,
+                flag
             )
         }
 
         func unexpectedArgumentMessage(verb: String, argument: String) -> String {
-            String(
-                localized: "cli.note.error.unexpectedArgument",
-                defaultValue: "cmux note \(verb): unexpected argument '\(argument)'"
+            String.localizedStringWithFormat(
+                String(
+                    localized: "cli.note.error.unexpectedArgument",
+                    defaultValue: "cmux note %@: unexpected argument '%@'"
+                ),
+                verb,
+                argument
             )
         }
 
@@ -4195,9 +4207,14 @@ struct CMUXCLI {
                 let path = (payload["path"] as? String) ?? ""
                 let surfaceText = formatHandle(payload, kind: "surface", idFormat: idFormat)
                     ?? String(localized: "cli.note.output.unknown", defaultValue: "unknown")
-                print(String(
-                    localized: "cli.note.output.created",
-                    defaultValue: "OK slug=\(slug) surface=\(surfaceText) path=\(path)"
+                print(String.localizedStringWithFormat(
+                    String(
+                        localized: "cli.note.output.created",
+                        defaultValue: "OK slug=%@ surface=%@ path=%@"
+                    ),
+                    slug,
+                    surfaceText,
+                    path
                 ))
             }
 
@@ -4219,9 +4236,15 @@ struct CMUXCLI {
                 let reusedSuffix = reused
                     ? String(localized: "cli.note.output.reusedSuffix", defaultValue: " (reused)")
                     : ""
-                print(String(
-                    localized: "cli.note.output.opened",
-                    defaultValue: "OK slug=\(slug) surface=\(surfaceText) path=\(path)\(reusedSuffix)"
+                print(String.localizedStringWithFormat(
+                    String(
+                        localized: "cli.note.output.opened",
+                        defaultValue: "OK slug=%@ surface=%@ path=%@%@"
+                    ),
+                    slug,
+                    surfaceText,
+                    path,
+                    reusedSuffix
                 ))
             }
 
@@ -4304,19 +4327,31 @@ struct CMUXCLI {
                 let deleted = (payload["deleted"] as? Bool) ?? false
                 let slug = (payload["slug"] as? String) ?? slugArg
                 let message = deleted
-                    ? String(localized: "cli.note.output.deleted", defaultValue: "OK deleted slug=\(slug)")
-                    : String(
-                        localized: "cli.note.output.alreadyAbsent",
-                        defaultValue: "OK already-absent slug=\(slug)"
+                    ? String.localizedStringWithFormat(
+                        String(
+                            localized: "cli.note.output.deleted",
+                            defaultValue: "OK deleted slug=%@"
+                        ),
+                        slug
+                    )
+                    : String.localizedStringWithFormat(
+                        String(
+                            localized: "cli.note.output.alreadyAbsent",
+                            defaultValue: "OK already-absent slug=%@"
+                        ),
+                        slug
                     )
                 print(message)
             }
 
         default:
             throw CLIError(
-                message: String(
-                    localized: "cli.note.error.unknownSubcommand",
-                    defaultValue: "cmux note: unknown subcommand '\(subcommand)'. Verbs: new, open, list, path, rm"
+                message: String.localizedStringWithFormat(
+                    String(
+                        localized: "cli.note.error.unknownSubcommand",
+                        defaultValue: "cmux note: unknown subcommand '%@'. Verbs: new, open, list, path, rm"
+                    ),
+                    subcommand
                 )
             )
         }

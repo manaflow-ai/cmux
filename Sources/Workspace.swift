@@ -546,6 +546,7 @@ extension Workspace {
             }
             markdownSnapshot = SessionMarkdownPanelSnapshot(
                 filePath: markdownPanel.filePath,
+                displayMode: markdownPanel.displayMode,
                 noteSlug: noteSlug
             )
             filePreviewSnapshot = nil
@@ -1046,6 +1047,9 @@ extension Workspace {
                 focus: false
             ) else {
                 return nil
+            }
+            if let displayMode = snapshotMarkdown.displayMode {
+                markdownPanel.setDisplayMode(displayMode)
             }
             applySessionPanelMetadata(snapshot, toPanelId: markdownPanel.id)
             return markdownPanel.id
