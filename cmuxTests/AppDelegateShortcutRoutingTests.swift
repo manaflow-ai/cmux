@@ -4296,7 +4296,7 @@ final class AppDelegateShortcutRoutingTests: XCTestCase {
             key: String(UnicodeScalar(NSDownArrowFunctionKey)!),
             modifiers: [],
             keyCode: 125,
-            windowNumber: window.windowNumber
+            windowNumber: 0
         ) else {
             XCTFail("Failed to construct Down Arrow event")
             return
