@@ -23,7 +23,7 @@ export default function sitemap(): MetadataRoute.Sitemap {
     { path: "/docs/keyboard-shortcuts", lastModified: "2026-04-03", changeFrequency: "monthly" as const, priority: 0.7 },
     { path: "/docs/api", lastModified: "2026-03-18", changeFrequency: "monthly" as const, priority: 0.8 },
     { path: "/docs/browser-automation", lastModified: "2026-03-18", changeFrequency: "monthly" as const, priority: 0.8 },
-    { path: "/docs/skills", lastModified: "2026-05-01", changeFrequency: "monthly" as const, priority: 0.8 },
+    { path: "/docs/skills", lastModified: "2026-05-15", changeFrequency: "monthly" as const, priority: 0.8 },
     { path: "/docs/notifications", lastModified: "2026-03-18", changeFrequency: "monthly" as const, priority: 0.8 },
     { path: "/docs/ssh", lastModified: "2026-03-31", changeFrequency: "monthly" as const, priority: 0.8 },
     { path: "/docs/agent-integrations/claude-code-teams", lastModified: "2026-03-30", changeFrequency: "monthly" as const, priority: 0.7 },

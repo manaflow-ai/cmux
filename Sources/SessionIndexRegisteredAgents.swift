@@ -151,15 +151,17 @@ extension SessionIndexStore {
                 metadata.branch = firstString(in: object, keys: ["gitBranch", "branch"])
             }
             if metadata.title.isEmpty {
-                metadata.title = firstString(in: object, keys: ["title", "prompt", "text", "content"]) ?? ""
+                metadata.title = firstTopLevelTitle(in: object) ?? ""
             }
             if metadata.title.isEmpty, let message = object["message"] as? [String: Any] {
-                metadata.title = firstString(in: message, keys: ["content", "text"]) ?? ""
+                if shouldUseMessageAsTitle(message) {
+                    metadata.title = firstText(in: message, keys: ["content", "text"]) ?? ""
+                }
             }
             if metadata.title.isEmpty, let messages = object["messages"] as? [[String: Any]] {
                 metadata.title = messages.compactMap { message in
-                    firstString(in: message, keys: ["role"]) == "user"
-                        ? firstString(in: message, keys: ["content", "text"])
+                    shouldUseMessageAsTitle(message)
+                        ? firstText(in: message, keys: ["content", "text"])
                         : nil
                 }.first ?? ""
             }
@@ -206,6 +208,65 @@ extension SessionIndexStore {
             if !trimmed.isEmpty { return trimmed }
         }
         return nil
+    }
+
+    nonisolated private static func firstText(in object: [String: Any], keys: [String]) -> String? {
+        for key in keys {
+            guard let text = firstTextValue(object[key]) else { continue }
+            return text
+        }
+        return nil
+    }
+
+    nonisolated private static func firstTopLevelTitle(in object: [String: Any]) -> String? {
+        if let title = firstText(in: object, keys: ["title", "prompt"]) {
+            return title
+        }
+        guard shouldUseMessageAsTitle(object) else { return nil }
+        return firstText(in: object, keys: ["text", "content"])
+    }
+
+    nonisolated private static func firstTextValue(_ value: Any?) -> String? {
+        if let string = value as? String {
+            return trimmedNonEmpty(string)
+        }
+        if let values = value as? [Any] {
+            for value in values {
+                if let text = firstTextBlock(value) {
+                    return text
+                }
+            }
+        }
+        if let block = value as? [String: Any] {
+            return firstTextBlock(block)
+        }
+        return nil
+    }
+
+    nonisolated private static func firstTextBlock(_ value: Any) -> String? {
+        if let string = value as? String {
+            return trimmedNonEmpty(string)
+        }
+        guard let block = value as? [String: Any] else { return nil }
+        guard let type = firstString(in: block, keys: ["type"]),
+              type.caseInsensitiveCompare("text") == .orderedSame else {
+            return nil
+        }
+        return firstString(in: block, keys: ["text"])
+    }
+
+    nonisolated private static func trimmedNonEmpty(_ value: String) -> String? {
+        let trimmed = value.trimmingCharacters(in: .whitespacesAndNewlines)
+        return trimmed.isEmpty ? nil : trimmed
+    }
+
+    nonisolated private static func shouldUseMessageAsTitle(_ message: [String: Any]) -> Bool {
+        let role = firstString(in: message, keys: ["role"])
+        return role == nil || isUserRole(role)
+    }
+
+    nonisolated private static func isUserRole(_ role: String?) -> Bool {
+        role?.caseInsensitiveCompare("user") == .orderedSame
     }
 
     nonisolated private static func piCWDInferred(from url: URL) -> String? {

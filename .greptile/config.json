@@ -39,13 +39,19 @@
     {
       "id": "cmux-swift-file-package-boundaries",
       "rule": "Flag Swift changes that add too much unrelated responsibility to one file or miss a SwiftPM package boundary: new production Swift files over 400 lines without one responsibility, files over 800 lines, large additions to existing oversized files, mixed UI/state/persistence/network/parsing/protocol code, or independently testable feature logic kept in the app target instead of a small package.",
-      "scope": ["**/*.swift", "**/Package.swift", "GhosttyTabs.xcodeproj/**"],
+      "scope": ["**/*.swift", "**/Package.swift", "cmux.xcodeproj/**"],
       "severity": "high"
     },
     {
       "id": "cmux-swift-logging",
       "rule": "Flag production Swift diagnostics that bypass unified logging or risk leaking sensitive data: print/debugPrint/dump/NSLog in app or runtime code, ad hoc stdout or file logging, MainActor-coupled file-scoped Logger constants, or unredacted secrets, tokens, customer content, or personal data.",
       "scope": ["**/*.swift", "**/Package.swift"],
+      "severity": "high"
+    },
+    {
+      "id": "cmux-full-internationalization",
+      "rule": "Flag production user-facing text that is not fully internationalized across every locale supported by the affected surface: Swift UI/menu/alert/tooltip/error/command text must use String(localized:defaultValue:) or an equivalent localized API with a matching translated string-catalog entry, app string catalog or Info.plist changes must include translated entries for every locale already supported by the touched catalog, and web UI, metadata, API response, rendered markdown, changelog, or user-facing data changes must read from next-intl or another locale-specific source and update every locale listed in web/i18n/routing.ts with matching web/messages entries. Pass for tests, operational docs not shown to end users, developer-only comments, debug-only logs, literal protocol/config tokens, and existing untranslated strings not worsened by the PR.",
+      "scope": ["**/*.swift", "CHANGELOG.md", "Resources/Info.plist", "Resources/*.xcstrings", "web/*.ts", "web/*.tsx", "web/*.js", "web/*.jsx", "web/*.mjs", "web/*.cjs", "web/**/*.ts", "web/**/*.tsx", "web/**/*.js", "web/**/*.jsx", "web/**/*.mjs", "web/**/*.cjs", "web/messages/**/*.json", "web/data/**/*.json", "web/app/**/*.md", "web/app/**/*.mdx"],
       "severity": "high"
     },
     {
@@ -57,7 +63,7 @@
     {
       "id": "cmux-swift-architectural-rethink",
       "rule": "Flag Swift fixes that patch symptoms while leaving bad state representable: timing repairs, new flags/caches/singletons/observers/side channels, duplicate behavior wired through multiple entrypoints, split SwiftUI/AppKit lifecycle ownership, or fixes that do not name the invariant and source of truth.",
-      "scope": ["**/*.swift", "**/Package.swift", "GhosttyTabs.xcodeproj/**"],
+      "scope": ["**/*.swift", "**/Package.swift", "cmux.xcodeproj/**"],
       "severity": "high"
     }
   ]

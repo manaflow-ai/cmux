@@ -12,6 +12,7 @@ export type VmImageManifestEntry = {
   readonly cmuxdRemoteCommit: string;
   readonly builtAt: string;
   readonly builderScriptVersion: string;
+  readonly agentToolResolvedVersions?: Record<string, string>;
   readonly validationStatus: "passed" | "failed" | "unknown";
   readonly notes?: string;
 };

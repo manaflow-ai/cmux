@@ -1,6 +1,7 @@
 import SwiftUI
 import Foundation
 import Bonsplit
+import AppKit
 
 /// View that renders the appropriate panel view based on panel type
 struct PanelContentView: View {
@@ -61,6 +62,7 @@ struct PanelContentView: View {
                     isFocused: isFocused,
                     isVisibleInUI: isVisibleInUI,
                     portalPriority: portalPriority,
+                    appearance: appearance,
                     onRequestPanelFocus: onRequestPanelFocus
                 )
             }
@@ -71,6 +73,16 @@ struct PanelContentView: View {
                     isFocused: isFocused,
                     isVisibleInUI: isVisibleInUI,
                     portalPriority: portalPriority,
+                    appearance: appearance,
+                    onRequestPanelFocus: onRequestPanelFocus
+                )
+            }
+        case .rightSidebarTool:
+            if let rightSidebarToolPanel = panel as? RightSidebarToolPanel {
+                RightSidebarToolPanelView(
+                    panel: rightSidebarToolPanel,
+                    isFocused: isFocused,
+                    isVisibleInUI: isVisibleInUI,
                     appearance: appearance,
                     onRequestPanelFocus: onRequestPanelFocus
                 )
@@ -92,10 +104,67 @@ struct PanelContentView: View {
     private var shouldInstallPaneDropTarget: Bool {
         guard isVisibleInUI else { return false }
         switch panel.panelType {
-        case .markdown, .filePreview:
+        case .markdown, .filePreview, .rightSidebarTool:
             return true
         case .terminal, .browser:
             return false
         }
+    }
+}
+
+struct PanelFilePathHeader<TrailingContent: View>: View {
+    let iconSystemName: String
+    let filePath: String
+    let foregroundColor: NSColor
+    @ViewBuilder let trailingContent: () -> TrailingContent
+
+    var body: some View {
+        HStack(spacing: 8) {
+            Image(systemName: iconSystemName)
+                .foregroundStyle(.secondary)
+                .frame(width: 16)
+            Text(filePath)
+                .font(.system(size: 11, design: .monospaced))
+                .foregroundStyle(Color(nsColor: foregroundColor).opacity(0.68))
+                .lineLimit(1)
+                .truncationMode(.middle)
+                .textSelection(.enabled)
+            Spacer(minLength: 8)
+            trailingContent()
+        }
+        .padding(.horizontal, 12)
+        .frame(height: 30)
+        .background(Color.clear)
+    }
+}
+
+struct PanelHeaderIconButton: View {
+    let systemName: String
+    let label: String
+    var isDisabled: Bool = false
+    let action: () -> Void
+
+    var body: some View {
+        Button(action: action) {
+            PanelHeaderIconGlyph(systemName: systemName)
+        }
+        .buttonStyle(.plain)
+        .foregroundColor(.secondary)
+        .disabled(isDisabled)
+        .help(label)
+        .accessibilityLabel(label)
+    }
+}
+
+struct PanelHeaderIconGlyph: View {
+    let systemName: String
+
+    var body: some View {
+        Image(systemName: systemName)
+            .resizable()
+            .scaledToFit()
+            .frame(width: 13, height: 13)
+            .frame(width: 20, height: 20, alignment: .center)
+            .contentShape(Rectangle())
     }
 }

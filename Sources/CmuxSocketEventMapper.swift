@@ -83,6 +83,14 @@ enum CmuxSocketEventMapper {
             publishResult(name: "notification.requested", category: "notification", method: method, params: redactedNotificationParams(params), result: result)
         case "notification.clear":
             publishResult(name: "notification.clear_requested", category: "notification", method: method, params: params, result: result)
+        case "notification.dismiss":
+            publishResult(name: "notification.dismiss_requested", category: "notification", method: method, params: params, result: result)
+        case "notification.mark_read":
+            publishResult(name: "notification.mark_read_requested", category: "notification", method: method, params: params, result: result)
+        case "notification.open":
+            publishResult(name: "notification.open_requested", category: "notification", method: method, params: params, result: result)
+        case "notification.jump_to_unread":
+            publishResult(name: "notification.jump_to_unread_requested", category: "notification", method: method, params: params, result: result)
         case "feed.permission.reply", "feed.question.reply", "feed.exit_plan.reply":
             publishResult(name: "feed.item.resolved", category: "feed", method: method, params: params, result: result)
         case "app.focus_override.set":

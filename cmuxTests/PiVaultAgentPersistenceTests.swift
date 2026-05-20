@@ -26,6 +26,27 @@ final class PiVaultAgentPersistenceTests: XCTestCase {
         XCTAssertEqual(agent.iconAssetName, "AgentIcons/Acme")
     }
 
+    func testBuiltInIDWithRegisteredMetadataDecodesAsRegisteredAgent() throws {
+        let encoded = Data(#"{"id":"grok","name":"Custom Grok","iconAssetName":"AgentIcons/CustomGrok"}"#.utf8)
+
+        let decoded = try JSONDecoder().decode(SessionAgent.self, from: encoded)
+
+        guard case .registered(let agent) = decoded else {
+            return XCTFail("Expected legacy registered Grok metadata to be preserved")
+        }
+        XCTAssertEqual(agent.id, "grok")
+        XCTAssertEqual(agent.name, "Custom Grok")
+        XCTAssertEqual(agent.iconAssetName, "AgentIcons/CustomGrok")
+    }
+
+    func testBuiltInIDWithoutRegisteredMetadataDecodesAsBuiltInAgent() throws {
+        let encoded = Data(#"{"id":"grok"}"#.utf8)
+
+        let decoded = try JSONDecoder().decode(SessionAgent.self, from: encoded)
+
+        XCTAssertEqual(decoded, .grok)
+    }
+
     func testRegisteredSessionAgentEqualityIncludesPresentation() {
         XCTAssertNotEqual(
             SessionAgent.registered(RegisteredSessionAgent(id: "acme-agent", name: "Acme Agent")),
@@ -38,6 +59,13 @@ final class PiVaultAgentPersistenceTests: XCTestCase {
             ]).count,
             2
         )
+    }
+
+    func testBuiltInPiRegistrationUsesBrandedIconAsset() {
+        let agent = RegisteredSessionAgent(registration: CmuxVaultAgentRegistration.builtInPi)
+
+        XCTAssertEqual(agent.iconAssetName, "AgentIcons/Pi")
+        XCTAssertEqual(SessionAgent.registered(agent).assetName, "AgentIcons/Pi")
     }
 
     func testRegisteredAgentTemplateFailsClosedWhenPlaceholderIsUnavailable() {
@@ -152,7 +180,7 @@ final class PiVaultAgentPersistenceTests: XCTestCase {
         )
 
         XCTAssertNil(entry.resumeWorkingDirectory)
-        XCTAssertEqual(entry.resumeCommandWithCwd, "'acme-agent' '--session' 'session-123'")
+        XCTAssertEqual(entry.resumeCommand, "'acme-agent' '--session' 'session-123'")
     }
 
     func testRegisteredAgentJSONLNativeSessionIDOverridesPathFallback() async throws {
@@ -256,6 +284,128 @@ final class PiVaultAgentPersistenceTests: XCTestCase {
         XCTAssertEqual(entry.gitBranch, "issue-3575-vault-pi-agent-support")
     }
 
+    func testPiJSONLTypedContentBlocksUseFirstUserTextAsTitle() async throws {
+        let tempDir = FileManager.default.temporaryDirectory
+            .appendingPathComponent("cmux-pi-vault-title-blocks-\(UUID().uuidString)", isDirectory: true)
+        try FileManager.default.createDirectory(at: tempDir, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: tempDir) }
+
+        let cwd = "/tmp/pi typed blocks"
+        let projectDirectory = try XCTUnwrap(PiSessionLocator.projectDirectoryName(for: cwd))
+        let sessionDir = tempDir.appendingPathComponent(projectDirectory, isDirectory: true)
+        try FileManager.default.createDirectory(at: sessionDir, withIntermediateDirectories: true)
+        let sessionFile = sessionDir.appendingPathComponent("019e1c86-def0-72c9-90d4-8543db20f981.jsonl")
+        try """
+        {"type":"message","message":{"role":"assistant","content":[{"type":"text","text":"assistant preface"}]}}
+        {"type":"message","message":{"role":"user","content":[{"type":"text","text":"ping"}]}}
+        """.write(to: sessionFile, atomically: true, encoding: .utf8)
+
+        var registration = CmuxVaultAgentRegistration.builtInPi
+        registration.sessionDirectory = tempDir.path
+        let entries = await SessionIndexStore.loadRegisteredAgentEntries(
+            registration: registration,
+            needle: "",
+            cwdFilter: cwd,
+            offset: 0,
+            limit: 10
+        )
+
+        let entry = try XCTUnwrap(entries.first)
+        XCTAssertEqual(entry.title, "ping")
+        XCTAssertEqual(entry.cwd, cwd)
+    }
+
+    func testPiJSONLTopLevelAssistantTypedContentDoesNotBecomeTitle() async throws {
+        let tempDir = FileManager.default.temporaryDirectory
+            .appendingPathComponent("cmux-pi-vault-top-level-role-\(UUID().uuidString)", isDirectory: true)
+        try FileManager.default.createDirectory(at: tempDir, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: tempDir) }
+
+        let cwd = "/tmp/pi top level role"
+        let projectDirectory = try XCTUnwrap(PiSessionLocator.projectDirectoryName(for: cwd))
+        let sessionDir = tempDir.appendingPathComponent(projectDirectory, isDirectory: true)
+        try FileManager.default.createDirectory(at: sessionDir, withIntermediateDirectories: true)
+        let sessionFile = sessionDir.appendingPathComponent("019e1c86-def0-72c9-90d4-8543db20f982.jsonl")
+        try """
+        {"role":"assistant","content":[{"type":"text","text":"assistant preface"}]}
+        {"role":"user","content":[{"type":"text","text":"implement the vault view"}]}
+        """.write(to: sessionFile, atomically: true, encoding: .utf8)
+
+        var registration = CmuxVaultAgentRegistration.builtInPi
+        registration.sessionDirectory = tempDir.path
+        let entries = await SessionIndexStore.loadRegisteredAgentEntries(
+            registration: registration,
+            needle: "",
+            cwdFilter: cwd,
+            offset: 0,
+            limit: 10
+        )
+
+        let entry = try XCTUnwrap(entries.first)
+        XCTAssertEqual(entry.title, "implement the vault view")
+        XCTAssertEqual(entry.cwd, cwd)
+    }
+
+    func testPiJSONLMessagesArrayUsesNilRoleTextAsTitle() async throws {
+        let tempDir = FileManager.default.temporaryDirectory
+            .appendingPathComponent("cmux-pi-vault-messages-nil-role-\(UUID().uuidString)", isDirectory: true)
+        try FileManager.default.createDirectory(at: tempDir, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: tempDir) }
+
+        let cwd = "/tmp/pi nil role"
+        let projectDirectory = try XCTUnwrap(PiSessionLocator.projectDirectoryName(for: cwd))
+        let sessionDir = tempDir.appendingPathComponent(projectDirectory, isDirectory: true)
+        try FileManager.default.createDirectory(at: sessionDir, withIntermediateDirectories: true)
+        let sessionFile = sessionDir.appendingPathComponent("019e1c86-def0-72c9-90d4-8543db20f983.jsonl")
+        try """
+        {"messages":[{"content":[{"type":"text","text":"restore without role"}]},{"role":"assistant","content":[{"type":"text","text":"assistant reply"}]}]}
+        """.write(to: sessionFile, atomically: true, encoding: .utf8)
+
+        var registration = CmuxVaultAgentRegistration.builtInPi
+        registration.sessionDirectory = tempDir.path
+        let entries = await SessionIndexStore.loadRegisteredAgentEntries(
+            registration: registration,
+            needle: "",
+            cwdFilter: cwd,
+            offset: 0,
+            limit: 10
+        )
+
+        let entry = try XCTUnwrap(entries.first)
+        XCTAssertEqual(entry.title, "restore without role")
+        XCTAssertEqual(entry.cwd, cwd)
+    }
+
+    func testPiJSONLTypedContentBlocksRequireTextType() async throws {
+        let tempDir = FileManager.default.temporaryDirectory
+            .appendingPathComponent("cmux-pi-vault-typed-content-\(UUID().uuidString)", isDirectory: true)
+        try FileManager.default.createDirectory(at: tempDir, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: tempDir) }
+
+        let cwd = "/tmp/pi typed content"
+        let projectDirectory = try XCTUnwrap(PiSessionLocator.projectDirectoryName(for: cwd))
+        let sessionDir = tempDir.appendingPathComponent(projectDirectory, isDirectory: true)
+        try FileManager.default.createDirectory(at: sessionDir, withIntermediateDirectories: true)
+        let sessionFile = sessionDir.appendingPathComponent("019e1c86-def0-72c9-90d4-8543db20f984.jsonl")
+        try """
+        {"message":{"role":"user","content":[{"text":"untyped object"},{"type":"image","text":"image fallback"},{"type":"text","text":"typed text title"}]}}
+        """.write(to: sessionFile, atomically: true, encoding: .utf8)
+
+        var registration = CmuxVaultAgentRegistration.builtInPi
+        registration.sessionDirectory = tempDir.path
+        let entries = await SessionIndexStore.loadRegisteredAgentEntries(
+            registration: registration,
+            needle: "",
+            cwdFilter: cwd,
+            offset: 0,
+            limit: 10
+        )
+
+        let entry = try XCTUnwrap(entries.first)
+        XCTAssertEqual(entry.title, "typed text title")
+        XCTAssertEqual(entry.cwd, cwd)
+    }
+
     func testPiVaultAgentSnapshotRoundTripBuildsTargetedSessionCommand() throws {
         let tempDir = FileManager.default.temporaryDirectory
             .appendingPathComponent("cmux-pi-vault-agent-\(UUID().uuidString)", isDirectory: true)
@@ -308,7 +458,8 @@ final class PiVaultAgentPersistenceTests: XCTestCase {
                 ),
                 browser: nil,
                 markdown: nil,
-                filePreview: nil
+                filePreview: nil,
+                rightSidebarTool: nil
             )
         ]
 

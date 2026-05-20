@@ -8,14 +8,17 @@ Greptile is configured to publish a GitHub status check and inline findings. Cod
 
 Current rules:
 
+- `full-internationalization.md`
 - `runtime-no-hacky-sleeps.md`
 - `swift-actor-isolation.md`
 - `swift-architectural-rethink.md`
+- `swift-auxiliary-window-close-shortcuts.md`
 - `swift-blocking-runtime.md`
 - `swift-concurrency-modernization.md`
 - `swift-concurrent-annotation.md`
 - `swift-file-package-boundaries.md`
 - `swift-logging.md`
 - `swiftui-state-layout.md`
+- `user-facing-errors.md`
 
 Open source repository note: review bots should apply the configuration from the base branch. A PR that edits these rules should not be able to weaken its own review.

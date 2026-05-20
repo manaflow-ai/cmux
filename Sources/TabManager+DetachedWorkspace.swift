@@ -34,7 +34,7 @@ extension TabManager {
         let capturedSelectedTabId = sourceWorkspace?.id
 
         return withExtendedLifetime((capturedTabs, sourceWorkspace, detached.panel)) {
-            let inheritedDirectory = preferredWorkingDirectoryForNewTab(workspace: sourceWorkspace)
+            let inheritedDirectory = implicitWorkingDirectoryForNewWorkspace(from: sourceWorkspace)
             let font = inheritedTerminalFontPointsForNewWorkspace(workspace: sourceWorkspace)
             let snapshot = workspaceCreationSnapshotLite(
                 currentTabs: capturedTabs,
@@ -66,7 +66,10 @@ extension TabManager {
                 configTemplate: inheritedConfig,
                 initialDetachedSurface: detached
             )
-            guard newWorkspace.panels[detached.panelId] != nil else { return nil }
+            guard newWorkspace.panels[detached.panelId] != nil,
+                  newWorkspace.paneId(forPanelId: detached.panelId) != nil else {
+                return nil
+            }
 
             applyCreationChromeInheritance(to: newWorkspace, from: sourceWorkspace ?? capturedTabs.first)
             newWorkspace.owningTabManager = self

@@ -153,6 +153,7 @@ jobs:
       - name: Install build deps
         if: needs.decide.outputs.should_publish != 'true' || steps.current_head_prebuild.outputs.still_current == 'true'
         run: |
+          ./scripts/install-rust-ci.sh
           ./scripts/install-zig-ci.sh
           npm install --global "create-dmg@${CREATE_DMG_VERSION}"
 
@@ -166,7 +167,7 @@ jobs:
         uses: actions/cache@27d5ce7f107fe9357f9df03efb73ab90386fccae # v5.0.5
         with:
           path: .spm-cache
-          key: spm-${{ hashFiles('GhosttyTabs.xcodeproj/project.xcworkspace/xcshareddata/swiftpm/Package.resolved') }}
+          key: spm-${{ hashFiles('cmux.xcodeproj/project.xcworkspace/xcshareddata/swiftpm/Package.resolved') }}
           restore-keys: spm-
 
       - name: Setup Go
@@ -286,6 +287,13 @@ jobs:
             /usr/libexec/PlistBuddy -c "Set :CFBundleName cmux NIGHTLY" "$app_plist"
             /usr/libexec/PlistBuddy -c "Set :CFBundleDisplayName cmux NIGHTLY" "$app_plist"
             /usr/libexec/PlistBuddy -c "Set :CFBundleIdentifier ${bundle_id}" "$app_plist"
+            local url_type_name
+            url_type_name="$(/usr/libexec/PlistBuddy -c "Print :CFBundleURLTypes:1:CFBundleURLName" "$app_plist")"
+            if [[ "$url_type_name" != *.auth ]]; then
+              echo "Expected CFBundleURLTypes[1] to be the auth URL type, found: $url_type_name" >&2
+              exit 1
+            fi
+            /usr/libexec/PlistBuddy -c "Set :CFBundleURLTypes:1:CFBundleURLSchemes:0 cmux-nightly" "$app_plist"
             /usr/libexec/PlistBuddy -c "Delete :SUPublicEDKey" "$app_plist" >/dev/null 2>&1 || true
             /usr/libexec/PlistBuddy -c "Delete :SUFeedURL" "$app_plist" >/dev/null 2>&1 || true
             /usr/libexec/PlistBuddy -c "Add :SUPublicEDKey string ${SPARKLE_PUBLIC_KEY}" "$app_plist"
@@ -469,6 +477,8 @@ jobs:
             xcrun stapler staple "$app_path"
             xcrun stapler validate "$app_path"
             spctl -a -vv --type execute "$app_path"
+            ./scripts/smoke-launch-macos-app.sh "$app_path"
+            ./scripts/verify-app-bundle-channel-metadata.sh "$app_path" nightly
             rm -f "$zip_submit"
 
             dmg_tmp_dir="$(mktemp -d)"

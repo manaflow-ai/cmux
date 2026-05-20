@@ -113,6 +113,7 @@ struct CmuxVaultAgentRegistration: Codable, Hashable, Sendable {
         CmuxVaultAgentRegistration(
             id: "pi",
             name: "Pi",
+            iconAssetName: "AgentIcons/Pi",
             detect: CmuxVaultAgentDetectRule(processName: "pi", argvContains: ["pi"]),
             sessionIdSource: .piSessionFile,
             resumeCommand: "{{executable}} --session {{sessionId}}",
