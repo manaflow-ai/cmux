@@ -23292,7 +23292,7 @@ export default function cmuxPiSessionExtension(pi: ExtensionAPI) {
         let sessionId = parsedInput.sessionId ?? stableFallbackFeedSessionId(
             source: source,
             rawObject: fallbackObject,
-            agentPid: ProcessInfo.processInfo.processIdentifier
+            agentPid: Int(ProcessInfo.processInfo.processIdentifier)
         )
         var event: [String: Any] = [
             "session_id": "\(source)-\(sessionId)",
