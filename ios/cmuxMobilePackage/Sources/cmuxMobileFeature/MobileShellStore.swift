@@ -620,7 +620,8 @@ public final class CMUXMobileShellStore {
         )
     }
 
-    public func connectPairingURL(_ rawValue: String? = nil) async {
+    @discardableResult
+    public func connectPairingURL(_ rawValue: String? = nil) async -> Bool {
         let rawURL = Self.normalizedPairingURL(rawValue ?? pairingCode)
         let ticket: CmxAttachTicket
         do {
@@ -629,16 +630,18 @@ public final class CMUXMobileShellStore {
             connectionError = L10n.string("mobile.pairing.invalidCode", defaultValue: "Invalid pairing code.")
             connectionState = .disconnected
             clearRemoteConnectionContext()
-            return
+            return false
         }
 
         do {
             try await connect(ticket: ticket)
+            return connectionState == .connected && activeTicket != nil
         } catch {
             mobileShellLog.error("pairing failed: \(String(describing: error), privacy: .private)")
             connectionError = Self.localizedConnectionError(for: error, route: activeRoute)
             connectionState = .disconnected
             clearRemoteConnectionContext()
+            return false
         }
     }
 

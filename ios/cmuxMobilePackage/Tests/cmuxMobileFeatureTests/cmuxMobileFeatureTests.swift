@@ -278,8 +278,9 @@ import UIKit
     let store = CMUXMobileShellStore.preview()
 
     store.signIn()
-    await store.connectPairingURL(url.absoluteString)
+    let didConnect = await store.connectPairingURL(url.absoluteString)
 
+    #expect(!didConnect)
     #expect(store.phase == .pairing)
     #expect(store.connectionState == .disconnected)
     #expect(store.activeTicket == nil)

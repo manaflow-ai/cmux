@@ -87,11 +87,7 @@ struct CMUXMobileRootView: View {
         .onOpenURL { url in
             let rawURL = url.absoluteString
             if MobileRootAuthGate.isAttachURL(url) {
-                didAuthenticateWithAttachTicket = true
-                syncShellAuthentication(isAuthenticated)
-                Task {
-                    await store.connectPairingURL(rawURL)
-                }
+                connectAttachURL(rawURL)
                 return
             }
 
@@ -140,6 +136,17 @@ struct CMUXMobileRootView: View {
         addDeviceSheetDetent = .large
         #endif
         isShowingAddDeviceSheet = true
+    }
+
+    private func connectAttachURL(_ rawURL: String) {
+        didAuthenticateWithAttachTicket = true
+        syncShellAuthentication(true)
+        Task {
+            let didConnect = await store.connectPairingURL(rawURL)
+            guard !didConnect else { return }
+            didAuthenticateWithAttachTicket = false
+            syncShellAuthentication(authManager.isAuthenticated)
+        }
     }
 
     private func signOut() {

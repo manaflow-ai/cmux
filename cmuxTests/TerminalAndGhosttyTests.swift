@@ -1292,6 +1292,33 @@ final class TerminalOffscreenStartupTests: XCTestCase {
         XCTAssertNil(payload["workspace_count"])
     }
 
+    func testMobileTerminalSnapshotCacheRequiresSameScrollbackDepth() {
+        XCTAssertTrue(
+            TerminalController.debugShouldReuseMobileTerminalSnapshotCacheForTesting(
+                cachedMaxScrollbackRows: nil,
+                requestedMaxScrollbackRows: nil
+            )
+        )
+        XCTAssertTrue(
+            TerminalController.debugShouldReuseMobileTerminalSnapshotCacheForTesting(
+                cachedMaxScrollbackRows: 80,
+                requestedMaxScrollbackRows: 80
+            )
+        )
+        XCTAssertFalse(
+            TerminalController.debugShouldReuseMobileTerminalSnapshotCacheForTesting(
+                cachedMaxScrollbackRows: nil,
+                requestedMaxScrollbackRows: 80
+            )
+        )
+        XCTAssertFalse(
+            TerminalController.debugShouldReuseMobileTerminalSnapshotCacheForTesting(
+                cachedMaxScrollbackRows: 80,
+                requestedMaxScrollbackRows: nil
+            )
+        )
+    }
+
     func testMobileRPCRejectsMalformedWorkspaceIDBeforeImplicitFallback() async throws {
         let previousManager = TerminalController.shared.activeTabManagerForCallerNotification()
         let manager = TabManager()

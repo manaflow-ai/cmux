@@ -19344,6 +19344,7 @@ class TerminalController {
                cached: cached,
                columns: columns,
                rows: rows,
+               maxScrollbackRows: safeMaxScrollbackRows,
                now: now
            ) {
             var payload = cached.payload
@@ -19433,8 +19434,12 @@ class TerminalController {
         cached: MobileTerminalSnapshotCacheEntry,
         columns: Int,
         rows: Int,
+        maxScrollbackRows: Int?,
         now: Date
     ) -> Bool {
+        guard cached.maxScrollbackRows == maxScrollbackRows else {
+            return false
+        }
         let age = now.timeIntervalSince(cached.createdAt)
         if cached.columns == columns,
            cached.rows == rows,
@@ -19443,6 +19448,34 @@ class TerminalController {
         }
         return age <= mobileTerminalSnapshotViewportChurnCacheTTL
     }
+
+#if DEBUG
+    static func debugShouldReuseMobileTerminalSnapshotCacheForTesting(
+        cachedMaxScrollbackRows: Int?,
+        requestedMaxScrollbackRows: Int?,
+        cachedColumns: Int = 80,
+        requestedColumns: Int = 80,
+        cachedRows: Int = 24,
+        requestedRows: Int = 24,
+        age: TimeInterval = 0.1
+    ) -> Bool {
+        let createdAt = Date(timeIntervalSince1970: 1_000)
+        let cached = MobileTerminalSnapshotCacheEntry(
+            columns: cachedColumns,
+            rows: cachedRows,
+            maxScrollbackRows: cachedMaxScrollbackRows,
+            createdAt: createdAt,
+            payload: [:]
+        )
+        return shouldReuseMobileTerminalSnapshotCache(
+            cached: cached,
+            columns: requestedColumns,
+            rows: requestedRows,
+            maxScrollbackRows: requestedMaxScrollbackRows,
+            now: createdAt.addingTimeInterval(age)
+        )
+    }
+#endif
 
     private static func mobileTerminalSnapshotScrollbackRows(
         requestedRows: Int?,
