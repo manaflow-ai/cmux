@@ -371,6 +371,26 @@ def main() -> int:
             print(f"commands={server.commands_snapshot()!r}")
             return 1
 
+        post_answer_attention_proc = run_claude_hook(
+            cli_path,
+            server.socket_path,
+            "notification",
+            generic_attention_payload(session_id, 98),
+            env,
+        )
+        if post_answer_attention_proc.returncode != 0:
+            print("FAIL: post-answer claude-hook notification failed")
+            print(f"stdout={post_answer_attention_proc.stdout!r}")
+            print(f"stderr={post_answer_attention_proc.stderr!r}")
+            print(f"commands={server.commands_snapshot()!r}")
+            return 1
+        notify_after_post_answer = notify_commands(server)
+        if len(notify_after_post_answer) != 3:
+            print("FAIL: prompt-submit should stop suppressing later generic attention notifications")
+            print(f"notify_commands={notify_after_post_answer!r}")
+            print(f"commands={server.commands_snapshot()!r}")
+            return 1
+
         repeated_proc = run_claude_hook(
             cli_path,
             server.socket_path,
@@ -385,7 +405,7 @@ def main() -> int:
             print(f"commands={server.commands_snapshot()!r}")
             return 1
         notify_after_repeat = notify_commands(server)
-        if len(notify_after_repeat) != 3:
+        if len(notify_after_repeat) != 4:
             print("FAIL: prompt-submit should clear the needs-input dedup fingerprint")
             print(f"notify_commands={notify_after_repeat!r}")
             print(f"commands={server.commands_snapshot()!r}")
