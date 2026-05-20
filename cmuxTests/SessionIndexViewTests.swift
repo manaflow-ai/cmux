@@ -419,3 +419,57 @@ private struct SessionPopoverHarness {
 private struct SQLiteTestError: Error {
     let message: String
 }
+
+/// Regression for the Vault search SIGABRT crash (crash IDs 6f9d0e76 and
+/// 93dbe39c, May 2026). Rapid typing in the Vault sidebar cancelled in-flight
+/// `SessionIndexStore.ripgrepMatchingPaths` tasks before the underlying NSTask
+/// had launched; the old `onCancel` handler called `process.terminate()`
+/// unconditionally, which raises NSInvalidArgumentException ("task not
+/// launched") on a never-launched NSTask. Swift cannot catch ObjC exceptions,
+/// so the process died via std::terminate.
+final class SessionIndexRipgrepCancellationTests: XCTestCase {
+    func testConcurrentCancellationDoesNotCrash() async throws {
+        let fm = FileManager.default
+        let rgCandidates = [
+            "/opt/homebrew/bin/rg",
+            "/usr/local/bin/rg",
+            "/usr/bin/rg",
+            "/run/current-system/sw/bin/rg",
+        ]
+        guard rgCandidates.contains(where: fm.isExecutableFile(atPath:)) else {
+            throw XCTSkip(
+                "rg not installed; ripgrepMatchingPaths short-circuits before the cancellation race window"
+            )
+        }
+
+        let tmp = fm.temporaryDirectory.appendingPathComponent(
+            "cmux-vault-cancel-\(UUID().uuidString)"
+        )
+        try fm.createDirectory(at: tmp, withIntermediateDirectories: true)
+        defer { try? fm.removeItem(at: tmp) }
+        for i in 0..<8 {
+            let url = tmp.appendingPathComponent("file-\(i).jsonl")
+            try Data("needle present here \(i)".utf8).write(to: url)
+        }
+
+        let root = tmp.path
+        // 30 iterations × 16 concurrent tasks × cancel-after-random-tiny-delay
+        // consistently hits the pre-run() cancellation window in the standalone
+        // repro; a single iteration is usually enough but the loop adds margin.
+        for _ in 0..<30 {
+            await withTaskGroup(of: Void.self) { group in
+                for _ in 0..<16 {
+                    group.addTask {
+                        _ = await SessionIndexStore.ripgrepMatchingPaths(
+                            needle: "needle",
+                            root: root,
+                            fileGlob: "*.jsonl"
+                        )
+                    }
+                }
+                try? await Task.sleep(nanoseconds: UInt64.random(in: 0...3_000_000))
+                group.cancelAll()
+            }
+        }
+    }
+}
