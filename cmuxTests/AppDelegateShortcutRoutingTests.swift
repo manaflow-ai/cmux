@@ -3653,33 +3653,16 @@ final class AppDelegateShortcutRoutingTests: XCTestCase {
             return
         }
 
-        let windowId = appDelegate.createMainWindow()
-        defer { closeWindow(withId: windowId) }
-
-        guard let window = window(withId: windowId) else {
-            XCTFail("Expected test window")
-            return
-        }
-
         withTemporaryShortcut(
             action: .triggerFlash,
             shortcut: StoredShortcut(key: "/", command: true, shift: true, option: false, control: false)
         ) {
-            guard let event = NSEvent.keyEvent(
-                with: .keyDown,
-                location: .zero,
+            let event = makeKeyEvent(
                 modifierFlags: [.command, .shift],
-                timestamp: ProcessInfo.processInfo.systemUptime,
-                windowNumber: window.windowNumber,
-                context: nil,
                 characters: "?",
                 charactersIgnoringModifiers: "?",
-                isARepeat: false,
                 keyCode: 44 // kVK_ANSI_Slash
-            ) else {
-                XCTFail("Failed to construct Cmd+Shift+/ event")
-                return
-            }
+            )
 
 #if DEBUG
             XCTAssertTrue(appDelegate.debugMatchesConfiguredShortcut(event: event, action: .triggerFlash))
