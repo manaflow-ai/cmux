@@ -322,7 +322,7 @@ struct WindowAppearanceSnapshot {
         srgb.getRed(&red, green: &green, blue: &blue, alpha: &alpha)
         _ = alpha
 
-        let isLight = composited.isLightColor
+        let isLight = cmuxReadableColorScheme(for: composited) == .light
         let adjustment: CGFloat = isLight ? -0.05 : 0.07
         return NSColor(
             srgbRed: min(1, max(0, red + adjustment)),

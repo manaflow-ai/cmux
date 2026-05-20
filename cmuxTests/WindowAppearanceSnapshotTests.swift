@@ -172,7 +172,7 @@ final class WindowAppearanceSnapshotTests: XCTestCase {
             return
         }
 
-        let isLight = snapshot.compositedTerminalBackgroundColor.isLightColor
+        let isLight = cmuxReadableColorScheme(for: snapshot.compositedTerminalBackgroundColor) == .light
         let adjustment: CGFloat = isLight ? -0.05 : 0.07
         XCTAssertEqual(
             overlaySRGB.redComponent,
@@ -190,6 +190,29 @@ final class WindowAppearanceSnapshotTests: XCTestCase {
             accuracy: 0.001
         )
         XCTAssertEqual(overlaySRGB.alphaComponent, isLight ? 0.20 : 0.18, accuracy: 0.0001)
+    }
+
+    func testUnifiedSidebarContrastOverlayUsesChromeReadableSchemeForMediumBackground() {
+        let snapshot = makeSnapshot(
+            unifySurfaceBackdrops: true,
+            backgroundHex: "#777777",
+            backgroundOpacity: 1
+        )
+
+        XCTAssertFalse(snapshot.compositedTerminalBackgroundColor.isLightColor)
+        XCTAssertEqual(snapshot.chromeColorScheme, .light)
+
+        guard let overlay = snapshot.sidebarContrastOverlayColor(for: .leftSidebar),
+              let overlaySRGB = overlay.usingColorSpace(.sRGB),
+              let compositedSRGB = snapshot.compositedTerminalBackgroundColor.usingColorSpace(.sRGB) else {
+            XCTFail("expected sRGB-convertible sidebar overlay")
+            return
+        }
+
+        XCTAssertLessThan(overlaySRGB.redComponent, compositedSRGB.redComponent)
+        XCTAssertLessThan(overlaySRGB.greenComponent, compositedSRGB.greenComponent)
+        XCTAssertLessThan(overlaySRGB.blueComponent, compositedSRGB.blueComponent)
+        XCTAssertEqual(overlaySRGB.alphaComponent, 0.20, accuracy: 0.0001)
     }
 
     func testOpaqueTerminalUsesOpaqueWindowFill() {
