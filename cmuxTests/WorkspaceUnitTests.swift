@@ -4204,6 +4204,36 @@ final class WorkspaceTerminalConfigInheritanceSelectionTests: XCTestCase {
     }
 }
 
+@MainActor
+final class WorkspaceCodexPanelTests: XCTestCase {
+    func testAttachDetachedCodexPanelReattachesAfterTabCreation() throws {
+        let source = Workspace()
+        let destination = Workspace()
+        let sourcePaneId = try XCTUnwrap(source.bonsplitController.allPaneIds.first)
+        let destinationPaneId = try XCTUnwrap(destination.bonsplitController.allPaneIds.first)
+        let panel = try XCTUnwrap(
+            source.newCodexAppServerSurface(
+                inPane: sourcePaneId,
+                cwd: "/tmp/codex-detach",
+                focus: false,
+                autoStartOnAppear: false
+            )
+        )
+
+        let detached = try XCTUnwrap(source.detachSurface(panelId: panel.id))
+        let attachedPanelId = try XCTUnwrap(
+            destination.attachDetachedSurface(detached, inPane: destinationPaneId, focus: false)
+        )
+
+        XCTAssertEqual(attachedPanelId, panel.id)
+        XCTAssertNil(source.panels[panel.id])
+        let attachedPanel = try XCTUnwrap(destination.panels[panel.id] as? CodexAppServerPanel)
+        XCTAssertEqual(attachedPanel.workspaceId, destination.id)
+        XCTAssertEqual(attachedPanel.cwd, "/tmp/codex-detach")
+        XCTAssertNotNil(destination.codexAppServerPanel(for: panel.id))
+    }
+}
+
 
 @MainActor
 final class WorkspaceAttentionFlashTests: XCTestCase {

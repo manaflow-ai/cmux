@@ -11211,11 +11211,8 @@ final class Workspace: Identifiable, ObservableObject {
 
         let previousHostedView = focusedTerminalPanel?.hostedView
         if focus {
-            previousHostedView?.suppressReparentFocus()
+            suppressReparentFocusUntilLayoutFollowUp(previousHostedView, reason: "codexAppServerSplit.focus")
             focusPanel(codexPanel.id)
-            DispatchQueue.main.asyncAfter(deadline: .now() + 0.05) {
-                previousHostedView?.clearSuppressReparentFocus()
-            }
         } else {
             preserveFocusAfterNonFocusSplit(
                 preferredPanelId: previousFocusedPanelId,
@@ -12095,23 +12092,6 @@ final class Workspace: Identifiable, ObservableObject {
             return nil
         }
 
-        panels[detached.panelId] = detached.panel
-        if let terminalPanel = detached.panel as? TerminalPanel {
-            terminalPanel.updateWorkspaceId(id)
-        } else if let browserPanel = detached.panel as? BrowserPanel {
-            browserPanel.reattachToWorkspace(
-                id,
-                isRemoteWorkspace: isRemoteWorkspace,
-                remoteWebsiteDataStoreIdentifier: isRemoteWorkspace ? id : nil,
-                proxyEndpoint: remoteProxyEndpoint,
-                remoteStatus: browserRemoteWorkspaceStatusSnapshot()
-            )
-            installBrowserPanelSubscription(browserPanel)
-        } else if let codexPanel = detached.panel as? CodexAppServerPanel {
-            codexPanel.reattachToWorkspace(id, cwd: detached.directory)
-            installCodexAppServerPanelSubscription(codexPanel)
-        }
-
         if let directory = detached.directory {
             panelDirectories[detached.panelId] = directory
         }
@@ -12192,6 +12172,9 @@ final class Workspace: Identifiable, ObservableObject {
             )
             configureBrowserPanel(browserPanel)
             installBrowserPanelSubscription(browserPanel)
+        } else if let codexPanel = detached.panel as? CodexAppServerPanel {
+            codexPanel.reattachToWorkspace(id, cwd: detached.directory)
+            installCodexAppServerPanelSubscription(codexPanel)
         } else if let rightSidebarToolPanel = detached.panel as? RightSidebarToolPanel {
             rightSidebarToolPanel.reattach(to: self)
         }
