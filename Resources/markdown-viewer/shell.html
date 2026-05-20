@@ -928,7 +928,7 @@ html { scroll-behavior: smooth; }
   // (incl. style + media tags audio/video/picture/source/track), and the
   // entity-reference branch matches quoted AND unquoted href/src values so
   // forms like `href=&#106;avascript:` cannot skip the slow path.
-  var sanitizationPattern = /<(?:script|iframe|object|embed|link\b|meta|base|style|audio|video|picture|source|track|form|button|textarea|select|option|svg|math)\b|<input\b(?![^>]*type\s*=\s*["']?checkbox)|<img\b[^>]*\ssrc\s*=\s*["']?\s*https?:|(?:\son[a-z]+\s*=|\bstyle\s*=|\bsrcdoc\s*=|\bautofocus\b|\bformaction\s*=|\bxlink:href\s*=)|(?:href|src)\s*=\s*["']?\s*(?:javascript|vbscript|data):|(?:href|src)\s*=\s*(?:"[^"]*&|'[^']*&|[^"'\s>]*&)/i;
+  var sanitizationPattern = /<(?:script|iframe|object|embed|link\b|meta|base|style|audio|video|picture|source|track|form|button|textarea|select|option|svg|math)\b|<input\b(?![^>]*type\s*=\s*["']?checkbox)|<img\b[^>]*\ssrc\s*=\s*["']?\s*https?:|(?:\son[a-z]+\s*=|\bstyle\s*=|\bsrcset\s*=|\bbackground\s*=|\bsrcdoc\s*=|\bautofocus\b|\bformaction\s*=|\bxlink:href\s*=)|(?:href|src)\s*=\s*["']?\s*(?:javascript|vbscript|data):|(?:href|src)\s*=\s*(?:"[^"]*&|'[^']*&|[^"'\s>]*&)/i;
   function needsSanitization(html) {
     return sanitizationPattern.test(html || '');
   }
