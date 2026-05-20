@@ -3753,7 +3753,9 @@ class TabManager: ObservableObject {
         let contentEnd = bytes.count - 20
         var offset = 12
         var entries: [GitIndexEntryStat] = []
+        var contentEntries: [GitIndexEntryStat] = []
         entries.reserveCapacity(min(entryCount, 1024))
+        contentEntries.reserveCapacity(min(entryCount, 1024))
         var previousPathBytes: [UInt8] = []
 
         for _ in 0..<entryCount {
@@ -3808,18 +3810,21 @@ class TabManager: ObservableObject {
                 return nil
             }
             previousPathBytes = pathBytes
+            let entryStat = GitIndexEntryStat(
+                path: path,
+                mode: mode,
+                objectID: objectID,
+                mtimeSeconds: mtimeSeconds,
+                mtimeNanoseconds: mtimeNanoseconds,
+                size: size
+            )
+            contentEntries.append(entryStat)
+
+            let assumeUnchangedFlag: UInt16 = 0x8000
             let skipWorktreeExtendedFlag: UInt16 = 0x4000
-            if (extendedFlags & skipWorktreeExtendedFlag) == 0 {
-                entries.append(
-                    GitIndexEntryStat(
-                        path: path,
-                        mode: mode,
-                        objectID: objectID,
-                        mtimeSeconds: mtimeSeconds,
-                        mtimeNanoseconds: mtimeNanoseconds,
-                        size: size
-                    )
-                )
+            if (flags & assumeUnchangedFlag) == 0,
+               (extendedFlags & skipWorktreeExtendedFlag) == 0 {
+                entries.append(entryStat)
             }
 
             offset += 1
@@ -3834,7 +3839,7 @@ class TabManager: ObservableObject {
         return GitIndexSnapshot(
             entries: entries,
             signature: checksum,
-            contentSignature: gitIndexContentSignature(entries: entries)
+            contentSignature: gitIndexContentSignature(entries: contentEntries)
         )
     }
 

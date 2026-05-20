@@ -300,7 +300,8 @@ private func writeGitIndexVersion2EntryFromStat(
     trackedPath: String,
     indexMode: UInt32,
     signatureByte: UInt8,
-    objectIDBytes: [UInt8] = Array(repeating: 0, count: 20)
+    objectIDBytes: [UInt8] = Array(repeating: 0, count: 20),
+    baseFlags: UInt16 = 0
 ) throws {
     let fileURL = repoURL.appendingPathComponent(trackedPath)
     var statValue = stat()
@@ -324,9 +325,12 @@ private func writeGitIndexVersion2EntryFromStat(
     appendBigEndianUInt32(gitIndexUInt32Field(statValue.st_gid), to: &data)
     appendBigEndianUInt32(gitIndexUInt32Field(statValue.st_size), to: &data)
     data.append(contentsOf: objectIDBytes.prefix(20))
+    if objectIDBytes.count < 20 {
+        data.append(Data(repeating: 0, count: 20 - objectIDBytes.count))
+    }
 
     let pathBytes = Array(trackedPath.utf8)
-    appendBigEndianUInt16(UInt16(min(pathBytes.count, 0x0fff)), to: &data)
+    appendBigEndianUInt16(UInt16(min(pathBytes.count, 0x0fff)) | baseFlags, to: &data)
     data.append(contentsOf: pathBytes)
     data.append(0)
     while data.count % 8 != 0 {
@@ -1132,6 +1136,79 @@ final class WorkspacePullRequestSidebarTests: XCTestCase {
                 workspace.panelGitBranches[panelId]?.isDirty == true
             },
             "Staging changed content should remain dirty even when the index stat cache matches the worktree."
+        )
+    }
+
+    func testAssumeUnchangedGitIndexEntriesDoNotMarkModifiedWorktreeDirty() throws {
+        let defaults = UserDefaults.standard
+        let previousWatchGitStatus = defaults.object(forKey: SidebarWorkspaceDetailDefaults.watchGitStatusKey)
+        defer {
+            restoreUserDefault(previousWatchGitStatus, key: SidebarWorkspaceDetailDefaults.watchGitStatusKey)
+        }
+
+        let repoURL = FileManager.default.temporaryDirectory.appendingPathComponent(
+            "cmux-sidebar-assume-unchanged-\(UUID().uuidString)",
+            isDirectory: true
+        )
+        try FileManager.default.createDirectory(at: repoURL, withIntermediateDirectories: true)
+        try writeMinimalGitRepository(at: repoURL)
+        let trackedURL = repoURL.appendingPathComponent("tracked.txt")
+        try "seed\n".write(to: trackedURL, atomically: true, encoding: .utf8)
+        let cleanObjectID = Array(repeating: UInt8(0x11), count: 20)
+        try writeGitIndexVersion2EntryFromStat(
+            at: repoURL,
+            trackedPath: "tracked.txt",
+            indexMode: 0o100644,
+            signatureByte: 0x11,
+            objectIDBytes: cleanObjectID
+        )
+        defer {
+            try? FileManager.default.removeItem(at: repoURL)
+        }
+
+        defaults.set(true, forKey: SidebarWorkspaceDetailDefaults.watchGitStatusKey)
+        let manager = TabManager()
+        let workspace = try XCTUnwrap(manager.selectedWorkspace)
+        let panelId = try XCTUnwrap(workspace.focusedPanelId)
+
+        manager.updateSurfaceDirectory(
+            tabId: workspace.id,
+            surfaceId: panelId,
+            directory: repoURL.path
+        )
+        XCTAssertTrue(
+            waitForCondition {
+                workspace.panelGitBranches[panelId]?.branch == "main"
+                    && workspace.panelGitBranches[panelId]?.isDirty == false
+            },
+            "A matching index and worktree should establish a clean baseline."
+        )
+
+        let assumeUnchangedFlag: UInt16 = 0x8000
+        try writeGitIndexVersion2EntryFromStat(
+            at: repoURL,
+            trackedPath: "tracked.txt",
+            indexMode: 0o100644,
+            signatureByte: 0x22,
+            objectIDBytes: cleanObjectID,
+            baseFlags: assumeUnchangedFlag
+        )
+        manager.refreshTrackedWorkspaceGitMetadataForTesting()
+        XCTAssertTrue(
+            waitForCondition {
+                workspace.panelGitBranches[panelId]?.isDirty == false
+            },
+            "Setting assume-unchanged should rebaseline as clean because tracked index content did not change."
+        )
+
+        try "changed\n".write(to: trackedURL, atomically: true, encoding: .utf8)
+        manager.refreshTrackedWorkspaceGitMetadataForTesting()
+
+        XCTAssertTrue(
+            waitForCondition {
+                workspace.panelGitBranches[panelId]?.isDirty == false
+            },
+            "Assume-unchanged index entries should not stat modified worktree files."
         )
     }
 
