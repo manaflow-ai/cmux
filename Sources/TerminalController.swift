@@ -3841,8 +3841,14 @@ class TerminalController {
               var windowNodes = payload.removeValue(forKey: "windows") as? [[String: Any]] else {
             return .err(code: "internal_error", message: "Invalid system.memory payload", data: nil)
         }
-        let requestedLimit = v2Int(params, "top_group_limit")
-            ?? v2Int(params, "group_limit")
+        func intParam(_ key: String) -> Int? {
+            if let i = params[key] as? Int { return i }
+            if let n = params[key] as? NSNumber { return n.intValue }
+            if let s = params[key] as? String { return Int(s) }
+            return nil
+        }
+        let requestedLimit = intParam("top_group_limit")
+            ?? intParam("group_limit")
             ?? 12
         let topGroupLimit = min(max(1, requestedLimit), 100)
         let processSnapshot = CmuxTopProcessSnapshot.captureCached(
