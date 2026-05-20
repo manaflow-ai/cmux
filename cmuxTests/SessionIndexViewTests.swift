@@ -429,19 +429,19 @@ private struct SQLiteTestError: Error {
 /// so the process died via std::terminate.
 final class SessionIndexRipgrepCancellationTests: XCTestCase {
     func testConcurrentCancellationDoesNotCrash() async throws {
-        let fm = FileManager.default
-        let rgCandidates = [
-            "/opt/homebrew/bin/rg",
-            "/usr/local/bin/rg",
-            "/usr/bin/rg",
-            "/run/current-system/sw/bin/rg",
-        ]
-        guard rgCandidates.contains(where: fm.isExecutableFile(atPath:)) else {
+        // Resolve rg the same way the system would, so the test runs on any
+        // builder where rg is on PATH (Homebrew, /usr/local, system, Nix, etc.)
+        // without baking host-specific paths into the assertion.
+        guard let rgPath = Self.resolveRipgrep() else {
             throw XCTSkip(
-                "rg not installed; ripgrepMatchingPaths short-circuits before the cancellation race window"
+                "rg not on PATH; ripgrepMatchingPaths short-circuits before the cancellation race window"
             )
         }
+        // Sanity log so a CI maintainer can confirm the test actually ran the
+        // race instead of silently skipping.
+        print("[SessionIndexRipgrepCancellationTests] using rg at \(rgPath)")
 
+        let fm = FileManager.default
         let tmp = fm.temporaryDirectory.appendingPathComponent(
             "cmux-vault-cancel-\(UUID().uuidString)"
         )
@@ -453,12 +453,13 @@ final class SessionIndexRipgrepCancellationTests: XCTestCase {
         }
 
         let root = tmp.path
-        // 30 iterations × 16 concurrent tasks × cancel-after-random-tiny-delay
-        // consistently hits the pre-run() cancellation window in the standalone
-        // repro; a single iteration is usually enough but the loop adds margin.
-        for _ in 0..<30 {
+        // The standalone repro for this crash hits the race within ~50 of
+        // (30 concurrent × random 0..3 ms cancel). 100 iterations × 32 concurrent
+        // gives ~6.6x headroom so a slow or jittery CI runner still triggers
+        // the bug before the fix.
+        for _ in 0..<100 {
             await withTaskGroup(of: Void.self) { group in
-                for _ in 0..<16 {
+                for _ in 0..<32 {
                     group.addTask {
                         _ = await SessionIndexStore.ripgrepMatchingPaths(
                             needle: "needle",
@@ -471,5 +472,32 @@ final class SessionIndexRipgrepCancellationTests: XCTestCase {
                 group.cancelAll()
             }
         }
+    }
+
+    private static func resolveRipgrep() -> String? {
+        let candidates = [
+            "/opt/homebrew/bin/rg",
+            "/usr/local/bin/rg",
+            "/usr/bin/rg",
+            "/run/current-system/sw/bin/rg",
+        ]
+        let fm = FileManager.default
+        if let hit = candidates.first(where: fm.isExecutableFile(atPath:)) {
+            return hit
+        }
+        // Fall back to `command -v rg` so the test runs on any builder that
+        // has rg on PATH at an unexpected location (e.g. WarpBuild runners).
+        let which = Process()
+        which.executableURL = URL(fileURLWithPath: "/bin/sh")
+        which.arguments = ["-c", "command -v rg"]
+        let out = Pipe()
+        which.standardOutput = out
+        which.standardError = FileHandle(forWritingAtPath: "/dev/null")
+        do { try which.run() } catch { return nil }
+        let data = out.fileHandleForReading.readDataToEndOfFile()
+        which.waitUntilExit()
+        guard which.terminationStatus == 0 else { return nil }
+        let path = String(decoding: data, as: UTF8.self).trimmingCharacters(in: .whitespacesAndNewlines)
+        return path.isEmpty ? nil : path
     }
 }

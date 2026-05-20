@@ -1268,7 +1268,7 @@ final class SessionIndexStore: ObservableObject {
 
         // Coordinate launch and cancellation: calling `.terminate()` on a
         // never-launched NSTask raises NSInvalidArgumentException, an ObjC
-        // exception Swift cannot catch — it propagates to std::terminate and
+        // exception Swift cannot catch. It propagates to std::terminate and
         // crashes the app. Rapid typing in the Vault search field hits this
         // race because cancellation can fire before `process.run()` executes.
         let launchedState = OSAllocatedUnfairLock<Bool>(initialState: false)
