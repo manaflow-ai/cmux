@@ -171,7 +171,11 @@ private func waitForCondition(
     return true
 }
 
-private func writeMinimalGitRepository(at repoURL: URL, indexData: Data = Data()) throws {
+private func writeMinimalGitRepository(
+    at repoURL: URL,
+    headCommit: String = "0000000000000000000000000000000000000000",
+    indexData: Data = Data()
+) throws {
     let gitURL = repoURL.appendingPathComponent(".git", isDirectory: true)
     let refsURL = gitURL.appendingPathComponent("refs/heads", isDirectory: true)
     try FileManager.default.createDirectory(at: refsURL, withIntermediateDirectories: true)
@@ -180,7 +184,7 @@ private func writeMinimalGitRepository(at repoURL: URL, indexData: Data = Data()
         atomically: true,
         encoding: .utf8
     )
-    try "0000000000000000000000000000000000000000\n".write(
+    try "\(headCommit)\n".write(
         to: refsURL.appendingPathComponent("main"),
         atomically: true,
         encoding: .utf8
@@ -210,7 +214,8 @@ private func writeGitIndexVersion2Entry(
     trackedPath: String,
     mode: UInt32,
     size: UInt32,
-    signatureByte: UInt8
+    signatureByte: UInt8,
+    objectIDBytes: [UInt8] = Array(repeating: 0, count: 20)
 ) throws {
     var data = Data()
     data.append(contentsOf: [0x44, 0x49, 0x52, 0x43])
@@ -227,7 +232,10 @@ private func writeGitIndexVersion2Entry(
     appendBigEndianUInt32(0, to: &data)
     appendBigEndianUInt32(0, to: &data)
     appendBigEndianUInt32(size, to: &data)
-    data.append(Data(repeating: 0, count: 20))
+    data.append(contentsOf: objectIDBytes.prefix(20))
+    if objectIDBytes.count < 20 {
+        data.append(Data(repeating: 0, count: 20 - objectIDBytes.count))
+    }
 
     let pathBytes = Array(trackedPath.utf8)
     appendBigEndianUInt16(UInt16(min(pathBytes.count, 0x0fff)), to: &data)
@@ -239,6 +247,17 @@ private func writeGitIndexVersion2Entry(
     data.append(Data(repeating: signatureByte, count: 20))
 
     try data.write(to: repoURL.appendingPathComponent(".git/index"))
+}
+
+private func gitObjectIDBytes(_ hex: String) -> [UInt8] {
+    var bytes: [UInt8] = []
+    var index = hex.startIndex
+    while index < hex.endIndex {
+        let nextIndex = hex.index(index, offsetBy: 2, limitedBy: hex.endIndex) ?? hex.endIndex
+        bytes.append(UInt8(hex[index..<nextIndex], radix: 16) ?? 0)
+        index = nextIndex
+    }
+    return bytes
 }
 
 private func writeGitIndexVersion3SkipWorktreeEntry(
@@ -1166,6 +1185,69 @@ final class WorkspacePullRequestSidebarTests: XCTestCase {
                     && workspace.panelGitBranches[panelId]?.isDirty == false
             },
             "Gitlink entries represent submodule commits and should not be compared to directory stats."
+        )
+    }
+
+    func testGitlinkIndexEntriesTrackSubmoduleCommitChanges() throws {
+        let defaults = UserDefaults.standard
+        let previousWatchGitStatus = defaults.object(forKey: SidebarWorkspaceDetailDefaults.watchGitStatusKey)
+        defer {
+            restoreUserDefault(previousWatchGitStatus, key: SidebarWorkspaceDetailDefaults.watchGitStatusKey)
+        }
+
+        let repoURL = FileManager.default.temporaryDirectory.appendingPathComponent(
+            "cmux-sidebar-gitlink-commit-\(UUID().uuidString)",
+            isDirectory: true
+        )
+        let submoduleURL = repoURL.appendingPathComponent("vendor/lib", isDirectory: true)
+        let indexedCommit = String(repeating: "1", count: 40)
+        let updatedCommit = String(repeating: "2", count: 40)
+        try FileManager.default.createDirectory(at: submoduleURL, withIntermediateDirectories: true)
+        try writeMinimalGitRepository(at: repoURL)
+        try writeMinimalGitRepository(at: submoduleURL, headCommit: indexedCommit)
+        try writeGitIndexVersion2Entry(
+            at: repoURL,
+            trackedPath: "vendor/lib",
+            mode: 0o160000,
+            size: 0,
+            signatureByte: 0x66,
+            objectIDBytes: gitObjectIDBytes(indexedCommit)
+        )
+        defer {
+            try? FileManager.default.removeItem(at: repoURL)
+        }
+
+        defaults.set(true, forKey: SidebarWorkspaceDetailDefaults.watchGitStatusKey)
+        let manager = TabManager()
+        let workspace = try XCTUnwrap(manager.selectedWorkspace)
+        let panelId = try XCTUnwrap(workspace.focusedPanelId)
+
+        manager.updateSurfaceDirectory(
+            tabId: workspace.id,
+            surfaceId: panelId,
+            directory: repoURL.path
+        )
+
+        XCTAssertTrue(
+            waitForCondition {
+                workspace.panelGitBranches[panelId]?.branch == "main"
+                    && workspace.panelGitBranches[panelId]?.isDirty == false
+            },
+            "A gitlink whose worktree HEAD matches the indexed submodule commit should be clean."
+        )
+
+        try "\(updatedCommit)\n".write(
+            to: submoduleURL.appendingPathComponent(".git/refs/heads/main"),
+            atomically: true,
+            encoding: .utf8
+        )
+        manager.refreshTrackedWorkspaceGitMetadataForTesting()
+
+        XCTAssertTrue(
+            waitForCondition {
+                workspace.panelGitBranches[panelId]?.isDirty == true
+            },
+            "Submodule HEAD changes should make the parent sidebar dirty without spawning git."
         )
     }
 

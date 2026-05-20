@@ -913,6 +913,7 @@ class TabManager: ObservableObject {
     private struct GitIndexEntryStat: Sendable {
         let path: String
         let mode: UInt32
+        let objectID: String
         let mtimeSeconds: UInt32
         let mtimeNanoseconds: UInt32
         let size: UInt32
@@ -3213,6 +3214,20 @@ class TabManager: ObservableObject {
 
         for entry in indexSnapshot.entries {
             let fileURL = URL(fileURLWithPath: repository.workTreeRoot).appendingPathComponent(entry.path)
+            let gitlinkMode: UInt32 = 0o160000
+            if (entry.mode & 0o170000) == gitlinkMode {
+                guard let submoduleCommit = gitlinkWorktreeCommit(
+                    parentRepository: repository,
+                    gitlinkPath: entry.path
+                ) else {
+                    continue
+                }
+                if submoduleCommit.caseInsensitiveCompare(entry.objectID) != .orderedSame {
+                    return (true, indexSnapshot.signature)
+                }
+                continue
+            }
+
             var statValue = stat()
             guard lstat(fileURL.path, &statValue) == 0 else {
                 return (true, indexSnapshot.signature)
@@ -3260,6 +3275,9 @@ class TabManager: ObservableObject {
             let mtimeNanoseconds = readBigEndianUInt32(bytes, at: offset + 12)
             let mode = readBigEndianUInt32(bytes, at: offset + 24)
             let size = readBigEndianUInt32(bytes, at: offset + 36)
+            let objectID = bytes[(offset + 40)..<(offset + 60)].map {
+                String(format: "%02x", $0)
+            }.joined()
             let flags = readBigEndianUInt16(bytes, at: offset + 60)
             let pathLength = Int(flags & 0x0fff)
             let hasExtendedFlags = version >= 3 && (flags & 0x4000) != 0
@@ -3303,12 +3321,12 @@ class TabManager: ObservableObject {
             }
             previousPathBytes = pathBytes
             let skipWorktreeExtendedFlag: UInt16 = 0x4000
-            if (extendedFlags & skipWorktreeExtendedFlag) == 0,
-               (mode & 0o170000) != 0o160000 {
+            if (extendedFlags & skipWorktreeExtendedFlag) == 0 {
                 entries.append(
                     GitIndexEntryStat(
                         path: path,
                         mode: mode,
+                        objectID: objectID,
                         mtimeSeconds: mtimeSeconds,
                         mtimeNanoseconds: mtimeNanoseconds,
                         size: size
@@ -3326,6 +3344,46 @@ class TabManager: ObservableObject {
 
         let checksum = bytes[(bytes.count - 20)..<bytes.count].map { String(format: "%02x", $0) }.joined()
         return GitIndexSnapshot(entries: entries, signature: checksum)
+    }
+
+    private nonisolated static func gitlinkWorktreeCommit(
+        parentRepository: ResolvedGitRepository,
+        gitlinkPath: String
+    ) -> String? {
+        let gitlinkURL = URL(fileURLWithPath: parentRepository.workTreeRoot)
+            .appendingPathComponent(gitlinkPath)
+            .standardizedFileURL
+        guard let submoduleRepository = resolveGitRepository(containing: gitlinkURL.path),
+              submoduleRepository.workTreeRoot == gitlinkURL.path else {
+            return nil
+        }
+        return gitCurrentCommit(repository: submoduleRepository)
+    }
+
+    private nonisolated static func gitCurrentCommit(repository: ResolvedGitRepository) -> String? {
+        let headURL = URL(fileURLWithPath: repository.gitDirectory).appendingPathComponent("HEAD")
+        guard let contents = try? String(contentsOf: headURL, encoding: .utf8) else {
+            return nil
+        }
+        let trimmed = contents.trimmingCharacters(in: .whitespacesAndNewlines)
+        let refPrefix = "ref: "
+        let value: String
+        if trimmed.hasPrefix(refPrefix) {
+            let refName = String(trimmed.dropFirst(refPrefix.count))
+            guard !refName.isEmpty, let refValue = gitRefValue(repository: repository, refName: refName) else {
+                return nil
+            }
+            value = refValue
+        } else {
+            value = trimmed
+        }
+
+        let normalized = value.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
+        guard normalized.count == 40,
+              normalized.allSatisfy({ $0.isHexDigit }) else {
+            return nil
+        }
+        return normalized
     }
 
     private nonisolated static func gitIndexComparableMode(for statMode: mode_t) -> UInt32? {
