@@ -111064,11 +111064,32 @@
         "ja": { "stringUnit": { "state": "translated", "value": "拡張機能のインストールはキャンセルされました。" } }
       }
     },
+    "browser.extensions.error.ambiguous": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Multiple installed browser extensions match '%@'. Use the extension ID instead." } },
+        "ja": { "stringUnit": { "state": "translated", "value": "'%@' に一致するインストール済みブラウザ拡張機能が複数あります。代わりに拡張機能 ID を使用してください。" } }
+      }
+    },
+    "browser.extensions.error.developerModeRequired": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Developer Mode is required to load %@ directly. Install the containing app bundle instead, or enable Browser Extensions Developer Mode." } },
+        "ja": { "stringUnit": { "state": "translated", "value": "%@ を直接読み込むにはデベロッパモードが必要です。代わりに含まれているアプリバンドルをインストールするか、ブラウザ拡張機能のデベロッパモードを有効にしてください。" } }
+      }
+    },
     "browser.extensions.error.noManifest": {
       "extractionState": "manual",
       "localizations": {
         "en": { "stringUnit": { "state": "translated", "value": "No manifest.json was found in %@." } },
         "ja": { "stringUnit": { "state": "translated", "value": "%@ に manifest.json が見つかりませんでした。" } }
+      }
+    },
+    "browser.extensions.error.notFound": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "No installed browser extension matches '%@'." } },
+        "ja": { "stringUnit": { "state": "translated", "value": "'%@' に一致するインストール済みブラウザ拡張機能がありません。" } }
       }
     },
     "browser.extensions.error.noWebExtensionInApp": {
@@ -111190,6 +111211,13 @@
         "ja": { "stringUnit": { "state": "translated", "value": "ローカル拡張機能" } }
       }
     },
+    "browser.extensions.summary.unsupportedLocalExtension": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Unsupported legacy extension" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "サポートされていないレガシー拡張機能" } }
+      }
+    },
     "browser.extensions.summary.sourceWithVersion": {
       "extractionState": "manual",
       "localizations": {
@@ -111216,6 +111244,20 @@
       "localizations": {
         "en": { "stringUnit": { "state": "translated", "value": "Browser Extensions" } },
         "ja": { "stringUnit": { "state": "translated", "value": "ブラウザ拡張機能" } }
+      }
+    },
+    "settings.browser.extensions.developerMode": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Developer Mode" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "デベロッパモード" } }
+      }
+    },
+    "settings.browser.extensions.developerMode.subtitle": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Allow direct local .appex loading for development. Normal installs should use signed Safari extension app bundles." } },
+        "ja": { "stringUnit": { "state": "translated", "value": "開発用にローカルの .appex の直接読み込みを許可します。通常のインストールでは署名済みの Safari 拡張機能アプリバンドルを使用してください。" } }
       }
     },
     "settings.browser.extensions.error.title": {
@@ -111260,11 +111302,46 @@
         "ja": { "stringUnit": { "state": "translated", "value": "再読み込み" } }
       }
     },
+    "settings.browser.extensions.reloadOne": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Reload" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "再読み込み" } }
+      }
+    },
+    "settings.browser.extensions.remove": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Remove" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "削除" } }
+      }
+    },
+    "settings.browser.extensions.status.error": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Error: %@" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "エラー: %@" } }
+      }
+    },
+    "settings.browser.extensions.status.loaded": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Loaded" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "読み込み済み" } }
+      }
+    },
+    "settings.browser.extensions.status.notLoaded": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Not loaded" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "未読み込み" } }
+      }
+    },
     "settings.browser.extensions.subtitleEmpty": {
       "extractionState": "manual",
       "localizations": {
-        "en": { "stringUnit": { "state": "translated", "value": "Install Safari Web Extension app bundles or standalone .appex bundles." } },
-        "ja": { "stringUnit": { "state": "translated", "value": "Safari Web Extension アプリバンドルまたは単体の .appex バンドルをインストールします。" } }
+        "en": { "stringUnit": { "state": "translated", "value": "Install Safari Web Extension app bundles. Direct .appex loading requires Developer Mode." } },
+        "ja": { "stringUnit": { "state": "translated", "value": "Safari Web Extension アプリバンドルをインストールします。.appex の直接読み込みにはデベロッパモードが必要です。" } }
       }
     },
     "settings.browser.extensions.subtitleMany": {
@@ -111291,8 +111368,8 @@
     "settings.search.alias.setting.browser.extensions": {
       "extractionState": "manual",
       "localizations": {
-        "en": { "stringUnit": { "state": "translated", "value": "browser extensions safari webextensions ublock origin 1password bitwarden icloud passwords password manager passkeys video speed controller ad blocker" } },
-        "ja": { "stringUnit": { "state": "translated", "value": "browser extensions safari webextensions ublock origin 1password bitwarden icloud passwords password manager passkeys video speed controller ad blocker ブラウザ 拡張機能 パスワード マネージャー 広告ブロック" } }
+        "en": { "stringUnit": { "state": "translated", "value": "browser.extensionsDeveloperMode browser extensions safari webextensions ublock origin 1password bitwarden icloud passwords password manager passkeys video speed controller ad blocker developer mode appex" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "browser.extensionsDeveloperMode browser extensions safari webextensions ublock origin 1password bitwarden icloud passwords password manager passkeys video speed controller ad blocker developer mode appex ブラウザ 拡張機能 パスワード マネージャー 広告ブロック デベロッパモード" } }
       }
     }
   }

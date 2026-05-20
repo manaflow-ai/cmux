@@ -1483,6 +1483,13 @@ class TerminalController {
         "feed.permission.reply",
         "feed.question.reply",
         "feed.exit_plan.reply",
+        "browser.extensions.list",
+        "browser.extensions.discover",
+        "browser.extensions.install",
+        "browser.extensions.reload",
+        "browser.extensions.enable",
+        "browser.extensions.disable",
+        "browser.extensions.remove",
         "browser.profiles.list",
         "browser.profiles.create",
         "browser.profiles.rename",
@@ -1570,6 +1577,34 @@ class TerminalController {
             return v2Result(id: request.id, v2FeedQuestionReply(params: request.params))
         case "feed.exit_plan.reply":
             return v2Result(id: request.id, v2FeedExitPlanReply(params: request.params))
+        case "browser.extensions.list":
+            return v2VmCall(id: request.id, timeoutSeconds: 30) {
+                try await BrowserExtensionAutomation.list(params: request.params)
+            }
+        case "browser.extensions.discover":
+            return v2VmCall(id: request.id, timeoutSeconds: 30) {
+                try await BrowserExtensionAutomation.discover(params: request.params)
+            }
+        case "browser.extensions.install":
+            return v2VmCall(id: request.id, timeoutSeconds: 300) {
+                try await BrowserExtensionAutomation.install(params: request.params)
+            }
+        case "browser.extensions.reload":
+            return v2VmCall(id: request.id, timeoutSeconds: 120) {
+                try await BrowserExtensionAutomation.reload(params: request.params)
+            }
+        case "browser.extensions.enable":
+            return v2VmCall(id: request.id, timeoutSeconds: 120) {
+                try await BrowserExtensionAutomation.setEnabled(params: request.params, enabled: true)
+            }
+        case "browser.extensions.disable":
+            return v2VmCall(id: request.id, timeoutSeconds: 120) {
+                try await BrowserExtensionAutomation.setEnabled(params: request.params, enabled: false)
+            }
+        case "browser.extensions.remove":
+            return v2VmCall(id: request.id, timeoutSeconds: 120) {
+                try await BrowserExtensionAutomation.remove(params: request.params)
+            }
         case "browser.profiles.list":
             return v2VmCall(id: request.id, timeoutSeconds: 30) {
                 try await BrowserProfileAutomation.list(params: request.params)

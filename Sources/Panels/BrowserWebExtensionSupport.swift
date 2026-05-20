@@ -6,8 +6,13 @@ struct BrowserWebExtensionInstalledSummary: Identifiable, Equatable {
     let id: UUID
     let displayName: String
     let detail: String
+    let sourceKind: BrowserWebExtensionInstallRecord.SourceKind
+    let sourcePath: String
+    let grantedPermissions: [String]
+    let grantedPermissionMatchPatterns: [String]
     let isEnabled: Bool
     let isLoaded: Bool
+    let lastError: String?
 }
 
 struct BrowserWebExtensionActionSnapshot: Identifiable, Equatable {
@@ -100,260 +105,41 @@ func browserWebExtensionConfigureBaseWebViewConfiguration(
     configuration.applicationNameForUserAgent = BrowserUserAgentSettings.safariApplicationNameForUserAgent
 }
 
+enum BrowserExtensionDeveloperModeSettings {
+    static let key = "browserExtensionsDeveloperMode"
+    static let defaultEnabled = false
+
+    static func isEnabled(defaults: UserDefaults = .standard) -> Bool {
+        defaults.bool(forKey: key)
+    }
+}
+
 struct BrowserWebExtensionHostCapabilityPolicy: Equatable {
-    enum Availability: Equatable {
-        case delegatedToWebKit
-        case hostedByCmux
-        case unavailable(UnavailableReason)
-
-        var isAvailable: Bool {
-            switch self {
-            case .delegatedToWebKit, .hostedByCmux:
-                return true
-            case .unavailable:
-                return false
-            }
-        }
-    }
-
-    enum UnavailableReason: Equatable {
-        case missingHostAdapter
-        case noPublicWebKitSurface
-    }
-
-    struct PermissionCapability: Equatable {
-        let name: String
-        let availability: Availability
-        let appExtensionBundleAvailability: Availability?
-        let apiPaths: [String]
-
-        init(
-            _ name: String,
-            availability: Availability,
-            appExtensionBundleAvailability: Availability? = nil,
-            apiPaths: [String] = []
-        ) {
-            self.name = name
-            self.availability = availability
-            self.appExtensionBundleAvailability = appExtensionBundleAvailability
-            self.apiPaths = apiPaths
-        }
-
-        func availability(for sourceKind: BrowserWebExtensionInstallRecord.SourceKind) -> Availability {
-            if sourceKind == .appExtensionBundle,
-               let appExtensionBundleAvailability {
-                return appExtensionBundleAvailability
-            }
-            return availability
-        }
-    }
-
-    struct APICapability: Equatable {
-        let path: String
-        let availability: Availability
-        let appExtensionBundleAvailability: Availability?
-
-        init(
-            _ path: String,
-            availability: Availability,
-            appExtensionBundleAvailability: Availability? = nil
-        ) {
-            self.path = path
-            self.availability = availability
-            self.appExtensionBundleAvailability = appExtensionBundleAvailability
-        }
-
-        func availability(for sourceKind: BrowserWebExtensionInstallRecord.SourceKind) -> Availability {
-            if sourceKind == .appExtensionBundle,
-               let appExtensionBundleAvailability {
-                return appExtensionBundleAvailability
-            }
-            return availability
-        }
-    }
-
-    static let current = BrowserWebExtensionHostCapabilityPolicy(
-        permissions: [
-            PermissionCapability("activeTab", availability: .delegatedToWebKit),
-            PermissionCapability("alarms", availability: .delegatedToWebKit, apiPaths: ["browser.alarms"]),
-            PermissionCapability("bookmarks", availability: .unavailable(.missingHostAdapter), apiPaths: ["browser.bookmarks"]),
-            PermissionCapability(
-                "clipboardRead",
-                availability: .unavailable(.noPublicWebKitSurface),
-                appExtensionBundleAvailability: .delegatedToWebKit
-            ),
-            PermissionCapability("clipboardWrite", availability: .delegatedToWebKit),
-            PermissionCapability("contextMenus", availability: .delegatedToWebKit, apiPaths: ["browser.contextMenus"]),
-            PermissionCapability("cookies", availability: .delegatedToWebKit, apiPaths: ["browser.cookies"]),
-            PermissionCapability(
-                "declarativeNetRequest",
-                availability: .delegatedToWebKit,
-                apiPaths: ["browser.declarativeNetRequest"]
-            ),
-            PermissionCapability("declarativeNetRequestFeedback", availability: .delegatedToWebKit),
-            PermissionCapability("declarativeNetRequestWithHostAccess", availability: .delegatedToWebKit),
-            PermissionCapability("downloads", availability: .unavailable(.missingHostAdapter), apiPaths: ["browser.downloads"]),
-            PermissionCapability("favicon", availability: .unavailable(.noPublicWebKitSurface), apiPaths: ["browser.favicon"]),
-            PermissionCapability(
-                "idle",
-                availability: .unavailable(.noPublicWebKitSurface),
-                appExtensionBundleAvailability: .delegatedToWebKit,
-                apiPaths: ["browser.idle"]
-            ),
-            PermissionCapability("management", availability: .unavailable(.missingHostAdapter), apiPaths: ["browser.management"]),
-            PermissionCapability("menus", availability: .delegatedToWebKit, apiPaths: ["browser.menus"]),
-            PermissionCapability(
-                "nativeMessaging",
-                availability: .unavailable(.missingHostAdapter),
-                appExtensionBundleAvailability: .delegatedToWebKit,
-                apiPaths: ["browser.runtime.connectNative", "browser.runtime.sendNativeMessage"]
-            ),
-            PermissionCapability(
-                "notifications",
-                availability: .delegatedToWebKit,
-                apiPaths: ["browser.notifications"]
-            ),
-            PermissionCapability(
-                "offscreen",
-                availability: .unavailable(.noPublicWebKitSurface),
-                apiPaths: ["browser.offscreen"]
-            ),
-            PermissionCapability(
-                "privacy",
-                availability: .unavailable(.noPublicWebKitSurface),
-                apiPaths: ["browser.privacy"]
-            ),
-            PermissionCapability("scripting", availability: .delegatedToWebKit, apiPaths: ["browser.scripting"]),
-            PermissionCapability("storage", availability: .delegatedToWebKit, apiPaths: ["browser.storage"]),
-            PermissionCapability("tabs", availability: .hostedByCmux, apiPaths: ["browser.tabs"]),
-            PermissionCapability("unlimitedStorage", availability: .delegatedToWebKit),
-            PermissionCapability(
-                "userScripts",
-                availability: .unavailable(.noPublicWebKitSurface),
-                apiPaths: ["browser.userScripts"]
-            ),
-            PermissionCapability("webNavigation", availability: .delegatedToWebKit, apiPaths: ["browser.webNavigation"]),
-            PermissionCapability("webRequest", availability: .delegatedToWebKit, apiPaths: ["browser.webRequest"]),
-            PermissionCapability("webRequestBlocking", availability: .delegatedToWebKit),
-            PermissionCapability(
-                "webRequestAuthProvider",
-                availability: .unavailable(.missingHostAdapter),
-                apiPaths: ["browser.webRequest.onAuthRequired"]
-            ),
-        ],
-        apis: [
-            APICapability(
-                "browser.clipboardRead",
-                availability: .unavailable(.noPublicWebKitSurface),
-                appExtensionBundleAvailability: .delegatedToWebKit
-            ),
-            APICapability("browser.action.getUserSettings", availability: .unavailable(.noPublicWebKitSurface)),
-            APICapability("browser.browserAction.getUserSettings", availability: .unavailable(.noPublicWebKitSurface)),
-            APICapability("browser.bookmarks", availability: .unavailable(.missingHostAdapter)),
-            APICapability("browser.downloads", availability: .unavailable(.missingHostAdapter)),
-            APICapability(
-                "browser.extension.getBackgroundPage",
-                availability: .unavailable(.noPublicWebKitSurface),
-                appExtensionBundleAvailability: .delegatedToWebKit
-            ),
-            APICapability(
-                "browser.extension.getViews",
-                availability: .unavailable(.noPublicWebKitSurface),
-                appExtensionBundleAvailability: .delegatedToWebKit
-            ),
-            APICapability("browser.favicon", availability: .unavailable(.noPublicWebKitSurface)),
-            APICapability(
-                "browser.idle",
-                availability: .unavailable(.noPublicWebKitSurface),
-                appExtensionBundleAvailability: .delegatedToWebKit
-            ),
-            APICapability("browser.management", availability: .unavailable(.missingHostAdapter)),
-            APICapability("browser.notifications", availability: .delegatedToWebKit),
-            APICapability("browser.offscreen", availability: .unavailable(.noPublicWebKitSurface)),
-            APICapability("browser.privacy", availability: .unavailable(.noPublicWebKitSurface)),
-            APICapability(
-                "browser.runtime.getBackgroundPage",
-                availability: .unavailable(.noPublicWebKitSurface),
-                appExtensionBundleAvailability: .delegatedToWebKit
-            ),
-            APICapability(
-                "browser.runtime.getContexts",
-                availability: .unavailable(.noPublicWebKitSurface),
-                appExtensionBundleAvailability: .delegatedToWebKit
-            ),
-            APICapability(
-                "browser.runtime.connectNative",
-                availability: .unavailable(.missingHostAdapter),
-                appExtensionBundleAvailability: .delegatedToWebKit
-            ),
-            APICapability(
-                "browser.runtime.sendNativeMessage",
-                availability: .unavailable(.missingHostAdapter),
-                appExtensionBundleAvailability: .delegatedToWebKit
-            ),
-            APICapability(
-                "browser.storage.managed",
-                availability: .unavailable(.noPublicWebKitSurface),
-                appExtensionBundleAvailability: .delegatedToWebKit
-            ),
-            APICapability("browser.userScripts", availability: .unavailable(.noPublicWebKitSurface)),
-            APICapability("browser.webRequest.onAuthRequired", availability: .unavailable(.missingHostAdapter)),
-        ]
-    )
-
-    private let permissionsByName: [String: PermissionCapability]
-    private let apiCapabilities: [APICapability]
-
-    init(permissions: [PermissionCapability], apis: [APICapability]) {
-        self.permissionsByName = Dictionary(uniqueKeysWithValues: permissions.map { ($0.name, $0) })
-        self.apiCapabilities = apis
-    }
+    static let current = BrowserWebExtensionHostCapabilityPolicy()
 
     func isPermissionGrantable(
         _ rawPermission: String,
         sourceKind: BrowserWebExtensionInstallRecord.SourceKind = .appExtensionBundle
     ) -> Bool {
-        permissionsByName[rawPermission]?.availability(for: sourceKind).isAvailable == true
+        _ = rawPermission
+        return sourceKind == .appExtensionBundle
     }
 
     func grantablePermissionNames(
         from rawPermissions: [String],
         sourceKind: BrowserWebExtensionInstallRecord.SourceKind = .appExtensionBundle
     ) -> [String] {
-        rawPermissions.filter { isPermissionGrantable($0, sourceKind: sourceKind) }
+        guard sourceKind == .appExtensionBundle else { return [] }
+        return Array(Set(rawPermissions)).sorted()
     }
 
     func unsupportedAPIs(
         forPermissionNames rawPermissions: [String],
         sourceKind: BrowserWebExtensionInstallRecord.SourceKind = .appExtensionBundle
     ) -> Set<String> {
-        var unsupportedAPIs = Set(apiCapabilities.flatMap { api in
-            api.availability(for: sourceKind).isAvailable ? [] : Self.namespaceAliases(forAPIPath: api.path)
-        })
-
-        for rawPermission in rawPermissions {
-            guard let permission = permissionsByName[rawPermission],
-                  !permission.availability(for: sourceKind).isAvailable else {
-                continue
-            }
-            for apiPath in permission.apiPaths {
-                unsupportedAPIs.formUnion(Self.namespaceAliases(forAPIPath: apiPath))
-            }
-        }
-
-        return unsupportedAPIs
-    }
-
-    private static func namespaceAliases(forAPIPath path: String) -> [String] {
-        if path.hasPrefix("browser.") {
-            let suffix = String(path.dropFirst("browser.".count))
-            return [path, "chrome.\(suffix)"]
-        }
-        if path.hasPrefix("chrome.") {
-            let suffix = String(path.dropFirst("chrome.".count))
-            return [path, "browser.\(suffix)"]
-        }
-        return [path]
+        _ = rawPermissions
+        _ = sourceKind
+        return []
     }
 }
 
@@ -385,6 +171,25 @@ struct BrowserWebExtensionInstallResult: Equatable {
     let parseErrors: [String]
 }
 
+struct BrowserWebExtensionProfileState: Codable, Equatable {
+    var isEnabled: Bool
+    var grantedPermissions: [String]
+    var grantedPermissionMatchPatterns: [String]
+    var lastError: String?
+
+    func sanitized(sourceKind: BrowserWebExtensionInstallRecord.SourceKind) -> BrowserWebExtensionProfileState {
+        BrowserWebExtensionProfileState(
+            isEnabled: isEnabled,
+            grantedPermissions: browserWebExtensionHostGrantablePermissionNames(
+                from: grantedPermissions,
+                sourceKind: sourceKind
+            ).sorted(),
+            grantedPermissionMatchPatterns: grantedPermissionMatchPatterns.sorted(),
+            lastError: lastError
+        )
+    }
+}
+
 struct BrowserWebExtensionInstallRecord: Codable, Equatable, Identifiable {
     enum SourceKind: String, Codable {
         case legacyResourceBaseURL = "resourceBaseURL"
@@ -399,6 +204,78 @@ struct BrowserWebExtensionInstallRecord: Codable, Equatable, Identifiable {
     var isEnabled: Bool
     var grantedPermissions: [String]
     var grantedPermissionMatchPatterns: [String]
+    var profileStates: [String: BrowserWebExtensionProfileState]
+
+    init(
+        id: UUID,
+        displayName: String,
+        displayVersion: String?,
+        sourceKind: SourceKind,
+        sourcePath: String,
+        isEnabled: Bool,
+        grantedPermissions: [String],
+        grantedPermissionMatchPatterns: [String],
+        profileStates: [String: BrowserWebExtensionProfileState] = [:]
+    ) {
+        self.id = id
+        self.displayName = displayName
+        self.displayVersion = displayVersion
+        self.sourceKind = sourceKind
+        self.sourcePath = sourcePath
+        self.isEnabled = isEnabled
+        self.grantedPermissions = grantedPermissions
+        self.grantedPermissionMatchPatterns = grantedPermissionMatchPatterns
+        self.profileStates = profileStates
+    }
+
+    var defaultProfileState: BrowserWebExtensionProfileState {
+        BrowserWebExtensionProfileState(
+            isEnabled: isEnabled,
+            grantedPermissions: grantedPermissions,
+            grantedPermissionMatchPatterns: grantedPermissionMatchPatterns,
+            lastError: nil
+        )
+    }
+
+    func profileState(for profileID: UUID) -> BrowserWebExtensionProfileState {
+        profileStates[Self.profileStateKey(for: profileID)] ?? defaultProfileState
+    }
+
+    mutating func setProfileState(_ state: BrowserWebExtensionProfileState, for profileID: UUID) {
+        profileStates[Self.profileStateKey(for: profileID)] = state.sanitized(sourceKind: sourceKind)
+    }
+
+    static func profileStateKey(for profileID: UUID) -> String {
+        profileID.uuidString.lowercased()
+    }
+
+    enum CodingKeys: String, CodingKey {
+        case id
+        case displayName
+        case displayVersion
+        case sourceKind
+        case sourcePath
+        case isEnabled
+        case grantedPermissions
+        case grantedPermissionMatchPatterns
+        case profileStates
+    }
+
+    init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        id = try container.decode(UUID.self, forKey: .id)
+        displayName = try container.decode(String.self, forKey: .displayName)
+        displayVersion = try container.decodeIfPresent(String.self, forKey: .displayVersion)
+        sourceKind = try container.decode(SourceKind.self, forKey: .sourceKind)
+        sourcePath = try container.decode(String.self, forKey: .sourcePath)
+        isEnabled = try container.decode(Bool.self, forKey: .isEnabled)
+        grantedPermissions = try container.decode([String].self, forKey: .grantedPermissions)
+        grantedPermissionMatchPatterns = try container.decode([String].self, forKey: .grantedPermissionMatchPatterns)
+        profileStates = try container.decodeIfPresent(
+            [String: BrowserWebExtensionProfileState].self,
+            forKey: .profileStates
+        ) ?? [:]
+    }
 }
 
 struct BrowserWebExtensionInstallSource: Equatable {
@@ -413,7 +290,7 @@ func browserWebExtensionSourceDescription(
     case .appExtensionBundle:
         return String(localized: "browser.extensions.summary.appExtension", defaultValue: "Safari app extension")
     case .legacyResourceBaseURL:
-        return String(localized: "browser.extensions.summary.unsupportedLocalExtension", defaultValue: "Unsupported local extension")
+        return String(localized: "browser.extensions.summary.unsupportedLocalExtension", defaultValue: "Unsupported legacy extension")
     }
 }
 
@@ -438,7 +315,8 @@ func browserWebExtensionSummaryDetail(
 }
 
 func browserWebExtensionContextUniqueIdentifier(
-    for record: BrowserWebExtensionInstallRecord
+    for record: BrowserWebExtensionInstallRecord,
+    profileID: UUID
 ) -> String? {
     switch record.sourceKind {
     case .legacyResourceBaseURL:
@@ -450,7 +328,7 @@ func browserWebExtensionContextUniqueIdentifier(
         guard let bundleIdentifier, !bundleIdentifier.isEmpty else {
             return nil
         }
-        return bundleIdentifier
+        return "\(bundleIdentifier).cmux-profile.\(profileID.uuidString.lowercased())"
     }
 }
 
@@ -460,6 +338,9 @@ enum BrowserWebExtensionInstallError: LocalizedError, Equatable {
     case noManifest(URL)
     case noWebExtensionInApp(URL)
     case unsupportedSource(URL)
+    case developerModeRequired(URL)
+    case extensionNotFound(String)
+    case ambiguousExtension(String)
     case loadFailed(String)
     case persistFailed(String)
 
@@ -483,6 +364,21 @@ enum BrowserWebExtensionInstallError: LocalizedError, Equatable {
             return String(
                 format: String(localized: "browser.extensions.error.unsupportedSource", defaultValue: "%@ is not an app or .appex containing a Safari Web Extension."),
                 url.lastPathComponent
+            )
+        case .developerModeRequired(let url):
+            return String(
+                format: String(localized: "browser.extensions.error.developerModeRequired", defaultValue: "Developer Mode is required to load %@ directly. Install the containing app bundle instead, or enable Browser Extensions Developer Mode."),
+                url.lastPathComponent
+            )
+        case .extensionNotFound(let query):
+            return String(
+                format: String(localized: "browser.extensions.error.notFound", defaultValue: "No installed browser extension matches '%@'."),
+                query
+            )
+        case .ambiguousExtension(let query):
+            return String(
+                format: String(localized: "browser.extensions.error.ambiguous", defaultValue: "Multiple installed browser extensions match '%@'. Use the extension ID instead."),
+                query
             )
         case .loadFailed(let message):
             return message
@@ -548,8 +444,12 @@ final class BrowserWebExtensionInstallStore {
         }
     }
 
-    func summaries(loadedRecordIDs: Set<UUID> = []) -> [BrowserWebExtensionInstalledSummary] {
+    func summaries(
+        profileID: UUID,
+        loadedRecordIDs: Set<UUID> = []
+    ) -> [BrowserWebExtensionInstalledSummary] {
         records.map { record in
+            let state = record.profileState(for: profileID)
             return BrowserWebExtensionInstalledSummary(
                 id: record.id,
                 displayName: record.displayName,
@@ -557,8 +457,13 @@ final class BrowserWebExtensionInstallStore {
                     sourceKind: record.sourceKind,
                     displayVersion: record.displayVersion
                 ),
-                isEnabled: record.isEnabled,
-                isLoaded: loadedRecordIDs.contains(record.id)
+                sourceKind: record.sourceKind,
+                sourcePath: record.sourcePath,
+                grantedPermissions: state.grantedPermissions,
+                grantedPermissionMatchPatterns: state.grantedPermissionMatchPatterns,
+                isEnabled: state.isEnabled,
+                isLoaded: loadedRecordIDs.contains(record.id),
+                lastError: state.lastError
             )
         }
     }
@@ -619,6 +524,30 @@ final class BrowserWebExtensionInstallStore {
         records = nextRecords
     }
 
+    func setEnabled(_ isEnabled: Bool, for recordID: UUID, profileID: UUID) throws {
+        guard let index = records.firstIndex(where: { $0.id == recordID }) else { return }
+        var nextRecords = records
+        var state = nextRecords[index].profileState(for: profileID)
+        state.isEnabled = isEnabled
+        if isEnabled {
+            state.lastError = nil
+        }
+        nextRecords[index].setProfileState(state, for: profileID)
+        try persist(nextRecords)
+        records = nextRecords
+    }
+
+    func setLastError(_ error: String?, for recordID: UUID, profileID: UUID) throws {
+        guard let index = records.firstIndex(where: { $0.id == recordID }) else { return }
+        var nextRecords = records
+        var state = nextRecords[index].profileState(for: profileID)
+        let trimmedError = error?.trimmingCharacters(in: .whitespacesAndNewlines)
+        state.lastError = trimmedError?.isEmpty == false ? trimmedError : nil
+        nextRecords[index].setProfileState(state, for: profileID)
+        try persist(nextRecords)
+        records = nextRecords
+    }
+
     func remove(recordID: UUID) throws {
         guard let index = records.firstIndex(where: { $0.id == recordID }) else { return }
         let previousRecords = records
@@ -630,7 +559,10 @@ final class BrowserWebExtensionInstallStore {
         _ = record
     }
 
-    func discoverSource(from url: URL) throws -> BrowserWebExtensionInstallSource {
+    func discoverSource(
+        from url: URL,
+        developerModeEnabled: Bool = BrowserExtensionDeveloperModeSettings.isEnabled()
+    ) throws -> BrowserWebExtensionInstallSource {
         let resolvedURL = url.standardizedFileURL
         let pathExtension = resolvedURL.pathExtension.lowercased()
 
@@ -642,6 +574,9 @@ final class BrowserWebExtensionInstallStore {
         }
 
         if pathExtension == "appex" {
+            guard developerModeEnabled else {
+                throw BrowserWebExtensionInstallError.developerModeRequired(resolvedURL)
+            }
             switch appExtensionValidationResult(for: resolvedURL) {
             case .valid:
                 return BrowserWebExtensionInstallSource(kind: .appExtensionBundle, url: resolvedURL)
@@ -708,6 +643,12 @@ final class BrowserWebExtensionInstallStore {
             from: record.grantedPermissions,
             sourceKind: record.sourceKind
         ).sorted()
+        record.grantedPermissionMatchPatterns = record.grantedPermissionMatchPatterns.sorted()
+        record.profileStates = Dictionary(
+            uniqueKeysWithValues: record.profileStates.map { key, state in
+                (key, state.sanitized(sourceKind: record.sourceKind))
+            }
+        )
         return record
     }
 
@@ -800,11 +741,13 @@ enum BrowserWebExtensionSupport {
 
     static func configureWebViewConfiguration(
         _ configuration: WKWebViewConfiguration,
+        profileID: UUID,
         websiteDataStore: WKWebsiteDataStore
     ) {
         guard #available(macOS 15.4, *) else { return }
         BrowserWebExtensionRuntime.shared.configure(
             configuration,
+            profileID: profileID,
             websiteDataStore: websiteDataStore
         )
     }
@@ -824,9 +767,12 @@ enum BrowserWebExtensionSupport {
         BrowserWebExtensionRuntime.shared.unregister(panelID: panelID)
     }
 
-    static func installedExtensionSummaries() -> [BrowserWebExtensionInstalledSummary] {
+    static func installedExtensionSummaries(
+        profileID: UUID? = nil
+    ) -> [BrowserWebExtensionInstalledSummary] {
         guard #available(macOS 15.4, *) else { return [] }
-        return BrowserWebExtensionRuntime.shared.installedExtensionSummaries()
+        let resolvedProfileID = profileID ?? BrowserProfileStore.shared.effectiveLastUsedProfileID
+        return BrowserWebExtensionRuntime.shared.installedExtensionSummaries(profileID: resolvedProfileID)
     }
 
     static func actionSnapshots(for panel: BrowserPanel) -> [BrowserWebExtensionActionSnapshot] {
@@ -856,6 +802,47 @@ enum BrowserWebExtensionSupport {
         await BrowserWebExtensionRuntime.shared.reloadInstalledExtensions()
     }
 
+    static func reloadExtension(
+        id: UUID,
+        profileID: UUID? = nil
+    ) async throws -> BrowserWebExtensionInstalledSummary {
+        guard #available(macOS 15.4, *) else {
+            throw BrowserWebExtensionInstallError.unsupportedOS
+        }
+        let resolvedProfileID = profileID ?? BrowserProfileStore.shared.effectiveLastUsedProfileID
+        return try await BrowserWebExtensionRuntime.shared.reloadExtension(id: id, profileID: resolvedProfileID)
+    }
+
+    static func setExtensionEnabled(
+        _ isEnabled: Bool,
+        id: UUID,
+        profileID: UUID? = nil
+    ) async throws -> BrowserWebExtensionInstalledSummary {
+        guard #available(macOS 15.4, *) else {
+            throw BrowserWebExtensionInstallError.unsupportedOS
+        }
+        let resolvedProfileID = profileID ?? BrowserProfileStore.shared.effectiveLastUsedProfileID
+        return try await BrowserWebExtensionRuntime.shared.setExtensionEnabled(
+            isEnabled,
+            id: id,
+            profileID: resolvedProfileID
+        )
+    }
+
+    static func removeExtension(id: UUID) throws {
+        guard #available(macOS 15.4, *) else {
+            throw BrowserWebExtensionInstallError.unsupportedOS
+        }
+        try BrowserWebExtensionRuntime.shared.removeExtension(id: id)
+    }
+
+    static func resolveExtensionID(matching query: String) throws -> UUID {
+        guard #available(macOS 15.4, *) else {
+            throw BrowserWebExtensionInstallError.unsupportedOS
+        }
+        return try BrowserWebExtensionRuntime.shared.resolveExtensionID(matching: query)
+    }
+
     static func notePanelPropertiesChanged(panel: BrowserPanel) {
         guard #available(macOS 15.4, *) else { return }
         BrowserWebExtensionRuntime.shared.notePanelPropertiesChanged(panel: panel)
@@ -878,55 +865,79 @@ private final class BrowserWebExtensionRuntime: NSObject, WKWebExtensionControll
     static let shared = BrowserWebExtensionRuntime()
 
     private let store = BrowserWebExtensionInstallStore()
-    private var controller: WKWebExtensionController?
-    private var contextsByRecordID: [UUID: WKWebExtensionContext] = [:]
+    private var controllersByProfileID: [UUID: WKWebExtensionController] = [:]
+    private var contextsByProfileID: [UUID: [UUID: WKWebExtensionContext]] = [:]
     private var tabAdaptersByPanelID: [UUID: BrowserWebExtensionTabAdapter] = [:]
     private var auxiliaryWindowAdaptersByID: [UUID: BrowserWebExtensionAuxiliaryWindowAdapter] = [:]
     private var actionPopupPresentationsByID: [UUID: BrowserWebExtensionActionPopupPresentation] = [:]
     private var actionPopupAnchorViewsByPanelID: [UUID: BrowserWebExtensionWeakView] = [:]
-    private let windowAdapter = BrowserWebExtensionWindowAdapter()
-    private var hasLoadedRecords = false
+    private var windowAdaptersByProfileID: [UUID: BrowserWebExtensionWindowAdapter] = [:]
+    private var loadedProfileIDs: Set<UUID> = []
 
     override init() {
         super.init()
-        windowAdapter.runtime = self
     }
 
     func configure(
         _ configuration: WKWebViewConfiguration,
+        profileID: UUID,
         websiteDataStore: WKWebsiteDataStore
     ) {
-        let controller = ensureController(defaultWebsiteDataStore: websiteDataStore)
+        let controller = ensureController(
+            profileID: profileID,
+            defaultWebsiteDataStore: websiteDataStore
+        )
         configuration.webExtensionController = controller
     }
 
     func register(panel: BrowserPanel) {
+        let profileID = panel.profileID
+        let controller = ensureController(
+            profileID: profileID,
+            defaultWebsiteDataStore: panel.websiteDataStore
+        )
+        let windowAdapter = ensureWindowAdapter(profileID: profileID)
         let existingAdapter = tabAdaptersByPanelID[panel.id]
-        let adapter = existingAdapter ?? BrowserWebExtensionTabAdapter(panel: panel, windowAdapter: windowAdapter)
+        if let existingAdapter, existingAdapter.profileID != profileID {
+            controllersByProfileID[existingAdapter.profileID]?.didCloseTab(existingAdapter, windowIsClosing: false)
+            tabAdaptersByPanelID[panel.id] = nil
+        }
+        let adapter = tabAdaptersByPanelID[panel.id]
+            ?? BrowserWebExtensionTabAdapter(
+                panel: panel,
+                windowAdapter: windowAdapter,
+                profileID: profileID
+            )
         adapter.panel = panel
         tabAdaptersByPanelID[panel.id] = adapter
-        if existingAdapter == nil {
-            controller?.didOpenTab(adapter)
+        if existingAdapter == nil || existingAdapter?.profileID != profileID {
+            controller.didOpenTab(adapter)
         }
-        controller?.didFocusWindow(windowAdapter)
-        controller?.didChangeTabProperties([.title, .URL, .loading], for: adapter)
+        controller.didFocusWindow(windowAdapter)
+        controller.didChangeTabProperties(WKWebExtension.TabChangedProperties([.title, .URL, .loading]), for: adapter)
+        Task { @MainActor [weak self] in
+            await self?.loadInstalledRecordsIfNeeded(profileID: profileID)
+        }
         postDidChange()
     }
 
     func unregister(panelID: UUID) {
         guard let adapter = tabAdaptersByPanelID.removeValue(forKey: panelID) else { return }
         actionPopupAnchorViewsByPanelID.removeValue(forKey: panelID)
-        controller?.didCloseTab(adapter, windowIsClosing: false)
+        controllersByProfileID[adapter.profileID]?.didCloseTab(adapter, windowIsClosing: false)
         postDidChange()
     }
 
-    func installedExtensionSummaries() -> [BrowserWebExtensionInstalledSummary] {
-        store.summaries(loadedRecordIDs: Set(contextsByRecordID.keys))
+    func installedExtensionSummaries(profileID: UUID) -> [BrowserWebExtensionInstalledSummary] {
+        store.summaries(
+            profileID: profileID,
+            loadedRecordIDs: Set(contextsByProfileID[profileID, default: [:]].keys)
+        )
     }
 
     func actionSnapshots(for panel: BrowserPanel) -> [BrowserWebExtensionActionSnapshot] {
         guard let tab = tabAdaptersByPanelID[panel.id] else { return [] }
-        return contextsByRecordID.compactMap { recordID, context in
+        return contextsByProfileID[panel.profileID, default: [:]].compactMap { recordID, context in
             guard let action = context.action(for: tab) else { return nil }
             return BrowserWebExtensionActionSnapshot(
                 id: recordID,
@@ -941,7 +952,7 @@ private final class BrowserWebExtensionRuntime: NSObject, WKWebExtensionControll
     }
 
     func performAction(_ actionID: UUID, for panel: BrowserPanel) {
-        guard let context = contextsByRecordID[actionID] else {
+        guard let context = contextsByProfileID[panel.profileID]?[actionID] else {
             return
         }
         let tab = tabAdaptersByPanelID[panel.id]
@@ -958,7 +969,7 @@ private final class BrowserWebExtensionRuntime: NSObject, WKWebExtensionControll
 
     func notePanelPropertiesChanged(panel: BrowserPanel) {
         guard let tab = tabAdaptersByPanelID[panel.id] else { return }
-        controller?.didChangeTabProperties([.title, .URL, .loading], for: tab)
+        controllersByProfileID[tab.profileID]?.didChangeTabProperties([.title, .URL, .loading], for: tab)
         postDidChange()
     }
 
@@ -986,9 +997,13 @@ private final class BrowserWebExtensionRuntime: NSObject, WKWebExtensionControll
             grantedPermissions: webExtension.requestedPermissions.map { String($0.rawValue) },
             grantedPermissionMatchPatterns: requiredMatchPatternStrings(for: webExtension)
         )
-        try await load(record: record)
+        let activeProfileID = BrowserProfileStore.shared.effectiveLastUsedProfileID
+        try await load(record: record, profileID: activeProfileID)
         postDidChange()
-        let summary = store.summaries(loadedRecordIDs: Set(contextsByRecordID.keys)).first { $0.id == record.id }
+        let summary = store.summaries(
+            profileID: activeProfileID,
+            loadedRecordIDs: Set(contextsByProfileID[activeProfileID, default: [:]].keys)
+        ).first { $0.id == record.id }
             ?? BrowserWebExtensionInstalledSummary(
                 id: record.id,
                 displayName: record.displayName,
@@ -996,29 +1011,104 @@ private final class BrowserWebExtensionRuntime: NSObject, WKWebExtensionControll
                     sourceKind: record.sourceKind,
                     displayVersion: record.displayVersion
                 ),
-                isEnabled: record.isEnabled,
-                isLoaded: contextsByRecordID[record.id] != nil
+                sourceKind: record.sourceKind,
+                sourcePath: record.sourcePath,
+                grantedPermissions: record.profileState(for: activeProfileID).grantedPermissions,
+                grantedPermissionMatchPatterns: record.profileState(for: activeProfileID).grantedPermissionMatchPatterns,
+                isEnabled: record.profileState(for: activeProfileID).isEnabled,
+                isLoaded: contextsByProfileID[activeProfileID]?[record.id] != nil,
+                lastError: record.profileState(for: activeProfileID).lastError
             )
         return BrowserWebExtensionInstallResult(summary: summary, parseErrors: parseErrors)
     }
 
     func reloadInstalledExtensions() async {
-        let controller = ensureController(defaultWebsiteDataStore: .default())
         closeAllActionPopups()
         closeAllAuxiliaryWindows()
-        for context in contextsByRecordID.values {
-            try? controller.unload(context)
+        for (profileID, contextsByRecordID) in contextsByProfileID {
+            guard let controller = controllersByProfileID[profileID] else { continue }
+            for context in contextsByRecordID.values {
+                try? controller.unload(context)
+            }
         }
-        contextsByRecordID.removeAll()
+        contextsByProfileID.removeAll()
+        loadedProfileIDs.removeAll()
         store.reload()
-        for record in store.records where record.isEnabled {
-            try? await load(record: record)
+        for profileID in controllersByProfileID.keys {
+            await loadInstalledRecordsIfNeeded(profileID: profileID)
         }
         postDidChange()
     }
 
-    private func ensureController(defaultWebsiteDataStore: WKWebsiteDataStore) -> WKWebExtensionController {
-        if let controller {
+    func reloadExtension(id: UUID, profileID: UUID) async throws -> BrowserWebExtensionInstalledSummary {
+        guard let record = store.records.first(where: { $0.id == id }) else {
+            throw BrowserWebExtensionInstallError.extensionNotFound(id.uuidString)
+        }
+        let state = record.profileState(for: profileID)
+        guard state.isEnabled else {
+            return try summary(for: id, profileID: profileID)
+        }
+        try await load(record: record, profileID: profileID)
+        postDidChange()
+        return try summary(for: id, profileID: profileID)
+    }
+
+    func setExtensionEnabled(
+        _ isEnabled: Bool,
+        id: UUID,
+        profileID: UUID
+    ) async throws -> BrowserWebExtensionInstalledSummary {
+        try store.setEnabled(isEnabled, for: id, profileID: profileID)
+        if isEnabled, let record = store.records.first(where: { $0.id == id }) {
+            try await load(record: record, profileID: profileID)
+        } else {
+            unload(recordID: id, profileID: profileID)
+        }
+        postDidChange()
+        return try summary(for: id, profileID: profileID)
+    }
+
+    func removeExtension(id: UUID) throws {
+        closeAllActionPopups()
+        for profileID in controllersByProfileID.keys {
+            unload(recordID: id, profileID: profileID)
+        }
+        try store.remove(recordID: id)
+        postDidChange()
+    }
+
+    func resolveExtensionID(matching query: String) throws -> UUID {
+        let trimmed = query.trimmingCharacters(in: .whitespacesAndNewlines)
+        if let uuid = UUID(uuidString: trimmed),
+           store.records.contains(where: { $0.id == uuid }) {
+            return uuid
+        }
+        let matches = store.records.filter { record in
+            record.displayName.localizedCaseInsensitiveCompare(trimmed) == .orderedSame ||
+                URL(fileURLWithPath: record.sourcePath).lastPathComponent.localizedCaseInsensitiveCompare(trimmed) == .orderedSame ||
+                (Bundle(url: URL(fileURLWithPath: record.sourcePath))?.bundleIdentifier?.localizedCaseInsensitiveCompare(trimmed) == .orderedSame)
+        }
+        if matches.count > 1 {
+            throw BrowserWebExtensionInstallError.ambiguousExtension(query)
+        }
+        guard let match = matches.first else {
+            throw BrowserWebExtensionInstallError.extensionNotFound(query)
+        }
+        return match.id
+    }
+
+    private func summary(for recordID: UUID, profileID: UUID) throws -> BrowserWebExtensionInstalledSummary {
+        guard let summary = installedExtensionSummaries(profileID: profileID).first(where: { $0.id == recordID }) else {
+            throw BrowserWebExtensionInstallError.extensionNotFound(recordID.uuidString)
+        }
+        return summary
+    }
+
+    private func ensureController(
+        profileID: UUID,
+        defaultWebsiteDataStore: WKWebsiteDataStore
+    ) -> WKWebExtensionController {
+        if let controller = controllersByProfileID[profileID] {
             return controller
         }
 
@@ -1034,13 +1124,36 @@ private final class BrowserWebExtensionRuntime: NSObject, WKWebExtensionControll
 
         let controller = WKWebExtensionController(configuration: configuration)
         controller.delegate = self
-        self.controller = controller
+        controllersByProfileID[profileID] = controller
 
         Task { @MainActor [weak self] in
-            await self?.loadInstalledRecordsIfNeeded()
+            await self?.loadInstalledRecordsIfNeeded(profileID: profileID)
         }
 
         return controller
+    }
+
+    private func ensureWindowAdapter(profileID: UUID) -> BrowserWebExtensionWindowAdapter {
+        if let adapter = windowAdaptersByProfileID[profileID] {
+            return adapter
+        }
+        let adapter = BrowserWebExtensionWindowAdapter(profileID: profileID)
+        adapter.runtime = self
+        windowAdaptersByProfileID[profileID] = adapter
+        return adapter
+    }
+
+    private func profileID(for controller: WKWebExtensionController) -> UUID? {
+        controllersByProfileID.first { $0.value === controller }?.key
+    }
+
+    private func profileID(for context: WKWebExtensionContext) -> UUID? {
+        for (profileID, contexts) in contextsByProfileID {
+            if contexts.values.contains(where: { $0 === context }) {
+                return profileID
+            }
+        }
+        return nil
     }
 
     private func auxiliaryWebViewConfiguration(
@@ -1051,7 +1164,7 @@ private final class BrowserWebExtensionRuntime: NSObject, WKWebExtensionControll
     ) -> WKWebViewConfiguration? {
         let configuration: WKWebViewConfiguration
         if let initialURL,
-           let targetContext = controller?.extensionContext(for: initialURL),
+           let targetContext = context.webExtensionController?.extensionContext(for: initialURL),
            targetContext === context {
             guard let extensionConfiguration = context.webViewConfiguration else { return nil }
             configuration = extensionConfiguration
@@ -1060,12 +1173,15 @@ private final class BrowserWebExtensionRuntime: NSObject, WKWebExtensionControll
             if let browserContext = openerPanel?.popupBrowserContext {
                 BrowserPanel.configureWebViewConfiguration(
                     configuration,
+                    profileID: browserContext.profileID,
                     websiteDataStore: browserContext.websiteDataStore,
                     processPool: browserContext.processPool
                 )
             } else {
+                let defaultProfileID = BrowserProfileStore.shared.builtInDefaultProfileID
                 BrowserPanel.configureWebViewConfiguration(
                     configuration,
+                    profileID: defaultProfileID,
                     websiteDataStore: .default()
                 )
             }
@@ -1079,20 +1195,28 @@ private final class BrowserWebExtensionRuntime: NSObject, WKWebExtensionControll
         return configuration
     }
 
-    private func loadInstalledRecordsIfNeeded() async {
-        guard !hasLoadedRecords else { return }
-        hasLoadedRecords = true
-        for record in store.records where record.isEnabled {
-            try? await load(record: record)
+    private func loadInstalledRecordsIfNeeded(profileID: UUID) async {
+        guard !loadedProfileIDs.contains(profileID) else { return }
+        loadedProfileIDs.insert(profileID)
+        for record in store.records where record.profileState(for: profileID).isEnabled {
+            do {
+                try await load(record: record, profileID: profileID)
+            } catch {
+                try? store.setLastError(error.localizedDescription, for: record.id, profileID: profileID)
+            }
         }
         postDidChange()
     }
 
-    private func load(record: BrowserWebExtensionInstallRecord) async throws {
-        let controller = ensureController(defaultWebsiteDataStore: .default())
-        if let existing = contextsByRecordID[record.id] {
+    private func load(record: BrowserWebExtensionInstallRecord, profileID: UUID) async throws {
+        let dataStore = BrowserProfileStore.shared.websiteDataStore(for: profileID)
+        let controller = ensureController(
+            profileID: profileID,
+            defaultWebsiteDataStore: dataStore
+        )
+        if let existing = contextsByProfileID[profileID]?[record.id] {
             try? controller.unload(existing)
-            contextsByRecordID[record.id] = nil
+            contextsByProfileID[profileID]?[record.id] = nil
         }
 
         let source = BrowserWebExtensionInstallSource(
@@ -1101,7 +1225,7 @@ private final class BrowserWebExtensionRuntime: NSObject, WKWebExtensionControll
         )
         let webExtension = try await loadWebExtension(from: source)
         let context = WKWebExtensionContext(for: webExtension)
-        if let uniqueIdentifier = browserWebExtensionContextUniqueIdentifier(for: record) {
+        if let uniqueIdentifier = browserWebExtensionContextUniqueIdentifier(for: record, profileID: profileID) {
             context.uniqueIdentifier = uniqueIdentifier
         }
         context.inspectionName = record.displayName
@@ -1112,8 +1236,9 @@ private final class BrowserWebExtensionRuntime: NSObject, WKWebExtensionControll
             for: webExtension,
             sourceKind: record.sourceKind
         )
+        let profileState = record.profileState(for: profileID)
         for rawPermission in browserWebExtensionHostGrantablePermissionNames(
-            from: record.grantedPermissions,
+            from: profileState.grantedPermissions,
             sourceKind: record.sourceKind
         ) {
             context.setPermissionStatus(
@@ -1121,12 +1246,20 @@ private final class BrowserWebExtensionRuntime: NSObject, WKWebExtensionControll
                 for: WKWebExtension.Permission(rawPermission)
             )
         }
-        for rawPattern in record.grantedPermissionMatchPatterns {
+        for rawPattern in profileState.grantedPermissionMatchPatterns {
             if let pattern = try? WKWebExtension.MatchPattern(string: rawPattern) {
                 context.setPermissionStatus(.grantedExplicitly, for: pattern)
             }
         }
-        try controller.load(context)
+        contextsByProfileID[profileID, default: [:]][record.id] = context
+        do {
+            try controller.load(context)
+        } catch {
+            contextsByProfileID[profileID]?[record.id] = nil
+            try? store.setLastError(error.localizedDescription, for: record.id, profileID: profileID)
+            throw error
+        }
+        try? store.setLastError(nil, for: record.id, profileID: profileID)
         if webExtension.hasBackgroundContent {
             context.loadBackgroundContent { error in
 #if DEBUG
@@ -1136,9 +1269,24 @@ private final class BrowserWebExtensionRuntime: NSObject, WKWebExtensionControll
                     )
                 }
 #endif
+                if let error {
+                    Task { @MainActor [weak self] in
+                        try? self?.store.setLastError(
+                            error.localizedDescription,
+                            for: record.id,
+                            profileID: profileID
+                        )
+                        self?.postDidChange()
+                    }
+                }
             }
         }
-        contextsByRecordID[record.id] = context
+    }
+
+    private func unload(recordID: UUID, profileID: UUID) {
+        guard let context = contextsByProfileID[profileID]?[recordID] else { return }
+        try? controllersByProfileID[profileID]?.unload(context)
+        contextsByProfileID[profileID]?[recordID] = nil
     }
 
     private func loadWebExtension(from source: BrowserWebExtensionInstallSource) async throws -> WKWebExtension {
@@ -1232,23 +1380,40 @@ private final class BrowserWebExtensionRuntime: NSObject, WKWebExtensionControll
         _ controller: WKWebExtensionController,
         openWindowsFor context: WKWebExtensionContext
     ) -> [any WKWebExtensionWindow] {
+        let profileID = profileID(for: controller)
         let auxiliaryWindows = auxiliaryWindowAdaptersByID.values
+            .filter { profileID == nil || $0.profileID == profileID }
             .filter(\.isVisible)
             .sorted { $0.createdAt < $1.createdAt }
+        let windowAdapter = profileID.map { ensureWindowAdapter(profileID: $0) }
         if let focusedAuxiliaryWindow = auxiliaryWindows.first(where: \.isKeyWindow) {
-            return [focusedAuxiliaryWindow, windowAdapter] + auxiliaryWindows.filter { $0 !== focusedAuxiliaryWindow }
+            var windows: [any WKWebExtensionWindow] = [focusedAuxiliaryWindow]
+            if let windowAdapter {
+                windows.append(windowAdapter)
+            }
+            windows.append(contentsOf: auxiliaryWindows.filter { $0 !== focusedAuxiliaryWindow })
+            return windows
         }
-        return [windowAdapter] + auxiliaryWindows
+        var windows: [any WKWebExtensionWindow] = []
+        if let windowAdapter {
+            windows.append(windowAdapter)
+        }
+        windows.append(contentsOf: auxiliaryWindows)
+        return windows
     }
 
     func webExtensionController(
         _ controller: WKWebExtensionController,
         focusedWindowFor context: WKWebExtensionContext
     ) -> (any WKWebExtensionWindow)? {
-        if let focusedAuxiliaryWindow = auxiliaryWindowAdaptersByID.values.first(where: \.isKeyWindow) {
+        let profileID = profileID(for: controller)
+        if let focusedAuxiliaryWindow = auxiliaryWindowAdaptersByID.values.first(where: {
+            $0.isKeyWindow && (profileID == nil || $0.profileID == profileID)
+        }) {
             return focusedAuxiliaryWindow
         }
-        return windowAdapter
+        let window = profileID.map { ensureWindowAdapter(profileID: $0) }
+        return window
     }
 
     func webExtensionController(
@@ -1257,9 +1422,10 @@ private final class BrowserWebExtensionRuntime: NSObject, WKWebExtensionControll
         for context: WKWebExtensionContext,
         completionHandler: @escaping ((any WKWebExtensionWindow)?, Error?) -> Void
     ) {
+        let profileID = profileID(for: controller) ?? BrowserProfileStore.shared.builtInDefaultProfileID
         let opener = configuration.tabs.compactMap { ($0 as? BrowserWebExtensionTabAdapter)?.panel }.first
-            ?? activeTabAdapter()?.panel
-            ?? tabAdaptersByPanelID.values.compactMap(\.panel).first
+            ?? activeTabAdapter(profileID: profileID)?.panel
+            ?? tabAdaptersByPanelID.values.filter { $0.profileID == profileID }.compactMap(\.panel).first
         let initialURL = configuration.tabURLs.first
         guard let webViewConfiguration = auxiliaryWebViewConfiguration(
             initialURL: initialURL,
@@ -1273,6 +1439,7 @@ private final class BrowserWebExtensionRuntime: NSObject, WKWebExtensionControll
 
         let window = BrowserWebExtensionAuxiliaryWindowAdapter(
             runtime: self,
+            profileID: profileID,
             configuration: configuration,
             webViewConfiguration: webViewConfiguration,
             customUserAgent: BrowserUserAgentSettings.safariUserAgent,
@@ -1295,9 +1462,10 @@ private final class BrowserWebExtensionRuntime: NSObject, WKWebExtensionControll
         for context: WKWebExtensionContext,
         completionHandler: @escaping ((any WKWebExtensionTab)?, Error?) -> Void
     ) {
+        let profileID = profileID(for: controller) ?? BrowserProfileStore.shared.builtInDefaultProfileID
         let opener = (configuration.parentTab as? BrowserWebExtensionTabAdapter)?.panel
-            ?? activeTabAdapter()?.panel
-            ?? tabAdaptersByPanelID.values.compactMap(\.panel).first
+            ?? activeTabAdapter(profileID: profileID)?.panel
+            ?? tabAdaptersByPanelID.values.filter { $0.profileID == profileID }.compactMap(\.panel).first
         guard let opener,
               let app = AppDelegate.shared,
               let workspace = app.workspaceContainingPanel(
@@ -1322,20 +1490,20 @@ private final class BrowserWebExtensionRuntime: NSObject, WKWebExtensionControll
     }
 
     fileprivate func auxiliaryWindowDidFocus(_ window: BrowserWebExtensionAuxiliaryWindowAdapter) {
-        controller?.didFocusWindow(window)
+        controllersByProfileID[window.profileID]?.didFocusWindow(window)
     }
 
     fileprivate func auxiliaryWindowDidChangeTabProperties(
         _ properties: WKWebExtension.TabChangedProperties,
         tab: BrowserWebExtensionAuxiliaryTabAdapter
     ) {
-        controller?.didChangeTabProperties(properties, for: tab)
+        controllersByProfileID[tab.profileID]?.didChangeTabProperties(properties, for: tab)
     }
 
     fileprivate func auxiliaryWindowDidClose(_ window: BrowserWebExtensionAuxiliaryWindowAdapter) {
         auxiliaryWindowAdaptersByID.removeValue(forKey: window.id)
-        controller?.didCloseTab(window.tabAdapter, windowIsClosing: true)
-        controller?.didCloseWindow(window)
+        controllersByProfileID[window.profileID]?.didCloseTab(window.tabAdapter, windowIsClosing: true)
+        controllersByProfileID[window.profileID]?.didCloseWindow(window)
         postDidChange()
     }
 
@@ -1372,6 +1540,9 @@ private final class BrowserWebExtensionRuntime: NSObject, WKWebExtensionControll
             completionHandler(nil)
             return
         }
+#if DEBUG
+        popupWebView.isInspectable = true
+#endif
         let sourceAnchorView = actionPopupAnchorView(for: action) ?? fallbackAnchorView
         let presentationAnchorView = sourceAnchorView.window?.contentView ?? sourceAnchorView
         let rectInWindow = sourceAnchorView.convert(sourceAnchorView.bounds, to: nil)
@@ -1417,7 +1588,8 @@ private final class BrowserWebExtensionRuntime: NSObject, WKWebExtensionControll
     }
 
     private func sourceKind(for context: WKWebExtensionContext) -> BrowserWebExtensionInstallRecord.SourceKind {
-        guard let recordID = contextsByRecordID.first(where: { $0.value === context })?.key,
+        guard let profileID = profileID(for: context),
+              let recordID = contextsByProfileID[profileID]?.first(where: { $0.value === context })?.key,
               let record = store.records.first(where: { $0.id == recordID }) else {
             return .appExtensionBundle
         }
@@ -1497,24 +1669,27 @@ private final class BrowserWebExtensionRuntime: NSObject, WKWebExtensionControll
         }
     }
 
-    fileprivate func activeTabAdapter() -> BrowserWebExtensionTabAdapter? {
+    fileprivate func activeTabAdapter(profileID: UUID? = nil) -> BrowserWebExtensionTabAdapter? {
         if let focusedPanelID = AppDelegate.shared?.tabManager?.selectedWorkspace?.focusedPanelId,
-           let adapter = tabAdaptersByPanelID[focusedPanelID] {
+           let adapter = tabAdaptersByPanelID[focusedPanelID],
+           profileID == nil || adapter.profileID == profileID {
             return adapter
         }
         return tabAdaptersByPanelID.values.first { adapter in
-            adapter.panel?.webView.window?.isKeyWindow == true
+            guard profileID == nil || adapter.profileID == profileID else { return false }
+            return adapter.panel?.webView.window?.isKeyWindow == true
         }
     }
 
-    fileprivate var tabAdapters: [BrowserWebExtensionTabAdapter] {
+    fileprivate func tabAdapters(profileID: UUID) -> [BrowserWebExtensionTabAdapter] {
         var seenPanelIDs: Set<UUID> = []
         var orderedAdapters: [BrowserWebExtensionTabAdapter] = []
 
         if let tabManager = AppDelegate.shared?.tabManager {
             for workspace in tabManager.tabs {
                 for panelID in workspace.sidebarOrderedPanelIds() where seenPanelIDs.insert(panelID).inserted {
-                    if let adapter = tabAdaptersByPanelID[panelID] {
+                    if let adapter = tabAdaptersByPanelID[panelID],
+                       adapter.profileID == profileID {
                         orderedAdapters.append(adapter)
                     }
                 }
@@ -1523,7 +1698,8 @@ private final class BrowserWebExtensionRuntime: NSObject, WKWebExtensionControll
 
         let fallbackPanelIDs = tabAdaptersByPanelID.keys.sorted { $0.uuidString < $1.uuidString }
         for panelID in fallbackPanelIDs where seenPanelIDs.insert(panelID).inserted {
-            if let adapter = tabAdaptersByPanelID[panelID] {
+            if let adapter = tabAdaptersByPanelID[panelID],
+               adapter.profileID == profileID {
                 orderedAdapters.append(adapter)
             }
         }
@@ -1533,14 +1709,16 @@ private final class BrowserWebExtensionRuntime: NSObject, WKWebExtensionControll
 
 @available(macOS 15.4, *)
 @MainActor
-private final class BrowserWebExtensionActionPopupPresentation: NSObject, NSPopoverDelegate {
+private final class BrowserWebExtensionActionPopupPresentation: NSObject, NSPopoverDelegate, WKUIDelegate {
     let id = UUID()
     private let popover = NSPopover()
     private let contentViewController = NSViewController()
     private let action: WKWebExtension.Action
     private let requestedContentSize: CGSize
     private let popupWebView: WKWebView
+    private weak var previousUIDelegate: (any WKUIDelegate)?
     private weak var runtime: BrowserWebExtensionRuntime?
+    private var outsideClickMonitor: Any?
     private var didClosePopup = false
 
     init(
@@ -1552,6 +1730,7 @@ private final class BrowserWebExtensionActionPopupPresentation: NSObject, NSPopo
         self.action = action
         self.popupWebView = popupWebView
         self.requestedContentSize = requestedContentSize
+        self.previousUIDelegate = popupWebView.uiDelegate
         self.runtime = runtime
         super.init()
 
@@ -1568,11 +1747,9 @@ private final class BrowserWebExtensionActionPopupPresentation: NSObject, NSPopo
         contentViewController.view = containerView
         popover.contentViewController = contentViewController
         popover.delegate = self
-        popover.behavior = .transient
+        popover.behavior = .applicationDefined
         popover.animates = false
-#if DEBUG
-        popupWebView.isInspectable = true
-#endif
+        popupWebView.uiDelegate = self
     }
 
     func show(
@@ -1604,6 +1781,7 @@ private final class BrowserWebExtensionActionPopupPresentation: NSObject, NSPopo
             of: positioningView,
             preferredEdge: preferredEdge
         )
+        installOutsideClickMonitor()
     }
 
     func close() {
@@ -1619,10 +1797,53 @@ private final class BrowserWebExtensionActionPopupPresentation: NSObject, NSPopo
         runtime?.actionPopupDidClose(self)
     }
 
+    func webViewDidClose(_ webView: WKWebView) {
+        close()
+    }
+
+    private func installOutsideClickMonitor() {
+        removeOutsideClickMonitor()
+        outsideClickMonitor = NSEvent.addLocalMonitorForEvents(matching: [.leftMouseDown, .rightMouseDown]) { [weak self] event in
+            guard let self,
+                  self.popover.isShown,
+                  let popupWindow = self.contentViewController.view.window
+            else {
+                return event
+            }
+            if popupWindow.frame.contains(Self.screenLocation(for: event)) {
+                return event
+            }
+            self.close()
+            return event
+        }
+    }
+
+    private static func screenLocation(for event: NSEvent) -> NSPoint {
+        guard let eventWindow = event.window else {
+            return NSEvent.mouseLocation
+        }
+        return eventWindow.convertPoint(toScreen: event.locationInWindow)
+    }
+
+    private func removeOutsideClickMonitor() {
+        if let outsideClickMonitor {
+            NSEvent.removeMonitor(outsideClickMonitor)
+            self.outsideClickMonitor = nil
+        }
+    }
+
     private func closeWebExtensionPopupIfNeeded() {
         guard !didClosePopup else { return }
         didClosePopup = true
+        removeOutsideClickMonitor()
+        restorePopupUIDelegate()
         action.closePopup()
+    }
+
+    private func restorePopupUIDelegate() {
+        if popupWebView.uiDelegate === self {
+            popupWebView.uiDelegate = previousUIDelegate
+        }
     }
 }
 
@@ -1631,6 +1852,7 @@ private final class BrowserWebExtensionActionPopupPresentation: NSObject, NSPopo
 private final class BrowserWebExtensionAuxiliaryWindowAdapter: NSObject, WKWebExtensionWindow, NSWindowDelegate {
     let id = UUID()
     let createdAt = Date()
+    let profileID: UUID
     let tabAdapter: BrowserWebExtensionAuxiliaryTabAdapter
 
     private weak var runtime: BrowserWebExtensionRuntime?
@@ -1654,6 +1876,7 @@ private final class BrowserWebExtensionAuxiliaryWindowAdapter: NSObject, WKWebEx
 
     init(
         runtime: BrowserWebExtensionRuntime,
+        profileID: UUID,
         configuration: WKWebExtension.WindowConfiguration,
         webViewConfiguration: WKWebViewConfiguration,
         customUserAgent: String,
@@ -1661,6 +1884,7 @@ private final class BrowserWebExtensionAuxiliaryWindowAdapter: NSObject, WKWebEx
         openerPanel: BrowserPanel?
     ) {
         self.runtime = runtime
+        self.profileID = profileID
         self.windowType = configuration.windowType
         self.isPrivateWindow = configuration.shouldBePrivate
 
@@ -1701,7 +1925,7 @@ private final class BrowserWebExtensionAuxiliaryWindowAdapter: NSObject, WKWebEx
         webView.underPageBackgroundColor = GhosttyBackgroundTheme.currentColor()
         webView.customUserAgent = customUserAgent
         self.webView = webView
-        self.tabAdapter = BrowserWebExtensionAuxiliaryTabAdapter(webView: webView)
+        self.tabAdapter = BrowserWebExtensionAuxiliaryTabAdapter(webView: webView, profileID: profileID)
 
         super.init()
 
@@ -1762,10 +1986,10 @@ private final class BrowserWebExtensionAuxiliaryWindowAdapter: NSObject, WKWebEx
         if let initialURL {
             webView.load(URLRequest(url: initialURL))
         }
-        if configuration.shouldBeFocused {
+        if configuration.shouldBeFocused || configuration.windowType == .popup {
             panel.makeKeyAndOrderFront(nil)
         } else {
-            panel.orderFront(nil)
+            panel.orderFrontRegardless()
         }
     }
 
@@ -1897,9 +2121,11 @@ private final class BrowserWebExtensionAuxiliaryUIDelegate: NSObject, WKUIDelega
 private final class BrowserWebExtensionAuxiliaryTabAdapter: NSObject, WKWebExtensionTab {
     weak var windowAdapter: BrowserWebExtensionAuxiliaryWindowAdapter?
     private weak var webView: WKWebView?
+    let profileID: UUID
 
-    init(webView: WKWebView) {
+    init(webView: WKWebView, profileID: UUID) {
         self.webView = webView
+        self.profileID = profileID
     }
 
     func window(for context: WKWebExtensionContext) -> (any WKWebExtensionWindow)? {
@@ -1996,13 +2222,19 @@ private final class BrowserWebExtensionAuxiliaryTabAdapter: NSObject, WKWebExten
 @MainActor
 private final class BrowserWebExtensionWindowAdapter: NSObject, WKWebExtensionWindow {
     weak var runtime: BrowserWebExtensionRuntime?
+    let profileID: UUID
+
+    init(profileID: UUID) {
+        self.profileID = profileID
+        super.init()
+    }
 
     func tabs(for context: WKWebExtensionContext) -> [any WKWebExtensionTab] {
         runtimeTabAdapters()
     }
 
     func activeTab(for context: WKWebExtensionContext) -> (any WKWebExtensionTab)? {
-        runtime?.activeTabAdapter() ?? runtimeTabAdapters().first
+        runtime?.activeTabAdapter(profileID: profileID) ?? runtimeTabAdapters().first
     }
 
     func windowType(for context: WKWebExtensionContext) -> WKWebExtension.WindowType {
@@ -2010,7 +2242,7 @@ private final class BrowserWebExtensionWindowAdapter: NSObject, WKWebExtensionWi
     }
 
     func windowState(for context: WKWebExtensionContext) -> WKWebExtension.WindowState {
-        guard let window = runtime?.activeTabAdapter()?.panel?.webView.window ?? NSApp.keyWindow else {
+        guard let window = runtime?.activeTabAdapter(profileID: profileID)?.panel?.webView.window ?? NSApp.keyWindow else {
             return .normal
         }
         if window.styleMask.contains(.fullScreen) {
@@ -2027,20 +2259,20 @@ private final class BrowserWebExtensionWindowAdapter: NSObject, WKWebExtensionWi
     }
 
     func frame(for context: WKWebExtensionContext) -> CGRect {
-        (runtime?.activeTabAdapter()?.panel?.webView.window ?? NSApp.keyWindow)?.frame ?? .null
+        (runtime?.activeTabAdapter(profileID: profileID)?.panel?.webView.window ?? NSApp.keyWindow)?.frame ?? .null
     }
 
     func screenFrame(for context: WKWebExtensionContext) -> CGRect {
-        (runtime?.activeTabAdapter()?.panel?.webView.window ?? NSApp.keyWindow)?.screen?.frame ?? .null
+        (runtime?.activeTabAdapter(profileID: profileID)?.panel?.webView.window ?? NSApp.keyWindow)?.screen?.frame ?? .null
     }
 
     func focus(for context: WKWebExtensionContext, completionHandler: @escaping (Error?) -> Void) {
-        runtime?.activeTabAdapter()?.panel?.focus()
+        runtime?.activeTabAdapter(profileID: profileID)?.panel?.focus()
         completionHandler(nil)
     }
 
     private func runtimeTabAdapters() -> [BrowserWebExtensionTabAdapter] {
-        runtime?.tabAdapters ?? []
+        runtime?.tabAdapters(profileID: profileID) ?? []
     }
 }
 
@@ -2049,10 +2281,12 @@ private final class BrowserWebExtensionWindowAdapter: NSObject, WKWebExtensionWi
 private final class BrowserWebExtensionTabAdapter: NSObject, WKWebExtensionTab {
     weak var panel: BrowserPanel?
     private weak var windowAdapter: BrowserWebExtensionWindowAdapter?
+    let profileID: UUID
 
-    init(panel: BrowserPanel, windowAdapter: BrowserWebExtensionWindowAdapter) {
+    init(panel: BrowserPanel, windowAdapter: BrowserWebExtensionWindowAdapter, profileID: UUID) {
         self.panel = panel
         self.windowAdapter = windowAdapter
+        self.profileID = profileID
     }
 
     func window(for context: WKWebExtensionContext) -> (any WKWebExtensionWindow)? {

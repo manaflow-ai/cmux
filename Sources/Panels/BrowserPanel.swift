@@ -977,6 +977,7 @@ func browserNewTabNavigationSeed(
 
 /// Mirrors the opener's WebKit browsing context for popup windows.
 struct BrowserPopupBrowserContext {
+    let profileID: UUID
     let websiteDataStore: WKWebsiteDataStore
     let processPool: WKProcessPool
 }
@@ -2038,7 +2039,7 @@ final class BrowserPanel: Panel, ObservableObject {
 
     /// The underlying web view
     private(set) var webView: WKWebView
-    private var websiteDataStore: WKWebsiteDataStore
+    private(set) var websiteDataStore: WKWebsiteDataStore
 
     /// Monotonic identity for the current WKWebView instance.
     /// Incremented whenever we replace the underlying WKWebView after a process crash.
@@ -2475,6 +2476,7 @@ final class BrowserPanel: Panel, ObservableObject {
     /// Popups inherit this panel's exact WebKit storage and process context.
     var popupBrowserContext: BrowserPopupBrowserContext {
         BrowserPopupBrowserContext(
+            profileID: profileID,
             websiteDataStore: websiteDataStore,
             processPool: webView.configuration.processPool
         )
@@ -2658,6 +2660,7 @@ final class BrowserPanel: Panel, ObservableObject {
         let config = WKWebViewConfiguration()
         configureWebViewConfiguration(
             config,
+            profileID: profileID,
             websiteDataStore: websiteDataStore ?? BrowserProfileStore.shared.websiteDataStore(for: profileID)
         )
 
@@ -2677,6 +2680,7 @@ final class BrowserPanel: Panel, ObservableObject {
 
     static func configureWebViewConfiguration(
         _ configuration: WKWebViewConfiguration,
+        profileID: UUID,
         websiteDataStore: WKWebsiteDataStore,
         processPool: WKProcessPool = BrowserPanel.sharedProcessPool
     ) {
@@ -2724,6 +2728,7 @@ final class BrowserPanel: Panel, ObservableObject {
         )
         BrowserWebExtensionSupport.configureWebViewConfiguration(
             configuration,
+            profileID: profileID,
             websiteDataStore: websiteDataStore
         )
     }

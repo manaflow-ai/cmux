@@ -4949,6 +4949,8 @@ struct SettingsView: View {
     @AppStorage(BrowserLinkOpenSettings.browserExternalOpenPatternsKey)
     private var browserExternalOpenPatterns = BrowserLinkOpenSettings.defaultBrowserExternalOpenPatterns
     @AppStorage(BrowserInsecureHTTPSettings.allowlistKey) private var browserInsecureHTTPAllowlist = BrowserInsecureHTTPSettings.defaultAllowlistText
+    @AppStorage(BrowserExtensionDeveloperModeSettings.key)
+    private var browserExtensionsDeveloperMode = BrowserExtensionDeveloperModeSettings.defaultEnabled
     @AppStorage(NotificationSoundSettings.key) private var notificationSound = NotificationSoundSettings.defaultValue
     @AppStorage(NotificationSoundSettings.customFilePathKey)
     private var notificationSoundCustomFilePath = NotificationSoundSettings.defaultCustomFilePath
@@ -5340,7 +5342,7 @@ struct SettingsView: View {
         }
         switch browserExtensionSummaries.count {
         case 0:
-            return String(localized: "settings.browser.extensions.subtitleEmpty", defaultValue: "Install Safari Web Extension app bundles or standalone .appex bundles.")
+            return String(localized: "settings.browser.extensions.subtitleEmpty", defaultValue: "Install Safari Web Extension app bundles. Direct .appex loading requires Developer Mode.")
         case 1:
             return String(localized: "settings.browser.extensions.subtitleOne", defaultValue: "1 extension is installed. WebKit enforces extension isolation, host access, and permission prompts.")
         default:
@@ -5586,6 +5588,43 @@ struct SettingsView: View {
     private func reloadBrowserExtensions() {
         Task { @MainActor in
             await BrowserWebExtensionSupport.reloadInstalledExtensions()
+            refreshBrowserExtensionSummaries()
+        }
+    }
+
+    private func setBrowserExtensionEnabled(_ isEnabled: Bool, id: UUID) {
+        Task { @MainActor in
+            do {
+                _ = try await BrowserWebExtensionSupport.setExtensionEnabled(isEnabled, id: id)
+                refreshBrowserExtensionSummaries()
+            } catch {
+                browserExtensionErrorAlertMessage = error.localizedDescription
+                showBrowserExtensionErrorAlert = true
+                refreshBrowserExtensionSummaries()
+            }
+        }
+    }
+
+    private func reloadBrowserExtension(id: UUID) {
+        Task { @MainActor in
+            do {
+                _ = try await BrowserWebExtensionSupport.reloadExtension(id: id)
+                refreshBrowserExtensionSummaries()
+            } catch {
+                browserExtensionErrorAlertMessage = error.localizedDescription
+                showBrowserExtensionErrorAlert = true
+                refreshBrowserExtensionSummaries()
+            }
+        }
+    }
+
+    private func removeBrowserExtension(id: UUID) {
+        do {
+            try BrowserWebExtensionSupport.removeExtension(id: id)
+            refreshBrowserExtensionSummaries()
+        } catch {
+            browserExtensionErrorAlertMessage = error.localizedDescription
+            showBrowserExtensionErrorAlert = true
             refreshBrowserExtensionSummaries()
         }
     }
@@ -6715,6 +6754,84 @@ struct SettingsView: View {
 
                         SettingsCardDivider()
 
+                        SettingsCardRow(
+                            configurationReview: .json("browser.extensionsDeveloperMode"),
+                            String(localized: "settings.browser.extensions.developerMode", defaultValue: "Developer Mode"),
+                            subtitle: String(localized: "settings.browser.extensions.developerMode.subtitle", defaultValue: "Allow direct local .appex loading for development. Normal installs should use signed Safari extension app bundles.")
+                        ) {
+                            Toggle("", isOn: $browserExtensionsDeveloperMode)
+                                .labelsHidden()
+                                .controlSize(.small)
+                                .accessibilityIdentifier("SettingsBrowserExtensionsDeveloperModeToggle")
+                        }
+
+                        if !browserExtensionSummaries.isEmpty {
+                            SettingsCardDivider()
+
+                            VStack(alignment: .leading, spacing: 10) {
+                                ForEach(browserExtensionSummaries) { summary in
+                                    HStack(alignment: .top, spacing: 10) {
+                                        Toggle("", isOn: Binding(
+                                            get: { summary.isEnabled },
+                                            set: { setBrowserExtensionEnabled($0, id: summary.id) }
+                                        ))
+                                        .labelsHidden()
+                                        .controlSize(.small)
+                                        .disabled(!BrowserWebExtensionSupport.isAvailable)
+
+                                        VStack(alignment: .leading, spacing: 4) {
+                                            HStack(spacing: 6) {
+                                                Text(summary.displayName)
+                                                    .font(.system(size: 13, weight: .semibold))
+                                                Text(summary.isLoaded
+                                                     ? String(localized: "settings.browser.extensions.status.loaded", defaultValue: "Loaded")
+                                                     : String(localized: "settings.browser.extensions.status.notLoaded", defaultValue: "Not loaded"))
+                                                    .font(.caption2)
+                                                    .foregroundStyle(summary.isLoaded ? .green : .secondary)
+                                            }
+
+                                            Text(summary.detail)
+                                                .font(.caption)
+                                                .foregroundStyle(.secondary)
+
+                                            if let lastError = summary.lastError, !lastError.isEmpty {
+                                                Text(
+                                                    String(
+                                                        format: String(localized: "settings.browser.extensions.status.error", defaultValue: "Error: %@"),
+                                                        lastError
+                                                    )
+                                                )
+                                                .font(.caption)
+                                                .foregroundStyle(.red)
+                                                .fixedSize(horizontal: false, vertical: true)
+                                            }
+                                        }
+
+                                        Spacer(minLength: 8)
+
+                                        Button(String(localized: "settings.browser.extensions.reloadOne", defaultValue: "Reload")) {
+                                            reloadBrowserExtension(id: summary.id)
+                                        }
+                                        .buttonStyle(.bordered)
+                                        .controlSize(.small)
+                                        .disabled(!BrowserWebExtensionSupport.isAvailable)
+
+                                        Button(String(localized: "settings.browser.extensions.remove", defaultValue: "Remove"), role: .destructive) {
+                                            removeBrowserExtension(id: summary.id)
+                                        }
+                                        .buttonStyle(.bordered)
+                                        .controlSize(.small)
+                                        .disabled(!BrowserWebExtensionSupport.isAvailable)
+                                    }
+                                }
+                            }
+                            .padding(.horizontal, 14)
+                            .padding(.vertical, 10)
+                            .accessibilityIdentifier("SettingsBrowserExtensionsList")
+                        }
+
+                        SettingsCardDivider()
+
                         VStack(alignment: .leading, spacing: 12) {
                             VStack(alignment: .leading, spacing: 8) {
                                 Text(String(localized: "settings.browser.import", defaultValue: "Import Browser Data"))
@@ -7215,6 +7332,7 @@ struct SettingsView: View {
     }
 
     private static func validateBypassedSettingsConfigurationReviews() {
+        SettingsConfigurationReview.json("browser.extensionsDeveloperMode").validate()
         SettingsConfigurationReview.json("browser.insecureHttpHostsAllowedInEmbeddedBrowser").validate()
         SettingsConfigurationReview.json("browser.showImportHintOnBlankTabs").validate()
     }

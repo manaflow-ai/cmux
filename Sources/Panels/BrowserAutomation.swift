@@ -363,6 +363,175 @@ enum BrowserProfileAutomation {
     }
 }
 
+enum BrowserExtensionAutomation {
+    static func list(params: [String: Any]) async throws -> [String: Any] {
+        let profileID = try await resolveProfileID(params: params)
+        return await MainActor.run {
+            [
+                "profile_id": profileID.uuidString,
+                "developer_mode": BrowserExtensionDeveloperModeSettings.isEnabled(),
+                "extensions": BrowserWebExtensionSupport.installedExtensionSummaries(profileID: profileID).map {
+                    extensionPayload($0, profileID: profileID)
+                },
+            ]
+        }
+    }
+
+    static func discover(params: [String: Any]) async throws -> [String: Any] {
+        let path = try requiredString(params, keys: ["path", "source"])
+        let source = try BrowserWebExtensionInstallStore().discoverSource(
+            from: URL(fileURLWithPath: expandedPath(path)),
+            developerModeEnabled: BrowserExtensionDeveloperModeSettings.isEnabled()
+        )
+        return [
+            "source": [
+                "kind": source.kind.rawValue,
+                "path": source.url.path,
+            ],
+            "developer_mode": BrowserExtensionDeveloperModeSettings.isEnabled(),
+        ]
+    }
+
+    static func install(params: [String: Any]) async throws -> [String: Any] {
+        let path = try requiredString(params, keys: ["path", "source"])
+        let profileID = try await resolveProfileID(params: params)
+        let result = try await BrowserWebExtensionSupport.installExtension(
+            from: URL(fileURLWithPath: expandedPath(path))
+        )
+        let summary = await MainActor.run {
+            BrowserWebExtensionSupport.installedExtensionSummaries(profileID: profileID).first {
+                $0.id == result.summary.id
+            } ?? result.summary
+        }
+        return [
+            "installed": true,
+            "profile_id": profileID.uuidString,
+            "extension": extensionPayload(summary, profileID: profileID),
+            "parse_errors": result.parseErrors,
+        ]
+    }
+
+    static func reload(params: [String: Any]) async throws -> [String: Any] {
+        let profileID = try await resolveProfileID(params: params)
+        if let query = optionalString(params, keys: ["extension", "id", "name"]) {
+            let id = try await MainActor.run {
+                try BrowserWebExtensionSupport.resolveExtensionID(matching: query)
+            }
+            let summary = try await BrowserWebExtensionSupport.reloadExtension(id: id, profileID: profileID)
+            return [
+                "reloaded": true,
+                "profile_id": profileID.uuidString,
+                "extension": extensionPayload(summary, profileID: profileID),
+            ]
+        }
+
+        await BrowserWebExtensionSupport.reloadInstalledExtensions()
+        return try await list(params: params).merging(["reloaded": true]) { current, _ in current }
+    }
+
+    static func setEnabled(params: [String: Any], enabled: Bool) async throws -> [String: Any] {
+        let query = try requiredString(params, keys: ["extension", "id", "name"])
+        let profileID = try await resolveProfileID(params: params)
+        let id = try await MainActor.run {
+            try BrowserWebExtensionSupport.resolveExtensionID(matching: query)
+        }
+        let summary = try await BrowserWebExtensionSupport.setExtensionEnabled(
+            enabled,
+            id: id,
+            profileID: profileID
+        )
+        return [
+            "updated": true,
+            "profile_id": profileID.uuidString,
+            "extension": extensionPayload(summary, profileID: profileID),
+        ]
+    }
+
+    static func remove(params: [String: Any]) async throws -> [String: Any] {
+        let query = try requiredString(params, keys: ["extension", "id", "name"])
+        let id = try await MainActor.run {
+            try BrowserWebExtensionSupport.resolveExtensionID(matching: query)
+        }
+        try await MainActor.run {
+            try BrowserWebExtensionSupport.removeExtension(id: id)
+        }
+        return [
+            "removed": true,
+            "extension_id": id.uuidString,
+        ]
+    }
+
+    private static func extensionPayload(
+        _ summary: BrowserWebExtensionInstalledSummary,
+        profileID: UUID
+    ) -> [String: Any] {
+        [
+            "id": summary.id.uuidString,
+            "profile_id": profileID.uuidString,
+            "name": summary.displayName,
+            "detail": summary.detail,
+            "source_kind": summary.sourceKind.rawValue,
+            "source_path": summary.sourcePath,
+            "enabled": summary.isEnabled,
+            "loaded": summary.isLoaded,
+            "permissions": summary.grantedPermissions,
+            "host_permissions": summary.grantedPermissionMatchPatterns,
+            "last_error": summary.lastError ?? NSNull(),
+        ]
+    }
+
+    private static func resolveProfileID(params: [String: Any]) async throws -> UUID {
+        if let query = optionalString(params, keys: ["profile", "profile_id"]) {
+            return try await MainActor.run {
+                let profiles = BrowserProfileStore.shared.profiles
+                if let uuid = UUID(uuidString: query),
+                   profiles.contains(where: { $0.id == uuid }) {
+                    return uuid
+                }
+                let matches = profiles.filter {
+                    $0.slug.localizedCaseInsensitiveCompare(query) == .orderedSame ||
+                        $0.displayName.localizedCaseInsensitiveCompare(query) == .orderedSame
+                }
+                if matches.count > 1 {
+                    throw BrowserProfileAutomationError.ambiguousProfile(query)
+                }
+                guard let match = matches.first else {
+                    throw BrowserProfileAutomationError.profileNotFound(query)
+                }
+                return match.id
+            }
+        }
+        return await MainActor.run {
+            BrowserProfileStore.shared.effectiveLastUsedProfileID
+        }
+    }
+
+    private static func requiredString(_ params: [String: Any], keys: [String]) throws -> String {
+        if let value = optionalString(params, keys: keys) {
+            return value
+        }
+        throw BrowserWebExtensionInstallError.extensionNotFound(keys.joined(separator: "/"))
+    }
+
+    private static func optionalString(_ params: [String: Any], keys: [String]) -> String? {
+        for key in keys {
+            if let value = params[key] as? String {
+                let trimmed = value.trimmingCharacters(in: .whitespacesAndNewlines)
+                if !trimmed.isEmpty { return trimmed }
+            }
+        }
+        return nil
+    }
+
+    private static func expandedPath(_ path: String) -> String {
+        let expanded = NSString(string: path).expandingTildeInPath
+        if expanded.hasPrefix("/") {
+            return expanded
+        }
+        return (FileManager.default.currentDirectoryPath as NSString).appendingPathComponent(expanded)
+    }
+}
+
 enum BrowserImportAutomation {
     static func importCookies(params: [String: Any]) async throws -> BrowserImportOutcome {
         let browsers = InstalledBrowserDetector.detectInstalledBrowsers()

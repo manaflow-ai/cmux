@@ -726,6 +726,9 @@ final class CmuxSettingsFileStore {
         if let value = jsonBool(section["showImportHintOnBlankTabs"]) {
             snapshot.managedUserDefaults[BrowserImportHintSettings.showOnBlankTabsKey] = .bool(value)
         }
+        if let value = jsonBool(section["extensionsDeveloperMode"]) {
+            snapshot.managedUserDefaults[BrowserExtensionDeveloperModeSettings.key] = .bool(value)
+        }
         if let raw = jsonString(section["reactGrabVersion"]) {
             snapshot.managedUserDefaults[ReactGrabSettings.versionKey] = .string(raw)
         }
@@ -1293,6 +1296,7 @@ final class CmuxSettingsFileStore {
                     "urlsToAlwaysOpenExternally": [String](),
                     "insecureHttpHostsAllowedInEmbeddedBrowser": BrowserInsecureHTTPSettings.defaultAllowlistPatterns,
                     "showImportHintOnBlankTabs": BrowserImportHintSettings.defaultShowOnBlankTabs,
+                    "extensionsDeveloperMode": BrowserExtensionDeveloperModeSettings.defaultEnabled,
                     "reactGrabVersion": ReactGrabSettings.defaultVersion,
                 ],
             ],

@@ -531,4 +531,125 @@ final class CLINotifyProcessIntegrationRegressionTests: XCTestCase {
         }
     }
 
+    func testBrowserExtensionsCommandsRouteToSocketMethods() throws {
+        let cliPath = try bundledCLIPath()
+        let extensionPath = URL(fileURLWithPath: NSTemporaryDirectory(), isDirectory: true)
+            .appendingPathComponent("Bitwarden.app", isDirectory: true)
+            .path
+        let extensionPayload: [String: Any] = [
+            "id": "33333333-3333-3333-3333-333333333333",
+            "name": "Bitwarden",
+            "detail": "Safari app extension, Version 2026.5",
+            "source_kind": "appExtensionBundle",
+            "source_path": extensionPath,
+            "enabled": true,
+            "loaded": true,
+            "permissions": ["nativeMessaging", "storage"],
+            "host_permissions": ["https://example.com/*"],
+        ]
+        let cases: [(name: String, arguments: [String], expectedMethod: String, expectedParams: [String: String], responseResult: [String: Any])] = [
+            (
+                "list",
+                ["browser", "extensions", "list", "--profile", "Work"],
+                "browser.extensions.list",
+                ["profile": "Work"],
+                ["profile_id": "AAAAAAAA-AAAA-AAAA-AAAA-AAAAAAAAAAAA", "extensions": [extensionPayload]]
+            ),
+            (
+                "discover",
+                ["browser", "extensions", "discover", extensionPath, "--profile", "Work"],
+                "browser.extensions.discover",
+                ["profile": "Work", "path": extensionPath],
+                ["source": ["kind": "appExtensionBundle", "path": extensionPath]]
+            ),
+            (
+                "install",
+                ["browser", "extensions", "load", extensionPath, "--profile", "Work"],
+                "browser.extensions.install",
+                ["profile": "Work", "path": extensionPath],
+                ["profile_id": "AAAAAAAA-AAAA-AAAA-AAAA-AAAAAAAAAAAA", "extension": extensionPayload]
+            ),
+            (
+                "reload-all",
+                ["browser", "extensions", "reload", "--profile", "Work"],
+                "browser.extensions.reload",
+                ["profile": "Work"],
+                ["profile_id": "AAAAAAAA-AAAA-AAAA-AAAA-AAAAAAAAAAAA", "reloaded": true, "extensions": [extensionPayload]]
+            ),
+            (
+                "reload-one",
+                ["browser", "extensions", "reload", "Bitwarden", "--profile", "Work"],
+                "browser.extensions.reload",
+                ["profile": "Work", "extension": "Bitwarden"],
+                ["profile_id": "AAAAAAAA-AAAA-AAAA-AAAA-AAAAAAAAAAAA", "reloaded": true, "extension": extensionPayload]
+            ),
+            (
+                "enable",
+                ["browser", "extensions", "enable", "Bitwarden", "--profile", "Work"],
+                "browser.extensions.enable",
+                ["profile": "Work", "extension": "Bitwarden"],
+                ["profile_id": "AAAAAAAA-AAAA-AAAA-AAAA-AAAAAAAAAAAA", "extension": extensionPayload]
+            ),
+            (
+                "disable",
+                ["browser", "extensions", "disable", "33333333-3333-3333-3333-333333333333", "--profile", "Work"],
+                "browser.extensions.disable",
+                ["profile": "Work", "extension": "33333333-3333-3333-3333-333333333333"],
+                ["profile_id": "AAAAAAAA-AAAA-AAAA-AAAA-AAAAAAAAAAAA", "extension": extensionPayload]
+            ),
+            (
+                "remove",
+                ["browser", "extensions", "remove", "33333333-3333-3333-3333-333333333333", "--profile", "Work"],
+                "browser.extensions.remove",
+                ["profile": "Work", "extension": "33333333-3333-3333-3333-333333333333"],
+                ["removed": true]
+            ),
+        ]
+
+        for testCase in cases {
+            let socketPath = makeSocketPath("browser-extension-\(testCase.name)")
+            let listenerFD = try bindUnixSocket(at: socketPath)
+            let state = MockSocketServerState()
+
+            defer {
+                Darwin.close(listenerFD)
+                unlink(socketPath)
+            }
+
+            let serverHandled = startMockServer(listenerFD: listenerFD, state: state) { line in
+                guard let payload = self.jsonObject(line),
+                      let id = payload["id"] as? String,
+                      let method = payload["method"] as? String else {
+                    return self.malformedRequestResponse(raw: line)
+                }
+
+                XCTAssertEqual(method, testCase.expectedMethod)
+                let params = payload["params"] as? [String: Any] ?? [:]
+                for (key, expectedValue) in testCase.expectedParams {
+                    XCTAssertEqual(params[key] as? String, expectedValue, line)
+                }
+                return self.v2Response(id: id, ok: true, result: testCase.responseResult)
+            }
+
+            var environment = ProcessInfo.processInfo.environment
+            environment["CMUX_SOCKET_PATH"] = socketPath
+            environment["CMUX_CLI_SENTRY_DISABLED"] = "1"
+
+            let result = runProcess(
+                executablePath: cliPath,
+                arguments: testCase.arguments,
+                environment: environment,
+                timeout: 5
+            )
+
+            wait(for: [serverHandled], timeout: 5)
+            XCTAssertFalse(result.timedOut, result.stderr)
+            XCTAssertEqual(result.status, 0, result.stderr)
+            XCTAssertTrue(
+                state.commands.contains { $0.contains(#""method":"\#(testCase.expectedMethod)""#) },
+                "Expected \(testCase.expectedMethod), saw \(state.commands)"
+            )
+        }
+    }
+
 }
