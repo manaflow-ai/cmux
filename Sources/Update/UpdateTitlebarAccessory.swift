@@ -1844,8 +1844,8 @@ final class UpdateTitlebarAccessoryController {
         ) { [weak self] notification in
             guard let window = notification.object as? NSWindow else { return }
             Task { @MainActor [weak self, weak window] in
-                guard let self, let window else { return }
-                self.attachIfNeeded(to: window)
+                guard let window else { return }
+                self?.attachIfNeeded(to: window)
             }
         })
 
@@ -1856,8 +1856,8 @@ final class UpdateTitlebarAccessoryController {
         ) { [weak self] notification in
             guard let window = notification.object as? NSWindow else { return }
             Task { @MainActor [weak self, weak window] in
-                guard let self, let window else { return }
-                self.attachIfNeeded(to: window)
+                guard let window else { return }
+                self?.attachIfNeeded(to: window)
             }
         })
 
