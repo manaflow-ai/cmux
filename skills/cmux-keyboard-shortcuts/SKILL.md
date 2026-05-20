@@ -15,8 +15,27 @@ Use this skill to turn a user's workflow preferences into cmux shortcut bindings
 - For current defaults, read `web/data/cmux-shortcuts.ts` or `Sources/KeyboardShortcutSettings.swift`.
 
 ```bash
-ROOT="${ROOT:-$(git -C "$(pwd)" rev-parse --show-toplevel 2>/dev/null || pwd)}"
-CMUX_SETTINGS="${CMUX_SETTINGS:-$ROOT/skills/cmux-settings/scripts/cmux-settings}"
+find_cmux_settings() {
+  local root
+  root="$(git -C "$(pwd)" rev-parse --show-toplevel 2>/dev/null || pwd)"
+  for candidate in \
+    "$root/skills/cmux-settings/scripts/cmux-settings" \
+    "${CODEX_HOME:-$HOME/.codex}/skills/cmux-settings/scripts/cmux-settings" \
+    "$HOME/.agents/skills/cmux-settings/scripts/cmux-settings"; do
+    if [[ -x "$candidate" ]]; then
+      printf '%s\n' "$candidate"
+      return 0
+    fi
+  done
+  return 1
+}
+
+if [[ -z "${CMUX_SETTINGS:-}" ]]; then
+  CMUX_SETTINGS="$(find_cmux_settings)" || {
+    echo "cmux-settings helper not found; run from a cmux checkout or install cmux-settings" >&2
+    exit 1
+  }
+fi
 ```
 
 ## Shortcut Model
@@ -37,7 +56,7 @@ CMUX_SETTINGS="${CMUX_SETTINGS:-$ROOT/skills/cmux-settings/scripts/cmux-settings
    - Named style such as tmux, Vim, iTerm, browser, or agent triage: select the closest template, show the changed actions, and ask before a bulk apply unless the user explicitly said to apply it.
 2. Inspect existing config:
    ```bash
-   "$CMUX_SETTINGS" get shortcuts.bindings
+   "$CMUX_SETTINGS" get shortcuts.bindings 2>/dev/null || printf '{}\n'
    "$CMUX_SETTINGS" validate
    ```
 3. Apply only the chosen action paths:
