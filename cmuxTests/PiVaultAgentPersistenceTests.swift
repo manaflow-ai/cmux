@@ -73,6 +73,7 @@ final class PiVaultAgentPersistenceTests: XCTestCase {
 
         XCTAssertEqual(agent.iconAssetName, "AgentIcons/Antigravity")
         XCTAssertEqual(SessionAgent.registered(agent).assetName, "AgentIcons/Antigravity")
+        XCTAssertEqual(CmuxVaultAgentRegistration.builtInAntigravity.detect.processNames, ["agy", "antigravity"])
     }
 
     func testBuiltInAntigravityRegistrationLoadsHistoryDisplayAndWorkspace() async throws {
@@ -182,6 +183,40 @@ final class PiVaultAgentPersistenceTests: XCTestCase {
         XCTAssertEqual(entry.sessionId, "native-session-123")
         XCTAssertEqual(entry.title, "Resume Acme")
         XCTAssertEqual(entry.cwd, "/tmp/acme-workspace")
+    }
+
+    func testRegisteredAgentJSONLSessionIDDoesNotUseAntigravityConversationID() async throws {
+        let tempDir = FileManager.default.temporaryDirectory
+            .appendingPathComponent("cmux-registered-session-id-\(UUID().uuidString)", isDirectory: true)
+        try FileManager.default.createDirectory(at: tempDir, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: tempDir) }
+
+        let sessionFile = tempDir.appendingPathComponent("metadata.jsonl")
+        try """
+        {"conversationId":"foreign-conversation","sessionId":"native-session-123","cwd":"/tmp/acme","title":"Resume Acme"}
+        """.write(to: sessionFile, atomically: true, encoding: .utf8)
+
+        let registration = CmuxVaultAgentRegistration(
+            id: "acme-agent",
+            name: "Acme Agent",
+            detect: CmuxVaultAgentDetectRule(processName: "acme-agent"),
+            sessionIdSource: .argvOption("--session"),
+            resumeCommand: "acme-agent --session {{sessionId}}",
+            cwd: .preserve,
+            sessionDirectory: tempDir.path
+        )
+
+        let entries = await SessionIndexStore.loadRegisteredAgentEntries(
+            registration: registration,
+            needle: "",
+            cwdFilter: nil,
+            offset: 0,
+            limit: 10
+        )
+
+        let entry = try XCTUnwrap(entries.first)
+        XCTAssertEqual(entry.sessionId, "native-session-123")
+        XCTAssertEqual(entry.resumeCommand, "cd '/tmp/acme' && 'acme-agent' '--session' 'native-session-123'")
     }
 
     func testBuiltInGrokRegistrationUsesNativeSessionDirectory() {

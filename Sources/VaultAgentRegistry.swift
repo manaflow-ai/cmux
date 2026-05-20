@@ -131,7 +131,7 @@ struct CmuxVaultAgentRegistration: Codable, Hashable, Sendable {
             id: "antigravity",
             name: "Antigravity",
             iconAssetName: "AgentIcons/Antigravity",
-            detect: CmuxVaultAgentDetectRule(processName: "agy"),
+            detect: CmuxVaultAgentDetectRule(processNames: ["agy", "antigravity"]),
             sessionIdSource: .argvOption("--conversation"),
             resumeCommand: "{{executable}} --conversation {{sessionId}}",
             cwd: .preserve,

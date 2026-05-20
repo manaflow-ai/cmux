@@ -397,6 +397,20 @@ struct AgentLaunchSanitizerTests {
                 fallbackKind: "antigravity"
             ) == ["agy", "--sandbox", "danger-full-access"]
         )
+        #expect(
+            AgentLaunchSanitizer.sanitizedLaunchArguments(
+                ["agy", "--continue", "old-conversation", "--sandbox", "danger-full-access"],
+                launcher: "antigravity",
+                fallbackKind: "antigravity"
+            ) == ["agy", "--sandbox", "danger-full-access"]
+        )
+        #expect(
+            AgentLaunchSanitizer.sanitizedLaunchArguments(
+                ["agy", "-c", "--sandbox", "danger-full-access"],
+                launcher: "antigravity",
+                fallbackKind: "antigravity"
+            ) == ["agy", "--sandbox", "danger-full-access"]
+        )
     }
 
     @Test("Rejects noninteractive Antigravity launches")

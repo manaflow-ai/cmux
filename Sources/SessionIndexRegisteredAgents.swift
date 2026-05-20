@@ -686,7 +686,7 @@ extension SessionIndexStore {
         }
         forEachJSONLine(url: url, maxBytes: 512 * 1024) { object in
             if metadata.sessionId == nil {
-                metadata.sessionId = firstString(in: object, keys: antigravitySessionIDKeys())
+                metadata.sessionId = firstString(in: object, keys: registeredJSONLSessionIDKeys())
             }
             if metadata.cwd == nil {
                 metadata.cwd = firstString(in: object, keys: registeredJSONLCWDKeys())
@@ -725,6 +725,10 @@ extension SessionIndexStore {
 
     nonisolated private static func registeredJSONLCWDKeys() -> [String] {
         ["cwd", "workingDirectory", "workspacePath", "workspace", "projectPath", "directory"]
+    }
+
+    nonisolated private static func registeredJSONLSessionIDKeys() -> [String] {
+        ["sessionId", "session_id", "id"]
     }
 
     nonisolated private static func antigravitySessionIDKeys() -> [String] {
