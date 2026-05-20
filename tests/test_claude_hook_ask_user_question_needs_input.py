@@ -48,6 +48,7 @@ class HookSocketServer:
         self.error: Exception | None = None
         self.root = tempfile.TemporaryDirectory(prefix="cmux-claude-ask-user-question-")
         self.socket_path = os.path.join(self.root.name, "cmux.sock")
+        self._commands_lock = threading.Lock()
         self.thread = threading.Thread(target=self._run, daemon=True)
         self.server: socket.socket | None = None
 
@@ -105,8 +106,13 @@ class HookSocketServer:
                     if not raw_line:
                         continue
                     line = raw_line.decode("utf-8", errors="replace")
-                    self.commands.append(line)
+                    with self._commands_lock:
+                        self.commands.append(line)
                     conn.sendall((self._response_for(line) + "\n").encode("utf-8"))
+
+    def commands_snapshot(self) -> list[str]:
+        with self._commands_lock:
+            return list(self.commands)
 
     def _response_for(self, line: str) -> str:
         if not line.startswith("{"):
@@ -166,6 +172,10 @@ def run_claude_hook(
         timeout=8,
         check=False,
     )
+
+
+def notify_commands(server: HookSocketServer) -> list[str]:
+    return [line for line in server.commands_snapshot() if line.startswith("notify_target_async ")]
 
 
 def ask_user_question_payload(session_id: str, index: int) -> dict[str, object]:
@@ -242,32 +252,33 @@ def main() -> int:
             print("FAIL: claude-hook pre-tool-use failed")
             print(f"stdout={first_proc.stdout!r}")
             print(f"stderr={first_proc.stderr!r}")
-            print(f"commands={server.commands!r}")
+            print(f"commands={server.commands_snapshot()!r}")
             return 1
 
-        notify_commands = [line for line in server.commands if line.startswith("notify_target_async ")]
-        if len(notify_commands) != 1:
+        notifications = notify_commands(server)
+        if len(notifications) != 1:
             print("FAIL: AskUserQuestion should immediately publish exactly one notification")
-            print(f"notify_commands={notify_commands!r}")
-            print(f"commands={server.commands!r}")
+            print(f"notify_commands={notifications!r}")
+            print(f"commands={server.commands_snapshot()!r}")
             return 1
         expected_body = "Should cmux continue with option 0? [Yes] [No]"
         expected_notify = f"notify_target_async {workspace_id} {surface_id} Claude Code|Waiting|{expected_body}"
-        if notify_commands[0] != expected_notify:
+        if notifications[0] != expected_notify:
             print("FAIL: AskUserQuestion notification should preserve the question text")
             print(f"expected={expected_notify!r}")
-            print(f"actual={notify_commands[0]!r}")
-            print(f"commands={server.commands!r}")
+            print(f"actual={notifications[0]!r}")
+            print(f"commands={server.commands_snapshot()!r}")
             return 1
 
+        commands = server.commands_snapshot()
         if not any(
-            line.startswith("set_status claude_code Claude Code needs input ")
+            line.startswith('set_status claude_code "Claude Code needs input" ')
             and f"--tab={workspace_id}" in line
             and f"--panel={surface_id}" in line
-            for line in server.commands
+            for line in commands
         ):
             print("FAIL: AskUserQuestion should mark Claude as Needs input")
-            print(f"commands={server.commands!r}")
+            print(f"commands={commands!r}")
             return 1
 
         duplicate_proc = run_claude_hook(
@@ -281,13 +292,13 @@ def main() -> int:
             print("FAIL: claude-hook notification failed")
             print(f"stdout={duplicate_proc.stdout!r}")
             print(f"stderr={duplicate_proc.stderr!r}")
-            print(f"commands={server.commands!r}")
+            print(f"commands={server.commands_snapshot()!r}")
             return 1
-        notify_after_duplicate = [line for line in server.commands if line.startswith("notify_target_async ")]
+        notify_after_duplicate = notify_commands(server)
         if len(notify_after_duplicate) != 1:
             print("FAIL: generic attention Notification should be deduped after AskUserQuestion")
             print(f"notify_commands={notify_after_duplicate!r}")
-            print(f"commands={server.commands!r}")
+            print(f"commands={server.commands_snapshot()!r}")
             return 1
 
         resume_proc = run_claude_hook(
@@ -306,7 +317,7 @@ def main() -> int:
             print("FAIL: claude-hook prompt-submit failed")
             print(f"stdout={resume_proc.stdout!r}")
             print(f"stderr={resume_proc.stderr!r}")
-            print(f"commands={server.commands!r}")
+            print(f"commands={server.commands_snapshot()!r}")
             return 1
 
         repeated_proc = run_claude_hook(
@@ -320,17 +331,17 @@ def main() -> int:
             print("FAIL: repeated claude-hook pre-tool-use failed")
             print(f"stdout={repeated_proc.stdout!r}")
             print(f"stderr={repeated_proc.stderr!r}")
-            print(f"commands={server.commands!r}")
+            print(f"commands={server.commands_snapshot()!r}")
             return 1
-        notify_after_repeat = [line for line in server.commands if line.startswith("notify_target_async ")]
+        notify_after_repeat = notify_commands(server)
         if len(notify_after_repeat) != 2:
             print("FAIL: prompt-submit should clear the needs-input dedup fingerprint")
             print(f"notify_commands={notify_after_repeat!r}")
-            print(f"commands={server.commands!r}")
+            print(f"commands={server.commands_snapshot()!r}")
             return 1
 
-        before_loop_count = len(notify_after_repeat)
         for index in range(1, 101):
+            before_question_count = len(notify_commands(server))
             proc = run_claude_hook(
                 cli_path,
                 server.socket_path,
@@ -342,8 +353,16 @@ def main() -> int:
                 print(f"FAIL: claude-hook pre-tool-use failed at loop {index}")
                 print(f"stdout={proc.stdout!r}")
                 print(f"stderr={proc.stderr!r}")
-                print(f"commands={server.commands!r}")
+                print(f"commands={server.commands_snapshot()!r}")
                 return 1
+            after_question_count = len(notify_commands(server))
+            if after_question_count != before_question_count + 1:
+                print(f"FAIL: AskUserQuestion should publish exactly one notification at loop {index}")
+                print(f"before={before_question_count}")
+                print(f"after={after_question_count}")
+                print(f"notify_commands={notify_commands(server)!r}")
+                return 1
+
             dup = run_claude_hook(
                 cli_path,
                 server.socket_path,
@@ -355,11 +374,18 @@ def main() -> int:
                 print(f"FAIL: claude-hook notification failed at loop {index}")
                 print(f"stdout={dup.stdout!r}")
                 print(f"stderr={dup.stderr!r}")
-                print(f"commands={server.commands!r}")
+                print(f"commands={server.commands_snapshot()!r}")
+                return 1
+            after_duplicate_count = len(notify_commands(server))
+            if after_duplicate_count != after_question_count:
+                print(f"FAIL: generic attention Notification should not add a duplicate at loop {index}")
+                print(f"before={after_question_count}")
+                print(f"after={after_duplicate_count}")
+                print(f"notify_commands={notify_commands(server)!r}")
                 return 1
 
-        loop_notify_commands = [line for line in server.commands if line.startswith("notify_target_async ")]
-        expected_total = before_loop_count + 100
+        loop_notify_commands = notify_commands(server)
+        expected_total = len(notify_after_repeat) + 100
         if len(loop_notify_commands) != expected_total:
             print("FAIL: AskUserQuestion loop should have zero drops and zero duplicate generic notifications")
             print(f"expected_total={expected_total}")

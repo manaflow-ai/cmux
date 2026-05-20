@@ -395,6 +395,7 @@ private struct AgentNeedsInputPublisher {
     let sendCommand: (String) throws -> String
     let notificationPayload: (String, String, String) -> String
     let surfaceOption: (String?) -> String
+    let quote: (String) -> String
     let redact: (String) -> String
     var dedupInterval: TimeInterval = 60 * 60
 
@@ -404,7 +405,7 @@ private struct AgentNeedsInputPublisher {
             return .targetUnavailable
         }
 
-        if isDuplicate(event) {
+        if try isDuplicate(event) {
             return .duplicateSuppressed
         }
 
@@ -414,33 +415,33 @@ private struct AgentNeedsInputPublisher {
         )
         let redactedSubtitle = redact(event.subtitle)
         let redactedBody = redact(event.body)
-        let statusCommand = "set_status \(event.statusKey) \(statusValue) --icon=bell.fill --color=#4C8DFF --priority=100 --tab=\(event.workspaceId)\(surfaceOption(event.surfaceId))"
+        let statusCommand = "set_status \(event.statusKey) \(quote(statusValue)) --icon=bell.fill --color=#4C8DFF --priority=100 --tab=\(event.workspaceId)\(surfaceOption(event.surfaceId))"
         _ = try? sendCommand(statusCommand)
 
         let payload = notificationPayload(event.title, redactedSubtitle, redactedBody)
         let response = try sendCommand("notify_target_async \(event.workspaceId) \(event.surfaceId) \(payload)")
-        markPublished(event)
+        try markPublished(event)
         return .published(response: response)
     }
 
-    func isDuplicate(_ event: AgentNeedsInputEvent) -> Bool {
+    func isDuplicate(_ event: AgentNeedsInputEvent) throws -> Bool {
         guard let sessionId = normalized(event.sessionId),
               let dedupKey = normalized(event.dedupKey) else {
             return false
         }
-        return (try? sessionStore.recentlyEmittedNotification(
+        return try sessionStore.recentlyEmittedNotification(
             sessionId: sessionId,
             fingerprint: dedupKey,
             within: dedupInterval
-        )) == true
+        )
     }
 
-    func markPublished(_ event: AgentNeedsInputEvent) {
+    func markPublished(_ event: AgentNeedsInputEvent) throws {
         guard let sessionId = normalized(event.sessionId),
               let dedupKey = normalized(event.dedupKey) else {
             return
         }
-        try? sessionStore.markNotificationEmitted(sessionId: sessionId, fingerprint: dedupKey)
+        try sessionStore.markNotificationEmitted(sessionId: sessionId, fingerprint: dedupKey)
     }
 
     static func dedupKey(agentKind: String, sessionId: String?, body: String) -> String? {
@@ -19953,6 +19954,9 @@ struct CMUXCLI {
             },
             surfaceOption: { surfaceId in
                 socketPanelOption(surfaceId)
+            },
+            quote: { value in
+                socketQuote(value)
             },
             redact: { value in
                 redactClaudeSensitiveSpans(value)
