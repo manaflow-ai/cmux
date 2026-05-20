@@ -4243,13 +4243,21 @@ struct CMUXCLI {
                 let notes = (payload["notes"] as? [[String: Any]]) ?? []
                 if notes.isEmpty {
                     print(String(
-                        localized: "cli.note.output.noNotes",
-                        defaultValue: "No notes in \(root)/.cmux/notes/"
+                        format: String(
+                            localized: "cli.note.output.noNotes",
+                            defaultValue: "No notes in %@/.cmux/notes/"
+                        ),
+                        locale: .current,
+                        root
                     ))
                 } else {
                     print(String(
-                        localized: "cli.note.output.projectRoot",
-                        defaultValue: "Project root: \(root)"
+                        format: String(
+                            localized: "cli.note.output.projectRoot",
+                            defaultValue: "Project root: %@"
+                        ),
+                        locale: .current,
+                        root
                     ))
                     print(String(localized: "cli.note.output.notesHeader", defaultValue: "Notes:"))
                     let formatter = DateFormatter()
@@ -4261,8 +4269,14 @@ struct CMUXCLI {
                             formatter.string(from: Date(timeIntervalSince1970: $0))
                         } ?? "?"
                         print(String(
-                            localized: "cli.note.output.noteRow",
-                            defaultValue: "  \(slug)\t\(size)B\t\(mtime)"
+                            format: String(
+                                localized: "cli.note.output.noteRow",
+                                defaultValue: "  %@\t%lldB\t%@"
+                            ),
+                            locale: .current,
+                            slug,
+                            Int64(size),
+                            mtime
                         ))
                     }
                 }

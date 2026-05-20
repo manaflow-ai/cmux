@@ -1773,6 +1773,11 @@ class TerminalController {
         "browser.profiles.clear",
         "browser.profiles.delete",
         "browser.import.cookies",
+        "note.create",
+        "note.open",
+        "note.list",
+        "note.path",
+        "note.delete",
         "system.top",
     ]
 
@@ -1881,6 +1886,21 @@ class TerminalController {
                 let outcome = try await BrowserImportAutomation.importCookies(params: request.params)
                 return outcome.socketPayload
             }
+        case "note.create":
+            v2MainSync { self.v2RefreshKnownRefs() }
+            return v2Result(id: request.id, v2NoteCreate(params: request.params))
+        case "note.open":
+            v2MainSync { self.v2RefreshKnownRefs() }
+            return v2Result(id: request.id, v2NoteOpen(params: request.params))
+        case "note.list":
+            v2MainSync { self.v2RefreshKnownRefs() }
+            return v2Result(id: request.id, v2NoteList(params: request.params))
+        case "note.path":
+            v2MainSync { self.v2RefreshKnownRefs() }
+            return v2Result(id: request.id, v2NotePath(params: request.params))
+        case "note.delete":
+            v2MainSync { self.v2RefreshKnownRefs() }
+            return v2Result(id: request.id, v2NoteDelete(params: request.params))
         case "system.top":
             return v2Result(id: request.id, v2SystemTop(params: request.params))
         case let method where method.hasPrefix("vm."):

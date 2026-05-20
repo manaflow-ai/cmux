@@ -1329,9 +1329,6 @@ extension Workspace {
 
         case .note:
             let slug = noteSlugForConfigSurface(surface, fallbackSeed: surfaceSeed)
-            if surface.focus == true {
-                focusPanelId = panelId
-            }
             scheduleConfigNoteSurface(
                 replacingPanelId: panelId,
                 inPane: paneId,
