@@ -5162,7 +5162,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             return true
         }
         guard confirmCloseMainWindow(window) else { return true }
-        window.close()
+        window.performClose(nil)
         return true
     }
 
