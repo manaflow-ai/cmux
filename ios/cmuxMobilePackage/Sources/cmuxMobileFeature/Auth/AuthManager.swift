@@ -205,7 +205,7 @@ final class AuthManager {
 
     private func validateCachedSession(hasStoredTokens: Bool) async {
         do {
-            if let user = try await stack.getUser(or: .returnNull) {
+            if let user = try await stack.getUser(or: .throw) {
                 await applySignedInUser(user)
                 return
             }
@@ -214,11 +214,18 @@ final class AuthManager {
             clearAuthState()
             return
         } catch {
-            authLog.error("Session validation failed: \(error.localizedDescription, privacy: .private)")
+            let action = Self.cachedSessionValidationFailureAction(for: error)
+            authLog.error(
+                "Session validation failed action=\(action.rawValue, privacy: .public) error=\(error.localizedDescription, privacy: .private)"
+            )
+            switch action {
+            case .clearSession:
+                await clearPersistedStackSession()
+                clearAuthState()
+            case .preserveCachedSession:
+                preserveCachedSessionAfterValidationFailure()
+            }
         }
-
-        await clearPersistedStackSession()
-        clearAuthState()
     }
 
     private func applySignedInUser(_ user: CurrentUser) async {
@@ -240,6 +247,14 @@ final class AuthManager {
         authUserCache.clear()
         authSessionCache.clear()
         applyAuthState(.cleared())
+    }
+
+    private func preserveCachedSessionAfterValidationFailure() {
+        authSessionCache.setHasTokens(true)
+        let cachedUser = currentUser ?? authUserCache.load()
+        currentUser = cachedUser
+        isAuthenticated = cachedUser != nil
+        isRestoringSession = false
     }
 
     private func clearPersistedAuthForUITest() async {
@@ -447,6 +462,21 @@ final class AuthManager {
         }
         return AuthError.serverError(0, "auth_failed")
     }
+
+    nonisolated static func cachedSessionValidationFailureAction(
+        for error: Error
+    ) -> CachedSessionValidationFailureAction {
+        let safeError = displaySafeAuthError(error)
+        if case AuthError.unauthorized = safeError {
+            return .clearSession
+        }
+        return .preserveCachedSession
+    }
+}
+
+enum CachedSessionValidationFailureAction: String, Equatable, Sendable {
+    case clearSession
+    case preserveCachedSession
 }
 
 private extension AuthManager {

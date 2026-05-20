@@ -81,6 +81,29 @@ import UIKit
     }
 }
 
+@Test func cachedSessionValidationClearsOnlyDefinitiveUnauthorizedFailures() {
+    #expect(
+        AuthManager.cachedSessionValidationFailureAction(
+            for: StackAuthError(code: "UNAUTHORIZED", message: "expired")
+        ) == .clearSession
+    )
+    #expect(
+        AuthManager.cachedSessionValidationFailureAction(
+            for: StackAuthError(code: "INVALID_TOKEN", message: "invalid")
+        ) == .clearSession
+    )
+    #expect(
+        AuthManager.cachedSessionValidationFailureAction(
+            for: URLError(.notConnectedToInternet)
+        ) == .preserveCachedSession
+    )
+    #expect(
+        AuthManager.cachedSessionValidationFailureAction(
+            for: StackAuthError(code: "RATE_LIMIT", message: "try later")
+        ) == .preserveCachedSession
+    )
+}
+
 @Test func rpcRequestTimeoutCancelsOperationWhenCallerIsCancelled() async throws {
     let started = AsyncFlag()
     let cancelled = AsyncFlag()
