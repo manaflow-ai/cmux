@@ -24,7 +24,7 @@ For production non-Swift app/runtime code and build/runtime scripts, flag fixed 
 
 Fail race repairs for lifecycle, focus, rendering, socket, process, filesystem, network, teardown, startup, retry, or shared-state readiness unless they use a real signal from the owning subsystem or a dedicated cancellation-aware timeout/retry abstraction with tests.
 
-Pass for deterministic test-only scaffolding, pure presentation animation or progress timing, and existing delay code the PR does not introduce or worsen. Swift sleeps are covered by the Swift blocking runtime rule.
+Pass for deterministic test-only scaffolding, GitHub Actions workflow or action YAML sleeps used only for CI orchestration, pure presentation animation or progress timing, and existing delay code the PR does not introduce or worsen. Swift sleeps are covered by the Swift blocking runtime rule.
 
 ## Full Internationalization
 
