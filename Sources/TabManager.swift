@@ -3357,6 +3357,8 @@ class TabManager: ObservableObject {
         var value = Int(byte & 0x7f)
         while (byte & 0x80) != 0 {
             guard offset < bytes.count else { return nil }
+            // Git's index v4 path compression uses varint.c's encode/decode pair.
+            // Continuation bytes increment the accumulated value before shifting.
             value += 1
             byte = bytes[offset]
             offset += 1

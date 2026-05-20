@@ -287,37 +287,67 @@ private func writeGitIndexVersion4(
     trackedPath: String,
     signatureByte: UInt8
 ) throws {
-    let fileURL = repoURL.appendingPathComponent(trackedPath)
-    var statValue = stat()
-    guard lstat(fileURL.path, &statValue) == 0 else {
-        throw POSIXError(POSIXErrorCode(rawValue: errno) ?? .ENOENT)
-    }
+    try writeGitIndexVersion4(at: repoURL, trackedPaths: [trackedPath], signatureByte: signatureByte)
+}
 
+private func writeGitIndexVersion4(
+    at repoURL: URL,
+    trackedPaths: [String],
+    signatureByte: UInt8
+) throws {
     var data = Data()
     data.append(contentsOf: [0x44, 0x49, 0x52, 0x43])
     appendBigEndianUInt32(4, to: &data)
-    appendBigEndianUInt32(1, to: &data)
+    appendBigEndianUInt32(UInt32(trackedPaths.count), to: &data)
 
-    appendBigEndianUInt32(gitIndexUInt32Field(statValue.st_ctimespec.tv_sec), to: &data)
-    appendBigEndianUInt32(gitIndexUInt32Field(statValue.st_ctimespec.tv_nsec), to: &data)
-    appendBigEndianUInt32(gitIndexUInt32Field(statValue.st_mtimespec.tv_sec), to: &data)
-    appendBigEndianUInt32(gitIndexUInt32Field(statValue.st_mtimespec.tv_nsec), to: &data)
-    appendBigEndianUInt32(gitIndexUInt32Field(statValue.st_dev), to: &data)
-    appendBigEndianUInt32(gitIndexUInt32Field(statValue.st_ino), to: &data)
-    appendBigEndianUInt32(gitIndexUInt32Field(statValue.st_mode), to: &data)
-    appendBigEndianUInt32(gitIndexUInt32Field(statValue.st_uid), to: &data)
-    appendBigEndianUInt32(gitIndexUInt32Field(statValue.st_gid), to: &data)
-    appendBigEndianUInt32(gitIndexUInt32Field(statValue.st_size), to: &data)
-    data.append(Data(repeating: 0, count: 20))
+    var previousPathBytes: [UInt8] = []
+    for trackedPath in trackedPaths.sorted() {
+        let fileURL = repoURL.appendingPathComponent(trackedPath)
+        var statValue = stat()
+        guard lstat(fileURL.path, &statValue) == 0 else {
+            throw POSIXError(POSIXErrorCode(rawValue: errno) ?? .ENOENT)
+        }
 
-    let pathBytes = Array(trackedPath.utf8)
-    appendBigEndianUInt16(UInt16(min(pathBytes.count, 0x0fff)), to: &data)
-    data.append(0)
-    data.append(contentsOf: pathBytes)
-    data.append(0)
+        appendBigEndianUInt32(gitIndexUInt32Field(statValue.st_ctimespec.tv_sec), to: &data)
+        appendBigEndianUInt32(gitIndexUInt32Field(statValue.st_ctimespec.tv_nsec), to: &data)
+        appendBigEndianUInt32(gitIndexUInt32Field(statValue.st_mtimespec.tv_sec), to: &data)
+        appendBigEndianUInt32(gitIndexUInt32Field(statValue.st_mtimespec.tv_nsec), to: &data)
+        appendBigEndianUInt32(gitIndexUInt32Field(statValue.st_dev), to: &data)
+        appendBigEndianUInt32(gitIndexUInt32Field(statValue.st_ino), to: &data)
+        appendBigEndianUInt32(gitIndexUInt32Field(statValue.st_mode), to: &data)
+        appendBigEndianUInt32(gitIndexUInt32Field(statValue.st_uid), to: &data)
+        appendBigEndianUInt32(gitIndexUInt32Field(statValue.st_gid), to: &data)
+        appendBigEndianUInt32(gitIndexUInt32Field(statValue.st_size), to: &data)
+        data.append(Data(repeating: 0, count: 20))
+
+        let pathBytes = Array(trackedPath.utf8)
+        appendBigEndianUInt16(UInt16(min(pathBytes.count, 0x0fff)), to: &data)
+        let commonPrefixLength = zip(previousPathBytes, pathBytes).prefix { pair in
+            pair.0 == pair.1
+        }.count
+        let stripLength = previousPathBytes.count - commonPrefixLength
+        data.append(contentsOf: gitIndexV4PathStripLengthBytes(stripLength))
+        data.append(contentsOf: pathBytes.dropFirst(commonPrefixLength))
+        data.append(0)
+        previousPathBytes = pathBytes
+    }
+
     data.append(Data(repeating: signatureByte, count: 20))
 
     try data.write(to: repoURL.appendingPathComponent(".git/index"))
+}
+
+private func gitIndexV4PathStripLengthBytes(_ value: Int) -> [UInt8] {
+    precondition(value >= 0)
+    var remaining = value
+    var bytes = [UInt8(remaining & 0x7f)]
+    remaining >>= 7
+    while remaining != 0 {
+        remaining -= 1
+        bytes.append(0x80 | UInt8(remaining & 0x7f))
+        remaining >>= 7
+    }
+    return Array(bytes.reversed())
 }
 
 private func appendBigEndianUInt16(_ value: UInt16, to data: inout Data) {
@@ -905,6 +935,64 @@ final class WorkspacePullRequestSidebarTests: XCTestCase {
                 workspace.panelGitBranches[panelId]?.isDirty == true
             },
             "Index v4 signature changes should keep staged/index-only changes visible as dirty."
+        )
+    }
+
+    func testGitIndexVersionFourRefreshDecodesMultiByteStripLengths() throws {
+        let defaults = UserDefaults.standard
+        let previousWatchGitStatus = defaults.object(forKey: SidebarWorkspaceDetailDefaults.watchGitStatusKey)
+        defer {
+            restoreUserDefault(previousWatchGitStatus, key: SidebarWorkspaceDetailDefaults.watchGitStatusKey)
+        }
+
+        let repoURL = FileManager.default.temporaryDirectory.appendingPathComponent(
+            "cmux-sidebar-index-v4-varint-\(UUID().uuidString)",
+            isDirectory: true
+        )
+        try FileManager.default.createDirectory(at: repoURL, withIntermediateDirectories: true)
+        let longTrackedPath = [
+            "a",
+            String(repeating: "a", count: 120),
+            String(repeating: "b", count: 120),
+            "tracked0.txt"
+        ].joined(separator: "/")
+        XCTAssertEqual(longTrackedPath.utf8.count, 256)
+        XCTAssertEqual(gitIndexV4PathStripLengthBytes(256), [0x81, 0x00])
+
+        let longTrackedFileURL = repoURL.appendingPathComponent(longTrackedPath)
+        try FileManager.default.createDirectory(
+            at: longTrackedFileURL.deletingLastPathComponent(),
+            withIntermediateDirectories: true
+        )
+        try "alpha\n".write(to: longTrackedFileURL, atomically: true, encoding: .utf8)
+        try "beta\n".write(to: repoURL.appendingPathComponent("b.txt"), atomically: true, encoding: .utf8)
+        try writeMinimalGitRepository(at: repoURL)
+        try writeGitIndexVersion4(
+            at: repoURL,
+            trackedPaths: [longTrackedPath, "b.txt"],
+            signatureByte: 0x33
+        )
+        defer {
+            try? FileManager.default.removeItem(at: repoURL)
+        }
+
+        defaults.set(true, forKey: SidebarWorkspaceDetailDefaults.watchGitStatusKey)
+        let manager = TabManager()
+        let workspace = try XCTUnwrap(manager.selectedWorkspace)
+        let panelId = try XCTUnwrap(workspace.focusedPanelId)
+
+        manager.updateSurfaceDirectory(
+            tabId: workspace.id,
+            surfaceId: panelId,
+            directory: repoURL.path
+        )
+
+        XCTAssertTrue(
+            waitForCondition {
+                workspace.panelGitBranches[panelId]?.branch == "main"
+                    && workspace.panelGitBranches[panelId]?.isDirty == false
+            },
+            "Index v4 multi-byte path strip lengths should decode to the tracked path instead of marking the repo dirty."
         )
     }
 
