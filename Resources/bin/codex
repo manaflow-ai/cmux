@@ -17,12 +17,16 @@ find_real_codex() {
         fi
     fi
 
-    local self_dir
+    local self_dir candidate
     self_dir="$(cd "$(dirname "$0")" && pwd)"
     local IFS=:
     for d in $PATH; do
         [[ "$d" == "$self_dir" ]] && continue
-        [[ -x "$d/codex" ]] && printf '%s' "$d/codex" && return 0
+        candidate="$d/codex"
+        [[ -x "$candidate" ]] || continue
+        [[ "$candidate" -ef "$0" ]] && continue
+        printf '%s' "$candidate"
+        return 0
     done
     return 1
 }

@@ -42,6 +42,7 @@ def run_wrapper(
     socket_state: str,
     argv: list[str],
     hooks_disabled: bool = False,
+    symlink_wrapper_first: bool = False,
 ) -> tuple[int, list[str], dict[str, str], list[str], str]:
     with tempfile.TemporaryDirectory(prefix="cmux-codex-wrapper-test-") as td:
         tmp = Path(td)
@@ -55,6 +56,13 @@ def run_wrapper(
         wrapper = wrapper_dir / "codex"
         shutil.copy2(SOURCE_WRAPPER, wrapper)
         wrapper.chmod(0o755)
+        path_entries: list[Path | str] = []
+        if symlink_wrapper_first:
+            wrapper_alias_dir = tmp / "wrapper-alias-bin"
+            wrapper_alias_dir.symlink_to(wrapper_dir, target_is_directory=True)
+            path_entries.extend([wrapper_alias_dir, wrapper_dir])
+        else:
+            path_entries.append(wrapper_dir)
 
         real_args_log = tmp / "real-args.log"
         real_env_log = tmp / "real-env.log"
@@ -124,7 +132,8 @@ exit 0
             test_socket.bind(socket_path)
 
         env = os.environ.copy()
-        env["PATH"] = f"{wrapper_dir}:{real_dir}:{env.get('PATH', '/usr/bin:/bin')}"
+        path_entries.extend([real_dir, env.get("PATH", "/usr/bin:/bin")])
+        env["PATH"] = ":".join(str(entry) for entry in path_entries)
         env["CMUX_SURFACE_ID"] = "surface:test"
         env["CMUX_SOCKET_PATH"] = socket_path
         env["CMUX_BUNDLED_CLI_PATH"] = str(bundled_cli_path)
@@ -138,14 +147,18 @@ exit 0
             env.pop("CMUX_CODEX_HOOKS_DISABLED", None)
 
         try:
-            proc = subprocess.run(
-                ["codex", *argv],
-                cwd=tmp,
-                env=env,
-                capture_output=True,
-                text=True,
-                check=False,
-            )
+            try:
+                proc = subprocess.run(
+                    ["codex", *argv],
+                    cwd=tmp,
+                    env=env,
+                    capture_output=True,
+                    text=True,
+                    timeout=5,
+                    check=False,
+                )
+            except subprocess.TimeoutExpired:
+                return 124, read_lines(real_args_log), {}, read_lines(cmux_log), "timed out"
         finally:
             if test_socket is not None:
                 test_socket.close()
@@ -193,6 +206,20 @@ def test_plain_codex_launch_argv_has_no_empty_argument(failures: list[str]) -> N
     decoded = decode_nul_argv(env.get("CMUX_AGENT_LAUNCH_ARGV_B64", ""))
     expect(len(decoded) == 1, f"plain codex: expected only executable in encoded launch argv, got {decoded}", failures)
     expect(decoded[0].endswith("/real-bin/codex"), f"plain codex: expected real codex executable, got {decoded}", failures)
+
+
+def test_symlinked_wrapper_path_is_not_selected_as_real_codex(failures: list[str]) -> None:
+    code, _, env, _, stderr = run_wrapper(
+        socket_state="live",
+        argv=["hello"],
+        symlink_wrapper_first=True,
+    )
+    expect(code == 0, f"symlinked wrapper path: wrapper exited {code}: {stderr}", failures)
+    expect(
+        env.get("CMUX_AGENT_LAUNCH_EXECUTABLE", "").endswith("/real-bin/codex"),
+        f"symlinked wrapper path: expected real codex executable, got {env}",
+        failures,
+    )
 
 
 def test_resume_and_fork_are_tracked_interactive_entrypoints(failures: list[str]) -> None:
@@ -260,6 +287,7 @@ def main() -> int:
     failures: list[str] = []
     test_live_socket_installs_hooks_and_exports_launch_metadata(failures)
     test_plain_codex_launch_argv_has_no_empty_argument(failures)
+    test_symlinked_wrapper_path_is_not_selected_as_real_codex(failures)
     test_resume_and_fork_are_tracked_interactive_entrypoints(failures)
     test_command_like_invocations_bypass_hook_tracking_and_scrub_cmux_env(failures)
     test_passthrough_flags_and_disabled_hooks_do_not_track(failures)
