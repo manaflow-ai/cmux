@@ -8102,6 +8102,25 @@ struct CMUXCLI {
                 } else {
                     printBrowserExtensionOperation(payload, fallback: "Reloaded browser extensions.")
                 }
+            case "activate", "popup", "show":
+                guard let query = nonFlagArgs(extensionArgsWithoutProfile).first else {
+                    throw CLIError(message: "browser extensions \(extensionVerb) requires an extension id or name")
+                }
+                var params = extensionParams(extra: ["extension": query])
+                if let surfaceRaw,
+                   let surface = try normalizeSurfaceHandle(surfaceRaw, client: client, allowFocused: true) {
+                    params["surface_id"] = surface
+                }
+                let payload = try client.sendV2(
+                    method: "browser.extensions.activate",
+                    params: params,
+                    responseTimeout: 30
+                )
+                if effectiveJSONOutput {
+                    print(jsonString(formatIDs(payload, mode: effectiveIDFormat)))
+                } else {
+                    printBrowserExtensionOperation(payload, fallback: "Activated browser extension.")
+                }
             case "enable", "disable", "remove":
                 guard let query = nonFlagArgs(extensionArgsWithoutProfile).first else {
                     throw CLIError(message: "browser extensions \(extensionVerb) requires an extension id or name")
@@ -26414,7 +26433,7 @@ export default function cmuxPiSessionExtension(pi: ExtensionAPI) {
           browser frame <selector|main>
           browser dialog <accept|dismiss> [text]
           browser download [wait] [--path <path>] [--timeout-ms <ms>]
-          browser extensions <list|discover|install|load|reload|enable|disable|remove> [...]
+          browser extensions <list|discover|install|load|reload|activate|enable|disable|remove> [...]
           browser profiles <list|add|rename|clear|delete> [...]
           browser profiles clear <profile|--all> [--force]
           browser import [...]

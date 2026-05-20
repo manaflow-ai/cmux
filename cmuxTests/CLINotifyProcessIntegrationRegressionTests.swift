@@ -2659,6 +2659,13 @@ final class CLINotifyProcessIntegrationRegressionTests: XCTestCase {
                 ["profile_id": "AAAAAAAA-AAAA-AAAA-AAAA-AAAAAAAAAAAA", "reloaded": true, "extension": extensionPayload]
             ),
             (
+                "activate",
+                ["browser", "--surface", "22222222-2222-2222-2222-222222222222", "extensions", "activate", "Bitwarden", "--profile", "Work"],
+                "browser.extensions.activate",
+                ["profile": "Work", "extension": "Bitwarden", "surface_id": "22222222-2222-2222-2222-222222222222"],
+                ["activated": true, "extension": extensionPayload]
+            ),
+            (
                 "enable",
                 ["browser", "extensions", "enable", "Bitwarden", "--profile", "Work"],
                 "browser.extensions.enable",

@@ -1877,6 +1877,10 @@ class TerminalController {
             return v2VmCall(id: request.id, timeoutSeconds: 120) {
                 try await BrowserExtensionAutomation.reload(params: request.params)
             }
+        case "browser.extensions.activate":
+            return v2MainSync {
+                self.v2BrowserExtensionActivate(id: request.id, params: request.params)
+            }
         case "browser.extensions.enable":
             return v2VmCall(id: request.id, timeoutSeconds: 120) {
                 try await BrowserExtensionAutomation.setEnabled(params: request.params, enabled: true)
@@ -3144,6 +3148,8 @@ class TerminalController {
             return v2Result(id: id, self.v2BrowserDialogRespond(params: params, accept: true))
         case "browser.dialog.dismiss":
             return v2Result(id: id, self.v2BrowserDialogRespond(params: params, accept: false))
+        case "browser.extensions.activate":
+            return self.v2BrowserExtensionActivate(id: id, params: params)
         case "browser.import.dialog":
             return v2Result(id: id, self.v2BrowserImportDialog(params: params))
         case "browser.cookies.get":
@@ -3453,6 +3459,14 @@ class TerminalController {
             "browser.dialog.accept",
             "browser.dialog.dismiss",
             "browser.download.wait",
+            "browser.extensions.list",
+            "browser.extensions.discover",
+            "browser.extensions.install",
+            "browser.extensions.reload",
+            "browser.extensions.activate",
+            "browser.extensions.enable",
+            "browser.extensions.disable",
+            "browser.extensions.remove",
             "browser.cookies.get",
             "browser.cookies.set",
             "browser.cookies.clear",
@@ -9368,6 +9382,68 @@ class TerminalController {
             result = body(tabManager, ws, surfaceId, browserPanel)
         }
         return result
+    }
+
+    private func v2BrowserExtensionActivate(id: Any?, params: [String: Any]) -> String {
+        let query = [
+            params["extension"] as? String,
+            params["id"] as? String,
+            params["name"] as? String,
+        ]
+        .compactMap { $0?.trimmingCharacters(in: .whitespacesAndNewlines) }
+        .first { !$0.isEmpty }
+
+        guard let query else {
+            return v2Error(
+                id: id,
+                code: "invalid_params",
+                message: "Missing browser extension id or name",
+                data: nil
+            )
+        }
+
+        let result = v2BrowserWithPanel(params: params) { _, _, surfaceId, browserPanel in
+            let actions = BrowserWebExtensionSupport.actionSnapshots(for: browserPanel)
+            let exactMatches = actions.filter { action in
+                action.id.uuidString.caseInsensitiveCompare(query) == .orderedSame ||
+                    action.label.localizedCaseInsensitiveCompare(query) == .orderedSame
+            }
+            let matches = exactMatches.isEmpty
+                ? actions.filter { $0.label.localizedCaseInsensitiveContains(query) }
+                : exactMatches
+
+            guard !matches.isEmpty else {
+                return .err(
+                    code: "not_found",
+                    message: "No loaded browser extension action matches '\(query)'",
+                    data: ["extension": query]
+                )
+            }
+            guard matches.count == 1, let action = matches.first else {
+                return .err(
+                    code: "ambiguous",
+                    message: "Multiple browser extension actions match '\(query)'",
+                    data: [
+                        "extension": query,
+                        "matches": matches.map { $0.label },
+                    ]
+                )
+            }
+
+            BrowserWebExtensionSupport.performAction(action.id, for: browserPanel)
+            return .ok([
+                "activated": true,
+                "surface_id": surfaceId.uuidString,
+                "surface_ref": v2Ref(kind: .surface, uuid: surfaceId),
+                "extension": [
+                    "id": action.id.uuidString,
+                    "name": action.label,
+                    "badge_text": action.badgeText,
+                    "enabled": action.isEnabled,
+                ],
+            ])
+        }
+        return v2Result(id: id, result)
     }
 
     private func v2ResolveBrowserSurfaceId(
