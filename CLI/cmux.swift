@@ -747,6 +747,19 @@ private final class ClaudeHookSessionStore {
         }
     }
 
+    func clearAskUserQuestionNotification(sessionId: String) throws {
+        let normalized = normalizeSessionId(sessionId)
+        guard !normalized.isEmpty else { return }
+        try withLockedState { state in
+            guard var record = state.sessions[normalized] else { return }
+            let now = Date().timeIntervalSince1970
+            record.lastAskUserQuestionNotificationFingerprint = nil
+            record.lastAskUserQuestionNotificationAt = nil
+            record.updatedAt = now
+            state.sessions[normalized] = record
+        }
+    }
+
     func recentlyEmittedNotification(
         sessionId: String,
         fingerprint: String,
@@ -766,22 +779,14 @@ private final class ClaudeHookSessionStore {
         }
     }
 
-    func recentlyEmittedAskUserQuestionNotification(
-        sessionId: String,
-        fingerprint: String,
-        within interval: TimeInterval = 60 * 60
-    ) throws -> Bool {
+    func hasPendingAskUserQuestionNotification(sessionId: String, fingerprint: String) throws -> Bool {
         let normalized = normalizeSessionId(sessionId)
         guard !normalized.isEmpty else { return false }
         let normalizedFingerprint = fingerprint.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !normalizedFingerprint.isEmpty else { return false }
         return try withLockedState { state in
-            guard let record = state.sessions[normalized],
-                  record.lastAskUserQuestionNotificationFingerprint == normalizedFingerprint,
-                  let emittedAt = record.lastAskUserQuestionNotificationAt else {
-                return false
-            }
-            return Date().timeIntervalSince1970 - emittedAt <= interval
+            guard let record = state.sessions[normalized] else { return false }
+            return record.lastAskUserQuestionNotificationFingerprint == normalizedFingerprint
         }
     }
 
@@ -17428,6 +17433,7 @@ struct CMUXCLI {
                 )
                 do {
                     try sessionStore.clearNotificationEmission(sessionId: sessionId)
+                    try sessionStore.clearAskUserQuestionNotification(sessionId: sessionId)
                 } catch {
                     telemetry.breadcrumb(
                         "claude-hook.clear-notification-emission.error",
@@ -17477,13 +17483,20 @@ struct CMUXCLI {
                 print("OK")
                 return
             }
-            let usesSavedAskUserQuestionBody =
-                mappedSession?.lastNotificationStatus == .needsInput
-                && claudeNotificationBodyIsGenericAttentionPlaceholder(summary.body)
-            if usesSavedAskUserQuestionBody,
-               let mappedSession,
-               let savedBody = mappedSession.lastBody, !savedBody.isEmpty {
-                summary = (subtitle: mappedSession.lastSubtitle ?? summary.subtitle, body: savedBody)
+            if claudeNotificationBodyIsGenericAttentionPlaceholder(summary.body),
+               let sessionId = parsedInput.sessionId,
+               let savedBody = mappedSession?.lastBody, !savedBody.isEmpty,
+               let savedAskUserQuestionDedupKey = AgentNeedsInputPublisher.dedupKey(
+                agentKind: "claude",
+                sessionId: parsedInput.sessionId,
+                body: savedBody
+               ),
+               try sessionStore.hasPendingAskUserQuestionNotification(
+                sessionId: sessionId,
+                fingerprint: savedAskUserQuestionDedupKey
+               ) {
+                print("OK")
+                return
             }
 
             let surfaceId = try resolvePreferredSurfaceIdForClaudeHook(
@@ -17519,17 +17532,6 @@ struct CMUXCLI {
                 sessionId: parsedInput.sessionId,
                 body: summary.body
             )
-            if usesSavedAskUserQuestionBody,
-               let sessionId = parsedInput.sessionId,
-               let dedupKey,
-               try sessionStore.recentlyEmittedAskUserQuestionNotification(
-                sessionId: sessionId,
-                fingerprint: dedupKey
-               ) {
-                print("OK")
-                return
-            }
-
             let event = AgentNeedsInputEvent(
                 agentKind: "claude",
                 statusKey: "claude_code",
@@ -17706,6 +17708,17 @@ struct CMUXCLI {
 
             _ = try? sendV1Command("clear_notifications --tab=\(workspaceId)", client: client)
             if let sessionId = parsedInput.sessionId {
+                try? sessionStore.upsert(
+                    sessionId: sessionId,
+                    workspaceId: workspaceId,
+                    surfaceId: surfaceId,
+                    cwd: parsedInput.cwd,
+                    transcriptPath: parsedInput.transcriptPath,
+                    lastNotificationStatus: .idle,
+                    updateLastNotificationStatus: true,
+                    runtimeStatus: .running,
+                    updateRuntimeStatus: true
+                )
                 do {
                     try sessionStore.clearNotificationEmission(sessionId: sessionId)
                 } catch {
