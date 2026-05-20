@@ -17287,6 +17287,17 @@ struct CMUXCLI {
             }
             if isClearSessionStart {
                 _ = try? sendV1Command("clear_notifications --tab=\(workspaceId)", client: client)
+                if let sessionId = parsedInput.sessionId {
+                    do {
+                        try sessionStore.clearNotificationEmission(sessionId: sessionId)
+                        try sessionStore.clearAskUserQuestionNotification(sessionId: sessionId)
+                    } catch {
+                        telemetry.breadcrumb(
+                            "claude-hook.clear-notification-emission.error",
+                            data: ["error": String(describing: error)]
+                        )
+                    }
+                }
                 try setClaudeStatus(
                     client: client,
                     workspaceId: workspaceId,
