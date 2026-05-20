@@ -660,16 +660,32 @@ private final class ClaudeHookSessionStore {
         }
     }
 
-    func hasRunningSession(workspaceId: String, excludingSessionId: String?) throws -> Bool {
+    func hasRunningSession(
+        workspaceId: String,
+        surfaceId: String?,
+        excludingSessionId: String?,
+        onlyNewerThanExcludedSession: Bool = false
+    ) throws -> Bool {
         guard let normalizedWorkspace = normalizeOptional(workspaceId) else {
             return false
         }
+        let normalizedSurface = normalizeOptional(surfaceId)
         let excluded = normalizeOptional(excludingSessionId)
         return try withLockedState { state in
+            let excludedUpdatedAt = excluded.flatMap { state.sessions[$0]?.updatedAt }
             state.sessions.values.contains { record in
-                normalizeOptional(record.workspaceId) == normalizedWorkspace
-                    && record.sessionId != excluded
-                    && record.runtimeStatus == .running
+                guard normalizeOptional(record.workspaceId) == normalizedWorkspace,
+                      record.sessionId != excluded,
+                      record.runtimeStatus == .running else {
+                    return false
+                }
+                if let normalizedSurface, normalizeOptional(record.surfaceId) != normalizedSurface {
+                    return false
+                }
+                if onlyNewerThanExcludedSession, let excludedUpdatedAt {
+                    return record.updatedAt > excludedUpdatedAt
+                }
+                return true
             }
         }
     }
@@ -22740,11 +22756,16 @@ export default function cmuxPiSessionExtension(pi: ExtensionAPI) {
                 return nil
             }
         }
-        func hasOtherRunningSession(workspaceId: String) -> Bool {
-            (try? store.hasRunningSession(workspaceId: workspaceId, excludingSessionId: sessionId)) == true
+        func hasNewerRunningSession(workspaceId: String, surfaceId: String) -> Bool {
+            (try? store.hasRunningSession(
+                workspaceId: workspaceId,
+                surfaceId: surfaceId,
+                excludingSessionId: sessionId,
+                onlyNewerThanExcludedSession: true
+            )) == true
         }
-        func setIdleStatusUnlessAnotherSessionIsRunning(workspaceId: String, surfaceId: String) {
-            if hasOtherRunningSession(workspaceId: workspaceId) {
+        func setIdleStatusUnlessNewerSessionIsRunning(workspaceId: String, surfaceId: String) {
+            if hasNewerRunningSession(workspaceId: workspaceId, surfaceId: surfaceId) {
 #if DEBUG
                 agentHookDebugLog(
                     "agentHook.status.keepRunning agent=\(def.name) session=\(agentHookDebugShort(sessionId)) workspace=\(agentHookDebugShort(workspaceId)) surface=\(agentHookDebugShort(surfaceId))",
@@ -23133,7 +23154,10 @@ export default function cmuxPiSessionExtension(pi: ExtensionAPI) {
 
             let notificationFingerprint = notificationDedupeFingerprint(status: stopNotificationStatus)
             let shouldPublishStopNotification = def.publishesStopNotification && (!antigravityHasActiveBackgroundWork || stopNotificationStatus == .error)
-            let shouldPublishGrokStopFallbackNotification = def.name == "grok" && stopNotificationStatus == .idle
+            let hasGrokTranscriptContext = def.name == "grok" && normalizedHookValue(cwd) != nil
+            let shouldPublishGrokStopFallbackNotification = def.name == "grok"
+                && stopNotificationStatus == .idle
+                && (grokAssistantMessage != nil || !hasGrokTranscriptContext)
             let shouldPublishStopAlert = shouldPublishStopNotification || shouldPublishGrokStopFallbackNotification
             if shouldPublishStopAlert, shouldSendNotification(fingerprint: notificationFingerprint) {
                 let payload = notificationPayload(title: def.displayName, subtitle: subtitle, body: body)
@@ -23194,7 +23218,7 @@ export default function cmuxPiSessionExtension(pi: ExtensionAPI) {
                     client: client
                 )
             } else {
-                setIdleStatusUnlessAnotherSessionIsRunning(workspaceId: workspaceId, surfaceId: surfaceId)
+                setIdleStatusUnlessNewerSessionIsRunning(workspaceId: workspaceId, surfaceId: surfaceId)
             }
 
         case .notification:
@@ -23369,7 +23393,7 @@ export default function cmuxPiSessionExtension(pi: ExtensionAPI) {
                     client: client
                 )
             case .idle?:
-                setIdleStatusUnlessAnotherSessionIsRunning(workspaceId: workspaceId, surfaceId: surfaceId)
+                setIdleStatusUnlessNewerSessionIsRunning(workspaceId: workspaceId, surfaceId: surfaceId)
             case nil:
                 break
             }
