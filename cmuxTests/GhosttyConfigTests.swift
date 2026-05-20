@@ -589,6 +589,90 @@ final class GhosttyConfigTests: XCTestCase {
         }
     }
 
+    func testTerminalRuntimeColorSchemeFollowsResolvedThemeBackground() {
+        XCTAssertEqual(
+            GhosttyApp.terminalRuntimeColorSchemePreference(
+                forBackgroundColor: NSColor(hex: "#F7F7F7")!
+            ),
+            .light
+        )
+        XCTAssertEqual(
+            GhosttyApp.terminalRuntimeColorSchemePreference(
+                forBackgroundColor: NSColor(hex: "#090300")!
+            ),
+            .dark
+        )
+    }
+
+    func testRuntimeColorSchemeSynchronizationDecisionOnlySkipsReentrantCalls() {
+        XCTAssertEqual(
+            GhosttyApp.runtimeColorSchemeSynchronizationDecision(
+                applied: nil,
+                requested: GHOSTTY_COLOR_SCHEME_DARK,
+                isSynchronizing: false
+            ),
+            .apply
+        )
+        XCTAssertEqual(
+            GhosttyApp.runtimeColorSchemeSynchronizationDecision(
+                applied: GHOSTTY_COLOR_SCHEME_DARK,
+                requested: GHOSTTY_COLOR_SCHEME_DARK,
+                isSynchronizing: false
+            ),
+            .apply
+        )
+        XCTAssertEqual(
+            GhosttyApp.runtimeColorSchemeSynchronizationDecision(
+                applied: GHOSTTY_COLOR_SCHEME_LIGHT,
+                requested: GHOSTTY_COLOR_SCHEME_DARK,
+                isSynchronizing: true
+            ),
+            .skipReentrant
+        )
+    }
+
+    func testRuntimeColorSchemeForCmuxSingleThemeReloadKeepsResolvedSchemeDuringConfigLoad() {
+        XCTAssertEqual(
+            GhosttyApp.runtimeColorSchemeForConfigLoad(
+                source: GhosttySurfaceConfigurationRefresh.cmuxThemeReloadFinalSource,
+                requestedColorScheme: .dark,
+                effectiveTerminalColorScheme: .light,
+                cmuxThemeValue: "light:3024 Day,dark:3024 Day"
+            ),
+            .light
+        )
+        XCTAssertEqual(
+            GhosttyApp.runtimeColorSchemeForConfigLoad(
+                source: GhosttySurfaceConfigurationRefresh.cmuxThemeReloadPreviewSource,
+                requestedColorScheme: .dark,
+                effectiveTerminalColorScheme: .light,
+                cmuxThemeValue: "3024 Day"
+            ),
+            .light
+        )
+    }
+
+    func testRuntimeColorSchemeForPairedThemeReloadUsesAppearanceDuringConfigLoad() {
+        XCTAssertEqual(
+            GhosttyApp.runtimeColorSchemeForConfigLoad(
+                source: GhosttySurfaceConfigurationRefresh.cmuxThemeReloadFinalSource,
+                requestedColorScheme: .dark,
+                effectiveTerminalColorScheme: .light,
+                cmuxThemeValue: "light:3024 Day,dark:3024 Night"
+            ),
+            .dark
+        )
+        XCTAssertEqual(
+            GhosttyApp.runtimeColorSchemeForConfigLoad(
+                source: "socket.reload_config",
+                requestedColorScheme: .dark,
+                effectiveTerminalColorScheme: .light,
+                cmuxThemeValue: "light:3024 Day,dark:3024 Day"
+            ),
+            .dark
+        )
+    }
+
     func testScrollLagCaptureRequiresSustainedLag() {
         let cases: [(samples: Int, averageMs: Double, maxMs: Double, expected: Bool)] = [
             (4, 18, 85, false),
@@ -1364,6 +1448,66 @@ final class BrowserPanelPopupContextTests: XCTestCase {
 
 @MainActor
 final class BrowserPanelWebViewLifecycleTests: XCTestCase {
+    private static var hasHiddenDiscardEnabledEnvironmentOverride: Bool {
+        ProcessInfo.processInfo.environment["CMUX_BROWSER_HIDDEN_WEBVIEW_DISCARD_ENABLED"] != nil
+    }
+
+    private static var hiddenDiscardEnvironmentOverrideDisablesPolicy: Bool {
+        guard let value = ProcessInfo.processInfo.environment["CMUX_BROWSER_HIDDEN_WEBVIEW_DISCARD_ENABLED"]?
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+            .lowercased() else {
+            return false
+        }
+        return ["0", "false", "no", "off"].contains(value)
+    }
+
+    private func withHiddenWebViewDiscardDefaults(
+        enabled: Bool?,
+        delay: TimeInterval? = nil,
+        _ body: () throws -> Void
+    ) rethrows {
+        let defaults = UserDefaults.standard
+        let previousEnabled = defaults.object(forKey: BrowserHiddenWebViewDiscardPolicy.enabledKey)
+        let previousDelay = defaults.object(forKey: BrowserHiddenWebViewDiscardPolicy.hiddenDelayKey)
+        defer {
+            if let previousEnabled {
+                defaults.set(previousEnabled, forKey: BrowserHiddenWebViewDiscardPolicy.enabledKey)
+            } else {
+                defaults.removeObject(forKey: BrowserHiddenWebViewDiscardPolicy.enabledKey)
+            }
+            if let previousDelay {
+                defaults.set(previousDelay, forKey: BrowserHiddenWebViewDiscardPolicy.hiddenDelayKey)
+            } else {
+                defaults.removeObject(forKey: BrowserHiddenWebViewDiscardPolicy.hiddenDelayKey)
+            }
+        }
+
+        if let enabled {
+            defaults.set(enabled, forKey: BrowserHiddenWebViewDiscardPolicy.enabledKey)
+        } else {
+            defaults.removeObject(forKey: BrowserHiddenWebViewDiscardPolicy.enabledKey)
+        }
+        if let delay {
+            defaults.set(delay, forKey: BrowserHiddenWebViewDiscardPolicy.hiddenDelayKey)
+        } else {
+            defaults.removeObject(forKey: BrowserHiddenWebViewDiscardPolicy.hiddenDelayKey)
+        }
+
+        try body()
+    }
+
+    private func waitForBrowserPanelWebViewToFinishLoading(
+        _ panel: BrowserPanel,
+        file: StaticString = #filePath,
+        line: UInt = #line
+    ) {
+        let deadline = Date().addingTimeInterval(1.0)
+        while panel.webView.isLoading,
+              RunLoop.main.run(mode: .default, before: deadline),
+              Date() < deadline {}
+        XCTAssertFalse(panel.webView.isLoading, "Timed out waiting for browser panel WebView to finish loading", file: file, line: line)
+    }
+
     func testHiddenDiscardPolicyReadsUserDefaults() throws {
         let suiteName = "cmux.browserHiddenDiscardPolicyTests.\(UUID().uuidString)"
         let defaults = try XCTUnwrap(UserDefaults(suiteName: suiteName))
@@ -1409,6 +1553,47 @@ final class BrowserPanelWebViewLifecycleTests: XCTestCase {
                 BrowserHiddenWebViewDiscardPolicy.hiddenDelay(defaults: defaults),
                 BrowserHiddenWebViewDiscardPolicy.defaultHiddenDelay
             )
+        }
+    }
+
+    func testDefaultWorkspaceVisibilityHidePreservesWebViewIdentityPastDiscardDelay() throws {
+        try XCTSkipIf(
+            Self.hasHiddenDiscardEnabledEnvironmentOverride,
+            "Environment override makes the default hidden-discard policy unobservable."
+        )
+
+        try withHiddenWebViewDiscardDefaults(enabled: nil, delay: 0) {
+            XCTAssertFalse(BrowserHiddenWebViewDiscardPolicy.isEnabled)
+
+            let hiddenAt = Date().addingTimeInterval(-1)
+            let panel = BrowserPanel(
+                workspaceId: UUID(),
+                initialURL: URL(string: "about:blank")!,
+                isRemoteWorkspace: false
+            )
+            defer { panel.close() }
+            waitForBrowserPanelWebViewToFinishLoading(panel)
+
+            panel.noteWebViewVisibility(true, reason: "test.workspace.visible")
+            XCTAssertEqual(panel.webViewLifecycleState, .liveVisible)
+            let originalWebView = panel.webView
+
+            panel.noteWebViewVisibility(false, reason: "test.workspace.hidden", now: hiddenAt)
+
+            XCTAssertTrue(
+                panel.webView === originalWebView,
+                "Workspace visibility hides must preserve the live WKWebView unless Browser Memory Saver is explicitly enabled"
+            )
+            XCTAssertTrue(panel.shouldRenderWebView)
+            XCTAssertEqual(panel.webViewLifecycleState, .liveHidden)
+
+            panel.noteWebViewVisibility(true, reason: "test.workspace.revisible")
+
+            XCTAssertTrue(
+                panel.webView === originalWebView,
+                "Re-showing a workspace-hidden browser should rebind the same WKWebView instead of navigating a replacement"
+            )
+            XCTAssertEqual(panel.webViewLifecycleState, .liveVisible)
         }
     }
 
@@ -1551,87 +1736,93 @@ final class BrowserPanelWebViewLifecycleTests: XCTestCase {
         XCTAssertEqual(panel.webViewLifecycleState, .closing)
     }
 
-    func testDiscardReplacesHiddenWebViewAndRestoresOnDemand() {
-        let discardedAt = Date(timeIntervalSince1970: 200)
-        let panel = BrowserPanel(
-            workspaceId: UUID(),
-            initialURL: URL(string: "about:blank")!,
-            isRemoteWorkspace: false
+    func testDiscardReplacesHiddenWebViewAndRestoresOnDemand() throws {
+        try XCTSkipIf(
+            Self.hiddenDiscardEnvironmentOverrideDisablesPolicy,
+            "Environment override disables Browser Memory Saver."
         )
-        defer { panel.close() }
 
-        let deadline = Date().addingTimeInterval(1.0)
-        while panel.webView.isLoading,
-              RunLoop.main.run(mode: .default, before: deadline),
-              Date() < deadline {}
-        XCTAssertFalse(panel.webView.isLoading, "Timed out waiting for about:blank to finish loading")
+        try withHiddenWebViewDiscardDefaults(enabled: true) {
+            let discardedAt = Date(timeIntervalSince1970: 200)
+            let panel = BrowserPanel(
+                workspaceId: UUID(),
+                initialURL: URL(string: "about:blank")!,
+                isRemoteWorkspace: false
+            )
+            defer { panel.close() }
 
-        panel.noteWebViewVisibility(false, reason: "test.hidden", now: discardedAt)
-        let originalWebView = panel.webView
+            waitForBrowserPanelWebViewToFinishLoading(panel)
 
-        XCTAssertTrue(panel.discardHiddenWebViewForMemory(reason: "test.discard", now: discardedAt))
-        XCTAssertFalse(panel.webView === originalWebView)
-        XCTAssertFalse(panel.shouldRenderWebView)
-        XCTAssertEqual(panel.webViewLifecycleState, .discarded)
+            panel.noteWebViewVisibility(false, reason: "test.hidden", now: discardedAt)
+            let originalWebView = panel.webView
 
-        let discardedPayload = panel.webViewLifecycleTopPayload(now: discardedAt)
-        XCTAssertEqual(discardedPayload["state"] as? String, "discarded")
-        XCTAssertEqual(discardedPayload["last_discard_reason"] as? String, "test.discard")
-        XCTAssertNotNil(discardedPayload["discarded_at"] as? String)
+            XCTAssertTrue(panel.discardHiddenWebViewForMemory(reason: "test.discard", now: discardedAt))
+            XCTAssertFalse(panel.webView === originalWebView)
+            XCTAssertFalse(panel.shouldRenderWebView)
+            XCTAssertEqual(panel.webViewLifecycleState, .discarded)
 
-        var observedStates: [BrowserWebViewLifecycleState] = []
-        var cancellable: AnyCancellable?
-        cancellable = panel.$webViewLifecycleState.sink { state in
-            observedStates.append(state)
+            let discardedPayload = panel.webViewLifecycleTopPayload(now: discardedAt)
+            XCTAssertEqual(discardedPayload["state"] as? String, "discarded")
+            XCTAssertEqual(discardedPayload["last_discard_reason"] as? String, "test.discard")
+            XCTAssertNotNil(discardedPayload["discarded_at"] as? String)
+
+            var observedStates: [BrowserWebViewLifecycleState] = []
+            var cancellable: AnyCancellable?
+            cancellable = panel.$webViewLifecycleState.sink { state in
+                observedStates.append(state)
+            }
+            defer { cancellable?.cancel() }
+
+            XCTAssertTrue(panel.restoreDiscardedWebViewIfNeeded(reason: "test.restore"))
+            XCTAssertTrue(panel.shouldRenderWebView)
+            XCTAssertEqual(panel.webViewLifecycleState, .liveHidden)
+            XCTAssertFalse(observedStates.contains(.newTab), "Restore emitted unexpected states: \(observedStates)")
+
+            panel.noteWebViewVisibility(true, reason: "test.visible")
+            XCTAssertEqual(panel.webViewLifecycleState, .liveVisible)
         }
-        defer { cancellable?.cancel() }
-
-        XCTAssertTrue(panel.restoreDiscardedWebViewIfNeeded(reason: "test.restore"))
-        XCTAssertTrue(panel.shouldRenderWebView)
-        XCTAssertEqual(panel.webViewLifecycleState, .liveHidden)
-        XCTAssertFalse(observedStates.contains(.newTab), "Restore emitted unexpected states: \(observedStates)")
-
-        panel.noteWebViewVisibility(true, reason: "test.visible")
-        XCTAssertEqual(panel.webViewLifecycleState, .liveVisible)
     }
 
-    func testRestoredHistoryBackDoesNotEmitNewTabLifecycleState() {
-        let discardedAt = Date(timeIntervalSince1970: 300)
-        let panel = BrowserPanel(
-            workspaceId: UUID(),
-            initialURL: URL(string: "about:blank")!,
-            isRemoteWorkspace: false
+    func testRestoredHistoryBackDoesNotEmitNewTabLifecycleState() throws {
+        try XCTSkipIf(
+            Self.hiddenDiscardEnvironmentOverrideDisablesPolicy,
+            "Environment override disables Browser Memory Saver."
         )
-        defer { panel.close() }
 
-        let deadline = Date().addingTimeInterval(1.0)
-        while panel.webView.isLoading,
-              RunLoop.main.run(mode: .default, before: deadline),
-              Date() < deadline {}
-        XCTAssertFalse(panel.webView.isLoading, "Timed out waiting for about:blank to finish loading")
+        try withHiddenWebViewDiscardDefaults(enabled: true) {
+            let discardedAt = Date(timeIntervalSince1970: 300)
+            let panel = BrowserPanel(
+                workspaceId: UUID(),
+                initialURL: URL(string: "about:blank")!,
+                isRemoteWorkspace: false
+            )
+            defer { panel.close() }
 
-        panel.restoreSessionNavigationHistory(
-            backHistoryURLStrings: ["https://example.test/back"],
-            forwardHistoryURLStrings: [],
-            currentURLString: "https://example.test/current"
-        )
-        XCTAssertTrue(panel.canGoBack)
+            waitForBrowserPanelWebViewToFinishLoading(panel)
 
-        panel.noteWebViewVisibility(false, reason: "test.hidden", now: discardedAt)
-        XCTAssertTrue(panel.discardHiddenWebViewForMemory(reason: "test.discard", now: discardedAt))
-        XCTAssertEqual(panel.webViewLifecycleState, .discarded)
+            panel.restoreSessionNavigationHistory(
+                backHistoryURLStrings: ["https://example.test/back"],
+                forwardHistoryURLStrings: [],
+                currentURLString: "https://example.test/current"
+            )
+            XCTAssertTrue(panel.canGoBack)
 
-        var observedStates: [BrowserWebViewLifecycleState] = []
-        var cancellable: AnyCancellable?
-        cancellable = panel.$webViewLifecycleState.sink { state in
-            observedStates.append(state)
+            panel.noteWebViewVisibility(false, reason: "test.hidden", now: discardedAt)
+            XCTAssertTrue(panel.discardHiddenWebViewForMemory(reason: "test.discard", now: discardedAt))
+            XCTAssertEqual(panel.webViewLifecycleState, .discarded)
+
+            var observedStates: [BrowserWebViewLifecycleState] = []
+            var cancellable: AnyCancellable?
+            cancellable = panel.$webViewLifecycleState.sink { state in
+                observedStates.append(state)
+            }
+            defer { cancellable?.cancel() }
+
+            panel.goBack()
+
+            XCTAssertFalse(observedStates.contains(.newTab), "Back restore emitted unexpected states: \(observedStates)")
+            XCTAssertEqual(panel.webViewLifecycleState, .liveHidden)
         }
-        defer { cancellable?.cancel() }
-
-        panel.goBack()
-
-        XCTAssertFalse(observedStates.contains(.newTab), "Back restore emitted unexpected states: \(observedStates)")
-        XCTAssertEqual(panel.webViewLifecycleState, .liveHidden)
     }
 }
 
@@ -2385,6 +2576,19 @@ final class SocketControlSettingsTests: XCTestCase {
         )
 
         XCTAssertEqual(path, "/tmp/cmux-debug-my-tag.sock")
+    }
+
+    func testTaggedDebugBundleIgnoresSocketOverrideInheritedFromDifferentCmuxBundle() {
+        let path = SocketControlSettings.socketPath(
+            environment: [
+                "CMUX_BUNDLE_ID": "com.cmuxterm.app.nightly",
+                "CMUX_SOCKET_PATH": "/tmp/cmux-nightly.sock",
+            ],
+            bundleIdentifier: "com.cmuxterm.app.debug.issue.4355.cmux.themes.set.state.dependent",
+            isDebugBuild: true
+        )
+
+        XCTAssertEqual(path, "/tmp/cmux-debug-issue-4355-cmux-themes-set-state-dependent.sock")
     }
 
     func testTaggedDebugBundleIgnoresMismatchedInheritedSocketOverride() {
