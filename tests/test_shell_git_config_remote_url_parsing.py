@@ -45,8 +45,25 @@ def _run_case(
             fetch = +refs/heads/*:refs/remotes/origin/*
         """
     )
+    stale_remote_config = textwrap.dedent(
+        """\
+        [remote "origin"]
+            url = https://github.com/example/stale.git
+        """
+    )
     if config_mode == "direct":
         (git_dir / "config").write_text(remote_config, encoding="utf-8")
+    elif config_mode == "direct-last-url-wins":
+        (git_dir / "config").write_text(
+            textwrap.dedent(
+                """\
+                [remote "origin"]
+                    url = https://github.com/example/stale.git
+                    url = https://github.com/manaflow-ai/cmux.git
+                """
+            ),
+            encoding="utf-8",
+        )
     elif config_mode == "include":
         (git_dir / "config").write_text(
             textwrap.dedent(
@@ -69,6 +86,12 @@ def _run_case(
             encoding="utf-8",
         )
         (git_dir / "conditional-remotes.inc").write_text(remote_config, encoding="utf-8")
+    elif config_mode == "worktree-config-overrides-common":
+        common_dir = git_dir / "common"
+        common_dir.mkdir()
+        (git_dir / "commondir").write_text("common\n", encoding="utf-8")
+        (common_dir / "config").write_text(stale_remote_config, encoding="utf-8")
+        (git_dir / "config").write_text(remote_config, encoding="utf-8")
     else:
         return 1, f"unknown config mode {config_mode}"
 
@@ -109,7 +132,13 @@ def main() -> int:
             if not script.exists():
                 print(f"SKIP: missing integration script at {script}")
                 continue
-            for config_mode in ("direct", "include", "includeIf-gitdir"):
+            for config_mode in (
+                "direct",
+                "direct-last-url-wins",
+                "include",
+                "includeIf-gitdir",
+                "worktree-config-overrides-common",
+            ):
                 rc, detail = _run_case(
                     base,
                     shell=shell,

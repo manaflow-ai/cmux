@@ -631,146 +631,150 @@ _cmux_git_config_include_condition_matches() {
     esac
 }
 
-_cmux_git_origin_url_from_config_files() {
-    local repo_path="$1" git_dir="$2" common_dir="$3"
-    local pending="" seen=$'\n' config_file="" config_dir="" output="" depth=0
+_cmux_git_origin_url_read_config_file() {
+    local repo_path="$1" git_dir="$2" common_dir="$3" config_file="$4"
+    local config_dir="" output=""
     local kind="" condition="" value="" include_path=""
 
-    [[ -r "$common_dir/config" ]] && pending+="$common_dir/config"$'\n'
-    [[ "$git_dir" != "$common_dir" && -r "$git_dir/config" ]] && pending+="$git_dir/config"$'\n'
-    [[ -n "$pending" ]] || return 0
+    [[ -r "$config_file" ]] || return 0
+    case "$_cmux_git_origin_url_seen" in
+        *$'\n'"$config_file"$'\n'*) return 0 ;;
+    esac
+    _cmux_git_origin_url_depth=$(( _cmux_git_origin_url_depth + 1 ))
+    [[ "$_cmux_git_origin_url_depth" -le 32 ]] || return 0
+    _cmux_git_origin_url_seen+="$config_file"$'\n'
 
-    while [[ -n "$pending" && "$depth" -lt 32 ]]; do
-        config_file="${pending%%$'\n'*}"
-        pending="${pending#*$'\n'}"
-        depth=$(( depth + 1 ))
-        [[ -r "$config_file" ]] || continue
-        case "$seen" in
-            *$'\n'"$config_file"$'\n'*) continue ;;
-        esac
-        seen+="$config_file"$'\n'
-        config_dir="$(dirname "$config_file")"
-        output="$(awk '
-            function trim(s) {
-                sub(/^[[:space:]]+/, "", s)
-                sub(/[[:space:]]+$/, "", s)
-                return s
+    config_dir="$(dirname "$config_file")"
+    output="$(awk '
+        function trim(s) {
+            sub(/^[[:space:]]+/, "", s)
+            sub(/[[:space:]]+$/, "", s)
+            return s
+        }
+        function strip_inline_comment(s, i, c, out, previous_was_space, in_quote, escaped) {
+            out = ""
+            previous_was_space = 1
+            in_quote = 0
+            escaped = 0
+            for (i = 1; i <= length(s); i++) {
+                c = substr(s, i, 1)
+                if (escaped) {
+                    out = out c
+                    escaped = 0
+                    previous_was_space = (c ~ /[[:space:]]/)
+                    continue
+                }
+                if (in_quote && c == "\\") {
+                    out = out c
+                    escaped = 1
+                    previous_was_space = 0
+                    continue
+                }
+                if (c == "\"") {
+                    out = out c
+                    in_quote = !in_quote
+                    previous_was_space = 0
+                    continue
+                }
+                if (!in_quote && previous_was_space && (c == "#" || c == ";")) {
+                    break
+                }
+                out = out c
+                previous_was_space = (c ~ /[[:space:]]/)
             }
-            function strip_inline_comment(s, i, c, out, previous_was_space, in_quote, escaped) {
+            return out
+        }
+        function unquote_config_value(s, i, c, out, escaped) {
+            s = trim(s)
+            if (length(s) >= 2 && substr(s, 1, 1) == "\"" && substr(s, length(s), 1) == "\"") {
                 out = ""
-                previous_was_space = 1
-                in_quote = 0
                 escaped = 0
-                for (i = 1; i <= length(s); i++) {
+                for (i = 2; i < length(s); i++) {
                     c = substr(s, i, 1)
                     if (escaped) {
                         out = out c
                         escaped = 0
-                        previous_was_space = (c ~ /[[:space:]]/)
                         continue
                     }
-                    if (in_quote && c == "\\") {
-                        out = out c
+                    if (c == "\\") {
                         escaped = 1
-                        previous_was_space = 0
                         continue
-                    }
-                    if (c == "\"") {
-                        out = out c
-                        in_quote = !in_quote
-                        previous_was_space = 0
-                        continue
-                    }
-                    if (!in_quote && previous_was_space && (c == "#" || c == ";")) {
-                        break
                     }
                     out = out c
-                    previous_was_space = (c ~ /[[:space:]]/)
+                }
+                if (escaped) {
+                    out = out "\\"
                 }
                 return out
             }
-            function unquote_config_value(s, i, c, out, escaped) {
-                s = trim(s)
-                if (length(s) >= 2 && substr(s, 1, 1) == "\"" && substr(s, length(s), 1) == "\"") {
-                    out = ""
-                    escaped = 0
-                    for (i = 2; i < length(s); i++) {
-                        c = substr(s, i, 1)
-                        if (escaped) {
-                            out = out c
-                            escaped = 0
-                            continue
-                        }
-                        if (c == "\\") {
-                            escaped = 1
-                            continue
-                        }
-                        out = out c
-                    }
-                    if (escaped) {
-                        out = out "\\"
-                    }
-                    return out
-                }
-                return s
+            return s
+        }
+        function path_value(line) {
+            sub(/^[^=]*=/, "", line)
+            return unquote_config_value(line)
+        }
+        {
+            line = strip_inline_comment($0)
+            trimmed = trim(line)
+            if (trimmed ~ /^\[remote[[:space:]]+"origin"\][[:space:]]*$/) {
+                section = "remote"
+                condition = ""
+                next
             }
-            function path_value(line) {
-                sub(/^[^=]*=/, "", line)
-                return unquote_config_value(line)
+            if (trimmed == "[include]") {
+                section = "include"
+                condition = ""
+                next
             }
-            {
-                line = strip_inline_comment($0)
-                trimmed = trim(line)
-                if (trimmed ~ /^\[remote[[:space:]]+"origin"\][[:space:]]*$/) {
-                    section = "remote"
-                    condition = ""
-                    next
-                }
-                if (trimmed == "[include]") {
-                    section = "include"
-                    condition = ""
-                    next
-                }
-                if (trimmed ~ /^\[includeIf[[:space:]]+"/) {
-                    section = "includeIf"
-                    condition = trimmed
-                    sub(/^\[includeIf[[:space:]]+"/, "", condition)
-                    sub(/"\][[:space:]]*$/, "", condition)
-                    next
-                }
-                if (trimmed ~ /^\[/) {
-                    section = ""
-                    condition = ""
-                    next
-                }
-                if (section == "remote" && line ~ /^[[:space:]]*url[[:space:]]*=/) {
-                    print "remote\t" path_value(line) "\t"
-                    exit
-                }
-                if (section == "include" && line ~ /^[[:space:]]*path[[:space:]]*=/) {
-                    print "include\t" path_value(line) "\t"
-                }
-                if (section == "includeIf" && line ~ /^[[:space:]]*path[[:space:]]*=/) {
-                    print "includeIf\t" condition "\t" path_value(line)
-                }
+            if (trimmed ~ /^\[includeIf[[:space:]]+"/) {
+                section = "includeIf"
+                condition = trimmed
+                sub(/^\[includeIf[[:space:]]+"/, "", condition)
+                sub(/"\][[:space:]]*$/, "", condition)
+                next
             }
-        ' "$config_file" 2>/dev/null)"
+            if (trimmed ~ /^\[/) {
+                section = ""
+                condition = ""
+                next
+            }
+            if (section == "remote" && line ~ /^[[:space:]]*url[[:space:]]*=/) {
+                print "remote\t" path_value(line) "\t"
+            }
+            if (section == "include" && line ~ /^[[:space:]]*path[[:space:]]*=/) {
+                print "include\t" path_value(line) "\t"
+            }
+            if (section == "includeIf" && line ~ /^[[:space:]]*path[[:space:]]*=/) {
+                print "includeIf\t" condition "\t" path_value(line)
+            }
+        }
+    ' "$config_file" 2>/dev/null)"
 
-        while IFS=$'\t' read -r kind condition value; do
-            case "$kind" in
-                remote)
-                    [[ -n "$condition" ]] && printf '%s\n' "$condition" && return 0 ;;
-                include)
-                    include_path="$(_cmux_git_config_resolve_include_path "$condition" "$config_dir")"
-                    [[ -r "$include_path" ]] && pending+="$include_path"$'\n' ;;
-                includeIf)
-                    if _cmux_git_config_include_condition_matches "$condition" "$repo_path" "$git_dir" "$common_dir"; then
-                        include_path="$(_cmux_git_config_resolve_include_path "$value" "$config_dir")"
-                        [[ -r "$include_path" ]] && pending+="$include_path"$'\n'
-                    fi ;;
-            esac
-        done <<< "$output"
-    done
+    while IFS=$'\t' read -r kind condition value; do
+        case "$kind" in
+            remote)
+                [[ -n "$condition" ]] && _cmux_git_origin_url_result="$condition" ;;
+            include)
+                include_path="$(_cmux_git_config_resolve_include_path "$condition" "$config_dir")"
+                [[ -r "$include_path" ]] && _cmux_git_origin_url_read_config_file "$repo_path" "$git_dir" "$common_dir" "$include_path" ;;
+            includeIf)
+                if _cmux_git_config_include_condition_matches "$condition" "$repo_path" "$git_dir" "$common_dir"; then
+                    include_path="$(_cmux_git_config_resolve_include_path "$value" "$config_dir")"
+                    [[ -r "$include_path" ]] && _cmux_git_origin_url_read_config_file "$repo_path" "$git_dir" "$common_dir" "$include_path"
+                fi ;;
+        esac
+    done <<< "$output"
+}
+
+_cmux_git_origin_url_from_config_files() {
+    local repo_path="$1" git_dir="$2" common_dir="$3"
+    local _cmux_git_origin_url_seen=$'\n'
+    local _cmux_git_origin_url_depth=0
+    local _cmux_git_origin_url_result=""
+
+    [[ -r "$common_dir/config" ]] && _cmux_git_origin_url_read_config_file "$repo_path" "$git_dir" "$common_dir" "$common_dir/config"
+    [[ "$git_dir" != "$common_dir" && -r "$git_dir/config" ]] && _cmux_git_origin_url_read_config_file "$repo_path" "$git_dir" "$common_dir" "$git_dir/config"
+    [[ -n "$_cmux_git_origin_url_result" ]] && printf '%s\n' "$_cmux_git_origin_url_result"
 }
 
 _cmux_github_repo_slug_for_path() {
