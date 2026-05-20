@@ -274,6 +274,7 @@ enum CodexAppServerRequestFactory {
 struct CodexAppServerLineBuffer {
     private var buffer = Data()
     private var scanOffset = 0
+    private var isDroppingUntilNextLine = false
 
     var bufferedByteCount: Int {
         buffer.count
@@ -281,6 +282,18 @@ struct CodexAppServerLineBuffer {
 
     mutating func append(_ data: Data) -> [Data] {
         guard !data.isEmpty else { return [] }
+        if isDroppingUntilNextLine {
+            guard let newline = data.firstIndex(of: 0x0A) else {
+                return []
+            }
+            isDroppingUntilNextLine = false
+            let remainderStart = data.index(after: newline)
+            guard remainderStart < data.endIndex else {
+                return []
+            }
+            return append(Data(data[remainderStart..<data.endIndex]))
+        }
+
         buffer.append(data)
 
         var lines: [Data] = []
@@ -300,12 +313,29 @@ struct CodexAppServerLineBuffer {
         return lines
     }
 
+    func bufferedPrefix(maxBytes: Int) -> Data {
+        guard maxBytes > 0, !buffer.isEmpty else { return Data() }
+        let end = buffer.index(buffer.startIndex, offsetBy: min(maxBytes, buffer.count))
+        return Data(buffer[buffer.startIndex..<end])
+    }
+
+    mutating func dropBufferedLineUntilNextNewline() {
+        buffer.removeAll(keepingCapacity: false)
+        scanOffset = buffer.startIndex
+        isDroppingUntilNextLine = true
+    }
+
     mutating func removeAll(keepingCapacity keepCapacity: Bool = false) {
         buffer.removeAll(keepingCapacity: keepCapacity)
         scanOffset = buffer.startIndex
+        isDroppingUntilNextLine = false
     }
 
     mutating func finish() -> Data? {
+        guard !isDroppingUntilNextLine else {
+            removeAll(keepingCapacity: false)
+            return nil
+        }
         guard !buffer.isEmpty else { return nil }
         let data = buffer
         buffer.removeAll(keepingCapacity: false)
@@ -826,6 +856,7 @@ final class CodexAppServerClient: CodexAppServerClienting, @unchecked Sendable {
             let appendStart = CodexAppServerTiming.now()
 #endif
             let lines = self.stdoutLineBuffer.append(data)
+            self.resolveOversizedBufferedResponseIfNeeded()
 #if DEBUG
             if data.count >= 4 * 1024 * 1024 || !lines.isEmpty {
                 CodexAppServerTiming.log("client.stdout.chunk", [
@@ -841,6 +872,30 @@ final class CodexAppServerClient: CodexAppServerClienting, @unchecked Sendable {
                 self.handleStdoutLine(line)
             }
         }
+    }
+
+    private func resolveOversizedBufferedResponseIfNeeded() {
+        let bufferedByteCount = stdoutLineBuffer.bufferedByteCount
+        guard bufferedByteCount > 0 else { return }
+        let prefix = stdoutLineBuffer.bufferedPrefix(maxBytes: 64 * 1024)
+        guard let id = Self.responseId(in: prefix),
+              let request = pending[id],
+              Self.containsTopLevelKey("result", in: prefix),
+              let fallback = request.fallbackIfOversized(byteCount: bufferedByteCount) else {
+            return
+        }
+        pending.removeValue(forKey: id)
+        stdoutLineBuffer.dropBufferedLineUntilNextNewline()
+#if DEBUG
+        CodexAppServerTiming.log("client.response.oversizedBuffered", [
+            "id": id.description,
+            "method": request.method,
+            "buffered": bufferedByteCount,
+            "request_bytes": request.requestBytes,
+            "ms": CodexAppServerTiming.ms(CodexAppServerTiming.elapsedMs(since: request.startedAt)),
+        ])
+#endif
+        request.continuation.resume(returning: fallback)
     }
 
     private func handleStdoutLine(_ data: Data) {

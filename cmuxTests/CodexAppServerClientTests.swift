@@ -1301,6 +1301,29 @@ final class CodexAppServerRequestFactoryTests: XCTestCase {
         XCTAssertNil(buffer.finish())
     }
 
+    func testLineBufferExposesBoundedPrefixWithoutDraining() throws {
+        var buffer = CodexAppServerLineBuffer()
+
+        XCTAssertTrue(buffer.append(Data("{\"id\":7,\"result\":{\"thread\":".utf8)).isEmpty)
+
+        XCTAssertEqual(String(data: buffer.bufferedPrefix(maxBytes: 8), encoding: .utf8), "{\"id\":7,")
+        XCTAssertEqual(buffer.bufferedByteCount, 27)
+    }
+
+    func testLineBufferDropsOversizedLineUntilNextNewline() throws {
+        var buffer = CodexAppServerLineBuffer()
+
+        XCTAssertTrue(buffer.append(Data("{\"id\":7,\"result\":\"".utf8)).isEmpty)
+        buffer.dropBufferedLineUntilNextNewline()
+        XCTAssertEqual(buffer.bufferedByteCount, 0)
+        XCTAssertTrue(buffer.append(Data("ignored oversized payload".utf8)).isEmpty)
+
+        let lines = buffer.append(Data("\n{\"id\":8,\"result\":{}}\n".utf8))
+
+        XCTAssertEqual(lines.count, 1)
+        XCTAssertEqual(String(data: try XCTUnwrap(lines.first), encoding: .utf8), "{\"id\":8,\"result\":{}}")
+    }
+
     func testJSONWarningStderrLinesRenderAsWarningTranscriptItems() throws {
         let text = """
         {"level":"WARN","fields":{"message":"Warning: ignoring interface.defaultPrompt because it is not supported"},"target":"codex_core_plugins::manifest"}

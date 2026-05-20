@@ -1299,6 +1299,29 @@ final class MainWindowFocusControllerRightSidebarHideTests: XCTestCase {
     }
 
     @MainActor
+    func testRightSidebarFocusDisablesBonsplitTabShortcutHints() throws {
+        let manager = TabManager()
+        let controller = MainWindowFocusController(
+            windowId: UUID(),
+            window: nil,
+            tabManager: manager,
+            fileExplorerState: FileExplorerState()
+        )
+        let workspace = try XCTUnwrap(manager.selectedWorkspace)
+        let panelId = try XCTUnwrap(workspace.focusedPanelId)
+
+        XCTAssertTrue(workspace.bonsplitController.tabShortcutHintsEnabled)
+
+        controller.noteRightSidebarInteraction(mode: .feed)
+
+        XCTAssertFalse(workspace.bonsplitController.tabShortcutHintsEnabled)
+
+        controller.noteMainPanelInteraction(workspaceId: workspace.id, panelId: panelId)
+
+        XCTAssertTrue(workspace.bonsplitController.tabShortcutHintsEnabled)
+    }
+
+    @MainActor
     func testFocusShortcutToggleUsesActualRightSidebarResponderOverStaleIntent() {
         let controller = MainWindowFocusController(
             windowId: UUID(),
