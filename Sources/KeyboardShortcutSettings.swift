@@ -2319,7 +2319,6 @@ enum KeyboardShortcutRecorderActivity {
 #if DEBUG
     static func resetForTesting(center: NotificationCenter = .default) {
         stopAllRecording(center: center)
-        activeRecorderCount = 0
     }
 #endif
 }
