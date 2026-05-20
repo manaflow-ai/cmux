@@ -28,6 +28,7 @@ struct AgentSessionWebRenderer: NSViewRepresentable {
         }
 
         let configuration = WKWebViewConfiguration()
+        configuration.websiteDataStore = .nonPersistent()
         configuration.suppressesIncrementalRendering = false
         configuration.userContentController.addScriptMessageHandler(
             context.coordinator,
@@ -169,7 +170,20 @@ extension AgentSessionWebRenderer {
                 return
             }
             let indexURL = resourceDirectoryURL.appendingPathComponent("index.html", isDirectory: false)
-            webView?.loadFileURL(indexURL, allowingReadAccessTo: resourceDirectoryURL)
+            webView?.loadFileURL(cacheBustedURL(for: indexURL), allowingReadAccessTo: resourceDirectoryURL)
+        }
+
+        private func cacheBustedURL(for indexURL: URL) -> URL {
+            guard var components = URLComponents(url: indexURL, resolvingAgainstBaseURL: false) else {
+                return indexURL
+            }
+            let modifiedAt = try? indexURL.resourceValues(forKeys: [.contentModificationDateKey])
+                .contentModificationDate?
+                .timeIntervalSince1970
+            components.queryItems = [
+                URLQueryItem(name: "v", value: String(Int(modifiedAt ?? 0)))
+            ]
+            return components.url ?? indexURL
         }
 
         func focus() {
