@@ -1499,6 +1499,42 @@ final class TerminalOffscreenStartupTests: XCTestCase {
         )
     }
 
+    func testMobileTerminalSnapshotStartsLazySurfaceBeforeReportingNotReady() async throws {
+        let previousManager = TerminalController.shared.activeTabManagerForCallerNotification()
+        let manager = TabManager()
+        TerminalController.shared.setActiveTabManager(manager)
+        defer {
+            TerminalController.shared.setActiveTabManager(previousManager)
+        }
+
+        let workspace = try XCTUnwrap(manager.selectedWorkspace)
+        let terminalPanel = try XCTUnwrap(workspace.focusedTerminalPanel)
+        terminalPanel.surface.releaseSurfaceForTesting()
+        XCTAssertNil(terminalPanel.surface.surface)
+
+        let response = await TerminalController.shared.mobileHostHandleRPC(
+            MobileHostRPCRequest(
+                id: "snapshot",
+                method: "terminal.snapshot",
+                params: [
+                    "workspace_id": workspace.id.uuidString,
+                    "surface_id": terminalPanel.id.uuidString,
+                ],
+                auth: nil
+            )
+        )
+
+        guard case let .failure(error) = response else {
+            XCTFail("Expected cold mobile terminal snapshot to report not_ready")
+            return
+        }
+        XCTAssertEqual(error.code, "not_ready")
+        XCTAssertTrue(
+            terminalPanel.surface.debugBackgroundSurfaceStartQueuedForTesting(),
+            "A mobile snapshot of a lazy terminal must request background startup before returning not_ready."
+        )
+    }
+
     private func waitForMobileHostRoutesForTesting() async -> Bool {
         for _ in 0..<200 {
             let response = await TerminalController.shared.mobileHostHandleRPC(

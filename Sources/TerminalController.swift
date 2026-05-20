@@ -19324,6 +19324,7 @@ class TerminalController {
         maxScrollbackRows: Int?
     ) -> V2CallResult {
         guard let surface = terminalPanel.surface.surface else {
+            terminalPanel.surface.requestBackgroundSurfaceStartIfNeeded()
             return .err(code: "not_ready", message: "Terminal surface is not ready", data: [
                 "surface_id": terminalPanel.id.uuidString
             ])
