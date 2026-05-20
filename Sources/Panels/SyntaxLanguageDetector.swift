@@ -47,7 +47,31 @@ enum SyntaxLanguageDetector {
     // to avoid TreeSitter latency spikes on large logs, generated code, etc.
     private static let maxHighlightBytes = 500_000
 
+    // SwiftUI re-evaluates `State(wrappedValue: FileLanguageCache(url:))` on every
+    // parent re-render (the closure is not @autoclosure), so this entry point is
+    // hit per keystroke when the panel publishes. Cache by absolute path so the
+    // resourceValues file stat only runs once per file across the app lifetime.
+    private static let cacheLock = NSLock()
+    nonisolated(unsafe) private static var cache: [String: CodeLanguage?] = [:]
+
     static func language(for url: URL) -> CodeLanguage? {
+        let key = url.standardizedFileURL.path
+        cacheLock.lock()
+        if let cached = cache[key] {
+            cacheLock.unlock()
+            return cached
+        }
+        cacheLock.unlock()
+
+        let resolved = resolve(url: url)
+
+        cacheLock.lock()
+        cache[key] = resolved
+        cacheLock.unlock()
+        return resolved
+    }
+
+    private static func resolve(url: URL) -> CodeLanguage? {
         let ext = url.pathExtension.lowercased()
         let filename = url.lastPathComponent.lowercased()
         guard supportedExtensions.contains(ext) || filename == "dockerfile" else { return nil }

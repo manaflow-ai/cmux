@@ -19,8 +19,12 @@ protocol FilePreviewTextEditingPanel: AnyObject {
 
 // MARK: - Language detection cache
 //
-// Plain struct in @State so detection (file-metadata I/O + CodeLanguage.detectLanguageFrom)
-// runs exactly once per panel lifetime, not on every @ObservedObject re-render.
+// Note: State(wrappedValue:) takes a plain (non-@autoclosure) value, so the
+// `FileLanguageCache(url:)` constructor runs on every parent re-render even
+// though SwiftUI only retains the first result. The expensive bit (a file
+// stat for the size threshold) is therefore deduplicated by
+// `SyntaxLanguageDetector`'s static URL cache rather than relying on @State
+// to memoize.
 
 private struct FileLanguageCache {
     let language: CodeLanguage?
@@ -162,33 +166,38 @@ final class HighlightedEditorBridge: NSObject, @preconcurrency NSTextStorageDele
             return
         }
         zoomMonitorLock.unlock()
+        // NSEvent.addLocalMonitorForEvents handlers fire on the main thread (documented),
+        // so MainActor.assumeIsolated lets the closure body call our @MainActor-isolated
+        // properties and methods without crossing the actor at compile time.
         let token = NSEvent.addLocalMonitorForEvents(matching: [.magnify, .scrollWheel, .smartMagnify]) {
-            [weak self] event in
-            guard let self,
-                  let sv = self.innerScrollView,
-                  !sv.isHiddenOrHasHiddenAncestor,
-                  let window = sv.window,
-                  event.window === window else { return event }
-            let loc = sv.convert(event.locationInWindow, from: nil)
-            guard sv.bounds.contains(loc) else { return event }
-            switch event.type {
-            case .magnify:
-                let factor = 1.0 + event.magnification
-                if factor.isFinite && factor > 0 { self.adjustFontSize(by: factor) }
-                return nil
-            case .scrollWheel:
-                guard FilePreviewInteraction.hasZoomModifier(event) else { return event }
-                self.adjustFontSize(by: FilePreviewInteraction.zoomFactor(forScroll: event))
-                return nil
-            case .smartMagnify:
-                if self.fontSize == HighlightedEditorBridge.defaultFontSize {
-                    self.setFontSize(18)
-                } else {
-                    self.setFontSize(HighlightedEditorBridge.defaultFontSize)
+            [weak self] event -> NSEvent? in
+            MainActor.assumeIsolated {
+                guard let self,
+                      let sv = self.innerScrollView,
+                      !sv.isHiddenOrHasHiddenAncestor,
+                      let window = sv.window,
+                      event.window === window else { return event }
+                let loc = sv.convert(event.locationInWindow, from: nil)
+                guard sv.bounds.contains(loc) else { return event }
+                switch event.type {
+                case .magnify:
+                    let factor = 1.0 + event.magnification
+                    if factor.isFinite && factor > 0 { self.adjustFontSize(by: factor) }
+                    return nil
+                case .scrollWheel:
+                    guard FilePreviewInteraction.hasZoomModifier(event) else { return event }
+                    self.adjustFontSize(by: FilePreviewInteraction.zoomFactor(forScroll: event))
+                    return nil
+                case .smartMagnify:
+                    if self.fontSize == HighlightedEditorBridge.defaultFontSize {
+                        self.setFontSize(18)
+                    } else {
+                        self.setFontSize(HighlightedEditorBridge.defaultFontSize)
+                    }
+                    return nil
+                default:
+                    return event
                 }
-                return nil
-            default:
-                return event
             }
         }
         zoomMonitorLock.lock()
