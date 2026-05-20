@@ -1,4 +1,5 @@
 import { callNative } from "./bridge";
+import { makeClientId } from "./ids";
 import type { AgentEvent, AppContext, ProviderId, ProviderInfo } from "./types";
 
 export type LogEntry = {
@@ -36,7 +37,7 @@ export function initialState(renderer: AppContext["renderer"]): SessionState {
     providers: [],
     log: [
       {
-        id: crypto.randomUUID(),
+        id: makeClientId(),
         level: "info",
         text: `${renderer} ready`,
       },
@@ -155,7 +156,7 @@ function appendLog(state: SessionState, level: LogEntry["level"], text: string):
   const next = [
     ...state.log,
     {
-      id: crypto.randomUUID(),
+      id: makeClientId(),
       level,
       text,
     },

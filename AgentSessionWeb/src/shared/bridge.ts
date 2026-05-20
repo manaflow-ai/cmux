@@ -1,4 +1,5 @@
 import type { AgentEvent } from "./types";
+import { makeClientId } from "./ids";
 
 type NativeReply<T> =
   | { ok: true; value: T }
@@ -50,7 +51,7 @@ export async function callNative<T>(method: string, params: Record<string, unkno
   }
 
   const reply = (await handler.postMessage({
-    id: crypto.randomUUID(),
+    id: makeClientId(),
     method,
     params,
   })) as NativeReply<T>;

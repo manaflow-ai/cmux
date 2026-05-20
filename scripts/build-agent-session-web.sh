@@ -27,5 +27,24 @@ bun build "$ROOT/AgentSessionWeb/src/solid/main.ts" \
 
 cp "$ROOT/AgentSessionWeb/src/shared/styles.css" "$OUT_REACT/assets/styles.css"
 cp "$ROOT/AgentSessionWeb/src/shared/styles.css" "$OUT_SOLID/assets/styles.css"
-cp "$ROOT/AgentSessionWeb/src/index.html" "$OUT_REACT/index.html"
-cp "$ROOT/AgentSessionWeb/src/index.html" "$OUT_SOLID/index.html"
+
+write_index() {
+  out_dir="$1"
+  {
+    sed -n '1,10p' "$ROOT/AgentSessionWeb/src/index.html"
+    printf '    <style>\n'
+    cat "$out_dir/assets/styles.css"
+    printf '\n    </style>\n'
+    printf '  </head>\n'
+    printf '  <body>\n'
+    printf '    <main id="root"></main>\n'
+    printf '    <script>\n'
+    cat "$out_dir/assets/app.js"
+    printf '\n    </script>\n'
+    printf '  </body>\n'
+    printf '</html>\n'
+  } > "$out_dir/index.html"
+}
+
+write_index "$OUT_REACT"
+write_index "$OUT_SOLID"

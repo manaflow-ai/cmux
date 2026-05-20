@@ -1,4 +1,5 @@
 import { expect, test } from "bun:test";
+import { makeClientId } from "./ids";
 import { initialState, reduceSession } from "./sessionModel";
 
 test("provider started event records running session", () => {
@@ -38,4 +39,26 @@ test("provider output is appended without changing running session", () => {
   expect(state.status).toBe("running");
   expect(state.runningSessionId).toBe("session-1");
   expect(state.log.at(-1)?.level).toBe("stdout");
+});
+
+test("client ids do not require crypto.randomUUID", () => {
+  const descriptor = Object.getOwnPropertyDescriptor(globalThis, "crypto");
+  Object.defineProperty(globalThis, "crypto", {
+    configurable: true,
+    value: {
+      getRandomValues(bytes: Uint8Array) {
+        bytes.fill(7);
+        return bytes;
+      },
+    },
+  });
+
+  try {
+    expect(makeClientId()).toMatch(/^[0-9a-f-]{36}$/);
+    expect(initialState("react").log[0]?.id).toMatch(/^[0-9a-f-]{36}$/);
+  } finally {
+    if (descriptor) {
+      Object.defineProperty(globalThis, "crypto", descriptor);
+    }
+  }
 });
