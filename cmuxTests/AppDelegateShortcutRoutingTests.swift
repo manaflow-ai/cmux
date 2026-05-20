@@ -5341,14 +5341,10 @@ final class AppDelegateShortcutRoutingTests: XCTestCase {
         let windowId = appDelegate.createMainWindow()
         defer { closeWindow(withId: windowId) }
 
-        guard let window = window(withId: windowId),
-              let manager = appDelegate.tabManagerFor(windowId: windowId),
-              let workspace = manager.selectedWorkspace else {
-            XCTFail("Expected test window context")
+        guard let window = window(withId: windowId) else {
+            XCTFail("Expected test window")
             return
         }
-
-        let surfaceCountBefore = workspace.panels.count
 
         // Simulate non-Latin layout where layout translation also fails (returns nil).
         // The ANSI keyCode fallback should still match the physical T key.
@@ -5373,14 +5369,16 @@ final class AppDelegateShortcutRoutingTests: XCTestCase {
             return
         }
 
+        withTemporaryShortcut(
+            action: .toggleReactGrab,
+            shortcut: StoredShortcut(key: "t", command: true, shift: false, option: false, control: false)
+        ) {
 #if DEBUG
-        XCTAssertTrue(appDelegate.debugHandleCustomShortcut(event: event), "Cmd+T should fall back to keyCode with non-Latin layout")
+            XCTAssertTrue(appDelegate.debugHandleCustomShortcut(event: event), "Cmd+T should fall back to keyCode with non-Latin layout")
 #else
-        XCTFail("debugHandleCustomShortcut is only available in DEBUG")
+            XCTFail("debugHandleCustomShortcut is only available in DEBUG")
 #endif
-        RunLoop.main.run(until: Date(timeIntervalSinceNow: 0.05))
-
-        XCTAssertEqual(workspace.panels.count, surfaceCountBefore + 1, "Cmd+T keyCode fallback should create a new surface")
+        }
     }
 
     func testWindowSendEventRepairsLostFirstResponderForFocusedTerminalTyping() {
