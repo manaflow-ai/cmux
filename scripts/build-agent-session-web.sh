@@ -39,7 +39,7 @@ write_index() {
     printf '  <body>\n'
     printf '    <main id="root"></main>\n'
     printf '    <script>\n'
-    cat "$out_dir/assets/app.js"
+    /usr/bin/perl -0pe 's{</script}{<\\/script}ig; s{<!--}{<\\!--}g' "$out_dir/assets/app.js"
     printf '\n    </script>\n'
     printf '  </body>\n'
     printf '</html>\n'
