@@ -5158,7 +5158,7 @@ class TerminalController {
 
                 if orientationFilter == nil || split.orientation == orientationFilter {
                     foundSplit = true
-                    if let splitId = UUID(uuidString: split.id), totalLeafCount > 0 {
+                    if let splitId = UUID(uuidString: split.id) {
                         let position = CGFloat(firstLeafCount) / CGFloat(totalLeafCount)
                         if !controller.setDividerPosition(position, forSplit: splitId, fromExternal: fromExternal) {
                             allSucceeded = false
