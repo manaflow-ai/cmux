@@ -454,6 +454,7 @@ _cmux_ports_kick() {
 }
 
 _cmux_clear_pr_for_panel() {
+    [[ "${CMUX_NO_GIT_WATCH:-}" == "1" ]] && return 0
     [[ -S "$CMUX_SOCKET_PATH" ]] || return 0
     [[ -n "$CMUX_TAB_ID" ]] || return 0
     [[ -n "$CMUX_PANEL_ID" ]] || return 0
@@ -1067,28 +1068,34 @@ _cmux_prompt_command() {
         fi
         _CMUX_GIT_JOB_PID=""
         _CMUX_GIT_JOB_STARTED_AT=0
-        _CMUX_GIT_HEAD_LAST_PWD="$pwd"
-        _CMUX_GIT_LAST_PWD="$pwd"
-    fi
-    if [[ "$pwd" != "$_CMUX_GIT_HEAD_LAST_PWD" ]]; then
-        _CMUX_GIT_HEAD_LAST_PWD="$pwd"
-        _CMUX_GIT_HEAD_PATH="$(_cmux_git_resolve_head_path "$pwd" 2>/dev/null || true)"
+        _CMUX_GIT_HEAD_LAST_PWD=""
+        _CMUX_GIT_HEAD_PATH=""
         _CMUX_GIT_HEAD_SIGNATURE=""
-    fi
-    if [[ -n "$_CMUX_GIT_HEAD_PATH" ]]; then
-        local head_signature
-        head_signature="$(_cmux_git_head_signature "$_CMUX_GIT_HEAD_PATH" 2>/dev/null || true)"
-        if [[ -n "$head_signature" ]]; then
-            if [[ -z "$_CMUX_GIT_HEAD_SIGNATURE" ]]; then
-                # The first observed HEAD value is just the session baseline.
-                # Treating it as a branch change clears restore-seeded PR badges
-                # before the first background probe can confirm the current PR.
-                _CMUX_GIT_HEAD_SIGNATURE="$head_signature"
-            elif [[ "$head_signature" != "$_CMUX_GIT_HEAD_SIGNATURE" ]]; then
-                _CMUX_GIT_HEAD_SIGNATURE="$head_signature"
-                git_head_changed=1
-                # Also invalidate the PR poller so it refreshes with the new branch.
-                _CMUX_PR_FORCE=1
+        _CMUX_GIT_LAST_PWD=""
+        _CMUX_PR_FORCE=0
+        _CMUX_LAST_PR_ACTION=""
+        _CMUX_LAST_PR_TARGET=""
+    else
+        if [[ "$pwd" != "$_CMUX_GIT_HEAD_LAST_PWD" ]]; then
+            _CMUX_GIT_HEAD_LAST_PWD="$pwd"
+            _CMUX_GIT_HEAD_PATH="$(_cmux_git_resolve_head_path "$pwd" 2>/dev/null || true)"
+            _CMUX_GIT_HEAD_SIGNATURE=""
+        fi
+        if [[ -n "$_CMUX_GIT_HEAD_PATH" ]]; then
+            local head_signature
+            head_signature="$(_cmux_git_head_signature "$_CMUX_GIT_HEAD_PATH" 2>/dev/null || true)"
+            if [[ -n "$head_signature" ]]; then
+                if [[ -z "$_CMUX_GIT_HEAD_SIGNATURE" ]]; then
+                    # The first observed HEAD value is just the session baseline.
+                    # Treating it as a branch change clears restore-seeded PR badges
+                    # before the first background probe can confirm the current PR.
+                    _CMUX_GIT_HEAD_SIGNATURE="$head_signature"
+                elif [[ "$head_signature" != "$_CMUX_GIT_HEAD_SIGNATURE" ]]; then
+                    _CMUX_GIT_HEAD_SIGNATURE="$head_signature"
+                    git_head_changed=1
+                    # Also invalidate the PR poller so it refreshes with the new branch.
+                    _CMUX_PR_FORCE=1
+                fi
             fi
         fi
     fi
@@ -1126,7 +1133,7 @@ _cmux_prompt_command() {
         _cmux_pr_cache_clear
         _cmux_clear_pr_for_panel
     fi
-    if (( last_status == 0 )); then
+    if [[ "${CMUX_NO_GIT_WATCH:-}" != "1" ]] && (( last_status == 0 )); then
         _cmux_emit_pr_command_hint
     else
         _CMUX_LAST_PR_ACTION=""
