@@ -896,6 +896,7 @@ class TabManager: ObservableObject {
     }
 
     private struct InitialWorkspaceGitMetadataSnapshot: Equatable {
+        let isRepository: Bool
         let branch: String?
         let isDirty: Bool
         let indexSignature: String?
@@ -1491,6 +1492,9 @@ class TabManager: ObservableObject {
 
         if workspaceGitMetadataWatcherSourceDirectoryByKey[key] == directory,
            workspaceGitMetadataWatchersByKey[key] != nil {
+            if workspaceGitMetadataWatcherDescriptorRequestsByKey[key]?.directory != directory {
+                workspaceGitMetadataWatcherDescriptorRequestsByKey.removeValue(forKey: key)
+            }
             return
         }
 
@@ -2710,6 +2714,11 @@ class TabManager: ObservableObject {
         updateWorkspaceGitMetadataFallbackTimer()
     }
 
+    private func finishWorkspaceGitProbeAttempt(_ key: WorkspaceGitProbeKey) {
+        workspaceGitProbeStateByKey.removeValue(forKey: key)
+        cancelWorkspaceGitProbeTimers(for: key)
+    }
+
     private func clearWorkspaceGitMetadata(for key: WorkspaceGitProbeKey) {
         clearWorkspaceGitProbe(key)
         workspaceGitTrackedDirectoryByKey.removeValue(forKey: key)
@@ -2758,14 +2767,20 @@ class TabManager: ObservableObject {
             if case .inFlight = workspaceGitProbeStateByKey[probeKey] { return true }
             return false
         }()
-        let shouldClearProbe = shouldStopWorkspaceGitMetadataRefresh(snapshot) || isLastAttempt
+        let resolvedPullRequest: SidebarPullRequestState? = {
+            guard case .resolved(let pullRequest) = snapshot.pullRequest else { return nil }
+            return pullRequest
+        }()
+        let shouldTrackGitDirectory = snapshot.isRepository || resolvedPullRequest != nil
+        let shouldFinishProbe = shouldStopWorkspaceGitMetadataRefresh(snapshot) || isLastAttempt
+        let shouldStopTrackingGitDirectory = shouldFinishProbe && !shouldTrackGitDirectory
         var didClearProbe = false
         defer {
             if wasInFlight, !didClearProbe {
                 let rerunPending = workspaceGitProbeRerunPending(for: probeKey)
                 if rerunPending {
                     workspaceGitProbeStateByKey[probeKey] = .idle
-                    if shouldClearProbe {
+                    if shouldFinishProbe {
                         cancelWorkspaceGitProbeTimers(for: probeKey)
                     }
                     scheduleWorkspaceGitMetadataRefreshIfPossible(
@@ -2773,8 +2788,10 @@ class TabManager: ObservableObject {
                         panelId: probeKey.panelId,
                         reason: "rerunPending"
                     )
-                } else if shouldClearProbe {
+                } else if shouldStopTrackingGitDirectory {
                     clearWorkspaceGitProbe(probeKey)
+                } else if shouldFinishProbe {
+                    finishWorkspaceGitProbeAttempt(probeKey)
                 } else {
                     workspaceGitProbeStateByKey[probeKey] = .idle
                 }
@@ -2813,12 +2830,7 @@ class TabManager: ObservableObject {
 
         workspace.updatePanelDirectory(panelId: probeKey.panelId, directory: expectedDirectory)
 
-        let resolvedPullRequest: SidebarPullRequestState? = {
-            guard case .resolved(let pullRequest) = snapshot.pullRequest else { return nil }
-            return pullRequest
-        }()
-        let resolvedSidebarMetadata = snapshot.branch != nil || resolvedPullRequest != nil
-        if resolvedSidebarMetadata {
+        if shouldTrackGitDirectory {
             workspaceGitTrackedDirectoryByKey[probeKey] = expectedDirectory
             updateWorkspaceGitMetadataWatcher(for: probeKey, directory: expectedDirectory)
         } else {
@@ -2913,6 +2925,9 @@ class TabManager: ObservableObject {
     private func shouldStopWorkspaceGitMetadataRefresh(
         _ snapshot: InitialWorkspaceGitMetadataSnapshot
     ) -> Bool {
+        if snapshot.isRepository {
+            return false
+        }
         switch snapshot.pullRequest {
         case .deferred, .transientFailure:
             return false
@@ -2926,6 +2941,7 @@ class TabManager: ObservableObject {
     ) async -> InitialWorkspaceGitMetadataSnapshot {
         guard let repository = resolveGitRepository(containing: directory) else {
             return InitialWorkspaceGitMetadataSnapshot(
+                isRepository: false,
                 branch: nil,
                 isDirty: false,
                 indexSignature: nil,
@@ -2939,6 +2955,7 @@ class TabManager: ObservableObject {
         let branch = normalizedBranchName(gitBranchName(repository: repository))
         guard let branch else {
             return InitialWorkspaceGitMetadataSnapshot(
+                isRepository: true,
                 branch: nil,
                 isDirty: trackedChanges.isDirty,
                 indexSignature: trackedChanges.indexSignature,
@@ -2948,6 +2965,7 @@ class TabManager: ObservableObject {
         }
 
         return InitialWorkspaceGitMetadataSnapshot(
+            isRepository: true,
             branch: branch,
             isDirty: trackedChanges.isDirty,
             indexSignature: trackedChanges.indexSignature,
