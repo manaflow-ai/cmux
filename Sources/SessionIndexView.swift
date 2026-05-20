@@ -1476,12 +1476,25 @@ private enum SessionTranscriptLoader {
         let fallbackRole: SessionTranscriptRole? = { if case .registered = agent { return .event }; return nil }()
         let rawRole = object["role"] as? String
         let parsedRole = transcriptRole(from: rawRole)
+        let roleFromRole = usesGrokTranscriptLayout
+            && parsedRole == .event
+            && rawRole?.caseInsensitiveCompare("event") != .orderedSame
+            ? nil
+            : parsedRole
         let shouldUseGrokTypeRole = usesGrokTranscriptLayout
-            && (parsedRole == nil || (parsedRole == .event && rawRole?.caseInsensitiveCompare("event") != .orderedSame))
-        let roleFromType: SessionTranscriptRole? = shouldUseGrokTypeRole
-            ? transcriptRole(from: object["type"] as? String)
-            : nil
-        guard let role = roleFromType ?? parsedRole ?? fallbackRole else {
+            && roleFromRole == nil
+        let roleFromType: SessionTranscriptRole? = {
+            guard shouldUseGrokTypeRole else { return nil }
+            let rawType = object["type"] as? String
+            let parsedTypeRole = transcriptRole(from: rawType)
+            if parsedTypeRole == .event,
+               rawType?.caseInsensitiveCompare("event") != .orderedSame {
+                return nil
+            }
+            return parsedTypeRole
+        }()
+        let shouldUseFallbackRole = !usesGrokTranscriptLayout
+        guard let role = roleFromType ?? roleFromRole ?? (shouldUseFallbackRole ? fallbackRole : nil) else {
             return nil
         }
         let content = object["content"] ?? object["text"] ?? object["message"]

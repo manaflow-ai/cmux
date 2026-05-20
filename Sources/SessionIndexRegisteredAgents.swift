@@ -208,7 +208,12 @@ extension SessionIndexStore {
                     grokHome: candidate.root.grokHomeForResume
                 )
             default:
-                specifics = .registered(registration)
+                specifics = .registered(
+                    registrationWithGrokHomePrefix(
+                        registration,
+                        grokHome: candidate.root.grokHomeForResume
+                    )
+                )
             }
             matches.append(SessionEntry(
                 id: "\(registration.id):\(sessionId)",
@@ -330,6 +335,20 @@ extension SessionIndexStore {
             return [(root as NSString).appendingPathComponent(projectDirectory)]
         }
         return [root]
+    }
+
+    nonisolated private static func registrationWithGrokHomePrefix(
+        _ registration: CmuxVaultAgentRegistration,
+        grokHome: String?
+    ) -> CmuxVaultAgentRegistration {
+        guard let grokHome = grokHome?.trimmingCharacters(in: .whitespacesAndNewlines),
+              !grokHome.isEmpty,
+              !registration.resumeCommand.contains("GROK_HOME") else {
+            return registration
+        }
+        var copy = registration
+        copy.resumeCommand = "env GROK_HOME=\(SessionEntry.shellQuote(grokHome)) \(registration.resumeCommand)"
+        return copy
     }
 
     nonisolated private static func enumerateGrokHistoryCandidates(root: GrokSessionRoot) -> [(URL, Date)] {

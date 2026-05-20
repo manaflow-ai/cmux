@@ -508,7 +508,10 @@ final class PiVaultAgentPersistenceTests: XCTestCase {
         XCTAssertEqual(entry.title, "Resume a custom Grok-compatible agent")
         XCTAssertEqual(entry.cwd, cwd)
         XCTAssertEqual(entry.gitBranch, "issue-4394-grok-vault-resume")
-        XCTAssertEqual(entry.resumeCommand, "cd '/tmp/custom grok repo' && 'custom-grok' '-r' '\(sessionId)'")
+        XCTAssertEqual(
+            entry.resumeCommand,
+            "cd '/tmp/custom grok repo' && 'env' 'GROK_HOME=\(tempDir.path)' 'custom-grok' '-r' '\(sessionId)'"
+        )
     }
 
     func testGrokVaultCWDFilterUsesEncodedProjectDirectory() async throws {
