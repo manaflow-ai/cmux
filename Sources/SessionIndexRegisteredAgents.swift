@@ -141,14 +141,13 @@ enum GrokSessionLocator {
 
     static func observedGrokHomes(
         homeDirectory: String = NSHomeDirectory(),
+        environment: [String: String] = ProcessInfo.processInfo.environment,
         fileManager: FileManager = .default
     ) -> [String] {
-        let storeURL = URL(
-            fileURLWithPath: ((homeDirectory as NSString).expandingTildeInPath as NSString).standardizingPath,
-            isDirectory: true
+        let storeURL = RestorableAgentKind.grok.hookStoreFileURL(
+            homeDirectory: homeDirectory,
+            environment: environment
         )
-        .appendingPathComponent(".cmuxterm", isDirectory: true)
-        .appendingPathComponent("grok-hook-sessions.json", isDirectory: false)
         guard fileManager.fileExists(atPath: storeURL.path),
               let data = try? Data(contentsOf: storeURL),
               let state = try? JSONDecoder().decode(GrokHookObservedSessionStoreFile.self, from: data) else {
@@ -253,6 +252,7 @@ extension SessionIndexStore {
     ) async -> [SessionEntry] {
         let observedGrokHomes = GrokSessionLocator.observedGrokHomes(
             homeDirectory: homeDirectory,
+            environment: environment,
             fileManager: fileManager
         )
         let roots = GrokSessionLocator.sessionRoots(

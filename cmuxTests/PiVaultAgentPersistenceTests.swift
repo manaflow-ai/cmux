@@ -580,6 +580,67 @@ final class PiVaultAgentPersistenceTests: XCTestCase {
         )
     }
 
+    func testGrokVaultLoadsHookObservedShellGrokHomeFromCustomStateDir() async throws {
+        let tempDir = FileManager.default.temporaryDirectory
+            .appendingPathComponent("cmux-grok-vault-custom-state-\(UUID().uuidString)", isDirectory: true)
+        try FileManager.default.createDirectory(at: tempDir, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: tempDir) }
+
+        let homeDirectory = tempDir.appendingPathComponent("home", isDirectory: true)
+        let hookStateDir = tempDir.appendingPathComponent("hook-state", isDirectory: true)
+        let hookStore = hookStateDir.appendingPathComponent("grok-hook-sessions.json", isDirectory: false)
+        try FileManager.default.createDirectory(at: hookStateDir, withIntermediateDirectories: true)
+
+        let cwd = "/tmp/grok custom state"
+        let sessionId = "grok-custom-state-session"
+        let grokHome = tempDir.appendingPathComponent("custom-state-grok-home", isDirectory: true)
+        let historyURL = grokHome
+            .appendingPathComponent("sessions", isDirectory: true)
+            .appendingPathComponent(GrokSessionLocator.encodedSessionCWD(cwd), isDirectory: true)
+            .appendingPathComponent(sessionId, isDirectory: true)
+            .appendingPathComponent("chat_history.jsonl", isDirectory: false)
+        try FileManager.default.createDirectory(
+            at: historyURL.deletingLastPathComponent(),
+            withIntermediateDirectories: true
+        )
+        try """
+        {"type":"user","content":"Find sessions under custom hook state","model":"grok-4"}
+        """.write(to: historyURL, atomically: true, encoding: .utf8)
+
+        try """
+        {
+          "version": 1,
+          "sessions": {
+            "\(sessionId)": {
+              "launchCommand": {
+                "environment": {
+                  "GROK_HOME": "\(grokHome.path)"
+                }
+              }
+            }
+          }
+        }
+        """.write(to: hookStore, atomically: true, encoding: .utf8)
+
+        let entries = await SessionIndexStore.loadGrokEntries(
+            registration: .builtInGrok,
+            needle: "",
+            cwdFilter: nil,
+            offset: 0,
+            limit: 10,
+            environment: ["CMUX_AGENT_HOOK_STATE_DIR": hookStateDir.path],
+            homeDirectory: homeDirectory.path
+        )
+
+        let entry = try XCTUnwrap(entries.first)
+        XCTAssertEqual(entry.sessionId, sessionId)
+        XCTAssertEqual(entry.title, "Find sessions under custom hook state")
+        XCTAssertEqual(
+            entry.resumeCommand,
+            "cd '/tmp/grok custom state' && 'env' 'GROK_HOME=\(grokHome.path)' 'grok' '-r' '\(sessionId)' '-m' 'grok-4'"
+        )
+    }
+
     func testRegisteredGrokSessionDirectoryUsesNativeDirectoryLayout() async throws {
         let tempDir = FileManager.default.temporaryDirectory
             .appendingPathComponent("cmux-registered-grok-vault-\(UUID().uuidString)", isDirectory: true)
