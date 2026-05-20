@@ -2309,6 +2309,16 @@ enum KeyboardShortcutRecorderActivity {
     static func stopAllRecording(center: NotificationCenter = .default) {
         center.post(name: stopAllNotification, object: nil)
     }
+
+#if DEBUG
+    static func resetForTesting(center: NotificationCenter = .default) {
+        let wasActive = isAnyRecorderActive
+        activeRecorderCount = 0
+        if wasActive {
+            center.post(name: didChangeNotification, object: nil)
+        }
+    }
+#endif
 }
 
 struct ShortcutRecorderRejectedAttempt: Equatable {

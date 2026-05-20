@@ -116,12 +116,16 @@ final class AppDelegateShortcutRoutingTests: XCTestCase {
             }
         )
         originalSettingsFileStore = KeyboardShortcutSettings.installIsolatedTestFileStore(prefix: "cmux-shortcut-routing")
+#if DEBUG
+        KeyboardShortcutRecorderActivity.resetForTesting()
+#endif
         KeyboardShortcutSettings.resetAll()
     }
 
     override func tearDown() {
         #if DEBUG
         KeyboardShortcutSettings.shortcutLookupObserver = nil
+        KeyboardShortcutRecorderActivity.resetForTesting()
         #endif
         KeyboardShortcutSettings.settingsFileStore = originalSettingsFileStore
         AppDelegate.shared?.shortcutLayoutCharacterProvider = KeyboardLayout.character(forKeyCode:modifierFlags:)
