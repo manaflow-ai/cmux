@@ -117,12 +117,43 @@ enum BrowserExtensionDeveloperModeSettings {
 struct BrowserWebExtensionHostCapabilityPolicy: Equatable {
     static let current = BrowserWebExtensionHostCapabilityPolicy()
 
+    private static let grantableAppExtensionPermissions: Set<String> = [
+        "activeTab",
+        "alarms",
+        "bookmarks",
+        "clipboardRead",
+        "clipboardWrite",
+        "contextMenus",
+        "cookies",
+        "declarativeNetRequest",
+        "declarativeNetRequestFeedback",
+        "declarativeNetRequestWithHostAccess",
+        "downloads",
+        "favicon",
+        "history",
+        "idle",
+        "management",
+        "menus",
+        "nativeMessaging",
+        "notifications",
+        "offscreen",
+        "privacy",
+        "scripting",
+        "storage",
+        "tabs",
+        "unlimitedStorage",
+        "webNavigation",
+        "webRequest",
+        "webRequestAuthProvider",
+        "webRequestBlocking",
+    ]
+
     func isPermissionGrantable(
         _ rawPermission: String,
         sourceKind: BrowserWebExtensionInstallRecord.SourceKind = .appExtensionBundle
     ) -> Bool {
-        _ = rawPermission
-        return sourceKind == .appExtensionBundle
+        sourceKind == .appExtensionBundle &&
+            Self.grantableAppExtensionPermissions.contains(rawPermission)
     }
 
     func grantablePermissionNames(
@@ -130,7 +161,7 @@ struct BrowserWebExtensionHostCapabilityPolicy: Equatable {
         sourceKind: BrowserWebExtensionInstallRecord.SourceKind = .appExtensionBundle
     ) -> [String] {
         guard sourceKind == .appExtensionBundle else { return [] }
-        return Array(Set(rawPermissions)).sorted()
+        return Array(Set(rawPermissions).intersection(Self.grantableAppExtensionPermissions)).sorted()
     }
 
     func unsupportedAPIs(

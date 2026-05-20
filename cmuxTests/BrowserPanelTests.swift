@@ -652,7 +652,7 @@ final class BrowserWebExtensionWebKitLoadingTests: XCTestCase {
 
         XCTAssertEqual(
             policy.grantablePermissionNames(from: requestedPermissions),
-            ["clipboardRead", "madeUpPermission", "menus", "nativeMessaging", "storage", "webNavigation", "webRequest"]
+            ["clipboardRead", "menus", "nativeMessaging", "storage", "webNavigation", "webRequest"]
         )
 
         let unsupportedAPIs = policy.unsupportedAPIs(forPermissionNames: requestedPermissions)
@@ -716,6 +716,7 @@ final class BrowserWebExtensionWebKitLoadingTests: XCTestCase {
             "unlimitedStorage",
             "webNavigation",
             "webRequest",
+            "webRequestBlocking",
             "webRequestAuthProvider",
             "notifications",
             "nativeMessaging",
@@ -762,6 +763,7 @@ final class BrowserWebExtensionWebKitLoadingTests: XCTestCase {
                 "webNavigation",
                 "webRequest",
                 "webRequestAuthProvider",
+                "webRequestBlocking",
             ]
         )
         XCTAssertEqual(
