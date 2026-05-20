@@ -459,7 +459,7 @@ final class PiVaultAgentPersistenceTests: XCTestCase {
         XCTAssertEqual(entry.fileURL, historyURL)
         XCTAssertEqual(
             entry.resumeCommand,
-            "cd '/tmp/grok repo' && env GROK_HOME=\(SessionEntry.shellQuote(grokHome.path)) grok -r grok-session-123 -m grok-4 --permission-mode auto --sandbox danger-full-access"
+            "cd '/tmp/grok repo' && 'env' 'GROK_HOME=\(grokHome.path)' 'grok' '-r' 'grok-session-123' '-m' 'grok-4' '--permission-mode' 'auto' '--sandbox' 'danger-full-access'"
         )
     }
 

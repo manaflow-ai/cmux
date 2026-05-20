@@ -133,7 +133,7 @@ final class SessionIndexViewTests: XCTestCase {
 
         XCTAssertEqual(
             entry.resumeCommand,
-            "env GROK_HOME='/tmp/grok home' grok -r grok-session-123 -m grok-4 --permission-mode auto --sandbox danger-full-access"
+            "'env' 'GROK_HOME=/tmp/grok home' 'grok' '-r' 'grok-session-123' '-m' 'grok-4' '--permission-mode' 'auto' '--sandbox' 'danger-full-access'"
         )
     }
 
