@@ -5582,7 +5582,8 @@ struct CMUXCLI {
            let remoteTerminalBootstrapScript {
             let ptyStartupCommand = buildReusableSSHPTYAttachStartupCommand(
                 sessionID: persistentPTYSessionID,
-                remoteShellCommand: remoteTerminalBootstrapScript
+                remoteShellCommand: remoteTerminalBootstrapScript,
+                remoteRelayPort: sshOptions.remoteRelayPort
             )
             initialSSHStartupCommand = buildReusableForegroundAuthThenSSHPTYAttachStartupCommand(
                 options: sshOptions,
@@ -6511,15 +6512,18 @@ struct CMUXCLI {
 
     private func buildReusableSSHPTYAttachStartupCommand(
         sessionID: String,
-        remoteShellCommand: String
+        remoteShellCommand: String,
+        remoteRelayPort: Int
     ) -> String {
         let attachCommand = buildSSHPTYAttachCommand(
             sessionID: sessionID,
             remoteShellCommand: remoteShellCommand
         )
-        return reusableShellStartupCommand(
-            scriptBody: "exec \(attachCommand)",
-            tempPrefix: "cmux-ssh-pty"
+        return buildReusableSSHStartupCommand(
+            sshCommand: "exec \(attachCommand)",
+            shellFeatures: "",
+            remoteRelayPort: remoteRelayPort,
+            isShellSnippet: true
         )
     }
 
@@ -6537,29 +6541,19 @@ struct CMUXCLI {
             sessionID: sessionID,
             remoteShellCommand: remoteShellCommand
         )
-        let trimmedControlPathPreflight = controlPathPreflightShellFunction?
-            .trimmingCharacters(in: .whitespacesAndNewlines)
-        let trimmedLocalCommandScript = localCommandScript?
-            .trimmingCharacters(in: .whitespacesAndNewlines)
-        var scriptLines: [String] = []
-        if let trimmedControlPathPreflight, !trimmedControlPathPreflight.isEmpty {
-            scriptLines += [
-                trimmedControlPathPreflight,
-                "cmux_ssh_preflight_control_path",
-            ]
-        }
-        scriptLines += [
+        let scriptBody = [
             "command \(authCommand) <&0",
             "cmux_auth_status=$?",
             "if [ \"$cmux_auth_status\" -ne 0 ]; then exit \"$cmux_auth_status\"; fi",
+            "exec \(attachCommand)",
         ]
-        if let trimmedLocalCommandScript, !trimmedLocalCommandScript.isEmpty {
-            scriptLines.append(trimmedLocalCommandScript)
-        }
-        scriptLines.append("exec \(attachCommand)")
-        return reusableShellStartupCommand(
-            scriptBody: scriptLines.joined(separator: "\n"),
-            tempPrefix: "cmux-ssh-pty-auth"
+            .joined(separator: "\n")
+        return buildReusableSSHStartupCommand(
+            sshCommand: scriptBody,
+            shellFeatures: "",
+            remoteRelayPort: options.remoteRelayPort,
+            isShellSnippet: true,
+            controlPathPreflightShellFunction: controlPathPreflightShellFunction
         )
     }
 

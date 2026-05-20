@@ -527,7 +527,14 @@ final class CLINotifyProcessIntegrationRegressionTests: XCTestCase {
 
         XCTAssertTrue(initialScript.contains("ssh-pty-attach"), initialScript)
         XCTAssertTrue(initialScript.contains("--wait"), initialScript)
+        XCTAssertTrue(initialScript.contains("ssh-session-end"), initialScript)
+        XCTAssertEqual(
+            initialScript.components(separatedBy: "workspace.remote.foreground_auth_ready").count - 1,
+            1,
+            initialScript
+        )
         XCTAssertTrue(terminalStartupScript.contains("ssh-pty-attach"), terminalStartupScript)
+        XCTAssertTrue(terminalStartupScript.contains("ssh-session-end"), terminalStartupScript)
         XCTAssertEqual(configureParams["auto_connect"] as? Bool, false)
         XCTAssertNotNil(configureParams["foreground_auth_token"] as? String)
         XCTAssertEqual(configureParams["preserve_after_terminal_exit"] as? Bool, true)
