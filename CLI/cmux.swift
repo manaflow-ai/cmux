@@ -3230,6 +3230,9 @@ struct CMUXCLI {
         case "top":
             try runTopCommand(commandArgs: commandArgs, client: client, jsonOutput: jsonOutput, idFormat: idFormat)
 
+        case "memory":
+            try runMemoryCommand(commandArgs: commandArgs, client: client, jsonOutput: jsonOutput, idFormat: idFormat)
+
         case "focus-pane":
             let workspaceArg = workspaceFromArgsOrEnv(commandArgs, windowOverride: windowId)
             guard let paneRaw = optionValue(commandArgs, name: "--pane") ?? commandArgs.first else {
@@ -10256,6 +10259,28 @@ struct CMUXCLI {
               cmux top --workspace workspace:2 --processes
               cmux --json top --all
             """
+        case "memory":
+            return String(localized: "cli.help.memory", defaultValue: """
+            Usage: cmux memory [flags]
+
+            Diagnose cmux app memory separately from recursive terminal child-process RSS.
+
+            Flags:
+              --all                         Include all windows (default: current window only)
+              --workspace <id|ref|index>   Limit workspace context for attribution labels
+              --groups <count>              Number of child command groups to show (default: 12)
+              --json                        Structured JSON output
+
+            Output:
+              App footprint is the direct cmux process physical footprint from macOS process accounting.
+              Child RSS is recursive resident memory for descendants of the cmux app process,
+              grouped by command name and attributed back to workspace, pane, and surface when known.
+
+            Example:
+              cmux memory
+              cmux memory --groups 20
+              cmux --json memory --all
+            """)
         case "focus-pane":
             return """
             Usage: cmux focus-pane [--pane <id|ref> | <id|ref>] [flags]
@@ -11758,7 +11783,10 @@ struct CMUXCLI {
         ]
         if let workspaceRaw = options.workspaceHandle {
             guard let workspaceHandle = try normalizeWorkspaceHandle(workspaceRaw, client: client) else {
-                throw CLIError(message: "Invalid workspace handle")
+                throw CLIError(message: String(format: String(
+                    localized: "cli.top.error.invalidWorkspace",
+                    defaultValue: "top: invalid workspace handle '%@'"
+                ), workspaceRaw))
             }
             params["workspace_id"] = workspaceHandle
         }
@@ -11769,7 +11797,7 @@ struct CMUXCLI {
         do {
             return try client.sendV2(method: "system.top", params: params, responseTimeout: responseTimeout)
         } catch let error as CLIError where error.message.hasPrefix("method_not_found:") {
-            throw CLIError(message: "cmux top requires a running cmux build with system.top support")
+            throw CLIError(message: String(localized: "cli.top.error.processDiagnosticsUnsupported", defaultValue: "cmux top requires a running cmux build that supports process diagnostics"))
         }
     }
 
@@ -12004,7 +12032,7 @@ struct CMUXCLI {
         )
     }
 
-    private func treeCallerContextFromEnvironment() -> [String: Any]? {
+    func treeCallerContextFromEnvironment() -> [String: Any]? {
         let env = ProcessInfo.processInfo.environment
         let workspaceRaw = env["CMUX_WORKSPACE_ID"]?.trimmingCharacters(in: .whitespacesAndNewlines)
         let surfaceRaw = env["CMUX_SURFACE_ID"]?.trimmingCharacters(in: .whitespacesAndNewlines)
@@ -12876,7 +12904,7 @@ struct CMUXCLI {
         return topInt64(resources["resident_bytes"])
     }
 
-    private func formatBytes(_ bytes: Int64) -> String {
+    func formatBytes(_ bytes: Int64) -> String {
         let units = ["B", "KB", "MB", "GB", "TB"]
         var value = Double(max(0, bytes))
         var unitIndex = 0
@@ -12890,12 +12918,12 @@ struct CMUXCLI {
         return String(format: "%.1f %@", value, units[unitIndex])
     }
 
-    private func padLeft(_ value: String, width: Int) -> String {
+    func padLeft(_ value: String, width: Int) -> String {
         guard value.count < width else { return value }
         return String(repeating: " ", count: width - value.count) + value
     }
 
-    private func topInt(_ raw: Any?) -> Int? {
+    func topInt(_ raw: Any?) -> Int? {
         if let value = raw as? Int {
             return value
         }
@@ -12908,7 +12936,7 @@ struct CMUXCLI {
         return nil
     }
 
-    private func topInt64(_ raw: Any?) -> Int64 {
+    func topInt64(_ raw: Any?) -> Int64 {
         if let value = raw as? Int64 {
             return value
         }
@@ -26615,6 +26643,7 @@ export default function cmuxPiSessionExtension(pi: ExtensionAPI) {
           list-pane-surfaces [--workspace <id|ref>] [--pane <id|ref>]
           tree [--all] [--workspace <id|ref|index>]
           top [--all] [--workspace <id|ref|index>] [--processes] [--sort <cpu|mem|proc>] [--flat] [--format <tree|tsv>]
+          memory [--all] [--workspace <id|ref|index>] [--groups <count>]
           focus-pane --pane <id|ref> [--workspace <id|ref>]
           new-pane [--type <terminal|browser>] [--direction <left|right|up|down>] [--workspace <id|ref>] [--url <url>] [--focus <true|false>]
           new-surface [--type <terminal|browser>] [--pane <id|ref>] [--workspace <id|ref>] [--url <url>] [--focus <true|false>]
