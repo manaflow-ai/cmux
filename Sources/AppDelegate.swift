@@ -11018,11 +11018,19 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         shortcutDefaultsObserver = NotificationCenter.default.addObserver(
             forName: KeyboardShortcutSettings.didChangeNotification,
             object: nil,
-            queue: .main
+            queue: nil
         ) { [weak self] _ in
-            self?.refreshConfiguredShortcutChordActions()
-            self?.clearConfiguredShortcutChordState()
-            self?.scheduleSplitButtonTooltipRefreshAcrossWorkspaces()
+            if Thread.isMainThread {
+                self?.refreshConfiguredShortcutChordActions()
+                self?.clearConfiguredShortcutChordState()
+                self?.scheduleSplitButtonTooltipRefreshAcrossWorkspaces()
+            } else {
+                DispatchQueue.main.async { [weak self] in
+                    self?.refreshConfiguredShortcutChordActions()
+                    self?.clearConfiguredShortcutChordState()
+                    self?.scheduleSplitButtonTooltipRefreshAcrossWorkspaces()
+                }
+            }
         }
     }
 
@@ -11872,7 +11880,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
 
         // Flash the currently focused panel so the user can visually confirm focus.
         if matchConfiguredShortcut(event: event, action: .triggerFlash) {
-            tabManager?.triggerFocusFlash()
+            let targetManager = preferredMainWindowContextForShortcutRouting(event: event)?.tabManager ?? tabManager
+            targetManager?.triggerFocusFlash()
             return true
         }
 
@@ -12001,7 +12010,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         }
 
         if matchConfiguredShortcut(event: event, action: .closeWindow) {
-            guard let targetWindow = event.window ?? NSApp.keyWindow ?? NSApp.mainWindow else {
+            guard let targetWindow = mainWindowForShortcutEvent(event) ?? event.window ?? NSApp.keyWindow ?? NSApp.mainWindow else {
                 NSSound.beep()
                 return true
             }
