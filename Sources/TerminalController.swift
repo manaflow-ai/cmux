@@ -7886,7 +7886,9 @@ class TerminalController {
     }
 
     private func readTerminalTextBase64(terminalPanel: TerminalPanel, includeScrollback: Bool = false, lineLimit: Int? = nil) -> String {
-        guard let surface = terminalPanel.surface.surface else { return "ERROR: Terminal surface not found" }
+        guard let surface = terminalPanel.surface.liveSurfaceForGhosttyAccess(reason: "readTerminalTextBase64") else {
+            return "ERROR: Terminal surface not found"
+        }
 
         func readSelectionText(pointTag: ghostty_point_tag_e) -> String? {
             let topLeft = ghostty_point_s(
@@ -19428,7 +19430,7 @@ class TerminalController {
         terminalPanel: TerminalPanel,
         maxScrollbackRows: Int?
     ) -> V2CallResult {
-        guard let surface = terminalPanel.surface.surface else {
+        guard let surface = terminalPanel.surface.liveSurfaceForGhosttyAccess(reason: "mobileTerminalSnapshot") else {
             terminalPanel.surface.requestBackgroundSurfaceStartIfNeeded()
             return .err(code: "not_ready", message: "Terminal surface is not ready", data: [
                 "surface_id": terminalPanel.id.uuidString

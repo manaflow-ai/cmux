@@ -2226,14 +2226,14 @@ enum MobileTerminalInputResolver {
 enum MobileTerminalBottomAction: String, CaseIterable, Identifiable, Equatable, Sendable {
     case hideKeyboard
     case control
+    case escape
+    case tab
+    case returnKey
     case alternate
     case command
     case shift
     case zoomOut
     case zoomIn
-    case escape
-    case tab
-    case returnKey
     case upArrow
     case downArrow
     case leftArrow
