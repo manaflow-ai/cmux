@@ -1,3 +1,4 @@
+import Darwin
 import XCTest
 
 #if canImport(cmux_DEV)
@@ -7,6 +8,49 @@ import XCTest
 #endif
 
 final class RovoDevSessionIndexTests: XCTestCase {
+    func testRipgrepCancellationDoesNotSignalBeforeProcessStarts() {
+        var sentSignals: [(pid_t, Int32)] = []
+        let cancellation = SessionIndexRipgrepCancellation { processIdentifier, signal in
+            sentSignals.append((processIdentifier, signal))
+            return 0
+        }
+
+        cancellation.cancel()
+
+        XCTAssertTrue(sentSignals.isEmpty)
+    }
+
+    func testRipgrepCancellationSignalsActiveProcess() {
+        var sentSignals: [(pid_t, Int32)] = []
+        let cancellation = SessionIndexRipgrepCancellation { processIdentifier, signal in
+            sentSignals.append((processIdentifier, signal))
+            return 0
+        }
+
+        cancellation.markStarted(processIdentifier: 12345)
+        cancellation.cancel()
+        cancellation.markFinished(processIdentifier: 12345)
+        cancellation.cancel()
+
+        XCTAssertEqual(sentSignals.count, 1)
+        XCTAssertEqual(sentSignals.first?.0, 12345)
+        XCTAssertEqual(sentSignals.first?.1, SIGTERM)
+    }
+
+    func testRipgrepCancellationDoesNotResurrectFinishedProcess() {
+        var sentSignals: [(pid_t, Int32)] = []
+        let cancellation = SessionIndexRipgrepCancellation { processIdentifier, signal in
+            sentSignals.append((processIdentifier, signal))
+            return 0
+        }
+
+        cancellation.markFinished(processIdentifier: 12345)
+        cancellation.markStarted(processIdentifier: 12345)
+        cancellation.cancel()
+
+        XCTAssertTrue(sentSignals.isEmpty)
+    }
+
     func testRovoDevSessionIndexReadsMetadataAndResumeCommand() throws {
         let fixture = try makeFixture()
         defer { try? FileManager.default.removeItem(at: fixture.tempDir) }
