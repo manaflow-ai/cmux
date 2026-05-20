@@ -610,6 +610,68 @@ final class CodexAppServerRequestFactoryTests: XCTestCase {
     }
 
     @MainActor
+    func testSendingPromptAfterCleanExitResumesExistingThreadBeforeTurnStart() async throws {
+        let client = FakeCodexAppServerClient()
+        let panel = CodexAppServerPanel(
+            workspaceId: UUID(),
+            cwd: "/tmp",
+            client: client
+        )
+        await panel.start()
+
+        let threadId = FakeCodexAppServerClient.generatedThreadId(9)
+        client.onEvent?(
+            .notification(CodexAppServerServerNotification(
+                method: "thread/started",
+                params: ["thread": ["id": threadId]]
+            ))
+        )
+        client.onEvent?(.terminated(0))
+        let didStop = await waitForMainActorCondition {
+            panel.status == .stopped
+        }
+        XCTAssertTrue(didStop)
+
+        panel.promptText = "continue"
+        await panel.sendPrompt()
+
+        XCTAssertEqual(client.startAndInitializeCallCount, 2)
+        XCTAssertEqual(client.resumeThreadCallCount, 1)
+        XCTAssertEqual(client.startThreadCallCount, 0)
+        XCTAssertEqual(client.startTurnCalls, [
+            FakeCodexAppServerClient.TurnStartCall(threadId: threadId, text: "continue"),
+        ])
+    }
+
+    @MainActor
+    func testSendingPromptAfterCleanExitFromResumedThreadResumesAgainBeforeTurnStart() async throws {
+        let threadId = "019d6637-e5cc-7cc0-a321-2c43b799036b"
+        let client = FakeCodexAppServerClient()
+        let panel = CodexAppServerPanel(
+            workspaceId: UUID(),
+            cwd: "/tmp",
+            resumeThreadId: threadId,
+            client: client
+        )
+        await panel.start()
+        client.onEvent?(.terminated(0))
+        let didStop = await waitForMainActorCondition {
+            panel.status == .stopped
+        }
+        XCTAssertTrue(didStop)
+
+        panel.promptText = "continue resumed"
+        await panel.sendPrompt()
+
+        XCTAssertEqual(client.startAndInitializeCallCount, 2)
+        XCTAssertEqual(client.resumeThreadCallCount, 2)
+        XCTAssertEqual(client.startThreadCallCount, 0)
+        XCTAssertEqual(client.startTurnCalls, [
+            FakeCodexAppServerClient.TurnStartCall(threadId: threadId, text: "continue resumed"),
+        ])
+    }
+
+    @MainActor
     func testQuietCodexNotificationsDoNotAppendTranscriptRows() async throws {
         let client = FakeCodexAppServerClient()
         let panel = CodexAppServerPanel(

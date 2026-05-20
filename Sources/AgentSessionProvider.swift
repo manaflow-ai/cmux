@@ -186,10 +186,17 @@ struct AgentExecutableResolver: Sendable {
             append((nvmVersions as NSString).appendingPathComponent("\(version)/bin"))
         }
 
-        let fnmVersions = (home as NSString).appendingPathComponent(".fnm/node-versions")
-        for version in sortedNodeVersionDirectories(in: fnmVersions, fileManager: fileManager) {
-            append((fnmVersions as NSString).appendingPathComponent("\(version)/installation/bin"))
-            append((fnmVersions as NSString).appendingPathComponent("\(version)/bin"))
+        append((home as NSString).appendingPathComponent(".fnm/current/bin"))
+        let fnmVersionRoots = [
+            (home as NSString).appendingPathComponent(".fnm/node-versions"),
+            (home as NSString).appendingPathComponent("Library/Application Support/fnm/node-versions"),
+            (home as NSString).appendingPathComponent(".local/share/fnm/node-versions"),
+        ]
+        for fnmVersions in fnmVersionRoots {
+            for version in sortedNodeVersionDirectories(in: fnmVersions, fileManager: fileManager) {
+                append((fnmVersions as NSString).appendingPathComponent("\(version)/installation/bin"))
+                append((fnmVersions as NSString).appendingPathComponent("\(version)/bin"))
+            }
         }
     }
 

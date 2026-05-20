@@ -1040,27 +1040,31 @@ final class CodexAppServerPanel: Panel, ObservableObject {
 #endif
         let generation = lifecycleGeneration
         installClientEventHandler(generation: generation)
-        let pendingInitialResumeThreadId = initialResumeThreadUnavailable
+        let currentResumeThreadId = normalizedThreadId(threadId)
+        let initialResumeCandidate = initialResumeThreadUnavailable
             ? nil
             : normalizedThreadId(initialResumeThreadId)
+        let pendingResumeThreadId = currentResumeThreadId ?? initialResumeCandidate
+        let isResumingInitialThread = pendingResumeThreadId == initialResumeCandidate
+        let shouldResumePendingThread = pendingResumeThreadId != nil
+            && (currentResumeThreadId != nil || !didResumeInitialThread)
 #if DEBUG
         CodexAppServerTiming.log("panel.start.begin", [
             "panel": id.uuidString.prefix(8),
             "workspace": workspaceId.uuidString.prefix(8),
-            "has_resume": pendingInitialResumeThreadId?.isEmpty == false,
+            "has_resume": shouldResumePendingThread,
             "cwd": currentWorkingDirectory(),
         ])
 #endif
         status = .starting
         stderrTranscriptBuffer.removeAll(keepingCapacity: true)
-        transcriptLoadingPhase = pendingInitialResumeThreadId?.isEmpty == false
+        transcriptLoadingPhase = shouldResumePendingThread
             ? .restoringHistory
             : .startingServer
-        if let pendingInitialResumeThreadId,
-           !pendingInitialResumeThreadId.isEmpty,
-           !didResumeInitialThread {
-            threadId = pendingInitialResumeThreadId
-            startInitialHistoryRestore(threadId: pendingInitialResumeThreadId, generation: generation)
+        if let pendingResumeThreadId,
+           shouldResumePendingThread {
+            threadId = pendingResumeThreadId
+            startInitialHistoryRestore(threadId: pendingResumeThreadId, generation: generation)
         }
         do {
 #if DEBUG
@@ -1081,9 +1085,8 @@ final class CodexAppServerPanel: Panel, ObservableObject {
             Task { @MainActor [weak self] in
                 await self?.refreshCodexMetadata(generation: generation)
             }
-            if let pendingInitialResumeThreadId,
-               !pendingInitialResumeThreadId.isEmpty,
-               !didResumeInitialThread {
+            if let pendingResumeThreadId,
+               shouldResumePendingThread {
                 status = .running
                 if transcriptItems.isEmpty {
                     transcriptLoadingPhase = .resumingThread
@@ -1092,7 +1095,7 @@ final class CodexAppServerPanel: Panel, ObservableObject {
                 let resumeStart = CodexAppServerTiming.now()
                 CodexAppServerTiming.log("panel.resume.begin", [
                     "panel": id.uuidString.prefix(8),
-                    "thread": pendingInitialResumeThreadId,
+                    "thread": pendingResumeThreadId,
                     "items_before": transcriptItems.count,
                 ])
 #endif
@@ -1100,7 +1103,7 @@ final class CodexAppServerPanel: Panel, ObservableObject {
                 let response: [String: Any]
                 do {
                     response = try await client.resumeThread(
-                        threadId: pendingInitialResumeThreadId,
+                        threadId: pendingResumeThreadId,
                         cwd: currentWorkingDirectory()
                     )
                 } catch {
@@ -1110,7 +1113,7 @@ final class CodexAppServerPanel: Panel, ObservableObject {
 #if DEBUG
                     CodexAppServerTiming.log("panel.resume.missingRolloutFallback", [
                         "panel": id.uuidString.prefix(8),
-                        "thread": pendingInitialResumeThreadId,
+                        "thread": pendingResumeThreadId,
                         "error": error.localizedDescription,
                     ])
 #endif
@@ -1121,8 +1124,10 @@ final class CodexAppServerPanel: Panel, ObservableObject {
                     initialHistoryRestoreTask?.cancel()
                     initialHistoryRestoreTask = nil
                     initialHistoryRestoreThreadId = nil
-                    initialResumeThreadUnavailable = true
-                    didResumeInitialThread = true
+                    if isResumingInitialThread {
+                        initialResumeThreadUnavailable = true
+                        didResumeInitialThread = true
+                    }
                     threadId = nil
                     currentTurnId = nil
                     transcriptItems = renderedUserItemsToPreserve
@@ -1145,11 +1150,13 @@ final class CodexAppServerPanel: Panel, ObservableObject {
                     client.stop()
                     return
                 }
-                didResumeInitialThread = true
+                if isResumingInitialThread {
+                    didResumeInitialThread = true
+                }
 #if DEBUG
                 let applyStart = CodexAppServerTiming.now()
 #endif
-                let snapshot = applyResumeResponse(response, fallbackThreadId: pendingInitialResumeThreadId)
+                let snapshot = applyResumeResponse(response, fallbackThreadId: pendingResumeThreadId)
 #if DEBUG
                 CodexAppServerTiming.log("panel.resume.applied", [
                     "panel": id.uuidString.prefix(8),

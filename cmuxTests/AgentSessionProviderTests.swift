@@ -167,6 +167,32 @@ final class AgentSessionProviderTests: XCTestCase {
         XCTAssertEqual(resolved.executablePath, shimDirectory.appendingPathComponent(executableName).path)
     }
 
+    func testExecutableResolverFindsFnmInstallRootsWithoutLoginShellPath() throws {
+        let fixture = try ProviderExecutableFixture()
+        defer { fixture.remove() }
+
+        let fnmDirectory = fixture.root
+            .appendingPathComponent("Library/Application Support/fnm/node-versions/v24.0.0/installation/bin", isDirectory: true)
+        try FileManager.default.createDirectory(at: fnmDirectory, withIntermediateDirectories: true)
+        let executableName = "cmux-fnm-provider-\(UUID().uuidString)"
+        try ProviderExecutableFixture.writeExecutable(named: executableName, in: fnmDirectory)
+
+        let provider = AgentSessionProvider(
+            id: .codex,
+            displayName: "Codex",
+            transport: .stdioJSONRPC,
+            unixSocketSupport: .notApplicable,
+            launchPlan: AgentSessionLaunchPlan(executableName: executableName, arguments: ["app-server"])
+        )
+        let environment = [
+            "HOME": fixture.root.path,
+            "PATH": "",
+        ]
+
+        let resolved = try AgentExecutableResolver(baseEnvironment: environment).resolveLaunchPlan(for: provider)
+        XCTAssertEqual(resolved.executablePath, fnmDirectory.appendingPathComponent(executableName).path)
+    }
+
     func testProviderEnvironmentPreservesOwnBundleResourceBinForBundledCmuxHooks() throws {
         let bundleResourceBin = try XCTUnwrap(Bundle.main.resourceURL)
             .appendingPathComponent("bin", isDirectory: true)
