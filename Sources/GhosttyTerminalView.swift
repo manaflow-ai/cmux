@@ -5616,7 +5616,6 @@ final class TerminalSurface: Identifiable, ObservableObject {
             initialEnvironmentOverrides: initialEnvironmentOverrides
         )
         GhosttyTerminalView.removeInheritedAgentEnvironment(from: &env)
-        env.removeValue(forKey: "CMUX_SOCKET")
 
         if !env.isEmpty {
             envVars.reserveCapacity(env.count)

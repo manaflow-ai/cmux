@@ -52,6 +52,27 @@ final class GhosttyTerminalViewVisibilityPolicyTests: XCTestCase {
         XCTAssertEqual(getenv("CLAUDECODE").map { String(cString: $0) }, "nested-session")
     }
 
+    func testTerminalLaunchEnvironmentKeepsEmptyLegacySocketOverride() {
+        let environment = TerminalSurface.mergedStartupEnvironment(
+            base: [
+                "CMUX_SOCKET_PATH": "/tmp/cmux-current.sock",
+                "CMUX_SOCKET": "",
+            ],
+            protectedKeys: ["CMUX_SOCKET_PATH", "CMUX_SOCKET"],
+            additionalEnvironment: [
+                "CMUX_SOCKET_PATH": "/tmp/cmux-stale-path.sock",
+                "CMUX_SOCKET": "/tmp/cmux-stale-legacy.sock",
+            ],
+            initialEnvironmentOverrides: [
+                "CMUX_SOCKET": "/tmp/cmux-override-legacy.sock",
+            ],
+            ambientEnvironment: [:]
+        )
+
+        XCTAssertEqual(environment["CMUX_SOCKET_PATH"], "/tmp/cmux-current.sock")
+        XCTAssertEqual(environment["CMUX_SOCKET"], "")
+    }
+
     func testImmediateStateUpdateAllowedWhenDesiredStateIsHidden() {
         XCTAssertTrue(
             GhosttyTerminalView.shouldApplyImmediateHostedStateUpdate(

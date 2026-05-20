@@ -164,7 +164,7 @@ final class CodexAppServerRequestFactoryTests: XCTestCase {
         XCTAssertEqual(notification["method"] as? String, "initialized")
     }
 
-    func testThreadStartRequestCarriesCwdAndEphemeralSession() throws {
+    func testThreadStartRequestCarriesCwdAndPersistentSession() throws {
         let request = CodexAppServerRequestFactory.threadStartRequest(
             id: 7,
             cwd: "/Users/cmux/project"
@@ -177,7 +177,7 @@ final class CodexAppServerRequestFactoryTests: XCTestCase {
         let params = try XCTUnwrap(request["params"] as? [String: Any])
         XCTAssertEqual(params["cwd"] as? String, "/Users/cmux/project")
         XCTAssertEqual(params["serviceName"] as? String, "cmux")
-        XCTAssertEqual(params["ephemeral"] as? Bool, true)
+        XCTAssertEqual(params["ephemeral"] as? Bool, false)
     }
 
     func testThreadResumeRequestCarriesThreadIdAndCwd() throws {

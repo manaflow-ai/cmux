@@ -169,7 +169,7 @@ enum CodexAppServerRequestFactory {
     static func threadStartRequest(id: Int, cwd: String?, model: String? = nil, serviceTier: String? = nil) -> [String: Any] {
         var params: [String: Any] = [
             "serviceName": "cmux",
-            "ephemeral": true,
+            "ephemeral": false,
         ]
         if let cwd, !cwd.isEmpty {
             params["cwd"] = cwd
