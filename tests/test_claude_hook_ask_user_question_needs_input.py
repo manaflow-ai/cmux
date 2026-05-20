@@ -312,6 +312,26 @@ def main() -> int:
             print(f"commands={server.commands_snapshot()!r}")
             return 1
 
+        repeated_after_tool_proc = run_claude_hook(
+            cli_path,
+            server.socket_path,
+            "pre-tool-use",
+            ask_user_question_payload(session_id, 0),
+            env,
+        )
+        if repeated_after_tool_proc.returncode != 0:
+            print("FAIL: repeated AskUserQuestion after non-question pre-tool-use failed")
+            print(f"stdout={repeated_after_tool_proc.stdout!r}")
+            print(f"stderr={repeated_after_tool_proc.stderr!r}")
+            print(f"commands={server.commands_snapshot()!r}")
+            return 1
+        notify_after_tool_repeat = notify_commands(server)
+        if len(notify_after_tool_repeat) != 2:
+            print("FAIL: non-question pre-tool-use should clear the needs-input dedup fingerprint for future matching questions")
+            print(f"notify_commands={notify_after_tool_repeat!r}")
+            print(f"commands={server.commands_snapshot()!r}")
+            return 1
+
         duplicate_proc = run_claude_hook(
             cli_path,
             server.socket_path,
@@ -326,7 +346,7 @@ def main() -> int:
             print(f"commands={server.commands_snapshot()!r}")
             return 1
         notify_after_duplicate = notify_commands(server)
-        if len(notify_after_duplicate) != 1:
+        if len(notify_after_duplicate) != 2:
             print("FAIL: generic attention Notification should be deduped after AskUserQuestion and non-question pre-tool-use")
             print(f"notify_commands={notify_after_duplicate!r}")
             print(f"commands={server.commands_snapshot()!r}")
@@ -365,7 +385,7 @@ def main() -> int:
             print(f"commands={server.commands_snapshot()!r}")
             return 1
         notify_after_repeat = notify_commands(server)
-        if len(notify_after_repeat) != 2:
+        if len(notify_after_repeat) != 3:
             print("FAIL: prompt-submit should clear the needs-input dedup fingerprint")
             print(f"notify_commands={notify_after_repeat!r}")
             print(f"commands={server.commands_snapshot()!r}")
