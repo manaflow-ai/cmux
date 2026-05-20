@@ -7811,6 +7811,9 @@ class TerminalController {
     }
 
     private func readTerminalTextBase64(terminalPanel: TerminalPanel, includeScrollback: Bool = false, lineLimit: Int? = nil) -> String {
+        if terminalPanel.surface.surface == nil {
+            terminalPanel.surface.ensureBackgroundSurfaceStartedForSocketAccess(reason: "terminalController.readText")
+        }
         guard let surface = terminalPanel.surface.surface else { return "ERROR: Terminal surface not found" }
 
         func readSelectionText(pointTag: ghostty_point_tag_e) -> String? {
