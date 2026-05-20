@@ -276,6 +276,78 @@ final class KeyboardShortcutSettingsFileStoreStartupTests: XCTestCase {
         }
     }
 
+    func testSettingsFileStoreDoesNotReachTerminalReloadThroughManagedAppearanceReplay() throws {
+        let defaults = UserDefaults.standard
+        let key = AppearanceSettings.appearanceModeKey
+
+        try preservingDefaults(keys: [key, settingsFileBackupsDefaultsKey, importedManagedDefaultsKey]) {
+            defaults.removeObject(forKey: key)
+            defaults.removeObject(forKey: settingsFileBackupsDefaultsKey)
+            defaults.removeObject(forKey: importedManagedDefaultsKey)
+
+            let directoryURL = try makeTemporaryDirectory()
+            defer { try? FileManager.default.removeItem(at: directoryURL) }
+
+            let settingsFileURL = directoryURL.appendingPathComponent("cmux.json", isDirectory: false)
+            try writeSettingsFile(
+                """
+                {
+                  "app": {
+                    "appearance": "dark"
+                  }
+                }
+                """,
+                to: settingsFileURL
+            )
+
+            var storeInitInProgress = true
+            var reachedTerminalReloadDuringInit = false
+            var terminalReloadSources: [String] = []
+            let environment = AppearanceSettings.LiveApplyEnvironment(
+                setApplicationAppearance: { _ in },
+                synchronizeTerminalThemeWithAppearance: { _, source in
+                    if storeInitInProgress {
+                        reachedTerminalReloadDuringInit = true
+                    }
+                    terminalReloadSources.append(source)
+                },
+                systemAppearance: {
+                    NSAppearance(named: .aqua)
+                }
+            )
+
+            let store = KeyboardShortcutSettingsFileStore(
+                primaryPath: settingsFileURL.path,
+                fallbackPath: nil,
+                additionalFallbackPaths: [],
+                appearanceEnvironment: environment,
+                startWatching: false
+            )
+            storeInitInProgress = false
+
+            XCTAssertFalse(reachedTerminalReloadDuringInit)
+            XCTAssertTrue(terminalReloadSources.isEmpty)
+
+            try writeSettingsFile(
+                """
+                {
+                  "app": {
+                    "appearance": "light"
+                  }
+                }
+                """,
+                to: settingsFileURL
+            )
+            store.reload()
+
+            XCTAssertEqual(defaults.string(forKey: key), AppearanceMode.light.rawValue)
+            XCTAssertTrue(
+                terminalReloadSources.isEmpty,
+                "CmuxSettingsFileStore must not synchronously route managed appearance replay into Ghostty reloadConfiguration"
+            )
+        }
+    }
+
     func testSidebarMatchTerminalBackgroundUserDefaultSurvivesSettingsFileReapply() throws {
         let defaults = UserDefaults.standard
         let key = SidebarMatchTerminalBackgroundSettings.userDefaultsKey
