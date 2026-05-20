@@ -5908,6 +5908,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             } else {
                 state.setVisible(true)
                 state.mode = mode
+                context?.keyboardFocusCoordinator.rememberRightSidebarMode(mode)
             }
             return .ok
 
