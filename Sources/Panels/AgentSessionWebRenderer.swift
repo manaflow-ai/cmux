@@ -169,20 +169,23 @@ extension AgentSessionWebRenderer {
                 return
             }
             let indexURL = resourceDirectoryURL.appendingPathComponent("index.html", isDirectory: false)
-            webView?.loadFileURL(cacheBustedURL(for: indexURL), allowingReadAccessTo: resourceDirectoryURL)
-        }
-
-        private func cacheBustedURL(for indexURL: URL) -> URL {
-            guard var components = URLComponents(url: indexURL, resolvingAgainstBaseURL: false) else {
-                return indexURL
+            do {
+                let html = try String(contentsOf: indexURL, encoding: .utf8)
+#if DEBUG
+                cmuxDebugLog(
+                    "agentSession.web.load renderer=\(rendererKind.rawValue) " +
+                    "index=\(indexURL.path) htmlBytes=\(html.utf8.count)"
+                )
+#endif
+                webView?.loadHTMLString(html, baseURL: resourceDirectoryURL)
+            } catch {
+#if DEBUG
+                cmuxDebugLog(
+                    "agentSession.web.load.failed renderer=\(rendererKind.rawValue) " +
+                    "index=\(indexURL.path) error=\(error.localizedDescription)"
+                )
+#endif
             }
-            let modifiedAt = try? indexURL.resourceValues(forKeys: [.contentModificationDateKey])
-                .contentModificationDate?
-                .timeIntervalSince1970
-            components.queryItems = [
-                URLQueryItem(name: "v", value: String(Int(modifiedAt ?? 0)))
-            ]
-            return components.url ?? indexURL
         }
 
         func focus() {
@@ -221,6 +224,30 @@ extension AgentSessionWebRenderer {
                     replyHandler(["ok": false, "error": ["message": error.localizedDescription]], nil)
                 }
             }
+        }
+
+        func webView(_ webView: WKWebView, didFinish navigation: WKNavigation!) {
+#if DEBUG
+            cmuxDebugLog("agentSession.web.didFinish renderer=\(rendererKind.rawValue)")
+#endif
+        }
+
+        func webView(_ webView: WKWebView, didFail navigation: WKNavigation!, withError error: Error) {
+#if DEBUG
+            cmuxDebugLog(
+                "agentSession.web.didFail renderer=\(rendererKind.rawValue) " +
+                "error=\(error.localizedDescription)"
+            )
+#endif
+        }
+
+        func webView(_ webView: WKWebView, didFailProvisionalNavigation navigation: WKNavigation!, withError error: Error) {
+#if DEBUG
+            cmuxDebugLog(
+                "agentSession.web.didFailProvisional renderer=\(rendererKind.rawValue) " +
+                "error=\(error.localizedDescription)"
+            )
+#endif
         }
 
         private func handle(_ request: AgentSessionBridgeRequest) async throws -> Any {
