@@ -25,12 +25,20 @@ extension CMUXCLI {
         case dark
     }
 
+    private enum InteractiveHelperResult: Equatable {
+        case completed
+        case cancelled
+    }
+
     private func shouldUseInteractiveThemePicker(jsonOutput: Bool) -> Bool {
         guard !jsonOutput else { return false }
         return isatty(STDIN_FILENO) == 1 && isatty(STDOUT_FILENO) == 1
     }
 
-    private func runInteractiveThemes() throws {
+    private func runInteractiveThemes(
+        socketPath: String,
+        explicitPassword: String?
+    ) throws {
         guard let helperURL = bundledHelperURL(named: "ghostty") else {
             throw CLIError(message: "Bundled Ghostty theme picker helper not found")
         }
@@ -38,7 +46,7 @@ extension CMUXCLI {
         let selection = currentThemeSelection()
         var environment = ProcessInfo.processInfo.environment
         environment["CMUX_THEME_PICKER_CONFIG"] = try cmuxThemeOverrideConfigURL().path
-        environment["CMUX_THEME_PICKER_BUNDLE_ID"] = currentCmuxAppBundleIdentifier() ?? Self.cmuxThemeOverrideBundleIdentifier
+        environment["CMUX_THEME_PICKER_BUNDLE_ID"] = themeReloadTargetBundleIdentifier(socketPath: socketPath)
         environment["CMUX_THEME_PICKER_TARGET"] = defaultThemePickerTargetMode(current: selection).rawValue
         environment["CMUX_THEME_PICKER_COLOR_SCHEME"] = defaultAppearancePrefersDarkThemes() ? "dark" : "light"
         if let light = selection.light {
@@ -51,11 +59,13 @@ extension CMUXCLI {
             environment["GHOSTTY_RESOURCES_DIR"] = resourcesURL.path
         }
 
-        try execInteractiveHelper(
+        let result = try runInteractiveHelper(
             executablePath: helperURL.path,
             arguments: ["+list-themes"],
             environment: environment
         )
+        guard result == .completed else { return }
+        _ = reloadThemesIfPossible(socketPath: socketPath, explicitPassword: explicitPassword)
     }
 
     private func defaultThemePickerTargetMode(current: ThemeSelection) -> ThemePickerTargetMode {
@@ -111,31 +121,75 @@ extension CMUXCLI {
         return candidates.first(where: { fileManager.isExecutableFile(atPath: $0.path) })
     }
 
-    private func execInteractiveHelper(
+    private func runInteractiveHelper(
         executablePath: String,
         arguments: [String],
         environment: [String: String]
-    ) throws -> Never {
-        var argv = ([executablePath] + arguments).map { strdup($0) }
-        defer {
-            for item in argv {
-                free(item)
+    ) throws -> InteractiveHelperResult {
+        let process = Process()
+        process.executableURL = URL(fileURLWithPath: executablePath)
+        process.arguments = arguments
+        process.environment = environment
+        process.standardInput = FileHandle.standardInput
+        process.standardOutput = FileHandle.standardOutput
+        process.standardError = FileHandle.standardError
+
+        let originalForegroundProcessGroup = isatty(STDIN_FILENO) == 1 ? tcgetpgrp(STDIN_FILENO) : -1
+        var didForegroundChild = false
+        do {
+            try process.run()
+        } catch {
+            throw CLIError(message: "Failed to launch interactive theme picker: \(String(describing: error))")
+        }
+        if originalForegroundProcessGroup > 0 {
+            let childProcessGroup = getpgid(process.processIdentifier)
+            if childProcessGroup > 0 && childProcessGroup != originalForegroundProcessGroup {
+                do {
+                    try setInteractiveThemePickerForegroundProcessGroup(childProcessGroup)
+                    _ = Darwin.kill(-childProcessGroup, SIGCONT)
+                    didForegroundChild = true
+                } catch {
+                    process.terminate()
+                    throw error
+                }
             }
         }
-        argv.append(nil)
-
-        var envp = environment
-            .map { key, value in strdup("\(key)=\(value)") }
         defer {
-            for item in envp {
-                free(item)
+            if didForegroundChild {
+                try? setInteractiveThemePickerForegroundProcessGroup(originalForegroundProcessGroup)
             }
         }
-        envp.append(nil)
 
-        execve(executablePath, &argv, &envp)
-        let code = errno
-        throw CLIError(message: "Failed to launch interactive theme picker: \(String(cString: strerror(code)))")
+        process.waitUntilExit()
+        if process.terminationReason == .exit, process.terminationStatus == 0 {
+            return .completed
+        }
+
+        if isInteractiveThemePickerCancellation(process) {
+            return .cancelled
+        } else if process.terminationReason == .uncaughtSignal {
+            throw CLIError(message: "Interactive theme picker exited from signal \(process.terminationStatus)")
+        }
+        throw CLIError(message: "Interactive theme picker exited with status \(process.terminationStatus)")
+    }
+
+    private func isInteractiveThemePickerCancellation(_ process: Process) -> Bool {
+        switch process.terminationReason {
+        case .uncaughtSignal:
+            return process.terminationStatus == SIGINT || process.terminationStatus == SIGTERM
+        case .exit:
+            return process.terminationStatus == 130 || process.terminationStatus == 143
+        @unknown default:
+            return false
+        }
+    }
+
+    private func setInteractiveThemePickerForegroundProcessGroup(_ processGroup: pid_t) throws {
+        let previousHandler = signal(SIGTTOU, SIG_IGN)
+        defer { _ = signal(SIGTTOU, previousHandler) }
+        guard tcsetpgrp(STDIN_FILENO, processGroup) == 0 else {
+            throw CLIError(message: "Interactive theme picker failed to enter foreground: \(String(cString: strerror(errno)))")
+        }
     }
 
     private func bundledGhosttyResourcesURL() -> URL? {
@@ -169,10 +223,15 @@ extension CMUXCLI {
         return Bundle.main.resourceURL?.appendingPathComponent("ghostty", isDirectory: true)
     }
 
-    func runThemes(commandArgs: [String], jsonOutput: Bool) throws {
+    func runThemes(
+        commandArgs: [String],
+        jsonOutput: Bool,
+        socketPath: String,
+        explicitPassword: String?
+    ) throws {
         if commandArgs.isEmpty {
             if shouldUseInteractiveThemePicker(jsonOutput: jsonOutput) {
-                try runInteractiveThemes()
+                try runInteractiveThemes(socketPath: socketPath, explicitPassword: explicitPassword)
                 return
             }
             try printThemesList(jsonOutput: jsonOutput)
@@ -193,13 +252,19 @@ extension CMUXCLI {
         case "set":
             try runThemesSet(
                 args: Array(commandArgs.dropFirst()),
-                jsonOutput: jsonOutput
+                jsonOutput: jsonOutput,
+                socketPath: socketPath,
+                explicitPassword: explicitPassword
             )
         case "clear":
             if commandArgs.count > 1 {
                 throw CLIError(message: "themes clear does not take any positional arguments")
             }
-            try runThemesClear(jsonOutput: jsonOutput)
+            try runThemesClear(
+                jsonOutput: jsonOutput,
+                socketPath: socketPath,
+                explicitPassword: explicitPassword
+            )
         default:
             if subcommand.hasPrefix("-") {
                 throw CLIError(message: "Unknown themes subcommand '\(subcommand)'. Run 'cmux themes --help'.")
@@ -207,7 +272,9 @@ extension CMUXCLI {
 
             try runThemesSet(
                 args: commandArgs,
-                jsonOutput: jsonOutput
+                jsonOutput: jsonOutput,
+                socketPath: socketPath,
+                explicitPassword: explicitPassword
             )
         }
     }
@@ -265,7 +332,12 @@ extension CMUXCLI {
         }
     }
 
-    private func runThemesSet(args: [String], jsonOutput: Bool) throws {
+    private func runThemesSet(
+        args: [String],
+        jsonOutput: Bool,
+        socketPath: String,
+        explicitPassword: String?
+    ) throws {
         let (lightOpt, rem0) = parseOption(args, name: "--light")
         let (darkOpt, rem1) = parseOption(rem0, name: "--dark")
 
@@ -300,7 +372,10 @@ extension CMUXCLI {
         }
 
         let configURL = try writeManagedThemeOverride(rawThemeValue: rawThemeValue)
-        let reloadStatus = reloadThemesIfPossible()
+        let reloadStatus = reloadThemesIfPossible(
+            socketPath: socketPath,
+            explicitPassword: explicitPassword
+        )
 
         if jsonOutput {
             let payload: [String: Any] = [
@@ -321,9 +396,16 @@ extension CMUXCLI {
         )
     }
 
-    private func runThemesClear(jsonOutput: Bool) throws {
+    private func runThemesClear(
+        jsonOutput: Bool,
+        socketPath: String,
+        explicitPassword: String?
+    ) throws {
         let configURL = try clearManagedThemeOverride()
-        let reloadStatus = reloadThemesIfPossible()
+        let reloadStatus = reloadThemesIfPossible(
+            socketPath: socketPath,
+            explicitPassword: explicitPassword
+        )
 
         if jsonOutput {
             let payload: [String: Any] = [

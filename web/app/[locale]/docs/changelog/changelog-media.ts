@@ -26,6 +26,37 @@ export interface VersionMedia {
 }
 
 export const changelogMedia: Record<string, VersionMedia> = {
+  "0.64.7": {
+    title:
+      "Grok Build CLI, Browser Memory & Background Preload, Conversation Forks",
+    features: [
+      {
+        title: "Grok Build CLI Integration",
+        description:
+          "Grok Build joins the supported coding-agent lineup with notifications, task manager attribution, and session restore, the same way Claude, Codex, and Gemini already work in cmux.",
+      },
+      {
+        title: "Browser Memory Reclaim and Background Preload",
+        description:
+          "Hidden browser webviews can now discard their renderer process to release memory and reappear instantly when you switch back. CLI-created browser panes preload offscreen so the page is ready the moment the workspace becomes visible. Thanks @lidge-jun for the community contributions.",
+      },
+      {
+        title: "Agent Conversation Forks",
+        description:
+          "New socket commands let you fork an agent conversation off its current turn, so you can branch into a what-if without losing the original thread.",
+      },
+      {
+        title: "Crash Diagnostics from Notifications",
+        description:
+          "When cmux logs a crash, the notification now opens directly into the crash diagnostics view so you can inspect the breadcrumb trail without digging through state.",
+      },
+      {
+        title: "Bug Fixes",
+        description:
+          "Fixes for browser deep-link popups (slack://, discord://, zoom://), Cmd-click reload duplicating browser tabs, omnibar arrow key focus races, light-theme foreground rendering with conditional themes, Cmd-hover bounds for spaced file paths, markdown viewer image rendering, surface tab bar action button clipping, task manager attribution, SSH pane sibling kills, background workspace PTY startup, browser IME candidate windows for Japanese / Zhuyin, ripgrep resolution on Nix installs, and Claude sidebar resume config dir overrides.",
+      },
+    ],
+  },
   "0.64.6": {
     title: "SSH Typing Restored, Command Palette Settings Toggles",
     features: [

@@ -226,6 +226,7 @@ extension Workspace {
         let hasWorkspaceUnreadIndicator =
             (notificationStore?.hasUnreadNotification(forTabId: id, surfaceId: nil) ?? false) ||
             (notificationStore?.hasRestoredUnreadIndicator(forTabId: id) ?? false)
+        let workspaceNotificationSnapshots = notificationSnapshots(surfaceId: nil)
 
         return SessionWorkspaceSnapshot(
             processTitle: processTitle,
@@ -235,6 +236,7 @@ extension Workspace {
             isPinned: isPinned,
             isManuallyUnread: isWorkspaceManuallyUnread,
             hasUnreadIndicator: hasWorkspaceUnreadIndicator,
+            notifications: workspaceNotificationSnapshots.isEmpty ? nil : workspaceNotificationSnapshots,
             terminalScrollBarHidden: terminalScrollBarHidden ? true : nil,
             currentDirectory: currentDirectory,
             focusedPanelId: focusedPanelId,
@@ -329,11 +331,18 @@ extension Workspace {
         }
         let isWorkspaceManuallyUnread = snapshot.isManuallyUnread == true
         restoreWorkspaceManualUnread(isWorkspaceManuallyUnread)
-        if snapshot.hasUnreadIndicator == true {
+        let restoredNotifications = restoredSessionNotifications(
+            from: snapshot,
+            oldToNewPanelIds: oldToNewPanelIds
+        )
+        let hasUnreadWorkspaceNotification = snapshot.notifications?.contains { !$0.isRead } == true
+        if snapshot.hasUnreadIndicator == true, !hasUnreadWorkspaceNotification {
             AppDelegate.shared?.notificationStore?.restoreUnreadIndicator(forTabId: id)
         } else {
             AppDelegate.shared?.notificationStore?.clearRestoredUnreadIndicator(forTabId: id)
         }
+        AppDelegate.shared?.notificationStore?.restoreSessionNotifications(restoredNotifications, forTabId: id)
+        syncUnreadBadgeStateForAllPanels()
     }
 
     private func sessionLayoutSnapshot(from node: ExternalTreeNode) -> SessionWorkspaceLayoutSnapshot {
@@ -438,6 +447,7 @@ extension Workspace {
         }()
         let isPinned = pinnedPanelIds.contains(panelId)
         let isManuallyUnread = manualUnreadPanelIds.contains(panelId)
+        let panelNotificationSnapshots = notificationSnapshots(surfaceId: panelId)
         let hasUnreadIndicator =
             restoredUnreadPanelIds.contains(panelId) ||
             hasUnreadNotification(panelId: panelId)
@@ -463,9 +473,20 @@ extension Workspace {
             let restorableTmuxStartCommand = effectiveRestorableAgent == nil
                 ? Self.restorableTmuxStartCommand(terminalPanel.surface.debugTmuxStartCommand())
                 : nil
+            let agentWasRunning: Bool? = {
+                guard effectiveRestorableAgent != nil else { return nil }
+                switch panelShellActivityStates[panelId] {
+                case .some(.commandRunning):
+                    return true
+                case .some(.promptIdle):
+                    return false
+                case .some(.unknown), .none:
+                    return nil
+                }
+            }()
             let resumeStartupInput = Self.surfaceResumeStartupInput(
                 resumeBinding,
-                autoResumeAgentSessions: AgentSessionAutoResumeSettings.isEnabled(),
+                autoResumeAgentSessions: AgentSessionAutoResumeSettings.isEnabled() && (agentWasRunning ?? true),
                 promptForApproval: false
             )
             let shouldPersistScrollback = Self.shouldPersistSessionScrollback(
@@ -499,7 +520,8 @@ extension Workspace {
                 scrollback: resolvedScrollback,
                 agent: effectiveRestorableAgent,
                 tmuxStartCommand: restorableTmuxStartCommand,
-                resumeBinding: resumeBinding
+                resumeBinding: resumeBinding,
+                wasAgentRunning: agentWasRunning
             )
             browserSnapshot = nil
             markdownSnapshot = nil
@@ -553,6 +575,7 @@ extension Workspace {
             isPinned: isPinned,
             isManuallyUnread: isManuallyUnread,
             hasUnreadIndicator: hasUnreadIndicator,
+            notifications: panelNotificationSnapshots.isEmpty ? nil : panelNotificationSnapshots,
             gitBranch: branchSnapshot,
             listeningPorts: listeningPorts,
             ttyName: ttyName,
@@ -884,9 +907,13 @@ extension Workspace {
             let resumeBinding = snapshot.terminal?.resumeBinding
             let restorableAgent = snapshot.terminal?.agent
             let autoResumeAgentSessions = AgentSessionAutoResumeSettings.isEnabled()
+            // Only auto-resume if the agent was actively running when the snapshot was saved.
+            // wasAgentRunning == nil means a legacy snapshot; treat as true for backwards compatibility.
+            let agentWasRunningAtQuit = snapshot.terminal?.wasAgentRunning ?? true
+            let shouldAutoResumeAgent = autoResumeAgentSessions && agentWasRunningAtQuit
             let restoredBindingInput = Self.surfaceResumeStartupInput(
                 resumeBinding,
-                autoResumeAgentSessions: autoResumeAgentSessions,
+                autoResumeAgentSessions: shouldAutoResumeAgent,
                 allowLauncherScript: true
             )
             let effectiveResumeBinding = restoredBindingInput == nil ? nil : resumeBinding
@@ -912,7 +939,7 @@ extension Workspace {
                 tmuxStartCommand: restoredTmuxStartCommand,
                 resumeStartupInput: restoredBindingInput
             )
-            let restoredAgentResumeInput = autoResumeAgentSessions
+            let restoredAgentResumeInput = shouldAutoResumeAgent
                 ? (restoredBindingInput == nil ? restorableAgent?.resumeStartupInput() : nil)
                 : nil
             let restoredStartupInput = restoredBindingInput ?? restoredAgentResumeInput
@@ -1045,7 +1072,8 @@ extension Workspace {
         } else {
             clearManualUnread(panelId: panelId)
         }
-        if snapshot.hasUnreadIndicator == true {
+        if snapshot.hasUnreadIndicator == true,
+           snapshot.notifications?.contains(where: { !$0.isRead }) != true {
             restorePanelUnreadIndicator(panelId)
         } else {
             clearRestoredUnreadIndicator(panelId: panelId)
@@ -1096,6 +1124,36 @@ extension Workspace {
             notificationStore.clearManualUnread(forTabId: id)
         }
         syncUnreadBadgeStateForAllPanels()
+    }
+
+    private func notificationSnapshots(surfaceId: UUID?) -> [SessionNotificationSnapshot] {
+        AppDelegate.shared?.notificationStore?
+            .notifications(forTabId: id, surfaceId: surfaceId)
+            .map(SessionNotificationSnapshot.init(notification:)) ?? []
+    }
+
+    private func restoredSessionNotifications(
+        from snapshot: SessionWorkspaceSnapshot,
+        oldToNewPanelIds: [UUID: UUID]
+    ) -> [TerminalNotification] {
+        var notifications = (snapshot.notifications ?? []).map {
+            $0.terminalNotification(tabId: id, surfaceId: nil, panelId: nil)
+        }
+
+        for panelSnapshot in snapshot.panels {
+            guard let newPanelId = oldToNewPanelIds[panelSnapshot.id] else { continue }
+            notifications.append(
+                contentsOf: (panelSnapshot.notifications ?? []).map {
+                    $0.terminalNotification(
+                        tabId: id,
+                        surfaceId: newPanelId,
+                        panelId: newPanelId
+                    )
+                }
+            )
+        }
+
+        return notifications
     }
 
     private func applySessionDividerPositions(
@@ -1156,7 +1214,9 @@ extension Workspace {
 
         case .split(let split):
             guard split.children.count == 2 else {
+                #if DEBUG
                 NSLog("[CmuxConfig] split node requires exactly 2 children, got %d", split.children.count)
+                #endif
                 leaves.append((paneId: paneId, surfaces: []))
                 return
             }
@@ -1368,7 +1428,9 @@ extension Workspace {
                 }
 
                 self.removePendingTerminalInputObserver(registration, forPanelId: panelId)
+                #if DEBUG
                 NSLog("[CmuxConfig] surface not ready after 3s, dropping command (%d chars)", text.count)
+                #endif
             }
         }
     }
@@ -7296,10 +7358,15 @@ struct ClosedBrowserPanelRestoreSnapshot {
 final class Workspace: Identifiable, ObservableObject {
     enum BrowserPanelCreationPolicy {
         case userInitiated
+        case automationPreload
         case restoration
 
         var permitsCreationWhenBrowserDisabled: Bool {
             self == .restoration
+        }
+
+        var preloadsInitialNavigationInBackground: Bool {
+            self == .automationPreload
         }
     }
 
@@ -8816,8 +8883,18 @@ final class Workspace: Identifiable, ObservableObject {
     }
 
     func applyProcessTitle(_ title: String) {
-        processTitle = title
+        if processTitle != title {
+            processTitle = title
+        }
         guard customTitle == nil else { return }
+        guard self.title != title else { return }
+#if DEBUG
+        cmuxDebugLog(
+            "workspace.title.applyProcess workspace=\(id.uuidString.prefix(5)) " +
+            "from=\"\(debugWorkspaceDescriptionPreview(self.title, limit: 80))\" " +
+            "to=\"\(debugWorkspaceDescriptionPreview(title, limit: 80))\""
+        )
+#endif
         self.title = title
     }
 
@@ -9194,10 +9271,13 @@ final class Workspace: Identifiable, ObservableObject {
         let trimmed = title.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !trimmed.isEmpty else { return false }
         var didMutate = false
+        var didMutatePanelTitle = false
+        var didMutateWorkspaceTitle = false
 
         if panelTitles[panelId] != trimmed {
             panelTitles[panelId] = trimmed
             didMutate = true
+            didMutatePanelTitle = true
         }
 
         // Update bonsplit tab title only when this panel's title changed.
@@ -9218,12 +9298,23 @@ final class Workspace: Identifiable, ObservableObject {
             if self.title != trimmed {
                 self.title = trimmed
                 didMutate = true
+                didMutateWorkspaceTitle = true
             }
             if processTitle != trimmed {
                 processTitle = trimmed
             }
         }
 
+#if DEBUG
+        if didMutate {
+            cmuxDebugLog(
+                "workspace.title.updatePanel workspace=\(id.uuidString.prefix(5)) " +
+                "panel=\(panelId.uuidString.prefix(5)) panels=\(panels.count) custom=\(customTitle == nil ? 0 : 1) " +
+                "panelChanged=\(didMutatePanelTitle ? 1 : 0) workspaceChanged=\(didMutateWorkspaceTitle ? 1 : 0) " +
+                "title=\"\(debugWorkspaceDescriptionPreview(trimmed, limit: 80))\""
+            )
+        }
+#endif
         return didMutate
     }
 
@@ -9437,7 +9528,7 @@ final class Workspace: Identifiable, ObservableObject {
     }
 
     func sidebarStatusEntriesInDisplayOrder() -> [SidebarStatusEntry] {
-        statusEntries.values.sorted { lhs, rhs in
+        sidebarStatusEntriesVisibleForDisplay().sorted { lhs, rhs in
             if lhs.priority != rhs.priority { return lhs.priority > rhs.priority }
             if lhs.timestamp != rhs.timestamp { return lhs.timestamp > rhs.timestamp }
             return lhs.key < rhs.key
@@ -10643,6 +10734,7 @@ final class Workspace: Identifiable, ObservableObject {
             ),
             initialURL: url,
             renderInitialNavigation: browserEnabled || creationPolicy != .restoration,
+            preloadInitialNavigationInBackground: creationPolicy.preloadsInitialNavigationInBackground,
             proxyEndpoint: remoteProxyEndpoint,
             isRemoteWorkspace: isRemoteWorkspace,
             remoteWebsiteDataStoreIdentifier: isRemoteWorkspace ? id : nil
@@ -10736,6 +10828,7 @@ final class Workspace: Identifiable, ObservableObject {
             initialURL: url,
             initialRequest: initialRequest,
             renderInitialNavigation: browserEnabled || creationPolicy != .restoration,
+            preloadInitialNavigationInBackground: creationPolicy.preloadsInitialNavigationInBackground,
             bypassInsecureHTTPHostOnce: bypassInsecureHTTPHostOnce,
             proxyEndpoint: remoteProxyEndpoint,
             isRemoteWorkspace: isRemoteWorkspace,
@@ -12303,9 +12396,9 @@ final class Workspace: Identifiable, ObservableObject {
         requestAttentionFlash(panelId: panelId, reason: .notificationDismiss)
     }
 
-    func triggerManualUnreadDismissFlash(panelId: UUID) {
+    func triggerUnreadIndicatorDismissFlash(panelId: UUID) {
         guard terminalPanel(for: panelId) != nil else { return }
-        requestAttentionFlash(panelId: panelId, reason: .manualUnreadDismiss)
+        requestAttentionFlash(panelId: panelId, reason: .unreadIndicatorDismiss)
     }
 
     func triggerDebugFlash(panelId: UUID) {
