@@ -2318,6 +2318,7 @@ enum KeyboardShortcutRecorderActivity {
 
 #if DEBUG
     static func resetForTesting(center: NotificationCenter = .default) {
+        // Keep test isolation from broadcasting stop-all UI notifications into unrelated live windows.
         let wasActive = isAnyRecorderActive
         activeRecorderCount = 0
         if wasActive {
