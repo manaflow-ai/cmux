@@ -359,8 +359,8 @@ final class WorkspaceManualUnreadTests: XCTestCase {
 
         let workspace = try XCTUnwrap(manager.selectedWorkspace)
         let panelId = try XCTUnwrap(workspace.focusedPanelId)
-        let liveSurfaceId = UUID()
-        workspace.surfaceIdToPanelId[TabID(uuid: liveSurfaceId)] = panelId
+        let liveSurfaceId = try XCTUnwrap(workspace.surfaceIdFromPanelId(panelId)?.uuid)
+        XCTAssertNotEqual(liveSurfaceId, panelId)
         workspace.markPanelUnread(panelId)
         workspace.restorePanelUnreadIndicator(panelId)
         store.replaceNotificationsForTesting([
