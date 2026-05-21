@@ -11,9 +11,10 @@ extension TabManager {
             notificationStore?.clearNotifications(forTabId: workspace.id)
             workspace.teardownAllPanels()
             workspace.teardownRemoteConnection()
-            workspace.owningTabManager = nil
         }
-        tabs.removeAll(keepingCapacity: false)
-        selectedTabId = nil
+        if let firstWorkspace = tabs.first,
+           selectedTabId == nil || !tabs.contains(where: { $0.id == selectedTabId }) {
+            selectedTabId = firstWorkspace.id
+        }
     }
 }
