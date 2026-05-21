@@ -516,6 +516,21 @@ public enum CmuxExtensionSidebarEvent: Codable, Equatable, Sendable {
 }
 
 public struct CmuxExtensionSidebarReducer {
+    public static func requiresSnapshotReplacement(after frame: CmuxExtensionEventFrame) -> Bool {
+        switch frame.name {
+        case "notification.created":
+            return redactedFields(from: frame.payload).contains { field in
+                field == "title" || field == "subtitle" || field == "body"
+            }
+
+        case "notification.read", "notification.cleared", "notification.removed":
+            return true
+
+        default:
+            return frame.name.hasPrefix("sidebar.")
+        }
+    }
+
     public static func reduce(
         _ snapshot: CmuxExtensionSidebarSnapshot,
         event: CmuxExtensionSidebarEvent
@@ -654,6 +669,42 @@ public struct CmuxExtensionSidebarReducer {
             next.workspaces[index].latestSubmittedMessage = prompt
             next.workspaces[index].latestSubmittedAt = frame.occurredAt
 
+        case "notification.created":
+            guard let workspaceId = resolvedWorkspaceId(frame),
+                  let index = next.workspaces.firstIndex(where: { $0.id == workspaceId }) else {
+                return next
+            }
+            let isRead = frame.payload["is_read"]?.boolValue ?? false
+            if !isRead {
+                next.workspaces[index].unreadCount += 1
+            }
+            next.workspaces[index].latestNotificationText = notificationText(from: frame.payload)
+
+        case "notification.read", "notification.cleared":
+            guard let workspaceId = resolvedWorkspaceId(frame),
+                  let index = next.workspaces.firstIndex(where: { $0.id == workspaceId }) else {
+                return next
+            }
+            let nextUnreadCount = max(0, next.workspaces[index].unreadCount - notificationCount(from: frame.payload))
+            next.workspaces[index].unreadCount = nextUnreadCount
+            if nextUnreadCount == 0 {
+                next.workspaces[index].latestNotificationText = nil
+            }
+
+        case "notification.removed":
+            guard let workspaceId = resolvedWorkspaceId(frame),
+                  let index = next.workspaces.firstIndex(where: { $0.id == workspaceId }) else {
+                return next
+            }
+            let wasRead = frame.payload["is_read"]?.boolValue ?? false
+            if !wasRead {
+                next.workspaces[index].unreadCount = max(0, next.workspaces[index].unreadCount - 1)
+            }
+            if next.workspaces[index].unreadCount == 0
+                || notificationText(from: frame.payload) == next.workspaces[index].latestNotificationText {
+                next.workspaces[index].latestNotificationText = nil
+            }
+
         default:
             break
         }
@@ -742,6 +793,26 @@ public struct CmuxExtensionSidebarReducer {
             return title
         }
         return params?["custom_title"]?.stringValue
+    }
+
+    private static func notificationText(from payload: [String: CmuxExtensionJSONValue]) -> String? {
+        normalizedPrompt(payload["body"]?.stringValue)
+            ?? normalizedPrompt(payload["title"]?.stringValue)
+            ?? normalizedPrompt(payload["subtitle"]?.stringValue)
+    }
+
+    private static func notificationCount(from payload: [String: CmuxExtensionJSONValue]) -> Int {
+        if let count = payload["count"]?.intValue {
+            return max(0, count)
+        }
+        if let ids = payload["notification_ids"]?.arrayValue {
+            return ids.count
+        }
+        return 1
+    }
+
+    private static func redactedFields(from payload: [String: CmuxExtensionJSONValue]) -> Set<String> {
+        Set(payload["redacted_fields"]?.stringArrayValue ?? [])
     }
 }
 
@@ -1103,12 +1174,23 @@ private extension CmuxExtensionJSONValue {
         return value
     }
 
+    var arrayValue: [CmuxExtensionJSONValue]? {
+        guard case .array(let value) = self else { return nil }
+        return value
+    }
+
+    var stringArrayValue: [String]? {
+        guard let values = arrayValue else { return nil }
+        let strings = values.compactMap(\.stringValue)
+        return strings.count == values.count ? strings : nil
+    }
+
     var uuidValue: UUID? {
         stringValue.flatMap(UUID.init(uuidString:))
     }
 
     var uuidArrayValue: [UUID]? {
-        guard case .array(let values) = self else { return nil }
+        guard let values = arrayValue else { return nil }
         let ids = values.compactMap(\.uuidValue)
         return ids.count == values.count ? ids : nil
     }

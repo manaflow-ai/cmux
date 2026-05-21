@@ -409,6 +409,105 @@ final class CmuxExtensionKitTests: XCTestCase {
         XCTAssertEqual(closedSnapshot.workspaces.map(\.id), [first.id])
     }
 
+    func testNotificationCreatedEventUpdatesUnreadProjection() {
+        let workspace = workspace(title: "API", rootPath: "/tmp/cmux/api", projectRootPath: "/tmp/cmux")
+        let snapshot = CmuxExtensionSidebarSnapshot(
+            sequence: 30,
+            selectedWorkspaceId: workspace.id,
+            workspaces: [workspace]
+        )
+        let event = CmuxExtensionEventFrame(
+            sequence: 31,
+            name: "notification.created",
+            category: "notification",
+            source: "notification.store",
+            occurredAt: Date(timeIntervalSinceReferenceDate: 7),
+            workspaceId: workspace.id,
+            payload: [
+                "notification_id": .string(UUID().uuidString),
+                "workspace_id": .string(workspace.id.uuidString),
+                "title": .string("Done"),
+                "body": .string("  build   passed  "),
+                "is_read": .bool(false)
+            ]
+        )
+
+        let updated = CmuxExtensionSidebarReducer.reduce(snapshot, event: event)
+
+        XCTAssertFalse(CmuxExtensionSidebarReducer.requiresSnapshotReplacement(after: event))
+        XCTAssertEqual(updated.sequence, 31)
+        XCTAssertEqual(updated.workspaces[0].unreadCount, 1)
+        XCTAssertEqual(updated.workspaces[0].latestNotificationText, "build passed")
+    }
+
+    func testNotificationReadEventUpdatesUnreadProjection() {
+        var workspace = workspace(title: "API", rootPath: "/tmp/cmux/api", projectRootPath: "/tmp/cmux")
+        workspace.unreadCount = 2
+        workspace.latestNotificationText = "done"
+        let snapshot = CmuxExtensionSidebarSnapshot(
+            sequence: 31,
+            selectedWorkspaceId: workspace.id,
+            workspaces: [workspace]
+        )
+        let event = CmuxExtensionEventFrame(
+            sequence: 32,
+            name: "notification.read",
+            category: "notification",
+            source: "notification.store",
+            occurredAt: Date(timeIntervalSinceReferenceDate: 8),
+            workspaceId: workspace.id,
+            payload: [
+                "notification_ids": .array([.string(UUID().uuidString), .string(UUID().uuidString)]),
+                "count": .number(2)
+            ]
+        )
+
+        let updated = CmuxExtensionSidebarReducer.reduce(snapshot, event: event)
+
+        XCTAssertTrue(CmuxExtensionSidebarReducer.requiresSnapshotReplacement(after: event))
+        XCTAssertEqual(updated.sequence, 32)
+        XCTAssertEqual(updated.workspaces[0].unreadCount, 0)
+        XCTAssertNil(updated.workspaces[0].latestNotificationText)
+    }
+
+    func testRedactedNotificationAndSidebarEventsRequireSnapshotReplacement() {
+        let workspaceId = UUID()
+        let redactedNotification = CmuxExtensionEventFrame(
+            sequence: 40,
+            name: "notification.created",
+            category: "notification",
+            source: "notification.store",
+            occurredAt: Date(timeIntervalSinceReferenceDate: 9),
+            workspaceId: workspaceId,
+            payload: [
+                "title": .null,
+                "body": .null,
+                "redacted_fields": .array([.string("title"), .string("body")])
+            ]
+        )
+        let sidebarMetadata = CmuxExtensionEventFrame(
+            sequence: 41,
+            name: "sidebar.metadata.updated",
+            category: "sidebar",
+            source: "socket.v1",
+            occurredAt: Date(timeIntervalSinceReferenceDate: 10),
+            workspaceId: workspaceId
+        )
+        let promptSubmitted = CmuxExtensionEventFrame(
+            sequence: 42,
+            name: "workspace.prompt.submitted",
+            category: "workspace",
+            source: "workspace.prompt_submit",
+            occurredAt: Date(timeIntervalSinceReferenceDate: 11),
+            workspaceId: workspaceId,
+            payload: ["message_preview": .string("ship")]
+        )
+
+        XCTAssertTrue(CmuxExtensionSidebarReducer.requiresSnapshotReplacement(after: redactedNotification))
+        XCTAssertTrue(CmuxExtensionSidebarReducer.requiresSnapshotReplacement(after: sidebarMetadata))
+        XCTAssertFalse(CmuxExtensionSidebarReducer.requiresSnapshotReplacement(after: promptSubmitted))
+    }
+
     private func workspace(
         title: String,
         rootPath: String?,

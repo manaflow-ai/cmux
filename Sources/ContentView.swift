@@ -10065,7 +10065,11 @@ struct VerticalTabsSidebar: View {
             latestSubmittedMessage: workspace.latestSubmittedMessage,
             latestSubmittedAt: workspace.latestSubmittedAt,
             listeningPorts: workspace.listeningPorts,
-            pullRequestURLs: workspace.sidebarPullRequestsInDisplayOrder().map { $0.url.absoluteString }
+            pullRequestURLs: workspace.sidebarPullRequestsInDisplayOrder().map { $0.url.absoluteString },
+            panelDirectories: workspace.sidebarDirectoriesInDisplayOrder(),
+            gitBranches: workspace.sidebarGitBranchesInDisplayOrder().map {
+                CmuxExtensionGitBranchSnapshot(branch: $0.branch, isDirty: $0.isDirty)
+            }
         )
     }
 

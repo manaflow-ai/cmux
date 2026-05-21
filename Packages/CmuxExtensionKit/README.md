@@ -8,8 +8,10 @@ window presentation, and mutation dispatch.
 State sync has two parts:
 
 1. Bootstrap with `extension.sidebar.snapshot`.
-2. Subscribe to `cmux events`, then reduce frames with
-   `CmuxExtensionSidebarReducer.reduce(_:event:)`.
+2. Subscribe to `cmux events`.
+3. If `CmuxExtensionSidebarReducer.requiresSnapshotReplacement(after:)` returns
+   `true`, fetch a fresh `extension.sidebar.snapshot`. Otherwise reduce frames
+   with `CmuxExtensionSidebarReducer.reduce(_:event:)`.
 
 That keeps virtualized rows cheap: rows receive immutable render values and
 closures, not workspace stores.
