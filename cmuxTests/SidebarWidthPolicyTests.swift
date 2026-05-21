@@ -65,6 +65,36 @@ final class SidebarWidthPolicyTests: XCTestCase {
         )
     }
 
+    func testRightSidebarClampAccountsForVisibleLeftSidebar() {
+        XCTAssertEqual(
+            ContentView.clampedRightSidebarWidth(
+                10_000,
+                availableWidth: 400,
+                leadingSidebarWidth: 200
+            ),
+            200,
+            accuracy: 0.001
+        )
+    }
+
+    func testRightSidebarPreferredWidthIgnoresTemporaryWindowClamps() {
+        XCTAssertEqual(
+            ContentView.clampedRightSidebarPreferredWidth(900),
+            900,
+            accuracy: 0.001
+        )
+        XCTAssertEqual(
+            ContentView.clampedRightSidebarPreferredWidth(10_000),
+            1200,
+            accuracy: 0.001
+        )
+        XCTAssertEqual(
+            ContentView.clampedRightSidebarPreferredWidth(20),
+            276,
+            accuracy: 0.001
+        )
+    }
+
     func testLeadingSidebarResizeRangeFavorsSidebarSide() {
         let range = SidebarResizeInteraction.Edge.leading.hitRange(dividerX: 200)
 

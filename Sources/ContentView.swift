@@ -1620,7 +1620,7 @@ struct ContentView: View {
                 },
                 finishDrag: {
                     fileExplorerDragStartWidth = nil
-                    fileExplorerState.width = fileExplorerWidth
+                    fileExplorerState.width = Self.clampedRightSidebarPreferredWidth(fileExplorerWidth)
                 }
             )
         }
@@ -1675,6 +1675,15 @@ struct ContentView: View {
             minimumWidth: minimumWidth,
             maximumWidth: maximumWidth,
             fallbackWidth: minimumWidth
+        )
+    }
+
+    static func clampedRightSidebarPreferredWidth(_ candidate: CGFloat) -> CGFloat {
+        clampedSidebarDimension(
+            candidate,
+            minimumWidth: Self.minimumRightSidebarWidth,
+            maximumWidth: Self.maximumRightSidebarWidth,
+            fallbackWidth: Self.minimumRightSidebarWidth
         )
     }
 
@@ -1738,13 +1747,17 @@ struct ContentView: View {
         )
     }
 
+    private func normalizedRightSidebarPreferredWidth(_ candidate: CGFloat) -> CGFloat {
+        Self.clampedRightSidebarPreferredWidth(candidate)
+    }
+
     private func clampRightSidebarWidthIfNeeded(availableWidth: CGFloat? = nil) {
-        let nextWidth = normalizedRightSidebarWidth(fileExplorerWidth, availableWidth: availableWidth)
+        let preferredWidth = normalizedRightSidebarPreferredWidth(fileExplorerState.width)
+        let nextWidth = normalizedRightSidebarWidth(preferredWidth, availableWidth: availableWidth)
         guard abs(nextWidth - fileExplorerWidth) > 0.5 else { return }
         withTransaction(Transaction(animation: nil)) {
             fileExplorerWidth = nextWidth
         }
-        fileExplorerState.width = nextWidth
     }
 
     private func activateSidebarResizerCursor() {
@@ -2222,24 +2235,23 @@ struct ContentView: View {
         .accessibilityHidden(!rightSidebarVisible)
         .transaction { $0.animation = nil }
         .onAppear {
-            let sanitized = normalizedRightSidebarWidth(fileExplorerState.width)
-            fileExplorerWidth = sanitized
-            if abs(fileExplorerState.width - sanitized) > 0.5 {
+            let preferredWidth = normalizedRightSidebarPreferredWidth(fileExplorerState.width)
+            fileExplorerWidth = normalizedRightSidebarWidth(preferredWidth)
+            if !fileExplorerState.width.isFinite || abs(fileExplorerState.width - preferredWidth) > 0.5 {
                 DispatchQueue.main.async {
-                    fileExplorerState.width = sanitized
+                    fileExplorerState.width = preferredWidth
                 }
             }
         }
         .onChange(of: fileExplorerState.width) { newValue in
             if fileExplorerDragStartWidth == nil {
-                let sanitized = normalizedRightSidebarWidth(newValue)
-                if abs(newValue - sanitized) > 0.5 {
+                let preferredWidth = normalizedRightSidebarPreferredWidth(newValue)
+                fileExplorerWidth = normalizedRightSidebarWidth(preferredWidth)
+                if !newValue.isFinite || abs(newValue - preferredWidth) > 0.5 {
                     DispatchQueue.main.async {
-                        fileExplorerState.width = sanitized
+                        fileExplorerState.width = preferredWidth
                     }
-                    return
                 }
-                fileExplorerWidth = sanitized
             }
         }
     }
