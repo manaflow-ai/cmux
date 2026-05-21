@@ -1052,9 +1052,8 @@ private let agentHookWrapperProcessNames: Set<String> = [
     "env"
 ]
 
-private enum HookAgentProcessKind {
-    case codex
-    case claude
+private struct HookAgentProcessKind {
+    let identifier: String
 }
 
 private let suppressSubagentNotificationsDefaultsKey = "suppressSubagentNotifications"
@@ -14524,6 +14523,36 @@ struct CMUXCLI {
         return data.base64EncodedString()
     }
 
+    private static let managedSubagentLauncherKinds: Set<String> = {
+        var kinds = Set(agentDefs.map { $0.name.lowercased() })
+        for def in agentDefs {
+            kinds.formUnion(def.aliases.map { $0.lowercased() })
+        }
+        kinds.formUnion([
+            "claude",
+            "claudeteams",
+            "claude-teams",
+            "codexteams",
+            "codex-teams",
+            "omo",
+            "omx",
+            "omc",
+        ])
+        return kinds
+    }()
+
+    private func tmuxCompatManagedSubagentStartupEnvironment(
+        isOMXHud: Bool,
+        processEnvironment: [String: String] = ProcessInfo.processInfo.environment
+    ) -> [String: String]? {
+        guard !isOMXHud,
+              let launchKind = Self.normalizedEnvValue(processEnvironment["CMUX_AGENT_LAUNCH_KIND"])?.lowercased(),
+              Self.managedSubagentLauncherKinds.contains(launchKind) else {
+            return nil
+        }
+        return [managedSubagentEnvironmentKey: "1"]
+    }
+
     private func configureTmuxCompatEnvironment(
         processEnvironment: [String: String],
         shimDirectory: URL,
@@ -16887,6 +16916,9 @@ struct CMUXCLI {
             }
             if let startCommand = tmuxStartCommand(commandTokens: parsed.positional) {
                 splitParams["tmux_start_command"] = startCommand
+            }
+            if let startupEnvironment = tmuxCompatManagedSubagentStartupEnvironment(isOMXHud: isOMXHud) {
+                splitParams["startup_environment"] = startupEnvironment
             }
             let sizeTargetPaneId = target.paneId
                 ?? (try? tmuxResolvePaneTarget(parsed.value("-t"), client: client).paneId)
@@ -21196,28 +21228,160 @@ struct CMUXCLI {
         let nameBase = agentProcessBasename(processName)
         let executableBase = agentProcessBasename(arguments.first)
 
-        // Codex's npm/bun launcher leaves a node process above the native
-        // Codex binary. That wrapper is part of the same launch, not a
-        // parent agent, so only native Codex executables count. Claude Code
-        // can run as a node script, so keep that as an agent process.
         if nameBase == "node" || nameBase == "bun" || executableBase == "node" || executableBase == "bun" {
-            if arguments.dropFirst().contains(where: { argument in
-                let lowered = argument.lowercased()
-                return agentProcessBasename(argument) == "claude"
-                    || lowered.contains("/.claude/")
-                    || lowered.contains("/claude/versions/")
-            }) {
-                return .claude
+            if let wrappedKind = nativeAgentProcessKindFromArguments(arguments) {
+                return wrappedKind
             }
             return nil
         }
 
-        let executable = arguments.first?.lowercased() ?? ""
-        if nameBase == "codex" || executableBase == "codex" || executable.contains("/codex/codex") {
-            return .codex
+        if let kind = nativeAgentProcessKindFromBasename(nameBase)
+            ?? nativeAgentProcessKindFromBasename(executableBase) {
+            return kind
         }
-        if nameBase == "claude" || executableBase == "claude" || executable.contains("/claude/versions/") {
-            return .claude
+
+        if let argumentKind = nativeAgentProcessKindFromArguments(arguments) {
+            return argumentKind
+        }
+        return nil
+    }
+
+    private static let nativeAgentExecutableBasenames: Set<String> = {
+        var names = Set<String>()
+        for def in agentDefs {
+            names.insert(def.name)
+            names.insert(def.binaryName)
+            names.formUnion(def.aliases)
+        }
+        names.formUnion([
+            "claude",
+            "claude-code",
+            "claude_code",
+            "codex",
+            "opencode",
+            "opencode-ai",
+            "open-code",
+            "omo",
+            "omx",
+            "omc",
+            "claude-teams",
+            "codex-teams",
+            "pi-coding-agent",
+            "grok-macos-aarch64",
+            "grok-macos-aarch",
+            "cursor-agent",
+            "agy",
+            "acli",
+            "hermes",
+            "droid",
+            "qodercli",
+        ])
+        return Set(names.compactMap { agentProcessBasename($0) })
+    }()
+
+    private static let wrappedAgentArgumentNeedles: [(identifier: String, needles: [String])] = [
+        ("claude", [
+            "/.claude/",
+            "/claude/versions/",
+            "/.local/bin/claude",
+            "/.local/share/claude/versions/",
+            "/library/application support/claude/claude-code/",
+            "@anthropic-ai/claude-code",
+            "claude_code",
+            "/claude-code/",
+            "oh-my-claude",
+        ]),
+        ("codex", [
+            "/.codex/",
+            "/codex/codex",
+            "@openai/codex",
+            "/codex-cli/",
+        ]),
+        ("opencode", [
+            "/.opencode/",
+            "/opencode/",
+            "opencode-ai",
+            "open-code",
+            "oh-my-openagent",
+        ]),
+        ("pi", [
+            "@mariozechner/pi-coding-agent",
+            "pi-coding-agent",
+        ]),
+        ("omo", [
+            "oh-my-openagent",
+            "oh-my-opencode",
+        ]),
+        ("omx", [
+            "oh-my-codex",
+        ]),
+        ("omc", [
+            "oh-my-claude-sisyphus",
+        ]),
+        ("cursor", [
+            "cursor-agent",
+        ]),
+        ("gemini", [
+            "/.gemini/",
+            "gemini-cli",
+        ]),
+        ("antigravity", [
+            "/antigravity/",
+        ]),
+        ("grok", [
+            "/.grok/",
+            "grok-code",
+            "grok-build",
+            "@xai/grok",
+        ]),
+        ("amp", [
+            "/.config/amp/",
+            "sourcegraph/amp",
+            "@ampcode",
+        ]),
+        ("rovodev", [
+            "/.rovodev/",
+        ]),
+        ("hermes-agent", [
+            "/.hermes/",
+            "hermes-agent",
+        ]),
+        ("copilot", [
+            "/.copilot/",
+            "copilot-cli",
+        ]),
+        ("codebuddy", [
+            "codebuddy",
+        ]),
+        ("factory", [
+            "/.factory/",
+            "factory-ai",
+        ]),
+        ("qoder", [
+            "/.qoder/",
+            "qodercli",
+        ]),
+    ]
+
+    private static func nativeAgentProcessKindFromBasename(_ basename: String?) -> HookAgentProcessKind? {
+        guard let basename,
+              nativeAgentExecutableBasenames.contains(basename) else {
+            return nil
+        }
+        return HookAgentProcessKind(identifier: basename)
+    }
+
+    private static func nativeAgentProcessKindFromArguments(_ arguments: [String]) -> HookAgentProcessKind? {
+        for argument in arguments.dropFirst() {
+            if let kind = nativeAgentProcessKindFromBasename(agentProcessBasename(argument)) {
+                return kind
+            }
+            let lowered = argument.lowercased()
+            for wrappedKind in wrappedAgentArgumentNeedles {
+                if wrappedKind.needles.contains(where: { lowered.contains($0) }) {
+                    return HookAgentProcessKind(identifier: wrappedKind.identifier)
+                }
+            }
         }
         return nil
     }
