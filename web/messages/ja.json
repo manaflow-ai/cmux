@@ -118,6 +118,10 @@
         "p3": "Cmd+Opt+Uは現在のワークスペースの既読/未読を切り替えます。",
         "p4": "Cmd+Ctrl+Uはv0.64.5、Cmd+Opt+Uはv0.64.7で出荷されました。"
       },
+      "sessionRestore": {
+        "title": "cmuxでClaude Code、Codex、OpenCodeのセッションを再開する方法",
+        "summary": "cmuxの再起動後にClaude Code、Codex、OpenCode、Pi、Amp、Cursor CLI、Gemini、Rovo Dev、Copilot、CodeBuddy、Factory、Qoderのセッションを自動で復元します。"
+      },
       "cmdShiftU": {
         "title": "Cmd+Shift+U",
         "summary": "Cmd+Shift+Uがcmuxのワークスペース間で完了したエージェントにどうナビゲートするか。",
