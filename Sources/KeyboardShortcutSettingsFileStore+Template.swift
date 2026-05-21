@@ -141,6 +141,7 @@ extension CmuxSettingsFileStore {
                     "claudeCodeIntegration": ClaudeCodeIntegrationSettings.defaultHooksEnabled,
                     "claudeBinaryPath": "",
                     "ripgrepBinaryPath": "",
+                    "suppressSubagentNotifications": AgentSubagentNotificationSettings.defaultSuppressNotifications,
                     "cursorIntegration": CursorIntegrationSettings.defaultHooksEnabled,
                     "geminiIntegration": GeminiIntegrationSettings.defaultHooksEnabled,
                     "portBase": AutomationSettings.defaultPortBase,
