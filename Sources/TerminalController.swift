@@ -4852,24 +4852,18 @@ class TerminalController {
         }
 
         var selectedWorkspaceId: UUID?
-        var workspaceInputs: [(id: UUID, workspace: Workspace, index: Int, selected: Bool, rootPath: String?)] = []
+        var workspaceInputs: [(workspace: Workspace, index: Int, selected: Bool, rootPath: String?, projectRootPath: String?)] = []
         var workspaces: [[String: Any]] = []
         v2MainSync {
             selectedWorkspaceId = tabManager.selectedTabId
             workspaceInputs = tabManager.tabs.enumerated().map { index, workspace in
                 (
-                    id: workspace.id,
                     workspace: workspace,
                     index: index,
                     selected: workspace.id == tabManager.selectedTabId,
-                    rootPath: v2ExtensionSidebarRootPath(for: workspace)
+                    rootPath: v2ExtensionSidebarRootPath(for: workspace),
+                    projectRootPath: workspace.extensionSidebarProjectRootPath
                 )
-            }
-        }
-
-        let projectRootPathsByWorkspaceId = workspaceInputs.reduce(into: [UUID: String]()) { result, input in
-            if let projectRootPath = v2ExtensionSidebarProjectRootPath(for: input.rootPath) {
-                result[input.id] = projectRootPath
             }
         }
 
@@ -4880,7 +4874,7 @@ class TerminalController {
                     index: input.index,
                     selected: input.selected,
                     rootPath: input.rootPath,
-                    projectRootPath: projectRootPathsByWorkspaceId[input.id]
+                    projectRootPath: input.projectRootPath
                 )
             }
         }
@@ -4947,19 +4941,6 @@ class TerminalController {
     private func v2ExtensionSidebarRootPath(for workspace: Workspace) -> String? {
         let trimmed = workspace.currentDirectory.trimmingCharacters(in: .whitespacesAndNewlines)
         return trimmed.isEmpty ? nil : trimmed
-    }
-
-    private func v2ExtensionSidebarProjectRootPath(for rootPath: String?) -> String? {
-        guard let rootPath else { return nil }
-        var url = URL(fileURLWithPath: rootPath, isDirectory: true).standardizedFileURL
-        let fileManager = FileManager.default
-        while url.path != "/" {
-            if fileManager.fileExists(atPath: url.appendingPathComponent(".git").path) {
-                return url.path
-            }
-            url.deleteLastPathComponent()
-        }
-        return nil
     }
 
     private func v2WorkspaceCreate(params: [String: Any]) -> V2CallResult {

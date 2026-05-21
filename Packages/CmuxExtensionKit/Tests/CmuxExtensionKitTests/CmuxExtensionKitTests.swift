@@ -163,6 +163,41 @@ final class CmuxExtensionKitTests: XCTestCase {
         XCTAssertEqual(updated.workspaces[0].latestSubmittedAt, date)
     }
 
+    func testBlankPromptSubmittedEventDoesNotAdvanceLastMessageProjection() {
+        let existingDate = Date(timeIntervalSinceReferenceDate: 100)
+        let workspace = workspace(
+            title: "API",
+            rootPath: "/tmp/cmux/api",
+            projectRootPath: "/tmp/cmux",
+            latestSubmittedMessage: "existing",
+            latestSubmittedAt: existingDate
+        )
+        let event = CmuxExtensionEventFrame(
+            sequence: 11,
+            name: "workspace.prompt.submitted",
+            category: "workspace",
+            source: "workspace.prompt_submit",
+            occurredAt: Date(timeIntervalSinceReferenceDate: 300),
+            workspaceId: workspace.id,
+            payload: [
+                "message": .null,
+                "message_preview": .null,
+                "redacted_fields": .array([.string("message")])
+            ]
+        )
+        let snapshot = CmuxExtensionSidebarSnapshot(
+            sequence: 10,
+            selectedWorkspaceId: nil,
+            workspaces: [workspace]
+        )
+
+        let updated = CmuxExtensionSidebarReducer.reduce(snapshot, event: event)
+
+        XCTAssertEqual(updated.sequence, 11)
+        XCTAssertEqual(updated.workspaces[0].latestSubmittedMessage, "existing")
+        XCTAssertEqual(updated.workspaces[0].latestSubmittedAt, existingDate)
+    }
+
     func testWorkspacesReorderedHandlesDuplicatesAndPartialPayload() {
         let first = workspace(title: "First", rootPath: nil, projectRootPath: nil)
         let second = workspace(title: "Second", rootPath: nil, projectRootPath: nil)

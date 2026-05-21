@@ -495,7 +495,8 @@ public struct CmuxExtensionSidebarReducer {
             let message = frame.payload["message_preview"]?.stringValue
                 ?? frame.payload["prompt"]?.stringValue
                 ?? frame.payload["message"]?.stringValue
-            next.workspaces[index].latestSubmittedMessage = normalizedPrompt(message)
+            guard let prompt = normalizedPrompt(message) else { return next }
+            next.workspaces[index].latestSubmittedMessage = prompt
             next.workspaces[index].latestSubmittedAt = frame.occurredAt
 
         default:

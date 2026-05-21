@@ -11069,12 +11069,50 @@ private struct CmuxExtensionWorktreeCreationResult: Sendable {
     let initialCommand: String
 }
 
+private final class CmuxExtensionProcessTermination: @unchecked Sendable {
+    private let lock = NSLock()
+    private var status: Int32?
+    private var continuation: CheckedContinuation<Int32, Never>?
+
+    func complete(_ status: Int32) {
+        let continuation: CheckedContinuation<Int32, Never>?
+        lock.lock()
+        if let pendingContinuation = self.continuation {
+            self.continuation = nil
+            continuation = pendingContinuation
+        } else {
+            self.status = status
+            continuation = nil
+        }
+        lock.unlock()
+        continuation?.resume(returning: status)
+    }
+
+    func wait() async -> Int32 {
+        await withCheckedContinuation { continuation in
+            let completedStatus: Int32?
+            lock.lock()
+            if let status {
+                completedStatus = status
+            } else {
+                self.continuation = continuation
+                completedStatus = nil
+            }
+            lock.unlock()
+
+            if let completedStatus {
+                continuation.resume(returning: completedStatus)
+            }
+        }
+    }
+}
+
 private enum CmuxExtensionWorktreePrototype {
     static func createWorktree(projectRootPath: String) async throws -> CmuxExtensionWorktreeCreationResult {
         try await Task.detached(priority: .userInitiated) {
             let projectRoot = URL(fileURLWithPath: projectRootPath, isDirectory: true).standardizedFileURL
             try FileManager.default.createDirectory(at: projectRoot, withIntermediateDirectories: true)
-            try ensureGitRepository(at: projectRoot)
+            try await ensureGitRepository(at: projectRoot)
 
             let branchName = "cmux-sidebar-\(Int(Date().timeIntervalSince1970))"
             let worktreeRoot = projectRoot
@@ -11082,7 +11120,7 @@ private enum CmuxExtensionWorktreePrototype {
                 .appendingPathComponent("worktrees", isDirectory: true)
             try FileManager.default.createDirectory(at: worktreeRoot, withIntermediateDirectories: true)
             let worktree = worktreeRoot.appendingPathComponent(branchName, isDirectory: true)
-            try run("git", ["-C", projectRoot.path, "worktree", "add", "-b", branchName, worktree.path, "HEAD"])
+            try await run("git", ["-C", projectRoot.path, "worktree", "add", "-b", branchName, worktree.path, "HEAD"])
             try writeSampleDevServerFiles(in: worktree, projectName: projectRoot.lastPathComponent)
 
             let port = 4_100 + abs(branchName.hashValue % 800)
@@ -11095,8 +11133,8 @@ private enum CmuxExtensionWorktreePrototype {
         }.value
     }
 
-    private static func ensureGitRepository(at projectRoot: URL) throws {
-        if (try? run("git", ["-C", projectRoot.path, "rev-parse", "--is-inside-work-tree"])) != nil {
+    private static func ensureGitRepository(at projectRoot: URL) async throws {
+        if (try? await run("git", ["-C", projectRoot.path, "rev-parse", "--is-inside-work-tree"])) != nil {
             return
         }
         throw NSError(
@@ -11126,23 +11164,36 @@ private enum CmuxExtensionWorktreePrototype {
         try html.write(to: sample.appendingPathComponent("index.html"), atomically: true, encoding: .utf8)
     }
 
-    private static func run(_ executable: String, _ arguments: [String]) throws {
+    private static func run(_ executable: String, _ arguments: [String]) async throws {
         let process = Process()
         process.executableURL = URL(fileURLWithPath: "/usr/bin/env")
         process.arguments = [executable] + arguments
         let pipe = Pipe()
         process.standardOutput = pipe
         process.standardError = pipe
+        let termination = CmuxExtensionProcessTermination()
+        process.terminationHandler = { process in
+            termination.complete(process.terminationStatus)
+        }
         try process.run()
-        let data = pipe.fileHandleForReading.readDataToEndOfFile()
-        process.waitUntilExit()
-        guard process.terminationStatus == 0 else {
-            let message = String(data: data, encoding: .utf8) ?? "command failed"
+        async let data = readDataToEndOfFile(from: pipe.fileHandleForReading)
+        let terminationStatus = await termination.wait()
+        let outputData = await data
+        guard terminationStatus == 0 else {
+            let message = String(data: outputData, encoding: .utf8) ?? "command failed"
             throw NSError(
                 domain: "CmuxExtensionWorktreePrototype",
-                code: Int(process.terminationStatus),
+                code: Int(terminationStatus),
                 userInfo: [NSLocalizedDescriptionKey: message]
             )
+        }
+    }
+
+    private static func readDataToEndOfFile(from fileHandle: FileHandle) async -> Data {
+        await withCheckedContinuation { continuation in
+            DispatchQueue.global(qos: .utility).async {
+                continuation.resume(returning: fileHandle.readDataToEndOfFile())
+            }
         }
     }
 
