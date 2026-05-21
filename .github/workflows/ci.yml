@@ -27,6 +27,9 @@ jobs:
       - name: Validate unit-test SwiftPM retry guard
         run: ./tests/test_ci_unit_test_spm_retry.sh
 
+      - name: Validate xcodebuild noninteractive crash prompt guard
+        run: python3 tests/test_ci_xcodebuild_noninteractive_helper.py
+
       - name: Validate cmux scheme test configuration
         run: ./tests/test_ci_scheme_testaction_debug.sh
 
@@ -248,16 +251,14 @@ jobs:
           set -euo pipefail
           SOURCE_PACKAGES_DIR="$PWD/.ci-source-packages"
           run_unit_tests() {
-            # Swift's crash backtracer can prompt on stdin after an app-host
-            # XCTest crash. Feed "q" so expected-failure crashes exit instead
-            # of blocking the runner until the job timeout.
-            xcodebuild -project cmux.xcodeproj -scheme cmux-unit -configuration Debug \
+            scripts/ci/xcodebuild_noninteractive.py \
+              xcodebuild -project cmux.xcodeproj -scheme cmux-unit -configuration Debug \
               -clonedSourcePackagesDirPath "$SOURCE_PACKAGES_DIR" \
               -disableAutomaticPackageResolution \
               -destination "platform=macOS" \
               CMUX_SKIP_ZIG_BUILD=1 \
               -skip-testing:cmuxTests/AppDelegateShortcutRoutingTests/testCmdWClosesWindowWhenClosingLastSurfaceInLastWorkspace \
-              test < <(yes q) 2>&1
+              test 2>&1
           }
 
           # Stream output via tee so CI logs are visible in real time, while still
