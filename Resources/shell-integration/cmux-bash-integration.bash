@@ -151,7 +151,7 @@ _cmux_report_pwd_if_changed() {
     local pwd_json params
     pwd_json="$(_cmux_json_escape "$pwd")"
     params="{\"workspace_id\":\"$workspace_id\",\"directory\":\"$pwd_json\",\"surface_id\":\"$CMUX_PANEL_ID\"}"
-    _cmux_relay_rpc_bg "surface.report_pwd" "$params"
+    _cmux_relay_rpc_bg "surface.report_pwd" "$params" || return 0
     _CMUX_PWD_LAST_PWD="$pwd"
 }
 
