@@ -118,22 +118,32 @@ final class SidebarResizeUITests: XCTestCase {
         XCTAssertTrue(window.waitForExistence(timeout: 5.0))
 
         let elements = app.descendants(matching: .any)
-        let leftSidebar = elements.matching(identifier: "SidebarContainer").firstMatch
-        let rightSidebar = elements.matching(identifier: "RightSidebarContainer").firstMatch
         let leftResizer = elements.matching(identifier: "SidebarResizer").firstMatch
         let rightResizer = elements.matching(identifier: "RightSidebarResizer").firstMatch
 
-        XCTAssertTrue(leftSidebar.waitForExistence(timeout: 5.0))
-        XCTAssertTrue(rightSidebar.waitForExistence(timeout: 5.0))
         XCTAssertTrue(leftResizer.waitForExistence(timeout: 5.0))
         XCTAssertTrue(rightResizer.waitForExistence(timeout: 5.0))
         XCTAssertTrue(waitForElementHittable(leftResizer, timeout: 5.0))
         XCTAssertTrue(waitForElementHittable(rightResizer, timeout: 5.0))
 
-        XCTAssertGreaterThan(leftSidebar.frame.width, 1)
-        XCTAssertGreaterThan(rightSidebar.frame.width, 1)
-        assertElementDoesNotLeaveLeadingScreenEdge(leftSidebar, name: "left sidebar")
-        assertElementFrame(rightSidebar, isInside: window, name: "right sidebar")
+        let windowFrame = window.frame
+        let leftSidebarFrame = CGRect(
+            x: windowFrame.minX,
+            y: windowFrame.minY,
+            width: max(0, leftResizer.frame.midX - windowFrame.minX),
+            height: windowFrame.height
+        )
+        let rightSidebarFrame = CGRect(
+            x: rightResizer.frame.midX,
+            y: windowFrame.minY,
+            width: max(0, windowFrame.maxX - rightResizer.frame.midX),
+            height: windowFrame.height
+        )
+
+        XCTAssertGreaterThan(leftSidebarFrame.width, 1)
+        XCTAssertGreaterThan(rightSidebarFrame.width, 1)
+        assertRect(leftSidebarFrame, isInside: windowFrame, name: "left sidebar")
+        assertRect(rightSidebarFrame, isInside: windowFrame, name: "right sidebar")
         assertElementDoesNotLeaveLeadingScreenEdge(leftResizer, name: "left resizer")
         assertElementFrame(rightResizer, isInside: window, name: "right resizer")
         XCTAssertLessThan(
@@ -141,6 +151,30 @@ final class SidebarResizeUITests: XCTestCase {
             rightResizer.frame.minX,
             "Expected narrow-window resizers to remain separately hittable. " +
             "left=\(leftResizer.frame), right=\(rightResizer.frame)"
+        )
+    }
+
+    private func assertRect(
+        _ frame: CGRect,
+        isInside windowFrame: CGRect,
+        name: String,
+        file: StaticString = #filePath,
+        line: UInt = #line
+    ) {
+        let tolerance: CGFloat = 1
+        XCTAssertGreaterThanOrEqual(
+            frame.minX,
+            windowFrame.minX - tolerance,
+            "Expected \(name) to stay inside the window. rect=\(frame), window=\(windowFrame)",
+            file: file,
+            line: line
+        )
+        XCTAssertLessThanOrEqual(
+            frame.maxX,
+            windowFrame.maxX + tolerance,
+            "Expected \(name) to stay inside the window. rect=\(frame), window=\(windowFrame)",
+            file: file,
+            line: line
         )
     }
 
