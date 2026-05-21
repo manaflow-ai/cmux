@@ -105,18 +105,32 @@ private enum SessionIndexIconResolver {
     }
 }
 
+@MainActor
 private extension NSImage {
     /// Filters out empty AppKit images before handing them to SwiftUI.
     var isRenderableForSessionIndex: Bool {
         isValid && size.width > 0 && size.height > 0
     }
 
-    /// Copies before template mutation so shared cached AppKit images stay untouched.
+    /// Returns a template image without mutating shared cached AppKit images.
     func sessionIndexTemplateCopy() -> NSImage {
-        guard let image = copy() as? NSImage else {
-            return self
-        }
+        let image = (copy() as? NSImage)
+            ?? tiffRepresentation.flatMap(NSImage.init(data:))
+            ?? sessionIndexRasterizedCopy()
         image.isTemplate = true
+        return image
+    }
+
+    private func sessionIndexRasterizedCopy() -> NSImage {
+        let image = NSImage(size: size)
+        image.lockFocus()
+        draw(
+            in: NSRect(origin: .zero, size: size),
+            from: .zero,
+            operation: .sourceOver,
+            fraction: 1
+        )
+        image.unlockFocus()
         return image
     }
 }
