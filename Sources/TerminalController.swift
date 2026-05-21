@@ -5735,9 +5735,30 @@ class TerminalController {
         return (workspaceId, nil)
     }
 
+    private nonisolated func v2RequestedRemotePTYSurfaceID(params: [String: Any]) -> (
+        surfaceId: UUID?,
+        error: V2CallResult?
+    ) {
+        var surfaceId: UUID?
+        var invalidSurfaceID = false
+        v2MainSync {
+            v2RefreshKnownRefs()
+            surfaceId = v2UUID(params, "surface_id")
+            invalidSurfaceID = v2HasNonNullParam(params, "surface_id") && surfaceId == nil
+        }
+        if invalidSurfaceID {
+            return (
+                nil,
+                .err(code: "invalid_params", message: "Missing or invalid surface_id", data: nil)
+            )
+        }
+        return (surfaceId, nil)
+    }
+
     private nonisolated func v2ResolveRemotePTYTarget(
         params: [String: Any],
-        requestedWorkspaceId: UUID?
+        requestedWorkspaceId: UUID?,
+        preferredSurfaceId: UUID? = nil
     ) -> (target: RemotePTYSocketTarget?, error: V2CallResult?) {
         var resolvedWorkspaceId: UUID?
         var target: RemotePTYSocketTarget?
@@ -5745,11 +5766,26 @@ class TerminalController {
         v2MainSync {
             v2RefreshKnownRefs()
             let fallbackTabManager = v2ResolveTabManager(params: params)
-            let workspaceId = requestedWorkspaceId ?? fallbackTabManager?.selectedTabId
-            resolvedWorkspaceId = workspaceId
-            guard let workspaceId,
-                  let owner = AppDelegate.shared?.tabManagerFor(tabId: workspaceId),
-                  let workspace = owner.tabs.first(where: { $0.id == workspaceId }) else {
+            let fallbackWorkspaceId = requestedWorkspaceId ?? fallbackTabManager?.selectedTabId
+            var owner: TabManager?
+            var workspace: Workspace?
+            if let preferredSurfaceId,
+               let located = AppDelegate.shared?.workspaceContainingPanel(
+                   panelId: preferredSurfaceId,
+                   preferredWorkspaceId: fallbackWorkspaceId
+               ) {
+                owner = located.tabManager
+                workspace = located.workspace
+            }
+            if workspace == nil,
+               let fallbackWorkspaceId,
+               let fallbackOwner = AppDelegate.shared?.tabManagerFor(tabId: fallbackWorkspaceId),
+               let fallbackWorkspace = fallbackOwner.tabs.first(where: { $0.id == fallbackWorkspaceId }) {
+                owner = fallbackOwner
+                workspace = fallbackWorkspace
+            }
+            resolvedWorkspaceId = workspace?.id ?? fallbackWorkspaceId
+            guard let owner, let workspace else {
                 return
             }
 
@@ -5811,6 +5847,8 @@ class TerminalController {
         let allWorkspaces = v2Bool(params, "all_workspaces") ?? false
         let workspaceSelection = v2RequestedRemotePTYWorkspaceID(params: params)
         if let error = workspaceSelection.error { return error }
+        let surfaceSelection = v2RequestedRemotePTYSurfaceID(params: params)
+        if let error = surfaceSelection.error { return error }
         let requestedWorkspaceId = workspaceSelection.workspaceId
         if allWorkspaces, requestedWorkspaceId != nil {
             return .err(code: "invalid_params", message: "all_workspaces cannot be combined with workspace_id", data: nil)
@@ -5868,7 +5906,11 @@ class TerminalController {
             ])
         }
 
-        let resolved = v2ResolveRemotePTYTarget(params: params, requestedWorkspaceId: requestedWorkspaceId)
+        let resolved = v2ResolveRemotePTYTarget(
+            params: params,
+            requestedWorkspaceId: requestedWorkspaceId,
+            preferredSurfaceId: surfaceSelection.surfaceId
+        )
         if let error = resolved.error { return error }
         guard let target = resolved.target else {
             return .err(code: "not_found", message: "Workspace not found", data: nil)
@@ -6025,10 +6067,13 @@ class TerminalController {
               let rows = v2StrictInt(params, "rows"), rows > 0 else {
             return .err(code: "invalid_params", message: "cols and rows must be positive integers", data: nil)
         }
+        let surfaceSelection = v2RequestedRemotePTYSurfaceID(params: params)
+        if let error = surfaceSelection.error { return error }
 
         let resolved = v2ResolveRemotePTYTarget(
             params: params,
-            requestedWorkspaceId: workspaceSelection.workspaceId
+            requestedWorkspaceId: workspaceSelection.workspaceId,
+            preferredSurfaceId: surfaceSelection.surfaceId
         )
         if let error = resolved.error { return error }
         guard let target = resolved.target else {
@@ -6094,8 +6139,15 @@ class TerminalController {
         ])
 
         v2MainSync {
-            guard let owner = AppDelegate.shared?.tabManagerFor(tabId: workspaceId),
-                  let workspace = owner.tabs.first(where: { $0.id == workspaceId }) else {
+            v2RefreshKnownRefs()
+            let located = AppDelegate.shared?.workspaceContainingPanel(
+                panelId: surfaceId,
+                preferredWorkspaceId: workspaceId
+            )
+            let fallbackOwner = AppDelegate.shared?.tabManagerFor(tabId: workspaceId)
+            let fallbackWorkspace = fallbackOwner?.tabs.first(where: { $0.id == workspaceId })
+            guard let owner = located?.tabManager ?? fallbackOwner,
+                  let workspace = located?.workspace ?? fallbackWorkspace else {
                 return
             }
             let outcome = workspace.markRemotePTYAttachEnded(

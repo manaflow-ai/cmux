@@ -11717,10 +11717,12 @@ final class Workspace: Identifiable, ObservableObject {
         configureTerminalPanel(newPanel)
         panels[newPanel.id] = newPanel
         panelTitles[newPanel.id] = newPanel.displayTitle
-        if let remotePTYSessionID = normalizedRemotePTYSessionID(remotePTYSessionID) {
-            remotePTYSessionIDsByPanelId[newPanel.id] = remotePTYSessionID
+        let normalizedRemotePTYSessionID = normalizedRemotePTYSessionID(remotePTYSessionID)
+        let tracksRemoteTerminalSurface = remoteTerminalStartupCommand != nil || normalizedRemotePTYSessionID != nil
+        if let normalizedRemotePTYSessionID {
+            remotePTYSessionIDsByPanelId[newPanel.id] = normalizedRemotePTYSessionID
         }
-        if remoteTerminalStartupCommand != nil {
+        if tracksRemoteTerminalSurface {
             trackRemoteTerminalSurface(newPanel.id)
         }
         seedTerminalInheritanceFontPoints(panelId: newPanel.id, configTemplate: inheritedConfig)
@@ -11756,7 +11758,7 @@ final class Workspace: Identifiable, ObservableObject {
             panelTitles.removeValue(forKey: newPanel.id)
             remotePTYSessionIDsByPanelId.removeValue(forKey: newPanel.id)
             surfaceIdToPanelId.removeValue(forKey: newTab.id)
-            if remoteTerminalStartupCommand != nil {
+            if tracksRemoteTerminalSurface {
                 untrackRemoteTerminalSurface(newPanel.id)
             }
             terminalInheritanceFontPointsByPanelId.removeValue(forKey: newPanel.id)
@@ -11855,10 +11857,12 @@ final class Workspace: Identifiable, ObservableObject {
         configureTerminalPanel(newPanel)
         panels[newPanel.id] = newPanel
         panelTitles[newPanel.id] = newPanel.displayTitle
-        if let remotePTYSessionID = normalizedRemotePTYSessionID(remotePTYSessionID) {
-            remotePTYSessionIDsByPanelId[newPanel.id] = remotePTYSessionID
+        let normalizedRemotePTYSessionID = normalizedRemotePTYSessionID(remotePTYSessionID)
+        let tracksRemoteTerminalSurface = remoteTerminalStartupCommand != nil || normalizedRemotePTYSessionID != nil
+        if let normalizedRemotePTYSessionID {
+            remotePTYSessionIDsByPanelId[newPanel.id] = normalizedRemotePTYSessionID
         }
-        if remoteTerminalStartupCommand != nil {
+        if tracksRemoteTerminalSurface {
             trackRemoteTerminalSurface(newPanel.id)
         }
         seedTerminalInheritanceFontPoints(panelId: newPanel.id, configTemplate: inheritedConfig)
@@ -11875,7 +11879,7 @@ final class Workspace: Identifiable, ObservableObject {
             panels.removeValue(forKey: newPanel.id)
             panelTitles.removeValue(forKey: newPanel.id)
             remotePTYSessionIDsByPanelId.removeValue(forKey: newPanel.id)
-            if remoteTerminalStartupCommand != nil {
+            if tracksRemoteTerminalSurface {
                 untrackRemoteTerminalSurface(newPanel.id)
             }
             terminalInheritanceFontPointsByPanelId.removeValue(forKey: newPanel.id)

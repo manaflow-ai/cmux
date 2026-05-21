@@ -8603,6 +8603,7 @@ struct CMUXCLI {
         do {
             response = try client.sendV2(method: "workspace.remote.pty_sessions", params: [
                 "workspace_id": workspaceId,
+                "surface_id": attachmentID,
             ])
         } catch {
             throw CLIError(
@@ -8715,6 +8716,7 @@ struct CMUXCLI {
             defer { socketLock.unlock() }
             _ = try? client.sendV2(method: "workspace.remote.pty_resize", params: [
                 "workspace_id": workspaceId,
+                "surface_id": attachmentID,
                 "session_id": sessionID,
                 "attachment_id": attachmentID,
                 "attachment_token": attachmentToken,

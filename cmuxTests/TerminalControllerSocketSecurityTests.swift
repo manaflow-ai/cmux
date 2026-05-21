@@ -205,6 +205,84 @@ final class TerminalControllerSocketSecurityTests: XCTestCase {
         XCTAssertEqual(workerError["code"] as? String, "not_found")
     }
 
+    func testRemotePTYAttachEndRoutesMovedSurfaceToCurrentWorkspace() throws {
+        let previousAppDelegate = AppDelegate.shared
+        let appDelegate = AppDelegate()
+        defer { AppDelegate.shared = previousAppDelegate }
+
+        let manager = TabManager()
+        let moved = try makeMovedRemotePTYSurface(in: manager)
+        let windowId = appDelegate.registerMainWindowContextForTesting(tabManager: manager)
+        defer { appDelegate.unregisterMainWindowContextForTesting(windowId: windowId) }
+
+        TerminalController.shared.start(
+            tabManager: manager,
+            socketPath: makeSocketPath("pty-end"),
+            accessMode: .allowAll
+        )
+
+        let requestLine = try makeV2RequestLine(
+            method: "workspace.remote.pty_attach_end",
+            params: [
+                "workspace_id": moved.source.id.uuidString,
+                "surface_id": moved.panel.id.uuidString,
+                "session_id": moved.sessionID,
+            ]
+        )
+        let envelope = try decodeV2Envelope(TerminalController.shared.handleSocketLine(requestLine))
+
+        XCTAssertEqual(envelope["ok"] as? Bool, true, "Unexpected JSON-RPC response: \(envelope)")
+        let result = try XCTUnwrap(envelope["result"] as? [String: Any])
+        XCTAssertEqual(result["window_id"] as? String, windowId.uuidString)
+        XCTAssertEqual(result["workspace_id"] as? String, moved.destination.id.uuidString)
+        XCTAssertEqual(result["surface_id"] as? String, moved.panel.id.uuidString)
+        XCTAssertEqual(result["cleared_remote_pty_session"] as? Bool, true)
+        XCTAssertEqual(result["untracked_remote_terminal"] as? Bool, true)
+        XCTAssertFalse(moved.destination.isRemoteTerminalSurface(moved.panel.id))
+        XCTAssertEqual(moved.destination.activeRemoteTerminalSessionCount, 0)
+    }
+
+    func testRemotePTYResizeRoutesMovedSurfaceToCurrentWorkspace() async throws {
+        let previousAppDelegate = AppDelegate.shared
+        let appDelegate = AppDelegate()
+        defer { AppDelegate.shared = previousAppDelegate }
+
+        let socketPath = makeSocketPath("pty-move")
+        let manager = TabManager()
+        let moved = try makeMovedRemotePTYSurface(in: manager)
+        let windowId = appDelegate.registerMainWindowContextForTesting(tabManager: manager)
+        defer { appDelegate.unregisterMainWindowContextForTesting(windowId: windowId) }
+
+        TerminalController.shared.start(
+            tabManager: manager,
+            socketPath: socketPath,
+            accessMode: .allowAll
+        )
+        try waitForSocket(at: socketPath)
+
+        let response = try await sendV2RequestAsync(
+            method: "workspace.remote.pty_resize",
+            params: [
+                "workspace_id": moved.source.id.uuidString,
+                "surface_id": moved.panel.id.uuidString,
+                "session_id": moved.sessionID,
+                "attachment_id": moved.panel.id.uuidString,
+                "attachment_token": "token",
+                "cols": 100,
+                "rows": 30,
+            ],
+            to: socketPath
+        )
+
+        XCTAssertEqual(response["ok"] as? Bool, false, "Unexpected JSON-RPC response: \(response)")
+        let error = try XCTUnwrap(response["error"] as? [String: Any])
+        XCTAssertEqual(error["code"] as? String, "remote_pty_error")
+        let data = try XCTUnwrap(error["data"] as? [String: Any])
+        XCTAssertEqual(data["workspace_id"] as? String, moved.destination.id.uuidString)
+        XCTAssertEqual(data["session_id"] as? String, moved.sessionID)
+        XCTAssertEqual(data["attachment_id"] as? String, moved.panel.id.uuidString)
+    }
+
     func testRemotePTYAllWorkspacesTreatsMissingPTYListAsUnsupported() {
         let unsupported = NSError(
             domain: "cmux.remote.daemon.rpc",
@@ -851,6 +929,49 @@ final class TerminalControllerSocketSecurityTests: XCTestCase {
         ]
         let data = try JSONSerialization.data(withJSONObject: payload)
         return try XCTUnwrap(String(data: data, encoding: .utf8))
+    }
+
+    private func makeMovedRemotePTYSurface(
+        in manager: TabManager
+    ) throws -> (source: Workspace, destination: Workspace, panel: TerminalPanel, sessionID: String) {
+        let source = manager.addWorkspace(select: true)
+        let destination = manager.addWorkspace(select: false)
+        let config = WorkspaceRemoteConfiguration(
+            destination: "cmux-macmini",
+            port: nil,
+            identityFile: nil,
+            sshOptions: [],
+            localProxyPort: nil,
+            relayPort: 64011,
+            relayID: String(repeating: "a", count: 16),
+            relayToken: String(repeating: "b", count: 64),
+            localSocketPath: "/tmp/cmux-debug-test.sock",
+            terminalStartupCommand: nil,
+            preserveAfterTerminalExit: true
+        )
+        source.configureRemoteConnection(config, autoConnect: false)
+        destination.configureRemoteConnection(config, autoConnect: false)
+
+        let sourcePanelID = try XCTUnwrap(source.focusedTerminalPanel?.id)
+        let destinationPaneID = try XCTUnwrap(destination.bonsplitController.allPaneIds.first)
+        let sessionID = "moved-surface-session"
+        let panel = try XCTUnwrap(
+            source.newTerminalSplit(
+                from: sourcePanelID,
+                orientation: .horizontal,
+                initialCommand: "cmux ssh-pty-attach",
+                remotePTYSessionID: sessionID
+            )
+        )
+        let detached = try XCTUnwrap(source.detachSurface(panelId: panel.id))
+        XCTAssertEqual(detached.remotePTYSessionID, sessionID)
+        XCTAssertEqual(
+            destination.attachDetachedSurface(detached, inPane: destinationPaneID, focus: false),
+            panel.id
+        )
+        XCTAssertTrue(destination.isRemoteTerminalSurface(panel.id))
+
+        return (source, destination, panel, sessionID)
     }
 
     private func decodeV2Envelope(_ raw: String) throws -> [String: Any] {
