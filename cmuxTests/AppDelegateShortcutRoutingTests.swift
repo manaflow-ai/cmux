@@ -6292,11 +6292,13 @@ final class AppDelegateShortcutRoutingTests: XCTestCase {
         let restorer = TextBoxFilePanelFocusRestorer(textView: textView)
         restorer.install(parentWindow: hostWindow)
         NotificationCenter.default.post(name: NSWindow.didEndSheetNotification, object: hostWindow)
+        waitFor(timeout: 1.0, until: { hostWindow.firstResponder === textView })
 
         XCTAssertTrue(hostWindow.firstResponder === textView)
 
         XCTAssertTrue(hostWindow.makeFirstResponder(otherView))
         NotificationCenter.default.post(name: NSWindow.didBecomeKeyNotification, object: hostWindow)
+        RunLoop.main.run(until: Date(timeIntervalSinceNow: 0.05))
         XCTAssertTrue(hostWindow.firstResponder === otherView)
     }
 
@@ -6942,7 +6944,7 @@ final class AppDelegateShortcutRoutingTests: XCTestCase {
         XCTAssertNil(completionContext)
 
         surface.completeClipboardRead()
-        RunLoop.main.run(until: Date(timeIntervalSinceNow: 0.05))
+        waitFor(timeout: 1.0, until: { surface.sentText == ["after"] })
 
         XCTAssertEqual(surface.sentText, ["after"])
         XCTAssertEqual(completionContext, TextBoxSubmit.CompletionContext.empty)

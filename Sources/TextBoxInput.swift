@@ -63,14 +63,14 @@ final class TextBoxFilePanelFocusRestorer {
             notificationCenter.addObserver(
                 forName: NSWindow.didEndSheetNotification,
                 object: parentWindow,
-                queue: nil
+                queue: .main
             ) { [weak self] _ in
                 self?.restoreFocusAndInvalidate()
             },
             notificationCenter.addObserver(
                 forName: NSWindow.didBecomeKeyNotification,
                 object: parentWindow,
-                queue: nil
+                queue: .main
             ) { [weak self] _ in
                 self?.restoreFocusAndInvalidate()
             }
@@ -79,8 +79,7 @@ final class TextBoxFilePanelFocusRestorer {
 
     @discardableResult
     func restoreFocusNow() -> Bool {
-        guard Thread.isMainThread,
-              let textView,
+        guard let textView,
               let window = textView.window ?? parentWindow else {
             return false
         }
