@@ -4639,7 +4639,9 @@ struct ContentView: View {
                 )
 #endif
                 if !parent.isFocused {
-                    parent.isFocused = true
+                    DispatchQueue.main.async {
+                        self.parent.isFocused = true
+                    }
                 }
             }
 
