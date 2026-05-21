@@ -5003,45 +5003,6 @@ func openCmuxSettingsFileInEditor() {
     PreferredEditorSettings.open(url)
 }
 
-private enum SettingsScrollCoordinateSpace {
-    static let name = "SettingsScrollCoordinateSpace"
-}
-
-private enum SettingsLazyLoadTrigger: CaseIterable, Hashable {
-    case browserHistory
-    case browserImport
-}
-
-private struct SettingsLazyLoadFramePreferenceKey: PreferenceKey {
-    static var defaultValue: [SettingsLazyLoadTrigger: CGRect] = [:]
-
-    static func reduce(
-        value: inout [SettingsLazyLoadTrigger: CGRect],
-        nextValue: () -> [SettingsLazyLoadTrigger: CGRect]
-    ) {
-        value.merge(nextValue()) { _, newValue in newValue }
-    }
-}
-
-private struct SettingsLazyLoadMarker: View {
-    let trigger: SettingsLazyLoadTrigger
-
-    var body: some View {
-        GeometryReader { proxy in
-            Color.clear.preference(
-                key: SettingsLazyLoadFramePreferenceKey.self,
-                value: [trigger: proxy.frame(in: .named(SettingsScrollCoordinateSpace.name))]
-            )
-        }
-    }
-}
-
-private extension View {
-    func settingsLazyLoadTrigger(_ trigger: SettingsLazyLoadTrigger) -> some View {
-        background(SettingsLazyLoadMarker(trigger: trigger))
-    }
-}
-
 struct SettingsView: View {
     private let pickerColumnWidth: CGFloat = 196
     private let notificationSoundControlWidth: CGFloat = 280
@@ -5786,8 +5747,9 @@ struct SettingsView: View {
 
     private func loadBrowserHistoryForSettingsIfNeeded() {
         guard !didLoadBrowserHistoryForSettings else { return }
-        didLoadBrowserHistoryForSettings = true
         BrowserHistoryStore.shared.loadIfNeeded()
+        didLoadBrowserHistoryForSettings = BrowserHistoryStore.shared.isLoaded
+        guard didLoadBrowserHistoryForSettings else { return }
         browserHistoryEntryCount = BrowserHistoryStore.shared.entries.count
     }
 
@@ -7718,9 +7680,11 @@ struct SettingsView: View {
         browserImportDetectionGeneration += 1
         let generation = browserImportDetectionGeneration
         let homeDirectoryURL = FileManager.default.homeDirectoryForCurrentUser
+        let bundleLookupSnapshot = InstalledBrowserDetector.applicationBundleLookupSnapshot()
         Task.detached(priority: .userInitiated) {
             let detectedBrowsers = InstalledBrowserDetector.detectInstalledBrowsers(
-                homeDirectoryURL: homeDirectoryURL
+                homeDirectoryURL: homeDirectoryURL,
+                bundleLookup: { bundleLookupSnapshot[$0] }
             )
             await MainActor.run {
                 guard generation == browserImportDetectionGeneration else { return }

@@ -8795,6 +8795,12 @@
             "value": "설치된 브라우저를 확인하는 중..."
           }
         },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "កំពុងពិនិត្យកម្មវិធីរុករកដែលបានដំឡើង..."
+          }
+        },
         "nb": {
           "stringUnit": {
             "state": "translated",
@@ -65428,6 +65434,12 @@
           "stringUnit": {
             "state": "translated",
             "value": "방문 기록을 확인하는 중..."
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "កំពុងពិនិត្យប្រវត្តិរុករក..."
           }
         },
         "de": {
