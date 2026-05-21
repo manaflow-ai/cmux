@@ -1747,6 +1747,34 @@ final class TabManagerSurfaceCreationTests: XCTestCase {
         XCTAssertEqual(workspace.focusedPanelId, createdPanelId)
     }
 
+    func testFocusHiddenDockPanelReopensDockEdge() {
+        let manager = TabManager()
+        guard let workspace = manager.selectedWorkspace else {
+            XCTFail("Expected a selected workspace")
+            return
+        }
+        let dock = workspace.dockLayout.addDock(edge: .left)
+        guard let dockPaneId = dock.controller.allPaneIds.first,
+              let dockPanel = workspace.newTerminalSurface(
+                  inPane: dockPaneId,
+                  controller: dock.controller,
+                  focus: true
+              ) else {
+            XCTFail("Expected terminal surface in dock")
+            return
+        }
+
+        workspace.dockLayout.closeEdge(.left)
+        XCTAssertFalse(workspace.dockLayout.isEdgeOpen(.left))
+        XCTAssertNotEqual(workspace.focusedPanelId, dockPanel.id)
+
+        workspace.focusPanel(dockPanel.id)
+
+        XCTAssertTrue(workspace.dockLayout.isEdgeOpen(.left))
+        XCTAssertEqual(workspace.focusedPanelId, dockPanel.id)
+        XCTAssertTrue(workspace.dockLayout.isOpenController(dock.controller))
+    }
+
     func testOpenBrowserUsesFocusedDockPane() {
         let previousBrowserDisabled = UserDefaults.standard.object(forKey: BrowserAvailabilitySettings.disabledKey)
         BrowserAvailabilitySettings.setDisabled(false)
@@ -1960,6 +1988,54 @@ final class TabManagerSurfaceCreationTests: XCTestCase {
         XCTAssertTrue(workspace.bonsplitController.allTabIds.contains(movedTabId))
         XCTAssertFalse(dock.controller.allTabIds.contains(movedTabId))
         XCTAssertEqual(workspace.focusedPanelId, sourcePanel.id)
+    }
+
+    func testRollbackDetachedDockSurfaceRestoresOriginalDockController() {
+        let previousAppDelegate = AppDelegate.shared
+        let appDelegate = AppDelegate()
+        AppDelegate.shared = appDelegate
+        defer { AppDelegate.shared = previousAppDelegate }
+
+        let manager = TabManager()
+        appDelegate.tabManager = manager
+        appDelegate.registerMainWindowContextForTesting(tabManager: manager)
+        guard let workspace = manager.selectedWorkspace else {
+            XCTFail("Expected a selected workspace")
+            return
+        }
+        let dock = workspace.dockLayout.addDock(edge: .bottom)
+        guard let dockPaneId = dock.controller.allPaneIds.first,
+              let sourcePanel = workspace.newTerminalSurface(
+                  inPane: dockPaneId,
+                  controller: dock.controller,
+                  focus: true
+              ) else {
+            XCTFail("Expected dock source")
+            return
+        }
+        let sourceIndex = workspace.indexInPane(forPanelId: sourcePanel.id)
+
+        guard let detached = workspace.detachSurface(panelId: sourcePanel.id, from: dock.controller) else {
+            XCTFail("Expected dock source to detach")
+            return
+        }
+
+        appDelegate.rollbackDetachedSurface(
+            detached,
+            to: workspace,
+            sourceController: dock.controller,
+            sourcePane: dockPaneId,
+            sourceIndex: sourceIndex,
+            focus: true
+        )
+
+        guard let restoredTabId = workspace.surfaceIdFromPanelId(sourcePanel.id) else {
+            XCTFail("Expected restored source to keep a surface id")
+            return
+        }
+        XCTAssertTrue(dock.controller.allTabIds.contains(restoredTabId))
+        XCTAssertFalse(workspace.bonsplitController.allTabIds.contains(restoredTabId))
+        XCTAssertEqual(workspace.paneId(forPanelId: sourcePanel.id), dockPaneId)
     }
 
     func testAppDelegateMoveBonsplitTabRightEdgeUsesDockController() {

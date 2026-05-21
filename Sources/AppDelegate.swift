@@ -4227,6 +4227,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             return moved
         }
 
+        let sourceTabIdForRollback = sourceWorkspace.surfaceIdFromPanelId(panelId)
+        let sourceControllerForRollback = sourceTabIdForRollback.flatMap {
+            sourceWorkspace.bonsplitController(containingTab: $0)
+        }
         let sourcePane = sourceWorkspace.paneId(forPanelId: panelId)
         let sourceIndex = sourceWorkspace.indexInPane(forPanelId: panelId)
 #if DEBUG
@@ -4256,6 +4260,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             rollbackDetachedSurface(
                 detached,
                 to: sourceWorkspace,
+                sourceController: sourceControllerForRollback,
                 sourcePane: sourcePane,
                 sourceIndex: sourceIndex,
                 focus: focus
@@ -4288,6 +4293,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
                     rollbackDetachedSurface(
                         detachedFromDestination,
                         to: sourceWorkspace,
+                        sourceController: sourceControllerForRollback,
                         sourcePane: sourcePane,
                         sourceIndex: sourceIndex,
                         focus: focus
@@ -5061,18 +5067,23 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
     func rollbackDetachedSurface(
         _ detached: Workspace.DetachedSurfaceTransfer,
         to workspace: Workspace,
+        sourceController: BonsplitController? = nil,
         sourcePane: PaneID?,
         sourceIndex: Int?,
         focus: Bool
     ) {
+        let controller = sourceController
+            ?? sourcePane.flatMap { workspace.bonsplitController(containingPane: $0) }
+            ?? workspace.bonsplitController
         let rollbackPane = sourcePane.flatMap { pane in
-            workspace.bonsplitController.allPaneIds.first(where: { $0 == pane })
-        } ?? workspace.bonsplitController.focusedPaneId
-            ?? workspace.bonsplitController.allPaneIds.first
+            controller.allPaneIds.first(where: { $0 == pane })
+        } ?? controller.focusedPaneId
+            ?? controller.allPaneIds.first
         guard let rollbackPane else { return }
         _ = workspace.attachDetachedSurface(
             detached,
             inPane: rollbackPane,
+            controller: controller,
             atIndex: sourceIndex,
             focus: focus
         )

@@ -7435,6 +7435,26 @@ final class WorkspaceDockLayout: ObservableObject {
         openControllers.contains { $0 === controller }
     }
 
+    func edge(containing controller: BonsplitController) -> WorkspaceDockEdge? {
+        if left.contains(where: { $0.controller === controller }) {
+            return .left
+        }
+        if right.contains(where: { $0.controller === controller }) {
+            return .right
+        }
+        if bottom.contains(where: { $0.controller === controller }) {
+            return .bottom
+        }
+        return nil
+    }
+
+    @discardableResult
+    func openEdge(containing controller: BonsplitController) -> Bool {
+        guard let edge = edge(containing: controller) else { return false }
+        openEdge(edge)
+        return true
+    }
+
     func docksSnapshot(for edge: WorkspaceDockEdge) -> [WorkspaceDock] {
         docks(for: edge)
     }
@@ -12724,6 +12744,7 @@ final class Workspace: Identifiable, ObservableObject {
 
     private func focusPane(_ paneId: PaneID, in controller: BonsplitController) -> Bool {
         controller.focusPane(paneId)
+        revealControllerForFocus(controller)
         focusedBonsplitController = controller
         guard let tabId = controller.selectedTab(inPane: paneId)?.id else {
             return true
@@ -12756,6 +12777,11 @@ final class Workspace: Identifiable, ObservableObject {
             return bonsplitController
         }
         return controller
+    }
+
+    private func revealControllerForFocus(_ controller: BonsplitController) {
+        guard controller !== bonsplitController else { return }
+        dockLayout.openEdge(containing: controller)
     }
 
     private func focusRegion(for controller: BonsplitController) -> WorkspaceFocusRegion {
@@ -14827,6 +14853,7 @@ extension Workspace: BonsplitDelegate {
         previousTerminalHostedView: GhosttySurfaceScrollView?
     ) {
         let previousFocusedPanelId = focusedPanelId
+        revealControllerForFocus(controller)
         focusedBonsplitController = controller
 #if DEBUG
         let focusedPaneBefore = controller.focusedPaneId.map { String($0.id.uuidString.prefix(5)) } ?? "nil"
