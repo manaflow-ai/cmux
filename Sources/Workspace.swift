@@ -4459,12 +4459,13 @@ final class WorkspaceRemotePTYBridgeServer {
                 ) { [weak self] event in
                     self?.handlePTYEvent(event)
                 }
+                sendBridgeStatus(["type": "ready"])
                 isAttached = true
                 if !remaining.isEmpty {
                     forwardInput(remaining)
                 }
             } catch {
-                close(detach: false)
+                closeWithBridgeError(error.localizedDescription)
             }
         }
 
@@ -4514,6 +4515,42 @@ final class WorkspaceRemotePTYBridgeServer {
                 return
             }
             closeWhenOutputFlushes = detach
+        }
+
+        private func sendBridgeStatus(_ payload: [String: Any]) {
+            guard !isClosed,
+                  let data = try? JSONSerialization.data(withJSONObject: payload, options: []) else {
+                return
+            }
+            var line = data
+            line.append(0x0A)
+            connection.send(content: line, completion: .contentProcessed { [weak self] error in
+                guard let self, error != nil else { return }
+                self.queue.async {
+                    self.close(detach: true)
+                }
+            })
+        }
+
+        private func closeWithBridgeError(_ message: String) {
+            guard !isClosed else { return }
+            let trimmed = message.trimmingCharacters(in: .whitespacesAndNewlines)
+            let detail = trimmed.isEmpty ? "remote PTY attach failed" : trimmed
+            let payload: [String: Any] = ["type": "error", "message": detail]
+            guard let data = try? JSONSerialization.data(withJSONObject: payload, options: []) else {
+                close(detach: false)
+                return
+            }
+            var line = data
+            line.append(0x0A)
+            isClosed = true
+            connection.send(content: line, completion: .contentProcessed { [weak self] _ in
+                guard let self else { return }
+                self.queue.async {
+                    self.connection.cancel()
+                    self.onClose()
+                }
+            })
         }
 
         private func close(detach: Bool) {

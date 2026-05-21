@@ -7724,6 +7724,7 @@ struct CMUXCLI {
         ], options: [])
         handshakeData.append(0x0A)
         try writeAll(fd: fd, data: handshakeData)
+        try readSSHPTYBridgeReady(fd: fd)
 
         let rawMode = TerminalRawMode()
         defer { rawMode?.restore() }
@@ -7767,6 +7768,44 @@ struct CMUXCLI {
                 throw CLIError(message: "ssh-pty-attach: bridge read failed")
             }
         }
+    }
+
+    private func readSSHPTYBridgeReady(fd: Int32) throws {
+        let maxStatusBytes = 4096
+        var line = Data()
+        var byte = [UInt8](repeating: 0, count: 1)
+        while line.count < maxStatusBytes {
+            let count = Darwin.read(fd, &byte, 1)
+            if count > 0 {
+                if byte[0] == 0x0A {
+                    if let carriageIndex = line.lastIndex(of: 0x0D),
+                       carriageIndex == line.index(before: line.endIndex) {
+                        line.remove(at: carriageIndex)
+                    }
+                    guard let payload = try? JSONSerialization.jsonObject(with: line, options: []) as? [String: Any],
+                          let type = payload["type"] as? String else {
+                        throw CLIError(message: "ssh-pty-attach: invalid bridge status")
+                    }
+                    switch type {
+                    case "ready":
+                        return
+                    case "error":
+                        let message = ((payload["message"] as? String)?
+                            .trimmingCharacters(in: .whitespacesAndNewlines)).flatMap { $0.isEmpty ? nil : $0 }
+                            ?? "remote PTY attach failed"
+                        throw CLIError(message: "ssh-pty-attach: \(message)")
+                    default:
+                        throw CLIError(message: "ssh-pty-attach: invalid bridge status")
+                    }
+                }
+                line.append(byte[0])
+            } else if count == 0 {
+                throw CLIError(message: "ssh-pty-attach: bridge closed before ready")
+            } else if errno != EINTR {
+                throw CLIError(message: "ssh-pty-attach: bridge read failed")
+            }
+        }
+        throw CLIError(message: "ssh-pty-attach: bridge status exceeded \(maxStatusBytes) bytes")
     }
 
     private func startSSHPTYResizeSource(
