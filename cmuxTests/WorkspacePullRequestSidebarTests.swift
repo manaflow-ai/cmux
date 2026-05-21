@@ -24,6 +24,23 @@ private final class CommandRunnerInvocationCounter: @unchecked Sendable {
     }
 }
 
+private final class ThreadSafeFlag: @unchecked Sendable {
+    private let lock = NSLock()
+    private var storedValue = false
+
+    func setTrue() {
+        lock.lock()
+        storedValue = true
+        lock.unlock()
+    }
+
+    var value: Bool {
+        lock.lock()
+        defer { lock.unlock() }
+        return storedValue
+    }
+}
+
 private final class IndexLockObserver: @unchecked Sendable {
     private let path: String
     private let queue = DispatchQueue(label: "com.cmux.tests.index-lock-observer", qos: .utility)
@@ -579,6 +596,55 @@ final class WorkspacePullRequestSidebarTests: XCTestCase {
             maxTickGap,
             allowedMainThreadGap,
             "Pull request refresh blocked the main run loop for \(maxTickGap) seconds"
+        )
+    }
+
+    func testSidebarGitMetadataSnapshotsRunOnDedicatedProbeQueue() throws {
+        let defaults = UserDefaults.standard
+        let previousWatchGitStatus = defaults.object(forKey: SidebarWorkspaceDetailDefaults.watchGitStatusKey)
+        defer {
+            restoreUserDefault(previousWatchGitStatus, key: SidebarWorkspaceDetailDefaults.watchGitStatusKey)
+        }
+        defaults.set(true, forKey: SidebarWorkspaceDetailDefaults.watchGitStatusKey)
+
+        let workingDirectoryURL = FileManager.default.temporaryDirectory.appendingPathComponent(
+            "cmux-sidebar-git-probe-queue-\(UUID().uuidString)",
+            isDirectory: true
+        )
+        try FileManager.default.createDirectory(at: workingDirectoryURL, withIntermediateDirectories: true)
+        defer {
+            try? FileManager.default.removeItem(at: workingDirectoryURL)
+        }
+
+        let manager = TabManager()
+        let workspace = try XCTUnwrap(manager.selectedWorkspace)
+        let panelId = try XCTUnwrap(workspace.focusedPanelId)
+        workspace.currentDirectory = workingDirectoryURL.path
+
+        let observedSnapshot = expectation(description: "git metadata snapshot started")
+        observedSnapshot.assertForOverFulfill = false
+        let ranOffProbeQueue = ThreadSafeFlag()
+        TabManager.workspaceGitMetadataSnapshotWillRunForTesting = {
+            if !TabManager.isRunningOnWorkspaceGitMetadataProbeQueueForTesting() {
+                ranOffProbeQueue.setTrue()
+            }
+            observedSnapshot.fulfill()
+        }
+        defer {
+            TabManager.workspaceGitMetadataSnapshotWillRunForTesting = nil
+        }
+
+        manager.scheduleInitialWorkspaceGitMetadataRefreshIfPossible(
+            workspaceId: workspace.id,
+            panelId: panelId,
+            reason: "test"
+        )
+
+        let result = XCTWaiter().wait(for: [observedSnapshot], timeout: 3.0)
+        XCTAssertEqual(result, .completed)
+        XCTAssertFalse(
+            ranOffProbeQueue.value,
+            "Sidebar git metadata filesystem snapshots must not run on Swift's cooperative executor."
         )
     }
 

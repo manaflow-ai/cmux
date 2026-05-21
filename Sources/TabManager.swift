@@ -11,6 +11,8 @@ import Darwin
 // The old Tab class is replaced by Workspace
 typealias Tab = Workspace
 
+private let initialWorkspaceGitProbeQueueSpecificKey = DispatchSpecificKey<UInt8>()
+
 private final class WorkspaceGitMetadataWatcherCallbackBox: @unchecked Sendable {
     let handleEvent: @Sendable () -> Void
 
@@ -942,6 +944,11 @@ class TabManager: ObservableObject {
     nonisolated(unsafe) static var commandRunnerForTesting: (
         @Sendable (String, String, [String], TimeInterval?) -> CommandResult?
     )?
+    nonisolated(unsafe) static var workspaceGitMetadataSnapshotWillRunForTesting: (@Sendable () -> Void)?
+
+    nonisolated static func isRunningOnWorkspaceGitMetadataProbeQueueForTesting() -> Bool {
+        DispatchQueue.getSpecific(key: initialWorkspaceGitProbeQueueSpecificKey) != nil
+    }
 #endif
 
     private struct WorkspaceGitProbeKey: Hashable, Sendable {
@@ -1264,6 +1271,7 @@ class TabManager: ObservableObject {
         initialTerminalInput: String? = nil,
         autoWelcomeIfNeeded: Bool = true
     ) {
+        initialWorkspaceGitProbeQueue.setSpecific(key: initialWorkspaceGitProbeQueueSpecificKey, value: 1)
         addWorkspace(
             title: initialWorkspaceTitle,
             workingDirectory: initialWorkingDirectory,
@@ -2967,6 +2975,9 @@ class TabManager: ObservableObject {
     private nonisolated static func initialWorkspaceGitMetadataSnapshot(
         for directory: String
     ) async -> InitialWorkspaceGitMetadataSnapshot {
+#if DEBUG
+        workspaceGitMetadataSnapshotWillRunForTesting?()
+#endif
         guard let repository = resolveGitRepository(containing: directory) else {
             return InitialWorkspaceGitMetadataSnapshot(
                 isRepository: false,
