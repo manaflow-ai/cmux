@@ -57,6 +57,8 @@ class TerminalController {
     private nonisolated(unsafe) var activeAcceptLoopGeneration: UInt64 = 0
     private nonisolated(unsafe) var nextAcceptLoopGeneration: UInt64 = 0
     private nonisolated(unsafe) var pendingAcceptLoopRearmGeneration: UInt64?
+    private nonisolated(unsafe) var pendingSocketBindRetryGeneration: UInt64?
+    private nonisolated(unsafe) var nextSocketBindRetryGeneration: UInt64 = 0
     private nonisolated(unsafe) var listenerStartInProgress = false
     private nonisolated let listenerStateLock = NSLock()
     private nonisolated let socketListenerQueue = DispatchQueue(label: "com.cmux.socket.listener")
@@ -77,6 +79,8 @@ class TerminalController {
     private nonisolated static let socketProbePollTimeoutMs: Int32 = 100
     private nonisolated static let socketProbePollAttempts = 3
     private nonisolated static let socketProbePollRetryBackoffUs: useconds_t = 50_000
+    private nonisolated static let refusedSocketStaleAgeThreshold: TimeInterval = 2
+    nonisolated static let recentlyRefusedSocketBindStage = "bind_recently_refused"
     private nonisolated static let socketClientReadTimeout: TimeInterval = 30
     private nonisolated static let socketClientWriteTimeout: TimeInterval = 5
     private nonisolated static let socketListenerFailureCaptureCooldown: TimeInterval = 60
@@ -135,6 +139,7 @@ class TerminalController {
         let acceptLoopAlive: Bool
         let activeGeneration: UInt64
         let pendingRearmGeneration: UInt64?
+        let pendingBindRetryGeneration: UInt64?
         let listenerStartInProgress: Bool
     }
 
@@ -320,6 +325,7 @@ class TerminalController {
                 acceptLoopAlive: acceptLoopAlive,
                 activeGeneration: activeAcceptLoopGeneration,
                 pendingRearmGeneration: pendingAcceptLoopRearmGeneration,
+                pendingBindRetryGeneration: pendingSocketBindRetryGeneration,
                 listenerStartInProgress: listenerStartInProgress
             )
         }
@@ -327,7 +333,11 @@ class TerminalController {
 
     nonisolated func activeSocketPath(preferredPath: String) -> String {
         let snapshot = listenerStateSnapshot()
-        if snapshot.isRunning || snapshot.acceptLoopAlive || snapshot.listenerStartInProgress || snapshot.serverSocket >= 0 {
+        if snapshot.isRunning
+            || snapshot.acceptLoopAlive
+            || snapshot.listenerStartInProgress
+            || snapshot.pendingBindRetryGeneration != nil
+            || snapshot.serverSocket >= 0 {
             return snapshot.socketPath
         }
         return preferredPath
@@ -1103,7 +1113,12 @@ class TerminalController {
         guard (st.st_mode & mode_t(S_IFMT)) == mode_t(S_IFSOCK) else {
             return ("existing_path", EEXIST)
         }
-        if socketPathProbeResult(path) != .stale {
+        switch socketPathProbeResult(path) {
+        case .stale:
+            break
+        case .recentlyRefused:
+            return (recentlyRefusedSocketBindStage, EADDRINUSE)
+        case .connected, .occupiedOrIndeterminate:
             return ("bind", EADDRINUSE)
         }
         if unlink(path) != 0, errno != ENOENT {
@@ -1120,6 +1135,7 @@ class TerminalController {
 
     private enum SocketPathProbeResult {
         case connected
+        case recentlyRefused
         case occupiedOrIndeterminate
         case stale
     }
@@ -1129,7 +1145,10 @@ class TerminalController {
     }
 
     private nonisolated static func socketPathProbeResult(_ path: String) -> SocketPathProbeResult {
-        guard socketPathIdentity(at: path) != nil else { return .stale }
+        let identityResult = socketPathIdentityResult(at: path)
+        guard identityResult.identity != nil else {
+            return identityResult.errnoCode == ENOENT ? .stale : .occupiedOrIndeterminate
+        }
         let fd = socket(AF_UNIX, SOCK_STREAM, 0)
         guard fd >= 0 else { return .occupiedOrIndeterminate }
         defer { close(fd) }
@@ -1151,13 +1170,49 @@ class TerminalController {
 
         let connectErrno = errno
         switch connectErrno {
-        case ECONNREFUSED, ENOENT, ENOTSOCK:
+        case ECONNREFUSED:
+            return refusedSocketPathIsOldEnoughToReplace(path) ? .stale : .recentlyRefused
+        case ENOENT:
             return .stale
         default:
             // Preserve anything not definitively stale. This keeps bind prep nonblocking
             // without ever unlinking a socket that might still have a live listener.
             return .occupiedOrIndeterminate
         }
+    }
+
+    private nonisolated static func refusedSocketPathIsOldEnoughToReplace(_ path: String, now: Date = Date()) -> Bool {
+        guard let age = refusedSocketPathAge(path, now: now) else { return false }
+        return age >= refusedSocketStaleAgeThreshold
+    }
+
+    private nonisolated static func refusedSocketPathAge(_ path: String, now: Date = Date()) -> TimeInterval? {
+        var st = stat()
+        guard lstat(path, &st) == 0 else { return nil }
+        guard (st.st_mode & mode_t(S_IFMT)) == mode_t(S_IFSOCK) else { return nil }
+        let modifiedAt = Date(
+            timeIntervalSince1970: TimeInterval(st.st_mtimespec.tv_sec) +
+                TimeInterval(st.st_mtimespec.tv_nsec) / 1_000_000_000
+        )
+        return now.timeIntervalSince(modifiedAt)
+    }
+
+    nonisolated static func socketBindRetryDelayMilliseconds(
+        stage: String,
+        errnoCode: Int32,
+        path: String,
+        now: Date = Date()
+    ) -> Int? {
+        guard stage == recentlyRefusedSocketBindStage,
+              errnoCode == EADDRINUSE else {
+            return nil
+        }
+        guard let age = refusedSocketPathAge(path, now: now) else {
+            return 0
+        }
+        let remaining = refusedSocketStaleAgeThreshold - max(age, 0)
+        guard remaining > 0 else { return 0 }
+        return max(1, Int(ceil(remaining * 1_000)))
     }
 
     private nonisolated static func ensureSocketParentDirectoryExists(path: String) -> Int32? {
@@ -1227,6 +1282,7 @@ class TerminalController {
         withListenerState {
             self.socketPath = activeSocketPath
             boundSocketPathIdentity = nil
+            pendingSocketBindRetryGeneration = nil
             listenerStartInProgress = true
         }
         var listenerActivated = false
@@ -1299,6 +1355,20 @@ class TerminalController {
         case .failure(let failedPath, let failedStage, let failedErrnoCode):
             print("TerminalController: Failed to bind socket")
             close(newServerSocket)
+            if let retryDelayMs = Self.socketBindRetryDelayMilliseconds(
+                stage: failedStage,
+                errnoCode: failedErrnoCode,
+                path: failedPath
+            ) {
+                scheduleSocketBindRetry(
+                    path: failedPath,
+                    accessMode: accessMode,
+                    stage: failedStage,
+                    errnoCode: failedErrnoCode,
+                    delayMs: retryDelayMs
+                )
+                return
+            }
             reportSocketListenerFailure(
                 message: "socket.listener.start.failed",
                 stage: failedStage,
@@ -1339,6 +1409,7 @@ class TerminalController {
         let generation = withListenerState {
             isRunning = true
             pendingAcceptLoopRearmGeneration = nil
+            pendingSocketBindRetryGeneration = nil
             if !preserveAcceptFailureStreak {
                 acceptSourceConsecutiveFailures = 0
             }
@@ -1400,6 +1471,70 @@ class TerminalController {
 
         startSocketPathMonitor(path: activeSocketPath, generation: generation)
         startAcceptSource(listenerSocket: listenerSocket, generation: generation)
+    }
+
+    private func scheduleSocketBindRetry(
+        path: String,
+        accessMode: SocketControlMode,
+        stage: String,
+        errnoCode: Int32,
+        delayMs: Int
+    ) {
+        let generation = withListenerState {
+            nextSocketBindRetryGeneration &+= 1
+            let generation = nextSocketBindRetryGeneration
+            pendingSocketBindRetryGeneration = generation
+            socketPath = path
+            return generation
+        }
+
+        sentryBreadcrumb(
+            "socket.listener.bind.retry_scheduled",
+            category: "socket",
+            data: socketListenerEventData(
+                stage: stage,
+                errnoCode: errnoCode,
+                extra: [
+                    "path": path,
+                    "retryDelayMs": delayMs,
+                    "generation": generation
+                ]
+            )
+        )
+
+        let deadline = DispatchTime.now() + .milliseconds(delayMs)
+        DispatchQueue.main.asyncAfter(deadline: deadline) { [weak self] in
+            guard let self,
+                  let tabManager = self.tabManager else { return }
+            let shouldRetry = self.withListenerState {
+                guard self.pendingSocketBindRetryGeneration == generation,
+                      !self.isRunning,
+                      !self.acceptLoopAlive,
+                      self.serverSocket < 0,
+                      self.socketPath == path else {
+                    return false
+                }
+                self.pendingSocketBindRetryGeneration = nil
+                return true
+            }
+            guard shouldRetry else { return }
+
+            sentryBreadcrumb(
+                "socket.listener.bind.retry_requested",
+                category: "socket",
+                data: self.socketListenerEventData(
+                    stage: stage,
+                    errnoCode: errnoCode,
+                    extra: [
+                        "path": path,
+                        "retryDelayMs": delayMs,
+                        "generation": generation
+                    ]
+                )
+            )
+
+            self.start(tabManager: tabManager, socketPath: path, accessMode: accessMode)
+        }
     }
 
     nonisolated func socketListenerHealth(expectedSocketPath: String) -> SocketListenerHealth {
@@ -1625,6 +1760,7 @@ class TerminalController {
             isRunning = false
             acceptLoopAlive = false
             pendingAcceptLoopRearmGeneration = nil
+            pendingSocketBindRetryGeneration = nil
             listenerStartInProgress = false
             nextAcceptLoopGeneration &+= 1
             activeAcceptLoopGeneration = 0

@@ -4869,6 +4869,17 @@ final class TerminalControllerSocketListenerHealthTests: XCTestCase {
         )
     }
 
+    func testRecentlyRefusedStableSocketBindFailureDoesNotFallbackBeforeRetry() {
+        XCTAssertNil(
+            TerminalController.fallbackSocketPathAfterBindFailure(
+                requestedPath: SocketControlSettings.stableDefaultSocketPath,
+                stage: TerminalController.recentlyRefusedSocketBindStage,
+                errnoCode: EADDRINUSE,
+                currentUserID: 501
+            )
+        )
+    }
+
     func testSocketPathAcceptsConnectionsForLiveUnixSocket() throws {
         let path = makeTempSocketPath()
         let listenerFD = try bindUnixSocket(at: path)
@@ -4921,14 +4932,67 @@ final class TerminalControllerSocketListenerHealthTests: XCTestCase {
         wait(for: [handled], timeout: 1.0)
     }
 
-    func testPrepareSocketPathForBindRemovesStaleSocketFile() throws {
+    func testPrepareSocketPathForBindPreservesRecentlyRefusedSocketFile() throws {
         let path = makeTempSocketPath()
         let listenerFD = try bindUnixSocket(at: path)
         Darwin.close(listenerFD)
         defer { unlink(path) }
 
+        let failure = try XCTUnwrap(TerminalController.prepareSocketPathForBind(path))
+
+        XCTAssertEqual(failure.stage, TerminalController.recentlyRefusedSocketBindStage)
+        XCTAssertEqual(failure.errnoCode, EADDRINUSE)
+        XCTAssertTrue(FileManager.default.fileExists(atPath: path))
+    }
+
+    func testPrepareSocketPathForBindRemovesOldRefusedSocketFile() throws {
+        let path = makeTempSocketPath()
+        let listenerFD = try bindUnixSocket(at: path)
+        Darwin.close(listenerFD)
+        defer { unlink(path) }
+
+        try FileManager.default.setAttributes(
+            [.modificationDate: Date(timeIntervalSinceNow: -10)],
+            ofItemAtPath: path
+        )
+
         XCTAssertNil(TerminalController.prepareSocketPathForBind(path))
         XCTAssertFalse(FileManager.default.fileExists(atPath: path))
+    }
+
+    func testSocketBindRetryDelayForRecentlyRefusedSocketUsesRemainingFreshnessWindow() throws {
+        let path = makeTempSocketPath()
+        let listenerFD = try bindUnixSocket(at: path)
+        Darwin.close(listenerFD)
+        defer { unlink(path) }
+
+        let now = Date()
+        try FileManager.default.setAttributes(
+            [.modificationDate: now.addingTimeInterval(-0.5)],
+            ofItemAtPath: path
+        )
+
+        let delayMs = try XCTUnwrap(
+            TerminalController.socketBindRetryDelayMilliseconds(
+                stage: TerminalController.recentlyRefusedSocketBindStage,
+                errnoCode: EADDRINUSE,
+                path: path,
+                now: now
+            )
+        )
+
+        XCTAssertGreaterThanOrEqual(delayMs, 1_000)
+        XCTAssertLessThanOrEqual(delayMs, 2_000)
+    }
+
+    func testSocketBindRetryDelayIgnoresGenericBindFailures() {
+        XCTAssertNil(
+            TerminalController.socketBindRetryDelayMilliseconds(
+                stage: "bind",
+                errnoCode: EADDRINUSE,
+                path: makeTempSocketPath()
+            )
+        )
     }
 
     private func makeTempSocketPath() -> String {
