@@ -1833,9 +1833,19 @@ final class SocketClient {
 
     private func waitForReadable(timeout: TimeInterval) throws -> Bool {
         let clampedTimeout = min(max(timeout.isFinite ? timeout : Self.defaultResponseTimeoutSeconds, 0), 24.0 * 60.0 * 60.0)
-        let timeoutMilliseconds = Int32(min(Double(Int32.max), (clampedTimeout * 1000.0).rounded(.up)))
+        let deadline = ProcessInfo.processInfo.systemUptime + clampedTimeout
         var descriptor = pollfd(fd: socketFD, events: Int16(POLLIN), revents: 0)
+        var didPoll = false
         while true {
+            let remaining = deadline - ProcessInfo.processInfo.systemUptime
+            if remaining <= 0 && didPoll {
+                return false
+            }
+            let timeoutMilliseconds = remaining <= 0
+                ? 0
+                : Int32(min(Double(Int32.max), (remaining * 1000.0).rounded(.up)))
+            descriptor.revents = 0
+            didPoll = true
             let result = Darwin.poll(&descriptor, 1, timeoutMilliseconds)
             if result > 0 {
                 return (descriptor.revents & Int16(POLLIN | POLLHUP | POLLERR)) != 0
