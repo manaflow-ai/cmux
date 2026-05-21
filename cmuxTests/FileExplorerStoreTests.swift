@@ -581,6 +581,87 @@ final class FileExplorerStoreTests: XCTestCase {
         XCTAssertLessThanOrEqual(statusLabel.frame.maxX, container.bounds.maxX + 1)
     }
 
+    @MainActor
+    func testRemoteSearchResultDragPreservesRemotePreviewSource() throws {
+        let searchController = FileExplorerStoreSpySearchController()
+        let container = remoteSearchContainer(searchController: searchController)
+        let result = FileSearchResult(
+            path: "/home/dev/movie clip.mp4",
+            relativePath: "movie clip.mp4",
+            lineNumber: 4,
+            columnNumber: 2,
+            preview: "movie"
+        )
+        searchController.publish(FileSearchSnapshot(
+            query: "movie",
+            results: [result],
+            status: .matches,
+            isSearching: false
+        ))
+
+        let writer = try XCTUnwrap(
+            container.tableView(container.searchResultsView, pasteboardWriterForRow: 0) as? FilePreviewDragPasteboardWriter
+        )
+        let dragPasteboard = NSPasteboard(name: .drag)
+        dragPasteboard.clearContents()
+        _ = writer.writableTypes(for: dragPasteboard)
+
+        let dragID = try XCTUnwrap(FilePreviewDragPasteboardWriter.dragID(from: dragPasteboard))
+        defer {
+            FilePreviewDragRegistry.shared.discard(id: dragID)
+            dragPasteboard.clearContents()
+        }
+        let entry = try XCTUnwrap(FilePreviewDragRegistry.shared.entry(id: dragID))
+        let expectedSource = RemoteFilePreviewSource(
+            connection: SSHFileExplorerConnection(
+                destination: "dev@ubuntu-host",
+                port: 2222,
+                identityFile: "/Users/alice/.ssh/id_ed25519",
+                sshOptions: ["StrictHostKeyChecking=no"]
+            ),
+            displayTarget: "dev@ubuntu-host:2222",
+            remotePath: result.path
+        )
+
+        XCTAssertEqual(entry.filePath, RemoteFilePreviewMaterializer.cacheURL(for: expectedSource).path)
+        XCTAssertEqual(entry.displayTitle, "movie clip.mp4")
+        XCTAssertEqual(entry.displayPath, expectedSource.displayPath)
+        XCTAssertEqual(entry.remoteSource, expectedSource)
+        XCTAssertEqual(entry.textInsertionPath, result.path)
+        XCTAssertFalse(dragPasteboard.types?.contains(.fileURL) ?? false)
+    }
+
+    @MainActor
+    func testRemoteSearchResultMenuOmitsLocalFinderActions() {
+        let searchController = FileExplorerStoreSpySearchController()
+        let container = remoteSearchContainer(searchController: searchController)
+        searchController.publish(FileSearchSnapshot(
+            query: "movie",
+            results: [
+                FileSearchResult(
+                    path: "/home/dev/movie clip.mp4",
+                    relativePath: "movie clip.mp4",
+                    lineNumber: 4,
+                    columnNumber: 2,
+                    preview: "movie"
+                )
+            ],
+            status: .matches,
+            isSearching: false
+        ))
+        container.searchResultsView.selectRowIndexes(IndexSet(integer: 0), byExtendingSelection: false)
+        guard let menu = container.searchResultsView.menu else {
+            XCTFail("Expected search result context menu")
+            return
+        }
+
+        container.menuNeedsUpdate(menu)
+
+        let titles = menu.items.map(\.title)
+        XCTAssertTrue(titles.contains("Open in cmux"))
+        XCTAssertFalse(titles.contains("Reveal in Finder"))
+    }
+
     // MARK: - Collapse/Expand
 
     func testCollapseRemovesFromExpandedPaths() {
@@ -599,6 +680,54 @@ final class FileExplorerStoreTests: XCTestCase {
         let node = FileExplorerNode(name: "file.txt", path: "/project/file.txt", isDirectory: false)
         store.expand(node: node)
         XCTAssertFalse(store.isExpanded(node))
+    }
+
+    private func remoteSearchContainer(searchController: FileExplorerStoreSpySearchController) -> FileExplorerContainerView {
+        let store = FileExplorerStore()
+        let state = FileExplorerState()
+        let coordinator = FileExplorerPanelView.Coordinator(
+            store: store,
+            state: state,
+            onOpenFilePreview: { _ in }
+        )
+        let container = FileExplorerContainerView(
+            coordinator: coordinator,
+            presentation: .find,
+            searchController: searchController
+        )
+        store.provider = SSHFileExplorerProvider(
+            destination: "dev@ubuntu-host",
+            port: 2222,
+            identityFile: "/Users/alice/.ssh/id_ed25519",
+            sshOptions: ["StrictHostKeyChecking=no"],
+            displayTarget: "dev@ubuntu-host:2222",
+            homePath: "/home/dev",
+            isAvailable: true,
+            transport: MockSSHFileExplorerTransport(homePath: .success("/home/dev"))
+        )
+        store.setRootPath("/home/dev")
+        container.updateHeader(store: store)
+        container.updatePresentation(.find)
+        return container
+    }
+
+    private final class FileExplorerStoreSpySearchController: FileSearchControlling {
+        var onSnapshotChanged: ((FileSearchSnapshot) -> Void)?
+
+        func search(query rawQuery: String, rootPath: String, isLocal: Bool, contentRevision: Int) {
+            _ = rawQuery
+            _ = rootPath
+            _ = isLocal
+            _ = contentRevision
+        }
+
+        func publish(_ snapshot: FileSearchSnapshot) {
+            onSnapshotChanged?(snapshot)
+        }
+
+        func cancel(clear: Bool) {
+            _ = clear
+        }
     }
 
     private static func findTextField(in root: NSView, stringValue: String) -> NSTextField? {

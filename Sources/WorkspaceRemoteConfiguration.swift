@@ -271,3 +271,24 @@ extension WorkspaceRemoteConfiguration {
         )
     }
 }
+
+extension SSHFileExplorerConnection {
+    func sessionPersistentConnection() -> SSHFileExplorerConnection {
+        SSHFileExplorerConnection(
+            destination: destination.trimmingCharacters(in: .whitespacesAndNewlines),
+            port: port,
+            identityFile: WorkspaceRemoteSSHOptionFilter.normalizedIdentityPath(identityFile),
+            sshOptions: WorkspaceRemoteSSHOptionFilter.durableOptions(sshOptions)
+        )
+    }
+}
+
+extension RemoteFilePreviewSource {
+    func sessionPersistentSource() -> RemoteFilePreviewSource {
+        RemoteFilePreviewSource(
+            connection: connection.sessionPersistentConnection(),
+            displayTarget: displayTarget,
+            remotePath: remotePath
+        )
+    }
+}

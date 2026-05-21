@@ -1535,11 +1535,28 @@ final class FileExplorerContainerView: NSView {
         return searchSnapshot.results[row]
     }
 
+    private func filePreviewEntry(forSearchResult result: FileSearchResult) -> FilePreviewDragEntry? {
+        coordinator.filePreviewEntry(
+            filePath: result.path,
+            displayTitle: (result.relativePath as NSString).lastPathComponent
+        )
+    }
+
+    private func filePreviewPasteboardWriter(for entry: FilePreviewDragEntry) -> FilePreviewDragPasteboardWriter {
+        FilePreviewDragPasteboardWriter(
+            filePath: entry.filePath,
+            displayTitle: entry.displayTitle,
+            displayPath: entry.displayPath,
+            remoteSource: entry.remoteSource,
+            textInsertionPath: entry.textInsertionPath
+        )
+    }
+
     fileprivate func openSelectedSearchResult() {
         let row = searchResultsView.selectedRow
         guard row >= 0, row < searchSnapshot.results.count else { return }
         let result = searchSnapshot.results[row]
-        guard let entry = coordinator.filePreviewEntry(filePath: result.path) else { return }
+        guard let entry = filePreviewEntry(forSearchResult: result) else { return }
         coordinator.onOpenFilePreview(entry)
     }
 
@@ -1549,7 +1566,7 @@ final class FileExplorerContainerView: NSView {
 
     @objc private func contextMenuOpenSearchResultInCmux(_ sender: NSMenuItem) {
         guard let result = searchResult(forMenuItem: sender) else { return }
-        guard let entry = coordinator.filePreviewEntry(filePath: result.path) else { return }
+        guard let entry = filePreviewEntry(forSearchResult: result) else { return }
         coordinator.onOpenFilePreview(entry)
     }
 
@@ -1656,10 +1673,8 @@ extension FileExplorerContainerView: NSSearchFieldDelegate, NSTableViewDataSourc
             return nil
         }
         let result = searchSnapshot.results[row]
-        return FilePreviewDragPasteboardWriter(
-            filePath: result.path,
-            displayTitle: (result.relativePath as NSString).lastPathComponent
-        )
+        guard let entry = filePreviewEntry(forSearchResult: result) else { return nil }
+        return filePreviewPasteboardWriter(for: entry)
     }
 
     func tableView(
@@ -1681,6 +1696,7 @@ extension FileExplorerContainerView: NSSearchFieldDelegate, NSTableViewDataSourc
         if clickedRow >= 0 && !searchResultsView.selectedRowIndexes.contains(clickedRow) {
             searchResultsView.selectRowIndexes(IndexSet(integer: clickedRow), byExtendingSelection: false)
         }
+        let isLocal = coordinator.store.provider is LocalFileExplorerProvider
 
         let openInCmuxItem = NSMenuItem(
             title: String(localized: "fileExplorer.contextMenu.openInCmux", defaultValue: "Open in cmux"),
@@ -1691,23 +1707,25 @@ extension FileExplorerContainerView: NSSearchFieldDelegate, NSTableViewDataSourc
         openInCmuxItem.representedObject = NSNumber(value: row)
         menu.addItem(openInCmuxItem)
 
-        addFileExplorerExternalOpenItems(
-            to: menu,
-            fileURL: URL(fileURLWithPath: searchSnapshot.results[row].path),
-            target: self,
-            action: #selector(contextMenuOpenSearchResultExternally(_:))
-        )
+        if isLocal {
+            addFileExplorerExternalOpenItems(
+                to: menu,
+                fileURL: URL(fileURLWithPath: searchSnapshot.results[row].path),
+                target: self,
+                action: #selector(contextMenuOpenSearchResultExternally(_:))
+            )
 
-        let revealItem = NSMenuItem(
-            title: String(localized: "fileExplorer.contextMenu.revealInFinder", defaultValue: "Reveal in Finder"),
-            action: #selector(contextMenuRevealSearchResultInFinder(_:)),
-            keyEquivalent: ""
-        )
-        revealItem.target = self
-        revealItem.representedObject = NSNumber(value: row)
-        menu.addItem(revealItem)
+            let revealItem = NSMenuItem(
+                title: String(localized: "fileExplorer.contextMenu.revealInFinder", defaultValue: "Reveal in Finder"),
+                action: #selector(contextMenuRevealSearchResultInFinder(_:)),
+                keyEquivalent: ""
+            )
+            revealItem.target = self
+            revealItem.representedObject = NSNumber(value: row)
+            menu.addItem(revealItem)
 
-        menu.addItem(.separator())
+            menu.addItem(.separator())
+        }
 
         menu.addFileExplorerInsertPathItems(target: self, representedObject: NSNumber(value: row), insertAction: #selector(contextMenuInsertSearchResultPath(_:)), insertRelativeAction: #selector(contextMenuInsertSearchResultRelativePath(_:)))
 

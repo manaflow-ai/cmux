@@ -54,12 +54,28 @@ final class SessionPersistenceTests: XCTestCase {
                 destination: "dev@example.com",
                 port: 2222,
                 identityFile: "/Users/alice/.ssh/id_ed25519",
-                sshOptions: ["StrictHostKeyChecking=no"]
+                sshOptions: [
+                    "StrictHostKeyChecking=no",
+                    "ControlPath /tmp/cmux-dead-%C",
+                    "ControlMaster auto",
+                    "ControlPersist 10m"
+                ]
             ),
             displayTarget: "dev@example.com:2222",
             remotePath: "/home/dev/movie clip.mp4"
         )
         let cachePath = RemoteFilePreviewMaterializer.cacheURL(for: source).path
+        let persistedSource = RemoteFilePreviewSource(
+            connection: SSHFileExplorerConnection(
+                destination: "dev@example.com",
+                port: 2222,
+                identityFile: "/Users/alice/.ssh/id_ed25519",
+                sshOptions: ["StrictHostKeyChecking=no"]
+            ),
+            displayTarget: "dev@example.com:2222",
+            remotePath: "/home/dev/movie clip.mp4"
+        )
+        let persistedCachePath = RemoteFilePreviewMaterializer.cacheURL(for: persistedSource).path
 
         let workspace = Workspace()
         defer { workspace.teardownAllPanels() }
@@ -76,9 +92,9 @@ final class SessionPersistenceTests: XCTestCase {
 
         let snapshot = workspace.sessionSnapshot(includeScrollback: false)
         let panelSnapshot = try XCTUnwrap(snapshot.panels.first { $0.id == panel.id }?.filePreview)
-        XCTAssertEqual(panelSnapshot.filePath, cachePath)
+        XCTAssertEqual(panelSnapshot.filePath, persistedCachePath)
         XCTAssertEqual(panelSnapshot.displayPath, source.displayPath)
-        XCTAssertEqual(panelSnapshot.remoteSource, source)
+        XCTAssertEqual(panelSnapshot.remoteSource, persistedSource)
 
         let restored = Workspace()
         defer { restored.teardownAllPanels() }
@@ -86,9 +102,9 @@ final class SessionPersistenceTests: XCTestCase {
 
         let restoredPanelId = try XCTUnwrap(restored.focusedPanelId)
         let restoredPanel = try XCTUnwrap(restored.filePreviewPanel(for: restoredPanelId))
-        XCTAssertEqual(restoredPanel.filePath, cachePath)
+        XCTAssertEqual(restoredPanel.filePath, persistedCachePath)
         XCTAssertEqual(restoredPanel.displayPath, source.displayPath)
-        XCTAssertEqual(restoredPanel.remoteSource, source)
+        XCTAssertEqual(restoredPanel.remoteSource, persistedSource)
         XCTAssertFalse(restoredPanel.canEditText)
     }
 

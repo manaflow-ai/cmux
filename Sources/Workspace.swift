@@ -552,13 +552,15 @@ extension Workspace {
             rightSidebarToolSnapshot = nil
         case .filePreview:
             guard let filePreviewPanel = panel as? FilePreviewPanel else { return nil }
+            let remoteSource = filePreviewPanel.remoteSource?.sessionPersistentSource()
             terminalSnapshot = nil
             browserSnapshot = nil
             markdownSnapshot = nil
             filePreviewSnapshot = SessionFilePreviewPanelSnapshot(
-                filePath: filePreviewPanel.filePath,
-                displayPath: filePreviewPanel.remoteSource == nil ? nil : filePreviewPanel.displayPath,
-                remoteSource: filePreviewPanel.remoteSource
+                filePath: remoteSource.map { RemoteFilePreviewMaterializer.cacheURL(for: $0).path }
+                    ?? filePreviewPanel.filePath,
+                displayPath: remoteSource == nil ? nil : filePreviewPanel.displayPath,
+                remoteSource: remoteSource
             )
             rightSidebarToolSnapshot = nil
         case .rightSidebarTool:

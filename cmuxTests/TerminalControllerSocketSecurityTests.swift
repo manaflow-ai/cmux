@@ -620,8 +620,12 @@ final class TerminalControllerSocketSecurityTests: XCTestCase {
 
         XCTAssertEqual(reportPwdResponse["ok"] as? Bool, true, "Unexpected JSON-RPC response: \(reportPwdResponse)")
         let reportPwdResult = try XCTUnwrap(reportPwdResponse["result"] as? [String: Any], "Unexpected JSON-RPC response: \(reportPwdResponse)")
-        XCTAssertEqual(reportPwdResult["surface_id"] as? String, focusedPanelId.uuidString)
-        XCTAssertEqual(workspace.panelDirectories[focusedPanelId], "/home/demo/project")
+        XCTAssertTrue(reportPwdResult["surface_id"] is NSNull)
+        XCTAssertEqual(reportPwdResult["pending"] as? Bool, true)
+        let reportPwdApplied = await waitForMainActorCondition {
+            workspace.panelDirectories[focusedPanelId] == "/home/demo/project"
+        }
+        XCTAssertTrue(reportPwdApplied)
 
         let portsKickResponse = try await sendV2RequestAsync(
             method: "surface.ports_kick",
@@ -781,7 +785,10 @@ final class TerminalControllerSocketSecurityTests: XCTestCase {
 
         let panel = try XCTUnwrap(workspace.newTerminalSurface(inPane: paneId, focus: false))
 
-        XCTAssertEqual(workspace.panelDirectories[panel.id], "/home/demo/project")
+        let reportApplied = await waitForMainActorCondition {
+            workspace.panelDirectories[panel.id] == "/home/demo/project"
+        }
+        XCTAssertTrue(reportApplied)
         XCTAssertEqual(workspace.preferredRemoteFileExplorerRootPath(), "/home/demo/project")
     }
 
