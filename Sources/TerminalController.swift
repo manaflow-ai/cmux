@@ -1112,6 +1112,13 @@ class TerminalController {
         return nil
     }
 
+    private nonisolated func bindListenerSocketOnListenerQueue(_ socket: Int32, path: String) -> SocketBindAttemptResult {
+        // bindListenerSocket may briefly poll an existing socket for liveness before unlinking.
+        socketListenerQueue.sync {
+            Self.bindListenerSocket(socket, path: path)
+        }
+    }
+
     nonisolated static func socketPathAcceptsConnections(_ path: String, timeoutMilliseconds: Int32 = 150) -> Bool {
         guard socketPathIdentity(at: path) != nil else { return false }
         let fd = socket(AF_UNIX, SOCK_STREAM, 0)
@@ -1241,7 +1248,7 @@ class TerminalController {
             return
         }
 
-        var bindAttempt = Self.bindListenerSocket(newServerSocket, path: activeSocketPath)
+        var bindAttempt = bindListenerSocketOnListenerQueue(newServerSocket, path: activeSocketPath)
         if case .failure(let failedPath, let failedStage, let failedErrnoCode) = bindAttempt,
            let fallbackPath = Self.fallbackSocketPathAfterBindFailure(
                requestedPath: failedPath,
@@ -1263,7 +1270,7 @@ class TerminalController {
             withListenerState {
                 self.socketPath = activeSocketPath
             }
-            bindAttempt = Self.bindListenerSocket(newServerSocket, path: activeSocketPath)
+            bindAttempt = bindListenerSocketOnListenerQueue(newServerSocket, path: activeSocketPath)
         }
 
         switch bindAttempt {

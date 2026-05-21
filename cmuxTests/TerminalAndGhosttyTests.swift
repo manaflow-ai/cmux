@@ -4904,6 +4904,23 @@ final class TerminalControllerSocketListenerHealthTests: XCTestCase {
         XCTAssertTrue(FileManager.default.fileExists(atPath: path))
     }
 
+    func testPrepareSocketPathForBindRejectsLiveSocketWithoutDeletingIt() throws {
+        let path = makeTempSocketPath()
+        let listenerFD = try bindUnixSocket(at: path)
+        defer {
+            Darwin.close(listenerFD)
+            unlink(path)
+        }
+
+        let handled = acceptSingleClient(on: listenerFD) { _ in }
+        let failure = try XCTUnwrap(TerminalController.prepareSocketPathForBind(path))
+
+        XCTAssertEqual(failure.stage, "bind")
+        XCTAssertEqual(failure.errnoCode, EADDRINUSE)
+        XCTAssertTrue(FileManager.default.fileExists(atPath: path))
+        wait(for: [handled], timeout: 1.0)
+    }
+
     func testPrepareSocketPathForBindRemovesStaleSocketFile() throws {
         let path = makeTempSocketPath()
         let listenerFD = try bindUnixSocket(at: path)

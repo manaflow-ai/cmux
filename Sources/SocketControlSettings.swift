@@ -463,18 +463,28 @@ struct SocketControlSettings {
         (lhs as NSString).standardizingPath == (rhs as NSString).standardizingPath
     }
 
+    private static func canonicalSocketPath(_ path: String) -> String {
+        let standardizedPath = (path as NSString).standardizingPath
+        let url = URL(fileURLWithPath: standardizedPath)
+        let resolvedParent = (
+            (url.deletingLastPathComponent().path as NSString).resolvingSymlinksInPath as NSString
+        ).standardizingPath
+        return (resolvedParent as NSString).appendingPathComponent(url.lastPathComponent)
+    }
+
     private static func shouldReserveStableSocketPath(bundleIdentifier: String?, isDebugBuild: Bool) -> Bool {
         if isDebugBuild { return true }
         return normalizedBundleIdentifier(bundleIdentifier) != "com.cmuxterm.app"
     }
 
     private static func isStableReleaseSocketPath(_ path: String, currentUserID: uid_t) -> Bool {
-        [
+        let candidatePath = canonicalSocketPath(path)
+        return [
             stableDefaultSocketPath,
             userScopedStableSocketPath(currentUserID: currentUserID),
             legacyStableDefaultSocketPath,
         ].contains { stablePath in
-            pathsMatch(path, stablePath)
+            candidatePath == canonicalSocketPath(stablePath)
         }
     }
 
