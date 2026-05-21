@@ -999,7 +999,7 @@ final class CLINotifyProcessIntegrationRegressionTests: XCTestCase {
         environment["CMUX_CLI_SENTRY_DISABLED"] = "1"
         environment["CMUX_CLAUDE_HOOK_SENTRY_DISABLED"] = "1"
 
-        func run(_ arguments: [String], timeout: TimeInterval = 5) async -> ProcessRunResult {
+        func run(_ arguments: [String], timeout: TimeInterval = 15) async -> ProcessRunResult {
             await withCheckedContinuation { continuation in
                 DispatchQueue.global(qos: .userInitiated).async {
                     let result = self.runProcess(

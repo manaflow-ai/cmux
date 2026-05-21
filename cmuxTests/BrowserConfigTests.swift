@@ -1153,8 +1153,11 @@ final class CmuxWebViewKeyEquivalentTests: XCTestCase {
     func testWindowArrowForwardingRestoresFocusedOmnibarBeforeBrowserFirstResponder() {
         _ = NSApplication.shared
         AppDelegate.installWindowResponderSwizzlesForTesting()
+        guard let appDelegate = AppDelegate.shared else {
+            XCTFail("Expected AppDelegate.shared")
+            return
+        }
 
-        let panelId = UUID()
         let window = FieldEditorProbeWindow(
             contentRect: NSRect(x: 0, y: 0, width: 640, height: 420),
             styleMask: [.titled, .closable],
@@ -1164,18 +1167,33 @@ final class CmuxWebViewKeyEquivalentTests: XCTestCase {
         let container = NSView(frame: window.contentRect(forFrameRect: window.frame))
         window.contentView = container
 
+        let manager = TabManager(autoWelcomeIfNeeded: false)
+        manager.window = window
+        guard let workspace = manager.selectedWorkspace,
+              let panelId = manager.openBrowser(inWorkspace: workspace.id),
+              let browserPanel = workspace.browserPanel(for: panelId),
+              let webView = browserPanel.webView as? CmuxWebView else {
+            XCTFail("Expected browser panel in test main-window context")
+            return
+        }
+        let windowId = appDelegate.registerMainWindowContextForTesting(tabManager: manager, window: window)
+
         let field = OmnibarNativeTextField(frame: NSRect(x: 12, y: 380, width: 360, height: 24))
         field.panelId = panelId
         field.stringValue = "abcdef"
         container.addSubview(field)
+        BrowserOmnibarNativeFieldRegistry.shared.register(field, panelId: panelId)
 
-        let webView = CmuxWebView(frame: NSRect(x: 0, y: 0, width: 640, height: 360), configuration: WKWebViewConfiguration())
+        webView.frame = NSRect(x: 0, y: 0, width: 640, height: 360)
         webView.allowsFirstResponderAcquisition = true
         container.addSubview(webView)
 
         window.makeKeyAndOrderFront(nil)
         defer {
+            appDelegate.unregisterMainWindowContextForTesting(windowId: windowId)
             NotificationCenter.default.post(name: .browserDidBlurAddressBar, object: panelId)
+            appDelegate.cmuxSetFocusedBrowserAddressBarPanelIdForTesting(nil)
+            BrowserOmnibarNativeFieldRegistry.shared.unregister(field, panelId: panelId)
             AppDelegate.clearWindowFirstResponderGuardTesting()
             field.removeFromSuperview()
             webView.removeFromSuperview()
@@ -1190,6 +1208,8 @@ final class CmuxWebViewKeyEquivalentTests: XCTestCase {
         }
 
         NotificationCenter.default.post(name: .browserDidFocusAddressBar, object: panelId)
+        browserPanel.noteAddressBarFocused()
+        appDelegate.cmuxSetFocusedBrowserAddressBarPanelIdForTesting(panelId)
         window.testFieldEditor.resetKeyDownKeyCodes()
 
         XCTAssertTrue(window.makeFirstResponder(webView))

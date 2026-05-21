@@ -8180,8 +8180,12 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
             return true
         }
 
-        if !shouldRetryMainMenu,
-           let pasteKeyEquivalent = terminalPasteKeyEquivalent(for: event, normalizedFlags: flags) {
+        if let pasteKeyEquivalent = terminalPasteKeyEquivalent(for: event, normalizedFlags: flags) {
+            if shouldRetryMainMenu,
+               let menu = NSApp.mainMenu,
+               menu.performKeyEquivalent(with: event) {
+                return true
+            }
             return performTerminalPasteKeyEquivalent(pasteKeyEquivalent, sender: self)
         }
 
