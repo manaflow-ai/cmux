@@ -114,7 +114,10 @@ enum CLISocketPathResolver {
         bundleIdentifier: String? = currentAppBundleIdentifier(),
         environment: [String: String] = ProcessInfo.processInfo.environment
     ) -> Bool {
-        knownImplicitDefaultPaths(bundleIdentifier: bundleIdentifier, environment: environment).contains(path)
+        containsPath(
+            knownImplicitDefaultPaths(bundleIdentifier: bundleIdentifier, environment: environment),
+            path
+        )
     }
 
     static func resolve(
@@ -186,7 +189,8 @@ enum CLISocketPathResolver {
         case .stable:
             return true
         case .nightly, .staging, .dev:
-            return requestedPath == defaultPath || !stableImplicitDefaultPaths().contains(requestedPath)
+            return pathsMatch(requestedPath, defaultPath)
+                || !containsPath(stableImplicitDefaultPaths(), requestedPath)
         }
     }
 
@@ -246,7 +250,7 @@ enum CLISocketPathResolver {
                 var st = stat()
                 guard lstat(path, &st) == 0 else { continue }
                 guard (st.st_mode & mode_t(S_IFMT)) == mode_t(S_IFSOCK) else { continue }
-                if allKnownDefaultSocketPaths().contains(path) {
+                if isKnownDefaultSocketPath(path) {
                     continue
                 }
                 let modified = TimeInterval(st.st_mtimespec.tv_sec) + TimeInterval(st.st_mtimespec.tv_nsec) / 1_000_000_000
@@ -339,6 +343,21 @@ enum CLISocketPathResolver {
             nightlySocketPath,
             stagingSocketPath,
         ]))
+    }
+
+    private static func isKnownDefaultSocketPath(_ path: String) -> Bool {
+        containsPath(Array(allKnownDefaultSocketPaths()), path)
+    }
+
+    private static func containsPath(_ paths: [String], _ path: String) -> Bool {
+        paths.contains { pathsMatch($0, path) }
+    }
+
+    private static func pathsMatch(_ lhs: String, _ rhs: String) -> Bool {
+        let lhsStandardized = (lhs as NSString).standardizingPath
+        let rhsStandardized = (rhs as NSString).standardizingPath
+        return lhsStandardized == rhsStandardized
+            || lhsStandardized.caseInsensitiveCompare(rhsStandardized) == .orderedSame
     }
 
     private static func lastSocketPathFiles(

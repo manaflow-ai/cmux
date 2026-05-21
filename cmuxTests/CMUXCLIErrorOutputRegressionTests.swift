@@ -86,6 +86,57 @@ final class CMUXCLIErrorOutputRegressionTests: XCTestCase {
         )
     }
 
+    func testBundledCLIInTaggedDebugAppTreatsCaseVariantStableEnvSocketAsImplicitDefault() throws {
+        let cliPath = try bundledCLIPath()
+        let tagSlug = "cli-case-\(UUID().uuidString.lowercased())"
+        let taggedSocketPath = "/tmp/cmux-debug-\(tagSlug).sock"
+        let appSupportStableSocketURL = try stableSocketURL()
+        let stableSocketPath = FileManager.default.fileExists(atPath: appSupportStableSocketURL.path)
+            ? "/tmp/cmux.sock"
+            : appSupportStableSocketURL.path
+        let caseVariantStablePath = URL(fileURLWithPath: stableSocketPath)
+            .deletingLastPathComponent()
+            .appendingPathComponent("CMUX.sock", isDirectory: false)
+            .path
+
+        if FileManager.default.fileExists(atPath: stableSocketPath) {
+            throw XCTSkip("Stable cmux socket already exists at \(stableSocketPath)")
+        }
+
+        let stableResponder = try UnixSocketResponder(path: stableSocketPath, response: "OK STABLE")
+        defer { stableResponder.stop() }
+        let taggedResponder = try UnixSocketResponder(path: taggedSocketPath, response: "PONG")
+        defer { taggedResponder.stop() }
+
+        let fakeCLIPath = try fakeTaggedBundledCLIPath(
+            sourceCLIPath: cliPath,
+            tagSlug: tagSlug
+        )
+        var environment = ProcessInfo.processInfo.environment
+        for key in Array(environment.keys) where key.hasPrefix("CMUX_") {
+            environment.removeValue(forKey: key)
+        }
+        environment["CMUX_CLI_SENTRY_DISABLED"] = "1"
+        environment["CMUXTERM_CLI_RESPONSE_TIMEOUT_SEC"] = "5"
+        environment["CMUX_SOCKET_PATH"] = caseVariantStablePath
+
+        let result = runProcess(
+            executablePath: fakeCLIPath,
+            arguments: ["ping"],
+            environment: environment,
+            timeout: 5
+        )
+
+        XCTAssertFalse(result.timedOut, result.stdout)
+        XCTAssertEqual(result.status, 0, result.stdout)
+        XCTAssertEqual(
+            result.stdout.trimmingCharacters(in: .whitespacesAndNewlines),
+            "PONG",
+            result.stdout
+        )
+        XCTAssertEqual(stableResponder.receivedRequests, [])
+    }
+
     func testBundledCLISkipsIdentifierlessNestedAppWhenResolvingTaggedSocket() throws {
         let cliPath = try bundledCLIPath()
         let tagSlug = "cli-nested-\(UUID().uuidString.lowercased())"
