@@ -1673,6 +1673,154 @@ final class AppDelegateShortcutRoutingTests: XCTestCase {
         XCTAssertEqual(dock.controller.allTabIds.count, dockTabCountBeforeCmdShiftL + 1)
     }
 
+    func testDockFocusedSplitShortcutsCreateSplitsInDockController() {
+        guard let appDelegate = AppDelegate.shared else {
+            XCTFail("Expected AppDelegate.shared")
+            return
+        }
+
+        let windowId = appDelegate.createMainWindow()
+        defer { closeWindow(withId: windowId) }
+
+        guard let window = window(withId: windowId),
+              let manager = appDelegate.tabManagerFor(windowId: windowId),
+              let workspace = manager.selectedWorkspace else {
+            XCTFail("Expected test window context")
+            return
+        }
+
+        let dock = workspace.dockLayout.addDock(edge: .bottom)
+        guard let dockPaneId = dock.controller.allPaneIds.first,
+              workspace.newTerminalSurface(inPane: dockPaneId, controller: dock.controller, focus: true) != nil else {
+            XCTFail("Expected focused dock terminal surface")
+            return
+        }
+        workspace.focusBonsplitPane(dockPaneId, controller: dock.controller)
+
+        let mainPaneCountBefore = workspace.bonsplitController.allPaneIds.count
+        let dockPaneCountBefore = dock.controller.allPaneIds.count
+        let panelsBeforeCmdD = Set(workspace.panels.keys)
+
+        func pressSplitShortcut(
+            modifiers: NSEvent.ModifierFlags,
+            file: StaticString = #filePath,
+            line: UInt = #line
+        ) {
+            guard let event = makeKeyDownEvent(
+                key: "d",
+                modifiers: modifiers,
+                keyCode: 2,
+                windowNumber: window.windowNumber
+            ) else {
+                XCTFail("Failed to construct split shortcut event", file: file, line: line)
+                return
+            }
+#if DEBUG
+            XCTAssertTrue(appDelegate.debugHandleCustomShortcut(event: event), file: file, line: line)
+#else
+            XCTFail("debugHandleCustomShortcut is only available in DEBUG", file: file, line: line)
+#endif
+            drainMainQueue()
+        }
+
+        pressSplitShortcut(modifiers: [.command])
+        XCTAssertEqual(workspace.bonsplitController.allPaneIds.count, mainPaneCountBefore)
+        XCTAssertEqual(dock.controller.allPaneIds.count, dockPaneCountBefore + 1)
+        let cmdDPanelIds = Set(workspace.panels.keys).subtracting(panelsBeforeCmdD)
+        XCTAssertEqual(cmdDPanelIds.count, 1)
+        guard let firstSplitPanelId = cmdDPanelIds.first,
+              let firstSplitPaneId = workspace.paneId(forPanelId: firstSplitPanelId) else {
+            XCTFail("Expected Cmd+D to create a dock split")
+            return
+        }
+        XCTAssertTrue(workspace.panels[firstSplitPanelId] is TerminalPanel)
+        XCTAssertTrue(dock.controller.allPaneIds.contains(firstSplitPaneId))
+
+        workspace.focusPanel(firstSplitPanelId)
+        let panelsBeforeCmdShiftD = Set(workspace.panels.keys)
+        pressSplitShortcut(modifiers: [.command, .shift])
+        XCTAssertEqual(workspace.bonsplitController.allPaneIds.count, mainPaneCountBefore)
+        XCTAssertEqual(dock.controller.allPaneIds.count, dockPaneCountBefore + 2)
+        let cmdShiftDPanelIds = Set(workspace.panels.keys).subtracting(panelsBeforeCmdShiftD)
+        XCTAssertEqual(cmdShiftDPanelIds.count, 1)
+        guard let secondSplitPanelId = cmdShiftDPanelIds.first,
+              let secondSplitPaneId = workspace.paneId(forPanelId: secondSplitPanelId) else {
+            XCTFail("Expected Cmd+Shift+D to create a dock split")
+            return
+        }
+        XCTAssertNotEqual(secondSplitPanelId, firstSplitPanelId)
+        XCTAssertTrue(workspace.panels[secondSplitPanelId] is TerminalPanel)
+        XCTAssertTrue(dock.controller.allPaneIds.contains(secondSplitPaneId))
+    }
+
+    func testDockFocusedSurfaceSelectionShortcutsStayInDockPane() {
+        guard let appDelegate = AppDelegate.shared else {
+            XCTFail("Expected AppDelegate.shared")
+            return
+        }
+
+        let windowId = appDelegate.createMainWindow()
+        defer { closeWindow(withId: windowId) }
+
+        guard let window = window(withId: windowId),
+              let manager = appDelegate.tabManagerFor(windowId: windowId),
+              let workspace = manager.selectedWorkspace,
+              let mainPanelId = workspace.focusedPanelId,
+              let mainPaneId = workspace.paneId(forPanelId: mainPanelId),
+              workspace.newTerminalSurface(inPane: mainPaneId, controller: workspace.bonsplitController, focus: false) != nil else {
+            XCTFail("Expected test window context")
+            return
+        }
+
+        let dock = workspace.dockLayout.addDock(edge: .right)
+        guard let dockPaneId = dock.controller.allPaneIds.first,
+              let firstDockPanel = workspace.newTerminalSurface(inPane: dockPaneId, controller: dock.controller, focus: true),
+              let secondDockPanel = workspace.newTerminalSurface(inPane: dockPaneId, controller: dock.controller, focus: false) else {
+            XCTFail("Expected dock pane with two terminal surfaces")
+            return
+        }
+
+        workspace.focusPanel(firstDockPanel.id)
+        XCTAssertEqual(workspace.focusedPanelId, firstDockPanel.id)
+
+        func press(
+            key: String,
+            modifiers: NSEvent.ModifierFlags,
+            keyCode: UInt16,
+            file: StaticString = #filePath,
+            line: UInt = #line
+        ) {
+            guard let event = makeKeyDownEvent(
+                key: key,
+                modifiers: modifiers,
+                keyCode: keyCode,
+                windowNumber: window.windowNumber
+            ) else {
+                XCTFail("Failed to construct surface selection shortcut event", file: file, line: line)
+                return
+            }
+#if DEBUG
+            XCTAssertTrue(appDelegate.debugHandleCustomShortcut(event: event), file: file, line: line)
+#else
+            XCTFail("debugHandleCustomShortcut is only available in DEBUG", file: file, line: line)
+#endif
+            drainMainQueue()
+        }
+
+        press(key: "\t", modifiers: [.control], keyCode: 48)
+        XCTAssertEqual(workspace.focusedPanelId, secondDockPanel.id, "Ctrl+Tab should select the next surface in the focused dock pane")
+        XCTAssertEqual(workspace.paneId(forPanelId: secondDockPanel.id), dockPaneId)
+
+        press(key: "\t", modifiers: [.control, .shift], keyCode: 48)
+        XCTAssertEqual(workspace.focusedPanelId, firstDockPanel.id, "Ctrl+Shift+Tab should select the previous surface in the focused dock pane")
+        XCTAssertEqual(workspace.paneId(forPanelId: firstDockPanel.id), dockPaneId)
+
+        press(key: "2", modifiers: [.control], keyCode: 19)
+        XCTAssertEqual(workspace.focusedPanelId, secondDockPanel.id, "Ctrl+2 should select the second surface in the focused dock pane")
+        XCTAssertEqual(workspace.paneId(forPanelId: secondDockPanel.id), dockPaneId)
+        XCTAssertNotEqual(workspace.focusedPanelId, mainPanelId)
+    }
+
     func testCmdDRoutesSplitToEventWindowWhenKeyWindowIsDifferent() {
         guard let appDelegate = AppDelegate.shared else {
             XCTFail("Expected AppDelegate.shared")

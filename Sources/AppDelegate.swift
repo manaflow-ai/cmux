@@ -5577,6 +5577,23 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         )
     }
 
+    private func shouldUseFocusedTerminalShortcutContext(_ context: FocusedTerminalShortcutContext) -> Bool {
+        guard let workspace = context.tabManager.tabs.first(where: { $0.id == context.workspaceId }) else {
+            return true
+        }
+        guard let focusedPanelId = workspace.focusedPanelId,
+              focusedPanelId != context.panelId else {
+            return true
+        }
+        guard let focusedPaneId = workspace.paneId(forPanelId: focusedPanelId),
+              let focusedController = workspace.bonsplitController(containingPane: focusedPaneId),
+              let responderTabId = workspace.surfaceIdFromPanelId(context.panelId),
+              let responderController = workspace.bonsplitController(containingTab: responderTabId) else {
+            return true
+        }
+        return focusedController === responderController
+    }
+
     private func preferredMainWindowContextForShortcuts(event: NSEvent) -> MainWindowContext? {
         if let context = contextForMainWindow(event.window) {
             return context
@@ -12902,7 +12919,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
 
         prepareFocusedBrowserDevToolsForSplit(directionLabel: directionLabel)
         let didCreateSplit: Bool = {
-            if let terminalContext {
+            if let terminalContext,
+               shouldUseFocusedTerminalShortcutContext(terminalContext) {
                 return terminalContext.tabManager.createSplit(
                     tabId: terminalContext.workspaceId,
                     surfaceId: terminalContext.panelId,
