@@ -274,7 +274,7 @@ jobs:
         uses: actions/cache/save@27d5ce7f107fe9357f9df03efb73ab90386fccae # v5.0.5
         with:
           path: ~/Library/Developer/Xcode/DerivedData/cmux-unit-ci
-          key: deriveddata-tests-build-${{ github.run_id }}-${{ github.run_attempt }}
+          key: deriveddata-tests-build-${{ github.run_id }}
 
   tests-shards:
     name: tests-shard-${{ matrix.shard }}
@@ -328,7 +328,7 @@ jobs:
         uses: actions/cache/restore@27d5ce7f107fe9357f9df03efb73ab90386fccae # v5.0.5
         with:
           path: ~/Library/Developer/Xcode/DerivedData/cmux-unit-ci
-          key: deriveddata-tests-build-${{ github.run_id }}-${{ github.run_attempt }}
+          key: deriveddata-tests-build-${{ github.run_id }}
           fail-on-cache-miss: true
 
       - name: Restore Swift packages
@@ -406,7 +406,7 @@ jobs:
         uses: actions/cache/restore@27d5ce7f107fe9357f9df03efb73ab90386fccae # v5.0.5
         with:
           path: ~/Library/Developer/Xcode/DerivedData/cmux-unit-ci
-          key: deriveddata-tests-build-${{ github.run_id }}-${{ github.run_attempt }}
+          key: deriveddata-tests-build-${{ github.run_id }}
           fail-on-cache-miss: true
 
       - name: Restore Swift packages
