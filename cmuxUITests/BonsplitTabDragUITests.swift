@@ -246,6 +246,10 @@ final class BonsplitTabDragUITests: XCTestCase {
             "Expected clicking the right sidebar close button to hide the sidebar."
         )
 
+        XCTAssertTrue(
+            ensureAppForegroundForKeyboardInteraction(app, timeout: 6.0),
+            "Expected cmux to be foreground before toggling the right sidebar shortcut. state=\(app.state.rawValue)"
+        )
         app.typeKey("b", modifierFlags: [.command, .option])
         XCTAssertTrue(
             waitForCondition(timeout: 3.0) {
@@ -553,6 +557,10 @@ final class BonsplitTabDragUITests: XCTestCase {
             "Expected minimal-mode sidebar controls to start hidden away from hover."
         )
 
+        XCTAssertTrue(
+            ensureAppForegroundForKeyboardInteraction(app, timeout: 6.0),
+            "Expected cmux to be foreground before opening notifications shortcut. state=\(app.state.rawValue)"
+        )
         app.typeKey("i", modifierFlags: [.command])
         XCTAssertTrue(
             app.buttons["notificationsPopover.jumpToLatest"].waitForExistence(timeout: 6.0)
@@ -771,6 +779,20 @@ final class BonsplitTabDragUITests: XCTestCase {
         // Bonsplit gestures target realized windows; headless runners can keep reporting
         // .unknown after launch even when the window is queryable and ready for coordinates.
         return app.windows.firstMatch.waitForExistence(timeout: timeout)
+    }
+
+    private func ensureAppForegroundForKeyboardInteraction(_ app: XCUIApplication, timeout: TimeInterval) -> Bool {
+        if app.state == .runningForeground {
+            return true
+        }
+        let options = XCTExpectedFailure.Options()
+        options.isStrict = false
+        XCTExpectFailure("App foreground activation may fail on headless CI runners", options: options) {
+            app.activate()
+        }
+        return waitForCondition(timeout: timeout) {
+            app.state == .runningForeground
+        }
     }
 
     private func waitForAnyJSON(atPath path: String, timeout: TimeInterval) -> Bool {
