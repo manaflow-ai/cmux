@@ -5795,12 +5795,7 @@ class TerminalController {
         guard let raw = params[key] as? String else { return nil }
         let trimmed = raw.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !trimmed.isEmpty else { return nil }
-        if let uuid = UUID(uuidString: trimmed) {
-            return uuid
-        }
-        return v2MainSync {
-            self.v2ResolveHandleRef(trimmed)
-        }
+        return UUID(uuidString: trimmed)
     }
 
     private nonisolated func v2SocketWorkerHasNonNullParam(_ params: [String: Any], _ key: String) -> Bool {
@@ -5812,11 +5807,9 @@ class TerminalController {
         params[key] as? String
     }
 
-    private nonisolated func v2SocketWorkerRef(kind: V2HandleKind, uuid: UUID?) -> Any {
+    private nonisolated func v2SocketWorkerRef(kind _: V2HandleKind, uuid: UUID?) -> Any {
         guard let uuid else { return NSNull() }
-        return v2MainSync {
-            self.v2Ref(kind: kind, uuid: uuid)
-        }
+        return uuid.uuidString
     }
 
     private nonisolated func v2SurfaceReportPwd(params: [String: Any]) -> V2CallResult {
@@ -5856,13 +5849,10 @@ class TerminalController {
                     return
                 }
                 if shouldPublish {
-                    if let owner = AppDelegate.shared?.tabManagerFor(tabId: tab.id) {
-                        owner.updateSurfaceDirectory(tabId: tab.id, surfaceId: requestedSurfaceId, directory: directory)
-                        if tab.isRemoteWorkspace {
-                            tab.updateRemotePanelDirectory(panelId: requestedSurfaceId, directory: directory)
-                        }
-                    } else if tab.isRemoteWorkspace {
+                    if tab.isRemoteWorkspace {
                         tab.updateRemotePanelDirectory(panelId: requestedSurfaceId, directory: directory)
+                    } else if let owner = AppDelegate.shared?.tabManagerFor(tabId: tab.id) {
+                        owner.updateSurfaceDirectory(tabId: tab.id, surfaceId: requestedSurfaceId, directory: directory)
                     } else {
                         tab.updatePanelDirectory(panelId: requestedSurfaceId, directory: directory)
                     }
@@ -5938,13 +5928,10 @@ class TerminalController {
                 directory: directory
             )
             if shouldPublish {
-                if let owner = AppDelegate.shared?.tabManagerFor(tabId: tab.id) {
-                    owner.updateSurfaceDirectory(tabId: tab.id, surfaceId: surfaceId, directory: directory)
-                    if tab.isRemoteWorkspace {
-                        tab.updateRemotePanelDirectory(panelId: surfaceId, directory: directory)
-                    }
-                } else if tab.isRemoteWorkspace {
+                if tab.isRemoteWorkspace {
                     tab.updateRemotePanelDirectory(panelId: surfaceId, directory: directory)
+                } else if let owner = AppDelegate.shared?.tabManagerFor(tabId: tab.id) {
+                    owner.updateSurfaceDirectory(tabId: tab.id, surfaceId: surfaceId, directory: directory)
                 } else {
                     tab.updatePanelDirectory(panelId: surfaceId, directory: directory)
                 }

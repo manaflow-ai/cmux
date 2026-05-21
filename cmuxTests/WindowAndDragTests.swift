@@ -2609,6 +2609,63 @@ final class FilePreviewPanelTextSavingTests: XCTestCase {
         XCTAssertNil(quickLookView.superview)
     }
 
+#if DEBUG
+    func testRemoteTextFilePreviewIsNotAnEditableFileDropDestination() throws {
+        let localURL = try temporaryTextFile(contents: "local", encoding: .utf8)
+        let remoteURL = try temporaryTextFile(contents: "remote cache", encoding: .utf8)
+        defer {
+            try? FileManager.default.removeItem(at: localURL)
+            try? FileManager.default.removeItem(at: remoteURL)
+        }
+
+        let workspace = Workspace()
+        defer { workspace.teardownAllPanels() }
+
+        let paneId = try XCTUnwrap(workspace.bonsplitController.allPaneIds.first)
+        let dropTarget = TerminalPaneDropTargetView(frame: .zero)
+        let localPanel = try XCTUnwrap(workspace.newFilePreviewSurface(
+            inPane: paneId,
+            filePath: localURL.path,
+            focus: true
+        ))
+        let localContext = PaneDropContext(
+            workspaceId: workspace.id,
+            panelId: localPanel.id,
+            paneId: paneId
+        )
+        XCTAssertEqual(
+            dropTarget.debugFileDropTextDestinationKind(context: localContext, workspace: workspace),
+            .editor
+        )
+
+        let remoteSource = RemoteFilePreviewSource(
+            connection: SSHFileExplorerConnection(
+                destination: "dev@example.com",
+                port: 2222,
+                identityFile: nil,
+                sshOptions: []
+            ),
+            displayTarget: "dev@example.com:2222",
+            remotePath: "/home/dev/remote.txt"
+        )
+        let remotePanel = try XCTUnwrap(workspace.newFilePreviewSurface(
+            inPane: paneId,
+            filePath: remoteURL.path,
+            displayPath: remoteSource.displayPath,
+            remoteSource: remoteSource,
+            focus: true
+        ))
+        let remoteContext = PaneDropContext(
+            workspaceId: workspace.id,
+            panelId: remotePanel.id,
+            paneId: paneId
+        )
+
+        XCTAssertNil(dropTarget.debugFileDropTextDestinationKind(context: remoteContext, workspace: workspace))
+        XCTAssertFalse(remotePanel.handleDroppedFileURLsAsText([localURL]))
+    }
+#endif
+
     func testSaveTextContentWritesLiveTextViewContent() async throws {
         let url = try temporaryTextFile(contents: "original", encoding: .utf8)
         defer { try? FileManager.default.removeItem(at: url) }

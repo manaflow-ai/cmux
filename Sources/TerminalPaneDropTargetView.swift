@@ -366,7 +366,8 @@ final class PaneDropTargetView: NSView {
             return nil
         case .filePreview:
             guard let filePreviewPanel = panel as? FilePreviewPanel,
-                  filePreviewPanel.previewMode == .text else {
+                  filePreviewPanel.previewMode == .text,
+                  filePreviewPanel.canEditText else {
                 return nil
             }
             return .editor
@@ -376,6 +377,15 @@ final class PaneDropTargetView: NSView {
             return nil
         }
     }
+
+#if DEBUG
+    func debugFileDropTextDestinationKind(
+        context: PaneDropContext,
+        workspace: Workspace
+    ) -> FileDropTextDestinationKind? {
+        fileDropTextDestinationKind(context: context, workspace: workspace)
+    }
+#endif
 
     func shouldDeferToPaneTabBar(at point: NSPoint) -> Bool {
         let windowPoint = convert(point, to: nil)

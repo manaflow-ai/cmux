@@ -1025,6 +1025,60 @@ final class TerminalControllerSocketSecurityTests: XCTestCase {
         XCTAssertTrue(duplicateReportApplied)
     }
 
+    func testRemoteSurfaceReportPwdWithRequestedSurfaceDoesNotUpdateLocalCurrentDirectory() async throws {
+        let socketPath = makeSocketPath("relay-pwd-local-cwd")
+        let manager = TabManager()
+        let workspace = manager.addWorkspace(select: true)
+        let panelId = try XCTUnwrap(workspace.focusedPanelId)
+        let originalDirectory = workspace.currentDirectory
+        let configuration = WorkspaceRemoteConfiguration(
+            destination: "example.com",
+            port: 2222,
+            identityFile: nil,
+            sshOptions: [],
+            localProxyPort: nil,
+            relayPort: 4448,
+            relayID: "relay-id",
+            relayToken: "relay-token",
+            localSocketPath: "/tmp/cmux-test.sock",
+            terminalStartupCommand: "ssh example.com"
+        )
+        workspace.configureRemoteConnection(configuration, autoConnect: false)
+
+        defer {
+            if manager.tabs.contains(where: { $0.id == workspace.id }) {
+                manager.closeWorkspace(workspace)
+            }
+        }
+
+        TerminalController.shared.start(
+            tabManager: manager,
+            socketPath: socketPath,
+            accessMode: .allowAll
+        )
+        try waitForSocket(at: socketPath)
+
+        let response = try await sendV2RequestAsync(
+            method: "surface.report_pwd",
+            params: [
+                "workspace_id": workspace.id.uuidString,
+                "surface_id": panelId.uuidString,
+                "directory": "/home/demo/requested-surface"
+            ],
+            to: socketPath
+        )
+
+        XCTAssertEqual(response["ok"] as? Bool, true, "Unexpected JSON-RPC response: \(response)")
+        let result = try XCTUnwrap(response["result"] as? [String: Any], "Unexpected JSON-RPC response: \(response)")
+        XCTAssertEqual(result["surface_id"] as? String, panelId.uuidString)
+        let reportApplied = await waitForMainActorCondition {
+            workspace.panelDirectories[panelId] == "/home/demo/requested-surface" &&
+                workspace.preferredRemoteFileExplorerRootPath() == "/home/demo/requested-surface"
+        }
+        XCTAssertTrue(reportApplied)
+        XCTAssertEqual(workspace.currentDirectory, originalDirectory)
+    }
+
     func testWorkspaceCloseRejectsPinnedWorkspace() async throws {
         let socketPath = makeSocketPath("close-pinned")
         let manager = TabManager()
