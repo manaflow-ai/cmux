@@ -6,7 +6,7 @@
 
 @MainActor
 extension TabManager {
-    func teardownAllWorkspacesForTesting(notificationStore: TerminalNotificationStore? = AppDelegate.shared?.notificationStore) {
+    func teardownAllWorkspacesForTesting(notificationStore: TerminalNotificationStore?) {
         for workspace in Array(tabs) {
             notificationStore?.clearNotifications(forTabId: workspace.id)
             workspace.teardownAllPanels()
