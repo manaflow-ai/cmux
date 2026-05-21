@@ -75,6 +75,10 @@ run_with_timeout() {
   local pid=$!
   track_pid "$pid"
   local timeout_marker="$tmp_root/timeout-$pid.log"
+  local restore_errexit=0
+  case "$-" in
+    *e*) restore_errexit=1 ;;
+  esac
 
   (
     sleep "$timeout_seconds"
@@ -91,7 +95,11 @@ run_with_timeout() {
   set +e
   wait "$pid"
   local code=$?
-  set -e
+  if [ "$restore_errexit" -eq 1 ]; then
+    set -e
+  else
+    set +e
+  fi
   pkill -TERM -P "$watcher" >/dev/null 2>&1 || true
   kill "$watcher" >/dev/null 2>&1 || true
   wait "$watcher" >/dev/null 2>&1 || true

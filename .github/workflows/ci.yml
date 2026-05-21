@@ -11,6 +11,9 @@ concurrency:
   group: ${{ github.workflow }}-${{ github.ref }}
   cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
+env:
+  SWIFT_BACKTRACE: enable=no
+
 jobs:
   workflow-guard-tests:
     runs-on: ubuntu-latest
