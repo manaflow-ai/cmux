@@ -11,15 +11,27 @@ enum BrowserScreenshotError: LocalizedError {
     var errorDescription: String? {
         switch self {
         case .emptySnapshot:
-            return "WebKit did not return a screenshot image."
+            return String(localized: "browser.screenshot.error.emptySnapshot", defaultValue: "No screenshot was returned.")
         case .invalidSelection:
-            return "The screenshot selection is empty or outside the browser view."
+            return String(
+                localized: "browser.screenshot.error.invalidSelection",
+                defaultValue: "The screenshot selection is empty or outside the browser view."
+            )
         case .invalidImageRepresentation:
-            return "The screenshot image could not be encoded."
+            return String(
+                localized: "browser.screenshot.error.invalidImageRepresentation",
+                defaultValue: "The screenshot image could not be encoded."
+            )
         case .pasteboardWriteFailed:
-            return "The screenshot could not be written to the clipboard."
+            return String(
+                localized: "browser.screenshot.error.pasteboardWriteFailed",
+                defaultValue: "The screenshot could not be written to the clipboard."
+            )
         case .webContentMetricsUnavailable:
-            return "The page dimensions could not be read."
+            return String(
+                localized: "browser.screenshot.error.webContentMetricsUnavailable",
+                defaultValue: "The page dimensions could not be read."
+            )
         }
     }
 }
@@ -110,7 +122,6 @@ enum BrowserScreenshotCrop {
 enum BrowserScreenshotPasteboardWriter {
     static func write(_ image: NSImage, to pasteboard: NSPasteboard = .general) throws {
         let item = try pasteboardItem(for: image)
-        pasteboard.clearContents()
         guard pasteboard.writeObjects([item]) else {
             throw BrowserScreenshotError.pasteboardWriteFailed
         }
