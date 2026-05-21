@@ -6489,10 +6489,11 @@ struct WebViewRepresentable: NSViewRepresentable {
 #endif
                 continue
             }
-            if cmuxIsWebInspectorClassName(className) || cmuxIsWebInspectorObject(view) {
-                continue
-            }
-            guard className.contains("WK") else { continue }
+            let isWebKitRelatedView =
+                className.contains("WK") ||
+                cmuxIsWebInspectorClassName(className) ||
+                cmuxIsWebInspectorObject(view)
+            guard isWebKitRelatedView else { continue }
             append(view)
         }
 

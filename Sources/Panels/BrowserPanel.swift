@@ -6130,7 +6130,7 @@ extension BrowserPanel {
             return
         }
 
-        if consumeAttachedDeveloperToolsManualCloseIfNeeded(inspector: inspector) {
+        if !shouldForceRefresh, consumeAttachedDeveloperToolsManualCloseIfNeeded(inspector: inspector) {
             return
         }
 

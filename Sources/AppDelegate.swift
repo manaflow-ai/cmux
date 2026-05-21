@@ -15231,6 +15231,23 @@ private extension AppDelegate {
     }
 }
 
+#if DEBUG
+extension AppDelegate {
+    @discardableResult
+    func cmuxHandleDetachedInspectorWindowCloseActionForTesting(
+        action: Selector,
+        target: Any?,
+        sender: Any?
+    ) -> Bool {
+        handleDetachedInspectorWindowCloseAction(
+            action: action,
+            target: target,
+            sender: sender
+        )
+    }
+}
+#endif
+
 private extension NSWindow {
     static func cmuxCommandPaletteOwnsFieldEditor(_ textView: NSTextView?, in window: NSWindow) -> Bool {
         guard let textView,
