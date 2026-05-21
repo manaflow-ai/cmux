@@ -70,6 +70,7 @@ private struct SessionIndexTemplateSymbolImage: View, Equatable {
     }
 }
 
+@MainActor
 private enum SessionIndexIconResolver {
     enum Fallback: Equatable {
         case folder
@@ -105,7 +106,9 @@ private extension NSImage {
     }
 
     func sessionIndexTemplateCopy() -> NSImage {
-        let image = (copy() as? NSImage) ?? self
+        guard let image = copy() as? NSImage else {
+            return self
+        }
         image.isTemplate = true
         return image
     }
