@@ -26,48 +26,56 @@ extension AppDelegate {
         preferredTabManager: TabManager? = nil,
         shouldActivate: Bool = true
     ) -> Bool {
-        if ClosedItemHistoryStore.shared.restoreFirstRestorable(using: { entry in
-            restoreClosedItem(
-                entry,
-                preferredTabManager: preferredTabManager,
-                shouldActivate: shouldActivate
-            )
-        }) {
-            return true
+        let restoreStoreItem: (Date?) -> Bool = { cutoff in
+            ClosedItemHistoryStore.shared.restoreFirstRestorable(newerThan: cutoff, using: { entry in
+                self.restoreClosedItem(
+                    entry,
+                    preferredTabManager: preferredTabManager,
+                    shouldActivate: shouldActivate
+                )
+            })
         }
 
-        if preferredTabManager?.reopenMostRecentlyClosedBrowserPanelFromLegacyStack() == true {
-            return true
-        }
-        if let tabManager,
-           tabManager !== preferredTabManager,
-           tabManager.reopenMostRecentlyClosedBrowserPanelFromLegacyStack() {
-            return true
+        for manager in recentlyClosedLegacyBrowserManagers(preferredTabManager: preferredTabManager) {
+            guard let closedAt = manager.mostRecentLegacyClosedBrowserPanelClosedAt() else {
+                continue
+            }
+            if restoreStoreItem(closedAt) {
+                return true
+            }
+            if manager.reopenMostRecentlyClosedBrowserPanelFromLegacyStack() {
+                return true
+            }
         }
 
-        return false
+        return restoreStoreItem(nil)
     }
 
-    @discardableResult
-    func reopenClosedHistoryItem(
-        id: UUID,
-        preferredTabManager: TabManager? = nil,
-        shouldActivate: Bool = true
-    ) -> Bool {
-        guard let removed = ClosedItemHistoryStore.shared.removeRecord(id: id) else {
-            return false
+    private func recentlyClosedLegacyBrowserManagers(preferredTabManager: TabManager?) -> [TabManager] {
+        var managers: [TabManager] = []
+        var seen: Set<ObjectIdentifier> = []
+
+        func append(_ manager: TabManager?) {
+            guard let manager else { return }
+            guard manager.mostRecentLegacyClosedBrowserPanelClosedAt() != nil else { return }
+            guard seen.insert(ObjectIdentifier(manager)).inserted else { return }
+            managers.append(manager)
         }
 
-        if restoreClosedItem(
-            removed.record.entry,
-            preferredTabManager: preferredTabManager,
-            shouldActivate: shouldActivate
-        ) {
-            return true
+        append(preferredTabManager)
+        append(tabManager)
+        for context in mainWindowContexts.values {
+            append(context.tabManager)
+        }
+        for route in recoverableMainWindowRoutes() {
+            append(route.tabManager)
         }
 
-        ClosedItemHistoryStore.shared.insert(removed.record, at: removed.index)
-        return false
+        return managers.sorted { lhs, rhs in
+            let lhsDate = lhs.mostRecentLegacyClosedBrowserPanelClosedAt() ?? .distantPast
+            let rhsDate = rhs.mostRecentLegacyClosedBrowserPanelClosedAt() ?? .distantPast
+            return lhsDate > rhsDate
+        }
     }
 
     @discardableResult
@@ -105,6 +113,28 @@ extension AppDelegate {
             )
             return true
         }
+    }
+
+    @discardableResult
+    func reopenClosedHistoryItem(
+        id: UUID,
+        preferredTabManager: TabManager? = nil,
+        shouldActivate: Bool = true
+    ) -> Bool {
+        guard let removed = ClosedItemHistoryStore.shared.removeRecord(id: id) else {
+            return false
+        }
+
+        if restoreClosedItem(
+            removed.record.entry,
+            preferredTabManager: preferredTabManager,
+            shouldActivate: shouldActivate
+        ) {
+            return true
+        }
+
+        ClosedItemHistoryStore.shared.insert(removed.record, at: removed.index)
+        return false
     }
 
     private func activateMainWindowIfNeeded(for manager: TabManager, shouldActivate: Bool) {

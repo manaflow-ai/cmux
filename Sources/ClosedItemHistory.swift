@@ -134,7 +134,26 @@ final class ClosedItemHistoryStore: ObservableObject {
 
     @discardableResult
     func restoreFirstRestorable(using restore: (ClosedItemHistoryEntry) -> Bool) -> Bool {
-        let candidates = records.reversed().map { (id: $0.id, entry: $0.entry) }
+        restoreFirstRestorable(newerThan: nil, using: restore)
+    }
+
+    @discardableResult
+    func restoreFirstRestorable(
+        newerThan cutoff: Date?,
+        using restore: (ClosedItemHistoryEntry) -> Bool
+    ) -> Bool {
+        let candidates = records.enumerated()
+            .filter { _, record in
+                guard let cutoff else { return true }
+                return record.closedAt >= cutoff
+            }
+            .sorted { lhs, rhs in
+                if lhs.element.closedAt != rhs.element.closedAt {
+                    return lhs.element.closedAt > rhs.element.closedAt
+                }
+                return lhs.offset > rhs.offset
+            }
+            .map { _, record in (id: record.id, entry: record.entry) }
         for candidate in candidates {
             guard restore(candidate.entry) else { continue }
             if let index = records.firstIndex(where: { $0.id == candidate.id }) {

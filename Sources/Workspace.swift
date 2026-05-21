@@ -7507,6 +7507,29 @@ struct ClosedBrowserPanelRestoreSnapshot {
     let fallbackSplitOrientation: SplitOrientation?
     let fallbackSplitInsertFirst: Bool
     let fallbackAnchorPaneId: UUID?
+    let closedAt: Date
+
+    init(
+        workspaceId: UUID,
+        url: URL?,
+        profileID: UUID?,
+        originalPaneId: UUID,
+        originalTabIndex: Int,
+        fallbackSplitOrientation: SplitOrientation?,
+        fallbackSplitInsertFirst: Bool,
+        fallbackAnchorPaneId: UUID?,
+        closedAt: Date = Date()
+    ) {
+        self.workspaceId = workspaceId
+        self.url = url
+        self.profileID = profileID
+        self.originalPaneId = originalPaneId
+        self.originalTabIndex = originalTabIndex
+        self.fallbackSplitOrientation = fallbackSplitOrientation
+        self.fallbackSplitInsertFirst = fallbackSplitInsertFirst
+        self.fallbackAnchorPaneId = fallbackAnchorPaneId
+        self.closedAt = closedAt
+    }
 }
 
 /// Workspace represents a sidebar tab.
