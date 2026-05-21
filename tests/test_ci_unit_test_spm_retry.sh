@@ -10,7 +10,11 @@ REQUIRED_PATTERNS=(
   "output_path = \"/tmp/test-output.txt\""
   "CMUX_XCTEST_CRASH_QUIET_TIMEOUT_SECONDS"
   "Program crashed:"
-  "process.terminate()"
+  "start_new_session=True"
+  "os.killpg"
+  "signal.SIGTERM"
+  "signal.SIGKILL"
+  "process.stdout.read()"
   "Could not resolve package dependencies"
   "rm -rf ~/Library/Caches/org.swift.swiftpm"
   'OUTPUT=$(cat /tmp/test-output.txt)'

@@ -251,6 +251,7 @@ jobs:
             SOURCE_PACKAGES_DIR="$SOURCE_PACKAGES_DIR" python3 <<'PY'
           import os
           import select
+          import signal
           import subprocess
           import sys
           import time
@@ -277,6 +278,7 @@ jobs:
               stderr=subprocess.STDOUT,
               text=True,
               bufsize=1,
+              start_new_session=True,
           )
           saw_app_host_crash = False
           last_output_at = time.monotonic()
@@ -308,12 +310,37 @@ jobs:
                       sys.stdout.flush()
                       output.write(message)
                       output.flush()
-                      process.terminate()
+                      process_group_id = None
+                      try:
+                          process_group_id = os.getpgid(process.pid)
+                          os.killpg(process_group_id, signal.SIGTERM)
+                      except ProcessLookupError:
+                          pass
                       try:
                           process.wait(timeout=10)
                       except subprocess.TimeoutExpired:
-                          process.kill()
+                          if process_group_id is None:
+                              try:
+                                  process_group_id = os.getpgid(process.pid)
+                              except ProcessLookupError:
+                                  process_group_id = None
+                          if process_group_id is not None:
+                              try:
+                                  os.killpg(process_group_id, signal.SIGKILL)
+                              except ProcessLookupError:
+                                  pass
                           process.wait()
+                      if process_group_id is not None:
+                          try:
+                              os.killpg(process_group_id, signal.SIGKILL)
+                          except ProcessLookupError:
+                              pass
+                      remaining = process.stdout.read() if process.stdout is not None else ""
+                      if remaining:
+                          sys.stdout.write(remaining)
+                          sys.stdout.flush()
+                          output.write(remaining)
+                          output.flush()
                       break
 
           sys.exit(process.returncode if process.returncode is not None else 1)
