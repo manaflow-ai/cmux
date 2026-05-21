@@ -847,7 +847,7 @@ struct BrowserPanelView: View {
         .onChange(of: panel.pendingAddressBarFocusRequestId) { _ in
             applyPendingAddressBarFocusRequestIfNeeded()
         }
-        .onChange(of: panel.isOmnibarVisible) { isVisible in
+        .onChange(of: panel.isOmnibarVisible) { _, isVisible in
             if !isVisible {
                 hideSuggestions()
                 setAddressBarFocused(false, reason: "omnibarVisibility.hidden")
