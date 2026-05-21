@@ -29,6 +29,7 @@ struct VNCPanelView: View {
         }
         .background(Color(nsColor: appearance.backgroundColor))
         .task(id: panel.id) {
+            panel.setVisible(isVisibleInUI)
             panel.startIfNeeded()
         }
         .onChange(of: isVisibleInUI) { _, visible in

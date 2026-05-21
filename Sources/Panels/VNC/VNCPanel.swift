@@ -51,6 +51,7 @@ final class VNCPanel: Panel, ObservableObject {
     private var replayFramebufferHeight = 0
     private var replayFrameSequence: UInt64 = 0
     private var frameHandlers: [UUID: (VNCDisplayFrame?) -> Void] = [:]
+    private var desiredVisibility = false
 
     init(
         workspaceId: UUID,
@@ -110,6 +111,7 @@ final class VNCPanel: Panel, ObservableObject {
             }
         )
         connection = nextConnection
+        sendDesiredVisibility()
         nextConnection.start()
     }
 
@@ -124,7 +126,12 @@ final class VNCPanel: Panel, ObservableObject {
     }
 
     func setVisible(_ isVisible: Bool) {
-        connection?.sendControl(VNCControlMessage(kind: "visibility", visible: isVisible))
+        desiredVisibility = isVisible
+        sendDesiredVisibility()
+    }
+
+    private func sendDesiredVisibility() {
+        connection?.sendControl(VNCControlMessage(kind: "visibility", visible: desiredVisibility))
     }
 
     @discardableResult
