@@ -1529,6 +1529,50 @@ final class TerminalOffscreenStartupTests: XCTestCase {
         XCTAssertEqual(ticket["terminalID"] as? String, backgroundTerminal.id.uuidString)
     }
 
+    func testMobileAttachTicketCreateCanFilterRoutesForQRPairing() async throws {
+        let previousManager = TerminalController.shared.activeTabManagerForCallerNotification()
+        let manager = TabManager()
+        TerminalController.shared.setActiveTabManager(manager)
+        defer {
+            TerminalController.shared.setActiveTabManager(previousManager)
+        }
+
+        MobileHostService.shared.start()
+        defer {
+            MobileHostService.shared.stop()
+        }
+        guard await waitForMobileHostRoutesForTesting() else {
+            XCTFail("Expected mobile host to publish routes before creating attach ticket")
+            return
+        }
+        let workspace = try XCTUnwrap(manager.selectedWorkspace)
+
+        let response = await TerminalController.shared.mobileHostHandleRPC(
+            MobileHostRPCRequest(
+                id: "attach-ticket",
+                method: "mobile.attach_ticket.create",
+                params: [
+                    "workspace_id": workspace.id.uuidString,
+                    "route_id": "debug_loopback",
+                ],
+                auth: nil
+            )
+        )
+
+        guard case let .ok(rawPayload) = response,
+              let payload = rawPayload as? [String: Any],
+              let ticket = payload["ticket"] as? [String: Any],
+              let routes = ticket["routes"] as? [[String: Any]] else {
+            XCTFail("Expected route-filtered attach ticket payload")
+            return
+        }
+        XCTAssertFalse(routes.isEmpty)
+        XCTAssertTrue(routes.allSatisfy { $0["id"] as? String == "debug_loopback" })
+        let topLevelRoutes = try XCTUnwrap(payload["routes"] as? [[String: Any]])
+        XCTAssertEqual(topLevelRoutes.count, routes.count)
+        XCTAssertTrue(topLevelRoutes.allSatisfy { $0["id"] as? String == "debug_loopback" })
+    }
+
     func testMobileTerminalCreateStartsTerminalBeforeReturningWorkspaceList() async throws {
         let previousManager = TerminalController.shared.activeTabManagerForCallerNotification()
         let manager = TabManager()

@@ -339,12 +339,12 @@ final class MobileHostAuthorizationTests: XCTestCase {
         XCTAssertEqual(error?.code, "forbidden")
     }
 
-    func testTerminalScopedAttachTicketRejectsUnscopedWorkspaceList() throws {
+    func testAttachTicketAcceptsUnscopedWorkspaceListForPairedDevice() throws {
         let ticket = try scopedAttachTicket(workspaceID: "workspace", terminalID: "terminal")
         let request = MobileHostRPCRequest(
             id: "workspace-list",
             method: "workspace.list",
-            params: ["workspace_id": "workspace"],
+            params: [:],
             auth: MobileHostRPCAuth(
                 attachToken: ticket.authToken,
                 stackAccessToken: nil
@@ -353,7 +353,7 @@ final class MobileHostAuthorizationTests: XCTestCase {
 
         let error = MobileHostService.debugTicketAuthorizationError(ticket: ticket, request: request)
 
-        XCTAssertEqual(error?.code, "forbidden")
+        XCTAssertNil(error)
     }
 
     func testTerminalScopedAttachTicketAcceptsScopedWorkspaceList() throws {
@@ -376,14 +376,13 @@ final class MobileHostAuthorizationTests: XCTestCase {
         XCTAssertNil(error)
     }
 
-    func testTerminalScopedAttachTicketRejectsTerminalCreate() throws {
+    func testAttachTicketAcceptsTerminalCreateForPairedDevice() throws {
         let ticket = try scopedAttachTicket(workspaceID: "workspace", terminalID: "terminal")
         let request = MobileHostRPCRequest(
             id: "terminal-create",
             method: "terminal.create",
             params: [
-                "workspace_id": "workspace",
-                "terminal_id": "terminal",
+                "workspace_id": "other-workspace",
             ],
             auth: MobileHostRPCAuth(
                 attachToken: ticket.authToken,
@@ -393,7 +392,7 @@ final class MobileHostAuthorizationTests: XCTestCase {
 
         let error = MobileHostService.debugTicketAuthorizationError(ticket: ticket, request: request)
 
-        XCTAssertEqual(error?.code, "forbidden")
+        XCTAssertNil(error)
     }
 
     func testWorkspaceScopedAttachTicketAcceptsTerminalCreate() throws {

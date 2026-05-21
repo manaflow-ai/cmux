@@ -19133,6 +19133,10 @@ class TerminalController {
     @MainActor
     private func v2MobileAttachTicketCreate(params: [String: Any]) async -> V2CallResult {
         let ttl = TimeInterval(max(30, min(v2Int(params, "ttl_seconds") ?? 600, 3600)))
+        let routeID = v2OptionalTrimmedRawString(params, "route_id")
+            ?? v2OptionalTrimmedRawString(params, "routeID")
+        let routeKind = v2OptionalTrimmedRawString(params, "route_kind")
+            ?? v2OptionalTrimmedRawString(params, "routeKind")
         if let error = mobileWorkspaceIDValidationError(params: params) {
             return error
         }
@@ -19160,7 +19164,9 @@ class TerminalController {
             let payload = try await MobileHostService.shared.createAttachTicket(
                 workspaceID: resolved.workspace.id.uuidString,
                 terminalID: terminalPanel?.id.uuidString,
-                ttl: ttl
+                ttl: ttl,
+                routeID: routeID,
+                routeKind: routeKind
             )
             return .ok(payload)
         } catch MobileAttachTicketStoreError.noRoutes {
@@ -19168,6 +19174,19 @@ class TerminalController {
                 code: "unavailable",
                 message: "Mobile host routes are not available yet",
                 data: nil
+            )
+        } catch MobileAttachTicketStoreError.routeUnavailable {
+            var data: [String: Any] = [:]
+            if let routeID {
+                data["route_id"] = routeID
+            }
+            if let routeKind {
+                data["route_kind"] = routeKind
+            }
+            return .err(
+                code: "unavailable",
+                message: "Requested mobile host route is not available",
+                data: data.isEmpty ? nil : data
             )
         } catch {
             return .err(

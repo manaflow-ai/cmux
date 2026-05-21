@@ -146,7 +146,9 @@ final class MobileHostService {
     func createAttachTicket(
         workspaceID: String,
         terminalID: String?,
-        ttl: TimeInterval
+        ttl: TimeInterval,
+        routeID: String? = nil,
+        routeKind: String? = nil
     ) async throws -> [String: Any] {
         let routes: [CmxAttachRoute]
         if let listenerPort {
@@ -154,13 +156,46 @@ final class MobileHostService {
         } else {
             routes = []
         }
+        let selectedRoutes = try Self.filteredRoutes(
+            routes,
+            routeID: routeID,
+            routeKind: routeKind
+        )
         let ticket = try ticketStore.createTicket(
             workspaceID: workspaceID,
             terminalID: terminalID,
-            routes: routes,
+            routes: selectedRoutes,
             ttl: ttl
         )
         return try ticketStore.payload(for: ticket)
+    }
+
+    private static func filteredRoutes(
+        _ routes: [CmxAttachRoute],
+        routeID: String?,
+        routeKind: String?
+    ) throws -> [CmxAttachRoute] {
+        let normalizedRouteID = routeID?.trimmingCharacters(in: .whitespacesAndNewlines)
+        let normalizedRouteKind = routeKind?.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
+        let hasRouteID = normalizedRouteID?.isEmpty == false
+        let hasRouteKind = normalizedRouteKind?.isEmpty == false
+        guard hasRouteID || hasRouteKind else {
+            return routes
+        }
+
+        let filtered = routes.filter { route in
+            if hasRouteID, route.id != normalizedRouteID {
+                return false
+            }
+            if hasRouteKind, route.kind.rawValue != normalizedRouteKind {
+                return false
+            }
+            return true
+        }
+        guard !filtered.isEmpty else {
+            throw MobileAttachTicketStoreError.routeUnavailable
+        }
+        return filtered
     }
 
     private func accept(_ connection: NWConnection, generation: UUID) {
@@ -261,7 +296,6 @@ final class MobileHostService {
         ticket: CmxAttachTicket,
         request: MobileHostRPCRequest
     ) -> MobileHostRPCError? {
-        let workspaceID = stringParam(request.params, keys: ["workspace_id"])
         let terminalSelection = stringParamSelection(
             request.params,
             keys: ["surface_id", "terminal_id", "tab_id"]
@@ -269,35 +303,18 @@ final class MobileHostService {
         if terminalSelection.hasConflict {
             return scopedTicketError
         }
-        let terminalID = terminalSelection.value
+        if containsIgnoredAliasParameters(request.params) {
+            return scopedTicketError
+        }
 
         switch request.method {
         case "mobile.workspace.list", "workspace.list":
-            guard workspaceID == ticket.workspaceID else {
-                return scopedTicketError
-            }
-            if let ticketTerminalID = ticket.terminalID {
-                guard terminalID == ticketTerminalID else {
-                    return scopedTicketError
-                }
-            }
+            return nil
         case "mobile.terminal.create", "terminal.create":
-            guard workspaceID == ticket.workspaceID else {
-                return scopedTicketError
-            }
-            guard ticket.terminalID == nil else {
-                return scopedTicketError
-            }
+            return nil
         case "mobile.terminal.snapshot", "terminal.snapshot",
              "mobile.terminal.input", "terminal.input":
-            guard workspaceID == ticket.workspaceID else {
-                return scopedTicketError
-            }
-            if let ticketTerminalID = ticket.terminalID {
-                guard terminalID == ticketTerminalID else {
-                    return scopedTicketError
-                }
-            }
+            return nil
         case "mobile.host.status":
             return nil
         default:
@@ -320,8 +337,8 @@ final class MobileHostService {
         )
     }
 
-    private static func stringParam(_ params: [String: Any], keys: [String]) -> String? {
-        stringParamSelection(params, keys: keys).value
+    private static func containsIgnoredAliasParameters(_ params: [String: Any]) -> Bool {
+        params["workspaceID"] != nil || params["terminalID"] != nil
     }
 
     private static func stringParamSelection(

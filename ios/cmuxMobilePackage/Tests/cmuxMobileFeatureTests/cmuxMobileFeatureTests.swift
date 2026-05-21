@@ -817,7 +817,7 @@ import UIKit
 }
 
 @MainActor
-@Test func uuidAttachTicketListsScopedWorkspace() async throws {
+@Test func uuidAttachTicketListsFullWorkspaceListWithAttachToken() async throws {
     let workspaceID = UUID().uuidString
     let route = try hostPortRoute(kind: .tailscale, host: "100.71.210.41", port: CmxMobileDefaults.defaultHostPort)
     let ticket = try CmxAttachTicket(
@@ -843,14 +843,14 @@ import UIKit
 
     let requests = try await responses.sentRequests()
     let workspaceList = try #require(requests.first { $0.method == "workspace.list" })
-    #expect(workspaceList.workspaceID == workspaceID)
+    #expect(workspaceList.workspaceID == nil)
     #expect(workspaceList.attachToken == "ticket-secret")
     #expect(workspaceList.stackAccessToken == nil)
     #expect(store.selectedWorkspace?.id.rawValue == workspaceID)
 }
 
 @MainActor
-@Test func signedInAttachTicketExpandsFromScopedWorkspaceToFullWorkspaceList() async throws {
+@Test func signedInAttachTicketRequestsFullWorkspaceListFirst() async throws {
     let workspaceID = UUID().uuidString
     let terminalID = UUID().uuidString
     let docsWorkspaceID = UUID().uuidString
@@ -866,7 +866,6 @@ import UIKit
         authToken: "ticket-secret"
     )
     let responses = ScriptedTransportResponses([
-        try rpcWorkspaceListFrame(workspaceID: workspaceID, title: "Scoped Workspace", terminalID: terminalID),
         try rpcResultFrame(
             result: [
                 "workspaces": [
@@ -911,8 +910,7 @@ import UIKit
     ])
     let runtime = testRuntime(
         supportedRouteKinds: [.tailscale],
-        transportFactory: ScriptedTransportFactory(responses: responses),
-        stackAccessToken: "stack-token-for-full-list"
+        transportFactory: ScriptedTransportFactory(responses: responses)
     )
     let store = CMUXMobileShellStore.preview(runtime: runtime)
 
@@ -921,17 +919,16 @@ import UIKit
 
     let requests = try await responses.sentRequests()
     let workspaceLists = requests.filter { $0.method == "workspace.list" }
-    #expect(workspaceLists.count == 2)
-    #expect(workspaceLists.first?.workspaceID == workspaceID)
+    #expect(workspaceLists.count == 1)
+    #expect(workspaceLists.first?.workspaceID == nil)
     #expect(workspaceLists.first?.attachToken == "ticket-secret")
-    #expect(workspaceLists.last?.workspaceID == nil)
-    #expect(workspaceLists.last?.stackAccessToken == "stack-token-for-full-list")
+    #expect(workspaceLists.first?.stackAccessToken == nil)
     #expect(store.workspaces.map(\.id.rawValue) == [workspaceID, docsWorkspaceID])
     #expect(store.selectedWorkspace?.id.rawValue == workspaceID)
 }
 
 @MainActor
-@Test func signedInLoopbackAttachTicketExpandsFromScopedWorkspaceToFullWorkspaceList() async throws {
+@Test func signedInLoopbackAttachTicketRequestsFullWorkspaceListFirst() async throws {
     let workspaceID = UUID().uuidString
     let terminalID = UUID().uuidString
     let secondWorkspaceID = UUID().uuidString
@@ -947,12 +944,6 @@ import UIKit
         authToken: "ticket-secret"
     )
     let responses = ScriptedTransportResponses([
-        try rpcWorkspaceListFrame(workspaceID: workspaceID, title: "Scoped Workspace", terminalID: terminalID),
-        try rpcSnapshotResultFrame(
-            workspaceID: workspaceID,
-            terminalID: terminalID,
-            visibleLines: ["initial"]
-        ),
         try rpcResultFrame(
             result: [
                 "workspaces": [
@@ -997,8 +988,7 @@ import UIKit
     ])
     let runtime = testRuntime(
         supportedRouteKinds: [.debugLoopback],
-        transportFactory: ScriptedTransportFactory(responses: responses),
-        stackAccessToken: "stack-token-for-loopback-full-list"
+        transportFactory: ScriptedTransportFactory(responses: responses)
     )
     let store = CMUXMobileShellStore.preview(runtime: runtime)
 
@@ -1007,12 +997,56 @@ import UIKit
 
     let requests = try await responses.sentRequests()
     let workspaceLists = requests.filter { $0.method == "workspace.list" }
-    #expect(workspaceLists.count == 2)
-    #expect(workspaceLists.first?.workspaceID == workspaceID)
-    #expect(workspaceLists.last?.workspaceID == nil)
-    #expect(workspaceLists.last?.stackAccessToken == "stack-token-for-loopback-full-list")
+    #expect(workspaceLists.count == 1)
+    #expect(workspaceLists.first?.workspaceID == nil)
+    #expect(workspaceLists.first?.attachToken == "ticket-secret")
+    #expect(workspaceLists.first?.stackAccessToken == nil)
     #expect(store.workspaces.map(\.id.rawValue) == [workspaceID, secondWorkspaceID])
     #expect(store.selectedWorkspace?.terminals.first?.lines.first == "ready")
+}
+
+@MainActor
+@Test func signedInAttachTicketFallsBackToScopedWorkspaceListWhenFullListFails() async throws {
+    let workspaceID = UUID().uuidString
+    let terminalID = UUID().uuidString
+    let route = try hostPortRoute(kind: .tailscale, host: "100.71.210.41", port: CmxMobileDefaults.defaultHostPort)
+    let ticket = try CmxAttachTicket(
+        workspaceID: workspaceID,
+        terminalID: terminalID,
+        macDeviceID: "test-mac",
+        macDisplayName: "Test Mac",
+        routes: [route],
+        expiresAt: Date().addingTimeInterval(60),
+        authToken: "ticket-secret"
+    )
+    let responses = ScriptedTransportResponses([
+        try rpcErrorFrame(message: "Full list not supported"),
+        try rpcWorkspaceListFrame(workspaceID: workspaceID, title: "Scoped Workspace", terminalID: terminalID),
+        try rpcErrorFrame(message: "Full list not supported"),
+        try rpcSnapshotResultFrame(
+            workspaceID: workspaceID,
+            terminalID: terminalID,
+            visibleLines: ["scoped fallback"]
+        ),
+    ])
+    let runtime = testRuntime(
+        supportedRouteKinds: [.tailscale],
+        transportFactory: ScriptedTransportFactory(responses: responses)
+    )
+    let store = CMUXMobileShellStore.preview(runtime: runtime)
+
+    store.signIn()
+    await store.connectPairingURL(try attachURL(for: ticket).absoluteString)
+
+    let requests = try await responses.sentRequests()
+    let workspaceLists = requests.filter { $0.method == "workspace.list" }
+    #expect(workspaceLists.count == 3)
+    #expect(workspaceLists[0].workspaceID == nil)
+    #expect(workspaceLists[1].workspaceID == workspaceID)
+    #expect(workspaceLists[2].workspaceID == nil)
+    #expect(workspaceLists.allSatisfy { $0.attachToken == "ticket-secret" })
+    #expect(store.workspaces.map(\.id.rawValue) == [workspaceID])
+    #expect(store.selectedWorkspace?.terminals.first?.lines.first == "scoped fallback")
 }
 
 @MainActor
@@ -1043,8 +1077,8 @@ import UIKit
 
     let requests = try await responses.sentRequests()
     let workspaceList = try #require(requests.first { $0.method == "workspace.list" })
-    #expect(workspaceList.workspaceID == workspaceID)
-    #expect(workspaceList.terminalID == terminalID)
+    #expect(workspaceList.workspaceID == nil)
+    #expect(workspaceList.terminalID == nil)
     #expect(workspaceList.attachToken == "ticket-secret")
     #expect(workspaceList.stackAccessToken == nil)
     #expect(store.selectedWorkspace?.terminals.first?.id.rawValue == terminalID)
@@ -1091,7 +1125,7 @@ import UIKit
     store.signIn()
     await store.connectPairingURL(try attachURL(for: ticket).absoluteString)
 
-    #expect(await attempts.routeIDs() == [preferredRoute.id, fallbackRoute.id, fallbackRoute.id])
+    #expect(await attempts.routeIDs() == [preferredRoute.id, preferredRoute.id, fallbackRoute.id])
     #expect(store.connectionState == .connected)
     #expect(store.activeRoute?.id == fallbackRoute.id)
     #expect(store.selectedWorkspace?.id.rawValue == workspaceID)
@@ -1579,6 +1613,33 @@ import UIKit
     #expect(store.selectedTerminalID?.rawValue == "terminal-notes")
 }
 
+@Test func compactNavigationDoesNotAutoPushWhenAttachSelectsWorkspace() {
+    let path = WorkspaceShellCompactNavigationPolicy.pathForSelectionChange(
+        currentPath: [MobileWorkspacePreview.ID](),
+        selectedWorkspaceID: .init(rawValue: "workspace-a")
+    )
+
+    #expect(path.isEmpty)
+}
+
+@Test func compactNavigationTracksSelectionAfterUserOpenedWorkspace() {
+    let path = WorkspaceShellCompactNavigationPolicy.pathForSelectionChange(
+        currentPath: [MobileWorkspacePreview.ID(rawValue: "workspace-a")],
+        selectedWorkspaceID: MobileWorkspacePreview.ID(rawValue: "workspace-b")
+    )
+
+    #expect(path == [MobileWorkspacePreview.ID(rawValue: "workspace-b")])
+}
+
+@Test func compactNavigationClearsWhenSelectedWorkspaceDisappears() {
+    let path = WorkspaceShellCompactNavigationPolicy.pathForSelectionChange(
+        currentPath: [MobileWorkspacePreview.ID(rawValue: "workspace-a")],
+        selectedWorkspaceID: nil
+    )
+
+    #expect(path.isEmpty)
+}
+
 @Test func terminalBottomActionOutputsMatchReferenceAccessoryControls() {
     #expect(MobileTerminalBottomAction.escape.inputText(modifier: nil) == "\u{1B}")
     #expect(MobileTerminalBottomAction.tab.inputText(modifier: nil) == "\t")
@@ -1883,7 +1944,7 @@ import UIKit
     #expect(terminal.snapshot.visibleRows[0].cells[0].style.foreground == MobileTerminalGhosttyColor(red: 204, green: 102, blue: 102))
 
     let requests = try await responses.sentRequests()
-    #expect(requests.filter { $0.method == "terminal.snapshot" }.count >= 3)
+    #expect(requests.filter { $0.method == "terminal.snapshot" }.count >= 2)
     #expect(requests.contains { $0.method == "terminal.input" && $0.text == "x" })
 }
 

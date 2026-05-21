@@ -6,6 +6,7 @@ import Security
 
 enum MobileAttachTicketStoreError: Error {
     case noRoutes
+    case routeUnavailable
     case invalidAttachURL
 }
 

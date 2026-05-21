@@ -1,4 +1,5 @@
 #!/usr/bin/env python3
+import base64
 import json
 import os
 import random
@@ -30,6 +31,9 @@ color_failure_is_fatal = os.environ.get("COLOR_FAILURE_IS_FATAL", "1").lower() n
 loop_sleep_seconds = float(os.environ.get("LOOP_SLEEP_SECONDS", "5"))
 failure_sleep_seconds = float(os.environ.get("FAILURE_SLEEP_SECONDS", str(loop_sleep_seconds)))
 ticket_ttl_seconds = int(os.environ.get("MOBILE_TICKET_TTL_SECONDS", "3600"))
+attach_route_id = os.environ.get("MOBILE_ATTACH_ROUTE_ID", "debug_loopback").strip()
+attach_route_kind = os.environ.get("MOBILE_ATTACH_ROUTE_KIND", "").strip()
+external_ticket_path = os.environ.get("MOBILE_ATTACH_TICKET_JSON", "").strip()
 reattach_interval_seconds = float(os.environ.get("MOBILE_REATTACH_INTERVAL_SECONDS", str(45 * 60)))
 reattach_mode = os.environ.get("MOBILE_REATTACH_MODE", "openurl").strip().lower()
 input_interval = int(os.environ.get("MOBILE_INPUT_INTERVAL", "20"))
@@ -117,21 +121,68 @@ def cmux_rpc(method, params):
     return json.loads(run(["scripts/cmux-debug-cli.sh", "rpc", method, json.dumps(params)]))
 
 
-def create_ticket(workspace_id=None):
-    params = {"ttl_seconds": ticket_ttl_seconds}
-    if workspace_id:
-        params["workspace_id"] = workspace_id
-    payload = cmux_rpc("mobile.attach_ticket.create", params)
+def selected_route(routes):
+    if attach_route_id:
+        for route in routes:
+            if route.get("id") == attach_route_id:
+                return route
+    if attach_route_kind:
+        for route in routes:
+            if route.get("kind") == attach_route_kind:
+                return route
+    if routes:
+        return routes[0]
+    raise RuntimeError("attach ticket has no routes")
+
+
+def attach_url_for_ticket(ticket):
+    encoded = base64.urlsafe_b64encode(
+        json.dumps(ticket, separators=(",", ":")).encode("utf-8")
+    ).decode("ascii").rstrip("=")
+    return f"cmux-ios://attach?v={ticket.get('version', 1)}&payload={encoded}"
+
+
+def ticket_from_payload(payload, attach_url):
     ticket = payload["ticket"]
-    route = next(route for route in ticket["routes"] if route["id"] == "debug_loopback")
+    route = selected_route(ticket["routes"])
+    filtered_ticket = dict(ticket)
+    filtered_ticket["routes"] = [route]
     return {
         "token": ticket["auth_token"],
         "workspace_id": ticket["workspaceID"],
         "host": route["endpoint"]["host"],
         "port": int(route["endpoint"]["port"]),
-        "attach_url": payload["attach_url"],
+        "attach_url": attach_url_for_ticket(filtered_ticket),
         "created_at": time.monotonic(),
     }
+
+
+def create_ticket(workspace_id=None):
+    if external_ticket_path:
+        payload = json.loads(Path(external_ticket_path).read_text())
+        if "ticket" in payload:
+            attach_url = payload.get("attach_url") or payload.get("attachURL")
+            if not attach_url:
+                raise RuntimeError("external attach ticket payload is missing attach_url")
+            return ticket_from_payload(payload, attach_url)
+        required = ("token", "workspace_id", "host", "port", "attach_url")
+        missing = [key for key in required if key not in payload]
+        if missing:
+            raise RuntimeError(f"external attach ticket is missing fields: {missing}")
+        return {
+            "token": payload["token"],
+            "workspace_id": payload["workspace_id"],
+            "host": payload["host"],
+            "port": int(payload["port"]),
+            "attach_url": payload["attach_url"],
+            "created_at": time.monotonic(),
+        }
+
+    params = {"ttl_seconds": ticket_ttl_seconds}
+    if workspace_id:
+        params["workspace_id"] = workspace_id
+    payload = cmux_rpc("mobile.attach_ticket.create", params)
+    return ticket_from_payload(payload, payload["attach_url"])
 
 
 def launch_app_with_attach_ticket(ticket):
@@ -382,7 +433,7 @@ def write_failure_diagnostics(ticket, terminal_id, iteration, error):
             manifest["terminal_snapshot_error"] = str(snapshot_error)
 
     try:
-        host_status = cmux_rpc("mobile.host.status", {})
+        host_status = framed_rpc(ticket, "mobile.host.status", {}) if external_ticket_path else cmux_rpc("mobile.host.status", {})
         (diagnostic_root / "mobile-host-status.json").write_text(json.dumps(host_status, indent=2))
     except Exception as host_error:
         manifest["host_status_error"] = str(host_error)
@@ -558,7 +609,7 @@ def main():
 
             if dev_origin:
                 run(["curl", "-fsS", dev_origin], cwd=Path("/"))
-            host_status = cmux_rpc("mobile.host.status", {})
+            host_status = framed_rpc(ticket, "mobile.host.status", {}) if external_ticket_path else cmux_rpc("mobile.host.status", {})
             if not host_status["host_service"]["is_running"]:
                 raise RuntimeError(f"host not running: {host_status}")
 

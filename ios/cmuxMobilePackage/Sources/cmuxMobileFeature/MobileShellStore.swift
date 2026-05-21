@@ -961,58 +961,63 @@ public final class CMUXMobileShellStore {
             return
         }
 
-        let requestData = try MobileCoreRPCClient.requestData(
-            method: "workspace.list",
-            params: Self.initialWorkspaceListParams(for: ticket)
-        )
+        let workspaceListRequests = try Self.initialWorkspaceListRequests(for: ticket)
         var lastError: Error?
         for route in supportedRoutes {
             activeRoute = route
             mobileShellLog.info("pairing trying route kind=\(route.kind.rawValue, privacy: .public) endpoint=\(route.endpoint.logDescription, privacy: .private)")
             let client = MobileCoreRPCClient(runtime: runtime, route: route, ticket: ticket)
-            do {
-                let resultData = try await client.sendRequest(
-                    requestData,
-                    timeoutNanoseconds: runtime.pairingRequestTimeoutNanoseconds
-                )
-                let response = try MobileSyncWorkspaceListResponse.decode(resultData)
-                guard generation == connectionGeneration, isSignedIn else { return }
-                remoteClient = client
-                startTerminalRefreshPolling()
-                connectionError = nil
-                applyRemoteWorkspaceList(response, preferActiveTicketTarget: true)
-                let refreshFullWorkspaceListAfterFirstSnapshot = route.kind == .debugLoopback
-                if !refreshFullWorkspaceListAfterFirstSnapshot {
-                    _ = await refreshAllWorkspacesWithStackAuthIfAvailable(
-                        client: client,
-                        route: route,
-                        generation: generation
+            for workspaceListRequest in workspaceListRequests {
+                do {
+                    let resultData = try await client.sendRequest(
+                        workspaceListRequest.data,
+                        timeoutNanoseconds: runtime.pairingRequestTimeoutNanoseconds
+                    )
+                    let response = try MobileSyncWorkspaceListResponse.decode(resultData)
+                    guard generation == connectionGeneration, isSignedIn else { return }
+                    remoteClient = client
+                    startTerminalRefreshPolling()
+                    connectionError = nil
+                    applyRemoteWorkspaceList(response, preferActiveTicketTarget: workspaceListRequest.preferActiveTicketTarget)
+                    let refreshFullWorkspaceListAfterFirstSnapshot = workspaceListRequest.isScoped && route.kind == .debugLoopback
+                    if workspaceListRequest.isScoped && !refreshFullWorkspaceListAfterFirstSnapshot {
+                        _ = await refreshAllWorkspacesWithAttachTokenIfAvailable(
+                            client: client,
+                            route: route,
+                            generation: generation
+                        )
+                    }
+                    syncSelectedTerminalForWorkspace()
+                    connectionState = .connected
+                    await refreshSelectedTerminalSnapshot()
+                    if refreshFullWorkspaceListAfterFirstSnapshot,
+                       await refreshAllWorkspacesWithAttachTokenIfAvailable(
+                            client: client,
+                            route: route,
+                            generation: generation
+                       ) {
+                        syncSelectedTerminalForWorkspace()
+                        await refreshSelectedTerminalSnapshot()
+                    }
+                    return
+                } catch {
+                    lastError = error
+                    guard generation == connectionGeneration, isSignedIn else { return }
+                    mobileShellLog.error(
+                        "pairing route failed kind=\(route.kind.rawValue, privacy: .public) endpoint=\(route.endpoint.logDescription, privacy: .private) scoped=\(workspaceListRequest.isScoped ? 1 : 0, privacy: .public): \(String(describing: error), privacy: .private)"
                     )
                 }
-                syncSelectedTerminalForWorkspace()
-                connectionState = .connected
-                await refreshSelectedTerminalSnapshot()
-                if refreshFullWorkspaceListAfterFirstSnapshot,
-                   await refreshAllWorkspacesWithStackAuthIfAvailable(
-                        client: client,
-                        route: route,
-                        generation: generation
-                   ) {
-                    syncSelectedTerminalForWorkspace()
-                    await refreshSelectedTerminalSnapshot()
-                }
-                return
-            } catch {
-                lastError = error
-                guard generation == connectionGeneration, isSignedIn else { return }
-                mobileShellLog.error(
-                    "pairing route failed kind=\(route.kind.rawValue, privacy: .public) endpoint=\(route.endpoint.logDescription, privacy: .private): \(String(describing: error), privacy: .private)"
-                )
             }
         }
 
         clearRemoteConnectionContext()
         throw lastError ?? MobileShellConnectionError.connectionClosed
+    }
+
+    private struct WorkspaceListRequest {
+        var data: Data
+        var isScoped: Bool
+        var preferActiveTicketTarget: Bool
     }
 
     private static func supportedRoutes(
@@ -1041,7 +1046,39 @@ public final class CMUXMobileShellStore {
         return params
     }
 
-    private func refreshAllWorkspacesWithStackAuthIfAvailable(
+    private static func initialWorkspaceListRequests(for ticket: CmxAttachTicket) throws -> [WorkspaceListRequest] {
+        let scopedParams = initialWorkspaceListParams(for: ticket)
+        let hasAttachToken = ticket.authToken?.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty == false
+        guard hasAttachToken else {
+            return [
+                WorkspaceListRequest(
+                    data: try MobileCoreRPCClient.requestData(method: "workspace.list", params: scopedParams),
+                    isScoped: !scopedParams.isEmpty,
+                    preferActiveTicketTarget: true
+                )
+            ]
+        }
+
+        var requests = [
+            WorkspaceListRequest(
+                data: try MobileCoreRPCClient.requestData(method: "workspace.list", params: [:]),
+                isScoped: false,
+                preferActiveTicketTarget: true
+            )
+        ]
+        if !scopedParams.isEmpty {
+            requests.append(
+                WorkspaceListRequest(
+                    data: try MobileCoreRPCClient.requestData(method: "workspace.list", params: scopedParams),
+                    isScoped: true,
+                    preferActiveTicketTarget: true
+                )
+            )
+        }
+        return requests
+    }
+
+    private func refreshAllWorkspacesWithAttachTokenIfAvailable(
         client: MobileCoreRPCClient,
         route: CmxAttachRoute,
         generation: UUID
@@ -2037,27 +2074,16 @@ final class MobileCoreRPCClient: @unchecked Sendable {
         }
         let method = (request["method"] as? String)?.trimmingCharacters(in: .whitespacesAndNewlines)
         let params = request["params"] as? [String: Any] ?? [:]
-        let workspaceID = stringParam(params, keys: ["workspace_id", "workspaceID"])
-        let terminalID = stringParam(params, keys: ["surface_id", "terminal_id", "terminalID", "tab_id"])
+        if params["workspaceID"] != nil || params["terminalID"] != nil {
+            return true
+        }
 
         switch method {
         case "mobile.workspace.list", "workspace.list":
-            if workspaceID != ticket.workspaceID {
-                return true
-            }
-            if let ticketTerminalID = ticket.terminalID {
-                return terminalID != ticketTerminalID
-            }
             return false
         case "mobile.terminal.create", "terminal.create",
              "mobile.terminal.snapshot", "terminal.snapshot",
              "mobile.terminal.input", "terminal.input":
-            guard workspaceID == ticket.workspaceID else {
-                return true
-            }
-            if let ticketTerminalID = ticket.terminalID {
-                return terminalID != ticketTerminalID
-            }
             return false
         default:
             return true
@@ -2067,18 +2093,6 @@ final class MobileCoreRPCClient: @unchecked Sendable {
     private static func requestRequiresAuth(_ request: [String: Any]) -> Bool {
         let method = (request["method"] as? String)?.trimmingCharacters(in: .whitespacesAndNewlines)
         return method != "mobile.host.status"
-    }
-
-    private static func stringParam(_ params: [String: Any], keys: [String]) -> String? {
-        for key in keys {
-            if let value = params[key] as? String {
-                let trimmed = value.trimmingCharacters(in: .whitespacesAndNewlines)
-                if !trimmed.isEmpty {
-                    return trimmed
-                }
-            }
-        }
-        return nil
     }
 
     private func receiveFrame(from transport: any CmxByteTransport) async throws -> Data {

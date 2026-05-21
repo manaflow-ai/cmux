@@ -1081,9 +1081,16 @@ struct PairingView: View {
 
                 if let errorText {
                     Section {
-                        Text(errorText)
-                            .foregroundStyle(.red)
-                            .accessibilityIdentifier("MobilePairingError")
+                        VStack(alignment: .leading, spacing: 8) {
+                            Text(errorText)
+                                .foregroundStyle(.red)
+                                .accessibilityIdentifier("MobilePairingError")
+                            Text(signedInAccountText)
+                                .font(.footnote)
+                                .foregroundStyle(.secondary)
+                                .textSelection(.enabled)
+                                .accessibilityIdentifier("MobilePairingErrorSignedInAccount")
+                        }
                     }
                 }
             }
@@ -1470,7 +1477,10 @@ struct WorkspaceShellView: View {
             }
         }
         .onChange(of: store.selectedWorkspaceID) { _, selectedWorkspaceID in
-            reconcileCompactNavigationPath(selectedWorkspaceID)
+            compactNavigationPath = WorkspaceShellCompactNavigationPolicy.pathForSelectionChange(
+                currentPath: compactNavigationPath,
+                selectedWorkspaceID: selectedWorkspaceID
+            )
         }
         .onChange(of: compactNavigationPath) { _, path in
             guard let selectedWorkspaceID = path.last,
@@ -1481,9 +1491,6 @@ struct WorkspaceShellView: View {
         }
         .onChange(of: store.workspaces.map(\.id)) { _, workspaceIDs in
             compactNavigationPath.removeAll { !workspaceIDs.contains($0) }
-        }
-        .onAppear {
-            reconcileCompactNavigationPath(store.selectedWorkspaceID)
         }
     }
 
@@ -1525,14 +1532,6 @@ struct WorkspaceShellView: View {
         }
     }
 
-    private func reconcileCompactNavigationPath(_ selectedWorkspaceID: MobileWorkspacePreview.ID?) {
-        guard let selectedWorkspaceID,
-              compactNavigationPath.last != selectedWorkspaceID else {
-            return
-        }
-        compactNavigationPath = [selectedWorkspaceID]
-    }
-
     @ViewBuilder
     private func workspaceDestination(
         for workspaceID: MobileWorkspacePreview.ID?,
@@ -1545,6 +1544,24 @@ struct WorkspaceShellView: View {
             createWorkspace: createWorkspace,
             safeAreaContext: safeAreaContext
         )
+    }
+}
+
+enum WorkspaceShellCompactNavigationPolicy {
+    static func pathForSelectionChange<ID: Hashable>(
+        currentPath: [ID],
+        selectedWorkspaceID: ID?
+    ) -> [ID] {
+        guard !currentPath.isEmpty else {
+            return currentPath
+        }
+        guard let selectedWorkspaceID else {
+            return []
+        }
+        guard currentPath.last != selectedWorkspaceID else {
+            return currentPath
+        }
+        return [selectedWorkspaceID]
     }
 }
 
