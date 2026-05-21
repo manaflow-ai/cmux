@@ -585,7 +585,6 @@ private final class WindowCommandPaletteOverlayController: NSObject {
             containerView.alphaValue = 1
             if shouldPromote {
                 promoteOverlayAboveSiblingsIfNeeded()
-                containerView.layoutSubtreeIfNeeded()
             }
             updateFocusLockForWindowState(allowImmediateFocus: shouldPromote)
         } else {
