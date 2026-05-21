@@ -178,7 +178,7 @@ extension ContentView {
                           let panel = workspace.vncPanel(for: panelId) else {
                         return false
                     }
-                    return panel.session == session
+                    return panel.session.hasSameConnectionIdentity(as: session)
                 }
         }
     }

@@ -75,6 +75,7 @@ final class VNCMetalCanvasView: NSView {
     private var framebufferHeight = 0
     private var lastSequence: UInt64?
     private var pointerTrackingArea: NSTrackingArea?
+    private var pressedModifierKeyCodes = Set<UInt16>()
 
     override init(frame frameRect: NSRect) {
         super.init(frame: frameRect)
@@ -106,9 +107,18 @@ final class VNCMetalCanvasView: NSView {
 
     override func viewDidMoveToWindow() {
         super.viewDidMoveToWindow()
+        guard window != nil else {
+            releasePressedModifiers()
+            return
+        }
         window?.acceptsMouseMovedEvents = true
         updateMetalLayerGeometry()
         drawFramebuffer()
+    }
+
+    override func resignFirstResponder() -> Bool {
+        releasePressedModifiers()
+        return super.resignFirstResponder()
     }
 
     override func setFrameSize(_ newSize: NSSize) {
@@ -119,6 +129,7 @@ final class VNCMetalCanvasView: NSView {
     }
 
     func close() {
+        releasePressedModifiers()
         onText = nil
         onKey = nil
         onPointer = nil
@@ -201,7 +212,7 @@ final class VNCMetalCanvasView: NSView {
             super.flagsChanged(with: event)
             return
         }
-        onKey?(event.keyCode, modifierIsDown(for: event))
+        onKey?(event.keyCode, updateModifierState(for: event))
     }
 
     override func mouseDown(with event: NSEvent) {
@@ -367,7 +378,20 @@ final class VNCMetalCanvasView: NSView {
         }
     }
 
-    private func modifierIsDown(for event: NSEvent) -> Bool {
+    private func updateModifierState(for event: NSEvent) -> Bool {
+        if pressedModifierKeyCodes.contains(event.keyCode) {
+            pressedModifierKeyCodes.remove(event.keyCode)
+            return false
+        }
+        guard modifierFamilyIsDown(for: event) else {
+            pressedModifierKeyCodes.remove(event.keyCode)
+            return false
+        }
+        pressedModifierKeyCodes.insert(event.keyCode)
+        return true
+    }
+
+    private func modifierFamilyIsDown(for event: NSEvent) -> Bool {
         switch event.keyCode {
         case 54, 55:
             return event.modifierFlags.contains(.command)
@@ -380,6 +404,14 @@ final class VNCMetalCanvasView: NSView {
         default:
             return false
         }
+    }
+
+    private func releasePressedModifiers() {
+        guard !pressedModifierKeyCodes.isEmpty else { return }
+        for keyCode in pressedModifierKeyCodes {
+            onKey?(keyCode, false)
+        }
+        pressedModifierKeyCodes.removeAll()
     }
 
     private func remotePointerPoint(for event: NSEvent, clampOutside: Bool) -> (x: Int, y: Int)? {

@@ -114,6 +114,23 @@ final class CMUXVNCTests: XCTestCase {
         XCTAssertNil(decoded.defaultPassword)
     }
 
+    func testConnectionIdentityIgnoresPasswordFields() {
+        let session = MacfleetVNCSession(
+            name: "mac3-1",
+            hostName: "mac3",
+            address: "mac3-1",
+            port: 5900,
+            username: "cmuxvnc",
+            sessionPassword: "session",
+            defaultPassword: "fallback",
+            tag: "tag:mac-mini-cluster",
+            index: 1
+        )
+
+        XCTAssertTrue(session.nonSecretSnapshot.hasSameConnectionIdentity(as: session))
+        XCTAssertNotEqual(session.nonSecretSnapshot, session)
+    }
+
     func testFrameValidationRejectsInvalidFrames() {
         let valid = VNCFrameHeader(
             sequence: 1,

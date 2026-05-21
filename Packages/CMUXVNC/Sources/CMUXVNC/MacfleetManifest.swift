@@ -231,4 +231,14 @@ public struct MacfleetVNCSession: Equatable, Identifiable, Codable, Sendable {
             index: index
         )
     }
+
+    public func hasSameConnectionIdentity(as other: MacfleetVNCSession) -> Bool {
+        name == other.name &&
+            hostName == other.hostName &&
+            address == other.address &&
+            port == other.port &&
+            username == other.username &&
+            tag == other.tag &&
+            index == other.index
+    }
 }
