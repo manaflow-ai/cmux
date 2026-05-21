@@ -276,7 +276,7 @@ jobs:
             local xcodebuild_pid=$!
             local timeout_seconds="${CMUX_UNIT_TEST_TIMEOUT_SECONDS:-900}"
             local deadline=$((SECONDS + timeout_seconds))
-            while jobs -pr | grep -q "^${xcodebuild_pid}$"; do
+            while kill -0 "$xcodebuild_pid" 2>/dev/null; do
               if [ "$SECONDS" -ge "$deadline" ]; then
                 echo "xcodebuild unit test timeout after ${timeout_seconds}s; terminating"
                 kill -TERM "$xcodebuild_pid" 2>/dev/null || true
