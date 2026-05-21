@@ -439,7 +439,7 @@ struct BrowserPanelView: View {
     @State private var emptyStateImportBrowserRefreshGeneration: UInt64 = 0
     @State private var inlineCompletion: OmnibarInlineCompletion?
     @State private var screenshotPageCopied: Bool = false
-    @State private var screenshotPageCopiedTask: Task<Void, Never>?
+    @State private var screenshotPageCopiedTimer: Timer?
     @State private var omnibarSelectionRange: NSRange = NSRange(location: NSNotFound, length: 0)
     @State private var omnibarHasMarkedText: Bool = false
     @State private var suppressNextFocusLostRevert: Bool = false
@@ -690,11 +690,11 @@ struct BrowserPanelView: View {
     }
 
     private func showScreenshotPageCopiedIndicator() {
-        screenshotPageCopiedTask?.cancel()
+        screenshotPageCopiedTimer?.invalidate()
         screenshotPageCopied = true
-        screenshotPageCopiedTask = Task { @MainActor in
-            try? await Task.sleep(nanoseconds: 1_400_000_000)
-            guard !Task.isCancelled else { return }
+        screenshotPageCopiedTimer = Timer.scheduledTimer(withTimeInterval: 1.4, repeats: false) { timer in
+            timer.invalidate()
+            screenshotPageCopiedTimer = nil
             screenshotPageCopied = false
         }
     }
@@ -831,6 +831,11 @@ struct BrowserPanelView: View {
 #if DEBUG
             logBrowserFocusState(event: "view.onAppear")
 #endif
+        }
+        .onDisappear {
+            screenshotPageCopiedTimer?.invalidate()
+            screenshotPageCopiedTimer = nil
+            screenshotPageCopied = false
         }
         .onChange(of: panel.focusFlashToken) { _ in
             triggerFocusFlashAnimation()
