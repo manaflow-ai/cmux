@@ -19,6 +19,11 @@ nonisolated private struct SocketLineProcessingResult: Sendable {
     let authenticated: Bool
 }
 
+nonisolated private struct SocketAccessRejection: Sendable {
+    let code: String
+    let message: String
+}
+
 /// Unix socket-based controller for programmatic terminal control
 /// Allows automated testing and external control of terminal tabs
 @MainActor
@@ -1744,11 +1749,6 @@ class TerminalController {
             return passwordAuthRequiredResponse(for: command)
         }
         return nil
-    }
-
-    private struct SocketAccessRejection: Sendable {
-        let code: String
-        let message: String
     }
 
     private nonisolated func cmuxOnlyAccessRejection(
