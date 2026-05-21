@@ -14,12 +14,6 @@ enum VNCKeychainCredentialProvider {
                     return password
                 }
             }
-            if let password = internetPassword(server: server, account: nil, port: session.port) {
-                return password
-            }
-            if let password = internetPassword(server: server, account: nil, port: nil) {
-                return password
-            }
         }
 
         let candidates: [(service: String, account: String)] = [
@@ -40,14 +34,13 @@ enum VNCKeychainCredentialProvider {
         return nil
     }
 
-    private static func internetPassword(server: String, account: String?, port: Int?) -> String? {
+    private static func internetPassword(server: String, account: String, port: Int?) -> String? {
+        guard !account.isEmpty else { return nil }
         var query: [String: Any] = [
             kSecClass as String: kSecClassInternetPassword,
-            kSecAttrServer as String: server
+            kSecAttrServer as String: server,
+            kSecAttrAccount as String: account
         ]
-        if let account, !account.isEmpty {
-            query[kSecAttrAccount as String] = account
-        }
         if let port {
             query[kSecAttrPort as String] = port
         }

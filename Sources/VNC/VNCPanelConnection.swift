@@ -8,7 +8,16 @@ enum VNCPanelConnectionExit {
 }
 
 final class VNCPanelConnection {
+    private static let helperUsageExitStatus: Int32 = 64
+    private static let helperSocketExitStatus: Int32 = 65
+    private static let helperProtocolExitStatus: Int32 = 66
     private static let helperConnectionFailureExitStatus: Int32 = 67
+    private static let nonRestartableHelperExitStatuses: Set<Int32> = [
+        helperUsageExitStatus,
+        helperSocketExitStatus,
+        helperProtocolExitStatus,
+        helperConnectionFailureExitStatus
+    ]
     private static let maxPendingControlMessages = 256
 
     typealias ControlHandler = @MainActor (VNCControlMessage) -> Void
@@ -97,10 +106,10 @@ final class VNCPanelConnection {
             case .closed:
                 return
             case .failedBeforePublish:
-                notifyExit(.failure(reason: VNCPanelText.helperProtocolFailed, shouldRestart: true))
+                notifyExit(.failure(reason: VNCPanelText.helperProtocolFailed, shouldRestart: false))
             case .failedAfterPublish:
                 parentSocket = nil
-                notifyExit(.failure(reason: VNCPanelText.helperProtocolFailed, shouldRestart: true))
+                notifyExit(.failure(reason: VNCPanelText.helperProtocolFailed, shouldRestart: false))
             }
         } catch {
             close()
@@ -289,6 +298,9 @@ final class VNCPanelConnection {
         if status == Self.helperConnectionFailureExitStatus {
             let reason = stateLock.withLock { helperReportedFailureReason } ?? VNCPanelText.stateFailed
             return .failure(reason: reason, shouldRestart: false)
+        }
+        if Self.nonRestartableHelperExitStatuses.contains(status) {
+            return .failure(reason: VNCPanelText.helperExited(Int(status)), shouldRestart: false)
         }
         return .failure(reason: VNCPanelText.helperExited(Int(status)), shouldRestart: true)
     }
