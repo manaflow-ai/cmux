@@ -807,7 +807,14 @@ final class WindowTerminalPortal: NSObject {
                     let followUpRequiresDeferred = self.pendingExternalGeometrySyncRequiresDeferred
                     self.pendingExternalGeometrySyncRequiresImmediate = false
                     self.pendingExternalGeometrySyncRequiresDeferred = false
-                    self.scheduleExternalGeometrySynchronize(forceImmediate: followUpRequiresImmediate && !followUpRequiresDeferred)
+                    if followUpRequiresImmediate {
+                        self.scheduleExternalGeometrySynchronize(forceImmediate: true)
+                        if followUpRequiresDeferred {
+                            self.scheduleExternalGeometrySynchronize(forceImmediate: false)
+                        }
+                    } else {
+                        self.scheduleExternalGeometrySynchronize(forceImmediate: false)
+                    }
                     return
                 }
                 let hasCoalescedDeferredSync = self.pendingExternalGeometrySyncRequiresDeferred
