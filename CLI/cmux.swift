@@ -8564,8 +8564,28 @@ struct CMUXCLI {
                 )
                 return
             } else if errno != EINTR {
+                if sshPTYBridgeReadErrorIsEOF(errno) {
+                    resizeSource.cancel()
+                    try handleSSHPTYBridgeEOF(
+                        client: client,
+                        workspaceId: workspaceId,
+                        sessionID: sessionID,
+                        attachmentID: attachmentID,
+                        socketLock: controlSocketLock
+                    )
+                    return
+                }
                 throw CLIError(message: "ssh-pty-attach: bridge read failed")
             }
+        }
+    }
+
+    private func sshPTYBridgeReadErrorIsEOF(_ errnoValue: Int32) -> Bool {
+        switch errnoValue {
+        case ECONNRESET, ECONNABORTED, ENOTCONN:
+            return true
+        default:
+            return false
         }
     }
 

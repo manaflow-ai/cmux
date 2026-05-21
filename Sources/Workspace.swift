@@ -4570,7 +4570,7 @@ final class WorkspaceRemotePTYBridgeServer {
         private var handshakeBuffer = Data()
         private var pendingOutputSends = 0
         private var pendingOutputBytes = 0
-        private var closeWhenOutputFlushes: Bool?
+        private var closeWhenOutputFlushes: (detach: Bool, gracefulOutputClose: Bool)?
         private var handshakeTimeoutWorkItem: DispatchWorkItem?
         private var remoteAttachment: WorkspaceRemotePTYBridgeAttachment?
 
@@ -4731,7 +4731,7 @@ final class WorkspaceRemotePTYBridgeServer {
                 guard !data.isEmpty else { return }
                 sendBufferedOutput(data, detachOnOverflow: true)
             case .exit, .error:
-                closeAfterOutputFlush(detach: false)
+                closeAfterOutputFlush(detach: false, gracefulOutputClose: true)
             }
         }
 
@@ -4760,18 +4760,21 @@ final class WorkspaceRemotePTYBridgeServer {
                 close(detach: true)
                 return
             }
-            if let detach = closeWhenOutputFlushes, pendingOutputSends == 0 {
-                close(detach: detach)
+            if let pendingClose = closeWhenOutputFlushes, pendingOutputSends == 0 {
+                close(
+                    detach: pendingClose.detach,
+                    gracefulOutputClose: pendingClose.gracefulOutputClose
+                )
             }
         }
 
-        private func closeAfterOutputFlush(detach: Bool) {
+        private func closeAfterOutputFlush(detach: Bool, gracefulOutputClose: Bool = false) {
             guard !isClosed else { return }
             if pendingOutputSends == 0 {
-                close(detach: detach)
+                close(detach: detach, gracefulOutputClose: gracefulOutputClose)
                 return
             }
-            closeWhenOutputFlushes = detach
+            closeWhenOutputFlushes = (detach: detach, gracefulOutputClose: gracefulOutputClose)
         }
 
         private func sendBridgeStatus(_ payload: [String: Any]) {
@@ -4805,7 +4808,7 @@ final class WorkspaceRemotePTYBridgeServer {
             })
         }
 
-        private func close(detach: Bool) {
+        private func close(detach: Bool, gracefulOutputClose: Bool = false) {
             guard !isClosed else { return }
             isClosed = true
             handshakeTimeoutWorkItem?.cancel()
@@ -4816,6 +4819,21 @@ final class WorkspaceRemotePTYBridgeServer {
                     attachmentID: remoteAttachment.attachmentID,
                     attachmentToken: remoteAttachment.token
                 )
+            }
+            if gracefulOutputClose && !detach {
+                connection.send(
+                    content: nil,
+                    contentContext: .defaultMessage,
+                    isComplete: true,
+                    completion: .contentProcessed { [weak self] _ in
+                        guard let self else { return }
+                        self.queue.async {
+                            self.connection.cancel()
+                            self.onClose()
+                        }
+                    }
+                )
+                return
             }
             connection.cancel()
             onClose()

@@ -1104,6 +1104,104 @@ final class CLINotifyProcessIntegrationRegressionTests: XCTestCase {
         ])
     }
 
+    func testSSHPTYAttachBridgeResetWhenSessionGoneClearsLocalState() throws {
+        let cliPath = try bundledCLIPath()
+        let socketPath = makeSocketPath("sshptyrst")
+        let listenerFD = try bindUnixSocket(at: socketPath)
+        let bridge = try bindLoopbackTCP()
+        let state = MockSocketServerState()
+        let workspaceId = "22222222-2222-2222-2222-222222222222"
+        let surfaceId = "33333333-3333-3333-3333-333333333333"
+        let sessionId = "ssh-\(workspaceId)-\(surfaceId)"
+        let token = "bridge-token"
+
+        defer {
+            Darwin.close(listenerFD)
+            Darwin.close(bridge.fd)
+            unlink(socketPath)
+        }
+
+        let socketHandled = startMockServer(listenerFD: listenerFD, state: state) { line in
+            guard let payload = self.jsonObject(line),
+                  let id = payload["id"] as? String,
+                  let method = payload["method"] as? String else {
+                return self.malformedRequestResponse(raw: line)
+            }
+            switch method {
+            case "workspace.remote.pty_bridge":
+                return self.v2Response(
+                    id: id,
+                    ok: true,
+                    result: [
+                        "host": "127.0.0.1",
+                        "port": bridge.port,
+                        "token": token,
+                        "session_id": sessionId,
+                        "attachment_id": surfaceId,
+                    ]
+                )
+            case "workspace.remote.pty_sessions":
+                return self.v2Response(
+                    id: id,
+                    ok: true,
+                    result: [
+                        "sessions": [],
+                    ]
+                )
+            case "workspace.remote.pty_attach_end":
+                let params = payload["params"] as? [String: Any] ?? [:]
+                XCTAssertEqual(params["workspace_id"] as? String, workspaceId)
+                XCTAssertEqual(params["surface_id"] as? String, surfaceId)
+                XCTAssertEqual(params["session_id"] as? String, sessionId)
+                return self.v2Response(
+                    id: id,
+                    ok: true,
+                    result: [
+                        "workspace_id": workspaceId,
+                        "surface_id": surfaceId,
+                        "session_id": sessionId,
+                        "cleared_remote_pty_session": true,
+                    ]
+                )
+            default:
+                return self.v2Response(
+                    id: id,
+                    ok: false,
+                    error: ["code": "unexpected_method", "message": "Unexpected method \(method)"]
+                )
+            }
+        }
+        let bridgeHandled = startBridgeReadyThenResetAfterClientEOFServer(listenerFD: bridge.fd)
+
+        var environment = ProcessInfo.processInfo.environment
+        environment["CMUX_SOCKET_PATH"] = socketPath
+        environment["CMUX_CLI_SENTRY_DISABLED"] = "1"
+
+        let result = runProcess(
+            executablePath: cliPath,
+            arguments: [
+                "ssh-pty-attach",
+                "--workspace", workspaceId,
+                "--session-id", sessionId,
+                "--attachment-id", surfaceId,
+            ],
+            environment: environment,
+            timeout: 5
+        )
+
+        wait(for: [socketHandled, bridgeHandled], timeout: 5)
+        XCTAssertFalse(result.timedOut, result.stderr)
+        XCTAssertEqual(result.status, 0, result.stderr)
+        XCTAssertTrue(result.stdout.isEmpty, result.stdout)
+        XCTAssertTrue(result.stderr.isEmpty, result.stderr)
+        let methods = state.snapshot().compactMap { self.jsonObject($0)?["method"] as? String }
+        XCTAssertEqual(methods, [
+            "workspace.remote.pty_bridge",
+            "workspace.remote.pty_sessions",
+            "workspace.remote.pty_attach_end",
+        ])
+    }
+
     func testSSHPTYAttachWaitUsesCurrentTerminalSizeForBridgeHandshake() throws {
         let cliPath = try bundledCLIPath()
         let socketPath = makeSocketPath("sshptysize")

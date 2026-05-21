@@ -255,6 +255,79 @@ extension CLINotifyProcessIntegrationRegressionTests {
         return handled
     }
 
+    func startBridgeReadyThenResetAfterClientEOFServer(listenerFD: Int32) -> XCTestExpectation {
+        let handled = expectation(description: "pty bridge ready reset server handled")
+        DispatchQueue.global(qos: .userInitiated).async {
+            defer { handled.fulfill() }
+
+            var clientAddr = sockaddr_in()
+            var clientAddrLen = socklen_t(MemoryLayout<sockaddr_in>.size)
+            let clientFD = withUnsafeMutablePointer(to: &clientAddr) { ptr in
+                ptr.withMemoryRebound(to: sockaddr.self, capacity: 1) { sockaddrPtr in
+                    Darwin.accept(listenerFD, sockaddrPtr, &clientAddrLen)
+                }
+            }
+            guard clientFD >= 0 else { return }
+            defer { Darwin.close(clientFD) }
+
+            var pending = Data()
+            var buffer = [UInt8](repeating: 0, count: 1024)
+            while !pending.contains(0x0A) {
+                let count = Darwin.read(clientFD, &buffer, buffer.count)
+                if count < 0 {
+                    if errno == EINTR { continue }
+                    return
+                }
+                if count == 0 { return }
+                pending.append(buffer, count: count)
+            }
+
+            let payload: [String: Any] = ["type": "ready"]
+            guard var data = try? JSONSerialization.data(withJSONObject: payload, options: []) else { return }
+            data.append(0x0A)
+            data.withUnsafeBytes { rawBuffer in
+                guard let base = rawBuffer.bindMemory(to: UInt8.self).baseAddress else { return }
+                var remaining = rawBuffer.count
+                var cursor = base
+                while remaining > 0 {
+                    let written = Darwin.write(clientFD, cursor, remaining)
+                    if written > 0 {
+                        remaining -= written
+                        cursor = cursor.advanced(by: written)
+                    } else if written < 0 && errno == EINTR {
+                        continue
+                    } else {
+                        return
+                    }
+                }
+            }
+
+            while true {
+                let count = Darwin.read(clientFD, &buffer, buffer.count)
+                if count > 0 {
+                    continue
+                }
+                if count == 0 {
+                    break
+                }
+                if errno == EINTR {
+                    continue
+                }
+                return
+            }
+
+            var lingerOption = linger(l_onoff: 1, l_linger: 0)
+            _ = setsockopt(
+                clientFD,
+                SOL_SOCKET,
+                SO_LINGER,
+                &lingerOption,
+                socklen_t(MemoryLayout.size(ofValue: lingerOption))
+            )
+        }
+        return handled
+    }
+
     func startMockServer(
         listenerFD: Int32,
         state: MockSocketServerState,
