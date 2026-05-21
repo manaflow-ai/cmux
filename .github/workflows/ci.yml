@@ -272,12 +272,44 @@ jobs:
               "test",
           ]
 
+          def write_output(data, output):
+              if isinstance(data, bytes):
+                  text = data.decode("utf-8", errors="replace")
+              else:
+                  text = data
+              sys.stdout.write(text)
+              sys.stdout.flush()
+              output.write(text)
+              output.flush()
+
+          def drain_remaining_output(process, output, timeout=2.0):
+              if process.stdout is None:
+                  return
+              fd = process.stdout.fileno()
+              was_blocking = os.get_blocking(fd)
+              deadline = time.monotonic() + timeout
+              os.set_blocking(fd, False)
+              try:
+                  while time.monotonic() < deadline:
+                      wait_time = min(0.2, max(0.0, deadline - time.monotonic()))
+                      ready, _, _ = select.select([process.stdout], [], [], wait_time)
+                      if not ready:
+                          break
+                      try:
+                          chunk = os.read(fd, 65536)
+                      except BlockingIOError:
+                          continue
+                      if not chunk:
+                          break
+                      write_output(chunk, output)
+              finally:
+                  os.set_blocking(fd, was_blocking)
+
           process = subprocess.Popen(
               command,
               stdout=subprocess.PIPE,
               stderr=subprocess.STDOUT,
-              text=True,
-              bufsize=1,
+              bufsize=0,
               start_new_session=True,
           )
           saw_app_host_crash = False
@@ -289,12 +321,9 @@ jobs:
                   if ready:
                       line = process.stdout.readline()
                       if line:
-                          sys.stdout.write(line)
-                          sys.stdout.flush()
-                          output.write(line)
-                          output.flush()
+                          write_output(line, output)
                           last_output_at = time.monotonic()
-                          if "Program crashed:" in line:
+                          if b"Program crashed:" in line:
                               saw_app_host_crash = True
                           continue
 
@@ -306,10 +335,7 @@ jobs:
                           f"xcodebuild produced no output for {quiet_timeout}s after an "
                           "app-host crash; terminating so expected-failure parsing can continue.\n"
                       )
-                      sys.stdout.write(message)
-                      sys.stdout.flush()
-                      output.write(message)
-                      output.flush()
+                      write_output(message, output)
                       process_group_id = None
                       try:
                           process_group_id = os.getpgid(process.pid)
@@ -335,12 +361,7 @@ jobs:
                               os.killpg(process_group_id, signal.SIGKILL)
                           except ProcessLookupError:
                               pass
-                      remaining = process.stdout.read() if process.stdout is not None else ""
-                      if remaining:
-                          sys.stdout.write(remaining)
-                          sys.stdout.flush()
-                          output.write(remaining)
-                          output.flush()
+                      drain_remaining_output(process, output)
                       break
 
           sys.exit(process.returncode if process.returncode is not None else 1)

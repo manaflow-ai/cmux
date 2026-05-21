@@ -14,7 +14,9 @@ REQUIRED_PATTERNS=(
   "os.killpg"
   "signal.SIGTERM"
   "signal.SIGKILL"
-  "process.stdout.read()"
+  "os.set_blocking"
+  "os.read(fd, 65536)"
+  "drain_remaining_output(process, output)"
   "Could not resolve package dependencies"
   "rm -rf ~/Library/Caches/org.swift.swiftpm"
   'OUTPUT=$(cat /tmp/test-output.txt)'
