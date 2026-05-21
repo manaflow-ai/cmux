@@ -45,7 +45,7 @@ struct VNCPanelView: View {
         .onDisappear {
             panel.setVisible(false)
         }
-        .onChange(of: panel.focusFlashToken) { _ in
+        .onChange(of: panel.focusFlashToken) { _, _ in
             focusFlashStartedAt = Date()
         }
     }
