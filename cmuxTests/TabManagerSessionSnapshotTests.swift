@@ -238,7 +238,7 @@ final class TabManagerSessionSnapshotTests: XCTestCase {
         )
     }
 
-    func testSessionSnapshotRestoresPersistentSSHPTYSessionForReattach() throws {
+    func testSessionSnapshotFallsBackFromNonDurablePersistentSSHPTYAfterRelaunch() throws {
         let manager = TabManager()
         let remoteWorkspace = manager.addWorkspace(select: true)
         remoteWorkspace.setCustomTitle("Persistent SSH")
@@ -302,15 +302,90 @@ final class TabManagerSessionSnapshotTests: XCTestCase {
         restored.restoreSessionSnapshot(persistedTabManager)
 
         let restoredWorkspace = try XCTUnwrap(restored.tabs.first { $0.customTitle == "Persistent SSH" })
+        XCTAssertEqual(restoredWorkspace.remoteConfiguration?.preserveAfterTerminalExit, false)
+        XCTAssertNil(restoredWorkspace.remoteConfiguration?.foregroundAuthToken)
+        XCTAssertEqual(
+            restoredWorkspace.remoteConfiguration?.terminalStartupCommand,
+            "ssh -p 2222 -o StrictHostKeyChecking=accept-new -tt dev@example.com"
+        )
+        let restoredPanelId = try XCTUnwrap(restoredWorkspace.focusedPanelId)
+        let restoredInitialCommand = try XCTUnwrap(
+            restoredWorkspace.terminalPanel(for: restoredPanelId)?.surface.debugInitialCommand()
+        )
+        XCTAssertFalse(restoredInitialCommand.contains("ssh-pty-attach"), restoredInitialCommand)
+        XCTAssertEqual(restoredInitialCommand, restoredWorkspace.remoteConfiguration?.terminalStartupCommand)
+
+        let roundTrip = restoredWorkspace.sessionSnapshot(includeScrollback: false)
+        XCTAssertNil(roundTrip.remote?.preserveAfterTerminalExit)
+        XCTAssertNil(roundTrip.panels.first?.terminal?.remotePTYSessionID)
+        XCTAssertEqual(
+            persistedWorkspace.panels.first { $0.id == remotePanelId }?.terminal?.scrollback,
+            expectedScrollback
+        )
+        XCTAssertEqual(restoredWorkspace.sessionSnapshot(includeScrollback: true).panels.first?.terminal?.scrollback, expectedScrollback)
+    }
+
+    func testSessionSnapshotRestoresDurablePersistentSSHPTYSessionForReattach() throws {
+        let manager = TabManager()
+        let remoteWorkspace = manager.addWorkspace(select: true)
+        remoteWorkspace.setCustomTitle("Durable Persistent SSH")
+        let configuration = WorkspaceRemoteConfiguration(
+            destination: "dev@example.com",
+            port: 2222,
+            identityFile: nil,
+            sshOptions: [
+                "StrictHostKeyChecking=accept-new",
+            ],
+            localProxyPort: nil,
+            relayPort: 64003,
+            relayID: "relay-persist-test",
+            relayToken: String(repeating: "e", count: 64),
+            localSocketPath: "/tmp/cmux-persist-test.sock",
+            terminalStartupCommand: SSHPTYAttachStartupCommandBuilder.command(),
+            preserveAfterTerminalExit: true,
+            skipDaemonBootstrap: true
+        )
+        remoteWorkspace.configureRemoteConnection(configuration, autoConnect: false)
+        let remotePanelId = try XCTUnwrap(remoteWorkspace.focusedPanelId)
+        let expectedSessionID = Workspace.defaultSSHPTYSessionID(
+            workspaceId: remoteWorkspace.id,
+            panelId: remotePanelId
+        )
+
+        let snapshotURL = FileManager.default.temporaryDirectory
+            .appendingPathComponent("cmux-ssh-pty-durable-restore-\(UUID().uuidString).json")
+        defer { try? FileManager.default.removeItem(at: snapshotURL) }
+        let snapshot = AppSessionSnapshot(
+            version: SessionSnapshotSchema.currentVersion,
+            createdAt: Date().timeIntervalSince1970,
+            windows: [
+                SessionWindowSnapshot(
+                    frame: nil,
+                    display: nil,
+                    tabManager: manager.sessionSnapshot(includeScrollback: true),
+                    sidebar: SessionSidebarSnapshot(isVisible: true, selection: .tabs, width: nil)
+                ),
+            ]
+        )
+        XCTAssertTrue(SessionPersistenceStore.save(snapshot, fileURL: snapshotURL))
+        let persistedTabManager = try XCTUnwrap(
+            SessionPersistenceStore.load(fileURL: snapshotURL)?.windows.first?.tabManager
+        )
+
+        let restored = TabManager()
+        restored.restoreSessionSnapshot(persistedTabManager)
+
+        let restoredWorkspace = try XCTUnwrap(restored.tabs.first { $0.customTitle == "Durable Persistent SSH" })
         XCTAssertEqual(restoredWorkspace.remoteConfiguration?.preserveAfterTerminalExit, true)
         XCTAssertNotNil(restoredWorkspace.remoteConfiguration?.foregroundAuthToken)
         XCTAssertTrue(
             restoredWorkspace.remoteConfiguration?.sshOptions.contains("ControlPath=/tmp/cmux-ssh-%C") == true
         )
-        XCTAssertTrue(restoredWorkspace.remoteConfiguration?.terminalStartupCommand?.contains("ssh-pty-attach") == true)
-        XCTAssertTrue(
-            restoredWorkspace.remoteConfiguration?.terminalStartupCommand?.contains("workspace.remote.foreground_auth_ready") == true
-        )
+        let terminalStartupCommand = try XCTUnwrap(restoredWorkspace.remoteConfiguration?.terminalStartupCommand)
+        XCTAssertTrue(terminalStartupCommand.contains("ssh-pty-attach"), terminalStartupCommand)
+        XCTAssertFalse(terminalStartupCommand.contains("--require-existing"), terminalStartupCommand)
+        XCTAssertTrue(terminalStartupCommand.contains("workspace.remote.foreground_auth_ready"), terminalStartupCommand)
+
         let restoredPanelId = try XCTUnwrap(restoredWorkspace.focusedPanelId)
         let restoredInitialCommand = try XCTUnwrap(
             restoredWorkspace.terminalPanel(for: restoredPanelId)?.surface.debugInitialCommand()
@@ -321,11 +396,8 @@ final class TabManagerSessionSnapshotTests: XCTestCase {
         XCTAssertTrue(restoredInitialCommand.contains(expectedSessionID), restoredInitialCommand)
 
         let roundTrip = restoredWorkspace.sessionSnapshot(includeScrollback: false)
+        XCTAssertEqual(roundTrip.remote?.preserveAfterTerminalExit, true)
         XCTAssertEqual(roundTrip.panels.first?.terminal?.remotePTYSessionID, expectedSessionID)
-        XCTAssertEqual(
-            persistedWorkspace.panels.first { $0.id == remotePanelId }?.terminal?.scrollback,
-            expectedScrollback
-        )
         XCTAssertNil(
             restoredWorkspace
                 .terminalPanel(for: restoredPanelId)?

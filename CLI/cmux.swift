@@ -6170,18 +6170,14 @@ struct CMUXCLI {
         }
         if usesPersistentSSHPTY,
            let remoteTerminalBootstrapScript {
-            let ptyStartupCommand = buildReusableSSHPTYAttachStartupCommand(
-                sessionIDFallback: persistentPTYSessionFallbackID,
-                remoteShellCommand: remoteTerminalBootstrapScript,
-                remoteRelayPort: sshOptions.remoteRelayPort
-            )
-            initialSSHStartupCommand = buildReusableForegroundAuthThenSSHPTYAttachStartupCommand(
+            let ptyStartupCommand = buildReusableForegroundAuthThenSSHPTYAttachStartupCommand(
                 options: sshOptions,
                 sessionIDFallback: persistentPTYSessionFallbackID,
                 remoteShellCommand: remoteTerminalBootstrapScript,
                 localCommandScript: combinedLocalCommandScript,
                 controlPathPreflightShellFunction: controlPathPreflightShellFunction
             )
+            initialSSHStartupCommand = ptyStartupCommand
             remoteTerminalSSHStartupCommand = ptyStartupCommand
         }
         let reusableTerminalStartupCommand: String
@@ -8462,33 +8458,60 @@ struct CMUXCLI {
         }
 
         let size = currentCLITerminalSize()
-        let bridge = try waitForReady
-            ? waitForSSHPTYBridge(client: client, workspaceId: workspaceId, sessionID: sessionID, attachmentID: attachmentID, command: command, requireExisting: requireExisting)
-            : client.sendV2(method: "workspace.remote.pty_bridge", params: [
-                "workspace_id": workspaceId,
-                "session_id": sessionID,
-                "attachment_id": attachmentID,
-                "command": command ?? "",
-                "require_existing": requireExisting,
-            ])
-        let host = (bridge["host"] as? String) ?? "127.0.0.1"
-        guard let port = cliStrictInt(bridge["port"]), port > 0, port <= 65535 else {
-            throw CLIError(message: "ssh-pty-attach: bridge did not return a valid port")
+        let bridge: [String: Any]
+        do {
+            bridge = try waitForReady
+                ? waitForSSHPTYBridge(client: client, workspaceId: workspaceId, sessionID: sessionID, attachmentID: attachmentID, command: command, requireExisting: requireExisting)
+                : client.sendV2(method: "workspace.remote.pty_bridge", params: [
+                    "workspace_id": workspaceId,
+                    "session_id": sessionID,
+                    "attachment_id": attachmentID,
+                    "command": command ?? "",
+                    "require_existing": requireExisting,
+                ])
+        } catch {
+            notifySSHPTYAttachEndedIgnoringFailure(
+                client: client,
+                workspaceId: workspaceId,
+                sessionID: sessionID,
+                attachmentID: attachmentID
+            )
+            throw error
         }
-        guard let token = bridge["token"] as? String, !token.isEmpty else {
-            throw CLIError(message: "ssh-pty-attach: bridge did not return a token")
-        }
+        var connectedFD: Int32?
+        do {
+            let host = (bridge["host"] as? String) ?? "127.0.0.1"
+            guard let port = cliStrictInt(bridge["port"]), port > 0, port <= 65535 else {
+                throw CLIError(message: "ssh-pty-attach: bridge did not return a valid port")
+            }
+            guard let token = bridge["token"] as? String, !token.isEmpty else {
+                throw CLIError(message: "ssh-pty-attach: bridge did not return a token")
+            }
 
-        let fd = try connectLoopbackTCP(host: host, port: port)
+            connectedFD = try connectLoopbackTCP(host: host, port: port)
+            let fd = connectedFD!
+            var handshakeData = try JSONSerialization.data(withJSONObject: [
+                "token": token,
+                "cols": size.cols,
+                "rows": size.rows,
+            ], options: [])
+            handshakeData.append(0x0A)
+            try writeAll(fd: fd, data: handshakeData)
+            try readSSHPTYBridgeReady(fd: fd)
+        } catch {
+            notifySSHPTYAttachEndedIgnoringFailure(
+                client: client,
+                workspaceId: workspaceId,
+                sessionID: sessionID,
+                attachmentID: attachmentID
+            )
+            if let connectedFD {
+                Darwin.close(connectedFD)
+            }
+            throw error
+        }
+        let fd = connectedFD!
         defer { Darwin.close(fd) }
-        var handshakeData = try JSONSerialization.data(withJSONObject: [
-            "token": token,
-            "cols": size.cols,
-            "rows": size.rows,
-        ], options: [])
-        handshakeData.append(0x0A)
-        try writeAll(fd: fd, data: handshakeData)
-        try readSSHPTYBridgeReady(fd: fd)
 
         let rawMode = TerminalRawMode()
         defer { rawMode?.restore() }
@@ -8589,6 +8612,19 @@ struct CMUXCLI {
                 exitCode: 255
             )
         }
+    }
+
+    private func notifySSHPTYAttachEndedIgnoringFailure(
+        client: SocketClient,
+        workspaceId: String,
+        sessionID: String,
+        attachmentID: String
+    ) {
+        _ = try? client.sendV2(method: "workspace.remote.pty_attach_end", params: [
+            "workspace_id": workspaceId,
+            "surface_id": attachmentID,
+            "session_id": sessionID,
+        ])
     }
 
     private func readSSHPTYBridgeReady(fd: Int32) throws {
@@ -9016,7 +9052,7 @@ struct CMUXCLI {
 
         let controlPersist = sshOptionValue(named: "ControlPersist", in: options)?
             .trimmingCharacters(in: .whitespacesAndNewlines)
-        return !sshOptionValueIsDisabled(controlPersist, zeroIsDisabled: false)
+        return !sshOptionValueIsDisabled(controlPersist)
     }
 
     private func sshOptionValueIsDisabled(_ rawValue: String?, zeroIsDisabled: Bool = true) -> Bool {

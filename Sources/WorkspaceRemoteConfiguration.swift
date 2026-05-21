@@ -88,7 +88,11 @@ nonisolated enum SSHPTYAttachStartupCommandBuilder {
         let token: String
     }
 
-    static func command(sessionID: String? = nil, foregroundAuth: ForegroundAuth? = nil) -> String {
+    static func command(
+        sessionID: String? = nil,
+        foregroundAuth: ForegroundAuth? = nil,
+        requireExisting: Bool = true
+    ) -> String {
         var lines = [
             "cmux_ssh_attach_cli=\"${CMUX_BUNDLED_CLI_PATH:-}\"",
             "if [ -z \"$cmux_ssh_attach_cli\" ] || [ ! -x \"$cmux_ssh_attach_cli\" ]; then cmux_ssh_attach_cli=\"$(command -v cmux 2>/dev/null || true)\"; fi",
@@ -107,7 +111,8 @@ nonisolated enum SSHPTYAttachStartupCommandBuilder {
         if let foregroundAuth {
             lines += foregroundAuthLines(foregroundAuth)
         }
-        lines.append("exec \"$cmux_ssh_attach_cli\" --socket \"$CMUX_SOCKET_PATH\" ssh-pty-attach --wait --require-existing --workspace \"$CMUX_WORKSPACE_ID\" --session-id \"$cmux_ssh_attach_session_id\" --attachment-id \"${CMUX_SURFACE_ID:-}\"")
+        let requireExistingFlag = requireExisting ? " --require-existing" : ""
+        lines.append("exec \"$cmux_ssh_attach_cli\" --socket \"$CMUX_SOCKET_PATH\" ssh-pty-attach --wait\(requireExistingFlag) --workspace \"$CMUX_WORKSPACE_ID\" --session-id \"$cmux_ssh_attach_session_id\" --attachment-id \"${CMUX_SURFACE_ID:-}\"")
         return lines.joined(separator: "\n")
     }
 
@@ -292,7 +297,7 @@ extension SessionRemoteWorkspaceSnapshot {
             (1...65535).contains(port) ? port : nil
         }
 
-        let preservePTYSession = preserveAfterTerminalExit == true
+        let preservePTYSession = preserveAfterTerminalExit == true && skipDaemonBootstrap == true
         let normalizedOptions = Self.normalizedSSHOptions(sshOptions)
         let restoredSSHOptions = preservePTYSession
             ? SSHPTYAttachStartupCommandBuilder.sshOptionsWithRestoreControlDefaults(normalizedOptions)
@@ -319,7 +324,8 @@ extension SessionRemoteWorkspaceSnapshot {
             relayToken: nil,
             localSocketPath: nil,
             terminalStartupCommand: preservePTYSession ? SSHPTYAttachStartupCommandBuilder.command(
-                foregroundAuth: foregroundAuth
+                foregroundAuth: foregroundAuth,
+                requireExisting: false
             ) : sshReconnectCommand(
                 destination: normalizedDestination,
                 port: normalizedPort

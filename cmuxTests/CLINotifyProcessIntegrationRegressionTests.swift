@@ -770,22 +770,11 @@ final class CLINotifyProcessIntegrationRegressionTests: XCTestCase {
             terminalStartupScript.contains("--workspace \"$cmux_ssh_pty_workspace_id\""),
             terminalStartupScript
         )
-        XCTAssertEqual(configureParams["auto_connect"] as? Bool, false)
-        XCTAssertNotNil(configureParams["foreground_auth_token"] as? String)
-        XCTAssertEqual(configureParams["preserve_after_terminal_exit"] as? Bool, true)
-    }
-
-    func testSSHPersistentPTYTreatsControlPersistZeroAsReusable() throws {
-        let run = try runMockedSSH(arguments: ["--ssh-option", "ControlPersist=0"])
-        let createParams = try XCTUnwrap(params(for: "workspace.create", in: run.requests))
-        let configureParams = try XCTUnwrap(params(for: "workspace.remote.configure", in: run.requests))
-        let initialCommand = try XCTUnwrap(createParams["initial_command"] as? String)
-        let terminalStartupCommand = try XCTUnwrap(configureParams["terminal_startup_command"] as? String)
-        let initialScript = try XCTUnwrap(decodedReusableStartupScript(from: initialCommand))
-        let terminalStartupScript = try XCTUnwrap(decodedReusableStartupScript(from: terminalStartupCommand))
-
-        XCTAssertTrue(initialScript.contains("ssh-pty-attach"), initialScript)
-        XCTAssertTrue(terminalStartupScript.contains("ssh-pty-attach"), terminalStartupScript)
+        XCTAssertEqual(
+            terminalStartupScript.components(separatedBy: "workspace.remote.foreground_auth_ready").count - 1,
+            1,
+            terminalStartupScript
+        )
         XCTAssertEqual(configureParams["auto_connect"] as? Bool, false)
         XCTAssertNotNil(configureParams["foreground_auth_token"] as? String)
         XCTAssertEqual(configureParams["preserve_after_terminal_exit"] as? Bool, true)
@@ -795,6 +784,7 @@ final class CLINotifyProcessIntegrationRegressionTests: XCTestCase {
         let cases: [(name: String, arguments: [String])] = [
             ("control-master-no", ["--ssh-option", "ControlMaster=no"]),
             ("control-persist-no", ["--ssh-option", "ControlPersist=no"]),
+            ("control-persist-zero", ["--ssh-option", "ControlPersist=0"]),
             ("local-command", ["--ssh-option", "LocalCommand=echo cmux-test"]),
             ("permit-local-command", ["--ssh-option", "PermitLocalCommand=no"]),
         ]
@@ -848,22 +838,44 @@ final class CLINotifyProcessIntegrationRegressionTests: XCTestCase {
                   let method = payload["method"] as? String else {
                 return self.malformedRequestResponse(raw: line)
             }
-            XCTAssertEqual(method, "workspace.remote.pty_bridge")
             let params = payload["params"] as? [String: Any] ?? [:]
-            XCTAssertEqual(params["workspace_id"] as? String, workspaceId)
-            XCTAssertEqual(params["session_id"] as? String, sessionId)
-            XCTAssertEqual(params["attachment_id"] as? String, surfaceId)
-            return self.v2Response(
-                id: id,
-                ok: true,
-                result: [
-                    "host": "127.0.0.1",
-                    "port": bridge.port,
-                    "token": token,
-                    "session_id": sessionId,
-                    "attachment_id": surfaceId,
-                ]
-            )
+            switch method {
+            case "workspace.remote.pty_bridge":
+                XCTAssertEqual(params["workspace_id"] as? String, workspaceId)
+                XCTAssertEqual(params["session_id"] as? String, sessionId)
+                XCTAssertEqual(params["attachment_id"] as? String, surfaceId)
+                return self.v2Response(
+                    id: id,
+                    ok: true,
+                    result: [
+                        "host": "127.0.0.1",
+                        "port": bridge.port,
+                        "token": token,
+                        "session_id": sessionId,
+                        "attachment_id": surfaceId,
+                    ]
+                )
+            case "workspace.remote.pty_attach_end":
+                XCTAssertEqual(params["workspace_id"] as? String, workspaceId)
+                XCTAssertEqual(params["surface_id"] as? String, surfaceId)
+                XCTAssertEqual(params["session_id"] as? String, sessionId)
+                return self.v2Response(
+                    id: id,
+                    ok: true,
+                    result: [
+                        "workspace_id": workspaceId,
+                        "surface_id": surfaceId,
+                        "session_id": sessionId,
+                        "cleared_remote_pty_session": true,
+                    ]
+                )
+            default:
+                return self.v2Response(
+                    id: id,
+                    ok: false,
+                    error: ["code": "unexpected_method", "message": "Unexpected method \(method)"]
+                )
+            }
         }
         let bridgeHandled = startBridgeErrorServer(
             listenerFD: bridge.fd,
@@ -891,7 +903,11 @@ final class CLINotifyProcessIntegrationRegressionTests: XCTestCase {
         XCTAssertEqual(result.status, 1, result.stderr)
         XCTAssertTrue(result.stdout.isEmpty, result.stdout)
         XCTAssertTrue(result.stderr.contains("ssh-pty-attach: remote PTY start failed"), result.stderr)
-        XCTAssertEqual(state.snapshot().count, 1)
+        let methods = state.snapshot().compactMap { self.jsonObject($0)?["method"] as? String }
+        XCTAssertEqual(methods, [
+            "workspace.remote.pty_bridge",
+            "workspace.remote.pty_attach_end",
+        ])
     }
 
     func testSSHPTYAttachBridgeEOFWhileSessionRunsExitsReconnectable() throws {
@@ -1167,23 +1183,45 @@ final class CLINotifyProcessIntegrationRegressionTests: XCTestCase {
                   let method = payload["method"] as? String else {
                 return self.malformedRequestResponse(raw: line)
             }
-            XCTAssertEqual(method, "workspace.remote.pty_bridge")
             let params = payload["params"] as? [String: Any] ?? [:]
-            XCTAssertEqual(params["workspace_id"] as? String, workspaceId)
-            XCTAssertEqual(params["session_id"] as? String, sessionId)
-            XCTAssertEqual(params["attachment_id"] as? String, surfaceId)
-            XCTAssertEqual(params["require_existing"] as? Bool, true)
-            return self.v2Response(
-                id: id,
-                ok: true,
-                result: [
-                    "host": "127.0.0.1",
-                    "port": bridge.port,
-                    "token": token,
-                    "session_id": sessionId,
-                    "attachment_id": surfaceId,
-                ]
-            )
+            switch method {
+            case "workspace.remote.pty_bridge":
+                XCTAssertEqual(params["workspace_id"] as? String, workspaceId)
+                XCTAssertEqual(params["session_id"] as? String, sessionId)
+                XCTAssertEqual(params["attachment_id"] as? String, surfaceId)
+                XCTAssertEqual(params["require_existing"] as? Bool, true)
+                return self.v2Response(
+                    id: id,
+                    ok: true,
+                    result: [
+                        "host": "127.0.0.1",
+                        "port": bridge.port,
+                        "token": token,
+                        "session_id": sessionId,
+                        "attachment_id": surfaceId,
+                    ]
+                )
+            case "workspace.remote.pty_attach_end":
+                XCTAssertEqual(params["workspace_id"] as? String, workspaceId)
+                XCTAssertEqual(params["surface_id"] as? String, surfaceId)
+                XCTAssertEqual(params["session_id"] as? String, sessionId)
+                return self.v2Response(
+                    id: id,
+                    ok: true,
+                    result: [
+                        "workspace_id": workspaceId,
+                        "surface_id": surfaceId,
+                        "session_id": sessionId,
+                        "cleared_remote_pty_session": true,
+                    ]
+                )
+            default:
+                return self.v2Response(
+                    id: id,
+                    ok: false,
+                    error: ["code": "unexpected_method", "message": "Unexpected method \(method)"]
+                )
+            }
         }
         let bridgeHandled = startBridgeErrorServer(listenerFD: bridge.fd, message: "missing session")
 
@@ -1209,6 +1247,11 @@ final class CLINotifyProcessIntegrationRegressionTests: XCTestCase {
         XCTAssertFalse(result.timedOut, result.stderr)
         XCTAssertEqual(result.status, 1, result.stderr)
         XCTAssertTrue(result.stderr.contains("ssh-pty-attach: missing session"), result.stderr)
+        let methods = state.snapshot().compactMap { self.jsonObject($0)?["method"] as? String }
+        XCTAssertEqual(methods, [
+            "workspace.remote.pty_bridge",
+            "workspace.remote.pty_attach_end",
+        ])
     }
 
     func testSSHPTYAttachRequireExistingSessionNotFoundFailsWithoutWaitRetry() throws {
@@ -1231,20 +1274,42 @@ final class CLINotifyProcessIntegrationRegressionTests: XCTestCase {
                   let method = payload["method"] as? String else {
                 return self.malformedRequestResponse(raw: line)
             }
-            XCTAssertEqual(method, "workspace.remote.pty_bridge")
             let params = payload["params"] as? [String: Any] ?? [:]
-            XCTAssertEqual(params["workspace_id"] as? String, workspaceId)
-            XCTAssertEqual(params["session_id"] as? String, sessionId)
-            XCTAssertEqual(params["attachment_id"] as? String, surfaceId)
-            XCTAssertEqual(params["require_existing"] as? Bool, true)
-            return self.v2Response(
-                id: id,
-                ok: false,
-                error: [
-                    "code": "pty_session_not_found",
-                    "message": "persistent PTY session \"\(sessionId)\" is not running",
-                ]
-            )
+            switch method {
+            case "workspace.remote.pty_bridge":
+                XCTAssertEqual(params["workspace_id"] as? String, workspaceId)
+                XCTAssertEqual(params["session_id"] as? String, sessionId)
+                XCTAssertEqual(params["attachment_id"] as? String, surfaceId)
+                XCTAssertEqual(params["require_existing"] as? Bool, true)
+                return self.v2Response(
+                    id: id,
+                    ok: false,
+                    error: [
+                        "code": "pty_session_not_found",
+                        "message": "persistent PTY session \"\(sessionId)\" is not running",
+                    ]
+                )
+            case "workspace.remote.pty_attach_end":
+                XCTAssertEqual(params["workspace_id"] as? String, workspaceId)
+                XCTAssertEqual(params["surface_id"] as? String, surfaceId)
+                XCTAssertEqual(params["session_id"] as? String, sessionId)
+                return self.v2Response(
+                    id: id,
+                    ok: true,
+                    result: [
+                        "workspace_id": workspaceId,
+                        "surface_id": surfaceId,
+                        "session_id": sessionId,
+                        "cleared_remote_pty_session": true,
+                    ]
+                )
+            default:
+                return self.v2Response(
+                    id: id,
+                    ok: false,
+                    error: ["code": "unexpected_method", "message": "Unexpected method \(method)"]
+                )
+            }
         }
 
         var environment = ProcessInfo.processInfo.environment
@@ -1269,7 +1334,11 @@ final class CLINotifyProcessIntegrationRegressionTests: XCTestCase {
         XCTAssertFalse(result.timedOut, result.stderr)
         XCTAssertEqual(result.status, 1, result.stderr)
         XCTAssertTrue(result.stderr.contains("pty_session_not_found"), result.stderr)
-        XCTAssertEqual(state.snapshot().count, 1)
+        let methods = state.snapshot().compactMap { self.jsonObject($0)?["method"] as? String }
+        XCTAssertEqual(methods, [
+            "workspace.remote.pty_bridge",
+            "workspace.remote.pty_attach_end",
+        ])
     }
 
     func testSSHSessionListAllWorkspacesReportsQueryErrors() throws {
