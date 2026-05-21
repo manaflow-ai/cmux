@@ -6,6 +6,7 @@ mode="${2:-core-ci}"
 root="${CMUX_CI_ROOT:-$HOME/cmux-ci}"
 repo="$root/cmux"
 spm="$root/spm-cache"
+log_dir="$root/logs"
 run_id="${CMUX_CI_RUN_ID:-$(hostname)-$(id -un)-$(date -u +%Y%m%dT%H%M%SZ)}"
 safe_run_id="$(printf '%s' "$run_id" | tr -c 'A-Za-z0-9_.-' '-')"
 derived="$root/DerivedData/$safe_run_id"
@@ -125,7 +126,7 @@ EOF
 }
 
 ensure_checkout() {
-  mkdir -p "$root" "$spm" "$tmp_root" "$(dirname "$derived")"
+  mkdir -p "$root" "$spm" "$tmp_root" "$log_dir" "$(dirname "$derived")"
   if [ ! -d "$repo/.git" ]; then
     git clone https://github.com/manaflow-ai/cmux.git "$repo"
   fi
@@ -263,6 +264,9 @@ unit_test() {
     elif echo "$output" | grep -q "command timed out after" && echo "$output" | grep -q "Test Suite 'Selected tests' passed"; then
       log "xcodebuild hung after completing a selected test shard, treating as pass"
     else
+      local saved_log="$log_dir/$safe_run_id-test-output.txt"
+      cp "$tmp_root/test-output.txt" "$saved_log" 2>/dev/null || true
+      log "saved test output: $saved_log"
       echo "Unexpected test failures detected" >&2
       return "$exit_code"
     fi
