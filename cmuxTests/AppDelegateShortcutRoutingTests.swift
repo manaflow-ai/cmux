@@ -6269,6 +6269,11 @@ final class AppDelegateShortcutRoutingTests: XCTestCase {
             return
         }
 
+        if !firstResponderOwnsTextField(window.firstResponder, textField: searchField) {
+            XCTAssertTrue(window.makeFirstResponder(searchField), "Expected test to focus terminal search field")
+            RunLoop.main.run(until: Date(timeIntervalSinceNow: 0.05))
+        }
+
         XCTAssertTrue(
             firstResponderOwnsTextField(window.firstResponder, textField: searchField),
             "Expected terminal search field to own first responder before drift"

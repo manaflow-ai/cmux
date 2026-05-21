@@ -1781,15 +1781,20 @@ final class GhosttyBackgroundThemeTests: XCTestCase {
             fallbackColor: fallbackColor,
             fallbackOpacity: fallbackOpacity
         )
-        guard let srgb = actual.usingColorSpace(.sRGB) else {
+        let expected = GhosttyBackgroundTheme.color(
+            backgroundColor: NSColor(srgbRed: 0.18, green: 0.29, blue: 0.44, alpha: 1.0),
+            opacity: 0.57
+        )
+        guard let srgb = actual.usingColorSpace(.sRGB),
+              let expectedSrgb = expected.usingColorSpace(.sRGB) else {
             XCTFail("Expected sRGB-convertible color")
             return
         }
 
-        XCTAssertEqual(srgb.redComponent, 0.18, accuracy: 0.005)
-        XCTAssertEqual(srgb.greenComponent, 0.29, accuracy: 0.005)
-        XCTAssertEqual(srgb.blueComponent, 0.44, accuracy: 0.005)
-        XCTAssertEqual(srgb.alphaComponent, 0.57, accuracy: 0.005)
+        XCTAssertEqual(srgb.redComponent, expectedSrgb.redComponent, accuracy: 0.005)
+        XCTAssertEqual(srgb.greenComponent, expectedSrgb.greenComponent, accuracy: 0.005)
+        XCTAssertEqual(srgb.blueComponent, expectedSrgb.blueComponent, accuracy: 0.005)
+        XCTAssertEqual(srgb.alphaComponent, expectedSrgb.alphaComponent, accuracy: 0.005)
     }
 
     func testColorFromNotificationFallsBackWhenPayloadMissing() {
@@ -1802,15 +1807,20 @@ final class GhosttyBackgroundThemeTests: XCTestCase {
             fallbackColor: fallbackColor,
             fallbackOpacity: fallbackOpacity
         )
-        guard let srgb = actual.usingColorSpace(.sRGB) else {
+        let expected = GhosttyBackgroundTheme.color(
+            backgroundColor: fallbackColor,
+            opacity: fallbackOpacity
+        )
+        guard let srgb = actual.usingColorSpace(.sRGB),
+              let expectedSrgb = expected.usingColorSpace(.sRGB) else {
             XCTFail("Expected sRGB-convertible color")
             return
         }
 
-        XCTAssertEqual(srgb.redComponent, 0.12, accuracy: 0.005)
-        XCTAssertEqual(srgb.greenComponent, 0.34, accuracy: 0.005)
-        XCTAssertEqual(srgb.blueComponent, 0.56, accuracy: 0.005)
-        XCTAssertEqual(srgb.alphaComponent, 0.42, accuracy: 0.005)
+        XCTAssertEqual(srgb.redComponent, expectedSrgb.redComponent, accuracy: 0.005)
+        XCTAssertEqual(srgb.greenComponent, expectedSrgb.greenComponent, accuracy: 0.005)
+        XCTAssertEqual(srgb.blueComponent, expectedSrgb.blueComponent, accuracy: 0.005)
+        XCTAssertEqual(srgb.alphaComponent, expectedSrgb.alphaComponent, accuracy: 0.005)
     }
 }
 

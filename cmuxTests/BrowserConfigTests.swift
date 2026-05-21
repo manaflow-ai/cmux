@@ -1217,8 +1217,11 @@ final class CmuxWebViewKeyEquivalentTests: XCTestCase {
     func testWindowArrowForwardingConsumesMarkedTextOmnibarRestore() {
         _ = NSApplication.shared
         AppDelegate.installWindowResponderSwizzlesForTesting()
+        guard let appDelegate = AppDelegate.shared else {
+            XCTFail("Expected AppDelegate.shared")
+            return
+        }
 
-        let panelId = UUID()
         let window = FieldEditorProbeWindow(
             contentRect: NSRect(x: 0, y: 0, width: 640, height: 420),
             styleMask: [.titled, .closable],
@@ -1227,19 +1230,33 @@ final class CmuxWebViewKeyEquivalentTests: XCTestCase {
         )
         let container = NSView(frame: window.contentRect(forFrameRect: window.frame))
         window.contentView = container
+        window.makeKeyAndOrderFront(nil)
+
+        let manager = TabManager(autoWelcomeIfNeeded: false)
+        manager.window = window
+        guard let workspace = manager.selectedWorkspace,
+              let panelId = manager.openBrowser(inWorkspace: workspace.id),
+              let browserPanel = workspace.browserPanel(for: panelId) else {
+            XCTFail("Expected browser panel in test main-window context")
+            return
+        }
+        let windowId = appDelegate.registerMainWindowContextForTesting(tabManager: manager, window: window)
 
         let field = OmnibarNativeTextField(frame: NSRect(x: 12, y: 380, width: 360, height: 24))
         field.panelId = panelId
         field.stringValue = "abcdef"
         container.addSubview(field)
+        BrowserOmnibarNativeFieldRegistry.shared.register(field, panelId: panelId)
 
-        let webView = CmuxWebView(frame: NSRect(x: 0, y: 0, width: 640, height: 360), configuration: WKWebViewConfiguration())
+        let webView = browserPanel.webView
+        webView.frame = NSRect(x: 0, y: 0, width: 640, height: 360)
         webView.allowsFirstResponderAcquisition = true
         container.addSubview(webView)
 
-        window.makeKeyAndOrderFront(nil)
         defer {
+            appDelegate.unregisterMainWindowContextForTesting(windowId: windowId)
             NotificationCenter.default.post(name: .browserDidBlurAddressBar, object: panelId)
+            BrowserOmnibarNativeFieldRegistry.shared.unregister(field, panelId: panelId)
             AppDelegate.clearWindowFirstResponderGuardTesting()
             field.removeFromSuperview()
             webView.removeFromSuperview()
@@ -1848,7 +1865,10 @@ final class BrowserDeveloperToolsConfigurationTests: XCTestCase {
         )
 
         guard let actual = panel.webView.underPageBackgroundColor?.usingColorSpace(.sRGB),
-              let expected = updatedColor.withAlphaComponent(updatedOpacity).usingColorSpace(.sRGB) else {
+              let expected = GhosttyBackgroundTheme.color(
+                backgroundColor: updatedColor,
+                opacity: updatedOpacity
+              ).usingColorSpace(.sRGB) else {
             XCTFail("Expected sRGB-convertible under-page background colors")
             return
         }
@@ -1904,7 +1924,10 @@ final class BrowserDeveloperToolsConfigurationTests: XCTestCase {
         )
 
         guard let actual = panel.webView.underPageBackgroundColor?.usingColorSpace(.sRGB),
-              let expected = updatedColor.withAlphaComponent(0.57).usingColorSpace(.sRGB) else {
+              let expected = GhosttyBackgroundTheme.color(
+                backgroundColor: updatedColor,
+                opacity: 0.57
+              ).usingColorSpace(.sRGB) else {
             XCTFail("Expected sRGB-convertible under-page background colors")
             return
         }
