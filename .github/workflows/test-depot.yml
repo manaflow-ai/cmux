@@ -138,10 +138,17 @@ jobs:
           set -euo pipefail
           SOURCE_PACKAGES_DIR="$PWD/.ci-source-packages"
           run_unit_tests() {
+            # Xcode 16.4's XCTest memory checker crashes in WebKit teardown for
+            # these MarkdownPanelTests on hosted runners, then retries until the
+            # job timeout. Keep the quarantine narrow and explicit.
             xcodebuild -project cmux.xcodeproj -scheme cmux-unit -configuration Debug \
               -clonedSourcePackagesDirPath "$SOURCE_PACKAGES_DIR" \
               -disableAutomaticPackageResolution \
-              -destination "platform=macOS" test 2>&1
+              -destination "platform=macOS" \
+              -skip-testing:cmuxTests/MarkdownPanelTests/testMarkdownRenderHandlesLocalImageSources \
+              -skip-testing:cmuxTests/MarkdownPanelTests/testMarkdownRenderKeepsVisibleHeadingPositionAfterContentUpdate \
+              -skip-testing:cmuxTests/MarkdownPanelTests/testMarkdownRenderLoadsSafeDataImage \
+              test 2>&1
           }
 
           set +e
