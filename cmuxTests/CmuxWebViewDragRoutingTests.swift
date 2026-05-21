@@ -362,6 +362,19 @@ final class BrowserScreenshotPipelineTests: XCTestCase {
         XCTAssertEqual(cropRect.height, 100, accuracy: 0.001)
     }
 
+    func testSectionCropSubtractsNonZeroViewBoundsOrigin() throws {
+        let cropRect = try BrowserScreenshotCrop.imageRect(
+            forSelectionInView: NSRect(x: 150, y: 75, width: 50, height: 25),
+            viewBounds: NSRect(x: 100, y: 50, width: 200, height: 100),
+            imageSize: NSSize(width: 400, height: 200)
+        )
+
+        XCTAssertEqual(cropRect.origin.x, 100, accuracy: 0.001)
+        XCTAssertEqual(cropRect.origin.y, 50, accuracy: 0.001)
+        XCTAssertEqual(cropRect.width, 100, accuracy: 0.001)
+        XCTAssertEqual(cropRect.height, 50, accuracy: 0.001)
+    }
+
     func testSectionSnapshotCropsSelectionBeforeWritingPasteboard() async throws {
         let pasteboard = NSPasteboard(name: .init("cmux-browser-screenshot-section-\(UUID().uuidString)"))
         pasteboard.clearContents()

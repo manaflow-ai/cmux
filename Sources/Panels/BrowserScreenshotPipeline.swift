@@ -87,8 +87,8 @@ enum BrowserScreenshotCrop {
         let scaleX = imageSize.width / viewBounds.width
         let scaleY = imageSize.height / viewBounds.height
         let imageRect = NSRect(
-            x: normalized.minX * scaleX,
-            y: normalized.minY * scaleY,
+            x: (normalized.minX - viewBounds.minX) * scaleX,
+            y: (normalized.minY - viewBounds.minY) * scaleY,
             width: normalized.width * scaleX,
             height: normalized.height * scaleY
         )
