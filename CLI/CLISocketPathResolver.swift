@@ -335,7 +335,7 @@ enum CLISocketPathResolver {
         let variant = SocketPathMarkerFiles.variant(bundleIdentifier: bundleIdentifier, environment: environment)
         let defaultPath = defaultSocketPath(bundleIdentifier: bundleIdentifier, environment: environment)
         if case .stable = variant {
-            return [defaultPath]
+            return dedupe([defaultPath, legacyDefaultSocketPath])
         }
         return dedupe(
             [defaultPath] + stableImplicitDefaultPaths()
