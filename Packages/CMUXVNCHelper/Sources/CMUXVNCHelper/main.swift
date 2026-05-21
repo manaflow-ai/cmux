@@ -8,6 +8,7 @@ private enum HelperExit: Int32 {
     case usage = 64
     case socket = 65
     case protocolError = 66
+    case connection = 67
 }
 
 private final class SocketChannel: @unchecked Sendable {
@@ -81,11 +82,13 @@ private final class VNCSessionController: NSObject, VNCConnectionDelegate, @unch
     private let connectionLock = NSLock()
     private let stateLock = NSLock()
     private let inputLock = NSLock()
+    private let exitCodeLock = NSLock()
     private var connection: VNCConnection?
     private var sequence: UInt64 = 0
     private var isClosed = false
     private var isRemoteInputReady = false
     private var pendingInputMessages: [VNCControlMessage] = []
+    private var requestedExitCode: Int32 = 0
 
     init(channel: SocketChannel, request: VNCConnectRequest) {
         self.channel = channel
@@ -113,6 +116,10 @@ private final class VNCSessionController: NSObject, VNCConnectionDelegate, @unch
 
     func waitUntilTerminated() {
         termination.wait()
+    }
+
+    var exitCode: Int32 {
+        exitCodeLock.withLock { requestedExitCode }
     }
 
     func handle(_ message: VNCControlMessage) {
@@ -209,6 +216,12 @@ private final class VNCSessionController: NSObject, VNCConnectionDelegate, @unch
     }
 
     func connection(_ connection: VNCConnection, stateDidChange connectionState: VNCConnection.ConnectionState) {
+        if connectionState.status == .disconnected,
+           let error = connectionState.error {
+            failConnection(error: error)
+            return
+        }
+
         let state: String
         switch connectionState.status {
         case .connecting:
@@ -333,6 +346,47 @@ private final class VNCSessionController: NSObject, VNCConnectionDelegate, @unch
             try channel.send(try VNCIPCCodec.encodeControl(message))
         } catch {
             close()
+        }
+    }
+
+    private func failConnection(error: Error) {
+        guard markClosed() else { return }
+        setExitCode(HelperExit.connection.rawValue)
+        inputLock.withLock {
+            isRemoteInputReady = false
+            pendingInputMessages.removeAll(keepingCapacity: false)
+        }
+        sendControl(VNCControlMessage(
+            kind: "state",
+            sessionName: request.sessionName,
+            state: "failed",
+            message: sanitizedFailureMessage(for: error)
+        ))
+        termination.signal()
+    }
+
+    private func sanitizedFailureMessage(for error: Error) -> String? {
+        let description: String
+        if let localizedError = error as? LocalizedError,
+           let errorDescription = localizedError.errorDescription {
+            description = errorDescription
+        } else {
+            description = String(describing: error)
+        }
+        var sanitized = description
+        if !request.password.isEmpty {
+            sanitized = sanitized.replacingOccurrences(of: request.password, with: "[redacted]")
+        }
+        let trimmed = sanitized.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmed.isEmpty else { return nil }
+        return String(trimmed.prefix(500))
+    }
+
+    private func setExitCode(_ exitCode: Int32) {
+        exitCodeLock.withLock {
+            if requestedExitCode == 0 {
+                requestedExitCode = exitCode
+            }
         }
     }
 
@@ -516,7 +570,7 @@ do {
         }
     }
     controller.waitUntilTerminated()
-    exit(0)
+    exit(controller.exitCode)
 } catch {
     fputs("cmux-vnc-helper socket error\n", stderr)
     exit(HelperExit.socket.rawValue)

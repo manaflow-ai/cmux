@@ -28,6 +28,13 @@ final class VNCPanelConnection {
     private var pendingControlMessages: [Data] = []
     private var isClosed = false
 
+    private enum AcceptedClientActivationResult {
+        case active
+        case closed
+        case failedBeforePublish
+        case failedAfterPublish
+    }
+
     init(
         session: MacfleetVNCSession,
         credential: VNCResolvedCredential,
@@ -174,34 +181,78 @@ final class VNCPanelConnection {
         }
         Self.disableSIGPIPE(on: accepted)
 
-        let acceptedState = stateLock.withLock { () -> (listener: Int32, pending: [Data])? in
+        let acceptedState = stateLock.withLock { () -> Int32? in
             if isClosed {
                 return nil
             }
-            clientFileDescriptor = accepted
             let currentListener = listenerFileDescriptor
             listenerFileDescriptor = -1
-            let pending = pendingControlMessages
-            pendingControlMessages.removeAll(keepingCapacity: false)
-            return (listener: currentListener, pending: pending)
+            return currentListener
         }
         guard let acceptedState else {
             Darwin.close(accepted)
             return
         }
-        if acceptedState.listener >= 0 {
-            Darwin.close(acceptedState.listener)
+        if acceptedState >= 0 {
+            Darwin.close(acceptedState)
         }
 
-        do {
-            let connectMessage = try VNCIPCCodec.encodeControl(.connect(connectRequest))
-            try Self.write(connectMessage, to: accepted)
-            for message in acceptedState.pending {
-                try Self.write(message, to: accepted)
-            }
+        let activationResult = activateAcceptedClient(accepted, connectRequest: connectRequest)
+        switch activationResult {
+        case .active:
             readMessages(from: accepted)
-        } catch {
+        case .closed:
+            Darwin.close(accepted)
+        case .failedBeforePublish:
+            Darwin.close(accepted)
             notifyExit(.failure(reason: VNCPanelText.helperProtocolFailed, shouldRestart: true))
+        case .failedAfterPublish:
+            notifyExit(.failure(reason: VNCPanelText.helperProtocolFailed, shouldRestart: true))
+        }
+    }
+
+    private func activateAcceptedClient(_ accepted: Int32, connectRequest: VNCConnectRequest) -> AcceptedClientActivationResult {
+        let connectMessage: Data
+        do {
+            connectMessage = try VNCIPCCodec.encodeControl(.connect(connectRequest))
+        } catch {
+            return .failedBeforePublish
+        }
+
+        return writeQueue.sync {
+            var published = false
+            do {
+                guard let initialPending = stateLock.withLock({ () -> [Data]? in
+                    guard !isClosed else { return nil }
+                    let pending = pendingControlMessages
+                    pendingControlMessages.removeAll(keepingCapacity: false)
+                    return pending
+                }) else {
+                    return .closed
+                }
+
+                try Self.write(connectMessage, to: accepted)
+                for message in initialPending {
+                    try Self.write(message, to: accepted)
+                }
+
+                guard let pendingAfterPublish = stateLock.withLock({ () -> [Data]? in
+                    guard !isClosed else { return nil }
+                    clientFileDescriptor = accepted
+                    published = true
+                    let pending = pendingControlMessages
+                    pendingControlMessages.removeAll(keepingCapacity: false)
+                    return pending
+                }) else {
+                    return .closed
+                }
+                for message in pendingAfterPublish {
+                    try Self.write(message, to: accepted)
+                }
+                return .active
+            } catch {
+                return published ? .failedAfterPublish : .failedBeforePublish
+            }
         }
     }
 
@@ -241,6 +292,11 @@ final class VNCPanelConnection {
             switch message {
             case .control(let control):
                 onControl(control)
+                if control.state == "failed" {
+                    let reason = control.message ?? VNCPanelText.stateFailed
+                    close()
+                    onExit(.failure(reason: reason, shouldRestart: false))
+                }
             case .frame(let header, let payload):
                 onFrame(header, payload)
             }
