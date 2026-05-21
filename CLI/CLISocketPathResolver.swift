@@ -332,9 +332,13 @@ enum CLISocketPathResolver {
         bundleIdentifier: String?,
         environment: [String: String]
     ) -> [String] {
-        dedupe(
-            [defaultSocketPath(bundleIdentifier: bundleIdentifier, environment: environment)]
-                + stableImplicitDefaultPaths()
+        let variant = SocketPathMarkerFiles.variant(bundleIdentifier: bundleIdentifier, environment: environment)
+        let defaultPath = defaultSocketPath(bundleIdentifier: bundleIdentifier, environment: environment)
+        if case .stable = variant {
+            return [defaultPath]
+        }
+        return dedupe(
+            [defaultPath] + stableImplicitDefaultPaths()
         )
     }
 
@@ -379,11 +383,12 @@ enum CLISocketPathResolver {
     }
 
     private static func pathComparisonForms(_ path: String) -> [String] {
-        var forms = [
+        let baseForms = [
             (path as NSString).standardizingPath,
             (path as NSString).resolvingSymlinksInPath,
         ]
-        for form in forms {
+        var forms = baseForms
+        for form in baseForms {
             if form.hasPrefix("/private/tmp/") {
                 forms.append("/tmp/" + String(form.dropFirst("/private/tmp/".count)))
             } else if form.hasPrefix("/tmp/") {

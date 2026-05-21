@@ -202,6 +202,61 @@ final class CMUXCLIErrorOutputRegressionTests: XCTestCase {
         }
     }
 
+    func testBundledStableCLIKeepsUserScopedStableEnvSocketExplicit() throws {
+        let cliPath = try bundledCLIPath()
+        let fixedHomeURL = URL(fileURLWithPath: "/tmp/cmxh-\(UUID().uuidString)", isDirectory: true)
+        defer { try? FileManager.default.removeItem(at: fixedHomeURL) }
+        let socketDirectoryURL = fixedHomeURL
+            .appendingPathComponent("Library/Application Support/cmux", isDirectory: true)
+        try FileManager.default.createDirectory(
+            at: socketDirectoryURL,
+            withIntermediateDirectories: true
+        )
+        let defaultStableSocketPath = socketDirectoryURL
+            .appendingPathComponent("cmux.sock", isDirectory: false)
+            .path
+        let userScopedStableSocketPath = "/tmp/cmux-\(getuid()).sock"
+        if FileManager.default.fileExists(atPath: userScopedStableSocketPath) {
+            throw XCTSkip("User-scoped stable cmux socket already exists at \(userScopedStableSocketPath)")
+        }
+
+        let fakeStableCLIPath = try fakeTaggedBundledCLIPath(
+            sourceCLIPath: cliPath,
+            tagSlug: "stable-\(UUID().uuidString.lowercased())",
+            bundleIdentifier: "com.cmuxterm.app",
+            bundleName: "cmux"
+        )
+        let defaultResponder = try UnixSocketResponder(path: defaultStableSocketPath, response: "OK DEFAULT")
+        defer { defaultResponder.stop() }
+        let userScopedResponder = try UnixSocketResponder(path: userScopedStableSocketPath, response: "OK USER")
+        defer { userScopedResponder.stop() }
+
+        var environment = ProcessInfo.processInfo.environment
+        for key in Array(environment.keys) where key.hasPrefix("CMUX_") {
+            environment.removeValue(forKey: key)
+        }
+        environment["CMUX_CLI_SENTRY_DISABLED"] = "1"
+        environment["CMUXTERM_CLI_RESPONSE_TIMEOUT_SEC"] = "5"
+        environment["CMUX_SOCKET_PATH"] = userScopedStableSocketPath
+        environment["CFFIXED_USER_HOME"] = fixedHomeURL.path
+
+        let result = runProcess(
+            executablePath: fakeStableCLIPath,
+            arguments: ["ping"],
+            environment: environment,
+            timeout: 5
+        )
+
+        XCTAssertFalse(result.timedOut, result.stdout)
+        XCTAssertEqual(result.status, 0, result.stdout)
+        XCTAssertEqual(
+            result.stdout.trimmingCharacters(in: .whitespacesAndNewlines),
+            "OK USER",
+            result.stdout
+        )
+        XCTAssertEqual(defaultResponder.receivedRequests, [])
+    }
+
     func testBundledCLISkipsIdentifierlessNestedAppWhenResolvingTaggedSocket() throws {
         let cliPath = try bundledCLIPath()
         let tagSlug = "cli-nested-\(UUID().uuidString.lowercased())"
@@ -689,6 +744,8 @@ final class CMUXCLIErrorOutputRegressionTests: XCTestCase {
     private func fakeTaggedBundledCLIPath(
         sourceCLIPath: String,
         tagSlug: String,
+        bundleIdentifier: String? = nil,
+        bundleName: String? = nil,
         nestedIdentifierlessApp: Bool = false
     ) throws -> String {
         let root = FileManager.default.temporaryDirectory
@@ -719,8 +776,8 @@ final class CMUXCLIErrorOutputRegressionTests: XCTestCase {
         try FileManager.default.createDirectory(at: binURL, withIntermediateDirectories: true)
 
         let info: [String: Any] = [
-            "CFBundleIdentifier": "com.cmuxterm.app.debug.\(tagSlug.replacingOccurrences(of: "-", with: "."))",
-            "CFBundleName": "cmux DEV \(tagSlug)",
+            "CFBundleIdentifier": bundleIdentifier ?? "com.cmuxterm.app.debug.\(tagSlug.replacingOccurrences(of: "-", with: "."))",
+            "CFBundleName": bundleName ?? "cmux DEV \(tagSlug)",
             "CFBundlePackageType": "APPL"
         ]
         let infoData = try PropertyListSerialization.data(
