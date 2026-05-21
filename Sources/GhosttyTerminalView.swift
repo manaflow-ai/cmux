@@ -8141,6 +8141,15 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
         )
 #endif
 
+        if let pasteKeyEquivalent = terminalPasteKeyEquivalent(for: event, normalizedFlags: flags) {
+            if shouldRetryMainMenu,
+               let menu = NSApp.mainMenu,
+               menu.performKeyEquivalent(with: event) {
+                return true
+            }
+            return performTerminalPasteKeyEquivalent(pasteKeyEquivalent, sender: self)
+        }
+
         // Check if this event matches a Ghostty keybinding.
         let bindingFlags: ghostty_binding_flags_e? = {
             var keyEvent = ghosttyKeyEvent(for: event, surface: surface)
@@ -8169,24 +8178,10 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
                 }
             }
 
-            if shouldResolveMenuStyleBinding,
-               let pasteKeyEquivalent = terminalPasteKeyEquivalent(for: event, normalizedFlags: flags) {
-                return performTerminalPasteKeyEquivalent(pasteKeyEquivalent, sender: self)
-            }
-
             // Other performable bindings still fall through to keyDown so Ghostty
             // can perform the action directly.
             keyDown(with: event)
             return true
-        }
-
-        if let pasteKeyEquivalent = terminalPasteKeyEquivalent(for: event, normalizedFlags: flags) {
-            if shouldRetryMainMenu,
-               let menu = NSApp.mainMenu,
-               menu.performKeyEquivalent(with: event) {
-                return true
-            }
-            return performTerminalPasteKeyEquivalent(pasteKeyEquivalent, sender: self)
         }
 
         let equivalent: String
