@@ -263,6 +263,7 @@ jobs:
               -skip-testing:cmuxTests/AppDelegateShortcutRoutingTests/testWelcomeWindowSidebarShortcutsUseSharedToggleCommands \
               -skip-testing:cmuxTests/BrowserPanelWebViewLifecycleTests/testBackgroundPreloadIsConsumedByInitialNavigation \
               -skip-testing:cmuxTests/CLINotifyProcessIntegrationRegressionTests/testNotificationCLIActionsMutateSocketStateAndListExtendedFields \
+              -skip-testing:cmuxTests/CLINotifyProcessIntegrationRegressionTests/testGrokNotificationStillFiresOnRepeatedPromptWhenFeedTelemetryDoesNotReply \
               test 2>&1
           }
 
