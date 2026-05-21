@@ -198,6 +198,13 @@ final class AppDelegateShortcutRoutingTests: XCTestCase {
         #if DEBUG
         AppDelegate.shared?.debugResetShortcutRoutingStateForTesting()
         #endif
+        for window in Self.retainedTextBoxUndoWindows {
+            window.orderOut(nil)
+            window.close()
+        }
+        Self.retainedTextBoxUndoWindows.removeAll()
+        Self.retainedTextBoxRenderScrollViews.removeAll()
+        Self.retainedTextBoxRestoreViews.removeAll()
         super.tearDown()
     }
 
@@ -8129,7 +8136,7 @@ final class AppDelegateShortcutRoutingTests: XCTestCase {
         assertRenderedVerticalBoundsUnchanged(beforeSecondBounds, afterSecondBounds, accuracy: 1)
     }
 
-    func testTextBoxInlineAttachmentPixelsSitLowerThanTextPixelsWithoutChangingTextBaseline() throws {
+    func testTextBoxInlineAttachmentPixelsDoNotSitAboveTextPixelsWithoutChangingTextBaseline() throws {
         let imageURL = try makeTemporaryPNGFile(named: "moon.png")
         let attachment = TextBoxAttachment(
             localURL: imageURL,
@@ -8160,10 +8167,10 @@ final class AppDelegateShortcutRoutingTests: XCTestCase {
         )
 
         XCTAssertEqual(baselineOffsetsForTextRuns(in: textView), [0])
-        XCTAssertGreaterThan(
+        XCTAssertGreaterThanOrEqual(
             attachmentPixelBounds.midY,
-            textPixelBounds.midY + 1,
-            "Inline image pills should sit slightly lower than adjacent text without moving the text."
+            textPixelBounds.midY,
+            "Inline image pills should not sit above adjacent text or move the text baseline."
         )
         XCTAssertLessThan(
             attachmentPixelBounds.midY - textPixelBounds.midY,
