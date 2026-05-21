@@ -8513,13 +8513,15 @@ struct CMUXCLI {
         let fd = connectedFD!
         defer { Darwin.close(fd) }
 
+        let controlSocketLock = NSLock()
         let rawMode = TerminalRawMode()
         defer { rawMode?.restore() }
         let resizeSource = startSSHPTYResizeSource(
             client: client,
             workspaceId: workspaceId,
             sessionID: sessionID,
-            attachmentID: attachmentID
+            attachmentID: attachmentID,
+            socketLock: controlSocketLock
         )
         defer { resizeSource.cancel() }
 
@@ -8550,11 +8552,13 @@ struct CMUXCLI {
             if count > 0 {
                 FileHandle.standardOutput.write(Data(outputBuffer.prefix(count)))
             } else if count == 0 {
+                resizeSource.cancel()
                 try handleSSHPTYBridgeEOF(
                     client: client,
                     workspaceId: workspaceId,
                     sessionID: sessionID,
-                    attachmentID: attachmentID
+                    attachmentID: attachmentID,
+                    socketLock: controlSocketLock
                 )
                 return
             } else if errno != EINTR {
@@ -8567,8 +8571,12 @@ struct CMUXCLI {
         client: SocketClient,
         workspaceId: String,
         sessionID: String,
-        attachmentID: String
+        attachmentID: String,
+        socketLock: NSLock
     ) throws {
+        socketLock.lock()
+        defer { socketLock.unlock() }
+
         let response: [String: Any]
         do {
             response = try client.sendV2(method: "workspace.remote.pty_sessions", params: [
@@ -8669,7 +8677,8 @@ struct CMUXCLI {
         client: SocketClient,
         workspaceId: String,
         sessionID: String,
-        attachmentID: String
+        attachmentID: String,
+        socketLock: NSLock
     ) -> DispatchSourceSignal {
         signal(SIGWINCH, SIG_IGN)
         let source = DispatchSource.makeSignalSource(
@@ -8678,6 +8687,8 @@ struct CMUXCLI {
         )
         source.setEventHandler {
             let size = self.currentCLITerminalSize()
+            socketLock.lock()
+            defer { socketLock.unlock() }
             _ = try? client.sendV2(method: "workspace.remote.pty_resize", params: [
                 "workspace_id": workspaceId,
                 "session_id": sessionID,
@@ -9052,7 +9063,7 @@ struct CMUXCLI {
 
         let controlPersist = sshOptionValue(named: "ControlPersist", in: options)?
             .trimmingCharacters(in: .whitespacesAndNewlines)
-        return !sshOptionValueIsDisabled(controlPersist)
+        return !sshOptionValueIsDisabled(controlPersist, zeroIsDisabled: false)
     }
 
     private func sshOptionValueIsDisabled(_ rawValue: String?, zeroIsDisabled: Bool = true) -> Bool {
