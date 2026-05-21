@@ -68,6 +68,99 @@ class TestUnit:
         return f"-only-testing:cmuxTests/{self.class_name}"
 
 
+def swift_string_literal_end(text: str, index: int) -> int | None:
+    hash_count = 0
+    cursor = index
+    while cursor < len(text) and text[cursor] == "#":
+        hash_count += 1
+        cursor += 1
+    if cursor >= len(text) or text[cursor] != '"':
+        return None
+
+    raw_suffix = "#" * hash_count
+    if text.startswith('"""', cursor):
+        terminator = '"""' + raw_suffix
+        cursor += 3
+        while cursor < len(text):
+            end = text.find(terminator, cursor)
+            if end == -1:
+                return len(text)
+            return end + len(terminator)
+        return len(text)
+
+    cursor += 1
+    while cursor < len(text):
+        if hash_count == 0 and text[cursor] == "\\":
+            cursor += 2
+            continue
+        if text.startswith('"' + raw_suffix, cursor):
+            return cursor + 1 + hash_count
+        cursor += 1
+    return len(text)
+
+
+def swift_comment_end(text: str, index: int) -> int | None:
+    if text.startswith("//", index):
+        newline_index = text.find("\n", index + 2)
+        return len(text) if newline_index == -1 else newline_index + 1
+    if not text.startswith("/*", index):
+        return None
+
+    depth = 1
+    cursor = index + 2
+    while cursor < len(text):
+        if text.startswith("/*", cursor):
+            depth += 1
+            cursor += 2
+            continue
+        if text.startswith("*/", cursor):
+            depth -= 1
+            cursor += 2
+            if depth == 0:
+                return cursor
+            continue
+        cursor += 1
+    return len(text)
+
+
+def swift_ignored_span_end(text: str, index: int) -> int | None:
+    return swift_comment_end(text, index) or swift_string_literal_end(text, index)
+
+
+def find_container_body_span(text: str, start: int) -> tuple[int, int]:
+    cursor = start
+    opening_brace = -1
+    while cursor < len(text):
+        ignored_end = swift_ignored_span_end(text, cursor)
+        if ignored_end is not None:
+            cursor = ignored_end
+            continue
+        if text[cursor] == "{":
+            opening_brace = cursor
+            break
+        cursor += 1
+
+    if opening_brace == -1:
+        return start, start
+
+    depth = 1
+    cursor = opening_brace + 1
+    while cursor < len(text):
+        ignored_end = swift_ignored_span_end(text, cursor)
+        if ignored_end is not None:
+            cursor = ignored_end
+            continue
+        if text[cursor] == "{":
+            depth += 1
+        elif text[cursor] == "}":
+            depth -= 1
+            if depth == 0:
+                return opening_brace + 1, cursor
+        cursor += 1
+
+    return opening_brace + 1, len(text)
+
+
 def discover_test_classes(root: Path) -> list[TestClass]:
     test_root = root / "cmuxTests"
     class_paths: dict[str, str] = {}
@@ -85,12 +178,11 @@ def discover_test_classes(root: Path) -> list[TestClass]:
     for path in sorted(test_root.glob("*.swift")):
         text = path.read_text(encoding="utf-8")
         matches = list(CONTAINER_RE.finditer(text))
-        for index, match in enumerate(matches):
+        for match in matches:
             name = match.group(1) or match.group(2)
             if name not in class_paths:
                 continue
-            start = match.end()
-            end = matches[index + 1].start() if index + 1 < len(matches) else len(text)
+            start, end = find_container_body_span(text, match.end())
             body = text[start:end]
             for method_match in TEST_METHOD_RE.finditer(body):
                 method_name = method_match.group(1)

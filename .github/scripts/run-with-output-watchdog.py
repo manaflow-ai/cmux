@@ -132,12 +132,15 @@ def main() -> int:
 
         try:
             while True:
+                idle_seconds = time.monotonic() - last_output
+                wait_timeout = min(1.0, max(0.0, args.idle_timeout_seconds - idle_seconds))
+
                 if stdout_registered:
-                    events = selector.select(timeout=1.0)
+                    events = selector.select(timeout=wait_timeout)
                     if events:
                         read_available_stdout()
-                else:
-                    time.sleep(1.0)
+                elif wait_timeout > 0:
+                    time.sleep(wait_timeout)
 
                 if fatal_marker is not None:
                     message = (
