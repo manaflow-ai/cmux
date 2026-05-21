@@ -44,7 +44,10 @@ enum CMUXSudoAuditLogger {
         case corrupt
 
         var errorDescription: String? {
-            "The sudo audit log is corrupt. No command was run."
+            String(
+                localized: "sudo.error.auditCorrupt",
+                defaultValue: "The sudo audit log is corrupt. No command was run."
+            )
         }
     }
 

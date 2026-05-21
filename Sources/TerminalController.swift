@@ -1,6 +1,7 @@
 import AppKit
 import Carbon.HIToolbox
 import CMUXWorkstream
+import Darwin
 import Foundation
 import Bonsplit
 import WebKit
@@ -22,6 +23,13 @@ nonisolated private struct SocketLineProcessingResult: Sendable {
 nonisolated struct CMUXSocketPeerIdentity: Sendable {
     let pid: pid_t?
     let uid: uid_t?
+    let processStartTime: UInt64?
+
+    init(pid: pid_t?, uid: uid_t?, processStartTime: UInt64? = nil) {
+        self.pid = pid
+        self.uid = uid
+        self.processStartTime = processStartTime
+    }
 }
 
 /// Unix socket-based controller for programmatic terminal control
@@ -76,6 +84,7 @@ class TerminalController {
     private nonisolated static let socketCommandFocusAllowanceStackKey = "cmux.socketCommandFocusAllowanceStack"
     private nonisolated static let socketPeerPIDKey = "cmux.socketPeerPID"
     private nonisolated static let socketPeerUIDKey = "cmux.socketPeerUID"
+    private nonisolated static let socketPeerProcessStartTimeKey = "cmux.socketPeerProcessStartTime"
     private nonisolated static let socketListenBacklog: Int32 = 128
     private nonisolated static let acceptFailureBaseBackoffMs = 10
     private nonisolated static let acceptFailureMaxBackoffMs = 5_000
@@ -434,19 +443,23 @@ class TerminalController {
     nonisolated static func currentSocketPeerIdentity() -> CMUXSocketPeerIdentity {
         let pidNumber = Thread.current.threadDictionary[socketPeerPIDKey] as? NSNumber
         let uidNumber = Thread.current.threadDictionary[socketPeerUIDKey] as? NSNumber
+        let processStartTimeNumber = Thread.current.threadDictionary[socketPeerProcessStartTimeKey] as? NSNumber
         return CMUXSocketPeerIdentity(
             pid: pidNumber.map { pid_t($0.int32Value) },
-            uid: uidNumber.map { uid_t($0.uint32Value) }
+            uid: uidNumber.map { uid_t($0.uint32Value) },
+            processStartTime: processStartTimeNumber.map { $0.uint64Value }
         )
     }
 
     private nonisolated static func withSocketPeerIdentity<T>(
         pid: pid_t?,
         uid: uid_t?,
+        processStartTime: UInt64?,
         _ body: () -> T
     ) -> T {
         let previousPID = Thread.current.threadDictionary[socketPeerPIDKey]
         let previousUID = Thread.current.threadDictionary[socketPeerUIDKey]
+        let previousProcessStartTime = Thread.current.threadDictionary[socketPeerProcessStartTimeKey]
 
         if let pid {
             Thread.current.threadDictionary[socketPeerPIDKey] = NSNumber(value: pid)
@@ -457,6 +470,11 @@ class TerminalController {
             Thread.current.threadDictionary[socketPeerUIDKey] = NSNumber(value: uid)
         } else {
             Thread.current.threadDictionary.removeObject(forKey: socketPeerUIDKey)
+        }
+        if let processStartTime {
+            Thread.current.threadDictionary[socketPeerProcessStartTimeKey] = NSNumber(value: processStartTime)
+        } else {
+            Thread.current.threadDictionary.removeObject(forKey: socketPeerProcessStartTimeKey)
         }
 
         defer {
@@ -470,6 +488,11 @@ class TerminalController {
             } else {
                 Thread.current.threadDictionary.removeObject(forKey: socketPeerUIDKey)
             }
+            if let previousProcessStartTime {
+                Thread.current.threadDictionary[socketPeerProcessStartTimeKey] = previousProcessStartTime
+            } else {
+                Thread.current.threadDictionary.removeObject(forKey: socketPeerProcessStartTimeKey)
+            }
         }
 
         return body()
@@ -479,9 +502,10 @@ class TerminalController {
     nonisolated static func withSocketPeerIdentityForTesting<T>(
         pid: pid_t?,
         uid: uid_t?,
+        processStartTime: UInt64? = 1,
         _ body: () -> T
     ) -> T {
-        withSocketPeerIdentity(pid: pid, uid: uid, body)
+        withSocketPeerIdentity(pid: pid, uid: uid, processStartTime: processStartTime, body)
     }
 #endif
 
@@ -748,6 +772,24 @@ class TerminalController {
             return nil
         }
         return pid
+    }
+
+    /// Stable process identity component used to reject stale PID reuse.
+    private nonisolated static func processStartTimeIdentifier(for pid: pid_t?) -> UInt64? {
+        guard let pid, pid > 0 else { return nil }
+        var info = proc_bsdinfo()
+        let copiedBytes = proc_pidinfo(
+            pid,
+            PROC_PIDTBSDINFO,
+            0,
+            &info,
+            Int32(MemoryLayout<proc_bsdinfo>.size)
+        )
+        guard copiedBytes == Int32(MemoryLayout<proc_bsdinfo>.size) else { return nil }
+        let seconds = Int64(info.pbi_start_tvsec)
+        let microseconds = Int64(info.pbi_start_tvusec)
+        guard seconds > 0, microseconds >= 0 else { return nil }
+        return UInt64(seconds) * 1_000_000 + UInt64(microseconds)
     }
 
     /// Check if the peer has the same UID as this process using LOCAL_PEERCRED.
@@ -2059,7 +2101,8 @@ class TerminalController {
 
             // Capture peer PID immediately, before short-lived clients can disconnect.
             let peerPid = getPeerPid(clientSocket)
-            spawnClientHandler(socket: clientSocket, peerPid: peerPid)
+            let peerProcessStartTime = Self.processStartTimeIdentifier(for: peerPid)
+            spawnClientHandler(socket: clientSocket, peerPid: peerPid, peerProcessStartTime: peerProcessStartTime)
         }
     }
 
@@ -2144,13 +2187,21 @@ class TerminalController {
         }
     }
 
-    private nonisolated func spawnClientHandler(socket clientSocket: Int32, peerPid: pid_t?) {
+    private nonisolated func spawnClientHandler(
+        socket clientSocket: Int32,
+        peerPid: pid_t?,
+        peerProcessStartTime: UInt64?
+    ) {
         Thread.detachNewThread { [weak self] in
             guard let self else {
                 close(clientSocket)
                 return
             }
-            self.handleClient(clientSocket, peerPid: peerPid)
+            self.handleClient(
+                clientSocket,
+                peerPid: peerPid,
+                peerProcessStartTime: peerProcessStartTime
+            )
         }
     }
 
@@ -2250,18 +2301,24 @@ class TerminalController {
         }
     }
 
-    private nonisolated func handleClient(_ socket: Int32, peerPid: pid_t? = nil) {
+    private nonisolated func handleClient(
+        _ socket: Int32,
+        peerPid: pid_t? = nil,
+        peerProcessStartTime: UInt64? = nil
+    ) {
         defer { close(socket) }
 
         let peerUID = getPeerUID(socket)
+        let resolvedPeerPID = peerPid ?? getPeerPid(socket)
+        let resolvedPeerProcessStartTime = peerProcessStartTime
+            ?? Self.processStartTimeIdentifier(for: resolvedPeerPID)
 
         // In cmuxOnly mode, verify the connecting process is a descendant of cmux.
         // In allowAll mode (env-var only), skip the ancestry check.
         if accessMode == .cmuxOnly {
             // Use pre-captured peer PID if available (captured in accept loop before
             // the peer can disconnect), falling back to live lookup.
-            let pid = peerPid ?? getPeerPid(socket)
-            if let pid {
+            if let pid = resolvedPeerPID {
                 guard isDescendant(pid) else {
                     _ = writeSocketResponse(
                         "ERROR: Access denied — only processes started inside cmux can connect",
@@ -2277,7 +2334,7 @@ class TerminalController {
             // not widen the attack surface. We also require that the peer actually
             // sent data (checked in the read loop below) — a connect-only probe
             // with no data is harmless.
-            if pid == nil {
+            if resolvedPeerPID == nil {
                 guard peerHasSameUID(socket) else {
                     _ = writeSocketResponse(
                         "ERROR: Unable to verify client process",
@@ -2319,8 +2376,9 @@ class TerminalController {
                 let result = processSocketLine(
                     trimmed,
                     authenticated: authenticated,
-                    peerPid: peerPid ?? getPeerPid(socket),
-                    peerUID: peerUID
+                    peerPid: resolvedPeerPID,
+                    peerUID: peerUID,
+                    peerProcessStartTime: resolvedPeerProcessStartTime
                 )
                 authenticated = result.authenticated
                 let didWriteResponse = writeSocketResponse(result.response, to: socket)
@@ -2336,9 +2394,14 @@ class TerminalController {
         _ command: String,
         authenticated: Bool,
         peerPid: pid_t? = nil,
-        peerUID: uid_t? = nil
+        peerUID: uid_t? = nil,
+        peerProcessStartTime: UInt64? = nil
     ) -> SocketLineProcessingResult {
-        Self.withSocketPeerIdentity(pid: peerPid, uid: peerUID) {
+        Self.withSocketPeerIdentity(
+            pid: peerPid,
+            uid: peerUID,
+            processStartTime: peerProcessStartTime
+        ) {
 #if DEBUG
         let debugInfo = Self.socketCommandDebugInfo(command)
         let debugStart = DispatchTime.now().uptimeNanoseconds

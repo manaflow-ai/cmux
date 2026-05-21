@@ -60,7 +60,13 @@ enum CMUXSudoHelperService {
         case .enabled:
             return .available
         case .requiresApproval:
-            return unavailable("helper_requires_approval")
+            return .unavailable(
+                errorCode: "helper_requires_approval",
+                message: String(
+                    localized: "sudo.helper.requiresApproval",
+                    defaultValue: "Approve the cmux sudo helper in System Settings, then retry. No command was run."
+                )
+            )
         case .notFound:
             return unavailable("helper_not_found")
         case .notRegistered:

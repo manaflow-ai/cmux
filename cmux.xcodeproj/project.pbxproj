@@ -1355,7 +1355,7 @@
 					D53D00130000000000000001 /* CMUXSudoAudit.swift */,
 					D53D00140000000000000001 /* CMUXSudoSocket.swift */,
 					D53D00160000000000000001 /* CMUXSudoSocketTypes.swift */,
-					D53D00170000000000000001 /* CMUXSudoPendingRequestStore.swift */,
+					D53D00170000000000000003 /* Sudo */,
 					D53D00180000000000000001 /* CMUXSudoHelperService.swift */,
 					D53D00150000000000000001 /* CMUXSudoTestHooks.swift */,
 					E7E000000000000000000002 /* CmuxEventStream.swift */,
@@ -1512,6 +1512,14 @@
 				FEED0000000000000000F003 /* Feed */,
 			);
 			path = Sources;
+			sourceTree = "<group>";
+		};
+		D53D00170000000000000003 /* Sudo */ = {
+			isa = PBXGroup;
+			children = (
+				D53D00170000000000000001 /* CMUXSudoPendingRequestStore.swift */,
+			);
+			path = Sudo;
 			sourceTree = "<group>";
 		};
 		A5001042 /* Products */ = {

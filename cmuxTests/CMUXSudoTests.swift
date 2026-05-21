@@ -59,7 +59,11 @@ final class CMUXSudoTests: XCTestCase {
 
         let allowed = CMUXSudoCallerValidator.validate(
             request: request,
-            peerIdentity: CMUXSocketPeerIdentity(pid: request.callerPID, uid: request.callerUID),
+            peerIdentity: CMUXSocketPeerIdentity(
+                pid: request.callerPID,
+                uid: request.callerUID,
+                processStartTime: 1
+            ),
             isDescendant: { $0 == request.callerPID },
             processArguments: { _ in matchingProcess },
             surfaceExists: { _, _ in true }
@@ -68,7 +72,11 @@ final class CMUXSudoTests: XCTestCase {
 
         let mismatchedPeer = CMUXSudoCallerValidator.validate(
             request: request,
-            peerIdentity: CMUXSocketPeerIdentity(pid: request.callerPID, uid: request.callerUID + 1),
+            peerIdentity: CMUXSocketPeerIdentity(
+                pid: request.callerPID,
+                uid: request.callerUID + 1,
+                processStartTime: 1
+            ),
             isDescendant: { _ in true },
             processArguments: { _ in matchingProcess },
             surfaceExists: { _, _ in true }
@@ -76,9 +84,23 @@ final class CMUXSudoTests: XCTestCase {
         XCTAssertFalse(mismatchedPeer.allowed)
         XCTAssertTrue(mismatchedPeer.reason?.contains("uid") == true)
 
-        let missingScope = CMUXSudoCallerValidator.validate(
+        let missingProcessIdentity = CMUXSudoCallerValidator.validate(
             request: request,
             peerIdentity: CMUXSocketPeerIdentity(pid: request.callerPID, uid: request.callerUID),
+            isDescendant: { _ in true },
+            processArguments: { _ in matchingProcess },
+            surfaceExists: { _, _ in true }
+        )
+        XCTAssertFalse(missingProcessIdentity.allowed)
+        XCTAssertTrue(missingProcessIdentity.reason?.contains("process identity") == true)
+
+        let missingScope = CMUXSudoCallerValidator.validate(
+            request: request,
+            peerIdentity: CMUXSocketPeerIdentity(
+                pid: request.callerPID,
+                uid: request.callerUID,
+                processStartTime: 1
+            ),
             isDescendant: { _ in true },
             processArguments: { _ in CmuxTopProcessArguments(arguments: ["/bin/zsh"], environment: [:]) },
             surfaceExists: { _, _ in true }
@@ -88,7 +110,11 @@ final class CMUXSudoTests: XCTestCase {
 
         let missingSurface = CMUXSudoCallerValidator.validate(
             request: request,
-            peerIdentity: CMUXSocketPeerIdentity(pid: request.callerPID, uid: request.callerUID),
+            peerIdentity: CMUXSocketPeerIdentity(
+                pid: request.callerPID,
+                uid: request.callerUID,
+                processStartTime: 1
+            ),
             isDescendant: { _ in true },
             processArguments: { _ in matchingProcess },
             surfaceExists: { _, _ in false }
@@ -154,10 +180,12 @@ final class CMUXSudoTests: XCTestCase {
         let access = CMUXSudoPendingRequestStore.Access(
             pid: getpid(),
             uid: getuid(),
+            processStartTime: 1,
             workspaceID: UUID(),
             surfaceID: UUID()
         )
-        let peer = CMUXSocketPeerIdentity(pid: getpid(), uid: getuid())
+        let peer = CMUXSocketPeerIdentity(pid: getpid(), uid: getuid(), processStartTime: 1)
+        let recycledPIDPeer = CMUXSocketPeerIdentity(pid: getpid(), uid: getuid(), processStartTime: 2)
         let completed = CMUXSudoSocketResponse.ok([
             "status": .string("completed"),
             "exit_code": .int(0),
@@ -166,6 +194,10 @@ final class CMUXSudoTests: XCTestCase {
 
         XCTAssertTrue(store.begin(requestID, access: access))
         XCTAssertFalse(store.begin(requestID, access: access))
+        if case .forbidden = store.state(for: requestID, peerIdentity: recycledPIDPeer) {
+        } else {
+            XCTFail("Expected recycled PID with different start time to be forbidden")
+        }
         store.finish(requestID, response: completed)
 
         switch store.cancel(requestID: requestID, peerIdentity: peer, response: timeout) {
@@ -175,6 +207,39 @@ final class CMUXSudoTests: XCTestCase {
         case .missing, .forbidden, .cancelled:
             XCTFail("Expected finished response to survive cancellation")
         }
+    }
+
+    func testSudoPendingStoreCancelsSupersededAttachedTask() {
+        let store = CMUXSudoPendingRequestStore()
+        let requestID = UUID().uuidString
+        let access = CMUXSudoPendingRequestStore.Access(
+            pid: getpid(),
+            uid: getuid(),
+            processStartTime: 1,
+            workspaceID: UUID(),
+            surfaceID: UUID()
+        )
+        let firstCancelled = expectation(description: "first task cancelled")
+        let firstTask = Task {
+            await withTaskCancellationHandler {
+                while !Task.isCancelled {
+                    await Task.yield()
+                }
+            } onCancel: {
+                firstCancelled.fulfill()
+            }
+        }
+        let secondTask = Task {}
+        defer {
+            firstTask.cancel()
+            secondTask.cancel()
+        }
+
+        XCTAssertTrue(store.begin(requestID, access: access))
+        store.attachTask(requestID, task: firstTask)
+        store.attachTask(requestID, task: secondTask)
+
+        wait(for: [firstCancelled], timeout: 1)
     }
 
     func testSudoRequestDenialAuditsAndSkipsHelper() throws {

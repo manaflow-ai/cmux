@@ -83,9 +83,15 @@ if [[ "${CODE_SIGNING_ALLOWED:-YES}" != "NO" ]]; then
   if [[ -z "$SIGN_IDENTITY" || "$SIGN_IDENTITY" == "-" || "$SIGN_IDENTITY" == "Sign to Run Locally" ]]; then
     SIGN_IDENTITY="-"
   fi
-  /usr/bin/codesign \
-    --force \
-    --sign "$SIGN_IDENTITY" \
-    --identifier "$HELPER_NAME" \
-    "$HELPER_DEST"
+
+  SIGN_ARGS=(--force --sign "$SIGN_IDENTITY" --identifier "$HELPER_NAME")
+  if [[ "$SIGN_IDENTITY" != "-" ]]; then
+    SIGN_ARGS+=(--options runtime)
+  fi
+  HELPER_ENTITLEMENTS="${HELPER_ENTITLEMENTS:-}"
+  if [[ -n "$HELPER_ENTITLEMENTS" && -s "$HELPER_ENTITLEMENTS" ]]; then
+    SIGN_ARGS+=(--entitlements "$HELPER_ENTITLEMENTS")
+  fi
+
+  /usr/bin/codesign "${SIGN_ARGS[@]}" "$HELPER_DEST"
 fi

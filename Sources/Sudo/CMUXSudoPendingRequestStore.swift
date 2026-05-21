@@ -9,11 +9,14 @@ final class CMUXSudoPendingRequestStore {
     struct Access: Sendable {
         let pid: pid_t
         let uid: uid_t
+        let processStartTime: UInt64
         let workspaceID: UUID
         let surfaceID: UUID
 
         func matches(peerIdentity: CMUXSocketPeerIdentity) -> Bool {
-            peerIdentity.pid == pid && peerIdentity.uid == uid
+            peerIdentity.pid == pid
+                && peerIdentity.uid == uid
+                && peerIdentity.processStartTime == processStartTime
         }
     }
 
@@ -41,7 +44,8 @@ final class CMUXSudoPendingRequestStore {
         condition.lock()
         pruneLocked(now: Date())
         switch states[requestID] {
-        case .pending(let access, _, let createdAt):
+        case .pending(let access, let existingTask, let createdAt):
+            existingTask?.cancel()
             states[requestID] = .pending(access, task, createdAt)
         case .finished:
             task.cancel()

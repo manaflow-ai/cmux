@@ -79,9 +79,20 @@ extension TerminalController {
             )
         }
 
+        guard let peerProcessStartTime = peerIdentity.processStartTime else {
+            return .err(
+                code: "access_denied",
+                message: String(
+                    localized: "sudo.error.peerProcessUnavailable",
+                    defaultValue: "socket peer process identity is unavailable"
+                ),
+                data: nil
+            )
+        }
         let access = CMUXSudoPendingRequestStore.Access(
             pid: request.callerPID,
             uid: request.callerUID,
+            processStartTime: peerProcessStartTime,
             workspaceID: request.workspaceID,
             surfaceID: request.surfaceID
         )

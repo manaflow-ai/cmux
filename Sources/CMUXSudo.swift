@@ -162,6 +162,9 @@ enum CMUXSudoCallerValidator {
         guard let peerUID = peerIdentity.uid else {
             return .init(allowed: false, reason: String(localized: "sudo.error.peerUIDUnavailable", defaultValue: "socket peer uid is unavailable"))
         }
+        guard peerIdentity.processStartTime != nil else {
+            return .init(allowed: false, reason: String(localized: "sudo.error.peerProcessUnavailable", defaultValue: "socket peer process identity is unavailable"))
+        }
         guard peerPID == request.callerPID else {
             return .init(allowed: false, reason: String(localized: "sudo.error.pidMismatch", defaultValue: "caller_pid does not match socket peer pid"))
         }
