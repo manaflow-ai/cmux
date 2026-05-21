@@ -17,20 +17,18 @@ struct AgentSessionWebRenderer: NSViewRepresentable {
         )
     }
 
-    func makeNSView(context: Context) -> AgentSessionWebView {
-        let webView = context.coordinator.ensureWebView(onPointerDown: onRequestPanelFocus)
-        if webView.superview != nil {
-            webView.removeFromSuperview()
+    func makeNSView(context: Context) -> AgentSessionWebHostView {
+        let hostView = AgentSessionWebHostView()
+        hostView.backgroundColor = backgroundColor
+        hostView.onVisibleBounds = { [weak coordinator = context.coordinator] in
+            coordinator?.loadShellIfNeeded()
+            coordinator?.flushVisiblePaintIfReady()
         }
-        webView.onPointerDown = onRequestPanelFocus
-        webView.navigationDelegate = context.coordinator
-        webView.uiDelegate = context.coordinator
-        applyBackground(to: webView)
-        context.coordinator.loadShellIfNeeded()
-        return webView
+        attachWebView(to: hostView, context: context)
+        return hostView
     }
 
-    func updateNSView(_ nsView: AgentSessionWebView, context: Context) {
+    func updateNSView(_ nsView: AgentSessionWebHostView, context: Context) {
         context.coordinator.bind(
             panelId: panel.id,
             workspaceId: panel.workspaceId,
@@ -38,25 +36,27 @@ struct AgentSessionWebRenderer: NSViewRepresentable {
             initialProviderID: panel.initialProviderID,
             workingDirectory: panel.workingDirectory
         )
-        nsView.onPointerDown = onRequestPanelFocus
-        nsView.navigationDelegate = context.coordinator
-        nsView.uiDelegate = context.coordinator
-        applyBackground(to: nsView)
-        context.coordinator.loadShellIfNeeded()
-        context.coordinator.flushVisiblePaintIfReady()
+        nsView.backgroundColor = backgroundColor
+        nsView.onVisibleBounds = { [weak coordinator = context.coordinator] in
+            coordinator?.loadShellIfNeeded()
+            coordinator?.flushVisiblePaintIfReady()
+        }
+        attachWebView(to: nsView, context: context)
+        if nsView.hasVisibleBounds {
+            context.coordinator.loadShellIfNeeded()
+            context.coordinator.flushVisiblePaintIfReady()
+        }
     }
 
-    static func dismantleNSView(_ nsView: AgentSessionWebView, coordinator: Coordinator) {
-        if let retainedWebView = coordinator.webView, retainedWebView === nsView {
+    static func dismantleNSView(_ nsView: AgentSessionWebHostView, coordinator: Coordinator) {
+        nsView.onVisibleBounds = nil
+        if let retainedWebView = coordinator.webView, nsView.hostedWebView === retainedWebView {
+            // Keep the retained page attached until the next host reparents it; removing it here
+            // creates a visible blank frame during tab and split churn.
+            nsView.hostedWebView = nil
             return
         }
-        nsView.configuration.userContentController.removeScriptMessageHandler(
-            forName: AgentSessionBridgeContract.handlerName,
-            contentWorld: .page
-        )
-        nsView.navigationDelegate = nil
-        nsView.uiDelegate = nil
-        nsView.onPointerDown = nil
+        nsView.detachHostedWebView()
     }
 
     private func applyBackground(to webView: WKWebView) {
@@ -64,6 +64,15 @@ struct AgentSessionWebRenderer: NSViewRepresentable {
         webView.wantsLayer = true
         webView.layer?.backgroundColor = backgroundColor.cgColor
         webView.layer?.isOpaque = false
+    }
+
+    private func attachWebView(to hostView: AgentSessionWebHostView, context: Context) {
+        let webView = context.coordinator.ensureWebView(onPointerDown: onRequestPanelFocus)
+        webView.onPointerDown = onRequestPanelFocus
+        webView.navigationDelegate = context.coordinator
+        webView.uiDelegate = context.coordinator
+        applyBackground(to: webView)
+        hostView.attach(webView)
     }
 }
 
@@ -86,6 +95,65 @@ final class AgentSessionWebView: WKWebView {
     override func mouseDown(with event: NSEvent) {
         onPointerDown?()
         super.mouseDown(with: event)
+    }
+}
+
+@MainActor
+final class AgentSessionWebHostView: NSView {
+    weak var hostedWebView: AgentSessionWebView?
+    var onVisibleBounds: (() -> Void)?
+
+    var backgroundColor: NSColor = .windowBackgroundColor {
+        didSet {
+            wantsLayer = true
+            layer?.backgroundColor = backgroundColor.cgColor
+            hostedWebView?.underPageBackgroundColor = backgroundColor
+        }
+    }
+
+    override var isOpaque: Bool {
+        false
+    }
+
+    var hasVisibleBounds: Bool {
+        bounds.width > 1 && bounds.height > 1
+    }
+
+    override init(frame frameRect: NSRect) {
+        super.init(frame: frameRect)
+        wantsLayer = true
+        layer?.backgroundColor = backgroundColor.cgColor
+    }
+
+    required init?(coder: NSCoder) {
+        super.init(coder: coder)
+        wantsLayer = true
+        layer?.backgroundColor = backgroundColor.cgColor
+    }
+
+    func attach(_ webView: AgentSessionWebView) {
+        if webView.superview !== self {
+            webView.removeFromSuperview()
+            addSubview(webView, positioned: .above, relativeTo: nil)
+        }
+        webView.translatesAutoresizingMaskIntoConstraints = true
+        webView.autoresizingMask = [.width, .height]
+        webView.frame = bounds
+        hostedWebView = webView
+        needsLayout = true
+    }
+
+    func detachHostedWebView() {
+        hostedWebView?.removeFromSuperview()
+        hostedWebView = nil
+    }
+
+    override func layout() {
+        super.layout()
+        hostedWebView?.frame = bounds
+        if hasVisibleBounds {
+            onVisibleBounds?()
+        }
     }
 }
 
