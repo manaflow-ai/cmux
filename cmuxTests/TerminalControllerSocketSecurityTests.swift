@@ -76,6 +76,20 @@ final class TerminalControllerSocketSecurityTests: XCTestCase {
         return event
     }
 
+    private func makeVNCScrollEvent(deltaX: CGFloat = 0, deltaY: CGFloat = 1) -> NSEvent {
+        guard let cgEvent = CGEvent(
+            scrollWheelEvent2Source: nil,
+            units: .line,
+            wheelCount: 2,
+            wheel1: Int32(deltaY),
+            wheel2: Int32(deltaX),
+            wheel3: 0
+        ), let event = NSEvent(cgEvent: cgEvent) else {
+            fatalError("Failed to construct VNC scroll event")
+        }
+        return event
+    }
+
     private func makeVNCDisplayFrame(sequence: UInt64) -> VNCDisplayFrame {
         VNCDisplayFrame(
             header: VNCFrameHeader(
@@ -973,6 +987,23 @@ final class TerminalControllerSocketSecurityTests: XCTestCase {
 
         view.rightMouseDown(with: makeVNCMouseEvent(type: .rightMouseDown))
         XCTAssertEqual(focusRequestCount, 2)
+    }
+
+    func testVNCCanvasScrollWheelForwardsRemoteWheelInput() throws {
+        let view = VNCMetalCanvasView(frame: NSRect(x: 0, y: 0, width: 100, height: 100))
+        var events: [String] = []
+        view.onScroll = { x, y, wheel, steps in
+            events.append("\(x):\(y):\(wheel):\(steps)")
+        }
+        defer {
+            view.onScroll = nil
+            view.close()
+        }
+
+        view.apply(makeVNCDisplayFrame(sequence: 1))
+        view.scrollWheel(with: makeVNCScrollEvent(deltaY: 1))
+
+        XCTAssertEqual(events, ["0:0:2:1"])
     }
 
     func testVNCWorkspaceIdentityMatchSurvivesRename() throws {

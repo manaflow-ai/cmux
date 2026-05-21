@@ -190,6 +190,14 @@ final class VNCPanel: Panel, ObservableObject {
     }
 
     @discardableResult
+    func sendWheel(x: Int, y: Int, wheel: Int, steps: Int) -> VNCInputResult {
+        guard steps > 0 else { return .sent }
+        guard prepareForUserInput() else { return .unavailable }
+        connection?.sendControl(VNCControlMessage(kind: "wheel", x: x, y: y, wheel: wheel, steps: steps))
+        return .sent
+    }
+
+    @discardableResult
     func sendNamedKey(_ keyName: String) -> VNCInputResult {
         guard let keyStroke = Self.namedKeyStroke(for: keyName) else { return .unknownKey }
 

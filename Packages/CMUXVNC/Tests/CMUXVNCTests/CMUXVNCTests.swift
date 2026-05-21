@@ -138,6 +138,16 @@ final class CMUXVNCTests: XCTestCase {
         )
     }
 
+    func testWheelControlMessageRoundTrips() throws {
+        let message = VNCControlMessage(kind: "wheel", x: 10, y: 20, wheel: 2, steps: 3)
+        let encoded = try VNCIPCCodec.encodeControl(message)
+        var decoder = VNCIPCStreamDecoder()
+
+        let messages = try decoder.append(encoded)
+
+        XCTAssertEqual(messages, [.control(message)])
+    }
+
     func testSessionPersistenceSnapshotDropsPasswords() throws {
         let session = MacfleetVNCSession(
             name: "mac3-1",

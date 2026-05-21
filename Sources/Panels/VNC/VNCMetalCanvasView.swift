@@ -23,6 +23,9 @@ struct VNCMetalCanvasRepresentable: NSViewRepresentable {
         view.onPointer = { [weak panel] x, y, button, isDown in
             panel?.sendPointer(x: x, y: y, button: button, isDown: isDown)
         }
+        view.onScroll = { [weak panel] x, y, wheel, steps in
+            panel?.sendWheel(x: x, y: y, wheel: wheel, steps: steps)
+        }
         view.onRequestFocus = onRequestPanelFocus
         view.onWindowAttachmentChanged = { [weak panel, weak view] in
             guard let view else { return }
@@ -41,6 +44,9 @@ struct VNCMetalCanvasRepresentable: NSViewRepresentable {
         }
         view.onPointer = { [weak panel] x, y, button, isDown in
             panel?.sendPointer(x: x, y: y, button: button, isDown: isDown)
+        }
+        view.onScroll = { [weak panel] x, y, wheel, steps in
+            panel?.sendWheel(x: x, y: y, wheel: wheel, steps: steps)
         }
         view.onRequestFocus = onRequestPanelFocus
         view.onWindowAttachmentChanged = { [weak panel, weak view] in
@@ -95,6 +101,7 @@ final class VNCMetalCanvasView: NSView {
     var onText: ((String) -> Void)?
     var onKey: ((UInt16, Bool, String?) -> Void)?
     var onPointer: ((Int, Int, Int?, Bool?) -> Void)?
+    var onScroll: ((Int, Int, Int, Int) -> Void)?
     var onRequestFocus: (() -> Void)?
     var onWindowAttachmentChanged: (() -> Void)?
 
@@ -112,6 +119,8 @@ final class VNCMetalCanvasView: NSView {
     private var lastSequence: UInt64?
     private var pointerTrackingArea: NSTrackingArea?
     private var pressedModifierKeyCodes = Set<UInt16>()
+    private var accumulatedScrollDeltaX: CGFloat = 0
+    private var accumulatedScrollDeltaY: CGFloat = 0
 
     var appliedFrameSequenceForTesting: UInt64? {
         lastSequence
@@ -174,7 +183,10 @@ final class VNCMetalCanvasView: NSView {
         onText = nil
         onKey = nil
         onPointer = nil
+        onScroll = nil
         onRequestFocus = nil
+        accumulatedScrollDeltaX = 0
+        accumulatedScrollDeltaY = 0
         resetFrameSequence()
         removePointerTrackingArea()
     }
@@ -302,6 +314,15 @@ final class VNCMetalCanvasView: NSView {
         sendPointer(event, button: 2, isDown: false, clampOutside: true)
     }
 
+    override func scrollWheel(with event: NSEvent) {
+        guard let remotePoint = remotePointerPoint(for: event, clampOutside: true) else { return }
+        if event.hasPreciseScrollingDeltas {
+            sendPreciseScroll(event, at: remotePoint)
+        } else {
+            sendImpreciseScroll(event, at: remotePoint)
+        }
+    }
+
     override func updateTrackingAreas() {
         super.updateTrackingAreas()
         removePointerTrackingArea()
@@ -409,6 +430,41 @@ final class VNCMetalCanvasView: NSView {
     private func sendPointer(_ event: NSEvent, button: Int?, isDown: Bool?, clampOutside: Bool = false) {
         guard let remotePoint = remotePointerPoint(for: event, clampOutside: clampOutside) else { return }
         onPointer?(remotePoint.x, remotePoint.y, button, isDown)
+    }
+
+    private func sendImpreciseScroll(_ event: NSEvent, at remotePoint: (x: Int, y: Int)) {
+        sendScrollSteps(delta: event.scrollingDeltaX, negativeWheel: 1, positiveWheel: 0, at: remotePoint)
+        sendScrollSteps(delta: event.scrollingDeltaY, negativeWheel: 3, positiveWheel: 2, at: remotePoint)
+    }
+
+    private func sendPreciseScroll(_ event: NSEvent, at remotePoint: (x: Int, y: Int)) {
+        let scrollStep: CGFloat = 12
+        accumulatedScrollDeltaX += event.scrollingDeltaX
+        accumulatedScrollDeltaY += event.scrollingDeltaY
+        flushPreciseScrollAxis(&accumulatedScrollDeltaX, step: scrollStep, negativeWheel: 1, positiveWheel: 0, at: remotePoint)
+        flushPreciseScrollAxis(&accumulatedScrollDeltaY, step: scrollStep, negativeWheel: 3, positiveWheel: 2, at: remotePoint)
+    }
+
+    private func flushPreciseScrollAxis(
+        _ accumulatedDelta: inout CGFloat,
+        step: CGFloat,
+        negativeWheel: Int,
+        positiveWheel: Int,
+        at remotePoint: (x: Int, y: Int)
+    ) {
+        guard abs(accumulatedDelta) >= step else { return }
+        let wheel = accumulatedDelta < 0 ? negativeWheel : positiveWheel
+        let steps = Int(abs(accumulatedDelta) / step)
+        accumulatedDelta += accumulatedDelta < 0 ? CGFloat(steps) * step : -CGFloat(steps) * step
+        onScroll?(remotePoint.x, remotePoint.y, wheel, steps)
+    }
+
+    private func sendScrollSteps(delta: CGFloat, negativeWheel: Int, positiveWheel: Int, at remotePoint: (x: Int, y: Int)) {
+        if delta < 0 {
+            onScroll?(remotePoint.x, remotePoint.y, negativeWheel, 1)
+        } else if delta > 0 {
+            onScroll?(remotePoint.x, remotePoint.y, positiveWheel, 1)
+        }
     }
 
     private func isDirectKeyEvent(_ event: NSEvent) -> Bool {

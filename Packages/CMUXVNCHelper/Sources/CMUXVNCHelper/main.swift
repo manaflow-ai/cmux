@@ -83,6 +83,7 @@ private final class VNCSessionController: NSObject, VNCConnectionDelegate, @unch
     private let connectionQueue = DispatchQueue(label: "com.cmux.vnc-helper.connection")
     private let connectionQueueKey = DispatchSpecificKey<Void>()
     private let connectionLock = NSLock()
+    private let frameSnapshotLock = NSLock()
     private let stateLock = NSLock()
     private let inputLock = NSLock()
     private let exitCodeLock = NSLock()
@@ -100,6 +101,11 @@ private final class VNCSessionController: NSObject, VNCConnectionDelegate, @unch
         case process
         case queued
         case failed
+    }
+
+    private struct FrameSnapshot: Sendable {
+        var header: VNCFrameHeader
+        var payload: Data
     }
 
     init(channel: SocketChannel, request: VNCConnectRequest) {
@@ -163,7 +169,7 @@ private final class VNCSessionController: NSObject, VNCConnectionDelegate, @unch
         switch message.kind {
         case "close":
             close()
-        case "text", "key", "pointer":
+        case "text", "key", "pointer", "wheel":
             processInputWhenReady(message)
         case "visibility":
             guard let visible = message.visible else { return }
@@ -242,6 +248,21 @@ private final class VNCSessionController: NSObject, VNCConnectionDelegate, @unch
                 } else {
                     connection.mouseMove(x: clampedX, y: clampedY)
                 }
+            }
+        case "wheel":
+            guard let x = message.x,
+                  let y = message.y,
+                  let wheelRaw = message.wheel,
+                  let wheel = VNCMouseWheel(rawValue: wheelRaw) else {
+                return
+            }
+            let rawSteps = message.steps ?? 1
+            guard rawSteps > 0 else { return }
+            let clampedX = UInt16(max(0, min(UInt16.max.intValue, x)))
+            let clampedY = UInt16(max(0, min(UInt16.max.intValue, y)))
+            let steps = UInt32(min(256, rawSteps))
+            withConnection { connection in
+                connection.mouseWheel(wheel, x: clampedX, y: clampedY, steps: steps)
             }
         default:
             break
@@ -367,26 +388,7 @@ private final class VNCSessionController: NSObject, VNCConnectionDelegate, @unch
         height: UInt16
     ) {
         _ = connection
-        runOnConnectionQueue { [weak self] in
-            self?.connectionOnConnectionQueue(
-                didUpdateFramebuffer: framebuffer,
-                x: x,
-                y: y,
-                width: width,
-                height: height
-            )
-        }
-    }
-
-    private func connectionOnConnectionQueue(
-        didUpdateFramebuffer framebuffer: VNCFramebuffer,
-        x: UInt16,
-        y: UInt16,
-        width: UInt16,
-        height: UInt16
-    ) {
-        guard let nextSequence = stateLock.withLock({ frameGate.nextUpdateSequence() }) else { return }
-        sendFrame(framebuffer: framebuffer, sequence: nextSequence, x: x, y: y, width: width, height: height)
+        enqueueUpdateFrameIfVisible(framebuffer: framebuffer, x: x, y: y, width: width, height: height)
     }
 
     func connection(_ connection: VNCConnection, didUpdateCursor cursor: VNCCursor) {
@@ -402,17 +404,43 @@ private final class VNCSessionController: NSObject, VNCConnectionDelegate, @unch
     private func sendFullFrame(framebuffer: VNCFramebuffer, sequence: UInt64) {
         let width = UInt16(clamping: Int(framebuffer.size.width))
         let height = UInt16(clamping: Int(framebuffer.size.height))
-        sendFrame(framebuffer: framebuffer, sequence: sequence, x: 0, y: 0, width: width, height: height)
+        guard let snapshot = frameSnapshotLock.withLock({
+            snapshotFrame(framebuffer: framebuffer, sequence: sequence, x: 0, y: 0, width: width, height: height)
+        }) else {
+            close()
+            return
+        }
+        sendFrame(snapshot)
     }
 
-    private func sendFrame(
+    private func enqueueUpdateFrameIfVisible(
+        framebuffer: VNCFramebuffer,
+        x: UInt16,
+        y: UInt16,
+        width: UInt16,
+        height: UInt16
+    ) {
+        frameSnapshotLock.withLock {
+            guard let nextSequence = stateLock.withLock({ frameGate.nextUpdateSequence() }) else { return }
+            guard let snapshot = snapshotFrame(framebuffer: framebuffer, sequence: nextSequence, x: x, y: y, width: width, height: height) else {
+                close()
+                return
+            }
+            runOnConnectionQueue { [weak self] in
+                self?.sendFrame(snapshot)
+            }
+        }
+    }
+
+    private func snapshotFrame(
         framebuffer: VNCFramebuffer,
         sequence: UInt64,
         x: UInt16,
         y: UInt16,
         width: UInt16,
         height: UInt16
-    ) {
+    ) -> FrameSnapshot? {
+        guard !isCurrentlyClosed() else { return nil }
         let framebufferWidth = Int(framebuffer.size.width)
         let framebufferHeight = Int(framebuffer.size.height)
         let rectWidth = Int(width)
@@ -423,10 +451,9 @@ private final class VNCSessionController: NSObject, VNCConnectionDelegate, @unch
         let (rectRowBytes, rectRowBytesOverflow) = rectWidth.multipliedReportingOverflow(by: 4)
         let (byteCount, byteCountOverflow) = rectRowBytes.multipliedReportingOverflow(by: rectHeight)
         guard !rowBytesOverflow, !rectRowBytesOverflow, !byteCountOverflow else {
-            close()
-            return
+            return nil
         }
-        guard byteCount > 0 else { return }
+        guard byteCount > 0 else { return nil }
 
         let header = VNCFrameHeader(
             sequence: sequence,
@@ -440,8 +467,7 @@ private final class VNCSessionController: NSObject, VNCConnectionDelegate, @unch
             pixelFormat: .bgra8
         )
         guard VNCFrameValidator.validate(header: header, payloadByteCount: byteCount) == nil else {
-            close()
-            return
+            return nil
         }
 
         let sourceBase = framebuffer.surfaceAddress
@@ -454,9 +480,12 @@ private final class VNCSessionController: NSObject, VNCConnectionDelegate, @unch
                 memcpy(destination.advanced(by: destinationOffset), sourceBase.advanced(by: sourceOffset), rectRowBytes)
             }
         }
+        return FrameSnapshot(header: header, payload: payload)
+    }
 
+    private func sendFrame(_ snapshot: FrameSnapshot) {
         do {
-            try channel.send(try VNCIPCCodec.encodeFrame(header: header, payload: payload))
+            try channel.send(try VNCIPCCodec.encodeFrame(header: snapshot.header, payload: snapshot.payload))
         } catch {
             close()
         }
