@@ -1,5 +1,6 @@
 import AppKit
 
+@MainActor
 final class WindowDecorationsController {
     private var observers: [NSObjectProtocol] = []
     private var didStart = false
@@ -412,9 +413,7 @@ final class WindowDecorationsController {
         }
 
         let contentBounds = contentView.bounds
-        target.frame = MainActor.assumeIsolated {
-            minimalModeSidebarTitlebarControlsFrame(in: window)
-        }
+        target.frame = minimalModeSidebarTitlebarControlsFrame(in: window)
 
         #if DEBUG
         if ProcessInfo.processInfo.environment["CMUX_UI_TEST_BONSPLIT_TAB_DRAG_SETUP"] == "1" {
