@@ -300,7 +300,7 @@ jobs:
             local selector_class="${1#-only-testing:cmuxTests/}"
             selector_class="${selector_class%%/*}"
             case "$selector_class" in
-              AppDelegateShortcutRoutingTests|BrowserDeveloperToolsConfigurationTests|BrowserDeveloperToolsVisibilityPersistenceTests|BrowserPanelWebViewLifecycleTests|BrowserSessionHistoryRestoreTests|BrowserThemeSettingsTests|BundledCLILinkageTests|CLINotifyProcessIntegrationRegressionTests|CLINotifyProcessIntegrationTests|CMUXCLIErrorOutputRegressionTests|CMUXOpenCommandTests|CmuxWebViewKeyEquivalentTests|CommandPaletteShortcutCustomizationTests|GhosttyBackquoteRegressionTests|GhosttyKeyEquivalentRegressionTests|GlobalSearchShortcutSettingsTests|KeyboardShortcutSettingsFileStoreMigrationTests|KeyboardShortcutSettingsFileStoreStartupTests|KeyboardShortcutSettingsFileStoreTests|TabManagerPullRequestProbeTests|TerminalNotificationDirectInteractionTests)
+              AppDelegateShortcutRoutingTests|BrowserDeveloperToolsConfigurationTests|BrowserDeveloperToolsVisibilityPersistenceTests|BrowserPanelWebViewLifecycleTests|BrowserSessionHistoryRestoreTests|BrowserThemeSettingsTests|BundledCLILinkageTests|CLINotifyProcessIntegrationRegressionTests|CLINotifyProcessIntegrationTests|CMUXCLIErrorOutputRegressionTests|CMUXOpenCommandTests|CmuxWebViewKeyEquivalentTests|CommandPaletteShortcutCustomizationTests|GhosttyBackquoteRegressionTests|GhosttyKeyEquivalentRegressionTests|GlobalSearchShortcutSettingsTests|KeyboardShortcutSettingsFileStoreMigrationTests|KeyboardShortcutSettingsFileStoreStartupTests|KeyboardShortcutSettingsFileStoreTests|MarkdownPanelTests|TabManagerPullRequestProbeTests|TerminalNotificationDirectInteractionTests)
                 return 0
                 ;;
               *)

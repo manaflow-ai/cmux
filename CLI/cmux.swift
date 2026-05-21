@@ -24711,6 +24711,7 @@ export default function cmuxPiSessionExtension(pi: ExtensionAPI) {
                 && grokNotificationTurnId != nil
                 && grokActivePromptTurnId != nil
                 && grokNotificationTurnId != grokActivePromptTurnId
+            let shouldApplyVisibleNotificationState = !grokNotificationStopsInactiveTurn
 
             if !sessionId.isEmpty {
                 let pid = mapped?.pid ?? inferredPID
@@ -24729,12 +24730,12 @@ export default function cmuxPiSessionExtension(pi: ExtensionAPI) {
                         transcriptPath: input.transcriptPath ?? mapped?.transcriptPath,
                         pid: pid,
                         launchCommand: launchCommand,
-                        lastSubtitle: summary.subtitle,
-                        lastBody: summary.body,
-                        lastNotificationStatus: summary.status,
-                        updateLastNotificationStatus: true,
-                        runtimeStatus: runtimeStatus(for: summary.status),
-                        updateRuntimeStatus: true,
+                        lastSubtitle: shouldApplyVisibleNotificationState ? summary.subtitle : nil,
+                        lastBody: shouldApplyVisibleNotificationState ? summary.body : nil,
+                        lastNotificationStatus: shouldApplyVisibleNotificationState ? summary.status : nil,
+                        updateLastNotificationStatus: shouldApplyVisibleNotificationState,
+                        runtimeStatus: shouldApplyVisibleNotificationState ? runtimeStatus(for: summary.status) : nil,
+                        updateRuntimeStatus: shouldApplyVisibleNotificationState,
                         turnId: input.turnId
                     )
                 } else {
@@ -24746,14 +24747,27 @@ export default function cmuxPiSessionExtension(pi: ExtensionAPI) {
                         transcriptPath: input.transcriptPath ?? mapped?.transcriptPath,
                         pid: pid,
                         launchCommand: launchCommand,
-                        lastSubtitle: summary.subtitle,
-                        lastBody: summary.body,
-                        lastNotificationStatus: summary.status,
-                        updateLastNotificationStatus: true,
-                        runtimeStatus: runtimeStatus(for: summary.status),
-                        updateRuntimeStatus: summary.status != nil
+                        lastSubtitle: shouldApplyVisibleNotificationState ? summary.subtitle : nil,
+                        lastBody: shouldApplyVisibleNotificationState ? summary.body : nil,
+                        lastNotificationStatus: shouldApplyVisibleNotificationState ? summary.status : nil,
+                        updateLastNotificationStatus: shouldApplyVisibleNotificationState,
+                        runtimeStatus: shouldApplyVisibleNotificationState ? runtimeStatus(for: summary.status) : nil,
+                        updateRuntimeStatus: shouldApplyVisibleNotificationState && summary.status != nil
                     )
                 }
+            }
+
+            if grokNotificationStopsInactiveTurn {
+#if DEBUG
+                agentHookDebugLog(
+                    "agentHook.notification.skip agent=\(def.name) session=\(agentHookDebugShort(sessionId)) reason=stalePromptTurnNotification staleTurn=\(agentHookDebugShort(grokNotificationTurnId ?? "")) activeTurn=\(agentHookDebugShort(grokActivePromptTurnId ?? ""))",
+                    socketPath: client.socketPath,
+                    env: env
+                )
+#endif
+                sendAgentFeedTelemetry(workspaceId: workspaceId)
+                print("{}")
+                return
             }
 
             let notificationFingerprint = notificationDedupeFingerprint(status: summary.status, body: summary.body)

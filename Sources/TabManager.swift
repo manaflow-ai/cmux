@@ -2112,7 +2112,27 @@ class TabManager: ObservableObject {
     }
 
     func refreshTrackedWorkspaceGitMetadataForTesting() {
-        refreshTrackedWorkspaceGitMetadata(reason: "test")
+        guard sidebarGitMetadataWatchEnabled else {
+            resetWorkspacePullRequestRefreshState()
+            clearAllWorkspaceSidebarGitMetadata()
+            return
+        }
+
+        for workspace in tabs {
+            for panelId in trackedWorkspaceGitMetadataPollCandidatePanelIds(
+                in: workspace,
+                activeProbeKeys: []
+            ) {
+                guard let directory = gitProbeDirectory(for: workspace, panelId: panelId) else {
+                    continue
+                }
+                applyWorkspaceGitMetadataSnapshotForTesting(
+                    workspaceId: workspace.id,
+                    panelId: panelId,
+                    directory: directory
+                )
+            }
+        }
     }
 
     func sidebarGitMetadataWatchSettingsDidChangeForTesting() {

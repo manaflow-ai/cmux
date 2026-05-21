@@ -93,12 +93,13 @@ final class WorkspaceContentViewVisibilityTests: XCTestCase {
             timestamp: 0
         )
 
+        let topInset = MinimalModeChromeMetrics.titlebarHeight
         XCTAssertEqual(
             WorkspaceContentView.tmuxWorkspacePaneOverlayRect(
                 layoutSnapshot: snapshot,
                 paneId: paneID
             ),
-            CGRect(x: 677.5, y: 30, width: 500, height: 290)
+            CGRect(x: 677.5, y: topInset, width: 500, height: 320 - topInset)
         )
     }
 
@@ -147,13 +148,14 @@ final class WorkspaceContentViewVisibilityTests: XCTestCase {
             timestamp: 0
         )
 
+        let topInset = MinimalModeChromeMetrics.titlebarHeight
         XCTAssertEqual(
             WorkspaceContentView.tmuxWorkspacePaneUnreadRects(
                 workspace: workspace,
                 notificationStore: store,
                 layoutSnapshot: snapshot
             ),
-            [CGRect(x: 677.5, y: 30, width: 500, height: 290)]
+            [CGRect(x: 677.5, y: topInset, width: 500, height: 320 - topInset)]
         )
     }
 }

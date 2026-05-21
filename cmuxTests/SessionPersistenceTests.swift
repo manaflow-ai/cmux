@@ -4389,7 +4389,6 @@ extension SessionPersistenceTests {
                 command: "./resume.sh",
                 cwd: "/tmp/sticky",
                 checkpointId: "script",
-                source: "process-detected",
                 updatedAt: 10
             ),
         ])
