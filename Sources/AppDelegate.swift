@@ -1586,18 +1586,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
 
 #if DEBUG
     private func logSelectionAutoscrollActivationProbe(phase: String) {
-        let selectedTabId = tabManager?.selectedTabId
-        let focusedSurfaceId = selectedTabId.flatMap { tabManager?.focusedSurfaceId(for: $0) }
         let currentEvent = NSApp.currentEvent.map { String(describing: $0.type) } ?? "nil"
-        let firstResponder = (NSApp.keyWindow ?? NSApp.mainWindow)?.firstResponder
-            .map { String(describing: type(of: $0)) } ?? "nil"
         cmuxDebugLog(
             "selection.autoscrollProbe appActivation phase=\(phase) " +
             "pressedButtons=\(NSEvent.pressedMouseButtons) " +
             "keyWindow=\(NSApp.keyWindow?.windowNumber ?? -1) mainWindow=\(NSApp.mainWindow?.windowNumber ?? -1) " +
-            "selectedTab=\(selectedTabId.map { String($0.uuidString.prefix(5)) } ?? "nil") " +
-            "focusedSurface=\(focusedSurfaceId.map { String($0.uuidString.prefix(5)) } ?? "nil") " +
-            "currentEvent=\(currentEvent) firstResponder=\(firstResponder)"
+            "currentEvent=\(currentEvent)"
         )
     }
 #endif

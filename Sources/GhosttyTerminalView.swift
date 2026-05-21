@@ -7948,7 +7948,6 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
             cmuxDebugLog("focus.firstResponder surface=\(terminalSurface?.id.uuidString.prefix(5) ?? "nil")")
             debugLogSelectionAutoscrollProbe(
                 phase: "focus.becomeFirstResponder",
-                event: NSApp.currentEvent,
                 extra: "shouldApplySurfaceFocus=\(shouldApplySurfaceFocus ? 1 : 0) deltaSinceScrollMs=\(String(format: "%.1f", deltaMs))"
             )
             if let terminalSurface {
@@ -7998,7 +7997,6 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
 #if DEBUG
             debugLogSelectionAutoscrollProbe(
                 phase: "focus.resignFirstResponder",
-                event: NSApp.currentEvent,
                 extra: "deltaSinceScrollMs=\(String(format: "%.1f", deltaMs))"
             )
 #endif
@@ -8769,12 +8767,6 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
         let point = preferredPointerPoint(from: eventPoint) ?? eventPoint
 #if DEBUG
         if event.modifierFlags.contains(.command) || selectionActive || debugForwardedLeftMouseDownEventNumber != nil {
-            debugLogSelectionAutoscrollProbe(
-                phase: "flagsChanged",
-                event: event,
-                point: eventPoint,
-                extra: "selectionActive=\(selectionActive ? 1 : 0) suppressCommandPathHover=\(suppressCommandPathHover ? 1 : 0)"
-            )
             runtimeDebugLog(
                 hypothesisID: "h1",
                 name: "flags_changed",
@@ -9052,65 +9044,22 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
         ]
     }
 
-    private func debugResponderLabel(_ responder: NSResponder?) -> String {
-        guard let responder else { return "nil" }
-        if let view = responder as? NSView {
-            if view === self { return "GhosttyNSView" }
-            if view.isDescendant(of: self) { return "GhosttyDescendant.\(String(describing: type(of: view)))" }
-            return String(describing: type(of: view))
-        }
-        return String(describing: type(of: responder))
-    }
-
-    private func debugAutoscrollProbePointDescription(_ point: NSPoint?) -> (text: String, outOfBounds: Bool) {
-        guard let point else { return ("nil", false) }
-        let outOfBounds = point.x < 0 || point.y < 0 || point.x > bounds.width || point.y > bounds.height
-        return (
-            String(
-                format: "%.0f,%.0f/%.0fx%.0f",
-                point.x,
-                point.y,
-                bounds.width,
-                bounds.height
-            ),
-            outOfBounds
-        )
-    }
-
     fileprivate func debugLogSelectionAutoscrollProbe(
         phase: String,
-        event: NSEvent? = nil,
-        point explicitPoint: NSPoint? = nil,
         extra: String = ""
     ) {
         let now = ProcessInfo.processInfo.systemUptime
-
-        let point = explicitPoint ?? event.map { convert($0.locationInWindow, from: nil) } ?? currentMousePointInView()
-        let pointDescription = debugAutoscrollProbePointDescription(point)
-        let leftDownAgeMs = debugForwardedLeftMouseDownUptime.map { (now - $0) * 1000.0 }
-        let eventType = event.map { String(describing: $0.type) } ?? "nil"
-        let eventNumber = event?.eventNumber ?? -1
-        let eventTimestamp = event?.timestamp ?? 0
-        let phaseRaw = event?.phase.rawValue ?? 0
-        let momentumRaw = event?.momentumPhase.rawValue ?? 0
-        let deltaX = event?.type == .scrollWheel ? event?.scrollingDeltaX ?? 0 : 0
-        let deltaY = event?.type == .scrollWheel ? event?.scrollingDeltaY ?? 0 : 0
-        let mods = event.map { debugModifierString($0.modifierFlags) } ?? ""
+        let leftDownAgeMs = debugForwardedLeftMouseDownUptime.map { Int((now - $0) * 1000.0) }
         let leftDownEvent = debugForwardedLeftMouseDownEventNumber ?? -1
-        let firstResponder = debugResponderLabel(window?.firstResponder)
         let suffix = extra.isEmpty ? "" : " \(extra)"
 
         cmuxDebugLog(
             "selection.autoscrollProbe phase=\(phase) " +
             "surface=\(terminalSurface?.id.uuidString.prefix(5) ?? "nil") " +
             "appActive=\(NSApp.isActive ? 1 : 0) win=\(window?.windowNumber ?? -1) key=\(window?.isKeyWindow == true ? 1 : 0) " +
-            "eventType=\(eventType) eventNum=\(eventNumber) eventTs=\(String(format: "%.3f", eventTimestamp)) " +
             "pressedButtons=\(NSEvent.pressedMouseButtons) leftDownForwarded=\(debugForwardedLeftMouseDownEventNumber == nil ? 0 : 1) " +
-            "leftDownEvent=\(leftDownEvent) leftDownAgeMs=\(leftDownAgeMs.map { String(format: "%.1f", $0) } ?? "nil") " +
-            "copyMode=\(keyboardCopyModeActive ? 1 : 0) " +
-            "point=\(pointDescription.text) outOfBounds=\(pointDescription.outOfBounds ? 1 : 0) " +
-            "mods=[\(mods)] phaseRaw=\(phaseRaw) momentumRaw=\(momentumRaw) " +
-            "delta=\(String(format: "%.1f,%.1f", deltaX, deltaY)) firstResponder=\(firstResponder)\(suffix)"
+            "leftDownEvent=\(leftDownEvent) leftDownAgeMs=\(leftDownAgeMs.map { String($0) } ?? "nil") " +
+            "copyMode=\(keyboardCopyModeActive ? 1 : 0)\(suffix)"
         )
     }
     #endif
@@ -11401,7 +11350,6 @@ final class GhosttySurfaceScrollView: NSView {
 #if DEBUG
             self.surfaceView.debugLogSelectionAutoscrollProbe(
                 phase: "window.didBecomeKey",
-                event: NSApp.currentEvent,
                 extra: "hostActive=\(self.isActive ? 1 : 0) visible=\(self.surfaceView.isVisibleInUI ? 1 : 0) searchActive=\(self.surfaceView.terminalSurface?.searchState != nil ? 1 : 0) focusTarget=\(self.searchFocusTarget)"
             )
 #endif
@@ -11421,7 +11369,6 @@ final class GhosttySurfaceScrollView: NSView {
 #if DEBUG
             self.surfaceView.debugLogSelectionAutoscrollProbe(
                 phase: "window.didResignKey",
-                event: NSApp.currentEvent,
                 extra: "hostActive=\(self.isActive ? 1 : 0) visible=\(self.surfaceView.isVisibleInUI ? 1 : 0) searchActive=\(searchActive ? 1 : 0) focusTarget=\(self.searchFocusTarget)"
             )
 #endif
