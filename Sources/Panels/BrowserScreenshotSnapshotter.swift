@@ -55,17 +55,25 @@ enum BrowserScreenshotWebViewSnapshotter {
             throw BrowserScreenshotError.webContentMetricsUnavailable
         }
 
-        var tiles: [(origin: NSPoint, image: NSImage)] = []
         let xPositions = tileOrigins(contentLength: contentSize.width, viewportLength: viewportSize.width)
         let yPositions = tileOrigins(contentLength: contentSize.height, viewportLength: viewportSize.height)
         var captureError: Error?
+        var didCaptureTile = false
+        let output = blankImage(size: contentSize)
 
         do {
             for y in yPositions {
                 for x in xPositions {
                     try await scroll(webView, to: NSPoint(x: x, y: y))
                     let tile = try await captureVisibleViewport(from: webView)
-                    tiles.append((origin: NSPoint(x: x, y: y), image: tile))
+                    drawTile(
+                        tile,
+                        at: NSPoint(x: x, y: y),
+                        into: output,
+                        contentSize: contentSize,
+                        viewportSize: viewportSize
+                    )
+                    didCaptureTile = true
                 }
             }
         } catch {
@@ -77,15 +85,11 @@ enum BrowserScreenshotWebViewSnapshotter {
             throw captureError
         }
 
-        guard !tiles.isEmpty else {
+        guard didCaptureTile else {
             throw BrowserScreenshotError.emptySnapshot
         }
 
-        return stitchedImage(
-            tiles: tiles,
-            contentSize: contentSize,
-            viewportSize: viewportSize
-        )
+        return output
     }
 
     private static func isAcceptableFullContentSnapshot(
@@ -116,37 +120,40 @@ enum BrowserScreenshotWebViewSnapshotter {
         return origins
     }
 
-    private static func stitchedImage(
-        tiles: [(origin: NSPoint, image: NSImage)],
-        contentSize: NSSize,
-        viewportSize: NSSize
-    ) -> NSImage {
-        let output = NSImage(size: contentSize)
+    private static func blankImage(size: NSSize) -> NSImage {
+        let output = NSImage(size: size)
         output.lockFocus()
         NSColor.clear.setFill()
-        NSRect(origin: .zero, size: contentSize).fill()
-
-        for tile in tiles {
-            let drawWidth = min(viewportSize.width, max(0, contentSize.width - tile.origin.x))
-            let drawHeight = min(viewportSize.height, max(0, contentSize.height - tile.origin.y))
-            guard drawWidth > 0, drawHeight > 0 else { continue }
-
-            let destination = NSRect(
-                x: tile.origin.x,
-                y: contentSize.height - tile.origin.y - drawHeight,
-                width: drawWidth,
-                height: drawHeight
-            )
-            tile.image.draw(
-                in: destination,
-                from: NSRect(origin: .zero, size: tile.image.size),
-                operation: .copy,
-                fraction: 1.0
-            )
-        }
-
+        NSRect(origin: .zero, size: size).fill()
         output.unlockFocus()
         return output
+    }
+
+    private static func drawTile(
+        _ tile: NSImage,
+        at origin: NSPoint,
+        into output: NSImage,
+        contentSize: NSSize,
+        viewportSize: NSSize
+    ) {
+        let drawWidth = min(viewportSize.width, max(0, contentSize.width - origin.x))
+        let drawHeight = min(viewportSize.height, max(0, contentSize.height - origin.y))
+        guard drawWidth > 0, drawHeight > 0 else { return }
+
+        let destination = NSRect(
+            x: origin.x,
+            y: contentSize.height - origin.y - drawHeight,
+            width: drawWidth,
+            height: drawHeight
+        )
+        output.lockFocus()
+        tile.draw(
+            in: destination,
+            from: NSRect(origin: .zero, size: tile.size),
+            operation: .copy,
+            fraction: 1.0
+        )
+        output.unlockFocus()
     }
 
     private static func webContentMetrics(for webView: WKWebView) async throws -> BrowserScreenshotWebContentMetrics {
