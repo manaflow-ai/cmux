@@ -32,18 +32,38 @@ def terminate_process_group(process: subprocess.Popen[bytes]) -> None:
     except ProcessLookupError:
         return
 
-    for sig, grace_seconds in ((signal.SIGTERM, 10), (signal.SIGKILL, 0)):
+    for sig, grace_seconds in ((signal.SIGTERM, 10), (signal.SIGKILL, 5)):
         try:
             os.killpg(pgid, sig)
         except ProcessLookupError:
             return
-        if grace_seconds == 0:
+        if wait_for_process_group_exit(process, pgid, grace_seconds):
             return
-        deadline = time.monotonic() + grace_seconds
-        while time.monotonic() < deadline:
-            if process.poll() is not None:
-                return
-            time.sleep(0.2)
+
+
+def process_group_exists(pgid: int) -> bool:
+    try:
+        os.killpg(pgid, 0)
+    except ProcessLookupError:
+        return False
+    return True
+
+
+def wait_for_process_group_exit(
+    process: subprocess.Popen[bytes],
+    pgid: int,
+    timeout_seconds: float,
+) -> bool:
+    deadline = time.monotonic() + timeout_seconds
+    while time.monotonic() < deadline:
+        try:
+            process.wait(timeout=0)
+        except subprocess.TimeoutExpired:
+            pass
+        if not process_group_exists(pgid):
+            return True
+        time.sleep(0.2)
+    return False
 
 
 def run(command: list[str], idle_timeout: float, log_path: Path) -> int:
