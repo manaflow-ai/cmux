@@ -37,7 +37,6 @@ final class VNCPanelConnection {
     private var process: Process?
     private var clientFileDescriptor: Int32 = -1
     private var pendingControlMessages = VNCControlMessageQueue(maxMessages: maxPendingControlMessages)
-    private var framebufferComposer = VNCFramebufferComposer()
     private var helperReportedFailureReason: String?
     private var isClosed = false
 
@@ -277,12 +276,19 @@ final class VNCPanelConnection {
                 }
             }
         case .frame(let header, let payload):
-            guard let frame = framebufferComposer.apply(header: header, payload: payload) else { return }
+            guard let frame = Self.validatedFrameForPublish(header: header, payload: payload) else { return }
             Task { @MainActor in
                 guard !isCurrentlyClosed() else { return }
                 onFrame(frame.header, frame.payload)
             }
         }
+    }
+
+    static func validatedFrameForPublish(header: VNCFrameHeader, payload: Data) -> (header: VNCFrameHeader, payload: Data)? {
+        guard VNCFrameValidator.validate(header: header, payloadByteCount: payload.count) == nil else {
+            return nil
+        }
+        return (header, payload)
     }
 
     private func recordHelperReportedFailure(reason: String) {

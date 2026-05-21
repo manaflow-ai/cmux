@@ -1031,6 +1031,44 @@ final class TerminalControllerSocketSecurityTests: XCTestCase {
         XCTAssertEqual(summary.alert, .noCredentials)
     }
 
+    func testVNCKeychainInternetLookupsRequireExplicitSessionPort() {
+        let session = MacfleetVNCSession(
+            name: "mac3-1",
+            hostName: "mac3",
+            address: "mac3-1.local",
+            port: 5901,
+            username: "cmuxvnc",
+            tag: "tag:mac-mini-cluster",
+            index: 1
+        )
+
+        let lookups = VNCKeychainCredentialProvider.internetPasswordLookups(for: session)
+
+        XCTAssertFalse(lookups.isEmpty)
+        XCTAssertTrue(lookups.allSatisfy { $0.port == 5901 })
+        XCTAssertTrue(lookups.contains { $0.server == "mac3-1.local:5901" })
+    }
+
+    func testVNCPanelConnectionPreservesPartialFrameForPublish() throws {
+        let header = VNCFrameHeader(
+            sequence: 2,
+            x: 1,
+            y: 0,
+            width: 1,
+            height: 1,
+            framebufferWidth: 2,
+            framebufferHeight: 1,
+            stride: 4,
+            pixelFormat: .bgra8
+        )
+        let payload = Data([1, 2, 3, 4])
+
+        let frame = try XCTUnwrap(VNCPanelConnection.validatedFrameForPublish(header: header, payload: payload))
+
+        XCTAssertEqual(frame.header, header)
+        XCTAssertEqual(frame.payload, payload)
+    }
+
     func testVNCNamedKeyParserPreservesSocketModifiers() throws {
         XCTAssertEqual(
             VNCPanel.namedKeyStroke(for: "ctrl-c"),

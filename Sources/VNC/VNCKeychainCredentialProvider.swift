@@ -3,16 +3,16 @@ import Foundation
 import Security
 
 enum VNCKeychainCredentialProvider {
+    struct InternetPasswordLookup: Equatable {
+        let server: String
+        let account: String
+        let port: Int
+    }
+
     static func password(for session: MacfleetVNCSession) -> String? {
-        let servers = [session.address, session.name, "\(session.address):\(session.port)", "\(session.name):\(session.port)"]
-        for server in servers {
-            for account in [session.username, session.address, session.name] {
-                if let password = internetPassword(server: server, account: account, port: session.port) {
-                    return password
-                }
-                if let password = internetPassword(server: server, account: account, port: nil) {
-                    return password
-                }
+        for lookup in internetPasswordLookups(for: session) {
+            if let password = internetPassword(server: lookup.server, account: lookup.account, port: lookup.port) {
+                return password
             }
         }
 
@@ -34,16 +34,40 @@ enum VNCKeychainCredentialProvider {
         return nil
     }
 
-    private static func internetPassword(server: String, account: String, port: Int?) -> String? {
+    static func internetPasswordLookups(for session: MacfleetVNCSession) -> [InternetPasswordLookup] {
+        let servers = uniqueNonEmpty([
+            session.address,
+            session.name,
+            "\(session.address):\(session.port)",
+            "\(session.name):\(session.port)",
+        ])
+        let accounts = uniqueNonEmpty([session.username, session.address, session.name])
+        return servers.flatMap { server in
+            accounts.map { account in
+                InternetPasswordLookup(server: server, account: account, port: session.port)
+            }
+        }
+    }
+
+    private static func uniqueNonEmpty(_ values: [String]) -> [String] {
+        var seen: Set<String> = []
+        var result: [String] = []
+        for value in values {
+            let trimmed = value.trimmingCharacters(in: .whitespacesAndNewlines)
+            guard !trimmed.isEmpty, seen.insert(trimmed).inserted else { continue }
+            result.append(trimmed)
+        }
+        return result
+    }
+
+    private static func internetPassword(server: String, account: String, port: Int) -> String? {
         guard !account.isEmpty else { return nil }
-        var query: [String: Any] = [
+        let query: [String: Any] = [
             kSecClass as String: kSecClassInternetPassword,
             kSecAttrServer as String: server,
-            kSecAttrAccount as String: account
+            kSecAttrAccount as String: account,
+            kSecAttrPort as String: port
         ]
-        if let port {
-            query[kSecAttrPort as String] = port
-        }
         return password(query: query)
     }
 
