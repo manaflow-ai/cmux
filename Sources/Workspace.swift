@@ -7383,6 +7383,9 @@ final class Workspace: Identifiable, ObservableObject {
     @Published private(set) var terminalScrollBarHidden: Bool = false
     @Published var currentDirectory: String {
         didSet {
+            let oldDirectory = oldValue.trimmingCharacters(in: .whitespacesAndNewlines)
+            let newDirectory = currentDirectory.trimmingCharacters(in: .whitespacesAndNewlines)
+            guard oldDirectory != newDirectory else { return }
             scheduleExtensionSidebarProjectRootRefresh(for: currentDirectory)
         }
     }

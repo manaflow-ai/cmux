@@ -549,7 +549,12 @@ public struct CmuxExtensionSidebarReducer {
         case "workspace.renamed":
             guard let workspaceId = resolvedWorkspaceId(frame),
                   let index = next.workspaces.firstIndex(where: { $0.id == workspaceId }),
-                  let title = frame.payload["title"]?.stringValue ?? frame.payload["custom_title"]?.stringValue else {
+                  let title = frame.payload["title"]?.stringValue
+                    ?? frame.payload["custom_title"]?.stringValue
+                    ?? frame.payload["result"]?.objectValue?["title"]?.stringValue
+                    ?? frame.payload["result"]?.objectValue?["custom_title"]?.stringValue
+                    ?? frame.payload["params"]?.objectValue?["title"]?.stringValue
+                    ?? frame.payload["params"]?.objectValue?["custom_title"]?.stringValue else {
                 return next
             }
             next.workspaces[index].title = title
@@ -559,8 +564,16 @@ public struct CmuxExtensionSidebarReducer {
                 ?? frame.payload["order"]?.uuidArrayValue
                 ?? frame.payload["ids"]?.uuidArrayValue
             if let order {
-                next = reduce(next, event: .workspacesReordered(order))
-                next.sequence = max(next.sequence, frame.sequence)
+                var orderedIds: [UUID] = []
+                var seenIds: Set<UUID> = []
+                for id in order where seenIds.insert(id).inserted {
+                    orderedIds.append(id)
+                }
+                let workspacesById = Dictionary(uniqueKeysWithValues: next.workspaces.map { ($0.id, $0) })
+                let orderedSet = Set(orderedIds)
+                var known = orderedIds.compactMap { workspacesById[$0] }
+                known.append(contentsOf: next.workspaces.filter { !orderedSet.contains($0.id) })
+                next.workspaces = known
             }
 
         case "workspace.prompt.submitted":
@@ -951,6 +964,11 @@ public extension CmuxExtensionSidebarProvider {
 }
 
 private extension CmuxExtensionJSONValue {
+    var objectValue: [String: CmuxExtensionJSONValue]? {
+        guard case .object(let value) = self else { return nil }
+        return value
+    }
+
     var uuidValue: UUID? {
         stringValue.flatMap(UUID.init(uuidString:))
     }

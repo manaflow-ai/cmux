@@ -16171,7 +16171,12 @@ private enum ExtensionSidebarBrowserStackDropPlanner {
         let targetIndex: Int
         if clampedInsertionPosition < remainingRows.count {
             let targetRow = remainingRows[clampedInsertionPosition]
-            targetSectionId = targetRow.sectionId
+            if clampedInsertionPosition > 0,
+               remainingRows[clampedInsertionPosition - 1].sectionId != targetRow.sectionId {
+                targetSectionId = remainingRows[clampedInsertionPosition - 1].sectionId
+            } else {
+                targetSectionId = targetRow.sectionId
+            }
             targetIndex = remainingRows[..<clampedInsertionPosition].filter { $0.sectionId == targetSectionId }.count
         } else if let targetRow = remainingRows.last {
             targetSectionId = targetRow.sectionId
