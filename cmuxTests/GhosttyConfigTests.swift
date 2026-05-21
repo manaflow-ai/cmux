@@ -2658,6 +2658,62 @@ final class SocketControlSettingsTests: XCTestCase {
         XCTAssertEqual(path, "/tmp/cmux-debug-sockguard.sock")
     }
 
+    func testTaggedDebugBundleRefusesLeafSymlinkToStableSocketEvenWithOptInFlag() throws {
+        let alias = "/tmp/cmux-stable-alias-\(UUID().uuidString).sock"
+        try? FileManager.default.removeItem(atPath: alias)
+        try FileManager.default.createSymbolicLink(
+            atPath: alias,
+            withDestinationPath: SocketControlSettings.stableDefaultSocketPath
+        )
+        defer { try? FileManager.default.removeItem(atPath: alias) }
+
+        let path = SocketControlSettings.socketPath(
+            environment: [
+                "CMUX_SOCKET_PATH": alias,
+                "CMUX_ALLOW_SOCKET_OVERRIDE": "1",
+            ],
+            bundleIdentifier: "com.cmuxterm.app.debug.sockguard",
+            isDebugBuild: false
+        )
+
+        XCTAssertEqual(path, "/tmp/cmux-debug-sockguard.sock")
+    }
+
+    func testTaggedDebugBundleRefusesExcessiveSymlinkChainEvenWithOptInFlag() throws {
+        let root = "/tmp/cmux-stable-chain-\(UUID().uuidString)"
+        let aliases = (0...64).map { "\(root)-\($0).sock" }
+        for alias in aliases {
+            try? FileManager.default.removeItem(atPath: alias)
+        }
+        defer {
+            for alias in aliases {
+                try? FileManager.default.removeItem(atPath: alias)
+            }
+        }
+
+        try FileManager.default.createSymbolicLink(
+            atPath: aliases[64],
+            withDestinationPath: SocketControlSettings.stableDefaultSocketPath
+        )
+        for index in stride(from: 63, through: 0, by: -1) {
+            try FileManager.default.createSymbolicLink(
+                atPath: aliases[index],
+                withDestinationPath: aliases[index + 1]
+            )
+        }
+
+        let path = SocketControlSettings.socketPath(
+            environment: [
+                "CMUX_SOCKET_PATH": aliases[0],
+                "CMUX_ALLOW_SOCKET_OVERRIDE": "1",
+            ],
+            bundleIdentifier: "com.cmuxterm.app.debug.sockguard",
+            isDebugBuild: false
+        )
+
+        XCTAssertEqual(path, "/tmp/cmux-debug-sockguard.sock")
+    }
+
     func testStagingBundleHonorsSocketOverrideWithoutOptInFlag() {
         let path = SocketControlSettings.socketPath(
             environment: [

@@ -463,13 +463,42 @@ struct SocketControlSettings {
         (lhs as NSString).standardizingPath == (rhs as NSString).standardizingPath
     }
 
-    private static func canonicalSocketPath(_ path: String) -> String {
+    private static func canonicalSocketPath(_ path: String, visitedSymlinks: Set<String> = []) -> String? {
         let standardizedPath = (path as NSString).standardizingPath
         let url = URL(fileURLWithPath: standardizedPath)
         let resolvedParent = (
             (url.deletingLastPathComponent().path as NSString).resolvingSymlinksInPath as NSString
         ).standardizingPath
-        return (resolvedParent as NSString).appendingPathComponent(url.lastPathComponent)
+        let resolvedPath = (resolvedParent as NSString).appendingPathComponent(url.lastPathComponent)
+        if isSymbolicLink(at: standardizedPath),
+           let targetPath = symbolicLinkTarget(at: standardizedPath, resolvedParent: resolvedParent) {
+            guard !visitedSymlinks.contains(resolvedPath), visitedSymlinks.count < 64 else {
+                return nil
+            }
+            return canonicalSocketPath(
+                targetPath,
+                visitedSymlinks: visitedSymlinks.union([resolvedPath])
+            )
+        }
+        return resolvedPath
+    }
+
+    private static func isSymbolicLink(at path: String) -> Bool {
+        var st = stat()
+        guard lstat(path, &st) == 0 else { return false }
+        return (st.st_mode & mode_t(S_IFMT)) == mode_t(S_IFLNK)
+    }
+
+    private static func symbolicLinkTarget(at path: String, resolvedParent: String) -> String? {
+        var buffer = [CChar](repeating: 0, count: Int(MAXPATHLEN))
+        let length = readlink(path, &buffer, buffer.count - 1)
+        guard length > 0 else { return nil }
+        buffer[Int(length)] = 0
+        let target = String(cString: buffer)
+        if target.hasPrefix("/") {
+            return target
+        }
+        return (resolvedParent as NSString).appendingPathComponent(target)
     }
 
     private static func shouldReserveStableSocketPath(bundleIdentifier: String?, isDebugBuild: Bool) -> Bool {
@@ -478,13 +507,15 @@ struct SocketControlSettings {
     }
 
     private static func isStableReleaseSocketPath(_ path: String, currentUserID: uid_t) -> Bool {
-        let candidatePath = canonicalSocketPath(path)
+        guard let candidatePath = canonicalSocketPath(path) else {
+            return true
+        }
         return [
             stableDefaultSocketPath,
             userScopedStableSocketPath(currentUserID: currentUserID),
             legacyStableDefaultSocketPath,
         ].contains { stablePath in
-            candidatePath == canonicalSocketPath(stablePath)
+            canonicalSocketPath(stablePath).map { candidatePath == $0 } ?? false
         }
     }
 
