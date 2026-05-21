@@ -136,6 +136,12 @@ final class SidebarResizeUITests: XCTestCase {
         assertElementFrame(rightSidebar, isInside: window, name: "right sidebar")
         assertElementDoesNotLeaveLeadingScreenEdge(leftResizer, name: "left resizer")
         assertElementFrame(rightResizer, isInside: window, name: "right resizer")
+        XCTAssertLessThan(
+            leftResizer.frame.maxX,
+            rightResizer.frame.minX,
+            "Expected narrow-window resizers to remain separately hittable. " +
+            "left=\(leftResizer.frame), right=\(rightResizer.frame)"
+        )
     }
 
     private func waitForElementHittable(_ element: XCUIElement, timeout: TimeInterval) -> Bool {

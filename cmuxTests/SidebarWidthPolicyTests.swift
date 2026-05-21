@@ -136,7 +136,19 @@ final class SidebarWidthPolicyTests: XCTestCase {
                 availableWidth: 400,
                 leadingSidebarWidth: 200
             ),
-            200,
+            190,
+            accuracy: 0.001
+        )
+    }
+
+    func testRightSidebarClampKeepsResizerGapWithVisibleLeftSidebar() {
+        XCTAssertEqual(
+            ContentView.clampedRightSidebarWidth(
+                10_000,
+                availableWidth: 320,
+                leadingSidebarWidth: 180
+            ),
+            130,
             accuracy: 0.001
         )
     }
