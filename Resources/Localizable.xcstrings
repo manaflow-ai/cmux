@@ -8732,6 +8732,131 @@
         }
       }
     },
+    "settings.browser.import.detecting": {
+      "extractionState": "manual",
+      "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "جارٍ التحقق من المتصفحات المثبتة..."
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Provjeravam instalirane preglednike..."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Kontrollerer installerede browsere..."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Installierte Browser werden geprüft..."
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Checking installed browsers..."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Comprobando los navegadores instalados..."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Vérification des navigateurs installés..."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Controllo dei browser installati..."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "インストール済みブラウザーを確認しています..."
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "설치된 브라우저를 확인하는 중..."
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "កំពុងពិនិត្យកម្មវិធីរុករកដែលបានដំឡើង..."
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Sjekker installerte nettlesere..."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Sprawdzanie zainstalowanych przeglądarek..."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Verificando navegadores instalados..."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Проверяем установленные браузеры..."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "กำลังตรวจสอบเบราว์เซอร์ที่ติดตั้ง..."
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Yüklü tarayıcılar kontrol ediliyor..."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Перевіряємо встановлені браузери..."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "正在检查已安装的浏览器..."
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "正在檢查已安裝的瀏覽器..."
+          }
+        }
+      }
+    },
     "browser.import.domain": {
       "extractionState": "manual",
       "localizations": {
@@ -57531,6 +57656,244 @@
         }
       }
     },
+    "settings.app.watchGitStatus": {
+      "extractionState": "manual",
+      "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "مراقبة حالة Git في الشريط الجانبي"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Prati Git status u bočnoj traci"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Overvåg Git-status i sidepanelet"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Git-Status in der Seitenleiste überwachen"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Watch Git Status in Sidebar"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Vigilar el estado de Git en la barra lateral"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Surveiller l’état Git dans la barre latérale"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Monitora lo stato Git nella barra laterale"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "サイドバーで Git 状態を監視"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "사이드바에서 Git 상태 감시"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Overvåk Git-status i sidepanelet"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Monitoruj status Git na pasku bocznym"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Monitorar status do Git na barra lateral"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Отслеживать состояние Git на боковой панели"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ติดตามสถานะ Git ในแถบด้านข้าง"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Kenar çubuğunda Git durumunu izle"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Відстежувати стан Git на бічній панелі"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "在侧边栏监视 Git 状态"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "在側邊欄監視 Git 狀態"
+          }
+        }
+      }
+    },
+    "settings.app.watchGitStatus.subtitle": {
+      "extractionState": "manual",
+      "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "حدّث بيانات الفرع وطلبات السحب في الشريط الجانبي من تغييرات ملفات المستودع دون استطلاع git."
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ažuriraj granu i PR metapodatke u bočnoj traci iz promjena datoteka repozitorija bez anketiranja git-a."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Opdater sidepanelets gren- og PR-metadata fra ændringer i repositoryfiler uden at polle git."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Aktualisiert Branch- und PR-Metadaten in der Seitenleiste aus Repository-Dateiänderungen, ohne git abzufragen."
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Update sidebar branch and PR metadata from repository file changes without polling git."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Actualiza la rama y los metadatos de PR de la barra lateral desde cambios de archivos del repositorio sin consultar git periódicamente."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Met à jour la branche et les métadonnées de PR de la barre latérale depuis les changements de fichiers du dépôt, sans interroger git."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Aggiorna ramo e metadati PR nella barra laterale dalle modifiche ai file del repository senza interrogare git."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "git をポーリングせず、リポジトリのファイル変更からサイドバーのブランチと PR メタデータを更新します。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "git을 폴링하지 않고 저장소 파일 변경으로 사이드바 브랜치와 PR 메타데이터를 업데이트합니다."
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Oppdater sidepanelets gren- og PR-metadata fra endringer i repositoryfiler uten å spørre git."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Aktualizuj gałąź i metadane PR na pasku bocznym na podstawie zmian plików repozytorium bez odpytywania git."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Atualize a branch e os metadados de PR da barra lateral a partir de mudanças nos arquivos do repositório sem consultar o git periodicamente."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Обновлять ветку и метаданные PR на боковой панели по изменениям файлов репозитория без опроса git."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "อัปเดตสาขาและข้อมูลเมตา PR ในแถบด้านข้างจากการเปลี่ยนแปลงไฟล์ของที่เก็บโดยไม่ต้อง polling git"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Kenar çubuğu dal ve PR meta verilerini git’i yoklamadan depo dosyası değişikliklerinden güncelle."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Оновлювати гілку та метадані PR на бічній панелі за змінами файлів репозиторію без опитування git."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "根据仓库文件变化更新侧边栏分支和 PR 元数据，而不轮询 git。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "根據儲存庫檔案變更更新側邊欄分支與 PR 中繼資料，而不輪詢 git。"
+          }
+        }
+      }
+    },
     "settings.app.showPullRequests.subtitle.basic": {
       "extractionState": "manual",
       "localizations": {
@@ -60264,6 +60627,22 @@
           }
         }
       }
+    },
+    "settings.automation.suppressSubagentNotifications": {
+      "extractionState": "manual",
+      "localizations": {"ar":{"stringUnit":{"state":"translated","value":"إخفاء إشعارات الوكلاء الفرعيين"}},"bs":{"stringUnit":{"state":"translated","value":"Sakrij obavještenja podagenata"}},"da":{"stringUnit":{"state":"translated","value":"Skjul underagent-notifikationer"}},"de":{"stringUnit":{"state":"translated","value":"Unteragent-Benachrichtigungen unterdrücken"}},"en":{"stringUnit":{"state":"translated","value":"Suppress Subagent Notifications"}},"es":{"stringUnit":{"state":"translated","value":"Suprimir notificaciones de subagentes"}},"fr":{"stringUnit":{"state":"translated","value":"Masquer les notifications des sous-agents"}},"it":{"stringUnit":{"state":"translated","value":"Nascondi notifiche dei sottoagenti"}},"ja":{"stringUnit":{"state":"translated","value":"サブエージェント通知を抑制"}},"ko":{"stringUnit":{"state":"translated","value":"하위 에이전트 알림 억제"}},"nb":{"stringUnit":{"state":"translated","value":"Undertrykk underagentvarsler"}},"pl":{"stringUnit":{"state":"translated","value":"Ukryj powiadomienia podagentów"}},"pt-BR":{"stringUnit":{"state":"translated","value":"Suprimir notificações de subagentes"}},"ru":{"stringUnit":{"state":"translated","value":"Подавлять уведомления подагентов"}},"th":{"stringUnit":{"state":"translated","value":"ซ่อนการแจ้งเตือนของเอเจนต์ย่อย"}},"tr":{"stringUnit":{"state":"translated","value":"Alt ajan bildirimlerini gizle"}},"uk":{"stringUnit":{"state":"translated","value":"Приховати сповіщення підлеглих агентів"}},"zh-Hans":{"stringUnit":{"state":"translated","value":"隐藏子代理通知"}},"zh-Hant":{"stringUnit":{"state":"translated","value":"隱藏子代理通知"}}}
+    },
+    "settings.automation.suppressSubagentNotifications.note": {
+      "extractionState": "manual",
+      "localizations": {"ar":{"stringUnit":{"state":"translated","value":"يستخدم تسلسل العمليات الأبوي من عمليات الخطافات. عطّله إذا كان يجب أن تطلق جلسات Codex أو Claude المتداخلة إشعارات الإكمال."}},"bs":{"stringUnit":{"state":"translated","value":"Koristi hijerarhiju procesa iz hook procesa. Isključite ako ugniježđene Codex ili Claude sesije trebaju slati obavještenja o završetku."}},"da":{"stringUnit":{"state":"translated","value":"Bruger proceshierarki fra hook-processer. Slå fra, hvis indlejrede Codex- eller Claude-sessioner skal udløse fuldførelsesnotifikationer."}},"de":{"stringUnit":{"state":"translated","value":"Verwendet die Prozessabstammung der Hook-Prozesse. Deaktivieren, wenn verschachtelte Codex- oder Claude-Sitzungen Abschlussbenachrichtigungen auslösen sollen."}},"en":{"stringUnit":{"state":"translated","value":"Uses process ancestry from hook processes. Disable if nested Codex or Claude sessions should trigger completion notifications."}},"es":{"stringUnit":{"state":"translated","value":"Usa la ascendencia de procesos de los hooks. Desactívalo si las sesiones anidadas de Codex o Claude deben generar notificaciones de finalización."}},"fr":{"stringUnit":{"state":"translated","value":"Utilise l’ascendance des processus de hooks. Désactivez cette option si les sessions Codex ou Claude imbriquées doivent déclencher des notifications de fin."}},"it":{"stringUnit":{"state":"translated","value":"Usa la gerarchia dei processi dei hook. Disattiva se le sessioni Codex o Claude annidate devono inviare notifiche di completamento."}},"ja":{"stringUnit":{"state":"translated","value":"フックプロセスの親子関係を使用します。ネストされた Codex または Claude セッションでも完了通知を出したい場合は無効にしてください。"}},"ko":{"stringUnit":{"state":"translated","value":"훅 프로세스의 상위 프로세스 관계를 사용합니다. 중첩된 Codex 또는 Claude 세션도 완료 알림을 보내야 한다면 비활성화하세요."}},"nb":{"stringUnit":{"state":"translated","value":"Bruker prosesshierarki fra hook-prosesser. Slå av hvis innebygde Codex- eller Claude-økter skal utløse fullføringsvarsler."}},"pl":{"stringUnit":{"state":"translated","value":"Używa hierarchii procesów hooków. Wyłącz, jeśli zagnieżdżone sesje Codex lub Claude mają wywoływać powiadomienia o zakończeniu."}},"pt-BR":{"stringUnit":{"state":"translated","value":"Usa a hierarquia de processos dos hooks. Desative se sessões aninhadas do Codex ou Claude devem disparar notificações de conclusão."}},"ru":{"stringUnit":{"state":"translated","value":"Использует иерархию процессов из hook-процессов. Отключите, если вложенные сеансы Codex или Claude должны отправлять уведомления о завершении."}},"th":{"stringUnit":{"state":"translated","value":"ใช้ลำดับชั้นของโปรเซสจากโปรเซส hook ปิดตัวเลือกนี้หากเซสชัน Codex หรือ Claude แบบซ้อนควรส่งการแจ้งเตือนเมื่อเสร็จ"}},"tr":{"stringUnit":{"state":"translated","value":"Hook süreçlerinin üst işlem zincirini kullanır. İç içe Codex veya Claude oturumları tamamlanma bildirimi göndermeliyse kapatın."}},"uk":{"stringUnit":{"state":"translated","value":"Використовує ієрархію процесів із hook-процесів. Вимкніть, якщо вкладені сеанси Codex або Claude мають надсилати сповіщення про завершення."}},"zh-Hans":{"stringUnit":{"state":"translated","value":"使用 hook 进程的进程层级。若嵌套的 Codex 或 Claude 会话应触发完成通知，请将其关闭。"}},"zh-Hant":{"stringUnit":{"state":"translated","value":"使用 hook 程序的程序層級。若巢狀 Codex 或 Claude 工作階段應觸發完成通知，請將其關閉。"}}}
+    },
+    "settings.automation.suppressSubagentNotifications.subtitleOff": {
+      "extractionState": "manual",
+      "localizations": {"ar":{"stringUnit":{"state":"translated","value":"تُرسل إكمالات الوكلاء الفرعيين إشعارات مثل الوكلاء الأعلى مستوى."}},"bs":{"stringUnit":{"state":"translated","value":"Završeci dječijih agenata šalju obavještenja kao agenti najvišeg nivoa."}},"da":{"stringUnit":{"state":"translated","value":"Underagenters fuldførelser giver besked som topniveau-agenter."}},"de":{"stringUnit":{"state":"translated","value":"Abschlüsse von Unteragenten benachrichtigen wie Top-Level-Agenten."}},"en":{"stringUnit":{"state":"translated","value":"Child agent completions notify like top-level agents."}},"es":{"stringUnit":{"state":"translated","value":"Las finalizaciones de agentes secundarios notifican como agentes de nivel superior."}},"fr":{"stringUnit":{"state":"translated","value":"Les fins d’agents enfants notifient comme les agents de premier niveau."}},"it":{"stringUnit":{"state":"translated","value":"I completamenti degli agenti figli inviano notifiche come gli agenti di primo livello."}},"ja":{"stringUnit":{"state":"translated","value":"子エージェントの完了もトップレベルのエージェントと同様に通知します。"}},"ko":{"stringUnit":{"state":"translated","value":"하위 에이전트 완료도 최상위 에이전트처럼 알립니다."}},"nb":{"stringUnit":{"state":"translated","value":"Fullføringer fra underagenter varsler som toppnivåagenter."}},"pl":{"stringUnit":{"state":"translated","value":"Ukończenia agentów podrzędnych powiadamiają jak agenci najwyższego poziomu."}},"pt-BR":{"stringUnit":{"state":"translated","value":"Conclusões de agentes filhos notificam como agentes de nível superior."}},"ru":{"stringUnit":{"state":"translated","value":"Завершения дочерних агентов уведомляют как агенты верхнего уровня."}},"th":{"stringUnit":{"state":"translated","value":"การทำงานเสร็จของเอเจนต์ลูกจะแจ้งเตือนเหมือนเอเจนต์ระดับบนสุด"}},"tr":{"stringUnit":{"state":"translated","value":"Alt ajan tamamlanmaları üst düzey ajanlar gibi bildirim gönderir."}},"uk":{"stringUnit":{"state":"translated","value":"Завершення дочірніх агентів сповіщають як агенти верхнього рівня."}},"zh-Hans":{"stringUnit":{"state":"translated","value":"子代理完成时会像顶层代理一样通知。"}},"zh-Hant":{"stringUnit":{"state":"translated","value":"子代理完成時會像頂層代理一樣通知。"}}}
+    },
+    "settings.automation.suppressSubagentNotifications.subtitleOn": {
+      "extractionState": "manual",
+      "localizations": {"ar":{"stringUnit":{"state":"translated","value":"تبقى إكمالات الوكلاء الفرعيين في Feed بدون إشعارات."}},"bs":{"stringUnit":{"state":"translated","value":"Završeci dječijih agenata ostaju u Feed-u bez obavještenja."}},"da":{"stringUnit":{"state":"translated","value":"Underagenters fuldførelser bliver i Feed uden notifikationer."}},"de":{"stringUnit":{"state":"translated","value":"Abschlüsse von Unteragenten bleiben ohne Benachrichtigungen im Feed."}},"en":{"stringUnit":{"state":"translated","value":"Child agent completions stay in Feed without notifications."}},"es":{"stringUnit":{"state":"translated","value":"Las finalizaciones de agentes secundarios permanecen en Feed sin notificaciones."}},"fr":{"stringUnit":{"state":"translated","value":"Les fins d’agents enfants restent dans Feed sans notifications."}},"it":{"stringUnit":{"state":"translated","value":"I completamenti degli agenti figli restano in Feed senza notifiche."}},"ja":{"stringUnit":{"state":"translated","value":"子エージェントの完了は通知せずFeedにのみ残ります。"}},"ko":{"stringUnit":{"state":"translated","value":"하위 에이전트 완료는 알림 없이 Feed에만 남습니다."}},"nb":{"stringUnit":{"state":"translated","value":"Fullføringer fra underagenter blir i Feed uten varsler."}},"pl":{"stringUnit":{"state":"translated","value":"Ukończenia agentów podrzędnych pozostają w Feed bez powiadomień."}},"pt-BR":{"stringUnit":{"state":"translated","value":"Conclusões de agentes filhos ficam no Feed sem notificações."}},"ru":{"stringUnit":{"state":"translated","value":"Завершения дочерних агентов остаются в Feed без уведомлений."}},"th":{"stringUnit":{"state":"translated","value":"การทำงานเสร็จของเอเจนต์ลูกจะอยู่ใน Feed โดยไม่มีการแจ้งเตือน"}},"tr":{"stringUnit":{"state":"translated","value":"Alt ajan tamamlanmaları bildirim olmadan Feed’de kalır."}},"uk":{"stringUnit":{"state":"translated","value":"Завершення дочірніх агентів залишаються у Feed без сповіщень."}},"zh-Hans":{"stringUnit":{"state":"translated","value":"子代理完成事件会留在 Feed 中且不通知。"}},"zh-Hant":{"stringUnit":{"state":"translated","value":"子代理完成事件會留在 Feed 中且不通知。"}}}
     },
     "settings.automation.cursor": {
       "extractionState": "manual",
@@ -65036,6 +65415,131 @@
           "stringUnit": {
             "state": "translated",
             "value": "Збережених сторінок ще немає."
+          }
+        }
+      }
+    },
+    "settings.browser.history.subtitleLoading": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Checking browsing history..."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "閲覧履歴を確認中..."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "正在检查浏览历史记录..."
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "正在檢查瀏覽歷史記錄..."
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "방문 기록을 확인하는 중..."
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "កំពុងពិនិត្យប្រវត្តិរុករក..."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Browserverlauf wird geprüft..."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Comprobando el historial de navegación..."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Vérification de l'historique de navigation..."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Controllo della cronologia di navigazione..."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Kontrollerer browserhistorik..."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Sprawdzanie historii przeglądania..."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Проверка истории браузера..."
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Provjerava se historija pregledanja..."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "جارٍ التحقق من سجل التصفح..."
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Sjekker nettleserhistorikk..."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Verificando histórico de navegação..."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "กำลังตรวจสอบประวัติการท่องเว็บ..."
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Tarama geçmişi kontrol ediliyor..."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Перевірка історії браузера..."
           }
         }
       }
@@ -76163,6 +76667,125 @@
             }
         }
     },
+    "settings.search.alias.setting.app.watch-git-status": {
+        "extractionState": "manual",
+        "localizations": {
+            "ar": {
+                "stringUnit": {
+                    "state": "translated",
+                    "value": "sidebar.watchGitStatus git status branch watcher index lock حالة git فرع مراقبة الشريط الجانبي"
+                }
+            },
+            "bs": {
+                "stringUnit": {
+                    "state": "translated",
+                    "value": "sidebar.watchGitStatus git status branch watcher index lock git status grana bočna traka"
+                }
+            },
+            "da": {
+                "stringUnit": {
+                    "state": "translated",
+                    "value": "sidebar.watchGitStatus git status branch watcher index lock git-status gren sidepanel"
+                }
+            },
+            "de": {
+                "stringUnit": {
+                    "state": "translated",
+                    "value": "sidebar.watchGitStatus git status branch watcher index lock git-status branch seitenleiste"
+                }
+            },
+            "en": {
+                "stringUnit": {
+                    "state": "translated",
+                    "value": "sidebar.watchGitStatus git status branch watcher index lock"
+                }
+            },
+            "es": {
+                "stringUnit": {
+                    "state": "translated",
+                    "value": "sidebar.watchGitStatus git status branch watcher index lock estado git rama barra lateral"
+                }
+            },
+            "fr": {
+                "stringUnit": {
+                    "state": "translated",
+                    "value": "sidebar.watchGitStatus git status branch watcher index lock état git branche barre latérale"
+                }
+            },
+            "it": {
+                "stringUnit": {
+                    "state": "translated",
+                    "value": "sidebar.watchGitStatus git status branch watcher index lock stato git ramo barra laterale"
+                }
+            },
+            "ja": {
+                "stringUnit": {
+                    "state": "translated",
+                    "value": "sidebar.watchGitStatus git status branch watcher index lock git 状態 ブランチ 監視 index lock"
+                }
+            },
+            "ko": {
+                "stringUnit": {
+                    "state": "translated",
+                    "value": "sidebar.watchGitStatus git status branch watcher index lock git 상태 브랜치 사이드바"
+                }
+            },
+            "nb": {
+                "stringUnit": {
+                    "state": "translated",
+                    "value": "sidebar.watchGitStatus git status branch watcher index lock git-status gren sidepanel"
+                }
+            },
+            "pl": {
+                "stringUnit": {
+                    "state": "translated",
+                    "value": "sidebar.watchGitStatus git status branch watcher index lock status git gałąź pasek boczny"
+                }
+            },
+            "pt-BR": {
+                "stringUnit": {
+                    "state": "translated",
+                    "value": "sidebar.watchGitStatus git status branch watcher index lock status git branch barra lateral"
+                }
+            },
+            "ru": {
+                "stringUnit": {
+                    "state": "translated",
+                    "value": "sidebar.watchGitStatus git status branch watcher index lock состояние git ветка боковая панель"
+                }
+            },
+            "th": {
+                "stringUnit": {
+                    "state": "translated",
+                    "value": "sidebar.watchGitStatus git status branch watcher index lock สถานะ git สาขา แถบด้านข้าง"
+                }
+            },
+            "tr": {
+                "stringUnit": {
+                    "state": "translated",
+                    "value": "sidebar.watchGitStatus git status branch watcher index lock git durumu dal kenar çubuğu"
+                }
+            },
+            "uk": {
+                "stringUnit": {
+                    "state": "translated",
+                    "value": "sidebar.watchGitStatus git status branch watcher index lock стан git гілка бічна панель"
+                }
+            },
+            "zh-Hans": {
+                "stringUnit": {
+                    "state": "translated",
+                    "value": "sidebar.watchGitStatus git status branch watcher index lock git 状态 分支 侧边栏"
+                }
+            },
+            "zh-Hant": {
+                "stringUnit": {
+                    "state": "translated",
+                    "value": "sidebar.watchGitStatus git status branch watcher index lock git 狀態 分支 側邊欄"
+                }
+            }
+        }
+    },
     "settings.search.alias.setting.app.open-pr-links": {
         "extractionState": "manual",
         "localizations": {
@@ -78208,6 +78831,10 @@
                 }
             }
         }
+    },
+    "settings.search.alias.setting.automation.subagent-notifications": {
+      "extractionState": "manual",
+      "localizations": {"ar":{"stringUnit":{"state":"translated","value":"automation.suppressSubagentNotifications وكيل فرعي متداخل طفل codex claude hook إشعارات"}},"bs":{"stringUnit":{"state":"translated","value":"automation.suppressSubagentNotifications podagent ugniježđen dječiji agent codex claude hook obavještenja"}},"da":{"stringUnit":{"state":"translated","value":"automation.suppressSubagentNotifications underagent indlejret børneagent codex claude hooks notifikationer"}},"de":{"stringUnit":{"state":"translated","value":"automation.suppressSubagentNotifications unteragent verschachtelt kindagent codex claude hooks benachrichtigungen"}},"en":{"stringUnit":{"state":"translated","value":"automation.suppressSubagentNotifications subagent nested child agent codex claude hooks notifications"}},"es":{"stringUnit":{"state":"translated","value":"automation.suppressSubagentNotifications subagente anidado agente secundario codex claude hooks notificaciones"}},"fr":{"stringUnit":{"state":"translated","value":"automation.suppressSubagentNotifications sous-agent imbriqué agent enfant codex claude hooks notifications"}},"it":{"stringUnit":{"state":"translated","value":"automation.suppressSubagentNotifications sottoagente annidato agente figlio codex claude hook notifiche"}},"ja":{"stringUnit":{"state":"translated","value":"automation.suppressSubagentNotifications サブエージェント ネスト 子エージェント codex claude フック 通知"}},"ko":{"stringUnit":{"state":"translated","value":"automation.suppressSubagentNotifications 하위 에이전트 중첩 자식 에이전트 codex claude 훅 알림"}},"nb":{"stringUnit":{"state":"translated","value":"automation.suppressSubagentNotifications underagent innebygd barneagent codex claude hooks varsler"}},"pl":{"stringUnit":{"state":"translated","value":"automation.suppressSubagentNotifications podagent zagnieżdżony agent podrzędny codex claude hooki powiadomienia"}},"pt-BR":{"stringUnit":{"state":"translated","value":"automation.suppressSubagentNotifications subagente aninhado agente filho codex claude hooks notificações"}},"ru":{"stringUnit":{"state":"translated","value":"automation.suppressSubagentNotifications подагент вложенный дочерний агент codex claude hooks уведомления"}},"th":{"stringUnit":{"state":"translated","value":"automation.suppressSubagentNotifications เอเจนต์ย่อย ซ้อน เอเจนต์ลูก codex claude hook การแจ้งเตือน"}},"tr":{"stringUnit":{"state":"translated","value":"automation.suppressSubagentNotifications alt ajan iç içe çocuk ajan codex claude hook bildirimler"}},"uk":{"stringUnit":{"state":"translated","value":"automation.suppressSubagentNotifications підагент вкладений дочірній агент codex claude hooks сповіщення"}},"zh-Hans":{"stringUnit":{"state":"translated","value":"automation.suppressSubagentNotifications 子代理 嵌套 子级代理 codex claude hooks 通知"}},"zh-Hant":{"stringUnit":{"state":"translated","value":"automation.suppressSubagentNotifications 子代理 巢狀 子級代理 codex claude hooks 通知"}}}
     },
     "settings.search.alias.setting.automation.cursor": {
         "extractionState": "manual",

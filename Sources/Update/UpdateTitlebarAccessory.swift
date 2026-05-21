@@ -1922,6 +1922,10 @@ final class UpdateTitlebarAccessoryController {
     }
 
     private func attachIfNeeded(to window: NSWindow) {
+        guard NSApp.windows.contains(where: { $0 === window }) else {
+            pendingAttachRetries.removeValue(forKey: ObjectIdentifier(window))
+            return
+        }
         guard !isSettingsWindow(window) else { return }
 
         // Window identifiers are assigned by SwiftUI via WindowAccessor, which can run
