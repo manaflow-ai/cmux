@@ -3716,6 +3716,90 @@ final class WorkspaceTerminalFocusRecoveryTests: XCTestCase {
         return nil
     }
 
+    func testNoOpFocusNavigationKeepsCurrentTerminalActive() {
+        let workspace = Workspace()
+        guard let panelId = workspace.focusedPanelId,
+              let panel = workspace.terminalPanel(for: panelId) else {
+            XCTFail("Expected initial terminal panel")
+            return
+        }
+
+        panel.hostedView.setActive(true)
+        workspace.moveFocus(direction: .left)
+
+        XCTAssertEqual(workspace.focusedPanelId, panelId)
+        XCTAssertTrue(
+            panel.hostedView.debugRenderStats().isActive,
+            "No-op pane navigation should not unfocus the current terminal"
+        )
+    }
+
+    func testClosedDockDoesNotRemainFocusedForCommands() {
+        let workspace = Workspace()
+        guard let mainPanelId = workspace.focusedPanelId else {
+            XCTFail("Expected initial main panel")
+            return
+        }
+        let dock = workspace.dockLayout.addDock(edge: .left)
+        guard let dockPaneId = dock.controller.allPaneIds.first,
+              let dockPanel = workspace.newTerminalSurface(
+                  inPane: dockPaneId,
+                  controller: dock.controller,
+                  focus: true
+              ) else {
+            XCTFail("Expected dock terminal panel")
+            return
+        }
+
+        workspace.focusBonsplitPane(dockPaneId, controller: dock.controller)
+        XCTAssertEqual(workspace.focusedPanelId, dockPanel.id)
+
+        let mainTabCountBefore = workspace.bonsplitController.allTabIds.count
+        let dockTabCountBefore = dock.controller.allTabIds.count
+        workspace.dockLayout.closeEdge(.left)
+        XCTAssertEqual(workspace.focusedPanelId, mainPanelId)
+
+        guard let createdPanel = workspace.newTerminalSurfaceInFocusedPane(focus: true) else {
+            XCTFail("Expected focused-pane terminal creation to succeed")
+            return
+        }
+
+        XCTAssertEqual(workspace.bonsplitController.allTabIds.count, mainTabCountBefore + 1)
+        XCTAssertEqual(dock.controller.allTabIds.count, dockTabCountBefore)
+        XCTAssertEqual(workspace.paneId(forPanelId: createdPanel.id), workspace.bonsplitController.focusedPaneId)
+        XCTAssertEqual(workspace.focusedPanelId, createdPanel.id)
+    }
+
+    func testClosedDockTerminalPortalIsHidden() throws {
+#if DEBUG
+        let workspace = Workspace()
+        let dock = workspace.dockLayout.addDock(edge: .right)
+        guard let dockPaneId = dock.controller.allPaneIds.first,
+              let dockPanel = workspace.newTerminalSurface(
+                  inPane: dockPaneId,
+                  controller: dock.controller,
+                  focus: true
+              ) else {
+            XCTFail("Expected dock terminal panel")
+            return
+        }
+
+        workspace.focusBonsplitPane(dockPaneId, controller: dock.controller)
+        dockPanel.hostedView.setVisibleInUI(true)
+        XCTAssertTrue(dockPanel.hostedView.debugPortalVisibleInUI)
+
+        workspace.dockLayout.closeEdge(.right)
+        workspace.debugReconcileTerminalPortalVisibilityForTesting()
+
+        XCTAssertFalse(
+            dockPanel.hostedView.debugPortalVisibleInUI,
+            "Closed dock terminal portals should not remain visible over the main workspace"
+        )
+#else
+        throw XCTSkip("Debug-only regression test")
+#endif
+    }
+
     func testTerminalFirstResponderConvergesSplitActiveStateWhenSelectionAlreadyMatches() {
         let workspace = Workspace()
         guard let leftPanelId = workspace.focusedPanelId,

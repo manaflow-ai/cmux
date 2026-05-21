@@ -7336,6 +7336,16 @@ final class WorkspaceDockLayout: ObservableObject {
         allDocks.map(\.controller)
     }
 
+    var openControllers: [BonsplitController] {
+        WorkspaceDockEdge.allCases.flatMap { edge in
+            openDocksSnapshot(for: edge).map(\.controller)
+        }
+    }
+
+    func isOpenController(_ controller: BonsplitController) -> Bool {
+        openControllers.contains { $0 === controller }
+    }
+
     func docksSnapshot(for edge: WorkspaceDockEdge) -> [WorkspaceDock] {
         docks(for: edge)
     }
@@ -7448,9 +7458,11 @@ final class WorkspaceDockLayout: ObservableObject {
 
     func closeEdge(_ edge: WorkspaceDockEdge) {
         guard openEdges.contains(edge) else { return }
+        let closedControllers = docks(for: edge).map(\.controller)
         var nextOpenEdges = openEdges
         nextOpenEdges.remove(edge)
         openEdges = nextOpenEdges
+        workspace?.dockEdgeDidClose(closedControllers: closedControllers)
     }
 
     func removeDock(_ dock: WorkspaceDock) {
@@ -7662,7 +7674,7 @@ final class Workspace: Identifiable, ObservableObject {
 
     /// The currently focused pane's panel ID
     var focusedPanelId: UUID? {
-        let controller = focusedBonsplitController ?? bonsplitController
+        let controller = openFocusedBonsplitController()
         if let paneId = controller.focusedPaneId,
            let tab = controller.selectedTab(inPane: paneId),
            let panelId = panelIdFromSurfaceId(tab.id) {
@@ -8568,6 +8580,10 @@ final class Workspace: Identifiable, ObservableObject {
 
     var allBonsplitControllers: [BonsplitController] {
         [bonsplitController] + dockLayout.allControllers
+    }
+
+    var renderedBonsplitControllers: [BonsplitController] {
+        [bonsplitController] + dockLayout.openControllers
     }
 
     func bonsplitController(containingTab tabId: TabID) -> BonsplitController? {
@@ -12513,13 +12529,7 @@ final class Workspace: Identifiable, ObservableObject {
     }
 
     func moveFocus(direction: NavigationDirection) {
-        let previousFocusedPanelId = focusedPanelId
         let controller = currentFocusNavigationController()
-
-        // Unfocus the currently-focused panel before navigating.
-        if let prevPanelId = previousFocusedPanelId, let prev = panels[prevPanelId] {
-            prev.unfocus()
-        }
 
         if moveFocusWithinController(controller, direction: direction) {
             return
@@ -12533,11 +12543,7 @@ final class Workspace: Identifiable, ObservableObject {
     }
 
     private func currentFocusNavigationController() -> BonsplitController {
-        guard let controller = focusedBonsplitController,
-              allBonsplitControllers.contains(where: { $0 === controller }) else {
-            return bonsplitController
-        }
-        return controller
+        openFocusedBonsplitController()
     }
 
     func focusedBonsplitControllerForCommands() -> BonsplitController {
@@ -12591,6 +12597,28 @@ final class Workspace: Identifiable, ObservableObject {
 
     func focusBonsplitPane(_ paneId: PaneID, controller: BonsplitController) {
         _ = focusPane(paneId, in: controller)
+    }
+
+    func dockEdgeDidClose(closedControllers: [BonsplitController]) {
+        guard let controller = focusedBonsplitController,
+              closedControllers.contains(where: { $0 === controller }) else {
+            reconcileTerminalPortalVisibilityForCurrentRenderedLayout()
+            reconcileBrowserPortalVisibilityForCurrentRenderedLayout(reason: "workspace.dockEdgeDidClose")
+            return
+        }
+
+        focusedBonsplitController = bonsplitController
+        _ = focusPreferredPane(in: bonsplitController)
+        reconcileTerminalPortalVisibilityForCurrentRenderedLayout()
+        reconcileBrowserPortalVisibilityForCurrentRenderedLayout(reason: "workspace.dockEdgeDidClose")
+    }
+
+    private func openFocusedBonsplitController() -> BonsplitController {
+        guard let controller = focusedBonsplitController,
+              controller === bonsplitController || dockLayout.isOpenController(controller) else {
+            return bonsplitController
+        }
+        return controller
     }
 
     private func focusRegion(for controller: BonsplitController) -> WorkspaceFocusRegion {
@@ -13548,7 +13576,8 @@ final class Workspace: Identifiable, ObservableObject {
         guard portalRenderingEnabled else { return [] }
         var visiblePanelIds: Set<UUID> = []
 
-        for controller in allBonsplitControllers {
+        let renderedControllers = renderedBonsplitControllers
+        for controller in renderedControllers {
             let renderedPaneIds = controller.zoomedPaneId.map { [$0] } ?? controller.allPaneIds
             for paneId in renderedPaneIds {
                 let selectedTab = controller.selectedTab(inPane: paneId) ?? controller.tabs(inPane: paneId).first
@@ -13564,7 +13593,9 @@ final class Workspace: Identifiable, ObservableObject {
         if let focusedPanelId,
            panels[focusedPanelId] != nil,
            let focusedPaneId = paneId(forPanelId: focusedPanelId),
-           bonsplitController(containingPane: focusedPaneId)?.allPaneIds.contains(where: { $0.id == focusedPaneId.id }) == true {
+           renderedControllers.contains(where: { controller in
+               controller.allPaneIds.contains(where: { $0.id == focusedPaneId.id })
+           }) {
             visiblePanelIds.insert(focusedPanelId)
         }
 
