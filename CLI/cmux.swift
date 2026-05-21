@@ -8527,7 +8527,12 @@ struct CMUXCLI {
             if count > 0 {
                 FileHandle.standardOutput.write(Data(outputBuffer.prefix(count)))
             } else if count == 0 {
-                try handleSSHPTYBridgeEOF(client: client, workspaceId: workspaceId, sessionID: sessionID)
+                try handleSSHPTYBridgeEOF(
+                    client: client,
+                    workspaceId: workspaceId,
+                    sessionID: sessionID,
+                    attachmentID: attachmentID
+                )
                 return
             } else if errno != EINTR {
                 throw CLIError(message: "ssh-pty-attach: bridge read failed")
@@ -8535,7 +8540,12 @@ struct CMUXCLI {
         }
     }
 
-    private func handleSSHPTYBridgeEOF(client: SocketClient, workspaceId: String, sessionID: String) throws {
+    private func handleSSHPTYBridgeEOF(
+        client: SocketClient,
+        workspaceId: String,
+        sessionID: String,
+        attachmentID: String
+    ) throws {
         let response: [String: Any]
         do {
             response = try client.sendV2(method: "workspace.remote.pty_sessions", params: [
@@ -8563,6 +8573,19 @@ struct CMUXCLI {
         if sessionStillRunning {
             throw CLIError(
                 message: "ssh-pty-attach: bridge closed while remote PTY session is still running",
+                exitCode: 255
+            )
+        }
+
+        do {
+            _ = try client.sendV2(method: "workspace.remote.pty_attach_end", params: [
+                "workspace_id": workspaceId,
+                "surface_id": attachmentID,
+                "session_id": sessionID,
+            ])
+        } catch {
+            throw CLIError(
+                message: "ssh-pty-attach: remote PTY exited but local session cleanup failed: \(error)",
                 exitCode: 255
             )
         }

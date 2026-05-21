@@ -4490,6 +4490,8 @@ final class WorkspaceRemotePTYBridgeServer {
     private final class Session {
         private static let maxHandshakeBytes = 4096
         private static let handshakeTimeout: TimeInterval = 30.0
+        private static let maxPendingOutputSends = 256
+        private static let maxPendingOutputBytes = 4 * 1024 * 1024
 
         private let connection: NWConnection
         private let rpcClient: any WorkspaceRemotePTYBridgeRPCClient
@@ -4505,6 +4507,7 @@ final class WorkspaceRemotePTYBridgeServer {
         private var isAttached = false
         private var handshakeBuffer = Data()
         private var pendingOutputSends = 0
+        private var pendingOutputBytes = 0
         private var closeWhenOutputFlushes: Bool?
         private var handshakeTimeoutWorkItem: DispatchWorkItem?
 
@@ -4646,20 +4649,33 @@ final class WorkspaceRemotePTYBridgeServer {
                 return
             case .data(let data):
                 guard !data.isEmpty else { return }
-                pendingOutputSends += 1
-                connection.send(content: data, completion: .contentProcessed { [weak self] error in
-                    self?.queue.async {
-                        self?.handleOutputSendFinished(error: error)
-                    }
-                })
+                sendBufferedOutput(data, detachOnOverflow: true)
             case .exit, .error:
                 closeAfterOutputFlush(detach: false)
             }
         }
 
-        private func handleOutputSendFinished(error: NWError?) {
+        private func sendBufferedOutput(_ data: Data, detachOnOverflow: Bool) {
+            guard !isClosed, !data.isEmpty else { return }
+            guard pendingOutputSends < Self.maxPendingOutputSends,
+                  pendingOutputBytes <= Self.maxPendingOutputBytes - data.count else {
+                close(detach: detachOnOverflow)
+                return
+            }
+
+            pendingOutputSends += 1
+            pendingOutputBytes += data.count
+            connection.send(content: data, completion: .contentProcessed { [weak self] error in
+                self?.queue.async {
+                    self?.handleOutputSendFinished(bytes: data.count, error: error)
+                }
+            })
+        }
+
+        private func handleOutputSendFinished(bytes: Int, error: NWError?) {
             guard !isClosed else { return }
             pendingOutputSends = max(0, pendingOutputSends - 1)
+            pendingOutputBytes = max(0, pendingOutputBytes - bytes)
             if error != nil {
                 close(detach: true)
                 return
@@ -4685,12 +4701,7 @@ final class WorkspaceRemotePTYBridgeServer {
             }
             var line = data
             line.append(0x0A)
-            pendingOutputSends += 1
-            connection.send(content: line, completion: .contentProcessed { [weak self] error in
-                self?.queue.async {
-                    self?.handleOutputSendFinished(error: error)
-                }
-            })
+            sendBufferedOutput(line, detachOnOverflow: false)
         }
 
         private func closeWithBridgeError(_ message: String) {
@@ -10919,6 +10930,21 @@ final class Workspace: Identifiable, ObservableObject {
 
     func discardRemotePTYSessionID(panelId: UUID) {
         remotePTYSessionIDsByPanelId.removeValue(forKey: panelId)
+    }
+
+    @discardableResult
+    func markRemotePTYAttachEnded(surfaceId: UUID, sessionID: String) -> (clearedRemotePTYSession: Bool, untrackedRemoteTerminal: Bool) {
+        let normalizedSessionID = normalizedRemotePTYSessionID(sessionID)
+        let expectedSessionID = normalizedRemotePTYSessionID(remotePTYSessionIDsByPanelId[surfaceId])
+            ?? Self.defaultSSHPTYSessionID(workspaceId: id, panelId: surfaceId)
+        guard let normalizedSessionID, normalizedSessionID == expectedSessionID else {
+            return (false, false)
+        }
+
+        let wasTracked = activeRemoteTerminalSurfaceIds.contains(surfaceId)
+        remotePTYSessionIDsByPanelId.removeValue(forKey: surfaceId)
+        untrackRemoteTerminalSurface(surfaceId)
+        return (true, wasTracked)
     }
 
     private func maybeDemoteRemoteWorkspaceAfterSSHSessionEnded() {

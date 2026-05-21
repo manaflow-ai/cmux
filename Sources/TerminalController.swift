@@ -2918,6 +2918,8 @@ class TerminalController {
             return v2Result(id: id, self.v2WorkspaceRemotePTYBridge(params: params))
         case "workspace.remote.pty_resize":
             return v2Result(id: id, self.v2WorkspaceRemotePTYResize(params: params))
+        case "workspace.remote.pty_attach_end":
+            return v2Result(id: id, self.v2WorkspaceRemotePTYAttachEnd(params: params))
         case "workspace.remote.terminal_session_end":
             return v2Result(id: id, self.v2WorkspaceRemoteTerminalSessionEnd(params: params))
         case "session.restore_previous":
@@ -3343,6 +3345,7 @@ class TerminalController {
             "workspace.remote.pty_close",
             "workspace.remote.pty_bridge",
             "workspace.remote.pty_resize",
+            "workspace.remote.pty_attach_end",
             "workspace.remote.terminal_session_end",
             "session.restore_previous",
             "settings.open",
@@ -6046,6 +6049,58 @@ class TerminalController {
                 "attachment_id": attachmentID,
             ])
         }
+    }
+
+    private func v2WorkspaceRemotePTYAttachEnd(params: [String: Any]) -> V2CallResult {
+        guard let workspaceId = v2UUID(params, "workspace_id") else {
+            return .err(code: "invalid_params", message: "Missing or invalid workspace_id", data: nil)
+        }
+        guard let surfaceId = v2UUID(params, "surface_id") else {
+            return .err(code: "invalid_params", message: "Missing or invalid surface_id", data: nil)
+        }
+        guard let sessionID = v2RawString(params, "session_id")?
+            .trimmingCharacters(in: .whitespacesAndNewlines),
+              !sessionID.isEmpty else {
+            return .err(code: "invalid_params", message: "Missing session_id", data: nil)
+        }
+
+        var result: V2CallResult = .ok([
+            "workspace_id": workspaceId.uuidString,
+            "workspace_ref": v2Ref(kind: .workspace, uuid: workspaceId),
+            "surface_id": surfaceId.uuidString,
+            "surface_ref": v2Ref(kind: .surface, uuid: surfaceId),
+            "session_id": sessionID,
+            "workspace_found": false,
+            "cleared_remote_pty_session": false,
+            "untracked_remote_terminal": false,
+        ])
+
+        v2MainSync {
+            guard let owner = AppDelegate.shared?.tabManagerFor(tabId: workspaceId),
+                  let workspace = owner.tabs.first(where: { $0.id == workspaceId }) else {
+                return
+            }
+            let outcome = workspace.markRemotePTYAttachEnded(
+                surfaceId: surfaceId,
+                sessionID: sessionID
+            )
+            let windowId = v2ResolveWindowId(tabManager: owner)
+            result = .ok([
+                "window_id": v2OrNull(windowId?.uuidString),
+                "window_ref": v2Ref(kind: .window, uuid: windowId),
+                "workspace_id": workspace.id.uuidString,
+                "workspace_ref": v2Ref(kind: .workspace, uuid: workspace.id),
+                "surface_id": surfaceId.uuidString,
+                "surface_ref": v2Ref(kind: .surface, uuid: surfaceId),
+                "session_id": sessionID,
+                "workspace_found": true,
+                "cleared_remote_pty_session": outcome.clearedRemotePTYSession,
+                "untracked_remote_terminal": outcome.untrackedRemoteTerminal,
+                "remote": workspace.remoteStatusPayload(),
+            ])
+        }
+
+        return result
     }
 
     private func v2WorkspaceRemoteTerminalSessionEnd(params: [String: Any]) -> V2CallResult {

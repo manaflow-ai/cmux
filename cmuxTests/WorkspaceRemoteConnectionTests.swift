@@ -1982,6 +1982,35 @@ final class CLINotifyProcessIntegrationTests: XCTestCase {
         func detachPTY(sessionID: String, attachmentID: String) {}
     }
 
+    private final class FloodPTYBridgeRPC: WorkspaceRemotePTYBridgeRPCClient {
+        let detachSemaphore = DispatchSemaphore(value: 0)
+
+        func attachBridgePTY(
+            sessionID: String,
+            attachmentID: String,
+            cols: Int,
+            rows: Int,
+            command: String?,
+            requireExisting: Bool,
+            queue: DispatchQueue,
+            onEvent: @escaping (WorkspaceRemotePTYBridgeEvent) -> Void
+        ) throws -> String {
+            queue.async {
+                let chunk = Data(repeating: 0x78, count: 64 * 1024)
+                for _ in 0..<512 {
+                    onEvent(.data(chunk))
+                }
+            }
+            return attachmentID
+        }
+
+        func writePTY(sessionID: String, attachmentID: String, data: Data) throws {}
+
+        func detachPTY(sessionID: String, attachmentID: String) {
+            detachSemaphore.signal()
+        }
+    }
+
     private final class MockSocketServerState: @unchecked Sendable {
         private let lock = NSLock()
         private let commandSemaphore = DispatchSemaphore(value: 0)
@@ -3810,6 +3839,39 @@ final class CLINotifyProcessIntegrationTests: XCTestCase {
         XCTAssertEqual(rpcClient.attachCalls.first?.attachmentID, "attachment-short-lived")
         XCTAssertEqual(rpcClient.attachCalls.first?.command, "printf done")
         XCTAssertEqual(rpcClient.attachCalls.first?.requireExisting, true)
+    }
+
+    func testPTYBridgeClosesBackpressuredOutput() throws {
+        let rpcClient = FloodPTYBridgeRPC()
+        let stopped = DispatchSemaphore(value: 0)
+        let server = WorkspaceRemotePTYBridgeServer(
+            rpcClient: rpcClient,
+            sessionID: "session-output-flood",
+            attachmentID: "attachment-output-flood",
+            command: nil,
+            requireExisting: false
+        ) {
+            stopped.signal()
+        }
+        let endpoint = try server.start()
+        let fd = try connectLoopbackTCP(port: endpoint.port)
+        defer {
+            Darwin.close(fd)
+            server.stop()
+        }
+
+        let handshakeData = try JSONSerialization.data(withJSONObject: [
+            "token": endpoint.token,
+            "cols": 80,
+            "rows": 24,
+        ], options: [])
+        guard let handshake = String(data: handshakeData, encoding: .utf8) else {
+            return XCTFail("Failed to encode bridge handshake")
+        }
+        XCTAssertTrue(writeAll(handshake + "\n", to: fd))
+
+        XCTAssertEqual(rpcClient.detachSemaphore.wait(timeout: .now() + 2), .success)
+        XCTAssertEqual(stopped.wait(timeout: .now() + 2), .success)
     }
 
     private func codexSessionDirectory(in codexHome: URL, date: Date = Date()) throws -> URL {
