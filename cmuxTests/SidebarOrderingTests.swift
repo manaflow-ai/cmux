@@ -77,6 +77,63 @@ final class SidebarBranchLayoutSettingsTests: XCTestCase {
 }
 
 
+final class SidebarRecentsGlyphMapperTests: XCTestCase {
+    func testAttentionStatesUseActiveGlyph() {
+        XCTAssertEqual(
+            SidebarRecentsGlyphMapper.glyphKind(for: SidebarRecentsGlyphInput(unreadCount: 1)),
+            .active
+        )
+        XCTAssertEqual(
+            SidebarRecentsGlyphMapper.glyphKind(for: SidebarRecentsGlyphInput(hasRunningCommand: true)),
+            .active
+        )
+        XCTAssertEqual(
+            SidebarRecentsGlyphMapper.glyphKind(for: SidebarRecentsGlyphInput(remoteConnectionState: .error)),
+            .active
+        )
+    }
+
+    func testBranchStateBeatsFileStateAfterAttention() {
+        XCTAssertEqual(
+            SidebarRecentsGlyphMapper.glyphKind(for: SidebarRecentsGlyphInput(hasPullRequest: true, hasFileOrDocumentPanel: true)),
+            .branch
+        )
+        XCTAssertEqual(
+            SidebarRecentsGlyphMapper.glyphKind(for: SidebarRecentsGlyphInput(hasGitBranch: true)),
+            .branch
+        )
+    }
+
+    func testFileStateAndIdleFallback() {
+        XCTAssertEqual(
+            SidebarRecentsGlyphMapper.glyphKind(for: SidebarRecentsGlyphInput(hasFileOrDocumentPanel: true)),
+            .file
+        )
+        XCTAssertEqual(
+            SidebarRecentsGlyphMapper.glyphKind(for: SidebarRecentsGlyphInput()),
+            .idle
+        )
+    }
+}
+
+
+final class SidebarRecentsTitleFormatterTests: XCTestCase {
+    func testCollapsesWhitespaceIntoSingleLineTitle() {
+        XCTAssertEqual(
+            SidebarRecentsTitleFormatter.singleLineTitle("  Review\n document\t safety before launch  "),
+            "Review document safety before launch"
+        )
+    }
+
+    func testUsesUntitledFallbackForBlankTitle() {
+        XCTAssertEqual(
+            SidebarRecentsTitleFormatter.singleLineTitle(" \n\t "),
+            "Untitled Workspace"
+        )
+    }
+}
+
+
 final class SidebarActiveTabIndicatorSettingsTests: XCTestCase {
     func testDefaultStyleWhenUnset() {
         let suiteName = "SidebarActiveTabIndicatorSettingsTests.Default.\(UUID().uuidString)"

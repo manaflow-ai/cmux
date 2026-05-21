@@ -7,6 +7,111 @@ enum SidebarMatchTerminalBackgroundSettings {
     static let legacyAppliedSettingsFileDefaultKey = "cmux.settingsFile.sidebarMatchTerminalBackground.appliedDefault.v1"
 }
 
+enum SidebarWorkspaceListStyle: String, CaseIterable, Identifiable {
+    case recents
+    case classic
+
+    var id: String { rawValue }
+
+    var displayName: String {
+        switch self {
+        case .recents:
+            return String(localized: "sidebar.style.recents", defaultValue: "Recents")
+        case .classic:
+            return String(localized: "sidebar.style.classic", defaultValue: "Classic")
+        }
+    }
+}
+
+enum SidebarWorkspaceListStyleSettings {
+    static let key = "sidebarWorkspaceListStyle"
+    static let defaultStyle: SidebarWorkspaceListStyle = .recents
+
+    static func resolvedStyle(rawValue: String?) -> SidebarWorkspaceListStyle {
+        guard let rawValue else { return defaultStyle }
+        return SidebarWorkspaceListStyle(rawValue: rawValue) ?? defaultStyle
+    }
+
+    static func current(defaults: UserDefaults = .standard) -> SidebarWorkspaceListStyle {
+        resolvedStyle(rawValue: defaults.string(forKey: key))
+    }
+}
+
+enum SidebarRecentsGlyphKind: String, CaseIterable, Equatable {
+    case active
+    case branch
+    case file
+    case idle
+}
+
+struct SidebarRecentsGlyphInput: Equatable {
+    let unreadCount: Int
+    let hasRunningCommand: Bool
+    let hasProgress: Bool
+    let remoteConnectionState: WorkspaceRemoteConnectionState?
+    let hasAgentStatus: Bool
+    let hasPullRequest: Bool
+    let hasGitBranch: Bool
+    let hasFileOrDocumentPanel: Bool
+
+    init(
+        unreadCount: Int = 0,
+        hasRunningCommand: Bool = false,
+        hasProgress: Bool = false,
+        remoteConnectionState: WorkspaceRemoteConnectionState? = nil,
+        hasAgentStatus: Bool = false,
+        hasPullRequest: Bool = false,
+        hasGitBranch: Bool = false,
+        hasFileOrDocumentPanel: Bool = false
+    ) {
+        self.unreadCount = unreadCount
+        self.hasRunningCommand = hasRunningCommand
+        self.hasProgress = hasProgress
+        self.remoteConnectionState = remoteConnectionState
+        self.hasAgentStatus = hasAgentStatus
+        self.hasPullRequest = hasPullRequest
+        self.hasGitBranch = hasGitBranch
+        self.hasFileOrDocumentPanel = hasFileOrDocumentPanel
+    }
+
+    var isAttention: Bool {
+        unreadCount > 0 ||
+            hasRunningCommand ||
+            hasProgress ||
+            hasAgentStatus ||
+            remoteConnectionState == .connecting ||
+            remoteConnectionState == .reconnecting ||
+            remoteConnectionState == .error
+    }
+}
+
+enum SidebarRecentsGlyphMapper {
+    static func glyphKind(for input: SidebarRecentsGlyphInput) -> SidebarRecentsGlyphKind {
+        if input.isAttention {
+            return .active
+        }
+        if input.hasPullRequest || input.hasGitBranch {
+            return .branch
+        }
+        if input.hasFileOrDocumentPanel {
+            return .file
+        }
+        return .idle
+    }
+}
+
+enum SidebarRecentsTitleFormatter {
+    static func singleLineTitle(_ title: String) -> String {
+        let collapsed = title
+            .split(whereSeparator: \.isWhitespace)
+            .joined(separator: " ")
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+        return collapsed.isEmpty
+            ? String(localized: "sidebar.workspace.untitled", defaultValue: "Untitled Workspace")
+            : collapsed
+    }
+}
+
 extension Color {
     init?(hex: String) {
         let hex = hex.trimmingCharacters(in: .init(charactersIn: "#"))

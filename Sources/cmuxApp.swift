@@ -5103,6 +5103,8 @@ struct SettingsView: View {
     private var autoResumeAgentSessions = AgentSessionAutoResumeSettings.defaultAutoResumeAgentSessions
     @AppStorage(WorkspaceAutoReorderSettings.key) private var workspaceAutoReorder = WorkspaceAutoReorderSettings.defaultValue
     @AppStorage(IMessageModeSettings.key) private var iMessageMode = IMessageModeSettings.defaultValue
+    @AppStorage(SidebarWorkspaceListStyleSettings.key)
+    private var sidebarWorkspaceListStyle = SidebarWorkspaceListStyleSettings.defaultStyle.rawValue
     @AppStorage(SidebarWorkspaceDetailSettings.hideAllDetailsKey)
     private var sidebarHideAllDetails = SidebarWorkspaceDetailSettings.defaultHideAllDetails
     @AppStorage(SidebarWorkspaceDetailSettings.showWorkspaceDescriptionKey)
@@ -6427,6 +6429,23 @@ struct SettingsView: View {
 
                         SettingsCardDivider()
 
+                        SettingsPickerRow(
+                            configurationReview: .json("sidebar.style"),
+                            String(localized: "settings.app.sidebarStyle", defaultValue: "Sidebar Style"),
+                            subtitle: sidebarWorkspaceListStyle == SidebarWorkspaceListStyle.recents.rawValue
+                                ? String(localized: "settings.app.sidebarStyle.subtitleRecents", defaultValue: "Compact recent workspace rows with Codex/Claude-style status glyphs.")
+                                : String(localized: "settings.app.sidebarStyle.subtitleClassic", defaultValue: "Full cmux metadata rows with descriptions, PRs, logs, ports, and progress."),
+                            controlWidth: pickerColumnWidth,
+                            selection: $sidebarWorkspaceListStyle,
+                            accessibilityId: "SettingsSidebarStylePicker"
+                        ) {
+                            ForEach(SidebarWorkspaceListStyle.allCases) { style in
+                                Text(style.displayName).tag(style.rawValue)
+                            }
+                        }
+
+                        SettingsCardDivider()
+
                         SettingsCardRow(
                             configurationReview: .json("sidebar.hideAllDetails"),
                             String(localized: "settings.app.hideAllSidebarDetails", defaultValue: "Hide All Sidebar Details"),
@@ -7630,6 +7649,7 @@ struct SettingsView: View {
         }
         workspaceAutoReorder = WorkspaceAutoReorderSettings.defaultValue
         iMessageMode = IMessageModeSettings.defaultValue
+        sidebarWorkspaceListStyle = SidebarWorkspaceListStyleSettings.defaultStyle.rawValue
         sidebarHideAllDetails = SidebarWorkspaceDetailSettings.defaultHideAllDetails
         sidebarShowWorkspaceDescription = SidebarWorkspaceDetailSettings.defaultShowWorkspaceDescription
         sidebarShowNotificationMessage = SidebarWorkspaceDetailSettings.defaultShowNotificationMessage

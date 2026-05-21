@@ -77,6 +77,10 @@ const settingsFileExample = `{
   //   "suppressSubagentNotifications": true
   // },
 
+  // "sidebar": {
+  //   "style": "recents"
+  // },
+
   // "workspaceColors": {
   //   "colors": {
   //     "Red": "#C0392B",
@@ -356,6 +360,20 @@ working-directory = ~/code`}</CodeBlock>
       "Blue": "#1565C0",
       "Neon Mint": "#00F5D4"
     }
+  }
+}`}</CodeBlock>
+              </>
+            )}
+            {sectionName === "sidebar" && (
+              <>
+                <p>
+                  <code>sidebar.style</code> controls the workspace list surface. Use{" "}
+                  <code>recents</code> for the compact Codex/Claude-style activity list, or{" "}
+                  <code>classic</code> for the older metadata-dense cmux rows.
+                </p>
+                <CodeBlock lang="json">{`{
+  "sidebar": {
+    "style": "recents"
   }
 }`}</CodeBlock>
               </>

@@ -110,11 +110,53 @@ final class WorkspaceSidebarScrollUITests: XCTestCase {
         )
     }
 
+    func testRecentsSidebarFixtureRendersCompactRows() {
+        let app = XCUIApplication()
+        configureRecentsFixtureLaunch(app)
+        launchAndEnsureRunning(app)
+        XCTAssertTrue(waitForWindowCount(atLeast: 1, app: app, timeout: 8.0), "Expected a main window")
+
+        let header = app.descendants(matching: .any)["SidebarRecentsHeader"].firstMatch
+        XCTAssertTrue(header.waitForExistence(timeout: 8.0), "Expected the Recents header")
+        XCTAssertTrue(
+            rowContaining("Add cmux workspace navigation", app: app).waitForExistence(timeout: 8.0),
+            "Expected active fixture workspace row"
+        )
+        XCTAssertTrue(
+            rowContaining("Estimate GPU costs for OpenAI training workloads", app: app).waitForExistence(timeout: 8.0),
+            "Expected branch fixture workspace row"
+        )
+        XCTAssertTrue(
+            rowContaining("Review document safety before launch", app: app).waitForExistence(timeout: 8.0),
+            "Expected file fixture workspace row"
+        )
+        XCTAssertTrue(
+            rowContaining("Foo bar 123", app: app).waitForExistence(timeout: 8.0),
+            "Expected idle fixture workspace row"
+        )
+
+        let attachment = XCTAttachment(screenshot: app.screenshot())
+        attachment.name = "codex-claude-recents-sidebar"
+        attachment.lifetime = .keepAlways
+        add(attachment)
+    }
+
     private func configureLaunch(_ app: XCUIApplication) {
         app.launchArguments += ["-newWorkspacePlacement", "end"]
         app.launchArguments += ["-AppleLanguages", "(en)", "-AppleLocale", "en_US"]
         app.launchEnvironment["CMUX_UI_TEST_MODE"] = "1"
         app.launchEnvironment["CMUX_TAG"] = "ui-sidebar-scroll"
+    }
+
+    private func configureRecentsFixtureLaunch(_ app: XCUIApplication) {
+        app.launchArguments += ["-sidebarWorkspaceListStyle", "recents"]
+        app.launchArguments += ["-newWorkspacePlacement", "end"]
+        app.launchArguments += ["-AppleLanguages", "(en)", "-AppleLocale", "en_US"]
+        app.launchEnvironment["CMUX_UI_TEST_MODE"] = "1"
+        app.launchEnvironment["CMUX_UI_TEST_SIDEBAR_RECENTS_FIXTURE"] = "1"
+        app.launchEnvironment["CMUX_UI_TEST_SIDEBAR_RECENTS_FIXTURE_PATH"] =
+            NSTemporaryDirectory() + "cmux-sidebar-recents-fixture.json"
+        app.launchEnvironment["CMUX_TAG"] = "ui-sidebar-recents"
     }
 
     private func waitForWorkspaceRowHittable(
@@ -147,6 +189,12 @@ final class WorkspaceSidebarScrollUITests: XCTestCase {
         let position = "workspace \(index) of \(count)"
         return app.descendants(matching: .other)
             .matching(NSPredicate(format: "label ENDSWITH %@", position))
+            .firstMatch
+    }
+
+    private func rowContaining(_ title: String, app: XCUIApplication) -> XCUIElement {
+        app.descendants(matching: .other)
+            .matching(NSPredicate(format: "label CONTAINS %@", title))
             .firstMatch
     }
 
