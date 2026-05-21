@@ -10,6 +10,11 @@ import sys
 import time
 from pathlib import Path
 
+FATAL_OUTPUT_MARKERS = (
+    b"Program crashed:",
+    b"Press space to interact, D to debug",
+)
+
 
 def terminate_process_group(process: subprocess.Popen[bytes], grace_seconds: float) -> None:
     if process.poll() is not None:
@@ -56,6 +61,8 @@ def main() -> int:
     output_path.parent.mkdir(parents=True, exist_ok=True)
     last_output = time.monotonic()
     timed_out = False
+    fatal_marker: bytes | None = None
+    output_tail = b""
 
     with output_path.open("wb") as output_file:
         process = subprocess.Popen(
@@ -79,6 +86,20 @@ def main() -> int:
                         sys.stdout.buffer.write(chunk)
                         sys.stdout.buffer.flush()
                         last_output = time.monotonic()
+                        searchable = output_tail + chunk
+                        fatal_marker = next((marker for marker in FATAL_OUTPUT_MARKERS if marker in searchable), None)
+                        output_tail = searchable[-4096:]
+                        if fatal_marker is not None:
+                            message = (
+                                "\n::error::Fatal output detected; terminating command before it can stall: "
+                                f"{fatal_marker.decode(errors='replace')}\n"
+                            ).encode()
+                            output_file.write(message)
+                            output_file.flush()
+                            sys.stdout.buffer.write(message)
+                            sys.stdout.buffer.flush()
+                            terminate_process_group(process, args.termination_grace_seconds)
+                            break
                     else:
                         selector.unregister(process.stdout)
                         break
@@ -108,7 +129,7 @@ def main() -> int:
         finally:
             selector.close()
 
-    if timed_out:
+    if timed_out or fatal_marker is not None:
         return 124
     return_code = process.wait()
     if return_code < 0:

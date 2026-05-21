@@ -1,0 +1,19 @@
+#if canImport(cmux_DEV)
+@testable import cmux_DEV
+#elseif canImport(cmux)
+@testable import cmux
+#endif
+
+@MainActor
+extension TabManager {
+    func teardownAllWorkspacesForTesting(notificationStore: TerminalNotificationStore? = AppDelegate.shared?.notificationStore) {
+        for workspace in Array(tabs) {
+            notificationStore?.clearNotifications(forTabId: workspace.id)
+            workspace.teardownAllPanels()
+            workspace.teardownRemoteConnection()
+            workspace.owningTabManager = nil
+        }
+        tabs.removeAll(keepingCapacity: false)
+        selectedTabId = nil
+    }
+}

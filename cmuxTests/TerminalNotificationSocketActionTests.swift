@@ -259,10 +259,9 @@ final class TerminalNotificationSocketActionTests: XCTestCase {
             if let windowId {
                 appDelegate.unregisterMainWindowContextForTesting(windowId: windowId)
             }
+            window?.orderOut(nil)
             window?.close()
-            for workspace in manager.tabs {
-                manager.closeWorkspace(workspace)
-            }
+            manager.teardownAllWorkspacesForTesting(notificationStore: store)
             store.replaceNotificationsForTesting([])
             store.resetNotificationDeliveryHandlerForTesting()
             store.resetSuppressedNotificationFeedbackHandlerForTesting()

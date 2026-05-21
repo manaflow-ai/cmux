@@ -27,6 +27,9 @@ jobs:
       - name: Validate unit-test SwiftPM retry guard
         run: ./tests/test_ci_unit_test_spm_retry.sh
 
+      - name: Validate output watchdog fatal crash handling
+        run: bash ./tests/test_output_watchdog_runtime.sh
+
       - name: Validate cmux scheme test configuration
         run: ./tests/test_ci_scheme_testaction_debug.sh
 
@@ -161,8 +164,8 @@ jobs:
     env:
       CMUX_SKIP_ZIG_BUILD: "1"
       # XCTest app-host crashes can leave xcodebuild waiting at Swift's
-      # interactive crash prompt. Keep backtraces, but disable prompting/color.
-      SWIFT_BACKTRACE: "interactive=no,color=no"
+      # interactive crash prompt. Disable the crash catcher entirely in CI.
+      SWIFT_BACKTRACE: "enable=no"
     steps:
       - name: Checkout
         uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
