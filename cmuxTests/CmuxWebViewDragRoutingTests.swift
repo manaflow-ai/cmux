@@ -327,6 +327,28 @@ final class BrowserScreenshotPipelineTests: XCTestCase {
         XCTAssertNotNil(pasteboard.data(forType: .tiff))
     }
 
+    func testScreenshotCaptureGateRejectsNestedCaptureUntilCurrentFinishes() async throws {
+        let gate = BrowserScreenshotCaptureGate()
+        var nestedCaptureRan = false
+
+        let outerResult = try await gate.run {
+            let nestedResult = try await gate.run {
+                nestedCaptureRan = true
+                return "nested"
+            }
+            XCTAssertNil(nestedResult)
+            return "outer"
+        }
+
+        XCTAssertEqual(outerResult, "outer")
+        XCTAssertFalse(nestedCaptureRan)
+
+        let nextResult = try await gate.run {
+            "next"
+        }
+        XCTAssertEqual(nextResult, "next")
+    }
+
     func testSectionCropMapsViewSelectionIntoSnapshotImageCoordinates() throws {
         let cropRect = try BrowserScreenshotCrop.imageRect(
             forSelectionInView: NSRect(x: 50, y: 25, width: 100, height: 50),

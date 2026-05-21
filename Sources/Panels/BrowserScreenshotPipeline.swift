@@ -51,6 +51,23 @@ struct BrowserScreenshotResult {
     let outputSize: NSSize
 }
 
+@MainActor
+final class BrowserScreenshotCaptureGate {
+    private var isRunning = false
+
+    func run<T>(_ operation: @MainActor () async throws -> T) async throws -> T? {
+        guard !isRunning else {
+            return nil
+        }
+
+        isRunning = true
+        defer {
+            isRunning = false
+        }
+        return try await operation()
+    }
+}
+
 enum BrowserScreenshotCrop {
     static func imageRect(
         forSelectionInView selection: NSRect,

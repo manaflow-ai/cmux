@@ -439,6 +439,7 @@ struct BrowserPanelView: View {
     @State private var emptyStateImportBrowserRefreshGeneration: UInt64 = 0
     @State private var inlineCompletion: OmnibarInlineCompletion?
     @State private var screenshotPageCopied: Bool = false
+    @State private var screenshotPageCaptureInProgress: Bool = false
     @State private var screenshotPageCopiedTimer: Timer?
     @State private var omnibarSelectionRange: NSRange = NSRange(location: NSNotFound, length: 0)
     @State private var omnibarHasMarkedText: Bool = false
@@ -679,10 +680,15 @@ struct BrowserPanelView: View {
     }
 
     private func handleScreenshotPageButtonAction() {
+        guard !screenshotPageCaptureInProgress else { return }
+        screenshotPageCaptureInProgress = true
 #if DEBUG
         cmuxDebugLog("browser.screenshot.page.toolbar panel=\(panel.id.uuidString.prefix(5))")
 #endif
         Task { @MainActor in
+            defer {
+                screenshotPageCaptureInProgress = false
+            }
             let didCopy = await panel.captureScreenshotPageToClipboard()
             guard didCopy else { return }
             showScreenshotPageCopiedIndicator()
@@ -1115,7 +1121,7 @@ struct BrowserPanelView: View {
         }
         .buttonStyle(OmnibarAddressButtonStyle())
         .frame(width: addressBarButtonSize, height: addressBarButtonSize, alignment: .center)
-        .disabled(!panel.shouldRenderWebView)
+        .disabled(!panel.shouldRenderWebView || screenshotPageCaptureInProgress)
         .opacity(panel.shouldRenderWebView ? 1.0 : 0.4)
         .safeHelp(
             screenshotPageCopied

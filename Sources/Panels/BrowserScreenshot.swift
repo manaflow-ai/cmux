@@ -291,9 +291,26 @@ private final class BrowserScreenshotSelectionOverlayView: NSView {
     }
 }
 
+private var cmuxWebViewScreenshotCaptureGateKey: UInt8 = 0
 private var cmuxWebViewScreenshotSelectionOverlayKey: UInt8 = 0
 
 extension CmuxWebView {
+    @MainActor
+    private var screenshotCaptureGate: BrowserScreenshotCaptureGate {
+        if let gate = objc_getAssociatedObject(self, &cmuxWebViewScreenshotCaptureGateKey) as? BrowserScreenshotCaptureGate {
+            return gate
+        }
+
+        let gate = BrowserScreenshotCaptureGate()
+        objc_setAssociatedObject(
+            self,
+            &cmuxWebViewScreenshotCaptureGateKey,
+            gate,
+            .OBJC_ASSOCIATION_RETAIN_NONATOMIC
+        )
+        return gate
+    }
+
     private var screenshotSelectionOverlay: BrowserScreenshotSelectionOverlayView? {
         get {
             objc_getAssociatedObject(self, &cmuxWebViewScreenshotSelectionOverlayKey) as? BrowserScreenshotSelectionOverlayView
@@ -336,11 +353,18 @@ extension CmuxWebView {
     @MainActor
     func captureScreenshotPageToClipboard() async -> Bool {
         do {
-            _ = try await BrowserScreenshotPipeline.captureAndWrite(
-                mode: .fullPage,
-                snapshot: { try await BrowserScreenshotWebViewSnapshotter.captureFullPage(from: self) },
-                pasteboard: .general
-            )
+            guard let _ = try await screenshotCaptureGate.run({
+                try await BrowserScreenshotPipeline.captureAndWrite(
+                    mode: .fullPage,
+                    snapshot: { try await BrowserScreenshotWebViewSnapshotter.captureFullPage(from: self) },
+                    pasteboard: .general
+                )
+            }) else {
+                #if DEBUG
+                cmuxDebugLog("browser.screenshot.page.ignored reason=captureInProgress")
+                #endif
+                return false
+            }
             BrowserScreenshotFlash.show(over: self)
             return true
         } catch {
@@ -374,11 +398,18 @@ extension CmuxWebView {
             Task { @MainActor [weak self] in
                 guard let self else { return }
                 do {
-                    _ = try await BrowserScreenshotPipeline.captureAndWrite(
-                        mode: .section(selectionInView: selection, viewBounds: self.bounds),
-                        snapshot: { try await BrowserScreenshotWebViewSnapshotter.captureVisibleViewport(from: self) },
-                        pasteboard: .general
-                    )
+                    guard let _ = try await self.screenshotCaptureGate.run({
+                        try await BrowserScreenshotPipeline.captureAndWrite(
+                            mode: .section(selectionInView: selection, viewBounds: self.bounds),
+                            snapshot: { try await BrowserScreenshotWebViewSnapshotter.captureVisibleViewport(from: self) },
+                            pasteboard: .general
+                        )
+                    }) else {
+                        #if DEBUG
+                        cmuxDebugLog("browser.screenshot.section.ignored reason=captureInProgress")
+                        #endif
+                        return
+                    }
                     BrowserScreenshotFlash.show(over: self)
                 } catch {
                     #if DEBUG
