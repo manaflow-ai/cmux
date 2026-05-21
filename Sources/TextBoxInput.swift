@@ -3,6 +3,7 @@ import Carbon.HIToolbox
 import Observation
 import SwiftUI
 import UniformTypeIdentifiers
+import os
 
 private enum TextBoxLayout {
     static let minLines = 1
@@ -274,8 +275,9 @@ struct TextBoxAttachment: Identifiable {
 
 private enum TextBoxDraftAttachmentStorage {
     private static let directoryName = "textbox-draft-attachments"
-    private static let copiedDraftPathLock = NSLock()
-    private nonisolated(unsafe) static var copiedDraftPathByOriginalPath: [String: String] = [:]
+    private nonisolated static let copiedDraftPathByOriginalPath = OSAllocatedUnfairLock(
+        initialState: [String: String]()
+    )
 
     static func snapshot(for attachment: TextBoxAttachment) -> SessionTextBoxInputAttachmentSnapshot {
         guard let localURL = attachment.localURL,
@@ -319,17 +321,17 @@ private enum TextBoxDraftAttachmentStorage {
 
     static func removeCopiedDraftForOriginalTemporaryFile(_ fileURL: URL) {
         let originalPath = fileURL.standardizedFileURL.path
-        copiedDraftPathLock.lock()
-        let copiedPath = copiedDraftPathByOriginalPath.removeValue(forKey: originalPath)
-        copiedDraftPathLock.unlock()
+        let copiedPath = copiedDraftPathByOriginalPath.withLock { paths in
+            paths.removeValue(forKey: originalPath)
+        }
         guard let copiedPath else { return }
         try? FileManager.default.removeItem(atPath: copiedPath)
     }
 
     private static func trackCopiedDraft(originalURL: URL, durableURL: URL) {
-        copiedDraftPathLock.lock()
-        copiedDraftPathByOriginalPath[originalURL.standardizedFileURL.path] = durableURL.standardizedFileURL.path
-        copiedDraftPathLock.unlock()
+        copiedDraftPathByOriginalPath.withLock { paths in
+            paths[originalURL.standardizedFileURL.path] = durableURL.standardizedFileURL.path
+        }
     }
 
     private static func copiedSubmissionFields(

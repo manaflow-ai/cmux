@@ -2020,13 +2020,17 @@ class GhosttyApp {
         // Initialize Ghostty library first
         let result = ghostty_init(UInt(CommandLine.argc), CommandLine.unsafeArgv)
         if result != GHOSTTY_SUCCESS {
+            #if DEBUG
             cmuxDebugLog("ghostty.initialize.failed result=\(result)")
+            #endif
             return
         }
 
         // Load config
         guard let primaryConfig = ghostty_config_new() else {
+            #if DEBUG
             cmuxDebugLog("ghostty.initialize.config.failed")
+            #endif
             return
         }
 
@@ -2161,7 +2165,9 @@ class GhosttyApp {
             ghostty_config_free(primaryConfig)
 
             guard let fallbackConfig = ghostty_config_new() else {
+                #if DEBUG
                 cmuxDebugLog("ghostty.initialize.fallbackConfig.failed")
+                #endif
                 return
             }
 
@@ -2200,7 +2206,9 @@ class GhosttyApp {
                 Self.initLog("ghostty_app_new(fallback) failed")
                 Self.dumpConfigDiagnostics(fallbackConfig, label: "fallback")
                 #endif
+                #if DEBUG
                 cmuxDebugLog("ghostty.initialize.app.failed")
+                #endif
                 ghostty_config_free(fallbackConfig)
                 return
             }
@@ -5700,7 +5708,9 @@ final class TerminalSurface: Identifiable, ObservableObject {
         #endif
 
         guard let app = GhosttyApp.shared.app else {
+            #if DEBUG
             cmuxDebugLog("ghostty.surface.create.failed reason=appNotInitialized surface=\(id.uuidString)")
+            #endif
             #if DEBUG
             Self.surfaceLog("createSurface FAILED surface=\(id.uuidString): ghostty app not initialized")
             #endif
@@ -5946,7 +5956,9 @@ final class TerminalSurface: Identifiable, ObservableObject {
         if surface == nil {
             surfaceCallbackContext?.release()
             surfaceCallbackContext = nil
+            #if DEBUG
             cmuxDebugLog("ghostty.surface.create.failed reason=surfaceNewNil surface=\(id.uuidString)")
+            #endif
             #if DEBUG
             Self.surfaceLog("createSurface FAILED surface=\(id.uuidString): ghostty_surface_new returned nil")
             if let cfg = GhosttyApp.shared.config {

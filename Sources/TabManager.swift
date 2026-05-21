@@ -1722,7 +1722,9 @@ class TabManager: ObservableObject {
         )
     }
 
+    #if compiler(>=6.2)
     @concurrent
+    #endif
     private nonisolated static func resolveWorkspacePullRequestCandidateSeeds(
         _ seeds: [WorkspacePullRequestCandidateSeed]
     ) async -> WorkspacePullRequestCandidateResolution {
@@ -4936,7 +4938,9 @@ class TabManager: ObservableObject {
     }
 #endif
 
+    #if compiler(>=6.2)
     @concurrent
+    #endif
     private nonisolated static func githubRepositorySlugs(directory: String) async -> [String] {
         guard let repository = resolveGitRepository(containing: directory),
               let output = gitRemoteVOutput(repository: repository) else {

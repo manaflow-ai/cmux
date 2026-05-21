@@ -447,7 +447,7 @@ final class TerminalPanel: Panel, ObservableObject {
         // Re-enable it immediately for explicit focus requests (socket/UI) so ensureFocus can run.
         hostedView.preparePanelFocusIntentForActivation(.surface)
         hostedView.setActive(true)
-        guard let focusWindow = surface.uiWindow ?? hostedView.window ?? textBoxInputView?.window else {
+        guard let focusWindow = surface.uiWindow ?? hostedView.window else {
             surface.setFocus(false)
             return false
         }
