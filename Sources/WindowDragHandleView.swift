@@ -634,21 +634,29 @@ enum MinimalModeSidebarTitlebarControlsMetrics {
     static let hostHeight: CGFloat = 28
     static let singleButtonHostWidth: CGFloat = hostHeight
 
+    @MainActor
     static func titlebarControlsOpticalYOffset(in window: NSWindow?) -> CGFloat {
         let scale = max(1.0, window?.backingScaleFactor ?? NSScreen.main?.backingScaleFactor ?? 1.0)
         return 1.0 / scale
     }
 }
 
+@MainActor
 func minimalModeSidebarTitlebarControlsFrame(
     in window: NSWindow,
     defaults: UserDefaults = .standard
-) -> NSRect? {
-    guard let contentView = window.contentView else { return nil }
+) -> NSRect {
+    let contentView = window.contentView
+    let contentBounds = contentView?.bounds ?? NSRect(
+        x: 0,
+        y: 0,
+        width: window.frame.width,
+        height: window.frame.height
+    )
     let trafficLightFrameInContent = minimalModeTrafficLightFrameInContentCoordinates(for: window)
     return minimalModeSidebarTitlebarControlsFrame(
-        contentBounds: contentView.bounds,
-        contentViewIsFlipped: contentView.isFlipped,
+        contentBounds: contentBounds,
+        contentViewIsFlipped: contentView?.isFlipped ?? false,
         trafficLightFrameInContent: trafficLightFrameInContent,
         visualDownwardAdjustment: trafficLightFrameInContent == nil
             ? 0
@@ -657,6 +665,7 @@ func minimalModeSidebarTitlebarControlsFrame(
     )
 }
 
+@MainActor
 func minimalModeSidebarTitlebarControlsTopInset(
     in window: NSWindow,
     defaults: UserDefaults = .standard
@@ -664,9 +673,7 @@ func minimalModeSidebarTitlebarControlsTopInset(
     guard let contentView = window.contentView else {
         return MinimalModeSidebarTitlebarControlsMetrics.topInset(defaults: defaults)
     }
-    guard let controlsFrame = minimalModeSidebarTitlebarControlsFrame(in: window, defaults: defaults) else {
-        return MinimalModeSidebarTitlebarControlsMetrics.topInset(defaults: defaults)
-    }
+    let controlsFrame = minimalModeSidebarTitlebarControlsFrame(in: window, defaults: defaults)
     if contentView.isFlipped {
         return controlsFrame.minY - contentView.bounds.minY
     }
@@ -701,6 +708,7 @@ func minimalModeSidebarTitlebarControlsFrame(
     )
 }
 
+@MainActor
 private func minimalModeTrafficLightFrameInContentCoordinates(for window: NSWindow) -> NSRect? {
     guard let contentView = window.contentView,
           let closeButton = window.standardWindowButton(.closeButton),

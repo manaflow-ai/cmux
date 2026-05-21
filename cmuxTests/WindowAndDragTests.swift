@@ -864,6 +864,8 @@ final class WindowDragHandleHitTests: XCTestCase {
     func testMinimalModeSidebarTitlebarControlsAlignWithTrafficLightCenter() {
         let defaults = UserDefaults.standard
         let savedMode = defaults.object(forKey: WorkspacePresentationModeSettings.modeKey)
+        // WindowDecorationsController.apply reads the production presentation-mode setting
+        // from UserDefaults.standard, so this test saves and restores the shared key narrowly.
         defaults.set(WorkspacePresentationModeSettings.Mode.minimal.rawValue, forKey: WorkspacePresentationModeSettings.modeKey)
         defer {
             if let savedMode {
