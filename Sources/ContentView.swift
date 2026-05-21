@@ -1133,6 +1133,7 @@ struct ContentView: View {
     @State private var commandPaletteQuery: String = ""
     @State private var commandPaletteMode: CommandPaletteMode = .commands
     @State private var commandPaletteRenameDraft: String = ""
+    @State private var commandPaletteRenameInitialSelectionConsumed = false
     @State private var commandPaletteWorkspaceDescriptionDraft: String = ""
     @State private var commandPaletteWorkspaceDescriptionHeight: CGFloat = CommandPaletteMultilineTextEditorRepresentable.defaultMinimumHeight
     @State private var commandPaletteSelectedResultIndex: Int = 0
@@ -8503,6 +8504,7 @@ struct ContentView: View {
         commandPaletteMode = .commands
         commandPaletteQuery = initialQuery
         commandPaletteRenameDraft = ""
+        commandPaletteRenameInitialSelectionConsumed = false
         commandPaletteWorkspaceDescriptionDraft = ""
         commandPaletteWorkspaceDescriptionHeight = CommandPaletteMultilineTextEditorRepresentable.defaultMinimumHeight
         commandPaletteSelectedResultIndex = 0
@@ -8520,8 +8522,8 @@ struct ContentView: View {
         switch commandPaletteMode {
         case .commands:
             handleCommandPalettePendingSearchTextInput(text)
-        case .renameInput(let target):
-            handleCommandPalettePendingRenameTextInput(text, target: target)
+        case .renameInput:
+            handleCommandPalettePendingRenameTextInput(text)
         case .workspaceDescriptionInput:
             handleCommandPalettePendingWorkspaceDescriptionTextInput(text)
         case .renameConfirm:
@@ -8567,12 +8569,13 @@ struct ContentView: View {
         syncCommandPaletteDebugStateForObservedWindow()
     }
 
-    private func handleCommandPalettePendingRenameTextInput(_ text: String, target: CommandPaletteRenameTarget) {
+    private func handleCommandPalettePendingRenameTextInput(_ text: String) {
         let filteredText = commandPalettePendingSingleLineText(from: text)
         guard !filteredText.isEmpty else { return }
         if CommandPaletteRenameSelectionSettings.selectAllOnFocusEnabled(),
-           commandPaletteRenameDraft == target.currentName {
+           !commandPaletteRenameInitialSelectionConsumed {
             commandPaletteRenameDraft = filteredText
+            commandPaletteRenameInitialSelectionConsumed = true
         } else {
             commandPaletteRenameDraft.append(contentsOf: filteredText)
         }
@@ -8622,6 +8625,7 @@ struct ContentView: View {
         commandPaletteMode = .commands
         commandPaletteQuery = ""
         commandPaletteRenameDraft = ""
+        commandPaletteRenameInitialSelectionConsumed = false
         commandPaletteWorkspaceDescriptionDraft = ""
         commandPaletteWorkspaceDescriptionHeight = CommandPaletteMultilineTextEditorRepresentable.defaultMinimumHeight
         commandPaletteSelectedResultIndex = 0
@@ -8932,8 +8936,8 @@ struct ContentView: View {
     private func commandPaletteRenameInputFocusPolicy() -> CommandPaletteInputFocusPolicy {
         let selectAllOnFocus = CommandPaletteRenameSelectionSettings.selectAllOnFocusEnabled()
         let shouldSelectAllOnFocus: Bool
-        if case .renameInput(let target) = commandPaletteMode {
-            shouldSelectAllOnFocus = selectAllOnFocus && commandPaletteRenameDraft == target.currentName
+        if case .renameInput = commandPaletteMode {
+            shouldSelectAllOnFocus = selectAllOnFocus && !commandPaletteRenameInitialSelectionConsumed
         } else {
             shouldSelectAllOnFocus = selectAllOnFocus
         }
@@ -9158,6 +9162,7 @@ struct ContentView: View {
 
     private func startRenameFlow(_ target: CommandPaletteRenameTarget) {
         commandPaletteRenameDraft = target.currentName
+        commandPaletteRenameInitialSelectionConsumed = false
         commandPaletteShouldFocusWorkspaceDescriptionEditor = false
         commandPaletteMode = .renameInput(target)
         resetCommandPaletteRenameFocus()
