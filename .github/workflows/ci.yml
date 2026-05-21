@@ -369,7 +369,7 @@ jobs:
             set -e
 
             cat "$CHUNK_OUTPUT" >> "$COMBINED_OUTPUT"
-            OUTPUT=$(cat /tmp/test-output.txt)
+            OUTPUT=$(cat "$CHUNK_OUTPUT")
 
             # SwiftPM binary artifact resolution can occasionally fail on ephemeral
             # runners with "Could not resolve package dependencies". Retry once after
@@ -384,7 +384,7 @@ jobs:
               EXIT_CODE=$?
               set -e
               cat "$CHUNK_OUTPUT" >> "$COMBINED_OUTPUT"
-              OUTPUT=$(cat /tmp/test-output.txt)
+              OUTPUT=$(cat "$CHUNK_OUTPUT")
             fi
 
             if [ "$EXIT_CODE" -ne 0 ]; then
