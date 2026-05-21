@@ -584,7 +584,19 @@ private func runFake(channel: SocketChannel) {
     }
 }
 
-private func parseConnectionArguments(arguments: [String]) -> (socketPath: String?, inheritedFileDescriptor: Int32?, fake: Bool) {
+private func parseConnectionArguments(arguments: [String]) -> (
+    socketPath: String?,
+    inheritedFileDescriptor: Int32?,
+    fake: Bool,
+    isValid: Bool
+) {
+    func optionValue(after index: Int) -> String? {
+        guard index + 1 < arguments.count else { return nil }
+        let value = arguments[index + 1]
+        guard !value.isEmpty, !value.hasPrefix("-") else { return nil }
+        return value
+    }
+
     var socketPath: String?
     var inheritedFileDescriptor: Int32?
     var fake = false
@@ -592,16 +604,19 @@ private func parseConnectionArguments(arguments: [String]) -> (socketPath: Strin
     while index < arguments.count {
         switch arguments[index] {
         case "--socket":
-            if index + 1 < arguments.count {
-                socketPath = arguments[index + 1]
-                index += 1
+            guard let value = optionValue(after: index) else {
+                return (socketPath, inheritedFileDescriptor, fake, false)
             }
+            socketPath = value
+            index += 1
         case "--fd":
-            if index + 1 < arguments.count,
-               let fileDescriptor = Int32(arguments[index + 1]) {
-                inheritedFileDescriptor = fileDescriptor
-                index += 1
+            guard let value = optionValue(after: index),
+                  let fileDescriptor = Int32(value),
+                  fileDescriptor >= 0 else {
+                return (socketPath, inheritedFileDescriptor, fake, false)
             }
+            inheritedFileDescriptor = fileDescriptor
+            index += 1
         case "--fake":
             fake = true
         default:
@@ -609,11 +624,12 @@ private func parseConnectionArguments(arguments: [String]) -> (socketPath: Strin
         }
         index += 1
     }
-    return (socketPath, inheritedFileDescriptor, fake)
+    return (socketPath, inheritedFileDescriptor, fake, true)
 }
 
 let parsed = parseConnectionArguments(arguments: CommandLine.arguments)
-guard parsed.inheritedFileDescriptor != nil || parsed.socketPath?.isEmpty == false else {
+guard parsed.isValid,
+      parsed.inheritedFileDescriptor != nil || parsed.socketPath != nil else {
     fputs("usage: cmux-vnc-helper (--fd <fd> | --socket <path>) [--fake]\n", stderr)
     exit(HelperExit.usage.rawValue)
 }
