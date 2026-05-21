@@ -964,6 +964,9 @@ final class FilePreviewPanel: Panel, ObservableObject, FilePreviewTextEditingPan
     private var remoteMaterializationGeneration = 0
     private weak var textView: NSTextView?
     private let focusCoordinator: FilePreviewFocusCoordinator
+#if DEBUG
+    static var remoteMaterializerForTesting: ((RemoteFilePreviewSource, URL) async throws -> URL)?
+#endif
 
     var fileURL: URL {
         URL(fileURLWithPath: filePath)
@@ -1000,6 +1003,10 @@ final class FilePreviewPanel: Panel, ObservableObject, FilePreviewTextEditingPan
             prepareContentForPreviewMode()
             resolvePreviewModeIfNeeded(for: fileURL)
         }
+    }
+
+    deinit {
+        remoteMaterializationTask?.cancel()
     }
 
     func focus() {
@@ -1267,7 +1274,7 @@ final class FilePreviewPanel: Panel, ObservableObject, FilePreviewTextEditingPan
         let destinationURL = fileURL
         remoteMaterializationTask = Task { [weak self, source, destinationURL, generation] in
             do {
-                _ = try await RemoteFilePreviewMaterializer.materialize(source: source, to: destinationURL)
+                _ = try await Self.materializeRemoteFile(source: source, to: destinationURL)
                 guard let self,
                       self.remoteMaterializationGeneration == generation else { return }
                 self.remoteMaterializationTask = nil
@@ -1297,6 +1304,15 @@ final class FilePreviewPanel: Panel, ObservableObject, FilePreviewTextEditingPan
             return materializerError.localizedDescription
         }
         return String(localized: "filePreview.remote.error.downloadFailed", defaultValue: "Unable to download the remote file.")
+    }
+
+    private static func materializeRemoteFile(source: RemoteFilePreviewSource, to destinationURL: URL) async throws -> URL {
+#if DEBUG
+        if let remoteMaterializerForTesting {
+            return try await remoteMaterializerForTesting(source, destinationURL)
+        }
+#endif
+        return try await RemoteFilePreviewMaterializer.materialize(source: source, to: destinationURL)
     }
 }
 

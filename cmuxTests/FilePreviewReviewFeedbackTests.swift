@@ -10,6 +10,45 @@ import XCTest
 @testable import cmux
 #endif
 
+private final class RemoteMaterializationCancellationProbe: @unchecked Sendable {
+    let started: XCTestExpectation
+    let cancelled: XCTestExpectation
+
+    private let lock = NSLock()
+    private var didFulfillCancellation = false
+
+    init(label: String) {
+        self.started = XCTestExpectation(description: "\(label) started")
+        self.cancelled = XCTestExpectation(description: "\(label) cancelled")
+        self.started.assertForOverFulfill = false
+        self.cancelled.assertForOverFulfill = false
+    }
+
+    func fulfillStarted() {
+        started.fulfill()
+    }
+
+    func fulfillCancelled() {
+        lock.lock()
+        defer { lock.unlock() }
+        guard !didFulfillCancellation else { return }
+        didFulfillCancellation = true
+        cancelled.fulfill()
+    }
+}
+
+private final class RejectingFilePreviewCreateTabDelegate: BonsplitDelegate {
+    func splitTabBar(_ controller: BonsplitController, shouldCreateTab tab: Bonsplit.Tab, inPane pane: PaneID) -> Bool {
+        false
+    }
+}
+
+private final class RejectingFilePreviewSplitPaneDelegate: BonsplitDelegate {
+    func splitTabBar(_ controller: BonsplitController, shouldSplitPane pane: PaneID, orientation: SplitOrientation) -> Bool {
+        false
+    }
+}
+
 @MainActor
 final class FilePreviewReviewFeedbackTests: XCTestCase {
     func testAppBundleExportsFilePreviewDragType() {
@@ -245,6 +284,55 @@ final class FilePreviewReviewFeedbackTests: XCTestCase {
         XCTAssertEqual(workspace.bonsplitController.tabs(inPane: targetPane).count, startingTargetTabs + 1)
     }
 
+    func testRejectedFilePreviewTabCancelsRemoteMaterialization() throws {
+        let workspace = Workspace()
+        let paneId = try XCTUnwrap(workspace.bonsplitController.focusedPaneId)
+        let source = remotePreviewSource()
+        let probe = RemoteMaterializationCancellationProbe(label: "rejected file preview tab")
+        installHangingRemoteMaterializer(probe: probe)
+        defer { FilePreviewPanel.remoteMaterializerForTesting = nil }
+
+        let rejectingDelegate = RejectingFilePreviewCreateTabDelegate()
+        workspace.bonsplitController.delegate = rejectingDelegate
+
+        let created = workspace.newFilePreviewSurface(
+            inPane: paneId,
+            filePath: RemoteFilePreviewMaterializer.cacheURL(for: source).path,
+            displayPath: source.displayPath,
+            remoteSource: source,
+            focus: false
+        )
+
+        XCTAssertNil(created)
+        wait(for: [probe.started, probe.cancelled], timeout: 2.0)
+        XCTAssertTrue(workspace.panels.values.allSatisfy { !($0 is FilePreviewPanel) })
+    }
+
+    func testRejectedFilePreviewSplitCancelsRemoteMaterialization() throws {
+        let workspace = Workspace()
+        let paneId = try XCTUnwrap(workspace.bonsplitController.focusedPaneId)
+        let source = remotePreviewSource(remotePath: "/tmp/split-preview.pdf")
+        let probe = RemoteMaterializationCancellationProbe(label: "rejected file preview split")
+        installHangingRemoteMaterializer(probe: probe)
+        defer { FilePreviewPanel.remoteMaterializerForTesting = nil }
+
+        let rejectingDelegate = RejectingFilePreviewSplitPaneDelegate()
+        workspace.bonsplitController.delegate = rejectingDelegate
+
+        let created = workspace.splitPaneWithFilePreview(
+            targetPane: paneId,
+            orientation: .horizontal,
+            insertFirst: false,
+            filePath: RemoteFilePreviewMaterializer.cacheURL(for: source).path,
+            displayPath: source.displayPath,
+            remoteSource: source
+        )
+
+        XCTAssertNil(created)
+        wait(for: [probe.started, probe.cancelled], timeout: 2.0)
+        XCTAssertTrue(workspace.panels.values.allSatisfy { !($0 is FilePreviewPanel) })
+    }
+
     private func temporaryTextFile(contents: String, encoding: String.Encoding) throws -> URL {
         let url = FileManager.default.temporaryDirectory
             .appendingPathComponent(UUID().uuidString)
@@ -259,6 +347,35 @@ final class FilePreviewReviewFeedbackTests: XCTestCase {
             .appendingPathExtension("bin")
         try Data([0, 1, 2, 3, 0, 4]).write(to: url, options: .atomic)
         return url
+    }
+
+    private func remotePreviewSource(remotePath: String = "/tmp/remote-preview.mov") -> RemoteFilePreviewSource {
+        RemoteFilePreviewSource(
+            connection: SSHFileExplorerConnection(
+                destination: "dev@example.com",
+                port: 2222,
+                identityFile: "/Users/alice/.ssh/id_ed25519",
+                sshOptions: ["StrictHostKeyChecking=no"]
+            ),
+            displayTarget: "dev@example.com:2222",
+            remotePath: remotePath
+        )
+    }
+
+    private func installHangingRemoteMaterializer(probe: RemoteMaterializationCancellationProbe) {
+        FilePreviewPanel.remoteMaterializerForTesting = { _, destinationURL in
+            probe.fulfillStarted()
+            if Task.isCancelled {
+                probe.fulfillCancelled()
+                throw CancellationError()
+            }
+            return try await withTaskCancellationHandler {
+                try await Task.sleep(nanoseconds: 60_000_000_000)
+                return destinationURL
+            } onCancel: {
+                probe.fulfillCancelled()
+            }
+        }
     }
 
     private func keyEvent(key: String, keyCode: UInt16) -> NSEvent? {
