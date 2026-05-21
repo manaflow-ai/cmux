@@ -859,6 +859,43 @@ final class TerminalControllerSocketSecurityTests: XCTestCase {
         XCTAssertTrue(window.requestedResponder === view)
     }
 
+    func testVNCUnfocusClearsPendingFocusBeforeCanvasGetsWindow() throws {
+        let panel = VNCPanel(
+            workspaceId: UUID(),
+            session: MacfleetVNCSession(
+                name: "docker-vnc-1",
+                hostName: "docker-vnc-1",
+                address: "127.0.0.1",
+                port: 5900,
+                username: "cmux",
+                index: 1
+            ),
+            credential: VNCResolvedCredential(
+                username: "cmux",
+                password: "secret",
+                source: .sessionPassword
+            )
+        )
+        let view = FocusableView(frame: NSRect(x: 0, y: 0, width: 100, height: 100))
+        let window = FocusSpyWindow(
+            contentRect: NSRect(x: 0, y: 0, width: 100, height: 100),
+            styleMask: [.borderless],
+            backing: .buffered,
+            defer: true
+        )
+        defer {
+            panel.close()
+        }
+
+        panel.focus()
+        panel.attachFocusView(view)
+        panel.unfocus()
+        view.spyWindow = window
+        panel.focusViewWindowDidChange(view)
+
+        XCTAssertNil(window.requestedResponder)
+    }
+
     func testVNCCanvasCoordinatorTransfersFocusOwnershipWhenViewIsReused() throws {
         let firstPanel = VNCPanel(
             workspaceId: UUID(),

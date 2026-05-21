@@ -239,7 +239,9 @@ final class VNCPanel: Panel, ObservableObject {
         applyPendingFocusIfPossible()
     }
 
-    func unfocus() {}
+    func unfocus() {
+        pendingFocus = false
+    }
 
     func triggerFlash(reason: WorkspaceAttentionFlashReason) {
         _ = reason
