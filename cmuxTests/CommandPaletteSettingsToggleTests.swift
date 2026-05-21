@@ -142,6 +142,30 @@ final class CommandPaletteSettingsToggleTests: XCTestCase {
         )
     }
 
+    func testSuppressSubagentNotificationsCommandTogglesDefaultAndReportsState() throws {
+        try withTemporaryDefaults { defaults in
+            let descriptor = try XCTUnwrap(
+                CommandPaletteSettingsToggleCommands.descriptor(
+                    commandId: "palette.toggleSetting.suppressSubagentNotifications"
+                )
+            )
+
+            let offState = String(localized: "command.toggleSetting.state.off", defaultValue: "Off")
+            let onState = String(localized: "command.toggleSetting.state.on", defaultValue: "On")
+            XCTAssertTrue(descriptor.isOn(defaults))
+            XCTAssertTrue(descriptor.commandSubtitle(defaults: defaults).contains(onState))
+
+            descriptor.toggle(defaults: defaults, notificationCenter: NotificationCenter())
+
+            XCTAssertEqual(
+                defaults.object(forKey: AgentSubagentNotificationSettings.suppressNotificationsKey) as? Bool,
+                false
+            )
+            XCTAssertFalse(descriptor.isOn(defaults))
+            XCTAssertTrue(descriptor.commandSubtitle(defaults: defaults).contains(offState))
+        }
+    }
+
     func testOpenSidebarPortLinksCommandIsUnavailableWhenPortsAreHidden() throws {
         try withTemporaryDefaults { defaults in
             let descriptor = try XCTUnwrap(
