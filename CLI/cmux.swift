@@ -4529,6 +4529,15 @@ struct CMUXCLI {
         return nil
     }
 
+    private func boolFromAny(_ value: Any?) -> Bool? {
+        if let bool = value as? Bool { return bool }
+        if let number = value as? NSNumber { return number.boolValue }
+        if let string = value as? String {
+            return parseBoolString(string.trimmingCharacters(in: .whitespacesAndNewlines))
+        }
+        return nil
+    }
+
     func parseBoolString(_ raw: String) -> Bool? {
         switch raw.lowercased() {
         case "1", "true", "yes", "on":
@@ -5302,16 +5311,7 @@ struct CMUXCLI {
     }
 
     private func debugBool(_ value: Any?) -> Bool? {
-        if let bool = value as? Bool {
-            return bool
-        }
-        if let number = value as? NSNumber {
-            return number.boolValue
-        }
-        if let string = value as? String {
-            return parseBoolString(string)
-        }
-        return nil
+        boolFromAny(value)
     }
 
     private func debugFlag(_ value: Any?) -> String {
@@ -14164,7 +14164,7 @@ struct CMUXCLI {
             params: ["workspace_id": workspaceId, "pane_id": paneId]
         )
         let surfaces = payload["surfaces"] as? [[String: Any]] ?? []
-        if let selected = surfaces.first(where: { ($0["selected"] as? Bool) == true }),
+        if let selected = surfaces.first(where: { boolFromAny($0["selected"]) == true }),
            let id = selected["id"] as? String {
             return id
         }
@@ -14319,9 +14319,9 @@ struct CMUXCLI {
             if let index = intFromAny(workspace["index"]) {
                 context["window_index"] = String(index)
             }
-            if !activeByCaller, let active = (workspace["active"] as? Bool)
-                ?? (workspace["focused"] as? Bool)
-                ?? (workspace["selected"] as? Bool) {
+            if !activeByCaller, let active = boolFromAny(workspace["active"])
+                ?? boolFromAny(workspace["focused"])
+                ?? boolFromAny(workspace["selected"]) {
                 context["window_active"] = active ? "1" : "0"
                 context["window_flags"] = active ? "*" : ""
             }
@@ -14374,7 +14374,7 @@ struct CMUXCLI {
                 if let index = intFromAny(pane["index"]) {
                     context["pane_index"] = String(index)
                 }
-                if let focused = pane["focused"] as? Bool {
+                if let focused = boolFromAny(pane["focused"]) {
                     context["pane_active"] = focused ? "1" : "0"
                 }
             }
