@@ -7689,7 +7689,10 @@ class TerminalController {
             }
             guard let terminalPanel = ws.terminalPanel(for: surfaceId) else {
                 if let vncPanel = ws.vncPanel(for: surfaceId) {
-                    vncPanel.sendText(text)
+                    guard vncPanel.sendText(text) == .sent else {
+                        result = .err(code: "surface_unavailable", message: "VNC surface is not connected", data: ["surface_id": surfaceId.uuidString])
+                        return
+                    }
                     result = .ok([
                         "workspace_id": ws.id.uuidString,
                         "workspace_ref": v2Ref(kind: .workspace, uuid: ws.id),
@@ -7769,8 +7772,14 @@ class TerminalController {
             }
             guard let terminalPanel = ws.terminalPanel(for: surfaceId) else {
                 if let vncPanel = ws.vncPanel(for: surfaceId) {
-                    guard vncPanel.sendNamedKey(key) else {
+                    switch vncPanel.sendNamedKey(key) {
+                    case .sent:
+                        break
+                    case .unknownKey:
                         result = .err(code: "invalid_params", message: "Unknown key", data: ["key": key])
+                        return
+                    case .unavailable:
+                        result = .err(code: "surface_unavailable", message: "VNC surface is not connected", data: ["surface_id": surfaceId.uuidString])
                         return
                     }
                     result = .ok([
@@ -13615,7 +13624,10 @@ class TerminalController {
                 result = .err(code: "invalid_params", message: "Surface is not a VNC surface", data: ["surface_id": surfaceId.uuidString])
                 return
             }
-            vncPanel.sendPointer(x: x, y: y, button: button, isDown: isDown)
+            guard vncPanel.sendPointer(x: x, y: y, button: button, isDown: isDown) == .sent else {
+                result = .err(code: "surface_unavailable", message: "VNC surface is not connected", data: ["surface_id": surfaceId.uuidString])
+                return
+            }
             result = .ok([
                 "workspace_id": ws.id.uuidString,
                 "workspace_ref": v2Ref(kind: .workspace, uuid: ws.id),

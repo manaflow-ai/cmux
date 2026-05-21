@@ -16,6 +16,12 @@ enum VNCConnectionState: Equatable {
     case failed(String)
 }
 
+enum VNCInputResult: Equatable {
+    case sent
+    case unavailable
+    case unknownKey
+}
+
 @MainActor
 final class VNCPanel: Panel, ObservableObject {
     let id: UUID
@@ -104,27 +110,33 @@ final class VNCPanel: Panel, ObservableObject {
         connection?.sendControl(VNCControlMessage(kind: "visibility", visible: isVisible))
     }
 
-    func sendText(_ text: String) {
-        guard !text.isEmpty, prepareForUserInput() else { return }
+    @discardableResult
+    func sendText(_ text: String) -> VNCInputResult {
+        guard !text.isEmpty else { return .sent }
+        guard prepareForUserInput() else { return .unavailable }
         connection?.sendControl(VNCControlMessage(kind: "text", text: text))
-    }
-
-    func sendKey(keyCode: UInt16, isDown: Bool) {
-        guard prepareForUserInput() else { return }
-        connection?.sendControl(VNCControlMessage(kind: "key", isDown: isDown, keyCode: Int(keyCode)))
-    }
-
-    func sendPointer(x: Int, y: Int, button: Int? = nil, isDown: Bool? = nil) {
-        guard prepareForUserInput() else { return }
-        connection?.sendControl(VNCControlMessage(kind: "pointer", x: x, y: y, button: button, isDown: isDown))
+        return .sent
     }
 
     @discardableResult
-    func sendNamedKey(_ keyName: String) -> Bool {
-        guard let keyCode = Self.keyCode(for: keyName) else { return false }
-        sendKey(keyCode: keyCode, isDown: true)
-        sendKey(keyCode: keyCode, isDown: false)
-        return true
+    func sendKey(keyCode: UInt16, isDown: Bool) -> VNCInputResult {
+        guard prepareForUserInput() else { return .unavailable }
+        connection?.sendControl(VNCControlMessage(kind: "key", isDown: isDown, keyCode: Int(keyCode)))
+        return .sent
+    }
+
+    @discardableResult
+    func sendPointer(x: Int, y: Int, button: Int? = nil, isDown: Bool? = nil) -> VNCInputResult {
+        guard prepareForUserInput() else { return .unavailable }
+        connection?.sendControl(VNCControlMessage(kind: "pointer", x: x, y: y, button: button, isDown: isDown))
+        return .sent
+    }
+
+    @discardableResult
+    func sendNamedKey(_ keyName: String) -> VNCInputResult {
+        guard let keyCode = Self.keyCode(for: keyName) else { return .unknownKey }
+        guard sendKey(keyCode: keyCode, isDown: true) == .sent else { return .unavailable }
+        return sendKey(keyCode: keyCode, isDown: false)
     }
 
     func close() {

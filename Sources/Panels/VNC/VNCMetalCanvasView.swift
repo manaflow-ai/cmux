@@ -88,6 +88,7 @@ final class VNCMetalCanvasView: NSView {
         metalLayer.framebufferOnly = false
         metalLayer.contentsGravity = .resize
         metalLayer.masksToBounds = true
+        metalLayer.isHidden = true
         commandQueue = device?.makeCommandQueue()
         postsFrameChangedNotifications = true
     }
@@ -121,7 +122,7 @@ final class VNCMetalCanvasView: NSView {
         onText = nil
         onKey = nil
         onPointer = nil
-        framebuffer.removeAll(keepingCapacity: false)
+        resetFrameSequence()
         removePointerTrackingArea()
     }
 
@@ -133,11 +134,17 @@ final class VNCMetalCanvasView: NSView {
         }
         lastSequence = frame.header.sequence
         copy(frame)
+        metalLayer.isHidden = false
         drawFramebuffer()
     }
 
     func resetFrameSequence() {
         lastSequence = nil
+        framebuffer.removeAll(keepingCapacity: false)
+        framebufferWidth = 0
+        framebufferHeight = 0
+        metalLayer.isHidden = true
+        updateMetalLayerGeometry()
     }
 
     override func keyDown(with event: NSEvent) {
