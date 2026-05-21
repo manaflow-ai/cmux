@@ -49,13 +49,16 @@ final class PanelOwnedNativeViewSession<View: NSView> {
         ownedView = nil
     }
 
-    func dismantle(_ view: View) {
+    @discardableResult
+    func dismantle(_ view: View) -> Bool {
         let viewId = ObjectIdentifier(view)
-        guard !retiredViews.contains(viewId) else { return }
+        guard !retiredViews.contains(viewId) else { return false }
         retiredViews.insert(viewId)
-        if ownedView === view {
+        let dismantledOwnedView = ownedView === view
+        if dismantledOwnedView {
             ownedView = nil
         }
         dismantleView(view)
+        return dismantledOwnedView
     }
 }

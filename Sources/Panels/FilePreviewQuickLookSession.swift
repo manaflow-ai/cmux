@@ -74,8 +74,9 @@ final class FilePreviewQuickLookSession {
     }
 
     func dismantle(_ view: NSView) {
-        viewSession.dismantle(view)
-        item = nil
+        if viewSession.dismantle(view) {
+            item = nil
+        }
     }
 
     private static func makeView() -> NSView {
