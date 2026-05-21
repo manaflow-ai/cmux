@@ -560,7 +560,8 @@ public struct CmuxExtensionSidebarReducer {
             return CmuxExtensionSidebarSnapshot(
                 sequence: snapshot.sequence + 1,
                 selectedWorkspaceId: snapshot.selectedWorkspaceId,
-                workspaces: workspaces
+                workspaces: workspaces,
+                windowId: snapshot.windowId
             )
 
         case .workspaceRemoved(let id):
@@ -568,7 +569,8 @@ public struct CmuxExtensionSidebarReducer {
             return CmuxExtensionSidebarSnapshot(
                 sequence: snapshot.sequence + 1,
                 selectedWorkspaceId: snapshot.selectedWorkspaceId == id ? nil : snapshot.selectedWorkspaceId,
-                workspaces: workspaces
+                workspaces: workspaces,
+                windowId: snapshot.windowId
             )
 
         case .workspacesReordered(let ids):
@@ -584,14 +586,16 @@ public struct CmuxExtensionSidebarReducer {
             return CmuxExtensionSidebarSnapshot(
                 sequence: snapshot.sequence + 1,
                 selectedWorkspaceId: snapshot.selectedWorkspaceId,
-                workspaces: known
+                workspaces: known,
+                windowId: snapshot.windowId
             )
 
         case .workspaceSelected(let id):
             return CmuxExtensionSidebarSnapshot(
                 sequence: snapshot.sequence + 1,
                 selectedWorkspaceId: id,
-                workspaces: snapshot.workspaces
+                workspaces: snapshot.workspaces,
+                windowId: snapshot.windowId
             )
         }
     }

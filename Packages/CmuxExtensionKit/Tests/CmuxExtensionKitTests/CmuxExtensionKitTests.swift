@@ -240,10 +240,12 @@ final class CmuxExtensionKitTests: XCTestCase {
         let first = workspace(title: "First", rootPath: nil, projectRootPath: nil)
         let second = workspace(title: "Second", rootPath: nil, projectRootPath: nil)
         let third = workspace(title: "Third", rootPath: nil, projectRootPath: nil)
+        let windowId = UUID()
         let snapshot = CmuxExtensionSidebarSnapshot(
             sequence: 5,
             selectedWorkspaceId: second.id,
-            workspaces: [first, second, third]
+            workspaces: [first, second, third],
+            windowId: windowId
         )
 
         let updated = CmuxExtensionSidebarReducer.reduce(
@@ -252,8 +254,32 @@ final class CmuxExtensionKitTests: XCTestCase {
         )
 
         XCTAssertEqual(updated.sequence, 6)
+        XCTAssertEqual(updated.windowId, windowId)
         XCTAssertEqual(updated.selectedWorkspaceId, second.id)
         XCTAssertEqual(updated.workspaces.map(\.id), [third.id, first.id, second.id])
+    }
+
+    func testSidebarEventReducerPreservesWindowIdAcrossFreshSnapshots() {
+        let first = workspace(title: "First", rootPath: nil, projectRootPath: nil)
+        let second = workspace(title: "Second", rootPath: nil, projectRootPath: nil)
+        let windowId = UUID()
+        let snapshot = CmuxExtensionSidebarSnapshot(
+            sequence: 1,
+            selectedWorkspaceId: first.id,
+            workspaces: [first],
+            windowId: windowId
+        )
+
+        let upserted = CmuxExtensionSidebarReducer.reduce(snapshot, event: .workspaceUpserted(second))
+        let selected = CmuxExtensionSidebarReducer.reduce(upserted, event: .workspaceSelected(second.id))
+        let reordered = CmuxExtensionSidebarReducer.reduce(selected, event: .workspacesReordered([second.id, first.id]))
+        let removed = CmuxExtensionSidebarReducer.reduce(reordered, event: .workspaceRemoved(first.id))
+
+        XCTAssertEqual(upserted.windowId, windowId)
+        XCTAssertEqual(selected.windowId, windowId)
+        XCTAssertEqual(reordered.windowId, windowId)
+        XCTAssertEqual(removed.windowId, windowId)
+        XCTAssertEqual(removed.workspaces.map(\.id), [second.id])
     }
 
     func testWorkspaceReorderedEventPreservesFrameSequence() {

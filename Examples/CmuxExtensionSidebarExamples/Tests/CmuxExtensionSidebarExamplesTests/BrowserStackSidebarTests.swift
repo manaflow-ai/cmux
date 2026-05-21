@@ -161,6 +161,39 @@ final class BrowserStackSidebarTests: XCTestCase {
         XCTAssertFalse(secondScopedState.sections.flatMap(\.workspaceIds).contains(movedWorkspace.id))
     }
 
+    func testWindowScopedStateFallsBackToMatchingRelaunchScope() throws {
+        let stateURL = temporaryStateURL()
+        defer { try? FileManager.default.removeItem(at: stateURL.deletingLastPathComponent()) }
+
+        let oldWindowId = UUID()
+        let newWindowId = UUID()
+        let otherWindowId = UUID()
+        let oldSnapshot = snapshot(titles: ["First A", "First B", "First C", "First D"], windowId: oldWindowId)
+        let otherSnapshot = snapshot(titles: ["Other A", "Other B", "Other C", "Other D"], windowId: otherWindowId)
+        let movedWorkspace = oldSnapshot.workspaces[3]
+        let store = BrowserStackSidebarStore(stateURL: stateURL)
+
+        var preferredState = BrowserStackSidebarState.initial(snapshot: oldSnapshot)
+        preferredState.moveWorkspace(CmuxExtensionSidebarWorkspaceMove(
+            workspaceId: movedWorkspace.id,
+            sourceSectionId: "loose",
+            targetSectionId: "group:reading-list",
+            targetIndex: 0
+        ))
+        try store.save(preferredState.reconciled(with: oldSnapshot), scopeKey: scopeKey(for: oldWindowId))
+        try store.save(BrowserStackSidebarState.initial(snapshot: otherSnapshot), scopeKey: scopeKey(for: otherWindowId))
+
+        let relaunchedSnapshot = CmuxExtensionSidebarSnapshot(
+            sequence: 2,
+            selectedWorkspaceId: oldSnapshot.selectedWorkspaceId,
+            workspaces: oldSnapshot.workspaces,
+            windowId: newWindowId
+        )
+        let loaded = try store.load(scopeKey: scopeKey(for: newWindowId), snapshot: relaunchedSnapshot)
+
+        XCTAssertEqual(loaded.sections.first { $0.id == "group:reading-list" }?.workspaceIds.first, movedWorkspace.id)
+    }
+
     func testBrowserStackRenderModelPreservesEmptyRequiredSections() {
         let snapshot = CmuxExtensionSidebarSnapshot(sequence: 1, selectedWorkspaceId: nil, workspaces: [])
         let sections = [

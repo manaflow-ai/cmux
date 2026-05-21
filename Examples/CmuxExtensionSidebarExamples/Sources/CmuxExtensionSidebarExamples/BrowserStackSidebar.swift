@@ -155,7 +155,7 @@ private final class BrowserStackSidebarStateCache: @unchecked Sendable {
 
     func state(for snapshot: CmuxExtensionSidebarSnapshot) -> BrowserStackSidebarState {
         let scopeKey = Self.scopeKey(for: snapshot)
-        startLoadIfNeeded(scopeKey: scopeKey)
+        startLoadIfNeeded(scopeKey: scopeKey, snapshot: snapshot)
         lock.lock()
         var scopedState = scopedState(for: scopeKey)
         let base = scopedState.state ?? BrowserStackSidebarState.initial(snapshot: snapshot)
@@ -185,7 +185,7 @@ private final class BrowserStackSidebarStateCache: @unchecked Sendable {
         persist(updated, scopeKey: scopeKey)
     }
 
-    private func startLoadIfNeeded(scopeKey: String) {
+    private func startLoadIfNeeded(scopeKey: String, snapshot: CmuxExtensionSidebarSnapshot) {
         let generation: UInt64
         lock.lock()
         var scopedState = scopedState(for: scopeKey)
@@ -198,8 +198,8 @@ private final class BrowserStackSidebarStateCache: @unchecked Sendable {
         statesByScope[scopeKey] = scopedState
         lock.unlock()
 
-        Task.detached(priority: .utility) { [store, scopeKey] in
-            guard let loaded = try? store.load(scopeKey: scopeKey) else { return }
+        Task.detached(priority: .utility) { [store, scopeKey, snapshot] in
+            guard let loaded = try? store.load(scopeKey: scopeKey, snapshot: snapshot) else { return }
             self.applyLoadedState(loaded, scopeKey: scopeKey, generation: generation)
         }
     }
@@ -271,6 +271,17 @@ public struct BrowserStackSidebarStore: Sendable {
         return try load()
     }
 
+    public func load(scopeKey: String, snapshot: CmuxExtensionSidebarSnapshot) throws -> BrowserStackSidebarState {
+        let url = scopedStateURL(scopeKey: scopeKey)
+        if url != stateURL, FileManager.default.fileExists(atPath: url.path) {
+            return try load(from: url)
+        }
+        if let fallback = try loadBestScopedFallback(matching: snapshot, excluding: url) {
+            return fallback
+        }
+        return try load()
+    }
+
     public func save(_ state: BrowserStackSidebarState) throws {
         try save(state, to: stateURL)
     }
@@ -302,6 +313,51 @@ public struct BrowserStackSidebarStore: Sendable {
             return directory.appendingPathComponent(scopedName)
         }
         return directory.appendingPathComponent(scopedName).appendingPathExtension(pathExtension)
+    }
+
+    private func loadBestScopedFallback(
+        matching snapshot: CmuxExtensionSidebarSnapshot,
+        excluding excludedURL: URL
+    ) throws -> BrowserStackSidebarState? {
+        let liveIds = Set(snapshot.workspaceIds)
+        guard !liveIds.isEmpty else { return nil }
+
+        let directory = stateURL.deletingLastPathComponent()
+        let fileManager = FileManager.default
+        guard fileManager.fileExists(atPath: directory.path) else { return nil }
+
+        let baseName = stateURL.deletingPathExtension().lastPathComponent
+        let pathExtension = stateURL.pathExtension
+        let prefix = "\(baseName)-"
+        let candidates = try fileManager.contentsOfDirectory(
+            at: directory,
+            includingPropertiesForKeys: [.contentModificationDateKey],
+            options: [.skipsHiddenFiles]
+        )
+
+        var best: (state: BrowserStackSidebarState, overlap: Int, extra: Int, modified: Date)?
+        for candidate in candidates where candidate != stateURL && candidate != excludedURL {
+            guard candidate.lastPathComponent.hasPrefix(prefix),
+                  pathExtension.isEmpty || candidate.pathExtension == pathExtension,
+                  let state = try? load(from: candidate) else {
+                continue
+            }
+
+            let stateIds = Set(state.sections.flatMap(\.workspaceIds))
+            let overlap = stateIds.intersection(liveIds).count
+            guard overlap > 0 else { continue }
+            let extra = stateIds.subtracting(liveIds).count
+            let modified = (try? candidate.resourceValues(forKeys: [.contentModificationDateKey]).contentModificationDate)
+                ?? .distantPast
+            if let current = best,
+               overlap < current.overlap
+                || (overlap == current.overlap && extra > current.extra)
+                || (overlap == current.overlap && extra == current.extra && modified <= current.modified) {
+                continue
+            }
+            best = (state, overlap, extra, modified)
+        }
+        return best?.state
     }
 
     public func reconciledState(for snapshot: CmuxExtensionSidebarSnapshot) throws -> BrowserStackSidebarState {
