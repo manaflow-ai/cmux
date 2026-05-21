@@ -251,26 +251,6 @@ struct SessionIndexView: View {
     }
 }
 
-private struct AgentIconImage: View, Equatable {
-    let agent: SessionAgent
-    let size: CGFloat
-
-    var body: some View {
-        if let assetName = agent.assetName {
-            Image(assetName)
-                .resizable()
-                .interpolation(.high)
-                .aspectRatio(contentMode: .fit)
-                .frame(width: size, height: size)
-        } else {
-            Image(systemName: agent.systemImageName ?? "person.crop.circle")
-                .font(.system(size: max(size - 2, 10), weight: .regular))
-                .foregroundColor(.secondary)
-                .frame(width: size, height: size)
-        }
-    }
-}
-
 private struct GroupingButton: View {
     let mode: SessionGrouping
     let isSelected: Bool
@@ -418,7 +398,7 @@ private struct IndexSectionView: View, Equatable {
             isCollapsed.toggle()
         } label: {
             HStack(spacing: 8) {
-                sectionIconView
+                SectionIconImage(icon: section.icon, size: 14)
                 Text(section.title)
                     .font(.system(size: 13, weight: .regular))
                     .foregroundColor(.secondary)
@@ -442,7 +422,7 @@ private struct IndexSectionView: View, Equatable {
             return NSItemProvider(object: section.key.raw as NSString)
         } preview: {
             HStack(spacing: 8) {
-                sectionIconView
+                SectionIconImage(icon: section.icon, size: 14)
                 Text(section.title)
                     .font(.system(size: 13))
             }
@@ -452,18 +432,6 @@ private struct IndexSectionView: View, Equatable {
         }
     }
 
-    @ViewBuilder
-    private var sectionIconView: some View {
-        switch section.icon {
-        case .agent(let agent):
-            AgentIconImage(agent: agent, size: 14)
-        case .folder:
-            Image(systemName: "folder")
-                .font(.system(size: 12, weight: .regular))
-                .foregroundColor(.secondary)
-                .frame(width: 14, height: 14)
-        }
-    }
 }
 
 private struct SectionReorderGap: View, Equatable {
@@ -2132,7 +2100,7 @@ private struct SectionPopoverView: View {
     var body: some View {
         VStack(alignment: .leading, spacing: 0) {
             HStack(spacing: 8) {
-                sectionIconView
+                SectionIconImage(icon: section.icon, size: 14)
                 Text(section.title)
                     .font(.system(size: 13, weight: .semibold))
                     .foregroundColor(.primary)
@@ -2423,18 +2391,6 @@ private struct SectionPopoverView: View {
         return .directory(nil)
     }
 
-    @ViewBuilder
-    private var sectionIconView: some View {
-        switch section.icon {
-        case .agent(let agent):
-            AgentIconImage(agent: agent, size: 14)
-        case .folder:
-            Image(systemName: "folder")
-                .font(.system(size: 12, weight: .regular))
-                .foregroundColor(.secondary)
-                .frame(width: 14, height: 14)
-        }
-    }
 }
 
 private struct PopoverRow: View, Equatable {

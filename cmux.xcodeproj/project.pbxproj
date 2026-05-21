@@ -192,6 +192,7 @@
 		C13519000000000000000001 /* TerminalStartupEnvironment.swift in Sources */ = {isa = PBXBuildFile; fileRef = C13519000000000000000002 /* TerminalStartupEnvironment.swift */; };
 		C13519000000000000000005 /* RestorableAgentTypes.swift in Sources */ = {isa = PBXBuildFile; fileRef = C13519000000000000000006 /* RestorableAgentTypes.swift */; };
 		B3575000000000000000000C /* SessionIndexModels.swift in Sources */ = {isa = PBXBuildFile; fileRef = B3575000000000000000000B /* SessionIndexModels.swift */; };
+		D44760000000000000000001 /* SessionIndexIconImage.swift in Sources */ = {isa = PBXBuildFile; fileRef = D44760000000000000000000 /* SessionIndexIconImage.swift */; };
 		B35750000000000000000002 /* VaultAgentRegistry.swift in Sources */ = {isa = PBXBuildFile; fileRef = B35750000000000000000001 /* VaultAgentRegistry.swift */; };
 		D3284101A1B2C3D4E5F60718 /* GhosttyTextInputSupport.swift in Sources */ = {isa = PBXBuildFile; fileRef = D3284102A1B2C3D4E5F60718 /* GhosttyTextInputSupport.swift */; };
 		D7AB00000000000000000005 /* GhosttyNSView+MoveTabToNewWorkspace.swift in Sources */ = {isa = PBXBuildFile; fileRef = D7AB00000000000000000006 /* GhosttyNSView+MoveTabToNewWorkspace.swift */; };
@@ -1027,6 +1028,7 @@
 		FE001003 /* FileExplorerSearchController.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FileExplorerSearchController.swift; sourceTree = "<group>"; };
 		FE001004 /* FileExplorerTerminalPathInsertion.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FileExplorerTerminalPathInsertion.swift; sourceTree = "<group>"; };
 		FE002001 /* FileExplorerRootResolverTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FileExplorerRootResolverTests.swift; sourceTree = "<group>"; };
+		D44760000000000000000000 /* SessionIndexIconImage.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SessionIndexIconImage.swift; sourceTree = "<group>"; };
 			FE002002 /* FileExplorerStoreTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FileExplorerStoreTests.swift; sourceTree = "<group>"; };
 			FE002003 /* FileSearchRipgrepParserTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FileSearchRipgrepParserTests.swift; sourceTree = "<group>"; };
 			FE003001 /* SessionIndexStore.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SessionIndexStore.swift; sourceTree = "<group>"; };
@@ -1466,6 +1468,7 @@
 				FE003005 /* RovoDevIndex.swift */,
 				F5320001A1B2C3D4E5F60718 /* HermesAgentIndex.swift */,
 				FE003006 /* SessionAgentPresentation.swift */,
+				D44760000000000000000000 /* SessionIndexIconImage.swift */,
 				FE003007 /* RovoDevTranscriptPreview.swift */,
 				F5320003A1B2C3D4E5F60718 /* SessionTranscriptTypes.swift */,
 				FE003002 /* SessionIndexView.swift */,
@@ -2208,6 +2211,7 @@
 				FE003105 /* RovoDevIndex.swift in Sources */,
 				F5320000A1B2C3D4E5F60718 /* HermesAgentIndex.swift in Sources */,
 				FE003106 /* SessionAgentPresentation.swift in Sources */,
+				D44760000000000000000001 /* SessionIndexIconImage.swift in Sources */,
 				FE003107 /* RovoDevTranscriptPreview.swift in Sources */,
 				F5320002A1B2C3D4E5F60718 /* SessionTranscriptTypes.swift in Sources */,
 				FE003102 /* SessionIndexView.swift in Sources */,
