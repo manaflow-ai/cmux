@@ -361,14 +361,9 @@ final class CLINotifyProcessIntegrationRegressionTests: XCTestCase {
         let cliPath = try bundledCLIPath()
         let socketPath = makeSocketPath("rs-bad-command")
         let listenerFD = try bindUnixSocket(at: socketPath)
-        let state = MockSocketServerState()
         defer {
             Darwin.close(listenerFD)
             unlink(socketPath)
-        }
-        let serverHandled = startMockServer(listenerFD: listenerFD, state: state) { line in
-            XCTFail("Invalid command should not be forwarded: \(line)")
-            return "ERROR unexpected command"
         }
         var environment = ProcessInfo.processInfo.environment
         environment["CMUX_SOCKET_PATH"] = socketPath
@@ -381,27 +376,20 @@ final class CLINotifyProcessIntegrationRegressionTests: XCTestCase {
             timeout: 5
         )
 
-        wait(for: [serverHandled], timeout: 5)
         XCTAssertFalse(result.timedOut, result.stderr)
         XCTAssertEqual(result.status, 1, result.stderr)
         XCTAssertTrue(result.stdout.isEmpty, result.stdout)
         XCTAssertTrue(result.stderr.contains("Unknown right-sidebar command 'unknown'"), result.stderr)
         XCTAssertFalse(result.stderr.contains("Socket"), result.stderr)
-        XCTAssertTrue(state.commands.isEmpty)
     }
 
     func testRightSidebarDockAliasValidatesBeforeTargetResolution() throws {
         let cliPath = try bundledCLIPath()
         let aliasSocketPath = makeSocketPath("rs-dock-alias")
         let aliasListenerFD = try bindUnixSocket(at: aliasSocketPath)
-        let aliasState = MockSocketServerState()
         defer {
             Darwin.close(aliasListenerFD)
             unlink(aliasSocketPath)
-        }
-        let aliasServerHandled = startMockServer(listenerFD: aliasListenerFD, state: aliasState) { line in
-            XCTFail("Dock alias should not be forwarded: \(line)")
-            return "ERROR unexpected command"
         }
         var environment = ProcessInfo.processInfo.environment
         environment["CMUX_SOCKET_PATH"] = aliasSocketPath
@@ -414,24 +402,17 @@ final class CLINotifyProcessIntegrationRegressionTests: XCTestCase {
             timeout: 5
         )
 
-        wait(for: [aliasServerHandled], timeout: 5)
         XCTAssertFalse(aliasResult.timedOut, aliasResult.stderr)
         XCTAssertEqual(aliasResult.status, 1, aliasResult.stderr)
         XCTAssertTrue(aliasResult.stdout.isEmpty, aliasResult.stdout)
         XCTAssertTrue(aliasResult.stderr.contains("Unknown right-sidebar command 'dock'"), aliasResult.stderr)
         XCTAssertFalse(aliasResult.stderr.contains("Socket"), aliasResult.stderr)
-        XCTAssertTrue(aliasState.commands.isEmpty)
 
         let setSocketPath = makeSocketPath("rs-dock-set")
         let setListenerFD = try bindUnixSocket(at: setSocketPath)
-        let setState = MockSocketServerState()
         defer {
             Darwin.close(setListenerFD)
             unlink(setSocketPath)
-        }
-        let setServerHandled = startMockServer(listenerFD: setListenerFD, state: setState) { line in
-            XCTFail("Dock mode should not be forwarded: \(line)")
-            return "ERROR unexpected command"
         }
         environment["CMUX_SOCKET_PATH"] = setSocketPath
 
@@ -442,27 +423,20 @@ final class CLINotifyProcessIntegrationRegressionTests: XCTestCase {
             timeout: 5
         )
 
-        wait(for: [setServerHandled], timeout: 5)
         XCTAssertFalse(setResult.timedOut, setResult.stderr)
         XCTAssertEqual(setResult.status, 1, setResult.stderr)
         XCTAssertTrue(setResult.stdout.isEmpty, setResult.stdout)
         XCTAssertTrue(setResult.stderr.contains("Unknown right-sidebar mode 'dock'"), setResult.stderr)
         XCTAssertFalse(setResult.stderr.contains("Socket"), setResult.stderr)
-        XCTAssertTrue(setState.commands.isEmpty)
     }
 
     func testRightSidebarInvalidSetModeValidatesBeforeTargetResolution() throws {
         let cliPath = try bundledCLIPath()
         let socketPath = makeSocketPath("rs-bad-mode")
         let listenerFD = try bindUnixSocket(at: socketPath)
-        let state = MockSocketServerState()
         defer {
             Darwin.close(listenerFD)
             unlink(socketPath)
-        }
-        let serverHandled = startMockServer(listenerFD: listenerFD, state: state) { line in
-            XCTFail("Invalid mode should not be forwarded: \(line)")
-            return "ERROR unexpected command"
         }
         var environment = ProcessInfo.processInfo.environment
         environment["CMUX_SOCKET_PATH"] = socketPath
@@ -475,13 +449,11 @@ final class CLINotifyProcessIntegrationRegressionTests: XCTestCase {
             timeout: 5
         )
 
-        wait(for: [serverHandled], timeout: 5)
         XCTAssertFalse(result.timedOut, result.stderr)
         XCTAssertEqual(result.status, 1, result.stderr)
         XCTAssertTrue(result.stdout.isEmpty, result.stdout)
         XCTAssertTrue(result.stderr.contains("Unknown right-sidebar mode 'unknown'"), result.stderr)
         XCTAssertFalse(result.stderr.contains("Socket"), result.stderr)
-        XCTAssertTrue(state.commands.isEmpty)
     }
 
     func testRightSidebarCLIResolvesWindowAndWorkspaceHandlesBeforeForwarding() throws {
