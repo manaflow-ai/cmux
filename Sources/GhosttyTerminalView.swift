@@ -5901,6 +5901,7 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
             for text in accumulatedText {
                 if shouldSendText(text) {
                     if markedTextBefore {
+                        imeConsumedKeyUps.insert(event.keyCode)
                         sendCommittedIMETextToSurface(text, action: action, sourceEvent: event)
                         continue
                     }
