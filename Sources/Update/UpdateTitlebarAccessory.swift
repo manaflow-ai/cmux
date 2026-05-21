@@ -488,6 +488,7 @@ struct TitlebarControlsView: View {
         let style = TitlebarControlsStyle(rawValue: styleRawValue) ?? .classic
         let config = style.config
         controlsGroup(config: config)
+            .offset(y: -1)
             .padding(.leading, 4)
             .padding(.trailing, titlebarHintTrailingInset)
             .contentShape(Rectangle())
