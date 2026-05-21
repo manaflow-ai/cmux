@@ -19,13 +19,11 @@ final class VNCPanelConnection {
     private let onControl: ControlHandler
     private let onFrame: FrameHandler
     private let onExit: ExitHandler
-    private let socketPath: String
     private let ioQueue: DispatchQueue
     private let writeQueue: DispatchQueue
     private let stateLock = NSLock()
 
     private var process: Process?
-    private var listenerFileDescriptor: Int32 = -1
     private var clientFileDescriptor: Int32 = -1
     private var pendingControlMessages: [Data] = []
     private var framebufferComposer = VNCFramebufferComposer()
@@ -51,9 +49,6 @@ final class VNCPanelConnection {
         self.onControl = onControl
         self.onFrame = onFrame
         self.onExit = onExit
-        self.socketPath = FileManager.default.temporaryDirectory
-            .appendingPathComponent("cmux-vnc-\(UUID().uuidString).sock")
-            .path
         self.ioQueue = DispatchQueue(label: "dev.cmux.vnc.\(session.name)")
         self.writeQueue = DispatchQueue(label: "dev.cmux.vnc.\(session.name).write")
     }
@@ -66,18 +61,24 @@ final class VNCPanelConnection {
 
     private func startOnIOQueue() {
         do {
-            let listener = try Self.createListeningSocket(path: socketPath)
-            let shouldCloseListener = stateLock.withLock { () -> Bool in
-                if isClosed { return true }
-                listenerFileDescriptor = listener
-                return false
+            let socketPair = try Self.createSocketPair()
+            var parentSocket: Int32? = socketPair.parent
+            var childSocket: Int32? = socketPair.child
+            defer {
+                if let childSocket {
+                    Darwin.close(childSocket)
+                }
+                if let parentSocket {
+                    Darwin.close(parentSocket)
+                }
             }
-            if shouldCloseListener {
-                Darwin.close(listener)
-                unlink(socketPath)
+
+            if isCurrentlyClosed() {
                 return
             }
-            try launchHelper()
+            try launchHelper(inheritedSocket: socketPair.child)
+            Darwin.close(socketPair.child)
+            childSocket = nil
             let request = VNCConnectRequest(
                 sessionName: session.name,
                 host: session.address,
@@ -85,7 +86,19 @@ final class VNCPanelConnection {
                 username: credential.username,
                 password: credential.password
             )
-            acceptAndRead(connectRequest: request)
+            let activationResult = activateAcceptedClient(socketPair.parent, connectRequest: request)
+            switch activationResult {
+            case .active:
+                parentSocket = nil
+                readMessages(from: socketPair.parent)
+            case .closed:
+                return
+            case .failedBeforePublish:
+                notifyExit(.failure(reason: VNCPanelText.helperProtocolFailed, shouldRestart: true))
+            case .failedAfterPublish:
+                parentSocket = nil
+                notifyExit(.failure(reason: VNCPanelText.helperProtocolFailed, shouldRestart: true))
+            }
         } catch {
             close()
             notifyMainExit(.failure(reason: VNCPanelText.helperLaunchFailed, shouldRestart: false))
@@ -111,45 +124,38 @@ final class VNCPanelConnection {
     }
 
     func close() {
-        let state = stateLock.withLock { () -> (client: Int32, listener: Int32, process: Process?)? in
+        let state = stateLock.withLock { () -> (client: Int32, process: Process?)? in
             guard !isClosed else { return nil }
             isClosed = true
             let state = (
                 client: clientFileDescriptor,
-                listener: listenerFileDescriptor,
                 process: process
             )
             clientFileDescriptor = -1
-            listenerFileDescriptor = -1
             pendingControlMessages.removeAll(keepingCapacity: false)
             self.process = nil
             return state
         }
         guard let state else { return }
-        let socketPath = socketPath
         DispatchQueue.global(qos: .utility).async {
             if state.client >= 0 {
                 _ = Darwin.shutdown(state.client, SHUT_RDWR)
                 Darwin.close(state.client)
             }
-            if state.listener >= 0 {
-                Darwin.close(state.listener)
-            }
-            unlink(socketPath)
             state.process?.terminate()
         }
     }
 
-    private func launchHelper() throws {
+    private func launchHelper(inheritedSocket: Int32) throws {
         let helperURL = try Self.resolveHelperURL()
         let process = Process()
         process.executableURL = helperURL
-        var arguments = ["--socket", socketPath]
+        var arguments = ["--fd", "0"]
         if Self.shouldUseFakeHelper {
             arguments.append("--fake")
         }
         process.arguments = arguments
-        process.standardInput = FileHandle.nullDevice
+        process.standardInput = FileHandle(fileDescriptor: inheritedSocket, closeOnDealloc: false)
         process.standardOutput = FileHandle.nullDevice
         process.standardError = FileHandle.nullDevice
         process.terminationHandler = { [weak self] process in
@@ -169,46 +175,6 @@ final class VNCPanelConnection {
         }
         if shouldTerminate {
             process.terminate()
-        }
-    }
-
-    private func acceptAndRead(connectRequest: VNCConnectRequest) {
-        let listener = stateLock.withLock { listenerFileDescriptor }
-        let accepted = Darwin.accept(listener, nil, nil)
-        guard accepted >= 0 else {
-            if isCurrentlyClosed() { return }
-            notifyExit(.failure(reason: VNCPanelText.socketAcceptFailed(errno), shouldRestart: true))
-            return
-        }
-        Self.disableSIGPIPE(on: accepted)
-
-        let acceptedState = stateLock.withLock { () -> Int32? in
-            if isClosed {
-                return nil
-            }
-            let currentListener = listenerFileDescriptor
-            listenerFileDescriptor = -1
-            return currentListener
-        }
-        guard let acceptedState else {
-            Darwin.close(accepted)
-            return
-        }
-        if acceptedState >= 0 {
-            Darwin.close(acceptedState)
-        }
-
-        let activationResult = activateAcceptedClient(accepted, connectRequest: connectRequest)
-        switch activationResult {
-        case .active:
-            readMessages(from: accepted)
-        case .closed:
-            Darwin.close(accepted)
-        case .failedBeforePublish:
-            Darwin.close(accepted)
-            notifyExit(.failure(reason: VNCPanelText.helperProtocolFailed, shouldRestart: true))
-        case .failedAfterPublish:
-            notifyExit(.failure(reason: VNCPanelText.helperProtocolFailed, shouldRestart: true))
         }
     }
 
@@ -427,55 +393,14 @@ final class VNCPanelConnection {
         return value == "1" || value.caseInsensitiveCompare("true") == .orderedSame
     }
 
-    private static func createListeningSocket(path: String) throws -> Int32 {
-        let fileDescriptor = socket(AF_UNIX, SOCK_STREAM, 0)
-        guard fileDescriptor >= 0 else {
+    private static func createSocketPair() throws -> (parent: Int32, child: Int32) {
+        var fileDescriptors = [Int32](repeating: -1, count: 2)
+        guard socketpair(AF_UNIX, SOCK_STREAM, 0, &fileDescriptors) == 0 else {
             throw VNCPanelConnectionError.socketCreationFailed(errno)
         }
-
-        unlink(path)
-        var address = sockaddr_un()
-        address.sun_family = sa_family_t(AF_UNIX)
-        let maxPathLength = MemoryLayout.size(ofValue: address.sun_path)
-        guard path.utf8.count < maxPathLength else {
-            Darwin.close(fileDescriptor)
-            throw VNCPanelConnectionError.socketPathTooLong
-        }
-        path.withCString { pathPointer in
-            withUnsafeMutableBytes(of: &address.sun_path) { destination in
-                let source = UnsafeRawBufferPointer(start: pathPointer, count: path.utf8.count + 1)
-                destination.copyBytes(from: source)
-            }
-        }
-
-        let bindResult = withUnsafePointer(to: &address) { pointer in
-            pointer.withMemoryRebound(to: sockaddr.self, capacity: 1) { socketAddress in
-                Darwin.bind(
-                    fileDescriptor,
-                    socketAddress,
-                    socklen_t(MemoryLayout<sa_family_t>.size + path.utf8.count + 1)
-                )
-            }
-        }
-        guard bindResult == 0 else {
-            let capturedErrno = errno
-            Darwin.close(fileDescriptor)
-            unlink(path)
-            throw VNCPanelConnectionError.socketBindFailed(capturedErrno)
-        }
-        guard chmod(path, S_IRUSR | S_IWUSR) == 0 else {
-            let capturedErrno = errno
-            Darwin.close(fileDescriptor)
-            unlink(path)
-            throw VNCPanelConnectionError.socketPermissionFailed(capturedErrno)
-        }
-        guard listen(fileDescriptor, 1) == 0 else {
-            let capturedErrno = errno
-            Darwin.close(fileDescriptor)
-            unlink(path)
-            throw VNCPanelConnectionError.socketListenFailed(capturedErrno)
-        }
-        return fileDescriptor
+        disableSIGPIPE(on: fileDescriptors[0])
+        disableSIGPIPE(on: fileDescriptors[1])
+        return (parent: fileDescriptors[0], child: fileDescriptors[1])
     }
 }
 
@@ -490,10 +415,6 @@ private extension NSLock {
 enum VNCPanelConnectionError: LocalizedError {
     case helperMissing
     case socketCreationFailed(Int32)
-    case socketPathTooLong
-    case socketBindFailed(Int32)
-    case socketPermissionFailed(Int32)
-    case socketListenFailed(Int32)
 
     var errorDescription: String? {
         switch self {
@@ -501,14 +422,6 @@ enum VNCPanelConnectionError: LocalizedError {
             return VNCPanelText.helperMissing
         case .socketCreationFailed(let error):
             return VNCPanelText.socketCreationFailed(error)
-        case .socketPathTooLong:
-            return VNCPanelText.socketPathTooLong
-        case .socketBindFailed(let error):
-            return VNCPanelText.socketBindFailed(error)
-        case .socketPermissionFailed(let error):
-            return VNCPanelText.socketPermissionFailed(error)
-        case .socketListenFailed(let error):
-            return VNCPanelText.socketListenFailed(error)
         }
     }
 }

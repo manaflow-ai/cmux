@@ -503,8 +503,9 @@ private func runFake(channel: SocketChannel) {
     }
 }
 
-private func parseSocketPath(arguments: [String]) -> (socketPath: String?, fake: Bool) {
+private func parseConnectionArguments(arguments: [String]) -> (socketPath: String?, inheritedFileDescriptor: Int32?, fake: Bool) {
     var socketPath: String?
+    var inheritedFileDescriptor: Int32?
     var fake = false
     var index = 1
     while index < arguments.count {
@@ -514,6 +515,12 @@ private func parseSocketPath(arguments: [String]) -> (socketPath: String?, fake:
                 socketPath = arguments[index + 1]
                 index += 1
             }
+        case "--fd":
+            if index + 1 < arguments.count,
+               let fileDescriptor = Int32(arguments[index + 1]) {
+                inheritedFileDescriptor = fileDescriptor
+                index += 1
+            }
         case "--fake":
             fake = true
         default:
@@ -521,17 +528,25 @@ private func parseSocketPath(arguments: [String]) -> (socketPath: String?, fake:
         }
         index += 1
     }
-    return (socketPath, fake)
+    return (socketPath, inheritedFileDescriptor, fake)
 }
 
-let parsed = parseSocketPath(arguments: CommandLine.arguments)
-guard let socketPath = parsed.socketPath, !socketPath.isEmpty else {
-    fputs("usage: cmux-vnc-helper --socket <path> [--fake]\n", stderr)
+let parsed = parseConnectionArguments(arguments: CommandLine.arguments)
+guard parsed.inheritedFileDescriptor != nil || parsed.socketPath?.isEmpty == false else {
+    fputs("usage: cmux-vnc-helper (--fd <fd> | --socket <path>) [--fake]\n", stderr)
     exit(HelperExit.usage.rawValue)
 }
 
 do {
-    let fd = try connectUnixSocket(path: socketPath)
+    let fd: Int32
+    if let inheritedFileDescriptor = parsed.inheritedFileDescriptor {
+        fd = inheritedFileDescriptor
+        disableSIGPIPE(on: fd)
+    } else if let socketPath = parsed.socketPath {
+        fd = try connectUnixSocket(path: socketPath)
+    } else {
+        exit(HelperExit.usage.rawValue)
+    }
     let channel = SocketChannel(fd: fd)
     if parsed.fake || ProcessInfo.processInfo.environment["CMUX_VNC_HELPER_FAKE"] == "1" {
         runFake(channel: channel)
