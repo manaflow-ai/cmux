@@ -4881,16 +4881,25 @@ final class TerminalControllerSocketListenerHealthTests: XCTestCase {
         )
     }
 
-    func testStableSocketOpenLockFailureFallsBackToUserScopedSocket() {
-        for errnoCode in [EACCES, ELOOP, EINVAL, EMLINK] {
+    func testStableSocketLockPreparationFailuresFallBackToUserScopedSocket() {
+        let failures: [(stage: String, errnoCode: Int32)] = [
+            ("create_lock_directory", EACCES),
+            ("open_lock", EACCES),
+            ("open_lock", ELOOP),
+            ("open_lock", EINVAL),
+            ("open_lock", EMLINK),
+        ]
+
+        for failure in failures {
             XCTAssertEqual(
                 TerminalController.fallbackSocketPathAfterBindFailure(
                     requestedPath: SocketControlSettings.stableDefaultSocketPath,
-                    stage: "open_lock",
-                    errnoCode: errnoCode,
+                    stage: failure.stage,
+                    errnoCode: failure.errnoCode,
                     currentUserID: 501
                 ),
-                SocketControlSettings.userScopedStableSocketPath(currentUserID: 501)
+                SocketControlSettings.userScopedStableSocketPath(currentUserID: 501),
+                failure.stage
             )
         }
     }

@@ -1438,7 +1438,7 @@ class TerminalController {
         switch stage {
         case "unlink" where errnoCode == EACCES || errnoCode == EPERM:
             return SocketControlSettings.userScopedStableSocketPath(currentUserID: currentUserID)
-        case "open_lock", "lock":
+        case "create_lock_directory", "open_lock", "lock":
             return SocketControlSettings.userScopedStableSocketPath(currentUserID: currentUserID)
         case "existing_path", "stat_existing_path":
             return SocketControlSettings.userScopedStableSocketPath(currentUserID: currentUserID)
