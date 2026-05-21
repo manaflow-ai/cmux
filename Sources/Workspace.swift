@@ -10821,6 +10821,7 @@ final class Workspace: Identifiable, ObservableObject {
         url: URL? = nil,
         initialRequest: URLRequest? = nil,
         focus: Bool? = nil,
+        selectWhenNotFocused: Bool = false,
         insertAtEnd: Bool = false,
         preferredProfileID: UUID? = nil,
         bypassInsecureHTTPHostOnce: String? = nil,
@@ -10891,6 +10892,10 @@ final class Workspace: Identifiable, ObservableObject {
             browserPanel.focus()
             applyTabSelection(tabId: newTabId, inPane: paneId)
         } else {
+            if selectWhenNotFocused {
+                bonsplitController.selectTab(newTabId)
+                hideBrowserPortalsForDeselectedTabs(inPane: paneId, selectedTabId: newTabId)
+            }
             preserveFocusAfterNonFocusSplit(
                 preferredPanelId: previousFocusedPanelId,
                 splitPanelId: browserPanel.id,

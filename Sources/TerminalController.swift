@@ -10233,6 +10233,7 @@ class TerminalController {
                     inPane: targetPane,
                     url: url,
                     focus: focus,
+                    selectWhenNotFocused: true,
                     creationPolicy: .automationPreload,
                     omnibarVisible: omnibarVisible
                 )

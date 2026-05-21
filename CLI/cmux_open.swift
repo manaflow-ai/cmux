@@ -1110,10 +1110,6 @@ extension CMUXCLI {
     }
 
     private func gitBranchDiffBaseRef(in repoRoot: String) throws -> String {
-        if let upstream = try? gitSingleLine(["rev-parse", "--abbrev-ref", "--symbolic-full-name", "@{upstream}"], in: repoRoot),
-           !upstream.isEmpty {
-            return upstream
-        }
         if let originHead = try? gitSingleLine(["symbolic-ref", "--quiet", "--short", "refs/remotes/origin/HEAD"], in: repoRoot),
            !originHead.isEmpty {
             return originHead
@@ -1122,6 +1118,10 @@ extension CMUXCLI {
             if (try? gitStdout(["rev-parse", "--verify", "--quiet", "\(candidate)^{commit}"], in: repoRoot)) != nil {
                 return candidate
             }
+        }
+        if let upstream = try? gitSingleLine(["rev-parse", "--abbrev-ref", "--symbolic-full-name", "@{upstream}"], in: repoRoot),
+           !upstream.isEmpty {
+            return upstream
         }
         throw CLIError(message: "Unable to find a branch diff base. Set an upstream branch or create origin/main.")
     }

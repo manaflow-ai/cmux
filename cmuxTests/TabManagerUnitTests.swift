@@ -1948,6 +1948,36 @@ final class TabManagerSurfaceCreationTests: XCTestCase {
         XCTAssertTrue(otherBrowser?.isOmnibarVisible ?? false)
     }
 
+    func testNewBrowserSurfaceCanSelectBackgroundPaneWithoutTakingFocus() {
+        let manager = TabManager()
+        guard let workspace = manager.selectedWorkspace,
+              let sourcePanelId = workspace.focusedPanelId,
+              let rightPanel = workspace.newTerminalSplit(from: sourcePanelId, orientation: .horizontal),
+              let rightPaneId = workspace.paneId(forPanelId: rightPanel.id),
+              let url = URL(string: "file:///tmp/cmux-diff.html") else {
+            XCTFail("Expected split setup to succeed")
+            return
+        }
+        workspace.focusPanel(sourcePanelId)
+        let sourcePaneBefore = workspace.bonsplitController.focusedPaneId
+
+        guard let browserPanel = workspace.newBrowserSurface(
+            inPane: rightPaneId,
+            url: url,
+            focus: false,
+            selectWhenNotFocused: true,
+            omnibarVisible: false
+        ), let browserSurfaceId = workspace.surfaceIdFromPanelId(browserPanel.id) else {
+            XCTFail("Expected background browser surface to be created")
+            return
+        }
+
+        XCTAssertEqual(workspace.focusedPanelId, sourcePanelId)
+        XCTAssertEqual(workspace.bonsplitController.focusedPaneId, sourcePaneBefore)
+        XCTAssertEqual(workspace.bonsplitController.selectedTab(inPane: rightPaneId)?.id, browserSurfaceId)
+        XCTAssertFalse(browserPanel.isOmnibarVisible)
+    }
+
     func testOpenBrowserInWorkspaceSplitRightSelectsTargetWorkspaceAndCreatesSplit() {
         let manager = TabManager()
         guard let initialWorkspace = manager.selectedWorkspace else {
