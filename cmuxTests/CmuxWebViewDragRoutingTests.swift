@@ -310,6 +310,23 @@ final class BrowserScreenshotPipelineTests: XCTestCase {
         XCTAssertNotNil(pasteboard.data(forType: .tiff))
     }
 
+    func testScreenshotPasteboardWriterClearsExistingContentsBeforeWriting() async throws {
+        let pasteboard = NSPasteboard(name: .init("cmux-browser-screenshot-existing-\(UUID().uuidString)"))
+        pasteboard.clearContents()
+        pasteboard.setString("existing clipboard text", forType: .string)
+
+        let image = try makeTestImage(width: 8, height: 6)
+        _ = try await BrowserScreenshotPipeline.captureAndWrite(
+            mode: .fullPage,
+            snapshot: { image },
+            pasteboard: pasteboard
+        )
+
+        XCTAssertNil(pasteboard.string(forType: .string))
+        XCTAssertNotNil(pasteboard.data(forType: .png))
+        XCTAssertNotNil(pasteboard.data(forType: .tiff))
+    }
+
     func testSectionCropMapsViewSelectionIntoSnapshotImageCoordinates() throws {
         let cropRect = try BrowserScreenshotCrop.imageRect(
             forSelectionInView: NSRect(x: 50, y: 25, width: 100, height: 50),

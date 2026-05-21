@@ -128,6 +128,7 @@ enum BrowserScreenshotCrop {
 enum BrowserScreenshotPasteboardWriter {
     static func write(_ image: NSImage, to pasteboard: NSPasteboard = .general) throws {
         let item = try pasteboardItem(for: image)
+        pasteboard.clearContents()
         guard pasteboard.writeObjects([item]) else {
             throw BrowserScreenshotError.pasteboardWriteFailed
         }
