@@ -438,19 +438,6 @@ func tmuxTrimIdSigil(raw string) string {
 	return raw
 }
 
-func tmuxIsDecimal(raw string) bool {
-	raw = tmuxTrimIdSigil(raw)
-	if raw == "" {
-		return false
-	}
-	for _, r := range raw {
-		if r < '0' || r > '9' {
-			return false
-		}
-	}
-	return true
-}
-
 func tmuxNumericIdMatches(handle string, candidates ...string) bool {
 	token := tmuxTrimIdSigil(handle)
 	if token == "" {

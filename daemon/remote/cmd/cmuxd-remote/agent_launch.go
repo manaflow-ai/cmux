@@ -331,46 +331,57 @@ type focusedContext struct {
 	workspaceId string
 	windowId    string
 	paneHandle  string
+	paneId      string
 	surfaceId   string
 }
 
 func getFocusedContext(rc *rpcContext) *focusedContext {
 	// Use a goroutine with timeout so a slow/stale relay doesn't block agent launch.
 	type result struct {
-		payload map[string]any
-		err     error
+		focused *focusedContext
 	}
 	ch := make(chan result, 1)
 	go func() {
-		p, e := rc.call("system.identify", nil)
-		ch <- result{p, e}
+		payload, err := rc.call("system.identify", nil)
+		if err != nil {
+			ch <- result{}
+			return
+		}
+		focused, _ := payload["focused"].(map[string]any)
+		if focused == nil {
+			ch <- result{}
+			return
+		}
+
+		wsId := stringFromAny(focused["workspace_id"], focused["workspace_ref"])
+		paneHandle := stringFromAny(focused["pane_id"], focused["pane_ref"])
+		if wsId == "" || paneHandle == "" {
+			ch <- result{}
+			return
+		}
+
+		canonicalPaneId := stringFromAny(focused["pane_id"])
+		if canonicalPaneId == "" {
+			if canonicalWsId, err := tmuxResolveWorkspaceId(rc, wsId); err == nil {
+				if pid, err := tmuxCanonicalPaneId(rc, paneHandle, canonicalWsId); err == nil {
+					canonicalPaneId = pid
+				}
+			}
+		}
+
+		ch <- result{focused: &focusedContext{
+			workspaceId: wsId,
+			windowId:    stringFromAny(focused["window_id"], focused["window_ref"]),
+			paneHandle:  strings.TrimSpace(paneHandle),
+			paneId:      strings.TrimSpace(canonicalPaneId),
+			surfaceId:   stringFromAny(focused["surface_id"], focused["surface_ref"]),
+		}}
 	}()
-	var payload map[string]any
 	select {
 	case r := <-ch:
-		if r.err != nil {
-			return nil
-		}
-		payload = r.payload
+		return r.focused
 	case <-time.After(5 * time.Second):
 		return nil
-	}
-	focused, _ := payload["focused"].(map[string]any)
-	if focused == nil {
-		return nil
-	}
-
-	wsId := stringFromAny(focused["workspace_id"], focused["workspace_ref"])
-	paneId := stringFromAny(focused["pane_id"], focused["pane_ref"])
-	if wsId == "" || paneId == "" {
-		return nil
-	}
-
-	return &focusedContext{
-		workspaceId: wsId,
-		windowId:    stringFromAny(focused["window_id"], focused["window_ref"]),
-		paneHandle:  strings.TrimSpace(paneId),
-		surfaceId:   stringFromAny(focused["surface_id"], focused["surface_ref"]),
 	}
 }
 
@@ -460,7 +471,11 @@ func configureAgentEnvironment(cfg agentConfig) {
 		if windowToken == "" {
 			windowToken = cfg.focused.workspaceId
 		}
-		paneToken := tmuxStableNumericId(cfg.focused.paneHandle)
+		paneIdForToken := cfg.focused.paneId
+		if paneIdForToken == "" {
+			paneIdForToken = cfg.focused.paneHandle
+		}
+		paneToken := tmuxStableNumericId(paneIdForToken)
 		fakeTmux = fmt.Sprintf("/tmp/%s/%s,%s,%s",
 			cfg.tmuxPathPrefix, cfg.focused.workspaceId, windowToken, paneToken)
 		fakeTmuxPane = "%" + paneToken

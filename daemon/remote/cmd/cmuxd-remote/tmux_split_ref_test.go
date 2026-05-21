@@ -49,6 +49,15 @@ func startMockTmuxCompatSocket(t *testing.T) string {
 				}
 
 				switch method {
+				case "system.identify":
+					resp["result"] = map[string]any{
+						"focused": map[string]any{
+							"workspace_id":  "11111111-1111-4111-8111-111111111111",
+							"workspace_ref": "workspace:1",
+							"pane_ref":      "pane:1",
+							"surface_ref":   "surface:1",
+						},
+					}
 				case "workspace.list":
 					resp["result"] = map[string]any{
 						"workspaces": []map[string]any{{

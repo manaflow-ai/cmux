@@ -14452,6 +14452,20 @@ struct CMUXCLI {
                 return nil
             }
 
+            let canonicalPaneId: String? = {
+                if let paneId = normalizedTmuxTarget(focused["pane_id"] as? String) {
+                    return paneId
+                }
+                guard let canonicalWorkspaceId = try? resolveWorkspaceId(workspaceId, client: client) else {
+                    return nil
+                }
+                return try? tmuxCanonicalPaneId(
+                    paneHandle,
+                    workspaceId: canonicalWorkspaceId,
+                    client: client
+                )
+            }()
+
             let windowId = (focused["window_id"] as? String)
                 ?? (focused["window_ref"] as? String)
             let surfaceId = (focused["surface_id"] as? String)
@@ -14462,7 +14476,7 @@ struct CMUXCLI {
                 workspaceId: workspaceId,
                 windowId: windowId,
                 paneHandle: paneHandle,
-                paneId: focused["pane_id"] as? String,
+                paneId: canonicalPaneId,
                 surfaceId: surfaceId
             )
         } catch {

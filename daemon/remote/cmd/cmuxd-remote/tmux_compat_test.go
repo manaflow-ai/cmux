@@ -433,7 +433,8 @@ func TestConfigureAgentEnvironment(t *testing.T) {
 		focused: &focusedContext{
 			workspaceId: "ws-abc",
 			windowId:    "win-123",
-			paneHandle:  "pane-456",
+			paneHandle:  "pane:456",
+			paneId:      "pane-456",
 			surfaceId:   "surf-789",
 		},
 		tmuxPathPrefix: "cmux-claude-teams",
@@ -476,6 +477,22 @@ func TestConfigureAgentEnvironment(t *testing.T) {
 	// Verify extra env
 	if os.Getenv("CLAUDE_CODE_EXPERIMENTAL_AGENT_TEAMS") != "1" {
 		t.Error("CLAUDE_CODE_EXPERIMENTAL_AGENT_TEAMS should be 1")
+	}
+}
+
+func TestGetFocusedContextCanonicalizesPaneRef(t *testing.T) {
+	sockPath := startMockTmuxCompatSocket(t)
+	rc := &rpcContext{socketPath: sockPath}
+
+	focused := getFocusedContext(rc)
+	if focused == nil {
+		t.Fatal("getFocusedContext returned nil")
+	}
+	if focused.paneHandle != "pane:1" {
+		t.Fatalf("paneHandle = %q, want pane:1", focused.paneHandle)
+	}
+	if focused.paneId != "33333333-3333-4333-8333-333333333333" {
+		t.Fatalf("paneId = %q, want canonical pane UUID", focused.paneId)
 	}
 }
 
