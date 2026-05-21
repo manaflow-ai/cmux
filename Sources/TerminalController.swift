@@ -16390,18 +16390,14 @@ class TerminalController {
         var captureError: String?
         v2MainSync {
             let preferredWindows = [NSApp.mainWindow, NSApp.keyWindow].compactMap { $0 } + NSApp.windows
-            func validCaptureWindow(_ window: NSWindow) -> Bool {
-                CGWindowID(exactly: window.windowNumber) != nil
+            let captureWindows = preferredWindows.compactMap { window -> (window: NSWindow, id: CGWindowID)? in
+                guard let id = CGWindowID(exactly: window.windowNumber) else { return nil }
+                return (window, id)
             }
-            guard let window = preferredWindows.first(where: { window in
-                validCaptureWindow(window) && window.isVisible && !window.isMiniaturized
-            }) ?? preferredWindows.first(where: validCaptureWindow) else {
+            guard let captureWindow = captureWindows.first(where: { captureWindow in
+                captureWindow.window.isVisible && !captureWindow.window.isMiniaturized
+            }) ?? captureWindows.first else {
                 captureError = "No window available"
-                return
-            }
-
-            guard let windowNumber = CGWindowID(exactly: window.windowNumber) else {
-                captureError = "Invalid window number: \(window.windowNumber)"
                 return
             }
 
@@ -16409,7 +16405,7 @@ class TerminalController {
             guard let cgImage = CGWindowListCreateImage(
                 .null,  // Capture just the window bounds
                 .optionIncludingWindow,
-                windowNumber,
+                captureWindow.id,
                 [.boundsIgnoreFraming, .nominalResolution]
             ) else {
                 captureError = "Failed to capture window image"
