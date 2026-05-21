@@ -4889,7 +4889,7 @@ final class TerminalControllerSocketListenerHealthTests: XCTestCase {
         Darwin.close(listenerFD)
         defer { unlink(path) }
 
-        XCTAssertFalse(TerminalController.socketPathAcceptsConnections(path, timeoutMilliseconds: 20))
+        XCTAssertFalse(TerminalController.socketPathAcceptsConnections(path))
     }
 
     func testPrepareSocketPathForBindRejectsRegularFileWithoutDeletingIt() throws {
