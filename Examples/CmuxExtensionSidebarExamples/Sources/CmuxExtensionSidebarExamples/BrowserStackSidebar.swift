@@ -61,6 +61,7 @@ public struct BrowserStackSidebar: CmuxExtensionSidebarMutableProvider {
 
     private func browserIcon(_ workspace: CmuxExtensionWorkspaceSnapshot) -> CmuxExtensionSidebarRenderIcon? {
         let title = workspace.title.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
+        let titleTokens = Set(title.split { !$0.isLetter && !$0.isNumber }.map(String.init))
         if title.contains("google") {
             return CmuxExtensionSidebarRenderIcon(
                 text: "G",
@@ -68,7 +69,10 @@ public struct BrowserStackSidebar: CmuxExtensionSidebarMutableProvider {
                 backgroundColorHex: "#FFFFFF"
             )
         }
-        if title.contains("hacker") || title.contains("ycombinator") || title.contains("yc") {
+        if title.contains("hacker")
+            || title.contains("ycombinator")
+            || title.contains("y combinator")
+            || titleTokens.contains("yc") {
             return CmuxExtensionSidebarRenderIcon(
                 text: "Y",
                 foregroundColorHex: "#FFFFFF",

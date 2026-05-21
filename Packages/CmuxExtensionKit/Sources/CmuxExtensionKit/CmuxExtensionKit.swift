@@ -2,21 +2,40 @@ import Foundation
 
 private enum CmuxExtensionDateCoding {
     static func iso8601Date(from string: String) -> Date? {
-        let fractional = ISO8601DateFormatter()
-        fractional.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
+        let fractional = formatter(
+            key: "cmux.extension.iso8601.fractional",
+            options: [.withInternetDateTime, .withFractionalSeconds]
+        )
         if let date = fractional.date(from: string) {
             return date
         }
 
-        let plain = ISO8601DateFormatter()
-        plain.formatOptions = [.withInternetDateTime]
+        let plain = formatter(
+            key: "cmux.extension.iso8601.plain",
+            options: [.withInternetDateTime]
+        )
         return plain.date(from: string)
     }
 
     static func iso8601String(from date: Date) -> String {
+        formatter(
+            key: "cmux.extension.iso8601.encode",
+            options: [.withInternetDateTime, .withFractionalSeconds]
+        ).string(from: date)
+    }
+
+    private static func formatter(
+        key: String,
+        options: ISO8601DateFormatter.Options
+    ) -> ISO8601DateFormatter {
+        let dictionary = Thread.current.threadDictionary
+        if let formatter = dictionary[key] as? ISO8601DateFormatter {
+            return formatter
+        }
         let formatter = ISO8601DateFormatter()
-        formatter.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
-        return formatter.string(from: date)
+        formatter.formatOptions = options
+        dictionary[key] = formatter
+        return formatter
     }
 }
 
@@ -140,10 +159,7 @@ public enum CmuxExtensionJSONValue: Codable, Equatable, Sendable {
     public var intValue: Int? {
         switch self {
         case .number(let value):
-            let rounded = value.rounded()
-            guard rounded == value else { return nil }
-            guard rounded >= Double(Int.min), rounded <= Double(Int.max) else { return nil }
-            return Int(rounded)
+            return Int(exactly: value)
         case .string(let value):
             return Int(value)
         default:

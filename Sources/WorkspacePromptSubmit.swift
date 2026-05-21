@@ -139,11 +139,13 @@ extension TabManager {
         switch kind {
         case .promptSubmission:
             messageRecorded = workspace.recordSubmittedMessage(message)
-            CmuxEventBus.shared.publishWorkspacePromptSubmitted(
-                workspaceId: workspaceId,
-                message: message,
-                preview: Workspace.conversationMessagePreview(from: message)
-            )
+            if messageRecorded {
+                CmuxEventBus.shared.publishWorkspacePromptSubmitted(
+                    workspaceId: workspaceId,
+                    message: message,
+                    preview: Workspace.conversationMessagePreview(from: message)
+                )
+            }
         case .assistantFinal:
             guard iMessageModeEnabled else {
                 return (false, false, originalIndex)

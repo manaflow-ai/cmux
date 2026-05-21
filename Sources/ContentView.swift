@@ -11025,10 +11025,6 @@ private final class CmuxExtensionSidebarInspectorWindowController {
     static func show(workspace: CmuxExtensionWorkspaceSnapshot) {
         if let controller = controllers[workspace.id] {
             controller.window?.title = workspace.title
-            let view = CmuxExtensionWorkspaceInspectorView(workspace: workspace) {
-                show(workspace: workspace)
-            }
-            controller.contentViewController = NSHostingController(rootView: view.frame(width: 620, height: 440))
             controller.window?.setContentSize(NSSize(width: 620, height: 440))
             controller.showWindow(nil)
             controller.window?.makeKeyAndOrderFront(nil)
@@ -11171,14 +11167,14 @@ private enum CmuxExtensionWorktreePrototype {
         let pipe = Pipe()
         process.standardOutput = pipe
         process.standardError = pipe
+        let outputCollector = CmuxExtensionPipeOutputCollector(fileHandle: pipe.fileHandleForReading)
         let termination = CmuxExtensionProcessTermination()
         process.terminationHandler = { process in
             termination.complete(process.terminationStatus)
         }
         try process.run()
-        async let data = readDataToEndOfFile(from: pipe.fileHandleForReading)
         let terminationStatus = await termination.wait()
-        let outputData = await data
+        let outputData = await outputCollector.finish()
         guard terminationStatus == 0 else {
             let message = String(data: outputData, encoding: .utf8) ?? "command failed"
             throw NSError(
@@ -11189,16 +11185,54 @@ private enum CmuxExtensionWorktreePrototype {
         }
     }
 
-    private static func readDataToEndOfFile(from fileHandle: FileHandle) async -> Data {
-        await withCheckedContinuation { continuation in
-            DispatchQueue.global(qos: .utility).async {
-                continuation.resume(returning: fileHandle.readDataToEndOfFile())
-            }
+    private static func shellEscaped(_ value: String) -> String {
+        "'" + value.replacingOccurrences(of: "'", with: "'\\''") + "'"
+    }
+}
+
+private final class CmuxExtensionPipeOutputCollector: @unchecked Sendable {
+    private let fileHandle: FileHandle
+    private let lock = NSLock()
+    private var output = Data()
+    private var isFinished = false
+
+    init(fileHandle: FileHandle) {
+        self.fileHandle = fileHandle
+        fileHandle.readabilityHandler = { [weak self] handle in
+            self?.append(handle.availableData)
         }
     }
 
-    private static func shellEscaped(_ value: String) -> String {
-        "'" + value.replacingOccurrences(of: "'", with: "'\\''") + "'"
+    func finish() async -> Data {
+        await withCheckedContinuation { continuation in
+            fileHandle.readabilityHandler = nil
+            try? fileHandle.close()
+
+            lock.lock()
+            isFinished = true
+            let finalOutput = self.output
+            lock.unlock()
+            continuation.resume(returning: finalOutput)
+        }
+    }
+
+    private func append(_ data: Data) {
+        let shouldClose: Bool
+        lock.lock()
+        if isFinished {
+            shouldClose = false
+        } else if data.isEmpty {
+            isFinished = true
+            shouldClose = true
+        } else {
+            output.append(data)
+            shouldClose = false
+        }
+        lock.unlock()
+
+        if shouldClose {
+            fileHandle.readabilityHandler = nil
+        }
     }
 }
 

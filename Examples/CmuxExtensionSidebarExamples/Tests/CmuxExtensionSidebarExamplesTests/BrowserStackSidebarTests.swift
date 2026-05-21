@@ -127,6 +127,18 @@ final class BrowserStackSidebarTests: XCTestCase {
         XCTAssertEqual(model.sections.map(\.id), ["tiles", "loose"])
     }
 
+    func testBrowserIconOnlyMatchesYcAsToken() throws {
+        let stateURL = temporaryStateURL()
+        defer { try? FileManager.default.removeItem(at: stateURL.deletingLastPathComponent()) }
+
+        let snapshot = snapshot(titles: ["privacy", "YC launch"])
+        let model = BrowserStackSidebar(store: BrowserStackSidebarStore(stateURL: stateURL)).render(snapshot: snapshot)
+        let rows = try XCTUnwrap(model.sections.first { $0.id == "tiles" }?.rows)
+
+        XCTAssertNotEqual(rows[0].leadingIcon?.text, "Y")
+        XCTAssertEqual(rows[1].leadingIcon?.text, "Y")
+    }
+
     private func temporaryStateURL() -> URL {
         FileManager.default.temporaryDirectory
             .appendingPathComponent("cmux-browser-stack-\(UUID().uuidString)", isDirectory: true)

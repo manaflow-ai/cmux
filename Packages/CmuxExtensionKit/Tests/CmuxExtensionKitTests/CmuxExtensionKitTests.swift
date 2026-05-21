@@ -32,6 +32,7 @@ final class CmuxExtensionKitTests: XCTestCase {
     func testJSONValueIntValueReturnsNilForOutOfRangeNumber() {
         XCTAssertEqual(CmuxExtensionJSONValue.number(42).intValue, 42)
         XCTAssertNil(CmuxExtensionJSONValue.number(1.5).intValue)
+        XCTAssertNil(CmuxExtensionJSONValue.number(Double(Int.max)).intValue)
         XCTAssertNil(CmuxExtensionJSONValue.number(Double.greatestFiniteMagnitude).intValue)
     }
 

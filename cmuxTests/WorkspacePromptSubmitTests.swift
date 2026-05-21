@@ -122,6 +122,26 @@ final class WorkspacePromptSubmitTests: XCTestCase {
         XCTAssertNil(second.latestConversationMessage)
     }
 
+    func testBlankPromptSubmitDoesNotRecordTimestampOrPublishEvent() throws {
+        let manager = TabManager()
+        let second = manager.addWorkspace(select: false, placementOverride: .end)
+        let sequenceBeforeSubmit = CmuxEventBus.shared.latestSequence
+
+        let outcome = try XCTUnwrap(
+            manager.handlePromptSubmit(
+                workspaceId: second.id,
+                message: " \n ",
+                iMessageModeEnabled: false
+            )
+        )
+
+        XCTAssertFalse(outcome.messageRecorded)
+        XCTAssertFalse(outcome.reordered)
+        XCTAssertNil(second.latestConversationMessage)
+        XCTAssertNil(second.latestSubmittedAt)
+        XCTAssertEqual(CmuxEventBus.shared.latestSequence, sequenceBeforeSubmit)
+    }
+
     func testFeedPromptSubmitEventExtractsToolInputMessage() throws {
         let manager = TabManager()
         let first = manager.tabs[0]
