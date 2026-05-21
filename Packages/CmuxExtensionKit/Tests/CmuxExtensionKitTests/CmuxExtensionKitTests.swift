@@ -59,11 +59,13 @@ final class CmuxExtensionKitTests: XCTestCase {
     }
 
     func testSidebarSnapshotDecodesSocketShape() throws {
+        let windowId = UUID()
         let workspaceId = UUID()
         let selectedId = workspaceId.uuidString
         let data = Data("""
         {
           "seq": 7,
+          "window_id": "\(windowId.uuidString)",
           "selected_workspace_id": "\(selectedId)",
           "workspaces": [
             {
@@ -96,6 +98,7 @@ final class CmuxExtensionKitTests: XCTestCase {
         let workspace = try XCTUnwrap(snapshot.workspaces.first)
 
         XCTAssertEqual(snapshot.sequence, 7)
+        XCTAssertEqual(snapshot.windowId, windowId)
         XCTAssertEqual(snapshot.selectedWorkspaceId, workspaceId)
         XCTAssertEqual(workspace.id, workspaceId)
         XCTAssertEqual(workspace.title, "API")

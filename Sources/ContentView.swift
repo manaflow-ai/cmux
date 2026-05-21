@@ -1979,6 +1979,7 @@ struct ContentView: View {
         VerticalTabsSidebar(
             updateViewModel: updateViewModel,
             fileExplorerState: fileExplorerState,
+            windowId: windowId,
             onSendFeedback: presentFeedbackComposer,
             onToggleSidebar: { sidebarState.toggle() },
             onNewTab: {
@@ -9499,6 +9500,7 @@ struct SidebarTabItemPresentationResolutionPolicy {
 struct VerticalTabsSidebar: View {
     @ObservedObject var updateViewModel: UpdateViewModel
     @ObservedObject var fileExplorerState: FileExplorerState
+    let windowId: UUID
     let onSendFeedback: () -> Void
     let onToggleSidebar: () -> Void
     let onNewTab: () -> Void
@@ -10047,7 +10049,8 @@ struct VerticalTabsSidebar: View {
         CmuxExtensionSidebarSnapshot(
             sequence: UInt64(max(0, CmuxEventBus.shared.latestSequence)),
             selectedWorkspaceId: tabManager.selectedTabId,
-            workspaces: workspaces.map(extensionWorkspaceSnapshot(for:))
+            workspaces: workspaces.map(extensionWorkspaceSnapshot(for:)),
+            windowId: windowId
         )
     }
 
@@ -10094,30 +10097,39 @@ struct VerticalTabsSidebar: View {
         let dropRows = extensionBrowserStackDropRows(for: model)
 
         return VStack(alignment: .leading, spacing: 10) {
-            LazyVGrid(
-                columns: Array(repeating: GridItem(.flexible(), spacing: 8), count: 3),
-                spacing: 8
-            ) {
-                ForEach(Array(tileRows.enumerated()), id: \.element.id) { index, row in
-                    extensionBrowserStackTile(
-                        row: row,
-                        isSelected: row.workspaceId == tabManager.selectedTabId
-                            || (tabManager.selectedTabId == nil && index == 0),
-                        dropRows: dropRows
-                    )
+            VStack(alignment: .leading, spacing: 8) {
+                ForEach(Array(stride(from: 0, to: tileRows.count, by: 3)), id: \.self) { rowStart in
+                    HStack(spacing: 8) {
+                        ForEach(Array(tileRows[rowStart..<min(rowStart + 3, tileRows.count)].enumerated()), id: \.element.id) { offset, row in
+                            let index = rowStart + offset
+                            extensionBrowserStackTile(
+                                row: row,
+                                isSelected: row.workspaceId == tabManager.selectedTabId
+                                    || (tabManager.selectedTabId == nil && index == 0),
+                                dropRows: dropRows
+                            )
+                        }
+                        if tileRows.count - rowStart < 3 {
+                            ForEach(0..<(3 - (tileRows.count - rowStart)), id: \.self) { _ in
+                                Color.clear
+                                    .frame(maxWidth: .infinity)
+                                    .frame(height: 54)
+                            }
+                        }
+                    }
                 }
             }
             .padding(.horizontal, 8)
             .padding(.top, 10)
 
-            LazyVStack(alignment: .leading, spacing: 5) {
+            VStack(alignment: .leading, spacing: 5) {
                 ForEach(looseRows) { row in
                     extensionBrowserStackRow(row: row, now: now, dropRows: dropRows)
                 }
             }
             .padding(.horizontal, 8)
 
-            LazyVStack(alignment: .leading, spacing: 8) {
+            VStack(alignment: .leading, spacing: 8) {
                 ForEach(groupedSections) { section in
                     extensionBrowserStackGroup(section: section, now: now, dropRows: dropRows)
                 }
@@ -10177,7 +10189,7 @@ struct VerticalTabsSidebar: View {
             .padding(.horizontal, 10)
             .padding(.top, 9)
 
-            LazyVStack(alignment: .leading, spacing: 4) {
+            VStack(alignment: .leading, spacing: 4) {
                 ForEach(section.rows) { row in
                     extensionBrowserStackRow(row: row, now: now, compact: true, dropRows: dropRows)
                         .padding(.horizontal, 8)
@@ -10226,6 +10238,7 @@ struct VerticalTabsSidebar: View {
                 )
         }
         .buttonStyle(.plain)
+        .frame(maxWidth: .infinity)
         .safeHelp(row.title)
         .opacity(draggedTabId == row.workspaceId ? 0.55 : 1)
         .onDrag {
@@ -15985,7 +15998,7 @@ enum SidebarTabDragPayload {
         let payload = "\(prefix)\(tabId.uuidString)"
         provider.registerDataRepresentation(forTypeIdentifier: typeIdentifier, visibility: .ownProcess) { completion in
             let data = payload.data(using: .utf8)
-            MainActor.assumeIsolated {
+            Task { @MainActor in
                 completion(data, nil)
             }
             return nil

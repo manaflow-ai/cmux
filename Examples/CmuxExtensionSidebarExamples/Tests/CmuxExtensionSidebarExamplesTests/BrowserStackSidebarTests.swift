@@ -104,6 +104,63 @@ final class BrowserStackSidebarTests: XCTestCase {
         XCTAssertEqual(reconciled.sections.map(\.id), ["tiles", "loose", "group:research"])
     }
 
+    func testWindowScopedStateDoesNotTruncateOtherWindowOrdering() throws {
+        let stateURL = temporaryStateURL()
+        defer { try? FileManager.default.removeItem(at: stateURL.deletingLastPathComponent()) }
+
+        let firstWindowId = UUID()
+        let secondWindowId = UUID()
+        let firstSnapshot = snapshot(titles: ["First A", "First B", "First C", "First D"], windowId: firstWindowId)
+        let secondSnapshot = snapshot(titles: ["Second A", "Second B", "Second C", "Second D"], windowId: secondWindowId)
+        let store = BrowserStackSidebarStore(stateURL: stateURL)
+        let provider = BrowserStackSidebar(store: store)
+
+        _ = provider.render(snapshot: firstSnapshot)
+        _ = provider.render(snapshot: secondSnapshot)
+
+        let movedWorkspace = firstSnapshot.workspaces[3]
+        let result = try provider.handle(
+            .moveWorkspace(
+                CmuxExtensionSidebarWorkspaceMove(
+                    workspaceId: movedWorkspace.id,
+                    sourceSectionId: "loose",
+                    targetSectionId: "group:reading-list",
+                    targetIndex: 0
+                )
+            ),
+            snapshot: firstSnapshot
+        )
+
+        XCTAssertTrue(result.ok)
+        _ = provider.render(snapshot: secondSnapshot)
+        let secondMovedWorkspace = secondSnapshot.workspaces[3]
+        XCTAssertTrue(try provider.handle(
+            .moveWorkspace(
+                CmuxExtensionSidebarWorkspaceMove(
+                    workspaceId: secondMovedWorkspace.id,
+                    sourceSectionId: "loose",
+                    targetSectionId: "group:reading-list",
+                    targetIndex: 0
+                )
+            ),
+            snapshot: secondSnapshot
+        ).ok)
+        let firstModel = provider.render(snapshot: firstSnapshot)
+        let firstGroupRows = try XCTUnwrap(firstModel.sections.first { $0.id == "group:reading-list" }?.rows)
+        XCTAssertEqual(firstGroupRows.first?.workspaceId, movedWorkspace.id)
+
+        let persistedState = try waitForPersistedState(store: store, scopeKey: scopeKey(for: firstWindowId)) { state in
+            state.sections.first { $0.id == "group:reading-list" }?.workspaceIds.first == movedWorkspace.id
+        }
+        let secondScopedState = try waitForPersistedState(store: store, scopeKey: scopeKey(for: secondWindowId)) { state in
+            state.sections.first { $0.id == "group:reading-list" }?.workspaceIds.first == secondMovedWorkspace.id
+        }
+
+        XCTAssertEqual(persistedState.sections.first { $0.id == "group:reading-list" }?.workspaceIds.first, movedWorkspace.id)
+        XCTAssertEqual(secondScopedState.sections.first { $0.id == "group:reading-list" }?.workspaceIds.first, secondMovedWorkspace.id)
+        XCTAssertFalse(secondScopedState.sections.flatMap(\.workspaceIds).contains(movedWorkspace.id))
+    }
+
     func testBrowserStackRenderModelPreservesEmptyRequiredSections() {
         let snapshot = CmuxExtensionSidebarSnapshot(sequence: 1, selectedWorkspaceId: nil, workspaces: [])
         let sections = [
@@ -218,26 +275,36 @@ final class BrowserStackSidebarTests: XCTestCase {
 
     private func waitForPersistedState(
         store: BrowserStackSidebarStore,
+        scopeKey: String? = nil,
         timeout: TimeInterval = 2,
         matching predicate: (BrowserStackSidebarState) -> Bool
     ) throws -> BrowserStackSidebarState {
         let deadline = Date().addingTimeInterval(timeout)
         while Date() < deadline {
-            if let state = try? store.load(), predicate(state) {
+            let state = scopeKey.flatMap { try? store.load(scopeKey: $0) } ?? (try? store.load())
+            if let state, predicate(state) {
                 return state
             }
             Thread.sleep(forTimeInterval: 0.01)
         }
+        if let scopeKey {
+            return try store.load(scopeKey: scopeKey)
+        }
         return try store.load()
     }
 
-    private func snapshot(titles: [String]) -> CmuxExtensionSidebarSnapshot {
+    private func snapshot(titles: [String], windowId: UUID? = nil) -> CmuxExtensionSidebarSnapshot {
         let workspaces = titles.map { workspace(title: $0) }
         return CmuxExtensionSidebarSnapshot(
             sequence: 1,
             selectedWorkspaceId: workspaces.first?.id,
-            workspaces: workspaces
+            workspaces: workspaces,
+            windowId: windowId
         )
+    }
+
+    private func scopeKey(for windowId: UUID) -> String {
+        "window-\(windowId.uuidString.lowercased())"
     }
 
     private func workspace(title: String) -> CmuxExtensionWorkspaceSnapshot {

@@ -121,13 +121,20 @@ public struct BrowserStackSidebar: CmuxExtensionSidebarMutableProvider {
 }
 
 private final class BrowserStackSidebarStateCache: @unchecked Sendable {
+    private struct ScopedState {
+        var state: BrowserStackSidebarState?
+        var didStartLoad: Bool
+        var mutationGeneration: UInt64
+    }
+
+    private static let legacyScopeKey = "legacy"
+
     private let store: BrowserStackSidebarStore
     private let onAsyncStateLoaded: (@Sendable () -> Void)?
     private let lock = NSLock()
     private let persistenceQueue = DispatchQueue(label: "cmux.browser-stack-sidebar.persistence")
-    private var state: BrowserStackSidebarState?
-    private var didStartLoad = false
-    private var mutationGeneration: UInt64 = 0
+    private let initialState: BrowserStackSidebarState?
+    private var statesByScope: [String: ScopedState] = [:]
 
     init(
         store: BrowserStackSidebarStore,
@@ -136,16 +143,25 @@ private final class BrowserStackSidebarStateCache: @unchecked Sendable {
     ) {
         self.store = store
         self.onAsyncStateLoaded = onAsyncStateLoaded
-        self.state = initialState
-        self.didStartLoad = initialState != nil
+        self.initialState = initialState
+        if initialState != nil {
+            statesByScope[Self.legacyScopeKey] = ScopedState(
+                state: initialState,
+                didStartLoad: true,
+                mutationGeneration: 0
+            )
+        }
     }
 
     func state(for snapshot: CmuxExtensionSidebarSnapshot) -> BrowserStackSidebarState {
-        startLoadIfNeeded()
+        let scopeKey = Self.scopeKey(for: snapshot)
+        startLoadIfNeeded(scopeKey: scopeKey)
         lock.lock()
-        let base = state ?? BrowserStackSidebarState.initial(snapshot: snapshot)
+        var scopedState = scopedState(for: scopeKey)
+        let base = scopedState.state ?? BrowserStackSidebarState.initial(snapshot: snapshot)
         let reconciled = base.reconciled(with: snapshot)
-        state = reconciled
+        scopedState.state = reconciled
+        statesByScope[scopeKey] = scopedState
         lock.unlock()
         return reconciled
     }
@@ -154,40 +170,47 @@ private final class BrowserStackSidebarStateCache: @unchecked Sendable {
         _ move: CmuxExtensionSidebarWorkspaceMove,
         snapshot: CmuxExtensionSidebarSnapshot
     ) {
+        let scopeKey = Self.scopeKey(for: snapshot)
         let updated: BrowserStackSidebarState
         lock.lock()
-        mutationGeneration &+= 1
-        var next = (state ?? BrowserStackSidebarState.initial(snapshot: snapshot)).reconciled(with: snapshot)
+        var scopedState = scopedState(for: scopeKey)
+        scopedState.mutationGeneration &+= 1
+        var next = (scopedState.state ?? BrowserStackSidebarState.initial(snapshot: snapshot)).reconciled(with: snapshot)
         next.moveWorkspace(move)
         updated = next.reconciled(with: snapshot)
-        state = updated
-        didStartLoad = true
+        scopedState.state = updated
+        scopedState.didStartLoad = true
+        statesByScope[scopeKey] = scopedState
         lock.unlock()
-        persist(updated)
+        persist(updated, scopeKey: scopeKey)
     }
 
-    private func startLoadIfNeeded() {
+    private func startLoadIfNeeded(scopeKey: String) {
         let generation: UInt64
         lock.lock()
-        if didStartLoad {
+        var scopedState = scopedState(for: scopeKey)
+        if scopedState.didStartLoad {
             lock.unlock()
             return
         }
-        didStartLoad = true
-        generation = mutationGeneration
+        scopedState.didStartLoad = true
+        generation = scopedState.mutationGeneration
+        statesByScope[scopeKey] = scopedState
         lock.unlock()
 
-        Task.detached(priority: .utility) { [store] in
-            guard let loaded = try? store.load() else { return }
-            self.applyLoadedState(loaded, generation: generation)
+        Task.detached(priority: .utility) { [store, scopeKey] in
+            guard let loaded = try? store.load(scopeKey: scopeKey) else { return }
+            self.applyLoadedState(loaded, scopeKey: scopeKey, generation: generation)
         }
     }
 
-    private func applyLoadedState(_ loaded: BrowserStackSidebarState, generation: UInt64) {
+    private func applyLoadedState(_ loaded: BrowserStackSidebarState, scopeKey: String, generation: UInt64) {
         let shouldNotify: Bool
         lock.lock()
-        if mutationGeneration == generation {
-            state = loaded
+        var scopedState = scopedState(for: scopeKey)
+        if scopedState.mutationGeneration == generation {
+            scopedState.state = loaded
+            statesByScope[scopeKey] = scopedState
             shouldNotify = true
         } else {
             shouldNotify = false
@@ -198,10 +221,25 @@ private final class BrowserStackSidebarStateCache: @unchecked Sendable {
         }
     }
 
-    private func persist(_ state: BrowserStackSidebarState) {
-        persistenceQueue.async { [store] in
-            try? store.save(state)
+    private func persist(_ state: BrowserStackSidebarState, scopeKey: String) {
+        persistenceQueue.async { [store, scopeKey] in
+            try? store.save(state, scopeKey: scopeKey)
         }
+    }
+
+    private func scopedState(for scopeKey: String) -> ScopedState {
+        statesByScope[scopeKey] ?? ScopedState(
+            state: initialState,
+            didStartLoad: initialState != nil,
+            mutationGeneration: 0
+        )
+    }
+
+    private static func scopeKey(for snapshot: CmuxExtensionSidebarSnapshot) -> String {
+        if let windowId = snapshot.windowId {
+            return "window-\(windowId.uuidString.lowercased())"
+        }
+        return legacyScopeKey
     }
 }
 
@@ -222,19 +260,48 @@ public struct BrowserStackSidebarStore: Sendable {
     }
 
     public func load() throws -> BrowserStackSidebarState {
-        let data = try Data(contentsOf: stateURL)
-        return try JSONDecoder().decode(BrowserStackSidebarState.self, from: data)
+        try load(from: stateURL)
+    }
+
+    public func load(scopeKey: String) throws -> BrowserStackSidebarState {
+        let url = scopedStateURL(scopeKey: scopeKey)
+        if url != stateURL, FileManager.default.fileExists(atPath: url.path) {
+            return try load(from: url)
+        }
+        return try load()
     }
 
     public func save(_ state: BrowserStackSidebarState) throws {
-        try FileManager.default.createDirectory(
-            at: stateURL.deletingLastPathComponent(),
-            withIntermediateDirectories: true
-        )
+        try save(state, to: stateURL)
+    }
+
+    public func save(_ state: BrowserStackSidebarState, scopeKey: String) throws {
+        try save(state, to: scopedStateURL(scopeKey: scopeKey))
+    }
+
+    private func load(from url: URL) throws -> BrowserStackSidebarState {
+        let data = try Data(contentsOf: url)
+        return try JSONDecoder().decode(BrowserStackSidebarState.self, from: data)
+    }
+
+    private func save(_ state: BrowserStackSidebarState, to url: URL) throws {
+        try FileManager.default.createDirectory(at: url.deletingLastPathComponent(), withIntermediateDirectories: true)
         let encoder = JSONEncoder()
         encoder.outputFormatting = [.prettyPrinted, .sortedKeys]
         let data = try encoder.encode(state)
-        try data.write(to: stateURL, options: [.atomic])
+        try data.write(to: url, options: [.atomic])
+    }
+
+    private func scopedStateURL(scopeKey: String) -> URL {
+        guard scopeKey != "legacy" else { return stateURL }
+        let directory = stateURL.deletingLastPathComponent()
+        let baseName = stateURL.deletingPathExtension().lastPathComponent
+        let pathExtension = stateURL.pathExtension
+        let scopedName = "\(baseName)-\(scopeKey)"
+        if pathExtension.isEmpty {
+            return directory.appendingPathComponent(scopedName)
+        }
+        return directory.appendingPathComponent(scopedName).appendingPathExtension(pathExtension)
     }
 
     public func reconciledState(for snapshot: CmuxExtensionSidebarSnapshot) throws -> BrowserStackSidebarState {

@@ -51,15 +51,18 @@ public struct CmuxExtensionLocalizedText: Codable, Equatable, Hashable, Sendable
 
 public struct CmuxExtensionSidebarSnapshot: Codable, Equatable, Sendable {
     public var sequence: UInt64
+    public var windowId: UUID?
     public var selectedWorkspaceId: UUID?
     public var workspaces: [CmuxExtensionWorkspaceSnapshot]
 
     public init(
         sequence: UInt64,
         selectedWorkspaceId: UUID?,
-        workspaces: [CmuxExtensionWorkspaceSnapshot]
+        workspaces: [CmuxExtensionWorkspaceSnapshot],
+        windowId: UUID? = nil
     ) {
         self.sequence = sequence
+        self.windowId = windowId
         self.selectedWorkspaceId = selectedWorkspaceId
         self.workspaces = workspaces
     }
@@ -70,6 +73,7 @@ public struct CmuxExtensionSidebarSnapshot: Codable, Equatable, Sendable {
 
     private enum CodingKeys: String, CodingKey {
         case sequence
+        case windowId
         case selectedWorkspaceId
         case workspaces
     }
@@ -77,6 +81,7 @@ public struct CmuxExtensionSidebarSnapshot: Codable, Equatable, Sendable {
     private enum SocketCodingKeys: String, CodingKey {
         case sequence
         case seq
+        case windowId = "window_id"
         case selectedWorkspaceId = "selected_workspace_id"
         case workspaces
     }
@@ -88,6 +93,8 @@ public struct CmuxExtensionSidebarSnapshot: Codable, Equatable, Sendable {
             ?? socketContainer.decodeIfPresent(UInt64.self, forKey: .sequence)
             ?? socketContainer.decodeIfPresent(UInt64.self, forKey: .seq)
             ?? 0
+        windowId = try container.decodeIfPresent(UUID.self, forKey: .windowId)
+            ?? socketContainer.decodeIfPresent(UUID.self, forKey: .windowId)
         selectedWorkspaceId = try container.decodeIfPresent(UUID.self, forKey: .selectedWorkspaceId)
             ?? socketContainer.decodeIfPresent(UUID.self, forKey: .selectedWorkspaceId)
         workspaces = try container.decodeIfPresent([CmuxExtensionWorkspaceSnapshot].self, forKey: .workspaces)
@@ -98,6 +105,7 @@ public struct CmuxExtensionSidebarSnapshot: Codable, Equatable, Sendable {
     public func encode(to encoder: Encoder) throws {
         var container = encoder.container(keyedBy: CodingKeys.self)
         try container.encode(sequence, forKey: .sequence)
+        try container.encodeIfPresent(windowId, forKey: .windowId)
         try container.encodeIfPresent(selectedWorkspaceId, forKey: .selectedWorkspaceId)
         try container.encode(workspaces, forKey: .workspaces)
     }
