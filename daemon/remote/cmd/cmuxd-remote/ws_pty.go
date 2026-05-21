@@ -1450,6 +1450,7 @@ func (a *wsPTYAttachment) writeFrame(ctx context.Context, conn *websocket.Conn, 
 	cancel()
 	if err != nil {
 		a.cancel()
+		_ = conn.CloseNow()
 		return false
 	}
 	return true

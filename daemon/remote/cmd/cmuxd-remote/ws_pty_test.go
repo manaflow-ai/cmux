@@ -598,6 +598,53 @@ func TestWebSocketPTYInputBackpressureDoesNotBlockHub(t *testing.T) {
 	}
 }
 
+func TestWebSocketPTYWriteFailureClosesConnectionAndReapsAttachment(t *testing.T) {
+	leasePath := filepath.Join(t.TempDir(), "lease.json")
+	stderr := &bytes.Buffer{}
+	hub := newWebSocketPTYHub(wsPTYServerConfig{
+		Shell:           "/bin/sh",
+		ScrollbackLimit: 4096,
+		SessionIdleTTL:  20 * time.Millisecond,
+	}, stderr)
+	server := httptest.NewServer(newWebSocketPTYHandler(wsPTYServerConfig{
+		PTYAuthLeaseFile: leasePath,
+		Shell:            "/bin/sh",
+		PTYHub:           hub,
+		ScrollbackLimit:  4096,
+		SessionIdleTTL:   20 * time.Millisecond,
+	}, stderr))
+	defer server.Close()
+	defer hub.closeAll()
+
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancel()
+
+	writeTestLease(t, leasePath, "write-fail-token", "sess-write-fail", true, time.Now().Add(time.Minute))
+	conn := dialPTY(t, ctx, server.URL)
+	sendAuthWithAttachment(t, ctx, conn, "write-fail-token", "sess-write-fail", "persist", 80, 24)
+	readReady(t, ctx, conn)
+	waitForHubSessionSize(t, hub, "sess-write-fail", 1, 80, 24, 5*time.Second)
+
+	attachment := hub.debugAttachment("sess-write-fail", "persist")
+	if attachment == nil {
+		t.Fatal("attachment was not registered")
+	}
+	cancelWriteCtx, cancelWrite := context.WithCancel(ctx)
+	cancelWrite()
+	if attachment.writeFrame(cancelWriteCtx, attachment.conn, wsPTYOutgoingFrame{
+		messageType: websocket.MessageBinary,
+		payload:     []byte("will fail"),
+	}) {
+		t.Fatal("writeFrame unexpectedly succeeded with a canceled context")
+	}
+
+	waitForHubSessionCount(t, hub, 0, 5*time.Second)
+	_, _, err := conn.Read(ctx)
+	if err == nil {
+		t.Fatal("client connection stayed open after server write failure")
+	}
+}
+
 func TestWebSocketPTYInputBackpressureRejectsWholePayload(t *testing.T) {
 	stderr := &bytes.Buffer{}
 	hub := newWebSocketPTYHub(wsPTYServerConfig{
@@ -964,6 +1011,16 @@ func (h *wsPTYHub) sessionDebugSnapshot(sessionID string) (attachments int, effe
 		return 0, 0, 0, false
 	}
 	return len(session.attachments), session.effectiveCols, session.effectiveRows, true
+}
+
+func (h *wsPTYHub) debugAttachment(sessionID string, attachmentID string) *wsPTYAttachment {
+	h.mu.Lock()
+	defer h.mu.Unlock()
+	session := h.sessions[persistentPTYSessionKey(sessionID)]
+	if session == nil {
+		return nil
+	}
+	return session.attachments[attachmentID]
 }
 
 func (h *wsPTYHub) sessionPTYSize(sessionID string) (cols int, rows int, ok bool, err error) {
