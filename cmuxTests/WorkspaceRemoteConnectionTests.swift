@@ -1937,6 +1937,51 @@ final class CLINotifyProcessIntegrationTests: XCTestCase {
         let timedOut: Bool
     }
 
+    private struct PTYAttachCall {
+        let sessionID: String
+        let attachmentID: String
+        let command: String?
+        let requireExisting: Bool
+    }
+
+    private final class ImmediateExitPTYBridgeRPC: WorkspaceRemotePTYBridgeRPCClient {
+        private let lock = NSLock()
+        private var recordedAttachCalls: [PTYAttachCall] = []
+
+        var attachCalls: [PTYAttachCall] {
+            lock.lock()
+            defer { lock.unlock() }
+            return recordedAttachCalls
+        }
+
+        func attachBridgePTY(
+            sessionID: String,
+            attachmentID: String,
+            cols: Int,
+            rows: Int,
+            command: String?,
+            requireExisting: Bool,
+            queue: DispatchQueue,
+            onEvent: @escaping (WorkspaceRemotePTYBridgeEvent) -> Void
+        ) throws -> String {
+            lock.lock()
+            recordedAttachCalls.append(PTYAttachCall(
+                sessionID: sessionID,
+                attachmentID: attachmentID,
+                command: command,
+                requireExisting: requireExisting
+            ))
+            lock.unlock()
+            queue.async {
+                onEvent(.exit)
+            }
+            return attachmentID
+        }
+
+        func writePTY(sessionID: String, attachmentID: String, data: Data) throws {}
+        func detachPTY(sessionID: String, attachmentID: String) {}
+    }
+
     private final class MockSocketServerState: @unchecked Sendable {
         private let lock = NSLock()
         private let commandSemaphore = DispatchSemaphore(value: 0)
@@ -3717,6 +3762,56 @@ final class CLINotifyProcessIntegrationTests: XCTestCase {
         )
     }
 
+    func testPTYBridgeFlushesReadyBeforeImmediateExit() throws {
+        let rpcClient = ImmediateExitPTYBridgeRPC()
+        let stopped = DispatchSemaphore(value: 0)
+        let server = WorkspaceRemotePTYBridgeServer(
+            rpcClient: rpcClient,
+            sessionID: "session-short-lived",
+            attachmentID: "attachment-short-lived",
+            command: "printf done",
+            requireExisting: true
+        ) {
+            stopped.signal()
+        }
+        let endpoint = try server.start()
+        let fd = try connectLoopbackTCP(port: endpoint.port)
+        defer {
+            Darwin.close(fd)
+            server.stop()
+        }
+
+        let handshakeData = try JSONSerialization.data(withJSONObject: [
+            "token": endpoint.token,
+            "cols": 80,
+            "rows": 24,
+        ], options: [])
+        guard let handshake = String(data: handshakeData, encoding: .utf8) else {
+            return XCTFail("Failed to encode bridge handshake")
+        }
+        XCTAssertTrue(writeAll(handshake + "\n", to: fd))
+
+        let responseData = try readUntilEOF(from: fd, timeout: 2)
+        XCTAssertEqual(stopped.wait(timeout: .now() + 2), .success)
+        let responseText = String(data: responseData, encoding: .utf8) ?? ""
+        let responseLines = responseText.split(separator: "\n").map(String.init)
+        XCTAssertTrue(
+            responseLines.contains { line in
+                guard let data = line.data(using: .utf8),
+                      let payload = try? JSONSerialization.jsonObject(with: data, options: []) as? [String: Any] else {
+                    return false
+                }
+                return payload["type"] as? String == "ready"
+            },
+            "Expected ready frame before bridge EOF, saw \(responseText)"
+        )
+        XCTAssertEqual(rpcClient.attachCalls.count, 1)
+        XCTAssertEqual(rpcClient.attachCalls.first?.sessionID, "session-short-lived")
+        XCTAssertEqual(rpcClient.attachCalls.first?.attachmentID, "attachment-short-lived")
+        XCTAssertEqual(rpcClient.attachCalls.first?.command, "printf done")
+        XCTAssertEqual(rpcClient.attachCalls.first?.requireExisting, true)
+    }
+
     private func codexSessionDirectory(in codexHome: URL, date: Date = Date()) throws -> URL {
         var calendar = Calendar(identifier: .gregorian)
         calendar.timeZone = TimeZone(secondsFromGMT: 0) ?? .current
@@ -3790,6 +3885,83 @@ final class CLINotifyProcessIntegrationTests: XCTestCase {
         }
 
         return fd
+    }
+
+    private func connectLoopbackTCP(port: Int) throws -> Int32 {
+        let fd = Darwin.socket(AF_INET, SOCK_STREAM, 0)
+        guard fd >= 0 else {
+            throw posixError("socket(AF_INET)")
+        }
+        do {
+            try configureSocketTimeout(fd, option: SO_RCVTIMEO, timeout: 2)
+            try configureSocketTimeout(fd, option: SO_SNDTIMEO, timeout: 2)
+
+            var addr = sockaddr_in()
+            addr.sin_len = UInt8(MemoryLayout<sockaddr_in>.size)
+            addr.sin_family = sa_family_t(AF_INET)
+            addr.sin_port = in_port_t(UInt16(port).bigEndian)
+            addr.sin_addr = in_addr(s_addr: inet_addr("127.0.0.1"))
+
+            let connectResult = withUnsafePointer(to: &addr) { pointer in
+                pointer.withMemoryRebound(to: sockaddr.self, capacity: 1) { sockaddrPtr in
+                    Darwin.connect(fd, sockaddrPtr, socklen_t(MemoryLayout<sockaddr_in>.size))
+                }
+            }
+            guard connectResult == 0 else {
+                throw posixError("connect(127.0.0.1:\(port))")
+            }
+            return fd
+        } catch {
+            Darwin.close(fd)
+            throw error
+        }
+    }
+
+    private func readUntilEOF(from fd: Int32, timeout: TimeInterval) throws -> Data {
+        try configureSocketTimeout(fd, option: SO_RCVTIMEO, timeout: timeout)
+        var data = Data()
+        var buffer = [UInt8](repeating: 0, count: 4096)
+        while true {
+            let count = Darwin.read(fd, &buffer, buffer.count)
+            if count > 0 {
+                data.append(buffer, count: count)
+                continue
+            }
+            if count == 0 {
+                return data
+            }
+            if errno == EINTR {
+                continue
+            }
+            throw posixError("read bridge response")
+        }
+    }
+
+    private func configureSocketTimeout(_ fd: Int32, option: Int32, timeout: TimeInterval) throws {
+        let normalizedTimeout = max(timeout, 0)
+        let seconds = floor(normalizedTimeout)
+        let microseconds = (normalizedTimeout - seconds) * 1_000_000
+        var socketTimeout = timeval(tv_sec: Int(seconds), tv_usec: Int32(microseconds.rounded()))
+        let result = withUnsafePointer(to: &socketTimeout) { ptr in
+            Darwin.setsockopt(
+                fd,
+                SOL_SOCKET,
+                option,
+                ptr,
+                socklen_t(MemoryLayout<timeval>.size)
+            )
+        }
+        guard result == 0 else {
+            throw posixError("setsockopt")
+        }
+    }
+
+    private func posixError(_ operation: String) -> NSError {
+        NSError(
+            domain: NSPOSIXErrorDomain,
+            code: Int(errno),
+            userInfo: [NSLocalizedDescriptionKey: "\(operation) failed: \(String(cString: strerror(errno)))"]
+        )
     }
 
     private func startMockServer(

@@ -1586,6 +1586,29 @@ final class WorkspaceRemoteDaemonPendingCallRegistry {
     }
 }
 
+enum WorkspaceRemotePTYBridgeEvent {
+    case ready
+    case data(Data)
+    case exit
+    case error(String)
+}
+
+protocol WorkspaceRemotePTYBridgeRPCClient: AnyObject {
+    func attachBridgePTY(
+        sessionID: String,
+        attachmentID: String,
+        cols: Int,
+        rows: Int,
+        command: String?,
+        requireExisting: Bool,
+        queue: DispatchQueue,
+        onEvent: @escaping (WorkspaceRemotePTYBridgeEvent) -> Void
+    ) throws -> String
+
+    func writePTY(sessionID: String, attachmentID: String, data: Data) throws
+    func detachPTY(sessionID: String, attachmentID: String)
+}
+
 private final class WorkspaceRemoteDaemonRPCClient {
     private static let maxStdoutBufferBytes = 256 * 1024
     private static let bakedVMDaemonSocketPath = "/run/cmuxd-remote.sock"
@@ -2690,6 +2713,40 @@ private final class WorkspaceRemoteDaemonRPCClient {
         if lowered.hasPrefix("openbsd_") { return true }
         if lowered.contains("pseudo-terminal will not be allocated") { return true }
         return false
+    }
+}
+
+extension WorkspaceRemoteDaemonRPCClient: WorkspaceRemotePTYBridgeRPCClient {
+    func attachBridgePTY(
+        sessionID: String,
+        attachmentID: String,
+        cols: Int,
+        rows: Int,
+        command: String?,
+        requireExisting: Bool,
+        queue: DispatchQueue,
+        onEvent: @escaping (WorkspaceRemotePTYBridgeEvent) -> Void
+    ) throws -> String {
+        try attachPTY(
+            sessionID: sessionID,
+            attachmentID: attachmentID,
+            cols: cols,
+            rows: rows,
+            command: command,
+            requireExisting: requireExisting,
+            queue: queue
+        ) { event in
+            switch event {
+            case .ready:
+                onEvent(.ready)
+            case .data(let data):
+                onEvent(.data(data))
+            case .exit:
+                onEvent(.exit)
+            case .error(let detail):
+                onEvent(.error(detail))
+            }
+        }
     }
 }
 
@@ -4435,7 +4492,7 @@ final class WorkspaceRemotePTYBridgeServer {
         private static let handshakeTimeout: TimeInterval = 30.0
 
         private let connection: NWConnection
-        private let rpcClient: WorkspaceRemoteDaemonRPCClient
+        private let rpcClient: any WorkspaceRemotePTYBridgeRPCClient
         private let sessionID: String
         private let attachmentID: String
         private let command: String?
@@ -4453,7 +4510,7 @@ final class WorkspaceRemotePTYBridgeServer {
 
         init(
             connection: NWConnection,
-            rpcClient: WorkspaceRemoteDaemonRPCClient,
+            rpcClient: any WorkspaceRemotePTYBridgeRPCClient,
             sessionID: String,
             attachmentID: String,
             command: String?,
@@ -4543,7 +4600,7 @@ final class WorkspaceRemotePTYBridgeServer {
             do {
                 handshakeTimeoutWorkItem?.cancel()
                 handshakeTimeoutWorkItem = nil
-                _ = try rpcClient.attachPTY(
+                _ = try rpcClient.attachBridgePTY(
                     sessionID: sessionID,
                     attachmentID: attachmentID,
                     cols: cols,
@@ -4582,7 +4639,7 @@ final class WorkspaceRemotePTYBridgeServer {
             }
         }
 
-        private func handlePTYEvent(_ event: WorkspaceRemoteDaemonRPCClient.PTYEvent) {
+        private func handlePTYEvent(_ event: WorkspaceRemotePTYBridgeEvent) {
             guard !isClosed else { return }
             switch event {
             case .ready:
@@ -4628,10 +4685,10 @@ final class WorkspaceRemotePTYBridgeServer {
             }
             var line = data
             line.append(0x0A)
+            pendingOutputSends += 1
             connection.send(content: line, completion: .contentProcessed { [weak self] error in
-                guard let self, error != nil else { return }
-                self.queue.async {
-                    self.close(detach: true)
+                self?.queue.async {
+                    self?.handleOutputSendFinished(error: error)
                 }
             })
         }
@@ -4680,7 +4737,7 @@ final class WorkspaceRemotePTYBridgeServer {
         }
     }
 
-    private let rpcClient: WorkspaceRemoteDaemonRPCClient
+    private let rpcClient: any WorkspaceRemotePTYBridgeRPCClient
     private let sessionID: String
     private let attachmentID: String
     private let command: String?
@@ -4694,8 +4751,8 @@ final class WorkspaceRemotePTYBridgeServer {
     private var isStopped = false
     private var unusedBridgeTimeoutWorkItem: DispatchWorkItem?
 
-    fileprivate init(
-        rpcClient: WorkspaceRemoteDaemonRPCClient,
+    init(
+        rpcClient: any WorkspaceRemotePTYBridgeRPCClient,
         sessionID: String,
         attachmentID: String,
         command: String?,
