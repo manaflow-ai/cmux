@@ -1410,6 +1410,7 @@ final class KeyboardShortcutSettingsFileStoreTests: XCTestCase {
         KeyboardShortcutSettings.settingsFileStore = KeyboardShortcutSettingsFileStore(
             primaryPath: missingSettingsFileURL.path,
             fallbackPath: nil,
+            additionalFallbackPaths: [],
             startWatching: false
         )
 

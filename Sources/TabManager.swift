@@ -1262,14 +1262,17 @@ class TabManager: ObservableObject {
         initialWorkspaceTitle: String? = nil,
         initialWorkingDirectory: String? = nil,
         initialTerminalInput: String? = nil,
-        autoWelcomeIfNeeded: Bool = true
+        autoWelcomeIfNeeded: Bool = true,
+        createInitialWorkspace: Bool = true
     ) {
-        addWorkspace(
-            title: initialWorkspaceTitle,
-            workingDirectory: initialWorkingDirectory,
-            initialTerminalInput: initialTerminalInput,
-            autoWelcomeIfNeeded: autoWelcomeIfNeeded
-        )
+        if createInitialWorkspace {
+            addWorkspace(
+                title: initialWorkspaceTitle,
+                workingDirectory: initialWorkingDirectory,
+                initialTerminalInput: initialTerminalInput,
+                autoWelcomeIfNeeded: autoWelcomeIfNeeded
+            )
+        }
         observers.append(NotificationCenter.default.addObserver(
             forName: .ghosttyDidSetTitle,
             object: nil,
@@ -2240,6 +2243,15 @@ class TabManager: ObservableObject {
             return
         }
 
+        if ProcessInfo.processInfo.environment["CMUX_UNIT_TEST_MODE"] == "1" {
+            applyWorkspaceGitMetadataSnapshotForTesting(
+                workspaceId: workspaceId,
+                panelId: panelId,
+                directory: directory
+            )
+            return
+        }
+
         scheduleWorkspaceGitMetadataRefresh(
             workspaceId: workspaceId,
             panelId: panelId,
@@ -2689,7 +2701,7 @@ class TabManager: ObservableObject {
         }
 
         Task.detached(priority: .utility) { [weak self] in
-            let snapshot = await Self.initialWorkspaceGitMetadataSnapshot(for: expectedDirectory)
+            let snapshot = Self.initialWorkspaceGitMetadataSnapshot(for: expectedDirectory)
             guard !Task.isCancelled else { return }
             await MainActor.run { [weak self] in
                 self?.applyWorkspaceGitMetadataSnapshot(
@@ -2700,6 +2712,23 @@ class TabManager: ObservableObject {
                 )
             }
         }
+    }
+
+    private func applyWorkspaceGitMetadataSnapshotForTesting(
+        workspaceId: UUID,
+        panelId: UUID,
+        directory: String
+    ) {
+        let normalizedDirectory = normalizeDirectory(directory)
+        let key = WorkspaceGitProbeKey(workspaceId: workspaceId, panelId: panelId)
+        cancelWorkspaceGitProbeTimers(for: key)
+        workspaceGitProbeStateByKey[key] = .inFlight(rerunPending: false)
+        applyWorkspaceGitMetadataSnapshot(
+            Self.initialWorkspaceGitMetadataSnapshot(for: normalizedDirectory),
+            probeKey: key,
+            expectedDirectory: normalizedDirectory,
+            isLastAttempt: true
+        )
     }
 
     private func cancelWorkspaceGitProbeTimers(for key: WorkspaceGitProbeKey) {
@@ -2966,7 +2995,7 @@ class TabManager: ObservableObject {
 
     private nonisolated static func initialWorkspaceGitMetadataSnapshot(
         for directory: String
-    ) async -> InitialWorkspaceGitMetadataSnapshot {
+    ) -> InitialWorkspaceGitMetadataSnapshot {
         guard let repository = resolveGitRepository(containing: directory) else {
             return InitialWorkspaceGitMetadataSnapshot(
                 isRepository: false,

@@ -436,6 +436,7 @@ private struct ClaudeHookSessionRecord: Codable {
     var lastEmittedNotificationAt: TimeInterval?
     var runtimeStatus: AgentHookRuntimeStatus?
     var activePromptDepth: Int?
+    var activePromptTurnId: String?
     var startedAt: TimeInterval
     var updatedAt: TimeInterval
 }
@@ -537,12 +538,14 @@ private final class ClaudeHookSessionStore {
         pid: Int?,
         launchCommand: AgentHookLaunchCommandRecord?,
         runtimeStatus: AgentHookRuntimeStatus? = nil,
-        updateRuntimeStatus: Bool = false
+        updateRuntimeStatus: Bool = false,
+        turnId: String? = nil
     ) throws -> Bool {
         let normalized = normalizeSessionId(sessionId)
         guard !normalized.isEmpty else { return false }
         return try withLockedState { state in
             let now = Date().timeIntervalSince1970
+            let normalizedTurnId = normalizeOptional(turnId)
             var record = makeSessionRecord(
                 state: state,
                 sessionId: normalized,
@@ -567,9 +570,15 @@ private final class ClaudeHookSessionStore {
                 updateRuntimeStatus: updateRuntimeStatus,
                 now: now
             )
-            record.activePromptDepth = max(0, record.activePromptDepth ?? 0) + 1
+            let currentDepth = max(0, record.activePromptDepth ?? 0)
+            let isNewTurn = normalizedTurnId != nil
+                && record.activePromptTurnId != nil
+                && record.activePromptTurnId != normalizedTurnId
+            let nextDepth = (isNewTurn ? 0 : currentDepth) + 1
+            record.activePromptDepth = nextDepth
+            record.activePromptTurnId = normalizedTurnId
             state.sessions[normalized] = record
-            return (record.activePromptDepth ?? 0) > 1
+            return nextDepth > 1
         }
     }
 
@@ -587,12 +596,14 @@ private final class ClaudeHookSessionStore {
         lastNotificationStatus: AgentHookNotificationStatus? = nil,
         updateLastNotificationStatus: Bool = false,
         runtimeStatus: AgentHookRuntimeStatus? = nil,
-        updateRuntimeStatus: Bool = false
+        updateRuntimeStatus: Bool = false,
+        turnId: String? = nil
     ) throws -> Bool {
         let normalized = normalizeSessionId(sessionId)
         guard !normalized.isEmpty else { return false }
         return try withLockedState { state in
             let now = Date().timeIntervalSince1970
+            let normalizedTurnId = normalizeOptional(turnId)
             var record = makeSessionRecord(
                 state: state,
                 sessionId: normalized,
@@ -618,10 +629,26 @@ private final class ClaudeHookSessionStore {
                 updateRuntimeStatus: updateRuntimeStatus,
                 now: now
             )
-            let depthAfterStop = max(0, depthBeforeStop - 1)
+            let stoppedInactiveTurn: Bool
+            if let normalizedTurnId,
+               let activePromptTurnId = record.activePromptTurnId,
+               activePromptTurnId != normalizedTurnId {
+                stoppedInactiveTurn = true
+            } else {
+                stoppedInactiveTurn = false
+            }
+            let depthAfterStop: Int
+            if stoppedInactiveTurn {
+                depthAfterStop = depthBeforeStop
+            } else {
+                depthAfterStop = max(0, depthBeforeStop - 1)
+            }
             record.activePromptDepth = depthAfterStop == 0 ? nil : depthAfterStop
+            if depthAfterStop == 0 {
+                record.activePromptTurnId = nil
+            }
             state.sessions[normalized] = record
-            return depthBeforeStop > 1
+            return stoppedInactiveTurn || depthBeforeStop > 1
         }
     }
 
@@ -664,6 +691,7 @@ private final class ClaudeHookSessionStore {
                 lastEmittedNotificationAt: nil,
                 runtimeStatus: nil,
                 activePromptDepth: nil,
+                activePromptTurnId: nil,
                 startedAt: now,
                 updatedAt: now
             )
@@ -719,6 +747,7 @@ private final class ClaudeHookSessionStore {
             lastEmittedNotificationAt: nil,
             runtimeStatus: nil,
             activePromptDepth: nil,
+            activePromptTurnId: nil,
             startedAt: now,
             updatedAt: now
         )
@@ -24268,7 +24297,8 @@ export default function cmuxPiSessionExtension(pi: ExtensionAPI) {
                     cwd: hookCwd ?? mapped?.cwd,
                     transcriptPath: input.transcriptPath ?? mapped?.transcriptPath,
                     pid: pid,
-                    launchCommand: launchCommand
+                    launchCommand: launchCommand,
+                    turnId: input.turnId
                 )) ?? false
             } else {
                 nestedPromptSubmit = false
@@ -24464,7 +24494,8 @@ export default function cmuxPiSessionExtension(pi: ExtensionAPI) {
                     pid: pid,
                     launchCommand: launchCommand,
                     lastSubtitle: nil,
-                    lastBody: nil
+                    lastBody: nil,
+                    turnId: input.turnId
                 )) ?? false
             } else {
                 nestedPromptStop = false
@@ -24694,7 +24725,8 @@ export default function cmuxPiSessionExtension(pi: ExtensionAPI) {
                         lastNotificationStatus: summary.status,
                         updateLastNotificationStatus: true,
                         runtimeStatus: runtimeStatus(for: summary.status),
-                        updateRuntimeStatus: true
+                        updateRuntimeStatus: true,
+                        turnId: input.turnId
                     )
                 } else {
                     try? store.upsert(

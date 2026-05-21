@@ -12,6 +12,16 @@ private func cliSubprocessEnvironment(_ environment: [String: String]) -> [Strin
     return sanitized
 }
 
+private func commandContainsNotifyTarget(
+    _ command: String,
+    workspaceId: String,
+    surfaceId: String,
+    payload: String
+) -> Bool {
+    command.contains("notify_target \(workspaceId) \(surfaceId) \(payload)")
+        || command.contains("notify_target_async \(workspaceId) \(surfaceId) \(payload)")
+}
+
 final class WorkspaceRemoteConnectionTests: XCTestCase {
     private struct ProcessRunResult {
         let status: Int32
@@ -2019,7 +2029,12 @@ final class CLINotifyProcessIntegrationTests: XCTestCase {
         XCTAssertEqual(result.stdout, "{}\n")
         XCTAssertTrue(
             state.commands.contains { command in
-                command.contains("notify_target \(workspaceId) \(surfaceId) Codex|Rate limit|")
+                commandContainsNotifyTarget(
+                    command,
+                    workspaceId: workspaceId,
+                    surfaceId: surfaceId,
+                    payload: "Codex|Rate limit|"
+                )
             },
             "Expected Codex failure notification, saw \(state.commands)"
         )
@@ -2088,7 +2103,12 @@ final class CLINotifyProcessIntegrationTests: XCTestCase {
         XCTAssertEqual(result.stdout, "{}\n")
         XCTAssertTrue(
             state.commands.contains { command in
-                command.contains("notify_target \(workspaceId) \(surfaceId) Codex|Error|Try again later.")
+                commandContainsNotifyTarget(
+                    command,
+                    workspaceId: workspaceId,
+                    surfaceId: surfaceId,
+                    payload: "Codex|Error|Try again later."
+                )
             },
             "Expected typed Codex error notification, saw \(state.commands)"
         )
@@ -2161,8 +2181,12 @@ final class CLINotifyProcessIntegrationTests: XCTestCase {
         XCTAssertEqual(result.stdout, "{}\n")
         XCTAssertTrue(
             state.commands.contains { command in
-                command.contains("notify_target \(workspaceId) \(surfaceId) Codex|Network error|Stream disconnected before completion.")
-                    || command.contains("notify_target_async \(workspaceId) \(surfaceId) Codex|Network error|Stream disconnected before completion.")
+                commandContainsNotifyTarget(
+                    command,
+                    workspaceId: workspaceId,
+                    surfaceId: surfaceId,
+                    payload: "Codex|Network error|Stream disconnected before completion."
+                )
             },
             "Expected discovered transcript failure notification, saw \(state.commands)"
         )
@@ -2739,7 +2763,12 @@ final class CLINotifyProcessIntegrationTests: XCTestCase {
         XCTAssertEqual(result.stdout, "{}\n")
         XCTAssertTrue(
             state.commands.contains { command in
-                command.contains("notify_target \(workspaceId) \(surfaceId) Codex|Error|Codex ended before sending a final response")
+                commandContainsNotifyTarget(
+                    command,
+                    workspaceId: workspaceId,
+                    surfaceId: surfaceId,
+                    payload: "Codex|Error|Codex ended before sending a final response"
+                )
             },
             "Expected no-final-response notification, saw \(state.commands)"
         )
@@ -2951,7 +2980,12 @@ final class CLINotifyProcessIntegrationTests: XCTestCase {
         XCTAssertEqual(result.stdout, "")
         XCTAssertTrue(
             state.commands.contains { command in
-                command.contains("notify_target \(workspaceId) \(surfaceId) Codex|Error|Codex ended before sending a final response")
+                commandContainsNotifyTarget(
+                    command,
+                    workspaceId: workspaceId,
+                    surfaceId: surfaceId,
+                    payload: "Codex|Error|Codex ended before sending a final response"
+                )
             },
             "Expected monitor to send no-final-response notification, saw \(state.commands)"
         )
@@ -3031,7 +3065,12 @@ final class CLINotifyProcessIntegrationTests: XCTestCase {
         XCTAssertEqual(result.stdout, "")
         XCTAssertTrue(
             state.commands.contains { command in
-                command.contains("notify_target \(workspaceId) \(surfaceId) Codex|Network error|Stream disconnected before completion.")
+                commandContainsNotifyTarget(
+                    command,
+                    workspaceId: workspaceId,
+                    surfaceId: surfaceId,
+                    payload: "Codex|Network error|Stream disconnected before completion."
+                )
             },
             "Expected monitor to send stream error notification before terminal completion, saw \(state.commands)"
         )
@@ -3104,7 +3143,7 @@ final class CLINotifyProcessIntegrationTests: XCTestCase {
             "--transcript",
             transcriptURL.path,
         ]
-        process.environment = environment
+        process.environment = cliSubprocessEnvironment(environment)
         process.standardInput = FileHandle.nullDevice
         process.standardOutput = stdoutPipe
         process.standardError = stderrPipe
@@ -3130,7 +3169,12 @@ final class CLINotifyProcessIntegrationTests: XCTestCase {
         )
         XCTAssertTrue(
             waitForSocketCommand(state: state, timeout: 5) { command in
-                command.contains("notify_target \(workspaceId) \(surfaceId) Codex|Waiting|Which demo path should I use?")
+                commandContainsNotifyTarget(
+                    command,
+                    workspaceId: workspaceId,
+                    surfaceId: surfaceId,
+                    payload: "Codex|Waiting|Which demo path should I use?"
+                )
             },
             "Expected monitor to send Codex input notification, saw \(state.snapshot())"
         )
@@ -3204,7 +3248,7 @@ final class CLINotifyProcessIntegrationTests: XCTestCase {
             "--transcript",
             transcriptURL.path,
         ]
-        process.environment = environment
+        process.environment = cliSubprocessEnvironment(environment)
         process.standardInput = FileHandle.nullDevice
         process.standardOutput = stdoutPipe
         process.standardError = stderrPipe
@@ -3230,7 +3274,12 @@ final class CLINotifyProcessIntegrationTests: XCTestCase {
         )
         XCTAssertTrue(
             waitForSocketCommand(state: state, timeout: 5) { command in
-                command.contains("notify_target \(workspaceId) \(surfaceId) Codex|Waiting|What kind of demo plan should I create?")
+                commandContainsNotifyTarget(
+                    command,
+                    workspaceId: workspaceId,
+                    surfaceId: surfaceId,
+                    payload: "Codex|Waiting|What kind of demo plan should I create?"
+                )
             },
             "Expected monitor to send Codex input notification from response_item, saw \(state.snapshot())"
         )
@@ -3315,7 +3364,12 @@ final class CLINotifyProcessIntegrationTests: XCTestCase {
         XCTAssertEqual(result.stdout, "")
         XCTAssertTrue(
             state.commands.contains { command in
-                command.contains("notify_target \(workspaceId) \(surfaceId) Codex|Error|Codex ended before sending a final response")
+                commandContainsNotifyTarget(
+                    command,
+                    workspaceId: workspaceId,
+                    surfaceId: surfaceId,
+                    payload: "Codex|Error|Codex ended before sending a final response"
+                )
             },
             "Expected monitor to recover from stale transcript path, saw \(state.commands)"
         )
@@ -3386,7 +3440,7 @@ final class CLINotifyProcessIntegrationTests: XCTestCase {
             "--transcript",
             transcriptURL.path,
         ]
-        process.environment = environment
+        process.environment = cliSubprocessEnvironment(environment)
         process.standardInput = FileHandle.nullDevice
         process.standardOutput = stdoutPipe
         process.standardError = stderrPipe
@@ -3432,7 +3486,12 @@ final class CLINotifyProcessIntegrationTests: XCTestCase {
         XCTAssertEqual(stdout, "")
         XCTAssertTrue(
             state.commands.contains { command in
-                command.contains("notify_target \(workspaceId) \(surfaceId) Codex|Network error|Stream disconnected before completion.")
+                commandContainsNotifyTarget(
+                    command,
+                    workspaceId: workspaceId,
+                    surfaceId: surfaceId,
+                    payload: "Codex|Network error|Stream disconnected before completion."
+                )
             },
             "Expected monitor to ignore old unscoped terminal event and report scoped stream error, saw \(state.commands)"
         )

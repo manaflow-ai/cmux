@@ -39,7 +39,7 @@ struct cmuxApp: App {
 
         if isUnitTestLaunch {
             StartupBreadcrumbLog.append("app.init.unitTestRuntime.skipped")
-            _tabManager = StateObject(wrappedValue: TabManager(autoWelcomeIfNeeded: false))
+            _tabManager = StateObject(wrappedValue: TabManager(autoWelcomeIfNeeded: false, createInitialWorkspace: false))
             return
         }
 
