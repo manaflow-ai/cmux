@@ -1,6 +1,7 @@
 import AppKit
 import Bonsplit
 import Carbon.HIToolbox
+import Quartz
 import XCTest
 
 #if canImport(cmux_DEV)
@@ -64,6 +65,36 @@ final class FilePreviewReviewFeedbackTests: XCTestCase {
 
         XCTAssertEqual(FilePreviewKindResolver.initialMode(for: url), .quickLook)
         XCTAssertEqual(FilePreviewKindResolver.mode(for: url), .text)
+    }
+
+    func testQuickLookSessionCloseDoesNotDeactivateMountedRepresentableView() throws {
+        let url = try temporaryBinaryFile()
+        defer { try? FileManager.default.removeItem(at: url) }
+
+        let panel = FilePreviewPanel(workspaceId: UUID(), filePath: url.path)
+        XCTAssertEqual(panel.previewMode, .quickLook)
+
+        let view = panel.nativeViewSessions.quickLook.view(
+            panel: panel,
+            isVisibleInUI: true,
+            backgroundColor: .textBackgroundColor,
+            drawsBackground: true
+        )
+        guard let previewView = view as? QLPreviewView else {
+            return XCTFail("Expected Quick Look to vend a QLPreviewView")
+        }
+        XCTAssertNotNil(previewView.previewItem)
+
+        panel.nativeViewSessions.quickLook.close()
+
+        panel.nativeViewSessions.quickLook.update(
+            view,
+            panel: panel,
+            isVisibleInUI: true,
+            backgroundColor: .textBackgroundColor,
+            drawsBackground: true
+        )
+        XCTAssertNil(previewView.previewItem)
     }
 
     func testTextLoaderRejectsOversizedTextFiles() throws {
@@ -150,6 +181,14 @@ final class FilePreviewReviewFeedbackTests: XCTestCase {
             .appendingPathComponent(UUID().uuidString)
             .appendingPathExtension("txt")
         try contents.write(to: url, atomically: true, encoding: encoding)
+        return url
+    }
+
+    private func temporaryBinaryFile() throws -> URL {
+        let url = FileManager.default.temporaryDirectory
+            .appendingPathComponent(UUID().uuidString)
+            .appendingPathExtension("bin")
+        try Data([0, 1, 2, 3, 0, 4]).write(to: url, options: .atomic)
         return url
     }
 
