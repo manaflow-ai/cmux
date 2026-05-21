@@ -32,10 +32,10 @@ enum CommandPaletteOverlayPromotionPolicy {
     }
 }
 
-private enum CommandPaletteOverlayImmediateFocusMode {
+private enum CommandPaletteOverlayImmediateFocusMode: Equatable {
     case deferred
-    case textInput
-    case pendingInputContainer
+    case textInput(identity: String)
+    case pendingInputContainer(identity: String)
 }
 
 @MainActor
@@ -213,6 +213,7 @@ private final class WindowCommandPaletteOverlayController: NSObject {
     private var windowDidBecomeKeyObserver: NSObjectProtocol?
     private var windowDidResignKeyObserver: NSObjectProtocol?
     private var allowsPendingInputContainerFocus = false
+    private var lastImmediateFocusMode: CommandPaletteOverlayImmediateFocusMode = .deferred
 
     init(window: NSWindow) {
         self.window = window
@@ -677,6 +678,8 @@ private final class WindowCommandPaletteOverlayController: NSObject {
 #endif
         isPaletteVisible = isVisible
         if isVisible {
+            let didChangeImmediateFocusMode = lastImmediateFocusMode != immediateFocusMode
+            lastImmediateFocusMode = immediateFocusMode
             hostingView.rootView = makeRootView()
             hasMountedPaletteRootView = true
             containerView.capturesMouseEvents = true
@@ -686,9 +689,10 @@ private final class WindowCommandPaletteOverlayController: NSObject {
                 promoteOverlayAboveSiblingsIfNeeded()
             }
             updateFocusLockForWindowState(
-                immediateFocusMode: shouldPromote ? immediateFocusMode : .deferred
+                immediateFocusMode: (shouldPromote || didChangeImmediateFocusMode) ? immediateFocusMode : .deferred
             )
         } else {
+            lastImmediateFocusMode = .deferred
             allowsPendingInputContainerFocus = false
             stopFocusLockTimer()
             if let window, isPaletteResponder(window.firstResponder) {
@@ -1280,6 +1284,15 @@ struct ContentView: View {
 
         let kind: Kind
         let currentName: String
+
+        var focusIdentity: String {
+            switch kind {
+            case .workspace(let workspaceId):
+                return "workspace:\(workspaceId.uuidString)"
+            case .tab(let workspaceId, let panelId):
+                return "tab:\(workspaceId.uuidString):\(panelId.uuidString)"
+            }
+        }
 
         var title: String {
             switch kind {
@@ -5009,9 +5022,11 @@ struct ContentView: View {
     private var commandPaletteImmediateOverlayFocusMode: CommandPaletteOverlayImmediateFocusMode {
         switch commandPaletteMode {
         case .commands:
-            return .textInput
-        case .renameInput, .workspaceDescriptionInput:
-            return .pendingInputContainer
+            return .textInput(identity: "commands")
+        case .renameInput(let target):
+            return .pendingInputContainer(identity: "rename:\(target.focusIdentity)")
+        case .workspaceDescriptionInput(let target):
+            return .pendingInputContainer(identity: "workspaceDescription:\(target.workspaceId.uuidString)")
         case .renameConfirm:
             return .deferred
         }
