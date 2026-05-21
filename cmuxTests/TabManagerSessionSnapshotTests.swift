@@ -888,9 +888,9 @@ final class TabManagerSessionSnapshotTests: XCTestCase {
 
         XCTAssertFalse(manager.reopenMostRecentlyClosedItem())
         XCTAssertTrue(ClosedItemHistoryStore.shared.canReopen)
-        let snapshot = ClosedItemHistoryStore.shared.menuSnapshot()
-        XCTAssertEqual(snapshot.totalItemCount, 1)
-        XCTAssertEqual(snapshot.items.first?.title, "Window")
+        let menuSnapshot = ClosedItemHistoryStore.shared.menuSnapshot()
+        XCTAssertEqual(menuSnapshot.totalItemCount, 1)
+        XCTAssertEqual(menuSnapshot.items.first?.title, "Window")
     }
 
     func testRecentlyClosedMenuSnapshotListsPanelWorkspaceAndWindowRowsNewestFirst() throws {
