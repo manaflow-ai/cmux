@@ -35,6 +35,8 @@ SKIPPED_TESTS = [
     "CLINotifyProcessIntegrationRegressionTests/testNotificationCLIActionsMutateSocketStateAndListExtendedFields()",
     # Temporary skip: WebKit remote-image policy test can hang under app-hosted CI.
     "MarkdownPanelTests/testMarkdownRenderBlocksRemoteImagesUntilUserAction()",
+    # Temporary skip: shard 2 timed out here in CI run 26225836821.
+    "PiVaultAgentPersistenceTests/testGrokAgentSearchScopeUsesCurrentDirectoryCWDFilter()",
 ]
 
 SWIFT_DECL_MODIFIERS = (

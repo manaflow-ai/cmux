@@ -25,7 +25,8 @@
       "skippedTests": [
         "AppDelegateShortcutRoutingTests/testCmdWClosesWindowWhenClosingLastSurfaceInLastWorkspace()",
         "CLINotifyProcessIntegrationRegressionTests/testNotificationCLIActionsMutateSocketStateAndListExtendedFields()",
-        "MarkdownPanelTests/testMarkdownRenderBlocksRemoteImagesUntilUserAction()"
+        "MarkdownPanelTests/testMarkdownRenderBlocksRemoteImagesUntilUserAction()",
+        "PiVaultAgentPersistenceTests/testGrokAgentSearchScopeUsesCurrentDirectoryCWDFilter()"
       ],
       "target": {
         "containerPath": "container:cmux.xcodeproj",
