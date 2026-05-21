@@ -1635,7 +1635,11 @@ final class WindowTerminalPortal: NSObject {
 
         _ = synchronizeHostFrameToReference()
         let anchorFrameInWindow = effectiveAnchorFrameInWindow(for: anchorView)
-        let canvasSurfacePresentation = canvasSurfacePresentationsByHostedId[hostedId]
+        let storedCanvasSurfacePresentation = canvasSurfacePresentationsByHostedId[hostedId]
+        let canvasSurfacePresentation = storedCanvasSurfacePresentation.flatMap {
+            WindowPortalClipRegistry.clippedCanvasPresentation($0, in: window)
+        }
+        let canvasPresentationClippedOut = storedCanvasSurfacePresentation != nil && canvasSurfacePresentation == nil
         let interactiveFrameInWindow: NSRect? = {
             guard let overrideFrame = interactiveFrameOverridesInWindowByHostedId[hostedId] else { return nil }
             if Self.rectApproximatelyEqual(anchorFrameInWindow, overrideFrame, epsilon: 1.0) {
@@ -1644,7 +1648,7 @@ final class WindowTerminalPortal: NSObject {
             }
             return overrideFrame
         }()
-        let frameInWindow = canvasSurfacePresentation?.frameInWindow ?? interactiveFrameInWindow ?? anchorFrameInWindow
+        let frameInWindow = canvasSurfacePresentation?.frameInWindow ?? storedCanvasSurfacePresentation?.frameInWindow ?? interactiveFrameInWindow ?? anchorFrameInWindow
         let frameInHostRaw = hostView.convert(frameInWindow, from: nil)
         let frameInHost = Self.pixelSnappedRect(frameInHostRaw, in: hostView)
 #if DEBUG
@@ -1722,7 +1726,7 @@ final class WindowTerminalPortal: NSObject {
         let revealReadyForDisplay =
             targetFrame.width >= Self.minimumRevealWidth &&
             targetFrame.height >= Self.minimumRevealHeight
-        let outsideHostBounds = !hasVisibleIntersection
+        let outsideHostBounds = canvasPresentationClippedOut || !hasVisibleIntersection
         let shouldHide =
             !entry.visibleInUI ||
             anchorHidden ||
@@ -1807,8 +1811,8 @@ final class WindowTerminalPortal: NSObject {
 
         if hasFiniteFrame {
             let expectedBounds = NSRect(
-                origin: .zero,
-                size: canvasSurfacePresentation?.nativeContentSize ?? targetFrame.size
+                origin: canvasSurfacePresentation?.nativeContentOrigin ?? .zero,
+                size: canvasSurfacePresentation?.visibleNativeContentSize ?? targetFrame.size
             )
             let frameSizeChanged =
                 abs(oldFrame.size.width - targetFrame.size.width) > 0.01 ||

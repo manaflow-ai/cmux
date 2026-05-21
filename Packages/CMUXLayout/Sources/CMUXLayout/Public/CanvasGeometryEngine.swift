@@ -272,6 +272,13 @@ public struct CanvasSurfacePresentation: Sendable, Equatable {
         )
     }
 
+    public var visibleNativeContentSize: CGSize {
+        CGSize(
+            width: max(1, frameInWindow.width / scale),
+            height: max(1, frameInWindow.height / scale)
+        )
+    }
+
     public var horizontalScale: CGFloat {
         frameInWindow.width / nativeContentSize.width
     }

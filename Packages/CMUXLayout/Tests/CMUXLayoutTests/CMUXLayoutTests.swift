@@ -3911,6 +3911,7 @@ final class CMUXLayoutTests: XCTestCase {
         XCTAssertEqual(presentation.nativeContentSize, CGSize(width: 1_000, height: 700))
         XCTAssertEqual(presentation.nativeContentOrigin, .zero)
         XCTAssertEqual(presentation.visualContentSize, CGSize(width: 400, height: 300))
+        XCTAssertEqual(presentation.visibleNativeContentSize, CGSize(width: 1_000, height: 750))
         XCTAssertEqual(presentation.horizontalScale, 0.4, accuracy: 0.0001)
         XCTAssertEqual(presentation.verticalScale, 300.0 / 700.0, accuracy: 0.0001)
     }
@@ -3928,6 +3929,7 @@ final class CMUXLayoutTests: XCTestCase {
         XCTAssertEqual(clipped!.frameInWindow, CGRect(x: 180, y: 90, width: 420, height: 260))
         XCTAssertEqual(clipped!.nativeContentSize, CGSize(width: 1_600, height: 1_000))
         XCTAssertEqual(clipped!.nativeContentOrigin, CGPoint(x: 160, y: 80))
+        XCTAssertEqual(clipped!.visibleNativeContentSize, CGSize(width: 840, height: 520))
         XCTAssertEqual(clipped!.scale, 0.5, accuracy: 0.0001)
     }
 

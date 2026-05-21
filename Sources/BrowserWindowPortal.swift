@@ -3901,7 +3901,7 @@ final class WindowBrowserPortal: NSObject {
 
         let expectedContainerBounds = NSRect(
             origin: canvasSurfacePresentation?.nativeContentOrigin ?? .zero,
-            size: canvasSurfacePresentation?.nativeContentSize ?? targetFrame.size
+            size: canvasSurfacePresentation?.visibleNativeContentSize ?? targetFrame.size
         )
         if !Self.rectApproximatelyEqual(containerView.bounds, expectedContainerBounds) {
             let oldContainerBounds = containerView.bounds
@@ -3924,7 +3924,7 @@ final class WindowBrowserPortal: NSObject {
         let containerBounds = containerView.bounds
         let preNormalizeWebFrame = containerOwnsWebView ? webView.frame : .zero
         let expectedHostedWebFrame = canvasSurfacePresentation != nil
-            ? NSRect(origin: .zero, size: containerBounds.size)
+            ? NSRect(origin: .zero, size: canvasSurfacePresentation?.nativeContentSize ?? containerBounds.size)
             : containerBounds
         let hasVisibleHostedInspector = Self.hasVisibleInspectorDescendant(in: containerView)
         let inspectorHeightFromInsets = max(0, containerBounds.height - preNormalizeWebFrame.height)

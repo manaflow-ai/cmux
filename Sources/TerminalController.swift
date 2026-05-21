@@ -13598,6 +13598,8 @@ class TerminalController {
                     scale: scale
                 )
             )
+            TerminalWindowPortalRegistry.scheduleExternalGeometrySynchronizeForAllWindows()
+            BrowserWindowPortalRegistry.scheduleExternalGeometrySynchronizeForAllWindows()
             let viewport = controller.canvasViewport
             return .ok([
                 "presentation_scale": CanvasViewportZoom.presentationScale(for: viewport),
@@ -16273,6 +16275,7 @@ class TerminalController {
         let inWindow: Bool?
         let hidden: Bool?
         let viewFrame: PixelRect?
+        let portalFrameInWindow: PixelRect?
         let splitViews: [LayoutDebugSplitView]?
     }
 
@@ -16348,6 +16351,19 @@ class TerminalController {
             }
 
             @MainActor
+            func usablePixelFrame(_ frame: CGRect) -> PixelRect? {
+                guard frame.origin.x.isFinite,
+                      frame.origin.y.isFinite,
+                      frame.size.width.isFinite,
+                      frame.size.height.isFinite,
+                      frame.width > 1,
+                      frame.height > 1 else {
+                    return nil
+                }
+                return PixelRect(from: frame)
+            }
+
+            @MainActor
             func splitViewInfos(for view: NSView) -> [LayoutDebugSplitView] {
                 var infos: [LayoutDebugSplitView] = []
                 var current: NSView? = view
@@ -16393,78 +16409,87 @@ class TerminalController {
                 let paneFrame = paneFrames[paneIdStr]
                 let selectedTabId = layout.panes.first(where: { $0.paneId == paneIdStr })?.selectedTabId
 
-	                guard let selectedTab = tab.layoutController.selectedTab(inPane: paneId) else {
-	                    return LayoutDebugSelectedPanel(
-	                        paneId: paneIdStr,
-	                        paneFrame: paneFrame,
-	                        selectedTabId: selectedTabId,
-	                        panelId: nil,
-	                        panelType: nil,
-	                        inWindow: nil,
-	                        hidden: nil,
-	                        viewFrame: nil,
-	                        splitViews: nil
-	                    )
-	                }
+                guard let selectedTab = tab.layoutController.selectedTab(inPane: paneId) else {
+                    return LayoutDebugSelectedPanel(
+                        paneId: paneIdStr,
+                        paneFrame: paneFrame,
+                        selectedTabId: selectedTabId,
+                        panelId: nil,
+                        panelType: nil,
+                        inWindow: nil,
+                        hidden: nil,
+                        viewFrame: nil,
+                        portalFrameInWindow: nil,
+                        splitViews: nil
+                    )
+                }
 
-	                guard let panelId = tab.panelIdFromSurfaceId(selectedTab.id),
-	                      let panel = tab.panels[panelId] else {
-	                    return LayoutDebugSelectedPanel(
-	                        paneId: paneIdStr,
-	                        paneFrame: paneFrame,
-	                        selectedTabId: selectedTabId,
-	                        panelId: nil,
-	                        panelType: nil,
-	                        inWindow: nil,
-	                        hidden: nil,
-	                        viewFrame: nil,
-	                        splitViews: nil
-	                    )
-	                }
+                guard let panelId = tab.panelIdFromSurfaceId(selectedTab.id),
+                      let panel = tab.panels[panelId] else {
+                    return LayoutDebugSelectedPanel(
+                        paneId: paneIdStr,
+                        paneFrame: paneFrame,
+                        selectedTabId: selectedTabId,
+                        panelId: nil,
+                        panelType: nil,
+                        inWindow: nil,
+                        hidden: nil,
+                        viewFrame: nil,
+                        portalFrameInWindow: nil,
+                        splitViews: nil
+                    )
+                }
 
                 if let tp = panel as? TerminalPanel {
                     let viewRect = windowFrame(for: tp.hostedView).map { PixelRect(from: $0) }
+                    let portalFrame = usablePixelFrame(tp.hostedView.debugPortalFrameInWindow)
                     let splitViews = splitViewInfos(for: tp.hostedView)
-		                    return LayoutDebugSelectedPanel(
-	                        paneId: paneIdStr,
-	                        paneFrame: paneFrame,
-	                        selectedTabId: selectedTabId,
-	                        panelId: panelId.uuidString,
-	                        panelType: tp.panelType.rawValue,
-	                        inWindow: tp.surface.isViewInWindow,
-	                        hidden: isHiddenOrAncestorHidden(tp.hostedView),
-	                        viewFrame: viewRect,
-	                        splitViews: splitViews
-	                    )
-	                }
+                    return LayoutDebugSelectedPanel(
+                        paneId: paneIdStr,
+                        paneFrame: paneFrame,
+                        selectedTabId: selectedTabId,
+                        panelId: panelId.uuidString,
+                        panelType: tp.panelType.rawValue,
+                        inWindow: tp.surface.isViewInWindow,
+                        hidden: isHiddenOrAncestorHidden(tp.hostedView),
+                        viewFrame: viewRect,
+                        portalFrameInWindow: portalFrame,
+                        splitViews: splitViews
+                    )
+                }
 
                 if let bp = panel as? BrowserPanel {
                     let viewRect = windowFrame(for: bp.webView).map { PixelRect(from: $0) }
+                    let portalFrame = BrowserWindowPortalRegistry.debugSnapshot(for: bp.webView).flatMap { snapshot in
+                        snapshot.containerHidden ? nil : usablePixelFrame(snapshot.frameInWindow)
+                    }
                     let splitViews = splitViewInfos(for: bp.webView)
-		                    return LayoutDebugSelectedPanel(
-	                        paneId: paneIdStr,
-	                        paneFrame: paneFrame,
-	                        selectedTabId: selectedTabId,
-	                        panelId: panelId.uuidString,
-	                        panelType: bp.panelType.rawValue,
-	                        inWindow: bp.webView.window != nil,
-	                        hidden: isHiddenOrAncestorHidden(bp.webView),
-	                        viewFrame: viewRect,
-	                        splitViews: splitViews
-	                    )
-	                }
+                    return LayoutDebugSelectedPanel(
+                        paneId: paneIdStr,
+                        paneFrame: paneFrame,
+                        selectedTabId: selectedTabId,
+                        panelId: panelId.uuidString,
+                        panelType: bp.panelType.rawValue,
+                        inWindow: bp.webView.window != nil,
+                        hidden: isHiddenOrAncestorHidden(bp.webView),
+                        viewFrame: viewRect,
+                        portalFrameInWindow: portalFrame,
+                        splitViews: splitViews
+                    )
+                }
 
-	                return LayoutDebugSelectedPanel(
-	                    paneId: paneIdStr,
-	                    paneFrame: paneFrame,
-	                    selectedTabId: selectedTabId,
-	                    panelId: panelId.uuidString,
-	                    panelType: panel.panelType.rawValue,
-	                    inWindow: nil,
-	                    hidden: nil,
-	                    viewFrame: nil,
-	                    splitViews: nil
-	                )
+                return LayoutDebugSelectedPanel(
+                    paneId: paneIdStr,
+                    paneFrame: paneFrame,
+                    selectedTabId: selectedTabId,
+                    panelId: panelId.uuidString,
+                    panelType: panel.panelType.rawValue,
+                    inWindow: nil,
+                    hidden: nil,
+                    viewFrame: nil,
+                    portalFrameInWindow: nil,
+                    splitViews: nil
+                )
             }
 
             let canvas = tab.layoutController.canvasSnapshot()

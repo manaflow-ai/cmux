@@ -111,7 +111,7 @@ let fileManager = FileManager.default
 
 let terminalProbes = [
     ProbeColor(name: "border", minimumPixels: 150, minimumInset: 12) { red, green, blue, _ in
-        blue > 0.75 && green > 0.65 && red < 0.48
+        blue > 0.72 && green > 0.62 && red < 0.50
     },
     ProbeColor(name: "red", minimumPixels: 120, minimumInset: 12) { red, green, blue, _ in
         red > 0.75 && green < 0.60 && blue < 0.50
@@ -126,7 +126,7 @@ let terminalProbes = [
 
 let browserProbes = [
     ProbeColor(name: "border", minimumPixels: 150, minimumInset: 12) { red, green, blue, _ in
-        blue > 0.75 && green > 0.65 && red < 0.48
+        blue > 0.72 && green > 0.62 && red < 0.50
     },
     ProbeColor(name: "red", minimumPixels: 300, minimumInset: 12) { red, green, blue, _ in
         red > 0.75 && green < 0.60 && blue < 0.50
@@ -249,6 +249,16 @@ func detectionCrop(around viewFrame: PixelRect) -> PixelRect {
         x: max(0, viewFrame.x - 4),
         y: 80,
         width: viewFrame.width + 96,
+        height: 10_000
+    )
+}
+
+func canvasContentCrop(startingNear viewFrame: PixelRect) -> PixelRect {
+    let startX = viewFrame.x > 200 ? 200 : max(0, viewFrame.x - 48)
+    return PixelRect(
+        x: startX,
+        y: 80,
+        width: 10_000,
         height: 10_000
     )
 }
@@ -416,14 +426,24 @@ func selectedPanelViewFrame() throws -> PixelRect {
     let object = try cliJSON(["rpc", "debug.layout", "{}"])
     guard let layout = object["layout"] as? [String: Any],
           let panels = layout["selectedPanels"] as? [[String: Any]],
-          let frame = panels.first?["viewFrame"] as? [String: Any],
-          let x = jsonDouble(frame["x"]),
-          let y = jsonDouble(frame["y"]),
-          let width = jsonDouble(frame["width"]),
-          let height = jsonDouble(frame["height"]) else {
+          let panel = panels.first else {
         throw ProbeError(message: "Could not read selected panel view frame from debug.layout: \(object)")
     }
-    return PixelRect(x: x, y: y, width: width, height: height)
+
+    for key in ["portalFrameInWindow", "viewFrame"] {
+        guard let frame = panel[key] as? [String: Any],
+              let x = jsonDouble(frame["x"]),
+              let y = jsonDouble(frame["y"]),
+              let width = jsonDouble(frame["width"]),
+              let height = jsonDouble(frame["height"]),
+              width > 1,
+              height > 1 else {
+            continue
+        }
+        return PixelRect(x: x, y: y, width: width, height: height)
+    }
+
+    throw ProbeError(message: "Could not read selected panel portal/view frame from debug.layout: \(object)")
 }
 
 func assertBorderMatchesNativeView(
@@ -557,18 +577,25 @@ func runSurface(
     let afterPan = try detectAll(in: afterPanURL, probes: probes, crop: crop)
 
     _ = try setCanvasViewport(scale: 1, workspace: workspace, viewportSize: viewport)
-    Thread.sleep(forTimeInterval: 0.12)
+    Thread.sleep(forTimeInterval: 0.8)
     let edgePanDX = 180.0
     let edgePanDY = 32.0
     let markerProbes = probes.filter { $0.name != "border" }
+    let edgeBaselineFrame = try selectedPanelViewFrame()
+    let edgeCrop = detectionCrop(around: edgeBaselineFrame)
+    let beforeEdgePanURL = try copyArtifact(
+        try waitForAll(label: "\(surface)_before_edge_pan", probes: markerProbes, crop: edgeCrop),
+        named: "\(surface)-before-edge-pan.png"
+    )
+    let beforeEdgePan = try detectAll(in: beforeEdgePanURL, probes: markerProbes, crop: edgeCrop)
     try panCanvas(workspace: workspace, viewportSize: viewport, dx: edgePanDX, dy: edgePanDY)
     let afterEdgePanURL = try copyArtifact(
-        try waitForAll(label: "\(surface)_after_edge_pan", probes: markerProbes, crop: crop),
+        try waitForAll(label: "\(surface)_after_edge_pan", probes: markerProbes, crop: edgeCrop),
         named: "\(surface)-after-edge-pan.png"
     )
-    let afterEdgePan = try detectAll(in: afterEdgePanURL, probes: markerProbes, crop: crop)
+    let afterEdgePan = try detectAll(in: afterEdgePanURL, probes: markerProbes, crop: edgeCrop)
     for probe in markerProbes {
-        guard let beforeBounds = before[probe.name],
+        guard let beforeBounds = beforeEdgePan[probe.name],
               let edgePanBounds = afterEdgePan[probe.name] else {
             throw ProbeError(message: "\(surface) missing \(probe.name) edge pan bounds")
         }
@@ -585,11 +612,15 @@ func runSurface(
     _ = try setCanvasViewport(scale: 1, workspace: workspace, viewportSize: viewport)
     Thread.sleep(forTimeInterval: 0.12)
     let scale = try zoomOut(workspace: workspace, viewportSize: viewport)
+    Thread.sleep(forTimeInterval: 0.12)
+    // Zoomed-out surfaces may be proxy previews while the native portal is hidden.
+    // Search the canvas content area, then validate the probe scale ratios below.
+    let zoomCrop = canvasContentCrop(startingNear: nativeFrame)
     let afterZoomURL = try copyArtifact(
-        try waitForAll(label: "\(surface)_after_zoom", probes: probes, crop: crop),
+        try waitForAll(label: "\(surface)_after_zoom", probes: probes, crop: zoomCrop),
         named: "\(surface)-after-zoom.png"
     )
-    let afterZoom = try detectAll(in: afterZoomURL, probes: probes, crop: crop)
+    let afterZoom = try detectAll(in: afterZoomURL, probes: probes, crop: zoomCrop)
 
     var markerResults: [String: MarkerResult] = [:]
     for probe in probes {

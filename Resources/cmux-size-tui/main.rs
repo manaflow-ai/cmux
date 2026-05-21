@@ -234,7 +234,7 @@ fn run_loop(config: &Config) -> io::Result<()> {
         last_size = size;
         frames += 1;
 
-        if should_exit(config.interval)? {
+        if should_exit(config.interval, !config.probe_pattern)? {
             break;
         }
     }
@@ -242,7 +242,12 @@ fn run_loop(config: &Config) -> io::Result<()> {
     Ok(())
 }
 
-fn should_exit(timeout: Duration) -> io::Result<bool> {
+fn should_exit(timeout: Duration, allow_keyboard_exit: bool) -> io::Result<bool> {
+    if !allow_keyboard_exit {
+        thread::sleep(timeout);
+        return Ok(false);
+    }
+
     let deadline = Instant::now() + timeout;
     let mut stdin = io::stdin();
     let mut buf = [0_u8; 32];
