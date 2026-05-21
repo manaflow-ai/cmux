@@ -46,7 +46,7 @@ final class BrowserStackSidebarTests: XCTestCase {
 
         XCTAssertTrue(result.ok)
 
-        let reopenedProvider = BrowserStackSidebar(store: store)
+        let reopenedProvider = BrowserStackSidebar(store: store, initialState: try store.load())
         let reopenedModel = reopenedProvider.render(snapshot: snapshot)
         let persistedState = try store.load()
         let groupRows = try XCTUnwrap(reopenedModel.sections.first { $0.id == "group:reading-list" }?.rows)

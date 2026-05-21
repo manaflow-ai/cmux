@@ -10562,6 +10562,8 @@ struct VerticalTabsSidebar: View {
     private func selectExtensionSidebarWorkspace(_ workspaceId: UUID) {
         guard let workspace = tabManager.tabs.first(where: { $0.id == workspaceId }) else { return }
         selection = .tabs
+        selectedTabIds = [workspaceId]
+        lastSidebarSelectionIndex = tabManager.tabs.firstIndex { $0.id == workspaceId }
         tabManager.selectWorkspace(workspace)
     }
 

@@ -10,13 +10,18 @@ public struct BrowserStackSidebar: CmuxExtensionSidebarMutableProvider {
         isHostProvided: false
     )
     private let store: BrowserStackSidebarStore
+    private let stateCache: BrowserStackSidebarStateCache
 
-    public init(store: BrowserStackSidebarStore = BrowserStackSidebarStore()) {
+    public init(
+        store: BrowserStackSidebarStore = BrowserStackSidebarStore(),
+        initialState: BrowserStackSidebarState? = nil
+    ) {
         self.store = store
+        self.stateCache = BrowserStackSidebarStateCache(store: store, initialState: initialState)
     }
 
     public func render(snapshot: CmuxExtensionSidebarSnapshot) -> CmuxExtensionSidebarRenderModel {
-        let state = (try? store.reconciledState(for: snapshot)) ?? BrowserStackSidebarState.initial(snapshot: snapshot)
+        let state = stateCache.state(for: snapshot)
         let workspacesById = Dictionary(uniqueKeysWithValues: snapshot.workspaces.map { ($0.id, $0) })
         let sections = state.sections.map { sectionState in
             ExampleSidebarSection(
@@ -51,7 +56,8 @@ public struct BrowserStackSidebar: CmuxExtensionSidebarMutableProvider {
         guard case .moveWorkspace(let move) = mutation else {
             return CmuxExtensionCommandResult(ok: false)
         }
-        try store.moveWorkspace(move, snapshot: snapshot)
+        let state = try store.moveWorkspace(move, snapshot: snapshot)
+        stateCache.replace(with: state)
         return CmuxExtensionCommandResult(ok: true)
     }
 
@@ -103,6 +109,63 @@ public struct BrowserStackSidebar: CmuxExtensionSidebarMutableProvider {
     }
 }
 
+private final class BrowserStackSidebarStateCache: @unchecked Sendable {
+    private let store: BrowserStackSidebarStore
+    private let lock = NSLock()
+    private var state: BrowserStackSidebarState?
+    private var didStartLoad = false
+    private var mutationGeneration: UInt64 = 0
+
+    init(store: BrowserStackSidebarStore, initialState: BrowserStackSidebarState?) {
+        self.store = store
+        self.state = initialState
+        self.didStartLoad = initialState != nil
+    }
+
+    func state(for snapshot: CmuxExtensionSidebarSnapshot) -> BrowserStackSidebarState {
+        startLoadIfNeeded()
+        lock.lock()
+        let base = state ?? BrowserStackSidebarState.initial(snapshot: snapshot)
+        let reconciled = base.reconciled(with: snapshot)
+        state = reconciled
+        lock.unlock()
+        return reconciled
+    }
+
+    func replace(with state: BrowserStackSidebarState) {
+        lock.lock()
+        mutationGeneration &+= 1
+        self.state = state
+        didStartLoad = true
+        lock.unlock()
+    }
+
+    private func startLoadIfNeeded() {
+        let generation: UInt64
+        lock.lock()
+        if didStartLoad {
+            lock.unlock()
+            return
+        }
+        didStartLoad = true
+        generation = mutationGeneration
+        lock.unlock()
+
+        Task.detached(priority: .utility) { [store] in
+            guard let loaded = try? store.load() else { return }
+            self.applyLoadedState(loaded, generation: generation)
+        }
+    }
+
+    private func applyLoadedState(_ loaded: BrowserStackSidebarState, generation: UInt64) {
+        lock.lock()
+        if mutationGeneration == generation {
+            state = loaded
+        }
+        lock.unlock()
+    }
+}
+
 public struct BrowserStackSidebarStore: Sendable {
     public var stateURL: URL
 
@@ -143,10 +206,12 @@ public struct BrowserStackSidebarStore: Sendable {
     public func moveWorkspace(
         _ move: CmuxExtensionSidebarWorkspaceMove,
         snapshot: CmuxExtensionSidebarSnapshot
-    ) throws {
+    ) throws -> BrowserStackSidebarState {
         var state = try reconciledState(for: snapshot)
         state.moveWorkspace(move)
-        try save(state.reconciled(with: snapshot))
+        let reconciled = state.reconciled(with: snapshot)
+        try save(reconciled)
+        return reconciled
     }
 }
 

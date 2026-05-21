@@ -4851,6 +4851,7 @@ class TerminalController {
             return .err(code: "unavailable", message: "TabManager not available", data: nil)
         }
 
+        let sequence = max(0, CmuxEventBus.shared.latestSequence)
         var selectedWorkspaceId: UUID?
         var workspaceInputs: [(workspace: Workspace, index: Int, selected: Bool, rootPath: String?, projectRootPath: String?)] = []
         var workspaces: [[String: Any]] = []
@@ -4880,7 +4881,6 @@ class TerminalController {
         }
 
         let windowId = v2ResolveWindowId(tabManager: tabManager)
-        let sequence = max(0, CmuxEventBus.shared.latestSequence)
         return .ok([
             "seq": sequence,
             "sequence": sequence,
