@@ -41,6 +41,7 @@ private enum CommandPaletteOverlayImmediateFocusMode: Equatable {
 @MainActor
 private final class CommandPaletteOverlayContainerView: NSView {
     var capturesMouseEvents = false
+    var onUnhandledPendingKeyDown: ((NSEvent) -> Bool)?
     private var didBufferPendingTextInput = false
 
     override var isOpaque: Bool { false }
@@ -68,6 +69,9 @@ private final class CommandPaletteOverlayContainerView: NSView {
         didBufferPendingTextInput = false
         interpretKeyEvents([event])
         if !didBufferPendingTextInput {
+            if onUnhandledPendingKeyDown?(event) == true {
+                return
+            }
             super.keyDown(with: event)
         }
     }
@@ -224,6 +228,9 @@ private final class WindowCommandPaletteOverlayController: NSObject {
         containerView.isHidden = true
         containerView.alphaValue = 0
         containerView.capturesMouseEvents = false
+        containerView.onUnhandledPendingKeyDown = { [weak self] event in
+            self?.forwardPendingInputContainerKeyDown(event) ?? false
+        }
         containerView.identifier = commandPaletteOverlayContainerIdentifier
         hostingView.translatesAutoresizingMaskIntoConstraints = false
         hostingView.wantsLayer = true
@@ -604,6 +611,22 @@ private final class WindowCommandPaletteOverlayController: NSObject {
             self.allowsPendingInputContainerFocus = false
             self.updateFocusLockForWindowState()
         }
+    }
+
+    private func forwardPendingInputContainerKeyDown(_ event: NSEvent) -> Bool {
+        guard allowsPendingInputContainerFocus,
+              let window,
+              window.firstResponder === containerView else {
+            return false
+        }
+        guard focusPaletteTextInput(in: window),
+              let responder = window.firstResponder,
+              responder !== containerView else {
+            focusIntoPalette(retries: 8)
+            return false
+        }
+        responder.keyDown(with: event)
+        return true
     }
 
     private func startFocusLockTimer() {
