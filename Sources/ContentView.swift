@@ -10381,7 +10381,9 @@ struct VerticalTabsSidebar: View {
             }
             return result.ok
         } catch {
+#if DEBUG
             cmuxDebugLog("extension.sidebar.mutation.failed provider=\(descriptor.id) error=\(error.localizedDescription)")
+#endif
             return false
         }
     }
