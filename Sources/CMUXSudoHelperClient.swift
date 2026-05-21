@@ -1,6 +1,9 @@
 import CryptoKit
 import Darwin
 import Foundation
+import os
+
+nonisolated private let cmuxSudoHelperClientLogger = Logger(subsystem: "com.cmuxterm.app", category: "sudo-helper-client")
 
 struct CMUXSudoHelperExecutionResult: Sendable {
     let status: String
@@ -88,7 +91,7 @@ enum CMUXSudoHelperClient {
         do {
             return try executeAgainstSocket(path: helperSocketPath, envelope: envelope)
         } catch {
-            cmuxDebugLog("sudo.helper.transport.failed error=\(String(describing: error))")
+            cmuxSudoHelperClientLogger.error("sudo.helper.transport.failed error=\(String(describing: error), privacy: .private)")
             return .init(
                 status: "helper_unavailable",
                 exitCode: nil,

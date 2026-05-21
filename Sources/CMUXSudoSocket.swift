@@ -1,5 +1,8 @@
 import Darwin
 import Foundation
+import os
+
+nonisolated private let cmuxSudoSocketLogger = Logger(subsystem: "com.cmuxterm.app", category: "sudo-socket")
 
 enum CMUXSudoJSONValue: Sendable {
     case string(String)
@@ -281,7 +284,7 @@ extension TerminalController {
         do {
             envelope = try CMUXSudoHelperClient.signedEnvelope(for: request)
         } catch {
-            cmuxDebugLog("sudo.signing.failed error=\(String(describing: error))")
+            cmuxSudoSocketLogger.error("sudo.signing.failed error=\(String(describing: error), privacy: .private)")
             return .err(
                 code: "signing_failed",
                 message: String(
