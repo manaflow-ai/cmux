@@ -24148,15 +24148,17 @@ export default function cmuxPiSessionExtension(pi: ExtensionAPI) {
                 fallbackKind: def.name,
                 cwd: hookCwd ?? mapped?.cwd
             )
-            try? recordAgentTurnDiffBaseline(
-                agent: def.name,
-                sessionId: sessionId,
-                turnId: input.turnId,
-                cwd: hookCwd ?? mapped?.cwd,
-                workspaceId: workspaceId,
-                surfaceId: surfaceId,
-                env: env
-            )
+            if !suppressVisibleMutations {
+                try? recordAgentTurnDiffBaseline(
+                    agent: def.name,
+                    sessionId: sessionId,
+                    turnId: input.turnId,
+                    cwd: hookCwd ?? mapped?.cwd,
+                    workspaceId: workspaceId,
+                    surfaceId: surfaceId,
+                    env: env
+                )
+            }
             if !sessionId.isEmpty {
                 try? store.upsert(
                     sessionId: sessionId,
@@ -24209,15 +24211,6 @@ export default function cmuxPiSessionExtension(pi: ExtensionAPI) {
                 fallbackKind: def.name,
                 cwd: hookCwd ?? mapped?.cwd
             )
-            try? recordAgentTurnDiffBaseline(
-                agent: def.name,
-                sessionId: sessionId,
-                turnId: input.turnId,
-                cwd: hookCwd ?? mapped?.cwd,
-                workspaceId: workspaceId,
-                surfaceId: surfaceId,
-                env: env
-            )
             let nestedPromptSubmit: Bool
             if !sessionId.isEmpty {
                 nestedPromptSubmit = (try? store.recordPromptSubmit(
@@ -24237,6 +24230,17 @@ export default function cmuxPiSessionExtension(pi: ExtensionAPI) {
                 nestedPromptEvent: nestedPromptSubmit,
                 env: env
             )
+            if !suppressVisibleMutations {
+                try? recordAgentTurnDiffBaseline(
+                    agent: def.name,
+                    sessionId: sessionId,
+                    turnId: input.turnId,
+                    cwd: hookCwd ?? mapped?.cwd,
+                    workspaceId: workspaceId,
+                    surfaceId: surfaceId,
+                    env: env
+                )
+            }
             if !sessionId.isEmpty, !suppressVisibleMutations {
                 try? store.upsert(
                     sessionId: sessionId,

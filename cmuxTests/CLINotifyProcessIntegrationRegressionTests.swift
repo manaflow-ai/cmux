@@ -107,7 +107,7 @@ final class CLINotifyProcessIntegrationRegressionTests: XCTestCase {
         _ = try runGit(["commit", "-m", "initial"])
         let initialCommit = try runGit(["rev-parse", "HEAD"])
 
-        startAgentHookMockServerAccepting(context: context, connectionLimit: 8)
+        startAgentHookMockServerAccepting(context: context, connectionLimit: 32)
         let sessionId = "codex-last-turn-session"
         let sessionStart = runCodexHook(
             context: context,
@@ -140,6 +140,44 @@ final class CLINotifyProcessIntegrationRegressionTests: XCTestCase {
         XCTAssertEqual(promptRecord["workspaceId"] as? String, context.workspaceId)
         XCTAssertEqual(promptRecord["surfaceId"] as? String, context.surfaceId)
 
+        try "one\ntwo\nnested\n".write(to: storyURL, atomically: true, encoding: .utf8)
+        _ = try runGit(["add", "story.txt"])
+        _ = try runGit(["commit", "-m", "nested child change"])
+        let childPrompt = runCodexHook(
+            context: context,
+            subcommand: "prompt-submit",
+            standardInput: #"{"session_id":"\#(sessionId)","turn_id":"child-turn","cwd":"\#(context.root.path)","hook_event_name":"UserPromptSubmit"}"#,
+            extraEnvironment: codexLaunchEnvironment(context: context, sessionId: sessionId)
+        )
+        XCTAssertFalse(childPrompt.timedOut, childPrompt.stderr)
+        XCTAssertEqual(childPrompt.status, 0, childPrompt.stderr)
+
+        let childRecords = try baselineRecords()
+        XCTAssertNil(
+            childRecords.first { $0["turnId"] as? String == "child-turn" },
+            "Nested Codex prompts should not create a last-turn diff baseline."
+        )
+        let parentRecordAfterChild = try XCTUnwrap(childRecords.first { $0["turnId"] as? String == "turn-1" })
+        XCTAssertEqual(parentRecordAfterChild["baseCommit"] as? String, promptCommit)
+
+        let childStop = runCodexHook(
+            context: context,
+            subcommand: "stop",
+            standardInput: #"{"session_id":"\#(sessionId)","turn_id":"child-turn","cwd":"\#(context.root.path)","hook_event_name":"Stop","last_assistant_message":"child done"}"#,
+            extraEnvironment: codexLaunchEnvironment(context: context, sessionId: sessionId)
+        )
+        XCTAssertFalse(childStop.timedOut, childStop.stderr)
+        XCTAssertEqual(childStop.status, 0, childStop.stderr)
+
+        let parentStop = runCodexHook(
+            context: context,
+            subcommand: "stop",
+            standardInput: #"{"session_id":"\#(sessionId)","turn_id":"turn-1","cwd":"\#(context.root.path)","hook_event_name":"Stop","last_assistant_message":"parent done"}"#,
+            extraEnvironment: codexLaunchEnvironment(context: context, sessionId: sessionId)
+        )
+        XCTAssertFalse(parentStop.timedOut, parentStop.stderr)
+        XCTAssertEqual(parentStop.status, 0, parentStop.stderr)
+
         try "one\ntwo\nthree\n".write(to: storyURL, atomically: true, encoding: .utf8)
         let dirtyPromptSubmit = runCodexHook(
             context: context,
@@ -157,6 +195,15 @@ final class CLINotifyProcessIntegrationRegressionTests: XCTestCase {
             try runGit(["show-ref", "--verify", "--hash", "refs/cmux/last-turn/\(dirtyBaseCommit)"]),
             dirtyBaseCommit
         )
+
+        let dirtyStop = runCodexHook(
+            context: context,
+            subcommand: "stop",
+            standardInput: #"{"session_id":"\#(sessionId)","turn_id":"turn-1","cwd":"\#(context.root.path)","hook_event_name":"Stop","last_assistant_message":"dirty done"}"#,
+            extraEnvironment: codexLaunchEnvironment(context: context, sessionId: sessionId)
+        )
+        XCTAssertFalse(dirtyStop.timedOut, dirtyStop.stderr)
+        XCTAssertEqual(dirtyStop.status, 0, dirtyStop.stderr)
 
         try "one\ntwo\nthree\nfour\n".write(to: storyURL, atomically: true, encoding: .utf8)
         let refreshedDirtyPromptSubmit = runCodexHook(
