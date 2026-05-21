@@ -212,7 +212,7 @@ function refreshActiveLimitProviderStatuses(
     });
     yield* Effect.forEach(candidates, (vm) => {
       const providerVmId = vm.providerVmId;
-      if (vm.provider !== "freestyle" || !providerVmId) return Effect.void;
+      if (!providerVmId) return Effect.void;
       return Effect.gen(function* () {
         const providerStatus = yield* getStatus(vm.provider, providerVmId).pipe(
           Effect.catchAll((err) =>
