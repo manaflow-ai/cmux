@@ -5918,6 +5918,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
            toggle(mainContext) {
             return true
         }
+        for orderedWindow in NSApp.orderedWindows where isMainTerminalWindow(orderedWindow) {
+            if let orderedContext = contextForMainTerminalWindow(orderedWindow),
+               toggle(orderedContext) {
+                return true
+            }
+        }
         if let activeManager = tabManager,
            let activeContext = mainWindowContexts.values.first(where: { $0.tabManager === activeManager }),
            toggle(activeContext) {

@@ -745,6 +745,7 @@ jobs:
             -clonedSourcePackagesDirPath .spm-cache \
             ARCHS="arm64 x86_64" \
             ONLY_ACTIVE_ARCH=NO \
+            CMUX_SKIP_ZIG_BUILD=1 \
             CODE_SIGNING_ALLOWED=NO ASSETCATALOG_COMPILER_APPICON_NAME=AppIcon-Nightly build
 
   ui-regressions:
@@ -842,36 +843,6 @@ jobs:
             -destination "platform=macOS" \
             build-for-testing
 
-      - name: Create persistent virtual display
-        run: |
-          set -euo pipefail
-          HELPER_PATH="/tmp/create-virtual-display"
-          clang -framework Foundation -framework CoreGraphics \
-            -o "$HELPER_PATH" scripts/create-virtual-display.m
-
-          VDISPLAY_READY="/tmp/cmux-vdisplay-persistent.ready"
-          VDISPLAY_ID_PATH="/tmp/cmux-vdisplay-persistent.id"
-          rm -f "$VDISPLAY_READY" "$VDISPLAY_ID_PATH"
-
-          "$HELPER_PATH" \
-            --modes "1920x1080" \
-            --ready-path "$VDISPLAY_READY" \
-            --display-id-path "$VDISPLAY_ID_PATH" \
-            > /tmp/cmux-vdisplay-persistent.log 2>&1 &
-          echo "VDISPLAY_PERSISTENT_PID=$!" >> "$GITHUB_ENV"
-
-          echo "Waiting for persistent virtual display..."
-          for i in $(seq 1 24); do
-            if [ -f "$VDISPLAY_READY" ]; then break; fi
-            sleep 0.5
-          done
-          if [ ! -f "$VDISPLAY_READY" ]; then
-            echo "ERROR: Persistent virtual display not ready after 12s" >&2
-            cat /tmp/cmux-vdisplay-persistent.log 2>/dev/null || true
-            exit 1
-          fi
-          echo "Persistent virtual display ready: ID=$(cat "$VDISPLAY_ID_PATH")"
-
       - name: Run display resolution churn UI regression
         run: |
           set -euo pipefail
@@ -884,8 +855,12 @@ jobs:
           DISPLAY_START="/tmp/cmux-ui-test-display-${TOKEN}.start"
           DISPLAY_DONE="/tmp/cmux-ui-test-display-${TOKEN}.done"
           HELPER_LOG="/tmp/cmux-ui-test-display-${TOKEN}-helper.log"
+          HELPER_PID=""
 
           cleanup() {
+            if [ -n "${HELPER_PID:-}" ]; then
+              kill "$HELPER_PID" 2>/dev/null || true
+            fi
             pkill -x "cmux DEV" 2>/dev/null || true
             rm -f "$DIAG_PATH" "$DISPLAY_READY" "$DISPLAY_ID_PATH" "$DISPLAY_START" "$DISPLAY_DONE" "$HELPER_LOG"
             rm -f /tmp/cmux-ui-test-prelaunch.json /tmp/cmux-ui-test-display-harness.json
@@ -931,6 +906,11 @@ jobs:
             if [ ! -f "$DISPLAY_READY" ]; then
               echo "ERROR: Virtual display not ready after 12s" >&2
               cat "$HELPER_LOG" 2>/dev/null || true
+              kill "$HELPER_PID" 2>/dev/null || true
+              if [ "$attempt" -eq 2 ]; then
+                echo "Display resolution UI regression failed after 2 attempts" >&2
+                exit 1
+              fi
               continue
             fi
             DISPLAY_ID=$(cat "$DISPLAY_ID_PATH")
@@ -1040,12 +1020,42 @@ jobs:
             sleep 3
           done
 
+      - name: Create persistent virtual display
+        run: |
+          set -euo pipefail
+          HELPER_PATH="/tmp/create-virtual-display"
+          clang -framework Foundation -framework CoreGraphics \
+            -o "$HELPER_PATH" scripts/create-virtual-display.m
+
+          VDISPLAY_READY="/tmp/cmux-vdisplay-persistent.ready"
+          VDISPLAY_ID_PATH="/tmp/cmux-vdisplay-persistent.id"
+          rm -f "$VDISPLAY_READY" "$VDISPLAY_ID_PATH"
+
+          "$HELPER_PATH" \
+            --modes "1920x1080" \
+            --ready-path "$VDISPLAY_READY" \
+            --display-id-path "$VDISPLAY_ID_PATH" \
+            > /tmp/cmux-vdisplay-persistent.log 2>&1 &
+          echo "VDISPLAY_PERSISTENT_PID=$!" >> "$GITHUB_ENV"
+
+          echo "Waiting for persistent virtual display..."
+          for i in $(seq 1 24); do
+            if [ -f "$VDISPLAY_READY" ]; then break; fi
+            sleep 0.5
+          done
+          if [ ! -f "$VDISPLAY_READY" ]; then
+            echo "ERROR: Persistent virtual display not ready after 12s" >&2
+            cat /tmp/cmux-vdisplay-persistent.log 2>/dev/null || true
+            exit 1
+          fi
+          echo "Persistent virtual display ready: ID=$(cat "$VDISPLAY_ID_PATH")"
+
       - name: Run browser find focus UI regression
         run: |
           set -euo pipefail
           SOURCE_PACKAGES_DIR="$PWD/.ci-source-packages"
           python3 .github/scripts/run-with-output-watchdog.py \
-            --idle-timeout-seconds "${CMUX_XCODEBUILD_IDLE_TIMEOUT_SECONDS:-300}" \
+            --idle-timeout-seconds 120 \
             --termination-grace-seconds 15 \
             --output /tmp/cmux-browser-find-ui-test-output.txt \
             -- \
