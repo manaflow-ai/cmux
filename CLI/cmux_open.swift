@@ -985,6 +985,7 @@ extension CMUXCLI {
             applyViewerAppearance(payload.appearance);
             registerGhosttyTheme(payload.appearance.themes.light);
             registerGhosttyTheme(payload.appearance.themes.dark);
+            stabilizeCodeViewStickyPositioning();
 
             try {
               const patches = parsePatchFiles(payload.patch, "cmux-diff");
@@ -1043,6 +1044,27 @@ extension CMUXCLI {
 
             function registerGhosttyTheme(theme) {
               registerCustomTheme(theme.name, () => Promise.resolve(shikiThemeFromGhostty(theme)));
+            }
+
+            function stabilizeCodeViewStickyPositioning() {
+              const prototype = CodeView.prototype;
+              if (prototype.__cmuxStableStickyPositioning === true || typeof prototype.applyStickyPositioning !== "function") {
+                return;
+              }
+
+              prototype.__cmuxStableStickyPositioning = true;
+              prototype.applyStickyPositioning = function({ stickyTop, stickyBottom }) {
+                const height = this.getHeight();
+                const itemMetrics = this.itemMetricsCache;
+                const stickyContainerHeight = stickyBottom - stickyTop;
+                this.renderState.stickyHeight = stickyContainerHeight;
+                this.renderState.stickyTop = stickyTop;
+                this.renderState.stickyBottom = stickyBottom;
+                this.stickyOffset.style.height = `${stickyTop}px`;
+                const stickyOffset = -Math.max(stickyContainerHeight, 0) + height;
+                this.stickyContainer.style.top = `${stickyOffset}px`;
+                this.stickyContainer.style.bottom = `${stickyOffset + itemMetrics.diffHeaderHeight}px`;
+              };
             }
 
             function preloadDiffHighlighter(appearance, items) {

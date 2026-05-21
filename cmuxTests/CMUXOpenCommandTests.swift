@@ -321,6 +321,7 @@ final class CMUXOpenCommandTests: XCTestCase {
         XCTAssertTrue(html.contains("registerCustomTheme"), html)
         XCTAssertTrue(html.contains("renderUntilCodeViewReady"), html)
         XCTAssertTrue(html.contains("forceRenderReadyCodeViewItems"), html)
+        XCTAssertTrue(html.contains("stabilizeCodeViewStickyPositioning"), html)
         XCTAssertTrue(html.contains("stickyHeaders: true"), html)
         XCTAssertTrue(html.contains("--diffs-font-size"), html)
         XCTAssertTrue(html.contains("\"fontFamily\":\"Unit Mono\""), html)
