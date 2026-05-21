@@ -1,6 +1,11 @@
 {
   "files": [
     {
+      "path": ".github/review-bot-rules/bugfix-regression-proof.md",
+      "description": "Source-of-truth cmux review rule for bugfix regression test proof and red-first/green-after commit structure.",
+      "scope": ["**/*"]
+    },
+    {
       "path": ".github/review-bot-rules/swift-actor-isolation.md",
       "description": "Source-of-truth cmux lint rule for Swift actor isolation review.",
       "scope": ["**/*.swift", "**/Package.swift"]
