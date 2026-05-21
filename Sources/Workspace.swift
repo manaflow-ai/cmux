@@ -7381,7 +7381,13 @@ final class Workspace: Identifiable, ObservableObject {
     @Published var isPinned: Bool = false
     @Published var customColor: String?  // hex string, e.g. "#C0392B"
     @Published private(set) var terminalScrollBarHidden: Bool = false
-    @Published var currentDirectory: String
+    @Published var currentDirectory: String {
+        didSet {
+            scheduleExtensionSidebarProjectRootRefresh(for: currentDirectory)
+        }
+    }
+    @Published private(set) var extensionSidebarProjectRootPath: String?
+    private var extensionSidebarProjectRootRefreshID: UInt64 = 0
     @Published private(set) var surfaceTabBarDirectory: String?
     private(set) var preferredBrowserProfileID: UUID?
 
@@ -7600,6 +7606,7 @@ final class Workspace: Identifiable, ObservableObject {
     lazy var sidebarObservationPublisher: AnyPublisher<Void, Never> = {
         let publishers: [AnyPublisher<Void, Never>] = [
             sidebarObservationSignal($currentDirectory),
+            sidebarObservationSignal($extensionSidebarProjectRootPath),
             $panels
                 .map(SidebarPanelObservationState.init)
                 .dropFirst()
@@ -7624,6 +7631,39 @@ final class Workspace: Identifiable, ObservableObject {
 
         return Publishers.MergeMany(publishers).eraseToAnyPublisher()
     }()
+
+    private func scheduleExtensionSidebarProjectRootRefresh(for directory: String) {
+        extensionSidebarProjectRootRefreshID &+= 1
+        let refreshID = extensionSidebarProjectRootRefreshID
+        let trimmedDirectory = directory.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmedDirectory.isEmpty else {
+            extensionSidebarProjectRootPath = nil
+            return
+        }
+
+        Task.detached(priority: .utility) { [weak self, trimmedDirectory, refreshID] in
+            let projectRootPath = Self.extensionSidebarProjectRootPath(onDiskFor: trimmedDirectory)
+            await MainActor.run { [weak self] in
+                guard let self,
+                      self.extensionSidebarProjectRootRefreshID == refreshID else {
+                    return
+                }
+                self.extensionSidebarProjectRootPath = projectRootPath
+            }
+        }
+    }
+
+    nonisolated private static func extensionSidebarProjectRootPath(onDiskFor directory: String) -> String? {
+        var url = URL(fileURLWithPath: directory, isDirectory: true).standardizedFileURL
+        let fileManager = FileManager.default
+        while url.path != "/" {
+            if fileManager.fileExists(atPath: url.appendingPathComponent(".git").path) {
+                return url.path
+            }
+            url.deleteLastPathComponent()
+        }
+        return nil
+    }
 
     private static func isProxyOnlyRemoteError(_ detail: String) -> Bool {
         let lowered = detail.lowercased()
@@ -8120,6 +8160,7 @@ final class Workspace: Identifiable, ObservableObject {
             bonsplitController.selectTab(initialTabId)
         }
         tmuxLayoutSnapshot = bonsplitController.layoutSnapshot()
+        scheduleExtensionSidebarProjectRootRefresh(for: currentDirectory)
     }
 
     deinit {

@@ -35,6 +35,73 @@ final class CmuxExtensionKitTests: XCTestCase {
         XCTAssertNil(CmuxExtensionJSONValue.number(Double.greatestFiniteMagnitude).intValue)
     }
 
+    func testSidebarSnapshotDecodesSocketShape() throws {
+        let workspaceId = UUID()
+        let selectedId = workspaceId.uuidString
+        let data = Data("""
+        {
+          "seq": 7,
+          "selected_workspace_id": "\(selectedId)",
+          "workspaces": [
+            {
+              "id": "\(workspaceId.uuidString)",
+              "title": "API",
+              "description": "Backend workspace",
+              "pinned": true,
+              "root_path": "/tmp/cmux/api",
+              "project_root_path": "/tmp/cmux",
+              "branch_summary": "main",
+              "remote_display_target": "devbox",
+              "remote_connection_state": "connected",
+              "unread_count": 3,
+              "latest_notification_text": "done",
+              "latest_submitted_message": "ship",
+              "latest_submitted_at": "2026-05-21T10:00:00.000Z",
+              "listening_ports": [3000],
+              "pull_request_urls": ["https://github.com/manaflow-ai/cmux/pull/4309"]
+            }
+          ]
+        }
+        """.utf8)
+
+        let snapshot = try JSONDecoder().decode(CmuxExtensionSidebarSnapshot.self, from: data)
+        let workspace = try XCTUnwrap(snapshot.workspaces.first)
+
+        XCTAssertEqual(snapshot.sequence, 7)
+        XCTAssertEqual(snapshot.selectedWorkspaceId, workspaceId)
+        XCTAssertEqual(workspace.id, workspaceId)
+        XCTAssertEqual(workspace.title, "API")
+        XCTAssertEqual(workspace.customDescription, "Backend workspace")
+        XCTAssertEqual(workspace.isPinned, true)
+        XCTAssertEqual(workspace.rootPath, "/tmp/cmux/api")
+        XCTAssertEqual(workspace.projectRootPath, "/tmp/cmux")
+        XCTAssertEqual(workspace.branchSummary, "main")
+        XCTAssertEqual(workspace.remoteDisplayTarget, "devbox")
+        XCTAssertEqual(workspace.remoteConnectionState, "connected")
+        XCTAssertEqual(workspace.unreadCount, 3)
+        XCTAssertEqual(workspace.latestNotificationText, "done")
+        XCTAssertEqual(workspace.latestSubmittedMessage, "ship")
+        XCTAssertNotNil(workspace.latestSubmittedAt)
+        XCTAssertEqual(workspace.listeningPorts, [3000])
+        XCTAssertEqual(workspace.pullRequestURLs, ["https://github.com/manaflow-ai/cmux/pull/4309"])
+    }
+
+    func testWorkspaceSnapshotDecodesSocketShapeDefaults() throws {
+        let workspaceId = UUID()
+        let data = Data("""
+        {"id":"\(workspaceId.uuidString)","title":"API"}
+        """.utf8)
+
+        let workspace = try JSONDecoder().decode(CmuxExtensionWorkspaceSnapshot.self, from: data)
+
+        XCTAssertEqual(workspace.id, workspaceId)
+        XCTAssertEqual(workspace.title, "API")
+        XCTAssertFalse(workspace.isPinned)
+        XCTAssertEqual(workspace.unreadCount, 0)
+        XCTAssertEqual(workspace.listeningPorts, [])
+        XCTAssertEqual(workspace.pullRequestURLs, [])
+    }
+
     func testLegacyPullRequestTabDecodesAsBrowser() throws {
         let data = try JSONEncoder().encode("pullRequest")
         let decoded = try JSONDecoder().decode(CmuxExtensionWorkspacePopoverTab.self, from: data)

@@ -28,6 +28,40 @@ public struct CmuxExtensionSidebarSnapshot: Codable, Equatable, Sendable {
     public var workspaceIds: [UUID] {
         workspaces.map(\.id)
     }
+
+    private enum CodingKeys: String, CodingKey {
+        case sequence
+        case selectedWorkspaceId
+        case workspaces
+    }
+
+    private enum SocketCodingKeys: String, CodingKey {
+        case sequence
+        case seq
+        case selectedWorkspaceId = "selected_workspace_id"
+        case workspaces
+    }
+
+    public init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        let socketContainer = try decoder.container(keyedBy: SocketCodingKeys.self)
+        sequence = try container.decodeIfPresent(UInt64.self, forKey: .sequence)
+            ?? socketContainer.decodeIfPresent(UInt64.self, forKey: .sequence)
+            ?? socketContainer.decodeIfPresent(UInt64.self, forKey: .seq)
+            ?? 0
+        selectedWorkspaceId = try container.decodeIfPresent(UUID.self, forKey: .selectedWorkspaceId)
+            ?? socketContainer.decodeIfPresent(UUID.self, forKey: .selectedWorkspaceId)
+        workspaces = try container.decodeIfPresent([CmuxExtensionWorkspaceSnapshot].self, forKey: .workspaces)
+            ?? socketContainer.decodeIfPresent([CmuxExtensionWorkspaceSnapshot].self, forKey: .workspaces)
+            ?? []
+    }
+
+    public func encode(to encoder: Encoder) throws {
+        var container = encoder.container(keyedBy: CodingKeys.self)
+        try container.encode(sequence, forKey: .sequence)
+        try container.encodeIfPresent(selectedWorkspaceId, forKey: .selectedWorkspaceId)
+        try container.encode(workspaces, forKey: .workspaces)
+    }
 }
 
 public enum CmuxExtensionJSONValue: Codable, Equatable, Sendable {
@@ -223,6 +257,135 @@ public struct CmuxExtensionWorkspaceSnapshot: Identifiable, Codable, Equatable, 
         self.latestSubmittedAt = latestSubmittedAt
         self.listeningPorts = listeningPorts
         self.pullRequestURLs = pullRequestURLs
+    }
+
+    private enum CodingKeys: String, CodingKey {
+        case id
+        case title
+        case customDescription
+        case isPinned
+        case rootPath
+        case projectRootPath
+        case branchSummary
+        case remoteDisplayTarget
+        case remoteConnectionState
+        case unreadCount
+        case latestNotificationText
+        case latestSubmittedMessage
+        case latestSubmittedAt
+        case listeningPorts
+        case pullRequestURLs
+    }
+
+    private enum SocketCodingKeys: String, CodingKey {
+        case id
+        case title
+        case customDescription = "description"
+        case isPinned = "pinned"
+        case rootPath = "root_path"
+        case projectRootPath = "project_root_path"
+        case branchSummary = "branch_summary"
+        case remoteDisplayTarget = "remote_display_target"
+        case remoteConnectionState = "remote_connection_state"
+        case unreadCount = "unread_count"
+        case latestNotificationText = "latest_notification_text"
+        case latestSubmittedMessage = "latest_submitted_message"
+        case latestSubmittedAt = "latest_submitted_at"
+        case listeningPorts = "listening_ports"
+        case pullRequestURLs = "pull_request_urls"
+    }
+
+    public init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        let socketContainer = try decoder.container(keyedBy: SocketCodingKeys.self)
+
+        id = try container.decodeIfPresent(UUID.self, forKey: .id)
+            ?? socketContainer.decode(UUID.self, forKey: .id)
+        title = try container.decodeIfPresent(String.self, forKey: .title)
+            ?? socketContainer.decode(String.self, forKey: .title)
+        customDescription = try container.decodeIfPresent(String.self, forKey: .customDescription)
+            ?? socketContainer.decodeIfPresent(String.self, forKey: .customDescription)
+        isPinned = try container.decodeIfPresent(Bool.self, forKey: .isPinned)
+            ?? socketContainer.decodeIfPresent(Bool.self, forKey: .isPinned)
+            ?? false
+        rootPath = try container.decodeIfPresent(String.self, forKey: .rootPath)
+            ?? socketContainer.decodeIfPresent(String.self, forKey: .rootPath)
+        projectRootPath = try container.decodeIfPresent(String.self, forKey: .projectRootPath)
+            ?? socketContainer.decodeIfPresent(String.self, forKey: .projectRootPath)
+        branchSummary = try container.decodeIfPresent(String.self, forKey: .branchSummary)
+            ?? socketContainer.decodeIfPresent(String.self, forKey: .branchSummary)
+        remoteDisplayTarget = try container.decodeIfPresent(String.self, forKey: .remoteDisplayTarget)
+            ?? socketContainer.decodeIfPresent(String.self, forKey: .remoteDisplayTarget)
+        remoteConnectionState = try container.decodeIfPresent(String.self, forKey: .remoteConnectionState)
+            ?? socketContainer.decodeIfPresent(String.self, forKey: .remoteConnectionState)
+        unreadCount = try container.decodeIfPresent(Int.self, forKey: .unreadCount)
+            ?? socketContainer.decodeIfPresent(Int.self, forKey: .unreadCount)
+            ?? 0
+        latestNotificationText = try container.decodeIfPresent(String.self, forKey: .latestNotificationText)
+            ?? socketContainer.decodeIfPresent(String.self, forKey: .latestNotificationText)
+        latestSubmittedMessage = try container.decodeIfPresent(String.self, forKey: .latestSubmittedMessage)
+            ?? socketContainer.decodeIfPresent(String.self, forKey: .latestSubmittedMessage)
+        latestSubmittedAt = try Self.decodeDate(
+            container: container,
+            camelKey: .latestSubmittedAt,
+            socketContainer: socketContainer,
+            socketKey: .latestSubmittedAt
+        )
+        listeningPorts = try container.decodeIfPresent([Int].self, forKey: .listeningPorts)
+            ?? socketContainer.decodeIfPresent([Int].self, forKey: .listeningPorts)
+            ?? []
+        pullRequestURLs = try container.decodeIfPresent([String].self, forKey: .pullRequestURLs)
+            ?? socketContainer.decodeIfPresent([String].self, forKey: .pullRequestURLs)
+            ?? []
+    }
+
+    public func encode(to encoder: Encoder) throws {
+        var container = encoder.container(keyedBy: CodingKeys.self)
+        try container.encode(id, forKey: .id)
+        try container.encode(title, forKey: .title)
+        try container.encodeIfPresent(customDescription, forKey: .customDescription)
+        try container.encode(isPinned, forKey: .isPinned)
+        try container.encodeIfPresent(rootPath, forKey: .rootPath)
+        try container.encodeIfPresent(projectRootPath, forKey: .projectRootPath)
+        try container.encodeIfPresent(branchSummary, forKey: .branchSummary)
+        try container.encodeIfPresent(remoteDisplayTarget, forKey: .remoteDisplayTarget)
+        try container.encodeIfPresent(remoteConnectionState, forKey: .remoteConnectionState)
+        try container.encode(unreadCount, forKey: .unreadCount)
+        try container.encodeIfPresent(latestNotificationText, forKey: .latestNotificationText)
+        try container.encodeIfPresent(latestSubmittedMessage, forKey: .latestSubmittedMessage)
+        try container.encodeIfPresent(latestSubmittedAt, forKey: .latestSubmittedAt)
+        try container.encode(listeningPorts, forKey: .listeningPorts)
+        try container.encode(pullRequestURLs, forKey: .pullRequestURLs)
+    }
+
+    private static func decodeDate(
+        container: KeyedDecodingContainer<CodingKeys>,
+        camelKey: CodingKeys,
+        socketContainer: KeyedDecodingContainer<SocketCodingKeys>,
+        socketKey: SocketCodingKeys
+    ) throws -> Date? {
+        if let date = try container.decodeIfPresent(Date.self, forKey: camelKey) {
+            return date
+        }
+        if let date = try? socketContainer.decodeIfPresent(Date.self, forKey: socketKey) {
+            return date
+        }
+        guard let string = try socketContainer.decodeIfPresent(String.self, forKey: socketKey) else {
+            return nil
+        }
+        return iso8601Date(from: string)
+    }
+
+    private static func iso8601Date(from string: String) -> Date? {
+        let fractional = ISO8601DateFormatter()
+        fractional.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
+        if let date = fractional.date(from: string) {
+            return date
+        }
+
+        let plain = ISO8601DateFormatter()
+        plain.formatOptions = [.withInternetDateTime]
+        return plain.date(from: string)
     }
 }
 

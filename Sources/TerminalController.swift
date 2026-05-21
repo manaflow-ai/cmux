@@ -4886,8 +4886,10 @@ class TerminalController {
         }
 
         let windowId = v2ResolveWindowId(tabManager: tabManager)
+        let sequence = max(0, CmuxEventBus.shared.latestSequence)
         return .ok([
-            "sequence": max(0, CmuxEventBus.shared.latestSequence),
+            "seq": sequence,
+            "sequence": sequence,
             "window_id": v2OrNull(windowId?.uuidString),
             "window_ref": v2Ref(kind: .window, uuid: windowId),
             "selected_workspace_id": v2OrNull(selectedWorkspaceId?.uuidString),
@@ -4896,6 +4898,7 @@ class TerminalController {
         ])
     }
 
+    @MainActor
     private func v2ExtensionSidebarWorkspacePayload(
         workspace: Workspace,
         index: Int,
@@ -4903,6 +4906,11 @@ class TerminalController {
         rootPath: String?,
         projectRootPath: String?
     ) -> [String: Any] {
+        let latestNotificationText = TerminalNotificationStore.shared.latestNotification(forTabId: workspace.id).flatMap {
+            let text = $0.body.isEmpty ? $0.title : $0.body
+            let trimmed = text.trimmingCharacters(in: .whitespacesAndNewlines)
+            return trimmed.isEmpty ? nil : trimmed
+        }
         return [
             "id": workspace.id.uuidString,
             "ref": v2Ref(kind: .workspace, uuid: workspace.id),
@@ -4919,6 +4927,8 @@ class TerminalController {
             "remote": workspace.remoteStatusPayload(),
             "current_directory": v2OrNull(workspace.currentDirectory),
             "custom_color": v2OrNull(workspace.customColor),
+            "unread_count": TerminalNotificationStore.shared.unreadCount(forTabId: workspace.id),
+            "latest_notification_text": v2OrNull(latestNotificationText),
             "latest_conversation_message": v2OrNull(workspace.latestConversationMessage),
             "latest_submitted_message": v2OrNull(workspace.latestSubmittedMessage),
             "latest_submitted_at": v2OrNull(workspace.latestSubmittedAt.map(CmuxEventBus.isoTimestamp)),
