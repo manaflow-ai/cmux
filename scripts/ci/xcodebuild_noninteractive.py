@@ -51,9 +51,9 @@ def main() -> int:
         os.write(sys.stdout.fileno(), chunk)
         prompt_window = (prompt_window + chunk)[-4096:]
         if SWIFT_CRASH_PROMPT in prompt_window:
-            # The Swift crash backtracer asks for one key but can run under
-            # canonical terminal mode. Send a newline too so either mode exits.
-            os.write(fd, b"q\n")
+            # The Swift crash backtracer asks for one key. Send q to choose the
+            # noninteractive quit path and let xcodebuild continue reporting.
+            os.write(fd, b"q")
             prompt_window = b""
 
     _, status = os.waitpid(pid, 0)
