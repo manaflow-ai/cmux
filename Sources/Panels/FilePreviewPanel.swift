@@ -1031,9 +1031,13 @@ final class FilePreviewPanel: Panel, ObservableObject, FilePreviewTextEditingPan
     }
 
     func handleDroppedFileURLsAsText(_ urls: [URL]) -> Bool {
+        handleDroppedPathStringsAsText(urls.map(\.path))
+    }
+
+    func handleDroppedPathStringsAsText(_ paths: [String]) -> Bool {
         guard canEditText else { return false }
         guard previewMode == .text, let textView else { return false }
-        let text = TerminalImageTransferPlanner.insertedText(forFileURLs: urls)
+        let text = TerminalImageTransferPlanner.insertedText(forPathStrings: paths)
         guard !text.isEmpty else { return false }
         textView.window?.makeFirstResponder(textView)
         textView.insertText(text, replacementRange: textView.selectedRange())

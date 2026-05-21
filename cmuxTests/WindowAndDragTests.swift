@@ -2494,9 +2494,45 @@ final class FilePreviewDragPasteboardWriterTests: XCTestCase {
         XCTAssertEqual(entry.displayPath, source.displayPath)
         XCTAssertEqual(entry.remoteSource, source)
         XCTAssertEqual(entry.textInsertionPath, source.remotePath)
+        XCTAssertEqual(DragOverlayRoutingPolicy.fileURLs(from: dragPasteboard), [])
         XCTAssertEqual(
-            DragOverlayRoutingPolicy.fileURLs(from: dragPasteboard).map(\.path),
-            [source.remotePath]
+            DragOverlayRoutingPolicy.textInsertionPayload(from: dragPasteboard),
+            .pathStrings([source.remotePath])
+        )
+    }
+
+    func testRemoteRegistrationTextPayloadDoesNotExposeCollidingLocalFileURL() throws {
+        let localCollisionURL = FileManager.default.temporaryDirectory
+            .appendingPathComponent("cmux-remote-preview-collision-\(UUID().uuidString).txt")
+        try "local".write(to: localCollisionURL, atomically: true, encoding: .utf8)
+        defer { try? FileManager.default.removeItem(at: localCollisionURL) }
+
+        let source = RemoteFilePreviewSource(
+            connection: SSHFileExplorerConnection(
+                destination: "dev@ubuntu-host",
+                port: nil,
+                identityFile: nil,
+                sshOptions: []
+            ),
+            displayTarget: "dev@ubuntu-host",
+            remotePath: localCollisionURL.path
+        )
+        let writer = FilePreviewDragPasteboardWriter(
+            filePath: RemoteFilePreviewMaterializer.cacheURL(for: source).path,
+            displayTitle: localCollisionURL.lastPathComponent,
+            displayPath: source.displayPath,
+            remoteSource: source,
+            textInsertionPath: source.remotePath
+        )
+        let dragPasteboard = NSPasteboard(name: .drag)
+        dragPasteboard.clearContents()
+
+        _ = writer.writableTypes(for: dragPasteboard)
+
+        XCTAssertEqual(DragOverlayRoutingPolicy.fileURLs(from: dragPasteboard), [])
+        XCTAssertEqual(
+            DragOverlayRoutingPolicy.textInsertionPayload(from: dragPasteboard),
+            .pathStrings([source.remotePath])
         )
     }
 

@@ -125,13 +125,13 @@ final class PaneDropTargetView: NSView {
             modifierFlags: DragOverlayRoutingPolicy.currentModifierFlags,
             canDropAsText: textDestinationKind != nil
         ) {
-            let urls = DragOverlayRoutingPolicy.fileURLs(from: sender.draggingPasteboard)
-            guard !urls.isEmpty else { return false }
-            let handled = handleFileDropAsText(urls, context: dropContext, workspace: workspace)
+            guard let payload = DragOverlayRoutingPolicy.textInsertionPayload(from: sender.draggingPasteboard),
+                  !payload.isEmpty else { return false }
+            let handled = handleFileDropAsText(payload, context: dropContext, workspace: workspace)
 #if DEBUG
             cmuxDebugLog(
                 "terminal.paneDrop.performAsText panel=\(dropContext.panelId.uuidString.prefix(5)) " +
-                "fileURLs=\(urls.count) pane=\(dropContext.paneId.id.uuidString.prefix(5)) " +
+                "items=\(payload.count) pane=\(dropContext.paneId.id.uuidString.prefix(5)) " +
                 "handled=\(handled ? 1 : 0)"
             )
 #endif
@@ -303,18 +303,29 @@ final class PaneDropTargetView: NSView {
     }
 
     private func handleFileDropAsText(
-        _ urls: [URL],
+        _ payload: FileDropTextInsertionPayload,
         context: PaneDropContext,
         workspace: Workspace
     ) -> Bool {
         if let hostedView {
-            return FileDropTextDropController.performTerminalFileDrop(
-                workspace: workspace,
-                panelId: context.panelId,
-                hostedView: hostedView,
-                urls: urls,
-                window: window
-            )
+            switch payload {
+            case .fileURLs(let urls):
+                return FileDropTextDropController.performTerminalFileDrop(
+                    workspace: workspace,
+                    panelId: context.panelId,
+                    hostedView: hostedView,
+                    urls: urls,
+                    window: window
+                )
+            case .pathStrings(let paths):
+                return FileDropTextDropController.performTerminalPathTextDrop(
+                    workspace: workspace,
+                    panelId: context.panelId,
+                    hostedView: hostedView,
+                    paths: paths,
+                    window: window
+                )
+            }
         }
 
         guard let tabId = workspace.bonsplitController.selectedTab(inPane: context.paneId)?.id,
@@ -323,13 +334,24 @@ final class PaneDropTargetView: NSView {
             return false
         }
         if let terminalPanel = panel as? TerminalPanel {
-            return FileDropTextDropController.performTerminalFileDrop(
-                workspace: workspace,
-                panelId: panelId,
-                hostedView: terminalPanel.hostedView,
-                urls: urls,
-                window: window ?? terminalPanel.surface.uiWindow
-            )
+            switch payload {
+            case .fileURLs(let urls):
+                return FileDropTextDropController.performTerminalFileDrop(
+                    workspace: workspace,
+                    panelId: panelId,
+                    hostedView: terminalPanel.hostedView,
+                    urls: urls,
+                    window: window ?? terminalPanel.surface.uiWindow
+                )
+            case .pathStrings(let paths):
+                return FileDropTextDropController.performTerminalPathTextDrop(
+                    workspace: workspace,
+                    panelId: panelId,
+                    hostedView: terminalPanel.hostedView,
+                    paths: paths,
+                    window: window ?? terminalPanel.surface.uiWindow
+                )
+            }
         }
         if let filePreviewPanel = panel as? FilePreviewPanel {
             return FileDropTextDropController.performPanelTextDrop(
@@ -338,7 +360,12 @@ final class PaneDropTargetView: NSView {
                 focusIntent: .filePreview(.textEditor),
                 window: window,
                 insert: {
-                    filePreviewPanel.handleDroppedFileURLsAsText(urls)
+                    switch payload {
+                    case .fileURLs(let urls):
+                        return filePreviewPanel.handleDroppedFileURLsAsText(urls)
+                    case .pathStrings(let paths):
+                        return filePreviewPanel.handleDroppedPathStringsAsText(paths)
+                    }
                 }
             )
         }

@@ -147,6 +147,25 @@ enum FileDropTextDropController {
     }
 
     @discardableResult
+    static func performTerminalPathTextDrop(
+        workspace: Workspace,
+        panelId: UUID,
+        hostedView: GhosttySurfaceScrollView,
+        paths: [String],
+        window: NSWindow?
+    ) -> Bool {
+        performPanelTextDrop(
+            workspace: workspace,
+            panelId: panelId,
+            focusIntent: .terminal(.surface),
+            window: window,
+            insert: {
+                hostedView.handleDroppedPathStringsAsText(paths)
+            }
+        )
+    }
+
+    @discardableResult
     static func performTerminalFileDrop(
         terminal: GhosttyNSView,
         urls: [URL]
@@ -171,6 +190,31 @@ enum FileDropTextDropController {
         )
     }
 
+    @discardableResult
+    static func performTerminalPathTextDrop(
+        terminal: GhosttyNSView,
+        paths: [String]
+    ) -> Bool {
+        guard let workspaceId = terminal.tabId,
+              let terminalSurfaceId = terminal.terminalSurface?.id,
+              let workspace = AppDelegate.shared?.workspaceFor(tabId: workspaceId),
+              let panelId = panelIdForTerminalDropFocus(
+                terminalSurfaceId: terminalSurfaceId,
+                workspace: workspace
+              ) else {
+            return terminal.handleDroppedPathStringsAsText(paths)
+        }
+        return performPanelTextDrop(
+            workspace: workspace,
+            panelId: panelId,
+            focusIntent: .terminal(.surface),
+            window: terminal.window,
+            insert: {
+                terminal.handleDroppedPathStringsAsText(paths)
+            }
+        )
+    }
+
     static func focusPanelAfterSuccessfulTextDrop(
         workspace: Workspace,
         panelId: UUID,
@@ -184,6 +228,38 @@ enum FileDropTextDropController {
         )
         workspace.focusPanel(panelId, focusIntent: focusIntent)
         _ = workspace.panels[panelId]?.restoreFocusIntent(focusIntent)
+    }
+}
+
+enum FileDropTextInsertionPayload: Equatable {
+    case fileURLs([URL])
+    case pathStrings([String])
+
+    var isEmpty: Bool {
+        switch self {
+        case .fileURLs(let urls):
+            return urls.isEmpty
+        case .pathStrings(let paths):
+            return paths.isEmpty
+        }
+    }
+
+    var count: Int {
+        switch self {
+        case .fileURLs(let urls):
+            return urls.count
+        case .pathStrings(let paths):
+            return paths.count
+        }
+    }
+
+    var insertedText: String {
+        switch self {
+        case .fileURLs(let urls):
+            return TerminalImageTransferPlanner.insertedText(forFileURLs: urls)
+        case .pathStrings(let paths):
+            return TerminalImageTransferPlanner.insertedText(forPathStrings: paths)
+        }
     }
 }
 
@@ -224,7 +300,25 @@ enum DragOverlayRoutingPolicy {
               let entry = FilePreviewDragRegistry.shared.entry(id: dragId) else {
             return []
         }
+        guard entry.remoteSource == nil else {
+            return []
+        }
         return [URL(fileURLWithPath: entry.pathForTextInsertion).standardizedFileURL]
+    }
+
+    static func textInsertionPayload(from pasteboard: NSPasteboard) -> FileDropTextInsertionPayload? {
+        let fileURLs = PasteboardFileURLReader.fileURLs(from: pasteboard)
+        if !fileURLs.isEmpty {
+            return .fileURLs(fileURLs)
+        }
+        guard let dragId = FilePreviewDragPasteboardWriter.dragID(from: pasteboard),
+              let entry = FilePreviewDragRegistry.shared.entry(id: dragId) else {
+            return nil
+        }
+        if entry.remoteSource != nil {
+            return .pathStrings([entry.pathForTextInsertion])
+        }
+        return .fileURLs([URL(fileURLWithPath: entry.pathForTextInsertion).standardizedFileURL])
     }
 
     static func textDropOperation(pasteboardTypes: [NSPasteboard.PasteboardType]?) -> NSDragOperation {

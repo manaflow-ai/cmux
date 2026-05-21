@@ -166,17 +166,17 @@ extension FileDropOverlayView {
     }
 
     func performFileDropAsText(_ sender: any NSDraggingInfo) -> Bool {
-        let urls = DragOverlayRoutingPolicy.fileURLs(from: sender.draggingPasteboard)
-        guard !urls.isEmpty else { return false }
+        guard let payload = DragOverlayRoutingPolicy.textInsertionPayload(from: sender.draggingPasteboard),
+              !payload.isEmpty else { return false }
 
         let windowPoint = sender.draggingLocation
         if let textView = editableTextViewUnderPoint(windowPoint) {
-            let text = TerminalImageTransferPlanner.insertedText(forFileURLs: urls)
+            let text = payload.insertedText
             guard !text.isEmpty else { return false }
             return insert(text, into: textView)
         }
         if let terminal = terminalUnderPoint(windowPoint) {
-            return insert(urls, into: terminal)
+            return insert(payload, into: terminal)
         }
         return false
     }
@@ -213,11 +213,19 @@ extension FileDropOverlayView {
         return true
     }
 
-    private func insert(_ urls: [URL], into terminal: GhosttyNSView) -> Bool {
-        FileDropTextDropController.performTerminalFileDrop(
-            terminal: terminal,
-            urls: urls
-        )
+    private func insert(_ payload: FileDropTextInsertionPayload, into terminal: GhosttyNSView) -> Bool {
+        switch payload {
+        case .fileURLs(let urls):
+            return FileDropTextDropController.performTerminalFileDrop(
+                terminal: terminal,
+                urls: urls
+            )
+        case .pathStrings(let paths):
+            return FileDropTextDropController.performTerminalPathTextDrop(
+                terminal: terminal,
+                paths: paths
+            )
+        }
     }
 
     /// Hit-tests the window to find a WKWebView (browser panel) under the cursor.
