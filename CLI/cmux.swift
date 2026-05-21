@@ -21211,7 +21211,7 @@ struct CMUXCLI {
         }
 
         let nameBase = Self.agentProcessBasename(name)
-        if let nameBase, !Self.agentArgumentWrapperProcessBasenames.contains(nameBase) {
+        if let nameBase, nameBase != "node", nameBase != "bun" {
             return nil
         }
 
@@ -21229,7 +21229,10 @@ struct CMUXCLI {
         let executableBase = agentProcessBasename(arguments.first)
 
         if nameBase == "node" || nameBase == "bun" || executableBase == "node" || executableBase == "bun" {
-            if let wrappedKind = nativeAgentProcessKindFromArguments(arguments, excludingIdentifiers: ["codex"]) {
+            if let wrappedKind = nativeAgentProcessKindFromArguments(
+                arguments,
+                includingIdentifiers: ["claude"]
+            ) {
                 return wrappedKind
             }
             return nil
@@ -21240,21 +21243,8 @@ struct CMUXCLI {
             return kind
         }
 
-        let argumentExclusions: Set<String> = {
-            guard let nameBase,
-                  agentArgumentWrapperProcessBasenames.contains(nameBase) else {
-                return []
-            }
-            return ["codex"]
-        }()
-        if let argumentKind = nativeAgentProcessKindFromArguments(arguments, excludingIdentifiers: argumentExclusions) {
-            return argumentKind
-        }
         return nil
     }
-
-    private static let agentArgumentWrapperProcessBasenames: Set<String> =
-        agentHookWrapperProcessNames.union(["node", "bun"])
 
     private static let nativeAgentExecutableBasenames: Set<String> = {
         var names = Set<String>()
@@ -21382,16 +21372,19 @@ struct CMUXCLI {
 
     private static func nativeAgentProcessKindFromArguments(
         _ arguments: [String],
+        includingIdentifiers: Set<String>? = nil,
         excludingIdentifiers: Set<String> = []
     ) -> HookAgentProcessKind? {
         for argument in arguments.dropFirst() {
             if let kind = nativeAgentProcessKindFromBasename(agentProcessBasename(argument)),
+               includingIdentifiers?.contains(kind.identifier) ?? true,
                !excludingIdentifiers.contains(kind.identifier) {
                 return kind
             }
             let lowered = argument.lowercased()
             for wrappedKind in wrappedAgentArgumentNeedles {
-                if !excludingIdentifiers.contains(wrappedKind.identifier),
+                if includingIdentifiers?.contains(wrappedKind.identifier) ?? true,
+                   !excludingIdentifiers.contains(wrappedKind.identifier),
                    wrappedKind.needles.contains(where: { lowered.contains($0) }) {
                     return HookAgentProcessKind(identifier: wrappedKind.identifier)
                 }

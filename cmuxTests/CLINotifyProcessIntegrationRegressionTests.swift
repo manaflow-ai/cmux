@@ -595,7 +595,7 @@ final class CLINotifyProcessIntegrationRegressionTests: XCTestCase {
         )
     }
 
-    func testShellWrappedGenericAgentSubagentStopDoesNotReplaceResumeBinding() throws {
+    func testShellWrappedGenericAgentRootStopStillPublishesResumeBinding() throws {
         let context = try makeClaudeHookContext(name: "opencode-shell-wrapper")
         defer { context.cleanup() }
 
@@ -643,15 +643,19 @@ final class CLINotifyProcessIntegrationRegressionTests: XCTestCase {
         XCTAssertEqual(result.stdout, "{}\n")
         XCTAssertTrue(
             context.state.commands.contains { $0.contains(#""method":"feed.push""#) && $0.contains(#""hook_event_name":"Stop""#) },
-            "Shell-wrapped OpenCode subagent Stop should remain Feed telemetry, saw \(context.state.commands)"
+            "Shell-wrapped OpenCode root Stop should still emit Feed telemetry, saw \(context.state.commands)"
         )
-        XCTAssertFalse(
+        XCTAssertTrue(
             context.state.commands.contains { self.jsonObject($0)?["method"] as? String == "surface.resume.set" },
-            "Shell-wrapped OpenCode subagent Stop should not publish a child resume binding, saw \(context.state.commands)"
+            "Shell-wrapped OpenCode root Stop should publish a resume binding, saw \(context.state.commands)"
         )
-        XCTAssertFalse(
-            context.state.commands.contains { $0.hasPrefix("notify_target") || $0.hasPrefix("set_status opencode ") },
-            "Shell-wrapped OpenCode subagent Stop should not notify or clobber visible status, saw \(context.state.commands)"
+        XCTAssertTrue(
+            context.state.commands.contains { $0.hasPrefix("notify_target_async \(context.workspaceId) \(context.surfaceId) OpenCode|") },
+            "Shell-wrapped OpenCode root Stop should still notify, saw \(context.state.commands)"
+        )
+        XCTAssertTrue(
+            context.state.commands.contains { $0.hasPrefix("set_status opencode ") && $0.contains(" Idle ") },
+            "Shell-wrapped OpenCode root Stop should still mark OpenCode idle, saw \(context.state.commands)"
         )
     }
 
@@ -4342,7 +4346,7 @@ final class CLINotifyProcessIntegrationRegressionTests: XCTestCase {
     }
 
     private func waitForPIDFile(_ url: URL) throws -> Int32 {
-        let deadline = Date().addingTimeInterval(3)
+        let deadline = Date().addingTimeInterval(10)
         while Date() < deadline {
             if let raw = try? String(contentsOf: url, encoding: .utf8),
                let pid = Int32(raw.trimmingCharacters(in: .whitespacesAndNewlines)),
