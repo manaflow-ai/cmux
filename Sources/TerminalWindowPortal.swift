@@ -1789,7 +1789,7 @@ final class WindowTerminalPortal: NSObject {
     }
 
     func debugHostedSubviewCount() -> Int {
-        hostView.subviews.count
+        hostView.subviews.compactMap { $0 as? GhosttySurfaceScrollView }.count
     }
 #endif
 

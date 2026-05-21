@@ -1768,7 +1768,7 @@ final class BrowserPanelWebViewLifecycleTests: XCTestCase {
             waitForBrowserPanelWebViewToFinishLoading(panel)
             panel.markWebViewIdleForTesting()
 
-            panel.noteWebViewVisibility(false, reason: "test.hidden", now: discardedAt)
+            panel.markWebViewHiddenForDiscardTesting(reason: "test.hidden", now: discardedAt)
             let originalWebView = panel.webView
 
             XCTAssertTrue(panel.discardHiddenWebViewForMemory(reason: "test.discard", now: discardedAt))
@@ -1823,7 +1823,7 @@ final class BrowserPanelWebViewLifecycleTests: XCTestCase {
             )
             XCTAssertTrue(panel.canGoBack)
 
-            panel.noteWebViewVisibility(false, reason: "test.hidden", now: discardedAt)
+            panel.markWebViewHiddenForDiscardTesting(reason: "test.hidden", now: discardedAt)
             XCTAssertTrue(panel.discardHiddenWebViewForMemory(reason: "test.discard", now: discardedAt))
             XCTAssertEqual(panel.webViewLifecycleState, .discarded)
 

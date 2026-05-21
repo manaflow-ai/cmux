@@ -2773,6 +2773,11 @@ final class BrowserPanel: Panel, ObservableObject {
 
     private var nativeCanGoBack: Bool = false
     private var nativeCanGoForward: Bool = false
+    private struct ProvisionalNavigationHistoryEntry {
+        let previousURL: URL
+        let targetURL: URL
+    }
+    private var provisionalNavigationHistoryEntry: ProvisionalNavigationHistoryEntry?
     private var usesRestoredSessionHistory: Bool = false
     private var restoredBackHistoryStack: [URL] = []
     private var restoredForwardHistoryStack: [URL] = []
@@ -3065,6 +3070,16 @@ final class BrowserPanel: Panel, ObservableObject {
         }
         isLoading = false
         isMainFrameProvisionalNavigationActive = false
+        clearOptimisticProvisionalHistory()
+    }
+
+    func markWebViewHiddenForDiscardTesting(reason: String, now: Date) {
+        isWebViewVisibleInUI = false
+        webViewLastHiddenAt = now
+        webViewLastVisibilityChangeAt = now
+        webViewLastVisibilityChangeReason = reason
+        cancelHiddenWebViewDiscard()
+        refreshWebViewLifecycleState()
     }
 #endif
 
@@ -3117,6 +3132,7 @@ final class BrowserPanel: Panel, ObservableObject {
         BrowserWindowPortalRegistry.detach(webView: oldWebView)
         oldWebView.stopLoading()
         isMainFrameProvisionalNavigationActive = false
+        clearOptimisticProvisionalHistory()
         oldWebView.navigationDelegate = nil
         oldWebView.uiDelegate = nil
         if let oldCmuxWebView = oldWebView as? CmuxWebView {
@@ -3475,12 +3491,14 @@ final class BrowserPanel: Panel, ObservableObject {
             MainActor.assumeIsolated {
                 guard let self, self.isCurrentWebView(webView, instanceID: boundWebViewInstanceID) else { return }
                 self.isMainFrameProvisionalNavigationActive = true
+                self.refreshNavigationAvailability()
             }
         }
         navigationDelegate.didCommit = { [weak self] webView in
             MainActor.assumeIsolated {
                 guard let self, self.isCurrentWebView(webView, instanceID: boundWebViewInstanceID) else { return }
                 self.isMainFrameProvisionalNavigationActive = false
+                self.clearOptimisticProvisionalHistory()
                 self.publishCommittedURL(from: webView)
             }
         }
@@ -3488,6 +3506,7 @@ final class BrowserPanel: Panel, ObservableObject {
             MainActor.assumeIsolated {
                 guard let self, self.isCurrentWebView(webView, instanceID: boundWebViewInstanceID) else { return }
                 self.isMainFrameProvisionalNavigationActive = false
+                self.clearOptimisticProvisionalHistory()
                 self.publishCommittedURL(from: webView)
                 self.realignRestoredSessionHistoryToLiveCurrentIfPossible()
                 boundHistoryStore.recordVisit(url: webView.url, title: webView.title)
@@ -3500,6 +3519,7 @@ final class BrowserPanel: Panel, ObservableObject {
             MainActor.assumeIsolated {
                 guard let self, self.isCurrentWebView(failedWebView, instanceID: boundWebViewInstanceID) else { return }
                 self.isMainFrameProvisionalNavigationActive = false
+                self.clearOptimisticProvisionalHistory()
                 if let url = URL(string: failedURL) {
                     self.currentURL = Self.remoteProxyDisplayURL(for: url) ?? url
                 }
@@ -3516,6 +3536,7 @@ final class BrowserPanel: Panel, ObservableObject {
             MainActor.assumeIsolated {
                 guard let self, self.isCurrentWebView(webView, instanceID: boundWebViewInstanceID) else { return }
                 self.isMainFrameProvisionalNavigationActive = false
+                self.clearOptimisticProvisionalHistory()
             }
         }
     }
@@ -4009,6 +4030,7 @@ final class BrowserPanel: Panel, ObservableObject {
         BrowserWindowPortalRegistry.detach(webView: previousWebView)
         previousWebView.stopLoading()
         isMainFrameProvisionalNavigationActive = false
+        clearOptimisticProvisionalHistory()
         previousWebView.navigationDelegate = nil
         previousWebView.uiDelegate = nil
         if let previousCmuxWebView = previousWebView as? CmuxWebView {
@@ -4112,6 +4134,58 @@ final class BrowserPanel: Panel, ObservableObject {
             return currentURL
         }
         return nil
+    }
+
+    private func beginOptimisticProvisionalHistoryIfNeeded(
+        targetURL: URL,
+        preserveRestoredSessionHistory: Bool
+    ) {
+        guard !preserveRestoredSessionHistory,
+              let previousURL = resolvedCurrentSessionHistoryURL(),
+              let previousString = Self.serializableSessionHistoryURLString(previousURL),
+              let targetString = Self.serializableSessionHistoryURLString(targetURL),
+              previousString != targetString else {
+            provisionalNavigationHistoryEntry = nil
+            refreshNavigationAvailability()
+            return
+        }
+
+        provisionalNavigationHistoryEntry = ProvisionalNavigationHistoryEntry(
+            previousURL: previousURL,
+            targetURL: targetURL
+        )
+        refreshNavigationAvailability()
+    }
+
+    private func clearOptimisticProvisionalHistory() {
+        guard provisionalNavigationHistoryEntry != nil else { return }
+        provisionalNavigationHistoryEntry = nil
+        refreshNavigationAvailability()
+    }
+
+    @discardableResult
+    private func cancelOptimisticProvisionalNavigationToHistoryFallback() -> Bool {
+        guard let entry = provisionalNavigationHistoryEntry,
+              webView.isLoading || isMainFrameProvisionalNavigationActive else {
+            return false
+        }
+
+        webView.stopLoading()
+        isMainFrameProvisionalNavigationActive = false
+        provisionalNavigationHistoryEntry = nil
+
+        let nativeBack = webView.backForwardList.backList.compactMap {
+            Self.serializableSessionHistoryURLString($0.url)
+        }
+        restoredBackHistoryStack = Self.sanitizedSessionHistoryURLs(nativeBack)
+        restoredForwardHistoryStack = [entry.targetURL]
+        restoredHistoryCurrentURL = entry.previousURL
+        usesRestoredSessionHistory = true
+        currentURL = entry.previousURL
+        nativeCanGoBack = webView.canGoBack
+        nativeCanGoForward = false
+        refreshNavigationAvailability()
+        return true
     }
 
     private var isLiveSessionHistoryAlignedWithRestoredCurrent: Bool {
@@ -4390,6 +4464,7 @@ final class BrowserPanel: Panel, ObservableObject {
         BrowserWindowPortalRegistry.detach(webView: oldWebView)
         oldWebView.stopLoading()
         isMainFrameProvisionalNavigationActive = false
+        clearOptimisticProvisionalHistory()
         oldWebView.navigationDelegate = nil
         oldWebView.uiDelegate = nil
         if let oldCmuxWebView = oldWebView as? CmuxWebView {
@@ -4542,6 +4617,7 @@ final class BrowserPanel: Panel, ObservableObject {
 
         webView.stopLoading()
         isMainFrameProvisionalNavigationActive = false
+        clearOptimisticProvisionalHistory()
         webView.navigationDelegate = nil
         webView.uiDelegate = nil
         navigationDelegate = nil
@@ -5004,6 +5080,10 @@ final class BrowserPanel: Panel, ObservableObject {
             historyStore.recordTypedNavigation(url: originalURL)
         }
         navigationDelegate?.lastAttemptedURL = originalURL
+        beginOptimisticProvisionalHistoryIfNeeded(
+            targetURL: originalURL,
+            preserveRestoredSessionHistory: preserveRestoredSessionHistory
+        )
         browserLoadRequest(effectiveRequest, in: webView)
     }
 
@@ -5344,6 +5424,7 @@ extension BrowserPanel {
         BrowserWindowPortalRegistry.detach(webView: oldWebView)
         oldWebView.stopLoading()
         isMainFrameProvisionalNavigationActive = false
+        clearOptimisticProvisionalHistory()
         oldWebView.navigationDelegate = nil
         oldWebView.uiDelegate = nil
         if let oldCmuxWebView = oldWebView as? CmuxWebView {
@@ -5420,12 +5501,14 @@ extension BrowserPanel {
         guard webView.isLoading || isMainFrameProvisionalNavigationActive else { return }
         webView.stopLoading()
         isMainFrameProvisionalNavigationActive = false
+        clearOptimisticProvisionalHistory()
     }
 
     /// Go back in history
     func goBack() {
         guard canGoBack else { return }
         reactivateDiscardedWebViewWithoutNavigation(reason: "goBack")
+        if cancelOptimisticProvisionalNavigationToHistoryFallback() { return }
         cancelInFlightNavigationBeforeHistoryTraversal()
         if usesRestoredSessionHistory {
             realignRestoredSessionHistoryToLiveCurrentIfPossible()
@@ -5595,6 +5678,7 @@ extension BrowserPanel {
     func stopLoading() {
         webView.stopLoading()
         isMainFrameProvisionalNavigationActive = false
+        clearOptimisticProvisionalHistory()
     }
 
     private static func windowContainsInspectorViews(_ root: NSView) -> Bool {
@@ -6869,13 +6953,16 @@ extension BrowserPanel {
     }
 
     private func refreshNavigationAvailability() {
+        let canCancelProvisionalNavigationToBackHistory = provisionalNavigationHistoryEntry != nil &&
+            (webView.isLoading || isMainFrameProvisionalNavigationActive)
         let resolvedCanGoBack: Bool
         let resolvedCanGoForward: Bool
         if usesRestoredSessionHistory {
-            resolvedCanGoBack = nativeCanGoBack || !restoredBackHistoryStack.isEmpty
+            resolvedCanGoBack = nativeCanGoBack || !restoredBackHistoryStack.isEmpty ||
+                canCancelProvisionalNavigationToBackHistory
             resolvedCanGoForward = nativeCanGoForward || !restoredForwardHistoryStack.isEmpty
         } else {
-            resolvedCanGoBack = nativeCanGoBack
+            resolvedCanGoBack = nativeCanGoBack || canCancelProvisionalNavigationToBackHistory
             resolvedCanGoForward = nativeCanGoForward
         }
 

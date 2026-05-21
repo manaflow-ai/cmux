@@ -8180,6 +8180,11 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
             return true
         }
 
+        if !shouldRetryMainMenu,
+           let pasteKeyEquivalent = terminalPasteKeyEquivalent(for: event, normalizedFlags: flags) {
+            return performTerminalPasteKeyEquivalent(pasteKeyEquivalent, sender: self)
+        }
+
         let equivalent: String
         switch event.charactersIgnoringModifiers {
         case "\r":

@@ -3720,6 +3720,26 @@ final class TerminalWindowPortalLifecycleTests: XCTestCase {
         XCTWaiter().wait(for: [expectation], timeout: 1.0)
     }
 
+    private struct TerminalPortalTestTimeout: Error, CustomStringConvertible {
+        let description: String
+    }
+
+    private func waitUntil(
+        _ description: String,
+        timeout: TimeInterval = 1.0,
+        file: StaticString = #filePath,
+        line: UInt = #line,
+        predicate: () -> Bool
+    ) throws {
+        let deadline = Date().addingTimeInterval(timeout)
+        while Date() < deadline {
+            if predicate() { return }
+            RunLoop.current.run(mode: .default, before: Date().addingTimeInterval(0.01))
+        }
+        XCTFail("Timed out waiting for \(description)", file: file, line: line)
+        throw TerminalPortalTestTimeout(description: description)
+    }
+
     func testPortalHostInstallsAboveContentViewForVisibility() {
         let window = NSWindow(
             contentRect: NSRect(x: 0, y: 0, width: 320, height: 240),
@@ -4173,7 +4193,7 @@ final class TerminalWindowPortalLifecycleTests: XCTestCase {
         )
     }
 
-    func testScheduledExternalGeometrySyncWaitsForQueuedLayoutShift() {
+    func testScheduledExternalGeometrySyncWaitsForQueuedLayoutShift() throws {
         let window = NSWindow(
             contentRect: NSRect(x: 0, y: 0, width: 700, height: 420),
             styleMask: [.titled, .closable],
@@ -4225,7 +4245,9 @@ final class TerminalWindowPortalLifecycleTests: XCTestCase {
             window.displayIfNeeded()
         }
 
-        RunLoop.current.run(until: Date().addingTimeInterval(0.05))
+        try waitUntil("queued layout shift to be applied") {
+            anchor.convert(anchor.bounds, to: nil).minX > originalAnchorFrameInWindow.minX + 1
+        }
 
         let shiftedAnchorFrameInWindow = anchor.convert(anchor.bounds, to: nil)
         XCTAssertGreaterThan(
@@ -4246,6 +4268,10 @@ final class TerminalWindowPortalLifecycleTests: XCTestCase {
             x: (originalAnchorFrameInWindow.maxX + shiftedAnchorFrameInWindow.maxX) / 2,
             y: shiftedAnchorFrameInWindow.midY
         )
+        try waitUntil("delayed external sync to adopt queued layout shift") {
+            TerminalWindowPortalRegistry.terminalViewAtWindowPoint(retiredStaleWindowPoint, in: window) == nil &&
+                TerminalWindowPortalRegistry.terminalViewAtWindowPoint(shiftedWindowPoint, in: window) != nil
+        }
         XCTAssertNil(
             TerminalWindowPortalRegistry.terminalViewAtWindowPoint(retiredStaleWindowPoint, in: window),
             "The queued external sync should wait until the later layout shift settles, clearing the stale portal location"
