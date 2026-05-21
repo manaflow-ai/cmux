@@ -1785,6 +1785,7 @@ final class BrowserPanelWebViewLifecycleTests: XCTestCase {
             defer { panel.close() }
 
             waitForBrowserPanelWebViewToFinishLoading(panel)
+            panel.markWebViewIdleForTesting()
 
             panel.noteWebViewVisibility(false, reason: "test.hidden", now: discardedAt)
             let originalWebView = panel.webView
@@ -1832,6 +1833,7 @@ final class BrowserPanelWebViewLifecycleTests: XCTestCase {
             defer { panel.close() }
 
             waitForBrowserPanelWebViewToFinishLoading(panel)
+            panel.markWebViewIdleForTesting()
 
             panel.restoreSessionNavigationHistory(
                 backHistoryURLStrings: ["https://example.test/back"],

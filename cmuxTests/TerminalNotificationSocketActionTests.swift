@@ -297,15 +297,17 @@ final class TerminalNotificationSocketActionTests: XCTestCase {
         let windowId: UUID?
         let window: NSWindow?
         if includeWindow {
-            let registeredWindowId = appDelegate.registerMainWindowContextForTesting(tabManager: manager)
             let testWindow = NSWindow(
                 contentRect: NSRect(x: 0, y: 0, width: 320, height: 240),
                 styleMask: [.titled],
                 backing: .buffered,
                 defer: false
             )
+            let registeredWindowId = appDelegate.registerMainWindowContextForTesting(
+                tabManager: manager,
+                window: testWindow
+            )
             testWindow.identifier = NSUserInterfaceItemIdentifier("cmux.main.\(registeredWindowId.uuidString)")
-            testWindow.makeKeyAndOrderFront(nil)
             windowId = registeredWindowId
             window = testWindow
         } else {

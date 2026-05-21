@@ -4110,7 +4110,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         windowId: UUID = UUID(),
         tabManager: TabManager,
         cmuxConfigStore: CmuxConfigStore? = nil,
-        fileExplorerState: FileExplorerState? = nil
+        fileExplorerState: FileExplorerState? = nil,
+        window: NSWindow? = nil
     ) -> UUID {
         mainWindowContexts[ObjectIdentifier(tabManager)] = MainWindowContext(
             windowId: windowId,
@@ -4119,7 +4120,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             sidebarSelectionState: SidebarSelectionState(),
             fileExplorerState: fileExplorerState,
             cmuxConfigStore: cmuxConfigStore,
-            window: nil
+            window: window
         )
         notifyMainWindowContextsDidChange()
         return windowId
@@ -14679,7 +14680,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         }
 
         context.sidebarSelectionState.selection = .tabs
-        bringToFront(window)
+        if !isRunningUnderXCTestCached {
+            bringToFront(window)
+        }
         guard context.tabManager.focusTabFromNotification(tabId, surfaceId: surfaceId) else {
 #if DEBUG
             recordMultiWindowNotificationOpenFailureIfNeeded(

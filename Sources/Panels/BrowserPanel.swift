@@ -3056,6 +3056,14 @@ final class BrowserPanel: Panel, ObservableObject {
         hiddenWebViewDiscardManager.blockers(for: hiddenWebViewDiscardSnapshot)
     }
 
+#if DEBUG
+    func markWebViewIdleForTesting() {
+        webView.stopLoading()
+        isLoading = false
+        isMainFrameProvisionalNavigationActive = false
+    }
+#endif
+
     private func scheduleHiddenWebViewDiscardIfNeeded(reason: String) {
         hiddenWebViewDiscardManager.scheduleIfNeeded(reason: reason)
     }
