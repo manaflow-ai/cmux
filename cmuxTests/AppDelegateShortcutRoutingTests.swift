@@ -6922,7 +6922,8 @@ final class AppDelegateShortcutRoutingTests: XCTestCase {
     func testTextBoxSubmitClipboardReadWaitStaysPendingUntilCompletionNotification() {
 #if DEBUG
         let surface = FakeTextBoxSubmitSurface()
-        TextBoxSubmit.debugMaxWaitFollowupTicksOverride = 0
+        TextBoxSubmit.debugMaxWaitFollowupTicksOverride = 10_000
+        defer { TextBoxSubmit.debugMaxWaitFollowupTicksOverride = nil }
 
         var completionContext: TextBoxSubmit.CompletionContext?
         TextBoxSubmit.debugRunDispatchEvents(
@@ -6947,6 +6948,84 @@ final class AppDelegateShortcutRoutingTests: XCTestCase {
         XCTAssertEqual(completionContext, TextBoxSubmit.CompletionContext.empty)
 #else
         XCTFail("debugRunDispatchEvents is only available in DEBUG")
+#endif
+    }
+
+    func testTextBoxSubmitClipboardReadTimeoutRestoresPasteboard() throws {
+#if DEBUG
+        try withPreservedGeneralPasteboard {
+            let surface = FakeTextBoxSubmitSurface()
+            let pasteboard = NSPasteboard.general
+            pasteboard.clearContents()
+            pasteboard.setString("user clipboard", forType: .string)
+            TextBoxSubmit.debugMaxWaitFollowupTicksOverride = 0
+            defer { TextBoxSubmit.debugMaxWaitFollowupTicksOverride = nil }
+
+            let imageURL = try makeTemporaryPNGFile(named: "moon.png")
+            var completed = false
+            TextBoxSubmit.debugRunDispatchEvents(
+                [
+                    .captureClipboardReadBaseline,
+                    .pasteFilePath(imageURL.path),
+                    .waitForClipboardRead
+                ],
+                via: surface
+            ) { _ in
+                completed = true
+            }
+
+            XCTAssertEqual(surface.sentKeys, ["paste_from_clipboard"])
+            NotificationCenter.default.post(name: .ghosttyDidTick, object: nil)
+            waitFor(timeout: 1.0, until: { completed })
+
+            XCTAssertTrue(completed)
+            XCTAssertEqual(pasteboard.string(forType: .string), "user clipboard")
+        }
+#else
+        throw XCTSkip("debugRunDispatchEvents is only available in DEBUG")
+#endif
+    }
+
+    func testTextBoxSubmitSerializesRunsPerSurface() throws {
+#if DEBUG
+        try withPreservedGeneralPasteboard {
+            let surface = FakeTextBoxSubmitSurface()
+            TextBoxSubmit.debugMaxWaitFollowupTicksOverride = 10_000
+            defer { TextBoxSubmit.debugMaxWaitFollowupTicksOverride = nil }
+            let imageURL = try makeTemporaryPNGFile(named: "moon.png")
+            var completions: [String] = []
+
+            TextBoxSubmit.debugRunDispatchEvents(
+                [
+                    .captureClipboardReadBaseline,
+                    .pasteFilePath(imageURL.path),
+                    .waitForClipboardRead,
+                    .pasteText("first")
+                ],
+                via: surface
+            ) { _ in
+                completions.append("first")
+            }
+            TextBoxSubmit.debugRunDispatchEvents(
+                [.pasteText("second")],
+                via: surface
+            ) { _ in
+                completions.append("second")
+            }
+
+            RunLoop.main.run(until: Date(timeIntervalSinceNow: 0.05))
+            XCTAssertEqual(surface.sentText, [])
+            XCTAssertEqual(completions, [])
+            XCTAssertEqual(surface.sentKeys, ["paste_from_clipboard"])
+
+            surface.completeClipboardRead()
+            waitFor(timeout: 1.0, until: { completions == ["first", "second"] })
+
+            XCTAssertEqual(surface.sentText, ["first", "second"])
+            XCTAssertEqual(completions, ["first", "second"])
+        }
+#else
+        throw XCTSkip("debugRunDispatchEvents is only available in DEBUG")
 #endif
     }
 

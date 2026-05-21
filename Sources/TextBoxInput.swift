@@ -2016,10 +2016,13 @@ enum TextBoxSubmit {
 @MainActor
 private final class TextBoxSubmitEventRunner {
     private static var active: [UUID: TextBoxSubmitEventRunner] = [:]
+    private static var activeRunIDBySurface: [ObjectIdentifier: UUID] = [:]
+    private static var queuedRunsBySurface: [ObjectIdentifier: [PendingRun]] = [:]
 
     private let id = UUID()
     private let events: [TextBoxSubmit.DispatchEvent]
     private let surface: TextBoxSubmitSurfaceControlling
+    private let surfaceKey: ObjectIdentifier
     private var onComplete: ((TextBoxSubmit.CompletionContext) -> Void)?
     private var index = 0
     private var claudeImageTokenBaseline = 0
@@ -2046,6 +2049,12 @@ private final class TextBoxSubmitEventRunner {
         let representations: [(type: NSPasteboard.PasteboardType, data: Data)]
     }
 
+    private struct PendingRun {
+        let events: [TextBoxSubmit.DispatchEvent]
+        let surface: TextBoxSubmitSurfaceControlling
+        let onComplete: ((TextBoxSubmit.CompletionContext) -> Void)?
+    }
+
     init(
         events: [TextBoxSubmit.DispatchEvent],
         surface: TextBoxSubmitSurfaceControlling,
@@ -2053,6 +2062,7 @@ private final class TextBoxSubmitEventRunner {
     ) {
         self.events = events
         self.surface = surface
+        self.surfaceKey = ObjectIdentifier(surface)
         self.onComplete = onComplete
     }
 
@@ -2061,8 +2071,26 @@ private final class TextBoxSubmitEventRunner {
         via surface: TextBoxSubmitSurfaceControlling,
         onComplete: ((TextBoxSubmit.CompletionContext) -> Void)? = nil
     ) {
-        let runner = TextBoxSubmitEventRunner(events: events, surface: surface, onComplete: onComplete)
+        let surfaceKey = ObjectIdentifier(surface)
+        let pendingRun = PendingRun(events: events, surface: surface, onComplete: onComplete)
+        guard activeRunIDBySurface[surfaceKey] == nil else {
+            queuedRunsBySurface[surfaceKey, default: []].append(pendingRun)
+#if DEBUG
+            cmuxDebugLog("textbox.submit.queue surface=\(surfaceKey) count=\(queuedRunsBySurface[surfaceKey]?.count ?? 0)")
+#endif
+            return
+        }
+        start(pendingRun)
+    }
+
+    private static func start(_ pendingRun: PendingRun) {
+        let runner = TextBoxSubmitEventRunner(
+            events: pendingRun.events,
+            surface: pendingRun.surface,
+            onComplete: pendingRun.onComplete
+        )
         active[runner.id] = runner
+        activeRunIDBySurface[runner.surfaceKey] = runner.id
         runner.processNext()
     }
 
@@ -2117,9 +2145,24 @@ private final class TextBoxSubmitEventRunner {
         let completion = onComplete
         onComplete = nil
         Self.active[id] = nil
+        if Self.activeRunIDBySurface[surfaceKey] == id {
+            Self.activeRunIDBySurface[surfaceKey] = nil
+        }
         completion?(TextBoxSubmit.CompletionContext(
             confirmedClaudeImageSubmissionTexts: confirmedClaudeImageSubmissionTexts
         ))
+        Self.startNextQueuedRun(for: surfaceKey)
+    }
+
+    private static func startNextQueuedRun(for surfaceKey: ObjectIdentifier) {
+        guard activeRunIDBySurface[surfaceKey] == nil,
+              var queuedRuns = queuedRunsBySurface[surfaceKey],
+              !queuedRuns.isEmpty else {
+            return
+        }
+        let nextRun = queuedRuns.removeFirst()
+        queuedRunsBySurface[surfaceKey] = queuedRuns.isEmpty ? nil : queuedRuns
+        start(nextRun)
     }
 
     private func waitForVisibleText(_ expectedText: String) {
@@ -2187,6 +2230,13 @@ private final class TextBoxSubmitEventRunner {
 #endif
                 self.processNext()
                 return true
+            },
+            onExhausted: { [weak self] in
+                guard let self else { return }
+#if DEBUG
+                cmuxDebugLog("textbox.submit.wait.clipboard.exhausted.continuing id=\(self.id.uuidString.prefix(5)) baseline=\(self.clipboardReadBaseline)")
+#endif
+                self.processNext()
             },
             performInitialCheck: false
         ) else {
