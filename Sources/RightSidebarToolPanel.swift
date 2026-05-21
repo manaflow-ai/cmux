@@ -175,9 +175,6 @@ final class RightSidebarToolPanel: Panel, ObservableObject {
                 return
             }
             let unavailableDetail = workspace.remoteConnectionDetail ?? workspace.remoteDaemonStatus.detail
-            let preferredRemoteRootPath = workspace.focusedPanelId
-                .flatMap { workspace.panelDirectories[$0] }
-                ?? workspace.panelDirectories.values.first
             store.applyWorkspaceRoot(
                 .remoteSSH(
                     workspaceId: workspace.id,
@@ -188,7 +185,7 @@ final class RightSidebarToolPanel: Panel, ObservableObject {
                         sshOptions: configuration.sshOptions
                     ),
                     displayTarget: configuration.displayTarget,
-                    preferredRootPath: preferredRemoteRootPath,
+                    preferredRootPath: workspace.preferredRemoteFileExplorerRootPath(),
                     isAvailable: workspace.remoteConnectionState == .connected,
                     unavailableDetail: unavailableDetail
                 )

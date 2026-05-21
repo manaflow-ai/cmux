@@ -970,6 +970,7 @@ private final class SelectedWorkspaceDirectoryObserver: ObservableObject {
     private struct Snapshot: Equatable {
         let workspaceId: UUID?
         let currentDirectory: String?
+        let panelDirectories: [UUID: String]
         let remoteConfiguration: WorkspaceRemoteConfiguration?
         let remoteConnectionState: WorkspaceRemoteConnectionState?
         let remoteConnectionDetail: String?
@@ -995,6 +996,7 @@ private final class SelectedWorkspaceDirectoryObserver: ObservableObject {
                         Snapshot(
                             workspaceId: nil,
                             currentDirectory: nil,
+                            panelDirectories: [:],
                             remoteConfiguration: nil,
                             remoteConnectionState: nil,
                             remoteConnectionDetail: nil,
@@ -1005,21 +1007,25 @@ private final class SelectedWorkspaceDirectoryObserver: ObservableObject {
                 }
                 return workspace.$currentDirectory
                     .combineLatest(
+                        workspace.$panelDirectories,
                         workspace.$remoteConfiguration,
-                        workspace.$remoteConnectionState,
-                        workspace.$remoteConnectionDetail
+                        workspace.$remoteConnectionState
                     )
-                    .combineLatest(workspace.$remoteDaemonStatus)
-                    .map { values, remoteDaemonStatus in
+                    .combineLatest(
+                        workspace.$remoteConnectionDetail,
+                        workspace.$remoteDaemonStatus
+                    )
+                    .map { values, remoteConnectionDetail, remoteDaemonStatus in
                         let (
                             currentDirectory,
+                            panelDirectories,
                             remoteConfiguration,
-                            remoteConnectionState,
-                            remoteConnectionDetail
+                            remoteConnectionState
                         ) = values
                         return Snapshot(
                             workspaceId: workspace.id,
                             currentDirectory: currentDirectory,
+                            panelDirectories: panelDirectories,
                             remoteConfiguration: remoteConfiguration,
                             remoteConnectionState: remoteConnectionState,
                             remoteConnectionDetail: remoteConnectionDetail,
@@ -2495,10 +2501,6 @@ struct ContentView: View {
             )
             #endif
 
-            let preferredRemoteRootPath = tab.focusedPanelId
-                .flatMap { tab.panelDirectories[$0] }
-                ?? tab.panelDirectories.values.first
-
             fileExplorerStore.applyWorkspaceRoot(
                 .remoteSSH(
                     workspaceId: tab.id,
@@ -2509,7 +2511,7 @@ struct ContentView: View {
                         sshOptions: config.sshOptions
                     ),
                     displayTarget: config.displayTarget,
-                    preferredRootPath: preferredRemoteRootPath,
+                    preferredRootPath: tab.preferredRemoteFileExplorerRootPath(),
                     isAvailable: tab.remoteConnectionState == .connected,
                     unavailableDetail: unavailableDetail
                 )

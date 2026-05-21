@@ -7527,6 +7527,7 @@ final class Workspace: Identifiable, ObservableObject {
     private var remoteLastPortConflictFingerprint: String?
     private var remoteDetectedSurfaceIds: Set<UUID> = []
     private var activeRemoteTerminalSurfaceIds: Set<UUID> = []
+    private var remoteTerminalDirectorySurfaceIds: Set<UUID> = []
     var pendingRemoteTerminalChildExitSurfaceIds: Set<UUID> = []
     /// Display target of the remote workspace that just disconnected. Set right before
     /// `createReplacementTerminalPanel()` so the replacement shell can print a banner
@@ -8982,6 +8983,10 @@ final class Workspace: Identifiable, ObservableObject {
         if panelDirectories[panelId] != trimmed {
             panelDirectories[panelId] = trimmed
         }
+        if remoteConnectionState == .connected,
+           activeRemoteTerminalSurfaceIds.contains(panelId) {
+            remoteTerminalDirectorySurfaceIds.insert(panelId)
+        }
         // Update current directory if this is the focused panel
         if panelId == focusedPanelId {
             if surfaceTabBarDirectory != trimmed {
@@ -9586,6 +9591,31 @@ final class Workspace: Identifiable, ObservableObject {
     }
 
     @MainActor
+    func preferredRemoteFileExplorerRootPath() -> String? {
+        guard isRemoteWorkspace else { return nil }
+
+        var candidatePanelIds: [UUID] = []
+        if let focusedPanelId {
+            candidatePanelIds.append(focusedPanelId)
+        }
+        candidatePanelIds.append(
+            contentsOf: activeRemoteTerminalSurfaceIds.sorted { $0.uuidString < $1.uuidString }
+        )
+
+        var seenPanelIds: Set<UUID> = []
+        for panelId in candidatePanelIds where seenPanelIds.insert(panelId).inserted {
+            guard activeRemoteTerminalSurfaceIds.contains(panelId),
+                  remoteTerminalDirectorySurfaceIds.contains(panelId),
+                  let directory = normalizedSidebarDirectory(panelDirectories[panelId]) else {
+                continue
+            }
+            return directory
+        }
+
+        return nil
+    }
+
+    @MainActor
     func shouldDemoteWorkspaceAfterChildExit(surfaceId: UUID) -> Bool {
         isRemoteWorkspace || pendingRemoteTerminalChildExitSurfaceIds.contains(surfaceId)
     }
@@ -9711,6 +9741,7 @@ final class Workspace: Identifiable, ObservableObject {
     func configureRemoteConnection(_ configuration: WorkspaceRemoteConfiguration, autoConnect: Bool = true) {
         skipControlMasterCleanupAfterDetachedRemoteTransfer = false
         remoteConfiguration = configuration
+        remoteTerminalDirectorySurfaceIds.removeAll()
         seedInitialRemoteTerminalSessionIfNeeded(configuration: configuration)
         clearRemoteDetectedSurfacePorts()
         remoteDetectedPorts = []
@@ -9809,6 +9840,7 @@ final class Workspace: Identifiable, ObservableObject {
         previousController?.stop()
         pendingRemoteForegroundAuthToken = nil
         activeRemoteTerminalSurfaceIds.removeAll()
+        remoteTerminalDirectorySurfaceIds.removeAll()
         activeRemoteTerminalSessionCount = 0
         pendingRemoteSurfaceTTYName = nil
         pendingRemoteSurfaceTTYSurfaceId = nil
@@ -9870,6 +9902,7 @@ final class Workspace: Identifiable, ObservableObject {
 
     func untrackRemoteTerminalSurface(_ panelId: UUID) {
         guard activeRemoteTerminalSurfaceIds.remove(panelId) != nil else { return }
+        remoteTerminalDirectorySurfaceIds.remove(panelId)
         activeRemoteTerminalSessionCount = activeRemoteTerminalSurfaceIds.count
         guard !isDetachingCloseTransaction else { return }
         maybeDemoteRemoteWorkspaceAfterSSHSessionEnded()

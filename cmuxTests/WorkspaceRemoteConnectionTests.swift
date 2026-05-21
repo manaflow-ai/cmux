@@ -520,6 +520,78 @@ final class WorkspaceRemoteConnectionTests: XCTestCase {
     }
 
     @MainActor
+    func testRemoteFileExplorerPreferredRootIgnoresLocalInitialDirectoryBeforeRemotePwd() throws {
+        let workspace = Workspace()
+        let config = WorkspaceRemoteConfiguration(
+            destination: "cmux-macmini",
+            port: nil,
+            identityFile: nil,
+            sshOptions: [],
+            localProxyPort: nil,
+            relayPort: 64032,
+            relayID: String(repeating: "a", count: 16),
+            relayToken: String(repeating: "b", count: 64),
+            localSocketPath: "/tmp/cmux-debug-test.sock",
+            terminalStartupCommand: "ssh cmux-macmini"
+        )
+
+        workspace.configureRemoteConnection(config, autoConnect: false)
+        let panelID = try XCTUnwrap(workspace.focusedTerminalPanel?.id)
+        workspace.panelDirectories[panelID] = "/Users/lawrence/fun"
+        workspace.currentDirectory = "/Users/lawrence/fun"
+
+        XCTAssertNil(workspace.preferredRemoteFileExplorerRootPath())
+    }
+
+    @MainActor
+    func testRemoteFileExplorerPreferredRootIgnoresConnectingLocalDirectoryReport() throws {
+        let workspace = Workspace()
+        let config = WorkspaceRemoteConfiguration(
+            destination: "cmux-macmini",
+            port: nil,
+            identityFile: nil,
+            sshOptions: [],
+            localProxyPort: nil,
+            relayPort: 64033,
+            relayID: String(repeating: "a", count: 16),
+            relayToken: String(repeating: "b", count: 64),
+            localSocketPath: "/tmp/cmux-debug-test.sock",
+            terminalStartupCommand: "ssh cmux-macmini"
+        )
+
+        workspace.configureRemoteConnection(config, autoConnect: false)
+        workspace.remoteConnectionState = .connecting
+        let panelID = try XCTUnwrap(workspace.focusedTerminalPanel?.id)
+        workspace.updatePanelDirectory(panelId: panelID, directory: "/Users/lawrence/fun")
+
+        XCTAssertNil(workspace.preferredRemoteFileExplorerRootPath())
+    }
+
+    @MainActor
+    func testRemoteFileExplorerPreferredRootUsesRemotePwdAfterConnectedDirectoryReport() throws {
+        let workspace = Workspace()
+        let config = WorkspaceRemoteConfiguration(
+            destination: "cmux-macmini",
+            port: nil,
+            identityFile: nil,
+            sshOptions: [],
+            localProxyPort: nil,
+            relayPort: 64034,
+            relayID: String(repeating: "a", count: 16),
+            relayToken: String(repeating: "b", count: 64),
+            localSocketPath: "/tmp/cmux-debug-test.sock",
+            terminalStartupCommand: "ssh cmux-macmini"
+        )
+
+        workspace.configureRemoteConnection(config, autoConnect: false)
+        workspace.remoteConnectionState = .connected
+        let panelID = try XCTUnwrap(workspace.focusedTerminalPanel?.id)
+        workspace.updatePanelDirectory(panelId: panelID, directory: "/home/demo/project")
+
+        XCTAssertEqual(workspace.preferredRemoteFileExplorerRootPath(), "/home/demo/project")
+    }
+
+    @MainActor
     func testForegroundSSHAuthReadyBeforeRemoteConfigureStartsDeferredConnect() {
         let workspace = Workspace()
         let config = WorkspaceRemoteConfiguration(
