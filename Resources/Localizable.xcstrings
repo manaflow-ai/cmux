@@ -10769,7 +10769,7 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Screenshot page"
+            "value": "Screenshot Page"
           }
         },
         "ja": {
@@ -10888,7 +10888,7 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Screenshot section"
+            "value": "Screenshot Section"
           }
         },
         "ja": {
@@ -10997,6 +10997,74 @@
           "stringUnit": {
             "state": "translated",
             "value": "Знімок області"
+          }
+        }
+      }
+    },
+    "browser.screenshotPage.copy.help": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Screenshot Page to Clipboard"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ページのスクリーンショットをクリップボードへ"
+          }
+        }
+      }
+    },
+    "browser.screenshotPage.copied": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Copied"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "コピー済み"
+          }
+        }
+      }
+    },
+    "browser.screenshotPage.copied.help": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Screenshot copied to clipboard"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "スクリーンショットをクリップボードにコピーしました"
+          }
+        }
+      }
+    },
+    "browser.screenshotSection.instructions": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Click and drag to select. Esc cancels."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ドラッグで選択。Escでキャンセル。"
           }
         }
       }

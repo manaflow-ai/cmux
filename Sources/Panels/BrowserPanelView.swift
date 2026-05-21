@@ -438,6 +438,8 @@ struct BrowserPanelView: View {
     @State private var emptyStateImportBrowserRefreshTask: Task<Void, Never>?
     @State private var emptyStateImportBrowserRefreshGeneration: UInt64 = 0
     @State private var inlineCompletion: OmnibarInlineCompletion?
+    @State private var screenshotPageCopied: Bool = false
+    @State private var screenshotPageCopiedTask: Task<Void, Never>?
     @State private var omnibarSelectionRange: NSRange = NSRange(location: NSNotFound, length: 0)
     @State private var omnibarHasMarkedText: Bool = false
     @State private var suppressNextFocusLostRevert: Bool = false
@@ -674,6 +676,27 @@ struct BrowserPanelView: View {
         cmuxDebugLog("browser.reload panel=\(panel.id.uuidString.prefix(5))")
 #endif
         panel.reload()
+    }
+
+    private func handleScreenshotPageButtonAction() {
+#if DEBUG
+        cmuxDebugLog("browser.screenshot.page.toolbar panel=\(panel.id.uuidString.prefix(5))")
+#endif
+        Task { @MainActor in
+            let didCopy = await panel.captureScreenshotPageToClipboard()
+            guard didCopy else { return }
+            showScreenshotPageCopiedIndicator()
+        }
+    }
+
+    private func showScreenshotPageCopiedIndicator() {
+        screenshotPageCopiedTask?.cancel()
+        screenshotPageCopied = true
+        screenshotPageCopiedTask = Task { @MainActor in
+            try? await Task.sleep(nanoseconds: 1_400_000_000)
+            guard !Task.isCancelled else { return }
+            screenshotPageCopied = false
+        }
     }
 
     var body: some View {
@@ -994,6 +1017,7 @@ struct BrowserPanelView: View {
                 if shouldShowToolbarImportHintChip {
                     browserImportHintToolbarChip
                 }
+                screenshotPageButton
                 reactGrabButton
                 browserProfileButton
                 browserThemeModeButton
@@ -1072,6 +1096,53 @@ struct BrowserPanelView: View {
                 .safeHelp(String(localized: "browser.downloadInProgress", defaultValue: "Download in progress"))
             }
         }
+    }
+
+    private var screenshotPageButton: some View {
+        Button(action: handleScreenshotPageButtonAction) {
+            Image(systemName: screenshotPageCopied ? "checkmark" : "camera")
+                .symbolRenderingMode(.monochrome)
+                .cmuxFlatSymbolColorRendering()
+                .font(.system(size: devToolsButtonIconSize, weight: .medium))
+                .foregroundStyle(screenshotPageButtonColor)
+                .frame(width: addressBarButtonSize, height: addressBarButtonSize, alignment: .center)
+        }
+        .buttonStyle(OmnibarAddressButtonStyle())
+        .frame(width: addressBarButtonSize, height: addressBarButtonSize, alignment: .center)
+        .disabled(!panel.shouldRenderWebView)
+        .opacity(panel.shouldRenderWebView ? 1.0 : 0.4)
+        .safeHelp(
+            screenshotPageCopied
+                ? String(localized: "browser.screenshotPage.copied.help", defaultValue: "Screenshot copied to clipboard")
+                : String(localized: "browser.screenshotPage.copy.help", defaultValue: "Screenshot Page to Clipboard")
+        )
+        .accessibilityIdentifier("BrowserScreenshotPageButton")
+        .overlay(alignment: .top) {
+            if screenshotPageCopied {
+                Label(String(localized: "browser.screenshotPage.copied", defaultValue: "Copied"), systemImage: "checkmark")
+                    .font(.system(size: 11, weight: .medium))
+                    .labelStyle(.titleAndIcon)
+                    .foregroundStyle(.primary)
+                    .padding(.horizontal, 8)
+                    .padding(.vertical, 4)
+                    .background(.thinMaterial, in: Capsule())
+                    .overlay(
+                        Capsule().stroke(Color.white.opacity(0.14), lineWidth: 1)
+                    )
+                    .fixedSize()
+                    .offset(y: -28)
+                    .allowsHitTesting(false)
+                    .transition(.opacity)
+            }
+        }
+        .animation(.easeOut(duration: 0.12), value: screenshotPageCopied)
+    }
+
+    private var screenshotPageButtonColor: Color {
+        if screenshotPageCopied {
+            return .green
+        }
+        return panel.shouldRenderWebView ? devToolsColorOption.color : Color.secondary
     }
 
     private var reactGrabButton: some View {

@@ -1,5 +1,6 @@
 import AppKit
 import ObjectiveC
+import QuartzCore
 import UniformTypeIdentifiers
 import WebKit
 
@@ -166,8 +167,61 @@ private struct BrowserScreenshotWebContentMetrics {
 }
 
 @MainActor
+private final class BrowserScreenshotFlashView: NSView, CAAnimationDelegate {
+    override init(frame frameRect: NSRect) {
+        super.init(frame: frameRect)
+        autoresizingMask = [.width, .height]
+        wantsLayer = true
+        layer?.backgroundColor = NSColor(calibratedWhite: 1, alpha: 0.36).cgColor
+        layer?.opacity = 0
+        layer?.zPosition = 20_000
+    }
+
+    required init?(coder: NSCoder) {
+        nil
+    }
+
+    override var isOpaque: Bool { false }
+
+    func play() {
+        guard let layer else {
+            removeFromSuperview()
+            return
+        }
+
+        let animation = CABasicAnimation(keyPath: "opacity")
+        animation.fromValue = 0.32
+        animation.toValue = 0
+        animation.duration = 0.20
+        animation.timingFunction = CAMediaTimingFunction(name: .easeOut)
+        animation.delegate = self
+        layer.add(animation, forKey: "browserScreenshotFlash")
+    }
+
+    nonisolated func animationDidStop(_ anim: CAAnimation, finished flag: Bool) {
+        Task { @MainActor [weak self] in
+            self?.removeFromSuperview()
+        }
+    }
+}
+
+@MainActor
+private enum BrowserScreenshotFlash {
+    static func show(over view: NSView) {
+        view.subviews
+            .compactMap { $0 as? BrowserScreenshotFlashView }
+            .forEach { $0.removeFromSuperview() }
+
+        let flash = BrowserScreenshotFlashView(frame: view.bounds)
+        view.addSubview(flash, positioned: .above, relativeTo: nil)
+        flash.play()
+    }
+}
+
+@MainActor
 private final class BrowserScreenshotSelectionOverlayView: NSView {
     private let onFinish: (NSRect?) -> Void
+    private let instructionBadgeView = FileDropHintBadgeView(frame: .zero)
     private var dragStart: NSPoint?
     private var dragCurrent: NSPoint?
     private var dashPhase: CGFloat = 0
@@ -180,6 +234,7 @@ private final class BrowserScreenshotSelectionOverlayView: NSView {
         autoresizingMask = [.width, .height]
         wantsLayer = true
         layer?.zPosition = 10_000
+        addSubview(instructionBadgeView)
     }
 
     required init?(coder: NSCoder) {
@@ -198,10 +253,16 @@ private final class BrowserScreenshotSelectionOverlayView: NSView {
         if window != nil {
             window?.makeFirstResponder(self)
             startDashAnimation()
+            updateInstructionBadge()
         } else {
             dashTimer?.invalidate()
             dashTimer = nil
         }
+    }
+
+    override func layout() {
+        super.layout()
+        updateInstructionBadge()
     }
 
     override func resetCursorRects() {
@@ -209,6 +270,7 @@ private final class BrowserScreenshotSelectionOverlayView: NSView {
     }
 
     override func mouseDown(with event: NSEvent) {
+        instructionBadgeView.hide()
         let point = clampedPoint(convert(event.locationInWindow, from: nil))
         dragStart = point
         dragCurrent = point
@@ -345,6 +407,21 @@ private final class BrowserScreenshotSelectionOverlayView: NSView {
                 x: backgroundRect.minX + padding.width,
                 y: backgroundRect.minY + padding.height
             )
+        )
+    }
+
+    private func updateInstructionBadge() {
+        guard dragStart == nil, window != nil, bounds.width > 0, bounds.height > 0 else {
+            instructionBadgeView.hide()
+            return
+        }
+        instructionBadgeView.show(
+            text: String(
+                localized: "browser.screenshotSection.instructions",
+                defaultValue: "Click and drag to select. Esc cancels."
+            ),
+            centeredIn: bounds,
+            clippedTo: bounds
         )
     }
 
@@ -636,13 +713,13 @@ extension CmuxWebView {
     }
 
     func appendScreenshotContextMenuItems(to menu: NSMenu) {
-        let pageTitle = String(localized: "browser.contextMenu.screenshotPage", defaultValue: "Screenshot page")
-        let sectionTitle = String(localized: "browser.contextMenu.screenshotSection", defaultValue: "Screenshot section")
-        let items: [(String, Selector)] = [
-            (pageTitle, #selector(contextMenuScreenshotPage(_:))),
-            (sectionTitle, #selector(contextMenuScreenshotSection(_:))),
-        ].filter { title, action in
-            !menu.items.contains { $0.action == action || $0.title == title }
+        let pageTitle = String(localized: "browser.contextMenu.screenshotPage", defaultValue: "Screenshot Page")
+        let sectionTitle = String(localized: "browser.contextMenu.screenshotSection", defaultValue: "Screenshot Section")
+        let items: [(title: String, action: Selector, symbolName: String)] = [
+            (pageTitle, #selector(contextMenuScreenshotPage(_:)), "camera"),
+            (sectionTitle, #selector(contextMenuScreenshotSection(_:)), "viewfinder"),
+        ].filter { item in
+            !menu.items.contains { $0.action == item.action || $0.title == item.title }
         }
 
         guard !items.isEmpty else {
@@ -652,29 +729,37 @@ extension CmuxWebView {
         if !menu.items.isEmpty {
             menu.addItem(.separator())
         }
-        for (title, action) in items {
+        for (title, action, symbolName) in items {
             let item = NSMenuItem(title: title, action: action, keyEquivalent: "")
             item.target = self
+            item.image = NSImage(systemSymbolName: symbolName, accessibilityDescription: title)
             menu.addItem(item)
+        }
+    }
+
+    @MainActor
+    func captureScreenshotPageToClipboard() async -> Bool {
+        do {
+            _ = try await BrowserScreenshotPipeline.captureAndWrite(
+                mode: .fullPage,
+                snapshot: { try await BrowserScreenshotWebViewSnapshotter.captureFullPage(from: self) },
+                pasteboard: .general
+            )
+            BrowserScreenshotFlash.show(over: self)
+            return true
+        } catch {
+            #if DEBUG
+            cmuxDebugLog("browser.screenshot.page.failed error=\(error.localizedDescription)")
+            #endif
+            NSSound.beep()
+            return false
         }
     }
 
     @objc func contextMenuScreenshotPage(_ sender: Any?) {
         _ = sender
         Task { @MainActor [weak self] in
-            guard let self else { return }
-            do {
-                _ = try await BrowserScreenshotPipeline.captureAndWrite(
-                    mode: .fullPage,
-                    snapshot: { try await BrowserScreenshotWebViewSnapshotter.captureFullPage(from: self) },
-                    pasteboard: .general
-                )
-            } catch {
-                #if DEBUG
-                cmuxDebugLog("browser.screenshot.page.failed error=\(error.localizedDescription)")
-                #endif
-                NSSound.beep()
-            }
+            _ = await self?.captureScreenshotPageToClipboard()
         }
     }
 
@@ -698,6 +783,7 @@ extension CmuxWebView {
                         snapshot: { try await BrowserScreenshotWebViewSnapshotter.captureVisibleViewport(from: self) },
                         pasteboard: .general
                     )
+                    BrowserScreenshotFlash.show(over: self)
                 } catch {
                     #if DEBUG
                     cmuxDebugLog("browser.screenshot.section.failed error=\(error.localizedDescription)")
@@ -709,5 +795,16 @@ extension CmuxWebView {
         screenshotSelectionOverlay = overlay
         addSubview(overlay, positioned: .above, relativeTo: nil)
         window?.makeFirstResponder(overlay)
+    }
+}
+
+extension BrowserPanel {
+    @MainActor
+    func captureScreenshotPageToClipboard() async -> Bool {
+        guard let webView = webView as? CmuxWebView else {
+            NSSound.beep()
+            return false
+        }
+        return await webView.captureScreenshotPageToClipboard()
     }
 }
