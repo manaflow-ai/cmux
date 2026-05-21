@@ -411,6 +411,38 @@ final class CMUXOpenCommandTests: XCTestCase {
         XCTAssertTrue(result.html.contains("src/main.zig"), result.html)
     }
 
+    func testDiffCommandUsesBundledAppLocalizationsForViewerLabels() throws {
+        let cliPath = try bundledCLIPath()
+        let rootURL = FileManager.default.temporaryDirectory
+            .appendingPathComponent(UUID().uuidString, isDirectory: true)
+        let patchURL = rootURL.appendingPathComponent("localized.patch")
+        try FileManager.default.createDirectory(at: rootURL, withIntermediateDirectories: true)
+        try """
+        diff --git a/localized.txt b/localized.txt
+        index 1111111..2222222 100644
+        --- a/localized.txt
+        +++ b/localized.txt
+        @@ -1,2 +1,2 @@
+         one
+        -two
+        +three
+        """.write(to: patchURL, atomically: true, encoding: .utf8)
+        defer { try? FileManager.default.removeItem(at: rootURL) }
+
+        let result = try runDiffCLIAndReadHTML(
+            cliPath: cliPath,
+            arguments: ["diff", patchURL.path],
+            environmentOverrides: [
+                "AppleLanguages": "(ja)",
+                "LANG": "ja_JP.UTF-8"
+            ]
+        )
+
+        XCTAssertTrue(result.html.contains("インジケータースタイル"), result.html)
+        XCTAssertTrue(result.html.contains("git apply コマンドをコピー"), result.html)
+        XCTAssertFalse(result.html.contains("Indicator style"), result.html)
+    }
+
     func testDiffCommandUsageDocumentsFocusTitleAndNoFocus() throws {
         let cliPath = try bundledCLIPath()
         let result = runCLI(

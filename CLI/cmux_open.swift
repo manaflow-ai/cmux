@@ -37,6 +37,73 @@ enum CMUXAgentTurnDiffBaselineFile {
     }
 }
 
+enum CMUXDiffViewerLocalization {
+    static func string(
+        _ key: String,
+        defaultValue: String,
+        environment: [String: String] = ProcessInfo.processInfo.environment
+    ) -> String {
+        let bundle = localizationBundle()
+        if let localization = explicitLocalization(in: environment, bundle: bundle),
+           let localized = localizedString(key, defaultValue: defaultValue, bundle: bundle, localization: localization) {
+            return localized
+        }
+        return bundle.localizedString(forKey: key, value: defaultValue, table: nil)
+    }
+
+    static func localizationBundle(
+        mainBundle: Bundle = .main,
+        executableURL: URL? = CLIExecutableLocator.currentExecutableURL()
+    ) -> Bundle {
+        CLIExecutableLocator.enclosingAppBundle(startingAt: executableURL) ?? mainBundle
+    }
+
+    private static func explicitLocalization(in environment: [String: String], bundle: Bundle) -> String? {
+        guard let languages = appleLanguages(from: environment["AppleLanguages"]),
+              !languages.isEmpty else {
+            return nil
+        }
+
+        return Bundle.preferredLocalizations(
+            from: bundle.localizations,
+            forPreferences: languages
+        ).first
+    }
+
+    private static func appleLanguages(from rawValue: String?) -> [String]? {
+        guard var value = rawValue?.trimmingCharacters(in: .whitespacesAndNewlines),
+              !value.isEmpty else {
+            return nil
+        }
+        if value.hasPrefix("("), value.hasSuffix(")") {
+            value.removeFirst()
+            value.removeLast()
+        }
+        let languages = value
+            .split(separator: ",")
+            .map { piece in
+                piece
+                    .trimmingCharacters(in: .whitespacesAndNewlines)
+                    .trimmingCharacters(in: CharacterSet(charactersIn: "\"'"))
+            }
+            .filter { !$0.isEmpty }
+        return languages.isEmpty ? nil : languages
+    }
+
+    private static func localizedString(
+        _ key: String,
+        defaultValue: String,
+        bundle: Bundle,
+        localization: String
+    ) -> String? {
+        guard let lprojPath = bundle.path(forResource: localization, ofType: "lproj"),
+              let languageBundle = Bundle(path: lprojPath) else {
+            return nil
+        }
+        return languageBundle.localizedString(forKey: key, value: defaultValue, table: nil)
+    }
+}
+
 extension CMUXCLI {
     private struct OpenArguments {
         var workspace: String?
@@ -127,47 +194,47 @@ extension CMUXCLI {
 
         static func localized() -> DiffViewerLabels {
             DiffViewerLabels(values: [
-                "additions": String(localized: "diffViewer.additions", defaultValue: "Additions"),
-                "bars": String(localized: "diffViewer.bars", defaultValue: "Bars"),
-                "changedFiles": String(localized: "diffViewer.changedFiles", defaultValue: "Changed files"),
-                "classic": String(localized: "diffViewer.classic", defaultValue: "Classic"),
-                "collapseAllDiffs": String(localized: "diffViewer.collapseAllDiffs", defaultValue: "Collapse all diffs"),
-                "collapseUnchangedContext": String(localized: "diffViewer.collapseUnchangedContext", defaultValue: "Collapse unchanged context"),
-                "copiedGitApplyCommand": String(localized: "diffViewer.copiedGitApplyCommand", defaultValue: "Copied git apply command"),
-                "copyGitApplyCommand": String(localized: "diffViewer.copyGitApplyCommand", defaultValue: "Copy git apply command"),
-                "deletions": String(localized: "diffViewer.deletions", defaultValue: "Deletions"),
-                "diffStats": String(localized: "diffViewer.diffStats", defaultValue: "Diff stats"),
-                "diffTarget": String(localized: "diffViewer.diffTarget", defaultValue: "Diff target"),
-                "diffViewer": String(localized: "diffViewer.diffViewer", defaultValue: "Diff viewer"),
-                "disableWordDiffs": String(localized: "diffViewer.disableWordDiffs", defaultValue: "Disable word diffs"),
-                "disableWordWrap": String(localized: "diffViewer.disableWordWrap", defaultValue: "Disable word wrap"),
-                "enableWordDiffs": String(localized: "diffViewer.enableWordDiffs", defaultValue: "Enable word diffs"),
-                "enableWordWrap": String(localized: "diffViewer.enableWordWrap", defaultValue: "Enable word wrap"),
-                "expandAllDiffs": String(localized: "diffViewer.expandAllDiffs", defaultValue: "Expand all diffs"),
-                "expandUnchangedContext": String(localized: "diffViewer.expandUnchangedContext", defaultValue: "Expand unchanged context"),
-                "files": String(localized: "diffViewer.files", defaultValue: "Files"),
-                "hideBackgrounds": String(localized: "diffViewer.hideBackgrounds", defaultValue: "Hide backgrounds"),
-                "hideFiles": String(localized: "diffViewer.hideFiles", defaultValue: "Hide files"),
-                "hideFileSearch": String(localized: "diffViewer.hideFileSearch", defaultValue: "Hide file search"),
-                "hideLineNumbers": String(localized: "diffViewer.hideLineNumbers", defaultValue: "Hide line numbers"),
-                "indicatorStyle": String(localized: "diffViewer.indicatorStyle", defaultValue: "Indicator style"),
-                "jumpToFile": String(localized: "diffViewer.jumpToFile", defaultValue: "Jump to file"),
-                "loadingDiff": String(localized: "diffViewer.loadingDiff", defaultValue: "Loading diff..."),
-                "loadingRenderer": String(localized: "diffViewer.loadingRenderer", defaultValue: "Loading renderer..."),
-                "noFileDiffs": String(localized: "diffViewer.noFileDiffs", defaultValue: "No file diffs found in patch input."),
-                "none": String(localized: "diffViewer.none", defaultValue: "None"),
-                "openSourceURL": String(localized: "diffViewer.openSourceURL", defaultValue: "Open source URL"),
-                "options": String(localized: "diffViewer.options", defaultValue: "Options"),
-                "parsingDiff": String(localized: "diffViewer.parsingDiff", defaultValue: "Parsing diff..."),
-                "refresh": String(localized: "diffViewer.refresh", defaultValue: "Refresh"),
-                "renderingDiff": String(localized: "diffViewer.renderingDiff", defaultValue: "Rendering diff..."),
-                "showBackgrounds": String(localized: "diffViewer.showBackgrounds", defaultValue: "Show backgrounds"),
-                "showFiles": String(localized: "diffViewer.showFiles", defaultValue: "Show files"),
-                "showFileSearch": String(localized: "diffViewer.showFileSearch", defaultValue: "Show file search"),
-                "showLineNumbers": String(localized: "diffViewer.showLineNumbers", defaultValue: "Show line numbers"),
-                "switchToSplitDiff": String(localized: "diffViewer.switchToSplitDiff", defaultValue: "Switch to split diff"),
-                "switchToUnifiedDiff": String(localized: "diffViewer.switchToUnifiedDiff", defaultValue: "Switch to unified diff"),
-                "untitled": String(localized: "diffViewer.untitled", defaultValue: "Untitled"),
+                "additions": CMUXDiffViewerLocalization.string("diffViewer.additions", defaultValue: "Additions"),
+                "bars": CMUXDiffViewerLocalization.string("diffViewer.bars", defaultValue: "Bars"),
+                "changedFiles": CMUXDiffViewerLocalization.string("diffViewer.changedFiles", defaultValue: "Changed files"),
+                "classic": CMUXDiffViewerLocalization.string("diffViewer.classic", defaultValue: "Classic"),
+                "collapseAllDiffs": CMUXDiffViewerLocalization.string("diffViewer.collapseAllDiffs", defaultValue: "Collapse all diffs"),
+                "collapseUnchangedContext": CMUXDiffViewerLocalization.string("diffViewer.collapseUnchangedContext", defaultValue: "Collapse unchanged context"),
+                "copiedGitApplyCommand": CMUXDiffViewerLocalization.string("diffViewer.copiedGitApplyCommand", defaultValue: "Copied git apply command"),
+                "copyGitApplyCommand": CMUXDiffViewerLocalization.string("diffViewer.copyGitApplyCommand", defaultValue: "Copy git apply command"),
+                "deletions": CMUXDiffViewerLocalization.string("diffViewer.deletions", defaultValue: "Deletions"),
+                "diffStats": CMUXDiffViewerLocalization.string("diffViewer.diffStats", defaultValue: "Diff stats"),
+                "diffTarget": CMUXDiffViewerLocalization.string("diffViewer.diffTarget", defaultValue: "Diff target"),
+                "diffViewer": CMUXDiffViewerLocalization.string("diffViewer.diffViewer", defaultValue: "Diff viewer"),
+                "disableWordDiffs": CMUXDiffViewerLocalization.string("diffViewer.disableWordDiffs", defaultValue: "Disable word diffs"),
+                "disableWordWrap": CMUXDiffViewerLocalization.string("diffViewer.disableWordWrap", defaultValue: "Disable word wrap"),
+                "enableWordDiffs": CMUXDiffViewerLocalization.string("diffViewer.enableWordDiffs", defaultValue: "Enable word diffs"),
+                "enableWordWrap": CMUXDiffViewerLocalization.string("diffViewer.enableWordWrap", defaultValue: "Enable word wrap"),
+                "expandAllDiffs": CMUXDiffViewerLocalization.string("diffViewer.expandAllDiffs", defaultValue: "Expand all diffs"),
+                "expandUnchangedContext": CMUXDiffViewerLocalization.string("diffViewer.expandUnchangedContext", defaultValue: "Expand unchanged context"),
+                "files": CMUXDiffViewerLocalization.string("diffViewer.files", defaultValue: "Files"),
+                "hideBackgrounds": CMUXDiffViewerLocalization.string("diffViewer.hideBackgrounds", defaultValue: "Hide backgrounds"),
+                "hideFiles": CMUXDiffViewerLocalization.string("diffViewer.hideFiles", defaultValue: "Hide files"),
+                "hideFileSearch": CMUXDiffViewerLocalization.string("diffViewer.hideFileSearch", defaultValue: "Hide file search"),
+                "hideLineNumbers": CMUXDiffViewerLocalization.string("diffViewer.hideLineNumbers", defaultValue: "Hide line numbers"),
+                "indicatorStyle": CMUXDiffViewerLocalization.string("diffViewer.indicatorStyle", defaultValue: "Indicator style"),
+                "jumpToFile": CMUXDiffViewerLocalization.string("diffViewer.jumpToFile", defaultValue: "Jump to file"),
+                "loadingDiff": CMUXDiffViewerLocalization.string("diffViewer.loadingDiff", defaultValue: "Loading diff..."),
+                "loadingRenderer": CMUXDiffViewerLocalization.string("diffViewer.loadingRenderer", defaultValue: "Loading renderer..."),
+                "noFileDiffs": CMUXDiffViewerLocalization.string("diffViewer.noFileDiffs", defaultValue: "No file diffs found in patch input."),
+                "none": CMUXDiffViewerLocalization.string("diffViewer.none", defaultValue: "None"),
+                "openSourceURL": CMUXDiffViewerLocalization.string("diffViewer.openSourceURL", defaultValue: "Open source URL"),
+                "options": CMUXDiffViewerLocalization.string("diffViewer.options", defaultValue: "Options"),
+                "parsingDiff": CMUXDiffViewerLocalization.string("diffViewer.parsingDiff", defaultValue: "Parsing diff..."),
+                "refresh": CMUXDiffViewerLocalization.string("diffViewer.refresh", defaultValue: "Refresh"),
+                "renderingDiff": CMUXDiffViewerLocalization.string("diffViewer.renderingDiff", defaultValue: "Rendering diff..."),
+                "showBackgrounds": CMUXDiffViewerLocalization.string("diffViewer.showBackgrounds", defaultValue: "Show backgrounds"),
+                "showFiles": CMUXDiffViewerLocalization.string("diffViewer.showFiles", defaultValue: "Show files"),
+                "showFileSearch": CMUXDiffViewerLocalization.string("diffViewer.showFileSearch", defaultValue: "Show file search"),
+                "showLineNumbers": CMUXDiffViewerLocalization.string("diffViewer.showLineNumbers", defaultValue: "Show line numbers"),
+                "switchToSplitDiff": CMUXDiffViewerLocalization.string("diffViewer.switchToSplitDiff", defaultValue: "Switch to split diff"),
+                "switchToUnifiedDiff": CMUXDiffViewerLocalization.string("diffViewer.switchToUnifiedDiff", defaultValue: "Switch to unified diff"),
+                "untitled": CMUXDiffViewerLocalization.string("diffViewer.untitled", defaultValue: "Untitled"),
             ])
         }
     }
@@ -218,28 +285,28 @@ extension CMUXCLI {
 
         var menuLabel: String {
             switch self {
-            case .unstaged: return String(localized: "diffViewer.source.unstaged", defaultValue: "Unstaged")
-            case .staged: return String(localized: "diffViewer.source.staged", defaultValue: "Staged")
-            case .branch: return String(localized: "diffViewer.source.branch", defaultValue: "Branch")
-            case .lastTurn: return String(localized: "diffViewer.source.lastTurn", defaultValue: "Last turn")
+            case .unstaged: return CMUXDiffViewerLocalization.string("diffViewer.source.unstaged", defaultValue: "Unstaged")
+            case .staged: return CMUXDiffViewerLocalization.string("diffViewer.source.staged", defaultValue: "Staged")
+            case .branch: return CMUXDiffViewerLocalization.string("diffViewer.source.branch", defaultValue: "Branch")
+            case .lastTurn: return CMUXDiffViewerLocalization.string("diffViewer.source.lastTurn", defaultValue: "Last turn")
             }
         }
 
         var title: String {
             switch self {
-            case .unstaged: return String(localized: "diffViewer.title.unstagedChanges", defaultValue: "Unstaged changes")
-            case .staged: return String(localized: "diffViewer.title.stagedChanges", defaultValue: "Staged changes")
-            case .branch: return String(localized: "diffViewer.title.branchDiff", defaultValue: "Branch diff")
-            case .lastTurn: return String(localized: "diffViewer.title.lastTurnDiff", defaultValue: "Last turn diff")
+            case .unstaged: return CMUXDiffViewerLocalization.string("diffViewer.title.unstagedChanges", defaultValue: "Unstaged changes")
+            case .staged: return CMUXDiffViewerLocalization.string("diffViewer.title.stagedChanges", defaultValue: "Staged changes")
+            case .branch: return CMUXDiffViewerLocalization.string("diffViewer.title.branchDiff", defaultValue: "Branch diff")
+            case .lastTurn: return CMUXDiffViewerLocalization.string("diffViewer.title.lastTurnDiff", defaultValue: "Last turn diff")
             }
         }
 
         var emptyMessage: String {
             switch self {
-            case .unstaged: return String(localized: "diffViewer.empty.unstaged", defaultValue: "No unstaged changes to diff.")
-            case .staged: return String(localized: "diffViewer.empty.staged", defaultValue: "No staged changes to diff.")
-            case .branch: return String(localized: "diffViewer.empty.branch", defaultValue: "No branch changes to diff.")
-            case .lastTurn: return String(localized: "diffViewer.empty.lastTurn", defaultValue: "No last-turn changes to diff.")
+            case .unstaged: return CMUXDiffViewerLocalization.string("diffViewer.empty.unstaged", defaultValue: "No unstaged changes to diff.")
+            case .staged: return CMUXDiffViewerLocalization.string("diffViewer.empty.staged", defaultValue: "No staged changes to diff.")
+            case .branch: return CMUXDiffViewerLocalization.string("diffViewer.empty.branch", defaultValue: "No branch changes to diff.")
+            case .lastTurn: return CMUXDiffViewerLocalization.string("diffViewer.empty.lastTurn", defaultValue: "No last-turn changes to diff.")
             }
         }
     }
