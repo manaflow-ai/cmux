@@ -566,10 +566,20 @@ final class CmuxExtensionKitTests: XCTestCase {
             workspaceId: workspaceId,
             payload: ["method": .string("workspace.pin")]
         )
+        let workspaceMoved = CmuxExtensionEventFrame(
+            sequence: 44,
+            name: "workspace.moved",
+            category: "workspace",
+            source: "socket.v2",
+            occurredAt: Date(timeIntervalSinceReferenceDate: 13),
+            workspaceId: workspaceId,
+            payload: ["method": .string("workspace.move_to_window")]
+        )
 
         XCTAssertTrue(CmuxExtensionSidebarReducer.requiresSnapshotReplacement(after: redactedNotification))
         XCTAssertTrue(CmuxExtensionSidebarReducer.requiresSnapshotReplacement(after: sidebarMetadata))
         XCTAssertTrue(CmuxExtensionSidebarReducer.requiresSnapshotReplacement(after: workspaceAction))
+        XCTAssertTrue(CmuxExtensionSidebarReducer.requiresSnapshotReplacement(after: workspaceMoved))
         XCTAssertFalse(CmuxExtensionSidebarReducer.requiresSnapshotReplacement(after: promptSubmitted))
     }
 

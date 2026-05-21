@@ -531,7 +531,7 @@ public struct CmuxExtensionSidebarReducer {
                 field == "title" || field == "subtitle" || field == "body"
             }
 
-        case "workspace.created":
+        case "workspace.created", "workspace.moved":
             return true
 
         case "notification.read", "notification.cleared", "notification.removed":

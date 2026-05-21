@@ -33,6 +33,40 @@ final class WorkspacePromptSubmitTests: XCTestCase {
         XCTAssertNotNil(third.latestSubmittedAt)
     }
 
+    func testPromptSubmitReorderPublishesWorkspaceOrderEvent() throws {
+        CmuxEventBus.shared.resetForTesting()
+        defer { CmuxEventBus.shared.resetForTesting() }
+
+        let manager = TabManager()
+        let first = manager.tabs[0]
+        let second = manager.addWorkspace(select: false, placementOverride: .end)
+        let third = manager.addWorkspace(select: false, placementOverride: .end)
+        CmuxEventBus.shared.resetForTesting()
+
+        let outcome = try XCTUnwrap(
+            manager.handlePromptSubmit(
+                workspaceId: third.id,
+                message: "ship it",
+                iMessageModeEnabled: true
+            )
+        )
+
+        XCTAssertTrue(outcome.reordered)
+        let events = CmuxEventBus.shared.retainedSnapshot()
+        XCTAssertEqual(
+            events.compactMap { $0["name"] as? String },
+            ["workspace.prompt.submitted", "workspace.reordered"]
+        )
+        let reorder = try XCTUnwrap(events.last)
+        XCTAssertEqual(reorder["workspace_id"] as? String, third.id.uuidString)
+        let payload = try XCTUnwrap(reorder["payload"] as? [String: Any])
+        XCTAssertEqual(
+            payload["workspace_ids"] as? [String],
+            [third.id.uuidString, first.id.uuidString, second.id.uuidString]
+        )
+        XCTAssertEqual(payload["moved_workspace_ids"] as? [String], [third.id.uuidString])
+    }
+
     func testPromptSubmitRecordsMessageWithoutReorderingWhenIMessageModeDisabled() throws {
         let manager = TabManager()
         let first = manager.tabs[0]

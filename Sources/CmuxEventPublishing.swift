@@ -100,6 +100,24 @@ extension CmuxEventBus {
         )
     }
 
+    func publishWorkspaceReordered(
+        workspaceIds: [UUID],
+        movedWorkspaceIds: [UUID],
+        source: String
+    ) {
+        publish(
+            name: "workspace.reordered",
+            category: "workspace",
+            source: source,
+            workspaceId: movedWorkspaceIds.first?.uuidString,
+            payload: [
+                "workspace_ids": workspaceIds.map(\.uuidString),
+                "moved_workspace_ids": movedWorkspaceIds.map(\.uuidString),
+                "count": workspaceIds.count
+            ]
+        )
+    }
+
     func publishWindowLifecycle(
         name: String,
         windowId: UUID,

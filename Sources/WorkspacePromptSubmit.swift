@@ -160,6 +160,13 @@ extension TabManager {
         }
         moveTabToTop(workspaceId)
         let newIndex = tabs.firstIndex(where: { $0.id == workspaceId }) ?? originalIndex
+        if newIndex != originalIndex {
+            CmuxEventBus.shared.publishWorkspaceReordered(
+                workspaceIds: tabs.map(\.id),
+                movedWorkspaceIds: [workspaceId],
+                source: kind == .promptSubmission ? "workspace.prompt_submit" : "workspace.assistant_final"
+            )
+        }
         return (messageRecorded, newIndex != originalIndex, newIndex)
     }
 }
