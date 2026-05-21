@@ -21211,7 +21211,7 @@ struct CMUXCLI {
         }
 
         let nameBase = Self.agentProcessBasename(name)
-        if let nameBase, nameBase != "node", nameBase != "bun" {
+        if let nameBase, !Self.agentArgumentWrapperProcessBasenames.contains(nameBase) {
             return nil
         }
 
@@ -21240,11 +21240,21 @@ struct CMUXCLI {
             return kind
         }
 
-        if let argumentKind = nativeAgentProcessKindFromArguments(arguments) {
+        let argumentExclusions: Set<String> = {
+            guard let nameBase,
+                  agentArgumentWrapperProcessBasenames.contains(nameBase) else {
+                return []
+            }
+            return ["codex"]
+        }()
+        if let argumentKind = nativeAgentProcessKindFromArguments(arguments, excludingIdentifiers: argumentExclusions) {
             return argumentKind
         }
         return nil
     }
+
+    private static let agentArgumentWrapperProcessBasenames: Set<String> =
+        agentHookWrapperProcessNames.union(["node", "bun"])
 
     private static let nativeAgentExecutableBasenames: Set<String> = {
         var names = Set<String>()
@@ -21302,7 +21312,6 @@ struct CMUXCLI {
             "/opencode/",
             "opencode-ai",
             "open-code",
-            "oh-my-openagent",
         ]),
         ("pi", [
             "@mariozechner/pi-coding-agent",
