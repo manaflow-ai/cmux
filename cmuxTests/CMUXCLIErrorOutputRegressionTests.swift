@@ -190,7 +190,7 @@ final class CMUXCLIErrorOutputRegressionTests: XCTestCase {
         let configURL = root
             .appendingPathComponent("Library", isDirectory: true)
             .appendingPathComponent("Application Support", isDirectory: true)
-            .appendingPathComponent("com.cmuxterm.app", isDirectory: true)
+            .appendingPathComponent(bundleIdentifier, isDirectory: true)
             .appendingPathComponent("config.ghostty", isDirectory: false)
 
         var observedThemeValues: [String] = []
