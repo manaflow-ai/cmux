@@ -328,6 +328,7 @@ jobs:
                           continue
 
                   if process.poll() is not None:
+                      drain_remaining_output(process, output)
                       break
 
                   if saw_app_host_crash and time.monotonic() - last_output_at > quiet_timeout:
