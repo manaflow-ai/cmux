@@ -8685,6 +8685,20 @@ final class Workspace: Identifiable, ObservableObject {
         }
     }
 
+    func isCurrentBonsplitFocusTarget(panelId: UUID) -> Bool {
+        guard let tabId = surfaceIdFromPanelId(panelId),
+              let controller = bonsplitController(containingTab: tabId),
+              controller === openFocusedBonsplitController(),
+              let paneId = controller.allPaneIds.first(where: { paneId in
+                  controller.tabs(inPane: paneId).contains(where: { $0.id == tabId })
+              }) else {
+            return false
+        }
+
+        return controller.selectedTab(inPane: paneId)?.id == tabId &&
+            controller.focusedPaneId == paneId
+    }
+
     private func configureTerminalPanel(_ terminalPanel: TerminalPanel) {
         terminalPanel.onRequestWorkspacePaneFlash = { [weak self, weak terminalPanel] reason in
             guard let self, let terminalPanel else { return }

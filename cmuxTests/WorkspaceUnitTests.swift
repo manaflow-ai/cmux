@@ -4004,6 +4004,28 @@ final class WorkspaceTerminalFocusRecoveryTests: XCTestCase {
         )
     }
 
+    func testCurrentBonsplitFocusTargetResolvesDockController() throws {
+        let workspace = Workspace()
+        let mainPanelId = try XCTUnwrap(workspace.focusedPanelId)
+        let dock = workspace.dockLayout.addDock(edge: .right)
+        let dockPaneId = try XCTUnwrap(dock.controller.allPaneIds.first)
+        let dockPanel = try XCTUnwrap(
+            workspace.newTerminalSurface(
+                inPane: dockPaneId,
+                controller: dock.controller,
+                focus: true
+            )
+        )
+
+        XCTAssertTrue(workspace.isCurrentBonsplitFocusTarget(panelId: dockPanel.id))
+        XCTAssertFalse(workspace.isCurrentBonsplitFocusTarget(panelId: mainPanelId))
+
+        workspace.focusPanel(mainPanelId)
+
+        XCTAssertTrue(workspace.isCurrentBonsplitFocusTarget(panelId: mainPanelId))
+        XCTAssertFalse(workspace.isCurrentBonsplitFocusTarget(panelId: dockPanel.id))
+    }
+
     func testDockPaneConfigInheritancePrefersDockTerminal() {
         let workspace = Workspace()
         let dock = workspace.dockLayout.addDock(edge: .left)
