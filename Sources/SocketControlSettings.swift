@@ -486,7 +486,14 @@ struct SocketControlSettings {
     }
 
     private static func pathsMatch(_ lhs: String, _ rhs: String) -> Bool {
-        (lhs as NSString).standardizingPath == (rhs as NSString).standardizingPath
+        socketPathStringsMatch(
+            (lhs as NSString).standardizingPath,
+            (rhs as NSString).standardizingPath
+        )
+    }
+
+    private static func socketPathStringsMatch(_ lhs: String, _ rhs: String) -> Bool {
+        lhs == rhs || lhs.caseInsensitiveCompare(rhs) == .orderedSame
     }
 
     private static func canonicalSocketPath(_ path: String, visitedSymlinks: Set<String> = []) -> String? {
@@ -541,7 +548,9 @@ struct SocketControlSettings {
             userScopedStableSocketPath(currentUserID: currentUserID),
             legacyStableDefaultSocketPath,
         ].contains { stablePath in
-            canonicalSocketPath(stablePath).map { candidatePath == $0 } ?? false
+            canonicalSocketPath(stablePath)
+                .map { socketPathStringsMatch(candidatePath, $0) }
+                ?? pathsMatch(path, stablePath)
         }
     }
 

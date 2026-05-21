@@ -2689,6 +2689,29 @@ final class SocketControlSettingsTests: XCTestCase {
         XCTAssertEqual(path, "/tmp/cmux-debug-sockguard.sock")
     }
 
+    func testTaggedDebugBundleRefusesCaseVariantStableSocketAliasesEvenWithOptInFlag() {
+        let aliases = [
+            "/tmp/CMUX.sock",
+            "/private/tmp/CMUX.sock",
+            SocketControlSettings.userScopedStableSocketPath(currentUserID: 501)
+                .replacingOccurrences(of: "cmux-501.sock", with: "CMUX-501.sock"),
+        ]
+
+        for alias in aliases {
+            let path = SocketControlSettings.socketPath(
+                environment: [
+                    "CMUX_SOCKET_PATH": alias,
+                    "CMUX_ALLOW_SOCKET_OVERRIDE": "1",
+                ],
+                bundleIdentifier: "com.cmuxterm.app.debug.sockguard",
+                isDebugBuild: false,
+                currentUserID: 501
+            )
+
+            XCTAssertEqual(path, "/tmp/cmux-debug-sockguard.sock", alias)
+        }
+    }
+
     func testTaggedDebugBundleRefusesLeafSymlinkToStableSocketEvenWithOptInFlag() throws {
         let alias = "/tmp/cmux-stable-alias-\(UUID().uuidString).sock"
         try? FileManager.default.removeItem(atPath: alias)
