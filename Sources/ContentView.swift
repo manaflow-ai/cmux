@@ -10425,6 +10425,16 @@ struct VerticalTabsSidebar: View {
         )
     }
 
+    private func extensionSidebarWorkspaceSnapshotsById(
+        for rows: [CmuxExtensionSidebarRenderRow]
+    ) -> [UUID: CmuxExtensionWorkspaceSnapshot] {
+        var snapshotsById: [UUID: CmuxExtensionWorkspaceSnapshot] = [:]
+        for row in rows where snapshotsById[row.workspaceId] == nil {
+            snapshotsById[row.workspaceId] = extensionWorkspaceSnapshot(for: row.workspaceId)
+        }
+        return snapshotsById
+    }
+
     private func extensionBrowserStackIcon(
         _ icon: CmuxExtensionSidebarRenderIcon?,
         size: CGFloat
@@ -10485,11 +10495,7 @@ struct VerticalTabsSidebar: View {
         let isCollapsed = collapsedExtensionSidebarSectionIds.contains(section.id)
         let canCreateWorktree = section.treeSection.projectRootPath != nil
         let selectedWorkspaceId = tabManager.selectedTabId
-        let workspaceSnapshotsById = Dictionary(
-            uniqueKeysWithValues: section.rows.compactMap { row in
-                extensionWorkspaceSnapshot(for: row.workspaceId).map { (row.workspaceId, $0) }
-            }
-        )
+        let workspaceSnapshotsById = extensionSidebarWorkspaceSnapshotsById(for: section.rows)
 
         VStack(alignment: .leading, spacing: 1) {
             HStack(spacing: 7) {
@@ -10807,6 +10813,7 @@ private struct CmuxExtensionSidebarWorkspaceRowView: View, Equatable {
     let onSelect: (UUID) -> Void
     let onOpenWindow: (CmuxExtensionWorkspaceSnapshot) -> Void
     @State private var showsInspector = false
+    @State private var inspectorDraft: CmuxExtensionWorkspaceInspectorDraft?
 
     nonisolated static func == (lhs: Self, rhs: Self) -> Bool {
         lhs.row == rhs.row &&
@@ -10854,6 +10861,9 @@ private struct CmuxExtensionSidebarWorkspaceRowView: View, Equatable {
 
             if let accessory = row.accessory, let workspace {
                 Button {
+                    if inspectorDraft == nil {
+                        inspectorDraft = CmuxExtensionWorkspaceInspectorDraft.initial(workspace: workspace)
+                    }
                     showsInspector = true
                 } label: {
                     Image(systemName: accessory.systemImageName)
@@ -10865,6 +10875,12 @@ private struct CmuxExtensionSidebarWorkspaceRowView: View, Equatable {
                 .popover(isPresented: $showsInspector, arrowEdge: .trailing) {
                     CmuxExtensionWorkspaceInspectorView(
                         workspace: workspace,
+                        draft: Binding(
+                            get: {
+                                inspectorDraft ?? CmuxExtensionWorkspaceInspectorDraft.initial(workspace: workspace)
+                            },
+                            set: { inspectorDraft = $0 }
+                        ),
                         onOpenWindow: { onOpenWindow(workspace) }
                     )
                     .frame(width: 460, height: 340)
@@ -10900,6 +10916,23 @@ private struct CmuxExtensionSidebarWorkspaceRowView: View, Equatable {
     }
 }
 
+private struct CmuxExtensionWorkspaceInspectorDraft: Equatable {
+    var selectedTab: CmuxExtensionWorkspacePopoverTab
+    var notes: String
+    var address: String
+    var committedAddress: String
+
+    static func initial(workspace: CmuxExtensionWorkspaceSnapshot) -> CmuxExtensionWorkspaceInspectorDraft {
+        let initialAddress = workspace.pullRequestURLs.first ?? "https://github.com/"
+        return CmuxExtensionWorkspaceInspectorDraft(
+            selectedTab: .notes,
+            notes: "",
+            address: initialAddress,
+            committedAddress: initialAddress
+        )
+    }
+}
+
 private enum CmuxExtensionRelativeTimeFormatter {
     static func string(from date: Date, to now: Date) -> String {
         let seconds = max(0, Int(now.timeIntervalSince(date)))
@@ -10929,26 +10962,22 @@ private enum CmuxExtensionRelativeTimeFormatter {
 private struct CmuxExtensionWorkspaceInspectorView: View {
     let workspace: CmuxExtensionWorkspaceSnapshot
     let onOpenWindow: () -> Void
-    @State private var selectedTab = CmuxExtensionWorkspacePopoverTab.notes
-    @State private var notes = ""
-    @State private var address: String
-    @State private var committedAddress: String
+    @Binding private var draft: CmuxExtensionWorkspaceInspectorDraft
 
     init(
         workspace: CmuxExtensionWorkspaceSnapshot,
+        draft: Binding<CmuxExtensionWorkspaceInspectorDraft>,
         onOpenWindow: @escaping () -> Void
     ) {
         self.workspace = workspace
+        self._draft = draft
         self.onOpenWindow = onOpenWindow
-        let initialAddress = workspace.pullRequestURLs.first ?? "https://github.com/"
-        _address = State(initialValue: initialAddress)
-        _committedAddress = State(initialValue: initialAddress)
     }
 
     var body: some View {
         VStack(spacing: 0) {
             HStack(spacing: 8) {
-                Picker("", selection: $selectedTab) {
+                Picker("", selection: $draft.selectedTab) {
                     Text(String(localized: "sidebar.extension.notesTab", defaultValue: "Notes")).tag(CmuxExtensionWorkspacePopoverTab.notes)
                     Text(String(localized: "sidebar.extension.browserTab", defaultValue: "Browser")).tag(CmuxExtensionWorkspacePopoverTab.browser)
                 }
@@ -10965,9 +10994,9 @@ private struct CmuxExtensionWorkspaceInspectorView: View {
 
             Divider()
 
-            switch selectedTab {
+            switch draft.selectedTab {
             case .notes:
-                TextEditor(text: $notes)
+                TextEditor(text: $draft.notes)
                     .font(.system(size: 13))
                     .scrollContentBackground(.hidden)
                     .padding(8)
@@ -10979,13 +11008,13 @@ private struct CmuxExtensionWorkspaceInspectorView: View {
                             .foregroundColor(.secondary)
                         TextField(
                             String(localized: "sidebar.extension.browserAddress", defaultValue: "Search or enter URL"),
-                            text: $address
+                            text: $draft.address
                         )
                         .textFieldStyle(.plain)
                         .onSubmit {
-                            let normalized = CmuxExtensionWorkspaceInspectorBrowserView.normalizedAddress(address)
-                            address = normalized
-                            committedAddress = normalized
+                            let normalized = CmuxExtensionWorkspaceInspectorBrowserView.normalizedAddress(draft.address)
+                            draft.address = normalized
+                            draft.committedAddress = normalized
                         }
                     }
                     .font(.system(size: 12))
@@ -10993,15 +11022,42 @@ private struct CmuxExtensionWorkspaceInspectorView: View {
                     .padding(.vertical, 7)
                     .background(Color(nsColor: .controlBackgroundColor))
 
-                    CmuxExtensionWorkspaceInspectorBrowserView(address: committedAddress)
+                    CmuxExtensionWorkspaceInspectorBrowserView(address: draft.committedAddress)
                 }
             }
         }
     }
 }
 
+private struct CmuxExtensionWorkspaceInspectorWindowContentView: View {
+    let workspace: CmuxExtensionWorkspaceSnapshot
+    let onOpenWindow: () -> Void
+    @State private var draft: CmuxExtensionWorkspaceInspectorDraft
+
+    init(
+        workspace: CmuxExtensionWorkspaceSnapshot,
+        onOpenWindow: @escaping () -> Void
+    ) {
+        self.workspace = workspace
+        self.onOpenWindow = onOpenWindow
+        _draft = State(initialValue: CmuxExtensionWorkspaceInspectorDraft.initial(workspace: workspace))
+    }
+
+    var body: some View {
+        CmuxExtensionWorkspaceInspectorView(
+            workspace: workspace,
+            draft: $draft,
+            onOpenWindow: onOpenWindow
+        )
+    }
+}
+
 private struct CmuxExtensionWorkspaceInspectorBrowserView: NSViewRepresentable {
     let address: String
+
+    final class Coordinator {
+        var loadedAddress: String?
+    }
 
     static func normalizedAddress(_ rawValue: String) -> String {
         let trimmed = rawValue.trimmingCharacters(in: .whitespacesAndNewlines)
@@ -11010,6 +11066,10 @@ private struct CmuxExtensionWorkspaceInspectorBrowserView: NSViewRepresentable {
         if trimmed.contains(".") && !trimmed.contains(" ") { return "https://\(trimmed)" }
         let query = trimmed.addingPercentEncoding(withAllowedCharacters: .urlQueryAllowed) ?? trimmed
         return "https://www.google.com/search?q=\(query)"
+    }
+
+    func makeCoordinator() -> Coordinator {
+        Coordinator()
     }
 
     func makeNSView(context: Context) -> WKWebView {
@@ -11021,10 +11081,11 @@ private struct CmuxExtensionWorkspaceInspectorBrowserView: NSViewRepresentable {
 
     func updateNSView(_ webView: WKWebView, context: Context) {
         let normalized = Self.normalizedAddress(address)
-        guard webView.url?.absoluteString != normalized,
+        guard context.coordinator.loadedAddress != normalized,
               let url = URL(string: normalized) else {
             return
         }
+        context.coordinator.loadedAddress = normalized
         webView.load(URLRequest(url: url))
     }
 }
@@ -11043,7 +11104,7 @@ private final class CmuxExtensionSidebarInspectorWindowController {
             return
         }
 
-        let view = CmuxExtensionWorkspaceInspectorView(workspace: workspace) {
+        let view = CmuxExtensionWorkspaceInspectorWindowContentView(workspace: workspace) {
             show(workspace: workspace)
         }
         let hostingController = NSHostingController(rootView: view.frame(width: 620, height: 440))
@@ -15924,9 +15985,7 @@ enum SidebarTabDragPayload {
         let payload = "\(prefix)\(tabId.uuidString)"
         provider.registerDataRepresentation(forTypeIdentifier: typeIdentifier, visibility: .ownProcess) { completion in
             let data = payload.data(using: .utf8)
-            Task { @MainActor in
-                completion(data, nil)
-            }
+            completion(data, nil)
             return nil
         }
         return provider
