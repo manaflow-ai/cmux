@@ -462,6 +462,18 @@ enum CommandPaletteSettingsToggleCommands {
                 isAvailable: sidebarDetailsAvailable
             ),
             CommandPaletteSettingToggleDescriptor(
+                commandId: commandIdPrefix + "watchGitStatusInSidebar",
+                settingsKey: "sidebar.watchGitStatus",
+                title: {
+                    String(localized: "settings.app.watchGitStatus", defaultValue: "Watch Git Status in Sidebar")
+                },
+                sectionTitle: sidebar,
+                keywords: ["sidebar.watchGitStatus", "sidebar", "git", "status", "branch", "watcher", "index", "lock"],
+                defaultValue: SidebarWorkspaceDetailDefaults.watchGitStatus,
+                defaultsKey: SidebarWorkspaceDetailDefaults.watchGitStatusKey,
+                isAvailable: sidebarDetailsAvailable
+            ),
+            CommandPaletteSettingToggleDescriptor(
                 commandId: commandIdPrefix + "makeSidebarPullRequestsClickable",
                 settingsKey: "sidebar.makePullRequestsClickable",
                 title: {
