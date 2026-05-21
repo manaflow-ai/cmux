@@ -400,5 +400,16 @@ final class BrowserScreenshotPipelineTests: XCTestCase {
                 return
             }
         }
+
+        XCTAssertThrowsError(
+            try BrowserScreenshotCaptureBounds.validateFullPageSize(
+                NSSize(width: 10_000, height: 10_001)
+            )
+        ) { error in
+            guard case BrowserScreenshotError.captureAreaTooLarge = error else {
+                XCTFail("Expected captureAreaTooLarge, got \(error)")
+                return
+            }
+        }
     }
 }
