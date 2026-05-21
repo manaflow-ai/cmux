@@ -59,8 +59,10 @@ class UpdateController {
     private var readyCheckWorkItem: DispatchWorkItem?
     private var backgroundProbeTimer: Timer?
     private var didStartUpdater: Bool = false
-    private let readyRetryDelay: TimeInterval = 0.25
-    private let readyRetryCount: Int = 20
+    private let readyRetryDelay: TimeInterval = 0.5
+    private var readyRetryCount: Int {
+        Int(ceil(UpdateTiming.updaterReadyTimeoutDuration / readyRetryDelay))
+    }
     private let backgroundProbeInterval: TimeInterval = UpdateSettings.scheduledCheckInterval
 
     var viewModel: UpdateViewModel {
@@ -251,11 +253,7 @@ class UpdateController {
             UpdateLogStore.shared.append("checkForUpdatesWhenReady timed out")
             if case .checking = viewModel.state {
                 viewModel.state = .error(.init(
-                    error: NSError(
-                        domain: "cmux.update",
-                        code: 1,
-                        userInfo: [NSLocalizedDescriptionKey: "Updater is still starting. Try again in a moment."]
-                    ),
+                    error: UpdateTimeoutError.make(stage: .starting),
                     retry: { [weak self] in self?.checkForUpdates() },
                     dismiss: { [weak self] in self?.viewModel.state = .idle }
                 ))

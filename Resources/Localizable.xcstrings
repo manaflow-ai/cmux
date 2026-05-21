@@ -98717,6 +98717,74 @@
         }
       }
     },
+    "update.error.timeout.checking.message": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Updating failed because checking for updates took too long."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "アップデートの確認に時間がかかりすぎたため、アップデートに失敗しました。"
+          }
+        }
+      }
+    },
+    "update.error.timeout.downloading.message": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Updating failed because downloading the update took too long."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "アップデートのダウンロードに時間がかかりすぎたため、アップデートに失敗しました。"
+          }
+        }
+      }
+    },
+    "update.error.timeout.preparing.message": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Updating failed because preparing the update took too long."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "アップデートの準備に時間がかかりすぎたため、アップデートに失敗しました。"
+          }
+        }
+      }
+    },
+    "update.error.timeout.starting.message": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Updating failed because the updater took too long to start."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "アップデーターの起動に時間がかかりすぎたため、アップデートに失敗しました。"
+          }
+        }
+      }
+    },
     "update.extracting.progress": {
       "extractionState": "manual",
       "localizations": {
