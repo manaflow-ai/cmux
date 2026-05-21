@@ -23475,16 +23475,16 @@ export default function cmuxPiSessionExtension(pi: ExtensionAPI) {
                 return nil
             }
         }
-        func hasNewerRunningSession(workspaceId: String, surfaceId: String) -> Bool {
+        func hasNewerRunningSession(workspaceId: String) -> Bool {
             (try? store.hasRunningSession(
                 workspaceId: workspaceId,
-                surfaceId: surfaceId,
+                surfaceId: nil,
                 excludingSessionId: sessionId,
                 onlyNewerThanExcludedSession: true
             )) == true
         }
         func setIdleStatusUnlessNewerSessionIsRunning(workspaceId: String, surfaceId: String) {
-            if hasNewerRunningSession(workspaceId: workspaceId, surfaceId: surfaceId) {
+            if hasNewerRunningSession(workspaceId: workspaceId) {
 #if DEBUG
                 agentHookDebugLog(
                     "agentHook.status.keepRunning agent=\(def.name) session=\(agentHookDebugShort(sessionId)) workspace=\(agentHookDebugShort(workspaceId)) surface=\(agentHookDebugShort(surfaceId))",
@@ -23510,11 +23510,20 @@ export default function cmuxPiSessionExtension(pi: ExtensionAPI) {
                 workspaceId: workspaceId ?? workspaceArg()
             )
         }
-        func notificationDedupeFingerprint(status: AgentHookNotificationStatus?) -> String? {
+        func stableNotificationDedupeHash(_ value: String) -> String {
+            var hash: UInt64 = 14_695_981_039_346_656_037
+            for byte in value.utf8 {
+                hash ^= UInt64(byte)
+                hash &*= 1_099_511_628_211
+            }
+            return String(hash, radix: 16)
+        }
+        func notificationDedupeFingerprint(status: AgentHookNotificationStatus?, body: String?) -> String? {
             guard (def.name == "grok" || def.name == "antigravity"), !sessionId.isEmpty, status == .idle else {
                 return nil
             }
-            return "idle-turn"
+            let normalizedBody = normalizedSingleLine(body ?? "")
+            return "idle-turn:\(stableNotificationDedupeHash(normalizedBody))"
         }
         func hasActiveAntigravityBackgroundWork() -> Bool {
             def.name == "antigravity" && (input.rawObject?["fullyIdle"] as? Bool) == false
@@ -23871,7 +23880,7 @@ export default function cmuxPiSessionExtension(pi: ExtensionAPI) {
                 )
             }
 
-            let notificationFingerprint = notificationDedupeFingerprint(status: stopNotificationStatus)
+            let notificationFingerprint = notificationDedupeFingerprint(status: stopNotificationStatus, body: body)
             let shouldPublishStopNotification = def.publishesStopNotification && (!antigravityHasActiveBackgroundWork || stopNotificationStatus == .error)
             let hasGrokTranscriptContext = def.name == "grok" && normalizedHookValue(cwd) != nil
             let shouldPublishGrokStopFallbackNotification = def.name == "grok"
@@ -24052,7 +24061,7 @@ export default function cmuxPiSessionExtension(pi: ExtensionAPI) {
                 )
             }
 
-            let notificationFingerprint = notificationDedupeFingerprint(status: summary.status)
+            let notificationFingerprint = notificationDedupeFingerprint(status: summary.status, body: summary.body)
             if shouldSendNotification(fingerprint: notificationFingerprint) {
                 let payload = notificationPayload(title: def.displayName, subtitle: summary.subtitle, body: summary.body)
                 let notifyCommand = "notify_target_async \(workspaceId) \(surfaceId) \(payload)"

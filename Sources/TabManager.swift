@@ -1332,6 +1332,10 @@ class TabManager: ObservableObject {
         workspacePullRequestPollTimer?.cancel()
         workspaceGitMetadataFallbackTimer?.cancel()
         workspacePullRequestRefreshTask?.cancel()
+        MainActor.assumeIsolated {
+            cancelAllWorkspaceGitProbeTimers()
+            stopAllWorkspaceGitMetadataWatchers()
+        }
     }
 
     // MARK: - Agent PID Sweep
@@ -1452,13 +1456,7 @@ class TabManager: ObservableObject {
             workspaceGitMetadataFallbackTimer?.cancel()
             workspaceGitMetadataFallbackTimer = nil
             workspaceGitProbeStateByKey.removeAll()
-            for timers in workspaceGitProbeTimersByKey.values {
-                for timer in timers {
-                    timer.setEventHandler {}
-                    timer.cancel()
-                }
-            }
-            workspaceGitProbeTimersByKey.removeAll()
+            cancelAllWorkspaceGitProbeTimers()
             workspaceGitTrackedDirectoryByKey.removeAll()
             workspaceGitCleanIndexSignatureByKey.removeAll()
             workspaceGitCleanIndexContentSignatureByKey.removeAll()
@@ -2715,6 +2713,16 @@ class TabManager: ObservableObject {
             timer.setEventHandler {}
             timer.cancel()
         }
+    }
+
+    private func cancelAllWorkspaceGitProbeTimers() {
+        for timers in workspaceGitProbeTimersByKey.values {
+            for timer in timers {
+                timer.setEventHandler {}
+                timer.cancel()
+            }
+        }
+        workspaceGitProbeTimersByKey.removeAll()
     }
 
     private func clearWorkspaceGitProbe(_ key: WorkspaceGitProbeKey) {
