@@ -33,7 +33,7 @@ final class VNCPanel: Panel, ObservableObject {
     let panelType: PanelType = .vnc
     private(set) var workspaceId: UUID
     let session: MacfleetVNCSession
-    let credential: VNCResolvedCredential
+    private var credential: VNCResolvedCredential?
 
     @Published private(set) var displayTitle: String
     @Published private(set) var connectionState: VNCConnectionState = .idle
@@ -52,11 +52,12 @@ final class VNCPanel: Panel, ObservableObject {
     private var replayFrameSequence: UInt64 = 0
     private var frameHandlers: [UUID: (VNCDisplayFrame?) -> Void] = [:]
     private var desiredVisibility = false
+    private var credentialResolutionID: UUID?
 
     init(
         workspaceId: UUID,
         session: MacfleetVNCSession,
-        credential: VNCResolvedCredential
+        credential: VNCResolvedCredential?
     ) {
         self.id = UUID()
         self.workspaceId = workspaceId
@@ -78,6 +79,37 @@ final class VNCPanel: Panel, ObservableObject {
     }
 
     func startIfNeeded() {
+        guard connection == nil else { return }
+        guard let credential else {
+            resolveCredentialAndStartIfNeeded()
+            return
+        }
+        startConnection(credential: credential)
+    }
+
+    private func resolveCredentialAndStartIfNeeded() {
+        guard credentialResolutionID == nil else { return }
+        connectionState = .connecting
+        let resolutionID = UUID()
+        credentialResolutionID = resolutionID
+        let session = session
+        Task { [weak self] in
+            let resolvedCredential = await VNCSessionCredentialProvider.credentialOffMainActor(for: session)
+            await MainActor.run {
+                guard let self, self.credentialResolutionID == resolutionID else { return }
+                self.credentialResolutionID = nil
+                guard self.connection == nil else { return }
+                guard let resolvedCredential else {
+                    self.connectionState = .failed(VNCPanelText.macfleetNoCredentialsMessage)
+                    return
+                }
+                self.credential = resolvedCredential
+                self.startConnection(credential: resolvedCredential)
+            }
+        }
+    }
+
+    private func startConnection(credential: VNCResolvedCredential) {
         guard connection == nil else { return }
         connectionState = .connecting
         let nextConnectionID = UUID()
@@ -119,6 +151,7 @@ final class VNCPanel: Panel, ObservableObject {
         let closingConnection = connection
         connection = nil
         connectionID = nil
+        credentialResolutionID = nil
         restartDates.removeAll()
         publishFrame(nil)
         closingConnection?.close()
@@ -182,6 +215,7 @@ final class VNCPanel: Panel, ObservableObject {
         let closingConnection = connection
         connection = nil
         connectionID = nil
+        credentialResolutionID = nil
         focusView = nil
         pendingFocus = false
         publishFrame(nil)

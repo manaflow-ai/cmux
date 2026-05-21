@@ -355,6 +355,9 @@ final class VNCPanelConnection {
                 if written < 0, errno == EINTR {
                     continue
                 }
+                if written == 0 {
+                    throw POSIXError(.EPIPE)
+                }
                 throw POSIXError(POSIXErrorCode(rawValue: errno) ?? .EIO)
             }
         }

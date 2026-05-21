@@ -1074,11 +1074,10 @@ extension Workspace {
             return toolPanel.id
         case .vnc:
             guard let session = snapshot.vnc?.session,
-                  let credential = VNCSessionCredentialProvider.credential(for: session),
                   let vncPanel = newVNCSurface(
                     inPane: paneId,
                     session: session,
-                    credential: credential,
+                    credential: nil,
                     focus: false
                   ) else {
                 return nil
@@ -11323,7 +11322,7 @@ final class Workspace: Identifiable, ObservableObject {
     func newVNCSurface(
         inPane paneId: PaneID,
         session: MacfleetVNCSession,
-        credential: VNCResolvedCredential,
+        credential: VNCResolvedCredential?,
         focus: Bool? = nil,
         targetIndex: Int? = nil
     ) -> VNCPanel? {

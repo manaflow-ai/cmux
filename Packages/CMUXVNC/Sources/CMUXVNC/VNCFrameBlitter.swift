@@ -29,46 +29,45 @@ public enum VNCFrameBlitter {
         }
         let payloadByteCount = payload.count
         let framebufferByteCount = framebuffer.count
-        var didCopy = true
-
-        payload.withUnsafeBytes { sourceBytes in
-            guard let source = sourceBytes.bindMemory(to: UInt8.self).baseAddress else {
-                didCopy = false
-                return
+        var copyRanges: [(sourceOffset: Int, destinationOffset: Int, byteCount: Int)] = []
+        copyRanges.reserveCapacity(header.height)
+        for row in 0..<header.height {
+            let (sourceOffset, sourceOverflow) = row.multipliedReportingOverflow(by: rowBytes)
+            let (destinationY, destinationYOverflow) = header.y.addingReportingOverflow(row)
+            let (destinationRowOffset, destinationRowOverflow) = destinationY
+                .multipliedReportingOverflow(by: framebufferWidth)
+            let (destinationPixelOffset, destinationPixelOverflow) = destinationRowOffset
+                .addingReportingOverflow(header.x)
+            let (destinationOffset, destinationByteOverflow) = destinationPixelOffset
+                .multipliedReportingOverflow(by: 4)
+            let (sourceEnd, sourceEndOverflow) = sourceOffset.addingReportingOverflow(rowBytes)
+            let (destinationEnd, destinationEndOverflow) = destinationOffset.addingReportingOverflow(rowBytes)
+            guard !sourceOverflow,
+                  !destinationYOverflow,
+                  !destinationRowOverflow,
+                  !destinationPixelOverflow,
+                  !destinationByteOverflow,
+                  !sourceEndOverflow,
+                  !destinationEndOverflow,
+                  destinationOffset >= 0,
+                  destinationEnd <= framebufferByteCount,
+                  sourceOffset >= 0,
+                  sourceEnd <= payloadByteCount else {
+                return false
             }
+            copyRanges.append((sourceOffset: sourceOffset, destinationOffset: destinationOffset, byteCount: rowBytes))
+        }
+
+        var didCopy = false
+        payload.withUnsafeBytes { sourceBytes in
+            guard let source = sourceBytes.bindMemory(to: UInt8.self).baseAddress else { return }
             framebuffer.withUnsafeMutableBytes { destinationBytes in
-                guard let destination = destinationBytes.bindMemory(to: UInt8.self).baseAddress else {
-                    didCopy = false
-                    return
+                guard let destination = destinationBytes.bindMemory(to: UInt8.self).baseAddress else { return }
+                for range in copyRanges {
+                    destination.advanced(by: range.destinationOffset)
+                        .update(from: source.advanced(by: range.sourceOffset), count: range.byteCount)
                 }
-                for row in 0..<header.height {
-                    let (sourceOffset, sourceOverflow) = row.multipliedReportingOverflow(by: rowBytes)
-                    let (destinationY, destinationYOverflow) = header.y.addingReportingOverflow(row)
-                    let (destinationRowOffset, destinationRowOverflow) = destinationY
-                        .multipliedReportingOverflow(by: framebufferWidth)
-                    let (destinationPixelOffset, destinationPixelOverflow) = destinationRowOffset
-                        .addingReportingOverflow(header.x)
-                    let (destinationOffset, destinationByteOverflow) = destinationPixelOffset
-                        .multipliedReportingOverflow(by: 4)
-                    let (sourceEnd, sourceEndOverflow) = sourceOffset.addingReportingOverflow(rowBytes)
-                    let (destinationEnd, destinationEndOverflow) = destinationOffset.addingReportingOverflow(rowBytes)
-                    guard !sourceOverflow,
-                          !destinationYOverflow,
-                          !destinationRowOverflow,
-                          !destinationPixelOverflow,
-                          !destinationByteOverflow,
-                          !sourceEndOverflow,
-                          !destinationEndOverflow,
-                          destinationOffset >= 0,
-                          destinationEnd <= framebufferByteCount,
-                          sourceOffset >= 0,
-                          sourceEnd <= payloadByteCount else {
-                        didCopy = false
-                        return
-                    }
-                    destination.advanced(by: destinationOffset)
-                        .update(from: source.advanced(by: sourceOffset), count: rowBytes)
-                }
+                didCopy = true
             }
         }
         return didCopy

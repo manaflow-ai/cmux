@@ -7,6 +7,12 @@ enum VNCSessionCredentialProvider {
             .appendingPathComponent(".config/macfleet/hosts.json")
     }
 
+    static func credentialOffMainActor(for session: MacfleetVNCSession) async -> VNCResolvedCredential? {
+        await Task.detached(priority: .userInitiated) {
+            Self.credential(for: session)
+        }.value
+    }
+
     static func credential(
         for session: MacfleetVNCSession,
         manifest: MacfleetManifest? = nil,

@@ -318,6 +318,41 @@ final class CMUXVNCTests: XCTestCase {
         XCTAssertEqual(Array(composed.payload), [9, 10, 11, 12, 5, 6, 7, 8])
     }
 
+    func testFrameComposerReturnsStablePayloadsAfterLaterUpdates() throws {
+        var composer = VNCFramebufferComposer()
+        let fullFrame = VNCFrameHeader(
+            sequence: 1,
+            x: 0,
+            y: 0,
+            width: 2,
+            height: 1,
+            framebufferWidth: 2,
+            framebufferHeight: 1,
+            stride: 8
+        )
+        let first = try XCTUnwrap(composer.apply(
+            header: fullFrame,
+            payload: Data([1, 2, 3, 4, 5, 6, 7, 8])
+        ))
+
+        let partialFrame = VNCFrameHeader(
+            sequence: 2,
+            x: 0,
+            y: 0,
+            width: 1,
+            height: 1,
+            framebufferWidth: 2,
+            framebufferHeight: 1,
+            stride: 4
+        )
+        _ = try XCTUnwrap(composer.apply(
+            header: partialFrame,
+            payload: Data([9, 10, 11, 12])
+        ))
+
+        XCTAssertEqual(Array(first.payload), [1, 2, 3, 4, 5, 6, 7, 8])
+    }
+
     func testIPCFrameRoundTrip() throws {
         let header = VNCFrameHeader(
             sequence: 7,

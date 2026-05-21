@@ -6,7 +6,18 @@ enum VNCKeychainCredentialProvider {
     static func password(for session: MacfleetVNCSession) -> String? {
         let servers = [session.address, session.name, "\(session.address):\(session.port)", "\(session.name):\(session.port)"]
         for server in servers {
-            if let password = internetPassword(server: server, account: session.username, port: session.port) {
+            for account in [session.username, session.address, session.name] {
+                if let password = internetPassword(server: server, account: account, port: session.port) {
+                    return password
+                }
+                if let password = internetPassword(server: server, account: account, port: nil) {
+                    return password
+                }
+            }
+            if let password = internetPassword(server: server, account: nil, port: session.port) {
+                return password
+            }
+            if let password = internetPassword(server: server, account: nil, port: nil) {
                 return password
             }
         }
@@ -29,13 +40,18 @@ enum VNCKeychainCredentialProvider {
         return nil
     }
 
-    private static func internetPassword(server: String, account: String, port: Int) -> String? {
-        password(query: [
+    private static func internetPassword(server: String, account: String?, port: Int?) -> String? {
+        var query: [String: Any] = [
             kSecClass as String: kSecClassInternetPassword,
-            kSecAttrServer as String: server,
-            kSecAttrAccount as String: account,
-            kSecAttrPort as String: port
-        ])
+            kSecAttrServer as String: server
+        ]
+        if let account, !account.isEmpty {
+            query[kSecAttrAccount as String] = account
+        }
+        if let port {
+            query[kSecAttrPort as String] = port
+        }
+        return password(query: query)
     }
 
     private static func genericPassword(service: String, account: String) -> String? {

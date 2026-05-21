@@ -42,6 +42,7 @@ public struct VNCFramebufferComposer: Sendable {
             return nil
         }
 
+        let outputPayload = framebuffer.withUnsafeBytes { Data($0) }
         return VNCComposedFrame(
             header: VNCFrameHeader(
                 sequence: header.sequence,
@@ -54,7 +55,7 @@ public struct VNCFramebufferComposer: Sendable {
                 stride: framebufferWidth * 4,
                 pixelFormat: .bgra8
             ),
-            payload: framebuffer
+            payload: outputPayload
         )
     }
 

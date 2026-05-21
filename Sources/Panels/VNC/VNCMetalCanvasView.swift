@@ -335,7 +335,18 @@ final class VNCMetalCanvasView: NSView {
               header.framebufferWidth == framebufferWidth,
               header.framebufferHeight == framebufferHeight,
               let expectedByteCount = Self.framebufferByteCount(width: framebufferWidth, height: framebufferHeight),
-              framebuffer.count == expectedByteCount else {
+              framebuffer.count == expectedByteCount,
+              VNCFrameValidator.validate(header: header, payloadByteCount: frame.payload.count) == nil else {
+            return
+        }
+
+        if header.x == 0,
+           header.y == 0,
+           header.width == framebufferWidth,
+           header.height == framebufferHeight,
+           header.stride == framebufferWidth * Self.bytesPerPixel,
+           frame.payload.count == framebuffer.count {
+            framebuffer = frame.payload
             return
         }
 
