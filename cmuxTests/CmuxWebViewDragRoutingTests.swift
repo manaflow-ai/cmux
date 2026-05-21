@@ -254,3 +254,95 @@ final class CmuxWebViewDragRoutingTests: XCTestCase {
         XCTAssertEqual(cmuxUnitTestWKWebViewDragLifecycleEvents, [])
     }
 }
+
+@MainActor
+final class BrowserScreenshotPipelineTests: XCTestCase {
+    private func makeTestImage(width: Int, height: Int) throws -> NSImage {
+        let rep = try XCTUnwrap(
+            NSBitmapImageRep(
+                bitmapDataPlanes: nil,
+                pixelsWide: width,
+                pixelsHigh: height,
+                bitsPerSample: 8,
+                samplesPerPixel: 4,
+                hasAlpha: true,
+                isPlanar: false,
+                colorSpaceName: .deviceRGB,
+                bytesPerRow: 0,
+                bitsPerPixel: 0
+            )
+        )
+
+        for y in 0..<height {
+            for x in 0..<width {
+                rep.setColor(
+                    NSColor(
+                        calibratedRed: CGFloat(x) / CGFloat(max(width - 1, 1)),
+                        green: CGFloat(y) / CGFloat(max(height - 1, 1)),
+                        blue: 0.5,
+                        alpha: 1.0
+                    ),
+                    atX: x,
+                    y: y
+                )
+            }
+        }
+
+        let image = NSImage(size: NSSize(width: width, height: height))
+        image.addRepresentation(rep)
+        return image
+    }
+
+    func testFullPageSnapshotWritesPNGAndTIFFToPasteboard() async throws {
+        let pasteboard = NSPasteboard(name: .init("cmux-browser-screenshot-\(UUID().uuidString)"))
+        pasteboard.clearContents()
+
+        let image = try makeTestImage(width: 8, height: 6)
+        let result = try await BrowserScreenshotPipeline.captureAndWrite(
+            mode: .fullPage,
+            snapshot: { image },
+            pasteboard: pasteboard
+        )
+
+        XCTAssertEqual(result.outputSize.width, 8)
+        XCTAssertEqual(result.outputSize.height, 6)
+        XCTAssertNotNil(pasteboard.data(forType: .png))
+        XCTAssertNotNil(pasteboard.data(forType: .tiff))
+    }
+
+    func testSectionCropMapsViewSelectionIntoSnapshotImageCoordinates() throws {
+        let cropRect = try BrowserScreenshotCrop.imageRect(
+            forSelectionInView: NSRect(x: 50, y: 25, width: 100, height: 50),
+            viewBounds: NSRect(x: 0, y: 0, width: 200, height: 150),
+            imageSize: NSSize(width: 400, height: 300)
+        )
+
+        XCTAssertEqual(cropRect.origin.x, 100, accuracy: 0.001)
+        XCTAssertEqual(cropRect.origin.y, 50, accuracy: 0.001)
+        XCTAssertEqual(cropRect.width, 200, accuracy: 0.001)
+        XCTAssertEqual(cropRect.height, 100, accuracy: 0.001)
+    }
+
+    func testSectionSnapshotCropsSelectionBeforeWritingPasteboard() async throws {
+        let pasteboard = NSPasteboard(name: .init("cmux-browser-screenshot-section-\(UUID().uuidString)"))
+        pasteboard.clearContents()
+
+        let source = try makeTestImage(width: 400, height: 300)
+        let result = try await BrowserScreenshotPipeline.captureAndWrite(
+            mode: .section(
+                selectionInView: NSRect(x: 50, y: 25, width: 100, height: 50),
+                viewBounds: NSRect(x: 0, y: 0, width: 200, height: 150)
+            ),
+            snapshot: { source },
+            pasteboard: pasteboard
+        )
+
+        XCTAssertEqual(result.outputSize.width, 200)
+        XCTAssertEqual(result.outputSize.height, 100)
+
+        let pngData = try XCTUnwrap(pasteboard.data(forType: .png))
+        let croppedImage = try XCTUnwrap(NSImage(data: pngData))
+        XCTAssertEqual(croppedImage.size.width, 200)
+        XCTAssertEqual(croppedImage.size.height, 100)
+    }
+}
