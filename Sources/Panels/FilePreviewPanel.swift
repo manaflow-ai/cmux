@@ -4282,12 +4282,22 @@ private struct QuickLookPreviewView: NSViewRepresentable {
     let backgroundColor: NSColor
     let drawsBackground: Bool
 
+    final class Coordinator {
+        var quickLook: FilePreviewQuickLookSession?
+
+        init(panel: FilePreviewPanel) {
+            quickLook = panel.nativeViewSessions.quickLook
+        }
+    }
+
     func makeCoordinator() -> Coordinator {
         Coordinator(panel: panel)
     }
 
     func makeNSView(context: Context) -> NSView {
-        panel.nativeViewSessions.quickLook.view(
+        let quickLook = panel.nativeViewSessions.quickLook
+        context.coordinator.quickLook = quickLook
+        return quickLook.view(
             panel: panel,
             isVisibleInUI: isVisibleInUI,
             backgroundColor: backgroundColor,
@@ -4296,7 +4306,9 @@ private struct QuickLookPreviewView: NSViewRepresentable {
     }
 
     func updateNSView(_ nsView: NSView, context: Context) {
-        panel.nativeViewSessions.quickLook.update(
+        let quickLook = panel.nativeViewSessions.quickLook
+        context.coordinator.quickLook = quickLook
+        quickLook.update(
             nsView,
             panel: panel,
             isVisibleInUI: isVisibleInUI,
@@ -4306,15 +4318,8 @@ private struct QuickLookPreviewView: NSViewRepresentable {
     }
 
     static func dismantleNSView(_ nsView: NSView, coordinator: Coordinator) {
-        coordinator.panel.nativeViewSessions.quickLook.dismantle(nsView)
-    }
-
-    final class Coordinator {
-        let panel: FilePreviewPanel
-
-        init(panel: FilePreviewPanel) {
-            self.panel = panel
-        }
+        coordinator.quickLook?.dismantle(nsView)
+        coordinator.quickLook = nil
     }
 }
 

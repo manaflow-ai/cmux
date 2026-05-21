@@ -4694,6 +4694,19 @@ enum ClaudeCodeIntegrationSettings {
     }
 }
 
+enum AgentSubagentNotificationSettings {
+    static let suppressNotificationsKey = "suppressSubagentNotifications"
+    static let defaultSuppressNotifications = true
+    static let environmentKey = "CMUX_SUPPRESS_SUBAGENT_NOTIFICATIONS"
+
+    static func suppressNotifications(defaults: UserDefaults = .standard) -> Bool {
+        if defaults.object(forKey: suppressNotificationsKey) == nil {
+            return defaultSuppressNotifications
+        }
+        return defaults.bool(forKey: suppressNotificationsKey)
+    }
+}
+
 enum CursorIntegrationSettings {
     static let hooksEnabledKey = "cursorHooksEnabled"
     static let defaultHooksEnabled = true
@@ -5027,6 +5040,8 @@ struct SettingsView: View {
     private var customClaudePath = ""
     @AppStorage(RipgrepIntegrationSettings.customRipgrepPathKey)
     private var customRipgrepPath = ""
+    @AppStorage(AgentSubagentNotificationSettings.suppressNotificationsKey)
+    private var suppressSubagentNotifications = AgentSubagentNotificationSettings.defaultSuppressNotifications
     @AppStorage(CursorIntegrationSettings.hooksEnabledKey)
     private var cursorHooksEnabled = CursorIntegrationSettings.defaultHooksEnabled
     @AppStorage(GeminiIntegrationSettings.hooksEnabledKey)
@@ -6637,6 +6652,25 @@ struct SettingsView: View {
 
                     SettingsCard {
                         SettingsCardRow(
+                            configurationReview: .json("automation.suppressSubagentNotifications"),
+                            String(localized: "settings.automation.suppressSubagentNotifications", defaultValue: "Suppress Subagent Notifications"),
+                            subtitle: suppressSubagentNotifications
+                                ? String(localized: "settings.automation.suppressSubagentNotifications.subtitleOn", defaultValue: "Child agent completions stay in Feed without notifications.")
+                                : String(localized: "settings.automation.suppressSubagentNotifications.subtitleOff", defaultValue: "Child agent completions notify like top-level agents.")
+                        ) {
+                            Toggle("", isOn: $suppressSubagentNotifications)
+                                .labelsHidden()
+                                .controlSize(.small)
+                                .accessibilityIdentifier("SettingsSuppressSubagentNotificationsToggle")
+                        }
+
+                        SettingsCardDivider()
+
+                        SettingsCardNote(String(localized: "settings.automation.suppressSubagentNotifications.note", defaultValue: "Uses process ancestry from hook processes. Disable if nested Codex or Claude sessions should trigger completion notifications."))
+                    }
+
+                    SettingsCard {
+                        SettingsCardRow(
                             configurationReview: .json("automation.cursorIntegration"),
                             String(localized: "settings.automation.cursor", defaultValue: "Cursor Integration"),
                             subtitle: cursorHooksEnabled
@@ -7446,6 +7480,7 @@ struct SettingsView: View {
         claudeCodeHooksEnabled = ClaudeCodeIntegrationSettings.defaultHooksEnabled
         customClaudePath = ""
         customRipgrepPath = ""
+        suppressSubagentNotifications = AgentSubagentNotificationSettings.defaultSuppressNotifications
         cursorHooksEnabled = CursorIntegrationSettings.defaultHooksEnabled
         geminiHooksEnabled = GeminiIntegrationSettings.defaultHooksEnabled
         sendAnonymousTelemetry = TelemetrySettings.defaultSendAnonymousTelemetry
