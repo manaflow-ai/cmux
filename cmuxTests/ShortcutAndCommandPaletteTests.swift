@@ -1361,7 +1361,12 @@ final class MainWindowFocusControllerRightSidebarHideTests: XCTestCase {
         XCTAssertEqual(controller.debugPendingRightSidebarFocusMode, .sessions)
 
         let focusHost = RightSidebarKeyboardFocusView(frame: NSRect(x: 0, y: 0, width: 24, height: 24))
-        defer { _ = window.makeFirstResponder(nil); focusHost.removeFromSuperview(); window.contentView = nil; window.close() }
+        defer {
+            _ = window.makeFirstResponder(nil)
+            focusHost.removeFromSuperview()
+            window.contentView = nil
+            window.orderOut(nil)
+        }
         contentView.addSubview(focusHost)
         controller.registerRightSidebarHost(focusHost)
 
@@ -1580,6 +1585,24 @@ final class QuitWarningSettingsTests: XCTestCase {
 
         defaults.set(true, forKey: QuitWarningSettings.warnBeforeQuitKey)
         XCTAssertTrue(QuitWarningSettings.isEnabled(defaults: defaults))
+    }
+
+    func testShouldShowConfirmationFollowsEnabledPreference() {
+        let suiteName = "QuitWarningSettingsTests.ShouldShow.\(UUID().uuidString)"
+        guard let defaults = UserDefaults(suiteName: suiteName) else {
+            XCTFail("Failed to create isolated UserDefaults suite")
+            return
+        }
+        defer { defaults.removePersistentDomain(forName: suiteName) }
+
+        defaults.set(true, forKey: QuitWarningSettings.warnBeforeQuitKey)
+        XCTAssertTrue(QuitWarningSettings.shouldShowConfirmation(isQuitWarningConfirmed: false, defaults: defaults))
+
+        XCTAssertFalse(QuitWarningSettings.shouldShowConfirmation(isQuitWarningConfirmed: true, defaults: defaults))
+
+        defaults.set(false, forKey: QuitWarningSettings.warnBeforeQuitKey)
+        XCTAssertFalse(QuitWarningSettings.shouldShowConfirmation(isQuitWarningConfirmed: false, defaults: defaults))
+        XCTAssertFalse(QuitWarningSettings.shouldShowConfirmation(isQuitWarningConfirmed: true, defaults: defaults))
     }
 }
 

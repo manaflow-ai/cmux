@@ -47,18 +47,18 @@ final class GhosttyTerminalViewVisibilityPolicyTests: XCTestCase {
         )
     }
 
-    func testSwiftUIHostGeometryCallbackSchedulesExternalSynchronization() {
+    func testSwiftUIHostGeometryCallbackUsesImmediateSyncWithoutLayoutFlush() {
         switch GhosttyTerminalView.hostCallbackPortalGeometrySynchronizationAction(window: 3873) {
-        case .scheduleExternal(let window):
+        case .synchronizeWithoutLayoutFlush(let window):
             XCTAssertEqual(window, 3873)
         case .skip:
-            XCTFail("Window-attached host callbacks should schedule deferred portal synchronization")
+            XCTFail("Window-attached host callbacks should immediately reconcile portal geometry without layout flushes")
         }
     }
 
     func testSwiftUIHostGeometryCallbackSkipsWithoutWindow() {
         switch GhosttyTerminalView.hostCallbackPortalGeometrySynchronizationAction(window: Optional<Int>.none) {
-        case .scheduleExternal:
+        case .synchronizeWithoutLayoutFlush:
             XCTFail("Detached host callbacks must not synchronize terminal portal geometry")
         case .skip:
             break

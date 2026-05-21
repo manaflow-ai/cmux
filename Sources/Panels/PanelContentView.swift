@@ -77,6 +77,16 @@ struct PanelContentView: View {
                     onRequestPanelFocus: onRequestPanelFocus
                 )
             }
+        case .rightSidebarTool:
+            if let rightSidebarToolPanel = panel as? RightSidebarToolPanel {
+                RightSidebarToolPanelView(
+                    panel: rightSidebarToolPanel,
+                    isFocused: isFocused,
+                    isVisibleInUI: isVisibleInUI,
+                    appearance: appearance,
+                    onRequestPanelFocus: onRequestPanelFocus
+                )
+            }
         }
     }
 
@@ -94,7 +104,7 @@ struct PanelContentView: View {
     private var shouldInstallPaneDropTarget: Bool {
         guard isVisibleInUI else { return false }
         switch panel.panelType {
-        case .markdown, .filePreview:
+        case .markdown, .filePreview, .rightSidebarTool:
             return true
         case .terminal, .browser:
             return false
@@ -105,7 +115,6 @@ struct PanelContentView: View {
 struct PanelFilePathHeader<TrailingContent: View>: View {
     let iconSystemName: String
     let filePath: String
-    let backgroundColor: NSColor
     let foregroundColor: NSColor
     @ViewBuilder let trailingContent: () -> TrailingContent
 
@@ -125,7 +134,7 @@ struct PanelFilePathHeader<TrailingContent: View>: View {
         }
         .padding(.horizontal, 12)
         .frame(height: 30)
-        .background(Color(nsColor: backgroundColor))
+        .background(Color.clear)
     }
 }
 
@@ -137,17 +146,25 @@ struct PanelHeaderIconButton: View {
 
     var body: some View {
         Button(action: action) {
-            Image(systemName: systemName)
-                .resizable()
-                .scaledToFit()
-                .frame(width: 13, height: 13)
-                .frame(width: 20, height: 20)
-                .contentShape(Rectangle())
+            PanelHeaderIconGlyph(systemName: systemName)
         }
         .buttonStyle(.plain)
         .foregroundColor(.secondary)
         .disabled(isDisabled)
         .help(label)
         .accessibilityLabel(label)
+    }
+}
+
+struct PanelHeaderIconGlyph: View {
+    let systemName: String
+
+    var body: some View {
+        Image(systemName: systemName)
+            .resizable()
+            .scaledToFit()
+            .frame(width: 13, height: 13)
+            .frame(width: 20, height: 20, alignment: .center)
+            .contentShape(Rectangle())
     }
 }
