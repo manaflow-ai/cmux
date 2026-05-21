@@ -435,6 +435,7 @@ private struct ClaudeHookSessionRecord: Codable {
     var lastEmittedNotificationFingerprint: String?
     var lastEmittedNotificationAt: TimeInterval?
     var runtimeStatus: AgentHookRuntimeStatus?
+    var activePromptDepth: Int?
     var startedAt: TimeInterval
     var updatedAt: TimeInterval
 }
@@ -526,6 +527,104 @@ private final class ClaudeHookSessionStore {
         }
     }
 
+    @discardableResult
+    func recordPromptSubmit(
+        sessionId: String,
+        workspaceId: String,
+        surfaceId: String,
+        cwd: String?,
+        transcriptPath: String? = nil,
+        pid: Int?,
+        launchCommand: AgentHookLaunchCommandRecord?,
+        runtimeStatus: AgentHookRuntimeStatus? = nil,
+        updateRuntimeStatus: Bool = false
+    ) throws -> Bool {
+        let normalized = normalizeSessionId(sessionId)
+        guard !normalized.isEmpty else { return false }
+        return try withLockedState { state in
+            let now = Date().timeIntervalSince1970
+            var record = makeSessionRecord(
+                state: state,
+                sessionId: normalized,
+                workspaceId: workspaceId,
+                surfaceId: surfaceId,
+                now: now
+            )
+            update(
+                &record,
+                workspaceId: workspaceId,
+                surfaceId: surfaceId,
+                cwd: cwd,
+                transcriptPath: transcriptPath,
+                pid: pid,
+                launchCommand: launchCommand,
+                isRestorable: nil,
+                lastSubtitle: nil,
+                lastBody: nil,
+                lastNotificationStatus: nil,
+                updateLastNotificationStatus: false,
+                runtimeStatus: runtimeStatus,
+                updateRuntimeStatus: updateRuntimeStatus,
+                now: now
+            )
+            record.activePromptDepth = max(0, record.activePromptDepth ?? 0) + 1
+            state.sessions[normalized] = record
+            return (record.activePromptDepth ?? 0) > 1
+        }
+    }
+
+    @discardableResult
+    func recordPromptStop(
+        sessionId: String,
+        workspaceId: String,
+        surfaceId: String,
+        cwd: String?,
+        transcriptPath: String? = nil,
+        pid: Int?,
+        launchCommand: AgentHookLaunchCommandRecord?,
+        lastSubtitle: String?,
+        lastBody: String?,
+        lastNotificationStatus: AgentHookNotificationStatus? = nil,
+        updateLastNotificationStatus: Bool = false,
+        runtimeStatus: AgentHookRuntimeStatus? = nil,
+        updateRuntimeStatus: Bool = false
+    ) throws -> Bool {
+        let normalized = normalizeSessionId(sessionId)
+        guard !normalized.isEmpty else { return false }
+        return try withLockedState { state in
+            let now = Date().timeIntervalSince1970
+            var record = makeSessionRecord(
+                state: state,
+                sessionId: normalized,
+                workspaceId: workspaceId,
+                surfaceId: surfaceId,
+                now: now
+            )
+            let depthBeforeStop = max(0, record.activePromptDepth ?? 0)
+            update(
+                &record,
+                workspaceId: workspaceId,
+                surfaceId: surfaceId,
+                cwd: cwd,
+                transcriptPath: transcriptPath,
+                pid: pid,
+                launchCommand: launchCommand,
+                isRestorable: nil,
+                lastSubtitle: lastSubtitle,
+                lastBody: lastBody,
+                lastNotificationStatus: lastNotificationStatus,
+                updateLastNotificationStatus: updateLastNotificationStatus,
+                runtimeStatus: runtimeStatus,
+                updateRuntimeStatus: updateRuntimeStatus,
+                now: now
+            )
+            let depthAfterStop = max(0, depthBeforeStop - 1)
+            record.activePromptDepth = depthAfterStop == 0 ? nil : depthAfterStop
+            state.sessions[normalized] = record
+            return depthBeforeStop > 1
+        }
+    }
+
     func upsert(
         sessionId: String,
         workspaceId: String,
@@ -564,43 +663,27 @@ private final class ClaudeHookSessionStore {
                 lastEmittedNotificationFingerprint: nil,
                 lastEmittedNotificationAt: nil,
                 runtimeStatus: nil,
+                activePromptDepth: nil,
                 startedAt: now,
                 updatedAt: now
             )
-            record.workspaceId = workspaceId
-            if !surfaceId.isEmpty {
-                record.surfaceId = surfaceId
-            }
-            if let cwd = normalizeOptional(cwd) {
-                record.cwd = cwd
-            }
-            if let transcriptPath = normalizeOptional(transcriptPath) {
-                record.transcriptPath = transcriptPath
-            }
-            if let pid {
-                record.pid = pid
-            }
-            if let launchCommand, !launchCommand.arguments.isEmpty {
-                record.launchCommand = launchCommand
-            }
-            if let isRestorable {
-                // Preserve sticky true: a later isRestorable=false must not clear
-                // record.isRestorable=true from a transcript-backed event.
-                record.isRestorable = isRestorable || record.isRestorable == true
-            }
-            if let subtitle = normalizeOptional(lastSubtitle) {
-                record.lastSubtitle = subtitle
-            }
-            if let body = normalizeOptional(lastBody) {
-                record.lastBody = body
-            }
-            if updateLastNotificationStatus {
-                record.lastNotificationStatus = lastNotificationStatus
-            }
-            if updateRuntimeStatus {
-                record.runtimeStatus = runtimeStatus
-            }
-            record.updatedAt = now
+            update(
+                &record,
+                workspaceId: workspaceId,
+                surfaceId: surfaceId,
+                cwd: cwd,
+                transcriptPath: transcriptPath,
+                pid: pid,
+                launchCommand: launchCommand,
+                isRestorable: isRestorable,
+                lastSubtitle: lastSubtitle,
+                lastBody: lastBody,
+                lastNotificationStatus: lastNotificationStatus,
+                updateLastNotificationStatus: updateLastNotificationStatus,
+                runtimeStatus: runtimeStatus,
+                updateRuntimeStatus: updateRuntimeStatus,
+                now: now
+            )
             state.sessions[normalized] = record
             if markActive, let normalizedWorkspace = normalizeOptional(workspaceId) {
                 state.activeSessionsByWorkspace[normalizedWorkspace] = ClaudeHookActiveSessionRecord(
@@ -611,6 +694,87 @@ private final class ClaudeHookSessionStore {
                 )
             }
         }
+    }
+
+    private func makeSessionRecord(
+        state: ClaudeHookSessionStoreFile,
+        sessionId: String,
+        workspaceId: String,
+        surfaceId: String,
+        now: TimeInterval
+    ) -> ClaudeHookSessionRecord {
+        state.sessions[sessionId] ?? ClaudeHookSessionRecord(
+            sessionId: sessionId,
+            workspaceId: workspaceId,
+            surfaceId: surfaceId,
+            cwd: nil,
+            transcriptPath: nil,
+            pid: nil,
+            launchCommand: nil,
+            isRestorable: nil,
+            lastSubtitle: nil,
+            lastBody: nil,
+            lastNotificationStatus: nil,
+            lastEmittedNotificationFingerprint: nil,
+            lastEmittedNotificationAt: nil,
+            runtimeStatus: nil,
+            activePromptDepth: nil,
+            startedAt: now,
+            updatedAt: now
+        )
+    }
+
+    private func update(
+        _ record: inout ClaudeHookSessionRecord,
+        workspaceId: String,
+        surfaceId: String,
+        cwd: String?,
+        transcriptPath: String?,
+        pid: Int?,
+        launchCommand: AgentHookLaunchCommandRecord?,
+        isRestorable: Bool?,
+        lastSubtitle: String?,
+        lastBody: String?,
+        lastNotificationStatus: AgentHookNotificationStatus?,
+        updateLastNotificationStatus: Bool,
+        runtimeStatus: AgentHookRuntimeStatus?,
+        updateRuntimeStatus: Bool,
+        now: TimeInterval
+    ) {
+        record.workspaceId = workspaceId
+        if !surfaceId.isEmpty {
+            record.surfaceId = surfaceId
+        }
+        if let cwd = normalizeOptional(cwd) {
+            record.cwd = cwd
+        }
+        if let transcriptPath = normalizeOptional(transcriptPath) {
+            record.transcriptPath = transcriptPath
+        }
+        if let pid {
+            record.pid = pid
+        }
+        if let launchCommand, !launchCommand.arguments.isEmpty {
+            record.launchCommand = launchCommand
+        }
+        if let isRestorable {
+            // Preserve sticky true: a later isRestorable=false must not clear
+            // record.isRestorable=true from a transcript-backed event.
+            record.isRestorable = isRestorable || record.isRestorable == true
+        }
+        if let subtitle = normalizeOptional(lastSubtitle) {
+            record.lastSubtitle = subtitle
+        }
+        if let body = normalizeOptional(lastBody) {
+            record.lastBody = body
+        }
+        if updateLastNotificationStatus {
+            record.lastNotificationStatus = lastNotificationStatus
+        }
+        if updateRuntimeStatus {
+            record.runtimeStatus = runtimeStatus
+        }
+        record.updatedAt = now
     }
 
     func clearNotificationEmission(sessionId: String) throws {
@@ -887,6 +1051,18 @@ private let agentHookWrapperProcessNames: Set<String> = [
     "zsh",
     "env"
 ]
+
+private enum HookAgentProcessKind {
+    case codex
+    case claude
+}
+
+private let suppressSubagentNotificationsDefaultsKey = "suppressSubagentNotifications"
+private let suppressSubagentNotificationsEnvironmentKey = "CMUX_SUPPRESS_SUBAGENT_NOTIFICATIONS"
+private let managedSubagentEnvironmentKey = "CMUX_AGENT_MANAGED_SUBAGENT"
+private let codexTeamsThreadEnvironmentKey = "CMUX_CODEX_TEAMS_THREAD_ID"
+private let codexTeamsParentThreadEnvironmentKey = "CMUX_CODEX_TEAMS_PARENT_THREAD_ID"
+private let codexTeamsDepthEnvironmentKey = "CMUX_CODEX_TEAMS_DEPTH"
 
 enum CLIIDFormat: String {
     case refs
@@ -15040,6 +15216,8 @@ struct CMUXCLI {
                 codexExecutable: codexExecutable,
                 appServerURL: appServerURL,
                 threadId: thread.id,
+                parentThreadId: spawn.parentThreadId,
+                depth: depth,
                 launchPath: launchPath
             )
             guard let startupScript = CMUXCLI.codexTeamsStartupScript(commandText: commandText, cwd: thread.cwd) else {
@@ -15054,7 +15232,13 @@ struct CMUXCLI {
                 "direction": direction,
                 "focus": false,
                 "initial_command": startupScript,
-                "tmux_start_command": commandText
+                "tmux_start_command": commandText,
+                "startup_environment": [
+                    managedSubagentEnvironmentKey: "1",
+                    codexTeamsThreadEnvironmentKey: thread.id,
+                    codexTeamsParentThreadEnvironmentKey: spawn.parentThreadId,
+                    codexTeamsDepthEnvironmentKey: String(max(1, depth))
+                ]
             ]
             if let cwd = thread.cwd?.trimmingCharacters(in: .whitespacesAndNewlines),
                !cwd.isEmpty {
@@ -15169,6 +15353,8 @@ struct CMUXCLI {
         codexExecutable: String,
         appServerURL: String,
         threadId: String,
+        parentThreadId: String,
+        depth: Int,
         launchPath: String?
     ) -> String {
         var parts = ["env"]
@@ -15178,6 +15364,10 @@ struct CMUXCLI {
         }
         parts += [
             "CMUX_CODEX_TEAMS_APP_SERVER_URL=\(appServerURL)",
+            "\(managedSubagentEnvironmentKey)=1",
+            "\(codexTeamsThreadEnvironmentKey)=\(threadId)",
+            "\(codexTeamsParentThreadEnvironmentKey)=\(parentThreadId)",
+            "\(codexTeamsDepthEnvironmentKey)=\(max(1, depth))",
             codexExecutable,
             "resume",
             "--remote",
@@ -17827,15 +18017,11 @@ struct CMUXCLI {
                 client: client
             )
             sendClaudeFeedTelemetry(workspaceId: workspaceId)
-            let claudePid: Int? = {
-                guard let raw = ProcessInfo.processInfo.environment["CMUX_CLAUDE_PID"]?
-                    .trimmingCharacters(in: .whitespacesAndNewlines),
-                    let pid = Int(raw),
-                    pid > 0 else {
-                    return nil
-                }
-                return pid
-            }()
+            let claudePid = claudeAgentPID(from: ProcessInfo.processInfo.environment)
+            let suppressVisibleMutations = shouldSuppressNestedAgentVisibleMutations(
+                currentAgentPID: claudePid,
+                env: ProcessInfo.processInfo.environment
+            )
             let launchCommand = agentLaunchCommandFromEnvironment(
                 ProcessInfo.processInfo.environment,
                 fallbackPID: claudePid,
@@ -17891,13 +18077,13 @@ struct CMUXCLI {
                     workspaceId: workspaceId,
                     telemetry: telemetry
                 )
-            if shouldRegisterPID, let claudePid {
+            if shouldRegisterPID, let claudePid, !suppressVisibleMutations {
                 _ = try? sendV1Command(
                     "set_agent_pid claude_code \(claudePid) --tab=\(workspaceId)\(socketPanelOption(surfaceId))",
                     client: client
                 )
             }
-            if isClearSessionStart {
+            if isClearSessionStart, !suppressVisibleMutations {
                 _ = try? sendV1Command("clear_notifications --tab=\(workspaceId)", client: client)
                 try setClaudeStatus(
                     client: client,
@@ -17928,6 +18114,11 @@ struct CMUXCLI {
                     workspaceId: workspaceId,
                     client: client
                 )
+                let claudePid = mappedSession?.pid ?? claudeAgentPID(from: ProcessInfo.processInfo.environment)
+                let suppressVisibleMutations = shouldSuppressNestedAgentVisibleMutations(
+                    currentAgentPID: claudePid,
+                    env: ProcessInfo.processInfo.environment
+                )
                 sendClaudeFeedTelemetry(workspaceId: workspaceId)
 
                 guard shouldApplyClaudeHookVisibleMutation(
@@ -17937,6 +18128,12 @@ struct CMUXCLI {
                     telemetry: telemetry
                 ) else {
                     telemetry.breadcrumb("claude-hook.stop.stale")
+                    print("OK")
+                    return
+                }
+
+                guard !suppressVisibleMutations else {
+                    telemetry.breadcrumb("claude-hook.stop.nested-suppressed")
                     print("OK")
                     return
                 }
@@ -18011,6 +18208,11 @@ struct CMUXCLI {
                 workspaceId: workspaceId,
                 client: client
             )
+            let claudePid = mappedSession?.pid ?? claudeAgentPID(from: ProcessInfo.processInfo.environment)
+            let suppressVisibleMutations = shouldSuppressNestedAgentVisibleMutations(
+                currentAgentPID: claudePid,
+                env: ProcessInfo.processInfo.environment
+            )
             sendClaudeFeedTelemetry(workspaceId: workspaceId)
             let shouldApplyPromptSubmit =
                 shouldApplyClaudeHookVisibleMutation(
@@ -18027,6 +18229,11 @@ struct CMUXCLI {
                 )
             guard shouldApplyPromptSubmit else {
                 telemetry.breadcrumb("claude-hook.prompt-submit.stale")
+                print("OK")
+                return
+            }
+            guard !suppressVisibleMutations else {
+                telemetry.breadcrumb("claude-hook.prompt-submit.nested-suppressed")
                 print("OK")
                 return
             }
@@ -18073,6 +18280,11 @@ struct CMUXCLI {
                 fallback: workspaceArg,
                 client: client
             )
+            let claudePid = mappedSession?.pid ?? claudeAgentPID(from: ProcessInfo.processInfo.environment)
+            let suppressVisibleMutations = shouldSuppressNestedAgentVisibleMutations(
+                currentAgentPID: claudePid,
+                env: ProcessInfo.processInfo.environment
+            )
             sendClaudeFeedTelemetry(workspaceId: workspaceId)
             guard shouldApplyClaudeHookVisibleMutation(
                 sessionStore: sessionStore,
@@ -18081,6 +18293,11 @@ struct CMUXCLI {
                 telemetry: telemetry
             ) else {
                 telemetry.breadcrumb("claude-hook.notification.stale")
+                print("OK")
+                return
+            }
+            guard !suppressVisibleMutations else {
+                telemetry.breadcrumb("claude-hook.notification.nested-suppressed")
                 print("OK")
                 return
             }
@@ -18172,7 +18389,12 @@ struct CMUXCLI {
                     workspaceId: workspaceId,
                     telemetry: telemetry
                 )
-                if shouldClearVisibleState {
+                let claudePid = consumedSession.pid ?? claudeAgentPID(from: ProcessInfo.processInfo.environment)
+                let suppressVisibleMutations = shouldSuppressNestedAgentVisibleMutations(
+                    currentAgentPID: claudePid,
+                    env: ProcessInfo.processInfo.environment
+                )
+                if shouldClearVisibleState, !suppressVisibleMutations {
                     _ = try? sendV1Command(
                         "clear_agent_pid claude_code --tab=\(workspaceId)\(socketPanelOption(consumedSession.surfaceId)) --clear-status",
                         client: client
@@ -18208,7 +18430,11 @@ struct CMUXCLI {
                 client: client
             )
             sendClaudeFeedTelemetry(workspaceId: workspaceId)
-            let claudePid = mappedSession?.pid
+            let claudePid = mappedSession?.pid ?? claudeAgentPID(from: ProcessInfo.processInfo.environment)
+            let suppressVisibleMutations = shouldSuppressNestedAgentVisibleMutations(
+                currentAgentPID: claudePid,
+                env: ProcessInfo.processInfo.environment
+            )
             guard shouldApplyClaudeHookVisibleMutation(
                 sessionStore: sessionStore,
                 parsedInput: parsedInput,
@@ -18216,6 +18442,11 @@ struct CMUXCLI {
                 telemetry: telemetry
             ) else {
                 telemetry.breadcrumb("claude-hook.pre-tool-use.stale")
+                print("OK")
+                return
+            }
+            guard !suppressVisibleMutations else {
+                telemetry.breadcrumb("claude-hook.pre-tool-use.nested-suppressed")
                 print("OK")
                 return
             }
@@ -19147,6 +19378,11 @@ struct CMUXCLI {
         let question: String?
     }
 
+    private struct CodexTranscriptSubagentSignals {
+        var isSubagentSession = false
+        var hasSubagentNotificationRelay = false
+    }
+
     private enum CodexTranscriptFailureReadResult {
         case unavailable
         case pending
@@ -19430,6 +19666,120 @@ struct CMUXCLI {
         }
 
         return candidate
+    }
+
+    private func readCodexTranscriptSubagentSignals(
+        path: String,
+        turnId: String?
+    ) -> CodexTranscriptSubagentSignals {
+        guard let content = readTextFileTail(path: path, maxBytes: 512 * 1024) else {
+            return CodexTranscriptSubagentSignals()
+        }
+
+        let normalizedTurnId = normalizedHookValue(turnId)
+        var signals = CodexTranscriptSubagentSignals()
+        var currentTurnId: String?
+        var currentTurnRelevant = normalizedTurnId == nil
+
+        for line in content.split(separator: "\n", omittingEmptySubsequences: true) {
+            let trimmed = line.trimmingCharacters(in: .whitespacesAndNewlines)
+            guard !trimmed.isEmpty,
+                  let data = trimmed.data(using: .utf8),
+                  let object = try? JSONSerialization.jsonObject(with: data, options: []) as? [String: Any],
+                  let objectType = object["type"] as? String else {
+                continue
+            }
+
+            if objectType == "session_meta",
+               let payload = object["payload"] as? [String: Any],
+               codexTranscriptSessionMetaIsSubagent(payload) {
+                signals.isSubagentSession = true
+            }
+
+            if objectType == "turn_context",
+               let payload = object["payload"] as? [String: Any] {
+                let payloadTurnId = firstString(in: payload, keys: ["turn_id", "turnId"])
+                currentTurnId = payloadTurnId
+                currentTurnRelevant = normalizedTurnId.map { $0 == payloadTurnId } ?? true
+                continue
+            }
+
+            if objectType == "event_msg",
+               let payload = object["payload"] as? [String: Any],
+               let eventType = payload["type"] as? String {
+                switch eventType {
+                case "task_started":
+                    let payloadTurnId = firstString(in: payload, keys: ["turn_id", "turnId"])
+                    currentTurnId = payloadTurnId
+                    currentTurnRelevant = normalizedTurnId.map { $0 == payloadTurnId } ?? true
+                case "task_complete", "turn_complete":
+                    let payloadTurnId = firstString(in: payload, keys: ["turn_id", "turnId"])
+                    if let payloadTurnId {
+                        currentTurnId = payloadTurnId
+                    }
+                    if let normalizedTurnId {
+                        if payloadTurnId == normalizedTurnId || (payloadTurnId == nil && currentTurnRelevant) {
+                            currentTurnRelevant = false
+                        }
+                    } else {
+                        currentTurnRelevant = false
+                    }
+                default:
+                    break
+                }
+                continue
+            }
+
+            guard currentTurnRelevant || currentTurnId == nil else {
+                continue
+            }
+            guard codexTranscriptLineHasSubagentNotification(object) else {
+                continue
+            }
+            signals.hasSubagentNotificationRelay = true
+        }
+
+        return signals
+    }
+
+    private func codexTranscriptSessionMetaIsSubagent(_ payload: [String: Any]) -> Bool {
+        if firstString(in: payload, keys: ["thread_source", "threadSource"])?.lowercased() == "subagent" {
+            return true
+        }
+        if let source = payload["source"] as? [String: Any],
+           source["subagent"] != nil {
+            return true
+        }
+        return false
+    }
+
+    private func codexTranscriptLineHasSubagentNotification(_ object: [String: Any]) -> Bool {
+        guard (object["type"] as? String) == "response_item",
+              let payload = object["payload"] as? [String: Any],
+              (payload["type"] as? String) == "message",
+              (payload["role"] as? String) == "user" else {
+            return false
+        }
+        return codexTranscriptMessageText(payload)
+            .map { $0.contains("<subagent_notification>") }
+            ?? false
+    }
+
+    private func codexTranscriptMessageText(_ payload: [String: Any]) -> String? {
+        if let content = payload["content"] as? String {
+            let normalized = content.trimmingCharacters(in: .whitespacesAndNewlines)
+            return normalized.isEmpty ? nil : normalized
+        }
+        guard let content = payload["content"] as? [[String: Any]] else {
+            return nil
+        }
+        let parts = content.compactMap { block -> String? in
+            let text = (block["text"] as? String) ?? (block["input_text"] as? String)
+            let normalized = text?.trimmingCharacters(in: .whitespacesAndNewlines)
+            return normalized?.isEmpty == false ? normalized : nil
+        }
+        let joined = parts.joined(separator: "\n")
+        return joined.isEmpty ? nil : joined
     }
 
     private func codexUserInputEventCandidate(
@@ -20717,6 +21067,167 @@ struct CMUXCLI {
         }
 
         return candidate > 1 ? Int(candidate) : nil
+    }
+
+    private func claudeAgentPID(from env: [String: String]) -> Int? {
+        guard let raw = env["CMUX_CLAUDE_PID"]?
+            .trimmingCharacters(in: .whitespacesAndNewlines),
+            let pid = Int(raw),
+            pid > 0 else {
+            return nil
+        }
+        return pid
+    }
+
+    private func shouldSuppressNestedAgentVisibleMutations(
+        currentAgentPID: Int?,
+        nestedPromptEvent: Bool = false,
+        transcriptSubagentSession: Bool = false,
+        env: [String: String]
+    ) -> Bool {
+        if let override = normalizedHookValue(env["CMUX_AGENT_HOOK_SUPPRESS_VISIBLE_MUTATIONS"])?.lowercased(),
+           Self.parseHookBoolean(override) == true {
+            return true
+        }
+
+        guard subagentNotificationSuppressionEnabled(env: env) else {
+            return false
+        }
+
+        if nestedPromptEvent {
+            return true
+        }
+
+        if managedSubagentVisibleMutationSuppressionRequested(env: env) {
+            return true
+        }
+
+        if transcriptSubagentSession {
+            return true
+        }
+
+        guard let currentAgentPID, currentAgentPID > 1 else {
+            return false
+        }
+
+        var candidate = pid_t(currentAgentPID)
+        var agentProcessCount = 0
+        var remainingAncestors = 32
+        while candidate > 1, remainingAncestors > 0 {
+            if nativeAgentProcessKind(for: candidate) != nil {
+                agentProcessCount += 1
+                if agentProcessCount >= 2 {
+                    return true
+                }
+            }
+            let next = parentPID(of: candidate)
+            guard next > 1, next != candidate else {
+                break
+            }
+            candidate = next
+            remainingAncestors -= 1
+        }
+        return false
+    }
+
+    private func managedSubagentVisibleMutationSuppressionRequested(env: [String: String]) -> Bool {
+        guard let raw = normalizedHookValue(env[managedSubagentEnvironmentKey]),
+              let parsed = Self.parseHookBoolean(raw) else {
+            return false
+        }
+        return parsed
+    }
+
+    private func subagentNotificationSuppressionEnabled(env: [String: String]) -> Bool {
+        if let raw = normalizedHookValue(env[suppressSubagentNotificationsEnvironmentKey]),
+           let parsed = Self.parseHookBoolean(raw) {
+            return parsed
+        }
+        for defaults in appDefaultsCandidates(env: env) {
+            if defaults.object(forKey: suppressSubagentNotificationsDefaultsKey) != nil {
+                return defaults.bool(forKey: suppressSubagentNotificationsDefaultsKey)
+            }
+        }
+        return true
+    }
+
+    private func appDefaultsCandidates(env: [String: String]) -> [UserDefaults] {
+        var candidates: [UserDefaults] = []
+        if let bundleId = normalizedHookValue(env["CMUX_BUNDLE_ID"]),
+           let defaults = UserDefaults(suiteName: bundleId) {
+            candidates.append(defaults)
+        }
+        candidates.append(.standard)
+        return candidates
+    }
+
+    private static func parseHookBoolean(_ rawValue: String) -> Bool? {
+        switch rawValue.trimmingCharacters(in: .whitespacesAndNewlines).lowercased() {
+        case "1", "true", "yes", "on", "enabled":
+            return true
+        case "0", "false", "no", "off", "disabled":
+            return false
+        default:
+            return nil
+        }
+    }
+
+    private func nativeAgentProcessKind(for pid: pid_t) -> HookAgentProcessKind? {
+        let name = processName(for: pid)
+        if let kind = Self.nativeAgentProcessKind(processName: name, arguments: []) {
+            return kind
+        }
+
+        let nameBase = Self.agentProcessBasename(name)
+        if let nameBase, nameBase != "node", nameBase != "bun" {
+            return nil
+        }
+
+        return Self.nativeAgentProcessKind(
+            processName: name,
+            arguments: processArguments(for: pid) ?? []
+        )
+    }
+
+    private static func nativeAgentProcessKind(
+        processName: String?,
+        arguments: [String]
+    ) -> HookAgentProcessKind? {
+        let nameBase = agentProcessBasename(processName)
+        let executableBase = agentProcessBasename(arguments.first)
+
+        // Codex's npm/bun launcher leaves a node process above the native
+        // Codex binary. That wrapper is part of the same launch, not a
+        // parent agent, so only native Codex executables count. Claude Code
+        // can run as a node script, so keep that as an agent process.
+        if nameBase == "node" || nameBase == "bun" || executableBase == "node" || executableBase == "bun" {
+            if arguments.dropFirst().contains(where: { argument in
+                let lowered = argument.lowercased()
+                return agentProcessBasename(argument) == "claude"
+                    || lowered.contains("/.claude/")
+                    || lowered.contains("/claude/versions/")
+            }) {
+                return .claude
+            }
+            return nil
+        }
+
+        let executable = arguments.first?.lowercased() ?? ""
+        if nameBase == "codex" || executableBase == "codex" || executable.contains("/codex/codex") {
+            return .codex
+        }
+        if nameBase == "claude" || executableBase == "claude" || executable.contains("/claude/versions/") {
+            return .claude
+        }
+        return nil
+    }
+
+    private static func agentProcessBasename(_ value: String?) -> String? {
+        guard let value = value?.trimmingCharacters(in: .whitespacesAndNewlines),
+              !value.isEmpty else {
+            return nil
+        }
+        return URL(fileURLWithPath: value).lastPathComponent.lowercased()
     }
 
     private func parentPID(of pid: pid_t) -> pid_t {
@@ -23628,6 +24139,7 @@ export default function cmuxPiSessionExtension(pi: ExtensionAPI) {
             let surfaceId = target.surfaceId
             sendAgentFeedTelemetry(workspaceId: workspaceId)
             let pid = inferredPID
+            let suppressVisibleMutations = shouldSuppressNestedAgentVisibleMutations(currentAgentPID: pid, env: env)
             let launchCommand = agentLaunchCommandFromEnvironment(
                 env,
                 fallbackPID: pid,
@@ -23643,22 +24155,26 @@ export default function cmuxPiSessionExtension(pi: ExtensionAPI) {
                     transcriptPath: input.transcriptPath ?? mapped?.transcriptPath,
                     pid: pid,
                     launchCommand: launchCommand,
-                    runtimeStatus: .running,
-                    updateRuntimeStatus: true
+                    runtimeStatus: suppressVisibleMutations ? nil : .running,
+                    updateRuntimeStatus: !suppressVisibleMutations
                 )
-                try? store.clearNotificationEmission(sessionId: sessionId)
-                publishAgentSurfaceResumeBinding(
-                    client: client,
-                    workspaceId: workspaceId,
-                    surfaceId: surfaceId,
-                    kind: def.name,
-                    displayName: def.displayName,
-                    sessionId: sessionId,
-                    cwd: hookCwd ?? mapped?.cwd,
-                    launchCommand: launchCommand
-                )
+                if suppressVisibleMutations {
+                    telemetry.breadcrumb("\(def.name)-hook.session-start.nested-suppressed")
+                } else {
+                    try? store.clearNotificationEmission(sessionId: sessionId)
+                    publishAgentSurfaceResumeBinding(
+                        client: client,
+                        workspaceId: workspaceId,
+                        surfaceId: surfaceId,
+                        kind: def.name,
+                        displayName: def.displayName,
+                        sessionId: sessionId,
+                        cwd: hookCwd ?? mapped?.cwd,
+                        launchCommand: launchCommand
+                    )
+                }
             }
-            if let pid {
+            if let pid, !suppressVisibleMutations {
                 _ = try? sendV1Command(
                     "set_agent_pid \(pidKey) \(pid) --tab=\(workspaceId)\(socketPanelOption(surfaceId))",
                     client: client
@@ -23682,7 +24198,26 @@ export default function cmuxPiSessionExtension(pi: ExtensionAPI) {
                 fallbackKind: def.name,
                 cwd: hookCwd ?? mapped?.cwd
             )
+            let nestedPromptSubmit: Bool
             if !sessionId.isEmpty {
+                nestedPromptSubmit = (try? store.recordPromptSubmit(
+                    sessionId: sessionId,
+                    workspaceId: workspaceId,
+                    surfaceId: surfaceId,
+                    cwd: hookCwd ?? mapped?.cwd,
+                    transcriptPath: input.transcriptPath ?? mapped?.transcriptPath,
+                    pid: pid,
+                    launchCommand: launchCommand
+                )) ?? false
+            } else {
+                nestedPromptSubmit = false
+            }
+            let suppressVisibleMutations = shouldSuppressNestedAgentVisibleMutations(
+                currentAgentPID: pid,
+                nestedPromptEvent: nestedPromptSubmit,
+                env: env
+            )
+            if !sessionId.isEmpty, !suppressVisibleMutations {
                 try? store.upsert(
                     sessionId: sessionId,
                     workspaceId: workspaceId,
@@ -23706,22 +24241,26 @@ export default function cmuxPiSessionExtension(pi: ExtensionAPI) {
                     launchCommand: launchCommand ?? mapped?.launchCommand
                 )
             }
-            if let pid {
+            if let pid, !suppressVisibleMutations {
                 _ = try? sendV1Command(
                     "set_agent_pid \(pidKey) \(pid) --tab=\(workspaceId)\(socketPanelOption(surfaceId))",
                     client: client
                 )
             }
-            _ = try? sendV1Command(
-                "clear_notifications --tab=\(workspaceId)\(socketPanelOption(surfaceId))",
-                client: client
-            )
-            let runningStatus = String(localized: "agent.generic.status.running", defaultValue: "Running")
-            _ = try sendV1Command(
-                "set_status \(def.statusKey) \(runningStatus) --icon=bolt.fill --color=#4C8DFF --tab=\(workspaceId)\(socketPanelOption(surfaceId))",
-                client: client
-            )
-            if def.name == "codex", !sessionId.isEmpty {
+            if !suppressVisibleMutations {
+                _ = try? sendV1Command(
+                    "clear_notifications --tab=\(workspaceId)\(socketPanelOption(surfaceId))",
+                    client: client
+                )
+                let runningStatus = String(localized: "agent.generic.status.running", defaultValue: "Running")
+                _ = try sendV1Command(
+                    "set_status \(def.statusKey) \(runningStatus) --icon=bolt.fill --color=#4C8DFF --tab=\(workspaceId)\(socketPanelOption(surfaceId))",
+                    client: client
+                )
+            } else {
+                telemetry.breadcrumb("\(def.name)-hook.prompt-submit.nested-suppressed")
+            }
+            if def.name == "codex", !sessionId.isEmpty, !suppressVisibleMutations {
                 let leasePath = createCodexMonitorLease(
                     sessionId: sessionId,
                     turnId: input.turnId,
@@ -23773,10 +24312,22 @@ export default function cmuxPiSessionExtension(pi: ExtensionAPI) {
             sendAgentFeedTelemetry(workspaceId: workspaceId)
             let pid = mapped?.pid ?? inferredPID
             let codexFailure: CodexHookFailureSummary?
+            let codexSubagentSignals: CodexTranscriptSubagentSignals
             if def.name == "codex" {
                 codexFailure = summarizeCodexHookFailure(parsedInput: input, sessionId: sessionId, env: env)
+                if subagentNotificationSuppressionEnabled(env: env),
+                   let transcriptPath = normalizedHookValue(input.transcriptPath)
+                    ?? findCodexTranscriptPath(sessionId: sessionId, env: env) {
+                    codexSubagentSignals = readCodexTranscriptSubagentSignals(
+                        path: transcriptPath,
+                        turnId: input.turnId
+                    )
+                } else {
+                    codexSubagentSignals = CodexTranscriptSubagentSignals()
+                }
             } else {
                 codexFailure = nil
+                codexSubagentSignals = CodexTranscriptSubagentSignals()
             }
             let antigravityFailure: AgentHookNotificationSummary? = {
                 guard def.name == "antigravity", let rawObject = input.rawObject else { return nil }
@@ -23835,14 +24386,38 @@ export default function cmuxPiSessionExtension(pi: ExtensionAPI) {
                 )
             let antigravityHasActiveBackgroundWork = hasActiveAntigravityBackgroundWork()
             let stopNotificationStatus: AgentHookNotificationStatus = (codexFailure == nil && antigravityFailure == nil) ? .idle : .error
-
+            let launchCommand = agentLaunchCommandFromEnvironment(
+                env,
+                fallbackPID: pid,
+                fallbackKind: def.name,
+                cwd: cwd
+            )
+            let nestedPromptStop: Bool
             if !sessionId.isEmpty {
-                let launchCommand = agentLaunchCommandFromEnvironment(
-                    env,
-                    fallbackPID: pid,
-                    fallbackKind: def.name,
-                    cwd: cwd
-                )
+                nestedPromptStop = (try? store.recordPromptStop(
+                    sessionId: sessionId,
+                    workspaceId: workspaceId,
+                    surfaceId: surfaceId,
+                    cwd: cwd,
+                    transcriptPath: input.transcriptPath ?? mapped?.transcriptPath,
+                    pid: pid,
+                    launchCommand: launchCommand,
+                    lastSubtitle: nil,
+                    lastBody: nil
+                )) ?? false
+            } else {
+                nestedPromptStop = false
+            }
+            let suppressVisibleMutations = shouldSuppressNestedAgentVisibleMutations(
+                currentAgentPID: pid,
+                nestedPromptEvent: nestedPromptStop,
+                transcriptSubagentSession: codexSubagentSignals.isSubagentSession,
+                env: env
+            )
+            let suppressCompletionNotification = suppressVisibleMutations
+                || codexSubagentSignals.hasSubagentNotificationRelay
+
+            if !sessionId.isEmpty, !suppressVisibleMutations {
                 try? store.upsert(sessionId: sessionId, workspaceId: workspaceId, surfaceId: surfaceId, cwd: cwd,
                                   transcriptPath: input.transcriptPath ?? mapped?.transcriptPath,
                                   pid: pid,
@@ -23864,7 +24439,7 @@ export default function cmuxPiSessionExtension(pi: ExtensionAPI) {
                     launchCommand: launchCommand ?? mapped?.launchCommand
                 )
             }
-            if let pid {
+            if let pid, !suppressVisibleMutations {
                 _ = try? sendV1Command(
                     "set_agent_pid \(pidKey) \(pid) --tab=\(workspaceId)\(socketPanelOption(surfaceId))",
                     client: client
@@ -23877,7 +24452,13 @@ export default function cmuxPiSessionExtension(pi: ExtensionAPI) {
             let shouldPublishGrokStopFallbackNotification = def.name == "grok"
                 && stopNotificationStatus == .idle
                 && (grokAssistantMessage != nil || !hasGrokTranscriptContext)
-            let shouldPublishStopAlert = shouldPublishStopNotification || shouldPublishGrokStopFallbackNotification
+            let shouldPublishStopAlert = (shouldPublishStopNotification || shouldPublishGrokStopFallbackNotification)
+                && !suppressCompletionNotification
+            if suppressVisibleMutations {
+                telemetry.breadcrumb("\(def.name)-hook.stop.nested-suppressed")
+            } else if suppressCompletionNotification {
+                telemetry.breadcrumb("\(def.name)-hook.stop.subagent-notification-suppressed")
+            }
             if shouldPublishStopAlert, shouldSendNotification(fingerprint: notificationFingerprint) {
                 let payload = notificationPayload(title: def.displayName, subtitle: subtitle, body: body)
                 let notifyCommand = "notify_target_async \(workspaceId) \(surfaceId) \(payload)"
@@ -23916,28 +24497,30 @@ export default function cmuxPiSessionExtension(pi: ExtensionAPI) {
                 )
 #endif
             }
-            if let codexFailure {
-                _ = try? sendV1Command(
-                    "set_status \(def.statusKey) \(codexFailure.statusValue) --icon=exclamationmark.triangle.fill --color=#FF453A --priority=100 --tab=\(workspaceId)\(socketPanelOption(surfaceId))",
-                    client: client
-                )
-            } else if antigravityFailure != nil {
-                let statusValue = String.localizedStringWithFormat(
-                    String(localized: "agent.generic.notification.status.error", defaultValue: "%@ error"),
-                    def.displayName
-                )
-                _ = try? sendV1Command(
-                    "set_status \(def.statusKey) \(statusValue) --icon=exclamationmark.triangle.fill --color=#FF453A --priority=100 --tab=\(workspaceId)\(socketPanelOption(surfaceId))",
-                    client: client
-                )
-            } else if antigravityHasActiveBackgroundWork {
-                let runningStatus = String(localized: "agent.generic.status.running", defaultValue: "Running")
-                _ = try? sendV1Command(
-                    "set_status \(def.statusKey) \(runningStatus) --icon=bolt.fill --color=#4C8DFF --tab=\(workspaceId)\(socketPanelOption(surfaceId))",
-                    client: client
-                )
-            } else {
-                setIdleStatusUnlessNewerSessionIsRunning(workspaceId: workspaceId, surfaceId: surfaceId)
+            if !suppressVisibleMutations {
+                if let codexFailure {
+                    _ = try? sendV1Command(
+                        "set_status \(def.statusKey) \(codexFailure.statusValue) --icon=exclamationmark.triangle.fill --color=#FF453A --priority=100 --tab=\(workspaceId)\(socketPanelOption(surfaceId))",
+                        client: client
+                    )
+                } else if antigravityFailure != nil {
+                    let statusValue = String.localizedStringWithFormat(
+                        String(localized: "agent.generic.notification.status.error", defaultValue: "%@ error"),
+                        def.displayName
+                    )
+                    _ = try? sendV1Command(
+                        "set_status \(def.statusKey) \(statusValue) --icon=exclamationmark.triangle.fill --color=#FF453A --priority=100 --tab=\(workspaceId)\(socketPanelOption(surfaceId))",
+                        client: client
+                    )
+                } else if antigravityHasActiveBackgroundWork {
+                    let runningStatus = String(localized: "agent.generic.status.running", defaultValue: "Running")
+                    _ = try? sendV1Command(
+                        "set_status \(def.statusKey) \(runningStatus) --icon=bolt.fill --color=#4C8DFF --tab=\(workspaceId)\(socketPanelOption(surfaceId))",
+                        client: client
+                    )
+                } else {
+                    setIdleStatusUnlessNewerSessionIsRunning(workspaceId: workspaceId, surfaceId: surfaceId)
+                }
             }
 
         case .notification:
@@ -24135,18 +24718,23 @@ export default function cmuxPiSessionExtension(pi: ExtensionAPI) {
 #endif
                 break
             }
-            if let mapped = try? store.consume(sessionId: sessionId, workspaceId: nil, surfaceId: nil) {
+            if let mapped = sessionId.isEmpty ? nil : (try? store.lookup(sessionId: sessionId)) {
                 sendAgentFeedTelemetry(workspaceId: mapped.workspaceId)
-                clearAgentSurfaceResumeBinding(
-                    client: client,
-                    workspaceId: mapped.workspaceId,
-                    surfaceId: mapped.surfaceId,
-                    sessionId: mapped.sessionId
-                )
-                _ = try? sendV1Command(
-                    "clear_agent_pid \(pidKey) --tab=\(mapped.workspaceId)\(socketPanelOption(mapped.surfaceId)) --clear-status",
-                    client: client
-                )
+                let suppressVisibleMutations = shouldSuppressNestedAgentVisibleMutations(currentAgentPID: mapped.pid, env: env)
+                if suppressVisibleMutations {
+                    telemetry.breadcrumb("\(def.name)-hook.session-end.nested-suppressed")
+                } else if let consumed = try? store.consume(sessionId: sessionId, workspaceId: nil, surfaceId: nil) {
+                    clearAgentSurfaceResumeBinding(
+                        client: client,
+                        workspaceId: consumed.workspaceId,
+                        surfaceId: consumed.surfaceId,
+                        sessionId: consumed.sessionId
+                    )
+                    _ = try? sendV1Command(
+                        "clear_agent_pid \(pidKey) --tab=\(consumed.workspaceId)\(socketPanelOption(consumed.surfaceId)) --clear-status",
+                        client: client
+                    )
+                }
             }
 
         case .noop:
@@ -26254,8 +26842,10 @@ export default function cmuxPiSessionExtension(pi: ExtensionAPI) {
                 return ("SessionStart", false)
             case "SessionEnd":
                 return ("SessionEnd", false)
-            case "Stop", "SubagentStop":
+            case "Stop":
                 return ("Stop", false)
+            case "SubagentStop":
+                return ("SubagentStop", false)
             case "Notification":
                 return ("Notification", false)
             default:
@@ -26318,8 +26908,10 @@ export default function cmuxPiSessionExtension(pi: ExtensionAPI) {
             return ("SessionStart", false)
         case "SessionEnd":
             return ("SessionEnd", false)
-        case "Stop", "SubagentStop":
+        case "Stop":
             return ("Stop", false)
+        case "SubagentStop":
+            return ("SubagentStop", false)
         case "Notification":
             return ("Notification", false)
         default:
