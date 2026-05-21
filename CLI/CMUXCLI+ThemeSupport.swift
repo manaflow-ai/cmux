@@ -238,6 +238,8 @@ extension CMUXCLI {
         rawThemeValue: String,
         targetBundleIdentifier: String
     ) throws -> URL {
+        try removeStaleReleaseManagedThemeOverrideIfNeeded()
+
         let fileManager = FileManager.default
         let configURL = try cmuxThemeOverrideConfigURL(targetBundleIdentifier: targetBundleIdentifier)
         let directoryURL = configURL.deletingLastPathComponent()
@@ -258,6 +260,8 @@ extension CMUXCLI {
     }
 
     func clearManagedThemeOverride(targetBundleIdentifier: String) throws -> URL {
+        try removeStaleReleaseManagedThemeOverrideIfNeeded()
+
         let fileManager = FileManager.default
         let configURL = try cmuxThemeOverrideConfigURL(targetBundleIdentifier: targetBundleIdentifier)
         guard let existingContents = try readOptionalThemeOverrideContents(at: configURL) else {
@@ -281,6 +285,41 @@ extension CMUXCLI {
         }
 
         return configURL
+    }
+
+    private func removeStaleReleaseManagedThemeOverrideIfNeeded() throws {
+        guard let activeBundleIdentifier = currentCmuxAppBundleIdentifier()?
+            .trimmingCharacters(in: .whitespacesAndNewlines),
+            !activeBundleIdentifier.isEmpty,
+            activeBundleIdentifier != Self.cmuxThemeOverrideBundleIdentifier else {
+            return
+        }
+
+        let releaseConfigURL = try cmuxThemeOverrideConfigURL(
+            targetBundleIdentifier: Self.cmuxThemeOverrideBundleIdentifier
+        )
+        guard let existingContents = try readOptionalThemeOverrideContents(at: releaseConfigURL) else {
+            return
+        }
+
+        let strippedContents = removingManagedThemeOverride(from: existingContents)
+        guard strippedContents != existingContents else {
+            return
+        }
+
+        let normalizedContents = strippedContents.trimmingCharacters(in: .whitespacesAndNewlines)
+        if normalizedContents.isEmpty {
+            do {
+                try FileManager.default.removeItem(at: releaseConfigURL)
+            } catch {
+                guard !isThemeOverrideFileNotFoundError(error) else {
+                    return
+                }
+                throw error
+            }
+        } else {
+            try normalizedContents.appending("\n").write(to: releaseConfigURL, atomically: true, encoding: .utf8)
+        }
     }
 
     private func readOptionalThemeOverrideContents(at url: URL) throws -> String? {
