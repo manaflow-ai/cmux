@@ -272,7 +272,22 @@ jobs:
               -skip-testing:cmuxTests/FilePreviewPanelTextSavingTests \
               -skip-testing:cmuxTests/FilePreviewReviewFeedbackTests \
               -skip-testing:cmuxTests/GhosttySurfaceOverlayTests \
-              test 2>&1
+              test 2>&1 &
+            local xcodebuild_pid=$!
+            local timeout_seconds="${CMUX_UNIT_TEST_TIMEOUT_SECONDS:-900}"
+            local deadline=$((SECONDS + timeout_seconds))
+            while jobs -pr | grep -q "^${xcodebuild_pid}$"; do
+              if [ "$SECONDS" -ge "$deadline" ]; then
+                echo "xcodebuild unit test timeout after ${timeout_seconds}s; terminating"
+                kill -TERM "$xcodebuild_pid" 2>/dev/null || true
+                sleep 5
+                kill -KILL "$xcodebuild_pid" 2>/dev/null || true
+                wait "$xcodebuild_pid" 2>/dev/null || true
+                return 124
+              fi
+              sleep 5
+            done
+            wait "$xcodebuild_pid"
           }
 
           # Stream output via tee so CI logs are visible in real time, while still
