@@ -5,6 +5,7 @@ now="$(date -u +%Y-%m-%dT%H:%M:%SZ)"
 min_free_gib="${CMUX_MACFLEET_MIN_FREE_GIB:-12}"
 derived_max_age_minutes="${CMUX_MACFLEET_DERIVED_MAX_AGE_MINUTES:-360}"
 tmp_max_age_minutes="${CMUX_MACFLEET_TMP_MAX_AGE_MINUTES:-180}"
+postgres_max_age_minutes="${CMUX_MACFLEET_POSTGRES_MAX_AGE_MINUTES:-180}"
 diag_max_age_days="${CMUX_MACFLEET_DIAG_MAX_AGE_DAYS:-3}"
 
 log() {
@@ -62,6 +63,7 @@ for home in /Users/cmuxvnc /Users/cmuxvnc[2-9]*; do
   # Keep the persistent checkout and SwiftPM package cache, but drop transient
   # build artifacts that grow per run.
   rm_old_children "$home/cmux-ci/tmp" "$tmp_max_age_minutes"
+  find "$home/cmux-ci" -maxdepth 1 -type d -name 'postgres-*' -mmin +"$postgres_max_age_minutes" -print -exec rm -rf {} + 2>/dev/null || true
   log "checked $user"
 done
 

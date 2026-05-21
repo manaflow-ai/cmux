@@ -44,6 +44,7 @@ cleanup_current_run() {
   pkill -KILL -f "$derived" >/dev/null 2>&1 || true
   if [ -d "$postgres_data" ]; then
     pg_ctl -D "$postgres_data" -m fast -w stop >/dev/null 2>&1 || true
+    rm -rf "$postgres_data" || true
   fi
   if [ "$keep_derived" != "1" ] && [ -d "$derived" ]; then
     rm -rf "$derived" || true
