@@ -3836,7 +3836,10 @@ final class BrowserPanel: Panel, ObservableObject {
         guard let preloadWindow = backgroundPreloadWindow else { return }
         backgroundPreloadWindow = nil
         preloadWindow.contentView = nil
-        preloadWindow.close()
+        preloadWindow.orderOut(nil)
+        DispatchQueue.main.async {
+            preloadWindow.close()
+        }
 #if DEBUG
         cmuxDebugLog(
             "browser.backgroundPreload.host.close panel=\(id.uuidString.prefix(5)) " +
