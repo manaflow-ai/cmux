@@ -10,6 +10,48 @@ import Combine
 import ObjectiveC.runtime
 import Darwin
 
+func cmuxEnvironmentHasXCTestIndicators(_ env: [String: String]) -> Bool {
+    if env["XCTestConfigurationFilePath"] != nil { return true }
+    if env["XCTestBundlePath"] != nil { return true }
+    if env["XCTestSessionIdentifier"] != nil { return true }
+    if env["XCInjectBundle"] != nil { return true }
+    if env["XCInjectBundleInto"] != nil { return true }
+    if env["DYLD_INSERT_LIBRARIES"]?.contains("libXCTest") == true { return true }
+    if env.keys.contains(where: { $0.hasPrefix("CMUX_UI_TEST_") }) { return true }
+    return false
+}
+
+func cmuxProcessHasLoadedXCTestRuntime(
+    arguments: [String] = ProcessInfo.processInfo.arguments,
+    bundles: [Bundle] = Bundle.allBundles,
+    frameworks: [Bundle] = Bundle.allFrameworks
+) -> Bool {
+    if arguments.contains(where: { argument in
+        argument.localizedCaseInsensitiveContains("xctest")
+    }) {
+        return true
+    }
+
+    func isXCTestBundle(_ bundle: Bundle) -> Bool {
+        let identifier = bundle.bundleIdentifier ?? ""
+        if identifier.localizedCaseInsensitiveContains("xctest") {
+            return true
+        }
+        let path = bundle.bundlePath
+        return path.localizedCaseInsensitiveContains(".xctest")
+            || path.localizedCaseInsensitiveContains("/XCTest")
+    }
+
+    return bundles.contains(where: isXCTestBundle)
+        || frameworks.contains(where: isXCTestBundle)
+}
+
+func cmuxProcessIsRunningUnderXCTest(
+    _ env: [String: String] = ProcessInfo.processInfo.environment
+) -> Bool {
+    cmuxEnvironmentHasXCTestIndicators(env) || cmuxProcessHasLoadedXCTestRuntime()
+}
+
 func cmuxJavaScriptStringLiteral(_ value: String?) -> String? {
     guard let value else { return nil }
     // Serialize as a JSON array, then strip the outer brackets to get a quoted JS string literal.
@@ -567,14 +609,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
     private var cmuxThemePreviewReloadWorkItem: DispatchWorkItem?
 
     private static func detectRunningUnderXCTest(_ env: [String: String]) -> Bool {
-        if env["XCTestConfigurationFilePath"] != nil { return true }
-        if env["XCTestBundlePath"] != nil { return true }
-        if env["XCTestSessionIdentifier"] != nil { return true }
-        if env["XCInjectBundle"] != nil { return true }
-        if env["XCInjectBundleInto"] != nil { return true }
-        if env["DYLD_INSERT_LIBRARIES"]?.contains("libXCTest") == true { return true }
-        if env.keys.contains(where: { $0.hasPrefix("CMUX_UI_TEST_") }) { return true }
-        return false
+        cmuxProcessIsRunningUnderXCTest(env)
     }
 
     private func isRunningUnderXCTest(_ env: [String: String]) -> Bool {

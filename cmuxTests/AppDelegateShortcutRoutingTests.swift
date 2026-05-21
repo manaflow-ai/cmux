@@ -105,6 +105,7 @@ final class AppDelegateShortcutRoutingTests: XCTestCase {
         super.setUp()
         // Prevent a single hanging test from consuming the entire CI timeout budget.
         executionTimeAllowance = 30
+        AppDelegate.installWindowResponderSwizzlesForTesting()
         #if DEBUG
         KeyboardShortcutRecorderActivity.resetForTesting()
         AppDelegate.shared?.debugResetShortcutRoutingStateForTesting()
