@@ -419,8 +419,10 @@ jobs:
       - name: Run bundled Ghostty theme picker helper regression
         run: |
           set -euo pipefail
+          # The helper script deletes its DerivedData path when it builds; keep
+          # that isolated from the shared tests-build output used below.
           CMUX_SOURCE_PACKAGES_DIR="$PWD/.ci-source-packages" \
-          CMUX_DERIVED_DATA_PATH="$HOME/Library/Developer/Xcode/DerivedData/cmux-unit-ci" \
+          CMUX_DERIVED_DATA_PATH="$RUNNER_TEMP/cmux-bundled-ghostty-helper" \
             ./tests/test_bundled_ghostty_theme_picker_helper.sh
 
       - name: Setup Bun
