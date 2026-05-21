@@ -498,6 +498,91 @@ final class CMUXCLIErrorOutputRegressionTests: XCTestCase {
         XCTAssertTrue(current["dark"] is NSNull, listResult.stdout)
     }
 
+    func testBareInteractiveThemesNightlyRemovesStaleReleaseManagedBlockBeforePicker() throws {
+        let cliPath = try bundledCLIPath()
+        let fileManager = FileManager.default
+        let root = fileManager.temporaryDirectory
+            .appendingPathComponent("cmux-themes-picker-stale-release-\(UUID().uuidString)", isDirectory: true)
+        try fileManager.createDirectory(at: root, withIntermediateDirectories: true)
+        defer { try? fileManager.removeItem(at: root) }
+
+        let fakeCLIPath = try fakeTaggedBundledCLIPath(
+            sourceCLIPath: cliPath,
+            tagSlug: "theme-picker-stale-\(UUID().uuidString.lowercased())"
+        )
+        let fakeGhosttyHelperURL = URL(fileURLWithPath: fakeCLIPath)
+            .deletingLastPathComponent()
+            .appendingPathComponent("ghostty", isDirectory: false)
+        let pickerEnvURL = root.appendingPathComponent("picker-env.txt", isDirectory: false)
+        try """
+        #!/usr/bin/env python3
+        import os
+        import sys
+
+        with open(os.environ["CMUX_TEST_PICKER_ENV_PATH"], "w") as output:
+            output.write("config=" + os.environ.get("CMUX_THEME_PICKER_CONFIG", "") + "\\n")
+            output.write("initial_light=" + os.environ.get("CMUX_THEME_PICKER_INITIAL_LIGHT", "") + "\\n")
+            output.write("initial_dark=" + os.environ.get("CMUX_THEME_PICKER_INITIAL_DARK", "") + "\\n")
+        sys.exit(0)
+        """.write(to: fakeGhosttyHelperURL, atomically: true, encoding: .utf8)
+        try fileManager.setAttributes(
+            [.posixPermissions: 0o755],
+            ofItemAtPath: fakeGhosttyHelperURL.path
+        )
+
+        let appSupportDirectory = root
+            .appendingPathComponent("Library", isDirectory: true)
+            .appendingPathComponent("Application Support", isDirectory: true)
+        let releaseConfigURL = appSupportDirectory
+            .appendingPathComponent("com.cmuxterm.app", isDirectory: true)
+            .appendingPathComponent("config.ghostty", isDirectory: false)
+        let nightlyConfigURL = appSupportDirectory
+            .appendingPathComponent("com.cmuxterm.app.nightly", isDirectory: true)
+            .appendingPathComponent("config.ghostty", isDirectory: false)
+        try fileManager.createDirectory(
+            at: releaseConfigURL.deletingLastPathComponent(),
+            withIntermediateDirectories: true
+        )
+        try """
+        font-size = 13
+
+        # cmux themes start
+        theme = light:Old Release,dark:Old Release
+        # cmux themes end
+        """.appending("\n").write(to: releaseConfigURL, atomically: true, encoding: .utf8)
+
+        let command = [
+            "env",
+            "-i",
+            "HOME=\(shellSingleQuote(root.path))",
+            "CFFIXED_USER_HOME=\(shellSingleQuote(root.path))",
+            "CMUX_SOCKET_PATH=/tmp/cmux-nightly.sock",
+            "CMUX_BUNDLE_ID=com.cmuxterm.app.nightly",
+            "CMUX_CLI_SENTRY_DISABLED=1",
+            "CMUX_TEST_PICKER_ENV_PATH=\(shellSingleQuote(pickerEnvURL.path))",
+            "PATH=/usr/bin:/bin",
+            "/usr/bin/script",
+            "-q",
+            "/dev/null",
+            shellSingleQuote(fakeCLIPath),
+            "themes",
+        ].joined(separator: " ")
+        let result = runShell(command, timeout: 5)
+
+        XCTAssertFalse(result.timedOut, result.stdout)
+        XCTAssertEqual(result.status, 0, result.stdout)
+
+        let releaseContents = try String(contentsOf: releaseConfigURL, encoding: .utf8)
+        XCTAssertTrue(releaseContents.contains("font-size = 13"), releaseContents)
+        XCTAssertFalse(releaseContents.contains("# cmux themes start"), releaseContents)
+        XCTAssertFalse(releaseContents.contains("Old Release"), releaseContents)
+
+        let pickerEnv = try String(contentsOf: pickerEnvURL, encoding: .utf8)
+        XCTAssertTrue(pickerEnv.contains("config=\(nightlyConfigURL.path)"), pickerEnv)
+        XCTAssertTrue(pickerEnv.contains("initial_light=\n"), pickerEnv)
+        XCTAssertTrue(pickerEnv.contains("initial_dark=\n"), pickerEnv)
+    }
+
     func testBareInteractiveThemesReloadsRunningAppAfterPickerExits() throws {
         let cliPath = try bundledCLIPath()
         let fileManager = FileManager.default
