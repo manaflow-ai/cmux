@@ -107,7 +107,7 @@ nonisolated enum SSHPTYAttachStartupCommandBuilder {
         if let foregroundAuth {
             lines += foregroundAuthLines(foregroundAuth)
         }
-        lines.append("exec \"$cmux_ssh_attach_cli\" --socket \"$CMUX_SOCKET_PATH\" ssh-pty-attach --wait --workspace \"$CMUX_WORKSPACE_ID\" --session-id \"$cmux_ssh_attach_session_id\" --attachment-id \"${CMUX_SURFACE_ID:-}\"")
+        lines.append("exec \"$cmux_ssh_attach_cli\" --socket \"$CMUX_SOCKET_PATH\" ssh-pty-attach --wait --require-existing --workspace \"$CMUX_WORKSPACE_ID\" --session-id \"$cmux_ssh_attach_session_id\" --attachment-id \"${CMUX_SURFACE_ID:-}\"")
         return lines.joined(separator: "\n")
     }
 

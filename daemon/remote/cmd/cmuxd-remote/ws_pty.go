@@ -570,6 +570,7 @@ func (h *wsPTYHub) attach(ctx context.Context, conn *websocket.Conn, auth wsAuth
 		rows,
 		persistent,
 		"",
+		false,
 	)
 	if err != nil {
 		return nil, err
@@ -585,6 +586,7 @@ func (h *wsPTYHub) attachRPC(
 	cols int,
 	rows int,
 	command string,
+	requireExisting bool,
 ) (*wsPTYAttachment, context.Context, <-chan struct{}, error) {
 	sessionID = strings.TrimSpace(sessionID)
 	if sessionID == "" {
@@ -592,7 +594,7 @@ func (h *wsPTYHub) attachRPC(
 	}
 	attachmentID = strings.TrimSpace(attachmentID)
 	cols, rows = normalizePTYSize(cols, rows)
-	return h.prepareAttachment(ctx, nil, sessionID, attachmentID, cols, rows, true, command)
+	return h.prepareAttachment(ctx, nil, sessionID, attachmentID, cols, rows, true, command, requireExisting)
 }
 
 func (h *wsPTYHub) prepareAttachment(
@@ -604,6 +606,7 @@ func (h *wsPTYHub) prepareAttachment(
 	rows int,
 	persistent bool,
 	command string,
+	requireExisting bool,
 ) (*wsPTYAttachment, context.Context, <-chan struct{}, error) {
 	h.mu.Lock()
 
@@ -614,6 +617,10 @@ func (h *wsPTYHub) prepareAttachment(
 	}
 	session := h.sessions[sessionKey]
 	if session == nil || session.closed {
+		if requireExisting {
+			h.mu.Unlock()
+			return nil, nil, nil, fmt.Errorf("persistent PTY session %q is not running", sessionID)
+		}
 		var err error
 		session, err = h.startSessionLocked(sessionKey, sessionID, cols, rows, command)
 		if err != nil {

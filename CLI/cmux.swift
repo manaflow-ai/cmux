@@ -7497,13 +7497,17 @@ struct CMUXCLI {
         )
 
         let response = try client.sendV2(method: "workspace.remote.pty_sessions", params: params)
+        let sessions = response["sessions"] as? [[String: Any]] ?? []
+        let errors = response["errors"] as? [[String: Any]] ?? []
         if jsonOutput {
             print(jsonString(formatIDs(response, mode: idFormat)))
+            if !errors.isEmpty {
+                throw CLIError(message: sshSessionListFailureMessage(errors))
+            }
             return
         }
 
-        let sessions = response["sessions"] as? [[String: Any]] ?? []
-        if sessions.isEmpty {
+        if sessions.isEmpty, errors.isEmpty {
             print("No persisted SSH PTY sessions")
             return
         }
@@ -7522,6 +7526,22 @@ struct CMUXCLI {
                 : ""
             print("\(workspacePrefix)\(sessionID) attachments=\(attachments.count) size=\(effectiveCols)x\(effectiveRows) scrollback_bytes=\(scrollbackBytes)")
         }
+        if !errors.isEmpty {
+            throw CLIError(message: sshSessionListFailureMessage(errors))
+        }
+    }
+
+    private func sshSessionListFailureMessage(_ errors: [[String: Any]]) -> String {
+        let count = errors.count
+        let summary = "ssh-session-list failed for \(count) remote workspace\(count == 1 ? "" : "s")"
+        let details = errors.map { error in
+            let workspace = debugString(error["workspace_ref"])
+                ?? debugString(error["workspace_id"])
+                ?? "workspace:?"
+            let message = debugString(error["error"]) ?? "unknown error"
+            return "- \(workspace): \(message)"
+        }
+        return ([summary] + details).joined(separator: "\n")
     }
 
     private func runSSHSessionCleanup(
@@ -7734,7 +7754,7 @@ struct CMUXCLI {
             "if [ -z \"$cmux_ssh_attach_cli\" ]; then printf '%s\\n' '[cmux] bundled CLI not found for SSH PTY attach.' >&2; exit 127; fi",
             "if [ -z \"${CMUX_SOCKET_PATH:-}\" ]; then printf '%s\\n' '[cmux] CMUX_SOCKET_PATH is missing for SSH PTY attach.' >&2; exit 1; fi",
             "if [ -z \"${CMUX_WORKSPACE_ID:-}\" ]; then printf '%s\\n' '[cmux] CMUX_WORKSPACE_ID is missing for SSH PTY attach.' >&2; exit 1; fi",
-            "exec \"$cmux_ssh_attach_cli\" --socket \"$CMUX_SOCKET_PATH\" ssh-pty-attach --wait --workspace \"$CMUX_WORKSPACE_ID\" --session-id \(quotedSessionID) --attachment-id \"${CMUX_SURFACE_ID:-}\"",
+            "exec \"$cmux_ssh_attach_cli\" --socket \"$CMUX_SOCKET_PATH\" ssh-pty-attach --wait --require-existing --workspace \"$CMUX_WORKSPACE_ID\" --session-id \(quotedSessionID) --attachment-id \"${CMUX_SURFACE_ID:-}\"",
         ].joined(separator: "\n")
     }
 
@@ -7764,12 +7784,13 @@ struct CMUXCLI {
         let (attachmentIDOpt, rem2) = parseOption(rem1, name: "--attachment-id")
         let (commandB64Opt, rem3) = parseOption(rem2, name: "--command-b64")
         let waitForReady = rem3.contains("--wait")
-        let remaining = rem3.filter { $0 != "--wait" }
+        let requireExisting = rem3.contains("--require-existing")
+        let remaining = rem3.filter { $0 != "--wait" && $0 != "--require-existing" }
         if let unknown = remaining.first(where: { Self.isFlagToken($0) }) {
             throw CLIError(message: "ssh-pty-attach: unknown flag '\(unknown)'")
         }
         guard remaining.isEmpty else {
-            throw CLIError(message: "Usage: cmux ssh-pty-attach --workspace <workspace> --session-id <id> [--attachment-id <id>] [--command-b64 <base64>]")
+            throw CLIError(message: "Usage: cmux ssh-pty-attach --workspace <workspace> --session-id <id> [--attachment-id <id>] [--command-b64 <base64>] [--require-existing]")
         }
         let workspaceRaw = workspaceOpt ?? ProcessInfo.processInfo.environment["CMUX_WORKSPACE_ID"]
         guard let workspaceRaw,
@@ -7804,12 +7825,13 @@ struct CMUXCLI {
 
         let size = currentCLITerminalSize()
         let bridge = try waitForReady
-            ? waitForSSHPTYBridge(client: client, workspaceId: workspaceId, sessionID: sessionID, attachmentID: attachmentID, command: command)
+            ? waitForSSHPTYBridge(client: client, workspaceId: workspaceId, sessionID: sessionID, attachmentID: attachmentID, command: command, requireExisting: requireExisting)
             : client.sendV2(method: "workspace.remote.pty_bridge", params: [
                 "workspace_id": workspaceId,
                 "session_id": sessionID,
                 "attachment_id": attachmentID,
                 "command": command ?? "",
+                "require_existing": requireExisting,
             ])
         let host = (bridge["host"] as? String) ?? "127.0.0.1"
         guard let port = cliStrictInt(bridge["port"]), port > 0, port <= 65535 else {
@@ -7942,7 +7964,8 @@ struct CMUXCLI {
         workspaceId: String,
         sessionID: String,
         attachmentID: String,
-        command: String?
+        command: String?,
+        requireExisting: Bool
     ) throws -> [String: Any] {
         let deadline = Date().addingTimeInterval(90)
         var lastError: Error?
@@ -7953,6 +7976,7 @@ struct CMUXCLI {
                     "session_id": sessionID,
                     "attachment_id": attachmentID,
                     "command": command ?? "",
+                    "require_existing": requireExisting,
                 ])
             } catch {
                 lastError = error

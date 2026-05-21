@@ -629,6 +629,42 @@ func TestPTYRPCCommandUsesPOSIXShellForConfiguredLoginShell(t *testing.T) {
 	})
 }
 
+func TestPTYRPCRequireExistingFailsMissingSession(t *testing.T) {
+	server := &rpcServer{
+		nextStreamID:  1,
+		nextSessionID: 1,
+		streams:       map[string]*streamState{},
+		sessions:      map[string]*sessionState{},
+		ptyHub:        newWebSocketPTYHub(wsPTYServerConfig{}, io.Discard),
+		ownsPTYHub:    true,
+		frameWriter: &stdioFrameWriter{
+			writer: bufio.NewWriter(io.Discard),
+		},
+	}
+	defer server.closeAll()
+
+	resp := server.handleRequest(rpcRequest{
+		ID:     1,
+		Method: "pty.attach",
+		Params: map[string]any{
+			"session_id":       "missing-session",
+			"attachment_id":    "a1",
+			"cols":             80,
+			"rows":             24,
+			"require_existing": true,
+		},
+	})
+	if resp.OK {
+		t.Fatalf("pty.attach require_existing unexpectedly succeeded: %+v", resp)
+	}
+	if resp.Error == nil || resp.Error.Code != "pty_session_not_found" {
+		t.Fatalf("pty.attach require_existing error = %+v, want pty_session_not_found", resp.Error)
+	}
+	if sessions := server.ptyHub.sessionSnapshots(); len(sessions) != 0 {
+		t.Fatalf("require_existing created sessions: %+v", sessions)
+	}
+}
+
 func TestRPCServerCloseAllLeavesSharedPTYHubAlive(t *testing.T) {
 	hub := newWebSocketPTYHub(wsPTYServerConfig{}, io.Discard)
 	sessionKey := persistentPTYSessionKey("shared")

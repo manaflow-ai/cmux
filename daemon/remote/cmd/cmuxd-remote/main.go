@@ -935,6 +935,7 @@ func (s *rpcServer) handlePTYAttach(req rpcRequest) rpcResponse {
 		}
 	}
 	command, _ := getStringParam(req.Params, "command")
+	requireExisting, _ := getBoolParam(req.Params, "require_existing")
 
 	hub := s.ptyHub
 	if hub == nil {
@@ -954,13 +955,14 @@ func (s *rpcServer) handlePTYAttach(req rpcRequest) rpcResponse {
 		cols,
 		rows,
 		command,
+		requireExisting,
 	)
 	if err != nil {
 		return rpcResponse{
 			ID: req.ID,
 			OK: false,
 			Error: &rpcError{
-				Code:    "pty_start_failed",
+				Code:    ptyAttachErrorCode(requireExisting),
 				Message: err.Error(),
 			},
 		}
@@ -977,6 +979,13 @@ func (s *rpcServer) handlePTYAttach(req rpcRequest) rpcResponse {
 			"attached":      true,
 		},
 	}
+}
+
+func ptyAttachErrorCode(requireExisting bool) string {
+	if requireExisting {
+		return "pty_session_not_found"
+	}
+	return "pty_start_failed"
 }
 
 func (s *rpcServer) handlePTYWrite(req rpcRequest) rpcResponse {
@@ -1466,4 +1475,16 @@ func getIntParam(params map[string]any, key string) (int, bool) {
 	default:
 		return 0, false
 	}
+}
+
+func getBoolParam(params map[string]any, key string) (bool, bool) {
+	if params == nil {
+		return false, false
+	}
+	raw, ok := params[key]
+	if !ok || raw == nil {
+		return false, false
+	}
+	value, ok := raw.(bool)
+	return value, ok
 }

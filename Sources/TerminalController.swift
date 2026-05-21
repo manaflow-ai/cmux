@@ -5757,6 +5757,7 @@ class TerminalController {
             ?? UUID().uuidString.lowercased()
         let command = v2RawString(params, "command")?
             .trimmingCharacters(in: .whitespacesAndNewlines)
+        let requireExisting = v2Bool(params, "require_existing") ?? false
 
         let resolved = v2ResolveRemotePTYTarget(
             params: params,
@@ -5779,7 +5780,8 @@ class TerminalController {
             let endpoint = try controller.startPTYBridge(
                 sessionID: sessionID,
                 attachmentID: attachmentID,
-                command: command?.isEmpty == true ? nil : command
+                command: command?.isEmpty == true ? nil : command,
+                requireExisting: requireExisting
             )
             var payload = v2RemotePTYTargetPayload(target)
             payload["host"] = endpoint.host

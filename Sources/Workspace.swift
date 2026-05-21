@@ -1973,6 +1973,7 @@ private final class WorkspaceRemoteDaemonRPCClient {
         cols: Int,
         rows: Int,
         command: String?,
+        requireExisting: Bool,
         queue: DispatchQueue,
         onEvent: @escaping (PTYEvent) -> Void
     ) throws -> String {
@@ -2003,6 +2004,9 @@ private final class WorkspaceRemoteDaemonRPCClient {
         if let command = command?.trimmingCharacters(in: .whitespacesAndNewlines),
            !command.isEmpty {
             params["command"] = command
+        }
+        if requireExisting {
+            params["require_existing"] = true
         }
 
         do {
@@ -3467,7 +3471,7 @@ private final class WorkspaceRemoteDaemonProxyTunnel {
         }
     }
 
-    func startPTYBridge(sessionID: String, attachmentID: String, command: String?) throws -> WorkspaceRemotePTYBridgeServer.Endpoint {
+    func startPTYBridge(sessionID: String, attachmentID: String, command: String?, requireExisting: Bool) throws -> WorkspaceRemotePTYBridgeServer.Endpoint {
         try queue.sync {
             guard let rpcClient, !isStopped else {
                 throw NSError(domain: "cmux.remote.pty", code: 33, userInfo: [
@@ -3479,7 +3483,8 @@ private final class WorkspaceRemoteDaemonProxyTunnel {
                 rpcClient: rpcClient,
                 sessionID: sessionID,
                 attachmentID: attachmentID,
-                command: command
+                command: command,
+                requireExisting: requireExisting
             ) { [weak self] in
                 self?.queue.async {
                     self?.ptyBridgeServers.removeValue(forKey: bridgeID)
@@ -3686,10 +3691,16 @@ private final class WorkspaceRemoteProxyBroker {
         configuration: WorkspaceRemoteConfiguration,
         sessionID: String,
         attachmentID: String,
-        command: String?
+        command: String?,
+        requireExisting: Bool
     ) throws -> WorkspaceRemotePTYBridgeServer.Endpoint {
         try withReadyTunnel(configuration: configuration) { tunnel in
-            try tunnel.startPTYBridge(sessionID: sessionID, attachmentID: attachmentID, command: command)
+            try tunnel.startPTYBridge(
+                sessionID: sessionID,
+                attachmentID: attachmentID,
+                command: command,
+                requireExisting: requireExisting
+            )
         }
     }
 
@@ -4368,6 +4379,7 @@ final class WorkspaceRemotePTYBridgeServer {
         private let sessionID: String
         private let attachmentID: String
         private let command: String?
+        private let requireExisting: Bool
         private let token: String
         private let queue: DispatchQueue
         private let onClose: () -> Void
@@ -4385,6 +4397,7 @@ final class WorkspaceRemotePTYBridgeServer {
             sessionID: String,
             attachmentID: String,
             command: String?,
+            requireExisting: Bool,
             token: String,
             queue: DispatchQueue,
             onClose: @escaping () -> Void
@@ -4394,6 +4407,7 @@ final class WorkspaceRemotePTYBridgeServer {
             self.sessionID = sessionID
             self.attachmentID = attachmentID
             self.command = command
+            self.requireExisting = requireExisting
             self.token = token
             self.queue = queue
             self.onClose = onClose
@@ -4475,6 +4489,7 @@ final class WorkspaceRemotePTYBridgeServer {
                     cols: cols,
                     rows: rows,
                     command: command,
+                    requireExisting: requireExisting,
                     queue: queue
                 ) { [weak self] event in
                     self?.handlePTYEvent(event)
@@ -4609,6 +4624,7 @@ final class WorkspaceRemotePTYBridgeServer {
     private let sessionID: String
     private let attachmentID: String
     private let command: String?
+    private let requireExisting: Bool
     private let token = UUID().uuidString.lowercased()
     private let queue = DispatchQueue(label: "com.cmux.remote-ssh.pty-bridge.\(UUID().uuidString)", qos: .userInitiated)
     private let onStop: () -> Void
@@ -4623,12 +4639,14 @@ final class WorkspaceRemotePTYBridgeServer {
         sessionID: String,
         attachmentID: String,
         command: String?,
+        requireExisting: Bool,
         onStop: @escaping () -> Void
     ) {
         self.rpcClient = rpcClient
         self.sessionID = sessionID
         self.attachmentID = attachmentID
         self.command = command
+        self.requireExisting = requireExisting
         self.onStop = onStop
     }
 
@@ -4720,6 +4738,7 @@ final class WorkspaceRemotePTYBridgeServer {
             sessionID: sessionID,
             attachmentID: attachmentID,
             command: command,
+            requireExisting: requireExisting,
             token: token,
             queue: queue
         ) { [weak self] in
@@ -4973,6 +4992,7 @@ final class WorkspaceRemoteSessionController {
         sessionID: String,
         attachmentID: String,
         command: String?,
+        requireExisting: Bool,
         timeout: TimeInterval = 8.0
     ) throws -> WorkspaceRemotePTYBridgeServer.Endpoint {
         try runOnControllerQueue(timeout: timeout) {
@@ -4985,7 +5005,8 @@ final class WorkspaceRemoteSessionController {
                 configuration: self.configuration,
                 sessionID: sessionID,
                 attachmentID: attachmentID,
-                command: command
+                command: command,
+                requireExisting: requireExisting
             )
         }
     }
@@ -10451,7 +10472,8 @@ final class Workspace: Identifiable, ObservableObject {
     func startRemotePTYBridge(
         sessionID: String,
         attachmentID: String,
-        command: String?
+        command: String?,
+        requireExisting: Bool
     ) throws -> WorkspaceRemotePTYBridgeServer.Endpoint {
         guard let controller = remoteSessionController else {
             throw NSError(domain: "cmux.remote.pty", code: 12, userInfo: [
@@ -10461,7 +10483,8 @@ final class Workspace: Identifiable, ObservableObject {
         return try controller.startPTYBridge(
             sessionID: sessionID,
             attachmentID: attachmentID,
-            command: command
+            command: command,
+            requireExisting: requireExisting
         )
     }
 

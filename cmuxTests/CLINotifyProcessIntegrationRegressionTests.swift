@@ -690,10 +690,11 @@ final class CLINotifyProcessIntegrationRegressionTests: XCTestCase {
             XCTAssertEqual(params["remote_pty_session_id"] as? String, sessionId)
             XCTAssertEqual(params["focus"] as? Bool, true)
             let initialCommand = params["initial_command"] as? String ?? ""
-            XCTAssertTrue(initialCommand.contains("ssh-pty-attach"), initialCommand)
-            XCTAssertTrue(initialCommand.contains(sessionId), initialCommand)
-            XCTAssertTrue(initialCommand.contains("CMUX_WORKSPACE_ID"), initialCommand)
-            XCTAssertTrue(initialCommand.contains("CMUX_SURFACE_ID"), initialCommand)
+        XCTAssertTrue(initialCommand.contains("ssh-pty-attach"), initialCommand)
+        XCTAssertTrue(initialCommand.contains("--require-existing"), initialCommand)
+        XCTAssertTrue(initialCommand.contains(sessionId), initialCommand)
+        XCTAssertTrue(initialCommand.contains("CMUX_WORKSPACE_ID"), initialCommand)
+        XCTAssertTrue(initialCommand.contains("CMUX_SURFACE_ID"), initialCommand)
             return self.v2Response(
                 id: id,
                 ok: true,
@@ -729,6 +730,133 @@ final class CLINotifyProcessIntegrationRegressionTests: XCTestCase {
         XCTAssertEqual(result.status, 0, result.stderr)
         XCTAssertTrue(result.stderr.isEmpty, result.stderr)
         XCTAssertEqual(state.snapshot().count, 1)
+    }
+
+    func testSSHPTYAttachRequireExistingPassesBridgeFlag() throws {
+        let cliPath = try bundledCLIPath()
+        let socketPath = makeSocketPath("sshreq")
+        let listenerFD = try bindUnixSocket(at: socketPath)
+        let bridge = try bindLoopbackTCP()
+        let state = MockSocketServerState()
+        let workspaceId = "22222222-2222-2222-2222-222222222222"
+        let surfaceId = "33333333-3333-3333-3333-333333333333"
+        let sessionId = "ssh-existing-session"
+        let token = "bridge-token"
+
+        defer {
+            Darwin.close(listenerFD)
+            Darwin.close(bridge.fd)
+            unlink(socketPath)
+        }
+
+        let socketHandled = startMockServer(listenerFD: listenerFD, state: state) { line in
+            guard let payload = self.jsonObject(line),
+                  let id = payload["id"] as? String,
+                  let method = payload["method"] as? String else {
+                return self.malformedRequestResponse(raw: line)
+            }
+            XCTAssertEqual(method, "workspace.remote.pty_bridge")
+            let params = payload["params"] as? [String: Any] ?? [:]
+            XCTAssertEqual(params["workspace_id"] as? String, workspaceId)
+            XCTAssertEqual(params["session_id"] as? String, sessionId)
+            XCTAssertEqual(params["attachment_id"] as? String, surfaceId)
+            XCTAssertEqual(params["require_existing"] as? Bool, true)
+            return self.v2Response(
+                id: id,
+                ok: true,
+                result: [
+                    "host": "127.0.0.1",
+                    "port": bridge.port,
+                    "token": token,
+                    "session_id": sessionId,
+                    "attachment_id": surfaceId,
+                ]
+            )
+        }
+        let bridgeHandled = startBridgeErrorServer(listenerFD: bridge.fd, message: "missing session")
+
+        var environment = ProcessInfo.processInfo.environment
+        environment["CMUX_SOCKET_PATH"] = socketPath
+        environment["CMUX_CLI_SENTRY_DISABLED"] = "1"
+
+        let result = runProcess(
+            executablePath: cliPath,
+            arguments: [
+                "ssh-pty-attach",
+                "--wait",
+                "--require-existing",
+                "--workspace", workspaceId,
+                "--session-id", sessionId,
+                "--attachment-id", surfaceId,
+            ],
+            environment: environment,
+            timeout: 5
+        )
+
+        wait(for: [socketHandled, bridgeHandled], timeout: 5)
+        XCTAssertFalse(result.timedOut, result.stderr)
+        XCTAssertEqual(result.status, 1, result.stderr)
+        XCTAssertTrue(result.stderr.contains("ssh-pty-attach: missing session"), result.stderr)
+    }
+
+    func testSSHSessionListAllWorkspacesReportsQueryErrors() throws {
+        let cliPath = try bundledCLIPath()
+        let socketPath = makeSocketPath("sshlist")
+        let listenerFD = try bindUnixSocket(at: socketPath)
+        let state = MockSocketServerState()
+        let workspaceId = "22222222-2222-2222-2222-222222222222"
+
+        defer {
+            Darwin.close(listenerFD)
+            unlink(socketPath)
+        }
+
+        let serverHandled = startMockServer(listenerFD: listenerFD, state: state) { line in
+            guard let payload = self.jsonObject(line),
+                  let id = payload["id"] as? String,
+                  let method = payload["method"] as? String else {
+                return self.malformedRequestResponse(raw: line)
+            }
+            XCTAssertEqual(method, "workspace.remote.pty_sessions")
+            let params = payload["params"] as? [String: Any] ?? [:]
+            XCTAssertEqual(params["all_workspaces"] as? Bool, true)
+            return self.v2Response(
+                id: id,
+                ok: true,
+                result: [
+                    "sessions": [],
+                    "errors": [
+                        [
+                            "workspace_id": workspaceId,
+                            "workspace_ref": "workspace:4",
+                            "error": "remote connection is not active",
+                        ],
+                    ],
+                ]
+            )
+        }
+
+        var environment = ProcessInfo.processInfo.environment
+        environment["CMUX_SOCKET_PATH"] = socketPath
+        environment["CMUX_CLI_SENTRY_DISABLED"] = "1"
+
+        let result = runProcess(
+            executablePath: cliPath,
+            arguments: [
+                "ssh-session-list",
+                "--all-workspaces",
+            ],
+            environment: environment,
+            timeout: 5
+        )
+
+        wait(for: [serverHandled], timeout: 5)
+        XCTAssertFalse(result.timedOut, result.stderr)
+        XCTAssertEqual(result.status, 1, result.stderr)
+        XCTAssertFalse(result.stdout.contains("No persisted SSH PTY sessions"), result.stdout)
+        XCTAssertTrue(result.stderr.contains("ssh-session-list failed for 1 remote workspace"), result.stderr)
+        XCTAssertTrue(result.stderr.contains("workspace:4"), result.stderr)
+        XCTAssertTrue(result.stderr.contains("remote connection is not active"), result.stderr)
     }
 
     func testSSHSessionCleanupAllReportsPartialFailures() throws {
