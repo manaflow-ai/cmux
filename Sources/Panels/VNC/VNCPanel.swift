@@ -36,6 +36,7 @@ final class VNCPanel: Panel, ObservableObject {
     @Published private(set) var focusFlashToken: Int = 0
 
     private weak var focusView: NSView?
+    private var pendingFocus = false
     private var connection: VNCPanelConnection?
     private var connectionID: UUID?
     private var restartDates: [Date] = []
@@ -57,6 +58,12 @@ final class VNCPanel: Panel, ObservableObject {
 
     func attachFocusView(_ view: NSView?) {
         focusView = view
+        applyPendingFocusIfPossible()
+    }
+
+    func focusViewWindowDidChange(_ view: NSView) {
+        guard view === focusView else { return }
+        applyPendingFocusIfPossible()
     }
 
     func startIfNeeded() {
@@ -142,12 +149,13 @@ final class VNCPanel: Panel, ObservableObject {
         connection = nil
         connectionID = nil
         focusView = nil
+        pendingFocus = false
         latestFrame = nil
     }
 
     func focus() {
-        guard let view = focusView, let window = view.window else { return }
-        window.makeFirstResponder(view)
+        pendingFocus = true
+        applyPendingFocusIfPossible()
     }
 
     func unfocus() {}
@@ -184,6 +192,13 @@ final class VNCPanel: Panel, ObservableObject {
 
     private func applyFrame(header: VNCFrameHeader, payload: Data) {
         latestFrame = VNCDisplayFrame(header: header, payload: payload)
+    }
+
+    private func applyPendingFocusIfPossible() {
+        guard pendingFocus, let view = focusView, let window = view.window else { return }
+        if window.makeFirstResponder(view) {
+            pendingFocus = false
+        }
     }
 
     private func prepareForUserInput() -> Bool {

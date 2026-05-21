@@ -1,6 +1,7 @@
 import XCTest
 import AppKit
 import Darwin
+import CMUXVNC
 #if canImport(cmux_DEV)
 @testable import cmux_DEV
 #elseif canImport(cmux)
@@ -8,6 +9,25 @@ import Darwin
 #endif
 @MainActor
 final class TerminalControllerSocketSecurityTests: XCTestCase {
+    private final class FocusSpyWindow: NSWindow {
+        var requestedResponder: NSResponder?
+
+        override func makeFirstResponder(_ responder: NSResponder?) -> Bool {
+            requestedResponder = responder
+            return responder != nil
+        }
+    }
+
+    private final class FocusableView: NSView {
+        weak var spyWindow: NSWindow?
+
+        override var acceptsFirstResponder: Bool { true }
+
+        override var window: NSWindow? {
+            spyWindow ?? super.window
+        }
+    }
+
     private func makeSocketPath(_ name: String) -> String {
         let shortID = UUID().uuidString.replacingOccurrences(of: "-", with: "").prefix(8)
         return URL(fileURLWithPath: NSTemporaryDirectory())
@@ -618,6 +638,114 @@ final class TerminalControllerSocketSecurityTests: XCTestCase {
         XCTAssertEqual(portsKickError["code"] as? String, "not_found")
         let portsKickData = try XCTUnwrap(portsKickError["data"] as? [String: Any], "Expected error data payload")
         XCTAssertEqual(portsKickData["surface_id"] as? String, unknownSurfaceId.uuidString)
+    }
+
+    func testGenericSurfaceCreationRejectsVNCType() async throws {
+        let socketPath = makeSocketPath("vnc-type")
+        let manager = TabManager()
+        let workspace = manager.addWorkspace(select: true)
+        let focusedPanelId = try XCTUnwrap(workspace.focusedPanelId)
+        let initialPanelCount = workspace.panels.count
+
+        defer {
+            if manager.tabs.contains(where: { $0.id == workspace.id }) {
+                manager.closeWorkspace(workspace)
+            }
+        }
+
+        TerminalController.shared.start(
+            tabManager: manager,
+            socketPath: socketPath,
+            accessMode: .allowAll
+        )
+        try waitForSocket(at: socketPath)
+
+        let cases: [(method: String, params: [String: Any])] = [
+            (
+                method: "surface.create",
+                params: [
+                    "workspace_id": workspace.id.uuidString,
+                    "type": "vnc"
+                ]
+            ),
+            (
+                method: "surface.split",
+                params: [
+                    "workspace_id": workspace.id.uuidString,
+                    "surface_id": focusedPanelId.uuidString,
+                    "direction": "right",
+                    "type": "vnc"
+                ]
+            ),
+            (
+                method: "pane.create",
+                params: [
+                    "workspace_id": workspace.id.uuidString,
+                    "surface_id": focusedPanelId.uuidString,
+                    "direction": "right",
+                    "type": "vnc"
+                ]
+            )
+        ]
+
+        for testCase in cases {
+            let response = try await sendV2RequestAsync(
+                method: testCase.method,
+                params: testCase.params,
+                to: socketPath
+            )
+
+            XCTAssertEqual(response["ok"] as? Bool, false, "Unexpected JSON-RPC response: \(response)")
+            let error = try XCTUnwrap(response["error"] as? [String: Any], "Unexpected JSON-RPC response: \(response)")
+            XCTAssertEqual(error["code"] as? String, "invalid_params")
+            XCTAssertTrue((error["message"] as? String)?.contains("VNC") == true)
+            let data = try XCTUnwrap(error["data"] as? [String: Any], "Expected error data payload")
+            XCTAssertEqual(data["type"] as? String, PanelType.vnc.rawValue)
+        }
+
+        XCTAssertEqual(
+            workspace.panels.count,
+            initialPanelCount,
+            "Generic socket creation methods must not create terminal fallbacks for unsupported VNC requests."
+        )
+    }
+
+    func testVNCPendingFocusAppliesWhenCanvasGetsWindow() throws {
+        let panel = VNCPanel(
+            workspaceId: UUID(),
+            session: MacfleetVNCSession(
+                name: "docker-vnc-1",
+                hostName: "docker-vnc-1",
+                address: "127.0.0.1",
+                port: 5900,
+                username: "cmux",
+                index: 1
+            ),
+            credential: VNCResolvedCredential(
+                username: "cmux",
+                password: "secret",
+                source: .sessionPassword
+            )
+        )
+        let view = FocusableView(frame: NSRect(x: 0, y: 0, width: 100, height: 100))
+        let window = FocusSpyWindow(
+            contentRect: NSRect(x: 0, y: 0, width: 100, height: 100),
+            styleMask: [.borderless],
+            backing: .buffered,
+            defer: true
+        )
+        defer {
+            panel.close()
+        }
+
+        panel.focus()
+        panel.attachFocusView(view)
+        XCTAssertNil(window.requestedResponder)
+
+        view.spyWindow = window
+        panel.focusViewWindowDidChange(view)
+
+        XCTAssertTrue(window.requestedResponder === view)
     }
 
     func testWorkspaceCloseRejectsPinnedWorkspace() async throws {

@@ -22,6 +22,10 @@ struct VNCMetalCanvasRepresentable: NSViewRepresentable {
         view.onPointer = { [weak panel] x, y, button, isDown in
             panel?.sendPointer(x: x, y: y, button: button, isDown: isDown)
         }
+        view.onWindowAttachmentChanged = { [weak panel, weak view] in
+            guard let view else { return }
+            panel?.focusViewWindowDidChange(view)
+        }
         panel.attachFocusView(view)
         return view
     }
@@ -36,6 +40,10 @@ struct VNCMetalCanvasRepresentable: NSViewRepresentable {
         view.onPointer = { [weak panel] x, y, button, isDown in
             panel?.sendPointer(x: x, y: y, button: button, isDown: isDown)
         }
+        view.onWindowAttachmentChanged = { [weak panel, weak view] in
+            guard let view else { return }
+            panel?.focusViewWindowDidChange(view)
+        }
         if let frame = panel.latestFrame {
             view.apply(frame)
         } else {
@@ -45,6 +53,7 @@ struct VNCMetalCanvasRepresentable: NSViewRepresentable {
 
     static func dismantleNSView(_ view: VNCMetalCanvasView, coordinator: Coordinator) {
         coordinator.panel?.attachFocusView(nil)
+        view.onWindowAttachmentChanged = nil
         view.close()
     }
 
@@ -61,6 +70,7 @@ final class VNCMetalCanvasView: NSView {
     var onText: ((String) -> Void)?
     var onKey: ((UInt16, Bool) -> Void)?
     var onPointer: ((Int, Int, Int?, Bool?) -> Void)?
+    var onWindowAttachmentChanged: (() -> Void)?
 
     private static let maxFramebufferDimension = 16_384
     private static let maxFramebufferPixels = 33_554_432
@@ -114,6 +124,7 @@ final class VNCMetalCanvasView: NSView {
         window?.acceptsMouseMovedEvents = true
         updateMetalLayerGeometry()
         drawFramebuffer()
+        onWindowAttachmentChanged?()
     }
 
     override func resignFirstResponder() -> Bool {

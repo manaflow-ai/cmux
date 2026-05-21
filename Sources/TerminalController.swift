@@ -6921,6 +6921,9 @@ class TerminalController {
             return .err(code: "invalid_params", message: "Missing or invalid direction (left|right|up|down)", data: nil)
         }
         let panelType = v2PanelType(params, "type") ?? .terminal
+        if let rejection = v2RejectGenericVNCPanelType(panelType, method: "surface.split") {
+            return rejection
+        }
         let urlStr = v2String(params, "url")
         let url = urlStr.flatMap { URL(string: $0) }
         let workingDirectory = v2OptionalTrimmedRawString(params, "working_directory")
@@ -7013,6 +7016,9 @@ class TerminalController {
         }
 
         let panelType = v2PanelType(params, "type") ?? .terminal
+        if let rejection = v2RejectGenericVNCPanelType(panelType, method: "surface.create") {
+            return rejection
+        }
         let urlStr = v2String(params, "url")
         let url = urlStr.flatMap { URL(string: $0) }
         let workingDirectory = v2OptionalTrimmedRawString(params, "working_directory")
@@ -8367,6 +8373,9 @@ class TerminalController {
         }
 
         let panelType = v2PanelType(params, "type") ?? .terminal
+        if let rejection = v2RejectGenericVNCPanelType(panelType, method: "pane.create") {
+            return rejection
+        }
         let urlStr = v2String(params, "url")
         let url = urlStr.flatMap { URL(string: $0) }
         let workingDirectory = v2OptionalTrimmedRawString(params, "working_directory")
