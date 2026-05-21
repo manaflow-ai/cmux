@@ -1773,7 +1773,12 @@ private struct DebugWindowControlsView: View {
                         ) {
                             AboutTitlebarDebugWindowController.shared.show()
                         }
-                        Button("Titlebar Layout Debug...") {
+                        Button(
+                            String(
+                                localized: "debug.menu.titlebarLayoutDebug",
+                                defaultValue: "Titlebar Layout Debug..."
+                            )
+                        ) {
                             TitlebarLayoutDebugWindowController.shared.show()
                         }
                         Button("Sidebar Debug…") {
