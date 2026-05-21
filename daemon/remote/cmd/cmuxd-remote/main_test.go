@@ -735,6 +735,7 @@ func TestPTYReplayIsChunkedBelowRPCFrameBuffer(t *testing.T) {
 
 	var joined []byte
 	frameCount := 0
+	firstTwoEventBytes := 0
 	for {
 		select {
 		case frame := <-attachment.send:
@@ -752,6 +753,12 @@ func TestPTYReplayIsChunkedBelowRPCFrameBuffer(t *testing.T) {
 			}
 			if len(eventLine)+1 >= swiftRPCMaxFrameBytes {
 				t.Fatalf("event line length = %d, want < %d", len(eventLine)+1, swiftRPCMaxFrameBytes)
+			}
+			if frameCount <= 2 {
+				firstTwoEventBytes += len(eventLine) + 1
+				if firstTwoEventBytes >= swiftRPCMaxFrameBytes {
+					t.Fatalf("first two replay event lines = %d bytes, want < %d", firstTwoEventBytes, swiftRPCMaxFrameBytes)
+				}
 			}
 			decoded, err := base64.StdEncoding.DecodeString(event.DataBase64)
 			if err != nil {

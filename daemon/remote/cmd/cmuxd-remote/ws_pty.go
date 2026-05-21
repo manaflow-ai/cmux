@@ -82,7 +82,7 @@ const (
 	defaultPTYRows                   = 24
 	maxPTYDimension                  = 65535
 	defaultWebSocketScrollbackCap    = 1 << 20
-	defaultWebSocketReplayChunkBytes = 96 * 1024
+	defaultWebSocketReplayChunkBytes = 48 * 1024
 	defaultWebSocketWriteQueueCap    = 256
 	defaultWebSocketWriteTimeout     = 10 * time.Second
 	defaultWebSocketSessionIdleTTL   = 24 * time.Hour

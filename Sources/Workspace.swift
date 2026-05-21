@@ -2177,14 +2177,18 @@ private final class WorkspaceRemoteDaemonRPCClient {
             return
         }
 
-        stdoutBuffer.append(data)
-        if stdoutBuffer.count > Self.maxStdoutBufferBytes {
+        func failOversizedBuffer(_ detail: String) {
             stdoutBuffer.removeAll(keepingCapacity: false)
-            signalPendingFailureLocked("daemon transport stdout exceeded \(Self.maxStdoutBufferBytes) bytes without message framing")
+            signalPendingFailureLocked(detail)
             process?.terminate()
-            return
         }
+
+        stdoutBuffer.append(data)
         while let newlineIndex = stdoutBuffer.firstIndex(of: 0x0A) {
+            guard newlineIndex <= Self.maxStdoutBufferBytes else {
+                failOversizedBuffer("daemon transport stdout frame exceeded \(Self.maxStdoutBufferBytes) bytes")
+                return
+            }
             var lineData = Data(stdoutBuffer[..<newlineIndex])
             stdoutBuffer.removeSubrange(...newlineIndex)
 
@@ -2193,6 +2197,9 @@ private final class WorkspaceRemoteDaemonRPCClient {
             }
             guard !lineData.isEmpty else { continue }
             consumeJSONPayload(lineData)
+        }
+        if stdoutBuffer.count > Self.maxStdoutBufferBytes {
+            failOversizedBuffer("daemon transport stdout exceeded \(Self.maxStdoutBufferBytes) bytes without message framing")
         }
     }
 
@@ -4336,6 +4343,8 @@ private final class WorkspaceRemoteCLIRelayServer {
 }
 
 final class WorkspaceRemotePTYBridgeServer {
+    private static let unusedBridgeTimeout: TimeInterval = 30.0
+
     struct Endpoint {
         let host: String
         let port: Int
@@ -4346,6 +4355,7 @@ final class WorkspaceRemotePTYBridgeServer {
 
     private final class Session {
         private static let maxHandshakeBytes = 4096
+        private static let handshakeTimeout: TimeInterval = 30.0
 
         private let connection: NWConnection
         private let rpcClient: WorkspaceRemoteDaemonRPCClient
@@ -4361,6 +4371,7 @@ final class WorkspaceRemotePTYBridgeServer {
         private var handshakeBuffer = Data()
         private var pendingOutputSends = 0
         private var closeWhenOutputFlushes: Bool?
+        private var handshakeTimeoutWorkItem: DispatchWorkItem?
 
         init(
             connection: NWConnection,
@@ -4383,6 +4394,7 @@ final class WorkspaceRemotePTYBridgeServer {
         }
 
         func start() {
+            armHandshakeTimeout()
             connection.stateUpdateHandler = { [weak self] state in
                 guard let self else { return }
                 switch state {
@@ -4449,6 +4461,8 @@ final class WorkspaceRemotePTYBridgeServer {
             let cols = Self.strictInt(payload["cols"]) ?? 80
             let rows = Self.strictInt(payload["rows"]) ?? 24
             do {
+                handshakeTimeoutWorkItem?.cancel()
+                handshakeTimeoutWorkItem = nil
                 _ = try rpcClient.attachPTY(
                     sessionID: sessionID,
                     attachmentID: attachmentID,
@@ -4467,6 +4481,15 @@ final class WorkspaceRemotePTYBridgeServer {
             } catch {
                 closeWithBridgeError(error.localizedDescription)
             }
+        }
+
+        private func armHandshakeTimeout() {
+            let workItem = DispatchWorkItem { [weak self] in
+                guard let self, !self.isClosed, !self.isAttached else { return }
+                self.close(detach: false)
+            }
+            handshakeTimeoutWorkItem = workItem
+            queue.asyncAfter(deadline: .now() + Self.handshakeTimeout, execute: workItem)
         }
 
         private func forwardInput(_ data: Data) {
@@ -4556,6 +4579,8 @@ final class WorkspaceRemotePTYBridgeServer {
         private func close(detach: Bool) {
             guard !isClosed else { return }
             isClosed = true
+            handshakeTimeoutWorkItem?.cancel()
+            handshakeTimeoutWorkItem = nil
             if detach && isAttached {
                 rpcClient.detachPTY(sessionID: sessionID, attachmentID: attachmentID)
             }
@@ -4585,6 +4610,7 @@ final class WorkspaceRemotePTYBridgeServer {
     private var listener: NWListener?
     private var session: Session?
     private var isStopped = false
+    private var unusedBridgeTimeoutWorkItem: DispatchWorkItem?
 
     fileprivate init(
         rpcClient: WorkspaceRemoteDaemonRPCClient,
@@ -4652,6 +4678,9 @@ final class WorkspaceRemotePTYBridgeServer {
         }
 
         self.listener = listener
+        queue.async { [weak self] in
+            self?.armUnusedBridgeTimeoutLocked()
+        }
         return Endpoint(
             host: "127.0.0.1",
             port: startupPort,
@@ -4672,6 +4701,8 @@ final class WorkspaceRemotePTYBridgeServer {
             connection.cancel()
             return
         }
+        unusedBridgeTimeoutWorkItem?.cancel()
+        unusedBridgeTimeoutWorkItem = nil
         listener?.newConnectionHandler = nil
         listener?.stateUpdateHandler = nil
         listener?.cancel()
@@ -4692,9 +4723,20 @@ final class WorkspaceRemotePTYBridgeServer {
         session.start()
     }
 
+    private func armUnusedBridgeTimeoutLocked() {
+        guard !isStopped, listener != nil, session == nil else { return }
+        let workItem = DispatchWorkItem { [weak self] in
+            self?.stopLocked()
+        }
+        unusedBridgeTimeoutWorkItem = workItem
+        queue.asyncAfter(deadline: .now() + Self.unusedBridgeTimeout, execute: workItem)
+    }
+
     private func stopLocked() {
         guard !isStopped else { return }
         isStopped = true
+        unusedBridgeTimeoutWorkItem?.cancel()
+        unusedBridgeTimeoutWorkItem = nil
         listener?.newConnectionHandler = nil
         listener?.stateUpdateHandler = nil
         listener?.cancel()
