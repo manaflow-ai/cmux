@@ -61,7 +61,7 @@ export default function DeferUnreadPage() {
 
       <video
         src="/blog/defer-unread.mp4"
-        width={1824}
+        width={1596}
         height={1080}
         autoPlay
         loop
