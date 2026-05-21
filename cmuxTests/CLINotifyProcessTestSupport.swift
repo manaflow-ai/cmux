@@ -18,6 +18,12 @@ extension CLINotifyProcessIntegrationRegressionTests {
             commands.append(command)
             lock.unlock()
         }
+
+        func snapshot() -> [String] {
+            lock.lock()
+            defer { lock.unlock() }
+            return commands
+        }
     }
 
     func bundledCLIPath() throws -> String {
@@ -149,6 +155,77 @@ extension CLINotifyProcessIntegrationRegressionTests {
             }
         }
         return handled
+    }
+
+    func startMockServerAccepting(
+        listenerFD: Int32,
+        state: MockSocketServerState,
+        connectionLimit: Int,
+        handler: @escaping @Sendable (String) -> String
+    ) {
+        DispatchQueue.global(qos: .userInitiated).async {
+            var accepted = 0
+            while accepted < connectionLimit {
+                var clientAddr = sockaddr_un()
+                var clientAddrLen = socklen_t(MemoryLayout<sockaddr_un>.size)
+                let clientFD = withUnsafeMutablePointer(to: &clientAddr) { ptr in
+                    ptr.withMemoryRebound(to: sockaddr.self, capacity: 1) { sockaddrPtr in
+                        Darwin.accept(listenerFD, sockaddrPtr, &clientAddrLen)
+                    }
+                }
+                if clientFD < 0 {
+                    if errno == EINTR { continue }
+                    return
+                }
+                accepted += 1
+
+                DispatchQueue.global(qos: .userInitiated).async {
+                    defer { Darwin.close(clientFD) }
+                    var pending = Data()
+                    var buffer = [UInt8](repeating: 0, count: 4096)
+
+                    while true {
+                        let count = Darwin.read(clientFD, &buffer, buffer.count)
+                        if count < 0 {
+                            if errno == EINTR { continue }
+                            return
+                        }
+                        if count == 0 { return }
+                        pending.append(buffer, count: count)
+
+                        while let newlineRange = pending.firstRange(of: Data([0x0A])) {
+                            let lineData = pending.subdata(in: 0..<newlineRange.lowerBound)
+                            pending.removeSubrange(0...newlineRange.lowerBound)
+                            guard let line = String(data: lineData, encoding: .utf8) else { continue }
+                            state.append(line)
+                            guard self.writeAll(handler(line) + "\n", to: clientFD) else { return }
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    func writeAll(_ string: String, to fd: Int32) -> Bool {
+        let bytes = Array(string.utf8)
+        var offset = 0
+        while offset < bytes.count {
+            let written = bytes.withUnsafeBytes { buffer in
+                Darwin.write(fd, buffer.baseAddress!.advanced(by: offset), bytes.count - offset)
+            }
+            if written > 0 {
+                offset += written
+                continue
+            }
+            if written == 0 {
+                return false
+            }
+            if errno == EINTR || errno == EAGAIN || errno == EWOULDBLOCK {
+                continue
+            }
+            return false
+        }
+        return true
     }
 
     func v2Response(

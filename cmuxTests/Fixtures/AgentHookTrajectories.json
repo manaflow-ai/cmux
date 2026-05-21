@@ -1,0 +1,390 @@
+{
+  "version": 1,
+  "trajectories": [
+    {
+      "name": "claude-code-basic-turn",
+      "agent": "claude",
+      "launch": {
+        "kind": "claude",
+        "executable": "/usr/local/bin/claude",
+        "argv": ["/usr/local/bin/claude", "--model", "sonnet", "--permission-mode", "plan"]
+      },
+      "steps": [
+        {
+          "name": "session-start",
+          "arguments": ["hooks", "claude", "session-start"],
+          "stdin": {
+            "session_id": "claude-replay-session",
+            "cwd": "${workspace}",
+            "hook_event_name": "SessionStart",
+            "source": "startup"
+          },
+          "expectedStdout": "OK\n",
+          "expectedSocketContains": ["feed.push"]
+        },
+        {
+          "name": "prompt-submit",
+          "arguments": ["hooks", "claude", "prompt-submit"],
+          "stdin": {
+            "session_id": "claude-replay-session",
+            "cwd": "${workspace}",
+            "hook_event_name": "UserPromptSubmit",
+            "prompt": "summarize the replay fixture"
+          },
+          "expectedStdout": "OK\n",
+          "expectedSocketContains": ["feed.push", "clear_notifications", "set_status claude_code Running"]
+        },
+        {
+          "name": "permission-request",
+          "arguments": ["hooks", "feed", "--source", "claude", "--event", "PermissionRequest"],
+          "stdin": {
+            "hook_event_name": "PermissionRequest",
+            "session_id": "claude-replay-session",
+            "cwd": "${workspace}",
+            "request_id": "claude-permission-1",
+            "tool_name": "Bash",
+            "tool_input": {
+              "command": "git status --short"
+            }
+          },
+          "feedResult": {
+            "status": "resolved",
+            "request_id": "claude-permission-1",
+            "decision": {
+              "kind": "permission",
+              "mode": "allow"
+            }
+          },
+          "expectedStdoutContains": ["\"behavior\":\"allow\"", "\"hookEventName\":\"PermissionRequest\""],
+          "expectedFeedEvents": [
+            {
+              "_source": "claude",
+              "hook_event_name": "PermissionRequest",
+              "tool_name": "Bash"
+            }
+          ]
+        },
+        {
+          "name": "stop",
+          "arguments": ["hooks", "claude", "stop"],
+          "stdin": {
+            "session_id": "claude-replay-session",
+            "cwd": "${workspace}",
+            "hook_event_name": "Stop",
+            "last_assistant_message": "Claude replay turn completed"
+          },
+          "expectedStdout": "OK\n",
+          "expectedSocketContains": ["feed.push", "notify_target", "set_status claude_code Idle"]
+        }
+      ]
+    },
+    {
+      "name": "codex-permission-turn",
+      "agent": "codex",
+      "launch": {
+        "kind": "codex",
+        "executable": "/usr/local/bin/codex",
+        "argv": ["/usr/local/bin/codex", "--model", "gpt-5.4", "--sandbox", "workspace-write"]
+      },
+      "steps": [
+        {
+          "name": "session-start",
+          "arguments": ["hooks", "codex", "session-start"],
+          "stdin": {
+            "session_id": "codex-replay-session",
+            "cwd": "${workspace}",
+            "hook_event_name": "SessionStart"
+          },
+          "expectedStdout": "{}\n",
+          "expectedSocketContains": ["feed.push", "surface.resume.set"]
+        },
+        {
+          "name": "permission-request",
+          "arguments": ["hooks", "feed", "--source", "codex", "--event", "PermissionRequest"],
+          "stdin": {
+            "event": "PermissionRequest",
+            "session_id": "codex-replay-session",
+            "cwd": "${workspace}",
+            "request_id": "codex-permission-1",
+            "tool_name": "apply_patch",
+            "tool_input": {
+              "patch": "*** Begin Patch\\n*** End Patch"
+            }
+          },
+          "feedResult": {
+            "status": "resolved",
+            "request_id": "codex-permission-1",
+            "decision": {
+              "kind": "permission",
+              "mode": "allow"
+            }
+          },
+          "expectedStdoutContains": ["\"behavior\":\"allow\"", "\"hookEventName\":\"PermissionRequest\""],
+          "expectedFeedEvents": [
+            {
+              "_source": "codex",
+              "hook_event_name": "PermissionRequest",
+              "tool_name": "apply_patch"
+            }
+          ]
+        },
+        {
+          "name": "stop",
+          "arguments": ["hooks", "codex", "stop"],
+          "stdin": {
+            "session_id": "codex-replay-session",
+            "cwd": "${workspace}",
+            "hook_event_name": "Stop",
+            "last_assistant_message": "Codex replay turn completed"
+          },
+          "expectedStdout": "{}\n",
+          "expectedSocketContains": ["feed.push", "notify_target_async", "set_status codex Idle"]
+        }
+      ]
+    },
+    {
+      "name": "antigravity-tool-turn",
+      "agent": "antigravity",
+      "launch": {
+        "kind": "antigravity",
+        "executable": "/usr/local/bin/agy",
+        "argv": ["/usr/local/bin/agy", "--sandbox", "danger-full-access"]
+      },
+      "steps": [
+        {
+          "name": "session-start",
+          "arguments": ["hooks", "antigravity", "session-start"],
+          "stdin": {
+            "conversation_id": "antigravity-replay-conversation",
+            "cwd": "${workspace}",
+            "hook_event_name": "SessionStart"
+          },
+          "expectedStdout": "{}\n",
+          "expectedSocketContains": ["feed.push", "surface.resume.set"]
+        },
+        {
+          "name": "prompt-submit",
+          "arguments": ["hooks", "antigravity", "prompt-submit"],
+          "stdin": {
+            "conversation_id": "antigravity-replay-conversation",
+            "cwd": "${workspace}",
+            "hook_event_name": "PreInvocation",
+            "prompt": "inspect the repo"
+          },
+          "expectedStdout": "{}\n",
+          "expectedSocketContains": ["feed.push", "clear_notifications", "set_status antigravity Running"]
+        },
+        {
+          "name": "pre-tool-use",
+          "arguments": ["hooks", "feed", "--source", "antigravity", "--event", "PreToolUse"],
+          "stdin": {
+            "hook_event_name": "PreToolUse",
+            "conversation_id": "antigravity-replay-conversation",
+            "cwd": "${workspace}",
+            "request_id": "antigravity-tool-1",
+            "tool_name": "run_command",
+            "tool_input": {
+              "command": "git status --short"
+            }
+          },
+          "feedResult": {
+            "status": "resolved",
+            "request_id": "antigravity-tool-1",
+            "decision": {
+              "kind": "permission",
+              "mode": "allow"
+            }
+          },
+          "expectedStdoutContains": ["\"decision\":\"allow\"", "User approved via cmux Feed."],
+          "expectedFeedEvents": [
+            {
+              "_source": "antigravity",
+              "hook_event_name": "PermissionRequest",
+              "tool_name": "run_command"
+            }
+          ]
+        },
+        {
+          "name": "stop",
+          "arguments": ["hooks", "antigravity", "stop"],
+          "stdin": {
+            "conversation_id": "antigravity-replay-conversation",
+            "cwd": "${workspace}",
+            "hook_event_name": "Stop",
+            "fullyIdle": true,
+            "last_assistant_message": "Antigravity replay turn completed"
+          },
+          "expectedStdout": "{}\n",
+          "expectedSocketContains": ["feed.push", "notify_target_async", "set_status antigravity Idle"]
+        }
+      ]
+    },
+    {
+      "name": "gemini-tool-turn",
+      "agent": "gemini",
+      "launch": {
+        "kind": "gemini",
+        "executable": "/usr/local/bin/gemini",
+        "argv": ["/usr/local/bin/gemini", "--model", "gemini-2.5-pro", "--approval-mode", "default"]
+      },
+      "steps": [
+        {
+          "name": "session-start",
+          "arguments": ["hooks", "gemini", "session-start"],
+          "stdin": {
+            "session_id": "gemini-replay-session",
+            "cwd": "${workspace}",
+            "hook_event_name": "SessionStart"
+          },
+          "expectedStdout": "{}\n",
+          "expectedSocketContains": ["feed.push", "surface.resume.set"]
+        },
+        {
+          "name": "before-agent",
+          "arguments": ["hooks", "gemini", "prompt-submit"],
+          "stdin": {
+            "session_id": "gemini-replay-session",
+            "cwd": "${workspace}",
+            "hook_event_name": "BeforeAgent",
+            "prompt": "update the docs"
+          },
+          "expectedStdout": "{}\n",
+          "expectedSocketContains": ["feed.push", "clear_notifications", "set_status gemini Running"]
+        },
+        {
+          "name": "pre-tool-use",
+          "arguments": ["hooks", "feed", "--source", "gemini", "--event", "PreToolUse"],
+          "stdin": {
+            "hook_event_name": "PreToolUse",
+            "session_id": "gemini-replay-session",
+            "cwd": "${workspace}",
+            "request_id": "gemini-tool-1",
+            "tool_name": "Write",
+            "tool_input": {
+              "path": "README.md",
+              "content": "fixture"
+            }
+          },
+          "feedResult": {
+            "status": "resolved",
+            "request_id": "gemini-tool-1",
+            "decision": {
+              "kind": "permission",
+              "mode": "allow"
+            }
+          },
+          "expectedStdoutContains": ["\"permissionDecision\":\"allow\"", "\"decision\":\"approve\""],
+          "expectedFeedEvents": [
+            {
+              "_source": "gemini",
+              "hook_event_name": "PermissionRequest",
+              "tool_name": "Write"
+            }
+          ]
+        },
+        {
+          "name": "after-agent",
+          "arguments": ["hooks", "gemini", "stop"],
+          "stdin": {
+            "session_id": "gemini-replay-session",
+            "cwd": "${workspace}",
+            "hook_event_name": "AfterAgent",
+            "last_assistant_message": "Gemini replay turn completed"
+          },
+          "expectedStdout": "{}\n",
+          "expectedSocketContains": ["feed.push", "notify_target_async", "set_status gemini Idle"]
+        },
+        {
+          "name": "session-end",
+          "arguments": ["hooks", "gemini", "session-end"],
+          "stdin": {
+            "session_id": "gemini-replay-session",
+            "cwd": "${workspace}",
+            "hook_event_name": "SessionEnd"
+          },
+          "expectedStdout": "{}\n",
+          "expectedSocketContains": ["feed.push", "surface.resume.clear"]
+        }
+      ]
+    },
+    {
+      "name": "opencode-plugin-turn",
+      "agent": "opencode",
+      "launch": {
+        "kind": "opencode",
+        "executable": "/usr/local/bin/opencode",
+        "argv": ["/usr/local/bin/opencode", "run", "--agent", "build"]
+      },
+      "steps": [
+        {
+          "name": "session-start",
+          "arguments": ["hooks", "opencode", "session-start"],
+          "stdin": {
+            "session_id": "opencode-replay-session",
+            "cwd": "${workspace}",
+            "hook_event_name": "SessionStart",
+            "event": "session.created"
+          },
+          "expectedStdout": "{}\n",
+          "expectedSocketContains": ["feed.push", "surface.resume.set"]
+        },
+        {
+          "name": "permission-request",
+          "arguments": ["hooks", "feed", "--source", "opencode", "--event", "PermissionRequest"],
+          "stdin": {
+            "hook_event_name": "PermissionRequest",
+            "session_id": "opencode-replay-session",
+            "cwd": "${workspace}",
+            "request_id": "opencode-permission-1",
+            "tool_name": "Bash",
+            "tool_input": {
+              "permission": "bash",
+              "patterns": ["git status --short"]
+            }
+          },
+          "feedResult": {
+            "status": "resolved",
+            "request_id": "opencode-permission-1",
+            "decision": {
+              "kind": "permission",
+              "mode": "allow"
+            }
+          },
+          "expectedStdoutContains": ["\"permissionDecision\":\"allow\"", "\"decision\":\"approve\""],
+          "expectedFeedEvents": [
+            {
+              "_source": "opencode",
+              "hook_event_name": "PermissionRequest",
+              "tool_name": "Bash"
+            }
+          ]
+        },
+        {
+          "name": "session-idle",
+          "arguments": ["hooks", "opencode", "stop"],
+          "stdin": {
+            "session_id": "opencode-replay-session",
+            "cwd": "${workspace}",
+            "hook_event_name": "Stop",
+            "event": "session.idle",
+            "last_assistant_message": "OpenCode replay turn completed"
+          },
+          "expectedStdout": "{}\n",
+          "expectedSocketContains": ["feed.push", "notify_target_async", "set_status opencode Idle"]
+        },
+        {
+          "name": "session-end",
+          "arguments": ["hooks", "opencode", "session-end"],
+          "stdin": {
+            "session_id": "opencode-replay-session",
+            "cwd": "${workspace}",
+            "hook_event_name": "SessionEnd",
+            "event": "session.deleted"
+          },
+          "expectedStdout": "{}\n",
+          "expectedSocketContains": ["feed.push", "surface.resume.clear"]
+        }
+      ]
+    }
+  ]
+}

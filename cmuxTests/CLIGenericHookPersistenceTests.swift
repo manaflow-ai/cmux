@@ -2281,6 +2281,130 @@ extension CLINotifyProcessIntegrationRegressionTests {
         XCTAssertFalse(isDirectory.boolValue)
     }
 
+    func testCachedAgentHookTrajectoriesReplayThroughCLIAndFeedBridges() throws {
+        let fixture = try loadAgentHookTrajectoryReplayFixture()
+        XCTAssertEqual(fixture.version, 1)
+
+        let cliPath = try bundledCLIPath()
+        let socketPath = makeSocketPath("agent-replay")
+        let listenerFD = try bindUnixSocket(at: socketPath)
+        let state = MockSocketServerState()
+        let root = FileManager.default.temporaryDirectory
+            .appendingPathComponent("cmux-agent-replay-\(UUID().uuidString)", isDirectory: true)
+        let workspace = root.appendingPathComponent("repo", isDirectory: true)
+        let workspaceId = "11111111-1111-1111-1111-111111111111"
+        let surfaceId = "22222222-2222-2222-2222-222222222222"
+        let replacements = [
+            "${workspace}": workspace.path,
+            "${workspace_id}": workspaceId,
+            "${surface_id}": surfaceId,
+        ]
+        let feedResults = replayFeedResultsByRequestId(fixture: fixture, replacements: replacements)
+
+        try FileManager.default.createDirectory(at: workspace, withIntermediateDirectories: true)
+        defer {
+            Darwin.close(listenerFD)
+            unlink(socketPath)
+            try? FileManager.default.removeItem(at: root)
+        }
+
+        startMockServerAccepting(listenerFD: listenerFD, state: state, connectionLimit: 80) { line in
+            self.agentReplaySocketResponse(
+                line: line,
+                surfaceId: surfaceId,
+                feedResultsByRequestId: feedResults
+            )
+        }
+
+        for trajectory in fixture.trajectories {
+            try XCTContext.runActivity(named: trajectory.name) { _ in
+                var environment: [String: String] = [
+                    "HOME": root.path,
+                    "PATH": "/usr/bin:/bin:/usr/sbin:/sbin",
+                    "PWD": workspace.path,
+                    "CMUX_SOCKET_PATH": socketPath,
+                    "CMUX_WORKSPACE_ID": workspaceId,
+                    "CMUX_SURFACE_ID": surfaceId,
+                    "CMUX_AGENT_HOOK_STATE_DIR": root.path,
+                    "CMUX_CLAUDE_HOOK_STATE_PATH": root.appendingPathComponent("claude-hook-sessions.json").path,
+                    "CMUX_CLI_SENTRY_DISABLED": "1",
+                    "CMUX_CLAUDE_HOOK_SENTRY_DISABLED": "1",
+                    "CODEX_HOME": root.appendingPathComponent("codex-home", isDirectory: true).path,
+                    "CLAUDE_CONFIG_DIR": root.appendingPathComponent("claude-home", isDirectory: true).path,
+                    "GEMINI_CLI_HOME": root.appendingPathComponent("gemini-home", isDirectory: true).path,
+                    "OPENCODE_CONFIG_DIR": root.appendingPathComponent("opencode-home", isDirectory: true).path,
+                ]
+                if let launch = trajectory.launch {
+                    environment["CMUX_AGENT_LAUNCH_KIND"] = launch.kind
+                    environment["CMUX_AGENT_LAUNCH_EXECUTABLE"] = launch.executable
+                    environment["CMUX_AGENT_LAUNCH_ARGV_B64"] = base64NULSeparated(launch.argv)
+                    environment["CMUX_AGENT_LAUNCH_CWD"] = workspace.path
+                }
+
+                for step in trajectory.steps {
+                    try XCTContext.runActivity(named: step.name) { _ in
+                        let commandStart = state.snapshot().count
+                        let stdin = try replayJSONString(
+                            from: step.stdin.replacing(replacements),
+                            options: [.sortedKeys]
+                        )
+                        let result = runProcess(
+                            executablePath: cliPath,
+                            arguments: step.arguments,
+                            environment: environment,
+                            standardInput: stdin,
+                            timeout: 5
+                        )
+
+                        XCTAssertFalse(result.timedOut, "\(trajectory.name) \(step.name): \(result.stderr)")
+                        XCTAssertEqual(result.status, 0, "\(trajectory.name) \(step.name): \(result.stderr)")
+                        if let expectedStdout = step.expectedStdout {
+                            XCTAssertEqual(result.stdout, replacingPlaceholders(in: expectedStdout, replacements: replacements))
+                        }
+                        for expected in step.expectedStdoutContains ?? [] {
+                            XCTAssertTrue(
+                                result.stdout.contains(replacingPlaceholders(in: expected, replacements: replacements)),
+                                "\(trajectory.name) \(step.name): stdout was \(result.stdout)"
+                            )
+                        }
+
+                        var expectedSocketSubstrings = step.expectedSocketContains ?? []
+                        if step.expectedFeedEvents?.isEmpty == false {
+                            expectedSocketSubstrings.append("feed.push")
+                        }
+                        expectedSocketSubstrings = expectedSocketSubstrings.map {
+                            replacingPlaceholders(in: $0, replacements: replacements)
+                        }
+                        let stepCommands = waitForReplayCommands(
+                            state: state,
+                            startIndex: commandStart,
+                            expectedSubstrings: expectedSocketSubstrings
+                        )
+                        XCTAssertNotNil(
+                            stepCommands,
+                            "\(trajectory.name) \(step.name): expected \(expectedSocketSubstrings), saw \(Array(state.snapshot().dropFirst(commandStart)))"
+                        )
+
+                        if let expectedFeedEvents = step.expectedFeedEvents {
+                            let feedEvents = replayFeedEvents(in: stepCommands ?? Array(state.snapshot().dropFirst(commandStart)))
+                            for expectedEvent in expectedFeedEvents {
+                                let expected = expectedEvent.mapValues {
+                                    replacingPlaceholders(in: $0, replacements: replacements)
+                                }
+                                XCTAssertTrue(
+                                    feedEvents.contains { event in
+                                        expected.allSatisfy { key, value in event[key] as? String == value }
+                                    },
+                                    "\(trajectory.name) \(step.name): expected feed event \(expected), saw \(feedEvents)"
+                                )
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }
+
     func runGenericHookPersistenceScenario(_ scenario: GenericHookPersistenceScenario) throws {
         let cliPath = try bundledCLIPath()
         let socketPath = makeSocketPath("hook-\(scenario.agent)")
@@ -2361,5 +2485,215 @@ extension CLINotifyProcessIntegrationRegressionTests {
         XCTAssertEqual(launchCommand["arguments"] as? [String], scenario.expectedArguments)
         XCTAssertEqual(launchCommand["workingDirectory"] as? String, workspace.path)
         XCTAssertEqual(launchCommand["environment"] as? [String: String], scenario.expectedEnvironment)
+    }
+
+    private struct AgentHookTrajectoryReplayFixture: Decodable {
+        let version: Int
+        let trajectories: [AgentHookTrajectory]
+    }
+
+    private struct AgentHookTrajectory: Decodable {
+        let name: String
+        let agent: String
+        let launch: AgentHookTrajectoryLaunch?
+        let steps: [AgentHookTrajectoryStep]
+    }
+
+    private struct AgentHookTrajectoryLaunch: Decodable {
+        let kind: String
+        let executable: String
+        let argv: [String]
+    }
+
+    private struct AgentHookTrajectoryStep: Decodable {
+        let name: String
+        let arguments: [String]
+        let stdin: ReplayJSONValue
+        let feedResult: ReplayJSONValue?
+        let expectedStdout: String?
+        let expectedStdoutContains: [String]?
+        let expectedSocketContains: [String]?
+        let expectedFeedEvents: [[String: String]]?
+    }
+
+    private enum ReplayJSONValue: Decodable {
+        case null
+        case bool(Bool)
+        case number(Double)
+        case string(String)
+        case array([ReplayJSONValue])
+        case object([String: ReplayJSONValue])
+
+        init(from decoder: Decoder) throws {
+            let container = try decoder.singleValueContainer()
+            if container.decodeNil() {
+                self = .null
+            } else if let value = try? container.decode(Bool.self) {
+                self = .bool(value)
+            } else if let value = try? container.decode(Int.self) {
+                self = .number(Double(value))
+            } else if let value = try? container.decode(Double.self) {
+                self = .number(value)
+            } else if let value = try? container.decode(String.self) {
+                self = .string(value)
+            } else if let value = try? container.decode([ReplayJSONValue].self) {
+                self = .array(value)
+            } else {
+                self = .object(try container.decode([String: ReplayJSONValue].self))
+            }
+        }
+
+        func replacing(_ replacements: [String: String]) -> ReplayJSONValue {
+            switch self {
+            case .null, .bool, .number:
+                return self
+            case .string(let value):
+                var replaced = value
+                for (placeholder, replacement) in replacements {
+                    replaced = replaced.replacingOccurrences(of: placeholder, with: replacement)
+                }
+                return .string(replaced)
+            case .array(let values):
+                return .array(values.map { $0.replacing(replacements) })
+            case .object(let values):
+                return .object(values.mapValues { $0.replacing(replacements) })
+            }
+        }
+
+        func anyValue() -> Any {
+            switch self {
+            case .null:
+                return NSNull()
+            case .bool(let value):
+                return value
+            case .number(let value):
+                return value
+            case .string(let value):
+                return value
+            case .array(let values):
+                return values.map { $0.anyValue() }
+            case .object(let values):
+                return values.mapValues { $0.anyValue() }
+            }
+        }
+
+        func objectValue() -> [String: Any]? {
+            guard case .object(let values) = self else { return nil }
+            return values.mapValues { $0.anyValue() }
+        }
+    }
+
+    private func loadAgentHookTrajectoryReplayFixture() throws -> AgentHookTrajectoryReplayFixture {
+        let fixtureURL = URL(fileURLWithPath: #filePath)
+            .deletingLastPathComponent()
+            .appendingPathComponent("Fixtures", isDirectory: true)
+            .appendingPathComponent("AgentHookTrajectories.json", isDirectory: false)
+        return try JSONDecoder().decode(
+            AgentHookTrajectoryReplayFixture.self,
+            from: Data(contentsOf: fixtureURL)
+        )
+    }
+
+    private func replayFeedResultsByRequestId(
+        fixture: AgentHookTrajectoryReplayFixture,
+        replacements: [String: String]
+    ) -> [String: [String: Any]] {
+        var results: [String: [String: Any]] = [:]
+        for step in fixture.trajectories.flatMap(\.steps) {
+            guard let result = step.feedResult?.replacing(replacements).objectValue(),
+                  let requestId = result["request_id"] as? String
+            else {
+                continue
+            }
+            results[requestId] = result
+        }
+        return results
+    }
+
+    private func agentReplaySocketResponse(
+        line: String,
+        surfaceId: String,
+        feedResultsByRequestId: [String: [String: Any]]
+    ) -> String {
+        guard let payload = jsonObject(line) else {
+            return "OK"
+        }
+        guard let id = payload["id"] as? String, let method = payload["method"] as? String else {
+            return malformedRequestResponse(id: payload["id"] as? String, raw: line)
+        }
+        switch method {
+        case "surface.list":
+            return surfaceListResponse(id: id, surfaceId: surfaceId)
+        case "surface.resume.set":
+            return v2Response(id: id, ok: true, result: ["set": true])
+        case "surface.resume.clear":
+            return v2Response(id: id, ok: true, result: ["cleared": true])
+        case "feed.push":
+            let params = payload["params"] as? [String: Any]
+            let event = params?["event"] as? [String: Any]
+            let requestId = event?["_opencode_request_id"] as? String
+                ?? event?["request_id"] as? String
+            if let requestId, let result = feedResultsByRequestId[requestId] {
+                return v2Response(id: id, ok: true, result: result)
+            }
+            return v2Response(id: id, ok: true, result: [:])
+        default:
+            return v2Response(
+                id: id,
+                ok: false,
+                error: ["code": "unrecognized_method", "message": "unexpected method: \(method)"]
+            )
+        }
+    }
+
+    private func waitForReplayCommands(
+        state: MockSocketServerState,
+        startIndex: Int,
+        expectedSubstrings: [String],
+        timeout: TimeInterval = 3
+    ) -> [String]? {
+        let deadline = Date().addingTimeInterval(timeout)
+        repeat {
+            let commands = Array(state.snapshot().dropFirst(startIndex))
+            if expectedSubstrings.allSatisfy({ expected in
+                commands.contains { $0.contains(expected) }
+            }) {
+                return commands
+            }
+            RunLoop.current.run(until: Date().addingTimeInterval(0.01))
+        } while Date() < deadline
+        let commands = Array(state.snapshot().dropFirst(startIndex))
+        return expectedSubstrings.allSatisfy { expected in
+            commands.contains { $0.contains(expected) }
+        } ? commands : nil
+    }
+
+    private func replayFeedEvents(in commands: [String]) -> [[String: Any]] {
+        commands.compactMap { command -> [String: Any]? in
+            guard let payload = jsonObject(command),
+                  payload["method"] as? String == "feed.push",
+                  let params = payload["params"] as? [String: Any],
+                  let event = params["event"] as? [String: Any]
+            else {
+                return nil
+            }
+            return event
+        }
+    }
+
+    private func replayJSONString(
+        from value: ReplayJSONValue,
+        options: JSONSerialization.WritingOptions = []
+    ) throws -> String {
+        let data = try JSONSerialization.data(withJSONObject: value.anyValue(), options: options)
+        return String(data: data, encoding: .utf8) ?? "{}"
+    }
+
+    private func replacingPlaceholders(in value: String, replacements: [String: String]) -> String {
+        var result = value
+        for (placeholder, replacement) in replacements {
+            result = result.replacingOccurrences(of: placeholder, with: replacement)
+        }
+        return result
     }
 }
