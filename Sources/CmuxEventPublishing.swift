@@ -1,4 +1,5 @@
 import Foundation
+import CMUXEventsCore
 import CMUXWorkstream
 
 extension CmuxEventBus {

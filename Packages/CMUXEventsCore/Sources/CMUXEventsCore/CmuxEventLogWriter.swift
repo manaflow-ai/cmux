@@ -3,18 +3,17 @@ import os
 
 nonisolated private let cmuxEventLogLogger = Logger(subsystem: "com.cmuxterm.app", category: "event-log")
 
-// Sendable safety: pending state is protected by `lock`; file IO runs on `queue`.
+// Sendable safety: pending state is protected by `lock`; file IO runs from `flushTask`.
 final class CmuxEventLogWriter: @unchecked Sendable {
     static let defaultMaxPendingLines = 1_024
-
-    private static let queue = DispatchQueue(label: "com.cmuxterm.event-log", qos: .utility)
 
     private let eventLogURL: URL
     private let maxEventLogBytes: UInt64
     private let maxPendingLines: Int
+    private let flushQueue = DispatchQueue(label: "com.cmuxterm.events.log-writer", qos: .utility)
     private let lock = NSLock()
     private var pendingLines: [String] = []
-    private var flushScheduled = false
+    private var flushTask: Task<Void, Never>?
     private var droppedLineCount = 0
 #if DEBUG
     private var flushSuspendedForTesting = false
@@ -27,7 +26,6 @@ final class CmuxEventLogWriter: @unchecked Sendable {
     }
 
     func enqueue(_ line: String) {
-        var shouldSchedule = false
         lock.lock()
         if pendingLines.count >= maxPendingLines {
             let removedCount = pendingLines.count - maxPendingLines + 1
@@ -41,21 +39,15 @@ final class CmuxEventLogWriter: @unchecked Sendable {
             return
         }
 #endif
-        if !flushScheduled {
-            flushScheduled = true
-            shouldSchedule = true
-        }
+        scheduleFlushIfNeededLocked()
         lock.unlock()
-
-        if shouldSchedule {
-            Self.queue.async { [self] in flushPendingLines() }
-        }
     }
 
 #if DEBUG
-    func flushForTesting() {
-        scheduleFlushIfNeeded()
-        Self.queue.sync {}
+    func flushForTesting() async {
+        while let task = scheduleFlushIfNeeded() {
+            await task.value
+        }
     }
 
     func setFlushSuspendedForTesting(_ suspended: Bool) {
@@ -63,7 +55,7 @@ final class CmuxEventLogWriter: @unchecked Sendable {
         flushSuspendedForTesting = suspended
         lock.unlock()
         if !suspended {
-            scheduleFlushIfNeeded()
+            _ = scheduleFlushIfNeeded()
         }
     }
 
@@ -76,31 +68,45 @@ final class CmuxEventLogWriter: @unchecked Sendable {
     func resetForTesting() {
         lock.lock()
         pendingLines.removeAll()
-        flushScheduled = false
         droppedLineCount = 0
         flushSuspendedForTesting = false
         lock.unlock()
     }
 #endif
 
-    private func scheduleFlushIfNeeded() {
-        var shouldSchedule = false
+    @discardableResult
+    private func scheduleFlushIfNeeded() -> Task<Void, Never>? {
         lock.lock()
+        let task = scheduleFlushIfNeededLocked()
+        lock.unlock()
+        return task
+    }
+
+    @discardableResult
+    private func scheduleFlushIfNeededLocked() -> Task<Void, Never>? {
 #if DEBUG
         guard !flushSuspendedForTesting else {
-            lock.unlock()
-            return
+            return flushTask
         }
 #endif
-        if !pendingLines.isEmpty, !flushScheduled {
-            flushScheduled = true
-            shouldSchedule = true
+        if let flushTask {
+            return flushTask
         }
-        lock.unlock()
-
-        if shouldSchedule {
-            Self.queue.async { [self] in flushPendingLines() }
+        guard !pendingLines.isEmpty else {
+            return nil
         }
+        // `publish` is intentionally synchronous. The task tracks the active drain
+        // while the queue keeps blocking file IO off Swift's cooperative executor.
+        let task = Task.detached(priority: .utility) { [self] in
+            await withCheckedContinuation { (continuation: CheckedContinuation<Void, Never>) in
+                flushQueue.async {
+                    self.flushPendingLines()
+                    continuation.resume()
+                }
+            }
+        }
+        flushTask = task
+        return task
     }
 
     private func flushPendingLines() {
@@ -109,7 +115,7 @@ final class CmuxEventLogWriter: @unchecked Sendable {
             let droppedCount: Int
             lock.lock()
             if pendingLines.isEmpty {
-                flushScheduled = false
+                flushTask = nil
                 droppedCount = droppedLineCount
                 droppedLineCount = 0
                 lock.unlock()

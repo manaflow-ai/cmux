@@ -1,6 +1,7 @@
 import Foundation
 import AppKit
 import Bonsplit
+import CMUXEventsCore
 
 @MainActor
 private enum CmuxSelectionEventState {

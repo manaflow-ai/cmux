@@ -1,5 +1,6 @@
 import AppKit
 import Carbon.HIToolbox
+import CMUXEventsCore
 import CMUXWorkstream
 import Foundation
 import Bonsplit
