@@ -1758,10 +1758,12 @@ final class GhosttyBackgroundThemeTests: XCTestCase {
         let base = NSColor(srgbRed: 0.10, green: 0.20, blue: 0.30, alpha: 1.0)
 
         let lowerClamped = GhosttyBackgroundTheme.color(backgroundColor: base, opacity: -2.0)
-        XCTAssertEqual(lowerClamped.alphaComponent, 0.0, accuracy: 0.0001)
+        XCTAssertEqual(lowerClamped.alphaComponent, 1.0, accuracy: 0.0001)
+        XCTAssertEqual(lowerClamped.hexString(), NSColor.windowBackgroundColor.hexString())
 
         let upperClamped = GhosttyBackgroundTheme.color(backgroundColor: base, opacity: 5.0)
         XCTAssertEqual(upperClamped.alphaComponent, 1.0, accuracy: 0.0001)
+        XCTAssertEqual(upperClamped.hexString(), base.hexString())
     }
 
     func testColorFromNotificationUsesBackgroundAndOpacity() {
@@ -1835,7 +1837,14 @@ final class PanelAppearanceBackgroundTests: XCTestCase {
 
         XCTAssertTrue(appearance.usesClearContentBackground)
         XCTAssertFalse(appearance.drawsContentBackground)
-        XCTAssertEqual(appearance.backgroundColor.alphaComponent, 0.42, accuracy: 0.0001)
+        XCTAssertEqual(appearance.backgroundColor.alphaComponent, 1.0, accuracy: 0.0001)
+        XCTAssertEqual(
+            appearance.backgroundColor.hexString(),
+            WindowAppearanceSnapshot.compositedTerminalColor(
+                backgroundColor: config.backgroundColor,
+                opacity: config.backgroundOpacity
+            ).hexString()
+        )
         XCTAssertEqual(appearance.contentBackgroundColor.alphaComponent, 0.0, accuracy: 0.0001)
     }
 
