@@ -7368,6 +7368,9 @@ final class WorkspaceDock: ObservableObject, Identifiable {
     func bind(to workspace: Workspace) {
         controller.contextMenuShortcuts = Workspace.buildContextMenuShortcuts()
         controller.delegate = workspace
+        controller.tabContextMoveDestinationsProvider = { [weak workspace] tabId, _ in
+            workspace?.bonsplitTabMoveDestinations(for: tabId) ?? []
+        }
         controller.onExternalTabDrop = { [weak workspace, weak self] request in
             guard let workspace, let self else { return false }
             return workspace.handleExternalTabDrop(request, destinationController: self.controller)
@@ -13978,7 +13981,7 @@ final class Workspace: Identifiable, ObservableObject {
     private static let bonsplitMoveNewWorkspaceDestinationId = "new-workspace"
     private static let bonsplitMoveExistingWorkspacePrefix = "workspace:"
 
-    private func bonsplitTabMoveDestinations(for tabId: TabID) -> [TabContextMoveDestination] {
+    fileprivate func bonsplitTabMoveDestinations(for tabId: TabID) -> [TabContextMoveDestination] {
         guard let panelId = panelIdFromSurfaceId(tabId),
               let app = AppDelegate.shared else { return [] }
 
@@ -14043,16 +14046,38 @@ final class Workspace: Identifiable, ObservableObject {
         _ = failure.runModal()
     }
 
+    private func controllerForDropDestination(
+        _ destination: BonsplitController.ExternalTabDropRequest.Destination,
+        explicitController: BonsplitController?
+    ) -> BonsplitController {
+        if let explicitController {
+            return explicitController
+        }
+
+        let paneId: PaneID
+        switch destination {
+        case .insert(let targetPaneId, _):
+            paneId = targetPaneId
+        case .split(let targetPaneId, _, _):
+            paneId = targetPaneId
+        }
+
+        return bonsplitController(containingPane: paneId) ?? bonsplitController
+    }
+
     private func handleSessionDrop(
         entry: SessionEntry,
-        destination: BonsplitController.ExternalTabDropRequest.Destination
+        destination: BonsplitController.ExternalTabDropRequest.Destination,
+        destinationController: BonsplitController? = nil
     ) -> Bool {
         guard let resumeCommand = entry.resumeCommand else { return false }
+        let controller = controllerForDropDestination(destination, explicitController: destinationController)
         let inputWithReturn = resumeCommand + "\n"
         switch destination {
         case .insert(let paneId, _):
             let panel = newTerminalSurface(
                 inPane: paneId,
+                controller: controller,
                 focus: true,
                 workingDirectory: entry.resumeWorkingDirectory,
                 initialInput: inputWithReturn
@@ -14061,6 +14086,7 @@ final class Workspace: Identifiable, ObservableObject {
         case .split(let paneId, let orientation, let insertFirst):
             let panel = splitPaneWithNewTerminal(
                 targetPane: paneId,
+                controller: controller,
                 orientation: orientation,
                 insertFirst: insertFirst,
                 workingDirectory: entry.resumeWorkingDirectory,
@@ -14072,11 +14098,14 @@ final class Workspace: Identifiable, ObservableObject {
 
     func handleFilePreviewDrop(
         entry: FilePreviewDragEntry,
-        destination: BonsplitController.ExternalTabDropRequest.Destination
+        destination: BonsplitController.ExternalTabDropRequest.Destination,
+        destinationController: BonsplitController? = nil
     ) -> Bool {
+        let controller = controllerForDropDestination(destination, explicitController: destinationController)
         switch destination {
         case .insert(let paneId, let index):
             return openDroppedFileSurfaces(
+                controller: controller,
                 inPane: paneId,
                 filePaths: [entry.filePath],
                 focus: true,
@@ -14084,6 +14113,7 @@ final class Workspace: Identifiable, ObservableObject {
             )
         case .split(let paneId, let orientation, let insertFirst):
             return splitPaneWithDroppedFile(
+                controller: controller,
                 targetPane: paneId,
                 orientation: orientation,
                 insertFirst: insertFirst,
@@ -14096,7 +14126,7 @@ final class Workspace: Identifiable, ObservableObject {
         _ request: BonsplitController.ExternalFileDropRequest,
         destinationController: BonsplitController? = nil
     ) -> Bool {
-        let controller = destinationController ?? bonsplitController
+        let controller = controllerForDropDestination(request.destination, explicitController: destinationController)
         let entries = request.urls
             .filter(\.isFileURL)
             .map {
@@ -14521,13 +14551,21 @@ final class Workspace: Identifiable, ObservableObject {
         // Session-index drag → spawn a brand new terminal at the destination instead
         // of moving an existing tab.
         if let entry = SessionDragRegistry.shared.consume(id: request.tabId.uuid) {
-            return handleSessionDrop(entry: entry, destination: request.destination)
+            return handleSessionDrop(
+                entry: entry,
+                destination: request.destination,
+                destinationController: destinationController
+            )
         }
         if let entry = FilePreviewDragRegistry.shared.consume(id: request.tabId.uuid) {
-            return handleFilePreviewDrop(entry: entry, destination: request.destination)
+            return handleFilePreviewDrop(
+                entry: entry,
+                destination: request.destination,
+                destinationController: destinationController
+            )
         }
 
-        let destinationController = destinationController ?? bonsplitController
+        let destinationController = controllerForDropDestination(request.destination, explicitController: destinationController)
 #if DEBUG
         let dropStart = ProcessInfo.processInfo.systemUptime
 #endif

@@ -3883,6 +3883,68 @@ final class WorkspaceTerminalFocusRecoveryTests: XCTestCase {
         XCTAssertNil(workspace.bonsplitController.tab(dockTabId))
     }
 
+    func testDockPortalFileDropResolvesDockController() throws {
+        let root = FileManager.default.temporaryDirectory.appendingPathComponent(
+            "cmux-dock-drop-\(UUID().uuidString)",
+            isDirectory: true
+        )
+        try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: root) }
+
+        let fileURL = root.appendingPathComponent("notes.txt")
+        try "dock file\n".write(to: fileURL, atomically: true, encoding: .utf8)
+
+        let workspace = Workspace()
+        let dock = workspace.dockLayout.addDock(edge: .right)
+        let dockPaneId = try XCTUnwrap(dock.controller.allPaneIds.first)
+
+        let handled = workspace.handleExternalFileDrop(
+            BonsplitController.ExternalFileDropRequest(
+                urls: [fileURL],
+                destination: .insert(targetPane: dockPaneId, targetIndex: nil)
+            )
+        )
+
+        XCTAssertTrue(handled)
+        let dockPanelIds = dock.controller.allTabIds.compactMap { workspace.panelIdFromSurfaceId($0) }
+        let previewPanelId = try XCTUnwrap(
+            dockPanelIds.first { workspace.filePreviewPanel(for: $0)?.filePath == fileURL.path }
+        )
+        XCTAssertNotNil(workspace.filePreviewPanel(for: previewPanelId))
+        XCTAssertFalse(
+            workspace.bonsplitController.allTabIds.contains {
+                workspace.panelIdFromSurfaceId($0) == previewPanelId
+            }
+        )
+    }
+
+    func testDockControllerProvidesTabMoveDestinations() throws {
+        let previousShared = AppDelegate.shared
+        let app = AppDelegate()
+        defer { AppDelegate.shared = previousShared }
+
+        let manager = TabManager()
+        let windowId = UUID()
+        app.registerMainWindowContextForTesting(windowId: windowId, tabManager: manager)
+        defer { app.unregisterMainWindowContextForTesting(windowId: windowId) }
+
+        let workspace = try XCTUnwrap(manager.selectedWorkspace)
+        let dock = workspace.dockLayout.addDock(edge: .left)
+        let dockPaneId = try XCTUnwrap(dock.controller.allPaneIds.first)
+        let panel = try XCTUnwrap(
+            workspace.newTerminalSurface(
+                inPane: dockPaneId,
+                controller: dock.controller,
+                focus: false
+            )
+        )
+        let tabId = try XCTUnwrap(workspace.surfaceIdFromPanelId(panel.id))
+
+        let destinations = dock.controller.tabContextMoveDestinationsProvider?(tabId, dockPaneId) ?? []
+
+        XCTAssertTrue(destinations.contains { $0.id == "new-workspace" })
+    }
+
     func testDockPaneConfigInheritancePrefersDockTerminal() {
         let workspace = Workspace()
         let dock = workspace.dockLayout.addDock(edge: .left)
