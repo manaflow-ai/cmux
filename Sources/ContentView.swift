@@ -1597,6 +1597,9 @@ struct ContentView: View {
                     withTransaction(Transaction(animation: nil)) {
                         sidebarWidth = nextWidth
                     }
+                    if rightSidebarVisible {
+                        clampRightSidebarWidthIfNeeded(availableWidth: availableWidth)
+                    }
                 },
                 finishDrag: { sidebarDragStartWidth = nil }
             )
@@ -1608,7 +1611,8 @@ struct ContentView: View {
                     let startWidth = fileExplorerDragStartWidth ?? fileExplorerWidth
                     let nextWidth = Self.clampedRightSidebarWidth(
                         startWidth - translation,
-                        availableWidth: availableWidth
+                        availableWidth: availableWidth,
+                        leadingSidebarWidth: sidebarState.isVisible ? sidebarWidth : 0
                     )
                     withTransaction(Transaction(animation: nil)) {
                         fileExplorerWidth = nextWidth
@@ -1629,7 +1633,11 @@ struct ContentView: View {
             ?? NSApp.keyWindow?.contentView?.bounds.width
             ?? NSApp.keyWindow?.contentLayoutRect.width
         if let resolvedAvailableWidth, resolvedAvailableWidth > 0 {
-            return max(Self.minimumSidebarWidth, resolvedAvailableWidth * Self.maximumSidebarWidthRatio)
+            let onscreenWidth = max(0, resolvedAvailableWidth)
+            return min(
+                onscreenWidth,
+                max(Self.minimumSidebarWidth, onscreenWidth * Self.maximumSidebarWidthRatio)
+            )
         }
 
         let fallbackScreenWidth = NSApp.keyWindow?.screen?.frame.width
@@ -1639,24 +1647,47 @@ struct ContentView: View {
     }
 
     static func clampedSidebarWidth(_ candidate: CGFloat, maximumWidth: CGFloat) -> CGFloat {
-        let minimumWidth = Self.minimumSidebarWidth
-        let sanitizedMaximumWidth = max(minimumWidth, maximumWidth.isFinite ? maximumWidth : minimumWidth)
-        guard candidate.isFinite else {
-            return CGFloat(SessionPersistencePolicy.defaultSidebarWidth)
-        }
-        return max(minimumWidth, min(sanitizedMaximumWidth, candidate))
+        clampedSidebarDimension(
+            candidate,
+            minimumWidth: Self.minimumSidebarWidth,
+            maximumWidth: maximumWidth,
+            fallbackWidth: CGFloat(SessionPersistencePolicy.defaultSidebarWidth)
+        )
     }
 
-    static func clampedRightSidebarWidth(_ candidate: CGFloat, availableWidth: CGFloat) -> CGFloat {
+    static func clampedRightSidebarWidth(
+        _ candidate: CGFloat,
+        availableWidth: CGFloat,
+        leadingSidebarWidth: CGFloat = 0
+    ) -> CGFloat {
         let minimumWidth = Self.minimumRightSidebarWidth
-        let sanitizedCandidate = candidate.isFinite ? candidate : 220
         let sanitizedAvailableWidth = availableWidth.isFinite && availableWidth > 0 ? availableWidth : 1920
-        let availableWidthCap = sanitizedAvailableWidth - Self.minimumTerminalWidthWithRightSidebar
+        let sanitizedLeadingSidebarWidth = leadingSidebarWidth.isFinite ? max(0, leadingSidebarWidth) : 0
+        let visibleAvailableWidth = max(0, sanitizedAvailableWidth - sanitizedLeadingSidebarWidth)
+        let availableWidthCap = visibleAvailableWidth - Self.minimumTerminalWidthWithRightSidebar
         let maximumWidth = min(
             Self.maximumRightSidebarWidth,
+            visibleAvailableWidth,
             max(minimumWidth, availableWidthCap)
         )
-        return max(minimumWidth, min(maximumWidth, sanitizedCandidate))
+        return clampedSidebarDimension(
+            candidate,
+            minimumWidth: minimumWidth,
+            maximumWidth: maximumWidth,
+            fallbackWidth: minimumWidth
+        )
+    }
+
+    private static func clampedSidebarDimension(
+        _ candidate: CGFloat,
+        minimumWidth: CGFloat,
+        maximumWidth: CGFloat,
+        fallbackWidth: CGFloat
+    ) -> CGFloat {
+        let sanitizedMaximumWidth = max(0, maximumWidth.isFinite ? maximumWidth : minimumWidth)
+        let effectiveMinimumWidth = min(minimumWidth, sanitizedMaximumWidth)
+        let sanitizedCandidate = candidate.isFinite ? candidate : fallbackWidth
+        return max(effectiveMinimumWidth, min(sanitizedMaximumWidth, sanitizedCandidate))
     }
 
     private func clampSidebarWidthIfNeeded(availableWidth: CGFloat? = nil) {
@@ -1702,7 +1733,8 @@ struct ContentView: View {
     private func normalizedRightSidebarWidth(_ candidate: CGFloat, availableWidth: CGFloat? = nil) -> CGFloat {
         Self.clampedRightSidebarWidth(
             candidate,
-            availableWidth: resolvedRightSidebarAvailableWidth(availableWidth)
+            availableWidth: resolvedRightSidebarAvailableWidth(availableWidth),
+            leadingSidebarWidth: sidebarState.isVisible ? sidebarWidth : 0
         )
     }
 
@@ -3110,6 +3142,9 @@ struct ContentView: View {
             if abs(sidebarState.persistedWidth - sanitized) > 0.5 {
                 sidebarState.persistedWidth = sanitized
             }
+            if rightSidebarVisible {
+                clampRightSidebarWidthIfNeeded()
+            }
             // Sidebar width changes are pure SwiftUI layout updates, so portal-hosted
             // terminals and browsers need an explicit post-layout geometry resync.
             schedulePortalGeometrySynchronize()
@@ -3120,6 +3155,9 @@ struct ContentView: View {
             setMinimalModeSidebarTitlebarControlsAvailable(isVisible, in: observedWindow)
             if let observedWindow {
                 AppDelegate.shared?.applyWindowDecorations(to: observedWindow)
+            }
+            if rightSidebarVisible {
+                clampRightSidebarWidthIfNeeded()
             }
             schedulePortalGeometrySynchronize()
             updateSidebarResizerBandState()
