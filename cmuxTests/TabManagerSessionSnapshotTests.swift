@@ -923,6 +923,38 @@ final class TabManagerSessionSnapshotTests: XCTestCase {
         XCTAssertEqual(menuSnapshot.items.first?.title, "Window")
     }
 
+    func testRestoreSessionSnapshotPrunesClosedPanelsForReplacedWorkspaces() throws {
+        ClosedItemHistoryStore.shared.removeAll()
+        defer { ClosedItemHistoryStore.shared.removeAll() }
+
+        let manager = TabManager()
+        let workspace = try XCTUnwrap(manager.selectedWorkspace)
+        var panelSnapshot = try XCTUnwrap(workspace.sessionSnapshot(includeScrollback: false).panels.first)
+        panelSnapshot.customTitle = "Stale Replaced Tab"
+        ClosedItemHistoryStore.shared.push(.panel(ClosedPanelHistoryEntry(
+            workspaceId: workspace.id,
+            paneId: UUID(),
+            tabIndex: 0,
+            snapshot: panelSnapshot
+        )))
+
+        var workspaceSnapshot = workspace.sessionSnapshot(includeScrollback: false)
+        workspaceSnapshot.customTitle = "Preserved Closed Workspace"
+        ClosedItemHistoryStore.shared.push(.workspace(ClosedWorkspaceHistoryEntry(
+            workspaceId: workspace.id,
+            windowId: nil,
+            workspaceIndex: 0,
+            snapshot: workspaceSnapshot
+        )))
+
+        XCTAssertEqual(ClosedItemHistoryStore.shared.menuSnapshot().totalItemCount, 2)
+
+        manager.restoreSessionSnapshot(manager.sessionSnapshot(includeScrollback: false))
+
+        let menuSnapshot = ClosedItemHistoryStore.shared.menuSnapshot()
+        XCTAssertEqual(menuSnapshot.items.map(\.title), ["Preserved Closed Workspace"])
+    }
+
     func testRecentlyClosedMenuSnapshotListsPanelWorkspaceAndWindowRowsNewestFirst() throws {
         let manager = TabManager()
         let workspace = try XCTUnwrap(manager.selectedWorkspace)

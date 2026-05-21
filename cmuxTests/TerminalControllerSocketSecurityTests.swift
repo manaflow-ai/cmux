@@ -711,6 +711,84 @@ final class TerminalControllerSocketSecurityTests: XCTestCase {
         XCTAssertTrue(manager.tabs.contains(where: { $0.id == pinnedWorkspace.id }))
     }
 
+    func testV2SurfaceCloseCommandsRecordRecentlyClosedHistory() throws {
+        ClosedItemHistoryStore.shared.removeAll()
+        let defaults = UserDefaults.standard
+        let previousBrowserDisabled = defaults.object(forKey: BrowserAvailabilitySettings.disabledKey)
+        BrowserAvailabilitySettings.setDisabled(true)
+        defer {
+            ClosedItemHistoryStore.shared.removeAll()
+            if let previousBrowserDisabled {
+                defaults.set(previousBrowserDisabled, forKey: BrowserAvailabilitySettings.disabledKey)
+            } else {
+                defaults.removeObject(forKey: BrowserAvailabilitySettings.disabledKey)
+            }
+            TerminalController.shared.setActiveTabManager(nil)
+        }
+
+        let manager = TabManager()
+        let workspace = try XCTUnwrap(manager.selectedWorkspace)
+        let pane = try XCTUnwrap(workspace.bonsplitController.allPaneIds.first)
+        let terminalPanel = try XCTUnwrap(workspace.newTerminalSurface(inPane: pane, focus: true))
+        workspace.setPanelCustomTitle(panelId: terminalPanel.id, title: "Socket Terminal")
+        let browserPanel = try XCTUnwrap(workspace.newBrowserSurface(
+            inPane: pane,
+            focus: true,
+            creationPolicy: .restoration
+        ))
+        workspace.setPanelCustomTitle(panelId: browserPanel.id, title: "Socket Browser")
+        TerminalController.shared.setActiveTabManager(manager)
+
+        let terminalClose = try handleV2Request(
+            method: "surface.close",
+            params: [
+                "workspace_id": workspace.id.uuidString,
+                "surface_id": terminalPanel.id.uuidString
+            ]
+        )
+        XCTAssertEqual(terminalClose["ok"] as? Bool, true, "Unexpected JSON-RPC response: \(terminalClose)")
+        XCTAssertNil(workspace.panels[terminalPanel.id])
+
+        let browserClose = try handleV2Request(
+            method: "browser.tab.close",
+            params: [
+                "workspace_id": workspace.id.uuidString,
+                "surface_id": browserPanel.id.uuidString
+            ]
+        )
+        XCTAssertEqual(browserClose["ok"] as? Bool, true, "Unexpected JSON-RPC response: \(browserClose)")
+        XCTAssertNil(workspace.panels[browserPanel.id])
+
+        XCTAssertEqual(
+            ClosedItemHistoryStore.shared.menuSnapshot().items.map(\.title),
+            ["Socket Browser", "Socket Terminal"]
+        )
+    }
+
+    func testLegacyCloseSurfaceCommandRecordsRecentlyClosedHistory() throws {
+        ClosedItemHistoryStore.shared.removeAll()
+        defer {
+            ClosedItemHistoryStore.shared.removeAll()
+            TerminalController.shared.setActiveTabManager(nil)
+        }
+
+        let manager = TabManager()
+        let workspace = try XCTUnwrap(manager.selectedWorkspace)
+        let pane = try XCTUnwrap(workspace.bonsplitController.allPaneIds.first)
+        let panel = try XCTUnwrap(workspace.newTerminalSurface(inPane: pane, focus: true))
+        workspace.setPanelCustomTitle(panelId: panel.id, title: "Legacy Socket Terminal")
+        TerminalController.shared.setActiveTabManager(manager)
+
+        let response = TerminalController.shared.handleSocketLine("close_surface \(panel.id.uuidString)")
+
+        XCTAssertEqual(response, "OK")
+        XCTAssertNil(workspace.panels[panel.id])
+        XCTAssertEqual(
+            ClosedItemHistoryStore.shared.menuSnapshot().items.map(\.title),
+            ["Legacy Socket Terminal"]
+        )
+    }
+
     private func waitForSocket(at path: String, timeout: TimeInterval = 5.0) throws {
         let expectation = XCTNSPredicateExpectation(
             predicate: NSPredicate { _, _ in
@@ -773,6 +851,26 @@ final class TerminalControllerSocketSecurityTests: XCTestCase {
             responses.append(try readLine(from: fd))
         }
         return responses
+    }
+
+    private func handleV2Request(
+        method: String,
+        params: [String: Any]
+    ) throws -> [String: Any] {
+        let payload: [String: Any] = [
+            "jsonrpc": "2.0",
+            "id": 1,
+            "method": method,
+            "params": params
+        ]
+        let data = try JSONSerialization.data(withJSONObject: payload)
+        let line = try XCTUnwrap(String(data: data, encoding: .utf8))
+        let responseLine = TerminalController.shared.handleSocketLine(line)
+        let responseData = Data(responseLine.utf8)
+        return try XCTUnwrap(
+            try JSONSerialization.jsonObject(with: responseData) as? [String: Any],
+            "Expected JSON-RPC response object"
+        )
     }
 
     private nonisolated func sendV2Request(

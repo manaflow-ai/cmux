@@ -277,6 +277,18 @@ final class ClosedItemHistoryStore: ObservableObject {
         }
     }
 
+    func removePanelRecords(forWorkspaceIds workspaceIds: Set<UUID>) {
+        guard !workspaceIds.isEmpty else { return }
+        let originalCount = records.count
+        records.removeAll { record in
+            guard case .panel(let panelEntry) = record.entry else { return false }
+            return workspaceIds.contains(panelEntry.workspaceId)
+        }
+        if records.count != originalCount {
+            revision &+= 1
+        }
+    }
+
     func removeAll() {
         guard !records.isEmpty else { return }
         records.removeAll(keepingCapacity: false)
