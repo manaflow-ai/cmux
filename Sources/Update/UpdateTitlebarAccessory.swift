@@ -492,7 +492,8 @@ struct TitlebarControlsView: View {
         let config = style.config
         let foregroundColor = Color(nsColor: titlebarControlForegroundNSColor(opacity: 0.78))
         controlsGroup(config: config, foregroundColor: foregroundColor)
-            .offset(y: -1)
+            .padding(.top, -1)
+            .padding(.bottom, 1)
             .padding(.leading, 4)
             .padding(.trailing, titlebarHintTrailingInset)
             .contentShape(Rectangle())
