@@ -24,6 +24,11 @@ CPU_STREAK_LIMIT = int(os.environ.get("RESOURCE_CPU_STREAK_LIMIT", "5"))
 WARMUP_SAMPLES = int(os.environ.get("RESOURCE_WARMUP_SAMPLES", "5"))
 STARTUP_GRACE_SECONDS = float(os.environ.get("RESOURCE_STARTUP_GRACE_SECONDS", "0"))
 FAIL_ON_PID_CHANGE = os.environ.get("RESOURCE_FAIL_ON_PID_CHANGE", "1").lower() not in {"0", "false", "no"}
+PID_CHANGE_ALLOWED_LABELS = {
+    value.strip()
+    for value in os.environ.get("RESOURCE_PID_CHANGE_ALLOWED_LABELS", "").split(",")
+    if value.strip()
+}
 
 
 LABELS = ("mac", "iphone", "ipad")
@@ -165,29 +170,43 @@ def main() -> int:
 
             previous_pid = last_pid.get(label)
             if FAIL_ON_PID_CHANGE and previous_pid is not None and previous_pid != pid:
-                in_startup_grace = time.monotonic() - STARTED_MONOTONIC < STARTUP_GRACE_SECONDS
-                if in_startup_grace or not baseline_rss.get(label):
+                if label in PID_CHANGE_ALLOWED_LABELS:
                     last_pid[label] = pid
+                    baseline_rss.pop(label, None)
+                    max_rss.pop(label, None)
+                    last_rss.pop(label, None)
+                    cpu_high_streak[label] = 0
                     log_json({
                         "ts": now,
                         "label": label,
                         "pid": pid,
                         "previous_pid": previous_pid,
-                        "status": "pid_changed_startup_grace" if in_startup_grace else "pid_changed_before_baseline",
+                        "status": "pid_changed_allowed",
                     })
                 else:
-                    failures += 1
-                    last_pid[label] = pid
-                    log_json({
-                        "ts": now,
-                        "label": label,
-                        "pid": pid,
-                        "previous_pid": previous_pid,
-                        "status": "pid_changed",
-                        "failures": failures,
-                    })
-                    write_status("failed", samples, failures)
-                    return 1
+                    in_startup_grace = time.monotonic() - STARTED_MONOTONIC < STARTUP_GRACE_SECONDS
+                    if in_startup_grace or not baseline_rss.get(label):
+                        last_pid[label] = pid
+                        log_json({
+                            "ts": now,
+                            "label": label,
+                            "pid": pid,
+                            "previous_pid": previous_pid,
+                            "status": "pid_changed_startup_grace" if in_startup_grace else "pid_changed_before_baseline",
+                        })
+                    else:
+                        failures += 1
+                        last_pid[label] = pid
+                        log_json({
+                            "ts": now,
+                            "label": label,
+                            "pid": pid,
+                            "previous_pid": previous_pid,
+                            "status": "pid_changed",
+                            "failures": failures,
+                        })
+                        write_status("failed", samples, failures)
+                        return 1
             last_pid[label] = pid
             sample = sample_pid(pid)
             if sample is None:

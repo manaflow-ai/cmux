@@ -245,6 +245,11 @@ else
   mobile_reattach_mode="${MOBILE_REATTACH_MODE:-openurl}"
 fi
 
+resource_pid_change_allowed_labels=""
+if [[ "$mobile_reattach_mode" == "relaunch" ]]; then
+  resource_pid_change_allowed_labels="iphone,ipad"
+fi
+
 screen -dmS "${session_prefix}-iphone" bash -lc "
   export CMUX_TAG='$tag' CMUX_REPO='$repo_root' SIMULATOR_ID='$iphone_sim_id' CLIENT_ID='${profile}-iphone'
   export SOAK_ROOT='$root' SOAK_PROFILE='$profile' SOAK_SECONDS='$seconds'
@@ -290,6 +295,7 @@ screen -dmS "${session_prefix}-resources" bash -lc "
   export RESOURCE_LOG='$root/resources.jsonl' RESOURCE_STATUS='$root/resources.status'
   export RESOURCE_SAMPLE_INTERVAL='$resource_interval' RESOURCE_WARMUP_SAMPLES=2 RESOURCE_MAX_GROWTH_KB='$resource_growth_kb'
   export RESOURCE_FAIL_ON_PID_CHANGE=1
+  export RESOURCE_PID_CHANGE_ALLOWED_LABELS='$resource_pid_change_allowed_labels'
   export RESOURCE_STARTUP_GRACE_SECONDS=120
   export RESOURCE_MAX_RSS_KB=1258291 RESOURCE_MAX_CPU_PERCENT=220 RESOURCE_CPU_STREAK_LIMIT=6
   exec '$helper_dir/resource-monitor.py' >'$root/resources.console.log' 2>&1
