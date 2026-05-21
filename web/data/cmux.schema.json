@@ -740,6 +740,12 @@
           "default": true,
           "description": "Intercept terminal open http(s) commands and route them through the embedded browser."
         },
+        "htmlFileOpenMode": {
+          "type": "string",
+          "enum": ["browser", "editor"],
+          "default": "browser",
+          "description": "Default target for local .html and .htm files opened with cmux open. Use browser for rendered embedded browser tabs or editor for code/file preview tabs."
+        },
         "hostsToOpenInEmbeddedBrowser": {
           "type": "array",
           "items": {
