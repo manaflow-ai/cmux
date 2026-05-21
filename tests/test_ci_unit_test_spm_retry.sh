@@ -12,7 +12,7 @@ REQUIRED_PATTERNS=(
   "should_isolate_selector()"
   "-parallel-testing-enabled NO"
   "--output \"\$output_path\""
-  "OUTPUT=\$(cat /tmp/test-output.txt)"
+  "OUTPUT=\$(cat \"\$CHUNK_OUTPUT\")"
   "Could not resolve package dependencies"
   "rm -rf ~/Library/Caches/org.swift.swiftpm"
 )
