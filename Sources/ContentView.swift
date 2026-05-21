@@ -462,7 +462,7 @@ private final class WindowCommandPaletteOverlayController: NSObject {
         }
     }
 
-    private func updateFocusLockForWindowState() {
+    private func updateFocusLockForWindowState(allowImmediateFocus: Bool = false) {
         guard let window else {
             stopFocusLockTimer()
             return
@@ -499,7 +499,11 @@ private final class WindowCommandPaletteOverlayController: NSObject {
                 "fr=\(debugCommandPaletteResponderSummary(window.firstResponder))"
             )
 #endif
-            scheduleFocusIntoPalette(retries: 8)
+            if allowImmediateFocus {
+                focusIntoPalette(retries: 8)
+            } else {
+                scheduleFocusIntoPalette(retries: 8)
+            }
         }
     }
 
@@ -581,8 +585,9 @@ private final class WindowCommandPaletteOverlayController: NSObject {
             containerView.alphaValue = 1
             if shouldPromote {
                 promoteOverlayAboveSiblingsIfNeeded()
+                containerView.layoutSubtreeIfNeeded()
             }
-            updateFocusLockForWindowState()
+            updateFocusLockForWindowState(allowImmediateFocus: shouldPromote)
         } else {
             stopFocusLockTimer()
             if let window, isPaletteResponder(window.firstResponder) {
