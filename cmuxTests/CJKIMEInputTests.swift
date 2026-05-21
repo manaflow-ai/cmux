@@ -1494,8 +1494,10 @@ final class GhosttyBackquoteRegressionTests: XCTestCase {
             backing: .buffered,
             defer: false
         )
+        let previousInterpretHook = cjkIMEInterpretKeyEventsHook
         defer {
             GhosttyNSView.debugGhosttySurfaceKeyEventObserver = nil
+            cjkIMEInterpretKeyEventsHook = previousInterpretHook
             window.orderOut(nil)
         }
 
@@ -1513,6 +1515,16 @@ final class GhosttyBackquoteRegressionTests: XCTestCase {
         hostedView.setVisibleInUI(true)
         hostedView.setActive(true)
         RunLoop.current.run(until: Date().addingTimeInterval(0.05))
+
+        guard let surfaceView = findGhosttyNSView(in: hostedView) else {
+            XCTFail("Expected hosted GhosttyNSView")
+            return
+        }
+
+        installCJKIMEInterpretKeyEventsSwizzle()
+        cjkIMEInterpretKeyEventsHook = { candidateView, events in
+            candidateView === surfaceView && events.first?.keyCode == 50
+        }
 
         var pressText: String?
         var pressUnshiftedCodepoint: UInt32?
@@ -1945,11 +1957,11 @@ final class GhosttyKeyEquivalentRegressionTests: XCTestCase {
         }
 
         withExtendedLifetime(terminalSurface) {
-            XCTAssertTrue(window.performKeyEquivalent(with: event))
+            XCTAssertTrue(surfaceView.performKeyEquivalentAfterMenuMiss(with: event))
             XCTAssertEqual(
                 pasteInvocationCount,
                 1,
-                "Cmd+V should still invoke the terminal paste action even if the window main-menu fast path misses"
+                "Cmd+V should still invoke the terminal paste action after the main menu misses"
             )
             XCTAssertEqual(
                 forwardedCommandVCount,
@@ -2027,7 +2039,7 @@ final class GhosttyKeyEquivalentRegressionTests: XCTestCase {
         }
 
         withExtendedLifetime(terminalSurface) {
-            XCTAssertTrue(window.performKeyEquivalent(with: event))
+            XCTAssertTrue(surfaceView.performKeyEquivalentAfterMenuMiss(with: event))
             XCTAssertEqual(
                 pasteInvocationCount,
                 0,
@@ -2036,7 +2048,7 @@ final class GhosttyKeyEquivalentRegressionTests: XCTestCase {
             XCTAssertEqual(
                 pasteAsPlainTextInvocationCount,
                 1,
-                "Cmd+Shift+V should still invoke the terminal pasteAsPlainText action even if the window main-menu fast path misses"
+                "Cmd+Shift+V should still invoke the terminal pasteAsPlainText action after the main menu misses"
             )
             XCTAssertEqual(
                 forwardedCommandVCount,
@@ -2112,7 +2124,7 @@ final class GhosttyKeyEquivalentRegressionTests: XCTestCase {
         }
 
         withExtendedLifetime(terminalSurface) {
-            XCTAssertTrue(window.performKeyEquivalent(with: event))
+            XCTAssertTrue(surfaceView.performKeyEquivalentAfterMenuMiss(with: event))
             XCTAssertEqual(
                 pasteInvocationCount,
                 1,

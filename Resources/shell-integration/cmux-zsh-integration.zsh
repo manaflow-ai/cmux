@@ -1479,9 +1479,7 @@ _cmux_precmd() {
 
     # Git branch can change without a `git ...`-prefixed command (aliases like `gco`,
     # tools like `gh pr checkout`, etc.). Detect HEAD changes and force a refresh.
-    if [[ "${CMUX_NO_GIT_WATCH:-}" == "1" ]]; then
-        _cmux_disable_git_watch_state
-    else
+    if [[ "${CMUX_NO_GIT_WATCH:-}" != "1" ]]; then
         if [[ "$pwd" != "$_CMUX_GIT_HEAD_LAST_PWD" ]]; then
             _CMUX_GIT_HEAD_LAST_PWD="$pwd"
             _CMUX_GIT_HEAD_PATH="$(_cmux_git_resolve_head_path "$pwd" 2>/dev/null || true)"

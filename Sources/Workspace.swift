@@ -7719,12 +7719,14 @@ final class Workspace: Identifiable, ObservableObject {
     nonisolated static func bonsplitChromeHex(
         backgroundColor: NSColor,
         backgroundOpacity: Double,
-        sharesWindowBackdrop: Bool = false
+        sharesWindowBackdrop: Bool = false,
+        compositingBaseColor: NSColor = .windowBackgroundColor
     ) -> String {
         _ = sharesWindowBackdrop
         let themedColor = WindowAppearanceSnapshot.compositedTerminalColor(
             backgroundColor: backgroundColor,
-            opacity: backgroundOpacity
+            opacity: backgroundOpacity,
+            over: compositingBaseColor
         )
         let includeAlpha = themedColor.alphaComponent < 0.999
         return themedColor.hexString(includeAlpha: includeAlpha)
@@ -7743,12 +7745,14 @@ final class Workspace: Identifiable, ObservableObject {
         backgroundColor: NSColor,
         backgroundOpacity: Double,
         sharesWindowBackdrop: Bool = false,
-        renderingMode: GhosttyTerminalBackdropRenderingMode = .windowHostBackdrop
+        renderingMode: GhosttyTerminalBackdropRenderingMode = .windowHostBackdrop,
+        compositingBaseColor: NSColor = .windowBackgroundColor
     ) -> BonsplitConfiguration.Appearance.ChromeColors {
         let surfaceHex = bonsplitChromeHex(
             backgroundColor: backgroundColor,
             backgroundOpacity: backgroundOpacity,
-            sharesWindowBackdrop: sharesWindowBackdrop
+            sharesWindowBackdrop: sharesWindowBackdrop,
+            compositingBaseColor: compositingBaseColor
         )
         let borderHex = WindowChromeSeparatorColor
             .color(forChromeBackground: backgroundColor)

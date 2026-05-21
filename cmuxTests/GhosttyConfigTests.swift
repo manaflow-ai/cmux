@@ -1012,7 +1012,9 @@ final class WindowChromeSeparatorColorTests: XCTestCase {
 
 @MainActor
 final class WorkspaceChromeColorTests: XCTestCase {
-    func testBonsplitChromeHexIncludesAlphaWhenTranslucent() {
+    private let compositingBaseColor = NSColor.black
+
+    func testBonsplitChromeHexCompositesTranslucentBackground() {
         let color = NSColor(
             srgbRed: 17.0 / 255.0,
             green: 34.0 / 255.0,
@@ -1020,8 +1022,12 @@ final class WorkspaceChromeColorTests: XCTestCase {
             alpha: 1.0
         )
 
-        let hex = Workspace.bonsplitChromeHex(backgroundColor: color, backgroundOpacity: 0.5)
-        XCTAssertEqual(hex, "#1122337F")
+        let hex = Workspace.bonsplitChromeHex(
+            backgroundColor: color,
+            backgroundOpacity: 0.5,
+            compositingBaseColor: compositingBaseColor
+        )
+        XCTAssertEqual(hex, "#081119")
     }
 
     func testBonsplitChromeHexOmitsAlphaWhenOpaque() {
@@ -1032,7 +1038,11 @@ final class WorkspaceChromeColorTests: XCTestCase {
             alpha: 1.0
         )
 
-        let hex = Workspace.bonsplitChromeHex(backgroundColor: color, backgroundOpacity: 1.0)
+        let hex = Workspace.bonsplitChromeHex(
+            backgroundColor: color,
+            backgroundOpacity: 1.0,
+            compositingBaseColor: compositingBaseColor
+        )
         XCTAssertEqual(hex, "#112233")
     }
 
@@ -1047,9 +1057,10 @@ final class WorkspaceChromeColorTests: XCTestCase {
         let hex = Workspace.bonsplitChromeHex(
             backgroundColor: color,
             backgroundOpacity: 0.5,
-            sharesWindowBackdrop: true
+            sharesWindowBackdrop: true,
+            compositingBaseColor: compositingBaseColor
         )
-        XCTAssertEqual(hex, "#1122337F")
+        XCTAssertEqual(hex, "#081119")
     }
 
     func testBonsplitChromeColorsKeepPaneClearWhenTerminalUsesHostLayerBackground() {
@@ -1063,12 +1074,13 @@ final class WorkspaceChromeColorTests: XCTestCase {
         let colors = Workspace.bonsplitChromeColors(
             backgroundColor: color,
             backgroundOpacity: 0.5,
-            renderingMode: .windowHostBackdrop
+            renderingMode: .windowHostBackdrop,
+            compositingBaseColor: compositingBaseColor
         )
 
-        XCTAssertEqual(colors.backgroundHex, "#1122337F")
-        XCTAssertEqual(colors.tabBarBackgroundHex, "#1122337F")
-        XCTAssertEqual(colors.splitButtonBackdropHex, "#1122337F")
+        XCTAssertEqual(colors.backgroundHex, "#081119")
+        XCTAssertEqual(colors.tabBarBackgroundHex, "#081119")
+        XCTAssertEqual(colors.splitButtonBackdropHex, "#081119")
         XCTAssertEqual(colors.paneBackgroundHex, "#00000000")
     }
 
@@ -1084,10 +1096,11 @@ final class WorkspaceChromeColorTests: XCTestCase {
             backgroundColor: color,
             backgroundOpacity: 0.5,
             sharesWindowBackdrop: true,
-            renderingMode: .windowHostBackdrop
+            renderingMode: .windowHostBackdrop,
+            compositingBaseColor: compositingBaseColor
         )
 
-        XCTAssertEqual(colors.backgroundHex, "#1122337F")
+        XCTAssertEqual(colors.backgroundHex, "#081119")
         XCTAssertEqual(colors.tabBarBackgroundHex, "#00000000")
         XCTAssertEqual(colors.splitButtonBackdropHex, "#00000000")
         XCTAssertEqual(colors.paneBackgroundHex, "#00000000")

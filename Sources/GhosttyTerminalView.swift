@@ -8622,7 +8622,7 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
                     markedTextBefore: markedTextBefore
                 )
             let suppressComposingFallbackText = keyEvent.composing
-            if let text = textForKeyEvent(translationEvent) {
+            if let text = textForTranslatedKeyEvent(translationEvent, originalEvent: event) {
                 if shouldSendText(text),
                    !suppressShiftSpaceFallbackText,
                    !suppressComposingFallbackText {
@@ -8898,6 +8898,13 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
     /// Get the characters for a key event with control character handling.
     /// When control is pressed, we get the character without the control modifier
     /// so Ghostty's KeyEncoder can apply its own control character encoding.
+    private func textForTranslatedKeyEvent(_ translatedEvent: NSEvent, originalEvent: NSEvent) -> String? {
+        if let text = textForKeyEvent(translatedEvent), shouldSendText(text) {
+            return text
+        }
+        return appKitEscFallbackText(for: originalEvent)
+    }
+
     private func textForKeyEvent(_ event: NSEvent) -> String? {
         guard let chars = event.characters, !chars.isEmpty else { return nil }
 
@@ -8913,10 +8920,8 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
 
                 // Some AppKit key paths can report Shift+` as a bare ESC control
                 // character even though the physical key should produce "~".
-                if scalar.value == 0x1B,
-                   flags == [.shift],
-                   event.charactersIgnoringModifiers == "`" {
-                    return "~"
+                if let fallback = appKitEscFallbackText(for: event) {
+                    return fallback
                 }
             }
             // Private Use Area characters (function keys) should not be sent
@@ -8926,6 +8931,16 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
         }
 
         return chars
+    }
+
+    private func appKitEscFallbackText(for event: NSEvent) -> String? {
+        let flags = event.modifierFlags.intersection(.deviceIndependentFlagsMask)
+        guard event.characters?.unicodeScalars.first?.value == 0x1B,
+              flags == [.shift],
+              event.charactersIgnoringModifiers == "`" else {
+            return nil
+        }
+        return "~"
     }
 
     /// Get the unshifted codepoint for the key event

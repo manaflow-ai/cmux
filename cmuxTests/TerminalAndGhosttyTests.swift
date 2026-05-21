@@ -4244,6 +4244,8 @@ final class TerminalWindowPortalLifecycleTests: XCTestCase {
             contentView.layoutSubtreeIfNeeded()
             window.displayIfNeeded()
         }
+        drainMainQueue()
+        drainMainQueue()
 
         try waitUntil("queued layout shift to be applied") {
             anchor.convert(anchor.bounds, to: nil).minX > originalAnchorFrameInWindow.minX + 1

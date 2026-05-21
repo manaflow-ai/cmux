@@ -1288,9 +1288,7 @@ _cmux_prompt_command() {
     # Branch can change via aliases/tools while an older probe is still in flight.
     # Track .git/HEAD content so we can restart stale probes immediately.
     local git_head_changed=0
-    if [[ "${CMUX_NO_GIT_WATCH:-}" == "1" ]]; then
-        _cmux_disable_git_watch_state
-    else
+    if [[ "${CMUX_NO_GIT_WATCH:-}" != "1" ]]; then
         if [[ "$pwd" != "$_CMUX_GIT_HEAD_LAST_PWD" ]]; then
             _CMUX_GIT_HEAD_LAST_PWD="$pwd"
             _CMUX_GIT_HEAD_PATH="$(_cmux_git_resolve_head_path "$pwd" 2>/dev/null || true)"
