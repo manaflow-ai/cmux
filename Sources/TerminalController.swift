@@ -1440,6 +1440,8 @@ class TerminalController {
             return SocketControlSettings.userScopedStableSocketPath(currentUserID: currentUserID)
         case "open_lock", "lock":
             return SocketControlSettings.userScopedStableSocketPath(currentUserID: currentUserID)
+        case "existing_path", "stat_existing_path":
+            return SocketControlSettings.userScopedStableSocketPath(currentUserID: currentUserID)
         case "bind" where errnoCode == EACCES || errnoCode == EPERM || errnoCode == EADDRINUSE:
             return SocketControlSettings.userScopedStableSocketPath(currentUserID: currentUserID)
         default:

@@ -4895,6 +4895,26 @@ final class TerminalControllerSocketListenerHealthTests: XCTestCase {
         }
     }
 
+    func testStableSocketExistingPathFailuresFallBackToUserScopedSocket() {
+        let failures: [(stage: String, errnoCode: Int32)] = [
+            ("existing_path", EEXIST),
+            ("stat_existing_path", EACCES),
+        ]
+
+        for failure in failures {
+            XCTAssertEqual(
+                TerminalController.fallbackSocketPathAfterBindFailure(
+                    requestedPath: SocketControlSettings.stableDefaultSocketPath,
+                    stage: failure.stage,
+                    errnoCode: failure.errnoCode,
+                    currentUserID: 501
+                ),
+                SocketControlSettings.userScopedStableSocketPath(currentUserID: 501),
+                failure.stage
+            )
+        }
+    }
+
     func testSocketPathAcceptsConnectionsForLiveUnixSocket() throws {
         let path = makeTempSocketPath()
         let listenerFD = try bindUnixSocket(at: path)
