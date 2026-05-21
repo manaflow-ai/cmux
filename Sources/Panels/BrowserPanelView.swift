@@ -692,10 +692,11 @@ struct BrowserPanelView: View {
     private func showScreenshotPageCopiedIndicator() {
         screenshotPageCopiedTimer?.invalidate()
         screenshotPageCopied = true
-        screenshotPageCopiedTimer = Timer.scheduledTimer(withTimeInterval: 1.4, repeats: false) { timer in
-            timer.invalidate()
-            screenshotPageCopiedTimer = nil
-            screenshotPageCopied = false
+        screenshotPageCopiedTimer = Timer.scheduledTimer(withTimeInterval: 1.4, repeats: false) { _ in
+            Task { @MainActor in
+                screenshotPageCopiedTimer = nil
+                screenshotPageCopied = false
+            }
         }
     }
 
