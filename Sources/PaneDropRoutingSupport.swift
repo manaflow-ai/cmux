@@ -26,11 +26,8 @@ struct PaneDragTransfer: Equatable {
     }
 
     static func decode(from pasteboard: NSPasteboard) -> PaneDragTransfer? {
-        if let data = pasteboard.data(forType: DragOverlayRoutingPolicy.filePreviewTransferType) {
-            return decode(from: data, isFilePreviewTransfer: true)
-        }
-        if let raw = pasteboard.string(forType: DragOverlayRoutingPolicy.filePreviewTransferType) {
-            return decode(from: Data(raw.utf8), isFilePreviewTransfer: true)
+        if let transfer = decodeLiveFilePreviewTransfer(from: pasteboard) {
+            return transfer
         }
         if let data = pasteboard.data(forType: DragOverlayRoutingPolicy.bonsplitTabTransferType) {
             return decode(from: data)
@@ -39,6 +36,22 @@ struct PaneDragTransfer: Equatable {
             return decode(from: Data(raw.utf8))
         }
         return nil
+    }
+
+    private static func decodeLiveFilePreviewTransfer(from pasteboard: NSPasteboard) -> PaneDragTransfer? {
+        let transfer: PaneDragTransfer?
+        if let data = pasteboard.data(forType: DragOverlayRoutingPolicy.filePreviewTransferType) {
+            transfer = decode(from: data, isFilePreviewTransfer: true)
+        } else if let raw = pasteboard.string(forType: DragOverlayRoutingPolicy.filePreviewTransferType) {
+            transfer = decode(from: Data(raw.utf8), isFilePreviewTransfer: true)
+        } else {
+            transfer = nil
+        }
+        guard let transfer,
+              FilePreviewDragRegistry.shared.contains(id: transfer.tabId) else {
+            return nil
+        }
+        return transfer
     }
 
     static func decode(from data: Data, isFilePreviewTransfer: Bool = false) -> PaneDragTransfer? {

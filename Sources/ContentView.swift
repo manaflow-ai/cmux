@@ -14626,13 +14626,18 @@ enum BonsplitTabDragPayload {
         transfer(from: NSPasteboard(name: .drag))
     }
 
+    static func canRouteWorkspaceDrop(pasteboard: NSPasteboard) -> Bool {
+        DragOverlayRoutingPolicy.hasBonsplitTabTransfer(pasteboard.types)
+            && !DragOverlayRoutingPolicy.hasLiveFilePreviewTransfer(pasteboard)
+    }
+
     static func canRouteWorkspaceDrop(pasteboardTypes: [NSPasteboard.PasteboardType]?) -> Bool {
         DragOverlayRoutingPolicy.hasBonsplitTabTransfer(pasteboardTypes)
             && !DragOverlayRoutingPolicy.hasFilePreviewTransfer(pasteboardTypes)
     }
 
     static func transfer(from pasteboard: NSPasteboard) -> Transfer? {
-        guard !DragOverlayRoutingPolicy.hasFilePreviewTransfer(pasteboard.types) else {
+        guard !DragOverlayRoutingPolicy.hasLiveFilePreviewTransfer(pasteboard) else {
             return nil
         }
         let type = NSPasteboard.PasteboardType(typeIdentifier)

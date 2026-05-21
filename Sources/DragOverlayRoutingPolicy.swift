@@ -278,6 +278,25 @@ enum DragOverlayRoutingPolicy {
         return pasteboardTypes.contains(filePreviewTransferType)
     }
 
+    static func liveFilePreviewTransferDragID(from pasteboard: NSPasteboard) -> UUID? {
+        guard hasFilePreviewTransfer(pasteboard.types) else { return nil }
+        if let data = pasteboard.data(forType: filePreviewTransferType),
+           let dragID = FilePreviewDragPasteboardWriter.dragID(from: data),
+           FilePreviewDragRegistry.shared.contains(id: dragID) {
+            return dragID
+        }
+        if let raw = pasteboard.string(forType: filePreviewTransferType),
+           let dragID = FilePreviewDragPasteboardWriter.dragID(from: Data(raw.utf8)),
+           FilePreviewDragRegistry.shared.contains(id: dragID) {
+            return dragID
+        }
+        return nil
+    }
+
+    static func hasLiveFilePreviewTransfer(_ pasteboard: NSPasteboard) -> Bool {
+        liveFilePreviewTransferDragID(from: pasteboard) != nil
+    }
+
     static func hasSidebarTabReorder(_ pasteboardTypes: [NSPasteboard.PasteboardType]?) -> Bool {
         guard let pasteboardTypes else { return false }
         return pasteboardTypes.contains(sidebarTabReorderType)
