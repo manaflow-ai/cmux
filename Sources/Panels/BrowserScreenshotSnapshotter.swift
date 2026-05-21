@@ -136,8 +136,8 @@ enum BrowserScreenshotWebViewSnapshotter {
         contentSize: NSSize,
         viewportSize: NSSize
     ) {
-        let drawWidth = min(viewportSize.width, max(0, contentSize.width - origin.x))
-        let drawHeight = min(viewportSize.height, max(0, contentSize.height - origin.y))
+        let drawWidth = min(viewportSize.width, tile.size.width, max(0, contentSize.width - origin.x))
+        let drawHeight = min(viewportSize.height, tile.size.height, max(0, contentSize.height - origin.y))
         guard drawWidth > 0, drawHeight > 0 else { return }
 
         let destination = NSRect(
@@ -149,7 +149,7 @@ enum BrowserScreenshotWebViewSnapshotter {
         output.lockFocus()
         tile.draw(
             in: destination,
-            from: NSRect(origin: .zero, size: tile.size),
+            from: NSRect(origin: .zero, size: NSSize(width: drawWidth, height: drawHeight)),
             operation: .copy,
             fraction: 1.0
         )
