@@ -415,17 +415,20 @@ final class WindowDecorationsController {
             contentView.addSubview(target, positioned: .above, relativeTo: nil)
         }
 
-        let hostHeight = MinimalModeSidebarTitlebarControlsMetrics.hostHeight
         let contentBounds = contentView.bounds
-        let topInset = MinimalModeSidebarTitlebarControlsMetrics.topInset
-        let targetY = contentView.isFlipped
-            ? contentBounds.minY + topInset
-            : max(0, contentBounds.maxY - hostHeight - topInset)
-        target.frame = NSRect(
-            x: MinimalModeSidebarTitlebarControlsMetrics.leadingInset,
-            y: targetY,
-            width: MinimalModeSidebarTitlebarControlsMetrics.hostWidth,
-            height: hostHeight
+        let trafficLightFrameInContent = minimalModeTrafficLightFrameInContentCoordinates(
+            window: window,
+            contentView: contentView
+        )
+        target.frame = minimalModeSidebarTitlebarControlsFrame(
+            contentBounds: contentBounds,
+            contentViewIsFlipped: contentView.isFlipped,
+            trafficLightFrameInContent: trafficLightFrameInContent,
+            visualDownwardAdjustment: trafficLightFrameInContent == nil
+                ? 0
+                : MinimalModeSidebarTitlebarControlsMetrics.titlebarControlsOpticalYOffset(
+                    backingScaleFactor: window.backingScaleFactor
+                )
         )
 
         #if DEBUG
