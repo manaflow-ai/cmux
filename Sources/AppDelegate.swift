@@ -864,8 +864,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
     var didAttemptStartupSessionRestore = false
     private var isApplyingSessionRestore = false
 #if DEBUG
-    var debugLoadReopenSessionSnapshot: (() -> AppSessionSnapshot?)?
-    var debugCreateMainWindowForSessionRestore: ((SessionWindowSnapshot, Bool) -> UUID)?
+    @MainActor var debugLoadReopenSessionSnapshot: (() -> AppSessionSnapshot?)?
+    @MainActor var debugCreateMainWindowForSessionRestore: ((SessionWindowSnapshot, Bool) -> UUID)?
 #endif
     private var sessionAutosaveTimer: DispatchSourceTimer?
     private var sessionAutosaveTickInFlight = false
