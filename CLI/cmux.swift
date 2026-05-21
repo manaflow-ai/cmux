@@ -23986,16 +23986,15 @@ export default function cmuxPiSessionExtension(pi: ExtensionAPI) {
                 return nil
             }
         }
-        func hasNewerRunningSession(workspaceId: String, surfaceId: String) -> Bool {
+        func hasOtherRunningSession(workspaceId: String) -> Bool {
             (try? store.hasRunningSession(
                 workspaceId: workspaceId,
-                surfaceId: surfaceId,
-                excludingSessionId: sessionId,
-                onlyNewerThanExcludedSession: true
+                surfaceId: nil,
+                excludingSessionId: sessionId
             )) == true
         }
-        func setIdleStatusUnlessNewerSessionIsRunning(workspaceId: String, surfaceId: String) {
-            if hasNewerRunningSession(workspaceId: workspaceId, surfaceId: surfaceId) {
+        func setIdleStatusUnlessAnotherSessionIsRunning(workspaceId: String, surfaceId: String) {
+            if hasOtherRunningSession(workspaceId: workspaceId) {
 #if DEBUG
                 agentHookDebugLog(
                     "agentHook.status.keepRunning agent=\(def.name) session=\(agentHookDebugShort(sessionId)) workspace=\(agentHookDebugShort(workspaceId)) surface=\(agentHookDebugShort(surfaceId))",
@@ -24021,11 +24020,15 @@ export default function cmuxPiSessionExtension(pi: ExtensionAPI) {
                 workspaceId: workspaceId ?? workspaceArg()
             )
         }
-        func notificationDedupeFingerprint(status: AgentHookNotificationStatus?) -> String? {
+        func notificationDedupeFingerprint(
+            status: AgentHookNotificationStatus?,
+            body: String
+        ) -> String? {
             guard (def.name == "grok" || def.name == "antigravity"), !sessionId.isEmpty, status == .idle else {
                 return nil
             }
-            return "idle-turn"
+            let normalizedBody = truncate(normalizedSingleLine(body), maxLength: 240)
+            return "idle-turn|\(normalizedBody)"
         }
         func hasActiveAntigravityBackgroundWork() -> Bool {
             def.name == "antigravity" && (input.rawObject?["fullyIdle"] as? Bool) == false
@@ -24446,7 +24449,10 @@ export default function cmuxPiSessionExtension(pi: ExtensionAPI) {
                 )
             }
 
-            let notificationFingerprint = notificationDedupeFingerprint(status: stopNotificationStatus)
+            let notificationFingerprint = notificationDedupeFingerprint(
+                status: stopNotificationStatus,
+                body: body
+            )
             let shouldPublishStopNotification = def.publishesStopNotification && (!antigravityHasActiveBackgroundWork || stopNotificationStatus == .error)
             let hasGrokTranscriptContext = def.name == "grok" && normalizedHookValue(cwd) != nil
             let shouldPublishGrokStopFallbackNotification = def.name == "grok"
@@ -24519,7 +24525,7 @@ export default function cmuxPiSessionExtension(pi: ExtensionAPI) {
                         client: client
                     )
                 } else {
-                    setIdleStatusUnlessNewerSessionIsRunning(workspaceId: workspaceId, surfaceId: surfaceId)
+                    setIdleStatusUnlessAnotherSessionIsRunning(workspaceId: workspaceId, surfaceId: surfaceId)
                 }
             }
 
@@ -24618,24 +24624,48 @@ export default function cmuxPiSessionExtension(pi: ExtensionAPI) {
                     fallbackKind: def.name,
                     cwd: hookCwd ?? mapped?.cwd
                 )
-                try? store.upsert(
-                    sessionId: sessionId,
-                    workspaceId: workspaceId,
-                    surfaceId: surfaceId,
-                    cwd: notificationCwd,
-                    transcriptPath: input.transcriptPath ?? mapped?.transcriptPath,
-                    pid: pid,
-                    launchCommand: launchCommand,
-                    lastSubtitle: summary.subtitle,
-                    lastBody: summary.body,
-                    lastNotificationStatus: summary.status,
-                    updateLastNotificationStatus: true,
-                    runtimeStatus: runtimeStatus(for: summary.status),
-                    updateRuntimeStatus: summary.status != nil
-                )
+                // These agents use completion notifications as turn boundaries;
+                // keep the route but close nested prompt depth.
+                if (def.name == "grok" || def.name == "antigravity"),
+                   summary.status == .idle || summary.status == .error {
+                    _ = try? store.recordPromptStop(
+                        sessionId: sessionId,
+                        workspaceId: workspaceId,
+                        surfaceId: surfaceId,
+                        cwd: notificationCwd,
+                        transcriptPath: input.transcriptPath ?? mapped?.transcriptPath,
+                        pid: pid,
+                        launchCommand: launchCommand,
+                        lastSubtitle: summary.subtitle,
+                        lastBody: summary.body,
+                        lastNotificationStatus: summary.status,
+                        updateLastNotificationStatus: true,
+                        runtimeStatus: runtimeStatus(for: summary.status),
+                        updateRuntimeStatus: true
+                    )
+                } else {
+                    try? store.upsert(
+                        sessionId: sessionId,
+                        workspaceId: workspaceId,
+                        surfaceId: surfaceId,
+                        cwd: notificationCwd,
+                        transcriptPath: input.transcriptPath ?? mapped?.transcriptPath,
+                        pid: pid,
+                        launchCommand: launchCommand,
+                        lastSubtitle: summary.subtitle,
+                        lastBody: summary.body,
+                        lastNotificationStatus: summary.status,
+                        updateLastNotificationStatus: true,
+                        runtimeStatus: runtimeStatus(for: summary.status),
+                        updateRuntimeStatus: summary.status != nil
+                    )
+                }
             }
 
-            let notificationFingerprint = notificationDedupeFingerprint(status: summary.status)
+            let notificationFingerprint = notificationDedupeFingerprint(
+                status: summary.status,
+                body: summary.body
+            )
             if shouldSendNotification(fingerprint: notificationFingerprint) {
                 let payload = notificationPayload(title: def.displayName, subtitle: summary.subtitle, body: summary.body)
                 let notifyCommand = "notify_target_async \(workspaceId) \(surfaceId) \(payload)"
@@ -24695,7 +24725,7 @@ export default function cmuxPiSessionExtension(pi: ExtensionAPI) {
                     client: client
                 )
             case .idle?:
-                setIdleStatusUnlessNewerSessionIsRunning(workspaceId: workspaceId, surfaceId: surfaceId)
+                setIdleStatusUnlessAnotherSessionIsRunning(workspaceId: workspaceId, surfaceId: surfaceId)
             case nil:
                 break
             }
@@ -24708,6 +24738,17 @@ export default function cmuxPiSessionExtension(pi: ExtensionAPI) {
             if def.name == "grok" || def.name == "antigravity" {
                 if let mapped = sessionId.isEmpty ? nil : (try? store.lookup(sessionId: sessionId)) {
                     sendAgentFeedTelemetry(workspaceId: mapped.workspaceId)
+                    _ = try? store.recordPromptStop(
+                        sessionId: sessionId,
+                        workspaceId: mapped.workspaceId,
+                        surfaceId: mapped.surfaceId,
+                        cwd: hookCwd ?? mapped.cwd,
+                        transcriptPath: input.transcriptPath ?? mapped.transcriptPath,
+                        pid: mapped.pid,
+                        launchCommand: mapped.launchCommand,
+                        lastSubtitle: nil,
+                        lastBody: nil
+                    )
                 }
 #if DEBUG
                 agentHookDebugLog(
