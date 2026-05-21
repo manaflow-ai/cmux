@@ -64,6 +64,47 @@ final class CmuxMainWindow: NSWindow {
         guard !isSoftHiddenForVisibilityController else { return }
         super.flagsChanged(with: event)
     }
+
+    override func sendEvent(_ event: NSEvent) {
+        if event.type == .otherMouseDown {
+            switch event.buttonNumber {
+            case 3, 4:
+                // If the event is targeted at a browser web view, let the browser
+                // handle its own page history (CmuxWebView already consumes these).
+                if let contentView = contentView,
+                   let hitView = contentView.hitTest(event.locationInWindow),
+                   isViewInsideBrowserWebView(hitView) {
+                    super.sendEvent(event)
+                    return
+                }
+                if let appDelegate = AppDelegate.shared,
+                   let context = appDelegate.contextForMainTerminalWindow(self, reindex: false) {
+#if DEBUG
+                    let action = event.buttonNumber == 3 ? "navigateBack" : "navigateForward"
+                    cmuxDebugLog("window.mouse.backForward action=\(action) window=\(windowNumber)")
+#endif
+                    if event.buttonNumber == 3 {
+                        context.tabManager.navigateBack()
+                    } else {
+                        context.tabManager.navigateForward()
+                    }
+                    return
+                }
+            default:
+                break
+            }
+        }
+        super.sendEvent(event)
+    }
+
+    private func isViewInsideBrowserWebView(_ view: NSView) -> Bool {
+        var current: NSView? = view
+        while let v = current {
+            if v is CmuxWebView { return true }
+            current = v.superview
+        }
+        return false
+    }
 }
 
 extension CmuxMainWindow {
