@@ -8732,6 +8732,35 @@
         }
       }
     },
+    "settings.browser.import.detecting": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Checking installed browsers..."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "インストール済みブラウザーを確認しています..."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Перевіряємо встановлені браузери..."
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "설치된 브라우저를 확인하는 중..."
+          }
+        }
+      }
+    },
     "browser.import.domain": {
       "extractionState": "manual",
       "localizations": {

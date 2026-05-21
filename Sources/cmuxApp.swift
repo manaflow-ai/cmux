@@ -5131,6 +5131,7 @@ struct SettingsView: View {
     @State private var didLoadBrowserHistoryForSettings = false
     @State private var detectedImportBrowsers: [InstalledBrowserCandidate] = []
     @State private var didRequestBrowserImportDetection = false
+    @State private var isDetectingImportBrowsers = false
     @State private var browserImportDetectionGeneration = 0
     @State private var browserInsecureHTTPAllowlistDraft = BrowserInsecureHTTPSettings.defaultAllowlistText
     @State private var socketPasswordDraft = ""
@@ -5499,7 +5500,13 @@ struct SettingsView: View {
     }
 
     private var browserImportSubtitle: String {
-        InstalledBrowserDetector.summaryText(for: detectedImportBrowsers)
+        if isDetectingImportBrowsers || !didRequestBrowserImportDetection {
+            return String(
+                localized: "settings.browser.import.detecting",
+                defaultValue: "Checking installed browsers..."
+            )
+        }
+        return InstalledBrowserDetector.summaryText(for: detectedImportBrowsers)
     }
 
     private var browserImportHintSettingsNote: String {
@@ -6963,6 +6970,7 @@ struct SettingsView: View {
                                         .font(.caption)
                                         .foregroundStyle(.secondary)
                                         .fixedSize(horizontal: false, vertical: true)
+                                        .accessibilityIdentifier("SettingsBrowserImportSummary")
 
                                     Text(String(localized: "browser.import.hint.settingsFootnote", defaultValue: "You can always find this in Settings > Browser."))
                                         .font(.system(size: 10.5))
@@ -6998,6 +7006,7 @@ struct SettingsView: View {
                                 }
                                 .buttonStyle(.bordered)
                                 .controlSize(.small)
+                                .disabled(isDetectingImportBrowsers)
                             }
                             .accessibilityIdentifier("SettingsBrowserImportActions")
 
@@ -7019,6 +7028,9 @@ struct SettingsView: View {
                             SettingsSearchIndex.settingID(for: .browserImport, idSuffix: "import-data")
                         ])
                         .accessibilityIdentifier("SettingsBrowserImportSection")
+                        .onAppear {
+                            refreshDetectedImportBrowsersIfNeeded()
+                        }
                         .padding(.horizontal, 14)
                         .padding(.vertical, 10)
 
@@ -7619,16 +7631,18 @@ struct SettingsView: View {
 
     private func refreshDetectedImportBrowsers() {
         didRequestBrowserImportDetection = true
+        isDetectingImportBrowsers = true
         browserImportDetectionGeneration += 1
         let generation = browserImportDetectionGeneration
         let homeDirectoryURL = FileManager.default.homeDirectoryForCurrentUser
-        DispatchQueue.global(qos: .userInitiated).async {
+        Task.detached(priority: .userInitiated) {
             let detectedBrowsers = InstalledBrowserDetector.detectInstalledBrowsers(
                 homeDirectoryURL: homeDirectoryURL
             )
-            DispatchQueue.main.async {
+            await MainActor.run {
                 guard generation == browserImportDetectionGeneration else { return }
                 detectedImportBrowsers = detectedBrowsers
+                isDetectingImportBrowsers = false
             }
         }
     }

@@ -8201,13 +8201,13 @@ enum BrowserImportScope: String, CaseIterable, Identifiable {
     }
 }
 
-enum BrowserImportEngineFamily: String, Hashable {
+enum BrowserImportEngineFamily: String, Hashable, Sendable {
     case chromium
     case firefox
     case webkit
 }
 
-struct InstalledBrowserProfile: Identifiable, Hashable {
+struct InstalledBrowserProfile: Identifiable, Hashable, Sendable {
     let displayName: String
     let rootURL: URL
     let isDefault: Bool
@@ -8217,7 +8217,7 @@ struct InstalledBrowserProfile: Identifiable, Hashable {
     }
 }
 
-struct BrowserImportBrowserDescriptor: Hashable {
+struct BrowserImportBrowserDescriptor: Hashable, Sendable {
     let id: String
     let displayName: String
     let family: BrowserImportEngineFamily
@@ -8229,7 +8229,7 @@ struct BrowserImportBrowserDescriptor: Hashable {
     let supportsDataOnlyDetection: Bool
 }
 
-struct InstalledBrowserCandidate: Identifiable, Hashable {
+struct InstalledBrowserCandidate: Identifiable, Hashable, Sendable {
     let descriptor: BrowserImportBrowserDescriptor
     let resolvedFamily: BrowserImportEngineFamily
     let homeDirectoryURL: URL
