@@ -622,28 +622,12 @@ struct SocketControlSettings {
         if connectResult == 0 {
             return true
         }
-
-        let connectErrno = errno
-        guard connectErrno == EINPROGRESS || connectErrno == EAGAIN || connectErrno == EWOULDBLOCK else {
+        switch errno {
+        case EINPROGRESS, EAGAIN, EWOULDBLOCK:
+            return true
+        default:
             return false
         }
-
-        var pollFD = pollfd(fd: fd, events: Int16(POLLOUT), revents: 0)
-        guard poll(&pollFD, 1, 150) > 0 else {
-            return false
-        }
-        guard (pollFD.revents & Int16(POLLOUT)) != 0 else {
-            return false
-        }
-
-        var socketError: Int32 = 0
-        var socketErrorLength = socklen_t(MemoryLayout<Int32>.size)
-        let optionResult = withUnsafeMutablePointer(to: &socketError) { errorPointer in
-            withUnsafeMutablePointer(to: &socketErrorLength) { lengthPointer in
-                getsockopt(fd, SOL_SOCKET, SO_ERROR, errorPointer, lengthPointer)
-            }
-        }
-        return optionResult == 0 && socketError == 0
     }
 
     static func shouldHonorSocketPathOverride(

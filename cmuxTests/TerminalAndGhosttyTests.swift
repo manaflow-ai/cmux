@@ -4958,13 +4958,103 @@ final class TerminalControllerSocketListenerHealthTests: XCTestCase {
         XCTAssertTrue(FileManager.default.fileExists(atPath: path))
     }
 
-    func testPrepareSocketPathForBindRemovesRefusedSocketFileWithPathLock() throws {
+    func testPrepareSocketPathForBindRemovesRefusedSocketFileWithReusablePathLock() throws {
         let path = makeTempSocketPath()
         let listenerFD = try bindUnixSocket(at: path)
         Darwin.close(listenerFD)
         defer { unlink(path) }
 
-        XCTAssertNil(TerminalController.prepareSocketPathForBind(path, ownsPathLock: true))
+        XCTAssertNil(TerminalController.prepareSocketPathForBind(path, canReplaceRefusedSocket: true))
+        XCTAssertFalse(FileManager.default.fileExists(atPath: path))
+    }
+
+    @MainActor
+    func testStartPreservesRefusedSocketFileWhenLockHasNoReusableMarker() throws {
+        TerminalController.shared.stop()
+        defer { TerminalController.shared.stop() }
+
+        let path = makeTempSocketPath()
+        let listenerFD = try bindUnixSocket(at: path)
+        Darwin.close(listenerFD)
+        defer {
+            unlink(path)
+            unlink(path + ".lock")
+        }
+
+        TerminalController.shared.start(
+            tabManager: TabManager(),
+            socketPath: path,
+            accessMode: .allowAll
+        )
+
+        XCTAssertTrue(FileManager.default.fileExists(atPath: path))
+        XCTAssertTrue(FileManager.default.fileExists(atPath: path + ".lock"))
+        TerminalController.shared.start(
+            tabManager: TabManager(),
+            socketPath: path,
+            accessMode: .allowAll
+        )
+        XCTAssertTrue(FileManager.default.fileExists(atPath: path))
+        XCTAssertTrue(FileManager.default.fileExists(atPath: path + ".lock"))
+        XCTAssertFalse(TerminalController.socketPathAcceptsConnections(path))
+    }
+
+    @MainActor
+    func testStartReclaimsRefusedSocketFileWhenReusableLockExists() throws {
+        TerminalController.shared.stop()
+        defer { TerminalController.shared.stop() }
+
+        let path = makeTempSocketPath()
+        TerminalController.shared.start(
+            tabManager: TabManager(),
+            socketPath: path,
+            accessMode: .allowAll
+        )
+        XCTAssertTrue(TerminalController.socketPathAcceptsConnections(path))
+
+        TerminalController.shared.stop()
+        let listenerFD = try bindUnixSocket(at: path)
+        Darwin.close(listenerFD)
+        defer {
+            unlink(path)
+            unlink(path + ".lock")
+        }
+
+        TerminalController.shared.start(
+            tabManager: TabManager(),
+            socketPath: path,
+            accessMode: .allowAll
+        )
+
+        XCTAssertTrue(TerminalController.socketPathAcceptsConnections(path))
+    }
+
+    @MainActor
+    func testStartRejectsSymlinkedSocketPathLockWithoutTouchingTarget() throws {
+        TerminalController.shared.stop()
+        defer { TerminalController.shared.stop() }
+
+        let path = makeTempSocketPath()
+        let lockPath = path + ".lock"
+        let targetPath = path + ".target"
+        try "preserve me".write(toFile: targetPath, atomically: true, encoding: .utf8)
+        XCTAssertEqual(symlink(targetPath, lockPath), 0)
+        defer {
+            unlink(path)
+            unlink(lockPath)
+            unlink(targetPath)
+        }
+
+        TerminalController.shared.start(
+            tabManager: TabManager(),
+            socketPath: path,
+            accessMode: .allowAll
+        )
+
+        XCTAssertEqual(
+            try String(contentsOfFile: targetPath, encoding: .utf8),
+            "preserve me"
+        )
         XCTAssertFalse(FileManager.default.fileExists(atPath: path))
     }
 

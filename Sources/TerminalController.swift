@@ -80,6 +80,7 @@ class TerminalController {
     private nonisolated static let socketProbePollAttempts = 3
     private nonisolated static let socketProbePollRetryBackoffUs: useconds_t = 50_000
     private nonisolated static let socketPathLockSuffix = ".lock"
+    private nonisolated static let socketPathLockReusableMarker = "cmux-socket-lock-v1\n"
     private nonisolated static let socketClientReadTimeout: TimeInterval = 30
     private nonisolated static let socketClientWriteTimeout: TimeInterval = 5
     private nonisolated static let socketListenerFailureCaptureCooldown: TimeInterval = 60
@@ -1102,24 +1103,98 @@ class TerminalController {
 
     private nonisolated static func acquireSocketPathLock(
         for socketPath: String
-    ) -> (fd: Int32?, failure: (stage: String, errnoCode: Int32)?) {
+    ) -> (fd: Int32?, canReplaceRefusedSocket: Bool, failure: (stage: String, errnoCode: Int32)?) {
         if let errnoCode = ensureSocketParentDirectoryExists(path: socketPath) {
-            return (nil, (stage: "create_lock_directory", errnoCode: errnoCode))
+            return (nil, false, (stage: "create_lock_directory", errnoCode: errnoCode))
         }
 
         let lockPath = socketPathLockPath(for: socketPath)
-        let fd = open(lockPath, O_CREAT | O_RDWR, S_IRUSR | S_IWUSR)
+        var fd: Int32 = -1
+        var lastErrno: Int32 = EIO
+        for _ in 0..<3 {
+            fd = open(lockPath, O_CREAT | O_EXCL | O_RDWR | O_NOFOLLOW, S_IRUSR | S_IWUSR)
+            if fd >= 0 {
+                break
+            }
+
+            let createErrno = errno
+            guard createErrno == EEXIST else {
+                return (nil, false, (stage: "open_lock", errnoCode: createErrno))
+            }
+
+            fd = open(lockPath, O_RDWR | O_NOFOLLOW)
+            if fd >= 0 {
+                break
+            }
+
+            lastErrno = errno
+            guard lastErrno == ENOENT else {
+                return (nil, false, (stage: "open_lock", errnoCode: lastErrno))
+            }
+        }
         guard fd >= 0 else {
-            return (nil, (stage: "open_lock", errnoCode: errno))
+            return (nil, false, (stage: "open_lock", errnoCode: lastErrno))
+        }
+        if let errnoCode = validateSocketPathLockFile(fd) {
+            close(fd)
+            return (nil, false, (stage: "open_lock", errnoCode: errnoCode))
         }
         _ = fcntl(fd, F_SETFD, FD_CLOEXEC)
 
         guard flock(fd, LOCK_EX | LOCK_NB) == 0 else {
             let errnoCode = errno
             close(fd)
-            return (nil, (stage: "lock", errnoCode: errnoCode))
+            return (nil, false, (stage: "lock", errnoCode: errnoCode))
         }
-        return (fd, nil)
+        return (fd, socketPathLockHasReusableMarker(fd), nil)
+    }
+
+    private nonisolated static func validateSocketPathLockFile(_ fd: Int32) -> Int32? {
+        var st = stat()
+        guard fstat(fd, &st) == 0 else {
+            return errno
+        }
+        guard (st.st_mode & mode_t(S_IFMT)) == mode_t(S_IFREG) else {
+            return EINVAL
+        }
+        guard st.st_uid == getuid() else {
+            return EACCES
+        }
+        guard st.st_nlink == 1 else {
+            return EMLINK
+        }
+        return nil
+    }
+
+    private nonisolated static func socketPathLockHasReusableMarker(_ fd: Int32) -> Bool {
+        let marker = Array(socketPathLockReusableMarker.utf8)
+        var buffer = [UInt8](repeating: 0, count: marker.count)
+        let readCount = buffer.withUnsafeMutableBytes { rawBuffer in
+            guard let baseAddress = rawBuffer.baseAddress else {
+                return ssize_t(-1)
+            }
+            return pread(fd, baseAddress, rawBuffer.count, 0)
+        }
+        return readCount == ssize_t(marker.count) && buffer == marker
+    }
+
+    private nonisolated static func markSocketPathLockReusable(_ fd: Int32) {
+        guard fd >= 0 else { return }
+        let marker = Array(socketPathLockReusableMarker.utf8)
+        guard ftruncate(fd, 0) == 0 else { return }
+        guard lseek(fd, 0, SEEK_SET) >= 0 else { return }
+
+        var written = 0
+        while written < marker.count {
+            let result = marker.withUnsafeBytes { rawBuffer in
+                guard let baseAddress = rawBuffer.baseAddress else {
+                    return ssize_t(-1)
+                }
+                return write(fd, baseAddress.advanced(by: written), marker.count - written)
+            }
+            guard result > 0 else { return }
+            written += Int(result)
+        }
     }
 
     private nonisolated static func releaseSocketPathLock(_ fd: Int32) {
@@ -1131,12 +1206,15 @@ class TerminalController {
     private nonisolated static func bindListenerSocket(
         _ socket: Int32,
         path: String,
-        ownsPathLock: Bool
+        canReplaceRefusedSocket: Bool
     ) -> SocketBindAttemptResult {
         if let errnoCode = ensureSocketParentDirectoryExists(path: path) {
             return .failure(path: path, stage: "create_directory", errnoCode: errnoCode)
         }
-        if let preparationFailure = prepareSocketPathForBind(path, ownsPathLock: ownsPathLock) {
+        if let preparationFailure = prepareSocketPathForBind(
+            path,
+            canReplaceRefusedSocket: canReplaceRefusedSocket
+        ) {
             return .failure(
                 path: path,
                 stage: preparationFailure.stage,
@@ -1163,7 +1241,7 @@ class TerminalController {
 
     nonisolated static func prepareSocketPathForBind(
         _ path: String,
-        ownsPathLock: Bool = false
+        canReplaceRefusedSocket: Bool = false
     ) -> (stage: String, errnoCode: Int32)? {
         var st = stat()
         guard lstat(path, &st) == 0 else {
@@ -1176,7 +1254,7 @@ class TerminalController {
         case .stale:
             break
         case .refused:
-            guard ownsPathLock else {
+            guard canReplaceRefusedSocket else {
                 return ("bind", EADDRINUSE)
             }
         case .connected, .occupiedOrIndeterminate:
@@ -1188,9 +1266,17 @@ class TerminalController {
         return nil
     }
 
-    private nonisolated func bindListenerSocketOnListenerQueue(_ socket: Int32, path: String) -> SocketBindAttemptResult {
+    private nonisolated func bindListenerSocketOnListenerQueue(
+        _ socket: Int32,
+        path: String,
+        canReplaceRefusedSocket: Bool
+    ) -> SocketBindAttemptResult {
         socketListenerQueue.sync {
-            Self.bindListenerSocket(socket, path: path, ownsPathLock: true)
+            Self.bindListenerSocket(
+                socket,
+                path: path,
+                canReplaceRefusedSocket: canReplaceRefusedSocket
+            )
         }
     }
 
@@ -1319,6 +1405,7 @@ class TerminalController {
 
         var activeSocketPath = socketPath
         var activeSocketPathLockFD: Int32 = -1
+        var activeSocketPathCanReplaceRefusedSocket = false
         var activeBoundSocketPathIdentity: SocketPathIdentity?
         withListenerState {
             self.socketPath = activeSocketPath
@@ -1364,6 +1451,7 @@ class TerminalController {
             let lock = Self.acquireSocketPathLock(for: activeSocketPath)
             if let fd = lock.fd {
                 activeSocketPathLockFD = fd
+                activeSocketPathCanReplaceRefusedSocket = lock.canReplaceRefusedSocket
                 return nil
             }
             let failure = lock.failure ?? (stage: "lock", errnoCode: EIO)
@@ -1371,7 +1459,11 @@ class TerminalController {
         }
 
         var bindAttempt = acquireActiveSocketPathLock()
-            ?? bindListenerSocketOnListenerQueue(newServerSocket, path: activeSocketPath)
+            ?? bindListenerSocketOnListenerQueue(
+                newServerSocket,
+                path: activeSocketPath,
+                canReplaceRefusedSocket: activeSocketPathCanReplaceRefusedSocket
+            )
         if case .failure(let failedPath, let failedStage, let failedErrnoCode) = bindAttempt,
            let fallbackPath = Self.fallbackSocketPathAfterBindFailure(
                requestedPath: failedPath,
@@ -1391,12 +1483,17 @@ class TerminalController {
             )
             Self.releaseSocketPathLock(activeSocketPathLockFD)
             activeSocketPathLockFD = -1
+            activeSocketPathCanReplaceRefusedSocket = false
             activeSocketPath = fallbackPath
             withListenerState {
                 self.socketPath = activeSocketPath
             }
             bindAttempt = acquireActiveSocketPathLock()
-                ?? bindListenerSocketOnListenerQueue(newServerSocket, path: activeSocketPath)
+                ?? bindListenerSocketOnListenerQueue(
+                    newServerSocket,
+                    path: activeSocketPath,
+                    canReplaceRefusedSocket: activeSocketPathCanReplaceRefusedSocket
+                )
         }
 
         switch bindAttempt {
@@ -1458,6 +1555,7 @@ class TerminalController {
             return
         }
 
+        Self.markSocketPathLockReusable(activeSocketPathLockFD)
         SocketControlSettings.recordLastSocketPath(activeSocketPath)
 
         var displacedSocketPathLockFD: Int32 = -1
