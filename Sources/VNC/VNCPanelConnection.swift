@@ -115,7 +115,7 @@ final class VNCPanelConnection {
                     defer { Darwin.close(fileDescriptor) }
                     try Self.write(message, to: fileDescriptor)
                 } catch {
-                    self?.notifyExit(.failure(reason: VNCPanelText.helperDisconnected, shouldRestart: false))
+                    self?.notifyExit(.failure(reason: VNCPanelText.helperDisconnected, shouldRestart: true))
                 }
             }
         } catch {

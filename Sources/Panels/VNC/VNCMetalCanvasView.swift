@@ -189,6 +189,14 @@ final class VNCMetalCanvasView: NSView {
         super.keyUp(with: event)
     }
 
+    override func performKeyEquivalent(with event: NSEvent) -> Bool {
+        guard shouldForwardRemoteKeyEquivalent(event) else {
+            return super.performKeyEquivalent(with: event)
+        }
+        forwardRemoteKeyEquivalent(event)
+        return true
+    }
+
     override func insertText(_ insertString: Any) {
         let text: String
         if let value = insertString as? NSAttributedString {
@@ -361,6 +369,22 @@ final class VNCMetalCanvasView: NSView {
         isSpecialKeyCode(event.keyCode)
     }
 
+    private func shouldForwardRemoteKeyEquivalent(_ event: NSEvent) -> Bool {
+        guard event.type == .keyDown else { return false }
+        let flags = event.modifierFlags.intersection(.deviceIndependentFlagsMask)
+        return !flags.intersection([.command, .control, .option]).isEmpty
+    }
+
+    private func forwardRemoteKeyEquivalent(_ event: NSEvent) {
+        let syntheticModifierKeyCodes = ensurePressedModifierFamilies(for: event.modifierFlags)
+        onKey?(event.keyCode, true)
+        onKey?(event.keyCode, false)
+        for keyCode in syntheticModifierKeyCodes.reversed() {
+            pressedModifierKeyCodes.remove(keyCode)
+            onKey?(keyCode, false)
+        }
+    }
+
     private func remoteText(for event: NSEvent) -> String? {
         if !event.modifierFlags.intersection([.command, .control, .option]).isEmpty,
            let text = event.charactersIgnoringModifiers,
@@ -387,6 +411,38 @@ final class VNCMetalCanvasView: NSView {
         default:
             return false
         }
+    }
+
+    private func ensurePressedModifierFamilies(for flags: NSEvent.ModifierFlags) -> [UInt16] {
+        var syntheticKeyCodes: [UInt16] = []
+        if flags.contains(.command) {
+            if let keyCode = ensurePressedModifierFamily(keyCodes: [54, 55], preferredKeyCode: 55) {
+                syntheticKeyCodes.append(keyCode)
+            }
+        }
+        if flags.contains(.shift) {
+            if let keyCode = ensurePressedModifierFamily(keyCodes: [56, 60], preferredKeyCode: 56) {
+                syntheticKeyCodes.append(keyCode)
+            }
+        }
+        if flags.contains(.option) {
+            if let keyCode = ensurePressedModifierFamily(keyCodes: [58, 61], preferredKeyCode: 58) {
+                syntheticKeyCodes.append(keyCode)
+            }
+        }
+        if flags.contains(.control) {
+            if let keyCode = ensurePressedModifierFamily(keyCodes: [59, 62], preferredKeyCode: 59) {
+                syntheticKeyCodes.append(keyCode)
+            }
+        }
+        return syntheticKeyCodes
+    }
+
+    private func ensurePressedModifierFamily(keyCodes: [UInt16], preferredKeyCode: UInt16) -> UInt16? {
+        guard keyCodes.allSatisfy({ !pressedModifierKeyCodes.contains($0) }) else { return nil }
+        pressedModifierKeyCodes.insert(preferredKeyCode)
+        onKey?(preferredKeyCode, true)
+        return preferredKeyCode
     }
 
     private func updateModifierState(for event: NSEvent) -> Bool {

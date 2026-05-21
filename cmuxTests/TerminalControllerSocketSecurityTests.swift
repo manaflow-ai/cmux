@@ -35,6 +35,30 @@ final class TerminalControllerSocketSecurityTests: XCTestCase {
             .path
     }
 
+    private func makeVNCKeyEvent(
+        type: NSEvent.EventType = .keyDown,
+        modifierFlags: NSEvent.ModifierFlags,
+        characters: String = "",
+        charactersIgnoringModifiers: String = "",
+        keyCode: UInt16
+    ) -> NSEvent {
+        guard let event = NSEvent.keyEvent(
+            with: type,
+            location: .zero,
+            modifierFlags: modifierFlags,
+            timestamp: ProcessInfo.processInfo.systemUptime,
+            windowNumber: 0,
+            context: nil,
+            characters: characters,
+            charactersIgnoringModifiers: charactersIgnoringModifiers,
+            isARepeat: false,
+            keyCode: keyCode
+        ) else {
+            fatalError("Failed to construct VNC key event")
+        }
+        return event
+    }
+
     override func setUp() {
         super.setUp()
         TerminalController.shared.stop()
@@ -814,6 +838,52 @@ final class TerminalControllerSocketSecurityTests: XCTestCase {
             VNCNamedKeyStroke(modifierKeyCodes: [59], keyCode: 116)
         )
         XCTAssertNil(VNCPanel.namedKeyStroke(for: "ctrl+definitely-not-a-key"))
+    }
+
+    func testVNCKeyEquivalentForwardsRemoteCommandShortcut() throws {
+        let view = VNCMetalCanvasView(frame: NSRect(x: 0, y: 0, width: 100, height: 100))
+        var events: [String] = []
+        view.onKey = { keyCode, isDown in
+            events.append("\(keyCode):\(isDown ? "down" : "up")")
+        }
+        defer {
+            view.onKey = nil
+            view.close()
+        }
+
+        let event = makeVNCKeyEvent(
+            modifierFlags: [.command],
+            characters: "c",
+            charactersIgnoringModifiers: "c",
+            keyCode: 8
+        )
+
+        XCTAssertTrue(view.performKeyEquivalent(with: event))
+        XCTAssertEqual(events, ["55:down", "8:down", "8:up", "55:up"])
+    }
+
+    func testVNCKeyEquivalentDoesNotDuplicateAlreadyPressedModifier() throws {
+        let view = VNCMetalCanvasView(frame: NSRect(x: 0, y: 0, width: 100, height: 100))
+        var events: [String] = []
+        view.onKey = { keyCode, isDown in
+            events.append("\(keyCode):\(isDown ? "down" : "up")")
+        }
+        defer {
+            view.onKey = nil
+            view.close()
+        }
+
+        view.flagsChanged(with: makeVNCKeyEvent(type: .flagsChanged, modifierFlags: [.command], keyCode: 55))
+        events.removeAll()
+        let event = makeVNCKeyEvent(
+            modifierFlags: [.command],
+            characters: "c",
+            charactersIgnoringModifiers: "c",
+            keyCode: 8
+        )
+
+        XCTAssertTrue(view.performKeyEquivalent(with: event))
+        XCTAssertEqual(events, ["8:down", "8:up"])
     }
 
     func testWorkspaceCloseRejectsPinnedWorkspace() async throws {
