@@ -26,6 +26,8 @@ RUNTIME_WEIGHT_OVERRIDES = {
     "PanelOwnedNativeViewSessionTests": 100,
     "BrowserPanelPopupContextTests": 90,
     "BrowserFindJavaScriptTests": 90,
+    "TabManagerPullRequestProbeTests": 240,
+    "TerminalNotificationDirectInteractionTests": 80,
 }
 
 METHOD_SPLIT_CLASSES = {
@@ -51,6 +53,8 @@ METHOD_SPLIT_CLASSES = {
     "KeyboardShortcutSettingsFileStoreMigrationTests",
     "KeyboardShortcutSettingsFileStoreStartupTests",
     "KeyboardShortcutSettingsFileStoreTests",
+    "TabManagerPullRequestProbeTests",
+    "TerminalNotificationDirectInteractionTests",
 }
 
 METHOD_SPLIT_METHOD_COUNT = 40

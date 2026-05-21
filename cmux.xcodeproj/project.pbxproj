@@ -1941,7 +1941,7 @@
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 			shellPath = /bin/sh;
-			shellScript = "set -euo pipefail\nCLI=\"${TARGET_BUILD_DIR}/${UNLOCALIZED_RESOURCES_FOLDER_PATH}/bin/cmux\"\nif [ ! -x \"$CLI\" ]; then\n  echo \"error: bundled cmux CLI missing at $CLI\" >&2\n  exit 1\nfi\n/usr/bin/otool -L \"$CLI\" | /usr/bin/awk 'NR > 1 { print $1 }' | while IFS= read -r linked; do\n  case \"$linked\" in\n    @rpath/*.framework/*)\n      framework_path=\"${linked#@rpath/}\"\n      rewritten=\"@loader_path/../../Frameworks/${framework_path}\"\n      /usr/bin/install_name_tool -change \"$linked\" \"$rewritten\" \"$CLI\"\n      ;;\n  esac\ndone\n";
+			shellScript = "set -euo pipefail\nCLI=\"${TARGET_BUILD_DIR}/${UNLOCALIZED_RESOURCES_FOLDER_PATH}/bin/cmux\"\nif [ ! -x \"$CLI\" ]; then\n  echo \"error: bundled cmux CLI missing at $CLI\" >&2\n  exit 1\nfi\n/usr/bin/otool -L \"$CLI\" | /usr/bin/awk 'NR > 1 { print $1 }' | while IFS= read -r linked; do\n  case \"$linked\" in\n    @rpath/*.framework/*)\n      framework_path=\"${linked#@rpath/}\"\n      rewritten=\"@loader_path/../../Frameworks/${framework_path}\"\n      /usr/bin/install_name_tool -change \"$linked\" \"$rewritten\" \"$CLI\"\n      ;;\n  esac\ndone\n# install_name_tool invalidates the nested CLI signature. Re-sign it before\n# XCTest launches Contents/Resources/bin/cmux, otherwise macOS can SIGKILL it.\n/usr/bin/codesign --force --sign - --timestamp=none \"$CLI\"\n";
 		};
 		C0DEFF100000000000000003 /* Build Command Palette Nucleo FFI */ = {
 			isa = PBXShellScriptBuildPhase;

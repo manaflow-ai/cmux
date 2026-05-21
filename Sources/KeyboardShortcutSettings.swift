@@ -764,8 +764,6 @@ enum KeyboardShortcutSettings {
     }
 
     static func setShortcut(_ shortcut: StoredShortcut, for action: Action) {
-        guard !isManagedBySettingsFile(action) else { return }
-
         guard let storedShortcut = storedShortcutForPersistence(shortcut, action: action) else {
             return
         }
