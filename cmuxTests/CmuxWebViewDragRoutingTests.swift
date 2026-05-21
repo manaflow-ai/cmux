@@ -365,4 +365,23 @@ final class BrowserScreenshotPipelineTests: XCTestCase {
         XCTAssertEqual(rects.destination.width, 100, accuracy: 0.001)
         XCTAssertEqual(rects.destination.height, 100, accuracy: 0.001)
     }
+
+    func testFullPageCaptureBoundsRejectsHugePageBeforeBitmapAllocation() throws {
+        XCTAssertNoThrow(
+            try BrowserScreenshotCaptureBounds.validateFullPageSize(
+                NSSize(width: 10_000, height: 10_000)
+            )
+        )
+
+        XCTAssertThrowsError(
+            try BrowserScreenshotCaptureBounds.validateFullPageSize(
+                NSSize(width: 10_001, height: 10_000)
+            )
+        ) { error in
+            guard case BrowserScreenshotError.captureAreaTooLarge = error else {
+                XCTFail("Expected captureAreaTooLarge, got \(error)")
+                return
+            }
+        }
+    }
 }

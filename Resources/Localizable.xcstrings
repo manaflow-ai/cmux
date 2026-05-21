@@ -11638,6 +11638,31 @@
         }
       }
     },
+    "browser.screenshot.error.captureAreaTooLarge": {
+      "extractionState": "manual",
+      "localizations": {
+        "ar": {"stringUnit": {"state": "translated", "value": "The page is too large to capture."}},
+        "bs": {"stringUnit": {"state": "translated", "value": "The page is too large to capture."}},
+        "da": {"stringUnit": {"state": "translated", "value": "The page is too large to capture."}},
+        "de": {"stringUnit": {"state": "translated", "value": "Die Seite ist zu groß, um sie zu erfassen."}},
+        "en": {"stringUnit": {"state": "translated", "value": "The page is too large to capture."}},
+        "es": {"stringUnit": {"state": "translated", "value": "La página es demasiado grande para capturarla."}},
+        "fr": {"stringUnit": {"state": "translated", "value": "La page est trop grande pour être capturée."}},
+        "it": {"stringUnit": {"state": "translated", "value": "La pagina è troppo grande per essere acquisita."}},
+        "ja": {"stringUnit": {"state": "translated", "value": "ページが大きすぎるためキャプチャできません。"}},
+        "km": {"stringUnit": {"state": "translated", "value": "The page is too large to capture."}},
+        "ko": {"stringUnit": {"state": "translated", "value": "페이지가 너무 커서 캡처할 수 없습니다."}},
+        "nb": {"stringUnit": {"state": "translated", "value": "Siden er for stor til å fanges."}},
+        "pl": {"stringUnit": {"state": "translated", "value": "The page is too large to capture."}},
+        "pt-BR": {"stringUnit": {"state": "translated", "value": "A página é grande demais para capturar."}},
+        "ru": {"stringUnit": {"state": "translated", "value": "Страница слишком велика для снимка экрана."}},
+        "th": {"stringUnit": {"state": "translated", "value": "The page is too large to capture."}},
+        "tr": {"stringUnit": {"state": "translated", "value": "The page is too large to capture."}},
+        "uk": {"stringUnit": {"state": "translated", "value": "Сторінка завелика для знімка екрана."}},
+        "zh-Hans": {"stringUnit": {"state": "translated", "value": "页面太大，无法捕获。"}},
+        "zh-Hant": {"stringUnit": {"state": "translated", "value": "頁面太大，無法擷取。"}}
+      }
+    },
     "browser.screenshot.error.emptySnapshot": {
       "extractionState": "manual",
       "localizations": {

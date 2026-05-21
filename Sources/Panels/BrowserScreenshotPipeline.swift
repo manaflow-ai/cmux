@@ -2,6 +2,7 @@ import AppKit
 import UniformTypeIdentifiers
 
 enum BrowserScreenshotError: LocalizedError {
+    case captureAreaTooLarge
     case emptySnapshot
     case invalidSelection
     case invalidImageRepresentation
@@ -10,6 +11,11 @@ enum BrowserScreenshotError: LocalizedError {
 
     var errorDescription: String? {
         switch self {
+        case .captureAreaTooLarge:
+            return String(
+                localized: "browser.screenshot.error.captureAreaTooLarge",
+                defaultValue: "The page is too large to capture."
+            )
         case .emptySnapshot:
             return String(localized: "browser.screenshot.error.emptySnapshot", defaultValue: "No screenshot was returned.")
         case .invalidSelection:
