@@ -1389,6 +1389,46 @@ final class MainWindowFocusControllerRightSidebarHideTests: XCTestCase {
     }
 
     @MainActor
+    func testPendingHistoryFocusCompletesWhenHistorySearchHostRegisters() {
+        let fileExplorerState = FileExplorerState()
+        let window = NSWindow(
+            contentRect: NSRect(x: 0, y: 0, width: 240, height: 180),
+            styleMask: [.titled],
+            backing: .buffered,
+            defer: false
+        )
+        let contentView = NSView(frame: window.contentView?.bounds ?? .zero)
+        window.contentView = contentView
+        let controller = MainWindowFocusController(
+            windowId: UUID(),
+            window: window,
+            tabManager: TabManager(),
+            fileExplorerState: fileExplorerState
+        )
+
+        XCTAssertTrue(controller.focusRightSidebar(mode: .history, focusFirstItem: true))
+        XCTAssertEqual(controller.debugPendingRightSidebarFocusMode, .history)
+
+        var searchFocusRequests = 0
+        let focusHost = RightSidebarHistoryFocusAnchorView(frame: NSRect(x: 0, y: 0, width: 24, height: 24))
+        focusHost.onFocusSearch = {
+            searchFocusRequests += 1
+        }
+        defer {
+            _ = window.makeFirstResponder(nil)
+            focusHost.removeFromSuperview()
+            window.contentView = nil
+            window.orderOut(nil)
+        }
+        contentView.addSubview(focusHost)
+        controller.registerHistoryHost(focusHost)
+
+        XCTAssertNil(controller.debugPendingRightSidebarFocusMode)
+        XCTAssertTrue(window.firstResponder === focusHost)
+        XCTAssertEqual(searchFocusRequests, 1)
+    }
+
+    @MainActor
     func testFocusShortcutToggleClearsRightSidebarIntentWhenTerminalIsUnavailable() {
         let controller = MainWindowFocusController(
             windowId: UUID(),

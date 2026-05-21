@@ -16,15 +16,14 @@ final class RightSidebarCommandPaletteTests: XCTestCase {
             let contributionsByID = Dictionary(uniqueKeysWithValues: contributions.map { ($0.commandId, $0) })
             let context = ContentView.CommandPaletteContextSnapshot()
 
-            for mode in RightSidebarMode.availableModes() where mode.shortcutAction != nil {
-                let shortcutAction = try XCTUnwrap(mode.shortcutAction)
+            for mode in RightSidebarMode.availableModes() {
                 let commandID = ContentView.commandPaletteRightSidebarModeCommandID(mode)
                 let contribution = try XCTUnwrap(
                     contributionsByID[commandID],
                     "Expected command palette contribution for \(mode.rawValue)"
                 )
 
-                XCTAssertEqual(contribution.title(context), shortcutAction.label)
+                XCTAssertEqual(contribution.title(context), mode.shortcutAction?.label ?? mode.label)
                 XCTAssertEqual(
                     contribution.subtitle(context),
                     String(localized: "command.rightSidebarMode.subtitle", defaultValue: "Right Sidebar")
@@ -36,10 +35,10 @@ final class RightSidebarCommandPaletteTests: XCTestCase {
                 XCTAssertTrue(contribution.enablement(context))
             }
 
-            XCTAssertEqual(contributions.count, 4)
+            XCTAssertEqual(contributions.count, 5)
             XCTAssertNotNil(contributionsByID[ContentView.commandPaletteRightSidebarModeCommandID(.feed)])
             XCTAssertNil(contributionsByID[ContentView.commandPaletteRightSidebarModeCommandID(.dock)])
-            XCTAssertNil(contributionsByID[ContentView.commandPaletteRightSidebarModeCommandID(.history)])
+            XCTAssertNotNil(contributionsByID[ContentView.commandPaletteRightSidebarModeCommandID(.history)])
         }
     }
 

@@ -169,6 +169,7 @@ struct RightSidebarPanelView: View {
     }
     @State private var focusShortcutHintMonitor = WindowScopedShortcutHintModifierMonitor(activation: .commandOnly)
     @State private var closeShortcutHintMonitor = WindowScopedShortcutHintModifierMonitor(activation: .commandOnly)
+    @State private var historySearchFocusToken = 0
     @StateObject private var dockStore = DockControlsStore()
     @ObservedObject private var keyboardShortcutSettingsObserver = KeyboardShortcutSettingsObserver.shared
     private let alwaysShowShortcutHints = ShortcutHintDebugSettings.alwaysShowHints()
@@ -413,8 +414,13 @@ struct RightSidebarPanelView: View {
             DockPanelView(rootDirectory: sessionIndexDirectory, workspaceId: workspaceId, store: dockStore)
         case .history:
             HistoryPanelView(
-                focusSearchToken: 0,
-                onFocus: {},
+                focusSearchToken: historySearchFocusToken,
+                onFocus: {
+                    AppDelegate.shared?.noteRightSidebarKeyboardFocusIntent(
+                        mode: .history,
+                        in: NSApp.keyWindow ?? NSApp.mainWindow
+                    )
+                },
                 onOpenClosedItem: { itemId in
                     AppDelegate.shared?.reopenClosedHistoryItem(
                         id: itemId,
@@ -434,6 +440,12 @@ struct RightSidebarPanelView: View {
                 }
             )
             .environmentObject(tabManager)
+            .background(
+                RightSidebarHistoryFocusBridge {
+                    historySearchFocusToken &+= 1
+                }
+                .frame(width: 0, height: 0)
+            )
         }
     }
 
@@ -463,6 +475,81 @@ struct RightSidebarPanelView: View {
             focusFirstItem: false,
             preferredWindow: window
         )
+    }
+}
+
+private struct RightSidebarHistoryFocusBridge: NSViewRepresentable {
+    let onFocusSearch: () -> Void
+
+    func makeNSView(context: Context) -> RightSidebarHistoryFocusAnchorView {
+        let view = RightSidebarHistoryFocusAnchorView()
+        view.onFocusSearch = onFocusSearch
+        return view
+    }
+
+    func updateNSView(_ nsView: RightSidebarHistoryFocusAnchorView, context: Context) {
+        nsView.onFocusSearch = onFocusSearch
+        nsView.registerWithKeyboardFocusCoordinatorIfNeeded()
+    }
+
+    static func dismantleNSView(_ nsView: RightSidebarHistoryFocusAnchorView, coordinator: ()) {
+        nsView.onFocusSearch = nil
+    }
+}
+
+final class RightSidebarHistoryFocusAnchorView: NSView {
+    var onFocusSearch: (() -> Void)?
+    override var acceptsFirstResponder: Bool { true }
+
+    override func viewDidMoveToWindow() {
+        super.viewDidMoveToWindow()
+        registerWithKeyboardFocusCoordinatorIfNeeded()
+    }
+
+    func registerWithKeyboardFocusCoordinatorIfNeeded() {
+        guard let window else { return }
+        AppDelegate.shared?.keyboardFocusCoordinator(for: window)?.registerHistoryHost(self)
+    }
+
+    func focusSearchFromCoordinator() -> Bool {
+        onFocusSearch?()
+        return focusHostFromCoordinator()
+    }
+
+    func focusHostFromCoordinator() -> Bool {
+        guard let window else { return false }
+        return window.makeFirstResponder(self)
+    }
+
+    func ownsKeyboardFocus(_ responder: NSResponder) -> Bool {
+        if responder === self { return true }
+        guard let responderView = Self.view(for: responder),
+              let root = focusRootView else { return false }
+        return responderView === root || responderView.isDescendant(of: root)
+    }
+
+    private static func view(for responder: NSResponder) -> NSView? {
+        if let view = responder as? NSView {
+            return view
+        }
+        if let textView = responder as? NSTextView,
+           let delegateView = textView.delegate as? NSView {
+            return delegateView
+        }
+        return nil
+    }
+
+    private var focusRootView: NSView? {
+        guard let superview else { return nil }
+        var current: NSView? = superview
+        while let view = current {
+            let typeName = String(describing: type(of: view))
+            if typeName.contains("NSHosting") || typeName.contains("ViewHost") {
+                return view
+            }
+            current = view.superview
+        }
+        return superview
     }
 }
 

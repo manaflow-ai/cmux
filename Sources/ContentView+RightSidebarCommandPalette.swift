@@ -89,11 +89,11 @@ extension ContentView {
             { _ in value }
         }
 
-        return RightSidebarMode.availableModes().compactMap { mode in
-            guard let shortcutAction = mode.shortcutAction else { return nil }
+        return RightSidebarMode.availableModes().map { mode in
+            let title = mode.shortcutAction?.label ?? mode.label
             return CommandPaletteCommandContribution(
                 commandId: Self.commandPaletteRightSidebarModeCommandID(mode),
-                title: constant(shortcutAction.label),
+                title: constant(title),
                 subtitle: constant(String(localized: "command.rightSidebarMode.subtitle", defaultValue: "Right Sidebar")),
                 keywords: ["right", "sidebar", "show", "switch", "focus", mode.rawValue]
             )

@@ -55,6 +55,7 @@ final class MainWindowFocusController {
     private weak var fileSearchHost: FileExplorerContainerView?
     private weak var feedHost: FeedKeyboardFocusView?
     private weak var dockHost: DockKeyboardFocusView?
+    private weak var historyHost: RightSidebarHistoryFocusAnchorView?
 
     private(set) var intent: MainWindowKeyboardFocusIntent? {
         didSet {
@@ -126,6 +127,11 @@ final class MainWindowFocusController {
         focusRegisteredRightSidebarEndpointIfNeeded(mode: .dock)
     }
 
+    func registerHistoryHost(_ host: RightSidebarHistoryFocusAnchorView) {
+        historyHost = host
+        focusRegisteredRightSidebarEndpointIfNeeded(mode: .history)
+    }
+
     func noteRightSidebarInteraction(mode: RightSidebarMode) {
         rememberedRightSidebarMode = mode
         rightSidebarFocusState = .focused(mode: mode, target: .host)
@@ -193,6 +199,9 @@ final class MainWindowFocusController {
             return true
         }
         if dockHost?.ownsKeyboardFocus(responder) == true {
+            return true
+        }
+        if historyHost?.ownsKeyboardFocus(responder) == true {
             return true
         }
         return false
@@ -648,7 +657,7 @@ final class MainWindowFocusController {
         case .dock:
             return focusFirstItem ? .firstItem : .host
         case .history:
-            return .host
+            return focusFirstItem ? .searchField : .host
         }
     }
 
@@ -674,7 +683,10 @@ final class MainWindowFocusController {
             }
             return dockHost?.focusHostFromCoordinator() == true
         case .history:
-            return false
+            if target == .searchField {
+                return historyHost?.focusSearchFromCoordinator() == true
+            }
+            return historyHost?.focusHostFromCoordinator() == true
         }
     }
 
@@ -744,6 +756,9 @@ final class MainWindowFocusController {
         }
         if dockHost?.ownsKeyboardFocus(responder) == true {
             return .dock
+        }
+        if historyHost?.ownsKeyboardFocus(responder) == true {
+            return .history
         }
         return nil
     }
