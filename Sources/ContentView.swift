@@ -1060,7 +1060,6 @@ struct ContentView: View {
     @State private var hoveredResizerHandles: Set<SidebarResizerHandle> = []
     @State private var isResizerDragging = false
     @State private var sidebarDragStartWidth: CGFloat?
-    @State private var sidebarDragStartPreferredWidth: CGFloat?
     @State private var selectedTabIds: Set<UUID> = []
     @State private var mountedWorkspaceIds: [UUID] = []
     @State private var lastSidebarSelectionIndex: Int? = nil
@@ -1075,7 +1074,6 @@ struct ContentView: View {
     @State private var backgroundWorkspacePrimeCoordinator = BackgroundWorkspacePrimeCoordinator()
     @State private var fileExplorerWidth: CGFloat = 220
     @State private var fileExplorerDragStartWidth: CGFloat?
-    @State private var fileExplorerDragStartPreferredWidth: CGFloat?
     @State private var previousSelectedWorkspaceId: UUID?
     @State private var retiringWorkspaceId: UUID?
     @State private var workspaceHandoffGeneration: UInt64 = 0
@@ -1592,7 +1590,6 @@ struct ContentView: View {
                 currentWidth: sidebarWidth,
                 captureStart: {
                     sidebarDragStartWidth = sidebarWidth
-                    sidebarDragStartPreferredWidth = normalizedSidebarPreferredWidth(sidebarState.persistedWidth)
                 },
                 updateWidth: { translation in
                     let startWidth = sidebarDragStartWidth ?? sidebarWidth
@@ -1606,12 +1603,12 @@ struct ContentView: View {
                     clampRightSidebarWidthIfNeeded(availableWidth: availableWidth)
                 },
                 finishDrag: { translation in
-                    let startPreferredWidth = sidebarDragStartPreferredWidth
+                    let startWidth = sidebarDragStartWidth
                     sidebarDragStartWidth = nil
-                    sidebarDragStartPreferredWidth = nil
-                    guard let startPreferredWidth,
+                    guard let startWidth,
                           let preferredWidth = Self.completedSidebarDragPreferredWidth(
-                            startPreferredWidth: startPreferredWidth,
+                            startWidth: startWidth,
+                            endWidth: sidebarWidth,
                             translation: translation
                           ) else {
                         return
@@ -1624,7 +1621,6 @@ struct ContentView: View {
                 currentWidth: fileExplorerWidth,
                 captureStart: {
                     fileExplorerDragStartWidth = fileExplorerWidth
-                    fileExplorerDragStartPreferredWidth = normalizedRightSidebarPreferredWidth(fileExplorerState.width)
                 },
                 updateWidth: { translation in
                     let startWidth = fileExplorerDragStartWidth ?? fileExplorerWidth
@@ -1638,12 +1634,12 @@ struct ContentView: View {
                     }
                 },
                 finishDrag: { translation in
-                    let startPreferredWidth = fileExplorerDragStartPreferredWidth
+                    let startWidth = fileExplorerDragStartWidth
                     fileExplorerDragStartWidth = nil
-                    fileExplorerDragStartPreferredWidth = nil
-                    guard let startPreferredWidth,
+                    guard let startWidth,
                           let preferredWidth = Self.completedRightSidebarDragPreferredWidth(
-                            startPreferredWidth: startPreferredWidth,
+                            startWidth: startWidth,
+                            endWidth: fileExplorerWidth,
                             translation: translation
                           ) else {
                         return
@@ -1692,9 +1688,16 @@ struct ContentView: View {
         )
     }
 
-    static func completedSidebarDragPreferredWidth(startPreferredWidth: CGFloat, translation: CGFloat) -> CGFloat? {
+    static func completedSidebarDragPreferredWidth(
+        startWidth: CGFloat,
+        endWidth: CGFloat,
+        translation: CGFloat
+    ) -> CGFloat? {
         guard translation.isFinite, abs(translation) > Self.sidebarDragPersistenceThreshold else { return nil }
-        return clampedSidebarPreferredWidth(startPreferredWidth + translation)
+        guard startWidth.isFinite, endWidth.isFinite, abs(endWidth - startWidth) > Self.sidebarDragPersistenceThreshold else {
+            return nil
+        }
+        return clampedSidebarPreferredWidth(endWidth)
     }
 
     static func clampedRightSidebarWidth(
@@ -1729,9 +1732,16 @@ struct ContentView: View {
         )
     }
 
-    static func completedRightSidebarDragPreferredWidth(startPreferredWidth: CGFloat, translation: CGFloat) -> CGFloat? {
+    static func completedRightSidebarDragPreferredWidth(
+        startWidth: CGFloat,
+        endWidth: CGFloat,
+        translation: CGFloat
+    ) -> CGFloat? {
         guard translation.isFinite, abs(translation) > Self.sidebarDragPersistenceThreshold else { return nil }
-        return clampedRightSidebarPreferredWidth(startPreferredWidth - translation)
+        guard startWidth.isFinite, endWidth.isFinite, abs(endWidth - startWidth) > Self.sidebarDragPersistenceThreshold else {
+            return nil
+        }
+        return clampedRightSidebarPreferredWidth(endWidth)
     }
 
     private static func clampedSidebarDimension(
@@ -1992,9 +2002,7 @@ struct ContentView: View {
                     isResizerDragging = false
                 }
                 sidebarDragStartWidth = nil
-                sidebarDragStartPreferredWidth = nil
                 fileExplorerDragStartWidth = nil
-                fileExplorerDragStartPreferredWidth = nil
                 isResizerBandActive = false
                 scheduleSidebarResizerCursorRelease(force: true)
             }
@@ -3291,9 +3299,7 @@ struct ContentView: View {
                 TerminalWindowPortalRegistry.endInteractiveGeometryResize()
                 isResizerDragging = false
                 sidebarDragStartWidth = nil
-                sidebarDragStartPreferredWidth = nil
                 fileExplorerDragStartWidth = nil
-                fileExplorerDragStartPreferredWidth = nil
             }
             removeSidebarResizerPointerMonitor()
         })

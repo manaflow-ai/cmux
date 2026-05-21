@@ -54,25 +54,28 @@ final class SidebarWidthPolicyTests: XCTestCase {
     func testCompletedSidebarDragIgnoresNoOpClampFinishes() {
         XCTAssertNil(
             ContentView.completedSidebarDragPreferredWidth(
-                startPreferredWidth: 420,
+                startWidth: 180,
+                endWidth: 180,
                 translation: 0
             )
         )
         XCTAssertNil(
             ContentView.completedSidebarDragPreferredWidth(
-                startPreferredWidth: 420,
-                translation: 0.25
+                startWidth: 180,
+                endWidth: 180,
+                translation: 20
             )
         )
     }
 
-    func testCompletedSidebarDragUsesPreferredWidthStart() throws {
+    func testCompletedSidebarDragSavesActualVisibleResize() throws {
         XCTAssertEqual(
             try XCTUnwrap(ContentView.completedSidebarDragPreferredWidth(
-                startPreferredWidth: 420,
+                startWidth: 220,
+                endWidth: 200,
                 translation: -20
             )),
-            400,
+            200,
             accuracy: 0.001
         )
     }
@@ -142,25 +145,28 @@ final class SidebarWidthPolicyTests: XCTestCase {
     func testCompletedRightSidebarDragIgnoresNoOpClampFinishes() {
         XCTAssertNil(
             ContentView.completedRightSidebarDragPreferredWidth(
-                startPreferredWidth: 900,
+                startWidth: 400,
+                endWidth: 400,
                 translation: 0
             )
         )
         XCTAssertNil(
             ContentView.completedRightSidebarDragPreferredWidth(
-                startPreferredWidth: 900,
-                translation: -0.25
+                startWidth: 400,
+                endWidth: 400,
+                translation: 50
             )
         )
     }
 
-    func testCompletedRightSidebarDragUsesPreferredWidthStart() throws {
+    func testCompletedRightSidebarDragSavesActualVisibleResize() throws {
         XCTAssertEqual(
             try XCTUnwrap(ContentView.completedRightSidebarDragPreferredWidth(
-                startPreferredWidth: 900,
+                startWidth: 400,
+                endWidth: 350,
                 translation: 50
             )),
-            850,
+            350,
             accuracy: 0.001
         )
     }
