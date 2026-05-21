@@ -29,7 +29,8 @@ check_warp_runner() {
 check_warp_runner "$CI_FILE" "tests-build"
 check_warp_runner "$CI_FILE" "tests-shards"
 check_warp_runner "$CI_FILE" "tests-cli-regressions"
-check_warp_runner "$CI_FILE" "tests"
+# The aggregate tests fan-in job does not run macOS work; the paid unit-test
+# build, shard, and CLI jobs above must stay on WarpBuild.
 check_warp_runner "$CI_FILE" "tests-build-and-lag"
 check_warp_runner "$CI_FILE" "release-build"
 check_warp_runner "$CI_FILE" "ui-regressions"

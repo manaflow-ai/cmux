@@ -30,6 +30,16 @@ jobs:
       - name: Validate cmux scheme test configuration
         run: ./tests/test_ci_scheme_testaction_debug.sh
 
+      - name: Validate cmux-unit shard plans are generated
+        run: |
+          python3 scripts/generate-cmux-unit-test-plans.py
+          git diff --exit-code -- \
+            cmuxTests/cmux-unit.xctestplan \
+            cmuxTests/cmux-unit-shard-1.xctestplan \
+            cmuxTests/cmux-unit-shard-2.xctestplan \
+            cmuxTests/cmux-unit-shard-3.xctestplan \
+            cmuxTests/cmux-unit-shard-4.xctestplan
+
       - name: Validate GhosttyKit checksum verification
         run: ./tests/test_ci_ghosttykit_checksum_verification.sh
 
@@ -444,7 +454,7 @@ jobs:
           CMUX_CLI_BIN="$CLI_BIN" python3 tests/test_pi_extension_install.py
 
   tests:
-    runs-on: warp-macos-15-arm64-6x
+    runs-on: ubuntu-latest
     timeout-minutes: 5
     needs:
       - tests-build
