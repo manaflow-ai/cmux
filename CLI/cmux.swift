@@ -19068,12 +19068,27 @@ struct CMUXCLI {
         let hasContext = cwd != nil || lastMessage != nil
         guard hasContext else { return nil }
 
-        var body = "Claude session completed"
-        if let projectName, !projectName.isEmpty {
-            body += " in \(projectName)"
-        }
-        if let lastMessage, !lastMessage.isEmpty {
-            body += ". Last: \(lastMessage)"
+        let body: String
+        if let projectName, !projectName.isEmpty, let lastMessage, !lastMessage.isEmpty {
+            body = String(
+                localized: "agent.claude.completion.body.sessionCompletedInProjectWithLast",
+                defaultValue: "Claude session completed in \(projectName). Last: \(lastMessage)"
+            )
+        } else if let projectName, !projectName.isEmpty {
+            body = String(
+                localized: "agent.claude.completion.body.sessionCompletedInProject",
+                defaultValue: "Claude session completed in \(projectName)"
+            )
+        } else if let lastMessage, !lastMessage.isEmpty {
+            body = String(
+                localized: "agent.claude.completion.body.sessionCompletedWithLast",
+                defaultValue: "Claude session completed. Last: \(lastMessage)"
+            )
+        } else {
+            body = String(
+                localized: "agent.claude.completion.body.sessionCompleted",
+                defaultValue: "Claude session completed"
+            )
         }
         return ("Completed", body)
     }
@@ -20163,7 +20178,7 @@ struct CMUXCLI {
             if let fallback = parsedInput.rawFallback, !fallback.isEmpty {
                 return classifyClaudeNotification(signal: fallback, message: fallback)
             }
-            return ("Waiting", "Claude is waiting for your input")
+            return (String(localized: "agent.claude.input.subtitle.waiting", defaultValue: "Waiting"), String(localized: "agent.claude.input.body.needsInput", defaultValue: "Claude is waiting for your input"))
         }
 
         let nested = (object["notification"] as? [String: Any]) ?? (object["data"] as? [String: Any]) ?? [:]
@@ -20176,7 +20191,7 @@ struct CMUXCLI {
             firstString(in: object, keys: ["message", "body", "text", "prompt", "error", "description"]),
             firstString(in: nested, keys: ["message", "body", "text", "prompt", "error", "description"])
         ]
-        let message = messageCandidates.compactMap { $0 }.first ?? "Claude needs your input"
+        let message = messageCandidates.compactMap { $0 }.first ?? String(localized: "agent.claude.input.body.needsInput", defaultValue: "Claude is waiting for your input")
         let normalizedMessage = normalizedSingleLine(message)
         let signal = signalParts.compactMap { $0 }.joined(separator: " ")
         var classified = classifyClaudeNotification(signal: signal, message: normalizedMessage)
@@ -20516,26 +20531,26 @@ struct CMUXCLI {
     private func classifyClaudeNotification(signal: String, message: String) -> (subtitle: String, body: String) {
         let lower = "\(signal) \(message)".lowercased()
         if lower.contains("permission") || lower.contains("approve") || lower.contains("approval") || lower.contains("permission_prompt") {
-            let body = message.isEmpty ? "Approval needed" : message
-            return ("Permission", body)
+            let body = message.isEmpty ? String(localized: "agent.claude.input.body.approvalNeeded", defaultValue: "Approval needed") : message
+            return (String(localized: "agent.claude.input.subtitle.permission", defaultValue: "Permission"), body)
         }
         if lower.contains("error") || lower.contains("failed") || lower.contains("exception") {
-            let body = message.isEmpty ? "Claude reported an error" : message
-            return ("Error", body)
+            let body = message.isEmpty ? String(localized: "agent.claude.input.body.reportedError", defaultValue: "Claude reported an error") : message
+            return (String(localized: "agent.claude.input.subtitle.error", defaultValue: "Error"), body)
         }
         if containsCompletionCue(lower) {
-            let body = message.isEmpty ? "Task completed" : message
-            return ("Completed", body)
+            let body = message.isEmpty ? String(localized: "agent.claude.input.body.taskCompleted", defaultValue: "Task completed") : message
+            return (String(localized: "agent.claude.completion.subtitle.completed", defaultValue: "Completed"), body)
         }
         if containsWaitingCue(lower) {
-            let body = message.isEmpty ? "Waiting for input" : message
-            return ("Waiting", body)
+            let body = message.isEmpty ? String(localized: "agent.claude.input.body.waitingForInput", defaultValue: "Waiting for input") : message
+            return (String(localized: "agent.claude.input.subtitle.waiting", defaultValue: "Waiting"), body)
         }
-        // Use the message directly if it's meaningful (not a generic placeholder).
-        if !message.isEmpty, message != "Claude needs your input" {
-            return ("Attention", message)
+        let needsInputMessage = String(localized: "agent.claude.input.body.needsInput", defaultValue: "Claude is waiting for your input")
+        if !message.isEmpty, message != needsInputMessage {
+            return (String(localized: "agent.claude.input.subtitle.attention", defaultValue: "Attention"), message)
         }
-        return ("Attention", "Claude needs your attention")
+        return (String(localized: "agent.claude.input.subtitle.attention", defaultValue: "Attention"), String(localized: "agent.claude.input.body.needsAttention", defaultValue: "Claude needs your attention"))
     }
 
     private func containsCompletionCue(_ lowercasedText: String) -> Bool {
