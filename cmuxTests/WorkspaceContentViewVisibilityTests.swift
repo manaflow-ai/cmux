@@ -77,6 +77,53 @@ final class WorkspaceContentViewVisibilityTests: XCTestCase {
         )
     }
 
+    func testMainPaneOverlaySuppressesMainPanelUnreadRing() {
+        XCTAssertFalse(
+            WorkspaceContentView.panelContentUnreadIndicatorVisible(
+                showsNotificationRing: true,
+                usesWorkspacePaneOverlay: true,
+                coveredByWorkspacePaneOverlay: true
+            )
+        )
+    }
+
+    func testMainPaneOverlayDoesNotSuppressDockPanelUnreadRing() {
+        XCTAssertTrue(
+            WorkspaceContentView.panelContentUnreadIndicatorVisible(
+                showsNotificationRing: true,
+                usesWorkspacePaneOverlay: true,
+                coveredByWorkspacePaneOverlay: false
+            )
+        )
+    }
+
+    func testPanelUnreadRingHiddenWhenNoUnreadStateExists() {
+        XCTAssertFalse(
+            WorkspaceContentView.panelContentUnreadIndicatorVisible(
+                showsNotificationRing: false,
+                usesWorkspacePaneOverlay: false,
+                coveredByWorkspacePaneOverlay: false
+            )
+        )
+    }
+
+    @MainActor
+    func testSplitZoomRenderIdentityChangesWithControllerZoom() throws {
+        let controller = BonsplitController()
+        _ = try XCTUnwrap(controller.createTab(title: "Terminal"))
+        let paneId = try XCTUnwrap(controller.focusedPaneId)
+        _ = try XCTUnwrap(controller.splitPane(paneId, orientation: .horizontal))
+
+        XCTAssertEqual(WorkspaceContentView.splitZoomRenderIdentity(for: controller), "unzoomed")
+        XCTAssertTrue(controller.togglePaneZoom(inPane: paneId))
+        XCTAssertEqual(
+            WorkspaceContentView.splitZoomRenderIdentity(for: controller),
+            "zoom:\(paneId.id.uuidString)"
+        )
+        XCTAssertTrue(controller.togglePaneZoom(inPane: paneId))
+        XCTAssertEqual(WorkspaceContentView.splitZoomRenderIdentity(for: controller), "unzoomed")
+    }
+
     func testTmuxWorkspacePaneOverlayRectReturnsMatchingPaneFrame() {
         let paneID = PaneID(id: UUID())
         let snapshot = LayoutSnapshot(

@@ -213,11 +213,11 @@ struct WorkspaceContentView: View {
         let _ = {
             workspace.bonsplitController.onFileDrop = { [weak workspace] urls, paneId in
                 guard let workspace else { return false }
-                // Find the focused panel in this pane and drop the files into it.
-                guard let tabId = workspace.bonsplitController.selectedTab(inPane: paneId)?.id,
-                      let panelId = workspace.panelIdFromSurfaceId(tabId),
-                      let panel = workspace.panels[panelId] as? TerminalPanel else { return false }
-                return panel.hostedView.handleDroppedURLs(urls)
+                return workspace.handleDirectFileDrop(
+                    urls: urls,
+                    inPane: paneId,
+                    controller: workspace.bonsplitController
+                )
             }
         }()
 
@@ -252,7 +252,11 @@ struct WorkspaceContentView: View {
                     portalPriority: workspacePortalPriority,
                     isSplit: isSplit,
                     appearance: appearance,
-                    hasUnreadNotification: showsNotificationRing && !usesWorkspacePaneOverlay,
+                    hasUnreadNotification: Self.panelContentUnreadIndicatorVisible(
+                        showsNotificationRing: showsNotificationRing,
+                        usesWorkspacePaneOverlay: usesWorkspacePaneOverlay,
+                        coveredByWorkspacePaneOverlay: true
+                    ),
                     onFocus: {
                         // Keep bonsplit focus in sync with the AppKit first responder for the
                         // active workspace. This prevents divergence between the blue focused-tab
@@ -291,7 +295,7 @@ struct WorkspaceContentView: View {
         // Split zoom swaps Bonsplit between the full split tree and a single pane view.
         // Recreate the Bonsplit subtree on zoom enter/exit so stale pre-zoom pane chrome
         // cannot remain stacked above portal-hosted browser content.
-        .id(splitZoomRenderIdentity)
+        .id(Self.splitZoomRenderIdentity(for: workspace.bonsplitController))
         .frame(maxWidth: .infinity, maxHeight: .infinity)
         .onAppear {
             syncBonsplitNotificationBadges()
@@ -397,8 +401,16 @@ struct WorkspaceContentView: View {
         }
     }
 
-    private var splitZoomRenderIdentity: String {
-        workspace.bonsplitController.zoomedPaneId.map { "zoom:\($0.id.uuidString)" } ?? "unzoomed"
+    static func splitZoomRenderIdentity(for controller: BonsplitController) -> String {
+        controller.zoomedPaneId.map { "zoom:\($0.id.uuidString)" } ?? "unzoomed"
+    }
+
+    static func panelContentUnreadIndicatorVisible(
+        showsNotificationRing: Bool,
+        usesWorkspacePaneOverlay: Bool,
+        coveredByWorkspacePaneOverlay: Bool
+    ) -> Bool {
+        showsNotificationRing && !(usesWorkspacePaneOverlay && coveredByWorkspacePaneOverlay)
     }
 
     private static let tmuxWorkspacePaneTopChromeHeight: CGFloat = MinimalModeChromeMetrics.titlebarHeight
@@ -1373,7 +1385,11 @@ private struct WorkspaceDockPaneView: View {
                     portalPriority: portalPriority,
                     isSplit: isSplit,
                     appearance: appearance,
-                    hasUnreadNotification: showsNotificationRing && !usesWorkspacePaneOverlay,
+                    hasUnreadNotification: WorkspaceContentView.panelContentUnreadIndicatorVisible(
+                        showsNotificationRing: showsNotificationRing,
+                        usesWorkspacePaneOverlay: usesWorkspacePaneOverlay,
+                        coveredByWorkspacePaneOverlay: false
+                    ),
                     onFocus: {
                         guard isWorkspaceInputActive else { return }
                         guard workspace.panels[panel.id] != nil else { return }
@@ -1404,6 +1420,7 @@ private struct WorkspaceDockPaneView: View {
                 }
         }
         .internalOnlyTabDrag()
+        .id(WorkspaceContentView.splitZoomRenderIdentity(for: dock.controller))
         .frame(maxWidth: .infinity, maxHeight: .infinity)
     }
 

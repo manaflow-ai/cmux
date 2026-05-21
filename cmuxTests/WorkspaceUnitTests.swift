@@ -3945,6 +3945,32 @@ final class WorkspaceTerminalFocusRecoveryTests: XCTestCase {
         XCTAssertTrue(destinations.contains { $0.id == "new-workspace" })
     }
 
+    func testDockControllerProvidesDirectFileDropHandler() throws {
+        let workspace = Workspace()
+        let dock = workspace.dockLayout.addDock(edge: .bottom)
+        let dockPaneId = try XCTUnwrap(dock.controller.allPaneIds.first)
+        let dockPanel = try XCTUnwrap(
+            workspace.newTerminalSurface(
+                inPane: dockPaneId,
+                controller: dock.controller,
+                focus: false
+            )
+        )
+
+        XCTAssertNotNil(dock.controller.onFileDrop)
+        XCTAssertEqual(
+            workspace.terminalPanelForDirectFileDrop(inPane: dockPaneId)?.id,
+            dockPanel.id
+        )
+        XCTAssertEqual(
+            workspace.terminalPanelForDirectFileDrop(
+                inPane: dockPaneId,
+                controller: dock.controller
+            )?.id,
+            dockPanel.id
+        )
+    }
+
     func testDockPaneConfigInheritancePrefersDockTerminal() {
         let workspace = Workspace()
         let dock = workspace.dockLayout.addDock(edge: .left)

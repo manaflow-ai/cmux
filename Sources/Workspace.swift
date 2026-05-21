@@ -7379,6 +7379,14 @@ final class WorkspaceDock: ObservableObject, Identifiable {
             guard let workspace, let self else { return false }
             return workspace.handleExternalFileDrop(request, destinationController: self.controller)
         }
+        controller.onFileDrop = { [weak workspace, weak self] urls, paneId in
+            guard let workspace, let self else { return false }
+            return workspace.handleDirectFileDrop(
+                urls: urls,
+                inPane: paneId,
+                controller: self.controller
+            )
+        }
         controller.onTabCloseRequest = { [weak workspace] tabId, _ in
             workspace?.markExplicitClose(surfaceId: tabId)
         }
@@ -14170,6 +14178,32 @@ final class Workspace: Identifiable, ObservableObject {
             openedAny = openedAny || openedRest
             return openedAny
         }
+    }
+
+    func terminalPanelForDirectFileDrop(
+        inPane paneId: PaneID,
+        controller targetController: BonsplitController? = nil
+    ) -> TerminalPanel? {
+        let controller = targetController ?? bonsplitController(containingPane: paneId) ?? bonsplitController
+        guard let tabId = controller.selectedTab(inPane: paneId)?.id,
+              let panelId = panelIdFromSurfaceId(tabId) else {
+            return nil
+        }
+        return panels[panelId] as? TerminalPanel
+    }
+
+    func handleDirectFileDrop(
+        urls: [URL],
+        inPane paneId: PaneID,
+        controller targetController: BonsplitController? = nil
+    ) -> Bool {
+        guard let panel = terminalPanelForDirectFileDrop(
+            inPane: paneId,
+            controller: targetController
+        ) else {
+            return false
+        }
+        return panel.hostedView.handleDroppedURLs(urls)
     }
 
     @discardableResult
