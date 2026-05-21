@@ -353,6 +353,89 @@ final class CMUXCLIErrorOutputRegressionTests: XCTestCase {
         XCTAssertEqual(appReadablePaths, [expectedConfigURL.path])
     }
 
+    func testThemesClearNightlyRemovesStaleReleaseManagedBlock() throws {
+        let cliPath = try bundledCLIPath()
+        let fileManager = FileManager.default
+        let root = fileManager.temporaryDirectory
+            .appendingPathComponent("cmux-themes-nightly-stale-release-\(UUID().uuidString)", isDirectory: true)
+        try fileManager.createDirectory(at: root, withIntermediateDirectories: true)
+        defer { try? fileManager.removeItem(at: root) }
+
+        let appSupportDirectory = root
+            .appendingPathComponent("Library", isDirectory: true)
+            .appendingPathComponent("Application Support", isDirectory: true)
+        let releaseConfigURL = appSupportDirectory
+            .appendingPathComponent("com.cmuxterm.app", isDirectory: true)
+            .appendingPathComponent("config.ghostty", isDirectory: false)
+        let nightlyConfigURL = appSupportDirectory
+            .appendingPathComponent("com.cmuxterm.app.nightly", isDirectory: true)
+            .appendingPathComponent("config.ghostty", isDirectory: false)
+        try fileManager.createDirectory(
+            at: releaseConfigURL.deletingLastPathComponent(),
+            withIntermediateDirectories: true
+        )
+        try fileManager.createDirectory(
+            at: nightlyConfigURL.deletingLastPathComponent(),
+            withIntermediateDirectories: true
+        )
+        try """
+        font-size = 13
+
+        # cmux themes start
+        theme = light:Old Release,dark:Old Release
+        # cmux themes end
+        """.appending("\n").write(to: releaseConfigURL, atomically: true, encoding: .utf8)
+        try """
+        # cmux themes start
+        theme = light:Current Nightly,dark:Current Nightly
+        # cmux themes end
+        """.appending("\n").write(to: nightlyConfigURL, atomically: true, encoding: .utf8)
+
+        var environment = ProcessInfo.processInfo.environment
+        for key in Array(environment.keys) where key.hasPrefix("CMUX_") {
+            environment.removeValue(forKey: key)
+        }
+        environment["CFFIXED_USER_HOME"] = root.path
+        environment["HOME"] = root.path
+        environment["CMUX_SOCKET_PATH"] = "/tmp/cmux-nightly.sock"
+        environment["CMUX_BUNDLE_ID"] = "com.cmuxterm.app.nightly"
+        environment["CMUX_CLI_SENTRY_DISABLED"] = "1"
+
+        let clearResult = runProcess(
+            executablePath: cliPath,
+            arguments: ["--json", "themes", "clear"],
+            environment: environment,
+            timeout: 5
+        )
+
+        XCTAssertFalse(clearResult.timedOut, clearResult.stdout)
+        XCTAssertEqual(clearResult.status, 0, clearResult.stdout)
+
+        let releaseContents = try String(contentsOf: releaseConfigURL, encoding: .utf8)
+        XCTAssertTrue(releaseContents.contains("font-size = 13"), releaseContents)
+        XCTAssertFalse(releaseContents.contains("# cmux themes start"), releaseContents)
+        XCTAssertFalse(releaseContents.contains("Old Release"), releaseContents)
+
+        let listResult = runProcess(
+            executablePath: cliPath,
+            arguments: ["--json", "themes", "list"],
+            environment: environment,
+            timeout: 5
+        )
+
+        XCTAssertFalse(listResult.timedOut, listResult.stdout)
+        XCTAssertEqual(listResult.status, 0, listResult.stdout)
+
+        let payload = try XCTUnwrap(
+            JSONSerialization.jsonObject(with: Data(listResult.stdout.utf8)) as? [String: Any],
+            listResult.stdout
+        )
+        let current = try XCTUnwrap(payload["current"] as? [String: Any], listResult.stdout)
+        XCTAssertTrue(current["raw_value"] is NSNull, listResult.stdout)
+        XCTAssertTrue(current["light"] is NSNull, listResult.stdout)
+        XCTAssertTrue(current["dark"] is NSNull, listResult.stdout)
+    }
+
     func testBareInteractiveThemesReloadsRunningAppAfterPickerExits() throws {
         let cliPath = try bundledCLIPath()
         let fileManager = FileManager.default
