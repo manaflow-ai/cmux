@@ -10,6 +10,7 @@ import AppKit
 @MainActor
 final class GhosttyCommandShiftForwardingTests: XCTestCase {
     private static let keyCodeANSIK: UInt16 = 40
+    private static let keyCodeUpArrow: UInt16 = 126
 
     private struct HostedTerminal {
         let surface: TerminalSurface
@@ -61,7 +62,56 @@ final class GhosttyCommandShiftForwardingTests: XCTestCase {
         return nil
     }
 
+    override func tearDown() {
+#if DEBUG
+        CmuxSystemShortcutMatcher.debugAppleSymbolicHotKeysProvider = nil
+        CmuxSystemShortcutMatcher.debugAppleSymbolicHotKeysCacheLifetime = nil
+#endif
+        super.tearDown()
+    }
+
+    private func symbolicHotKeysDomain(
+        keyCode: UInt16,
+        modifiers: NSEvent.ModifierFlags,
+        enabled: Bool = true
+    ) -> [String: Any] {
+        [
+            "3652": [
+                "enabled": enabled,
+                "value": [
+                    "parameters": [
+                        65535,
+                        Int(keyCode),
+                        Int(modifiers.rawValue),
+                    ],
+                    "type": "standard",
+                ],
+            ],
+        ]
+    }
+
+    private func systemWindowManagementShortcutEvent(windowNumber: Int = 0) throws -> NSEvent {
+        let upArrow = String(UnicodeScalar(NSUpArrowFunctionKey)!)
+        return try XCTUnwrap(NSEvent.keyEvent(
+            with: .keyDown,
+            location: .zero,
+            modifierFlags: [.command, .shift, .option, .control, .numericPad, .function],
+            timestamp: ProcessInfo.processInfo.systemUptime,
+            windowNumber: windowNumber,
+            context: nil,
+            characters: upArrow,
+            charactersIgnoringModifiers: upArrow,
+            isARepeat: false,
+            keyCode: Self.keyCodeUpArrow
+        ))
+    }
+
     func testUnboundCommandShiftKeyAfterMenuMissForwardsToGhosttyKeyDown() throws {
+#if DEBUG
+        CmuxSystemShortcutMatcher.debugAppleSymbolicHotKeysProvider = { [:] }
+#else
+        throw XCTSkip("System shortcut provider injection is DEBUG-only")
+#endif
         let hostedTerminal = try makeHostedTerminal()
         let window = hostedTerminal.window
         let surfaceView = hostedTerminal.surfaceView
@@ -107,5 +157,71 @@ final class GhosttyCommandShiftForwardingTests: XCTestCase {
         XCTAssertEqual(keyEvent.mods.rawValue & GHOSTTY_MODS_SUPER.rawValue, GHOSTTY_MODS_SUPER.rawValue)
         XCTAssertEqual(keyEvent.mods.rawValue & GHOSTTY_MODS_SHIFT.rawValue, GHOSTTY_MODS_SHIFT.rawValue)
         XCTAssertEqual(keyEvent.unshifted_codepoint, "k".unicodeScalars.first?.value)
+    }
+
+    func testUnboundSystemWindowManagementShortcutAfterMenuMissYieldsToAppKit() throws {
+#if DEBUG
+        let symbolicHotKeysDomain = symbolicHotKeysDomain(
+            keyCode: Self.keyCodeUpArrow,
+            modifiers: [.command, .shift, .option, .control]
+        )
+        CmuxSystemShortcutMatcher.debugAppleSymbolicHotKeysProvider = {
+            symbolicHotKeysDomain
+        }
+#else
+        throw XCTSkip("System shortcut provider injection is DEBUG-only")
+#endif
+        let hostedTerminal = try makeHostedTerminal()
+        let window = hostedTerminal.window
+        let surfaceView = hostedTerminal.surfaceView
+        defer { window.orderOut(nil) }
+
+        XCTAssertTrue(window.makeFirstResponder(surfaceView), "Expected Ghostty surface view to accept first responder")
+        XCTAssertNotNil(surfaceView.terminalSurface)
+
+        var forwardedPressCount = 0
+        let observedKeyCode = UInt32(Self.keyCodeUpArrow)
+        let previousKeyEventObserver = GhosttyNSView.debugGhosttySurfaceKeyEventObserver
+        GhosttyNSView.debugGhosttySurfaceKeyEventObserver = { keyEvent in
+            previousKeyEventObserver?(keyEvent)
+            guard keyEvent.action == GHOSTTY_ACTION_PRESS, keyEvent.keycode == observedKeyCode else { return }
+            forwardedPressCount += 1
+        }
+        defer { GhosttyNSView.debugGhosttySurfaceKeyEventObserver = previousKeyEventObserver }
+
+        let event = try systemWindowManagementShortcutEvent(windowNumber: window.windowNumber)
+
+        withExtendedLifetime(hostedTerminal.surface) {
+            XCTAssertFalse(surfaceView.performKeyEquivalentAfterMenuMiss(with: event))
+        }
+
+        XCTAssertEqual(forwardedPressCount, 0)
+    }
+
+    func testSystemShortcutMatcherCachesSymbolicHotKeysUntilCacheExpires() throws {
+#if DEBUG
+        let symbolicHotKeysDomain = symbolicHotKeysDomain(
+            keyCode: Self.keyCodeUpArrow,
+            modifiers: [.command, .shift, .option, .control]
+        )
+        var providerCallCount = 0
+        CmuxSystemShortcutMatcher.debugAppleSymbolicHotKeysCacheLifetime = 60
+        CmuxSystemShortcutMatcher.debugAppleSymbolicHotKeysProvider = {
+            providerCallCount += 1
+            return symbolicHotKeysDomain
+        }
+#else
+        throw XCTSkip("System shortcut provider injection is DEBUG-only")
+#endif
+
+        let event = try systemWindowManagementShortcutEvent()
+        XCTAssertTrue(CmuxSystemShortcutMatcher.shouldYieldTerminalCommandEquivalentToSystem(event: event))
+        XCTAssertTrue(CmuxSystemShortcutMatcher.shouldYieldTerminalCommandEquivalentToSystem(event: event))
+        XCTAssertEqual(providerCallCount, 1)
+
+        CmuxSystemShortcutMatcher.debugAppleSymbolicHotKeysCacheLifetime = 0
+
+        XCTAssertTrue(CmuxSystemShortcutMatcher.shouldYieldTerminalCommandEquivalentToSystem(event: event))
+        XCTAssertEqual(providerCallCount, 2)
     }
 }

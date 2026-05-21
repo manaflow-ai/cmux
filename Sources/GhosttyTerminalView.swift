@@ -6736,6 +6736,12 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
         }
         return UserDefaults.standard.bool(forKey: "cmuxFocusDebug")
     }()
+    enum CommandEquivalentAfterMenuMissResult {
+        case consumedByTerminal
+        case yieldToSystem
+        case unhandled
+    }
+
     internal enum DropPlan: Equatable {
         case insertText(String)
         case uploadFiles([URL])
@@ -8035,14 +8041,28 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
         }
     }
 
+    @MainActor
     override func performKeyEquivalent(with event: NSEvent) -> Bool {
         performKeyEquivalent(with: event, shouldRetryMainMenu: true)
     }
 
+    @MainActor
     func performKeyEquivalentAfterMenuMiss(with event: NSEvent) -> Bool {
         performKeyEquivalent(with: event, shouldRetryMainMenu: false)
     }
 
+    @MainActor
+    func commandEquivalentAfterMenuMissResult(with event: NSEvent) -> CommandEquivalentAfterMenuMissResult {
+        if performKeyEquivalentAfterMenuMiss(with: event) {
+            return .consumedByTerminal
+        }
+        if CmuxSystemShortcutMatcher.shouldYieldTerminalCommandEquivalentToSystem(event: event) {
+            return .yieldToSystem
+        }
+        return .unhandled
+    }
+
+    @MainActor
     private func performKeyEquivalent(with event: NSEvent, shouldRetryMainMenu: Bool) -> Bool {
 #if DEBUG
         let typingTimingStart = CmuxTypingTiming.start()
@@ -8160,7 +8180,14 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
                 return false
             }
 
-            if !shouldRetryMainMenu { lastPerformKeyEvent = nil; keyDown(with: event); return true }
+            if !shouldRetryMainMenu {
+                lastPerformKeyEvent = nil
+                if CmuxSystemShortcutMatcher.shouldYieldTerminalCommandEquivalentToSystem(event: event) {
+                    return false
+                }
+                keyDown(with: event)
+                return true
+            }
             if let lastPerformKeyEvent {
                 self.lastPerformKeyEvent = nil
                 if lastPerformKeyEvent == event.timestamp {
