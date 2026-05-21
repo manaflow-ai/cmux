@@ -9,7 +9,8 @@ REQUIRED_PATTERNS=(
   "run_unit_tests()"
   "Could not resolve package dependencies"
   "rm -rf ~/Library/Caches/org.swift.swiftpm"
-  "run_unit_tests | tee /tmp/test-output.txt"
+  "scripts/run-with-output-watchdog.py"
+  "--log-file /tmp/test-output.txt"
 )
 
 for pattern in "${REQUIRED_PATTERNS[@]}"; do

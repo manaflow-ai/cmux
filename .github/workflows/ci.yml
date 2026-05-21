@@ -154,8 +154,9 @@ jobs:
     env:
       CMUX_SKIP_ZIG_BUILD: "1"
       # XCTest app-host crashes can leave xcodebuild waiting in Swift's crash
-      # backtracer until the job timeout. Disable the crash catcher entirely.
-      SWIFT_BACKTRACE: "enable=no"
+      # backtracer until the job timeout. Keep it non-interactive in CI.
+      SWIFT_BACKTRACE: "interactive=no,color=no"
+      CMUX_CI_UNIT_TEST_IDLE_TIMEOUT_SECONDS: "720"
     steps:
       - name: Checkout
         uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
@@ -248,21 +249,27 @@ jobs:
           set -euo pipefail
           SOURCE_PACKAGES_DIR="$PWD/.ci-source-packages"
           run_unit_tests() {
-            xcodebuild -project cmux.xcodeproj -scheme cmux-unit -configuration Debug \
+            python3 scripts/run-with-output-watchdog.py \
+              --idle-timeout "$CMUX_CI_UNIT_TEST_IDLE_TIMEOUT_SECONDS" \
+              --log-file /tmp/test-output.txt \
+              -- \
+              xcodebuild -project cmux.xcodeproj -scheme cmux-unit -configuration Debug \
               -clonedSourcePackagesDirPath "$SOURCE_PACKAGES_DIR" \
               -disableAutomaticPackageResolution \
               -destination "platform=macOS" \
               CMUX_SKIP_ZIG_BUILD=1 \
               -skip-testing:cmuxTests/AppDelegateShortcutRoutingTests/testCmdWClosesWindowWhenClosingLastSurfaceInLastWorkspace \
-              test 2>&1
+              test
           }
 
-          # Stream output via tee so CI logs are visible in real time, while still
-          # capturing for post-run analysis of expected vs unexpected failures.
+          # Stream output so CI logs are visible in real time, while still capturing
+          # it for post-run analysis of expected vs unexpected failures. The wrapper
+          # also terminates xcodebuild if a crash leaves it idle behind an
+          # interactive prompt.
           set +e
-          run_unit_tests | tee /tmp/test-output.txt
-          EXIT_CODE=${PIPESTATUS[0]}
-          OUTPUT=$(cat /tmp/test-output.txt)
+          run_unit_tests
+          EXIT_CODE=$?
+          OUTPUT=$(cat /tmp/test-output.txt 2>/dev/null || true)
           set -e
 
           # SwiftPM binary artifact resolution can occasionally fail on ephemeral
@@ -274,9 +281,9 @@ jobs:
             mkdir -p ~/Library/Caches/org.swift.swiftpm
             rm -rf ~/Library/Developer/Xcode/DerivedData/cmux-*
             set +e
-            run_unit_tests | tee /tmp/test-output.txt
-            EXIT_CODE=${PIPESTATUS[0]}
-            OUTPUT=$(cat /tmp/test-output.txt)
+            run_unit_tests
+            EXIT_CODE=$?
+            OUTPUT=$(cat /tmp/test-output.txt 2>/dev/null || true)
             set -e
           fi
 
