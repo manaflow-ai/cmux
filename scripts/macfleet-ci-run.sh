@@ -209,7 +209,7 @@ unit_test() {
   resolve_packages cmux-unit
   feed_xcodebuild_stdin() {
     while true; do
-      printf 'q\n'
+      printf 'q\n' || return 0
       sleep 1
     done
   }

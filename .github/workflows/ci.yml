@@ -250,7 +250,7 @@ jobs:
           XCODEBUILD_TEST_TIMEOUT_SECONDS="${XCODEBUILD_TEST_TIMEOUT_SECONDS:-2520}"
           feed_xcodebuild_stdin() {
             while true; do
-              printf 'q\n'
+              printf 'q\n' || return 0
               sleep 1
             done
           }
