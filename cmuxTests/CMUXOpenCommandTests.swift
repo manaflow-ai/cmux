@@ -176,7 +176,73 @@ final class CMUXOpenCommandTests: XCTestCase {
         let rootURL = FileManager.default.temporaryDirectory
             .appendingPathComponent(UUID().uuidString, isDirectory: true)
         let patchURL = rootURL.appendingPathComponent("changes.patch")
+        let homeURL = rootURL.appendingPathComponent("home", isDirectory: true)
+        let ghosttyConfigURL = homeURL
+            .appendingPathComponent(".config", isDirectory: true)
+            .appendingPathComponent("ghostty", isDirectory: true)
+            .appendingPathComponent("config", isDirectory: false)
+        let cmuxAppSupportConfigURL = homeURL
+            .appendingPathComponent("Library", isDirectory: true)
+            .appendingPathComponent("Application Support", isDirectory: true)
+            .appendingPathComponent("com.cmuxterm.app", isDirectory: true)
+            .appendingPathComponent("config.ghostty", isDirectory: false)
+        let ghosttyResourcesURL = rootURL.appendingPathComponent("ghostty-resources", isDirectory: true)
+        let ghosttyThemesURL = ghosttyResourcesURL.appendingPathComponent("themes", isDirectory: true)
         try FileManager.default.createDirectory(at: rootURL, withIntermediateDirectories: true)
+        try FileManager.default.createDirectory(at: ghosttyConfigURL.deletingLastPathComponent(), withIntermediateDirectories: true)
+        try FileManager.default.createDirectory(at: cmuxAppSupportConfigURL.deletingLastPathComponent(), withIntermediateDirectories: true)
+        try FileManager.default.createDirectory(at: ghosttyThemesURL, withIntermediateDirectories: true)
+        try """
+        palette = 0=#002b36
+        palette = 1=#dc322f
+        palette = 2=#859900
+        palette = 3=#b58900
+        palette = 4=#268bd2
+        palette = 5=#d33682
+        palette = 6=#2aa198
+        palette = 7=#eee8d5
+        palette = 8=#93a1a1
+        palette = 9=#cb4b16
+        palette = 10=#586e75
+        palette = 11=#657b83
+        palette = 12=#839496
+        palette = 13=#6c71c4
+        palette = 14=#93a1a1
+        palette = 15=#fdf6e3
+        background = #fdf6e3
+        foreground = #073642
+        selection-background = #eee8d5
+        selection-foreground = #002b36
+        """.write(to: ghosttyThemesURL.appendingPathComponent("Unit Light"), atomically: true, encoding: .utf8)
+        try """
+        palette = 0=#101820
+        palette = 1=#ff6b6b
+        palette = 2=#7bd88f
+        palette = 3=#f7cf6d
+        palette = 4=#82aaff
+        palette = 5=#c792ea
+        palette = 6=#89ddff
+        palette = 7=#d6deeb
+        palette = 8=#637777
+        palette = 9=#ff8f8f
+        palette = 10=#a5f3b9
+        palette = 11=#ffe59d
+        palette = 12=#b4ccff
+        palette = 13=#ddb6f2
+        palette = 14=#b8ecff
+        palette = 15=#ffffff
+        background = #101820
+        foreground = #f8f8f2
+        selection-background = #264f78
+        selection-foreground = #ffffff
+        """.write(to: ghosttyThemesURL.appendingPathComponent("Unit Dark"), atomically: true, encoding: .utf8)
+        let ghosttyConfigContents = """
+        font-family = Unit Mono
+        font-size = 15
+        theme = light:Unit Light,dark:Unit Dark
+        """
+        try ghosttyConfigContents.write(to: ghosttyConfigURL, atomically: true, encoding: .utf8)
+        try ghosttyConfigContents.write(to: cmuxAppSupportConfigURL, atomically: true, encoding: .utf8)
         try """
         diff --git a/hello.txt b/hello.txt
         index 8ab686e..d95f3ad 100644
@@ -221,7 +287,18 @@ final class CMUXOpenCommandTests: XCTestCase {
         let result = runCLI(
             cliPath: cliPath,
             socketPath: socketPath,
-            arguments: ["diff", patchURL.path, "--title", "Review diff", "--layout", "unified", "--focus", "true"]
+            arguments: [
+                "diff", patchURL.path,
+                "--title", "Review diff",
+                "--layout", "unified",
+                "--font-size", "13",
+                "--focus", "true"
+            ],
+            environmentOverrides: [
+                "HOME": homeURL.path,
+                "CFFIXED_USER_HOME": homeURL.path,
+                "GHOSTTY_RESOURCES_DIR": ghosttyResourcesURL.path
+            ]
         )
 
         wait(for: [serverHandled], timeout: 5)
@@ -240,8 +317,21 @@ final class CMUXOpenCommandTests: XCTestCase {
         XCTAssertTrue(html.contains("Review diff"), html)
         XCTAssertTrue(html.contains("CodeView"), html)
         XCTAssertTrue(html.contains("parsePatchFiles"), html)
+        XCTAssertTrue(html.contains("preloadHighlighter"), html)
+        XCTAssertTrue(html.contains("registerCustomTheme"), html)
         XCTAssertTrue(html.contains("renderUntilCodeViewReady"), html)
         XCTAssertTrue(html.contains("forceRenderReadyCodeViewItems"), html)
+        XCTAssertTrue(html.contains("stickyHeaders: true"), html)
+        XCTAssertTrue(html.contains("--diffs-font-size"), html)
+        XCTAssertTrue(html.contains("\"fontFamily\":\"Unit Mono\""), html)
+        XCTAssertTrue(html.contains("\"fontSize\":13"), html)
+        XCTAssertFalse(html.contains("\"fontSize\":15"), html)
+        XCTAssertTrue(html.contains("\"dark\":\"cmux-ghostty-dark-"), html)
+        XCTAssertTrue(html.contains("\"light\":\"cmux-ghostty-light-"), html)
+        XCTAssertTrue(html.contains("Unit Light"), html)
+        XCTAssertTrue(html.contains("Unit Dark"), html)
+        XCTAssertTrue(html.contains("#101820"), html)
+        XCTAssertTrue(html.contains("#f8f8f2"), html)
         XCTAssertTrue(html.contains("hello.txt"), html)
         XCTAssertTrue(html.contains("\"layout\":\"unified\""), html)
     }
@@ -607,11 +697,19 @@ final class CMUXOpenCommandTests: XCTestCase {
         ])
     }
 
-    private func runCLI(cliPath: String, socketPath: String, arguments: [String]) -> ProcessRunResult {
+    private func runCLI(
+        cliPath: String,
+        socketPath: String,
+        arguments: [String],
+        environmentOverrides: [String: String] = [:]
+    ) -> ProcessRunResult {
         var environment = ProcessInfo.processInfo.environment
         environment["CMUX_SOCKET_PATH"] = socketPath
         environment["CMUX_CLI_SENTRY_DISABLED"] = "1"
         environment["CMUX_CLAUDE_HOOK_SENTRY_DISABLED"] = "1"
+        for (key, value) in environmentOverrides {
+            environment[key] = value
+        }
         return runProcess(executablePath: cliPath, arguments: arguments, environment: environment, timeout: 5)
     }
 

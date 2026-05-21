@@ -25,7 +25,70 @@ extension CMUXCLI {
         var noFocus = false
         var title: String?
         var layout: String?
+        var fontSize: String?
         var inputs: [String] = []
+    }
+
+    private enum DiffViewerColorScheme {
+        case light
+        case dark
+    }
+
+    private struct DiffViewerAppearance {
+        var fontFamily: String
+        var fontSize: Double
+        var lightTheme: DiffViewerTheme
+        var darkTheme: DiffViewerTheme
+
+        var lineHeight: Double {
+            let scaled = max(fontSize + 4, fontSize * 20.0 / 13.0)
+            return (scaled * 100).rounded() / 100
+        }
+
+        var diffHeaderHeight: Double {
+            ((lineHeight + 24) * 100).rounded() / 100
+        }
+
+        var jsonObject: [String: Any] {
+            [
+                "fontFamily": fontFamily,
+                "fontSize": fontSize,
+                "lineHeight": lineHeight,
+                "diffHeaderHeight": diffHeaderHeight,
+                "theme": [
+                    "light": lightTheme.generatedName,
+                    "dark": darkTheme.generatedName
+                ],
+                "themes": [
+                    "light": lightTheme.jsonObject,
+                    "dark": darkTheme.jsonObject
+                ]
+            ]
+        }
+    }
+
+    private struct DiffViewerTheme {
+        var generatedName: String
+        var ghosttyName: String
+        var type: String
+        var background: String
+        var foreground: String
+        var selectionBackground: String
+        var selectionForeground: String
+        var palette: [Int: String]
+
+        var jsonObject: [String: Any] {
+            [
+                "name": generatedName,
+                "ghosttyName": ghosttyName,
+                "type": type,
+                "background": background,
+                "foreground": foreground,
+                "selectionBackground": selectionBackground,
+                "selectionForeground": selectionForeground,
+                "palette": Dictionary(uniqueKeysWithValues: palette.map { (String($0.key), $0.value) })
+            ]
+        }
     }
 
     func runOpenCommand(
@@ -157,6 +220,13 @@ extension CMUXCLI {
             throw CLIError(message: "--layout must be split|unified")
         }
 
+        let fontSizeOverride: Double?
+        if let rawFontSize = parsedArgs.fontSize {
+            fontSizeOverride = try parseDiffViewerFontSize(rawFontSize)
+        } else {
+            fontSizeOverride = nil
+        }
+
         let input = try readDiffInput(parsedArgs.inputs.first)
         let trimmedPatch = input.patch.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !trimmedPatch.isEmpty else {
@@ -168,7 +238,8 @@ extension CMUXCLI {
             patch: input.patch,
             title: title,
             sourceLabel: input.sourceLabel,
-            layout: layout
+            layout: layout,
+            appearance: diffViewerAppearance(fontSizeOverride: fontSizeOverride)
         )
 
         let client = try connectClient(
@@ -305,9 +376,13 @@ extension CMUXCLI {
                     parsed.layout = try diffOptionValue(commandArgs, index: index, name: arg)
                     index += 2
                     continue
+                case "--font-size":
+                    parsed.fontSize = try diffOptionValue(commandArgs, index: index, name: arg)
+                    index += 2
+                    continue
                 default:
                     if arg.hasPrefix("-"), arg != "-" {
-                        throw CLIError(message: "diff: unknown flag '\(arg)'. Usage: cmux diff [patch-file|-] [--workspace <id|ref|index>] [--surface <id|ref|index>] [--window <id|ref|index>] [--focus true|false] [--no-focus] [--title <text>] [--layout split|unified]")
+                        throw CLIError(message: "diff: unknown flag '\(arg)'. Usage: cmux diff [patch-file|-] [--workspace <id|ref|index>] [--surface <id|ref|index>] [--window <id|ref|index>] [--focus true|false] [--no-focus] [--title <text>] [--layout split|unified] [--font-size <points>]")
                     }
                 }
             }
@@ -331,6 +406,15 @@ extension CMUXCLI {
             throw CLIError(message: "\(name) requires a value")
         }
         return args[index + 1]
+    }
+
+    private func parseDiffViewerFontSize(_ rawValue: String) throws -> Double {
+        let trimmed = rawValue.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard let size = Double(trimmed),
+              isUsableDiffViewerFontSize(size) else {
+            throw CLIError(message: "--font-size must be a positive number no larger than 96")
+        }
+        return roundedDiffViewerMetric(size)
     }
 
     private func resolveOpenTarget(_ raw: String) throws -> OpenTarget {
@@ -388,11 +472,411 @@ extension CMUXCLI {
         throw CLIError(message: "Diff input is not valid UTF-8: \(sourceDescription)")
     }
 
+    private func diffViewerAppearance(fontSizeOverride: Double?) -> DiffViewerAppearance {
+        var appearance = defaultDiffViewerAppearance()
+        for url in themeConfigSearchURLs() {
+            guard let contents = readOptionalDiffViewerConfig(at: url) else { continue }
+            applyDiffViewerGhosttyConfig(contents, to: &appearance)
+        }
+        if let fontSizeOverride {
+            appearance.fontSize = fontSizeOverride
+        }
+        let themeSuffix = UUID().uuidString.prefix(8)
+        appearance.lightTheme.generatedName = "cmux-ghostty-light-\(themeSuffix)"
+        appearance.darkTheme.generatedName = "cmux-ghostty-dark-\(themeSuffix)"
+        appearance.lightTheme.type = diffViewerThemeType(forBackground: appearance.lightTheme.background, fallback: "light")
+        appearance.darkTheme.type = diffViewerThemeType(forBackground: appearance.darkTheme.background, fallback: "dark")
+        return appearance
+    }
+
+    private func defaultDiffViewerAppearance() -> DiffViewerAppearance {
+        var lightTheme = DiffViewerTheme(
+            generatedName: "cmux-ghostty-light",
+            ghosttyName: "Apple System Colors Light",
+            type: "light",
+            background: "#feffff",
+            foreground: "#000000",
+            selectionBackground: "#abd8ff",
+            selectionForeground: "#000000",
+            palette: [:]
+        )
+        applyDiffViewerThemeContents(diffViewerDefaultThemeConfigContents(preferredColorScheme: .light), to: &lightTheme)
+
+        var darkTheme = DiffViewerTheme(
+            generatedName: "cmux-ghostty-dark",
+            ghosttyName: "Apple System Colors",
+            type: "dark",
+            background: "#1e1e1e",
+            foreground: "#ffffff",
+            selectionBackground: "#3f638b",
+            selectionForeground: "#ffffff",
+            palette: [:]
+        )
+        applyDiffViewerThemeContents(diffViewerDefaultThemeConfigContents(preferredColorScheme: .dark), to: &darkTheme)
+
+        return DiffViewerAppearance(
+            fontFamily: "Menlo",
+            fontSize: 11.5,
+            lightTheme: lightTheme,
+            darkTheme: darkTheme
+        )
+    }
+
+    private func applyDiffViewerGhosttyConfig(_ contents: String, to appearance: inout DiffViewerAppearance) {
+        for line in contents.components(separatedBy: .newlines) {
+            guard let (key, value) = diffViewerGhosttyAssignment(from: line) else { continue }
+
+            switch key {
+            case "font-family":
+                let trimmed = value.trimmingCharacters(in: .whitespacesAndNewlines)
+                if !trimmed.isEmpty {
+                    appearance.fontFamily = trimmed
+                }
+            case "theme":
+                applyDiffViewerThemeDirective(value, to: &appearance)
+            default:
+                applyDiffViewerThemeAssignment(key: key, value: value, to: &appearance.lightTheme)
+                applyDiffViewerThemeAssignment(key: key, value: value, to: &appearance.darkTheme)
+            }
+        }
+    }
+
+    private func applyDiffViewerThemeDirective(_ rawValue: String, to appearance: inout DiffViewerAppearance) {
+        let lightThemeName = resolveDiffViewerThemeName(from: rawValue, preferredColorScheme: .light)
+        if let theme = loadDiffViewerGhosttyTheme(
+            named: lightThemeName,
+            generatedName: "cmux-ghostty-light",
+            fallbackType: "light",
+            baseTheme: appearance.lightTheme
+        ) {
+            appearance.lightTheme = theme
+        } else if !lightThemeName.isEmpty {
+            appearance.lightTheme.ghosttyName = lightThemeName
+        }
+
+        let darkThemeName = resolveDiffViewerThemeName(from: rawValue, preferredColorScheme: .dark)
+        if let theme = loadDiffViewerGhosttyTheme(
+            named: darkThemeName,
+            generatedName: "cmux-ghostty-dark",
+            fallbackType: "dark",
+            baseTheme: appearance.darkTheme
+        ) {
+            appearance.darkTheme = theme
+        } else if !darkThemeName.isEmpty {
+            appearance.darkTheme.ghosttyName = darkThemeName
+        }
+    }
+
+    private func loadDiffViewerGhosttyTheme(
+        named rawThemeName: String,
+        generatedName: String,
+        fallbackType: String,
+        baseTheme: DiffViewerTheme
+    ) -> DiffViewerTheme? {
+        let themeName = rawThemeName.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !themeName.isEmpty else { return nil }
+
+        for candidateName in diffViewerThemeNameCandidates(from: themeName) {
+            for directoryURL in themeDirectoryURLs() {
+                let themeURL = directoryURL.appendingPathComponent(candidateName, isDirectory: false)
+                guard let contents = try? String(contentsOf: themeURL, encoding: .utf8) else {
+                    continue
+                }
+
+                var theme = baseTheme
+                theme.generatedName = generatedName
+                theme.ghosttyName = candidateName
+                applyDiffViewerThemeContents(contents, to: &theme)
+                theme.type = diffViewerThemeType(forBackground: theme.background, fallback: fallbackType)
+                return theme
+            }
+        }
+
+        return nil
+    }
+
+    private func applyDiffViewerThemeContents(_ contents: String, to theme: inout DiffViewerTheme) {
+        for line in contents.components(separatedBy: .newlines) {
+            guard let (key, value) = diffViewerGhosttyAssignment(from: line) else { continue }
+            applyDiffViewerThemeAssignment(key: key, value: value, to: &theme)
+        }
+    }
+
+    private func applyDiffViewerThemeAssignment(key: String, value: String, to theme: inout DiffViewerTheme) {
+        switch key {
+        case "background":
+            if let color = normalizedDiffViewerHexColor(value) {
+                theme.background = color
+            }
+        case "foreground":
+            if let color = normalizedDiffViewerHexColor(value) {
+                theme.foreground = color
+            }
+        case "selection-background":
+            if let color = normalizedDiffViewerHexColor(value) {
+                theme.selectionBackground = color
+            }
+        case "selection-foreground":
+            if let color = normalizedDiffViewerHexColor(value) {
+                theme.selectionForeground = color
+            }
+        case "palette":
+            let paletteParts = value.split(separator: "=", maxSplits: 1).map(String.init)
+            guard paletteParts.count == 2,
+                  let index = Int(paletteParts[0].trimmingCharacters(in: .whitespacesAndNewlines)),
+                  (0...15).contains(index),
+                  let color = normalizedDiffViewerHexColor(paletteParts[1]) else {
+                return
+            }
+            theme.palette[index] = color
+        default:
+            break
+        }
+    }
+
+    private func readOptionalDiffViewerConfig(at url: URL) -> String? {
+        let fileManager = FileManager.default
+        guard fileManager.fileExists(atPath: url.path) else { return nil }
+        if let attributes = try? fileManager.attributesOfItem(atPath: url.path) {
+            if let type = attributes[.type] as? FileAttributeType,
+               type != .typeRegular && type != .typeSymbolicLink {
+                return nil
+            }
+            if let size = attributes[.size] as? NSNumber, size.intValue == 0 {
+                return nil
+            }
+        }
+        return try? String(contentsOf: url, encoding: .utf8)
+    }
+
+    private func diffViewerGhosttyAssignment(from line: String) -> (key: String, value: String)? {
+        let trimmed = line.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmed.isEmpty, !trimmed.hasPrefix("#") else { return nil }
+
+        let parts = trimmed.split(separator: "=", maxSplits: 1, omittingEmptySubsequences: false)
+            .map(String.init)
+        guard parts.count == 2 else { return nil }
+
+        let key = parts[0].trimmingCharacters(in: .whitespacesAndNewlines)
+        var value = parts[1].trimmingCharacters(in: .whitespacesAndNewlines)
+        value = value.trimmingCharacters(in: CharacterSet(charactersIn: "\""))
+        guard !key.isEmpty else { return nil }
+        return (key, value)
+    }
+
+    private func resolveDiffViewerThemeName(
+        from rawThemeValue: String,
+        preferredColorScheme: DiffViewerColorScheme
+    ) -> String {
+        var fallbackTheme: String?
+        var lightTheme: String?
+        var darkTheme: String?
+
+        for token in rawThemeValue.split(separator: ",").map(String.init) {
+            let entry = token.trimmingCharacters(in: .whitespacesAndNewlines)
+            guard !entry.isEmpty else { continue }
+
+            let parts = entry.split(separator: ":", maxSplits: 1).map(String.init)
+            if parts.count != 2 {
+                if fallbackTheme == nil {
+                    fallbackTheme = entry
+                }
+                continue
+            }
+
+            let key = parts[0].trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
+            let value = parts[1].trimmingCharacters(in: .whitespacesAndNewlines)
+            guard !value.isEmpty else { continue }
+
+            switch key {
+            case "light":
+                if lightTheme == nil {
+                    lightTheme = value
+                }
+            case "dark":
+                if darkTheme == nil {
+                    darkTheme = value
+                }
+            default:
+                if fallbackTheme == nil {
+                    fallbackTheme = value
+                }
+            }
+        }
+
+        switch preferredColorScheme {
+        case .light:
+            if let lightTheme {
+                return lightTheme
+            }
+        case .dark:
+            if let darkTheme {
+                return darkTheme
+            }
+        }
+
+        if let fallbackTheme {
+            return fallbackTheme
+        }
+        if let darkTheme {
+            return darkTheme
+        }
+        if let lightTheme {
+            return lightTheme
+        }
+        return rawThemeValue.trimmingCharacters(in: .whitespacesAndNewlines)
+    }
+
+    private func diffViewerThemeNameCandidates(from rawName: String) -> [String] {
+        var candidates: [String] = []
+        let compatibilityAliasGroups = [
+            ["Solarized Light", "iTerm2 Solarized Light"],
+            ["Solarized Dark", "iTerm2 Solarized Dark"]
+        ]
+
+        func appendCandidate(_ value: String) {
+            let trimmed = value.trimmingCharacters(in: .whitespacesAndNewlines)
+            guard !trimmed.isEmpty else { return }
+            if !candidates.contains(trimmed) {
+                candidates.append(trimmed)
+            }
+
+            for group in compatibilityAliasGroups {
+                if group.contains(where: { $0.caseInsensitiveCompare(trimmed) == .orderedSame }) {
+                    for alias in group where alias.caseInsensitiveCompare(trimmed) != .orderedSame {
+                        if !candidates.contains(alias) {
+                            candidates.append(alias)
+                        }
+                    }
+                }
+            }
+        }
+
+        var queue: [String] = [rawName]
+        while let current = queue.popLast() {
+            let trimmed = current.trimmingCharacters(in: .whitespacesAndNewlines)
+            guard !trimmed.isEmpty else { continue }
+
+            appendCandidate(trimmed)
+
+            let lower = trimmed.lowercased()
+            if lower.hasPrefix("builtin ") {
+                let stripped = String(trimmed.dropFirst("builtin ".count))
+                appendCandidate(stripped)
+                queue.append(stripped)
+            }
+
+            if let range = trimmed.range(
+                of: #"\s*\(builtin\)\s*$"#,
+                options: [.regularExpression, .caseInsensitive]
+            ) {
+                let stripped = String(trimmed[..<range.lowerBound])
+                appendCandidate(stripped)
+                queue.append(stripped)
+            }
+        }
+
+        return candidates
+    }
+
+    private func normalizedDiffViewerHexColor(_ rawValue: String) -> String? {
+        var hex = rawValue.trimmingCharacters(in: .whitespacesAndNewlines)
+        if hex.hasPrefix("#") {
+            hex.removeFirst()
+        }
+        guard !hex.isEmpty, hex.allSatisfy(\.isHexDigit) else { return nil }
+
+        if hex.count == 3 {
+            hex = hex.map { "\($0)\($0)" }.joined()
+        }
+        guard hex.count == 6 else { return nil }
+        return "#\(hex.lowercased())"
+    }
+
+    private func diffViewerThemeType(forBackground background: String, fallback: String) -> String {
+        guard let rgb = diffViewerRGBColor(background) else {
+            return fallback
+        }
+        let luminance = (0.2126 * rgb.red) + (0.7152 * rgb.green) + (0.0722 * rgb.blue)
+        return luminance > 0.55 ? "light" : "dark"
+    }
+
+    private func diffViewerRGBColor(_ rawValue: String) -> (red: Double, green: Double, blue: Double)? {
+        guard let color = normalizedDiffViewerHexColor(rawValue) else { return nil }
+        let hex = String(color.dropFirst())
+        guard let value = UInt32(hex, radix: 16) else { return nil }
+        return (
+            red: Double((value & 0xFF0000) >> 16) / 255.0,
+            green: Double((value & 0x00FF00) >> 8) / 255.0,
+            blue: Double(value & 0x0000FF) / 255.0
+        )
+    }
+
+    private func isUsableDiffViewerFontSize(_ size: Double) -> Bool {
+        size.isFinite && size > 0 && size <= 96
+    }
+
+    private func roundedDiffViewerMetric(_ value: Double) -> Double {
+        (value * 100).rounded() / 100
+    }
+
+    private func diffViewerDefaultThemeConfigContents(preferredColorScheme: DiffViewerColorScheme) -> String {
+        switch preferredColorScheme {
+        case .light:
+            return """
+            palette = 0=#1a1a1a
+            palette = 1=#cc372e
+            palette = 2=#26a439
+            palette = 3=#cdac08
+            palette = 4=#0869cb
+            palette = 5=#9647bf
+            palette = 6=#479ec2
+            palette = 7=#98989d
+            palette = 8=#464646
+            palette = 9=#ff453a
+            palette = 10=#32d74b
+            palette = 11=#e5bc00
+            palette = 12=#0a84ff
+            palette = 13=#bf5af2
+            palette = 14=#69c9f2
+            palette = 15=#ffffff
+            background = #feffff
+            foreground = #000000
+            selection-background = #abd8ff
+            selection-foreground = #000000
+            """
+        case .dark:
+            return """
+            palette = 0=#1a1a1a
+            palette = 1=#cc372e
+            palette = 2=#26a439
+            palette = 3=#cdac08
+            palette = 4=#0869cb
+            palette = 5=#9647bf
+            palette = 6=#479ec2
+            palette = 7=#98989d
+            palette = 8=#464646
+            palette = 9=#ff453a
+            palette = 10=#32d74b
+            palette = 11=#ffd60a
+            palette = 12=#0a84ff
+            palette = 13=#bf5af2
+            palette = 14=#76d6ff
+            palette = 15=#ffffff
+            background = #1e1e1e
+            foreground = #ffffff
+            selection-background = #3f638b
+            selection-foreground = #ffffff
+            """
+        }
+    }
+
     private func writeDiffViewerHTML(
         patch: String,
         title: String,
         sourceLabel: String,
-        layout: String
+        layout: String,
+        appearance: DiffViewerAppearance
     ) throws -> URL {
         let directory = FileManager.default.temporaryDirectory
             .appendingPathComponent("cmux-diff-viewer", isDirectory: true)
@@ -407,6 +891,7 @@ extension CMUXCLI {
             "title": title,
             "sourceLabel": sourceLabel,
             "layout": layout,
+            "appearance": appearance.jsonObject,
             "generatedAt": ISO8601DateFormatter().string(from: Date())
         ]
         let payloadLiteral = try jsonScriptLiteral(payload)
@@ -421,7 +906,25 @@ extension CMUXCLI {
           <style>
             :root {
               color-scheme: light dark;
-              background: light-dark(#fff, #000);
+              --cmux-diff-bg-light: #fff;
+              --cmux-diff-bg-dark: #000;
+              --cmux-diff-fg-light: #000;
+              --cmux-diff-fg-dark: #fff;
+              --cmux-diff-selection-bg-light: #abd8ff;
+              --cmux-diff-selection-bg-dark: #3f638b;
+              --cmux-diff-font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", monospace;
+              --cmux-diff-font-size: 11.5px;
+              --cmux-diff-line-height: 17.69px;
+              --cmux-diff-bg: var(--cmux-diff-bg-light);
+              --cmux-diff-fg: var(--cmux-diff-fg-light);
+              background: var(--cmux-diff-bg);
+              color: var(--cmux-diff-fg);
+            }
+            @media (prefers-color-scheme: dark) {
+              :root {
+                --cmux-diff-bg: var(--cmux-diff-bg-dark);
+                --cmux-diff-fg: var(--cmux-diff-fg-dark);
+              }
             }
             * {
               box-sizing: border-box;
@@ -435,18 +938,33 @@ extension CMUXCLI {
               margin: 0;
               height: 100vh;
               min-height: 0;
-              background: light-dark(#fff, #000);
+              background: var(--cmux-diff-bg);
+              color: var(--cmux-diff-fg);
             }
             #viewer {
+              --diffs-font-family: var(--cmux-diff-font-family);
+              --diffs-header-font-family: var(--cmux-diff-font-family);
+              --diffs-font-size: var(--cmux-diff-font-size);
+              --diffs-line-height: var(--cmux-diff-line-height);
+              --diffs-bg-selection-override: light-dark(var(--cmux-diff-selection-bg-light), var(--cmux-diff-selection-bg-dark));
               height: 100vh;
               min-height: 0;
               overflow: auto;
               background: inherit;
             }
+            #viewer diffs-container {
+              --diffs-font-family: var(--cmux-diff-font-family);
+              --diffs-header-font-family: var(--cmux-diff-font-family);
+              --diffs-font-size: var(--cmux-diff-font-size);
+              --diffs-line-height: var(--cmux-diff-line-height);
+              --diffs-bg-selection-override: light-dark(var(--cmux-diff-selection-bg-light), var(--cmux-diff-selection-bg-dark));
+            }
             #status {
               padding: 16px;
-              font: 13px/20px ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", monospace;
-              color: light-dark(#57606a, #a6adb7);
+              font-family: var(--cmux-diff-font-family);
+              font-size: var(--cmux-diff-font-size);
+              line-height: var(--cmux-diff-line-height);
+              color: color-mix(in lab, var(--cmux-diff-fg) 70%, var(--cmux-diff-bg));
             }
             #status[data-error="true"] {
               color: light-dark(#b42318, #ff8a80);
@@ -458,12 +976,15 @@ extension CMUXCLI {
             <div id="status">Loading diff...</div>
           </main>
           <script type="module">
-            import { CodeView, parsePatchFiles } from "https://esm.run/@pierre/diffs@1.2.1";
+            import { CodeView, getFiletypeFromFileName, parsePatchFiles, preloadHighlighter, registerCustomTheme } from "https://esm.run/@pierre/diffs@1.2.1";
 
             const payload = \(payloadLiteral);
             const viewerElement = document.getElementById("viewer");
             const status = document.getElementById("status");
             document.title = payload.title;
+            applyViewerAppearance(payload.appearance);
+            registerGhosttyTheme(payload.appearance.themes.light);
+            registerGhosttyTheme(payload.appearance.themes.dark);
 
             try {
               const patches = parsePatchFiles(payload.patch, "cmux-diff");
@@ -479,9 +1000,19 @@ extension CMUXCLI {
                 throw new Error("No file diffs found in patch input.");
               }
 
+              status.textContent = "Loading theme...";
+              await preloadDiffHighlighter(payload.appearance, items);
               status.remove();
               const codeView = new CodeView({
                 diffStyle: payload.layout,
+                itemMetrics: {
+                  lineHeight: payload.appearance.lineHeight,
+                  diffHeaderHeight: payload.appearance.diffHeaderHeight,
+                  spacing: 8,
+                },
+                stickyHeaders: true,
+                theme: payload.appearance.theme,
+                themeType: "system",
               });
               codeView.setup(viewerElement);
               codeView.setItems(items);
@@ -490,6 +1021,93 @@ extension CMUXCLI {
             } catch (error) {
               status.dataset.error = "true";
               status.textContent = error instanceof Error ? error.message : String(error);
+            }
+
+            function applyViewerAppearance(appearance) {
+              const rootStyle = document.documentElement.style;
+              rootStyle.setProperty("--cmux-diff-bg-light", appearance.themes.light.background);
+              rootStyle.setProperty("--cmux-diff-bg-dark", appearance.themes.dark.background);
+              rootStyle.setProperty("--cmux-diff-fg-light", appearance.themes.light.foreground);
+              rootStyle.setProperty("--cmux-diff-fg-dark", appearance.themes.dark.foreground);
+              rootStyle.setProperty("--cmux-diff-selection-bg-light", appearance.themes.light.selectionBackground);
+              rootStyle.setProperty("--cmux-diff-selection-bg-dark", appearance.themes.dark.selectionBackground);
+              rootStyle.setProperty("--cmux-diff-font-family", cssFontFamily(appearance.fontFamily));
+              rootStyle.setProperty("--cmux-diff-font-size", `${appearance.fontSize}px`);
+              rootStyle.setProperty("--cmux-diff-line-height", `${appearance.lineHeight}px`);
+            }
+
+            function cssFontFamily(fontFamily) {
+              const family = typeof fontFamily === "string" && fontFamily.trim() !== "" ? fontFamily.trim() : "Menlo";
+              return `${JSON.stringify(family)}, ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", monospace`;
+            }
+
+            function registerGhosttyTheme(theme) {
+              registerCustomTheme(theme.name, () => Promise.resolve(shikiThemeFromGhostty(theme)));
+            }
+
+            function preloadDiffHighlighter(appearance, items) {
+              const themes = Array.from(new Set([
+                appearance.theme?.light,
+                appearance.theme?.dark,
+              ].filter(Boolean)));
+              const langs = Array.from(new Set(items.map((item) => {
+                const fileDiff = item.fileDiff ?? {};
+                const name = fileDiff.name ?? fileDiff.newName ?? fileDiff.oldName ?? "";
+                return fileDiff.lang ?? getFiletypeFromFileName(name) ?? "text";
+              }).filter(Boolean)));
+              return preloadHighlighter({
+                themes,
+                langs: langs.length > 0 ? langs : ["text"],
+              });
+            }
+
+            function shikiThemeFromGhostty(theme) {
+              const palette = theme.palette ?? {};
+              const foreground = theme.foreground;
+              const background = theme.background;
+              return {
+                name: theme.name,
+                displayName: theme.ghosttyName,
+                type: theme.type,
+                colors: {
+                  "editor.background": background,
+                  "editor.foreground": foreground,
+                  "terminal.background": background,
+                  "terminal.foreground": foreground,
+                  "terminal.ansiBlack": palette["0"] ?? foreground,
+                  "terminal.ansiRed": palette["1"] ?? foreground,
+                  "terminal.ansiGreen": palette["2"] ?? foreground,
+                  "terminal.ansiYellow": palette["3"] ?? foreground,
+                  "terminal.ansiBlue": palette["4"] ?? foreground,
+                  "terminal.ansiMagenta": palette["5"] ?? foreground,
+                  "terminal.ansiCyan": palette["6"] ?? foreground,
+                  "terminal.ansiWhite": palette["7"] ?? foreground,
+                  "terminal.ansiBrightBlack": palette["8"] ?? foreground,
+                  "terminal.ansiBrightRed": palette["9"] ?? palette["1"] ?? foreground,
+                  "terminal.ansiBrightGreen": palette["10"] ?? palette["2"] ?? foreground,
+                  "terminal.ansiBrightYellow": palette["11"] ?? palette["3"] ?? foreground,
+                  "terminal.ansiBrightBlue": palette["12"] ?? palette["4"] ?? foreground,
+                  "terminal.ansiBrightMagenta": palette["13"] ?? palette["5"] ?? foreground,
+                  "terminal.ansiBrightCyan": palette["14"] ?? palette["6"] ?? foreground,
+                  "terminal.ansiBrightWhite": palette["15"] ?? foreground,
+                  "gitDecoration.addedResourceForeground": palette["10"] ?? palette["2"] ?? "#32d74b",
+                  "gitDecoration.deletedResourceForeground": palette["9"] ?? palette["1"] ?? "#ff453a",
+                  "gitDecoration.modifiedResourceForeground": palette["12"] ?? palette["4"] ?? "#0a84ff",
+                  "editor.selectionBackground": theme.selectionBackground,
+                  "editor.selectionForeground": theme.selectionForeground,
+                },
+                tokenColors: [
+                  { settings: { foreground, background } },
+                  { scope: ["comment", "punctuation.definition.comment"], settings: { foreground: palette["8"] ?? foreground, fontStyle: "italic" } },
+                  { scope: ["string", "constant.other.symbol"], settings: { foreground: palette["2"] ?? foreground } },
+                  { scope: ["constant.numeric", "constant.language", "support.constant"], settings: { foreground: palette["3"] ?? foreground } },
+                  { scope: ["keyword", "storage", "storage.type"], settings: { foreground: palette["5"] ?? foreground } },
+                  { scope: ["entity.name.function", "support.function"], settings: { foreground: palette["4"] ?? foreground } },
+                  { scope: ["entity.name.type", "entity.name.class", "support.type"], settings: { foreground: palette["6"] ?? foreground } },
+                  { scope: ["variable", "meta.definition.variable"], settings: { foreground } },
+                  { scope: ["invalid", "message.error"], settings: { foreground: palette["9"] ?? palette["1"] ?? foreground } },
+                ],
+              };
             }
 
             function renderUntilCodeViewReady(codeView, root, startedAt) {
@@ -610,11 +1228,12 @@ extension CMUXCLI {
           --no-focus                   Do not focus the diff browser split
           --title <text>               Diff viewer title
           --layout <split|unified>     Diff layout (default: split)
+          --font-size <points>         Set diff font size (default: 11.5)
 
         Examples:
           cmux diff changes.patch
           git diff | cmux diff
-          cmux diff pr.patch --layout unified --focus true
+          cmux diff pr.patch --layout unified --font-size 15 --focus true
         """
     }
 
