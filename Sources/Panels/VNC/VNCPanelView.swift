@@ -7,6 +7,7 @@ struct VNCPanelView: View {
     let portalPriority: Int
     let appearance: PanelAppearance
     let onRequestPanelFocus: () -> Void
+    @State private var focusFlashStartedAt: Date?
 
     var body: some View {
         VStack(spacing: 0) {
@@ -28,6 +29,9 @@ struct VNCPanelView: View {
                 }
         }
         .background(Color(nsColor: appearance.backgroundColor))
+        .overlay {
+            focusFlashOverlay
+        }
         .task(id: panel.id) {
             panel.setVisible(isVisibleInUI)
             panel.startIfNeeded()
@@ -40,6 +44,9 @@ struct VNCPanelView: View {
         }
         .onDisappear {
             panel.setVisible(false)
+        }
+        .onChange(of: panel.focusFlashToken) { _ in
+            focusFlashStartedAt = Date()
         }
     }
 
@@ -102,6 +109,49 @@ struct VNCPanelView: View {
             return .secondary
         case .disconnected, .failed:
             return .red
+        }
+    }
+
+    @ViewBuilder
+    private var focusFlashOverlay: some View {
+        if let focusFlashStartedAt {
+            TimelineView(VNCFocusFlashTimelineSchedule(startDate: focusFlashStartedAt)) { timeline in
+                let elapsed = timeline.date.timeIntervalSince(focusFlashStartedAt)
+                let opacity = FocusFlashPattern.opacity(at: elapsed)
+                RoundedRectangle(cornerRadius: FocusFlashPattern.ringCornerRadius)
+                    .stroke(cmuxAccentColor().opacity(opacity), lineWidth: 3)
+                    .shadow(color: cmuxAccentColor().opacity(opacity * 0.35), radius: 10)
+                    .padding(FocusFlashPattern.ringInset)
+                    .allowsHitTesting(false)
+            }
+            .id(focusFlashStartedAt)
+        }
+    }
+}
+
+private struct VNCFocusFlashTimelineSchedule: TimelineSchedule {
+    let startDate: Date
+
+    func entries(from requestedStartDate: Date, mode: Mode) -> Entries {
+        let firstDate = requestedStartDate > startDate ? requestedStartDate : startDate
+        let interval = mode == .lowFrequency ? 1.0 / 10.0 : 1.0 / 60.0
+        return Entries(
+            nextDate: firstDate,
+            endDate: startDate.addingTimeInterval(FocusFlashPattern.duration),
+            interval: interval
+        )
+    }
+
+    struct Entries: Sequence, IteratorProtocol {
+        var nextDate: Date
+        let endDate: Date
+        let interval: TimeInterval
+
+        mutating func next() -> Date? {
+            guard nextDate <= endDate else { return nil }
+            let date = nextDate
+            nextDate = nextDate.addingTimeInterval(interval)
+            return date
         }
     }
 }

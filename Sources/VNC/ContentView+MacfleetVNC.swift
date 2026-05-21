@@ -36,15 +36,11 @@ extension ContentView {
         }
 
         var launchSessions: [MacfleetVNCLaunchSession] = []
-        var skippedCredentialCount = 0
         for session in sessions {
-            guard let credential = VNCSessionCredentialProvider.credential(for: session, manifest: manifest) else {
-                skippedCredentialCount += 1
-                continue
-            }
+            let credential = VNCSessionCredentialProvider.credential(for: session, manifest: manifest)
             launchSessions.append(MacfleetVNCLaunchSession(session: session, credential: credential))
         }
-        return .sessions(launchSessions, skippedCredentialCount: skippedCredentialCount)
+        return .sessions(launchSessions)
     }
 
     @MainActor
@@ -68,26 +64,27 @@ extension ContentView {
                 message: VNCPanelText.macfleetNoSessionsMessage
             )
             return
-        case .sessions(let launchSessions, let skippedCredentialCount):
-            openMacfleetVNCWorkspaces(
-                launchSessions: launchSessions,
-                skippedCredentialCount: skippedCredentialCount
-            )
+        case .sessions(let launchSessions):
+            openMacfleetVNCWorkspaces(launchSessions: launchSessions)
         }
     }
 
     @MainActor
     private func openMacfleetVNCWorkspaces(
-        launchSessions: [MacfleetVNCLaunchSession],
-        skippedCredentialCount: Int
+        launchSessions: [MacfleetVNCLaunchSession]
     ) {
         var firstWorkspace: Workspace?
-        var credentialSummary = MacfleetVNCLaunchCredentialSummary(skippedCredentialCount: skippedCredentialCount)
+        var credentialSummary = MacfleetVNCLaunchCredentialSummary(skippedCredentialCount: 0)
 
         for launchSession in launchSessions {
             if let existingWorkspace = existingVNCWorkspace(for: launchSession.session) {
                 firstWorkspace = firstWorkspace ?? existingWorkspace
                 credentialSummary.reusedCount += 1
+                continue
+            }
+
+            guard let credential = launchSession.credential else {
+                credentialSummary.skippedCredentialCount += 1
                 continue
             }
 
@@ -99,7 +96,7 @@ extension ContentView {
                 autoWelcomeIfNeeded: false
             )
             workspace.setCustomDescription(VNCPanelText.workspaceDescription(sessionName: launchSession.session.name))
-            if openVNCSession(launchSession.session, credential: launchSession.credential, in: workspace) {
+            if openVNCSession(launchSession.session, credential: credential, in: workspace) {
                 firstWorkspace = firstWorkspace ?? workspace
                 credentialSummary.openedCount += 1
             } else {
@@ -135,12 +132,12 @@ extension ContentView {
         case manifestMissing
         case manifestFailed
         case noSessions
-        case sessions([MacfleetVNCLaunchSession], skippedCredentialCount: Int)
+        case sessions([MacfleetVNCLaunchSession])
     }
 
     private struct MacfleetVNCLaunchSession: Sendable {
         var session: MacfleetVNCSession
-        var credential: VNCResolvedCredential
+        var credential: VNCResolvedCredential?
     }
 
     @MainActor
