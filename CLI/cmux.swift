@@ -8651,11 +8651,21 @@ struct CMUXCLI {
                     "require_existing": requireExisting,
                 ])
             } catch {
+                if shouldFailSSHPTYBridgeWaitImmediately(error, requireExisting: requireExisting) {
+                    throw error
+                }
                 lastError = error
                 _ = DispatchSemaphore(value: 0).wait(timeout: .now() + 0.5)
             }
         } while Date() < deadline
         throw lastError ?? CLIError(message: "ssh-pty-attach: timed out waiting for remote PTY bridge")
+    }
+
+    private func shouldFailSSHPTYBridgeWaitImmediately(_ error: Error, requireExisting: Bool) -> Bool {
+        guard requireExisting else { return false }
+        let message = String(describing: error).lowercased()
+        return message.contains("pty_session_not_found") ||
+            (message.contains("persistent pty session") && message.contains("not running"))
     }
 
     private func connectLoopbackTCP(host: String, port: Int) throws -> Int32 {

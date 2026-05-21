@@ -84,6 +84,8 @@ const (
 	defaultWebSocketScrollbackCap    = 1 << 20
 	defaultWebSocketReplayChunkBytes = 48 * 1024
 	defaultWebSocketWriteQueueCap    = 256
+	defaultPTYInputQueueCap          = 256
+	defaultPTYInputChunkBytes        = 16 * 1024
 	defaultWebSocketWriteTimeout     = 10 * time.Second
 	defaultWebSocketSessionIdleTTL   = 24 * time.Hour
 )
@@ -91,6 +93,12 @@ const (
 type wsPTYOutgoingFrame struct {
 	messageType websocket.MessageType
 	payload     []byte
+}
+
+type wsPTYInputChunk struct {
+	attachmentID string
+	attachment   *wsPTYAttachment
+	payload      []byte
 }
 
 type wsPTYAttachment struct {
@@ -138,6 +146,7 @@ type wsPTYSession struct {
 	lastKnownRows  int
 	resizeConfirms int
 	scrollback     []byte
+	input          chan wsPTYInputChunk
 	done           chan struct{}
 	idleTimer      *time.Timer
 	closed         bool
@@ -708,10 +717,12 @@ func (h *wsPTYHub) startSessionLocked(sessionKey wsPTYSessionKey, sessionID stri
 		effectiveRows: rows,
 		lastKnownCols: cols,
 		lastKnownRows: rows,
+		input:         make(chan wsPTYInputChunk, defaultPTYInputQueueCap),
 		done:          make(chan struct{}),
 	}
 	go h.waitSessionProcess(session)
 	go h.pumpSession(session)
+	go h.writeInputLoop(session)
 	return session, nil
 }
 
@@ -977,9 +988,9 @@ func (session *wsPTYSession) closeTTYFile() {
 
 func (session *wsPTYSession) closePTYFile() {
 	session.closePTYOnce.Do(func() {
-		session.ptyWriteMu.Lock()
-		defer session.ptyWriteMu.Unlock()
-		_ = session.ptyFile.Close()
+		if session.ptyFile != nil {
+			_ = session.ptyFile.Close()
+		}
 	})
 }
 
@@ -1210,26 +1221,76 @@ func (h *wsPTYHub) writeInput(attachment *wsPTYAttachment, payload []byte) bool 
 	if session == nil {
 		return false
 	}
-
-	session.ptyWriteMu.Lock()
-	defer session.ptyWriteMu.Unlock()
+	if len(payload) == 0 {
+		return true
+	}
 
 	h.mu.Lock()
 	current := h.sessions[attachment.sessionKey] == session &&
 		!session.closed &&
-		session.attachments[attachment.id] == attachment
-	cols := session.effectiveCols
-	rows := session.effectiveRows
+		session.attachments[attachment.id] == attachment &&
+		session.input != nil
 	h.mu.Unlock()
 	if !current {
+		return false
+	}
+	for len(payload) > 0 {
+		chunkLen := len(payload)
+		if chunkLen > defaultPTYInputChunkBytes {
+			chunkLen = defaultPTYInputChunkBytes
+		}
+		chunk := wsPTYInputChunk{
+			attachmentID: attachment.id,
+			attachment:   attachment,
+			payload:      append([]byte(nil), payload[:chunkLen]...),
+		}
+		select {
+		case session.input <- chunk:
+			payload = payload[chunkLen:]
+		case <-session.done:
+			return false
+		default:
+			if h.stderr != nil {
+				_, _ = fmt.Fprintf(h.stderr, "ws pty input queue full session=%s attachment=%s\n", session.id, attachment.id)
+			}
+			return false
+		}
+	}
+	return true
+}
+
+func (h *wsPTYHub) writeInputLoop(session *wsPTYSession) {
+	for {
+		select {
+		case <-session.done:
+			return
+		case chunk := <-session.input:
+			h.writeInputChunk(session, chunk)
+		}
+	}
+}
+
+func (h *wsPTYHub) writeInputChunk(session *wsPTYSession, chunk wsPTYInputChunk) bool {
+	session.ptyWriteMu.Lock()
+	defer session.ptyWriteMu.Unlock()
+
+	h.mu.Lock()
+	current := h.sessions[session.key] == session &&
+		!session.closed &&
+		session.attachments[chunk.attachmentID] == chunk.attachment
+	cols := session.effectiveCols
+	rows := session.effectiveRows
+	ptyFile := session.ptyFile
+	h.mu.Unlock()
+	if !current || ptyFile == nil {
 		return false
 	}
 	if cols > 0 && rows > 0 {
 		h.applyPTYSizeWithWriteLock(session, cols, rows)
 	}
 	total := 0
-	for total < len(payload) {
-		n, err := session.ptyFile.Write(payload[total:])
+	for total < len(chunk.payload) {
+		n, err := ptyFile.Write(chunk.payload[total:])
 		if n > 0 {
 			total += n
 		}

@@ -1113,6 +1113,67 @@ final class CLINotifyProcessIntegrationRegressionTests: XCTestCase {
         XCTAssertTrue(result.stderr.contains("ssh-pty-attach: missing session"), result.stderr)
     }
 
+    func testSSHPTYAttachRequireExistingSessionNotFoundFailsWithoutWaitRetry() throws {
+        let cliPath = try bundledCLIPath()
+        let socketPath = makeSocketPath("sshreqmissing")
+        let listenerFD = try bindUnixSocket(at: socketPath)
+        let state = MockSocketServerState()
+        let workspaceId = "22222222-2222-2222-2222-222222222222"
+        let surfaceId = "33333333-3333-3333-3333-333333333333"
+        let sessionId = "ssh-missing-session"
+
+        defer {
+            Darwin.close(listenerFD)
+            unlink(socketPath)
+        }
+
+        let socketHandled = startMockServer(listenerFD: listenerFD, state: state) { line in
+            guard let payload = self.jsonObject(line),
+                  let id = payload["id"] as? String,
+                  let method = payload["method"] as? String else {
+                return self.malformedRequestResponse(raw: line)
+            }
+            XCTAssertEqual(method, "workspace.remote.pty_bridge")
+            let params = payload["params"] as? [String: Any] ?? [:]
+            XCTAssertEqual(params["workspace_id"] as? String, workspaceId)
+            XCTAssertEqual(params["session_id"] as? String, sessionId)
+            XCTAssertEqual(params["attachment_id"] as? String, surfaceId)
+            XCTAssertEqual(params["require_existing"] as? Bool, true)
+            return self.v2Response(
+                id: id,
+                ok: false,
+                error: [
+                    "code": "pty_session_not_found",
+                    "message": "persistent PTY session \"\(sessionId)\" is not running",
+                ]
+            )
+        }
+
+        var environment = ProcessInfo.processInfo.environment
+        environment["CMUX_SOCKET_PATH"] = socketPath
+        environment["CMUX_CLI_SENTRY_DISABLED"] = "1"
+
+        let result = runProcess(
+            executablePath: cliPath,
+            arguments: [
+                "ssh-pty-attach",
+                "--wait",
+                "--require-existing",
+                "--workspace", workspaceId,
+                "--session-id", sessionId,
+                "--attachment-id", surfaceId,
+            ],
+            environment: environment,
+            timeout: 3
+        )
+
+        wait(for: [socketHandled], timeout: 3)
+        XCTAssertFalse(result.timedOut, result.stderr)
+        XCTAssertEqual(result.status, 1, result.stderr)
+        XCTAssertTrue(result.stderr.contains("pty_session_not_found"), result.stderr)
+        XCTAssertEqual(state.snapshot().count, 1)
+    }
+
     func testSSHSessionListAllWorkspacesReportsQueryErrors() throws {
         let cliPath = try bundledCLIPath()
         let socketPath = makeSocketPath("sshlist")

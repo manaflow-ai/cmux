@@ -524,6 +524,80 @@ func TestWebSocketPTYDropsBackpressuredAttachment(t *testing.T) {
 	}
 }
 
+func TestWebSocketPTYInputBackpressureDoesNotBlockHub(t *testing.T) {
+	reader, writer, err := os.Pipe()
+	if err != nil {
+		t.Fatalf("pipe: %v", err)
+	}
+	defer reader.Close()
+
+	stderr := &bytes.Buffer{}
+	hub := newWebSocketPTYHub(wsPTYServerConfig{
+		Shell:           "/bin/sh",
+		ScrollbackLimit: 4096,
+	}, stderr)
+	sessionKey := persistentPTYSessionKey("sess-input-backpressure")
+	sessionDone := make(chan struct{})
+	attachment := &wsPTYAttachment{
+		sessionKey: sessionKey,
+		id:         "att-input",
+		cols:       80,
+		rows:       24,
+		send:       make(chan wsPTYOutgoingFrame, defaultWebSocketWriteQueueCap),
+		cancel:     func() {},
+		persistent: true,
+	}
+	session := &wsPTYSession{
+		id:            "sess-input-backpressure",
+		key:           sessionKey,
+		ptyFile:       writer,
+		attachments:   map[string]*wsPTYAttachment{attachment.id: attachment},
+		effectiveCols: 80,
+		effectiveRows: 24,
+		lastKnownCols: 80,
+		lastKnownRows: 24,
+		input:         make(chan wsPTYInputChunk, defaultPTYInputQueueCap),
+		done:          sessionDone,
+	}
+	defer func() {
+		_ = writer.Close()
+		close(sessionDone)
+	}()
+
+	hub.mu.Lock()
+	hub.sessions[session.key] = session
+	hub.mu.Unlock()
+	go hub.writeInputLoop(session)
+
+	payload := bytes.Repeat([]byte("x"), 64*1024)
+	writesDone := make(chan struct{})
+	go func() {
+		defer close(writesDone)
+		for i := 0; i < defaultPTYInputQueueCap*4; i++ {
+			_ = hub.writeInputByID(session.id, attachment.id, payload)
+		}
+	}()
+
+	select {
+	case <-writesDone:
+	case <-time.After(2 * time.Second):
+		t.Fatal("writeInputByID blocked behind a full PTY writer")
+	}
+
+	closeDone := make(chan bool, 1)
+	go func() {
+		closeDone <- hub.closeSessionByID(session.id)
+	}()
+	select {
+	case ok := <-closeDone:
+		if !ok {
+			t.Fatal("closeSessionByID returned false")
+		}
+	case <-time.After(2 * time.Second):
+		t.Fatal("closeSessionByID blocked behind a full PTY writer")
+	}
+}
+
 func TestWebSocketPTYReapsDetachedIdleSession(t *testing.T) {
 	leasePath := filepath.Join(t.TempDir(), "lease.json")
 	stderr := &bytes.Buffer{}
