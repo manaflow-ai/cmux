@@ -11,10 +11,16 @@ import CMUXVNC
 final class TerminalControllerSocketSecurityTests: XCTestCase {
     private final class FocusSpyWindow: NSWindow {
         var requestedResponder: NSResponder?
+        var currentResponder: NSResponder?
+
+        override var firstResponder: NSResponder? {
+            currentResponder
+        }
 
         override func makeFirstResponder(_ responder: NSResponder?) -> Bool {
             requestedResponder = responder
-            return responder != nil
+            currentResponder = responder
+            return true
         }
     }
 
@@ -908,6 +914,62 @@ final class TerminalControllerSocketSecurityTests: XCTestCase {
         panel.focusViewWindowDidChange(view)
 
         XCTAssertNil(window.requestedResponder)
+    }
+
+    func testVNCUnfocusResignsOwnedFirstResponder() throws {
+        let panel = VNCPanel(
+            workspaceId: UUID(),
+            session: MacfleetVNCSession(
+                name: "docker-vnc-1",
+                hostName: "docker-vnc-1",
+                address: "127.0.0.1",
+                port: 5900,
+                username: "cmux",
+                index: 1
+            ),
+            credential: VNCResolvedCredential(
+                username: "cmux",
+                password: "secret",
+                source: .sessionPassword
+            )
+        )
+        let view = FocusableView(frame: NSRect(x: 0, y: 0, width: 100, height: 100))
+        let window = FocusSpyWindow(
+            contentRect: NSRect(x: 0, y: 0, width: 100, height: 100),
+            styleMask: [.borderless],
+            backing: .buffered,
+            defer: true
+        )
+        defer {
+            panel.close()
+        }
+
+        panel.attachFocusView(view)
+        view.spyWindow = window
+        window.currentResponder = view
+
+        panel.unfocus()
+
+        XCTAssertNil(window.requestedResponder)
+        XCTAssertNil(window.currentResponder)
+    }
+
+    func testVNCCanvasResignFirstResponderReleasesModifiers() throws {
+        let view = VNCMetalCanvasView(frame: NSRect(x: 0, y: 0, width: 100, height: 100))
+        var keyEvents: [String] = []
+        view.onKey = { keyCode, isDown, _ in
+            keyEvents.append("\(keyCode):\(isDown)")
+        }
+        defer {
+            view.close()
+        }
+
+        view.flagsChanged(with: makeVNCKeyEvent(type: .flagsChanged, modifierFlags: .command, keyCode: 55))
+        XCTAssertEqual(keyEvents, ["55:true"])
+
+        XCTAssertTrue(view.resignFirstResponder())
+
+        XCTAssertEqual(keyEvents, ["55:true", "55:false"])
     }
 
     func testVNCCanvasCoordinatorTransfersFocusOwnershipWhenViewIsReused() throws {

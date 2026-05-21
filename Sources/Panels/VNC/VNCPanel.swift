@@ -249,6 +249,7 @@ final class VNCPanel: Panel, ObservableObject {
 
     func unfocus() {
         pendingFocus = false
+        resignOwnedFocusIfNeeded()
     }
 
     func triggerFlash(reason: WorkspaceAttentionFlashReason) {
@@ -264,6 +265,30 @@ final class VNCPanel: Panel, ObservableObject {
             return nil
         }
         return .panel
+    }
+
+    @discardableResult
+    func yieldFocusIntent(_ intent: PanelFocusIntent, in window: NSWindow) -> Bool {
+        guard intent == .panel,
+              let responder = window.firstResponder,
+              focusViewOwns(responder) else {
+            return false
+        }
+        return window.makeFirstResponder(nil)
+    }
+
+    private func resignOwnedFocusIfNeeded() {
+        guard let window = focusView?.window,
+              let responder = window.firstResponder,
+              focusViewOwns(responder) else {
+            return
+        }
+        _ = window.makeFirstResponder(nil)
+    }
+
+    private func focusViewOwns(_ responder: NSResponder) -> Bool {
+        guard let focusView else { return false }
+        return responder === focusView || responder.isDescendant(of: focusView)
     }
 
     private func handleControl(_ control: VNCControlMessage) {
