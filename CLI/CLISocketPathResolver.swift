@@ -110,6 +110,12 @@ enum CLISocketPathResolver {
     }
 
     private static func userScopedStableSocketPath(currentUserID: uid_t = getuid()) -> String {
+        stableSocketDirectoryURL()?
+            .appendingPathComponent("cmux-\(currentUserID).sock", isDirectory: false)
+            .path ?? legacyUserScopedStableSocketPath(currentUserID: currentUserID)
+    }
+
+    private static func legacyUserScopedStableSocketPath(currentUserID: uid_t = getuid()) -> String {
         "/tmp/cmux-\(currentUserID).sock"
     }
 
@@ -337,6 +343,7 @@ enum CLISocketPathResolver {
             stableDefaultSocketPath,
             legacyDefaultSocketPath,
             userScopedStableSocketPath(),
+            legacyUserScopedStableSocketPath(),
         ])
     }
 
@@ -345,6 +352,7 @@ enum CLISocketPathResolver {
             stableDefaultSocketPath,
             legacyDefaultSocketPath,
             userScopedStableSocketPath(),
+            legacyUserScopedStableSocketPath(),
             fallbackSocketPath,
             nightlySocketPath,
             stagingSocketPath,

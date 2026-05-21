@@ -139,10 +139,22 @@ final class CMUXCLIErrorOutputRegressionTests: XCTestCase {
 
     func testBundledCLIInTaggedDebugAppTreatsUserScopedStableEnvSocketAsImplicitDefault() throws {
         let cliPath = try bundledCLIPath()
-        let stableSocketPath = "/tmp/cmux-\(getuid()).sock"
+        let fixedHomeURL = URL(fileURLWithPath: "/tmp/cmux-cli-home-\(UUID().uuidString)", isDirectory: true)
+        defer { try? FileManager.default.removeItem(at: fixedHomeURL) }
+        let stableSocketURL = fixedHomeURL
+            .appendingPathComponent("Library/Application Support/cmux", isDirectory: true)
+            .appendingPathComponent("cmux-\(getuid()).sock", isDirectory: false)
+        let stableSocketPath = stableSocketURL.path
+        try FileManager.default.createDirectory(
+            at: stableSocketURL.deletingLastPathComponent(),
+            withIntermediateDirectories: true
+        )
         let aliases = [
             stableSocketPath,
-            "/private/tmp/CMUX-\(getuid()).sock",
+            stableSocketURL
+                .deletingLastPathComponent()
+                .appendingPathComponent("CMUX-\(getuid()).sock", isDirectory: false)
+                .path,
         ]
 
         if FileManager.default.fileExists(atPath: stableSocketPath) {
@@ -169,6 +181,7 @@ final class CMUXCLIErrorOutputRegressionTests: XCTestCase {
                 environment["CMUX_CLI_SENTRY_DISABLED"] = "1"
                 environment["CMUXTERM_CLI_RESPONSE_TIMEOUT_SEC"] = "5"
                 environment["CMUX_SOCKET_PATH"] = alias
+                environment["CFFIXED_USER_HOME"] = fixedHomeURL.path
 
                 let result = runProcess(
                     executablePath: fakeCLIPath,
