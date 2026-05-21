@@ -16,6 +16,8 @@ REQUIRED_PATTERNS=(
   "signal.SIGKILL"
   "os.set_blocking"
   "os.read(fd, 65536)"
+  "stdout_fd = process.stdout.fileno()"
+  "os.read(stdout_fd, 65536)"
   "drain_remaining_output(process, output)"
   "Could not resolve package dependencies"
   "rm -rf ~/Library/Caches/org.swift.swiftpm"
@@ -28,5 +30,10 @@ for pattern in "${REQUIRED_PATTERNS[@]}"; do
     exit 1
   fi
 done
+
+if grep -Fq "process.stdout.readline()" "$WORKFLOW_FILE"; then
+  echo "FAIL: CI watchdog must not block on process.stdout.readline()"
+  exit 1
+fi
 
 echo "PASS: CI unit-test SwiftPM retry guard is present"

@@ -314,17 +314,25 @@ jobs:
           )
           saw_app_host_crash = False
           last_output_at = time.monotonic()
+          crash_marker = b"Program crashed:"
+          crash_detector_tail = b""
 
           with open(output_path, "w", encoding="utf-8", errors="replace") as output:
+              stdout_fd = process.stdout.fileno()
               while True:
-                  ready, _, _ = select.select([process.stdout], [], [], 1.0)
+                  ready, _, _ = select.select([stdout_fd], [], [], 1.0)
                   if ready:
-                      line = process.stdout.readline()
-                      if line:
-                          write_output(line, output)
+                      try:
+                          chunk = os.read(stdout_fd, 65536)
+                      except BlockingIOError:
+                          chunk = b""
+                      if chunk:
+                          write_output(chunk, output)
                           last_output_at = time.monotonic()
-                          if b"Program crashed:" in line:
+                          crash_detector_window = crash_detector_tail + chunk
+                          if crash_marker in crash_detector_window:
                               saw_app_host_crash = True
+                          crash_detector_tail = crash_detector_window[-(len(crash_marker) - 1):]
                           continue
 
                   if process.poll() is not None:
