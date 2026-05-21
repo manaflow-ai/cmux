@@ -1306,14 +1306,15 @@ class TerminalController {
     }
 
     nonisolated static func socketPathCanBeReclaimedForStartup(_ path: String) -> Bool {
-        switch socketPathProbeResult(path) {
-        case .stale:
-            return socketPathHasAvailableLock(path, requireReusableMarker: false, treatMissingLockAsAvailable: true)
-        case .refused:
-            return socketPathHasAvailableLock(path, requireReusableMarker: true, treatMissingLockAsAvailable: false)
-        case .connected, .occupiedOrIndeterminate:
+        var st = stat()
+        guard lstat(path, &st) == 0 else {
+            return errno == ENOENT
+                && socketPathHasAvailableLock(path, requireReusableMarker: false, treatMissingLockAsAvailable: true)
+        }
+        guard (st.st_mode & mode_t(S_IFMT)) == mode_t(S_IFSOCK) else {
             return false
         }
+        return socketPathHasAvailableLock(path, requireReusableMarker: true, treatMissingLockAsAvailable: false)
     }
 
     private nonisolated static func socketPathHasAvailableLock(

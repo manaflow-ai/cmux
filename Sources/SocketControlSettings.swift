@@ -465,7 +465,6 @@ struct SocketControlSettings {
         isDebugBuild: Bool = SocketControlSettings.isDebugBuild,
         currentUserID: uid_t = getuid(),
         probeStableDefaultPathEntry: (String) -> StableDefaultSocketPathEntry = inspectStableDefaultSocketPathEntry,
-        stableDefaultSocketAcceptsConnections: (String) -> Bool = socketPathAcceptsConnections,
         stableDefaultSocketCanBeReclaimed: (String) -> Bool = { _ in true }
     ) -> String {
         guard !isDebugBuild,
@@ -480,20 +479,10 @@ struct SocketControlSettings {
                 ? preferredPath
                 : userScopedStableSocketPath(currentUserID: currentUserID)
         case .socket(let ownerUserID) where ownerUserID == currentUserID:
-            break
+            return userScopedStableSocketPath(currentUserID: currentUserID)
         case .socket, .other, .inaccessible:
             return preferredPath
         }
-
-        if stableDefaultSocketAcceptsConnections(stableDefaultSocketPath) {
-            return userScopedStableSocketPath(currentUserID: currentUserID)
-        }
-
-        if !stableDefaultSocketCanBeReclaimed(stableDefaultSocketPath) {
-            return userScopedStableSocketPath(currentUserID: currentUserID)
-        }
-
-        return preferredPath
     }
 
     private static func pathsMatch(_ lhs: String, _ rhs: String) -> Bool {
@@ -592,52 +581,6 @@ struct SocketControlSettings {
             return stableDefaultSocketPath
         case .socket, .other, .inaccessible:
             return userScopedStableSocketPath(currentUserID: currentUserID)
-        }
-    }
-
-    private static func socketPathAcceptsConnections(_ path: String) -> Bool {
-        let fd = socket(AF_UNIX, SOCK_STREAM, 0)
-        guard fd >= 0 else { return false }
-        defer { close(fd) }
-
-        let originalFlags = fcntl(fd, F_GETFL, 0)
-        guard originalFlags >= 0 else { return false }
-        guard fcntl(fd, F_SETFL, originalFlags | O_NONBLOCK) >= 0 else {
-            return false
-        }
-        defer { _ = fcntl(fd, F_SETFL, originalFlags) }
-
-        var addr = sockaddr_un()
-        addr.sun_family = sa_family_t(AF_UNIX)
-        let maxLength = MemoryLayout.size(ofValue: addr.sun_path)
-        let pathBytes = Array(path.utf8CString)
-        guard pathBytes.count <= maxLength else { return false }
-        withUnsafeMutablePointer(to: &addr.sun_path) { ptr in
-            let raw = UnsafeMutableRawPointer(ptr).assumingMemoryBound(to: CChar.self)
-            memset(raw, 0, maxLength)
-            for index in 0..<pathBytes.count {
-                raw[index] = pathBytes[index]
-            }
-        }
-
-        let pathOffset = MemoryLayout<sockaddr_un>.offset(of: \.sun_path) ?? 0
-        let addrLen = socklen_t(pathOffset + pathBytes.count)
-#if os(macOS)
-        addr.sun_len = UInt8(min(Int(addrLen), 255))
-#endif
-        let connectResult = withUnsafePointer(to: &addr) { ptr in
-            ptr.withMemoryRebound(to: sockaddr.self, capacity: 1) { sockaddrPtr in
-                connect(fd, sockaddrPtr, addrLen)
-            }
-        }
-        if connectResult == 0 {
-            return true
-        }
-        switch errno {
-        case EINPROGRESS, EAGAIN, EWOULDBLOCK:
-            return true
-        default:
-            return false
         }
     }
 

@@ -2825,15 +2825,27 @@ final class SocketControlSettingsTests: XCTestCase {
         XCTAssertEqual(path, SocketControlSettings.userScopedStableSocketPath(currentUserID: 501))
     }
 
-    func testInitialStableLaunchFallsBackToUserScopedSocketWhenSameUserStablePathAcceptsConnections() {
+    func testInitialStableLaunchFallsBackToUserScopedSocketWhenSameUserStablePathExists() {
+        let path = SocketControlSettings.initialSocketPathBeforeListenerStart(
+            preferredPath: SocketControlSettings.stableDefaultSocketPath,
+            bundleIdentifier: "com.cmuxterm.app",
+            isDebugBuild: false,
+            currentUserID: 501,
+            probeStableDefaultPathEntry: { _ in .socket(ownerUserID: 501) }
+        )
+
+        XCTAssertEqual(path, SocketControlSettings.userScopedStableSocketPath(currentUserID: 501))
+    }
+
+    func testInitialStableLaunchDoesNotProbeSameUserStableSocketLiveness() {
         let path = SocketControlSettings.initialSocketPathBeforeListenerStart(
             preferredPath: SocketControlSettings.stableDefaultSocketPath,
             bundleIdentifier: "com.cmuxterm.app",
             isDebugBuild: false,
             currentUserID: 501,
             probeStableDefaultPathEntry: { _ in .socket(ownerUserID: 501) },
-            stableDefaultSocketAcceptsConnections: { socketPath in
-                XCTAssertEqual(socketPath, SocketControlSettings.stableDefaultSocketPath)
+            stableDefaultSocketCanBeReclaimed: { _ in
+                XCTFail("Existing startup sockets should fall back without liveness probing on the main thread")
                 return true
             }
         )
@@ -2841,30 +2853,15 @@ final class SocketControlSettingsTests: XCTestCase {
         XCTAssertEqual(path, SocketControlSettings.userScopedStableSocketPath(currentUserID: 501))
     }
 
-    func testInitialStableLaunchKeepsSameUserStableSocketPathWhenItDoesNotAcceptConnections() {
+    func testInitialStableLaunchDoesNotProbeSameUserStableSocketReclaimability() {
         let path = SocketControlSettings.initialSocketPathBeforeListenerStart(
             preferredPath: SocketControlSettings.stableDefaultSocketPath,
             bundleIdentifier: "com.cmuxterm.app",
             isDebugBuild: false,
             currentUserID: 501,
             probeStableDefaultPathEntry: { _ in .socket(ownerUserID: 501) },
-            stableDefaultSocketAcceptsConnections: { _ in false },
-            stableDefaultSocketCanBeReclaimed: { _ in true }
-        )
-
-        XCTAssertEqual(path, SocketControlSettings.stableDefaultSocketPath)
-    }
-
-    func testInitialStableLaunchFallsBackToUserScopedSocketWhenSameUserStablePathCannotBeReclaimed() {
-        let path = SocketControlSettings.initialSocketPathBeforeListenerStart(
-            preferredPath: SocketControlSettings.stableDefaultSocketPath,
-            bundleIdentifier: "com.cmuxterm.app",
-            isDebugBuild: false,
-            currentUserID: 501,
-            probeStableDefaultPathEntry: { _ in .socket(ownerUserID: 501) },
-            stableDefaultSocketAcceptsConnections: { _ in false },
             stableDefaultSocketCanBeReclaimed: { socketPath in
-                XCTAssertEqual(socketPath, SocketControlSettings.stableDefaultSocketPath)
+                XCTFail("Existing startup sockets should fall back without reclaimability probing: \(socketPath)")
                 return false
             }
         )
@@ -2879,10 +2876,6 @@ final class SocketControlSettingsTests: XCTestCase {
             isDebugBuild: false,
             currentUserID: 501,
             probeStableDefaultPathEntry: { _ in .missing },
-            stableDefaultSocketAcceptsConnections: { _ in
-                XCTFail("A missing stable socket should not be probed for liveness")
-                return true
-            },
             stableDefaultSocketCanBeReclaimed: { socketPath in
                 XCTAssertEqual(socketPath, SocketControlSettings.stableDefaultSocketPath)
                 return false
@@ -2902,10 +2895,6 @@ final class SocketControlSettingsTests: XCTestCase {
             probeStableDefaultPathEntry: { _ in
                 XCTFail("Tagged debug builds must not inspect the stable socket")
                 return .socket(ownerUserID: 501)
-            },
-            stableDefaultSocketAcceptsConnections: { _ in
-                XCTFail("Tagged debug builds must not probe the stable socket")
-                return true
             }
         )
 
