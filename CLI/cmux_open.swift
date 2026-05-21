@@ -421,55 +421,30 @@ extension CMUXCLI {
           <style>
             :root {
               color-scheme: light dark;
-              font-family: Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
-              background: light-dark(#f7f7f8, #101113);
-              color: light-dark(#1f2328, #f1f3f5);
+              background: light-dark(#fff, #000);
             }
             * {
               box-sizing: border-box;
             }
+            html,
+            body {
+              height: 100%;
+              overflow: hidden;
+            }
             body {
               margin: 0;
-              min-height: 100vh;
-              display: grid;
-              grid-template-rows: auto minmax(0, 1fr);
-            }
-            header {
-              min-width: 0;
-              padding: 12px 14px;
-              border-bottom: 1px solid light-dark(#d8dadd, #2a2d31);
-              background: light-dark(#ffffff, #15171a);
-            }
-            h1 {
-              margin: 0;
-              font-size: 14px;
-              line-height: 20px;
-              font-weight: 650;
-              overflow: hidden;
-              text-overflow: ellipsis;
-              white-space: nowrap;
-            }
-            .meta {
-              margin-top: 2px;
-              color: light-dark(#66707a, #9ba4ad);
-              font-size: 12px;
-              line-height: 18px;
-              overflow: hidden;
-              text-overflow: ellipsis;
-              white-space: nowrap;
+              height: 100vh;
+              min-height: 0;
+              background: light-dark(#fff, #000);
             }
             #viewer {
+              height: 100vh;
               min-height: 0;
               overflow: auto;
-              padding: 12px;
-            }
-            #viewer > diffs-container {
-              border: 1px solid light-dark(#d8dadd, #2a2d31);
-              border-radius: 8px;
-              overflow: hidden;
+              background: inherit;
             }
             #status {
-              padding: 24px;
+              padding: 16px;
               font: 13px/20px ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", monospace;
               color: light-dark(#57606a, #a6adb7);
             }
@@ -479,23 +454,16 @@ extension CMUXCLI {
           </style>
         </head>
         <body>
-          <header>
-            <h1 id="title"></h1>
-            <div class="meta" id="meta"></div>
-          </header>
-          <main id="viewer">
+          <main id="viewer" aria-label="Diff viewer">
             <div id="status">Loading diff...</div>
           </main>
           <script type="module">
             import { CodeView, parsePatchFiles } from "https://esm.run/@pierre/diffs@1.2.1";
 
             const payload = \(payloadLiteral);
-            const title = document.getElementById("title");
-            const meta = document.getElementById("meta");
             const viewerElement = document.getElementById("viewer");
             const status = document.getElementById("status");
-            title.textContent = payload.title;
-            meta.textContent = `${payload.sourceLabel} - ${payload.generatedAt}`;
+            document.title = payload.title;
 
             try {
               const patches = parsePatchFiles(payload.patch, "cmux-diff");
@@ -513,22 +481,47 @@ extension CMUXCLI {
 
               status.remove();
               const codeView = new CodeView({
-                theme: { dark: "pierre-dark", light: "pierre-light" },
-                themeType: "system",
                 diffStyle: payload.layout,
-                diffIndicators: "bars",
-                hunkSeparators: "line-info",
-                lineDiffType: "word",
-                overflow: "scroll",
-                stickyHeaders: true,
-                layout: { paddingTop: 0, paddingBottom: 16, gap: 10 },
               });
               codeView.setup(viewerElement);
               codeView.setItems(items);
               codeView.render(true);
+              renderUntilCodeViewReady(codeView, viewerElement, performance.now());
             } catch (error) {
               status.dataset.error = "true";
               status.textContent = error instanceof Error ? error.message : String(error);
+            }
+
+            function renderUntilCodeViewReady(codeView, root, startedAt) {
+              codeView.render(true);
+              forceRenderReadyCodeViewItems(codeView);
+              const hasRenderedContent = Array.from(root.querySelectorAll("diffs-container")).some((container) =>
+                container.shadowRoot?.querySelector("[data-diffs-header], [data-line]")
+              );
+              if (!hasRenderedContent && performance.now() - startedAt < 10_000) {
+                window.requestAnimationFrame(() => renderUntilCodeViewReady(codeView, root, startedAt));
+              }
+            }
+
+            function forceRenderReadyCodeViewItems(codeView) {
+              for (const renderedItem of codeView.getRenderedItems()) {
+                if (renderedItem.type !== "diff") {
+                  continue;
+                }
+
+                const hasRenderedContent = renderedItem.element.shadowRoot?.querySelector("[data-diffs-header], [data-line]");
+                const hasReadyResult = renderedItem.instance?.hunksRenderer?.renderCache?.result != null;
+                if (hasRenderedContent || !hasReadyResult) {
+                  continue;
+                }
+
+                renderedItem.instance.render({
+                  fileContainer: renderedItem.element,
+                  fileDiff: renderedItem.item.fileDiff,
+                  forceRender: true,
+                  renderRange: renderedItem.instance.renderRange,
+                });
+              }
             }
           </script>
         </body>

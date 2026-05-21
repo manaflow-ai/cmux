@@ -240,6 +240,8 @@ final class CMUXOpenCommandTests: XCTestCase {
         XCTAssertTrue(html.contains("Review diff"), html)
         XCTAssertTrue(html.contains("CodeView"), html)
         XCTAssertTrue(html.contains("parsePatchFiles"), html)
+        XCTAssertTrue(html.contains("renderUntilCodeViewReady"), html)
+        XCTAssertTrue(html.contains("forceRenderReadyCodeViewItems"), html)
         XCTAssertTrue(html.contains("hello.txt"), html)
         XCTAssertTrue(html.contains("\"layout\":\"unified\""), html)
     }
