@@ -2676,6 +2676,47 @@ final class TabManagerReopenClosedBrowserFocusTests: XCTestCase {
         XCTAssertEqual(workspace.focusedPanelId, reopenedPanelId)
     }
 
+    func testReopenClosedBrowserRestoresDockPane() {
+        let manager = TabManager()
+        let expectedURL = URL(string: "https://example.com/dock-reopen")
+        guard let workspace = manager.selectedWorkspace else {
+            XCTFail("Expected selected workspace")
+            return
+        }
+        let dock = workspace.dockLayout.addDock(edge: .right)
+        guard let dockPaneId = dock.controller.allPaneIds.first,
+              let browserPanel = workspace.newBrowserSurface(
+                  inPane: dockPaneId,
+                  controller: dock.controller,
+                  url: expectedURL,
+                  focus: true
+              ) else {
+            XCTFail("Expected dock browser panel")
+            return
+        }
+
+        drainMainQueue()
+        XCTAssertTrue(workspace.closePanel(browserPanel.id, force: true))
+        drainMainQueue()
+        let panelIdsAfterClose = Set(workspace.panels.keys)
+
+        XCTAssertTrue(manager.reopenMostRecentlyClosedBrowserPanel())
+        drainMainQueue()
+
+        guard let reopenedPanelId = singleNewPanelId(in: workspace, comparedTo: panelIdsAfterClose),
+              let reopenedPanel = workspace.panels[reopenedPanelId] as? BrowserPanel,
+              let reopenedTabId = workspace.surfaceIdFromPanelId(reopenedPanelId) else {
+            XCTFail("Expected Cmd+Shift+T to restore dock browser panel")
+            return
+        }
+
+        XCTAssertEqual(reopenedPanel.currentURL, expectedURL)
+        XCTAssertEqual(workspace.paneId(forPanelId: reopenedPanelId), dockPaneId)
+        XCTAssertNotNil(dock.controller.tab(reopenedTabId))
+        XCTAssertNil(workspace.bonsplitController.tab(reopenedTabId))
+        XCTAssertEqual(workspace.focusedPanelId, reopenedPanelId)
+    }
+
     func testReopenFromDifferentWorkspaceFocusesReopenedBrowser() {
         let manager = TabManager()
         guard let workspace1 = manager.selectedWorkspace,

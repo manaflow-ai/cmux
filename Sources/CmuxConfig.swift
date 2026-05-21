@@ -2175,6 +2175,7 @@ final class CmuxConfigStore: ObservableObject {
         if let globalConfig {
             if configuredNewWorkspaceActionID == nil,
                configuredNewWorkspaceCommandName == nil,
+               configuredNewWorkspaceDefinition == nil,
                let newWorkspaceActionID = globalConfig.ui?.newWorkspace?.action {
                 configuredNewWorkspaceActionID = newWorkspaceActionID
                 configuredNewWorkspaceActionSourcePath = globalConfigPath
@@ -2191,6 +2192,7 @@ final class CmuxConfigStore: ObservableObject {
             }
             if configuredNewWorkspaceActionID == nil,
                configuredNewWorkspaceCommandName == nil,
+               configuredNewWorkspaceDefinition == nil,
                let newWorkspaceCommand = globalConfig.newWorkspaceCommand {
                 configuredNewWorkspaceCommandName = newWorkspaceCommand
                 configuredNewWorkspaceCommandSourcePath = globalConfigPath

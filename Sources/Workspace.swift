@@ -13614,7 +13614,7 @@ final class Workspace: Identifiable, ObservableObject {
 
         let renderedControllers = renderedBonsplitControllers
         for controller in renderedControllers {
-            let renderedPaneIds = controller.zoomedPaneId.map { [$0] } ?? controller.allPaneIds
+            let renderedPaneIds = renderedPaneIds(in: controller)
             for paneId in renderedPaneIds {
                 let selectedTab = controller.selectedTab(inPane: paneId) ?? controller.tabs(inPane: paneId).first
                 guard let selectedTab,
@@ -13630,12 +13630,16 @@ final class Workspace: Identifiable, ObservableObject {
            panels[focusedPanelId] != nil,
            let focusedPaneId = paneId(forPanelId: focusedPanelId),
            renderedControllers.contains(where: { controller in
-               controller.allPaneIds.contains(where: { $0.id == focusedPaneId.id })
+               renderedPaneIds(in: controller).contains(where: { $0.id == focusedPaneId.id })
            }) {
             visiblePanelIds.insert(focusedPanelId)
         }
 
         return visiblePanelIds
+    }
+
+    private func renderedPaneIds(in controller: BonsplitController) -> [PaneID] {
+        controller.zoomedPaneId.map { [$0] } ?? controller.allPaneIds
     }
 
     @discardableResult

@@ -3800,6 +3800,43 @@ final class WorkspaceTerminalFocusRecoveryTests: XCTestCase {
 #endif
     }
 
+    func testSplitZoomDoesNotShowFocusedPanelOutsideZoomedPane() throws {
+#if DEBUG
+        let workspace = Workspace()
+        guard let zoomedPanelId = workspace.focusedPanelId,
+              let zoomedPanel = workspace.terminalPanel(for: zoomedPanelId),
+              let otherPanel = workspace.newTerminalSplit(
+                  from: zoomedPanelId,
+                  orientation: .horizontal,
+                  focus: false
+              ),
+              let zoomedPaneId = workspace.paneId(forPanelId: zoomedPanelId),
+              let otherPaneId = workspace.paneId(forPanelId: otherPanel.id) else {
+            XCTFail("Expected split terminal setup")
+            return
+        }
+
+        XCTAssertNotEqual(zoomedPaneId, otherPaneId)
+        XCTAssertTrue(workspace.toggleSplitZoom(panelId: zoomedPanelId))
+        XCTAssertEqual(workspace.bonsplitController.zoomedPaneId, zoomedPaneId)
+
+        workspace.focusPanel(otherPanel.id)
+        zoomedPanel.hostedView.setVisibleInUI(true)
+        otherPanel.hostedView.setVisibleInUI(true)
+
+        workspace.debugReconcileTerminalPortalVisibilityForTesting()
+
+        XCTAssertEqual(workspace.focusedPanelId, otherPanel.id)
+        XCTAssertTrue(zoomedPanel.hostedView.debugPortalVisibleInUI)
+        XCTAssertFalse(
+            otherPanel.hostedView.debugPortalVisibleInUI,
+            "Focused terminals outside the zoomed pane should not be marked visible"
+        )
+#else
+        throw XCTSkip("Debug-only regression test")
+#endif
+    }
+
     func testDockPanelPinStateUpdatesDockController() {
         let workspace = Workspace()
         let dock = workspace.dockLayout.addDock(edge: .bottom)
