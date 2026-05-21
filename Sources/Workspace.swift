@@ -4945,8 +4945,8 @@ final class WorkspaceRemotePTYBridgeServer {
     }
 
     func stop() {
-        queue.async { [weak self] in
-            self?.stopLocked()
+        queue.async {
+            self.stopLocked()
         }
     }
 

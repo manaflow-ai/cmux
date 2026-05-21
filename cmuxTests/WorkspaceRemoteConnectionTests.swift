@@ -3926,6 +3926,29 @@ final class CLINotifyProcessIntegrationTests: XCTestCase {
         XCTAssertEqual(rpcClient.attachCalls.first?.requireExisting, true)
     }
 
+    func testPTYBridgeStopRetainsServerUntilCleanupRuns() throws {
+        let rpcClient = ImmediateExitPTYBridgeRPC()
+        let stopped = DispatchSemaphore(value: 0)
+        var server: WorkspaceRemotePTYBridgeServer? = WorkspaceRemotePTYBridgeServer(
+            rpcClient: rpcClient,
+            sessionID: "session-stop-retain",
+            attachmentID: "attachment-stop-retain",
+            command: nil,
+            requireExisting: false
+        ) {
+            stopped.signal()
+        }
+        guard let endpoint = try server?.start() else {
+            return XCTFail("Failed to start PTY bridge server")
+        }
+        XCTAssertGreaterThan(endpoint.port, 0)
+
+        server?.stop()
+        server = nil
+
+        XCTAssertEqual(stopped.wait(timeout: .now() + 2), .success)
+    }
+
     func testPTYBridgeKeepsOutputOpenAfterClientHalfClose() throws {
         let rpcClient = DelayedOutputPTYBridgeRPC()
         let stopped = DispatchSemaphore(value: 0)
