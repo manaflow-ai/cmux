@@ -564,6 +564,17 @@ private final class WindowCommandPaletteOverlayController: NSObject {
         }
 
         startFocusLockTimer()
+        switch immediateFocusMode {
+        case .textInput:
+            focusIntoPalette(retries: 8)
+            return
+        case .pendingInputContainer:
+            focusPendingInputContainer(in: window)
+            return
+        case .deferred:
+            break
+        }
+
         if !isPaletteTextInputFirstResponder(window.firstResponder) {
 #if DEBUG
             cmuxDebugLog(
@@ -571,14 +582,7 @@ private final class WindowCommandPaletteOverlayController: NSObject {
                 "fr=\(debugCommandPaletteResponderSummary(window.firstResponder))"
             )
 #endif
-            switch immediateFocusMode {
-            case .textInput:
-                focusIntoPalette(retries: 8)
-            case .pendingInputContainer:
-                focusPendingInputContainer(in: window)
-            case .deferred:
-                scheduleFocusIntoPalette(retries: 8)
-            }
+            scheduleFocusIntoPalette(retries: 8)
         }
     }
 
