@@ -51,6 +51,32 @@ final class SidebarWidthPolicyTests: XCTestCase {
         )
     }
 
+    func testCompletedSidebarDragIgnoresNoOpClampFinishes() {
+        XCTAssertNil(
+            ContentView.completedSidebarDragPreferredWidth(
+                startPreferredWidth: 420,
+                translation: 0
+            )
+        )
+        XCTAssertNil(
+            ContentView.completedSidebarDragPreferredWidth(
+                startPreferredWidth: 420,
+                translation: 0.25
+            )
+        )
+    }
+
+    func testCompletedSidebarDragUsesPreferredWidthStart() throws {
+        XCTAssertEqual(
+            try XCTUnwrap(ContentView.completedSidebarDragPreferredWidth(
+                startPreferredWidth: 420,
+                translation: -20
+            )),
+            400,
+            accuracy: 0.001
+        )
+    }
+
     func testRightSidebarClampAllowsWideExplorerOnLargeWindows() {
         XCTAssertEqual(
             ContentView.clampedRightSidebarWidth(900, availableWidth: 1600),
@@ -109,6 +135,32 @@ final class SidebarWidthPolicyTests: XCTestCase {
         XCTAssertEqual(
             ContentView.clampedRightSidebarPreferredWidth(20),
             276,
+            accuracy: 0.001
+        )
+    }
+
+    func testCompletedRightSidebarDragIgnoresNoOpClampFinishes() {
+        XCTAssertNil(
+            ContentView.completedRightSidebarDragPreferredWidth(
+                startPreferredWidth: 900,
+                translation: 0
+            )
+        )
+        XCTAssertNil(
+            ContentView.completedRightSidebarDragPreferredWidth(
+                startPreferredWidth: 900,
+                translation: -0.25
+            )
+        )
+    }
+
+    func testCompletedRightSidebarDragUsesPreferredWidthStart() throws {
+        XCTAssertEqual(
+            try XCTUnwrap(ContentView.completedRightSidebarDragPreferredWidth(
+                startPreferredWidth: 900,
+                translation: 50
+            )),
+            850,
             accuracy: 0.001
         )
     }
