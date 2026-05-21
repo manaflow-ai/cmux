@@ -198,28 +198,10 @@ struct WorkspaceContentView: View {
         let usesWorkspacePaneOverlay = TmuxOverlayExperimentSettings.target().usesWorkspacePaneOverlay
         let isWorkspaceManuallyUnread = notificationStore.hasManualUnread(forTabId: workspace.id)
         let workspaceManualUnreadPanelId = workspace.representativePanelIdForWorkspaceManualUnread()
-
-        // Inactive workspaces are kept alive in a ZStack (for state preservation) but their
-        // AppKit-backed views can still intercept drags. Disable drop acceptance for them.
-        let _ = { workspace.bonsplitController.isInteractive = isWorkspaceInputActive }()
-        let _ = {
-            for controller in workspace.dockLayout.allControllers {
-                controller.isInteractive = isWorkspaceInputActive
-            }
-        }()
-
-        // Wire up file drop handling so bonsplit's PaneDragContainerView can forward
-        // Finder file drops to the correct terminal panel.
-        let _ = {
-            workspace.bonsplitController.onFileDrop = { [weak workspace] urls, paneId in
-                guard let workspace else { return false }
-                return workspace.handleDirectFileDrop(
-                    urls: urls,
-                    inPane: paneId,
-                    controller: workspace.bonsplitController
-                )
-            }
-        }()
+        let dockControllerIdentity = workspace.dockLayout.allControllers.map { ObjectIdentifier($0) }
+        let visibleNotificationPanelIds = Set(workspace.panels.keys.filter { panelId in
+            notificationStore.hasVisibleNotificationIndicator(forTabId: workspace.id, surfaceId: panelId)
+        })
 
         let bonsplitView = BonsplitView(controller: workspace.bonsplitController) { tab, paneId in
             // Content for each tab in bonsplit
@@ -298,8 +280,16 @@ struct WorkspaceContentView: View {
         .id(Self.splitZoomRenderIdentity(for: workspace.bonsplitController))
         .frame(maxWidth: .infinity, maxHeight: .infinity)
         .onAppear {
+            installMainBonsplitHandlers()
+            syncBonsplitInteractivity()
             syncBonsplitNotificationBadges()
             refreshGhosttyAppearanceConfig(reason: "onAppear")
+        }
+        .onChange(of: isWorkspaceInputActive) { _, _ in
+            syncBonsplitInteractivity()
+        }
+        .onChange(of: dockControllerIdentity) { _, _ in
+            syncBonsplitInteractivity()
         }
         .onChange(of: isWorkspaceVisible) { _, isVisible in
             guard isVisible else { return }
@@ -354,11 +344,43 @@ struct WorkspaceContentView: View {
             isSplit: isSplit,
             appearance: appearance,
             usesWorkspacePaneOverlay: usesWorkspacePaneOverlay,
+            visibleNotificationPanelIds: visibleNotificationPanelIds,
+            manualUnreadPanelIds: workspace.manualUnreadPanelIds,
+            restoredUnreadPanelIds: workspace.restoredUnreadPanelIds,
+            isWorkspaceManuallyUnread: isWorkspaceManuallyUnread,
+            workspaceManualUnreadPanelId: workspaceManualUnreadPanelId,
             portalPriority: workspacePortalPriority + 1
         ) {
             bonsplitView
         }
             .ignoresSafeArea(.container, edges: (isMinimalMode && !isFullScreen) ? .top : [])
+    }
+
+    private func installMainBonsplitHandlers() {
+        // Wire up file drop handling so bonsplit's PaneDragContainerView can forward
+        // Finder file drops to the correct terminal panel.
+        workspace.bonsplitController.onFileDrop = { [weak workspace] urls, paneId in
+            guard let workspace else { return false }
+            return workspace.handleDirectFileDrop(
+                urls: urls,
+                inPane: paneId,
+                controller: workspace.bonsplitController
+            )
+        }
+    }
+
+    private func syncBonsplitInteractivity() {
+        // Inactive workspaces are kept alive in a ZStack (for state preservation) but their
+        // AppKit-backed views can still intercept drags. Disable drop acceptance for them.
+        setInteractivityIfNeeded(workspace.bonsplitController)
+        for controller in workspace.dockLayout.allControllers {
+            setInteractivityIfNeeded(controller)
+        }
+    }
+
+    private func setInteractivityIfNeeded(_ controller: BonsplitController) {
+        guard controller.isInteractive != isWorkspaceInputActive else { return }
+        controller.isInteractive = isWorkspaceInputActive
     }
 
     private func syncBonsplitNotificationBadges() {
@@ -745,6 +767,11 @@ private struct WorkspaceMultiDockLayoutView<MainContent: View>: View {
     let isSplit: Bool
     let appearance: PanelAppearance
     let usesWorkspacePaneOverlay: Bool
+    let visibleNotificationPanelIds: Set<UUID>
+    let manualUnreadPanelIds: Set<UUID>
+    let restoredUnreadPanelIds: Set<UUID>
+    let isWorkspaceManuallyUnread: Bool
+    let workspaceManualUnreadPanelId: UUID?
     let portalPriority: Int
     @ViewBuilder let mainContent: () -> MainContent
     @State private var targetedRevealEdges: Set<WorkspaceDockEdge> = []
@@ -784,14 +811,20 @@ private struct WorkspaceMultiDockLayoutView<MainContent: View>: View {
                 }
                 WorkspaceDockPaneView(
                     workspace: workspace,
-                    layout: layout,
-                    dock: dock,
+                    dock: WorkspaceDockPaneSnapshot(dock: dock, canRemove: layout.canRemove(dock)),
                     isWorkspaceVisible: isWorkspaceVisible,
                     isWorkspaceInputActive: isWorkspaceInputActive,
                     isSplit: isSplit,
                     appearance: appearance,
                     usesWorkspacePaneOverlay: usesWorkspacePaneOverlay,
-                    portalPriority: portalPriority
+                    visibleNotificationPanelIds: visibleNotificationPanelIds,
+                    manualUnreadPanelIds: manualUnreadPanelIds,
+                    restoredUnreadPanelIds: restoredUnreadPanelIds,
+                    isWorkspaceManuallyUnread: isWorkspaceManuallyUnread,
+                    workspaceManualUnreadPanelId: workspaceManualUnreadPanelId,
+                    portalPriority: portalPriority,
+                    onAddDock: { layout.addDock(edge: dock.edge) },
+                    onRemoveDock: { layout.removeDock(dock) }
                 )
                 .frame(width: dock.preferredSize)
                 if edge == .left {
@@ -842,14 +875,20 @@ private struct WorkspaceMultiDockLayoutView<MainContent: View>: View {
             ForEach(layout.bottom) { dock in
                 WorkspaceDockPaneView(
                     workspace: workspace,
-                    layout: layout,
-                    dock: dock,
+                    dock: WorkspaceDockPaneSnapshot(dock: dock, canRemove: layout.canRemove(dock)),
                     isWorkspaceVisible: isWorkspaceVisible,
                     isWorkspaceInputActive: isWorkspaceInputActive,
                     isSplit: isSplit,
                     appearance: appearance,
                     usesWorkspacePaneOverlay: usesWorkspacePaneOverlay,
-                    portalPriority: portalPriority
+                    visibleNotificationPanelIds: visibleNotificationPanelIds,
+                    manualUnreadPanelIds: manualUnreadPanelIds,
+                    restoredUnreadPanelIds: restoredUnreadPanelIds,
+                    isWorkspaceManuallyUnread: isWorkspaceManuallyUnread,
+                    workspaceManualUnreadPanelId: workspaceManualUnreadPanelId,
+                    portalPriority: portalPriority,
+                    onAddDock: { layout.addDock(edge: dock.edge) },
+                    onRemoveDock: { layout.removeDock(dock) }
                 )
                 .frame(maxWidth: .infinity)
                 Divider()
@@ -1327,29 +1366,55 @@ private struct WorkspaceDockToggleIcon: View {
 
 }
 
+private struct WorkspaceDockPaneSnapshot: Identifiable, Equatable {
+    let id: UUID
+    let edge: WorkspaceDockEdge
+    let controller: BonsplitController
+    let canRemove: Bool
+
+    init(dock: WorkspaceDock, canRemove: Bool) {
+        self.id = dock.id
+        self.edge = dock.edge
+        self.controller = dock.controller
+        self.canRemove = canRemove
+    }
+
+    static func == (lhs: WorkspaceDockPaneSnapshot, rhs: WorkspaceDockPaneSnapshot) -> Bool {
+        lhs.id == rhs.id &&
+            lhs.edge == rhs.edge &&
+            lhs.controller === rhs.controller &&
+            lhs.canRemove == rhs.canRemove
+    }
+}
+
 private struct WorkspaceDockPaneView: View {
-    @ObservedObject var workspace: Workspace
-    @ObservedObject var layout: WorkspaceDockLayout
-    @ObservedObject var dock: WorkspaceDock
+    let workspace: Workspace
+    let dock: WorkspaceDockPaneSnapshot
     let isWorkspaceVisible: Bool
     let isWorkspaceInputActive: Bool
     let isSplit: Bool
     let appearance: PanelAppearance
     let usesWorkspacePaneOverlay: Bool
+    let visibleNotificationPanelIds: Set<UUID>
+    let manualUnreadPanelIds: Set<UUID>
+    let restoredUnreadPanelIds: Set<UUID>
+    let isWorkspaceManuallyUnread: Bool
+    let workspaceManualUnreadPanelId: UUID?
     let portalPriority: Int
-    @EnvironmentObject var notificationStore: TerminalNotificationStore
+    let onAddDock: () -> Void
+    let onRemoveDock: () -> Void
 
     var body: some View {
         dockBonsplitView
             .background(Color(nsColor: appearance.backgroundColor.withAlphaComponent(1)))
             .contextMenu {
                 Button(addDockTitle(edge: dock.edge)) {
-                    layout.addDock(edge: dock.edge)
+                    onAddDock()
                 }
-                if layout.canRemove(dock) {
+                if dock.canRemove {
                     Divider()
                     Button(removeDockTitle, role: .destructive) {
-                        layout.removeDock(dock)
+                        onRemoveDock()
                     }
                 }
             }
@@ -1366,14 +1431,11 @@ private struct WorkspaceDockPaneView: View {
                     isFocused: isFocused
                 )
                 let showsNotificationRing = Workspace.shouldShowUnreadIndicator(
-                    hasUnreadNotification: notificationStore.hasVisibleNotificationIndicator(
-                        forTabId: workspace.id,
-                        surfaceId: panel.id
-                    ),
-                    hasPanelUnreadIndicator: workspace.manualUnreadPanelIds.contains(panel.id) ||
-                        workspace.restoredUnreadPanelIds.contains(panel.id),
-                    isWorkspaceManuallyUnread: notificationStore.hasManualUnread(forTabId: workspace.id),
-                    isWorkspaceManualUnreadRepresentative: workspace.representativePanelIdForWorkspaceManualUnread() == panel.id
+                    hasUnreadNotification: visibleNotificationPanelIds.contains(panel.id),
+                    hasPanelUnreadIndicator: manualUnreadPanelIds.contains(panel.id) ||
+                        restoredUnreadPanelIds.contains(panel.id),
+                    isWorkspaceManuallyUnread: isWorkspaceManuallyUnread,
+                    isWorkspaceManualUnreadRepresentative: workspaceManualUnreadPanelId == panel.id
                 )
                 PanelContentView(
                     panel: panel,
@@ -1536,7 +1598,7 @@ private enum EmptyPaneCreationAction: Hashable, Identifiable {
 }
 
 struct EmptyPanelView: View {
-    @ObservedObject var workspace: Workspace
+    let workspace: Workspace
     let paneId: PaneID
     let controller: BonsplitController?
     @ObservedObject private var keyboardShortcutSettingsObserver = KeyboardShortcutSettingsObserver.shared
