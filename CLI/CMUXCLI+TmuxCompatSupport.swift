@@ -6,7 +6,7 @@ extension CMUXCLI {
         pane: [String: Any],
         containerFrame: [String: Any]?
     ) {
-        let isFocused = (pane["focused"] as? Bool) == true
+        let isFocused = boolFromAny(pane["focused"]) == true
         context["pane_active"] = isFocused ? "1" : "0"
 
         guard let columns = intFromAny(pane["columns"]),

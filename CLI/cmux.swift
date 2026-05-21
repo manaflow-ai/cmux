@@ -4529,7 +4529,7 @@ struct CMUXCLI {
         return nil
     }
 
-    private func boolFromAny(_ value: Any?) -> Bool? {
+    func boolFromAny(_ value: Any?) -> Bool? {
         if let bool = value as? Bool { return bool }
         if let number = value as? NSNumber { return number.boolValue }
         if let string = value as? String {
@@ -17052,7 +17052,7 @@ struct CMUXCLI {
             if let targetPaneId = target.paneId,
                let matchingPane = panesList.first(where: { ($0["id"] as? String) == targetPaneId }) {
                 tmuxEnrichContextWithGeometry(&context, pane: matchingPane, containerFrame: containerFrame)
-            } else if let firstPane = panesList.first(where: { ($0["focused"] as? Bool) == true }) ?? panesList.first {
+            } else if let firstPane = panesList.first(where: { boolFromAny($0["focused"]) == true }) ?? panesList.first {
                 tmuxEnrichContextWithGeometry(&context, pane: firstPane, containerFrame: containerFrame)
             }
             let format = parsed.positional.isEmpty ? parsed.value("-F") : parsed.positional.joined(separator: " ")
