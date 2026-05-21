@@ -4644,6 +4644,29 @@ class GhosttyApp {
 
 // MARK: - Debug Render Instrumentation
 
+private enum GhosttyRenderedFrameNotificationDemand {
+    private static let lock = NSLock()
+    private static var count = 0
+
+    static func retain() -> () -> Void {
+        lock.lock()
+        count += 1
+        lock.unlock()
+
+        return {
+            lock.lock()
+            count = max(0, count - 1)
+            lock.unlock()
+        }
+    }
+
+    static var isActive: Bool {
+        lock.lock()
+        defer { lock.unlock() }
+        return count > 0
+    }
+}
+
 /// Lightweight instrumentation to detect whether Ghostty is actually requesting Metal drawables.
 /// This helps catch "frozen until refocus" regressions without relying on screenshots (which can
 /// mask redraw issues by forcing a window server flush).
@@ -4665,6 +4688,7 @@ final class GhosttyMetalLayer: CAMetalLayer {
         drawableCount += 1
         lastDrawableTime = CACurrentMediaTime()
         lock.unlock()
+        guard GhosttyRenderedFrameNotificationDemand.isActive else { return drawable }
         if let surfaceView {
             DispatchQueue.main.async { [weak surfaceView] in
                 surfaceView?.enqueueRenderedFrameUpdate()
@@ -6869,8 +6893,6 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
         }
         return UserDefaults.standard.bool(forKey: "cmuxFocusDebug")
     }()
-    private static let renderFrameNotificationDemandLock = NSLock()
-    private static var renderFrameNotificationDemand = 0
     internal enum DropPlan: Equatable {
         case insertText(String)
         case uploadFiles([URL])
@@ -6934,21 +6956,7 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
     private var lastKnownMousePointInView: NSPoint?
 
     static func retainRenderedFrameNotifications() -> () -> Void {
-        renderFrameNotificationDemandLock.lock()
-        renderFrameNotificationDemand += 1
-        renderFrameNotificationDemandLock.unlock()
-
-        return {
-            renderFrameNotificationDemandLock.lock()
-            renderFrameNotificationDemand = max(0, renderFrameNotificationDemand - 1)
-            renderFrameNotificationDemandLock.unlock()
-        }
-    }
-
-    private static var wantsRenderedFrameNotifications: Bool {
-        renderFrameNotificationDemandLock.lock()
-        defer { renderFrameNotificationDemandLock.unlock() }
-        return renderFrameNotificationDemand > 0
+        GhosttyRenderedFrameNotificationDemand.retain()
     }
 
     /// Coalesce high-frequency scrollbar updates into a single main-thread
@@ -6988,7 +6996,7 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
     }
 
     func enqueueRenderedFrameUpdate() {
-        guard Self.wantsRenderedFrameNotifications else { return }
+        guard GhosttyRenderedFrameNotificationDemand.isActive else { return }
 
         _renderedFrameLock.lock()
         let needsSchedule = !_renderedFrameFlushScheduled
@@ -7008,7 +7016,7 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
         _renderedFrameFlushScheduled = false
         _renderedFrameLock.unlock()
 
-        guard Self.wantsRenderedFrameNotifications else { return }
+        guard GhosttyRenderedFrameNotificationDemand.isActive else { return }
         NotificationCenter.default.post(
             name: .ghosttyDidRenderFrame,
             object: self
