@@ -775,11 +775,26 @@ final class CLINotifyProcessIntegrationRegressionTests: XCTestCase {
         XCTAssertEqual(configureParams["preserve_after_terminal_exit"] as? Bool, true)
     }
 
+    func testSSHPersistentPTYTreatsControlPersistZeroAsReusable() throws {
+        let run = try runMockedSSH(arguments: ["--ssh-option", "ControlPersist=0"])
+        let createParams = try XCTUnwrap(params(for: "workspace.create", in: run.requests))
+        let configureParams = try XCTUnwrap(params(for: "workspace.remote.configure", in: run.requests))
+        let initialCommand = try XCTUnwrap(createParams["initial_command"] as? String)
+        let terminalStartupCommand = try XCTUnwrap(configureParams["terminal_startup_command"] as? String)
+        let initialScript = try XCTUnwrap(decodedReusableStartupScript(from: initialCommand))
+        let terminalStartupScript = try XCTUnwrap(decodedReusableStartupScript(from: terminalStartupCommand))
+
+        XCTAssertTrue(initialScript.contains("ssh-pty-attach"), initialScript)
+        XCTAssertTrue(terminalStartupScript.contains("ssh-pty-attach"), terminalStartupScript)
+        XCTAssertEqual(configureParams["auto_connect"] as? Bool, false)
+        XCTAssertNotNil(configureParams["foreground_auth_token"] as? String)
+        XCTAssertEqual(configureParams["preserve_after_terminal_exit"] as? Bool, true)
+    }
+
     func testSSHPersistentPTYFallsBackWhenForegroundAuthCannotBeReused() throws {
         let cases: [(name: String, arguments: [String])] = [
             ("control-master-no", ["--ssh-option", "ControlMaster=no"]),
             ("control-persist-no", ["--ssh-option", "ControlPersist=no"]),
-            ("control-persist-zero", ["--ssh-option", "ControlPersist=0"]),
             ("local-command", ["--ssh-option", "LocalCommand=echo cmux-test"]),
             ("permit-local-command", ["--ssh-option", "PermitLocalCommand=no"]),
         ]
@@ -877,6 +892,90 @@ final class CLINotifyProcessIntegrationRegressionTests: XCTestCase {
         XCTAssertTrue(result.stdout.isEmpty, result.stdout)
         XCTAssertTrue(result.stderr.contains("ssh-pty-attach: remote PTY start failed"), result.stderr)
         XCTAssertEqual(state.snapshot().count, 1)
+    }
+
+    func testSSHPTYAttachBridgeEOFWhileSessionRunsExitsReconnectable() throws {
+        let cliPath = try bundledCLIPath()
+        let socketPath = makeSocketPath("sshptyeof")
+        let listenerFD = try bindUnixSocket(at: socketPath)
+        let bridge = try bindLoopbackTCP()
+        let state = MockSocketServerState()
+        let workspaceId = "22222222-2222-2222-2222-222222222222"
+        let surfaceId = "33333333-3333-3333-3333-333333333333"
+        let sessionId = "ssh-\(workspaceId)-\(surfaceId)"
+        let token = "bridge-token"
+
+        defer {
+            Darwin.close(listenerFD)
+            Darwin.close(bridge.fd)
+            unlink(socketPath)
+        }
+
+        let socketHandled = startMockServer(listenerFD: listenerFD, state: state) { line in
+            guard let payload = self.jsonObject(line),
+                  let id = payload["id"] as? String,
+                  let method = payload["method"] as? String else {
+                return self.malformedRequestResponse(raw: line)
+            }
+            switch method {
+            case "workspace.remote.pty_bridge":
+                return self.v2Response(
+                    id: id,
+                    ok: true,
+                    result: [
+                        "host": "127.0.0.1",
+                        "port": bridge.port,
+                        "token": token,
+                        "session_id": sessionId,
+                        "attachment_id": surfaceId,
+                    ]
+                )
+            case "workspace.remote.pty_sessions":
+                return self.v2Response(
+                    id: id,
+                    ok: true,
+                    result: [
+                        "sessions": [
+                            [
+                                "workspace_id": workspaceId,
+                                "session_id": sessionId,
+                            ],
+                        ],
+                    ]
+                )
+            default:
+                return self.v2Response(
+                    id: id,
+                    ok: false,
+                    error: ["code": "unexpected_method", "message": "Unexpected method \(method)"]
+                )
+            }
+        }
+        let bridgeHandled = startBridgeReadyThenCloseServer(listenerFD: bridge.fd)
+
+        var environment = ProcessInfo.processInfo.environment
+        environment["CMUX_SOCKET_PATH"] = socketPath
+        environment["CMUX_CLI_SENTRY_DISABLED"] = "1"
+
+        let result = runProcess(
+            executablePath: cliPath,
+            arguments: [
+                "ssh-pty-attach",
+                "--workspace", workspaceId,
+                "--session-id", sessionId,
+                "--attachment-id", surfaceId,
+            ],
+            environment: environment,
+            timeout: 5
+        )
+
+        wait(for: [socketHandled, bridgeHandled], timeout: 5)
+        XCTAssertFalse(result.timedOut, result.stderr)
+        XCTAssertEqual(result.status, 255, result.stderr)
+        XCTAssertTrue(
+            result.stderr.contains("ssh-pty-attach: bridge closed while remote PTY session is still running"),
+            result.stderr
+        )
     }
 
     func testSSHSessionAttachCreatesSurfaceWithPersistedPTYSessionID() throws {
@@ -1157,6 +1256,85 @@ final class CLINotifyProcessIntegrationRegressionTests: XCTestCase {
         XCTAssertTrue(result.stderr.contains("ssh-session-cleanup failed for 1 persisted SSH PTY session"), result.stderr)
         XCTAssertTrue(result.stderr.contains(failedSessionId), result.stderr)
         XCTAssertTrue(result.stderr.contains("remote_pty_error: close failed"), result.stderr)
+    }
+
+    func testSSHSessionCleanupAllWorkspacesReportsListErrors() throws {
+        let cliPath = try bundledCLIPath()
+        let socketPath = makeSocketPath("sshcleanall")
+        let listenerFD = try bindUnixSocket(at: socketPath)
+        let state = MockSocketServerState()
+        let workspaceId = "22222222-2222-2222-2222-222222222222"
+        let closedSessionId = "ssh-session-closed"
+
+        defer {
+            Darwin.close(listenerFD)
+            unlink(socketPath)
+        }
+
+        let serverHandled = startMockServer(listenerFD: listenerFD, state: state) { line in
+            guard let payload = self.jsonObject(line),
+                  let id = payload["id"] as? String,
+                  let method = payload["method"] as? String else {
+                return self.malformedRequestResponse(raw: line)
+            }
+            let params = payload["params"] as? [String: Any] ?? [:]
+            switch method {
+            case "workspace.remote.pty_sessions":
+                XCTAssertEqual(params["all_workspaces"] as? Bool, true)
+                return self.v2Response(
+                    id: id,
+                    ok: true,
+                    result: [
+                        "sessions": [
+                            [
+                                "workspace_id": workspaceId,
+                                "session_id": closedSessionId,
+                            ],
+                        ],
+                        "errors": [
+                            [
+                                "workspace_ref": "workspace:4",
+                                "error": "remote connection is not active",
+                            ],
+                        ],
+                    ]
+                )
+            case "workspace.remote.pty_close":
+                XCTAssertEqual(params["workspace_id"] as? String, workspaceId)
+                XCTAssertEqual(params["session_id"] as? String, closedSessionId)
+                return self.v2Response(id: id, ok: true, result: ["closed": true])
+            default:
+                return self.v2Response(
+                    id: id,
+                    ok: false,
+                    error: ["code": "unexpected_method", "message": "Unexpected method \(method)"]
+                )
+            }
+        }
+
+        var environment = ProcessInfo.processInfo.environment
+        environment["CMUX_SOCKET_PATH"] = socketPath
+        environment["CMUX_CLI_SENTRY_DISABLED"] = "1"
+
+        let result = runProcess(
+            executablePath: cliPath,
+            arguments: [
+                "ssh-session-cleanup",
+                "--all-workspaces",
+                "--all",
+            ],
+            environment: environment,
+            timeout: 5
+        )
+
+        wait(for: [serverHandled], timeout: 5)
+        XCTAssertFalse(result.timedOut, result.stderr)
+        XCTAssertEqual(result.status, 1, result.stderr)
+        XCTAssertTrue(result.stdout.contains("Closed 1 persisted SSH PTY session"), result.stdout)
+        XCTAssertTrue(result.stderr.contains("ssh-session-cleanup failed for 1 persisted SSH PTY session"), result.stderr)
+        XCTAssertTrue(result.stderr.contains("workspace-query"), result.stderr)
+        XCTAssertTrue(result.stderr.contains("workspace:4"), result.stderr)
+        XCTAssertTrue(result.stderr.contains("remote connection is not active"), result.stderr)
     }
 
     func testRightSidebarCLIResolvesWindowAndWorkspaceHandlesBeforeForwarding() throws {

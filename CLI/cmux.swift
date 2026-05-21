@@ -8195,6 +8195,7 @@ struct CMUXCLI {
         var errors: [[String: Any]] = []
         if closeAll {
             let listResponse = try client.sendV2(method: "workspace.remote.pty_sessions", params: baseParams)
+            errors.append(contentsOf: sshSessionCleanupListErrors(listResponse["errors"] as? [[String: Any]] ?? []))
             let sessions = listResponse["sessions"] as? [[String: Any]] ?? []
             for session in sessions {
                 guard let sessionID = (session["session_id"] as? String)?
@@ -8226,6 +8227,10 @@ struct CMUXCLI {
                   !sessionID.isEmpty {
             if allWorkspaces {
                 let listResponse = try client.sendV2(method: "workspace.remote.pty_sessions", params: baseParams)
+                errors.append(contentsOf: sshSessionCleanupListErrors(
+                    listResponse["errors"] as? [[String: Any]] ?? [],
+                    sessionID: sessionID
+                ))
                 let sessions = (listResponse["sessions"] as? [[String: Any]] ?? []).filter {
                     (($0["session_id"] as? String)?.trimmingCharacters(in: .whitespacesAndNewlines) ?? "") == sessionID
                 }
@@ -8278,6 +8283,23 @@ struct CMUXCLI {
             print("No persisted SSH PTY sessions closed")
         } else {
             print("Closed \(closed.count) persisted SSH PTY session\(closed.count == 1 ? "" : "s")")
+        }
+    }
+
+    private func sshSessionCleanupListErrors(_ listErrors: [[String: Any]], sessionID: String? = nil) -> [[String: Any]] {
+        listErrors.map { error in
+            let workspaceValue: Any
+            if let workspace = debugString(error["workspace_ref"]) ?? debugString(error["workspace_id"]) {
+                workspaceValue = workspace
+            } else {
+                workspaceValue = NSNull()
+            }
+            let payload: [String: Any] = [
+                "session_id": sessionID ?? debugString(error["session_id"]) ?? "workspace-query",
+                "workspace_id": workspaceValue,
+                "error": debugString(error["error"]) ?? "unknown error",
+            ]
+            return payload
         }
     }
 
@@ -8505,10 +8527,44 @@ struct CMUXCLI {
             if count > 0 {
                 FileHandle.standardOutput.write(Data(outputBuffer.prefix(count)))
             } else if count == 0 {
+                try handleSSHPTYBridgeEOF(client: client, workspaceId: workspaceId, sessionID: sessionID)
                 return
             } else if errno != EINTR {
                 throw CLIError(message: "ssh-pty-attach: bridge read failed")
             }
+        }
+    }
+
+    private func handleSSHPTYBridgeEOF(client: SocketClient, workspaceId: String, sessionID: String) throws {
+        let response: [String: Any]
+        do {
+            response = try client.sendV2(method: "workspace.remote.pty_sessions", params: [
+                "workspace_id": workspaceId,
+            ])
+        } catch {
+            throw CLIError(
+                message: "ssh-pty-attach: bridge closed before remote PTY exit could be confirmed: \(error)",
+                exitCode: 255
+            )
+        }
+
+        let errors = response["errors"] as? [[String: Any]] ?? []
+        if !errors.isEmpty {
+            throw CLIError(
+                message: "ssh-pty-attach: bridge closed before remote PTY exit could be confirmed\n\(sshSessionListFailureMessage(errors))",
+                exitCode: 255
+            )
+        }
+
+        let sessions = response["sessions"] as? [[String: Any]] ?? []
+        let sessionStillRunning = sessions.contains {
+            (($0["session_id"] as? String)?.trimmingCharacters(in: .whitespacesAndNewlines) ?? "") == sessionID
+        }
+        if sessionStillRunning {
+            throw CLIError(
+                message: "ssh-pty-attach: bridge closed while remote PTY session is still running",
+                exitCode: 255
+            )
         }
     }
 
@@ -8927,14 +8983,15 @@ struct CMUXCLI {
 
         let controlPersist = sshOptionValue(named: "ControlPersist", in: options)?
             .trimmingCharacters(in: .whitespacesAndNewlines)
-        return !sshOptionValueIsDisabled(controlPersist)
+        return !sshOptionValueIsDisabled(controlPersist, zeroIsDisabled: false)
     }
 
-    private func sshOptionValueIsDisabled(_ rawValue: String?) -> Bool {
+    private func sshOptionValueIsDisabled(_ rawValue: String?, zeroIsDisabled: Bool = true) -> Bool {
         let normalized = rawValue?
             .trimmingCharacters(in: .whitespacesAndNewlines)
             .lowercased()
-        return ["no", "false", "off", "0"].contains(normalized ?? "")
+        guard let normalized else { return false }
+        return ["no", "false", "off"].contains(normalized) || (zeroIsDisabled && normalized == "0")
     }
 
     private func defaultSSHControlPathTemplate(remoteRelayPort: Int? = nil) -> String {
