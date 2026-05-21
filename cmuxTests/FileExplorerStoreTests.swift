@@ -524,6 +524,51 @@ final class FileExplorerStoreTests: XCTestCase {
         )
     }
 
+    func testEmptySSHCommandFailureUsesActionableFallbackMessage() {
+        let message = FileExplorerError.sshCommandFailed("").localizedDescription
+
+        XCTAssertTrue(message.contains("SSH command failed"))
+        XCTAssertFalse(message.hasSuffix(":"))
+        XCTAssertFalse(message.contains("%@"))
+    }
+
+    func testRemotePreviewEmptySSHStderrIncludesExitStatus() {
+        let message = RemoteFilePreviewMaterializerError
+            .sshCommandFailed(status: 255, detail: "")
+            .localizedDescription
+
+        XCTAssertTrue(message.contains("status 255"))
+        XCTAssertFalse(message.hasSuffix(":"))
+        XCTAssertFalse(message.contains("%d"))
+    }
+
+    @MainActor
+    func testRootStatusMessageWrapsInsideNarrowExplorerView() throws {
+        let store = FileExplorerStore()
+        let state = FileExplorerState()
+        let coordinator = FileExplorerPanelView.Coordinator(
+            store: store,
+            state: state,
+            onOpenFilePreview: { _ in }
+        )
+        let container = FileExplorerContainerView(
+            coordinator: coordinator,
+            presentation: .files
+        )
+        container.frame = NSRect(x: 0, y: 0, width: 180, height: 160)
+
+        let statusMessage = "SSH files unavailable: remote proxy handshake timed out while opening a very long destination name"
+        container.updateVisibility(hasContent: false, isLoading: false, statusMessage: statusMessage)
+        container.layoutSubtreeIfNeeded()
+
+        let statusLabel = try XCTUnwrap(Self.findTextField(in: container, stringValue: statusMessage))
+        XCTAssertFalse(statusLabel.isHidden)
+        XCTAssertEqual(statusLabel.lineBreakMode, .byWordWrapping)
+        XCTAssertEqual(statusLabel.maximumNumberOfLines, 6)
+        XCTAssertGreaterThanOrEqual(statusLabel.frame.minX, container.bounds.minX - 1)
+        XCTAssertLessThanOrEqual(statusLabel.frame.maxX, container.bounds.maxX + 1)
+    }
+
     // MARK: - Collapse/Expand
 
     func testCollapseRemovesFromExpandedPaths() {
@@ -542,6 +587,19 @@ final class FileExplorerStoreTests: XCTestCase {
         let node = FileExplorerNode(name: "file.txt", path: "/project/file.txt", isDirectory: false)
         store.expand(node: node)
         XCTAssertFalse(store.isExpanded(node))
+    }
+
+    private static func findTextField(in root: NSView, stringValue: String) -> NSTextField? {
+        if let field = root as? NSTextField,
+           field.stringValue == stringValue {
+            return field
+        }
+        for subview in root.subviews {
+            if let field = findTextField(in: subview, stringValue: stringValue) {
+                return field
+            }
+        }
+        return nil
     }
 }
 

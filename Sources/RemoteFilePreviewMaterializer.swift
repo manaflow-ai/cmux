@@ -12,15 +12,21 @@ struct RemoteFilePreviewSource: Equatable, Sendable {
 }
 
 enum RemoteFilePreviewMaterializerError: LocalizedError {
-    case sshCommandFailed(String)
+    case sshCommandFailed(status: Int32, detail: String)
     case launchFailed(String)
 
     var errorDescription: String? {
         switch self {
-        case .sshCommandFailed(let detail):
+        case .sshCommandFailed(let status, let detail):
             let normalized = detail.trimmingCharacters(in: .whitespacesAndNewlines)
             if normalized.isEmpty {
-                return String(localized: "filePreview.remote.error.downloadFailed", defaultValue: "Unable to download the remote file.")
+                return String.localizedStringWithFormat(
+                    String(
+                        localized: "filePreview.remote.error.downloadFailedWithStatus",
+                        defaultValue: "Unable to download the remote file. SSH exited with status %d."
+                    ),
+                    Int(status)
+                )
             }
             return String.localizedStringWithFormat(
                 String(
@@ -157,7 +163,7 @@ private final class RemoteFilePreviewDownloadOperation: @unchecked Sendable {
         guard process.terminationStatus == 0 else {
             try? fileManager.removeItem(at: temporaryURL)
             let detail = String(data: stderrData, encoding: .utf8) ?? ""
-            throw RemoteFilePreviewMaterializerError.sshCommandFailed(detail)
+            throw RemoteFilePreviewMaterializerError.sshCommandFailed(status: process.terminationStatus, detail: detail)
         }
 
         if fileManager.fileExists(atPath: destinationURL.path) {

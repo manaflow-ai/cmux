@@ -586,7 +586,17 @@ enum FileExplorerError: LocalizedError {
         case .providerUnavailable:
             return String(localized: "fileExplorer.error.unavailable", defaultValue: "File explorer is not available")
         case .sshCommandFailed(let detail):
-            return String(localized: "fileExplorer.error.sshFailed", defaultValue: "SSH command failed: \(detail)")
+            let normalized = detail.trimmingCharacters(in: .whitespacesAndNewlines)
+            guard !normalized.isEmpty else {
+                return String(
+                    localized: "fileExplorer.error.sshFailedGeneric",
+                    defaultValue: "SSH command failed. Check the SSH connection and try again."
+                )
+            }
+            return String.localizedStringWithFormat(
+                String(localized: "fileExplorer.error.sshFailed", defaultValue: "SSH command failed: %@"),
+                normalized
+            )
         }
     }
 }

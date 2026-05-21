@@ -854,6 +854,12 @@ final class FileExplorerContainerView: NSView {
         emptyLabel.font = .systemFont(ofSize: 13)
         emptyLabel.textColor = .secondaryLabelColor
         emptyLabel.alignment = .center
+        emptyLabel.lineBreakMode = .byWordWrapping
+        emptyLabel.maximumNumberOfLines = 6
+        emptyLabel.cell?.wraps = true
+        emptyLabel.cell?.isScrollable = false
+        emptyLabel.setContentHuggingPriority(.defaultLow, for: .horizontal)
+        emptyLabel.setContentCompressionResistancePriority(.defaultLow, for: .horizontal)
         emptyLabel.isHidden = true
         addSubview(emptyLabel)
 
@@ -994,6 +1000,10 @@ final class FileExplorerContainerView: NSView {
 
             emptyLabel.centerXAnchor.constraint(equalTo: centerXAnchor),
             emptyLabel.centerYAnchor.constraint(equalTo: centerYAnchor),
+            emptyLabel.leadingAnchor.constraint(greaterThanOrEqualTo: leadingAnchor, constant: 16),
+            emptyLabel.trailingAnchor.constraint(lessThanOrEqualTo: trailingAnchor, constant: -16),
+            emptyLabel.topAnchor.constraint(greaterThanOrEqualTo: searchBarView.bottomAnchor, constant: 12),
+            emptyLabel.bottomAnchor.constraint(lessThanOrEqualTo: bottomAnchor, constant: -12),
 
             loadingIndicator.centerXAnchor.constraint(equalTo: centerXAnchor),
             loadingIndicator.centerYAnchor.constraint(equalTo: centerYAnchor),
@@ -1038,6 +1048,11 @@ final class FileExplorerContainerView: NSView {
         let debugLayoutStart = ProcessInfo.processInfo.systemUptime
 #endif
         super.layout()
+        let maxEmptyLabelWidth = max(0, bounds.width - 32)
+        if emptyLabel.preferredMaxLayoutWidth != maxEmptyLabelWidth {
+            emptyLabel.preferredMaxLayoutWidth = maxEmptyLabelWidth
+            emptyLabel.invalidateIntrinsicContentSize()
+        }
         registerWithKeyboardFocusCoordinatorIfNeeded()
 #if DEBUG
         logSearchLayoutIfNeeded(startedAt: debugLayoutStart, reason: "layout")
@@ -1100,6 +1115,7 @@ final class FileExplorerContainerView: NSView {
         emptyLabel.stringValue = hasStatus
             ? normalizedStatus!
             : String(localized: "fileExplorer.empty", defaultValue: "No folder open")
+        emptyLabel.toolTip = hasStatus ? normalizedStatus : nil
         emptyLabel.isHidden = canShowTree || searchCanShow || isLoading
         loadingIndicator.isHidden = !isLoading
         if isLoading {

@@ -87868,6 +87868,40 @@
         }
       }
     },
+    "fileExplorer.error.sshFailed": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "SSH command failed: %@"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "SSH コマンドが失敗しました: %@"
+          }
+        }
+      }
+    },
+    "fileExplorer.error.sshFailedGeneric": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "SSH command failed. Check the SSH connection and try again."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "SSH コマンドが失敗しました。SSH 接続を確認してから再試行してください。"
+          }
+        }
+      }
+    },
     "fileExplorer.status.sshHomeFailed": {
       "extractionState": "manual",
       "localizations": {
@@ -103179,6 +103213,23 @@
           "stringUnit": {
             "state": "translated",
             "value": "リモートファイルをダウンロードできません: %@"
+          }
+        }
+      }
+    },
+    "filePreview.remote.error.downloadFailedWithStatus": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Unable to download the remote file. SSH exited with status %d."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "リモートファイルをダウンロードできません。SSH はステータス %d で終了しました。"
           }
         }
       }
