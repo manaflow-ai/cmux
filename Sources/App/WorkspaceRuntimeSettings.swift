@@ -152,17 +152,6 @@ enum AgentSessionAutoResumeSettings {
     }
 }
 
-enum RightSidebarBetaFeatureSettings {
-    static let dockEnabledKey = "rightSidebar.beta.dock.enabled"
-
-    static let defaultDockEnabled = false
-
-    nonisolated static func isDockEnabled(defaults: UserDefaults = .standard) -> Bool {
-        guard defaults.object(forKey: dockEnabledKey) != nil else { return defaultDockEnabled }
-        return defaults.bool(forKey: dockEnabledKey)
-    }
-}
-
 enum UITestLaunchManifest {
     static let argumentName = "-cmuxUITestLaunchManifest"
 

@@ -12757,8 +12757,8 @@ class TerminalController {
 
 #if DEBUG
     private func v2DebugRightSidebarFocus(params: [String: Any]) -> V2CallResult {
-        let modeName = v2String(params, "mode") ?? RightSidebarMode.dock.rawValue
-        guard let mode = RightSidebarMode(rawValue: modeName) else {
+        let modeName = v2String(params, "mode") ?? RightSidebarMode.files.rawValue
+        guard let mode = RightSidebarMode(rawValue: modeName), mode.isAvailable() else {
             return .err(code: "invalid_params", message: "Invalid right sidebar mode", data: ["mode": modeName])
         }
         let requestedWindowId = v2UUID(params, "window_id")
@@ -12812,9 +12812,9 @@ class TerminalController {
 
     private func debugRightSidebarFocus(_ args: String) -> String {
         let modeName = args.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
-            ? RightSidebarMode.dock.rawValue
+            ? RightSidebarMode.files.rawValue
             : args.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard let mode = RightSidebarMode(rawValue: modeName) else {
+        guard let mode = RightSidebarMode(rawValue: modeName), mode.isAvailable() else {
             return "ERROR: Invalid right sidebar mode: \(modeName)"
         }
 

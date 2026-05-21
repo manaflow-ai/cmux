@@ -96,9 +96,6 @@ enum CommandPaletteSettingsToggleCommands {
         let sidebar: @Sendable () -> String = {
             String(localized: "settings.section.sidebarAppearance", defaultValue: "Sidebar")
         }
-        let beta: @Sendable () -> String = {
-            String(localized: "settings.section.betaFeatures", defaultValue: "Beta Features")
-        }
         let automation: @Sendable () -> String = {
             String(localized: "settings.section.automation", defaultValue: "Automation")
         }
@@ -568,17 +565,6 @@ enum CommandPaletteSettingsToggleCommands {
                 defaultValue: SidebarWorkspaceDetailDefaults.showCustomMetadata,
                 defaultsKey: SidebarWorkspaceDetailDefaults.showCustomMetadataKey,
                 isAvailable: sidebarDetailsAvailable
-            ),
-            CommandPaletteSettingToggleDescriptor(
-                commandId: commandIdPrefix + "rightSidebarDock",
-                settingsKey: "betaFeatures.dock",
-                title: {
-                    String(localized: "settings.betaFeatures.dock", defaultValue: "Dock")
-                },
-                sectionTitle: beta,
-                keywords: ["betaFeatures.dock", "dock", "right", "sidebar", "beta", "terminal", "controls"],
-                defaultValue: RightSidebarBetaFeatureSettings.defaultDockEnabled,
-                defaultsKey: RightSidebarBetaFeatureSettings.dockEnabledKey
             ),
             CommandPaletteSettingToggleDescriptor(
                 commandId: commandIdPrefix + "claudeCodeIntegration",

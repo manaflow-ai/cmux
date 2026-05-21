@@ -179,7 +179,7 @@ struct RightSidebarPanelView: View {
     }
 
     private var availableModes: [RightSidebarMode] {
-        RightSidebarMode.availableModes(dockEnabled: false)
+        RightSidebarMode.availableModes()
     }
 
     var body: some View {
