@@ -6418,6 +6418,15 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
     }
 
     func scheduleInitialMainWindowBootstrap(debugSource: String) {
+        let env = ProcessInfo.processInfo.environment
+        let isUITestLaunch = env.keys.contains(where: { $0.hasPrefix("CMUX_UI_TEST_") })
+        guard !isRunningUnderXCTest(env) || isUITestLaunch else {
+            StartupBreadcrumbLog.append(
+                "appDelegate.initialBootstrap.skippedXCTest",
+                fields: ["source": debugSource]
+            )
+            return
+        }
         guard !didScheduleInitialMainWindowBootstrap else { return }
         didScheduleInitialMainWindowBootstrap = true
         DispatchQueue.main.async { [weak self] in
