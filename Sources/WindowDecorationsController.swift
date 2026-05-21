@@ -1,6 +1,5 @@
 import AppKit
 
-@MainActor
 final class WindowDecorationsController {
     private var observers: [NSObjectProtocol] = []
     private var didStart = false
@@ -413,7 +412,23 @@ final class WindowDecorationsController {
         }
 
         let contentBounds = contentView.bounds
-        target.frame = minimalModeSidebarTitlebarControlsFrame(in: window)
+        let trafficLightFrameInContent: NSRect? = {
+            guard let closeButton = window.standardWindowButton(.closeButton),
+                  let closeButtonSuperview = closeButton.superview else {
+                return nil
+            }
+            return closeButtonSuperview.convert(closeButton.frame, to: contentView)
+        }()
+        target.frame = minimalModeSidebarTitlebarControlsFrame(
+            contentBounds: contentBounds,
+            contentViewIsFlipped: contentView.isFlipped,
+            trafficLightFrameInContent: trafficLightFrameInContent,
+            visualDownwardAdjustment: trafficLightFrameInContent == nil
+                ? 0
+                : MinimalModeSidebarTitlebarControlsMetrics.titlebarControlsOpticalYOffset(
+                    backingScaleFactor: window.backingScaleFactor
+                )
+        )
 
         #if DEBUG
         if ProcessInfo.processInfo.environment["CMUX_UI_TEST_BONSPLIT_TAB_DRAG_SETUP"] == "1" {
