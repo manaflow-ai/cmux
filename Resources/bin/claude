@@ -181,14 +181,26 @@ if [[ -n "$CMUX_SURFACE_ID" ]]; then
     IN_CMUX=1
 fi
 
-exec_real_claude_passthrough() {
+clear_inherited_cmux_terminal_env() {
     if [[ "$IN_CMUX" == "1" ]]; then
+        local preserve_operational="${1:-}"
         local cmux_key
         for cmux_key in "${!CMUX_@}"; do
+            if [[ "$preserve_operational" == "preserve-operational" ]]; then
+                case "$cmux_key" in
+                    CMUX_SOCKET_PATH|CMUX_BUNDLED_CLI_PATH)
+                        continue
+                        ;;
+                esac
+            fi
             unset "$cmux_key"
         done
         unset TERMINFO
     fi
+}
+
+exec_real_claude_passthrough() {
+    clear_inherited_cmux_terminal_env
     exec "$REAL_CLAUDE" "$@"
 }
 
@@ -215,13 +227,688 @@ ensure_node_options_restore_module() {
     temp_path="$(mktemp "$guard_dir/restore-node-options.cjs.XXXXXX")" || return 1
     cat >"$temp_path" <<'EOF'
 const hadOriginalNodeOptions = process.env.CMUX_ORIGINAL_NODE_OPTIONS_PRESENT === "1";
+const originalNodeOptions = hadOriginalNodeOptions ? (process.env.CMUX_ORIGINAL_NODE_OPTIONS ?? "") : undefined;
+const preloadPath = __filename;
+
 if (hadOriginalNodeOptions) {
-  process.env.NODE_OPTIONS = process.env.CMUX_ORIGINAL_NODE_OPTIONS ?? "";
+  process.env.NODE_OPTIONS = originalNodeOptions;
 } else {
   delete process.env.NODE_OPTIONS;
 }
 delete process.env.CMUX_ORIGINAL_NODE_OPTIONS;
 delete process.env.CMUX_ORIGINAL_NODE_OPTIONS_PRESENT;
+
+function splitNodeOptions(value) {
+  return String(value || "").split(/\s+/).filter(Boolean);
+}
+
+function nodeOptionsWithCmuxPreload(existing) {
+  const tokens = splitNodeOptions(existing);
+  const filtered = [];
+  for (let index = 0; index < tokens.length; index += 1) {
+    const token = tokens[index];
+    if (token === "--require" || token === "-r") {
+      const value = tokens[index + 1] || "";
+      if (value === preloadPath) {
+        index += 1;
+        continue;
+      }
+      filtered.push(token);
+      if (index + 1 < tokens.length) {
+        filtered.push(tokens[index + 1]);
+        index += 1;
+      }
+      continue;
+    }
+    if (token === "--max-old-space-size") {
+      if (index + 1 < tokens.length) {
+        index += 1;
+      }
+      continue;
+    }
+    if (token === `--require=${preloadPath}` || token === `-r=${preloadPath}`) {
+      continue;
+    }
+    if (token.startsWith("--max-old-space-size=")) {
+      continue;
+    }
+    filtered.push(token);
+  }
+  return [`--require=${preloadPath}`, "--max-old-space-size=4096", ...filtered].join(" ");
+}
+
+function normalizeNodeOptionsForRestore(existing) {
+  const tokens = splitNodeOptions(existing);
+  const normalized = [];
+  for (let index = 0; index < tokens.length; index += 1) {
+    const token = tokens[index];
+    if (token === "--require" || token === "-r") {
+      const value = tokens[index + 1] || "";
+      if (value === preloadPath) {
+        index += 1;
+        continue;
+      }
+      normalized.push(token);
+      if (index + 1 < tokens.length) {
+        normalized.push(tokens[index + 1]);
+        index += 1;
+      }
+      continue;
+    }
+    if (token === `--require=${preloadPath}` || token === `-r=${preloadPath}`) {
+      continue;
+    }
+    if (token === "--max-old-space-size" && index + 1 < tokens.length) {
+      normalized.push(`--max-old-space-size=${tokens[index + 1]}`);
+      index += 1;
+      continue;
+    }
+    normalized.push(token);
+  }
+  return normalized.join(" ");
+}
+
+function installClaudeChildHookPropagation() {
+  const hookSettingsBase64 = process.env.CMUX_CLAUDE_HOOKS_JSON_B64 || "";
+  if (!hookSettingsBase64) {
+    return;
+  }
+
+  process.env.CMUX_CLAUDE_PID = String(process.pid);
+
+  const childProcess = require("node:child_process");
+  const path = require("node:path");
+  const hookSettingsJson = Buffer.from(hookSettingsBase64, "base64").toString("utf8");
+  const entrypoint = process.env.CMUX_CLAUDE_ENTRYPOINT || process.argv[1] || "";
+  process.env.CMUX_CLAUDE_ENTRYPOINT = entrypoint;
+
+  const passthroughSubcommands = new Set([
+    "api-key",
+    "auth",
+    "auto-mode",
+    "config",
+    "doctor",
+    "experimental-next",
+    "install",
+    "mcp",
+    "plugin",
+    "plugins",
+    "project",
+    "rc",
+    "remote-control",
+    "setup-token",
+    "ultrareview",
+    "update",
+    "upgrade",
+  ]);
+  const envOnlySubcommands = new Set(["agents", "daemon"]);
+  const knownSubcommands = new Set([...passthroughSubcommands, ...envOnlySubcommands]);
+  const valueOptions = new Set([
+    "--add-dir",
+    "--agent",
+    "--agents",
+    "--allowedTools",
+    "--allowed-tools",
+    "--append-system-prompt",
+    "--betas",
+    "--dangerously-load-development-channels",
+    "--debug-file",
+    "--disallowedTools",
+    "--disallowed-tools",
+    "--effort",
+    "--fallback-model",
+    "--file",
+    "--fork-session",
+    "--from-pr",
+    "--input-format",
+    "--json-schema",
+    "--max-budget-usd",
+    "--mcp-config",
+    "--model",
+    "-m",
+    "--name",
+    "-n",
+    "--output-format",
+    "--permission-mode",
+    "--plugin-dir",
+    "--plugin-url",
+    "--remote-control-session-name-prefix",
+    "--resume",
+    "-r",
+    "--session-id",
+    "--setting-sources",
+    "--settings",
+    "--system-prompt",
+    "--teammate-mode",
+    "--tmux",
+    "--tools",
+    "--worktree",
+    "-w",
+  ]);
+  const optionalValueOptions = new Set(["--debug"]);
+  const passthroughOptionFlags = new Set(["--help", "-h", "--version", "-v"]);
+  const interactiveEntryFlags = new Set([
+    "--continue",
+    "-c",
+    "--print",
+    "-p",
+    "--remote-control",
+  ]);
+
+  function samePath(lhs, rhs) {
+    return Boolean(lhs && rhs && path.resolve(String(lhs)) === path.resolve(String(rhs)));
+  }
+
+  function claudeInsertIndex(command, args) {
+    const commandName = path.basename(String(command || "")).toLowerCase();
+    if (commandName === "claude" || commandName === "claude.exe") {
+      return 0;
+    }
+    if (String(command || "") === process.execPath && args.length > 0 && samePath(args[0], entrypoint)) {
+      return 1;
+    }
+    return null;
+  }
+
+  function claudeInvocationMode(args, startIndex) {
+    let index = startIndex;
+    while (index < args.length) {
+      const arg = String(args[index]);
+      if (arg === "--") {
+        return { mode: "session", subcommand: "" };
+      }
+      if (arg.startsWith("--")) {
+        const equalsIndex = arg.indexOf("=");
+        const hasInlineValue = equalsIndex !== -1;
+        const optionName = hasInlineValue ? arg.slice(0, equalsIndex) : arg;
+        if (passthroughOptionFlags.has(arg)) {
+          return { mode: "passthrough", subcommand: "" };
+        }
+        if (valueOptions.has(optionName)) {
+          index += hasInlineValue ? 1 : 2;
+          continue;
+        }
+        if (interactiveEntryFlags.has(optionName)) {
+          return { mode: "session", subcommand: "" };
+        }
+        if (!hasInlineValue && optionalValueOptions.has(optionName)) {
+          const next = args[index + 1];
+          const nextValue = next === undefined ? "" : String(next);
+          index += nextValue && !nextValue.startsWith("-") && !knownSubcommands.has(nextValue) ? 2 : 1;
+          continue;
+        }
+        if (hasInlineValue && optionalValueOptions.has(optionName)) {
+          index += 1;
+          continue;
+        }
+        index += 1;
+        continue;
+      }
+      if (arg.startsWith("-") && arg !== "-") {
+        const equalsIndex = arg.indexOf("=");
+        const optionName = equalsIndex === -1 ? arg : arg.slice(0, equalsIndex);
+        if (passthroughOptionFlags.has(arg)) {
+          return { mode: "passthrough", subcommand: "" };
+        }
+        if (valueOptions.has(optionName)) {
+          index += equalsIndex === -1 ? 2 : 1;
+          continue;
+        }
+        if (interactiveEntryFlags.has(optionName)) {
+          return { mode: "session", subcommand: "" };
+        }
+        if (optionalValueOptions.has(optionName)) {
+          const next = args[index + 1];
+          const nextValue = next === undefined ? "" : String(next);
+          index += nextValue && !nextValue.startsWith("-") && !knownSubcommands.has(nextValue) ? 2 : 1;
+          continue;
+        }
+        index += 1;
+        continue;
+      }
+      if (passthroughSubcommands.has(arg)) {
+        return { mode: "passthrough", subcommand: arg };
+      }
+      if (envOnlySubcommands.has(arg)) {
+        return { mode: "env-only", subcommand: arg };
+      }
+      return { mode: "session", subcommand: arg };
+    }
+    return { mode: "session", subcommand: "" };
+  }
+
+  function isCmuxHookCommand(command) {
+    if (typeof command !== "string") {
+      return false;
+    }
+    const trimmed = command.trim();
+    return trimmed.startsWith("\"${CMUX_CLAUDE_HOOK_CMUX_BIN:-cmux}\" hooks claude ")
+      || trimmed === "\"${CMUX_CLAUDE_HOOK_CMUX_BIN:-cmux}\" hooks feed --source claude"
+      || trimmed.startsWith("cmux hooks claude ")
+      || trimmed === "cmux hooks feed --source claude";
+  }
+
+  function settingsJsonHasCmuxHooks(value) {
+    let settings;
+    try {
+      settings = JSON.parse(value);
+    } catch {
+      return false;
+    }
+    const hooks = settings && typeof settings === "object" && !Array.isArray(settings)
+      ? settings.hooks
+      : undefined;
+    if (!hooks || typeof hooks !== "object" || Array.isArray(hooks)) {
+      return false;
+    }
+    for (const groups of Object.values(hooks)) {
+      if (!Array.isArray(groups)) {
+        continue;
+      }
+      for (const group of groups) {
+        const hookEntries = group && typeof group === "object" && !Array.isArray(group)
+          ? group.hooks
+          : undefined;
+        if (!Array.isArray(hookEntries)) {
+          continue;
+        }
+        for (const hook of hookEntries) {
+          if (
+            hook
+            && typeof hook === "object"
+            && !Array.isArray(hook)
+            && hook.type === "command"
+            && isCmuxHookCommand(hook.command)
+          ) {
+            return true;
+          }
+        }
+      }
+    }
+    return false;
+  }
+
+  function hasCmuxHookSettings(args, startIndex) {
+    for (let index = startIndex; index < args.length; index += 1) {
+      const arg = String(args[index]);
+      if (arg.startsWith("--settings=")) {
+        if (settingsJsonHasCmuxHooks(arg.slice("--settings=".length))) {
+          return true;
+        }
+        continue;
+      }
+      if (arg === "--settings" && index + 1 < args.length) {
+        const value = String(args[index + 1]);
+        if (settingsJsonHasCmuxHooks(value)) {
+          return true;
+        }
+        index += 1;
+      }
+    }
+    return false;
+  }
+
+  function withCmuxSettings(args, insertIndex) {
+    if (hasCmuxHookSettings(args, insertIndex)) {
+      return args;
+    }
+    return [
+      ...args.slice(0, insertIndex),
+      "--settings",
+      hookSettingsJson,
+      ...args.slice(insertIndex),
+    ];
+  }
+
+  function base64NulSeparated(values) {
+    return Buffer.from(`${values.map(String).join("\0")}\0`, "utf8").toString("base64");
+  }
+
+  function launchExecutableForRecord(command, insertIndex) {
+    if (String(command || "") === process.execPath && insertIndex === 1) {
+      return process.env.CMUX_CLAUDE_REAL_EXECUTABLE || String(command || "");
+    }
+    return String(command || "");
+  }
+
+  function withCmuxClaudeEnv(options, command, args, insertIndex) {
+    const nextOptions = options && typeof options === "object" && !Array.isArray(options)
+      ? { ...options }
+      : {};
+    const env = nextOptions.env ? { ...nextOptions.env } : { ...process.env };
+    for (const [key, value] of Object.entries(process.env)) {
+      if (key.startsWith("CMUX_") && env[key] === undefined) {
+        env[key] = value;
+      }
+    }
+    env.CMUX_CLAUDE_HOOKS_JSON_B64 = hookSettingsBase64;
+    env.CMUX_CLAUDE_ENTRYPOINT = entrypoint;
+    const childOriginalNodeOptions = env.NODE_OPTIONS;
+    if (childOriginalNodeOptions !== undefined) {
+      env.CMUX_ORIGINAL_NODE_OPTIONS_PRESENT = "1";
+      env.CMUX_ORIGINAL_NODE_OPTIONS = normalizeNodeOptionsForRestore(childOriginalNodeOptions);
+    } else {
+      env.CMUX_ORIGINAL_NODE_OPTIONS_PRESENT = "0";
+      delete env.CMUX_ORIGINAL_NODE_OPTIONS;
+    }
+    env.NODE_OPTIONS = nodeOptionsWithCmuxPreload(childOriginalNodeOptions);
+    const launchExecutable = launchExecutableForRecord(command, insertIndex);
+    const launchArguments = args.slice(insertIndex);
+    env.CMUX_AGENT_LAUNCH_KIND = "claude";
+    env.CMUX_AGENT_LAUNCH_EXECUTABLE = launchExecutable;
+    env.CMUX_AGENT_LAUNCH_ARGV_B64 = base64NulSeparated([launchExecutable, ...launchArguments]);
+    env.CMUX_AGENT_LAUNCH_CWD = String(nextOptions.cwd || process.cwd());
+    nextOptions.env = env;
+    return nextOptions;
+  }
+
+  function cmuxScrubbedEnv(env) {
+    const nextEnv = { ...(env && typeof env === "object" ? env : process.env) };
+    for (const key of Object.keys(nextEnv)) {
+      if (key.startsWith("CMUX_")) {
+        delete nextEnv[key];
+      }
+    }
+    return nextEnv;
+  }
+
+  function withCmuxPassthroughEnv(options) {
+    const nextOptions = options && typeof options === "object" && !Array.isArray(options)
+      ? { ...options }
+      : {};
+    nextOptions.env = cmuxScrubbedEnv(nextOptions.env);
+    return nextOptions;
+  }
+
+  function patchClaudeChild(command, args, options) {
+    const normalizedArgs = Array.isArray(args) ? args.map(String) : [];
+    const insertIndex = claudeInsertIndex(command, normalizedArgs);
+    if (insertIndex === null) {
+      return { args: normalizedArgs, options, patched: false };
+    }
+
+    const invocation = claudeInvocationMode(normalizedArgs, insertIndex);
+    if (invocation.mode === "passthrough") {
+      return {
+        args: normalizedArgs,
+        options: withCmuxPassthroughEnv(options),
+        patched: true,
+      };
+    }
+
+    const nextArgs = invocation.mode === "env-only"
+      ? normalizedArgs
+      : withCmuxSettings(normalizedArgs, insertIndex);
+    return {
+      args: nextArgs,
+      options: withCmuxClaudeEnv(options, command, nextArgs, insertIndex),
+      patched: true,
+    };
+  }
+
+  function normalizeOptionalArgsOptions(args, options, argCount) {
+    if (Array.isArray(args)) {
+      return { args, options };
+    }
+    if (argCount >= 3 && (args === undefined || args === null)) {
+      return { args: [], options };
+    }
+    if (args && typeof args === "object") {
+      return { args: [], options: args };
+    }
+    return { args: [], options: undefined };
+  }
+
+  function callOriginalArgsOptions(original, thisArg, command, argCount, args, options) {
+    if (argCount <= 1) {
+      return original.call(thisArg, command);
+    }
+    if (argCount === 2) {
+      return original.call(thisArg, command, args);
+    }
+    return original.call(thisArg, command, args, options);
+  }
+
+  function splitShellCommand(command) {
+    if (typeof command !== "string") {
+      return null;
+    }
+    const tokens = [];
+    let token = "";
+    let quote = "";
+    let escaped = false;
+    let hadToken = false;
+    for (let index = 0; index < command.length; index += 1) {
+      const char = command[index];
+      if (escaped) {
+        token += char;
+        escaped = false;
+        hadToken = true;
+        continue;
+      }
+      if (quote === "'") {
+        if (char === "'") {
+          quote = "";
+        } else {
+          token += char;
+        }
+        hadToken = true;
+        continue;
+      }
+      if (quote === '"') {
+        if (char === '"') {
+          quote = "";
+        } else if (char === "\\") {
+          const next = command[index + 1];
+          if (next !== undefined && '"\\$`'.includes(next)) {
+            token += next;
+            index += 1;
+          } else {
+            token += char;
+          }
+        } else if (char === "$" || char === "`") {
+          return null;
+        } else {
+          token += char;
+        }
+        hadToken = true;
+        continue;
+      }
+      if (char === "\\") {
+        escaped = true;
+        hadToken = true;
+        continue;
+      }
+      if (char === "'" || char === '"') {
+        quote = char;
+        hadToken = true;
+        continue;
+      }
+      if (/\s/.test(char)) {
+        if (hadToken) {
+          tokens.push(token);
+          token = "";
+          hadToken = false;
+        }
+        continue;
+      }
+      if ("|&;<>()[{}]$`*?".includes(char)) {
+        return null;
+      }
+      token += char;
+      hadToken = true;
+    }
+    if (escaped || quote) {
+      return null;
+    }
+    if (hadToken) {
+      tokens.push(token);
+    }
+    return tokens;
+  }
+
+  function shellQuote(value) {
+    const stringValue = String(value);
+    if (stringValue === "") {
+      return "''";
+    }
+    if (/^[A-Za-z0-9_/:.,@%+=-]+$/.test(stringValue)) {
+      return stringValue;
+    }
+    return `'${stringValue.replace(/'/g, "'\"'\"'")}'`;
+  }
+
+  function patchClaudeShellCommand(command, options) {
+    const tokens = splitShellCommand(command);
+    if (!tokens || tokens.length === 0) {
+      return { command, options, patched: false };
+    }
+    const patched = patchClaudeChild(tokens[0], tokens.slice(1), options);
+    if (!patched.patched) {
+      return { command, options, patched: false };
+    }
+    return {
+      command: [tokens[0], ...patched.args].map(shellQuote).join(" "),
+      options: patched.options,
+      patched: true,
+    };
+  }
+
+  function callOriginalExec(original, thisArg, command, argCount, options, callback) {
+    if (argCount <= 1) {
+      return original.call(thisArg, command);
+    }
+    if (argCount === 2) {
+      return original.call(thisArg, command, options);
+    }
+    return original.call(thisArg, command, options, callback);
+  }
+
+  function normalizeExecFileArgs(args, options, callback, argCount) {
+    if (Array.isArray(args)) {
+      return {
+        args,
+        options: typeof options === "function" ? undefined : options,
+        callback: typeof options === "function" ? options : callback,
+      };
+    }
+    if (typeof args === "function") {
+      return { args: [], options: undefined, callback: args };
+    }
+    if (args && typeof args === "object") {
+      return {
+        args: [],
+        options: args,
+        callback: typeof options === "function" ? options : callback,
+      };
+    }
+    return {
+      args: [],
+      options: argCount >= 3 && typeof options !== "function" ? options : undefined,
+      callback: typeof options === "function" ? options : callback,
+    };
+  }
+
+  function callOriginalExecFile(original, thisArg, file, argCount, args, options, callback) {
+    if (argCount <= 1) {
+      return original.call(thisArg, file);
+    }
+    if (argCount === 2) {
+      return original.call(thisArg, file, args);
+    }
+    if (argCount === 3) {
+      return original.call(thisArg, file, args, options);
+    }
+    return original.call(thisArg, file, args, options, callback);
+  }
+
+  const originalExec = childProcess.exec;
+  childProcess.exec = function patchedExec(command, options, callback) {
+    const argCount = arguments.length;
+    const actualOptions = typeof options === "function" ? undefined : options;
+    const actualCallback = typeof options === "function" ? options : callback;
+    const patched = patchClaudeShellCommand(command, actualOptions);
+    if (!patched.patched) {
+      return callOriginalExec(originalExec, this, command, argCount, options, callback);
+    }
+    return originalExec.call(this, patched.command, patched.options, actualCallback);
+  };
+
+  const originalExecSync = childProcess.execSync;
+  childProcess.execSync = function patchedExecSync(command, options) {
+    const patched = patchClaudeShellCommand(command, options);
+    if (patched.patched) {
+      return originalExecSync.call(this, patched.command, patched.options);
+    }
+    return originalExecSync.call(this, command, options);
+  };
+
+  const originalSpawn = childProcess.spawn;
+  childProcess.spawn = function patchedSpawn(command, args, options) {
+    const argCount = arguments.length;
+    const normalized = normalizeOptionalArgsOptions(args, options, argCount);
+    const patched = patchClaudeChild(command, normalized.args, normalized.options);
+    if (patched.patched) {
+      return originalSpawn.call(this, command, patched.args, patched.options);
+    }
+    return callOriginalArgsOptions(originalSpawn, this, command, argCount, args, options);
+  };
+
+  const originalSpawnSync = childProcess.spawnSync;
+  childProcess.spawnSync = function patchedSpawnSync(command, args, options) {
+    const argCount = arguments.length;
+    const normalized = normalizeOptionalArgsOptions(args, options, argCount);
+    const patched = patchClaudeChild(command, normalized.args, normalized.options);
+    if (patched.patched) {
+      return originalSpawnSync.call(this, command, patched.args, patched.options);
+    }
+    return callOriginalArgsOptions(originalSpawnSync, this, command, argCount, args, options);
+  };
+
+  const originalExecFile = childProcess.execFile;
+  childProcess.execFile = function patchedExecFile(file, args, options, callback) {
+    const argCount = arguments.length;
+    const normalized = normalizeExecFileArgs(args, options, callback, argCount);
+    const patched = patchClaudeChild(file, normalized.args, normalized.options);
+    if (!patched.patched) {
+      return callOriginalExecFile(originalExecFile, this, file, argCount, args, options, callback);
+    }
+    return originalExecFile.call(this, file, patched.args, patched.options, normalized.callback);
+  };
+
+  const originalExecFileSync = childProcess.execFileSync;
+  childProcess.execFileSync = function patchedExecFileSync(file, args, options) {
+    const argCount = arguments.length;
+    const normalized = normalizeOptionalArgsOptions(args, options, argCount);
+    const patched = patchClaudeChild(file, normalized.args, normalized.options);
+    if (patched.patched) {
+      return originalExecFileSync.call(this, file, patched.args, patched.options);
+    }
+    return callOriginalArgsOptions(originalExecFileSync, this, file, argCount, args, options);
+  };
+
+  const originalFork = childProcess.fork;
+  childProcess.fork = function patchedFork(modulePath, args, options) {
+    const argCount = arguments.length;
+    const normalized = normalizeOptionalArgsOptions(args, options, argCount);
+    if (!samePath(modulePath, entrypoint)) {
+      return callOriginalArgsOptions(originalFork, this, modulePath, argCount, args, options);
+    }
+    const actualArgs = normalized.args.map(String);
+    const invocation = claudeInvocationMode(actualArgs, 0);
+    if (invocation.mode === "passthrough") {
+      return originalFork.call(this, modulePath, actualArgs, withCmuxPassthroughEnv(normalized.options));
+    }
+    const nextArgs = invocation.mode === "env-only" ? actualArgs : withCmuxSettings(actualArgs, 0);
+    return originalFork.call(this, modulePath, nextArgs, withCmuxClaudeEnv(normalized.options, process.execPath, [modulePath, ...nextArgs], 1));
+  };
+}
+
+try {
+  installClaudeChildHookPropagation();
+} catch {
+  // Hook propagation is best-effort. The foreground wrapper still injects hooks.
+}
 EOF
     chmod 0644 "$temp_path" || {
         rm -f "$temp_path"
@@ -246,7 +933,7 @@ merge_node_options() {
     local -a filtered=()
     local -a tokens=()
     local token
-    local skip_next=0
+    local index=0
 
     if [[ -z "$guard_path" ]]; then
         printf '%s' "$existing"
@@ -254,19 +941,26 @@ merge_node_options() {
     fi
 
     read -r -a tokens <<<"$existing"
-    for token in "${tokens[@]}"; do
-        if (( skip_next )); then
-            skip_next=0
+    while (( index < ${#tokens[@]} )); do
+        token="${tokens[$index]}"
+        if [[ "$token" == "--require" && $((index + 1)) -lt ${#tokens[@]} && "${tokens[$((index + 1))]}" == "$guard_path" ]]; then
+            index=$((index + 2))
+            continue
+        fi
+        if [[ "$token" == "--require=$guard_path" ]]; then
+            index=$((index + 1))
             continue
         fi
         if [[ "$token" == "--max-old-space-size" ]]; then
-            skip_next=1
+            index=$((index + 2))
             continue
         fi
         if [[ "$token" == --max-old-space-size=* ]]; then
+            index=$((index + 1))
             continue
         fi
         filtered+=("$token")
+        index=$((index + 1))
     done
 
     if (( ${#filtered[@]} == 0 )); then
@@ -277,16 +971,61 @@ merge_node_options() {
     printf ' %s' "${filtered[@]}"
 }
 
-normalize_node_options_for_restore() {
-    local existing="${1:-}"
+node_options_has_cmux_preload() {
+    local guard_path="$1"
+    local existing="${2:-}"
     local -a tokens=()
-    local -a normalized=()
     local token
     local index=0
+
+    [[ -n "$guard_path" ]] || return 1
 
     read -r -a tokens <<<"$existing"
     while (( index < ${#tokens[@]} )); do
         token="${tokens[$index]}"
+        if [[ "$token" == "--require" && $((index + 1)) -lt ${#tokens[@]} && "${tokens[$((index + 1))]}" == "$guard_path" ]]; then
+            return 0
+        fi
+        if [[ "$token" == "--require=$guard_path" ]]; then
+            return 0
+        fi
+        index=$((index + 1))
+    done
+    return 1
+}
+
+normalize_node_options_for_restore() {
+    local existing="${1:-}"
+    local guard_path="${2:-}"
+    local -a tokens=()
+    local -a normalized=()
+    local token
+    local index=0
+    local strip_cmux_injected=false
+
+    if node_options_has_cmux_preload "$guard_path" "$existing"; then
+        strip_cmux_injected=true
+    fi
+
+    read -r -a tokens <<<"$existing"
+    while (( index < ${#tokens[@]} )); do
+        token="${tokens[$index]}"
+        if [[ -n "$guard_path" && "$token" == "--require" && $((index + 1)) -lt ${#tokens[@]} && "${tokens[$((index + 1))]}" == "$guard_path" ]]; then
+            index=$((index + 2))
+            continue
+        fi
+        if [[ -n "$guard_path" && "$token" == "--require=$guard_path" ]]; then
+            index=$((index + 1))
+            continue
+        fi
+        if [[ "$strip_cmux_injected" == true && "$token" == "--max-old-space-size" && $((index + 1)) -lt ${#tokens[@]} && "${tokens[$((index + 1))]}" == "4096" ]]; then
+            index=$((index + 2))
+            continue
+        fi
+        if [[ "$strip_cmux_injected" == true && "$token" == "--max-old-space-size=4096" ]]; then
+            index=$((index + 1))
+            continue
+        fi
         if [[ "$token" == "--max-old-space-size" && $((index + 1)) -lt ${#tokens[@]} ]]; then
             normalized+=("--max-old-space-size=${tokens[$((index + 1))]}")
             index=$((index + 2))
@@ -305,6 +1044,140 @@ normalize_node_options_for_restore() {
     fi
 }
 
+settings_json_has_cmux_hooks() {
+    local value="$1"
+    [[ "$value" == "$HOOKS_JSON" ]] && return 0
+
+    if command -v node >/dev/null 2>&1; then
+        if printf '%s' "$value" | node -e '
+const fs = require("node:fs");
+
+let settings;
+try {
+  settings = JSON.parse(fs.readFileSync(0, "utf8"));
+} catch {
+  process.exit(1);
+}
+
+if (!settings || typeof settings !== "object" || Array.isArray(settings)) {
+  process.exit(1);
+}
+const hooks = settings.hooks;
+if (!hooks || typeof hooks !== "object" || Array.isArray(hooks)) {
+  process.exit(1);
+}
+
+function isCmuxHookCommand(command) {
+  if (typeof command !== "string") {
+    return false;
+  }
+  const trimmed = command.trim();
+  return trimmed.startsWith("\"${CMUX_CLAUDE_HOOK_CMUX_BIN:-cmux}\" hooks claude ")
+    || trimmed === "\"${CMUX_CLAUDE_HOOK_CMUX_BIN:-cmux}\" hooks feed --source claude"
+    || trimmed.startsWith("cmux hooks claude ")
+    || trimmed === "cmux hooks feed --source claude";
+}
+
+for (const groups of Object.values(hooks)) {
+  if (!Array.isArray(groups)) {
+    continue;
+  }
+  for (const group of groups) {
+    if (!group || typeof group !== "object" || Array.isArray(group)) {
+      continue;
+    }
+    const hookEntries = group.hooks;
+    if (!Array.isArray(hookEntries)) {
+      continue;
+    }
+    for (const hook of hookEntries) {
+      if (
+        hook
+        && typeof hook === "object"
+        && !Array.isArray(hook)
+        && hook.type === "command"
+        && isCmuxHookCommand(hook.command)
+      ) {
+        process.exit(0);
+      }
+    }
+  }
+}
+process.exit(1);
+'; then
+            return 0
+        fi
+    fi
+
+    command -v python3 >/dev/null 2>&1 || return 1
+    printf '%s' "$value" | python3 -c '
+import json
+import sys
+
+try:
+    settings = json.loads(sys.stdin.read())
+except Exception:
+    sys.exit(1)
+
+if not isinstance(settings, dict):
+    sys.exit(1)
+hooks = settings.get("hooks")
+if not isinstance(hooks, dict):
+    sys.exit(1)
+
+def is_cmux_hook_command(command):
+    if not isinstance(command, str):
+        return False
+    trimmed = command.strip()
+    return (
+        trimmed.startswith("\"${CMUX_CLAUDE_HOOK_CMUX_BIN:-cmux}\" hooks claude ")
+        or trimmed == "\"${CMUX_CLAUDE_HOOK_CMUX_BIN:-cmux}\" hooks feed --source claude"
+        or trimmed.startswith("cmux hooks claude ")
+        or trimmed == "cmux hooks feed --source claude"
+    )
+
+for groups in hooks.values():
+    if not isinstance(groups, list):
+        continue
+    for group in groups:
+        if not isinstance(group, dict):
+            continue
+        hook_entries = group.get("hooks")
+        if not isinstance(hook_entries, list):
+            continue
+        for hook in hook_entries:
+            if (
+                isinstance(hook, dict)
+                and hook.get("type") == "command"
+                and is_cmux_hook_command(hook.get("command"))
+            ):
+                sys.exit(0)
+sys.exit(1)
+'
+}
+
+args_have_cmux_hook_settings() {
+    local arg
+    local skip_next=false
+    for arg in "$@"; do
+        if [[ "$skip_next" == true ]]; then
+            if settings_json_has_cmux_hooks "$arg"; then
+                return 0
+            fi
+            skip_next=false
+            continue
+        fi
+        if [[ "$arg" == --settings=* ]] && settings_json_has_cmux_hooks "${arg#--settings=}"; then
+            return 0
+        fi
+        if [[ "$arg" == "--settings" ]]; then
+            skip_next=true
+            continue
+        fi
+    done
+    return 1
+}
+
 encode_launch_argv() {
     {
         printf '%s\0' "$REAL_CLAUDE"
@@ -317,16 +1190,38 @@ encode_launch_argv() {
 claude_option_consumes_value() {
     case "$1" in
         --add-dir|--agent|--agents|--allowedTools|--allowed-tools|\
-        --append-system-prompt|--betas|--debug-file|--disallowedTools|\
-        --disallowed-tools|--effort|--fallback-model|--file|\
+        --append-system-prompt|--betas|--dangerously-load-development-channels|\
+        --debug-file|--disallowedTools|--disallowed-tools|--effort|--fallback-model|--file|\
+        --fork-session|--from-pr|\
         --input-format|--json-schema|--max-budget-usd|--mcp-config|\
         --model|-m|-n|--name|--output-format|--permission-mode|--plugin-dir|\
-        --plugin-url|--remote-control-session-name-prefix|--setting-sources|\
-        --settings|--system-prompt|--tools)
+        --plugin-url|--remote-control-session-name-prefix|--resume|-r|--session-id|\
+        --setting-sources|--settings|--system-prompt|--teammate-mode|--tmux|--tools|\
+        --worktree|-w)
             return 0
             ;;
     esac
     return 1
+}
+
+claude_option_consumes_optional_value() {
+    case "$1" in
+        --debug)
+            return 0
+            ;;
+    esac
+    return 1
+}
+
+claude_known_subcommand() {
+    claude_builtin_command_name "$1"
+}
+
+claude_should_consume_optional_value() {
+    local next="${1:-}"
+    [[ -n "$next" ]] || return 1
+    [[ "$next" != -* ]] || return 1
+    ! claude_known_subcommand "$next"
 }
 
 claude_interactive_entry_flag() {
@@ -374,27 +1269,43 @@ claude_command_like_invocation() {
 should_inject_claude_hooks() {
     (( $# == 0 )) && return 0
 
+    local -a args=("$@")
     local arg
-    local skip_next=false
-    for arg in "$@"; do
-        if [[ "$skip_next" == true ]]; then
-            skip_next=false
-            continue
-        fi
+    local option_name
+    local index=0
+    while (( index < ${#args[@]} )); do
+        arg="${args[$index]}"
         case "$arg" in
             --)
                 return 0
                 ;;
             -*)
+                option_name="${arg%%=*}"
                 if claude_passthrough_option_flag "$arg"; then
                     return 1
+                fi
+                if claude_option_consumes_value "$option_name"; then
+                    if [[ "$arg" == *=* ]]; then
+                        index=$((index + 1))
+                    else
+                        index=$((index + 2))
+                    fi
+                    continue
                 fi
                 if claude_interactive_entry_flag "$arg"; then
                     return 0
                 fi
-                if [[ "$arg" != *=* ]] && claude_option_consumes_value "$arg"; then
-                    skip_next=true
+                if claude_option_consumes_optional_value "$option_name"; then
+                    if [[ "$arg" == *=* ]]; then
+                        index=$((index + 1))
+                    elif (( index + 1 < ${#args[@]} )) && claude_should_consume_optional_value "${args[$((index + 1))]}"; then
+                        index=$((index + 2))
+                    else
+                        index=$((index + 1))
+                    fi
+                    continue
                 fi
+                index=$((index + 1))
                 continue
                 ;;
             *)
@@ -409,9 +1320,109 @@ should_inject_claude_hooks() {
     return 0
 }
 
+claude_first_subcommand() {
+    local -a args=("$@")
+    local arg
+    local option_name
+    local index=0
+    while (( index < ${#args[@]} )); do
+        arg="${args[$index]}"
+        case "$arg" in
+            --)
+                return 1
+                ;;
+            -*)
+                option_name="${arg%%=*}"
+                if claude_passthrough_option_flag "$arg"; then
+                    return 1
+                fi
+                if claude_option_consumes_value "$option_name"; then
+                    if [[ "$arg" == *=* ]]; then
+                        index=$((index + 1))
+                    else
+                        index=$((index + 2))
+                    fi
+                    continue
+                fi
+                if claude_option_consumes_optional_value "$option_name"; then
+                    if [[ "$arg" == *=* ]]; then
+                        index=$((index + 1))
+                    elif (( index + 1 < ${#args[@]} )) && claude_should_consume_optional_value "${args[$((index + 1))]}"; then
+                        index=$((index + 2))
+                    else
+                        index=$((index + 1))
+                    fi
+                    continue
+                fi
+                index=$((index + 1))
+                continue
+                ;;
+            *)
+                printf '%s' "$arg"
+                return 0
+                ;;
+        esac
+    done
+    return 1
+}
+
+# Build Claude settings JSON.
+# Claude Code merges --settings additively with the user's own settings.json.
+# - preferredNotifChannel: disables Claude Code's OSC/terminal notification
+#   channel inside cmux so hooks are the only notification source.
+# - SessionStart/Stop/Notification: existing lifecycle hooks
+# - SessionEnd: cleanup when Claude exits (covers Ctrl+C where Stop doesn't fire)
+# - UserPromptSubmit: clears "Needs input" and sets "Running" on new prompt
+# - PreToolUse: rejects unsupported durable cron requests synchronously, then
+#   clears "Needs input" and captures AskUserQuestion text for notifications
+#   (async status only)
+# - PermissionRequest: cmux hooks feed. SYNC with a 125s timeout.
+#   This is Claude Code's native blocking decision hook. It covers
+#   permissions, ExitPlanMode, and AskUserQuestion without using
+#   PreToolUse denial as a side channel.
+HOOKS_JSON='{"preferredNotifChannel":"notifications_disabled","hooks":{"SessionStart":[{"matcher":"","hooks":[{"type":"command","command":"\"${CMUX_CLAUDE_HOOK_CMUX_BIN:-cmux}\" hooks claude session-start","timeout":10}]}],"Stop":[{"matcher":"","hooks":[{"type":"command","command":"\"${CMUX_CLAUDE_HOOK_CMUX_BIN:-cmux}\" hooks claude stop","timeout":10}]},{"matcher":"","hooks":[{"type":"command","command":"\"${CMUX_CLAUDE_HOOK_CMUX_BIN:-cmux}\" hooks feed --source claude","timeout":10,"async":true}]}],"SessionEnd":[{"matcher":"","hooks":[{"type":"command","command":"\"${CMUX_CLAUDE_HOOK_CMUX_BIN:-cmux}\" hooks claude session-end","timeout":1}]}],"Notification":[{"matcher":"","hooks":[{"type":"command","command":"\"${CMUX_CLAUDE_HOOK_CMUX_BIN:-cmux}\" hooks claude notification","timeout":10}]}],"UserPromptSubmit":[{"matcher":"","hooks":[{"type":"command","command":"\"${CMUX_CLAUDE_HOOK_CMUX_BIN:-cmux}\" hooks claude prompt-submit","timeout":10}]}],"PreToolUse":[{"matcher":"CronCreate","hooks":[{"type":"command","command":"\"${CMUX_CLAUDE_HOOK_CMUX_BIN:-cmux}\" hooks claude cron-create-guard","timeout":5}]},{"matcher":"","hooks":[{"type":"command","command":"\"${CMUX_CLAUDE_HOOK_CMUX_BIN:-cmux}\" hooks claude pre-tool-use","timeout":5,"async":true}]}],"PermissionRequest":[{"matcher":"","hooks":[{"type":"command","command":"\"${CMUX_CLAUDE_HOOK_CMUX_BIN:-cmux}\" hooks feed --source claude","timeout":125}]}]}}'
+
+configure_claude_hook_environment() {
+    # Export the wrapper's PID. Because we exec claude below, this PID becomes
+    # the actual claude process PID, which hooks use for stale-session detection.
+    export CMUX_CLAUDE_PID=$$
+    export CMUX_CLAUDE_HOOK_CMUX_BIN="$(resolve_hook_cmux_bin)"
+    export CMUX_CLAUDE_HOOKS_JSON_B64="$(printf '%s' "$HOOKS_JSON" | base64 | tr -d '\n')"
+    export CMUX_CLAUDE_REAL_EXECUTABLE="$REAL_CLAUDE"
+    export CMUX_AGENT_LAUNCH_KIND="claude"
+    export CMUX_AGENT_LAUNCH_EXECUTABLE="$REAL_CLAUDE"
+    export CMUX_AGENT_LAUNCH_ARGV_B64="$(encode_launch_argv "$@")"
+    export CMUX_AGENT_LAUNCH_CWD="$PWD"
+    if GUARD_PATH="$(ensure_node_options_restore_module)"; then
+        if [[ ${NODE_OPTIONS+x} ]] && node_options_has_cmux_preload "$GUARD_PATH" "$NODE_OPTIONS" && [[ ${CMUX_ORIGINAL_NODE_OPTIONS_PRESENT+x} ]]; then
+            :
+        elif [[ ${NODE_OPTIONS+x} ]]; then
+            local normalized_node_options
+            normalized_node_options="$(normalize_node_options_for_restore "$NODE_OPTIONS" "$GUARD_PATH")"
+            export CMUX_ORIGINAL_NODE_OPTIONS_PRESENT=1
+            export CMUX_ORIGINAL_NODE_OPTIONS="$normalized_node_options"
+        else
+            export CMUX_ORIGINAL_NODE_OPTIONS_PRESENT=0
+            unset CMUX_ORIGINAL_NODE_OPTIONS
+        fi
+        export NODE_OPTIONS="$(merge_node_options "$GUARD_PATH")"
+    fi
+}
+
 # Only inject hooks for Claude session entrypoints. Command-like invocations
-# pass through so Claude subcommands do not receive session/hook flags.
+# pass through so Claude subcommands do not receive session/hook flags. The
+# agents/daemon background surfaces still receive env-only hook propagation so
+# Claude-owned child launches inherit cmux hook state without top-level settings.
 if ! should_inject_claude_hooks "$@"; then
+    case "$(claude_first_subcommand "$@")" in
+        agents|daemon)
+            unset CLAUDECODE
+            clear_inherited_claude_auth_selection_env
+            clear_inherited_cmux_terminal_env preserve-operational
+            configure_claude_hook_environment "$@"
+            exec "$REAL_CLAUDE" "$@"
+            ;;
+    esac
     clear_inherited_claude_auth_selection_env
     exec_real_claude_passthrough "$@"
 fi
@@ -433,44 +1444,17 @@ for arg in "$@"; do
     esac
 done
 
-# Export the wrapper's PID. Because we exec claude below, this PID becomes
-# the actual claude process PID, which hooks use for stale-session detection.
-export CMUX_CLAUDE_PID=$$
-export CMUX_CLAUDE_HOOK_CMUX_BIN="$(resolve_hook_cmux_bin)"
-export CMUX_AGENT_LAUNCH_KIND="claude"
-export CMUX_AGENT_LAUNCH_EXECUTABLE="$REAL_CLAUDE"
-export CMUX_AGENT_LAUNCH_ARGV_B64="$(encode_launch_argv "$@")"
-export CMUX_AGENT_LAUNCH_CWD="$PWD"
-if GUARD_PATH="$(ensure_node_options_restore_module)"; then
-    if [[ ${NODE_OPTIONS+x} ]]; then
-        export CMUX_ORIGINAL_NODE_OPTIONS_PRESENT=1
-        export CMUX_ORIGINAL_NODE_OPTIONS="$(normalize_node_options_for_restore "$NODE_OPTIONS")"
-    else
-        export CMUX_ORIGINAL_NODE_OPTIONS_PRESENT=0
-        unset CMUX_ORIGINAL_NODE_OPTIONS
-    fi
-    export NODE_OPTIONS="$(merge_node_options "$GUARD_PATH")"
-fi
-
-# Build Claude settings JSON.
-# Claude Code merges --settings additively with the user's own settings.json.
-# - preferredNotifChannel: disables Claude Code's OSC/terminal notification
-#   channel inside cmux so hooks are the only notification source.
-# - SessionStart/Stop/Notification: existing lifecycle hooks
-# - SessionEnd: cleanup when Claude exits (covers Ctrl+C where Stop doesn't fire)
-# - UserPromptSubmit: clears "Needs input" and sets "Running" on new prompt
-# - PreToolUse: rejects unsupported durable cron requests synchronously, then
-#   clears "Needs input" and captures AskUserQuestion text for notifications
-#   (async status only)
-# - PermissionRequest: cmux hooks feed. SYNC with a 125s timeout.
-#   This is Claude Code's native blocking decision hook. It covers
-#   permissions, ExitPlanMode, and AskUserQuestion without using
-#   PreToolUse denial as a side channel.
-HOOKS_JSON='{"preferredNotifChannel":"notifications_disabled","hooks":{"SessionStart":[{"matcher":"","hooks":[{"type":"command","command":"\"${CMUX_CLAUDE_HOOK_CMUX_BIN:-cmux}\" hooks claude session-start","timeout":10}]}],"Stop":[{"matcher":"","hooks":[{"type":"command","command":"\"${CMUX_CLAUDE_HOOK_CMUX_BIN:-cmux}\" hooks claude stop","timeout":10}]},{"matcher":"","hooks":[{"type":"command","command":"\"${CMUX_CLAUDE_HOOK_CMUX_BIN:-cmux}\" hooks feed --source claude","timeout":10,"async":true}]}],"SessionEnd":[{"matcher":"","hooks":[{"type":"command","command":"\"${CMUX_CLAUDE_HOOK_CMUX_BIN:-cmux}\" hooks claude session-end","timeout":1}]}],"Notification":[{"matcher":"","hooks":[{"type":"command","command":"\"${CMUX_CLAUDE_HOOK_CMUX_BIN:-cmux}\" hooks claude notification","timeout":10}]}],"UserPromptSubmit":[{"matcher":"","hooks":[{"type":"command","command":"\"${CMUX_CLAUDE_HOOK_CMUX_BIN:-cmux}\" hooks claude prompt-submit","timeout":10}]}],"PreToolUse":[{"matcher":"CronCreate","hooks":[{"type":"command","command":"\"${CMUX_CLAUDE_HOOK_CMUX_BIN:-cmux}\" hooks claude cron-create-guard","timeout":5}]},{"matcher":"","hooks":[{"type":"command","command":"\"${CMUX_CLAUDE_HOOK_CMUX_BIN:-cmux}\" hooks claude pre-tool-use","timeout":5,"async":true}]}],"PermissionRequest":[{"matcher":"","hooks":[{"type":"command","command":"\"${CMUX_CLAUDE_HOOK_CMUX_BIN:-cmux}\" hooks feed --source claude","timeout":125}]}]}}'
+configure_claude_hook_environment "$@"
 
 if [[ "$SKIP_SESSION_ID" == true ]]; then
+    if args_have_cmux_hook_settings "$@"; then
+        exec "$REAL_CLAUDE" "$@"
+    fi
     exec "$REAL_CLAUDE" --settings "$HOOKS_JSON" "$@"
 else
     SESSION_ID="$(uuidgen | tr '[:upper:]' '[:lower:]')"
+    if args_have_cmux_hook_settings "$@"; then
+        exec "$REAL_CLAUDE" --session-id "$SESSION_ID" "$@"
+    fi
     exec "$REAL_CLAUDE" --session-id "$SESSION_ID" --settings "$HOOKS_JSON" "$@"
 fi
