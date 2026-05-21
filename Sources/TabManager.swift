@@ -1521,11 +1521,9 @@ class TabManager: ObservableObject {
         )
         workspaceGitMetadataWatcherDescriptorRequestsByKey[key] = request
 
-        Task { [weak self] in
-            let descriptor = await Task.detached(priority: .utility) {
-                Self.workspaceGitMetadataWatcherDescriptor(for: directory)
-            }.value
-            await MainActor.run { [weak self] in
+        initialWorkspaceGitProbeQueue.async { [weak self] in
+            let descriptor = Self.workspaceGitMetadataWatcherDescriptor(for: directory)
+            DispatchQueue.main.async { [weak self] in
                 self?.applyWorkspaceGitMetadataWatcherDescriptor(
                     descriptor,
                     for: key,
@@ -2669,7 +2667,7 @@ class TabManager: ObservableObject {
             let timer = DispatchSource.makeTimerSource(queue: initialWorkspaceGitProbeQueue)
             timer.schedule(deadline: .now() + delay, repeating: .never)
             timer.setEventHandler { [weak self] in
-                Task { @MainActor [weak self] in
+                DispatchQueue.main.async { [weak self] in
                     self?.beginWorkspaceGitMetadataProbeAttempt(
                         probeKey: key,
                         expectedDirectory: normalizedDirectory,
@@ -2696,10 +2694,9 @@ class TabManager: ObservableObject {
             return
         }
 
-        Task.detached(priority: .utility) { [weak self] in
-            let snapshot = await Self.initialWorkspaceGitMetadataSnapshot(for: expectedDirectory)
-            guard !Task.isCancelled else { return }
-            await MainActor.run { [weak self] in
+        initialWorkspaceGitProbeQueue.async { [weak self] in
+            let snapshot = Self.initialWorkspaceGitMetadataSnapshot(for: expectedDirectory)
+            DispatchQueue.main.async { [weak self] in
                 self?.applyWorkspaceGitMetadataSnapshot(
                     snapshot,
                     probeKey: probeKey,
@@ -2974,7 +2971,7 @@ class TabManager: ObservableObject {
 
     private nonisolated static func initialWorkspaceGitMetadataSnapshot(
         for directory: String
-    ) async -> InitialWorkspaceGitMetadataSnapshot {
+    ) -> InitialWorkspaceGitMetadataSnapshot {
 #if DEBUG
         workspaceGitMetadataSnapshotWillRunForTesting?()
 #endif
