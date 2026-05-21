@@ -244,13 +244,17 @@ final class CJKIMEMarkedSelectionTests: XCTestCase {
 
         var pressedText: [(text: String, keyCode: UInt32, mods: UInt32)] = []
         var pressedControlKeyCodes: [UInt32] = []
+        var releasedControlKeyCodes: [UInt32] = []
         GhosttyNSView.debugGhosttySurfaceKeyEventObserver = { keyEvent in
             previousKeyEventObserver?(keyEvent)
-            guard keyEvent.action == GHOSTTY_ACTION_PRESS else { return }
-            if let text = keyEvent.text {
+            if keyEvent.action == GHOSTTY_ACTION_PRESS, let text = keyEvent.text {
                 pressedText.append((String(cString: text), keyEvent.keycode, keyEvent.mods.rawValue))
-            } else if keyEvent.mods.rawValue & GHOSTTY_MODS_CTRL.rawValue != 0 {
+            } else if keyEvent.action == GHOSTTY_ACTION_PRESS,
+                      keyEvent.mods.rawValue & GHOSTTY_MODS_CTRL.rawValue != 0 {
                 pressedControlKeyCodes.append(keyEvent.keycode)
+            } else if keyEvent.action == GHOSTTY_ACTION_RELEASE,
+                      keyEvent.mods.rawValue & GHOSTTY_MODS_CTRL.rawValue != 0 {
+                releasedControlKeyCodes.append(keyEvent.keycode)
             }
         }
 
@@ -272,16 +276,30 @@ final class CJKIMEMarkedSelectionTests: XCTestCase {
             isARepeat: false,
             keyCode: UInt16(kVK_ANSI_J)
         ))
+        let keyUp = try XCTUnwrap(NSEvent.keyEvent(
+            with: .keyUp,
+            location: .zero,
+            modifierFlags: [.control],
+            timestamp: ProcessInfo.processInfo.systemUptime,
+            windowNumber: window.windowNumber,
+            context: nil,
+            characters: "\n",
+            charactersIgnoringModifiers: "j",
+            isARepeat: false,
+            keyCode: UInt16(kVK_ANSI_J)
+        ))
 
         window.makeFirstResponder(surfaceView)
         withExtendedLifetime(terminalSurface) {
             surfaceView.keyDown(with: event)
+            surfaceView.keyUp(with: keyUp)
         }
 
         XCTAssertEqual(pressedText.map(\.text), ["日本"])
         XCTAssertEqual(pressedText.map(\.keyCode), [0])
         XCTAssertEqual(pressedText.map(\.mods), [GHOSTTY_MODS_NONE.rawValue])
         XCTAssertEqual(pressedControlKeyCodes, [])
+        XCTAssertEqual(releasedControlKeyCodes, [])
         XCTAssertTrue(surfaceView.hasMarkedText(), "Remaining IME segments should stay in preedit")
         XCTAssertEqual(surfaceView.attributedString().string, "語")
     }
