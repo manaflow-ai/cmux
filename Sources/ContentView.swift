@@ -1597,11 +1597,12 @@ struct ContentView: View {
                     withTransaction(Transaction(animation: nil)) {
                         sidebarWidth = nextWidth
                     }
-                    if rightSidebarVisible {
-                        clampRightSidebarWidthIfNeeded(availableWidth: availableWidth)
-                    }
+                    clampRightSidebarWidthIfNeeded(availableWidth: availableWidth)
                 },
-                finishDrag: { sidebarDragStartWidth = nil }
+                finishDrag: {
+                    sidebarDragStartWidth = nil
+                    sidebarState.persistedWidth = Self.clampedSidebarPreferredWidth(sidebarWidth)
+                }
             )
         case .explorerDivider:
             return (
@@ -1655,6 +1656,15 @@ struct ContentView: View {
         )
     }
 
+    static func clampedSidebarPreferredWidth(_ candidate: CGFloat) -> CGFloat {
+        clampedSidebarDimension(
+            candidate,
+            minimumWidth: Self.minimumSidebarWidth,
+            maximumWidth: CGFloat(SessionPersistencePolicy.maximumSidebarWidth),
+            fallbackWidth: CGFloat(SessionPersistencePolicy.defaultSidebarWidth)
+        )
+    }
+
     static func clampedRightSidebarWidth(
         _ candidate: CGFloat,
         availableWidth: CGFloat,
@@ -1700,8 +1710,9 @@ struct ContentView: View {
     }
 
     private func clampSidebarWidthIfNeeded(availableWidth: CGFloat? = nil) {
+        let preferredWidth = normalizedSidebarPreferredWidth(sidebarState.persistedWidth)
         let nextWidth = Self.clampedSidebarWidth(
-            sidebarWidth,
+            preferredWidth,
             maximumWidth: maxSidebarWidth(availableWidth: availableWidth)
         )
         guard abs(nextWidth - sidebarWidth) > 0.5 else { return }
@@ -1712,6 +1723,10 @@ struct ContentView: View {
 
     private func normalizedSidebarWidth(_ candidate: CGFloat) -> CGFloat {
         Self.clampedSidebarWidth(candidate, maximumWidth: maxSidebarWidth())
+    }
+
+    private func normalizedSidebarPreferredWidth(_ candidate: CGFloat) -> CGFloat {
+        Self.clampedSidebarPreferredWidth(candidate)
     }
 
     private func resolvedRightSidebarAvailableWidth(_ availableWidth: CGFloat? = nil) -> CGFloat {
@@ -2669,12 +2684,13 @@ struct ContentView: View {
             reconcileMountedWorkspaceIds()
             previousSelectedWorkspaceId = tabManager.selectedTabId
             installSidebarResizerPointerMonitorIfNeeded()
-            let restoredWidth = normalizedSidebarWidth(sidebarState.persistedWidth)
+            let preferredWidth = normalizedSidebarPreferredWidth(sidebarState.persistedWidth)
+            let restoredWidth = normalizedSidebarWidth(preferredWidth)
             if abs(sidebarWidth - restoredWidth) > 0.5 {
                 sidebarWidth = restoredWidth
             }
-            if abs(sidebarState.persistedWidth - restoredWidth) > 0.5 {
-                sidebarState.persistedWidth = restoredWidth
+            if !sidebarState.persistedWidth.isFinite || abs(sidebarState.persistedWidth - preferredWidth) > 0.5 {
+                sidebarState.persistedWidth = preferredWidth
             }
             if selectedTabIds.isEmpty, let selectedId = tabManager.selectedTabId {
                 selectedTabIds = [selectedId]
@@ -3151,12 +3167,7 @@ struct ContentView: View {
                 sidebarWidth = sanitized
                 return
             }
-            if abs(sidebarState.persistedWidth - sanitized) > 0.5 {
-                sidebarState.persistedWidth = sanitized
-            }
-            if rightSidebarVisible {
-                clampRightSidebarWidthIfNeeded()
-            }
+            clampRightSidebarWidthIfNeeded()
             // Sidebar width changes are pure SwiftUI layout updates, so portal-hosted
             // terminals and browsers need an explicit post-layout geometry resync.
             schedulePortalGeometrySynchronize()
@@ -3168,15 +3179,16 @@ struct ContentView: View {
             if let observedWindow {
                 AppDelegate.shared?.applyWindowDecorations(to: observedWindow)
             }
-            if rightSidebarVisible {
-                clampRightSidebarWidthIfNeeded()
-            }
+            clampRightSidebarWidthIfNeeded()
             schedulePortalGeometrySynchronize()
             updateSidebarResizerBandState()
             syncTrafficLightInset()
         })
 
         view = AnyView(view.onChange(of: fileExplorerState.isVisible) { isVisible in
+            if isVisible {
+                clampRightSidebarWidthIfNeeded()
+            }
             if !isVisible {
                 _ = AppDelegate.shared?.restoreTerminalFocusAfterRightSidebarHidden(in: observedWindow)
             }
@@ -3217,14 +3229,15 @@ struct ContentView: View {
         })
 
         view = AnyView(view.onChange(of: sidebarState.persistedWidth) { newValue in
-            let sanitized = normalizedSidebarWidth(newValue)
-            if abs(newValue - sanitized) > 0.5 {
-                sidebarState.persistedWidth = sanitized
+            let preferredWidth = normalizedSidebarPreferredWidth(newValue)
+            if !newValue.isFinite || abs(newValue - preferredWidth) > 0.5 {
+                sidebarState.persistedWidth = preferredWidth
                 return
             }
             guard !isResizerDragging else { return }
-            if abs(sidebarWidth - sanitized) > 0.5 {
-                sidebarWidth = sanitized
+            let visibleWidth = normalizedSidebarWidth(preferredWidth)
+            if abs(sidebarWidth - visibleWidth) > 0.5 {
+                sidebarWidth = visibleWidth
             }
         })
 
