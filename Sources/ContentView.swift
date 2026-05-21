@@ -1694,6 +1694,13 @@ struct ContentView: View {
         translation: CGFloat
     ) -> CGFloat? {
         guard translation.isFinite, abs(translation) > Self.sidebarDragPersistenceThreshold else { return nil }
+        return completedInterruptedSidebarDragPreferredWidth(startWidth: startWidth, endWidth: endWidth)
+    }
+
+    static func completedInterruptedSidebarDragPreferredWidth(
+        startWidth: CGFloat,
+        endWidth: CGFloat
+    ) -> CGFloat? {
         guard startWidth.isFinite, endWidth.isFinite, abs(endWidth - startWidth) > Self.sidebarDragPersistenceThreshold else {
             return nil
         }
@@ -1738,6 +1745,13 @@ struct ContentView: View {
         translation: CGFloat
     ) -> CGFloat? {
         guard translation.isFinite, abs(translation) > Self.sidebarDragPersistenceThreshold else { return nil }
+        return completedInterruptedRightSidebarDragPreferredWidth(startWidth: startWidth, endWidth: endWidth)
+    }
+
+    static func completedInterruptedRightSidebarDragPreferredWidth(
+        startWidth: CGFloat,
+        endWidth: CGFloat
+    ) -> CGFloat? {
         guard startWidth.isFinite, endWidth.isFinite, abs(endWidth - startWidth) > Self.sidebarDragPersistenceThreshold else {
             return nil
         }
@@ -1757,7 +1771,9 @@ struct ContentView: View {
     }
 
     private func clampSidebarWidthIfNeeded(availableWidth: CGFloat? = nil) {
-        let preferredWidth = normalizedSidebarPreferredWidth(sidebarState.persistedWidth)
+        let preferredWidth = sidebarDragStartWidth == nil
+            ? normalizedSidebarPreferredWidth(sidebarState.persistedWidth)
+            : sidebarWidth
         let nextWidth = Self.clampedSidebarWidth(
             preferredWidth,
             maximumWidth: maxSidebarWidth(availableWidth: availableWidth)
@@ -1814,12 +1830,33 @@ struct ContentView: View {
     }
 
     private func clampRightSidebarWidthIfNeeded(availableWidth: CGFloat? = nil) {
-        let preferredWidth = normalizedRightSidebarPreferredWidth(fileExplorerState.width)
+        let preferredWidth = fileExplorerDragStartWidth == nil
+            ? normalizedRightSidebarPreferredWidth(fileExplorerState.width)
+            : fileExplorerWidth
         let nextWidth = normalizedRightSidebarWidth(preferredWidth, availableWidth: availableWidth)
         guard abs(nextWidth - fileExplorerWidth) > 0.5 else { return }
         withTransaction(Transaction(animation: nil)) {
             fileExplorerWidth = nextWidth
         }
+    }
+
+    private func finishInterruptedSidebarResizeDrag() {
+        if let startWidth = sidebarDragStartWidth,
+           let preferredWidth = Self.completedInterruptedSidebarDragPreferredWidth(
+               startWidth: startWidth,
+               endWidth: sidebarWidth
+           ) {
+            sidebarState.persistedWidth = preferredWidth
+        }
+        if let startWidth = fileExplorerDragStartWidth,
+           let preferredWidth = Self.completedInterruptedRightSidebarDragPreferredWidth(
+               startWidth: startWidth,
+               endWidth: fileExplorerWidth
+           ) {
+            fileExplorerState.width = preferredWidth
+        }
+        sidebarDragStartWidth = nil
+        fileExplorerDragStartWidth = nil
     }
 
     private func activateSidebarResizerCursor() {
@@ -2000,9 +2037,8 @@ struct ContentView: View {
                 if isResizerDragging {
                     TerminalWindowPortalRegistry.endInteractiveGeometryResize()
                     isResizerDragging = false
+                    finishInterruptedSidebarResizeDrag()
                 }
-                sidebarDragStartWidth = nil
-                fileExplorerDragStartWidth = nil
                 isResizerBandActive = false
                 scheduleSidebarResizerCursorRelease(force: true)
             }
@@ -3215,7 +3251,9 @@ struct ContentView: View {
                 sidebarWidth = sanitized
                 return
             }
-            clampRightSidebarWidthIfNeeded()
+            if sidebarDragStartWidth == nil {
+                clampRightSidebarWidthIfNeeded()
+            }
             // Sidebar width changes are pure SwiftUI layout updates, so portal-hosted
             // terminals and browsers need an explicit post-layout geometry resync.
             schedulePortalGeometrySynchronize()
@@ -3298,8 +3336,7 @@ struct ContentView: View {
             if isResizerDragging {
                 TerminalWindowPortalRegistry.endInteractiveGeometryResize()
                 isResizerDragging = false
-                sidebarDragStartWidth = nil
-                fileExplorerDragStartWidth = nil
+                finishInterruptedSidebarResizeDrag()
             }
             removeSidebarResizerPointerMonitor()
         })
