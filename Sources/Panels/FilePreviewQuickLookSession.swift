@@ -24,13 +24,8 @@ private final class FilePreviewQLItem: NSObject, QLPreviewItem {
 final class FilePreviewQuickLookSession {
     private let viewSession = PanelOwnedNativeViewSession<NSView>(
         makeView: FilePreviewQuickLookSession.makeView,
-        closeView: { view in
-            if let previewView = view as? QLPreviewView {
-                previewView.close()
-                previewView.previewItem = nil
-            }
-            view.removeFromSuperview()
-        }
+        closeView: FilePreviewQuickLookSession.releaseView,
+        dismantleView: FilePreviewQuickLookSession.dismantleView
     )
     private var item: FilePreviewQLItem?
 
@@ -78,12 +73,32 @@ final class FilePreviewQuickLookSession {
         item = nil
     }
 
+    func dismantle(_ view: NSView) {
+        viewSession.dismantle(view)
+        item = nil
+    }
+
     private static func makeView() -> NSView {
         guard let previewView = QLPreviewView(frame: .zero, style: .normal) else {
             return NSView()
         }
         previewView.autostarts = true
         return previewView
+    }
+
+    private static func releaseView(_ view: NSView) {
+        if let previewView = view as? QLPreviewView {
+            previewView.previewItem = nil
+        }
+        view.removeFromSuperview()
+    }
+
+    private static func dismantleView(_ view: NSView) {
+        if let previewView = view as? QLPreviewView {
+            previewView.previewItem = nil
+            previewView.close()
+        }
+        view.removeFromSuperview()
     }
 
     private func configure(

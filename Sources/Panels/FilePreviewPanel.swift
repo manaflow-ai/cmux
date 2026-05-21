@@ -4282,6 +4282,10 @@ private struct QuickLookPreviewView: NSViewRepresentable {
     let backgroundColor: NSColor
     let drawsBackground: Bool
 
+    func makeCoordinator() -> Coordinator {
+        Coordinator(panel: panel)
+    }
+
     func makeNSView(context: Context) -> NSView {
         panel.nativeViewSessions.quickLook.view(
             panel: panel,
@@ -4299,6 +4303,18 @@ private struct QuickLookPreviewView: NSViewRepresentable {
             backgroundColor: backgroundColor,
             drawsBackground: drawsBackground
         )
+    }
+
+    static func dismantleNSView(_ nsView: NSView, coordinator: Coordinator) {
+        coordinator.panel.nativeViewSessions.quickLook.dismantle(nsView)
+    }
+
+    final class Coordinator {
+        let panel: FilePreviewPanel
+
+        init(panel: FilePreviewPanel) {
+            self.panel = panel
+        }
     }
 }
 
