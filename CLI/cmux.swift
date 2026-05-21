@@ -10223,13 +10223,14 @@ struct CMUXCLI {
         while true {
             let response = try client.sendV2(
                 method: "sudo.result",
-                params: ["request_id": requestID, "wait_ms": 30_000],
-                responseTimeout: 35
+                params: ["request_id": requestID],
+                responseTimeout: 30
             )
             if (response["status"] as? String) != "pending" {
                 return response
             }
             guard Date() < deadline else {
+                cancelSudoRequest(requestID: requestID, client: client)
                 throw CLIError(
                     message: String(
                         localized: "cli.sudo.error.timeout",
@@ -10237,7 +10238,16 @@ struct CMUXCLI {
                     )
                 )
             }
+            RunLoop.current.run(until: Date().addingTimeInterval(0.25))
         }
+    }
+
+    private func cancelSudoRequest(requestID: String, client: SocketClient) {
+        _ = try? client.sendV2(
+            method: "sudo.cancel",
+            params: ["request_id": requestID],
+            responseTimeout: 5
+        )
     }
 
     private func parseSudoCommand(_ args: [String]) throws -> ParsedSudoCommand {

@@ -1843,6 +1843,7 @@ class TerminalController {
         "system.memory",
         "sudo.request",
         "sudo.result",
+        "sudo.cancel",
     ]
 
     private nonisolated static func executionPolicy(forV2Method method: String) -> SocketCommandExecutionPolicy {
@@ -1958,6 +1959,8 @@ class TerminalController {
             return v2Result(id: request.id, v2SudoRequestOnSocketWorker(params: request.params))
         case "sudo.result":
             return v2Result(id: request.id, v2SudoResultOnSocketWorker(params: request.params))
+        case "sudo.cancel":
+            return v2Result(id: request.id, v2SudoCancelOnSocketWorker(params: request.params))
         case let method where method.hasPrefix("vm."):
             return socketWorkerCloudVMResponse(method: method, id: request.id, params: request.params)
         default:
@@ -3359,6 +3362,8 @@ class TerminalController {
             "system.top",
             "system.memory",
             "sudo.request",
+            "sudo.result",
+            "sudo.cancel",
             "events.stream",
             "auth.login",
             "auth.status",

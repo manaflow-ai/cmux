@@ -36,6 +36,8 @@ struct CMUXSudoAuditRecord: Sendable {
 enum CMUXSudoAuditLogger {
     static let maxBytes: UInt64 = 10 * 1024 * 1024
     static let maxRotatedFiles = 5
+    // The hash chain is a synchronous file contract. This lock keeps prepare,
+    // previous-hash read, rotation, hash computation, and append atomic.
     private static let lock = NSLock()
 
     static var defaultLogURL: URL {
