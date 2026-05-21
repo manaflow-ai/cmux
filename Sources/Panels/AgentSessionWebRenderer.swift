@@ -17,18 +17,20 @@ struct AgentSessionWebRenderer: NSViewRepresentable {
         )
     }
 
-    func makeNSView(context: Context) -> AgentSessionWebHostView {
-        let hostView = AgentSessionWebHostView()
-        hostView.backgroundColor = backgroundColor
-        hostView.onVisibleBounds = { [weak coordinator = context.coordinator] in
-            coordinator?.loadShellIfNeeded()
-            coordinator?.flushVisiblePaintIfReady()
+    func makeNSView(context: Context) -> AgentSessionWebView {
+        let webView = context.coordinator.ensureWebView(onPointerDown: onRequestPanelFocus)
+        if webView.superview != nil {
+            webView.removeFromSuperview()
         }
-        attachWebView(to: hostView, context: context)
-        return hostView
+        webView.onPointerDown = onRequestPanelFocus
+        webView.navigationDelegate = context.coordinator
+        webView.uiDelegate = context.coordinator
+        applyBackground(to: webView)
+        context.coordinator.loadShellIfNeeded()
+        return webView
     }
 
-    func updateNSView(_ nsView: AgentSessionWebHostView, context: Context) {
+    func updateNSView(_ nsView: AgentSessionWebView, context: Context) {
         context.coordinator.bind(
             panelId: panel.id,
             workspaceId: panel.workspaceId,
@@ -36,24 +38,25 @@ struct AgentSessionWebRenderer: NSViewRepresentable {
             initialProviderID: panel.initialProviderID,
             workingDirectory: panel.workingDirectory
         )
-        nsView.backgroundColor = backgroundColor
-        nsView.onVisibleBounds = { [weak coordinator = context.coordinator] in
-            coordinator?.loadShellIfNeeded()
-            coordinator?.flushVisiblePaintIfReady()
-        }
-        attachWebView(to: nsView, context: context)
-        if nsView.hasVisibleBounds {
-            context.coordinator.loadShellIfNeeded()
-            context.coordinator.flushVisiblePaintIfReady()
-        }
+        nsView.onPointerDown = onRequestPanelFocus
+        nsView.navigationDelegate = context.coordinator
+        nsView.uiDelegate = context.coordinator
+        applyBackground(to: nsView)
+        context.coordinator.loadShellIfNeeded()
+        context.coordinator.flushVisiblePaintIfReady()
     }
 
-    static func dismantleNSView(_ nsView: AgentSessionWebHostView, coordinator: Coordinator) {
-        if let retainedWebView = coordinator.webView {
-            nsView.detach(webView: retainedWebView)
+    static func dismantleNSView(_ nsView: AgentSessionWebView, coordinator: Coordinator) {
+        if let retainedWebView = coordinator.webView, retainedWebView === nsView {
             return
         }
-        nsView.detachHostedWebView()
+        nsView.configuration.userContentController.removeScriptMessageHandler(
+            forName: AgentSessionBridgeContract.handlerName,
+            contentWorld: .page
+        )
+        nsView.navigationDelegate = nil
+        nsView.uiDelegate = nil
+        nsView.onPointerDown = nil
     }
 
     private func applyBackground(to webView: WKWebView) {
@@ -61,15 +64,6 @@ struct AgentSessionWebRenderer: NSViewRepresentable {
         webView.wantsLayer = true
         webView.layer?.backgroundColor = backgroundColor.cgColor
         webView.layer?.isOpaque = false
-    }
-
-    private func attachWebView(to hostView: AgentSessionWebHostView, context: Context) {
-        let webView = context.coordinator.ensureWebView(onPointerDown: onRequestPanelFocus)
-        webView.onPointerDown = onRequestPanelFocus
-        webView.navigationDelegate = context.coordinator
-        webView.uiDelegate = context.coordinator
-        applyBackground(to: webView)
-        hostView.attach(webView)
     }
 }
 
@@ -92,74 +86,6 @@ final class AgentSessionWebView: WKWebView {
     override func mouseDown(with event: NSEvent) {
         onPointerDown?()
         super.mouseDown(with: event)
-    }
-}
-
-@MainActor
-final class AgentSessionWebHostView: NSView {
-    weak var hostedWebView: AgentSessionWebView?
-    var onVisibleBounds: (() -> Void)?
-
-    var backgroundColor: NSColor = .windowBackgroundColor {
-        didSet {
-            wantsLayer = true
-            layer?.backgroundColor = backgroundColor.cgColor
-            hostedWebView?.underPageBackgroundColor = backgroundColor
-        }
-    }
-
-    override var isOpaque: Bool {
-        false
-    }
-
-    var hasVisibleBounds: Bool {
-        bounds.width > 1 && bounds.height > 1
-    }
-
-    override init(frame frameRect: NSRect) {
-        super.init(frame: frameRect)
-        wantsLayer = true
-        layer?.backgroundColor = backgroundColor.cgColor
-    }
-
-    required init?(coder: NSCoder) {
-        super.init(coder: coder)
-        wantsLayer = true
-        layer?.backgroundColor = backgroundColor.cgColor
-    }
-
-    func attach(_ webView: AgentSessionWebView) {
-        if webView.superview !== self {
-            webView.removeFromSuperview()
-            addSubview(webView, positioned: .above, relativeTo: nil)
-        }
-        webView.translatesAutoresizingMaskIntoConstraints = true
-        webView.autoresizingMask = [.width, .height]
-        webView.frame = bounds
-        hostedWebView = webView
-        needsLayout = true
-    }
-
-    func detach(webView: AgentSessionWebView) {
-        if hostedWebView === webView {
-            hostedWebView = nil
-        }
-        if webView.superview === self {
-            webView.removeFromSuperview()
-        }
-    }
-
-    func detachHostedWebView() {
-        hostedWebView?.removeFromSuperview()
-        hostedWebView = nil
-    }
-
-    override func layout() {
-        super.layout()
-        hostedWebView?.frame = bounds
-        if hasVisibleBounds {
-            onVisibleBounds?()
-        }
     }
 }
 
@@ -552,6 +478,278 @@ private enum AgentSessionBridgeError: LocalizedError {
 }
 
 @MainActor
+final class CodexAppServerSession {
+    typealias DataWriter = (Data) throws -> Void
+    typealias OutputSink = (_ stream: String, _ text: String) -> Void
+
+    private let workingDirectory: String?
+    private let writeData: DataWriter
+    private let outputSink: OutputSink
+    private var nextRequestID = 1
+    private var initializeRequestID: Int?
+    private var didInitialize = false
+    private var threadStartRequestID: Int?
+    private var threadID: String?
+    private var queuedInputs: [String] = []
+    private var stdoutBuffer = ""
+
+    init(
+        workingDirectory: String?,
+        writeData: @escaping DataWriter,
+        outputSink: @escaping OutputSink
+    ) {
+        self.workingDirectory = workingDirectory
+        self.writeData = writeData
+        self.outputSink = outputSink
+    }
+
+    func start() throws {
+        initializeRequestID = try sendRequest(
+            method: "initialize",
+            params: [
+                "clientInfo": [
+                    "name": "cmux",
+                    "title": "cmux",
+                    "version": Bundle.main.object(forInfoDictionaryKey: "CFBundleShortVersionString") as? String ?? "0"
+                ],
+                "capabilities": [
+                    "experimentalApi": true,
+                    "requestAttestation": false
+                ]
+            ]
+        )
+    }
+
+    func submit(_ text: String) throws {
+        let trimmed = text.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmed.isEmpty else { return }
+        guard let threadID else {
+            queuedInputs.append(trimmed)
+            if didInitialize {
+                try startThreadIfNeeded()
+            }
+            return
+        }
+        try sendTurnStart(threadID: threadID, text: trimmed)
+    }
+
+    func consumeStdout(_ text: String) {
+        stdoutBuffer.append(text)
+        while let newlineRange = stdoutBuffer.range(of: "\n") {
+            let line = String(stdoutBuffer[..<newlineRange.lowerBound])
+                .trimmingCharacters(in: .whitespacesAndNewlines)
+            stdoutBuffer.removeSubrange(...newlineRange.lowerBound)
+            if !line.isEmpty {
+                handleLine(line)
+            }
+        }
+    }
+
+    private func handleLine(_ line: String) {
+        guard let data = line.data(using: .utf8),
+              let decoded = try? JSONSerialization.jsonObject(with: data),
+              let object = decoded as? [String: Any] else {
+            outputSink("stderr", String(localized: "agentSession.codex.error.invalidJSON", defaultValue: "Codex app-server response was not valid JSON."))
+            return
+        }
+
+        if let method = object["method"] as? String,
+           object["id"] != nil {
+            handleServerRequest(object, method: method)
+            return
+        }
+
+        if let method = object["method"] as? String {
+            handleNotification(method: method, params: object["params"] as? [String: Any])
+            return
+        }
+
+        guard let id = requestID(from: object["id"]) else { return }
+        if let error = object["error"] as? [String: Any] {
+            let message = error["message"] as? String ?? String(localized: "agentSession.codex.error.rpcFailed", defaultValue: "Codex app-server request failed.")
+            outputSink("stderr", message)
+            return
+        }
+        handleResponse(id: id, result: object["result"] as? [String: Any])
+    }
+
+    private func handleResponse(id: Int, result: [String: Any]?) {
+        if id == initializeRequestID {
+            didInitialize = true
+            do {
+                try sendNotification(method: "initialized")
+                try startThreadIfNeeded()
+            } catch {
+                outputSink("stderr", error.localizedDescription)
+            }
+            return
+        }
+
+        if id == threadStartRequestID,
+           let thread = result?["thread"] as? [String: Any],
+           let id = thread["id"] as? String {
+            threadID = id
+            threadStartRequestID = nil
+            drainQueuedInputs()
+            return
+        }
+    }
+
+    private func handleNotification(method: String, params: [String: Any]?) {
+        switch method {
+        case "thread/started":
+            if threadID == nil,
+               let thread = params?["thread"] as? [String: Any],
+               let id = thread["id"] as? String {
+                threadID = id
+                drainQueuedInputs()
+            }
+        case "item/agentMessage/delta":
+            if let delta = params?["delta"] as? String {
+                outputSink("stdout", delta)
+            }
+        case "error":
+            let error = params?["error"] as? [String: Any]
+            outputSink("stderr", error?["message"] as? String ?? String(localized: "agentSession.codex.error.rpcFailed", defaultValue: "Codex app-server request failed."))
+        case "warning", "guardianWarning", "configWarning", "deprecationNotice":
+            outputSink("stderr", codexMessage(from: params) ?? method)
+        default:
+            break
+        }
+    }
+
+    private func handleServerRequest(_ object: [String: Any], method: String) {
+        guard let id = object["id"] else { return }
+        let result: [String: Any]
+        switch method {
+        case "item/commandExecution/requestApproval":
+            result = ["decision": "decline"]
+        case "item/fileChange/requestApproval":
+            result = ["decision": "decline"]
+        case "execCommandApproval", "applyPatchApproval":
+            result = ["decision": "denied"]
+        default:
+            do {
+                try sendErrorResponse(
+                    id: id,
+                    code: -32601,
+                    message: String(
+                        format: String(
+                            localized: "agentSession.codex.error.unsupportedServerRequest",
+                            defaultValue: "Request from Codex app-server is not supported: %@"
+                        ),
+                        method
+                    )
+                )
+            } catch {
+                outputSink("stderr", error.localizedDescription)
+            }
+            return
+        }
+
+        do {
+            try sendJSONObject(["id": id, "result": result])
+        } catch {
+            outputSink("stderr", error.localizedDescription)
+        }
+    }
+
+    private func drainQueuedInputs() {
+        guard let threadID else { return }
+        let inputs = queuedInputs
+        queuedInputs.removeAll()
+        for input in inputs {
+            do {
+                try sendTurnStart(threadID: threadID, text: input)
+            } catch {
+                outputSink("stderr", error.localizedDescription)
+            }
+        }
+    }
+
+    private func startThreadIfNeeded() throws {
+        guard threadID == nil, threadStartRequestID == nil else { return }
+        var params: [String: Any] = [
+            "serviceName": "cmux",
+            "threadSource": "user"
+        ]
+        if let workingDirectory {
+            params["cwd"] = workingDirectory
+        }
+        threadStartRequestID = try sendRequest(method: "thread/start", params: params)
+    }
+
+    private func sendTurnStart(threadID: String, text: String) throws {
+        _ = try sendRequest(
+            method: "turn/start",
+            params: [
+                "threadId": threadID,
+                "input": [
+                    [
+                        "type": "text",
+                        "text": text,
+                        "text_elements": []
+                    ]
+                ]
+            ]
+        )
+    }
+
+    @discardableResult
+    private func sendRequest(method: String, params: Any) throws -> Int {
+        let id = nextRequestID
+        nextRequestID += 1
+        try sendJSONObject([
+            "id": id,
+            "method": method,
+            "params": params
+        ])
+        return id
+    }
+
+    private func sendNotification(method: String) throws {
+        try sendJSONObject(["method": method])
+    }
+
+    private func sendErrorResponse(id: Any, code: Int, message: String) throws {
+        try sendJSONObject([
+            "id": id,
+            "error": [
+                "code": code,
+                "message": message
+            ]
+        ])
+    }
+
+    private func sendJSONObject(_ object: [String: Any]) throws {
+        var data = try JSONSerialization.data(withJSONObject: object, options: [])
+        data.append(0x0A)
+        try writeData(data)
+    }
+
+    private func requestID(from value: Any?) -> Int? {
+        if let value = value as? Int { return value }
+        if let value = value as? String { return Int(value) }
+        if let value = value as? NSNumber { return value.intValue }
+        return nil
+    }
+
+    private func codexMessage(from params: [String: Any]?) -> String? {
+        if let message = params?["message"] as? String {
+            return message
+        }
+        if let warning = params?["warning"] as? String {
+            return warning
+        }
+        if let error = params?["error"] as? [String: Any],
+           let message = error["message"] as? String {
+            return message
+        }
+        return nil
+    }
+}
+
+@MainActor
 private final class AgentSessionProcessStore {
     struct StartedSession {
         let sessionId: String
@@ -582,6 +780,22 @@ private final class AgentSessionProcessStore {
             process: process,
             stdin: stdin
         )
+        if plan.provider == .codex {
+            running.codexAppServerSession = CodexAppServerSession(
+                workingDirectory: workingDirectory,
+                writeData: { data in
+                    try stdin.fileHandleForWriting.write(contentsOf: data)
+                },
+                outputSink: { [weak self] stream, text in
+                    self?.emitOutput(
+                        sessionId: sessionId,
+                        providerID: plan.provider,
+                        stream: stream,
+                        text: text
+                    )
+                }
+            )
+        }
         sessions[sessionId] = running
 
         installReadHandler(stdout.fileHandleForReading, sessionId: sessionId, stream: "stdout")
@@ -600,7 +814,11 @@ private final class AgentSessionProcessStore {
 
         do {
             try process.run()
+            try running.codexAppServerSession?.start()
         } catch {
+            if process.isRunning {
+                process.terminate()
+            }
             sessions.removeValue(forKey: sessionId)
             throw error
         }
@@ -619,6 +837,11 @@ private final class AgentSessionProcessStore {
         guard let session = sessions[sessionId] else {
             throw AgentSessionBridgeError.sessionNotFound(sessionId)
         }
+        if let codexAppServerSession = session.codexAppServerSession {
+            try codexAppServerSession.submit(text)
+            return
+        }
+
         let payload = text.hasSuffix("\n") ? text : text + "\n"
         guard let data = payload.data(using: .utf8) else { return }
         try session.stdin.fileHandleForWriting.write(contentsOf: data)
@@ -651,15 +874,34 @@ private final class AgentSessionProcessStore {
                       let session = self.sessions[sessionId] else {
                     return
                 }
-                self.eventSink?([
-                    "type": "provider.output",
-                    "sessionId": sessionId,
-                    "providerId": session.providerID.rawValue,
-                    "stream": stream,
-                    "text": text
-                ])
+                if stream == "stdout",
+                   let codexAppServerSession = session.codexAppServerSession {
+                    codexAppServerSession.consumeStdout(text)
+                } else {
+                    self.emitOutput(
+                        sessionId: sessionId,
+                        providerID: session.providerID,
+                        stream: stream,
+                        text: text
+                    )
+                }
             }
         }
+    }
+
+    private func emitOutput(
+        sessionId: String,
+        providerID: AgentSessionProviderID,
+        stream: String,
+        text: String
+    ) {
+        eventSink?([
+            "type": "provider.output",
+            "sessionId": sessionId,
+            "providerId": providerID.rawValue,
+            "stream": stream,
+            "text": text
+        ])
     }
 
     private final class RunningSession {
@@ -667,6 +909,7 @@ private final class AgentSessionProcessStore {
         let providerID: AgentSessionProviderID
         let process: Process
         let stdin: Pipe
+        var codexAppServerSession: CodexAppServerSession?
 
         init(
             sessionId: String,

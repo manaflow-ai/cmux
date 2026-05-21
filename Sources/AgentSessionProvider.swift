@@ -48,7 +48,9 @@ enum AgentSessionProviderID: String, CaseIterable, Codable, Identifiable, Sendab
 
     var transportKind: String {
         switch self {
-        case .codex, .claude:
+        case .codex:
+            return "stdio-jsonrpc"
+        case .claude:
             return "stdio-jsonl"
         case .opencode:
             return "http-loopback"
