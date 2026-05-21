@@ -10480,6 +10480,7 @@ final class Workspace: Identifiable, ObservableObject {
         workingDirectory: String? = nil,
         initialCommand: String? = nil,
         tmuxStartCommand: String? = nil,
+        startupEnvironment: [String: String] = [:],
         initialDividerPosition: CGFloat? = nil
     ) -> TerminalPanel? {
 #if DEBUG
@@ -10560,7 +10561,8 @@ final class Workspace: Identifiable, ObservableObject {
             workingDirectory: splitWorkingDirectory,
             portOrdinal: portOrdinal,
             initialCommand: startupCommand,
-            tmuxStartCommand: tmuxStartCommand
+            tmuxStartCommand: tmuxStartCommand,
+            additionalEnvironment: startupEnvironment
         )
         configureTerminalPanel(newPanel)
         panels[newPanel.id] = newPanel

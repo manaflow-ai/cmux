@@ -421,6 +421,221 @@ final class CLINotifyProcessIntegrationRegressionTests: XCTestCase {
         XCTAssertEqual(request["source"] as? String, "agent-hook")
     }
 
+    func testNestedCodexPromptAndStopDoNotReplaceParentResumeBinding() throws {
+        let context = try makeClaudeHookContext(name: "codex-nested-resume-guard")
+        defer { context.cleanup() }
+
+        let sessionId = "same-process-session"
+        let launchEnvironment = codexLaunchEnvironment(context: context, sessionId: sessionId)
+        startAgentHookMockServerAccepting(context: context, connectionLimit: 32)
+
+        let parentPrompt = runCodexHook(
+            context: context,
+            subcommand: "prompt-submit",
+            standardInput: #"{"session_id":"\#(sessionId)","cwd":"\#(context.root.path)","hook_event_name":"UserPromptSubmit","prompt":"spawn subagent"}"#,
+            extraEnvironment: launchEnvironment
+        )
+        XCTAssertFalse(parentPrompt.timedOut, parentPrompt.stderr)
+        XCTAssertEqual(parentPrompt.status, 0, parentPrompt.stderr)
+        XCTAssertTrue(
+            context.state.commands.contains { self.jsonObject($0)?["method"] as? String == "surface.resume.set" },
+            "Parent Codex prompt should publish a resume binding, saw \(context.state.commands)"
+        )
+
+        let childPromptStart = context.state.commands.count
+        let childPrompt = runCodexHook(
+            context: context,
+            subcommand: "prompt-submit",
+            standardInput: #"{"session_id":"\#(sessionId)","cwd":"\#(context.root.path)","hook_event_name":"UserPromptSubmit","prompt":"return 1+1"}"#,
+            extraEnvironment: launchEnvironment
+        )
+        XCTAssertFalse(childPrompt.timedOut, childPrompt.stderr)
+        XCTAssertEqual(childPrompt.status, 0, childPrompt.stderr)
+        let childPromptCommands = Array(context.state.commands.dropFirst(childPromptStart))
+        XCTAssertFalse(
+            childPromptCommands.contains { self.jsonObject($0)?["method"] as? String == "surface.resume.set" },
+            "Nested Codex prompt should not replace the parent resume binding, saw \(childPromptCommands)"
+        )
+        XCTAssertFalse(
+            childPromptCommands.contains { $0.hasPrefix("set_status codex Running ") },
+            "Nested Codex prompt should not rewrite parent Running status, saw \(childPromptCommands)"
+        )
+
+        let childStopStart = context.state.commands.count
+        let childStop = runCodexHook(
+            context: context,
+            subcommand: "stop",
+            standardInput: #"{"session_id":"\#(sessionId)","cwd":"\#(context.root.path)","hook_event_name":"Stop","last_assistant_message":"2"}"#,
+            extraEnvironment: launchEnvironment
+        )
+        XCTAssertFalse(childStop.timedOut, childStop.stderr)
+        XCTAssertEqual(childStop.status, 0, childStop.stderr)
+        let childStopCommands = Array(context.state.commands.dropFirst(childStopStart))
+        XCTAssertTrue(
+            childStopCommands.contains { $0.contains(#""method":"feed.push""#) && $0.contains(#""hook_event_name":"Stop""#) },
+            "Nested Codex Stop should remain Feed telemetry, saw \(childStopCommands)"
+        )
+        XCTAssertFalse(
+            childStopCommands.contains { self.jsonObject($0)?["method"] as? String == "surface.resume.set" },
+            "Nested Codex Stop should not replace the parent resume binding, saw \(childStopCommands)"
+        )
+        XCTAssertFalse(
+            childStopCommands.contains { $0.hasPrefix("notify_target") || $0.hasPrefix("set_status codex ") },
+            "Nested Codex Stop should not notify or mark the parent idle, saw \(childStopCommands)"
+        )
+
+        let parentStopStart = context.state.commands.count
+        let parentStop = runCodexHook(
+            context: context,
+            subcommand: "stop",
+            standardInput: #"{"session_id":"\#(sessionId)","cwd":"\#(context.root.path)","hook_event_name":"Stop","last_assistant_message":"parent done"}"#,
+            extraEnvironment: launchEnvironment
+        )
+        XCTAssertFalse(parentStop.timedOut, parentStop.stderr)
+        XCTAssertEqual(parentStop.status, 0, parentStop.stderr)
+        let parentStopCommands = Array(context.state.commands.dropFirst(parentStopStart))
+        XCTAssertTrue(
+            parentStopCommands.contains { self.jsonObject($0)?["method"] as? String == "surface.resume.set" },
+            "Parent Codex Stop should still refresh the resume binding, saw \(parentStopCommands)"
+        )
+        XCTAssertTrue(
+            parentStopCommands.contains { $0.hasPrefix("notify_target_async \(context.workspaceId) \(context.surfaceId) Codex|") },
+            "Parent Codex Stop should still notify, saw \(parentStopCommands)"
+        )
+        XCTAssertTrue(
+            parentStopCommands.contains { $0.hasPrefix("set_status codex ") && $0.contains(" Idle ") },
+            "Parent Codex Stop should mark Codex idle, saw \(parentStopCommands)"
+        )
+    }
+
+    func testManagedCodexSubagentStopDoesNotReplaceResumeBinding() throws {
+        let context = try makeClaudeHookContext(name: "codex-managed-resume-guard")
+        defer { context.cleanup() }
+
+        let sessionId = "managed-child-session"
+        startAgentHookMockServerAccepting(context: context, connectionLimit: 16)
+        let result = runCodexHook(
+            context: context,
+            subcommand: "stop",
+            standardInput: #"{"session_id":"\#(sessionId)","cwd":"\#(context.root.path)","hook_event_name":"Stop","last_assistant_message":"child done"}"#,
+            extraEnvironment: codexLaunchEnvironment(context: context, sessionId: sessionId).merging([
+                "CMUX_AGENT_MANAGED_SUBAGENT": "1",
+                "CMUX_CODEX_TEAMS_THREAD_ID": "child-thread",
+                "CMUX_CODEX_TEAMS_PARENT_THREAD_ID": "root-thread",
+                "CMUX_CODEX_TEAMS_DEPTH": "1",
+            ], uniquingKeysWith: { _, new in new })
+        )
+
+        XCTAssertFalse(result.timedOut, result.stderr)
+        XCTAssertEqual(result.status, 0, result.stderr)
+        XCTAssertEqual(result.stdout, "{}\n")
+        XCTAssertTrue(
+            context.state.commands.contains { $0.contains(#""method":"feed.push""#) && $0.contains(#""hook_event_name":"Stop""#) },
+            "Managed subagent Stop should remain Feed telemetry, saw \(context.state.commands)"
+        )
+        XCTAssertFalse(
+            context.state.commands.contains { self.jsonObject($0)?["method"] as? String == "surface.resume.set" },
+            "Managed subagent Stop should not publish a child resume binding, saw \(context.state.commands)"
+        )
+        XCTAssertFalse(
+            context.state.commands.contains { $0.hasPrefix("notify_target") || $0.hasPrefix("set_status codex ") },
+            "Managed subagent Stop should not notify or clobber visible status, saw \(context.state.commands)"
+        )
+    }
+
+    func testCodexStopIgnoresStaleSubagentRelayFromCompletedTurnWithoutTurnId() throws {
+        let context = try makeClaudeHookContext(name: "codex-stale-relay")
+        defer { context.cleanup() }
+
+        let sessionId = "codex-stale-relay-session"
+        let transcriptURL = context.root.appendingPathComponent("codex-stale-relay.jsonl")
+        try [
+            #"{"type":"turn_context","payload":{"turn_id":"old-turn"}}"#,
+            #"{"type":"event_msg","payload":{"type":"turn_complete","turn_id":"old-turn"}}"#,
+            #"{"type":"response_item","payload":{"type":"message","role":"user","content":"<subagent_notification>old child finished</subagent_notification>"}}"#,
+        ].joined(separator: "\n").write(to: transcriptURL, atomically: true, encoding: .utf8)
+
+        startAgentHookMockServerAccepting(context: context, connectionLimit: 24)
+        let launchEnvironment = codexLaunchEnvironment(context: context, sessionId: sessionId)
+
+        let prompt = runCodexHook(
+            context: context,
+            subcommand: "prompt-submit",
+            standardInput: #"{"session_id":"\#(sessionId)","cwd":"\#(context.root.path)","transcript_path":"\#(transcriptURL.path)","hook_event_name":"UserPromptSubmit","prompt":"top-level"}"#,
+            extraEnvironment: launchEnvironment
+        )
+        XCTAssertFalse(prompt.timedOut, prompt.stderr)
+        XCTAssertEqual(prompt.status, 0, prompt.stderr)
+
+        let stopStart = context.state.commands.count
+        let stop = runCodexHook(
+            context: context,
+            subcommand: "stop",
+            standardInput: #"{"session_id":"\#(sessionId)","cwd":"\#(context.root.path)","transcript_path":"\#(transcriptURL.path)","hook_event_name":"Stop","last_assistant_message":"parent done"}"#,
+            extraEnvironment: launchEnvironment
+        )
+        XCTAssertFalse(stop.timedOut, stop.stderr)
+        XCTAssertEqual(stop.status, 0, stop.stderr)
+
+        let stopCommands = Array(context.state.commands.dropFirst(stopStart))
+        XCTAssertTrue(
+            stopCommands.contains { $0.hasPrefix("notify_target_async \(context.workspaceId) \(context.surfaceId) Codex|") },
+            "Stale completed-turn subagent relay should not suppress the parent completion notification, saw \(stopCommands)"
+        )
+    }
+
+    func testManagedCodexSubagentSessionEndDoesNotClearParentResumeBinding() throws {
+        let context = try makeClaudeHookContext(name: "codex-managed-end-resume-guard")
+        defer { context.cleanup() }
+
+        let sessionId = "managed-child-session-end"
+        let now = Date().timeIntervalSince1970
+        let stateURL = context.root.appendingPathComponent("codex-hook-sessions.json")
+        let store: [String: Any] = [
+            "version": 1,
+            "sessions": [
+                sessionId: [
+                    "sessionId": sessionId,
+                    "workspaceId": context.workspaceId,
+                    "surfaceId": context.surfaceId,
+                    "cwd": context.root.path,
+                    "pid": 12345,
+                    "startedAt": now,
+                    "updatedAt": now,
+                ],
+            ],
+        ]
+        try JSONSerialization.data(withJSONObject: store, options: [.prettyPrinted])
+            .write(to: stateURL, options: .atomic)
+
+        startAgentHookMockServerAccepting(context: context, connectionLimit: 16)
+        let result = runCodexHook(
+            context: context,
+            subcommand: "session-end",
+            standardInput: #"{"session_id":"\#(sessionId)","cwd":"\#(context.root.path)","hook_event_name":"SessionEnd"}"#,
+            extraEnvironment: [
+                "CMUX_AGENT_MANAGED_SUBAGENT": "1",
+                "CMUX_CODEX_TEAMS_THREAD_ID": "child-thread",
+                "CMUX_CODEX_TEAMS_PARENT_THREAD_ID": "root-thread",
+                "CMUX_CODEX_TEAMS_DEPTH": "1",
+            ]
+        )
+
+        XCTAssertFalse(result.timedOut, result.stderr)
+        XCTAssertEqual(result.status, 0, result.stderr)
+        XCTAssertFalse(
+            context.state.commands.contains { self.jsonObject($0)?["method"] as? String == "surface.resume.clear" },
+            "Managed subagent SessionEnd should not clear the parent resume binding, saw \(context.state.commands)"
+        )
+        XCTAssertFalse(
+            context.state.commands.contains { $0.hasPrefix("clear_agent_pid codex.") },
+            "Managed subagent SessionEnd should not clear the visible parent PID, saw \(context.state.commands)"
+        )
+        let savedState = try XCTUnwrap(JSONSerialization.jsonObject(with: Data(contentsOf: stateURL)) as? [String: Any])
+        let savedSessions = try XCTUnwrap(savedState["sessions"] as? [String: Any])
+        XCTAssertNotNil(savedSessions[sessionId], "Suppressed SessionEnd should leave the stored parent session intact")
+    }
+
     func testRightSidebarCLIForwardsV1SocketCommandsQuietly() throws {
         let cliPath = try bundledCLIPath()
         let cases: [(name: String, arguments: [String], expectedCommand: String, response: String, stdout: String)] = [
@@ -3776,6 +3991,115 @@ final class CLINotifyProcessIntegrationRegressionTests: XCTestCase {
             Darwin.close(listenerFD)
             unlink(socketPath)
             try? FileManager.default.removeItem(at: root)
+        }
+    }
+
+    private func codexLaunchEnvironment(context: ClaudeHookContext, sessionId: String) -> [String: String] {
+        [
+            "CMUX_AGENT_LAUNCH_KIND": "codex",
+            "CMUX_AGENT_LAUNCH_EXECUTABLE": "/usr/local/bin/codex",
+            "CMUX_AGENT_LAUNCH_CWD": context.root.path,
+            "CMUX_AGENT_LAUNCH_ARGV_B64": base64NULSeparated([
+                "/usr/local/bin/codex",
+                "--model",
+                "gpt-5.4",
+            ]),
+        ]
+    }
+
+    private func runCodexHook(
+        context: ClaudeHookContext,
+        subcommand: String,
+        standardInput: String,
+        extraEnvironment: [String: String] = [:]
+    ) -> ProcessRunResult {
+        var environment = [
+            "HOME": context.root.path,
+            "PATH": "/usr/bin:/bin:/usr/sbin:/sbin",
+            "PWD": context.root.path,
+            "CMUX_SOCKET_PATH": context.socketPath,
+            "CMUX_WORKSPACE_ID": context.workspaceId,
+            "CMUX_SURFACE_ID": context.surfaceId,
+            "CMUX_AGENT_HOOK_STATE_DIR": context.root.path,
+            "CMUX_CLI_SENTRY_DISABLED": "1",
+        ]
+        environment.merge(extraEnvironment, uniquingKeysWith: { _, new in new })
+
+        return runProcess(
+            executablePath: context.cliPath,
+            arguments: ["hooks", "codex", subcommand],
+            environment: environment,
+            standardInput: standardInput,
+            timeout: 5
+        )
+    }
+
+    private func startAgentHookMockServerAccepting(
+        context: ClaudeHookContext,
+        connectionLimit: Int
+    ) {
+        DispatchQueue.global(qos: .userInitiated).async {
+            var accepted = 0
+            while accepted < connectionLimit {
+                var clientAddr = sockaddr_un()
+                var clientAddrLen = socklen_t(MemoryLayout<sockaddr_un>.size)
+                let clientFD = withUnsafeMutablePointer(to: &clientAddr) { ptr in
+                    ptr.withMemoryRebound(to: sockaddr.self, capacity: 1) { sockaddrPtr in
+                        Darwin.accept(context.listenerFD, sockaddrPtr, &clientAddrLen)
+                    }
+                }
+                if clientFD < 0 {
+                    if errno == EINTR { continue }
+                    return
+                }
+                accepted += 1
+
+                DispatchQueue.global(qos: .userInitiated).async {
+                    defer { Darwin.close(clientFD) }
+                    var pending = Data()
+                    var buffer = [UInt8](repeating: 0, count: 4096)
+                    while true {
+                        let count = Darwin.read(clientFD, &buffer, buffer.count)
+                        if count < 0 {
+                            if errno == EINTR { continue }
+                            return
+                        }
+                        if count == 0 { return }
+                        pending.append(buffer, count: count)
+                        while let newlineRange = pending.firstRange(of: Data([0x0A])) {
+                            let lineData = pending.subdata(in: 0..<newlineRange.lowerBound)
+                            pending.removeSubrange(0...newlineRange.lowerBound)
+                            guard let line = String(data: lineData, encoding: .utf8) else { continue }
+                            context.state.append(line)
+                            let response = self.agentHookMockResponse(line: line, context: context) + "\n"
+                            _ = response.withCString { ptr in
+                                Darwin.write(clientFD, ptr, strlen(ptr))
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    private func agentHookMockResponse(line: String, context: ClaudeHookContext) -> String {
+        guard let payload = jsonObject(line) else {
+            return "OK"
+        }
+        guard let id = payload["id"] as? String, let method = payload["method"] as? String else {
+            return malformedRequestResponse(id: payload["id"] as? String, raw: line)
+        }
+        switch method {
+        case "surface.list":
+            return surfaceListResponse(id: id, surfaceId: context.surfaceId)
+        case "feed.push":
+            return v2Response(id: id, ok: true, result: [:])
+        case "surface.resume.set":
+            return v2Response(id: id, ok: true, result: ["resume_binding": [:]])
+        case "surface.resume.clear":
+            return v2Response(id: id, ok: true, result: ["cleared": true])
+        default:
+            return v2Response(id: id, ok: false, error: ["code": "unrecognized_method", "message": "unexpected method: \(method)"])
         }
     }
 
