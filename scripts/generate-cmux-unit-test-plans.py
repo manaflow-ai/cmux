@@ -35,13 +35,33 @@ SKIPPED_TESTS = [
     "CLINotifyProcessIntegrationRegressionTests/testNotificationCLIActionsMutateSocketStateAndListExtendedFields()",
 ]
 
+SWIFT_DECL_MODIFIERS = (
+    r"(?:(?:@\w+(?:\([^)]*\))?|public|internal|fileprivate|private|open|final)[ \t]+)*"
+)
 CLASS_DECL_RE = re.compile(
-    r"(?m)^\s*(?:final\s+)?class\s+([A-Za-z_][A-Za-z0-9_]*)\s*:\s*XCTestCase\b"
+    rf"(?m)^(?:@\w+(?:\([^)]*\))?[ \t]*\n)*{SWIFT_DECL_MODIFIERS}class\s+"
+    r"([A-Za-z_][A-Za-z0-9_]*)(?:\s*<[^:{]+>)?\s*(?::\s*([^{\n]+))?"
 )
 TOP_LEVEL_DECL_RE = re.compile(
-    r"(?m)^\s*(?:(?:final\s+)?class|extension)\s+([A-Za-z_][A-Za-z0-9_]*)\b"
+    rf"(?m)^(?:@\w+(?:\([^)]*\))?[ \t]*\n)*(?:{SWIFT_DECL_MODIFIERS}class|{SWIFT_DECL_MODIFIERS}extension)\s+"
+    r"([A-Za-z_][A-Za-z0-9_]*)\b"
 )
 TEST_METHOD_RE = re.compile(r"(?m)^\s*(?:@\S[^\n]*\n\s*)*func\s+test[A-Za-z0-9_]*\s*\(")
+
+
+def inherited_type_names(clause: str | None) -> set[str]:
+    if clause is None:
+        return set()
+
+    names: set[str] = set()
+    for raw_part in clause.split(","):
+        part = raw_part.strip()
+        if not part:
+            continue
+        part = part.split("<", 1)[0]
+        part = part.split(" ", 1)[0]
+        names.add(part.rsplit(".", 1)[-1])
+    return names
 
 
 def stable_id(name: str) -> str:
@@ -49,11 +69,24 @@ def stable_id(name: str) -> str:
 
 
 def discover_classes() -> dict[str, int]:
-    files = sorted(TESTS_DIR.glob("*.swift"))
-    class_names: set[str] = set()
+    files = sorted(TESTS_DIR.rglob("*.swift"))
+    class_bases: dict[str, set[str]] = {}
     for path in files:
         text = path.read_text(encoding="utf-8")
-        class_names.update(match.group(1) for match in CLASS_DECL_RE.finditer(text))
+        for match in CLASS_DECL_RE.finditer(text):
+            class_bases[match.group(1)] = inherited_type_names(match.group(2))
+
+    class_names: set[str] = set()
+    while True:
+        discovered = {
+            name
+            for name, bases in class_bases.items()
+            if name not in class_names
+            and ("XCTestCase" in bases or any(base in class_names for base in bases))
+        }
+        if not discovered:
+            break
+        class_names.update(discovered)
 
     counts = {name: 0 for name in class_names}
     for path in files:
