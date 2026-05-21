@@ -14,7 +14,7 @@ REQUIRED_PATTERNS=(
 )
 
 for pattern in "${REQUIRED_PATTERNS[@]}"; do
-  if ! grep -Fq "$pattern" "$WORKFLOW_FILE"; then
+  if ! grep -Fq -- "$pattern" "$WORKFLOW_FILE"; then
     echo "FAIL: Missing pattern in ci.yml: $pattern"
     exit 1
   fi
