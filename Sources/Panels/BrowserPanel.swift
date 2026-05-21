@@ -2327,6 +2327,7 @@ final class BrowserPortalAnchorView: NSView {
 final class BrowserPanel: Panel, ObservableObject {
     /// Shared process pool for cookie sharing across all browser panels
     private static let sharedProcessPool = WKProcessPool()
+    private static let liveDefaultBrowserOpener: (URL) -> Bool = { NSWorkspace.shared.open($0) }
 
     /// Popup windows owned by this panel (for lifecycle cleanup)
     private var popupControllers: [BrowserPopupWindowController] = []
@@ -2877,6 +2878,7 @@ final class BrowserPanel: Panel, ObservableObject {
     private var insecureHTTPBypassHostOnce: String?
     private var insecureHTTPAlertFactory: () -> NSAlert
     private var insecureHTTPAlertWindowProvider: () -> NSWindow? = { NSApp.keyWindow ?? NSApp.mainWindow }
+    private var defaultBrowserOpener: (URL) -> Bool = BrowserPanel.liveDefaultBrowserOpener
     // Persist user intent across WebKit detach/reattach churn (split/layout updates).
     @Published private(set) var preferredDeveloperToolsVisible: Bool = false
     @Published var isReactGrabActive: Bool = false {
@@ -5046,6 +5048,30 @@ final class BrowserPanel: Panel, ObservableObject {
         resolveBrowserNavigableURL(input)
     }
 
+    var canOpenCurrentPageInDefaultBrowser: Bool {
+        currentPageDefaultBrowserURL() != nil
+    }
+
+    @discardableResult
+    func openCurrentPageInDefaultBrowser() -> Bool {
+        guard let url = currentPageDefaultBrowserURL() else { return false }
+        return defaultBrowserOpener(url)
+    }
+
+    private func currentPageDefaultBrowserURL() -> URL? {
+        guard let rawURL = preferredURLStringForOmnibar(),
+              let url = URL(string: rawURL),
+              Self.canOpenURLInDefaultBrowser(url) else {
+            return nil
+        }
+        return url
+    }
+
+    private static func canOpenURLInDefaultBrowser(_ url: URL) -> Bool {
+        let scheme = url.scheme?.lowercased()
+        return scheme == "http" || scheme == "https"
+    }
+
     private func shouldBlockInsecureHTTPNavigation(to url: URL) -> Bool {
         if consumeOneTimeInsecureHTTPBypassIfNeeded(for: url) {
             return false
@@ -5132,7 +5158,7 @@ final class BrowserPanel: Panel, ObservableObject {
         }
         switch response {
         case .alertFirstButtonReturn:
-            NSWorkspace.shared.open(url)
+            _ = defaultBrowserOpener(url)
         case .alertSecondButtonReturn:
             switch intent {
             case .currentTab:
@@ -6911,6 +6937,14 @@ extension BrowserPanel {
             }
             return browserFallbackInteractiveModalHostWindow()
         }
+    }
+
+    func configureDefaultBrowserOpenerForTesting(_ opener: @escaping (URL) -> Bool) {
+        defaultBrowserOpener = opener
+    }
+
+    func resetDefaultBrowserOpenerForTesting() {
+        defaultBrowserOpener = Self.liveDefaultBrowserOpener
     }
 
     func presentInsecureHTTPAlertForTesting(

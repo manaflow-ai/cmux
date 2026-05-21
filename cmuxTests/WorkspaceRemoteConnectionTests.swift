@@ -67,6 +67,10 @@ final class WorkspaceRemoteConnectionTests: XCTestCase {
             .write(to: url, atomically: true, encoding: .utf8)
     }
 
+    private func shellSingleQuoted(_ value: String) -> String {
+        "'" + value.replacingOccurrences(of: "'", with: "'\"'\"'") + "'"
+    }
+
     private func runRelayZshHistfile(
         configureUserHome: (URL) throws -> URL
     ) throws -> String {
@@ -145,6 +149,118 @@ final class WorkspaceRemoteConnectionTests: XCTestCase {
         XCTAssertFalse(fileManager.fileExists(atPath: authURL.path))
         XCTAssertFalse(fileManager.fileExists(atPath: daemonPathURL.path))
         XCTAssertFalse(fileManager.fileExists(atPath: ttyURL.path))
+    }
+
+    func testRemoteDaemonUploadScriptsResolveRelativePathsAgainstHome() throws {
+        let fileManager = FileManager.default
+        let root = fileManager.temporaryDirectory.appendingPathComponent("cmux-remote-daemon-path-\(UUID().uuidString)")
+        let home = root.appendingPathComponent("home", isDirectory: true)
+        let cwd = root.appendingPathComponent("cwd", isDirectory: true)
+        try fileManager.createDirectory(at: home, withIntermediateDirectories: true)
+        try fileManager.createDirectory(at: cwd, withIntermediateDirectories: true)
+        defer { try? fileManager.removeItem(at: root) }
+
+        let remotePath = ".cmux/bin/cmuxd-remote/test/linux-amd64/cmuxd-remote"
+        let remoteDirectory = (remotePath as NSString).deletingLastPathComponent
+        let remoteDirectoryURL = home.appendingPathComponent(remoteDirectory, isDirectory: true)
+        let cwdRemoteDirectoryURL = cwd.appendingPathComponent(remoteDirectory, isDirectory: true)
+
+        let mkdirResult = runProcess(
+            executablePath: "/usr/bin/env",
+            arguments: [
+                "HOME=\(home.path)",
+                "/bin/sh",
+                "-c",
+                """
+                cd \(shellSingleQuoted(cwd.path))
+                \(WorkspaceRemoteSessionController.remoteDaemonUploadMkdirScript(remoteDirectory: remoteDirectory))
+                """,
+            ],
+            timeout: 5
+        )
+
+        XCTAssertFalse(mkdirResult.timedOut, mkdirResult.stderr)
+        XCTAssertEqual(mkdirResult.status, 0, mkdirResult.stderr)
+        XCTAssertTrue(fileManager.fileExists(atPath: remoteDirectoryURL.path))
+        XCTAssertFalse(fileManager.fileExists(atPath: cwdRemoteDirectoryURL.path))
+
+        let remoteTempPath = "\(remotePath).tmp-test"
+        let remoteTempURL = home.appendingPathComponent(remoteTempPath, isDirectory: false)
+        let installedURL = home.appendingPathComponent(remotePath, isDirectory: false)
+        try Data("fake daemon".utf8).write(to: remoteTempURL)
+
+        let finalizeResult = runProcess(
+            executablePath: "/usr/bin/env",
+            arguments: [
+                "HOME=\(home.path)",
+                "/bin/sh",
+                "-c",
+                """
+                cd \(shellSingleQuoted(cwd.path))
+                \(WorkspaceRemoteSessionController.remoteDaemonUploadFinalizeScript(
+                    remoteTempPath: remoteTempPath,
+                    remotePath: remotePath
+                ))
+                """,
+            ],
+            timeout: 5
+        )
+
+        XCTAssertFalse(finalizeResult.timedOut, finalizeResult.stderr)
+        XCTAssertEqual(finalizeResult.status, 0, finalizeResult.stderr)
+        XCTAssertFalse(fileManager.fileExists(atPath: remoteTempURL.path))
+        XCTAssertTrue(fileManager.isExecutableFile(atPath: installedURL.path))
+    }
+
+    func testRemoteDaemonHelloScriptResolvesRelativePathAgainstHome() throws {
+        let fileManager = FileManager.default
+        let root = fileManager.temporaryDirectory.appendingPathComponent("cmux-remote-daemon-hello-\(UUID().uuidString)")
+        let home = root.appendingPathComponent("home", isDirectory: true)
+        let cwd = root.appendingPathComponent("cwd", isDirectory: true)
+        try fileManager.createDirectory(at: home, withIntermediateDirectories: true)
+        try fileManager.createDirectory(at: cwd, withIntermediateDirectories: true)
+        defer { try? fileManager.removeItem(at: root) }
+
+        let remotePath = ".cmux/bin/cmuxd-remote/test/linux-amd64/cmuxd-remote"
+        let daemonURL = home.appendingPathComponent(remotePath, isDirectory: false)
+        try fileManager.createDirectory(
+            at: daemonURL.deletingLastPathComponent(),
+            withIntermediateDirectories: true
+        )
+        let daemonScript = """
+        #!/bin/sh
+        if [ "${1:-}" != "serve" ] || [ "${2:-}" != "--stdio" ]; then
+          exit 64
+        fi
+        if IFS= read -r _request; then
+          printf '%s\\n' '{"ok":true,"result":{"name":"cmuxd-remote","version":"test","capabilities":["proxy_stream"]}}'
+          exit 0
+        fi
+        exit 65
+        """
+        try daemonScript.write(to: daemonURL, atomically: true, encoding: .utf8)
+        try fileManager.setAttributes([.posixPermissions: 0o755], ofItemAtPath: daemonURL.path)
+
+        let result = runProcess(
+            executablePath: "/usr/bin/env",
+            arguments: [
+                "HOME=\(home.path)",
+                "/bin/sh",
+                "-c",
+                """
+                cd \(shellSingleQuoted(cwd.path))
+                \(WorkspaceRemoteSessionController.remoteDaemonHelloScript(
+                    remotePath: remotePath,
+                    request: #"{"id":1,"method":"hello","params":{}}"#
+                ))
+                """,
+            ],
+            timeout: 5
+        )
+
+        XCTAssertFalse(result.timedOut, result.stderr)
+        XCTAssertEqual(result.status, 0, result.stderr)
+        XCTAssertTrue(result.stdout.contains(#""ok":true"#), result.stdout)
     }
 
     func testRemoteRelayMetadataCleanupScriptPreservesDifferentSocketAddr() {
@@ -1158,104 +1274,6 @@ final class WorkspaceRemoteConnectionTests: XCTestCase {
         let remotePath = WorkspaceRemoteSessionController.remoteDropPath(for: fileURL, uuid: uuid)
 
         XCTAssertEqual(remotePath, "/tmp/cmux-drop-12345678-1234-1234-1234-1234567890ab.png")
-    }
-
-    @MainActor
-    func testDaemonBootstrapUploadUsesAbsoluteHomePathForScpDestination() throws {
-        let fileManager = FileManager.default
-        let directoryURL = fileManager.temporaryDirectory.appendingPathComponent(
-            "cmux-remote-daemon-upload-\(UUID().uuidString)",
-            isDirectory: true
-        )
-        try fileManager.createDirectory(at: directoryURL, withIntermediateDirectories: true)
-        defer { try? fileManager.removeItem(at: directoryURL) }
-
-        let fakeDaemonURL = directoryURL.appendingPathComponent("cmuxd-remote", isDirectory: false)
-        try Data("fake daemon".utf8).write(to: fakeDaemonURL)
-        try fileManager.setAttributes([.posixPermissions: 0o755], ofItemAtPath: fakeDaemonURL.path)
-
-        let previousAllowLocalBuild = getenv("CMUX_REMOTE_DAEMON_ALLOW_LOCAL_BUILD").map { String(cString: $0) }
-        let previousDaemonBinary = getenv("CMUX_REMOTE_DAEMON_BINARY").map { String(cString: $0) }
-        setenv("CMUX_REMOTE_DAEMON_ALLOW_LOCAL_BUILD", "1", 1)
-        setenv("CMUX_REMOTE_DAEMON_BINARY", fakeDaemonURL.path, 1)
-        defer {
-            if let previousAllowLocalBuild {
-                setenv("CMUX_REMOTE_DAEMON_ALLOW_LOCAL_BUILD", previousAllowLocalBuild, 1)
-            } else {
-                unsetenv("CMUX_REMOTE_DAEMON_ALLOW_LOCAL_BUILD")
-            }
-            if let previousDaemonBinary {
-                setenv("CMUX_REMOTE_DAEMON_BINARY", previousDaemonBinary, 1)
-            } else {
-                unsetenv("CMUX_REMOTE_DAEMON_BINARY")
-            }
-        }
-
-        let scpInvoked = DispatchSemaphore(value: 0)
-        let lock = NSLock()
-        var scpDestination: String?
-        WorkspaceRemoteSessionController.runProcessOverrideForTesting = { executable, arguments, _, _ in
-            if executable == "/usr/bin/ssh" {
-                let command = arguments.last ?? ""
-                if command.contains("uname -s") {
-                    return (
-                        status: 0,
-                        stdout: """
-                        __CMUX_REMOTE_HOME__=/home/test
-                        __CMUX_REMOTE_OS__=Linux
-                        __CMUX_REMOTE_ARCH__=x86_64
-                        __CMUX_REMOTE_EXISTS__=no
-                        """,
-                        stderr: ""
-                    )
-                }
-                if command.contains("mkdir -p") {
-                    return (status: 0, stdout: "", stderr: "")
-                }
-                return (status: 0, stdout: "", stderr: "")
-            }
-            if executable == "/usr/bin/scp" {
-                lock.lock()
-                scpDestination = arguments.last
-                lock.unlock()
-                scpInvoked.signal()
-                return (status: 1, stdout: "", stderr: "intentional stop after upload destination capture")
-            }
-            XCTFail("unexpected executable \(executable)")
-            return (status: 1, stdout: "", stderr: "unexpected executable")
-        }
-        defer { WorkspaceRemoteSessionController.runProcessOverrideForTesting = nil }
-
-        let workspace = Workspace()
-        let config = WorkspaceRemoteConfiguration(
-            destination: "test@hpc.example",
-            port: 2222,
-            identityFile: "/Users/test/.ssh/id_ed25519",
-            sshOptions: [],
-            localProxyPort: nil,
-            relayPort: nil,
-            relayID: nil,
-            relayToken: nil,
-            localSocketPath: nil,
-            terminalStartupCommand: "ssh test@hpc.example"
-        )
-        defer { workspace.disconnectRemoteConnection(clearConfiguration: true) }
-
-        workspace.configureRemoteConnection(config, autoConnect: true)
-
-        XCTAssertEqual(scpInvoked.wait(timeout: .now() + 2), .success)
-        lock.lock()
-        let capturedDestination = scpDestination
-        lock.unlock()
-        let destination = try XCTUnwrap(capturedDestination)
-        XCTAssertTrue(
-            destination.hasPrefix("test@hpc.example:/home/test/.cmux/bin/cmuxd-remote/"),
-            "expected scp to target an absolute path under remote HOME, got \(destination)"
-        )
-        XCTAssertTrue(
-            destination.contains("/linux-amd64/cmuxd-remote.tmp-"),
-            "expected daemon platform temp path in \(destination)"
-        )
     }
 
     @MainActor
