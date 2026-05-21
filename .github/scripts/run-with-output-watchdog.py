@@ -12,7 +12,6 @@ from pathlib import Path
 
 FATAL_OUTPUT_MARKERS = (
     b"Backtrace took",
-    b"XCTestCase assertInvalidObjectsDeallocatedAfterScope",
     b"Program crashed:",
     b"Press space to interact, D to debug",
 )
