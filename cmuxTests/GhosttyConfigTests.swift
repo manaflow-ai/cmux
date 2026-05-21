@@ -1894,19 +1894,41 @@ final class BrowserNewTabNavigationSeedTests: XCTestCase {
 
 @MainActor
 final class BrowserPanelRemoteStoreTests: XCTestCase {
+    override func setUp() {
+        super.setUp()
+        resetBrowserProfileSelection()
+    }
+
+    override func tearDown() {
+        resetBrowserProfileSelection()
+        super.tearDown()
+    }
+
+    private func resetBrowserProfileSelection() {
+        BrowserProfileStore.shared.noteUsed(BrowserProfileStore.shared.builtInDefaultProfileID)
+    }
+
     func testRemoteWorkspacePanelsShareWorkspaceScopedWebsiteDataStore() {
-        let localPanel = BrowserPanel(workspaceId: UUID(), isRemoteWorkspace: false)
+        let defaultProfileID = BrowserProfileStore.shared.builtInDefaultProfileID
+        let localPanel = BrowserPanel(workspaceId: UUID(), profileID: defaultProfileID, isRemoteWorkspace: false)
+        defer { localPanel.close() }
+
         let remoteWorkspaceId = UUID()
         let firstRemotePanel = BrowserPanel(
             workspaceId: remoteWorkspaceId,
+            profileID: defaultProfileID,
             isRemoteWorkspace: true,
             remoteWebsiteDataStoreIdentifier: remoteWorkspaceId
         )
+        defer { firstRemotePanel.close() }
+
         let secondRemotePanel = BrowserPanel(
             workspaceId: remoteWorkspaceId,
+            profileID: defaultProfileID,
             isRemoteWorkspace: true,
             remoteWebsiteDataStoreIdentifier: remoteWorkspaceId
         )
+        defer { secondRemotePanel.close() }
 
         XCTAssertTrue(localPanel.webView.configuration.websiteDataStore === WKWebsiteDataStore.default())
         XCTAssertFalse(firstRemotePanel.webView.configuration.websiteDataStore === WKWebsiteDataStore.default())
@@ -1921,10 +1943,12 @@ final class BrowserPanelRemoteStoreTests: XCTestCase {
         let url = URL(string: "http://localhost:3000/demo")!
         let panel = BrowserPanel(
             workspaceId: remoteWorkspaceId,
+            profileID: BrowserProfileStore.shared.builtInDefaultProfileID,
             initialURL: url,
             isRemoteWorkspace: true,
             remoteWebsiteDataStoreIdentifier: remoteWorkspaceId
         )
+        defer { panel.close() }
 
         XCTAssertEqual(panel.preferredURLStringForOmnibar(), url.absoluteString)
         XCTAssertNil(panel.webView.url)
@@ -1943,10 +1967,12 @@ final class BrowserPanelRemoteStoreTests: XCTestCase {
         let url = URL(string: "http://api.localhost:3000/demo")!
         let panel = BrowserPanel(
             workspaceId: remoteWorkspaceId,
+            profileID: BrowserProfileStore.shared.builtInDefaultProfileID,
             initialURL: url,
             isRemoteWorkspace: true,
             remoteWebsiteDataStoreIdentifier: remoteWorkspaceId
         )
+        defer { panel.close() }
 
         XCTAssertEqual(panel.preferredURLStringForOmnibar(), url.absoluteString)
         XCTAssertNil(panel.webView.url)
@@ -1964,9 +1990,11 @@ final class BrowserPanelRemoteStoreTests: XCTestCase {
         let remoteWorkspaceId = UUID()
         let panel = BrowserPanel(
             workspaceId: remoteWorkspaceId,
+            profileID: BrowserProfileStore.shared.builtInDefaultProfileID,
             isRemoteWorkspace: true,
             remoteWebsiteDataStoreIdentifier: remoteWorkspaceId
         )
+        defer { panel.close() }
         let baseURL = try XCTUnwrap(URL(string: "http://cmux-loopback.localtest.me:3000/"))
 
         panel.webView.loadHTMLString(
@@ -2005,10 +2033,12 @@ final class BrowserPanelRemoteStoreTests: XCTestCase {
         let url = URL(string: "https://localhost:3443/demo")!
         let panel = BrowserPanel(
             workspaceId: remoteWorkspaceId,
+            profileID: BrowserProfileStore.shared.builtInDefaultProfileID,
             initialURL: url,
             isRemoteWorkspace: true,
             remoteWebsiteDataStoreIdentifier: remoteWorkspaceId
         )
+        defer { panel.close() }
 
         XCTAssertEqual(panel.preferredURLStringForOmnibar(), url.absoluteString)
         XCTAssertNil(panel.webView.url)
@@ -2034,13 +2064,24 @@ final class BrowserPanelRemoteStoreTests: XCTestCase {
     }
 
     func testBrowserMoveIntoRemoteWorkspaceRebuildsWebsiteDataStoreScope() throws {
+        let defaultProfileID = BrowserProfileStore.shared.builtInDefaultProfileID
         let source = Workspace()
+        defer {
+            source.teardownAllPanels()
+            source.teardownRemoteConnection()
+        }
         let sourcePaneId = try XCTUnwrap(source.bonsplitController.allPaneIds.first)
-        let sourceBrowser = try XCTUnwrap(source.newBrowserSurface(inPane: sourcePaneId, focus: false))
+        let sourceBrowser = try XCTUnwrap(
+            source.newBrowserSurface(inPane: sourcePaneId, focus: false, preferredProfileID: defaultProfileID)
+        )
         let localStore = sourceBrowser.webView.configuration.websiteDataStore
         XCTAssertTrue(localStore === WKWebsiteDataStore.default())
 
         let destination = Workspace()
+        defer {
+            destination.teardownAllPanels()
+            destination.teardownRemoteConnection()
+        }
         destination.configureRemoteConnection(
             WorkspaceRemoteConfiguration(
                 destination: "cmux-macmini",
@@ -2057,7 +2098,9 @@ final class BrowserPanelRemoteStoreTests: XCTestCase {
             autoConnect: false
         )
         let destinationPaneId = try XCTUnwrap(destination.bonsplitController.allPaneIds.first)
-        let destinationBrowser = try XCTUnwrap(destination.newBrowserSurface(inPane: destinationPaneId, focus: false))
+        let destinationBrowser = try XCTUnwrap(
+            destination.newBrowserSurface(inPane: destinationPaneId, focus: false, preferredProfileID: defaultProfileID)
+        )
         let destinationStore = destinationBrowser.webView.configuration.websiteDataStore
         XCTAssertFalse(destinationStore === WKWebsiteDataStore.default())
 
@@ -2072,7 +2115,12 @@ final class BrowserPanelRemoteStoreTests: XCTestCase {
     }
 
     func testBrowserMoveOutOfRemoteWorkspaceRestoresDefaultWebsiteDataStore() throws {
+        let defaultProfileID = BrowserProfileStore.shared.builtInDefaultProfileID
         let source = Workspace()
+        defer {
+            source.teardownAllPanels()
+            source.teardownRemoteConnection()
+        }
         source.configureRemoteConnection(
             WorkspaceRemoteConfiguration(
                 destination: "cmux-macmini",
@@ -2089,12 +2137,20 @@ final class BrowserPanelRemoteStoreTests: XCTestCase {
             autoConnect: false
         )
         let sourcePaneId = try XCTUnwrap(source.bonsplitController.allPaneIds.first)
-        let movedBrowser = try XCTUnwrap(source.newBrowserSurface(inPane: sourcePaneId, focus: false))
-        let remainingRemoteBrowser = try XCTUnwrap(source.newBrowserSurface(inPane: sourcePaneId, focus: false))
+        let movedBrowser = try XCTUnwrap(
+            source.newBrowserSurface(inPane: sourcePaneId, focus: false, preferredProfileID: defaultProfileID)
+        )
+        let remainingRemoteBrowser = try XCTUnwrap(
+            source.newBrowserSurface(inPane: sourcePaneId, focus: false, preferredProfileID: defaultProfileID)
+        )
         let remoteStore = remainingRemoteBrowser.webView.configuration.websiteDataStore
         XCTAssertFalse(remoteStore === WKWebsiteDataStore.default())
 
         let destination = Workspace()
+        defer {
+            destination.teardownAllPanels()
+            destination.teardownRemoteConnection()
+        }
         let destinationPaneId = try XCTUnwrap(destination.bonsplitController.allPaneIds.first)
         let detached = try XCTUnwrap(source.detachSurface(panelId: movedBrowser.id))
         let attachedPanelId = try XCTUnwrap(
@@ -2109,6 +2165,10 @@ final class BrowserPanelRemoteStoreTests: XCTestCase {
 
     func testNewTerminalSurfaceStaysRemoteWhileBrowserPanelsKeepWorkspaceRemote() throws {
         let workspace = Workspace()
+        defer {
+            workspace.teardownAllPanels()
+            workspace.teardownRemoteConnection()
+        }
         let paneId = try XCTUnwrap(workspace.bonsplitController.allPaneIds.first)
         let initialTerminalId = try XCTUnwrap(workspace.focusedPanelId)
         let configuration = WorkspaceRemoteConfiguration(
