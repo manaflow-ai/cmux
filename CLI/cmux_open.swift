@@ -9,6 +9,7 @@ struct CMUXAgentTurnDiffBaselineRecord: Codable {
     var agent: String
     var repoRoot: String
     var baseCommit: String
+    var untrackedPaths: [String]?
     var capturedAt: TimeInterval
 }
 
@@ -113,6 +114,64 @@ extension CMUXCLI {
         var treesModuleURL: String
     }
 
+    private struct DiffViewerLabels {
+        var values: [String: String]
+
+        subscript(_ key: String) -> String {
+            values[key] ?? key
+        }
+
+        var jsonObject: [String: Any] {
+            values
+        }
+
+        static func localized() -> DiffViewerLabels {
+            DiffViewerLabels(values: [
+                "additions": String(localized: "diffViewer.additions", defaultValue: "Additions"),
+                "bars": String(localized: "diffViewer.bars", defaultValue: "Bars"),
+                "changedFiles": String(localized: "diffViewer.changedFiles", defaultValue: "Changed files"),
+                "classic": String(localized: "diffViewer.classic", defaultValue: "Classic"),
+                "collapseAllDiffs": String(localized: "diffViewer.collapseAllDiffs", defaultValue: "Collapse all diffs"),
+                "collapseUnchangedContext": String(localized: "diffViewer.collapseUnchangedContext", defaultValue: "Collapse unchanged context"),
+                "copiedGitApplyCommand": String(localized: "diffViewer.copiedGitApplyCommand", defaultValue: "Copied git apply command"),
+                "copyGitApplyCommand": String(localized: "diffViewer.copyGitApplyCommand", defaultValue: "Copy git apply command"),
+                "deletions": String(localized: "diffViewer.deletions", defaultValue: "Deletions"),
+                "diffStats": String(localized: "diffViewer.diffStats", defaultValue: "Diff stats"),
+                "diffTarget": String(localized: "diffViewer.diffTarget", defaultValue: "Diff target"),
+                "diffViewer": String(localized: "diffViewer.diffViewer", defaultValue: "Diff viewer"),
+                "disableWordDiffs": String(localized: "diffViewer.disableWordDiffs", defaultValue: "Disable word diffs"),
+                "disableWordWrap": String(localized: "diffViewer.disableWordWrap", defaultValue: "Disable word wrap"),
+                "enableWordDiffs": String(localized: "diffViewer.enableWordDiffs", defaultValue: "Enable word diffs"),
+                "enableWordWrap": String(localized: "diffViewer.enableWordWrap", defaultValue: "Enable word wrap"),
+                "expandAllDiffs": String(localized: "diffViewer.expandAllDiffs", defaultValue: "Expand all diffs"),
+                "expandUnchangedContext": String(localized: "diffViewer.expandUnchangedContext", defaultValue: "Expand unchanged context"),
+                "files": String(localized: "diffViewer.files", defaultValue: "Files"),
+                "hideBackgrounds": String(localized: "diffViewer.hideBackgrounds", defaultValue: "Hide backgrounds"),
+                "hideFiles": String(localized: "diffViewer.hideFiles", defaultValue: "Hide files"),
+                "hideFileSearch": String(localized: "diffViewer.hideFileSearch", defaultValue: "Hide file search"),
+                "hideLineNumbers": String(localized: "diffViewer.hideLineNumbers", defaultValue: "Hide line numbers"),
+                "indicatorStyle": String(localized: "diffViewer.indicatorStyle", defaultValue: "Indicator style"),
+                "jumpToFile": String(localized: "diffViewer.jumpToFile", defaultValue: "Jump to file"),
+                "loadingDiff": String(localized: "diffViewer.loadingDiff", defaultValue: "Loading diff..."),
+                "loadingRenderer": String(localized: "diffViewer.loadingRenderer", defaultValue: "Loading renderer..."),
+                "noFileDiffs": String(localized: "diffViewer.noFileDiffs", defaultValue: "No file diffs found in patch input."),
+                "none": String(localized: "diffViewer.none", defaultValue: "None"),
+                "openSourceURL": String(localized: "diffViewer.openSourceURL", defaultValue: "Open source URL"),
+                "options": String(localized: "diffViewer.options", defaultValue: "Options"),
+                "parsingDiff": String(localized: "diffViewer.parsingDiff", defaultValue: "Parsing diff..."),
+                "refresh": String(localized: "diffViewer.refresh", defaultValue: "Refresh"),
+                "renderingDiff": String(localized: "diffViewer.renderingDiff", defaultValue: "Rendering diff..."),
+                "showBackgrounds": String(localized: "diffViewer.showBackgrounds", defaultValue: "Show backgrounds"),
+                "showFiles": String(localized: "diffViewer.showFiles", defaultValue: "Show files"),
+                "showFileSearch": String(localized: "diffViewer.showFileSearch", defaultValue: "Show file search"),
+                "showLineNumbers": String(localized: "diffViewer.showLineNumbers", defaultValue: "Show line numbers"),
+                "switchToSplitDiff": String(localized: "diffViewer.switchToSplitDiff", defaultValue: "Switch to split diff"),
+                "switchToUnifiedDiff": String(localized: "diffViewer.switchToUnifiedDiff", defaultValue: "Switch to unified diff"),
+                "untitled": String(localized: "diffViewer.untitled", defaultValue: "Untitled"),
+            ])
+        }
+    }
+
     private enum DiffSource: CaseIterable, Equatable {
         case unstaged
         case staged
@@ -159,28 +218,28 @@ extension CMUXCLI {
 
         var menuLabel: String {
             switch self {
-            case .unstaged: return "Unstaged"
-            case .staged: return "Staged"
-            case .branch: return "Branch"
-            case .lastTurn: return "Last turn"
+            case .unstaged: return String(localized: "diffViewer.source.unstaged", defaultValue: "Unstaged")
+            case .staged: return String(localized: "diffViewer.source.staged", defaultValue: "Staged")
+            case .branch: return String(localized: "diffViewer.source.branch", defaultValue: "Branch")
+            case .lastTurn: return String(localized: "diffViewer.source.lastTurn", defaultValue: "Last turn")
             }
         }
 
         var title: String {
             switch self {
-            case .unstaged: return "Unstaged changes"
-            case .staged: return "Staged changes"
-            case .branch: return "Branch diff"
-            case .lastTurn: return "Last turn diff"
+            case .unstaged: return String(localized: "diffViewer.title.unstagedChanges", defaultValue: "Unstaged changes")
+            case .staged: return String(localized: "diffViewer.title.stagedChanges", defaultValue: "Staged changes")
+            case .branch: return String(localized: "diffViewer.title.branchDiff", defaultValue: "Branch diff")
+            case .lastTurn: return String(localized: "diffViewer.title.lastTurnDiff", defaultValue: "Last turn diff")
             }
         }
 
         var emptyMessage: String {
             switch self {
-            case .unstaged: return "No unstaged changes to diff."
-            case .staged: return "No staged changes to diff."
-            case .branch: return "No branch changes to diff."
-            case .lastTurn: return "No last-turn changes to diff."
+            case .unstaged: return String(localized: "diffViewer.empty.unstaged", defaultValue: "No unstaged changes to diff.")
+            case .staged: return String(localized: "diffViewer.empty.staged", defaultValue: "No staged changes to diff.")
+            case .branch: return String(localized: "diffViewer.empty.branch", defaultValue: "No branch changes to diff.")
+            case .lastTurn: return String(localized: "diffViewer.empty.lastTurn", defaultValue: "No last-turn changes to diff.")
             }
         }
     }
@@ -862,7 +921,10 @@ extension CMUXCLI {
                 env: ProcessInfo.processInfo.environment
             )
             _ = try gitStdout(["cat-file", "-e", "\(record.baseCommit)^{tree}"], in: repoRoot)
-            patch = try gitStdout(["diff", "--no-ext-diff", "--binary", record.baseCommit, "--"], in: repoRoot)
+            patch = try joinedGitDiffPatches([
+                gitStdout(["diff", "--no-ext-diff", "--binary", record.baseCommit, "--"], in: repoRoot),
+                gitUntrackedPatchSinceBaseline(record: record, in: repoRoot)
+            ])
             sourceLabel = "git last-turn \(workspaceId) \(surfaceId)"
         }
         return DiffInput(
@@ -1030,6 +1092,55 @@ extension CMUXCLI {
         return result.stdout
     }
 
+    private func gitStdout(
+        _ arguments: [String],
+        in directory: String,
+        timeout: TimeInterval = 60,
+        allowedExitStatuses: Set<Int32>
+    ) throws -> String {
+        let result = CLIProcessRunner.runProcess(
+            executablePath: "/usr/bin/env",
+            arguments: ["git", "-C", directory] + arguments,
+            timeout: timeout
+        )
+        if result.timedOut {
+            throw CLIError(message: "git \(arguments.joined(separator: " ")) timed out")
+        }
+        guard allowedExitStatuses.contains(result.status) else {
+            let command = (["git"] + arguments).joined(separator: " ")
+            throw CLIError(message: "\(command) failed with status \(result.status)")
+        }
+        return result.stdout
+    }
+
+    private func gitUntrackedPaths(in repoRoot: String) throws -> [String] {
+        let output = try gitStdout(["ls-files", "--others", "--exclude-standard", "-z"], in: repoRoot)
+        return output.split(separator: "\0", omittingEmptySubsequences: true).map(String.init)
+    }
+
+    private func gitUntrackedPatchSinceBaseline(
+        record: CMUXAgentTurnDiffBaselineRecord,
+        in repoRoot: String
+    ) throws -> String {
+        let baselinePaths = Set(record.untrackedPaths ?? [])
+        let currentPaths = try gitUntrackedPaths(in: repoRoot)
+        let addedPaths = currentPaths.filter { !baselinePaths.contains($0) }
+        let patches = try addedPaths.map { path in
+            try gitStdout(
+                ["diff", "--no-ext-diff", "--binary", "--no-index", "--", "/dev/null", path],
+                in: repoRoot,
+                allowedExitStatuses: [0, 1]
+            )
+        }
+        return joinedGitDiffPatches(patches)
+    }
+
+    private func joinedGitDiffPatches(_ patches: [String]) -> String {
+        let trimmed = patches.map { $0.trimmingCharacters(in: .newlines) }.filter { !$0.isEmpty }
+        guard !trimmed.isEmpty else { return "" }
+        return trimmed.joined(separator: "\n") + "\n"
+    }
+
     func recordAgentTurnDiffBaseline(
         agent: String,
         sessionId: String,
@@ -1046,6 +1157,7 @@ extension CMUXCLI {
         }
         let repoRoot = try gitRepoRoot(startingAt: cwd)
         let baseCommit = try agentTurnDiffBaselineCommit(in: repoRoot)
+        let untrackedPaths = try gitUntrackedPaths(in: repoRoot)
         let record = CMUXAgentTurnDiffBaselineRecord(
             workspaceId: workspaceId,
             surfaceId: surfaceId,
@@ -1054,6 +1166,7 @@ extension CMUXCLI {
             agent: normalizedDiffSourceValue(agent) ?? "agent",
             repoRoot: repoRoot,
             baseCommit: baseCommit,
+            untrackedPaths: untrackedPaths.isEmpty ? nil : untrackedPaths,
             capturedAt: Date().timeIntervalSince1970
         )
         var removedRecords: [CMUXAgentTurnDiffBaselineRecord] = []
@@ -1201,6 +1314,7 @@ extension CMUXCLI {
             && lhs.turnId == rhs.turnId
             && lhs.agent == rhs.agent
             && lhs.baseCommit == rhs.baseCommit
+            && lhs.untrackedPaths == rhs.untrackedPaths
             && lhs.capturedAt == rhs.capturedAt
     }
 
@@ -1782,12 +1896,14 @@ extension CMUXCLI {
         appearance: DiffViewerAppearance,
         sourceOptions: [DiffViewerSourceOption]
     ) throws {
+        let labels = DiffViewerLabels.localized()
         var payload: [String: Any] = [
             "patch": patch,
             "title": title,
             "sourceLabel": sourceLabel,
             "layout": layout,
             "appearance": appearance.jsonObject,
+            "labels": labels.jsonObject,
             "sourceOptions": sourceOptions.map(\.jsonObject),
             "generatedAt": ISO8601DateFormatter().string(from: Date())
         ]
@@ -1799,9 +1915,24 @@ extension CMUXCLI {
         let diffsModuleLiteral = try jsonStringLiteral(assets.diffsModuleURL)
         let treesModuleLiteral = try jsonStringLiteral(assets.treesModuleURL)
         let escapedTitle = htmlEscaped(title)
+        let diffTargetLabel = htmlEscaped(labels["diffTarget"])
+        let jumpToFileLabel = htmlEscaped(labels["jumpToFile"])
+        let openSourceURLLabel = htmlEscaped(labels["openSourceURL"])
+        let hideFilesLabel = htmlEscaped(labels["hideFiles"])
+        let switchToUnifiedDiffLabel = htmlEscaped(labels["switchToUnifiedDiff"])
+        let optionsLabel = htmlEscaped(labels["options"])
+        let changedFilesLabel = htmlEscaped(labels["changedFiles"])
+        let filesLabel = htmlEscaped(labels["files"])
+        let showFileSearchLabel = htmlEscaped(labels["showFileSearch"])
+        let diffStatsLabel = htmlEscaped(labels["diffStats"])
+        let additionsLabel = htmlEscaped(labels["additions"])
+        let deletionsLabel = htmlEscaped(labels["deletions"])
+        let diffViewerLabel = htmlEscaped(labels["diffViewer"])
+        let loadingDiffLabel = htmlEscaped(labels["loadingDiff"])
+        let htmlLanguage = Locale.current.language.languageCode?.identifier ?? "en"
         let html = """
         <!doctype html>
-        <html lang="en">
+        <html lang="\(htmlEscaped(htmlLanguage))">
         <head>
           <meta charset="utf-8">
           <meta name="viewport" content="width=device-width, initial-scale=1">
@@ -2271,35 +2402,35 @@ extension CMUXCLI {
           <div id="app">
             <header id="toolbar">
               <div class="toolbar-left">
-                <select id="source-select" aria-label="Diff target" hidden></select>
+                <select id="source-select" aria-label="\(diffTargetLabel)" hidden></select>
                 <span id="source-detail"></span>
               </div>
               <div class="toolbar-middle">
-                <select id="jump-select" aria-label="Jump to file" hidden></select>
+                <select id="jump-select" aria-label="\(jumpToFileLabel)" hidden></select>
               </div>
               <div class="toolbar-actions">
-                <a id="external-link" class="toolbar-icon" target="_blank" rel="noreferrer" title="Open source URL" aria-label="Open source URL" hidden></a>
-                <button id="files-toggle" class="toolbar-icon" type="button" title="Hide files" aria-label="Hide files" aria-pressed="true"></button>
-                <button id="layout-toggle" class="toolbar-icon" type="button" title="Switch to unified diff" aria-label="Switch to unified diff"></button>
-                <button id="options-button" class="toolbar-icon" type="button" title="Options" aria-label="Options" aria-expanded="false" aria-haspopup="menu"></button>
+                <a id="external-link" class="toolbar-icon" target="_blank" rel="noreferrer" title="\(openSourceURLLabel)" aria-label="\(openSourceURLLabel)" hidden></a>
+                <button id="files-toggle" class="toolbar-icon" type="button" title="\(hideFilesLabel)" aria-label="\(hideFilesLabel)" aria-pressed="true"></button>
+                <button id="layout-toggle" class="toolbar-icon" type="button" title="\(switchToUnifiedDiffLabel)" aria-label="\(switchToUnifiedDiffLabel)"></button>
+                <button id="options-button" class="toolbar-icon" type="button" title="\(optionsLabel)" aria-label="\(optionsLabel)" aria-expanded="false" aria-haspopup="menu"></button>
               </div>
               <div id="options-menu" role="menu" hidden></div>
             </header>
             <section id="content">
-              <aside id="files-sidebar" aria-label="Changed files">
+              <aside id="files-sidebar" aria-label="\(changedFilesLabel)">
                 <div id="files-header">
-                  <span id="files-title"><span>Files</span><span id="files-count"></span></span>
-                  <button id="file-search-toggle" type="button" title="Show file search" aria-label="Show file search" aria-pressed="false"></button>
+                  <span id="files-title"><span>\(filesLabel)</span><span id="files-count"></span></span>
+                  <button id="file-search-toggle" type="button" title="\(showFileSearchLabel)" aria-label="\(showFileSearchLabel)" aria-pressed="false"></button>
                 </div>
                 <div id="file-list"></div>
-                <div id="files-footer" aria-label="Diff stats">
-                  <div class="stats-row"><span>Files</span><strong id="stats-files">0</strong></div>
-                  <div class="stats-row"><span>Additions</span><strong id="stats-added" class="stat-add">+0</strong></div>
-                  <div class="stats-row"><span>Deletions</span><strong id="stats-deleted" class="stat-del">-0</strong></div>
+                <div id="files-footer" aria-label="\(diffStatsLabel)">
+                  <div class="stats-row"><span>\(filesLabel)</span><strong id="stats-files">0</strong></div>
+                  <div class="stats-row"><span>\(additionsLabel)</span><strong id="stats-added" class="stat-add">+0</strong></div>
+                  <div class="stats-row"><span>\(deletionsLabel)</span><strong id="stats-deleted" class="stat-del">-0</strong></div>
                 </div>
               </aside>
-              <main id="viewer" aria-label="Diff viewer">
-                <div id="status">Loading diff...</div>
+              <main id="viewer" aria-label="\(diffViewerLabel)">
+                <div id="status">\(loadingDiffLabel)</div>
               </main>
             </section>
           </div>
@@ -2307,6 +2438,7 @@ extension CMUXCLI {
             const DIFFS_MODULE_URL = \(diffsModuleLiteral);
             const TREES_MODULE_URL = \(treesModuleLiteral);
             const payload = \(payloadLiteral);
+            const labels = payload.labels ?? {};
             const viewerElement = document.getElementById("viewer");
             const status = document.getElementById("status");
             const toolbar = document.getElementById("toolbar");
@@ -2324,6 +2456,7 @@ extension CMUXCLI {
             const statsFiles = document.getElementById("stats-files");
             const statsAdded = document.getElementById("stats-added");
             const statsDeleted = document.getElementById("stats-deleted");
+            const label = (key) => labels[key] ?? key;
             const appState = {
               layout: payload.layout === "unified" ? "unified" : "split",
               filesVisible: true,
@@ -2357,7 +2490,7 @@ extension CMUXCLI {
             });
 
             async function renderDiff() {
-              status.textContent = "Loading renderer...";
+              status.textContent = label("loadingRenderer");
               const {
                 CodeView,
                 getFiletypeFromFileName,
@@ -2374,7 +2507,7 @@ extension CMUXCLI {
               registerGhosttyTheme(registerCustomTheme, payload.appearance.themes.light);
               registerGhosttyTheme(registerCustomTheme, payload.appearance.themes.dark);
               stabilizeCodeViewStickyPositioning(CodeView);
-              status.textContent = "Parsing diff...";
+              status.textContent = label("parsingDiff");
               const patches = parsePatchFiles(payload.patch, "cmux-diff");
               diffItems = patches.flatMap((patch, patchIndex) =>
                 patch.files.map((fileDiff, fileIndex) => ({
@@ -2386,10 +2519,10 @@ extension CMUXCLI {
               );
 
               if (diffItems.length === 0) {
-                throw new Error("No file diffs found in patch input.");
+                throw new Error(label("noFileDiffs"));
               }
 
-              status.textContent = "Rendering diff...";
+              status.textContent = label("renderingDiff");
               setupFileExplorer(diffItems, treesModule);
               setupJumpSelector(diffItems);
               updateToolbarState();
@@ -2529,10 +2662,10 @@ extension CMUXCLI {
 
             function updateToolbarState() {
               filesToggle.setAttribute("aria-pressed", String(appState.filesVisible));
-              filesToggle.title = appState.filesVisible ? "Hide files" : "Show files";
+              filesToggle.title = appState.filesVisible ? label("hideFiles") : label("showFiles");
               filesToggle.setAttribute("aria-label", filesToggle.title);
               layoutToggle.innerHTML = icon(appState.layout);
-              layoutToggle.title = appState.layout === "split" ? "Switch to unified diff" : "Switch to split diff";
+              layoutToggle.title = appState.layout === "split" ? label("switchToUnifiedDiff") : label("switchToSplitDiff");
               layoutToggle.setAttribute("aria-label", layoutToggle.title);
               optionsButton.setAttribute("aria-expanded", String(!optionsMenu.hidden));
               document.documentElement.dataset.layout = appState.layout;
@@ -2540,7 +2673,7 @@ extension CMUXCLI {
               document.documentElement.dataset.diffIndicators = appState.diffIndicators;
               fileSearchToggle.disabled = !fileTree;
               fileSearchToggle.setAttribute("aria-pressed", String(appState.fileSearchOpen));
-              fileSearchToggle.title = appState.fileSearchOpen ? "Hide file search" : "Show file search";
+              fileSearchToggle.title = appState.fileSearchOpen ? label("hideFileSearch") : label("showFileSearch");
               fileSearchToggle.setAttribute("aria-label", fileSearchToggle.title);
             }
 
@@ -2555,36 +2688,36 @@ extension CMUXCLI {
             function renderOptionsMenu() {
               optionsMenu.textContent = "";
               const items = [
-                { label: "Refresh", icon: "refresh", action: () => window.location.reload() },
-                { label: appState.wordWrap ? "Disable word wrap" : "Enable word wrap", icon: "wrap", checked: appState.wordWrap, action: () => {
+                { label: label("refresh"), icon: "refresh", action: () => window.location.reload() },
+                { label: appState.wordWrap ? label("disableWordWrap") : label("enableWordWrap"), icon: "wrap", checked: appState.wordWrap, action: () => {
                   appState.wordWrap = !appState.wordWrap;
                   applyCodeViewOptions();
                 } },
-                { label: appState.collapsed ? "Expand all diffs" : "Collapse all diffs", icon: "collapse", checked: appState.collapsed, action: () => setCollapsed(!appState.collapsed) },
+                { label: appState.collapsed ? label("expandAllDiffs") : label("collapseAllDiffs"), icon: "collapse", checked: appState.collapsed, action: () => setCollapsed(!appState.collapsed) },
                 "separator",
-                { label: appState.expandUnchanged ? "Collapse unchanged context" : "Expand unchanged context", icon: "document", checked: appState.expandUnchanged, action: () => {
+                { label: appState.expandUnchanged ? label("collapseUnchangedContext") : label("expandUnchangedContext"), icon: "document", checked: appState.expandUnchanged, action: () => {
                   appState.expandUnchanged = !appState.expandUnchanged;
                   applyCodeViewOptions();
                 } },
-                { label: appState.showBackgrounds ? "Hide backgrounds" : "Show backgrounds", icon: "background", checked: appState.showBackgrounds, action: () => {
+                { label: appState.showBackgrounds ? label("hideBackgrounds") : label("showBackgrounds"), icon: "background", checked: appState.showBackgrounds, action: () => {
                   appState.showBackgrounds = !appState.showBackgrounds;
                   applyCodeViewOptions();
                 } },
-                { label: appState.lineNumbers ? "Hide line numbers" : "Show line numbers", icon: "numbers", checked: appState.lineNumbers, action: () => {
+                { label: appState.lineNumbers ? label("hideLineNumbers") : label("showLineNumbers"), icon: "numbers", checked: appState.lineNumbers, action: () => {
                   appState.lineNumbers = !appState.lineNumbers;
                   applyCodeViewOptions();
                 } },
-                { label: appState.wordDiffs ? "Disable word diffs" : "Enable word diffs", icon: "word", checked: appState.wordDiffs, action: () => {
+                { label: appState.wordDiffs ? label("disableWordDiffs") : label("enableWordDiffs"), icon: "word", checked: appState.wordDiffs, action: () => {
                   appState.wordDiffs = !appState.wordDiffs;
                   applyCodeViewOptions();
                 } },
-                { kind: "segment", label: "Indicator style", icon: "bars", options: [
-                  { value: "bars", icon: "bars", label: "Bars" },
-                  { value: "classic", icon: "classic", label: "Classic" },
-                  { value: "none", icon: "eye", label: "None" },
+                { kind: "segment", label: label("indicatorStyle"), icon: "bars", options: [
+                  { value: "bars", icon: "bars", label: label("bars") },
+                  { value: "classic", icon: "classic", label: label("classic") },
+                  { value: "none", icon: "eye", label: label("none") },
                 ] },
                 "separator",
-                { label: "Copy git apply command", icon: "clipboard", action: copyGitApplyCommand },
+                { label: label("copyGitApplyCommand"), icon: "clipboard", action: copyGitApplyCommand },
               ];
               for (const item of items) {
                 if (item === "separator") {
@@ -2642,7 +2775,7 @@ extension CMUXCLI {
             }
 
             function safeGitApplyDelimiter(patch) {
-              const lines = new Set(patch.split(/\r?\n/));
+              const lines = new Set(patch.split(/\\r?\\n/));
               let delimiter = "CMUX_DIFF_PATCH";
               let index = 0;
               while (lines.has(delimiter)) {
@@ -2666,8 +2799,8 @@ extension CMUXCLI {
               } else {
                 fallbackCopyText(command);
               }
-              optionsButton.title = "Copied git apply command";
-              optionsButton.setAttribute("aria-label", "Copied git apply command");
+              optionsButton.title = label("copiedGitApplyCommand");
+              optionsButton.setAttribute("aria-label", label("copiedGitApplyCommand"));
             }
 
             function fallbackCopyText(text) {
@@ -2709,7 +2842,7 @@ extension CMUXCLI {
                   return;
                 }
                 status.dataset.error = "false";
-                status.textContent = `Loading ${next.label}...`;
+                status.textContent = label("loadingDiff");
                 window.location.href = next.url;
               });
             }
@@ -2769,7 +2902,7 @@ extension CMUXCLI {
                   }
                   return {
                     text: `+${stats.added} -${stats.deleted}`,
-                    title: `${stats.added} additions, ${stats.deleted} deletions`,
+                    title: `${stats.added} ${label("additions")}, ${stats.deleted} ${label("deletions")}`,
                   };
                 },
                 sort: () => 0,
@@ -2889,7 +3022,7 @@ extension CMUXCLI {
               jumpSelect.textContent = "";
               const placeholder = document.createElement("option");
               placeholder.value = "";
-              placeholder.textContent = "Jump to file";
+              placeholder.textContent = label("jumpToFile");
               jumpSelect.append(placeholder);
               for (const item of items) {
                 const option = document.createElement("option");
@@ -2974,7 +3107,7 @@ extension CMUXCLI {
             }
 
             function fileName(fileDiff) {
-              return fileDiff.name ?? fileDiff.newName ?? fileDiff.oldName ?? fileDiff.prevName ?? "Untitled";
+              return fileDiff.name ?? fileDiff.newName ?? fileDiff.oldName ?? fileDiff.prevName ?? label("untitled");
             }
 
             function fileStatus(fileDiff) {

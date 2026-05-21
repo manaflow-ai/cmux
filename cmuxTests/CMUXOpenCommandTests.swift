@@ -468,13 +468,16 @@ final class CMUXOpenCommandTests: XCTestCase {
 
         let workspaceId = UUID().uuidString.lowercased()
         let surfaceId = UUID().uuidString.lowercased()
+        try "before\n".write(to: repoURL.appendingPathComponent("preexisting.txt"), atomically: true, encoding: .utf8)
         try writeDiffBaselineStore(
             stateDirectoryURL: stateURL,
             repoURL: repoURL,
             workspaceId: workspaceId.uppercased(),
             surfaceId: surfaceId.uppercased(),
-            baseCommit: initialCommit
+            baseCommit: initialCommit,
+            untrackedPaths: ["preexisting.txt"]
         )
+        try "created\n".write(to: repoURL.appendingPathComponent("new-turn-file.txt"), atomically: true, encoding: .utf8)
         let lastTurn = try runDiffCLIAndReadHTML(
             cliPath: cliPath,
             arguments: ["diff", "--last-turn"],
@@ -491,6 +494,9 @@ final class CMUXOpenCommandTests: XCTestCase {
         XCTAssertTrue(lastTurn.html.contains("Last turn diff"), lastTurn.html)
         XCTAssertTrue(lastTurn.html.contains("+two"), lastTurn.html)
         XCTAssertTrue(lastTurn.html.contains("+three"), lastTurn.html)
+        XCTAssertTrue(lastTurn.html.contains("new-turn-file.txt"), lastTurn.html)
+        XCTAssertTrue(lastTurn.html.contains("+created"), lastTurn.html)
+        XCTAssertFalse(lastTurn.html.contains("preexisting.txt"), lastTurn.html)
 
         let refLastTurn = try runDiffCLIAndReadHTML(
             cliPath: cliPath,
@@ -1105,22 +1111,25 @@ final class CMUXOpenCommandTests: XCTestCase {
         repoURL: URL,
         workspaceId: String,
         surfaceId: String,
-        baseCommit: String
+        baseCommit: String,
+        untrackedPaths: [String]? = nil
     ) throws {
+        var record: [String: Any] = [
+            "workspaceId": workspaceId,
+            "surfaceId": surfaceId,
+            "sessionId": "session-1",
+            "turnId": "turn-1",
+            "agent": "codex",
+            "repoRoot": repoURL.standardizedFileURL.path,
+            "baseCommit": baseCommit,
+            "capturedAt": Date().timeIntervalSince1970
+        ]
+        if let untrackedPaths {
+            record["untrackedPaths"] = untrackedPaths
+        }
         let payload: [String: Any] = [
             "version": 1,
-            "records": [
-                [
-                    "workspaceId": workspaceId,
-                    "surfaceId": surfaceId,
-                    "sessionId": "session-1",
-                    "turnId": "turn-1",
-                    "agent": "codex",
-                    "repoRoot": repoURL.standardizedFileURL.path,
-                    "baseCommit": baseCommit,
-                    "capturedAt": Date().timeIntervalSince1970
-                ] as [String: Any]
-            ]
+            "records": [record]
         ]
         let data = try JSONSerialization.data(withJSONObject: payload, options: [.sortedKeys])
         try data.write(to: stateDirectoryURL.appendingPathComponent("agent-turn-diff-baselines.json"), options: .atomic)
