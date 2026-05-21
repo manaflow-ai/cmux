@@ -297,6 +297,7 @@ struct SocketControlSettings {
     static let socketPasswordEnvKey = "CMUX_SOCKET_PASSWORD"
     static let launchTagEnvKey = "CMUX_TAG"
     static let baseDebugBundleIdentifier = "com.cmuxterm.app.debug"
+    static let staleSocketReplacementAgeThreshold: TimeInterval = 2
     private static let socketDirectoryName = "cmux"
     private static let stableSocketFileName = "cmux.sock"
     static let legacyStableDefaultSocketPath = "/tmp/cmux.sock"
@@ -459,6 +460,33 @@ struct SocketControlSettings {
         return fallback
     }
 
+    static func initialSocketPathBeforeListenerStart(
+        preferredPath: String,
+        environment: [String: String] = ProcessInfo.processInfo.environment,
+        bundleIdentifier: String? = Bundle.main.bundleIdentifier,
+        isDebugBuild: Bool = SocketControlSettings.isDebugBuild,
+        currentUserID: uid_t = getuid(),
+        probeStableDefaultPathEntry: (String) -> StableDefaultSocketPathEntry = inspectStableDefaultSocketPathEntry,
+        stableDefaultSocketAcceptsConnections: (String) -> Bool = socketPathAcceptsConnections
+    ) -> String {
+        guard !isDebugBuild,
+              normalizedBundleIdentifier(bundleIdentifier) == "com.cmuxterm.app",
+              pathsMatch(preferredPath, stableDefaultSocketPath) else {
+            return preferredPath
+        }
+
+        guard case .socket(let ownerUserID) = probeStableDefaultPathEntry(stableDefaultSocketPath),
+              ownerUserID == currentUserID else {
+            return preferredPath
+        }
+
+        if stableDefaultSocketAcceptsConnections(stableDefaultSocketPath) {
+            return userScopedStableSocketPath(currentUserID: currentUserID)
+        }
+
+        return preferredPath
+    }
+
     private static func pathsMatch(_ lhs: String, _ rhs: String) -> Bool {
         (lhs as NSString).standardizingPath == (rhs as NSString).standardizingPath
     }
@@ -556,6 +584,68 @@ struct SocketControlSettings {
         case .socket, .other, .inaccessible:
             return userScopedStableSocketPath(currentUserID: currentUserID)
         }
+    }
+
+    private static func socketPathAcceptsConnections(_ path: String) -> Bool {
+        let fd = socket(AF_UNIX, SOCK_STREAM, 0)
+        guard fd >= 0 else { return false }
+        defer { close(fd) }
+
+        let originalFlags = fcntl(fd, F_GETFL, 0)
+        guard originalFlags >= 0 else { return false }
+        guard fcntl(fd, F_SETFL, originalFlags | O_NONBLOCK) >= 0 else {
+            return false
+        }
+        defer { _ = fcntl(fd, F_SETFL, originalFlags) }
+
+        var addr = sockaddr_un()
+        addr.sun_family = sa_family_t(AF_UNIX)
+        let maxLength = MemoryLayout.size(ofValue: addr.sun_path)
+        let pathBytes = Array(path.utf8CString)
+        guard pathBytes.count <= maxLength else { return false }
+        withUnsafeMutablePointer(to: &addr.sun_path) { ptr in
+            let raw = UnsafeMutableRawPointer(ptr).assumingMemoryBound(to: CChar.self)
+            memset(raw, 0, maxLength)
+            for index in 0..<pathBytes.count {
+                raw[index] = pathBytes[index]
+            }
+        }
+
+        let pathOffset = MemoryLayout<sockaddr_un>.offset(of: \.sun_path) ?? 0
+        let addrLen = socklen_t(pathOffset + pathBytes.count)
+#if os(macOS)
+        addr.sun_len = UInt8(min(Int(addrLen), 255))
+#endif
+        let connectResult = withUnsafePointer(to: &addr) { ptr in
+            ptr.withMemoryRebound(to: sockaddr.self, capacity: 1) { sockaddrPtr in
+                connect(fd, sockaddrPtr, addrLen)
+            }
+        }
+        if connectResult == 0 {
+            return true
+        }
+
+        let connectErrno = errno
+        guard connectErrno == EINPROGRESS || connectErrno == EAGAIN || connectErrno == EWOULDBLOCK else {
+            return false
+        }
+
+        var pollFD = pollfd(fd: fd, events: Int16(POLLOUT), revents: 0)
+        guard poll(&pollFD, 1, 150) > 0 else {
+            return false
+        }
+        guard (pollFD.revents & Int16(POLLOUT)) != 0 else {
+            return false
+        }
+
+        var socketError: Int32 = 0
+        var socketErrorLength = socklen_t(MemoryLayout<Int32>.size)
+        let optionResult = withUnsafeMutablePointer(to: &socketError) { errorPointer in
+            withUnsafeMutablePointer(to: &socketErrorLength) { lengthPointer in
+                getsockopt(fd, SOL_SOCKET, SO_ERROR, errorPointer, lengthPointer)
+            }
+        }
+        return optionResult == 0 && socketError == 0
     }
 
     static func shouldHonorSocketPathOverride(

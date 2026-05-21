@@ -4995,6 +4995,20 @@ final class TerminalControllerSocketListenerHealthTests: XCTestCase {
         )
     }
 
+    @MainActor
+    func testReservedStartupSocketPathFeedsActivePathBeforeListenerStarts() {
+        TerminalController.shared.stop()
+        defer { TerminalController.shared.stop() }
+
+        let reservedPath = "/tmp/cmux-reserved-startup-\(UUID().uuidString).sock"
+        TerminalController.shared.reserveStartupSocketPath(reservedPath)
+
+        XCTAssertEqual(
+            TerminalController.shared.activeSocketPath(preferredPath: "/tmp/cmux-preferred.sock"),
+            reservedPath
+        )
+    }
+
     private func makeTempSocketPath() -> String {
         "/tmp/cmux-socket-health-\(UUID().uuidString).sock"
     }

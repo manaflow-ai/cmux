@@ -58,6 +58,7 @@ class TerminalController {
     private nonisolated(unsafe) var nextAcceptLoopGeneration: UInt64 = 0
     private nonisolated(unsafe) var pendingAcceptLoopRearmGeneration: UInt64?
     private nonisolated(unsafe) var pendingSocketBindRetryGeneration: UInt64?
+    private nonisolated(unsafe) var reservedStartupSocketPath: String?
     private nonisolated(unsafe) var nextSocketBindRetryGeneration: UInt64 = 0
     private nonisolated(unsafe) var listenerStartInProgress = false
     private nonisolated let listenerStateLock = NSLock()
@@ -79,7 +80,7 @@ class TerminalController {
     private nonisolated static let socketProbePollTimeoutMs: Int32 = 100
     private nonisolated static let socketProbePollAttempts = 3
     private nonisolated static let socketProbePollRetryBackoffUs: useconds_t = 50_000
-    private nonisolated static let refusedSocketStaleAgeThreshold: TimeInterval = 2
+    private nonisolated static let refusedSocketStaleAgeThreshold = SocketControlSettings.staleSocketReplacementAgeThreshold
     nonisolated static let recentlyRefusedSocketBindStage = "bind_recently_refused"
     private nonisolated static let socketClientReadTimeout: TimeInterval = 30
     private nonisolated static let socketClientWriteTimeout: TimeInterval = 5
@@ -140,6 +141,7 @@ class TerminalController {
         let activeGeneration: UInt64
         let pendingRearmGeneration: UInt64?
         let pendingBindRetryGeneration: UInt64?
+        let reservedStartupSocketPath: String?
         let listenerStartInProgress: Bool
     }
 
@@ -326,8 +328,23 @@ class TerminalController {
                 activeGeneration: activeAcceptLoopGeneration,
                 pendingRearmGeneration: pendingAcceptLoopRearmGeneration,
                 pendingBindRetryGeneration: pendingSocketBindRetryGeneration,
+                reservedStartupSocketPath: reservedStartupSocketPath,
                 listenerStartInProgress: listenerStartInProgress
             )
+        }
+    }
+
+    nonisolated func reserveStartupSocketPath(_ path: String) {
+        withListenerState {
+            guard !isRunning,
+                  !acceptLoopAlive,
+                  !listenerStartInProgress,
+                  pendingSocketBindRetryGeneration == nil,
+                  serverSocket < 0 else {
+                return
+            }
+            socketPath = path
+            reservedStartupSocketPath = path
         }
     }
 
@@ -339,6 +356,9 @@ class TerminalController {
             || snapshot.pendingBindRetryGeneration != nil
             || snapshot.serverSocket >= 0 {
             return snapshot.socketPath
+        }
+        if let reservedStartupSocketPath = snapshot.reservedStartupSocketPath {
+            return reservedStartupSocketPath
         }
         return preferredPath
     }
@@ -1283,6 +1303,7 @@ class TerminalController {
             self.socketPath = activeSocketPath
             boundSocketPathIdentity = nil
             pendingSocketBindRetryGeneration = nil
+            reservedStartupSocketPath = nil
             listenerStartInProgress = true
         }
         var listenerActivated = false
@@ -1761,6 +1782,7 @@ class TerminalController {
             acceptLoopAlive = false
             pendingAcceptLoopRearmGeneration = nil
             pendingSocketBindRetryGeneration = nil
+            reservedStartupSocketPath = nil
             listenerStartInProgress = false
             nextAcceptLoopGeneration &+= 1
             activeAcceptLoopGeneration = 0

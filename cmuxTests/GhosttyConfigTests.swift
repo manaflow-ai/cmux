@@ -2794,6 +2794,58 @@ final class SocketControlSettingsTests: XCTestCase {
         XCTAssertEqual(path, SocketControlSettings.userScopedStableSocketPath(currentUserID: 501))
     }
 
+    func testInitialStableLaunchFallsBackToUserScopedSocketWhenSameUserStablePathAcceptsConnections() {
+        let path = SocketControlSettings.initialSocketPathBeforeListenerStart(
+            preferredPath: SocketControlSettings.stableDefaultSocketPath,
+            environment: ["CMUX_TAG": "ambient-dev-tag"],
+            bundleIdentifier: "com.cmuxterm.app",
+            isDebugBuild: false,
+            currentUserID: 501,
+            probeStableDefaultPathEntry: { _ in .socket(ownerUserID: 501) },
+            stableDefaultSocketAcceptsConnections: { socketPath in
+                XCTAssertEqual(socketPath, SocketControlSettings.stableDefaultSocketPath)
+                return true
+            }
+        )
+
+        XCTAssertEqual(path, SocketControlSettings.userScopedStableSocketPath(currentUserID: 501))
+    }
+
+    func testInitialStableLaunchKeepsSameUserStableSocketPathWhenItDoesNotAcceptConnections() {
+        let path = SocketControlSettings.initialSocketPathBeforeListenerStart(
+            preferredPath: SocketControlSettings.stableDefaultSocketPath,
+            environment: [:],
+            bundleIdentifier: "com.cmuxterm.app",
+            isDebugBuild: false,
+            currentUserID: 501,
+            probeStableDefaultPathEntry: { _ in .socket(ownerUserID: 501) },
+            stableDefaultSocketAcceptsConnections: { _ in false }
+        )
+
+        XCTAssertEqual(path, SocketControlSettings.stableDefaultSocketPath)
+    }
+
+    func testInitialSocketPathDoesNotProbeForTaggedDebugBuild() {
+        let debugPath = "/tmp/cmux-debug-tag.sock"
+        let path = SocketControlSettings.initialSocketPathBeforeListenerStart(
+            preferredPath: debugPath,
+            environment: [:],
+            bundleIdentifier: "com.cmuxterm.app.debug.tag",
+            isDebugBuild: false,
+            currentUserID: 501,
+            probeStableDefaultPathEntry: { _ in
+                XCTFail("Tagged debug builds must not inspect the stable socket")
+                return .socket(ownerUserID: 501)
+            },
+            stableDefaultSocketAcceptsConnections: { _ in
+                XCTFail("Tagged debug builds must not probe the stable socket")
+                return true
+            }
+        )
+
+        XCTAssertEqual(path, debugPath)
+    }
+
     func testStableReleaseFallsBackToUserScopedSocketWhenStablePathIsBlockedByNonSocketEntry() {
         let path = SocketControlSettings.defaultSocketPath(
             bundleIdentifier: "com.cmuxterm.app",
