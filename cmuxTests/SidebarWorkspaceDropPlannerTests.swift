@@ -163,6 +163,38 @@ final class SidebarWorkspaceDropPlannerTests: XCTestCase {
         XCTAssertEqual(move.targetIndex, 1)
     }
 
+    func testBrowserStackDropBoundaryBottomPrefersTargetRowSection() throws {
+        let openA = UUID()
+        let openB = UUID()
+        let readingA = UUID()
+        let readingB = UUID()
+        let rows = [
+            ExtensionSidebarBrowserStackDropRow(workspaceId: openA, sectionId: "open"),
+            ExtensionSidebarBrowserStackDropRow(workspaceId: openB, sectionId: "open"),
+            ExtensionSidebarBrowserStackDropRow(workspaceId: readingA, sectionId: "reading"),
+            ExtensionSidebarBrowserStackDropRow(workspaceId: readingB, sectionId: "reading")
+        ]
+
+        let preferredSectionId = ExtensionSidebarBrowserStackDropPlanner.preferredSectionId(
+            targetWorkspaceId: openB,
+            indicator: SidebarDropIndicator(tabId: readingA, edge: .top),
+            orderedRows: rows
+        )
+
+        XCTAssertEqual(preferredSectionId, "open")
+
+        let move = try XCTUnwrap(ExtensionSidebarBrowserStackDropPlanner.move(
+            draggedWorkspaceId: readingB,
+            insertionPosition: 2,
+            orderedRows: rows,
+            preferredTargetSectionId: preferredSectionId
+        ))
+        XCTAssertEqual(move.workspaceId, readingB)
+        XCTAssertEqual(move.sourceSectionId, "reading")
+        XCTAssertEqual(move.targetSectionId, "open")
+        XCTAssertEqual(move.targetIndex, 2)
+    }
+
     private func workspaceDropTargets(
         _ ids: [UUID],
         pinnedIds: Set<UUID> = []

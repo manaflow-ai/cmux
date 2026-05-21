@@ -9879,7 +9879,7 @@ struct VerticalTabsSidebar: View {
                             alignment: .topLeading
                         )
                 } else {
-                    LazyVStack(alignment: .leading, spacing: 2) {
+                    VStack(alignment: .leading, spacing: 2) {
                         ForEach(model.sections) { section in
                             extensionSidebarSection(section, providerId: model.providerId, now: now)
                         }
@@ -10846,11 +10846,11 @@ private struct CmuxExtensionSidebarWorkspaceRowView: View, Equatable {
                     .lineLimit(1)
             }
 
-            if let workspace {
+            if let accessory = row.accessory, let workspace {
                 Button {
                     showsInspector = true
                 } label: {
-                    Image(systemName: row.accessory?.systemImageName ?? "ellipsis.circle")
+                    Image(systemName: accessory.systemImageName)
                         .font(.system(size: isSuperCompact ? 10 : 12, weight: .regular))
                         .frame(width: isSuperCompact ? 14 : 18, height: isSuperCompact ? 14 : 18)
                 }
@@ -16232,6 +16232,29 @@ enum ExtensionSidebarBrowserStackDropPlanner {
             targetIndex: targetIndex
         )
     }
+
+    static func preferredSectionId(
+        targetWorkspaceId: UUID,
+        indicator: SidebarDropIndicator?,
+        orderedRows: [ExtensionSidebarBrowserStackDropRow]
+    ) -> String? {
+        guard let targetIndex = orderedRows.firstIndex(where: { $0.workspaceId == targetWorkspaceId }) else {
+            return nil
+        }
+        let targetRow = orderedRows[targetIndex]
+        guard let indicator,
+              let indicatorWorkspaceId = indicator.tabId,
+              let indicatorIndex = orderedRows.firstIndex(where: { $0.workspaceId == indicatorWorkspaceId }) else {
+            return targetRow.sectionId
+        }
+        if indicatorWorkspaceId == targetWorkspaceId {
+            return targetRow.sectionId
+        }
+        if indicator.edge == .top, indicatorIndex == targetIndex + 1 {
+            return targetRow.sectionId
+        }
+        return orderedRows[indicatorIndex].sectionId
+    }
 }
 
 private struct ExtensionSidebarBrowserStackDropDelegate: DropDelegate {
@@ -16329,11 +16352,11 @@ private struct ExtensionSidebarBrowserStackDropDelegate: DropDelegate {
     }
 
     private func preferredTargetSectionId() -> String? {
-        if let indicatorWorkspaceId = dropIndicator?.tabId,
-           let row = orderedRows.first(where: { $0.workspaceId == indicatorWorkspaceId }) {
-            return row.sectionId
-        }
-        return orderedRows.first(where: { $0.workspaceId == targetWorkspaceId })?.sectionId
+        ExtensionSidebarBrowserStackDropPlanner.preferredSectionId(
+            targetWorkspaceId: targetWorkspaceId,
+            indicator: dropIndicator,
+            orderedRows: orderedRows
+        )
     }
 }
 
