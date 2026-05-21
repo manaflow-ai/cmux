@@ -557,7 +557,10 @@ extension CMUXCLI {
             surfaceHandle = sourceContext.surfaceId ?? surfaceHandle
         }
 
-        let appearance = diffViewerAppearance(fontSizeOverride: fontSizeOverride)
+        let appearance = diffViewerAppearance(
+            socketPath: socketPath,
+            fontSizeOverride: fontSizeOverride
+        )
         let viewer = try writeDiffViewer(
             rawInput: parsedArgs.inputs.first,
             source: parsedArgs.source,
@@ -1409,9 +1412,10 @@ extension CMUXCLI {
         URL(fileURLWithPath: NSString(string: path).expandingTildeInPath).standardizedFileURL.path
     }
 
-    private func diffViewerAppearance(fontSizeOverride: Double?) -> DiffViewerAppearance {
+    private func diffViewerAppearance(socketPath: String, fontSizeOverride: Double?) -> DiffViewerAppearance {
         var appearance = defaultDiffViewerAppearance()
-        for url in themeConfigSearchURLs() {
+        let targetBundleIdentifier = themeTargetBundleIdentifier(socketPath: socketPath)
+        for url in themeConfigSearchURLs(targetBundleIdentifier: targetBundleIdentifier) {
             guard let contents = readOptionalDiffViewerConfig(at: url) else { continue }
             applyDiffViewerGhosttyConfig(contents, to: &appearance)
         }
