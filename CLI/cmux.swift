@@ -21229,7 +21229,7 @@ struct CMUXCLI {
         let executableBase = agentProcessBasename(arguments.first)
 
         if nameBase == "node" || nameBase == "bun" || executableBase == "node" || executableBase == "bun" {
-            if let wrappedKind = nativeAgentProcessKindFromArguments(arguments) {
+            if let wrappedKind = nativeAgentProcessKindFromArguments(arguments, excludingIdentifiers: ["codex"]) {
                 return wrappedKind
             }
             return nil
@@ -21371,14 +21371,19 @@ struct CMUXCLI {
         return HookAgentProcessKind(identifier: basename)
     }
 
-    private static func nativeAgentProcessKindFromArguments(_ arguments: [String]) -> HookAgentProcessKind? {
+    private static func nativeAgentProcessKindFromArguments(
+        _ arguments: [String],
+        excludingIdentifiers: Set<String> = []
+    ) -> HookAgentProcessKind? {
         for argument in arguments.dropFirst() {
-            if let kind = nativeAgentProcessKindFromBasename(agentProcessBasename(argument)) {
+            if let kind = nativeAgentProcessKindFromBasename(agentProcessBasename(argument)),
+               !excludingIdentifiers.contains(kind.identifier) {
                 return kind
             }
             let lowered = argument.lowercased()
             for wrappedKind in wrappedAgentArgumentNeedles {
-                if wrappedKind.needles.contains(where: { lowered.contains($0) }) {
+                if !excludingIdentifiers.contains(wrappedKind.identifier),
+                   wrappedKind.needles.contains(where: { lowered.contains($0) }) {
                     return HookAgentProcessKind(identifier: wrappedKind.identifier)
                 }
             }
