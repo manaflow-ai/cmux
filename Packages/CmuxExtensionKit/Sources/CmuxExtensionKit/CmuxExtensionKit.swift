@@ -531,6 +531,9 @@ public struct CmuxExtensionSidebarReducer {
                 field == "title" || field == "subtitle" || field == "body"
             }
 
+        case "workspace.created":
+            return true
+
         case "notification.read", "notification.cleared", "notification.removed":
             return true
 
@@ -644,7 +647,14 @@ public struct CmuxExtensionSidebarReducer {
             }
 
         case "workspace.selected":
-            next.selectedWorkspaceId = resolvedWorkspaceId(frame)
+            if let workspaceId = resolvedWorkspaceId(frame) {
+                guard next.workspaces.contains(where: { $0.id == workspaceId }) else {
+                    return next
+                }
+                next.selectedWorkspaceId = workspaceId
+            } else {
+                next.selectedWorkspaceId = nil
+            }
 
         case "workspace.renamed":
             guard let workspaceId = resolvedWorkspaceId(frame),

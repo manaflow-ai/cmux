@@ -367,6 +367,8 @@ final class CmuxExtensionKitTests: XCTestCase {
             ]
         )
 
+        XCTAssertTrue(CmuxExtensionSidebarReducer.requiresSnapshotReplacement(after: event))
+
         let updated = CmuxExtensionSidebarReducer.reduce(snapshot, event: event)
 
         XCTAssertEqual(updated.sequence, 6)
@@ -374,6 +376,30 @@ final class CmuxExtensionKitTests: XCTestCase {
         XCTAssertEqual(updated.workspaces.map(\.id), [createdId, first.id])
         XCTAssertEqual(updated.workspaces[0].title, "Created")
         XCTAssertEqual(updated.workspaces[0].rootPath, "/tmp/cmux/created")
+    }
+
+    func testWorkspaceSelectedEventIgnoresWorkspaceOutsideSnapshotWindow() {
+        let first = workspace(title: "First", rootPath: "/tmp/cmux/first", projectRootPath: "/tmp/cmux")
+        let secondWindowWorkspaceId = UUID()
+        let snapshot = CmuxExtensionSidebarSnapshot(
+            sequence: 1,
+            selectedWorkspaceId: first.id,
+            workspaces: [first],
+            windowId: UUID()
+        )
+        let event = CmuxExtensionEventFrame(
+            sequence: 2,
+            name: "workspace.selected",
+            category: "workspace",
+            source: "workspace.lifecycle",
+            occurredAt: Date(timeIntervalSinceReferenceDate: 1),
+            workspaceId: secondWindowWorkspaceId
+        )
+
+        let updated = CmuxExtensionSidebarReducer.reduce(snapshot, event: event)
+
+        XCTAssertEqual(updated.sequence, 2)
+        XCTAssertEqual(updated.selectedWorkspaceId, first.id)
     }
 
     func testWorkspaceRenamedEventReadsSocketResultPayload() {

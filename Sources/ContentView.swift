@@ -10875,7 +10875,10 @@ private struct CmuxExtensionSidebarWorkspaceRowView: View, Equatable {
             if let accessory = row.accessory, let workspace {
                 Button {
                     if inspectorDraft == nil {
-                        inspectorDraft = CmuxExtensionWorkspaceInspectorDraft.initial(workspace: workspace)
+                        inspectorDraft = CmuxExtensionWorkspaceInspectorDraft.initial(
+                            workspace: workspace,
+                            selectedTab: accessory.defaultTab
+                        )
                     }
                     showsInspector = true
                 } label: {
@@ -10890,7 +10893,10 @@ private struct CmuxExtensionSidebarWorkspaceRowView: View, Equatable {
                         workspace: workspace,
                         draft: Binding(
                             get: {
-                                inspectorDraft ?? CmuxExtensionWorkspaceInspectorDraft.initial(workspace: workspace)
+                                inspectorDraft ?? CmuxExtensionWorkspaceInspectorDraft.initial(
+                                    workspace: workspace,
+                                    selectedTab: accessory.defaultTab
+                                )
                             },
                             set: { inspectorDraft = $0 }
                         ),
@@ -10935,10 +10941,13 @@ private struct CmuxExtensionWorkspaceInspectorDraft: Equatable {
     var address: String
     var committedAddress: String
 
-    static func initial(workspace: CmuxExtensionWorkspaceSnapshot) -> CmuxExtensionWorkspaceInspectorDraft {
+    static func initial(
+        workspace: CmuxExtensionWorkspaceSnapshot,
+        selectedTab: CmuxExtensionWorkspacePopoverTab = .notes
+    ) -> CmuxExtensionWorkspaceInspectorDraft {
         let initialAddress = workspace.pullRequestURLs.first ?? "https://github.com/"
         return CmuxExtensionWorkspaceInspectorDraft(
-            selectedTab: .notes,
+            selectedTab: selectedTab,
             notes: "",
             address: initialAddress,
             committedAddress: initialAddress
