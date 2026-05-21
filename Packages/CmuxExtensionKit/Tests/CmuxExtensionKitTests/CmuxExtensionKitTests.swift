@@ -35,6 +35,28 @@ final class CmuxExtensionKitTests: XCTestCase {
         XCTAssertNil(CmuxExtensionJSONValue.number(Double.greatestFiniteMagnitude).intValue)
     }
 
+    func testEventFrameDecodesSocketTimestamp() throws {
+        let workspaceId = UUID()
+        let data = Data("""
+        {
+          "seq": 12,
+          "name": "workspace.selected",
+          "category": "workspace",
+          "source": "workspace.lifecycle",
+          "occurred_at": "2026-05-21T10:00:00.123Z",
+          "workspace_id": "\(workspaceId.uuidString)",
+          "payload": {"workspace_id": "\(workspaceId.uuidString)"}
+        }
+        """.utf8)
+
+        let event = try JSONDecoder().decode(CmuxExtensionEventFrame.self, from: data)
+
+        XCTAssertEqual(event.sequence, 12)
+        XCTAssertEqual(event.workspaceId, workspaceId)
+        XCTAssertEqual(event.payload["workspace_id"]?.stringValue, workspaceId.uuidString)
+        XCTAssertEqual(event.occurredAt.timeIntervalSince1970, 1_779_357_600.123, accuracy: 0.001)
+    }
+
     func testSidebarSnapshotDecodesSocketShape() throws {
         let workspaceId = UUID()
         let selectedId = workspaceId.uuidString
@@ -216,6 +238,39 @@ final class CmuxExtensionKitTests: XCTestCase {
         XCTAssertEqual(updated.sequence, 6)
         XCTAssertEqual(updated.selectedWorkspaceId, second.id)
         XCTAssertEqual(updated.workspaces.map(\.id), [third.id, first.id, second.id])
+    }
+
+    func testWorkspaceCreatedEventAddsWorkspaceProjection() {
+        let first = workspace(title: "First", rootPath: "/tmp/cmux/first", projectRootPath: "/tmp/cmux")
+        let createdId = UUID()
+        let snapshot = CmuxExtensionSidebarSnapshot(
+            sequence: 5,
+            selectedWorkspaceId: first.id,
+            workspaces: [first]
+        )
+        let event = CmuxExtensionEventFrame(
+            sequence: 6,
+            name: "workspace.created",
+            category: "workspace",
+            source: "workspace.lifecycle",
+            occurredAt: Date(timeIntervalSinceReferenceDate: 2),
+            workspaceId: createdId,
+            payload: [
+                "workspace_id": .string(createdId.uuidString),
+                "title": .string("Created"),
+                "cwd": .string("/tmp/cmux/created"),
+                "index": .number(0),
+                "selected": .bool(true)
+            ]
+        )
+
+        let updated = CmuxExtensionSidebarReducer.reduce(snapshot, event: event)
+
+        XCTAssertEqual(updated.sequence, 6)
+        XCTAssertEqual(updated.selectedWorkspaceId, createdId)
+        XCTAssertEqual(updated.workspaces.map(\.id), [createdId, first.id])
+        XCTAssertEqual(updated.workspaces[0].title, "Created")
+        XCTAssertEqual(updated.workspaces[0].rootPath, "/tmp/cmux/created")
     }
 
     func testSelectedAndClosedWorkspaceEventsUpdateProjection() {

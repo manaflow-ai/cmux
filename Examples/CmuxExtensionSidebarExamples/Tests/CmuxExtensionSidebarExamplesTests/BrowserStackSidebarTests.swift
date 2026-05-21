@@ -98,6 +98,35 @@ final class BrowserStackSidebarTests: XCTestCase {
         XCTAssertEqual(reconciled.sections.map(\.id), ["tiles", "loose", "group:research"])
     }
 
+    func testBrowserStackRenderModelPreservesEmptyRequiredSections() {
+        let snapshot = CmuxExtensionSidebarSnapshot(sequence: 1, selectedWorkspaceId: nil, workspaces: [])
+        let sections = [
+            ExampleSidebarSection(
+                id: "tiles",
+                title: localized("example.sidebar.tiles", "Pinned"),
+                systemImageName: "rectangle.grid.3x2",
+                projectRootPath: nil,
+                workspaces: []
+            ).render(),
+            ExampleSidebarSection(
+                id: "loose",
+                title: localized("example.sidebar.loose", "Open"),
+                systemImageName: "globe",
+                projectRootPath: nil,
+                workspaces: []
+            ).render()
+        ]
+
+        let model = renderModel(
+            providerId: "browser-stack",
+            snapshot: snapshot,
+            sections: sections,
+            presentation: .browserStack
+        )
+
+        XCTAssertEqual(model.sections.map(\.id), ["tiles", "loose"])
+    }
+
     private func temporaryStateURL() -> URL {
         FileManager.default.temporaryDirectory
             .appendingPathComponent("cmux-browser-stack-\(UUID().uuidString)", isDirectory: true)

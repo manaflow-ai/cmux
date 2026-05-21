@@ -1,5 +1,25 @@
 import Foundation
 
+private enum CmuxExtensionDateCoding {
+    static func iso8601Date(from string: String) -> Date? {
+        let fractional = ISO8601DateFormatter()
+        fractional.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
+        if let date = fractional.date(from: string) {
+            return date
+        }
+
+        let plain = ISO8601DateFormatter()
+        plain.formatOptions = [.withInternetDateTime]
+        return plain.date(from: string)
+    }
+
+    static func iso8601String(from date: Date) -> String {
+        let formatter = ISO8601DateFormatter()
+        formatter.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
+        return formatter.string(from: date)
+    }
+}
+
 public struct CmuxExtensionLocalizedText: Codable, Equatable, Hashable, Sendable {
     public var key: String
     public var defaultValue: String
@@ -179,6 +199,46 @@ public struct CmuxExtensionEventFrame: Codable, Equatable, Sendable {
         case paneId = "pane_id"
         case windowId = "window_id"
         case payload
+    }
+
+    public init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        sequence = try container.decode(UInt64.self, forKey: .sequence)
+        name = try container.decode(String.self, forKey: .name)
+        category = try container.decode(String.self, forKey: .category)
+        source = try container.decode(String.self, forKey: .source)
+        if let date = try? container.decode(Date.self, forKey: .occurredAt) {
+            occurredAt = date
+        } else {
+            let string = try container.decode(String.self, forKey: .occurredAt)
+            guard let date = CmuxExtensionDateCoding.iso8601Date(from: string) else {
+                throw DecodingError.dataCorruptedError(
+                    forKey: .occurredAt,
+                    in: container,
+                    debugDescription: "Invalid ISO-8601 event timestamp."
+                )
+            }
+            occurredAt = date
+        }
+        workspaceId = try container.decodeIfPresent(UUID.self, forKey: .workspaceId)
+        surfaceId = try container.decodeIfPresent(UUID.self, forKey: .surfaceId)
+        paneId = try container.decodeIfPresent(UUID.self, forKey: .paneId)
+        windowId = try container.decodeIfPresent(UUID.self, forKey: .windowId)
+        payload = try container.decodeIfPresent([String: CmuxExtensionJSONValue].self, forKey: .payload) ?? [:]
+    }
+
+    public func encode(to encoder: Encoder) throws {
+        var container = encoder.container(keyedBy: CodingKeys.self)
+        try container.encode(sequence, forKey: .sequence)
+        try container.encode(name, forKey: .name)
+        try container.encode(category, forKey: .category)
+        try container.encode(source, forKey: .source)
+        try container.encode(CmuxExtensionDateCoding.iso8601String(from: occurredAt), forKey: .occurredAt)
+        try container.encodeIfPresent(workspaceId, forKey: .workspaceId)
+        try container.encodeIfPresent(surfaceId, forKey: .surfaceId)
+        try container.encodeIfPresent(paneId, forKey: .paneId)
+        try container.encodeIfPresent(windowId, forKey: .windowId)
+        try container.encode(payload, forKey: .payload)
     }
 }
 
@@ -373,19 +433,7 @@ public struct CmuxExtensionWorkspaceSnapshot: Identifiable, Codable, Equatable, 
         guard let string = try socketContainer.decodeIfPresent(String.self, forKey: socketKey) else {
             return nil
         }
-        return iso8601Date(from: string)
-    }
-
-    private static func iso8601Date(from string: String) -> Date? {
-        let fractional = ISO8601DateFormatter()
-        fractional.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
-        if let date = fractional.date(from: string) {
-            return date
-        }
-
-        let plain = ISO8601DateFormatter()
-        plain.formatOptions = [.withInternetDateTime]
-        return plain.date(from: string)
+        return CmuxExtensionDateCoding.iso8601Date(from: string)
     }
 }
 
@@ -460,6 +508,34 @@ public struct CmuxExtensionSidebarReducer {
         next.sequence = max(snapshot.sequence, frame.sequence)
 
         switch frame.name {
+        case "workspace.created":
+            guard let workspaceId = resolvedWorkspaceId(frame),
+                  !next.workspaces.contains(where: { $0.id == workspaceId }) else {
+                return next
+            }
+            let title = frame.payload["title"]?.stringValue
+                ?? frame.payload["custom_title"]?.stringValue
+                ?? "Workspace"
+            let workspace = CmuxExtensionWorkspaceSnapshot(
+                id: workspaceId,
+                title: title,
+                customDescription: nil,
+                isPinned: false,
+                rootPath: frame.payload["cwd"]?.stringValue ?? frame.payload["root_path"]?.stringValue,
+                projectRootPath: frame.payload["project_root_path"]?.stringValue,
+                branchSummary: nil,
+                remoteDisplayTarget: nil,
+                remoteConnectionState: nil,
+                unreadCount: 0,
+                latestNotificationText: nil,
+                listeningPorts: []
+            )
+            let insertionIndex = min(max(frame.payload["index"]?.intValue ?? next.workspaces.count, 0), next.workspaces.count)
+            next.workspaces.insert(workspace, at: insertionIndex)
+            if frame.payload["selected"]?.boolValue == true {
+                next.selectedWorkspaceId = workspaceId
+            }
+
         case "workspace.closed":
             guard let workspaceId = resolvedWorkspaceId(frame) else { return next }
             next.workspaces.removeAll { $0.id == workspaceId }

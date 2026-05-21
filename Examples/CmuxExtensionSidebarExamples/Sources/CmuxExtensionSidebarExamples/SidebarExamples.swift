@@ -65,7 +65,7 @@ func renderModel(
     CmuxExtensionSidebarRenderModel(
         providerId: providerId,
         snapshotSequence: snapshot.sequence,
-        sections: sections.filter { !$0.rows.isEmpty },
+        sections: presentation == .browserStack ? sections : sections.filter { !$0.rows.isEmpty },
         presentation: presentation
     )
 }
