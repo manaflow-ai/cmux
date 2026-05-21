@@ -14464,11 +14464,19 @@ struct CMUXCLI {
             }
 
             let canonicalPaneId: String? = {
-                if let paneId = normalizedTmuxTarget(focused["pane_id"] as? String) {
-                    return paneId
-                }
                 guard let canonicalWorkspaceId = try? resolveWorkspaceId(workspaceId, client: client) else {
                     return nil
+                }
+                if let paneUUID = normalizedTmuxTarget(focused["pane_uuid"] as? String) {
+                    return paneUUID
+                }
+                if let paneId = normalizedTmuxTarget(focused["pane_id"] as? String),
+                   let canonical = try? tmuxCanonicalPaneId(
+                       paneId,
+                       workspaceId: canonicalWorkspaceId,
+                       client: client
+                   ) {
+                    return canonical
                 }
                 return try? tmuxCanonicalPaneId(
                     paneHandle,
