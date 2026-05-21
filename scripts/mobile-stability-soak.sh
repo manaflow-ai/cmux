@@ -149,6 +149,11 @@ cleanup_tagged_soak_processes() {
     while IFS= read -r pid; do
       [[ "$pid" =~ ^[0-9]+$ ]] || continue
       kill "$pid" >/dev/null 2>&1 || true
+    done < <(ps -axo pid=,command= | awk -v sim="$sim_id" 'index($0, "cmuxMobile.app/cmuxMobile") && index($0, "/Devices/" sim "/") { print $1 }')
+
+    while IFS= read -r pid; do
+      [[ "$pid" =~ ^[0-9]+$ ]] || continue
+      kill "$pid" >/dev/null 2>&1 || true
     done < <(ps -axo pid=,command= | awk -v sim="$sim_id" '/xcodebuildmcp/ && /ui-automation snapshot-ui/ && index($0, sim) { print $1 }')
   done
 }

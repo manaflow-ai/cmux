@@ -150,7 +150,7 @@ def launch_app_with_attach_ticket(ticket):
     ).strip()
     log(f"app_launch ticket_workspace={ticket['workspace_id'][:8]} output={launch_output}")
     time.sleep(attach_settle_seconds)
-    assert_attached_ui()
+    assert_attached_ui(ticket)
 
 
 def reattach_app_with_attach_ticket(ticket):
@@ -166,7 +166,7 @@ def reattach_app_with_attach_ticket(ticket):
     ).strip()
     log(f"app_openurl ticket_workspace={ticket['workspace_id'][:8]} output={output}")
     time.sleep(attach_settle_seconds)
-    assert_attached_ui()
+    assert_attached_ui(ticket)
 
 
 def simulator_accessibility_snapshot():
@@ -180,7 +180,52 @@ def simulator_accessibility_snapshot():
     return output
 
 
-def assert_attached_ui():
+def accessibility_snapshot_unavailable(snapshot):
+    lowered = snapshot.lower()
+    return (
+        "failed to get accessibility hierarchy" in lowered
+        or "no translation object returned" in lowered
+        or "axe command 'describe-ui' failed" in lowered
+    )
+
+
+def capture_attachment_fallback_screenshot():
+    fallback_root = soak_root / "attachment-fallbacks"
+    fallback_root.mkdir(parents=True, exist_ok=True)
+    screenshot_command_path = fallback_root / f"{client_id}-{int(time.time())}-screenshot-command.json"
+    screenshot_output = run_json_file(
+        [
+            "xcodebuildmcp",
+            "ui-automation",
+            "screenshot",
+            "--simulator-id",
+            simulator_id,
+            "--return-format",
+            "path",
+            "--output",
+            "json",
+        ],
+        screenshot_command_path,
+    )
+    parsed = json.loads(screenshot_output)
+    screenshot_path = parsed.get("path") or parsed.get("screenshotPath")
+    if not screenshot_path:
+        text_chunks = [
+            item.get("text", "")
+            for item in parsed.get("content", [])
+            if isinstance(item, dict)
+        ]
+        match = re.search(r"(/[^\n]+?\.(?:png|jpg|jpeg))", "\n".join(text_chunks))
+        if match:
+            screenshot_path = match.group(1)
+    if not screenshot_path or not Path(screenshot_path).exists():
+        raise RuntimeError(f"attachment fallback screenshot missing path output={screenshot_output[:800]}")
+    copied = fallback_root / f"{client_id}-{int(time.time())}.png"
+    shutil.copyfile(screenshot_path, copied)
+    return copied
+
+
+def assert_attached_ui(ticket):
     blockers = [
         "Open in “cmux DEV",
         "Sign in with Apple",
@@ -192,9 +237,14 @@ def assert_attached_ui():
     ]
     deadline = time.monotonic() + 15
     last_snapshot = ""
+    saw_snapshot_unavailable = False
     while time.monotonic() < deadline:
         snapshot = simulator_accessibility_snapshot()
         last_snapshot = snapshot
+        if accessibility_snapshot_unavailable(snapshot):
+            saw_snapshot_unavailable = True
+            time.sleep(0.5)
+            continue
         visible_blockers = [blocker for blocker in blockers if blocker in snapshot]
         if visible_blockers:
             raise RuntimeError(f"simulator UI is not attached to terminal; visible blockers={visible_blockers}")
@@ -202,6 +252,18 @@ def assert_attached_ui():
         if "MobileTerminalSurface" in snapshot or "MobileWorkspaceShell" in snapshot:
             return
         time.sleep(0.5)
+
+    if saw_snapshot_unavailable:
+        screenshot_path = capture_attachment_fallback_screenshot()
+        workspaces = framed_rpc(ticket, "mobile.workspace.list", {"workspace_id": ticket["workspace_id"]})
+        workspace_count = len(workspaces.get("workspaces", []))
+        terminal_count = sum(len(workspace.get("terminals", [])) for workspace in workspaces.get("workspaces", []))
+        if workspace_count > 0 and terminal_count > 0:
+            log(
+                "attached_ui_snapshot_unavailable "
+                f"screenshot={screenshot_path} workspaces={workspace_count} terminals={terminal_count}"
+            )
+            return
 
     raise RuntimeError(
         "simulator UI is not showing a mobile workspace or terminal surface; "
