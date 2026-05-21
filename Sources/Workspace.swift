@@ -8551,6 +8551,16 @@ final class Workspace: Identifiable, ObservableObject {
         panels[panelId] as? VNCPanel
     }
 
+    func containsVNCSessionConnectionIdentity(_ session: MacfleetVNCSession) -> Bool {
+        bonsplitController.allTabIds.contains { tabId in
+            guard let panelId = panelIdFromSurfaceId(tabId),
+                  let panel = vncPanel(for: panelId) else {
+                return false
+            }
+            return panel.session.hasSameConnectionIdentity(as: session)
+        }
+    }
+
     private func surfaceKind(for panel: any Panel) -> String {
         switch panel.panelType {
         case .terminal:

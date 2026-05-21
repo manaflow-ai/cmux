@@ -748,6 +748,74 @@ final class TerminalControllerSocketSecurityTests: XCTestCase {
         XCTAssertTrue(window.requestedResponder === view)
     }
 
+    func testVNCWorkspaceIdentityMatchSurvivesRename() throws {
+        let manager = TabManager()
+        let workspace = manager.addWorkspace(select: true)
+        let paneId = try XCTUnwrap(workspace.bonsplitController.allPaneIds.first)
+        let session = MacfleetVNCSession(
+            name: "docker-vnc-1",
+            hostName: "docker-vnc-1",
+            address: "127.0.0.1",
+            port: 5900,
+            username: "cmux",
+            tag: "mac-mini-cluster",
+            index: 1
+        )
+        let otherSession = MacfleetVNCSession(
+            name: "docker-vnc-2",
+            hostName: "docker-vnc-2",
+            address: "127.0.0.1",
+            port: 5901,
+            username: "cmux",
+            tag: "mac-mini-cluster",
+            index: 2
+        )
+        let credential = VNCResolvedCredential(
+            username: "cmux",
+            password: "secret",
+            source: .sessionPassword
+        )
+        defer {
+            if manager.tabs.contains(where: { $0.id == workspace.id }) {
+                manager.closeWorkspace(workspace)
+            }
+        }
+
+        XCTAssertNotNil(workspace.newVNCSurface(inPane: paneId, session: session, credential: credential, focus: false))
+        workspace.title = "Renamed workspace"
+
+        XCTAssertTrue(workspace.containsVNCSessionConnectionIdentity(session))
+        XCTAssertFalse(workspace.containsVNCSessionConnectionIdentity(otherSession))
+    }
+
+    func testVNCNamedKeyParserPreservesSocketModifiers() throws {
+        XCTAssertEqual(
+            VNCPanel.namedKeyStroke(for: "ctrl-c"),
+            VNCNamedKeyStroke(modifierKeyCodes: [59], keyCode: 8)
+        )
+        XCTAssertEqual(
+            VNCPanel.namedKeyStroke(for: "ctrl+c"),
+            VNCNamedKeyStroke(modifierKeyCodes: [59], keyCode: 8)
+        )
+        XCTAssertEqual(
+            VNCPanel.namedKeyStroke(for: "sigint"),
+            VNCNamedKeyStroke(modifierKeyCodes: [59], keyCode: 8)
+        )
+        XCTAssertEqual(
+            VNCPanel.namedKeyStroke(for: "shift+tab"),
+            VNCNamedKeyStroke(modifierKeyCodes: [56], keyCode: 48)
+        )
+        XCTAssertEqual(
+            VNCPanel.namedKeyStroke(for: "cmd+return"),
+            VNCNamedKeyStroke(modifierKeyCodes: [55], keyCode: 36)
+        )
+        XCTAssertEqual(
+            VNCPanel.namedKeyStroke(for: "ctrl+page_up"),
+            VNCNamedKeyStroke(modifierKeyCodes: [59], keyCode: 116)
+        )
+        XCTAssertNil(VNCPanel.namedKeyStroke(for: "ctrl+definitely-not-a-key"))
+    }
+
     func testWorkspaceCloseRejectsPinnedWorkspace() async throws {
         let socketPath = makeSocketPath("close-pinned")
         let manager = TabManager()

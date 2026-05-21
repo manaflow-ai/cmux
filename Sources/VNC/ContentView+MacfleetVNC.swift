@@ -172,14 +172,7 @@ extension ContentView {
     @MainActor
     private func existingVNCWorkspace(for session: MacfleetVNCSession) -> Workspace? {
         tabManager.tabs.first { workspace in
-            workspace.title == session.workspaceTitle &&
-                workspace.bonsplitController.allTabIds.contains { tabId in
-                    guard let panelId = workspace.panelIdFromSurfaceId(tabId),
-                          let panel = workspace.vncPanel(for: panelId) else {
-                        return false
-                    }
-                    return panel.session.hasSameConnectionIdentity(as: session)
-                }
+            workspace.containsVNCSessionConnectionIdentity(session)
         }
     }
 
