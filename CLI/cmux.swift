@@ -8457,7 +8457,6 @@ struct CMUXCLI {
             return decoded
         }
 
-        let size = currentCLITerminalSize()
         let bridge: [String: Any]
         do {
             bridge = try waitForReady
@@ -8492,6 +8491,7 @@ struct CMUXCLI {
 
             connectedFD = try connectLoopbackTCP(host: host, port: port)
             let fd = connectedFD!
+            let size = currentCLITerminalSize()
             var handshakeData = try JSONSerialization.data(withJSONObject: [
                 "token": token,
                 "cols": size.cols,

@@ -1104,6 +1104,181 @@ final class CLINotifyProcessIntegrationRegressionTests: XCTestCase {
         ])
     }
 
+    func testSSHPTYAttachWaitUsesCurrentTerminalSizeForBridgeHandshake() throws {
+        let cliPath = try bundledCLIPath()
+        let socketPath = makeSocketPath("sshptysize")
+        let listenerFD = try bindUnixSocket(at: socketPath)
+        let bridge = try bindLoopbackTCP()
+        let state = MockSocketServerState()
+        let workspaceId = "22222222-2222-2222-2222-222222222222"
+        let surfaceId = "33333333-3333-3333-3333-333333333333"
+        let sessionId = "ssh-\(workspaceId)-\(surfaceId)"
+        let token = "bridge-token"
+        let bridgeRequestReceived = DispatchSemaphore(value: 0)
+        let allowBridgeResponse = DispatchSemaphore(value: 0)
+        let handshakeReceived = DispatchSemaphore(value: 0)
+        let handshakeLock = NSLock()
+        var handshakePayload: [String: Any]?
+        var masterFD: Int32 = -1
+        var slaveFD: Int32 = -1
+
+        defer {
+            if masterFD >= 0 { Darwin.close(masterFD) }
+            if slaveFD >= 0 { Darwin.close(slaveFD) }
+            Darwin.close(listenerFD)
+            Darwin.close(bridge.fd)
+            unlink(socketPath)
+        }
+
+        guard openpty(&masterFD, &slaveFD, nil, nil, nil) == 0 else {
+            throw NSError(domain: "cmux.tests", code: Int(errno), userInfo: [
+                NSLocalizedDescriptionKey: "openpty failed: \(String(cString: strerror(errno)))",
+            ])
+        }
+
+        func setPTYSize(cols: Int, rows: Int) throws {
+            var size = winsize(
+                ws_row: UInt16(rows),
+                ws_col: UInt16(cols),
+                ws_xpixel: 0,
+                ws_ypixel: 0
+            )
+            guard ioctl(masterFD, TIOCSWINSZ, &size) == 0 else {
+                throw NSError(domain: "cmux.tests", code: Int(errno), userInfo: [
+                    NSLocalizedDescriptionKey: "TIOCSWINSZ failed: \(String(cString: strerror(errno)))",
+                ])
+            }
+        }
+
+        try setPTYSize(cols: 40, rows: 12)
+
+        let socketHandled = startMockServer(listenerFD: listenerFD, state: state) { line in
+            guard let payload = self.jsonObject(line),
+                  let id = payload["id"] as? String,
+                  let method = payload["method"] as? String else {
+                return self.malformedRequestResponse(raw: line)
+            }
+            switch method {
+            case "workspace.remote.pty_bridge":
+                bridgeRequestReceived.signal()
+                _ = allowBridgeResponse.wait(timeout: .now() + 5)
+                return self.v2Response(
+                    id: id,
+                    ok: true,
+                    result: [
+                        "host": "127.0.0.1",
+                        "port": bridge.port,
+                        "token": token,
+                        "session_id": sessionId,
+                        "attachment_id": surfaceId,
+                    ]
+                )
+            case "workspace.remote.pty_sessions":
+                return self.v2Response(id: id, ok: true, result: ["sessions": []])
+            case "workspace.remote.pty_attach_end":
+                return self.v2Response(
+                    id: id,
+                    ok: true,
+                    result: [
+                        "workspace_id": workspaceId,
+                        "surface_id": surfaceId,
+                        "session_id": sessionId,
+                        "cleared_remote_pty_session": true,
+                    ]
+                )
+            default:
+                return self.v2Response(
+                    id: id,
+                    ok: false,
+                    error: ["code": "unexpected_method", "message": "Unexpected method \(method)"]
+                )
+            }
+        }
+
+        let bridgeHandled = expectation(description: "bridge handshake captured")
+        DispatchQueue.global(qos: .userInitiated).async {
+            defer { bridgeHandled.fulfill() }
+            var clientAddr = sockaddr_in()
+            var clientAddrLen = socklen_t(MemoryLayout<sockaddr_in>.size)
+            let clientFD = withUnsafeMutablePointer(to: &clientAddr) { ptr in
+                ptr.withMemoryRebound(to: sockaddr.self, capacity: 1) { sockaddrPtr in
+                    Darwin.accept(bridge.fd, sockaddrPtr, &clientAddrLen)
+                }
+            }
+            guard clientFD >= 0 else { return }
+            defer { Darwin.close(clientFD) }
+
+            var pending = Data()
+            var buffer = [UInt8](repeating: 0, count: 1024)
+            while !pending.contains(0x0A) {
+                let count = Darwin.read(clientFD, &buffer, buffer.count)
+                if count < 0 {
+                    if errno == EINTR { continue }
+                    return
+                }
+                if count == 0 { return }
+                pending.append(buffer, count: count)
+            }
+            if let lineEnd = pending.firstIndex(of: 0x0A) {
+                let line = pending.prefix(upTo: lineEnd)
+                let payload = try? JSONSerialization.jsonObject(with: Data(line), options: []) as? [String: Any]
+                handshakeLock.lock()
+                handshakePayload = payload
+                handshakeLock.unlock()
+                handshakeReceived.signal()
+            }
+
+            let ready = #"{"type":"ready","attachment_token":"attach-token"}"# + "\n"
+            _ = ready.withCString { ptr in
+                Darwin.write(clientFD, ptr, strlen(ptr))
+            }
+        }
+
+        let process = Process()
+        let stderrPipe = Pipe()
+        let slaveHandle = FileHandle(fileDescriptor: slaveFD, closeOnDealloc: true)
+        slaveFD = -1
+        process.executableURL = URL(fileURLWithPath: cliPath)
+        process.arguments = [
+            "ssh-pty-attach",
+            "--wait",
+            "--workspace", workspaceId,
+            "--session-id", sessionId,
+            "--attachment-id", surfaceId,
+        ]
+        var environment = ProcessInfo.processInfo.environment
+        environment["CMUX_SOCKET_PATH"] = socketPath
+        environment["CMUX_CLI_SENTRY_DISABLED"] = "1"
+        process.environment = environment
+        process.standardInput = FileHandle.nullDevice
+        process.standardOutput = slaveHandle
+        process.standardError = stderrPipe
+
+        try process.run()
+        slaveHandle.closeFile()
+        XCTAssertEqual(bridgeRequestReceived.wait(timeout: .now() + 5), .success)
+        try setPTYSize(cols: 132, rows: 43)
+        allowBridgeResponse.signal()
+        XCTAssertEqual(handshakeReceived.wait(timeout: .now() + 5), .success)
+
+        let exited = DispatchSemaphore(value: 0)
+        DispatchQueue.global(qos: .userInitiated).async {
+            process.waitUntilExit()
+            exited.signal()
+        }
+        XCTAssertEqual(exited.wait(timeout: .now() + 5), .success)
+        wait(for: [socketHandled, bridgeHandled], timeout: 5)
+
+        let stderr = String(data: stderrPipe.fileHandleForReading.readDataToEndOfFile(), encoding: .utf8) ?? ""
+        XCTAssertEqual(process.terminationStatus, 0, stderr)
+        handshakeLock.lock()
+        let capturedHandshake = handshakePayload
+        handshakeLock.unlock()
+        XCTAssertEqual(capturedHandshake?["token"] as? String, token)
+        XCTAssertEqual(capturedHandshake?["cols"] as? Int, 132)
+        XCTAssertEqual(capturedHandshake?["rows"] as? Int, 43)
+    }
+
     func testSSHPTYAttachSerializesResizeBeforeEOFLocalCleanup() throws {
         let cliPath = try bundledCLIPath()
         let socketPath = makeSocketPath("sshptyresize")
