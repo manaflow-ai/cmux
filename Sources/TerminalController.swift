@@ -5818,7 +5818,12 @@ class TerminalController {
                 guard let tab = self.tabForSidebarMutation(id: workspaceId) else { return }
                 let validSurfaceIds = Set(tab.panels.keys)
                 tab.pruneSurfaceMetadata(validSurfaceIds: validSurfaceIds)
-                guard validSurfaceIds.contains(requestedSurfaceId) else { return }
+                guard validSurfaceIds.contains(requestedSurfaceId) else {
+                    if tab.isRemoteWorkspace {
+                        tab.rememberPendingRemoteSurfaceDirectory(directory, requestedSurfaceId: requestedSurfaceId)
+                    }
+                    return
+                }
                 if shouldPublish {
                     if let owner = AppDelegate.shared?.tabManagerFor(tabId: tab.id) {
                         owner.updateSurfaceDirectory(tabId: tab.id, surfaceId: requestedSurfaceId, directory: directory)

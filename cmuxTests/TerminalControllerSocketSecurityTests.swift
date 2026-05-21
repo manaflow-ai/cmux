@@ -760,6 +760,89 @@ final class TerminalControllerSocketSecurityTests: XCTestCase {
         XCTAssertEqual(workspace.preferredRemoteFileExplorerRootPath(), "/home/demo/project")
     }
 
+    func testRemoteSurfaceReportPwdWithRequestedSurfaceQueuesUntilSurfaceRegisters() async throws {
+        let socketPath = makeSocketPath("relay-pwd-explicit")
+        let manager = TabManager()
+        let workspace = manager.addWorkspace(select: true, eagerLoadTerminal: false)
+        let paneId = try XCTUnwrap(workspace.bonsplitController.focusedPaneId)
+        let relayPort = 4446
+        let configuration = WorkspaceRemoteConfiguration(
+            destination: "example.com",
+            port: 2222,
+            identityFile: nil,
+            sshOptions: [],
+            localProxyPort: nil,
+            relayPort: relayPort,
+            relayID: "relay-id",
+            relayToken: "relay-token",
+            localSocketPath: "/tmp/cmux-test.sock",
+            terminalStartupCommand: "ssh example.com"
+        )
+        workspace.configureRemoteConnection(configuration, autoConnect: false)
+        workspace.panels.removeAll()
+
+        defer {
+            if manager.tabs.contains(where: { $0.id == workspace.id }) {
+                manager.closeWorkspace(workspace)
+            }
+        }
+
+        TerminalController.shared.start(
+            tabManager: manager,
+            socketPath: socketPath,
+            accessMode: .allowAll
+        )
+        try waitForSocket(at: socketPath)
+
+        let incomingPanel = TerminalPanel(workspaceId: workspace.id)
+        let response = try await sendV2RequestAsync(
+            method: "surface.report_pwd",
+            params: [
+                "workspace_id": workspace.id.uuidString,
+                "surface_id": incomingPanel.id.uuidString,
+                "directory": "/home/demo/project"
+            ],
+            to: socketPath
+        )
+
+        XCTAssertEqual(response["ok"] as? Bool, true, "Unexpected JSON-RPC response: \(response)")
+        let result = try XCTUnwrap(response["result"] as? [String: Any], "Unexpected JSON-RPC response: \(response)")
+        XCTAssertEqual(result["pending"] as? Bool, true)
+        XCTAssertEqual(result["surface_id"] as? String, incomingPanel.id.uuidString)
+        XCTAssertTrue(workspace.panelDirectories.isEmpty)
+
+        let detached = Workspace.DetachedSurfaceTransfer(
+            sourceWorkspaceId: workspace.id,
+            panelId: incomingPanel.id,
+            panel: incomingPanel,
+            title: incomingPanel.displayTitle,
+            icon: incomingPanel.displayIcon,
+            iconImageData: nil,
+            kind: "terminal",
+            isLoading: false,
+            isPinned: false,
+            directory: nil,
+            ttyName: nil,
+            cachedTitle: nil,
+            customTitle: nil,
+            manuallyUnread: false,
+            restoredUnread: false,
+            restorableAgent: nil,
+            restorableAgentResumeState: nil,
+            resumeBinding: nil,
+            agentRuntime: nil,
+            isRemoteTerminal: true,
+            remoteRelayPort: relayPort,
+            remoteCleanupConfiguration: nil
+        )
+
+        let attachedPanelId = workspace.attachDetachedSurface(detached, inPane: paneId, focus: false)
+
+        XCTAssertEqual(attachedPanelId, incomingPanel.id)
+        XCTAssertEqual(workspace.panelDirectories[incomingPanel.id], "/home/demo/project")
+        XCTAssertEqual(workspace.preferredRemoteFileExplorerRootPath(), "/home/demo/project")
+    }
+
     func testRemoteSurfaceReportPwdRefreshesRemoteRootOnDuplicateAfterReconnect() async throws {
         let socketPath = makeSocketPath("relay-pwd-duplicate")
         let manager = TabManager()

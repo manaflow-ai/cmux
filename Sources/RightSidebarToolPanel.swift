@@ -152,6 +152,7 @@ final class RightSidebarToolPanel: Panel, ObservableObject {
         workspaceObservationCancellable = Publishers.MergeMany(
             workspace.$currentDirectory.map { _ in () }.eraseToAnyPublisher(),
             workspace.$panelDirectories.map { _ in () }.eraseToAnyPublisher(),
+            workspace.$remoteTerminalDirectoryGeneration.map { _ in () }.eraseToAnyPublisher(),
             workspace.$remoteConfiguration.map { _ in () }.eraseToAnyPublisher(),
             workspace.$remoteConnectionState.map { _ in () }.eraseToAnyPublisher(),
             workspace.$remoteConnectionDetail.map { _ in () }.eraseToAnyPublisher(),
