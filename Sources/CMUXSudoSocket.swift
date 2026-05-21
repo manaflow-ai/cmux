@@ -85,7 +85,13 @@ extension TerminalController {
             workspaceID: request.workspaceID,
             surfaceID: request.surfaceID
         )
-        CMUXSudoPendingRequestStore.shared.begin(request.requestID, access: access)
+        guard CMUXSudoPendingRequestStore.shared.begin(request.requestID, access: access) else {
+            return .err(
+                code: "conflict",
+                message: String(localized: "sudo.error.invalidRequest", defaultValue: "invalid sudo request"),
+                data: nil
+            )
+        }
         let task = Task { [weak self] in
             let response: CMUXSudoSocketResponse
             if let self {
@@ -126,7 +132,8 @@ extension TerminalController {
 
         switch CMUXSudoPendingRequestStore.shared.state(
             for: requestID,
-            peerIdentity: Self.currentSocketPeerIdentity()
+            peerIdentity: Self.currentSocketPeerIdentity(),
+            waitUntil: Self.sudoResultWaitDeadline(params: params)
         ) {
         case .missing:
             return .err(
@@ -199,7 +206,27 @@ extension TerminalController {
                 "status": "cancelled",
                 "request_id": requestID,
             ])
+        case .finished(let response):
+            return response.toV2CallResult()
         }
+    }
+
+    private nonisolated static func sudoResultWaitDeadline(params: [String: Any]) -> Date? {
+        guard let raw = params["wait_ms"] else { return nil }
+        let milliseconds: Int?
+        if let value = raw as? Int {
+            milliseconds = value
+        } else if let value = raw as? NSNumber {
+            milliseconds = value.intValue
+        } else if let value = raw as? String {
+            milliseconds = Int(value)
+        } else {
+            milliseconds = nil
+        }
+        guard let milliseconds else { return nil }
+        let clamped = min(max(milliseconds, 0), 30_000)
+        guard clamped > 0 else { return nil }
+        return Date().addingTimeInterval(Double(clamped) / 1000.0)
     }
 
     private nonisolated func performSudoRequest(

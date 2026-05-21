@@ -1,8 +1,10 @@
 import CryptoKit
 import Darwin
 import Foundation
+import os
 import Security
 
+private let helperLogger = Logger(subsystem: "com.cmuxterm.sudo-helper", category: "daemon")
 private let socketPath = "/var/run/cmux-sudo-helper.sock"
 private let secureSearchPath = ["/usr/bin", "/bin", "/usr/sbin", "/sbin"]
 private let maxCapturedOutputBytes = 2 * 1024 * 1024
@@ -21,6 +23,7 @@ private let allowedTeamIdentifiers: Set<String> = [
     "7WLXT3NR37",
 ]
 private let maxEnvelopeAge: TimeInterval = 5 * 60
+private let maxSeenRequestIDs = 4096
 
 struct HelperError: LocalizedError {
     let code: String
@@ -42,7 +45,7 @@ struct HelperEnvelope {
 
 @main
 enum CMUXSudoHelper {
-    private static var seenRequestIDs = Set<String>()
+    private static var seenRequestIDs: [String: Date] = [:]
 
     static func main() {
         do {
@@ -252,10 +255,27 @@ enum CMUXSudoHelper {
               abs(Date().timeIntervalSince(createdAt)) <= maxEnvelopeAge else {
             throw HelperError(code: "stale_request", message: "Helper request has expired")
         }
-        guard !seenRequestIDs.contains(requestID) else {
+        try rememberRequestID(requestID, createdAt: createdAt)
+    }
+
+    private static func rememberRequestID(_ requestID: String, createdAt: Date) throws {
+        pruneSeenRequestIDs(now: Date())
+        guard seenRequestIDs[requestID] == nil else {
             throw HelperError(code: "replayed_request", message: "Helper request was already used")
         }
-        seenRequestIDs.insert(requestID)
+        if seenRequestIDs.count >= maxSeenRequestIDs {
+            let overflowCount = seenRequestIDs.count - maxSeenRequestIDs + 1
+            for requestID in seenRequestIDs.sorted(by: { $0.value < $1.value }).prefix(overflowCount).map(\.key) {
+                seenRequestIDs.removeValue(forKey: requestID)
+            }
+        }
+        seenRequestIDs[requestID] = createdAt
+    }
+
+    private static func pruneSeenRequestIDs(now: Date) {
+        seenRequestIDs = seenRequestIDs.filter { _, createdAt in
+            now.timeIntervalSince(createdAt) <= maxEnvelopeAge
+        }
     }
 
     private static func execute(envelope: HelperEnvelope, peer: PeerIdentity) throws -> [String: Any] {
@@ -400,7 +420,7 @@ enum CMUXSudoHelper {
     }
 
     private static func writeLog(_ message: String) {
-        FileHandle.standardError.write(Data("[cmux-sudo-helper] \(message)\n".utf8))
+        helperLogger.error("\(message, privacy: .private)")
     }
 }
 

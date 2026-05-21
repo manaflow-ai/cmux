@@ -40,6 +40,14 @@ enum CMUXSudoAuditLogger {
     // previous-hash read, rotation, hash computation, and append atomic.
     private static let lock = NSLock()
 
+    private enum AuditLogError: LocalizedError {
+        case corrupt
+
+        var errorDescription: String? {
+            "The sudo audit log is corrupt. No command was run."
+        }
+    }
+
     static var defaultLogURL: URL {
         let library = FileManager.default.urls(for: .libraryDirectory, in: .userDomainMask).first
             ?? URL(fileURLWithPath: NSHomeDirectory()).appendingPathComponent("Library")
@@ -59,6 +67,7 @@ enum CMUXSudoAuditLogger {
         lock.lock()
         defer { lock.unlock() }
         try prepareLogFile(logURL: logURL)
+        _ = try previousEntryHash(logURL: logURL)
     }
 
     @discardableResult
@@ -66,7 +75,7 @@ enum CMUXSudoAuditLogger {
         lock.lock()
         defer { lock.unlock() }
         try prepareLogFile(logURL: logURL)
-        let previousHash = previousEntryHash(logURL: logURL)
+        let previousHash = try previousEntryHash(logURL: logURL)
         try rotateIfNeeded(logURL: logURL)
 
         var object = record.jsonObject
@@ -140,16 +149,17 @@ enum CMUXSudoAuditLogger {
         URL(fileURLWithPath: "\(logURL.path).\(index)")
     }
 
-    private static func previousEntryHash(logURL: URL) -> String? {
-        guard let data = try? Data(contentsOf: logURL), !data.isEmpty else { return nil }
-        guard let decoded = String(data: data, encoding: .utf8) else { return nil }
+    private static func previousEntryHash(logURL: URL) throws -> String? {
+        let data = try Data(contentsOf: logURL)
+        guard !data.isEmpty else { return nil }
+        guard let decoded = String(data: data, encoding: .utf8) else { throw AuditLogError.corrupt }
         let lines = decoded.split(separator: "\n", omittingEmptySubsequences: true)
         guard let last = lines.last,
               let lineData = String(last).data(using: .utf8),
               let object = try? JSONSerialization.jsonObject(with: lineData) as? [String: Any],
               let hash = object["entry_sha256"] as? String,
               !hash.isEmpty else {
-            return nil
+            throw AuditLogError.corrupt
         }
         return hash
     }

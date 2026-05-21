@@ -137,6 +137,46 @@ final class CMUXSudoTests: XCTestCase {
         XCTAssertEqual(entries[1]["request_id"] as? String, "second")
     }
 
+    func testSudoAuditLogFailsClosedWhenExistingChainIsCorrupt() throws {
+        let logURL = temporaryDirectory().appendingPathComponent("sudo-audit.jsonl")
+        try Data("{\"request_id\":\"tampered\"}\n".utf8).write(to: logURL)
+
+        XCTAssertThrowsError(try CMUXSudoAuditLogger.ensureWritable(logURL: logURL))
+        XCTAssertThrowsError(try CMUXSudoAuditLogger.append(auditRecord(id: "after-tamper"), logURL: logURL))
+
+        let contents = try String(contentsOf: logURL, encoding: .utf8)
+        XCTAssertEqual(contents, "{\"request_id\":\"tampered\"}\n")
+    }
+
+    func testSudoPendingStoreRejectsDuplicateIDsAndPreservesFinishedResultOnCancel() {
+        let store = CMUXSudoPendingRequestStore()
+        let requestID = UUID().uuidString
+        let access = CMUXSudoPendingRequestStore.Access(
+            pid: getpid(),
+            uid: getuid(),
+            workspaceID: UUID(),
+            surfaceID: UUID()
+        )
+        let peer = CMUXSocketPeerIdentity(pid: getpid(), uid: getuid())
+        let completed = CMUXSudoSocketResponse.ok([
+            "status": .string("completed"),
+            "exit_code": .int(0),
+        ])
+        let timeout = CMUXSudoSocketResponse.err(code: "cancelled", message: "timed out")
+
+        XCTAssertTrue(store.begin(requestID, access: access))
+        XCTAssertFalse(store.begin(requestID, access: access))
+        store.finish(requestID, response: completed)
+
+        switch store.cancel(requestID: requestID, peerIdentity: peer, response: timeout) {
+        case .finished(let response):
+            XCTAssertTrue(response.ok)
+            XCTAssertEqual(response.payload["status"]?.any as? String, "completed")
+        case .missing, .forbidden, .cancelled:
+            XCTFail("Expected finished response to survive cancellation")
+        }
+    }
+
     func testSudoRequestDenialAuditsAndSkipsHelper() throws {
 #if DEBUG
         let workspaceID = UUID()

@@ -22,20 +22,23 @@ final class CMUXSudoPendingRequestStore {
         case finished(Access, CMUXSudoSocketResponse, Date)
     }
 
-    // Synchronous v2 socket handlers cannot await an actor here. The lock keeps
-    // request ownership, cancellation, and TTL pruning atomic without blocking on results.
-    private let lock = NSLock()
+    // Synchronous v2 socket handlers cannot await an actor here. The condition
+    // keeps request ownership, cancellation, TTL pruning, and result waits atomic.
+    private let condition = NSCondition()
     private var states: [String: State] = [:]
 
-    func begin(_ requestID: String, access: Access) {
-        lock.lock()
+    func begin(_ requestID: String, access: Access) -> Bool {
+        condition.lock()
+        defer { condition.unlock() }
+
         pruneLocked(now: Date())
+        guard states[requestID] == nil else { return false }
         states[requestID] = .pending(access, nil, Date())
-        lock.unlock()
+        return true
     }
 
     func attachTask(_ requestID: String, task: Task<Void, Never>) {
-        lock.lock()
+        condition.lock()
         pruneLocked(now: Date())
         switch states[requestID] {
         case .pending(let access, _, let createdAt):
@@ -45,40 +48,45 @@ final class CMUXSudoPendingRequestStore {
         case .none:
             task.cancel()
         }
-        lock.unlock()
+        condition.unlock()
     }
 
     func finish(_ requestID: String, response: CMUXSudoSocketResponse) {
-        lock.lock()
+        condition.lock()
         pruneLocked(now: Date())
         switch states[requestID] {
         case .pending(let access, _, _):
             states[requestID] = .finished(access, response, Date())
+            condition.broadcast()
         case .finished:
             break
         case .none:
             break
         }
-        lock.unlock()
+        condition.unlock()
     }
 
     func state(
         for requestID: String,
-        peerIdentity: CMUXSocketPeerIdentity
+        peerIdentity: CMUXSocketPeerIdentity,
+        waitUntil deadline: Date? = nil
     ) -> CMUXSudoPendingState {
-        lock.lock()
-        defer { lock.unlock() }
+        condition.lock()
+        defer { condition.unlock() }
 
-        pruneLocked(now: Date())
-        guard let state = states[requestID] else { return .missing }
-        switch state {
-        case .pending(let access, _, _):
-            guard access.matches(peerIdentity: peerIdentity) else { return .forbidden }
-            return .pending
-        case .finished(let access, let response, _):
-            guard access.matches(peerIdentity: peerIdentity) else { return .forbidden }
-            states.removeValue(forKey: requestID)
-            return .finished(response)
+        while true {
+            pruneLocked(now: Date())
+            guard let state = states[requestID] else { return .missing }
+            switch state {
+            case .pending(let access, _, _):
+                guard access.matches(peerIdentity: peerIdentity) else { return .forbidden }
+                guard let deadline, Date() < deadline else { return .pending }
+                _ = condition.wait(until: deadline)
+            case .finished(let access, let response, _):
+                guard access.matches(peerIdentity: peerIdentity) else { return .forbidden }
+                states.removeValue(forKey: requestID)
+                return .finished(response)
+            }
         }
     }
 
@@ -87,8 +95,8 @@ final class CMUXSudoPendingRequestStore {
         peerIdentity: CMUXSocketPeerIdentity,
         response: CMUXSudoSocketResponse
     ) -> CMUXSudoCancelState {
-        lock.lock()
-        defer { lock.unlock() }
+        condition.lock()
+        defer { condition.unlock() }
 
         pruneLocked(now: Date())
         guard let state = states[requestID] else { return .missing }
@@ -97,14 +105,22 @@ final class CMUXSudoPendingRequestStore {
             guard access.matches(peerIdentity: peerIdentity) else { return .forbidden }
             task?.cancel()
             states[requestID] = .finished(access, response, Date())
+            condition.broadcast()
             return .cancelled(response)
         case .finished(let access, let existingResponse, _):
             guard access.matches(peerIdentity: peerIdentity) else { return .forbidden }
-            return .cancelled(existingResponse)
+            return .finished(existingResponse)
         }
     }
 
     private func pruneLocked(now: Date) {
+        for state in states.values {
+            guard case .pending(_, let task, let createdAt) = state,
+                  now.timeIntervalSince(createdAt) > Self.pendingTTL else {
+                continue
+            }
+            task?.cancel()
+        }
         states = states.filter { _, state in
             switch state {
             case .pending(_, _, let createdAt):
@@ -117,14 +133,14 @@ final class CMUXSudoPendingRequestStore {
 
 #if DEBUG
     func reset() {
-        lock.lock()
+        condition.lock()
         for state in states.values {
             if case .pending(_, let task, _) = state {
                 task?.cancel()
             }
         }
         states.removeAll()
-        lock.unlock()
+        condition.unlock()
     }
 #endif
 }
@@ -140,4 +156,5 @@ enum CMUXSudoCancelState: Sendable {
     case missing
     case forbidden
     case cancelled(CMUXSudoSocketResponse)
+    case finished(CMUXSudoSocketResponse)
 }
