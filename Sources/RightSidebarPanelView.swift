@@ -232,18 +232,22 @@ struct RightSidebarPanelView: View {
 
     private var modeBar: some View {
         let _ = keyboardShortcutSettingsObserver.revision
-        let showsModeShortcutHints = alwaysShowShortcutHints || modeShortcutHintMonitor.isModifierPressed
         return ZStack {
             WindowDragHandleView()
 
             HStack(spacing: RightSidebarChromeMetrics.headerControlSpacing) {
                 ForEach(availableModes, id: \.rawValue) { mode in
+                    let shortcut = mode.shortcutAction.map { KeyboardShortcutSettings.shortcut(for: $0) } ?? .unbound
                     ModeBarButton(
                         mode: mode,
                         isSelected: fileExplorerState.mode == mode,
                         badgeCount: mode == .feed ? feedPendingCount : 0,
-                        shortcutHint: mode.shortcutAction.map { KeyboardShortcutSettings.shortcut(for: $0) } ?? .unbound,
-                        showsShortcutHint: showsModeShortcutHints
+                        shortcutHint: shortcut,
+                        showsShortcutHint: titlebarShortcutHintShouldShow(
+                            shortcut: shortcut,
+                            alwaysShowShortcutHints: alwaysShowShortcutHints,
+                            modifierPressed: modeShortcutHintMonitor.isModifierPressed
+                        )
                     ) {
                         if AppDelegate.shared?.focusRightSidebarInActiveMainWindow(
                             mode: mode,
@@ -266,7 +270,6 @@ struct RightSidebarPanelView: View {
             focusShortcutHintOverlay
         }
         .background(TitlebarDoubleClickMonitorView())
-        .background(MinimalModeTitlebarControlHitRegionView())
         .accessibilityElement(children: .contain)
         .accessibilityIdentifier("RightSidebarModeBar")
         .reportRightSidebarChromeGeometryForBonsplitUITest(
@@ -290,6 +293,7 @@ struct RightSidebarPanelView: View {
             keyPrefix: "rightSidebarHeaderOpenAsPane",
             isVisible: true
         )
+        .background(MinimalModeTitlebarControlHitRegionView())
         .rightSidebarHeaderControlAlignment()
         .safeHelp(String(localized: "rightSidebar.openAsPane.tooltip", defaultValue: "Open as pane"))
         .accessibilityLabel(
@@ -334,6 +338,7 @@ struct RightSidebarPanelView: View {
             width: RightSidebarChromeMetrics.headerControlSize,
             height: RightSidebarChromeMetrics.headerControlSize
         )
+        .background(MinimalModeTitlebarControlHitRegionView())
         .overlay(alignment: .top) {
             if showsShortcutHint {
                 ShortcutHintPill(shortcut: shortcut, fontSize: 9, emphasis: 1.05)
@@ -607,6 +612,7 @@ private struct ModeBarButton: View {
             .contentShape(Rectangle())
         }
         .buttonStyle(.plain)
+        .background(MinimalModeTitlebarControlHitRegionView())
         .onHover { isHovered = $0 }
         .help(helpText)
         .accessibilityIdentifier("RightSidebarModeButton.\(mode.rawValue)")
