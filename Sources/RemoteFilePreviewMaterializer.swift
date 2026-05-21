@@ -1,7 +1,7 @@
 import CryptoKit
 import Foundation
 
-struct RemoteFilePreviewSource: Equatable, Sendable {
+struct RemoteFilePreviewSource: Codable, Equatable, Sendable {
     let connection: SSHFileExplorerConnection
     let displayTarget: String
     let remotePath: String

@@ -555,7 +555,11 @@ extension Workspace {
             terminalSnapshot = nil
             browserSnapshot = nil
             markdownSnapshot = nil
-            filePreviewSnapshot = SessionFilePreviewPanelSnapshot(filePath: filePreviewPanel.filePath)
+            filePreviewSnapshot = SessionFilePreviewPanelSnapshot(
+                filePath: filePreviewPanel.filePath,
+                displayPath: filePreviewPanel.remoteSource == nil ? nil : filePreviewPanel.displayPath,
+                remoteSource: filePreviewPanel.remoteSource
+            )
             rightSidebarToolSnapshot = nil
         case .rightSidebarTool:
             guard let toolPanel = panel as? RightSidebarToolPanel else { return nil }
@@ -1034,10 +1038,14 @@ extension Workspace {
             applySessionPanelMetadata(snapshot, toPanelId: markdownPanel.id)
             return markdownPanel.id
         case .filePreview:
-            guard let filePath = snapshot.filePreview?.filePath,
+            guard let filePreview = snapshot.filePreview,
+                  !filePreview.filePath.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty,
                   let filePreviewPanel = newFilePreviewSurface(
                     inPane: paneId,
-                    filePath: filePath,
+                    filePath: filePreview.remoteSource.map { RemoteFilePreviewMaterializer.cacheURL(for: $0).path }
+                        ?? filePreview.filePath,
+                    displayPath: filePreview.displayPath ?? filePreview.remoteSource?.displayPath,
+                    remoteSource: filePreview.remoteSource,
                     focus: false
                   ) else {
                 return nil

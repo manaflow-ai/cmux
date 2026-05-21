@@ -261,7 +261,7 @@ protocol FileExplorerProvider: AnyObject {
     var isAvailable: Bool { get }
 }
 
-struct SSHFileExplorerConnection: Equatable, Sendable {
+struct SSHFileExplorerConnection: Codable, Equatable, Sendable {
     let destination: String
     let port: Int?
     let identityFile: String?

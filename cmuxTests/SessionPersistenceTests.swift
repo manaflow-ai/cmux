@@ -48,6 +48,51 @@ final class SessionPersistenceTests: XCTestCase {
     }
 
     @MainActor
+    func testWorkspaceSessionSnapshotRestoresRemoteFilePreviewSource() throws {
+        let source = RemoteFilePreviewSource(
+            connection: SSHFileExplorerConnection(
+                destination: "dev@example.com",
+                port: 2222,
+                identityFile: "/Users/alice/.ssh/id_ed25519",
+                sshOptions: ["StrictHostKeyChecking=no"]
+            ),
+            displayTarget: "dev@example.com:2222",
+            remotePath: "/home/dev/movie clip.mp4"
+        )
+        let cachePath = RemoteFilePreviewMaterializer.cacheURL(for: source).path
+
+        let workspace = Workspace()
+        defer { workspace.teardownAllPanels() }
+        let paneId = try XCTUnwrap(workspace.bonsplitController.allPaneIds.first)
+        let panel = try XCTUnwrap(
+            workspace.newFilePreviewSurface(
+                inPane: paneId,
+                filePath: cachePath,
+                displayPath: source.displayPath,
+                remoteSource: source,
+                focus: true
+            )
+        )
+
+        let snapshot = workspace.sessionSnapshot(includeScrollback: false)
+        let panelSnapshot = try XCTUnwrap(snapshot.panels.first { $0.id == panel.id }?.filePreview)
+        XCTAssertEqual(panelSnapshot.filePath, cachePath)
+        XCTAssertEqual(panelSnapshot.displayPath, source.displayPath)
+        XCTAssertEqual(panelSnapshot.remoteSource, source)
+
+        let restored = Workspace()
+        defer { restored.teardownAllPanels() }
+        restored.restoreSessionSnapshot(snapshot)
+
+        let restoredPanelId = try XCTUnwrap(restored.focusedPanelId)
+        let restoredPanel = try XCTUnwrap(restored.filePreviewPanel(for: restoredPanelId))
+        XCTAssertEqual(restoredPanel.filePath, cachePath)
+        XCTAssertEqual(restoredPanel.displayPath, source.displayPath)
+        XCTAssertEqual(restoredPanel.remoteSource, source)
+        XCTAssertFalse(restoredPanel.canEditText)
+    }
+
+    @MainActor
     func testSessionSnapshotSkipsTransientRemoteListeningPorts() throws {
         let workspace = Workspace()
         let panelId = try XCTUnwrap(workspace.focusedPanelId)
