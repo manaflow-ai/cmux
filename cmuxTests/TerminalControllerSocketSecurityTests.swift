@@ -96,6 +96,43 @@ final class TerminalControllerSocketSecurityTests: XCTestCase {
         return event
     }
 
+    private func makeVNCPreciseScrollEvent(deltaX: Int32 = 0, deltaY: Int32 = 1) -> NSEvent {
+        guard let cgEvent = CGEvent(
+            scrollWheelEvent2Source: nil,
+            units: .pixel,
+            wheelCount: 2,
+            wheel1: deltaY,
+            wheel2: deltaX,
+            wheel3: 0
+        ), let event = NSEvent(cgEvent: cgEvent) else {
+            fatalError("Failed to construct VNC precise scroll event")
+        }
+        return event
+    }
+
+    private func makeVNCPanel(
+        name: String = "docker-vnc-1",
+        port: Int = 5900,
+        index: Int = 1
+    ) -> VNCPanel {
+        VNCPanel(
+            workspaceId: UUID(),
+            session: MacfleetVNCSession(
+                name: name,
+                hostName: name,
+                address: "127.0.0.1",
+                port: port,
+                username: "cmux",
+                index: index
+            ),
+            credential: VNCResolvedCredential(
+                username: "cmux",
+                password: "secret",
+                source: .sessionPassword
+            )
+        )
+    }
+
     private func makeVNCDisplayFrame(sequence: UInt64) -> VNCDisplayFrame {
         VNCDisplayFrame(
             header: VNCFrameHeader(
@@ -1035,6 +1072,84 @@ final class TerminalControllerSocketSecurityTests: XCTestCase {
 
         coordinator.detach()
         XCTAssertNil(secondPanel.ownedFocusIntent(for: view, in: window))
+    }
+
+    func testVNCCanvasCoordinatorResetsInputStateWhenViewIsReused() throws {
+        let firstPanel = makeVNCPanel(name: "docker-vnc-1", port: 5900, index: 1)
+        let secondPanel = makeVNCPanel(name: "docker-vnc-2", port: 5901, index: 2)
+        let view = VNCMetalCanvasView(frame: NSRect(x: 0, y: 0, width: 100, height: 100))
+        let coordinator = VNCMetalCanvasRepresentable.Coordinator()
+        var firstKeyEvents: [String] = []
+        var secondKeyEvents: [String] = []
+        var scrollEvents: [String] = []
+        defer {
+            coordinator.detach()
+            view.close()
+            firstPanel.close()
+            secondPanel.close()
+        }
+
+        view.onKey = { keyCode, isDown, _ in
+            firstKeyEvents.append("\(keyCode):\(isDown)")
+        }
+        view.onScroll = { _, _, wheel, steps in
+            scrollEvents.append("\(wheel):\(steps)")
+        }
+        coordinator.attach(panel: firstPanel, view: view)
+        view.apply(makeVNCDisplayFrame(sequence: 1))
+        view.flagsChanged(with: makeVNCKeyEvent(type: .flagsChanged, modifierFlags: .command, keyCode: 55))
+        view.scrollWheel(with: makeVNCPreciseScrollEvent(deltaY: 6))
+
+        XCTAssertEqual(firstKeyEvents, ["55:true"])
+        XCTAssertEqual(scrollEvents, [])
+
+        coordinator.attach(panel: secondPanel, view: view)
+        view.onKey = { keyCode, isDown, _ in
+            secondKeyEvents.append("\(keyCode):\(isDown)")
+        }
+        view.onScroll = { _, _, wheel, steps in
+            scrollEvents.append("\(wheel):\(steps)")
+        }
+        view.apply(makeVNCDisplayFrame(sequence: 1))
+        view.scrollWheel(with: makeVNCPreciseScrollEvent(deltaY: 6))
+
+        XCTAssertEqual(firstKeyEvents, ["55:true", "55:false"])
+        XCTAssertEqual(secondKeyEvents, [])
+        XCTAssertEqual(scrollEvents, [])
+    }
+
+    func testVNCOldCoordinatorDetachDoesNotClearReplacementCanvasFocus() throws {
+        let panel = makeVNCPanel()
+        let oldView = VNCMetalCanvasView()
+        let newView = VNCMetalCanvasView()
+        let oldCoordinator = VNCMetalCanvasRepresentable.Coordinator()
+        let newCoordinator = VNCMetalCanvasRepresentable.Coordinator()
+        let window = NSWindow(
+            contentRect: NSRect(x: 0, y: 0, width: 100, height: 100),
+            styleMask: [.borderless],
+            backing: .buffered,
+            defer: true
+        )
+        defer {
+            oldCoordinator.detach()
+            newCoordinator.detach()
+            oldView.close()
+            newView.close()
+            panel.close()
+        }
+
+        oldCoordinator.attach(panel: panel, view: oldView)
+        newCoordinator.attach(panel: panel, view: newView)
+        XCTAssertNil(panel.ownedFocusIntent(for: oldView, in: window))
+        XCTAssertNotNil(panel.ownedFocusIntent(for: newView, in: window))
+
+        oldCoordinator.detach()
+
+        XCTAssertNil(panel.ownedFocusIntent(for: oldView, in: window))
+        XCTAssertNotNil(panel.ownedFocusIntent(for: newView, in: window))
+
+        newCoordinator.detach()
+        XCTAssertNil(panel.ownedFocusIntent(for: newView, in: window))
     }
 
     func testVNCCanvasMouseDownRequestsPanelFocus() throws {

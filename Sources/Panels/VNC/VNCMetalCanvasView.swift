@@ -14,28 +14,17 @@ struct VNCMetalCanvasRepresentable: NSViewRepresentable {
 
     func makeNSView(context: Context) -> VNCMetalCanvasView {
         let view = VNCMetalCanvasView()
-        view.onText = { [weak panel] text in
-            panel?.sendText(text)
-        }
-        view.onKey = { [weak panel] keyCode, isDown, text in
-            panel?.sendKey(keyCode: keyCode, isDown: isDown, text: text)
-        }
-        view.onPointer = { [weak panel] x, y, button, isDown in
-            panel?.sendPointer(x: x, y: y, button: button, isDown: isDown)
-        }
-        view.onScroll = { [weak panel] x, y, wheel, steps in
-            panel?.sendWheel(x: x, y: y, wheel: wheel, steps: steps)
-        }
-        view.onRequestFocus = onRequestPanelFocus
-        view.onWindowAttachmentChanged = { [weak panel, weak view] in
-            guard let view else { return }
-            panel?.focusViewWindowDidChange(view)
-        }
         context.coordinator.attach(panel: panel, view: view)
+        configure(view)
         return view
     }
 
     func updateNSView(_ view: VNCMetalCanvasView, context: Context) {
+        context.coordinator.attach(panel: panel, view: view)
+        configure(view)
+    }
+
+    private func configure(_ view: VNCMetalCanvasView) {
         view.onText = { [weak panel] text in
             panel?.sendText(text)
         }
@@ -53,7 +42,6 @@ struct VNCMetalCanvasRepresentable: NSViewRepresentable {
             guard let view else { return }
             panel?.focusViewWindowDidChange(view)
         }
-        context.coordinator.attach(panel: panel, view: view)
     }
 
     static func dismantleNSView(_ view: VNCMetalCanvasView, coordinator: Coordinator) {
@@ -73,6 +61,7 @@ struct VNCMetalCanvasRepresentable: NSViewRepresentable {
             if self.panel === panel, self.view === view {
                 return
             }
+            self.view?.resetInputStateForPanelReuse()
             detach()
             self.panel = panel
             self.view = view
@@ -88,8 +77,10 @@ struct VNCMetalCanvasRepresentable: NSViewRepresentable {
         }
 
         func detach() {
-            panel?.attachFocusView(nil)
-            panel?.removeFrameHandler(frameHandlerID)
+            let currentPanel = panel
+            let currentView = view
+            currentPanel?.detachFocusView(currentView)
+            currentPanel?.removeFrameHandler(frameHandlerID)
             frameHandlerID = nil
             panel = nil
             view = nil
@@ -212,6 +203,12 @@ final class VNCMetalCanvasView: NSView {
         framebufferHeight = 0
         metalLayer.isHidden = true
         updateMetalLayerGeometry()
+    }
+
+    func resetInputStateForPanelReuse() {
+        releasePressedModifiers()
+        accumulatedScrollDeltaX = 0
+        accumulatedScrollDeltaY = 0
     }
 
     override func keyDown(with event: NSEvent) {

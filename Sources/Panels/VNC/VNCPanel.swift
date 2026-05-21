@@ -73,6 +73,11 @@ final class VNCPanel: Panel, ObservableObject {
         applyPendingFocusIfPossible()
     }
 
+    func detachFocusView(_ view: NSView?) {
+        guard let view, focusView === view else { return }
+        focusView = nil
+    }
+
     func focusViewWindowDidChange(_ view: NSView) {
         guard view === focusView else { return }
         applyPendingFocusIfPossible()
