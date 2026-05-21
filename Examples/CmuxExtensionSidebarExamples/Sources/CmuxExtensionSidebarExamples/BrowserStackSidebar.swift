@@ -11,7 +11,6 @@ public struct BrowserStackSidebar: CmuxExtensionSidebarMutableProvider {
         systemImageName: "square.on.square",
         isHostProvided: false
     )
-    private let store: BrowserStackSidebarStore
     private let stateCache: BrowserStackSidebarStateCache
 
     public init(
@@ -19,7 +18,6 @@ public struct BrowserStackSidebar: CmuxExtensionSidebarMutableProvider {
         initialState: BrowserStackSidebarState? = nil,
         onAsyncStateLoaded: (@Sendable () -> Void)? = nil
     ) {
-        self.store = store
         self.stateCache = BrowserStackSidebarStateCache(
             store: store,
             initialState: initialState,
@@ -67,8 +65,7 @@ public struct BrowserStackSidebar: CmuxExtensionSidebarMutableProvider {
         guard case .moveWorkspace(let move) = mutation else {
             return CmuxExtensionCommandResult(ok: false)
         }
-        let state = try store.moveWorkspace(move, snapshot: snapshot)
-        stateCache.replace(with: state)
+        stateCache.moveWorkspace(move, snapshot: snapshot)
         return CmuxExtensionCommandResult(ok: true)
     }
 
@@ -105,7 +102,10 @@ public struct BrowserStackSidebar: CmuxExtensionSidebarMutableProvider {
                 shape: .roundedRectangle
             )
         }
-        if title.contains("dia") || workspace.unreadCount > 0 {
+        let isDiaBrowser = title == "dia"
+            || titleTokens.contains("dia")
+            || title.contains("dia browser")
+        if isDiaBrowser || workspace.unreadCount > 0 {
             return CmuxExtensionSidebarRenderIcon(
                 systemImageName: "bubble.left.fill",
                 foregroundColorHex: "#D8D8D8",
@@ -124,6 +124,7 @@ private final class BrowserStackSidebarStateCache: @unchecked Sendable {
     private let store: BrowserStackSidebarStore
     private let onAsyncStateLoaded: (@Sendable () -> Void)?
     private let lock = NSLock()
+    private let persistenceQueue = DispatchQueue(label: "cmux.browser-stack-sidebar.persistence")
     private var state: BrowserStackSidebarState?
     private var didStartLoad = false
     private var mutationGeneration: UInt64 = 0
@@ -149,12 +150,20 @@ private final class BrowserStackSidebarStateCache: @unchecked Sendable {
         return reconciled
     }
 
-    func replace(with state: BrowserStackSidebarState) {
+    func moveWorkspace(
+        _ move: CmuxExtensionSidebarWorkspaceMove,
+        snapshot: CmuxExtensionSidebarSnapshot
+    ) {
+        let updated: BrowserStackSidebarState
         lock.lock()
         mutationGeneration &+= 1
-        self.state = state
+        var next = (state ?? BrowserStackSidebarState.initial(snapshot: snapshot)).reconciled(with: snapshot)
+        next.moveWorkspace(move)
+        updated = next.reconciled(with: snapshot)
+        state = updated
         didStartLoad = true
         lock.unlock()
+        persist(updated)
     }
 
     private func startLoadIfNeeded() {
@@ -186,6 +195,12 @@ private final class BrowserStackSidebarStateCache: @unchecked Sendable {
         lock.unlock()
         if shouldNotify {
             onAsyncStateLoaded?()
+        }
+    }
+
+    private func persist(_ state: BrowserStackSidebarState) {
+        persistenceQueue.async { [store] in
+            try? store.save(state)
         }
     }
 }

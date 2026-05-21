@@ -46,9 +46,15 @@ final class BrowserStackSidebarTests: XCTestCase {
 
         XCTAssertTrue(result.ok)
 
-        let reopenedProvider = BrowserStackSidebar(store: store, initialState: try store.load())
+        let updatedModel = provider.render(snapshot: snapshot)
+        let updatedGroupRows = try XCTUnwrap(updatedModel.sections.first { $0.id == "group:reading-list" }?.rows)
+        XCTAssertEqual(updatedGroupRows.first?.workspaceId, movedWorkspace.id)
+
+        let persistedState = try waitForPersistedState(store: store) { state in
+            state.sections.first { $0.id == "group:reading-list" }?.workspaceIds.first == movedWorkspace.id
+        }
+        let reopenedProvider = BrowserStackSidebar(store: store, initialState: persistedState)
         let reopenedModel = reopenedProvider.render(snapshot: snapshot)
-        let persistedState = try store.load()
         let groupRows = try XCTUnwrap(reopenedModel.sections.first { $0.id == "group:reading-list" }?.rows)
         let groupState = try XCTUnwrap(persistedState.sections.first { $0.id == "group:reading-list" })
 
@@ -192,10 +198,37 @@ final class BrowserStackSidebarTests: XCTestCase {
         XCTAssertEqual(rows[1].leadingIcon?.text, "Y")
     }
 
+    func testBrowserIconOnlyMatchesDiaAsToken() throws {
+        let stateURL = temporaryStateURL()
+        defer { try? FileManager.default.removeItem(at: stateURL.deletingLastPathComponent()) }
+
+        let snapshot = snapshot(titles: ["Canadian docs", "Dia Browser"])
+        let model = BrowserStackSidebar(store: BrowserStackSidebarStore(stateURL: stateURL)).render(snapshot: snapshot)
+        let rows = try XCTUnwrap(model.sections.first { $0.id == "tiles" }?.rows)
+
+        XCTAssertEqual(rows[0].leadingIcon?.backgroundColorHex, "#5A5A5A")
+        XCTAssertEqual(rows[1].leadingIcon?.backgroundColorHex, "#000000")
+    }
+
     private func temporaryStateURL() -> URL {
         FileManager.default.temporaryDirectory
             .appendingPathComponent("cmux-browser-stack-\(UUID().uuidString)", isDirectory: true)
             .appendingPathComponent("state.json")
+    }
+
+    private func waitForPersistedState(
+        store: BrowserStackSidebarStore,
+        timeout: TimeInterval = 2,
+        matching predicate: (BrowserStackSidebarState) -> Bool
+    ) throws -> BrowserStackSidebarState {
+        let deadline = Date().addingTimeInterval(timeout)
+        while Date() < deadline {
+            if let state = try? store.load(), predicate(state) {
+                return state
+            }
+            Thread.sleep(forTimeInterval: 0.01)
+        }
+        return try store.load()
     }
 
     private func snapshot(titles: [String]) -> CmuxExtensionSidebarSnapshot {
