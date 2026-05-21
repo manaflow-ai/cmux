@@ -6568,6 +6568,7 @@ struct CMUXCLI {
             shellQuote(executablePath),
             "ssh-pty-attach",
             "--wait",
+            "--workspace", "\"$cmux_ssh_pty_workspace_id\"",
             "--session-id", "\"$cmux_ssh_pty_session_id\"",
             "--command-b64", shellQuote(commandB64),
         ].joined(separator: " ")

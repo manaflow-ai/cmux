@@ -534,6 +534,10 @@ final class CLINotifyProcessIntegrationRegressionTests: XCTestCase {
             initialScript.contains("ssh-$cmux_ssh_pty_workspace_id-$cmux_ssh_pty_surface_id"),
             initialScript
         )
+        XCTAssertTrue(
+            initialScript.contains("--workspace \"$cmux_ssh_pty_workspace_id\""),
+            initialScript
+        )
         XCTAssertEqual(
             initialScript.components(separatedBy: "workspace.remote.foreground_auth_ready").count - 1,
             1,
@@ -545,6 +549,10 @@ final class CLINotifyProcessIntegrationRegressionTests: XCTestCase {
         XCTAssertTrue(terminalStartupScript.contains("CMUX_SURFACE_ID"), terminalStartupScript)
         XCTAssertTrue(
             terminalStartupScript.contains("ssh-$cmux_ssh_pty_workspace_id-$cmux_ssh_pty_surface_id"),
+            terminalStartupScript
+        )
+        XCTAssertTrue(
+            terminalStartupScript.contains("--workspace \"$cmux_ssh_pty_workspace_id\""),
             terminalStartupScript
         )
         XCTAssertEqual(configureParams["auto_connect"] as? Bool, false)
