@@ -4707,7 +4707,12 @@ struct CMUXCLI {
 
     func boolFromAny(_ value: Any?) -> Bool? {
         if let bool = value as? Bool { return bool }
-        if let number = value as? NSNumber { return number.boolValue }
+        if let number = value as? NSNumber {
+            let numeric = number.doubleValue
+            if numeric == 0 { return false }
+            if numeric == 1 { return true }
+            return nil
+        }
         if let string = value as? String {
             return parseBoolString(string.trimmingCharacters(in: .whitespacesAndNewlines))
         }
