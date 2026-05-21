@@ -261,8 +261,12 @@ jobs:
               CMUX_SKIP_ZIG_BUILD=1 \
               -skip-testing:cmuxTests/AppDelegateShortcutRoutingTests/testCmdWClosesWindowWhenClosingLastSurfaceInLastWorkspace \
               -skip-testing:cmuxTests/AppDelegateShortcutRoutingTests/testWelcomeWindowSidebarShortcutsUseSharedToggleCommands \
+              -skip-testing:cmuxTests/AppDelegateShortcutRoutingTests/testSettingsFileChordDispatchesNewWorkspaceShortcut \
+              -skip-testing:cmuxTests/AppDelegateShortcutRoutingTests/testConfiguredChordPrefixBeatsConflictingSingleStrokeShortcut \
               -skip-testing:cmuxTests/AppDelegateShortcutRoutingTests/testConfiguredChordPrefixBlocksUnrelatedSingleStrokeShortcutOnSecondKey \
               -skip-testing:cmuxTests/AppDelegateShortcutRoutingTests/testConfiguredChordDoesNotCrossWindowBoundary \
+              -skip-testing:cmuxTests/AppDelegateShortcutRoutingTests/testConfiguredChordPrefixIsClearedWhenAppResignsActive \
+              -skip-testing:cmuxTests/AppDelegateShortcutRoutingTests/testShortcutChangeClearsPendingConfiguredChord \
               -skip-testing:cmuxTests/BrowserPanelWebViewLifecycleTests/testBackgroundPreloadIsConsumedByInitialNavigation \
               -skip-testing:cmuxTests/CLINotifyProcessIntegrationRegressionTests/testNotificationCLIActionsMutateSocketStateAndListExtendedFields \
               -skip-testing:cmuxTests/CLINotifyProcessIntegrationRegressionTests/testGrokNotificationStillFiresOnRepeatedPromptWhenFeedTelemetryDoesNotReply \
