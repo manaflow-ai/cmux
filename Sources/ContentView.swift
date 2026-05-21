@@ -32,6 +32,12 @@ enum CommandPaletteOverlayPromotionPolicy {
     }
 }
 
+private enum CommandPaletteOverlayImmediateFocusMode {
+    case deferred
+    case textInput
+    case pendingInputContainer
+}
+
 @MainActor
 private final class CommandPaletteOverlayContainerView: NSView {
     var capturesMouseEvents = false
@@ -206,6 +212,7 @@ private final class WindowCommandPaletteOverlayController: NSObject {
     private var hasMountedPaletteRootView = false
     private var windowDidBecomeKeyObserver: NSObjectProtocol?
     private var windowDidResignKeyObserver: NSObjectProtocol?
+    private var allowsPendingInputContainerFocus = false
 
     init(window: NSWindow) {
         self.window = window
@@ -524,7 +531,9 @@ private final class WindowCommandPaletteOverlayController: NSObject {
         }
     }
 
-    private func updateFocusLockForWindowState(allowImmediateFocus: Bool = false) {
+    private func updateFocusLockForWindowState(
+        immediateFocusMode: CommandPaletteOverlayImmediateFocusMode = .deferred
+    ) {
         guard let window else {
             stopFocusLockTimer()
             return
@@ -561,11 +570,34 @@ private final class WindowCommandPaletteOverlayController: NSObject {
                 "fr=\(debugCommandPaletteResponderSummary(window.firstResponder))"
             )
 #endif
-            if allowImmediateFocus {
+            switch immediateFocusMode {
+            case .textInput:
                 focusIntoPalette(retries: 8)
-            } else {
+            case .pendingInputContainer:
+                focusPendingInputContainer(in: window)
+            case .deferred:
                 scheduleFocusIntoPalette(retries: 8)
             }
+        }
+    }
+
+    private func focusPendingInputContainer(in window: NSWindow) {
+        allowsPendingInputContainerFocus = true
+#if DEBUG
+        cmuxDebugLog(
+            "palette.focus.container.pendingInput window={\(debugCommandPaletteWindowSummary(window))} " +
+            "frBefore=\(debugCommandPaletteResponderSummary(window.firstResponder))"
+        )
+#endif
+        _ = window.makeFirstResponder(containerView)
+        DispatchQueue.main.async { [weak self, weak window] in
+            guard let self else { return }
+            guard self.window === window else {
+                self.allowsPendingInputContainerFocus = false
+                return
+            }
+            self.allowsPendingInputContainerFocus = false
+            self.updateFocusLockForWindowState()
         }
     }
 
@@ -580,6 +612,10 @@ private final class WindowCommandPaletteOverlayController: NSObject {
                 return
             }
             if self.isPaletteTextInputFirstResponder(window.firstResponder) {
+                return
+            }
+            if self.allowsPendingInputContainerFocus,
+               window.firstResponder === self.containerView {
                 return
             }
             self.focusIntoPalette(retries: 1)
@@ -615,7 +651,7 @@ private final class WindowCommandPaletteOverlayController: NSObject {
 
     func update(
         isVisible: Bool,
-        allowsImmediateFocus: Bool,
+        immediateFocusMode: CommandPaletteOverlayImmediateFocusMode,
         makeRootView: @MainActor () -> AnyView = { AnyView(EmptyView()) }
     ) {
         let wasVisible = isPaletteVisible
@@ -649,8 +685,11 @@ private final class WindowCommandPaletteOverlayController: NSObject {
             if shouldPromote {
                 promoteOverlayAboveSiblingsIfNeeded()
             }
-            updateFocusLockForWindowState(allowImmediateFocus: shouldPromote && allowsImmediateFocus)
+            updateFocusLockForWindowState(
+                immediateFocusMode: shouldPromote ? immediateFocusMode : .deferred
+            )
         } else {
+            allowsPendingInputContainerFocus = false
             stopFocusLockTimer()
             if let window, isPaletteResponder(window.firstResponder) {
                 _ = window.makeFirstResponder(nil)
@@ -3146,7 +3185,7 @@ struct ContentView: View {
             let overlayController = commandPaletteWindowOverlayController(for: window)
             overlayController.update(
                 isVisible: isCommandPalettePresented,
-                allowsImmediateFocus: commandPaletteAllowsImmediateOverlayFocus
+                immediateFocusMode: commandPaletteImmediateOverlayFocusMode
             ) { AnyView(commandPaletteOverlay) }
         }))
 
@@ -3321,7 +3360,7 @@ struct ContentView: View {
                 commandPaletteWindowOverlayController(for: window)
                     .update(
                         isVisible: isCommandPalettePresented,
-                        allowsImmediateFocus: commandPaletteAllowsImmediateOverlayFocus
+                        immediateFocusMode: commandPaletteImmediateOverlayFocusMode
                     ) { AnyView(commandPaletteOverlay) }
                 TerminalWindowPortalRegistry.scheduleExternalGeometrySynchronize(for: window)
                 BrowserWindowPortalRegistry.scheduleExternalGeometrySynchronize(for: window)
@@ -4967,11 +5006,15 @@ struct ContentView: View {
         }
     }
 
-    private var commandPaletteAllowsImmediateOverlayFocus: Bool {
-        if case .commands = commandPaletteMode {
-            return true
+    private var commandPaletteImmediateOverlayFocusMode: CommandPaletteOverlayImmediateFocusMode {
+        switch commandPaletteMode {
+        case .commands:
+            return .textInput
+        case .renameInput, .workspaceDescriptionInput:
+            return .pendingInputContainer
+        case .renameConfirm:
+            return .deferred
         }
-        return false
     }
 
     private var commandPaletteQueryForMatching: String {
