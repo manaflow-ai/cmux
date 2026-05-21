@@ -24020,15 +24020,11 @@ export default function cmuxPiSessionExtension(pi: ExtensionAPI) {
                 workspaceId: workspaceId ?? workspaceArg()
             )
         }
-        func notificationDedupeFingerprint(
-            status: AgentHookNotificationStatus?,
-            body: String
-        ) -> String? {
+        func notificationDedupeFingerprint(status: AgentHookNotificationStatus?) -> String? {
             guard (def.name == "grok" || def.name == "antigravity"), !sessionId.isEmpty, status == .idle else {
                 return nil
             }
-            let normalizedBody = truncate(normalizedSingleLine(body), maxLength: 240)
-            return "idle-turn|\(normalizedBody)"
+            return "idle-turn"
         }
         func hasActiveAntigravityBackgroundWork() -> Bool {
             def.name == "antigravity" && (input.rawObject?["fullyIdle"] as? Bool) == false
@@ -24449,10 +24445,7 @@ export default function cmuxPiSessionExtension(pi: ExtensionAPI) {
                 )
             }
 
-            let notificationFingerprint = notificationDedupeFingerprint(
-                status: stopNotificationStatus,
-                body: body
-            )
+            let notificationFingerprint = notificationDedupeFingerprint(status: stopNotificationStatus)
             let shouldPublishStopNotification = def.publishesStopNotification && (!antigravityHasActiveBackgroundWork || stopNotificationStatus == .error)
             let hasGrokTranscriptContext = def.name == "grok" && normalizedHookValue(cwd) != nil
             let shouldPublishGrokStopFallbackNotification = def.name == "grok"
@@ -24662,10 +24655,7 @@ export default function cmuxPiSessionExtension(pi: ExtensionAPI) {
                 }
             }
 
-            let notificationFingerprint = notificationDedupeFingerprint(
-                status: summary.status,
-                body: summary.body
-            )
+            let notificationFingerprint = notificationDedupeFingerprint(status: summary.status)
             if shouldSendNotification(fingerprint: notificationFingerprint) {
                 let payload = notificationPayload(title: def.displayName, subtitle: summary.subtitle, body: summary.body)
                 let notifyCommand = "notify_target_async \(workspaceId) \(surfaceId) \(payload)"
