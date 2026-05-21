@@ -469,7 +469,12 @@ jobs:
         run: |
           set -euo pipefail
 
-          APP="$(find "$HOME/Library/Developer/Xcode/DerivedData" -path "*/Build/Products/Debug/cmux DEV.app" -print -quit)"
+          APP="$(
+            find "$HOME/Library/Developer/Xcode/DerivedData" -path "*/Build/Products/Debug/cmux DEV.app" -type d -exec stat -f '%m %N' {} \; \
+              | sort -nr \
+              | head -1 \
+              | cut -d' ' -f2-
+          )"
           if [ -z "${APP:-}" ] || [ ! -d "$APP" ]; then
             echo "cmux DEV.app not found in DerivedData" >&2
             exit 1
@@ -740,7 +745,12 @@ jobs:
             -o "$HELPER_PATH" scripts/create-virtual-display.m
 
           # Find the app binary
-          APP_BINARY=$(find ~/Library/Developer/Xcode/DerivedData -path "*/Build/Products/Debug/cmux DEV.app/Contents/MacOS/cmux DEV" -print -quit 2>/dev/null || true)
+          APP_BINARY="$(
+            find "$HOME/Library/Developer/Xcode/DerivedData" -path "*/Build/Products/Debug/cmux DEV.app/Contents/MacOS/cmux DEV" -type f -exec stat -f '%m %N' {} \; 2>/dev/null \
+              | sort -nr \
+              | head -1 \
+              | cut -d' ' -f2-
+          )"
           if [ -z "$APP_BINARY" ]; then
             echo "ERROR: App binary not found in DerivedData" >&2
             exit 1

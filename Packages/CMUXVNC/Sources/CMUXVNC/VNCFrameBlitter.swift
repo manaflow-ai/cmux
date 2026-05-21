@@ -15,12 +15,18 @@ public enum VNCFrameBlitter {
             return false
         }
 
-        let expectedByteCount = framebufferWidth * framebufferHeight * 4
-        guard framebuffer.count == expectedByteCount else {
+        let (pixelCount, pixelOverflow) = framebufferWidth.multipliedReportingOverflow(by: framebufferHeight)
+        let (expectedByteCount, expectedByteCountOverflow) = pixelCount.multipliedReportingOverflow(by: 4)
+        guard !pixelOverflow,
+              !expectedByteCountOverflow,
+              framebuffer.count == expectedByteCount else {
             return false
         }
 
-        let rowBytes = header.width * 4
+        let (rowBytes, rowBytesOverflow) = header.width.multipliedReportingOverflow(by: 4)
+        guard !rowBytesOverflow else {
+            return false
+        }
         let payloadByteCount = payload.count
         let framebufferByteCount = framebuffer.count
         var didCopy = true
@@ -36,12 +42,27 @@ public enum VNCFrameBlitter {
                     return
                 }
                 for row in 0..<header.height {
-                    let sourceOffset = row * rowBytes
-                    let destinationOffset = ((header.y + row) * framebufferWidth + header.x) * 4
-                    guard destinationOffset >= 0,
-                          destinationOffset + rowBytes <= framebufferByteCount,
+                    let (sourceOffset, sourceOverflow) = row.multipliedReportingOverflow(by: rowBytes)
+                    let (destinationY, destinationYOverflow) = header.y.addingReportingOverflow(row)
+                    let (destinationRowOffset, destinationRowOverflow) = destinationY
+                        .multipliedReportingOverflow(by: framebufferWidth)
+                    let (destinationPixelOffset, destinationPixelOverflow) = destinationRowOffset
+                        .addingReportingOverflow(header.x)
+                    let (destinationOffset, destinationByteOverflow) = destinationPixelOffset
+                        .multipliedReportingOverflow(by: 4)
+                    let (sourceEnd, sourceEndOverflow) = sourceOffset.addingReportingOverflow(rowBytes)
+                    let (destinationEnd, destinationEndOverflow) = destinationOffset.addingReportingOverflow(rowBytes)
+                    guard !sourceOverflow,
+                          !destinationYOverflow,
+                          !destinationRowOverflow,
+                          !destinationPixelOverflow,
+                          !destinationByteOverflow,
+                          !sourceEndOverflow,
+                          !destinationEndOverflow,
+                          destinationOffset >= 0,
+                          destinationEnd <= framebufferByteCount,
                           sourceOffset >= 0,
-                          sourceOffset + rowBytes <= payloadByteCount else {
+                          sourceEnd <= payloadByteCount else {
                         didCopy = false
                         return
                     }

@@ -105,18 +105,17 @@ final class VNCPanel: Panel, ObservableObject {
     }
 
     func sendText(_ text: String) {
-        guard !text.isEmpty else { return }
-        startIfNeeded()
+        guard !text.isEmpty, prepareForUserInput() else { return }
         connection?.sendControl(VNCControlMessage(kind: "text", text: text))
     }
 
     func sendKey(keyCode: UInt16, isDown: Bool) {
-        startIfNeeded()
+        guard prepareForUserInput() else { return }
         connection?.sendControl(VNCControlMessage(kind: "key", isDown: isDown, keyCode: Int(keyCode)))
     }
 
     func sendPointer(x: Int, y: Int, button: Int? = nil, isDown: Bool? = nil) {
-        startIfNeeded()
+        guard prepareForUserInput() else { return }
         connection?.sendControl(VNCControlMessage(kind: "pointer", x: x, y: y, button: button, isDown: isDown))
     }
 
@@ -177,6 +176,13 @@ final class VNCPanel: Panel, ObservableObject {
     private func applyFrame(header: VNCFrameHeader, payload: Data) {
         guard let frame = framebufferComposer.apply(header: header, payload: payload) else { return }
         latestFrame = VNCDisplayFrame(header: frame.header, payload: frame.payload)
+    }
+
+    private func prepareForUserInput() -> Bool {
+        if connection != nil { return true }
+        guard connectionState == .idle else { return false }
+        startIfNeeded()
+        return connection != nil
     }
 
     private func restartAfterUnexpectedExit(reason: String) -> Bool {
