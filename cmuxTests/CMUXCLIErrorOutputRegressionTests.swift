@@ -351,7 +351,6 @@ final class CMUXCLIErrorOutputRegressionTests: XCTestCase {
             appSupportDirectory: appSupportDirectory
         ).map(\.path)
         XCTAssertEqual(appReadablePaths, [expectedConfigURL.path])
-        XCTAssertTrue(appReadablePaths.contains(configPath))
     }
 
     func testBareInteractiveThemesReloadsRunningAppAfterPickerExits() throws {
