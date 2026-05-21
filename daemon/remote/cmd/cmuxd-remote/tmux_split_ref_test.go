@@ -65,6 +65,7 @@ func startMockTmuxCompatSocket(t *testing.T) string {
 							"ref":               "workspace:1",
 							"index":             1,
 							"title":             "demo",
+							"active":            true,
 							"current_directory": cwd,
 						}},
 					}
@@ -196,7 +197,7 @@ func TestTmuxSplitWindowCanonicalizesCallerSurfaceRefs(t *testing.T) {
 	os.Setenv("HOME", t.TempDir())
 	os.Setenv("CMUX_WORKSPACE_ID", "workspace:1")
 	os.Setenv("CMUX_SURFACE_ID", "surface:1")
-	os.Setenv("TMUX_PANE", "%pane:1")
+	os.Setenv("TMUX_PANE", "%"+tmuxStableNumericId("33333333-3333-4333-8333-333333333333"))
 	defer func() {
 		os.Setenv("HOME", origHome)
 		if origWorkspace != "" {
@@ -240,7 +241,7 @@ func TestTmuxSplitWindowIgnoresStaleUUIDColumnSurface(t *testing.T) {
 	os.Setenv("HOME", home)
 	os.Setenv("CMUX_WORKSPACE_ID", "workspace:1")
 	os.Setenv("CMUX_SURFACE_ID", "surface:1")
-	os.Setenv("TMUX_PANE", "%pane:1")
+	os.Setenv("TMUX_PANE", "%"+tmuxStableNumericId("33333333-3333-4333-8333-333333333333"))
 	defer func() {
 		os.Setenv("HOME", origHome)
 		if origWorkspace != "" {

@@ -14288,7 +14288,8 @@ struct CMUXCLI {
             "session_attached": "1",
             "window_id": "@\(tmuxStableNumericId(canonicalWorkspaceId))",
             "window_uuid": canonicalWorkspaceId,
-            "window_active": "1",
+            "window_active": "0",
+            "window_flags": "",
             "window_width": "80",
             "window_height": "24",
             "pane_active": "1",
@@ -14296,6 +14297,11 @@ struct CMUXCLI {
             "pane_height": "24",
             "pane_current_path": tmuxFallbackCurrentPath()
         ]
+        let activeByCaller = tmuxResolvedCallerWorkspaceId(client: client) == canonicalWorkspaceId
+        if activeByCaller {
+            context["window_active"] = "1"
+            context["window_flags"] = "*"
+        }
 
         let workspaceItems = try tmuxWorkspaceItems(client: client)
         if let workspace = workspaceItems.first(where: {
@@ -14304,10 +14310,11 @@ struct CMUXCLI {
             if let index = intFromAny(workspace["index"]) {
                 context["window_index"] = String(index)
             }
-            if let active = (workspace["active"] as? Bool)
+            if !activeByCaller, let active = (workspace["active"] as? Bool)
                 ?? (workspace["focused"] as? Bool)
                 ?? (workspace["selected"] as? Bool) {
                 context["window_active"] = active ? "1" : "0"
+                context["window_flags"] = active ? "*" : ""
             }
             let title = ((workspace["title"] as? String) ?? "").trimmingCharacters(in: .whitespacesAndNewlines)
             if !title.isEmpty {
@@ -14324,7 +14331,11 @@ struct CMUXCLI {
                 return (try? tmuxCanonicalPaneId(paneId, workspaceId: canonicalWorkspaceId, client: client)) ?? paneId
             }
             if let currentPaneId = currentPayload["pane_id"] as? String {
-                return currentPaneId
+                return (try? tmuxCanonicalPaneId(
+                    currentPaneId,
+                    workspaceId: canonicalWorkspaceId,
+                    client: client
+                )) ?? currentPaneId
             }
             if let currentPaneRef = currentPayload["pane_ref"] as? String {
                 return (try? tmuxCanonicalPaneId(currentPaneRef, workspaceId: canonicalWorkspaceId, client: client)) ?? currentPaneRef

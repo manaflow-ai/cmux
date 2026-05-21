@@ -189,7 +189,8 @@ func TestTmuxDisplayReporterFormatFields(t *testing.T) {
 	os.Setenv("HOME", t.TempDir())
 	os.Setenv("CMUX_WORKSPACE_ID", "workspace:1")
 	os.Setenv("CMUX_SURFACE_ID", "surface:1")
-	os.Setenv("TMUX_PANE", "%pane:1")
+	leaderPaneToken := "%" + tmuxStableNumericId("33333333-3333-4333-8333-333333333333")
+	os.Setenv("TMUX_PANE", leaderPaneToken)
 	defer func() {
 		os.Setenv("HOME", origHome)
 		if origWorkspace != "" {
@@ -235,7 +236,7 @@ func TestTmuxDisplayReporterFormatFields(t *testing.T) {
 		if err := dispatchTmuxCommand(rc, "display-message", []string{
 			"-p",
 			"-F", strings.Join(parts, "\t"),
-			"-t", "%pane:1",
+			"-t", leaderPaneToken,
 		}); err != nil {
 			t.Fatalf("display-message: %v", err)
 		}
@@ -324,7 +325,7 @@ func TestTmuxPaneSelector(t *testing.T) {
 		input string
 		want  string
 	}{
-		{"%abc123", "abc123"},
+		{"%abc123", "%abc123"},
 		{"pane:test", "pane:test"},
 		{"@ws1.%pane2", "%pane2"},
 		{"@ws1", ""},
@@ -493,6 +494,32 @@ func TestGetFocusedContextCanonicalizesPaneRef(t *testing.T) {
 	}
 	if focused.paneId != "33333333-3333-4333-8333-333333333333" {
 		t.Fatalf("paneId = %q, want canonical pane UUID", focused.paneId)
+	}
+}
+
+func TestTmuxSigiledSelectorsSkipRefsAndIndexes(t *testing.T) {
+	sockPath := startMockTmuxCompatSocket(t)
+	rc := &rpcContext{socketPath: sockPath}
+	workspaceId := "11111111-1111-4111-8111-111111111111"
+	paneId := "33333333-3333-4333-8333-333333333333"
+
+	if got, err := tmuxResolveWorkspaceId(rc, "1"); err != nil || got != workspaceId {
+		t.Fatalf("unsigiled workspace index resolved to %q, %v; want %s", got, err, workspaceId)
+	}
+	if got, err := tmuxCanonicalPaneId(rc, "1", workspaceId); err != nil || got != paneId {
+		t.Fatalf("unsigiled pane index resolved to %q, %v; want %s", got, err, paneId)
+	}
+	if _, err := tmuxResolveWorkspaceId(rc, "$1"); err == nil {
+		t.Fatal("sigiled workspace selector $1 resolved by index; want no match")
+	}
+	if _, err := tmuxCanonicalPaneId(rc, "%1", workspaceId); err == nil {
+		t.Fatal("sigiled pane selector %1 resolved by index; want no match")
+	}
+	if got, err := tmuxResolveWorkspaceId(rc, "$"+tmuxStableNumericId(workspaceId)); err != nil || got != workspaceId {
+		t.Fatalf("sigiled workspace numeric id resolved to %q, %v; want %s", got, err, workspaceId)
+	}
+	if got, err := tmuxCanonicalPaneId(rc, "%"+tmuxStableNumericId(paneId), workspaceId); err != nil || got != paneId {
+		t.Fatalf("sigiled pane numeric id resolved to %q, %v; want %s", got, err, paneId)
 	}
 }
 
