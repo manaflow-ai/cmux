@@ -8980,14 +8980,13 @@ final class Workspace: Identifiable, ObservableObject {
         return trimmedCurrentDirectory.isEmpty ? nil : trimmedCurrentDirectory
     }
 
-    func updatePanelDirectory(panelId: UUID, directory: String) {
+    private func setPanelDirectory(panelId: UUID, directory: String, updateFocusedDirectory: Bool) {
         let trimmed = directory.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !trimmed.isEmpty else { return }
         if panelDirectories[panelId] != trimmed {
             panelDirectories[panelId] = trimmed
         }
-        // Update current directory if this is the focused panel
-        if panelId == focusedPanelId {
+        if updateFocusedDirectory, panelId == focusedPanelId {
             if surfaceTabBarDirectory != trimmed {
                 surfaceTabBarDirectory = trimmed
             }
@@ -8997,10 +8996,14 @@ final class Workspace: Identifiable, ObservableObject {
         }
     }
 
+    func updatePanelDirectory(panelId: UUID, directory: String) {
+        setPanelDirectory(panelId: panelId, directory: directory, updateFocusedDirectory: true)
+    }
+
     func updateRemotePanelDirectory(panelId: UUID, directory: String) {
         let trimmed = directory.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !trimmed.isEmpty else { return }
-        updatePanelDirectory(panelId: panelId, directory: trimmed)
+        setPanelDirectory(panelId: panelId, directory: trimmed, updateFocusedDirectory: false)
         guard activeRemoteTerminalSurfaceIds.contains(panelId) else { return }
         markRemoteTerminalDirectorySurface(panelId)
     }
@@ -10585,6 +10588,7 @@ final class Workspace: Identifiable, ObservableObject {
         // then its requested startup cwd if shell integration has not reported
         // back yet, and finally fall back to the workspace's current directory.
         let splitWorkingDirectory: String? = {
+            guard remoteTerminalStartupCommand == nil else { return nil }
             if let workingDirectory = workingDirectory?.trimmingCharacters(in: .whitespacesAndNewlines),
                !workingDirectory.isEmpty {
                 return workingDirectory
@@ -10741,11 +10745,12 @@ final class Workspace: Identifiable, ObservableObject {
         }
 
         // Create new terminal panel
+        let localWorkingDirectory = remoteTerminalStartupCommand == nil ? workingDirectory : nil
         let newPanel = TerminalPanel(
             workspaceId: id,
             context: GHOSTTY_SURFACE_CONTEXT_SPLIT,
             configTemplate: inheritedConfig,
-            workingDirectory: workingDirectory,
+            workingDirectory: localWorkingDirectory,
             portOrdinal: portOrdinal,
             initialCommand: startupCommand,
             tmuxStartCommand: tmuxStartCommand,
@@ -13733,11 +13738,12 @@ final class Workspace: Identifiable, ObservableObject {
             inheritedConfig = template
         }
 
+        let localWorkingDirectory = startupCommand == nil ? workingDirectory : nil
         let newPanel = TerminalPanel(
             workspaceId: id,
             context: GHOSTTY_SURFACE_CONTEXT_SPLIT,
             configTemplate: inheritedConfig,
-            workingDirectory: workingDirectory,
+            workingDirectory: localWorkingDirectory,
             portOrdinal: portOrdinal,
             initialCommand: startupCommand,
             initialInput: initialInput

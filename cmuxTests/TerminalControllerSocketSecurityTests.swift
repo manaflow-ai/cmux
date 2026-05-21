@@ -634,6 +634,31 @@ final class TerminalControllerSocketSecurityTests: XCTestCase {
         XCTAssertEqual(portsKickResult["surface_id"] as? String, focusedPanelId.uuidString)
     }
 
+    func testSurfaceReportPwdIsSocketWorkerMethod() throws {
+        let request = [
+            "id": "pwd-worker",
+            "method": "surface.report_pwd",
+            "params": [
+                "workspace_id": UUID().uuidString,
+                "surface_id": UUID().uuidString,
+                "directory": "/home/demo/project"
+            ]
+        ] as [String: Any]
+        let data = try JSONSerialization.data(withJSONObject: request)
+        let line = try XCTUnwrap(String(data: data, encoding: .utf8))
+
+        let responseLine = TerminalController.shared.handleSocketLine(line)
+        let responseData = try XCTUnwrap(responseLine.data(using: .utf8))
+        let response = try XCTUnwrap(
+            JSONSerialization.jsonObject(with: responseData) as? [String: Any]
+        )
+        let error = try XCTUnwrap(response["error"] as? [String: Any])
+
+        XCTAssertEqual(response["ok"] as? Bool, false)
+        XCTAssertEqual(error["code"] as? String, "invalid_dispatch")
+        XCTAssertTrue((error["message"] as? String)?.contains("off the main thread") == true)
+    }
+
     func testSurfaceRelayRPCsRejectExplicitUnknownSurfaceID() async throws {
         let socketPath = makeSocketPath("relay-invalid")
         let manager = TabManager()

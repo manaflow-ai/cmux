@@ -586,7 +586,7 @@ class TerminalController {
         }
     }
 
-    private static let socketFastPathState = SocketFastPathState()
+    private nonisolated static let socketFastPathState = SocketFastPathState()
     nonisolated static func explicitSocketScope(
         options: [String: String]
     ) -> (workspaceId: UUID, panelId: UUID)? {
@@ -1766,6 +1766,7 @@ class TerminalController {
         "feed.permission.reply",
         "feed.question.reply",
         "feed.exit_plan.reply",
+        "surface.report_pwd",
         "browser.download.wait",
         "browser.profiles.list",
         "browser.profiles.create",
@@ -1855,6 +1856,8 @@ class TerminalController {
             return v2Result(id: request.id, v2FeedQuestionReply(params: request.params))
         case "feed.exit_plan.reply":
             return v2Result(id: request.id, v2FeedExitPlanReply(params: request.params))
+        case "surface.report_pwd":
+            return v2Result(id: request.id, v2SurfaceReportPwd(params: request.params))
         case "browser.download.wait":
             return v2Result(id: request.id, v2BrowserDownloadWaitOnSocketWorker(params: request.params))
         case "browser.profiles.list":
@@ -5788,18 +5791,46 @@ class TerminalController {
         return result
     }
 
-    private func v2SurfaceReportPwd(params: [String: Any]) -> V2CallResult {
-        guard let workspaceId = v2UUID(params, "workspace_id") else {
+    private nonisolated func v2SocketWorkerUUID(_ params: [String: Any], _ key: String) -> UUID? {
+        guard let raw = params[key] as? String else { return nil }
+        let trimmed = raw.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmed.isEmpty else { return nil }
+        if let uuid = UUID(uuidString: trimmed) {
+            return uuid
+        }
+        return v2MainSync {
+            self.v2ResolveHandleRef(trimmed)
+        }
+    }
+
+    private nonisolated func v2SocketWorkerHasNonNullParam(_ params: [String: Any], _ key: String) -> Bool {
+        guard let raw = params[key] else { return false }
+        return !(raw is NSNull)
+    }
+
+    private nonisolated func v2SocketWorkerRawString(_ params: [String: Any], _ key: String) -> String? {
+        params[key] as? String
+    }
+
+    private nonisolated func v2SocketWorkerRef(kind: V2HandleKind, uuid: UUID?) -> Any {
+        guard let uuid else { return NSNull() }
+        return v2MainSync {
+            self.v2Ref(kind: kind, uuid: uuid)
+        }
+    }
+
+    private nonisolated func v2SurfaceReportPwd(params: [String: Any]) -> V2CallResult {
+        guard let workspaceId = v2SocketWorkerUUID(params, "workspace_id") else {
             return .err(code: "invalid_params", message: "Missing or invalid workspace_id", data: nil)
         }
-        let requestedSurfaceId = v2UUID(params, "surface_id")
-        if v2HasNonNullParam(params, "surface_id"), requestedSurfaceId == nil {
+        let requestedSurfaceId = v2SocketWorkerUUID(params, "surface_id")
+        if v2SocketWorkerHasNonNullParam(params, "surface_id"), requestedSurfaceId == nil {
             return .err(code: "invalid_params", message: "Missing or invalid surface_id", data: nil)
         }
         let directory = [
-            v2RawString(params, "directory"),
-            v2RawString(params, "path"),
-            v2RawString(params, "pwd"),
+            v2SocketWorkerRawString(params, "directory"),
+            v2SocketWorkerRawString(params, "path"),
+            v2SocketWorkerRawString(params, "pwd"),
         ]
         .compactMap { $0?.trimmingCharacters(in: .whitespacesAndNewlines) }
         .first { !$0.isEmpty }
@@ -5813,7 +5844,7 @@ class TerminalController {
                 panelId: requestedSurfaceId,
                 directory: directory
             )
-            DispatchQueue.main.async { [weak self] in
+            Task { @MainActor [weak self] in
                 guard let self else { return }
                 guard let tab = self.tabForSidebarMutation(id: workspaceId) else { return }
                 let validSurfaceIds = Set(tab.panels.keys)
@@ -5842,9 +5873,9 @@ class TerminalController {
 
             return .ok([
                 "workspace_id": workspaceId.uuidString,
-                "workspace_ref": v2Ref(kind: .workspace, uuid: workspaceId),
+                "workspace_ref": v2SocketWorkerRef(kind: .workspace, uuid: workspaceId),
                 "surface_id": requestedSurfaceId.uuidString,
-                "surface_ref": v2Ref(kind: .surface, uuid: requestedSurfaceId),
+                "surface_ref": v2SocketWorkerRef(kind: .surface, uuid: requestedSurfaceId),
                 "directory": directory,
                 "published": shouldPublish,
                 "pending": true,
@@ -5856,9 +5887,9 @@ class TerminalController {
             message: "Workspace not found",
             data: [
                 "workspace_id": workspaceId.uuidString,
-                "workspace_ref": v2Ref(kind: .workspace, uuid: workspaceId),
+                "workspace_ref": v2SocketWorkerRef(kind: .workspace, uuid: workspaceId),
                 "surface_id": v2OrNull(requestedSurfaceId?.uuidString),
-                "surface_ref": v2Ref(kind: .surface, uuid: requestedSurfaceId),
+                "surface_ref": v2SocketWorkerRef(kind: .surface, uuid: requestedSurfaceId),
             ]
         )
 

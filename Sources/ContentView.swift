@@ -2539,6 +2539,7 @@ struct ContentView: View {
               let tab = tabManager.tabs.first(where: { $0.id == selectedId }) else {
             return nil
         }
+        guard !tab.isRemoteWorkspace else { return nil }
         // Use focused panel's directory if available
         if let focusedPanelId = tab.focusedPanelId,
            let panelDir = tab.panelDirectories[focusedPanelId] {
