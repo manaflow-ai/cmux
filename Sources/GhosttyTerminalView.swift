@@ -6883,6 +6883,10 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
         return UserDefaults.standard.bool(forKey: "cmuxKeyLatencyProbe")
     }()
     static var debugGhosttySurfaceKeyEventObserver: ((ghostty_input_key_s) -> Void)?
+    private var debugForwardedLeftMouseDownEventNumber: Int?
+    private var debugForwardedLeftMouseDownUptime: TimeInterval?
+    private var debugLastDragAutoscrollProbeUptime: TimeInterval = 0
+    private var debugLastScrollAutoscrollProbeUptime: TimeInterval = 0
 #endif
     private var eventMonitor: Any?
     private var trackingArea: NSTrackingArea?
@@ -7944,6 +7948,12 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
             Self.focusLog("becomeFirstResponder: surface=\(terminalSurface?.id.uuidString ?? "nil") deltaSinceScrollMs=\(String(format: "%.2f", deltaMs))")
 #if DEBUG
             cmuxDebugLog("focus.firstResponder surface=\(terminalSurface?.id.uuidString.prefix(5) ?? "nil")")
+            debugLogSelectionAutoscrollProbe(
+                phase: "focus.becomeFirstResponder",
+                event: NSApp.currentEvent,
+                extra: "shouldApplySurfaceFocus=\(shouldApplySurfaceFocus ? 1 : 0) deltaSinceScrollMs=\(String(format: "%.1f", deltaMs))",
+                force: true
+            )
             if let terminalSurface {
                 AppDelegate.shared?.recordJumpUnreadFocusIfExpected(
                     tabId: terminalSurface.tabId,
@@ -7988,6 +7998,14 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
             let now = CACurrentMediaTime()
             let deltaMs = (now - lastScrollEventTime) * 1000
             Self.focusLog("resignFirstResponder: surface=\(terminalSurface?.id.uuidString ?? "nil") deltaSinceScrollMs=\(String(format: "%.2f", deltaMs))")
+#if DEBUG
+            debugLogSelectionAutoscrollProbe(
+                phase: "focus.resignFirstResponder",
+                event: NSApp.currentEvent,
+                extra: "deltaSinceScrollMs=\(String(format: "%.1f", deltaMs))",
+                force: true
+            )
+#endif
             ghostty_surface_set_focus(surface, false)
         }
         return result
@@ -8754,7 +8772,14 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
         trackMousePointIfUsable(eventPoint)
         let point = preferredPointerPoint(from: eventPoint) ?? eventPoint
 #if DEBUG
-        if event.modifierFlags.contains(.command) || selectionActive {
+        if event.modifierFlags.contains(.command) || selectionActive || debugForwardedLeftMouseDownEventNumber != nil {
+            debugLogSelectionAutoscrollProbe(
+                phase: "flagsChanged",
+                event: event,
+                point: eventPoint,
+                extra: "selectionActive=\(selectionActive ? 1 : 0) suppressCommandPathHover=\(suppressCommandPathHover ? 1 : 0)",
+                force: debugForwardedLeftMouseDownEventNumber != nil
+            )
             runtimeDebugLog(
                 hypothesisID: "h1",
                 name: "flags_changed",
@@ -9031,6 +9056,83 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
             "raw_token": resolution.rawToken
         ]
     }
+
+    private func debugResponderLabel(_ responder: NSResponder?) -> String {
+        guard let responder else { return "nil" }
+        if let view = responder as? NSView {
+            if view === self { return "GhosttyNSView" }
+            if view.isDescendant(of: self) { return "GhosttyDescendant.\(String(describing: type(of: view)))" }
+            return String(describing: type(of: view))
+        }
+        return String(describing: type(of: responder))
+    }
+
+    private func debugAutoscrollProbePointDescription(_ point: NSPoint?) -> (text: String, outOfBounds: Bool) {
+        guard let point else { return ("nil", false) }
+        let outOfBounds = point.x < 0 || point.y < 0 || point.x > bounds.width || point.y > bounds.height
+        return (
+            String(
+                format: "%.0f,%.0f/%.0fx%.0f",
+                point.x,
+                point.y,
+                bounds.width,
+                bounds.height
+            ),
+            outOfBounds
+        )
+    }
+
+    fileprivate func debugLogSelectionAutoscrollProbe(
+        phase: String,
+        event: NSEvent? = nil,
+        point explicitPoint: NSPoint? = nil,
+        extra: String = "",
+        force: Bool = false
+    ) {
+        let now = ProcessInfo.processInfo.systemUptime
+        if !force {
+            if phase == "mouseDragged", now - debugLastDragAutoscrollProbeUptime < 0.25 {
+                return
+            }
+            if phase == "scrollWheel", now - debugLastScrollAutoscrollProbeUptime < 0.25 {
+                return
+            }
+        }
+        if phase == "mouseDragged" {
+            debugLastDragAutoscrollProbeUptime = now
+        } else if phase == "scrollWheel" {
+            debugLastScrollAutoscrollProbeUptime = now
+        }
+
+        let point = explicitPoint ?? event.map { convert($0.locationInWindow, from: nil) } ?? currentMousePointInView()
+        let pointDescription = debugAutoscrollProbePointDescription(point)
+        let hasSelection = surface.map { ghostty_surface_has_selection($0) } ?? false
+        let leftDownAgeMs = debugForwardedLeftMouseDownUptime.map { (now - $0) * 1000.0 }
+        let eventType = event.map { String(describing: $0.type) } ?? "nil"
+        let eventNumber = event?.eventNumber ?? -1
+        let eventTimestamp = event?.timestamp ?? 0
+        let phaseRaw = event?.phase.rawValue ?? 0
+        let momentumRaw = event?.momentumPhase.rawValue ?? 0
+        let deltaX = event?.type == .scrollWheel ? event?.scrollingDeltaX ?? 0 : 0
+        let deltaY = event?.type == .scrollWheel ? event?.scrollingDeltaY ?? 0 : 0
+        let mods = event.map { debugModifierString($0.modifierFlags) } ?? ""
+        let leftDownEvent = debugForwardedLeftMouseDownEventNumber ?? -1
+        let firstResponder = debugResponderLabel(window?.firstResponder)
+        let suffix = extra.isEmpty ? "" : " \(extra)"
+
+        cmuxDebugLog(
+            "selection.autoscrollProbe phase=\(phase) " +
+            "surface=\(terminalSurface?.id.uuidString.prefix(5) ?? "nil") " +
+            "appActive=\(NSApp.isActive ? 1 : 0) win=\(window?.windowNumber ?? -1) key=\(window?.isKeyWindow == true ? 1 : 0) " +
+            "eventType=\(eventType) eventNum=\(eventNumber) eventTs=\(String(format: "%.3f", eventTimestamp)) " +
+            "pressedButtons=\(NSEvent.pressedMouseButtons) leftDownForwarded=\(debugForwardedLeftMouseDownEventNumber == nil ? 0 : 1) " +
+            "leftDownEvent=\(leftDownEvent) leftDownAgeMs=\(leftDownAgeMs.map { String(format: "%.1f", $0) } ?? "nil") " +
+            "hasSelection=\(hasSelection ? 1 : 0) copyMode=\(keyboardCopyModeActive ? 1 : 0) " +
+            "point=\(pointDescription.text) outOfBounds=\(pointDescription.outOfBounds ? 1 : 0) " +
+            "mods=[\(mods)] phaseRaw=\(phaseRaw) momentumRaw=\(momentumRaw) " +
+            "delta=\(String(format: "%.1f,%.1f", deltaX, deltaY)) firstResponder=\(firstResponder)\(suffix)"
+        )
+    }
     #endif
 
     private func requestPointerFocusRecovery() {
@@ -9044,6 +9146,7 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
         #if DEBUG
         let debugPoint = convert(event.locationInWindow, from: nil)
         cmuxDebugLog("terminal.mouseDown surface=\(terminalSurface?.id.uuidString.prefix(5) ?? "nil") mods=[\(debugModifierString(event.modifierFlags))] clickCount=\(event.clickCount) point=(\(String(format: "%.0f", debugPoint.x)),\(String(format: "%.0f", debugPoint.y)))")
+        debugLogSelectionAutoscrollProbe(phase: "mouseDown.begin", event: event, point: debugPoint, force: true)
         #endif
         // Split reparent/layout churn can suppress the later `becomeFirstResponder -> onFocus`
         // callback. Treat pointer-down as explicit focus intent so clicking a ghost pane still
@@ -9076,16 +9179,44 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
         if event.clickCount == 1 {
             ghostty_surface_mouse_pos(surface, eventPoint.x, bounds.height - eventPoint.y, modsFromEvent(event))
         }
-        _ = ghostty_surface_mouse_button(surface, GHOSTTY_MOUSE_PRESS, GHOSTTY_MOUSE_LEFT, modsFromEvent(event))
+        let handled = ghostty_surface_mouse_button(surface, GHOSTTY_MOUSE_PRESS, GHOSTTY_MOUSE_LEFT, modsFromEvent(event))
+#if DEBUG
+        debugForwardedLeftMouseDownEventNumber = event.eventNumber
+        debugForwardedLeftMouseDownUptime = ProcessInfo.processInfo.systemUptime
+        debugLogSelectionAutoscrollProbe(
+            phase: "mouseDown.forwarded",
+            event: event,
+            point: eventPoint,
+            extra: "pressHandled=\(handled ? 1 : 0)",
+            force: true
+        )
+#endif
     }
 
     override func mouseUp(with event: NSEvent) {
         #if DEBUG
         cmuxDebugLog("terminal.mouseUp surface=\(terminalSurface?.id.uuidString.prefix(5) ?? "nil") mods=[\(debugModifierString(event.modifierFlags))]")
         #endif
-        guard let surface = surface else { return }
+        guard let surface = surface else {
+#if DEBUG
+            let point = convert(event.locationInWindow, from: nil)
+            debugLogSelectionAutoscrollProbe(phase: "mouseUp.missingSurface", event: event, point: point, force: true)
+#endif
+            return
+        }
         let point = convert(event.locationInWindow, from: nil)
         let consumed = ghostty_surface_mouse_button(surface, GHOSTTY_MOUSE_RELEASE, GHOSTTY_MOUSE_LEFT, modsFromEvent(event))
+#if DEBUG
+        debugLogSelectionAutoscrollProbe(
+            phase: "mouseUp.forwarded",
+            event: event,
+            point: point,
+            extra: "releaseConsumed=\(consumed ? 1 : 0)",
+            force: true
+        )
+        debugForwardedLeftMouseDownEventNumber = nil
+        debugForwardedLeftMouseDownUptime = nil
+#endif
         _ = handleCommandClickRelease(at: point, modifierFlags: event.modifierFlags, ghosttyConsumed: consumed)
     }
 
@@ -9917,6 +10048,17 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
         guard let surface = surface else { return }
         let eventPoint = convert(event.locationInWindow, from: nil)
         trackMousePointIfUsable(eventPoint)
+#if DEBUG
+        let isOutOfBounds = eventPoint.x < 0 || eventPoint.y < 0 || eventPoint.x > bounds.width || eventPoint.y > bounds.height
+        let leftButtonCurrentlyDown = (NSEvent.pressedMouseButtons & 1) != 0
+        debugLogSelectionAutoscrollProbe(
+            phase: "mouseDragged",
+            event: event,
+            point: eventPoint,
+            extra: "leftButtonCurrentlyDown=\(leftButtonCurrentlyDown ? 1 : 0)",
+            force: isOutOfBounds || !leftButtonCurrentlyDown || debugForwardedLeftMouseDownEventNumber == nil
+        )
+#endif
         // Forward the raw drag coordinates, including out-of-bounds positions.
         // Selection auto-scroll depends on libghostty observing the pointer leave
         // the viewport rather than a cached in-bounds hover point.
@@ -9965,6 +10107,14 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
         let momentumEnded = event.momentumPhase == .ended || event.momentumPhase == .cancelled
         GhosttyApp.shared.markScrollActivity(hasMomentum: hasMomentum, momentumEnded: momentumEnded)
 
+#if DEBUG
+        debugLogSelectionAutoscrollProbe(
+            phase: "scrollWheel",
+            event: event,
+            extra: "precision=\(precision ? 1 : 0) hasMomentum=\(hasMomentum ? 1 : 0) momentumEnded=\(momentumEnded ? 1 : 0)",
+            force: debugForwardedLeftMouseDownEventNumber != nil || NSEvent.pressedMouseButtons != 0
+        )
+#endif
         ghostty_surface_mouse_scroll(
             surface,
             x,
@@ -11308,7 +11458,16 @@ final class GhosttySurfaceScrollView: NSView {
             object: window,
             queue: .main
         ) { [weak self] _ in
-            guard let self, self.isActive, self.surfaceView.isVisibleInUI, let tabId = self.surfaceView.tabId, let surfaceId = self.surfaceView.terminalSurface?.id, self.matchesCurrentTerminalFocusTarget(tabId: tabId, surfaceId: surfaceId) else { return }
+            guard let self else { return }
+#if DEBUG
+            self.surfaceView.debugLogSelectionAutoscrollProbe(
+                phase: "window.didBecomeKey",
+                event: NSApp.currentEvent,
+                extra: "hostActive=\(self.isActive ? 1 : 0) visible=\(self.surfaceView.isVisibleInUI ? 1 : 0) searchActive=\(self.surfaceView.terminalSurface?.searchState != nil ? 1 : 0) focusTarget=\(self.searchFocusTarget)",
+                force: true
+            )
+#endif
+            guard self.isActive, self.surfaceView.isVisibleInUI, let tabId = self.surfaceView.tabId, let surfaceId = self.surfaceView.terminalSurface?.id, self.matchesCurrentTerminalFocusTarget(tabId: tabId, surfaceId: surfaceId) else { return }
 #if DEBUG
             cmuxDebugLog("find.window.didBecomeKey surface=\(self.surfaceView.terminalSurface?.id.uuidString.prefix(5) ?? "nil") searchActive=\(self.surfaceView.terminalSurface?.searchState != nil) focusTarget=\(self.searchFocusTarget) firstResponder=\(String(describing: self.window?.firstResponder))")
 #endif
@@ -11321,6 +11480,14 @@ final class GhosttySurfaceScrollView: NSView {
         ) { [weak self] _ in
             guard let self, let window = self.window else { return }
             let searchActive = self.surfaceView.terminalSurface?.searchState != nil
+#if DEBUG
+            self.surfaceView.debugLogSelectionAutoscrollProbe(
+                phase: "window.didResignKey",
+                event: NSApp.currentEvent,
+                extra: "hostActive=\(self.isActive ? 1 : 0) visible=\(self.surfaceView.isVisibleInUI ? 1 : 0) searchActive=\(searchActive ? 1 : 0) focusTarget=\(self.searchFocusTarget)",
+                force: true
+            )
+#endif
             // Losing key window does not always trigger first-responder resignation, so force
             // the focused terminal view to yield responder to keep Ghostty cursor/focus state in sync.
             if let fr = window.firstResponder as? NSView,

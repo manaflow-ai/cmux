@@ -1539,9 +1539,19 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
     }
 #endif
 
-    func applicationWillBecomeActive(_ notification: Notification) { if !hasVisibleMainTerminalWindow() { _ = mainWindowVisibilityController.orderFrontApplicationWindowsBeforeActivation(windows: mainWindowsForVisibilityController(), reason: .applicationWillBecomeActive) } }
+    func applicationWillBecomeActive(_ notification: Notification) {
+#if DEBUG
+        logSelectionAutoscrollActivationProbe(phase: "willBecomeActive")
+#endif
+        if !hasVisibleMainTerminalWindow() {
+            _ = mainWindowVisibilityController.orderFrontApplicationWindowsBeforeActivation(windows: mainWindowsForVisibilityController(), reason: .applicationWillBecomeActive)
+        }
+    }
 
     func applicationDidBecomeActive(_ notification: Notification) {
+#if DEBUG
+        logSelectionAutoscrollActivationProbe(phase: "didBecomeActive")
+#endif
         let activationWindows = mainWindowsForVisibilityController()
         if mainWindowVisibilityController.finishPendingApplicationActivationRestore(windows: activationWindows, reason: .applicationDidBecomeActive) == nil, !hasVisibleMainTerminalWindow() {
             _ = mainWindowVisibilityController.restoreApplicationWindowsAfterActivation(windows: activationWindows, reason: .applicationDidBecomeActive)
@@ -1567,6 +1577,30 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         }
         notificationStore.markRead(forTabId: tabId, surfaceId: surfaceId)
     }
+
+    func applicationDidResignActive(_ notification: Notification) {
+#if DEBUG
+        logSelectionAutoscrollActivationProbe(phase: "didResignActive")
+#endif
+    }
+
+#if DEBUG
+    private func logSelectionAutoscrollActivationProbe(phase: String) {
+        let selectedTabId = tabManager?.selectedTabId
+        let focusedSurfaceId = selectedTabId.flatMap { tabManager?.focusedSurfaceId(for: $0) }
+        let currentEvent = NSApp.currentEvent.map { String(describing: $0.type) } ?? "nil"
+        let firstResponder = (NSApp.keyWindow ?? NSApp.mainWindow)?.firstResponder
+            .map { String(describing: type(of: $0)) } ?? "nil"
+        cmuxDebugLog(
+            "selection.autoscrollProbe appActivation phase=\(phase) " +
+            "pressedButtons=\(NSEvent.pressedMouseButtons) " +
+            "keyWindow=\(NSApp.keyWindow?.windowNumber ?? -1) mainWindow=\(NSApp.mainWindow?.windowNumber ?? -1) " +
+            "selectedTab=\(selectedTabId.map { String($0.uuidString.prefix(5)) } ?? "nil") " +
+            "focusedSurface=\(focusedSurfaceId.map { String($0.uuidString.prefix(5)) } ?? "nil") " +
+            "currentEvent=\(currentEvent) firstResponder=\(firstResponder)"
+        )
+    }
+#endif
 
     func applicationShouldTerminate(_ sender: NSApplication) -> NSApplication.TerminateReply {
         StartupBreadcrumbLog.append(
