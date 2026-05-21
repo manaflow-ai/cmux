@@ -3404,19 +3404,38 @@ extension CMUXCLI {
         }
 
         let sourceValues = try sourceURL.resourceValues(forKeys: [.fileSizeKey, .contentModificationDateKey])
-        if fileManager.fileExists(atPath: targetURL.path),
-           let targetValues = try? targetURL.resourceValues(forKeys: [.fileSizeKey, .contentModificationDateKey]),
-           targetValues.fileSize == sourceValues.fileSize,
-           let sourceDate = sourceValues.contentModificationDate,
-           let targetDate = targetValues.contentModificationDate,
-           targetDate >= sourceDate {
+        if isCurrentDiffViewerAsset(targetURL: targetURL, sourceValues: sourceValues) {
             return
         }
 
-        if fileManager.fileExists(atPath: targetURL.path) {
-            try fileManager.removeItem(at: targetURL)
+        let temporaryURL = targetDirectory.appendingPathComponent(
+            ".\(fileName).\(UUID().uuidString).tmp",
+            isDirectory: false
+        )
+        do {
+            try fileManager.copyItem(at: sourceURL, to: temporaryURL)
+            if rename(temporaryURL.path, targetURL.path) != 0 {
+                let code = Int(errno)
+                throw NSError(domain: NSPOSIXErrorDomain, code: code)
+            }
+        } catch {
+            try? fileManager.removeItem(at: temporaryURL)
+            if isCurrentDiffViewerAsset(targetURL: targetURL, sourceValues: sourceValues) {
+                return
+            }
+            throw error
         }
-        try fileManager.copyItem(at: sourceURL, to: targetURL)
+    }
+
+    private func isCurrentDiffViewerAsset(targetURL: URL, sourceValues: URLResourceValues) -> Bool {
+        guard FileManager.default.fileExists(atPath: targetURL.path),
+              let targetValues = try? targetURL.resourceValues(forKeys: [.fileSizeKey, .contentModificationDateKey]),
+              targetValues.fileSize == sourceValues.fileSize,
+              let sourceDate = sourceValues.contentModificationDate,
+              let targetDate = targetValues.contentModificationDate else {
+            return false
+        }
+        return targetDate >= sourceDate
     }
 
     private func diffViewerBundledAssetDirectory() throws -> URL {

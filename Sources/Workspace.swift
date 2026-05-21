@@ -10893,7 +10893,6 @@ final class Workspace: Identifiable, ObservableObject {
             applyTabSelection(tabId: newTabId, inPane: paneId)
         } else {
             if selectWhenNotFocused {
-                bonsplitController.selectTab(newTabId)
                 hideBrowserPortalsForDeselectedTabs(inPane: paneId, selectedTabId: newTabId)
             }
             preserveFocusAfterNonFocusSplit(
