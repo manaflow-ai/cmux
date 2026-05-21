@@ -7774,13 +7774,13 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
         _ keyEquivalent: TerminalPasteKeyEquivalent,
         sender: Any?
     ) -> Bool {
-        switch keyEquivalent {
+        let selector: Selector = switch keyEquivalent {
         case .standard:
-            paste(sender)
+            #selector(paste(_:))
         case .plainText:
-            pasteAsPlainText(sender)
+            #selector(pasteAsPlainText(_:))
         }
-        return true
+        return tryToPerform(selector, with: sender ?? self)
     }
 
     private func applyConfiguredMenuShortcut(_ shortcut: StoredShortcut, to item: NSMenuItem) {
