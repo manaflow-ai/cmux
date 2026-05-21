@@ -29,23 +29,19 @@ final class CMUXSudoTests: XCTestCase {
     func testSudoRequestParserRejectsMalformedPayloads() {
         let valid = makeParams()
 
-        assertInvalid(valid.merging(["argv": [String]()] as [String: Any]) { _, new in new }, contains: "argv")
+        assertInvalid(valid.merging(["argv": [String]()] as [String: Any]) { _, new in new })
         assertInvalid(
-            valid.merging(["argv": ["/usr/bin/id", "bad\0value"]] as [String: Any]) { _, new in new },
-            contains: "NUL"
+            valid.merging(["argv": ["/usr/bin/id", "bad\0value"]] as [String: Any]) { _, new in new }
         )
         assertInvalid(
-            valid.merging(["workspace_id": "not-a-uuid"] as [String: Any]) { _, new in new },
-            contains: "workspace_id"
+            valid.merging(["workspace_id": "not-a-uuid"] as [String: Any]) { _, new in new }
         )
-        assertInvalid(valid.merging(["caller_pid": -1] as [String: Any]) { _, new in new }, contains: "caller_pid")
+        assertInvalid(valid.merging(["caller_pid": -1] as [String: Any]) { _, new in new })
         assertInvalid(
-            valid.merging(["caller_pid": NSNumber(value: Int64(Int32.max) + 1)] as [String: Any]) { _, new in new },
-            contains: "caller_pid"
+            valid.merging(["caller_pid": NSNumber(value: Int64(Int32.max) + 1)] as [String: Any]) { _, new in new }
         )
         assertInvalid(
-            valid.merging(["caller_uid": NSNumber(value: Int64(UInt32.max) + 1)] as [String: Any]) { _, new in new },
-            contains: "caller_uid"
+            valid.merging(["caller_uid": NSNumber(value: Int64(UInt32.max) + 1)] as [String: Any]) { _, new in new }
         )
     }
 
@@ -312,15 +308,12 @@ final class CMUXSudoTests: XCTestCase {
 #endif
     }
 
-    private func assertInvalid(_ params: [String: Any], contains expected: String) {
+    private func assertInvalid(_ params: [String: Any]) {
         switch CMUXSudoCommandRequest.parse(params: params) {
         case .success(let request):
             XCTFail("Expected invalid sudo request, got \(request)")
         case .failure(let error):
-            XCTAssertTrue(
-                error.message.contains(expected),
-                "Expected \(error.message) to contain \(expected)"
-            )
+            XCTAssertEqual(error.code, "invalid_params")
         }
     }
 

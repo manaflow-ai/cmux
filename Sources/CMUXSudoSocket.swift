@@ -38,7 +38,7 @@ struct CMUXSudoSocketResponse: Sendable {
     }
 }
 
-final class CMUXSudoPendingRequestStore: @unchecked Sendable {
+final class CMUXSudoPendingRequestStore {
     static let shared = CMUXSudoPendingRequestStore()
     private static let pendingTTL: TimeInterval = 11 * 60
     private static let finishedTTL: TimeInterval = 2 * 60
