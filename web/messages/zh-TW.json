@@ -303,7 +303,7 @@
       "metaTitle": "設定",
       "schemaDescriptions": {
         "automation": {
-          "suppressSubagentNotifications": "Suppress visible completion notifications and status mutations from nested Codex or Claude child agents while keeping their events in Feed telemetry."
+          "suppressSubagentNotifications": "隱藏巢狀 Codex 或 Claude 子代理的可見完成通知和狀態變更，同時將其事件保留在 Feed 遙測中。"
         }
       }
     },

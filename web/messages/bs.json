@@ -303,7 +303,7 @@
       "metaTitle": "Konfiguracija",
       "schemaDescriptions": {
         "automation": {
-          "suppressSubagentNotifications": "Suppress visible completion notifications and status mutations from nested Codex or Claude child agents while keeping their events in Feed telemetry."
+          "suppressSubagentNotifications": "Sakrij vidljiva obavještenja o završetku i promjene statusa od ugniježđenih Codex ili Claude podagenata, uz zadržavanje njihovih događaja u Feed telemetriji."
         }
       }
     },

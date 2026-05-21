@@ -20,6 +20,8 @@ extension Workspace {
         "qoder",
         "rovodev",
     ]
+    private static let managedSubagentEnvironmentKey = "CMUX_AGENT_MANAGED_SUBAGENT"
+    private static let truthyStartupEnvironmentValues: Set<String> = ["1", "true", "yes", "on", "enabled"]
 
     func agentRuntimeState(forPanelId panelId: UUID) -> DetachedAgentRuntimeState? {
         let pidKeys = agentPIDKeysByPanelId[panelId] ?? []
@@ -125,24 +127,28 @@ extension Workspace {
     }
 
     func suppressesRawTerminalNotification(panelId: UUID?) -> Bool {
-        if let panelId {
-            let panelKeys = agentPIDKeysByPanelId[panelId] ?? []
-            return panelKeys.contains { isStructuredAgentHookPIDKey($0) }
+        guard let panelId else {
+            return false
         }
 
-        return false
+        if AgentSubagentNotificationSettings.suppressNotifications(),
+           terminalPanelHasManagedSubagentStartupEnvironment(panelId: panelId) {
+            return true
+        }
+
+        let panelKeys = agentPIDKeysByPanelId[panelId] ?? []
+        return panelKeys.contains { isStructuredAgentHookPIDKey($0) }
     }
 
-    func agentPIDs(forPanelId panelId: UUID?) -> [String: pid_t] {
-        var agentPIDsForPanel = agentPIDs.filter { agentPIDPanelIdsByKey[$0.key] == nil }
-        guard let panelId else { return agentPIDsForPanel }
-        let panelKeys = agentPIDKeysByPanelId[panelId] ?? []
-        for key in panelKeys {
-            if let pid = agentPIDs[key] {
-                agentPIDsForPanel[key] = pid
-            }
+    private func terminalPanelHasManagedSubagentStartupEnvironment(panelId: UUID) -> Bool {
+        guard let rawValue = terminalPanel(for: panelId)?
+            .surface
+            .startupEnvironmentValue(Self.managedSubagentEnvironmentKey)?
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+            .lowercased() else {
+            return false
         }
-        return agentPIDsForPanel
+        return Self.truthyStartupEnvironmentValues.contains(rawValue)
     }
 
     func sidebarStatusEntriesVisibleForDisplay() -> [SidebarStatusEntry] {

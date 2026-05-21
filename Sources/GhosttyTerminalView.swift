@@ -3940,19 +3940,6 @@ class GhosttyApp {
         return initializingRuntimeApp
     }
 
-    static func shouldSuppressAgentManagedDesktopNotification(
-        agentPIDs: [String: pid_t],
-        claudeHooksEnabled: Bool = ClaudeCodeIntegrationSettings.hooksEnabled(),
-        suppressSubagentNotifications: Bool = AgentSubagentNotificationSettings.suppressNotifications()
-    ) -> Bool {
-        if claudeHooksEnabled,
-           agentPIDs.keys.contains(where: { $0 == "claude_code" || $0.hasPrefix("claude_code.") }) {
-            return true
-        }
-        guard suppressSubagentNotifications else { return false }
-        return agentPIDs.keys.contains { $0 == "codex" || $0.hasPrefix("codex.") }
-    }
-
     private func handleAction(target: ghostty_target_s, action: ghostty_action_s) -> Bool {
         if target.tag != GHOSTTY_TARGET_SURFACE {
             if action.tag == GHOSTTY_ACTION_RELOAD_CONFIG ||
@@ -3974,10 +3961,7 @@ class GhosttyApp {
                     let owningManager = AppDelegate.shared?.tabManagerFor(tabId: tabId) ?? tabManager
                     let surfaceId = tabManager.focusedSurfaceId(for: tabId)
                     if let workspace = owningManager.tabs.first(where: { $0.id == tabId }),
-                       (workspace.suppressesRawTerminalNotification(panelId: surfaceId)
-                        || Self.shouldSuppressAgentManagedDesktopNotification(
-                            agentPIDs: workspace.agentPIDs(forPanelId: surfaceId)
-                        )) {
+                       workspace.suppressesRawTerminalNotification(panelId: surfaceId) {
                         return true
                     }
                     let tabTitle = owningManager.titleForTab(tabId) ?? "Terminal"
@@ -4249,10 +4233,7 @@ class GhosttyApp {
             performOnMain {
                 let owningManager = AppDelegate.shared?.tabManagerFor(tabId: tabId) ?? AppDelegate.shared?.tabManager
                 if let workspace = owningManager?.tabs.first(where: { $0.id == tabId }),
-                   (workspace.suppressesRawTerminalNotification(panelId: surfaceId)
-                    || Self.shouldSuppressAgentManagedDesktopNotification(
-                        agentPIDs: workspace.agentPIDs(forPanelId: surfaceId)
-                    )) {
+                   workspace.suppressesRawTerminalNotification(panelId: surfaceId) {
                     return
                 }
                 let tabTitle = owningManager?.titleForTab(tabId) ?? "Terminal"
@@ -4938,6 +4919,11 @@ final class TerminalSurface: Identifiable, ObservableObject {
     private(set) var lastSearchNeedle = ""
     private var searchNeedleCancellable: AnyCancellable?
     var currentKeyStateIndicatorText: String? { surfaceView.currentKeyStateIndicatorText }
+
+    func startupEnvironmentValue(_ key: String) -> String? {
+        additionalEnvironment[key] ?? initialEnvironmentOverrides[key]
+    }
+
     init(
         tabId: UUID,
         context: ghostty_surface_context_e,

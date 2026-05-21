@@ -15232,7 +15232,13 @@ struct CMUXCLI {
                 "direction": direction,
                 "focus": false,
                 "initial_command": startupScript,
-                "tmux_start_command": commandText
+                "tmux_start_command": commandText,
+                "startup_environment": [
+                    managedSubagentEnvironmentKey: "1",
+                    codexTeamsThreadEnvironmentKey: thread.id,
+                    codexTeamsParentThreadEnvironmentKey: spawn.parentThreadId,
+                    codexTeamsDepthEnvironmentKey: String(max(1, depth))
+                ]
             ]
             if let cwd = thread.cwd?.trimmingCharacters(in: .whitespacesAndNewlines),
                !cwd.isEmpty {

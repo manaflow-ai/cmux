@@ -318,41 +318,21 @@ final class TerminalNotificationClearAllTests: XCTestCase {
         XCTAssertTrue(workspace.suppressesRawTerminalNotification(panelId: firstPanelId))
         XCTAssertFalse(workspace.suppressesRawTerminalNotification(panelId: secondPanel.id))
         XCTAssertFalse(workspace.suppressesRawTerminalNotification(panelId: nil))
-        XCTAssertTrue(
-            GhosttyApp.shouldSuppressAgentManagedDesktopNotification(
-                agentPIDs: workspace.agentPIDs(forPanelId: firstPanelId),
-                claudeHooksEnabled: true,
-                suppressSubagentNotifications: true
-            )
-        )
-        XCTAssertFalse(
-            GhosttyApp.shouldSuppressAgentManagedDesktopNotification(
-                agentPIDs: workspace.agentPIDs(forPanelId: secondPanel.id),
-                claudeHooksEnabled: true,
-                suppressSubagentNotifications: true
-            )
-        )
 
         workspace.recordAgentPID(key: "custom-tool.session", pid: pid_t(12346), panelId: secondPanel.id)
 
         XCTAssertFalse(workspace.suppressesRawTerminalNotification(panelId: secondPanel.id))
 
-        workspace.recordAgentPID(key: "codex.unbound-session", pid: pid_t(12347), panelId: nil)
+        let managedSubagentPanel = try XCTUnwrap(
+            workspace.newTerminalSplit(
+                from: secondPanel.id,
+                orientation: .horizontal,
+                startupEnvironment: ["CMUX_AGENT_MANAGED_SUBAGENT": "1"]
+            )
+        )
 
-        XCTAssertTrue(
-            GhosttyApp.shouldSuppressAgentManagedDesktopNotification(
-                agentPIDs: workspace.agentPIDs(forPanelId: secondPanel.id),
-                claudeHooksEnabled: true,
-                suppressSubagentNotifications: true
-            )
-        )
-        XCTAssertTrue(
-            GhosttyApp.shouldSuppressAgentManagedDesktopNotification(
-                agentPIDs: workspace.agentPIDs(forPanelId: nil),
-                claudeHooksEnabled: true,
-                suppressSubagentNotifications: true
-            )
-        )
+        XCTAssertTrue(workspace.suppressesRawTerminalNotification(panelId: managedSubagentPanel.id))
+        XCTAssertFalse(workspace.suppressesRawTerminalNotification(panelId: secondPanel.id))
     }
 
     func testSidebarStatusOnlyShowsStructuredAgentStatusBackedByLivePanelRuntime() throws {

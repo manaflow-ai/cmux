@@ -303,7 +303,7 @@
       "exampleConfig": "Приклад конфігурації",
       "schemaDescriptions": {
         "automation": {
-          "suppressSubagentNotifications": "Suppress visible completion notifications and status mutations from nested Codex or Claude child agents while keeping their events in Feed telemetry."
+          "suppressSubagentNotifications": "Приховує видимі сповіщення про завершення та зміни статусу від вкладених дочірніх агентів Codex або Claude, зберігаючи їхні події в телеметрії Feed."
         }
       }
     },

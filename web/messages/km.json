@@ -303,7 +303,7 @@
       "metaTitle": "ការកំណត់រចនាសម្ព័ន្ធ",
       "schemaDescriptions": {
         "automation": {
-          "suppressSubagentNotifications": "Suppress visible completion notifications and status mutations from nested Codex or Claude child agents while keeping their events in Feed telemetry."
+          "suppressSubagentNotifications": "បិទការជូនដំណឹងបញ្ចប់ដែលបង្ហាញ និងការផ្លាស់ប្តូរស្ថានភាពពីភ្នាក់ងារកូន Codex ឬ Claude ដែលបានបង្កប់ ខណៈពេលរក្សាព្រឹត្តិការណ៍របស់វានៅក្នុងទេលេមេទ្រី Feed។"
         }
       }
     },
