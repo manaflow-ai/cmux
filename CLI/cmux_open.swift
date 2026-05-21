@@ -412,8 +412,18 @@ extension CMUXCLI {
             didResolveTarget = true
         }
 
+        var diffSourceContext = DiffSourceContext(workspaceId: nil, surfaceId: nil)
         if parsedArgs.source != nil {
             try resolveTargetIfNeeded()
+            let sourceContext = try canonicalDiffSourceContext(
+                workspaceHandle: workspaceHandle,
+                surfaceHandle: surfaceHandle,
+                windowHandle: windowHandle,
+                client: try connectedClient()
+            )
+            diffSourceContext = sourceContext
+            workspaceHandle = sourceContext.workspaceId ?? workspaceHandle
+            surfaceHandle = sourceContext.surfaceId ?? surfaceHandle
         }
 
         let appearance = diffViewerAppearance(fontSizeOverride: fontSizeOverride)
@@ -423,7 +433,7 @@ extension CMUXCLI {
             titleOverride: parsedArgs.title,
             layout: layout,
             appearance: appearance,
-            context: DiffSourceContext(workspaceId: workspaceHandle, surfaceId: surfaceHandle)
+            context: diffSourceContext
         )
 
         try resolveTargetIfNeeded()
@@ -453,6 +463,127 @@ extension CMUXCLI {
         let surfaceText = formatHandle(payload, kind: "surface", idFormat: idFormat) ?? "unknown"
         let paneText = formatHandle(payload, kind: "pane", idFormat: idFormat) ?? "unknown"
         print("OK surface=\(surfaceText) pane=\(paneText) path=\(viewer.url.path)")
+    }
+
+    private func canonicalDiffSourceContext(
+        workspaceHandle: String?,
+        surfaceHandle: String?,
+        windowHandle: String?,
+        client: SocketClient
+    ) throws -> DiffSourceContext {
+        let workspaceId = try canonicalDiffWorkspaceId(
+            workspaceHandle,
+            windowHandle: windowHandle,
+            client: client
+        )
+        let surfaceId = try canonicalDiffSurfaceId(
+            surfaceHandle,
+            workspaceId: workspaceId,
+            windowHandle: windowHandle,
+            client: client
+        )
+        return DiffSourceContext(workspaceId: workspaceId, surfaceId: surfaceId)
+    }
+
+    private func canonicalDiffWorkspaceId(
+        _ workspaceHandle: String?,
+        windowHandle: String?,
+        client: SocketClient
+    ) throws -> String? {
+        guard let workspaceHandle = normalizedDiffSourceValue(workspaceHandle) else {
+            return nil
+        }
+        if UUID(uuidString: workspaceHandle) != nil {
+            return workspaceHandle
+        }
+
+        var params: [String: Any] = [:]
+        if let windowHandle {
+            params["window_id"] = windowHandle
+        }
+        if let matched = try matchingDiffWorkspaceId(workspaceHandle, params: params, client: client) {
+            return matched
+        }
+
+        if windowHandle == nil {
+            let listed = try client.sendV2(method: "window.list")
+            let windows = listed["windows"] as? [[String: Any]] ?? []
+            for window in windows {
+                guard let listedWindowHandle = (window["id"] as? String) ?? (window["ref"] as? String) else {
+                    continue
+                }
+                if let matched = try matchingDiffWorkspaceId(
+                    workspaceHandle,
+                    params: ["window_id": listedWindowHandle],
+                    client: client
+                ) {
+                    return matched
+                }
+            }
+        }
+
+        throw CLIError(message: "Workspace not found: \(workspaceHandle)")
+    }
+
+    private func canonicalDiffSurfaceId(
+        _ surfaceHandle: String?,
+        workspaceId: String?,
+        windowHandle: String?,
+        client: SocketClient
+    ) throws -> String? {
+        guard let surfaceHandle = normalizedDiffSourceValue(surfaceHandle) else {
+            return nil
+        }
+        if UUID(uuidString: surfaceHandle) != nil {
+            return surfaceHandle
+        }
+
+        var params: [String: Any] = [:]
+        if let workspaceId {
+            params["workspace_id"] = workspaceId
+        }
+        if let windowHandle {
+            params["window_id"] = windowHandle
+        }
+        let listed = try client.sendV2(method: "surface.list", params: params)
+        let surfaces = listed["surfaces"] as? [[String: Any]] ?? []
+        for surface in surfaces where diffHandle(surfaceHandle, matches: surface) {
+            return (surface["id"] as? String) ?? (surface["ref"] as? String) ?? surfaceHandle
+        }
+        throw CLIError(message: "Surface not found: \(surfaceHandle)")
+    }
+
+    private func matchingDiffWorkspaceId(
+        _ workspaceHandle: String,
+        params: [String: Any],
+        client: SocketClient
+    ) throws -> String? {
+        let listed = try client.sendV2(method: "workspace.list", params: params)
+        let workspaces = listed["workspaces"] as? [[String: Any]] ?? []
+        for workspace in workspaces where diffHandle(workspaceHandle, matches: workspace) {
+            return (workspace["id"] as? String) ?? (workspace["ref"] as? String) ?? workspaceHandle
+        }
+        return nil
+    }
+
+    private func diffHandle(_ handle: String, matches item: [String: Any]) -> Bool {
+        guard let target = normalizedDiffSourceValue(handle) else {
+            return false
+        }
+        for candidate in [item["id"] as? String, item["ref"] as? String] {
+            guard let candidate = normalizedDiffSourceValue(candidate) else {
+                continue
+            }
+            if let targetUUID = UUID(uuidString: target),
+               let candidateUUID = UUID(uuidString: candidate) {
+                if targetUUID == candidateUUID {
+                    return true
+                }
+            } else if target.lowercased() == candidate.lowercased() {
+                return true
+            }
+        }
+        return false
     }
 
     private func parseOpenArguments(_ commandArgs: [String]) throws -> OpenArguments {
@@ -2450,10 +2581,22 @@ extension CMUXCLI {
               }
             }
 
+            function safeGitApplyDelimiter(patch) {
+              const lines = new Set(patch.split(/\r?\n/));
+              let delimiter = "CMUX_DIFF_PATCH";
+              let index = 0;
+              while (lines.has(delimiter)) {
+                index += 1;
+                delimiter = `CMUX_DIFF_PATCH_${index}`;
+              }
+              return delimiter;
+            }
+
             async function copyGitApplyCommand() {
               const newline = String.fromCharCode(10);
               const patch = payload.patch.endsWith(newline) ? payload.patch : `${payload.patch}${newline}`;
-              const command = `git apply <<'PATCH'${newline}${patch}PATCH`;
+              const delimiter = safeGitApplyDelimiter(patch);
+              const command = `git apply <<'${delimiter}'${newline}${patch}${delimiter}`;
               if (navigator.clipboard?.writeText) {
                 try {
                   await navigator.clipboard.writeText(command);

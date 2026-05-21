@@ -362,6 +362,9 @@ final class CMUXOpenCommandTests: XCTestCase {
         XCTAssertTrue(html.contains("hello.txt"), html)
         XCTAssertTrue(html.contains("<\\/script> marker"), html)
         XCTAssertTrue(html.contains("\"layout\":\"unified\""), html)
+        XCTAssertTrue(html.contains("safeGitApplyDelimiter"), html)
+        XCTAssertTrue(html.contains("CMUX_DIFF_PATCH"), html)
+        XCTAssertFalse(html.contains("git apply <<'PATCH'"), html)
     }
 
     func testDiffCommandLinksOriginalDiffshubPRURL() throws {
@@ -507,6 +510,59 @@ final class CMUXOpenCommandTests: XCTestCase {
         XCTAssertTrue(lastTurn.html.contains("Last turn diff"), lastTurn.html)
         XCTAssertTrue(lastTurn.html.contains("+two"), lastTurn.html)
         XCTAssertTrue(lastTurn.html.contains("+three"), lastTurn.html)
+
+        let refLastTurn = try runDiffCLIAndReadHTML(
+            cliPath: cliPath,
+            arguments: ["diff", "--last-turn", "--workspace", "workspace:1", "--surface", "surface:1"],
+            environmentOverrides: [
+                "CMUX_AGENT_HOOK_STATE_DIR": stateURL.path
+            ],
+            currentDirectoryURL: repoURL
+        ) { line in
+            guard let payload = Self.v2Payload(from: line),
+                  let id = payload["id"] as? String,
+                  let method = payload["method"] as? String else {
+                return nil
+            }
+            switch method {
+            case "workspace.list":
+                return Self.v2Response(
+                    id: id,
+                    ok: true,
+                    result: [
+                        "workspaces": [
+                            [
+                                "id": workspaceId,
+                                "ref": "workspace:1",
+                                "index": 1
+                            ] as [String: Any]
+                        ]
+                    ]
+                )
+            case "surface.list":
+                let params = payload["params"] as? [String: Any] ?? [:]
+                XCTAssertEqual(params["workspace_id"] as? String, workspaceId)
+                return Self.v2Response(
+                    id: id,
+                    ok: true,
+                    result: [
+                        "surfaces": [
+                            [
+                                "id": surfaceId,
+                                "ref": "surface:1",
+                                "index": 1,
+                                "focused": true
+                            ] as [String: Any]
+                        ]
+                    ]
+                )
+            default:
+                return nil
+            }
+        }
+        XCTAssertEqual(refLastTurn.params["workspace_id"] as? String, workspaceId)
+        XCTAssertEqual(refLastTurn.params["surface_id"] as? String, surfaceId)
+        XCTAssertTrue(refLastTurn.html.contains("Last turn diff"), refLastTurn.html)
 
         let wrongSurfaceResult = runDiffCLIExpectingNoOpen(
             cliPath: cliPath,
@@ -945,7 +1001,8 @@ final class CMUXOpenCommandTests: XCTestCase {
         cliPath: String,
         arguments: [String],
         environmentOverrides: [String: String] = [:],
-        currentDirectoryURL: URL? = nil
+        currentDirectoryURL: URL? = nil,
+        socketResponse: (@Sendable (String) -> String?)? = nil
     ) throws -> (html: String, params: [String: Any], stdout: String) {
         let socketPath = makeSocketPath("diff-src")
         let listenerFD = try bindUnixSocket(at: socketPath)
@@ -956,6 +1013,9 @@ final class CMUXOpenCommandTests: XCTestCase {
         }
 
         let serverHandled = startMockServer(listenerFD: listenerFD, state: state) { line in
+            if let response = socketResponse?(line) {
+                return response
+            }
             guard let payload = Self.v2Payload(from: line),
                   let id = payload["id"] as? String,
                   let method = payload["method"] as? String,
@@ -983,7 +1043,11 @@ final class CMUXOpenCommandTests: XCTestCase {
         XCTAssertFalse(result.timedOut, result.stderr)
         XCTAssertEqual(result.status, 0, result.stderr)
 
-        let commandPayload = try XCTUnwrap(Self.v2Payload(from: try XCTUnwrap(state.commands.first)))
+        let commandPayload = try XCTUnwrap(
+            state.commands.compactMap { Self.v2Payload(from: $0) }.first { payload in
+                payload["method"] as? String == "browser.open_split"
+            }
+        )
         let params = try XCTUnwrap(commandPayload["params"] as? [String: Any])
         let rawURL = try XCTUnwrap(params["url"] as? String)
         let viewerURL = try XCTUnwrap(URL(string: rawURL))

@@ -73,6 +73,71 @@ final class CLINotifyProcessIntegrationRegressionTests: XCTestCase {
         )
     }
 
+    func testCodexPromptSubmitRefreshesLastTurnDiffBaseline() throws {
+        let context = try makeClaudeHookContext(name: "codex-prompt-baseline")
+        defer { context.cleanup() }
+
+        let storyURL = context.root.appendingPathComponent("story.txt")
+        func runGit(_ arguments: [String]) throws -> String {
+            let result = runProcess(
+                executablePath: "/usr/bin/env",
+                arguments: ["git", "-C", context.root.path] + arguments,
+                environment: ["PATH": "/usr/bin:/bin:/usr/sbin:/sbin"],
+                timeout: 10
+            )
+            XCTAssertFalse(result.timedOut, result.stderr)
+            XCTAssertEqual(result.status, 0, result.stderr)
+            guard result.status == 0 else {
+                throw NSError(domain: "CLINotifyProcessIntegrationRegressionTests.git", code: Int(result.status))
+            }
+            return result.stdout.trimmingCharacters(in: .whitespacesAndNewlines)
+        }
+
+        _ = try runGit(["init"])
+        _ = try runGit(["checkout", "-b", "main"])
+        _ = try runGit(["config", "user.name", "cmux tests"])
+        _ = try runGit(["config", "user.email", "cmux@example.invalid"])
+        try "one\n".write(to: storyURL, atomically: true, encoding: .utf8)
+        _ = try runGit(["add", "story.txt"])
+        _ = try runGit(["commit", "-m", "initial"])
+        let initialCommit = try runGit(["rev-parse", "HEAD"])
+
+        startAgentHookMockServerAccepting(context: context, connectionLimit: 2)
+        let sessionId = "codex-last-turn-session"
+        let sessionStart = runCodexHook(
+            context: context,
+            subcommand: "session-start",
+            standardInput: #"{"session_id":"\#(sessionId)","turn_id":"turn-0","cwd":"\#(context.root.path)","hook_event_name":"SessionStart"}"#,
+            extraEnvironment: codexLaunchEnvironment(context: context, sessionId: sessionId)
+        )
+        XCTAssertFalse(sessionStart.timedOut, sessionStart.stderr)
+        XCTAssertEqual(sessionStart.status, 0, sessionStart.stderr)
+
+        try "one\ntwo\n".write(to: storyURL, atomically: true, encoding: .utf8)
+        _ = try runGit(["add", "story.txt"])
+        _ = try runGit(["commit", "-m", "add two"])
+        let promptCommit = try runGit(["rev-parse", "HEAD"])
+
+        let promptSubmit = runCodexHook(
+            context: context,
+            subcommand: "prompt-submit",
+            standardInput: #"{"session_id":"\#(sessionId)","turn_id":"turn-1","cwd":"\#(context.root.path)","hook_event_name":"UserPromptSubmit"}"#,
+            extraEnvironment: codexLaunchEnvironment(context: context, sessionId: sessionId)
+        )
+        XCTAssertFalse(promptSubmit.timedOut, promptSubmit.stderr)
+        XCTAssertEqual(promptSubmit.status, 0, promptSubmit.stderr)
+
+        let storeURL = context.root.appendingPathComponent("agent-turn-diff-baselines.json")
+        let store = try XCTUnwrap(JSONSerialization.jsonObject(with: Data(contentsOf: storeURL)) as? [String: Any])
+        let records = try XCTUnwrap(store["records"] as? [[String: Any]])
+        let startRecord = try XCTUnwrap(records.first { $0["turnId"] as? String == "turn-0" })
+        let promptRecord = try XCTUnwrap(records.first { $0["turnId"] as? String == "turn-1" })
+        XCTAssertEqual(startRecord["baseCommit"] as? String, initialCommit)
+        XCTAssertEqual(promptRecord["baseCommit"] as? String, promptCommit)
+        XCTAssertEqual(promptRecord["workspaceId"] as? String, context.workspaceId)
+        XCTAssertEqual(promptRecord["surfaceId"] as? String, context.surfaceId)
+    }
+
     func testClaudeStopFromPreviousSessionDoesNotClobberClearRunningStatus() throws {
         let context = try makeClaudeHookContext(name: "claude-clear-stale-stop")
         defer { context.cleanup() }

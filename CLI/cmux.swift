@@ -24209,6 +24209,15 @@ export default function cmuxPiSessionExtension(pi: ExtensionAPI) {
                 fallbackKind: def.name,
                 cwd: hookCwd ?? mapped?.cwd
             )
+            try? recordAgentTurnDiffBaseline(
+                agent: def.name,
+                sessionId: sessionId,
+                turnId: input.turnId,
+                cwd: hookCwd ?? mapped?.cwd,
+                workspaceId: workspaceId,
+                surfaceId: surfaceId,
+                env: env
+            )
             let nestedPromptSubmit: Bool
             if !sessionId.isEmpty {
                 nestedPromptSubmit = (try? store.recordPromptSubmit(
