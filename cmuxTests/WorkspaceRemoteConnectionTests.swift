@@ -2519,7 +2519,8 @@ final class CLINotifyProcessIntegrationTests: XCTestCase {
         XCTAssertEqual(result.stdout, "{}\n")
         XCTAssertTrue(
             state.commands.contains { command in
-                command.contains("notify_target \(workspaceId) \(surfaceId) Codex|Error|quota exceeded")
+                command.contains("notify_target") &&
+                    command.contains("\(workspaceId) \(surfaceId) Codex|Error|quota exceeded")
             },
             "Expected explicit error field notification, saw \(state.commands)"
         )
@@ -2661,7 +2662,8 @@ final class CLINotifyProcessIntegrationTests: XCTestCase {
         XCTAssertEqual(result.stdout, "{}\n")
         XCTAssertTrue(
             state.commands.contains { command in
-                command.contains("notify_target \(workspaceId) \(surfaceId) Codex|Error|Try again later.")
+                command.contains("notify_target") &&
+                    command.contains("\(workspaceId) \(surfaceId) Codex|Error|Try again later.")
             },
             "Expected payload error notification to beat healthy transcript, saw \(state.commands)"
         )

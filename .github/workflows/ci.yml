@@ -160,7 +160,7 @@ jobs:
           bun test tests/vm-db-read-model.test.ts
 
   tests-unit-shards:
-    name: tests-unit-${{ matrix.shard }}/3
+    name: tests-unit-${{ matrix.shard }}/6
     runs-on: warp-macos-15-arm64-6x
     permissions:
       contents: read
@@ -168,7 +168,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        shard: [1, 2, 3]
+        shard: [1, 2, 3, 4, 5, 6]
     env:
       CMUX_SKIP_ZIG_BUILD: "1"
       # XCTest app-host crashes can leave xcodebuild waiting at Swift's
@@ -269,11 +269,16 @@ jobs:
       - name: Run unit tests
         env:
           CMUX_TEST_SHARD_INDEX: ${{ matrix.shard }}
-          CMUX_TEST_SHARD_TOTAL: 3
+          CMUX_TEST_SHARD_TOTAL: 6
+          CMUX_TEST_CHUNK_SIZE: 48
           CMUX_XCODEBUILD_IDLE_TIMEOUT_SECONDS: 300
         run: |
           set -euo pipefail
           SOURCE_PACKAGES_DIR="$PWD/.ci-source-packages"
+          COMBINED_OUTPUT=/tmp/test-output.txt
+          CHUNK_DIR="$(mktemp -d)"
+          trap 'rm -rf "$CHUNK_DIR"' EXIT
+
           ONLY_TESTING_ARGS=()
           while IFS= read -r arg; do
             ONLY_TESTING_ARGS+=("$arg")
@@ -282,54 +287,95 @@ jobs:
               --shard-index "$CMUX_TEST_SHARD_INDEX" \
               --shard-total "$CMUX_TEST_SHARD_TOTAL"
           )
+
+          if [ "${CMUX_TEST_CHUNK_SIZE:-0}" -lt 1 ]; then
+            echo "CMUX_TEST_CHUNK_SIZE must be at least 1" >&2
+            exit 1
+          fi
+
+          CHUNK_COUNT=0
+          CHUNK_ARG_COUNT=0
+          CURRENT_CHUNK_FILE=""
+          for arg in "${ONLY_TESTING_ARGS[@]}"; do
+            if [ "$CHUNK_ARG_COUNT" -eq 0 ]; then
+              CHUNK_COUNT=$((CHUNK_COUNT + 1))
+              CURRENT_CHUNK_FILE="$CHUNK_DIR/chunk-$(printf '%03d' "$CHUNK_COUNT").args"
+              : > "$CURRENT_CHUNK_FILE"
+            fi
+            printf '%s\n' "$arg" >> "$CURRENT_CHUNK_FILE"
+            CHUNK_ARG_COUNT=$((CHUNK_ARG_COUNT + 1))
+            if [ "$CHUNK_ARG_COUNT" -ge "$CMUX_TEST_CHUNK_SIZE" ]; then
+              CHUNK_ARG_COUNT=0
+            fi
+          done
+
           run_unit_tests() {
+            local output_path="$1"
+            shift
             python3 .github/scripts/run-with-output-watchdog.py \
               --idle-timeout-seconds "$CMUX_XCODEBUILD_IDLE_TIMEOUT_SECONDS" \
               --termination-grace-seconds 15 \
-              --output /tmp/test-output.txt \
+              --output "$output_path" \
               -- \
               xcodebuild -project cmux.xcodeproj -scheme cmux-unit -configuration Debug \
               -clonedSourcePackagesDirPath "$SOURCE_PACKAGES_DIR" \
               -disableAutomaticPackageResolution \
               -destination "platform=macOS" \
+              -parallel-testing-enabled NO \
               -maximum-test-execution-time-allowance 180 \
               CMUX_SKIP_ZIG_BUILD=1 \
-              "${ONLY_TESTING_ARGS[@]}" \
+              "$@" \
               -skip-testing:cmuxTests/AppDelegateShortcutRoutingTests/testCmdWClosesWindowWhenClosingLastSurfaceInLastWorkspace \
               test 2>&1
           }
 
-          # Stream output in real time, while also failing quickly if xcodebuild
-          # stops producing logs and capturing output for failure classification.
-          set +e
-          run_unit_tests
-          EXIT_CODE=$?
-          OUTPUT=$(cat /tmp/test-output.txt)
-          set -e
+          : > "$COMBINED_OUTPUT"
+          for chunk_file in "$CHUNK_DIR"/chunk-*.args; do
+            CHUNK_ARGS=()
+            while IFS= read -r arg; do
+              CHUNK_ARGS+=("$arg")
+            done < "$chunk_file"
+            CHUNK_NUMBER="${chunk_file##*/chunk-}"
+            CHUNK_NUMBER="${CHUNK_NUMBER%.args}"
+            CHUNK_OUTPUT="/tmp/test-output-${CMUX_TEST_SHARD_INDEX}-${CHUNK_NUMBER}.txt"
 
-          # SwiftPM binary artifact resolution can occasionally fail on ephemeral
-          # runners with "Could not resolve package dependencies". Retry once after
-          # clearing SwiftPM/DerivedData caches to recover from transient corruption.
-          if [ "$EXIT_CODE" -ne 0 ] && echo "$OUTPUT" | grep -q "Could not resolve package dependencies"; then
-            echo "SwiftPM package resolution failed, clearing caches and retrying once"
-            rm -rf ~/Library/Caches/org.swift.swiftpm
-            mkdir -p ~/Library/Caches/org.swift.swiftpm
-            rm -rf ~/Library/Developer/Xcode/DerivedData/cmux-*
+            echo "Running unit test chunk ${CHUNK_NUMBER}/${CHUNK_COUNT} for shard ${CMUX_TEST_SHARD_INDEX}/${CMUX_TEST_SHARD_TOTAL}: ${#CHUNK_ARGS[@]} selectors" | tee -a "$COMBINED_OUTPUT"
+
+            # Stream output in real time, while also failing quickly if xcodebuild
+            # stops producing logs and capturing output for failure classification.
             set +e
-            run_unit_tests
+            run_unit_tests "$CHUNK_OUTPUT" "${CHUNK_ARGS[@]}"
             EXIT_CODE=$?
-            OUTPUT=$(cat /tmp/test-output.txt)
             set -e
-          fi
 
-          if [ "$EXIT_CODE" -ne 0 ]; then
-            if echo "$OUTPUT" | grep -Eq "Program crashed|The operation was canceled|Test runner exited|Terminated due to signal|Signal [0-9]+"; then
-              echo "Crash or cancellation detected during unit tests"
+            cat "$CHUNK_OUTPUT" >> "$COMBINED_OUTPUT"
+            OUTPUT=$(cat /tmp/test-output.txt)
+
+            # SwiftPM binary artifact resolution can occasionally fail on ephemeral
+            # runners with "Could not resolve package dependencies". Retry once after
+            # clearing SwiftPM/DerivedData caches to recover from transient corruption.
+            if [ "$EXIT_CODE" -ne 0 ] && grep -q "Could not resolve package dependencies" "$CHUNK_OUTPUT"; then
+              echo "SwiftPM package resolution failed, clearing caches and retrying once" | tee -a "$COMBINED_OUTPUT"
+              rm -rf ~/Library/Caches/org.swift.swiftpm
+              mkdir -p ~/Library/Caches/org.swift.swiftpm
+              rm -rf ~/Library/Developer/Xcode/DerivedData/cmux-*
+              set +e
+              run_unit_tests "$CHUNK_OUTPUT" "${CHUNK_ARGS[@]}"
+              EXIT_CODE=$?
+              set -e
+              cat "$CHUNK_OUTPUT" >> "$COMBINED_OUTPUT"
+              OUTPUT=$(cat /tmp/test-output.txt)
+            fi
+
+            if [ "$EXIT_CODE" -ne 0 ]; then
+              if echo "$OUTPUT" | grep -Eq "Program crashed|The operation was canceled|Test runner exited|Terminated due to signal|Signal [0-9]+"; then
+                echo "Crash or cancellation detected during unit tests"
+                exit 1
+              fi
+              echo "Unit test command failed"
               exit 1
             fi
-            echo "Unit test command failed"
-            exit 1
-          fi
+          done
 
       - name: Run bundled Ghostty theme picker helper regression
         if: matrix.shard == 2
