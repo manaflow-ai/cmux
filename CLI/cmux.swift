@@ -23986,16 +23986,15 @@ export default function cmuxPiSessionExtension(pi: ExtensionAPI) {
                 return nil
             }
         }
-        func hasNewerRunningSession(workspaceId: String, surfaceId: String) -> Bool {
+        func hasRunningSiblingSession(workspaceId: String, surfaceId: String?) -> Bool {
             (try? store.hasRunningSession(
                 workspaceId: workspaceId,
                 surfaceId: surfaceId,
-                excludingSessionId: sessionId,
-                onlyNewerThanExcludedSession: true
+                excludingSessionId: sessionId
             )) == true
         }
-        func setIdleStatusUnlessNewerSessionIsRunning(workspaceId: String, surfaceId: String) {
-            if hasNewerRunningSession(workspaceId: workspaceId, surfaceId: surfaceId) {
+        func setIdleStatusUnlessSiblingSessionIsRunning(workspaceId: String, surfaceId: String) {
+            if hasRunningSiblingSession(workspaceId: workspaceId, surfaceId: nil) {
 #if DEBUG
                 agentHookDebugLog(
                     "agentHook.status.keepRunning agent=\(def.name) session=\(agentHookDebugShort(sessionId)) workspace=\(agentHookDebugShort(workspaceId)) surface=\(agentHookDebugShort(surfaceId))",
@@ -24454,12 +24453,15 @@ export default function cmuxPiSessionExtension(pi: ExtensionAPI) {
                 && (grokAssistantMessage != nil || !hasGrokTranscriptContext)
             let shouldPublishStopAlert = (shouldPublishStopNotification || shouldPublishGrokStopFallbackNotification)
                 && !suppressCompletionNotification
+            let shouldBypassStopNotificationDedupe = shouldPublishGrokStopFallbackNotification
+                && grokAssistantMessage != nil
             if suppressVisibleMutations {
                 telemetry.breadcrumb("\(def.name)-hook.stop.nested-suppressed")
             } else if suppressCompletionNotification {
                 telemetry.breadcrumb("\(def.name)-hook.stop.subagent-notification-suppressed")
             }
-            if shouldPublishStopAlert, shouldSendNotification(fingerprint: notificationFingerprint) {
+            if shouldPublishStopAlert,
+               shouldBypassStopNotificationDedupe || shouldSendNotification(fingerprint: notificationFingerprint) {
                 let payload = notificationPayload(title: def.displayName, subtitle: subtitle, body: body)
                 let notifyCommand = "notify_target_async \(workspaceId) \(surfaceId) \(payload)"
 #if DEBUG
@@ -24519,7 +24521,7 @@ export default function cmuxPiSessionExtension(pi: ExtensionAPI) {
                         client: client
                     )
                 } else {
-                    setIdleStatusUnlessNewerSessionIsRunning(workspaceId: workspaceId, surfaceId: surfaceId)
+                    setIdleStatusUnlessSiblingSessionIsRunning(workspaceId: workspaceId, surfaceId: surfaceId)
                 }
             }
 
@@ -24618,21 +24620,39 @@ export default function cmuxPiSessionExtension(pi: ExtensionAPI) {
                     fallbackKind: def.name,
                     cwd: hookCwd ?? mapped?.cwd
                 )
-                try? store.upsert(
-                    sessionId: sessionId,
-                    workspaceId: workspaceId,
-                    surfaceId: surfaceId,
-                    cwd: notificationCwd,
-                    transcriptPath: input.transcriptPath ?? mapped?.transcriptPath,
-                    pid: pid,
-                    launchCommand: launchCommand,
-                    lastSubtitle: summary.subtitle,
-                    lastBody: summary.body,
-                    lastNotificationStatus: summary.status,
-                    updateLastNotificationStatus: true,
-                    runtimeStatus: runtimeStatus(for: summary.status),
-                    updateRuntimeStatus: summary.status != nil
-                )
+                if def.name == "grok", summary.status == .idle {
+                    _ = try? store.recordPromptStop(
+                        sessionId: sessionId,
+                        workspaceId: workspaceId,
+                        surfaceId: surfaceId,
+                        cwd: notificationCwd,
+                        transcriptPath: input.transcriptPath ?? mapped?.transcriptPath,
+                        pid: pid,
+                        launchCommand: launchCommand,
+                        lastSubtitle: summary.subtitle,
+                        lastBody: summary.body,
+                        lastNotificationStatus: summary.status,
+                        updateLastNotificationStatus: true,
+                        runtimeStatus: runtimeStatus(for: summary.status),
+                        updateRuntimeStatus: true
+                    )
+                } else {
+                    try? store.upsert(
+                        sessionId: sessionId,
+                        workspaceId: workspaceId,
+                        surfaceId: surfaceId,
+                        cwd: notificationCwd,
+                        transcriptPath: input.transcriptPath ?? mapped?.transcriptPath,
+                        pid: pid,
+                        launchCommand: launchCommand,
+                        lastSubtitle: summary.subtitle,
+                        lastBody: summary.body,
+                        lastNotificationStatus: summary.status,
+                        updateLastNotificationStatus: true,
+                        runtimeStatus: runtimeStatus(for: summary.status),
+                        updateRuntimeStatus: summary.status != nil
+                    )
+                }
             }
 
             let notificationFingerprint = notificationDedupeFingerprint(status: summary.status)
@@ -24695,7 +24715,7 @@ export default function cmuxPiSessionExtension(pi: ExtensionAPI) {
                     client: client
                 )
             case .idle?:
-                setIdleStatusUnlessNewerSessionIsRunning(workspaceId: workspaceId, surfaceId: surfaceId)
+                setIdleStatusUnlessSiblingSessionIsRunning(workspaceId: workspaceId, surfaceId: surfaceId)
             case nil:
                 break
             }
