@@ -114,14 +114,19 @@ def helper_environment(scenario_config_path):
     return env
 
 
-plain_result = subprocess.run(
-    [helper_path, "+list-themes", "--plain"],
-    check=True,
-    env=helper_environment(config_path),
-    stdout=subprocess.PIPE,
-    stderr=subprocess.PIPE,
-    text=True,
-)
+try:
+    plain_result = subprocess.run(
+        [helper_path, "+list-themes", "--plain"],
+        check=True,
+        env=helper_environment(config_path),
+        stdout=subprocess.PIPE,
+        stderr=subprocess.PIPE,
+        text=True,
+        timeout=10,
+    )
+except subprocess.TimeoutExpired:
+    sys.stderr.write("FAIL: timed out while listing bundled themes in plain mode\n")
+    sys.exit(1)
 theme_names = [
     line.rsplit(" (", 1)[0]
     for line in plain_result.stdout.splitlines()
