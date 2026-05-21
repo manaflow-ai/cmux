@@ -5688,7 +5688,7 @@ struct SettingsView: View {
         settingsNavigationGeneration += 1
         let navigationGeneration = settingsNavigationGeneration
         let sectionID = SettingsSearchIndex.sectionID(for: destination.target)
-        prepareSettingsSectionIfNeeded(destination.target)
+        prepareSettingsDestinationIfNeeded(destination)
         if destination.shouldHighlight {
             highlightedSearchAnchorID = destination.anchorID
             searchHighlightStartedAt = Date()
@@ -5706,15 +5706,18 @@ struct SettingsView: View {
         }
     }
 
-    private func prepareSettingsSectionIfNeeded(_ target: SettingsNavigationTarget) {
-        switch target {
-        case .browser:
+    private func prepareSettingsDestinationIfNeeded(_ destination: SettingsNavigationDestination) {
+        if destination.anchorID == SettingsSearchIndex.settingID(for: .browser, idSuffix: "history") {
             loadBrowserHistoryForSettingsIfNeeded()
+        }
+
+        let browserImportAnchorIDs: Set<String> = [
+            SettingsSearchIndex.sectionID(for: .browserImport),
+            SettingsSearchIndex.settingID(for: .browserImport, idSuffix: "import-data"),
+            SettingsSearchIndex.settingID(for: .browserImport, idSuffix: "import-hint")
+        ]
+        if destination.target == .browserImport || browserImportAnchorIDs.contains(destination.anchorID) {
             refreshDetectedImportBrowsersIfNeeded()
-        case .browserImport:
-            refreshDetectedImportBrowsersIfNeeded()
-        default:
-            break
         }
     }
 
