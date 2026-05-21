@@ -7605,22 +7605,26 @@ final class WorkspaceDockLayout: ObservableObject {
         }
     }
 
+    func updateConfigurations(_ update: (inout BonsplitConfiguration) -> Void) {
+        update(&configuration)
+        for dock in allDocks {
+            var dockConfiguration = dock.controller.configuration
+            update(&dockConfiguration)
+            dock.controller.configuration = dockConfiguration
+        }
+    }
+
     func updateAppearance(
         chromeColors: BonsplitConfiguration.Appearance.ChromeColors,
         tabTitleFontSize: CGFloat? = nil,
         usesSharedBackdrop: Bool
     ) {
-        for dock in allDocks {
-            dock.controller.configuration.appearance.chromeColors = chromeColors
-            dock.controller.configuration.appearance.usesSharedBackdrop = usesSharedBackdrop
+        updateConfigurations { configuration in
+            configuration.appearance.chromeColors = chromeColors
+            configuration.appearance.usesSharedBackdrop = usesSharedBackdrop
             if let tabTitleFontSize {
-                dock.controller.configuration.appearance.tabTitleFontSize = tabTitleFontSize
+                configuration.appearance.tabTitleFontSize = tabTitleFontSize
             }
-        }
-        configuration.appearance.chromeColors = chromeColors
-        configuration.appearance.usesSharedBackdrop = usesSharedBackdrop
-        if let tabTitleFontSize {
-            configuration.appearance.tabTitleFontSize = tabTitleFontSize
         }
     }
 
@@ -8482,15 +8486,23 @@ final class Workspace: Identifiable, ObservableObject {
     func refreshSplitButtonTooltips() {
         let tooltips = Self.currentSplitButtonTooltips()
         var configuration = bonsplitController.configuration
-        guard configuration.appearance.splitButtonTooltips != tooltips else { return }
-        configuration.appearance.splitButtonTooltips = tooltips
-        bonsplitController.configuration = configuration
+        if configuration.appearance.splitButtonTooltips != tooltips {
+            configuration.appearance.splitButtonTooltips = tooltips
+            bonsplitController.configuration = configuration
+        }
+        dockLayout.updateConfigurations { configuration in
+            configuration.appearance.splitButtonTooltips = tooltips
+        }
     }
 
     func refreshSplitButtonBackdropEffect() {
+        let backdropEffect = Self.bonsplitSplitButtonBackdropEffect()
         var configuration = bonsplitController.configuration
-        configuration.appearance.splitButtonBackdropEffect = Self.bonsplitSplitButtonBackdropEffect()
+        configuration.appearance.splitButtonBackdropEffect = backdropEffect
         bonsplitController.configuration = configuration
+        dockLayout.updateConfigurations { configuration in
+            configuration.appearance.splitButtonBackdropEffect = backdropEffect
+        }
     }
 
     func applySurfaceTabBarButtons(
@@ -8561,9 +8573,13 @@ final class Workspace: Identifiable, ObservableObject {
             )
         }
         var configuration = bonsplitController.configuration
-        guard configuration.appearance.splitButtons != bonsplitButtons else { return }
-        configuration.appearance.splitButtons = bonsplitButtons
-        bonsplitController.configuration = configuration
+        if configuration.appearance.splitButtons != bonsplitButtons {
+            configuration.appearance.splitButtons = bonsplitButtons
+            bonsplitController.configuration = configuration
+        }
+        dockLayout.updateConfigurations { configuration in
+            configuration.appearance.splitButtons = bonsplitButtons
+        }
     }
 
     // MARK: - Surface ID to Panel ID Mapping

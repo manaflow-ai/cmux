@@ -3883,6 +3883,39 @@ final class WorkspaceTerminalFocusRecoveryTests: XCTestCase {
         XCTAssertNil(workspace.bonsplitController.tab(dockTabId))
     }
 
+    func testDockControllersReceiveSurfaceTabBarButtonConfiguration() {
+        let workspace = Workspace()
+        let existingDock = workspace.dockLayout.addDock(edge: .left)
+        let buttons: [CmuxSurfaceTabBarButton] = [
+            .builtIn(.newTerminal),
+            .builtIn(.newWorkspace, title: "Workspace")
+        ]
+
+        workspace.applySurfaceTabBarButtons(
+            buttons,
+            sourcePath: nil,
+            globalConfigPath: "/tmp/cmux-global.json",
+            terminalCommandSourcePaths: [:],
+            workspaceCommands: [:]
+        )
+
+        let expectedButtonIds = buttons.map(\.id)
+        XCTAssertEqual(
+            workspace.bonsplitController.configuration.appearance.splitButtons.map(\.id),
+            expectedButtonIds
+        )
+        XCTAssertEqual(
+            existingDock.controller.configuration.appearance.splitButtons.map(\.id),
+            expectedButtonIds
+        )
+
+        let newDock = workspace.dockLayout.addDock(edge: .right)
+        XCTAssertEqual(
+            newDock.controller.configuration.appearance.splitButtons.map(\.id),
+            expectedButtonIds
+        )
+    }
+
     func testDockPortalFileDropResolvesDockController() throws {
         let root = FileManager.default.temporaryDirectory.appendingPathComponent(
             "cmux-dock-drop-\(UUID().uuidString)",
