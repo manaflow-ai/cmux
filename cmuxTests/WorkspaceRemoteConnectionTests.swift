@@ -1464,6 +1464,55 @@ final class WorkspaceRemoteConnectionTests: XCTestCase {
     }
 
     @MainActor
+    func testDetachAttachPreservesPersistentPTYSessionIDAcrossWorkspaces() throws {
+        let source = Workspace()
+        let destination = Workspace()
+        let config = WorkspaceRemoteConfiguration(
+            destination: "cmux-macmini",
+            port: nil,
+            identityFile: nil,
+            sshOptions: [],
+            localProxyPort: nil,
+            relayPort: 64008,
+            relayID: String(repeating: "a", count: 16),
+            relayToken: String(repeating: "b", count: 64),
+            localSocketPath: "/tmp/cmux-debug-test.sock",
+            terminalStartupCommand: "ssh-pty-attach",
+            preserveAfterTerminalExit: true
+        )
+        source.configureRemoteConnection(config, autoConnect: false)
+        destination.configureRemoteConnection(config, autoConnect: false)
+
+        let sourcePanelID = try XCTUnwrap(source.focusedTerminalPanel?.id)
+        let destinationPaneID = try XCTUnwrap(destination.bonsplitController.allPaneIds.first)
+        let sessionID = "ssh-source-session"
+        let movedPanel = try XCTUnwrap(
+            source.newTerminalSplit(
+                from: sourcePanelID,
+                orientation: .horizontal,
+                remotePTYSessionID: sessionID
+            )
+        )
+
+        let detached = try XCTUnwrap(source.detachSurface(panelId: movedPanel.id))
+        XCTAssertEqual(detached.remotePTYSessionID, sessionID)
+
+        let restoredPanelID = destination.attachDetachedSurface(
+            detached,
+            inPane: destinationPaneID,
+            focus: false
+        )
+
+        XCTAssertEqual(restoredPanelID, movedPanel.id)
+        XCTAssertTrue(destination.isRemoteTerminalSurface(movedPanel.id))
+        let snapshot = destination.sessionSnapshot(includeScrollback: false)
+        XCTAssertEqual(
+            snapshot.panels.first { $0.id == movedPanel.id }?.terminal?.remotePTYSessionID,
+            sessionID
+        )
+    }
+
+    @MainActor
     func testDetachAttachPreservesSurfaceTTYMetadata() throws {
         let source = Workspace()
         let destination = Workspace()

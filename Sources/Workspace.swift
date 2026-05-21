@@ -261,9 +261,12 @@ extension Workspace {
 
         let restoredRemoteConfiguration = snapshot.remote?.workspaceConfiguration()
         if let restoredRemoteConfiguration {
+            let shouldAutoConnect =
+                !SessionRestorePolicy.isRunningUnderAutomatedTests()
+                && restoredRemoteConfiguration.foregroundAuthToken == nil
             configureRemoteConnection(
                 restoredRemoteConfiguration,
-                autoConnect: !SessionRestorePolicy.isRunningUnderAutomatedTests()
+                autoConnect: shouldAutoConnect
             )
         } else {
             disconnectRemoteConnection(clearConfiguration: true)
@@ -939,7 +942,7 @@ extension Workspace {
             )
             let restoredRemotePTYSessionID = normalizedRemotePTYSessionID(snapshot.terminal?.remotePTYSessionID)
                 .flatMap { remoteConfiguration?.preserveAfterTerminalExit == true ? $0 : nil }
-            let restoredRemotePTYAttachCommand = restoredRemotePTYSessionID.map(Self.sshPTYAttachStartupCommand)
+            let restoredRemotePTYAttachCommand = restoredRemotePTYSessionID.map(remotePTYAttachStartupCommand)
 #if DEBUG
             if let restorableAgent {
                 let sessionPreview = String(restorableAgent.sessionId.prefix(8))
@@ -10742,6 +10745,29 @@ final class Workspace: Identifiable, ObservableObject {
         SSHPTYAttachStartupCommandBuilder.command(sessionID: sessionID)
     }
 
+    private func remotePTYAttachStartupCommand(sessionID: String) -> String {
+        guard let remoteConfiguration,
+              remoteConfiguration.preserveAfterTerminalExit,
+              let foregroundAuthToken = remoteConfiguration.foregroundAuthToken else {
+            return Self.sshPTYAttachStartupCommand(sessionID: sessionID)
+        }
+        let foregroundAuth = SSHPTYAttachStartupCommandBuilder.ForegroundAuth(
+            destination: remoteConfiguration.destination,
+            port: remoteConfiguration.port,
+            identityFile: remoteConfiguration.identityFile,
+            sshOptions: remoteConfiguration.sshOptions,
+            token: foregroundAuthToken
+        )
+        return SSHPTYAttachStartupCommandBuilder.command(
+            sessionID: sessionID,
+            foregroundAuth: foregroundAuth
+        )
+    }
+
+    func discardRemotePTYSessionID(panelId: UUID) {
+        remotePTYSessionIDsByPanelId.removeValue(forKey: panelId)
+    }
+
     private func maybeDemoteRemoteWorkspaceAfterSSHSessionEnded() {
         guard activeRemoteTerminalSurfaceIds.isEmpty, remoteConfiguration != nil else { return }
         if remoteConfiguration?.preserveAfterTerminalExit == true {
@@ -12835,6 +12861,11 @@ final class Workspace: Identifiable, ObservableObject {
             surfaceResumeBindingsByPanelId[detached.panelId] = resumeBinding
         } else {
             surfaceResumeBindingsByPanelId.removeValue(forKey: detached.panelId)
+        }
+        if let remotePTYSessionID = normalizedRemotePTYSessionID(detached.remotePTYSessionID) {
+            remotePTYSessionIDsByPanelId[detached.panelId] = remotePTYSessionID
+        } else {
+            remotePTYSessionIDsByPanelId.removeValue(forKey: detached.panelId)
         }
         adoptDetachedAgentRuntimeState(detached.agentRuntime)
         if let markdownPanel = detached.panel as? MarkdownPanel,
@@ -15290,6 +15321,7 @@ extension Workspace: BonsplitDelegate {
                 remoteRelayPort: activeRemoteTerminalSurfaceIds.contains(panelId)
                     ? remoteConfiguration?.relayPort
                     : nil,
+                remotePTYSessionID: remotePTYSessionIDForSnapshot(panelId: panelId),
                 remoteCleanupConfiguration: transferredRemoteCleanupConfiguration
             )
         } else {

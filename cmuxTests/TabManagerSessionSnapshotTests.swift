@@ -263,12 +263,20 @@ final class TabManagerSessionSnapshotTests: XCTestCase {
 
         let restoredWorkspace = try XCTUnwrap(restored.tabs.first { $0.customTitle == "Persistent SSH" })
         XCTAssertEqual(restoredWorkspace.remoteConfiguration?.preserveAfterTerminalExit, true)
+        XCTAssertNotNil(restoredWorkspace.remoteConfiguration?.foregroundAuthToken)
+        XCTAssertTrue(
+            restoredWorkspace.remoteConfiguration?.sshOptions.contains("ControlPath=/tmp/cmux-ssh-%C") == true
+        )
         XCTAssertTrue(restoredWorkspace.remoteConfiguration?.terminalStartupCommand?.contains("ssh-pty-attach") == true)
+        XCTAssertTrue(
+            restoredWorkspace.remoteConfiguration?.terminalStartupCommand?.contains("workspace.remote.foreground_auth_ready") == true
+        )
         let restoredPanelId = try XCTUnwrap(restoredWorkspace.focusedPanelId)
         let restoredInitialCommand = try XCTUnwrap(
             restoredWorkspace.terminalPanel(for: restoredPanelId)?.surface.debugInitialCommand()
         )
         XCTAssertTrue(restoredInitialCommand.contains("ssh-pty-attach"), restoredInitialCommand)
+        XCTAssertTrue(restoredInitialCommand.contains("workspace.remote.foreground_auth_ready"), restoredInitialCommand)
         XCTAssertTrue(restoredInitialCommand.contains(expectedSessionID), restoredInitialCommand)
 
         let roundTrip = restoredWorkspace.sessionSnapshot(includeScrollback: false)
