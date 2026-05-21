@@ -1674,7 +1674,7 @@ struct ContentView: View {
         clampedSidebarDimension(
             candidate,
             minimumWidth: Self.minimumSidebarWidth,
-            maximumWidth: maximumWidth,
+            maximumWidth: min(maximumWidth, CGFloat(SessionPersistencePolicy.maximumSidebarWidth)),
             fallbackWidth: CGFloat(SessionPersistencePolicy.defaultSidebarWidth)
         )
     }
@@ -2292,6 +2292,7 @@ struct ContentView: View {
         sidebarPanelContainer(width: sidebarWidth, alignment: .leading, role: .leftSidebar, appearance: appearance) {
             sidebarView
         }
+        .accessibilityIdentifier("SidebarContainer")
     }
 
     private func rightSidebarPanelWithBackdrop(appearance: WindowAppearanceSnapshot) -> some View {
@@ -2303,6 +2304,7 @@ struct ContentView: View {
                 WindowChromeBorder(orientation: .vertical)
             }
         }
+        .accessibilityIdentifier("RightSidebarContainer")
 
         return panel
     }
