@@ -75,6 +75,18 @@ enum CMUXSudoHelperClient {
             return override(envelope)
         }
 #endif
+        let service = CMUXSudoHelperService.ensureRegistered()
+        guard service.available else {
+            return .init(
+                status: "helper_unavailable",
+                exitCode: nil,
+                stdout: nil,
+                stderr: nil,
+                errorCode: service.errorCode ?? "helper_unavailable",
+                message: service.message
+            )
+        }
+
         guard FileManager.default.fileExists(atPath: helperSocketPath) else {
             return .init(
                 status: "helper_unavailable",

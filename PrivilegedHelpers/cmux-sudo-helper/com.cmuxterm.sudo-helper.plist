@@ -4,10 +4,12 @@
 <dict>
 	<key>Label</key>
 	<string>com.cmuxterm.sudo-helper</string>
-	<key>ProgramArguments</key>
+	<key>AssociatedBundleIdentifiers</key>
 	<array>
-		<string>/Library/PrivilegedHelperTools/com.cmuxterm.sudo-helper</string>
+		<string>@CMUX_BUNDLE_IDENTIFIER@</string>
 	</array>
+	<key>BundleProgram</key>
+	<string>Contents/Library/LaunchServices/com.cmuxterm.sudo-helper</string>
 	<key>RunAtLoad</key>
 	<true/>
 	<key>KeepAlive</key>

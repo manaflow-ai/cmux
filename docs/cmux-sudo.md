@@ -9,7 +9,7 @@
 3. The app records the request as pending and returns a request id immediately, so the socket worker is not blocked while the user is looking at a native authentication prompt.
 4. The CLI polls `sudo.result` with that request id until the app returns the terminal result. Result polling and `sudo.cancel` are accepted only from the same socket peer PID and UID that submitted the request.
 5. The app shows the exact command to the user and calls `LAContext.evaluatePolicy(.deviceOwnerAuthentication, localizedReason:)`. Apple documents that this policy uses Touch ID and Apple Watch on macOS when available, then falls back to the user password.
-6. The app signs the helper payload with a per-app-session P-256 key and sends it to `/var/run/cmux-sudo-helper.sock`.
+6. The app registers the bundled LaunchDaemon with `SMAppService.daemon(plistName:)` if needed, then signs the helper payload with a per-app-session P-256 key and sends it to `/var/run/cmux-sudo-helper.sock`.
 7. The privileged helper validates the cmux app signature and Team ID, verifies the signed payload, rejects stale or replayed request ids, resolves the executable without a shell, runs one command with `/dev/null` stdin, then returns captured output and exit status.
 8. The app appends an audit entry whether the request is rejected, denied, or executed.
 
@@ -26,11 +26,11 @@
 
 ## Helper packaging
 
-The helper source is in `PrivilegedHelpers/cmux-sudo-helper/main.swift`. The LaunchDaemon plist scaffold is `PrivilegedHelpers/cmux-sudo-helper/com.cmuxterm.sudo-helper.plist`. The app-side client fails closed unless `/var/run/cmux-sudo-helper.sock` exists.
+The helper source is in `PrivilegedHelpers/cmux-sudo-helper/main.swift`. The LaunchDaemon plist scaffold is `PrivilegedHelpers/cmux-sudo-helper/com.cmuxterm.sudo-helper.plist`. The app build runs `scripts/build-cmux-sudo-helper.sh`, copies the helper executable to `Contents/Library/LaunchServices/com.cmuxterm.sudo-helper`, and copies the daemon plist to `Contents/Library/LaunchDaemons/com.cmuxterm.sudo-helper.plist`. The app-side client fails closed unless `SMAppService` reports the daemon enabled and `/var/run/cmux-sudo-helper.sock` exists.
 
-Production packaging still has to embed and sign the helper as an `SMAppService` LaunchDaemon. The load-bearing requirements are:
+Production packaging has to keep the bundled helper and daemon plist signed with the app. The load-bearing requirements are:
 
-- The LaunchDaemon must run as root and create `/var/run/cmux-sudo-helper.sock`.
+- The LaunchDaemon must run as root, use `BundleProgram` so the executable stays inside the signed app bundle, and create `/var/run/cmux-sudo-helper.sock`.
 - The socket must be writable only by root and the local admin group (`0660`, `root:admin`).
 - The helper must validate the connecting process code signature before reading the request. It accepts only cmux bundle identifiers signed by Manaflow Team ID `7WLXT3NR37`, including tagged debug, nightly, and staging bundle id suffixes.
 - The helper must accept only signed payloads from the cmux app process and must reject malformed payloads.
