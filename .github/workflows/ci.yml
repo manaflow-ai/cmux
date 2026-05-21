@@ -319,13 +319,8 @@ jobs:
               echo "Crash or cancellation detected during unit tests"
               exit 1
             fi
-            SUMMARY=$(echo "$OUTPUT" | grep "Executed.*tests.*with.*failures" | tail -1)
-            if echo "$SUMMARY" | grep -q "(0 unexpected)"; then
-              echo "All failures are expected, treating as pass"
-            else
-              echo "Unexpected test failures detected"
-              exit 1
-            fi
+            echo "Unit test command failed"
+            exit 1
           fi
 
       - name: Run bundled Ghostty theme picker helper regression

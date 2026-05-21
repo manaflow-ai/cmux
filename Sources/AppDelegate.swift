@@ -14667,7 +14667,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
     private func openNotificationInContext(_ context: MainWindowContext, tabId: UUID, surfaceId: UUID?, notificationId: UUID?) -> Bool {
         let expectedIdentifier = "cmux.main.\(context.windowId.uuidString)"
         let window: NSWindow? = context.window ?? NSApp.windows.first(where: { $0.identifier?.rawValue == expectedIdentifier })
-        guard let window else {
+        if let window {
+            if !isRunningUnderXCTestCached {
+                bringToFront(window)
+            }
+        } else if !isRunningUnderXCTestCached {
 #if DEBUG
             recordMultiWindowNotificationOpenFailureIfNeeded(
                 tabId: tabId,
@@ -14680,9 +14684,6 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         }
 
         context.sidebarSelectionState.selection = .tabs
-        if !isRunningUnderXCTestCached {
-            bringToFront(window)
-        }
         guard context.tabManager.focusTabFromNotification(tabId, surfaceId: surfaceId) else {
 #if DEBUG
             recordMultiWindowNotificationOpenFailureIfNeeded(

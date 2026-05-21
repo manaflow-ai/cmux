@@ -23997,7 +23997,8 @@ export default function cmuxPiSessionExtension(pi: ExtensionAPI) {
             )) == true
         }
         func setIdleStatusUnlessNewerSessionIsRunning(workspaceId: String, surfaceId: String) {
-            if hasNewerRunningSession(workspaceId: workspaceId, surfaceId: surfaceId) {
+            let runningSurfaceScope = isGrokHook ? nil : surfaceId
+            if hasNewerRunningSession(workspaceId: workspaceId, surfaceId: runningSurfaceScope) {
 #if DEBUG
                 agentHookDebugLog(
                     "agentHook.status.keepRunning agent=\(def.name) session=\(agentHookDebugShort(sessionId)) workspace=\(agentHookDebugShort(workspaceId)) surface=\(agentHookDebugShort(surfaceId))",
@@ -24032,7 +24033,8 @@ export default function cmuxPiSessionExtension(pi: ExtensionAPI) {
         func hasActiveAntigravityBackgroundWork() -> Bool {
             isAntigravityHook && (input.rawObject?["fullyIdle"] as? Bool) == false
         }
-        func shouldSendNotification(fingerprint: String?) -> Bool {
+        func shouldSendNotification(fingerprint: String?, force: Bool = false) -> Bool {
+            if force { return true }
             guard let fingerprint else { return true }
             return (try? store.recentlyEmittedNotification(sessionId: sessionId, fingerprint: fingerprint)) != true
         }
@@ -24456,12 +24458,18 @@ export default function cmuxPiSessionExtension(pi: ExtensionAPI) {
                 && (grokAssistantMessage != nil || !hasGrokTranscriptContext)
             let shouldPublishStopAlert = (shouldPublishStopNotification || shouldPublishGrokStopFallbackNotification)
                 && !suppressCompletionNotification
+            let shouldForceGrokAssistantStopNotification = shouldPublishGrokStopFallbackNotification
+                && grokAssistantMessage != nil
             if suppressVisibleMutations {
                 telemetry.breadcrumb("\(def.name)-hook.stop.nested-suppressed")
             } else if suppressCompletionNotification {
                 telemetry.breadcrumb("\(def.name)-hook.stop.subagent-notification-suppressed")
             }
-            if shouldPublishStopAlert, shouldSendNotification(fingerprint: notificationFingerprint) {
+            if shouldPublishStopAlert,
+               shouldSendNotification(
+                   fingerprint: notificationFingerprint,
+                   force: shouldForceGrokAssistantStopNotification
+               ) {
                 let payload = notificationPayload(title: def.displayName, subtitle: subtitle, body: body)
                 let notifyCommand = "notify_target_async \(workspaceId) \(surfaceId) \(payload)"
 #if DEBUG
@@ -24656,7 +24664,13 @@ export default function cmuxPiSessionExtension(pi: ExtensionAPI) {
             }
 
             let notificationFingerprint = notificationDedupeFingerprint(status: summary.status)
-            if shouldSendNotification(fingerprint: notificationFingerprint) {
+            let shouldForceCurrentGrokPromptNotification = isGrokHook
+                && summary.status == .idle
+                && max(0, mapped?.activePromptDepth ?? 0) > 0
+            if shouldSendNotification(
+                fingerprint: notificationFingerprint,
+                force: shouldForceCurrentGrokPromptNotification
+            ) {
                 let payload = notificationPayload(title: def.displayName, subtitle: summary.subtitle, body: summary.body)
                 let notifyCommand = "notify_target_async \(workspaceId) \(surfaceId) \(payload)"
 #if DEBUG

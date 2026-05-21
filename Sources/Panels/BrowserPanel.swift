@@ -3849,6 +3849,13 @@ final class BrowserPanel: Panel, ObservableObject {
         drainPendingInteractiveBrowserPromptsIfPossible(reason: reason)
     }
 
+#if DEBUG
+    func consumeBackgroundPreloadHostForTesting(reason: String) {
+        closeBackgroundPreloadHost(reason: reason)
+        drainPendingInteractiveBrowserPromptsIfPossible(reason: reason)
+    }
+#endif
+
     private func closeBackgroundPreloadHost(reason: String) {
         guard let preloadWindow = backgroundPreloadWindow else { return }
         backgroundPreloadWindow = nil

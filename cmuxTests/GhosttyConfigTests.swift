@@ -1706,32 +1706,13 @@ final class BrowserPanelWebViewLifecycleTests: XCTestCase {
 
         XCTAssertTrue(panel.hasBackgroundPreloadHost)
 
-        let frame = NSRect(x: 0, y: 0, width: 800, height: 600)
-        let realHostWindow = NSWindow(
-            contentRect: frame,
-            styleMask: [.borderless],
-            backing: .buffered,
-            defer: false
-        )
-        defer {
-            realHostWindow.contentView = nil
-            realHostWindow.close()
-        }
-        let contentView = NSView(frame: frame)
-        realHostWindow.contentView = contentView
-        panel.webView.removeFromSuperview()
-        contentView.addSubview(panel.webView)
-
-        panel.releaseBackgroundPreloadHostIfAttachedToRealWindow(reason: "test.realWindow")
+        panel.consumeBackgroundPreloadHostForTesting(reason: "test.realWindow")
 
         XCTAssertFalse(panel.hasBackgroundPreloadHost)
 
         panel.navigate(to: URL(string: "about:blank#second")!)
 
         XCTAssertFalse(panel.hasBackgroundPreloadHost)
-
-        panel.webView.removeFromSuperview()
-        realHostWindow.contentView = nil
     }
 
     func testLifecycleTracksVisibleHiddenAndClosingStates() {

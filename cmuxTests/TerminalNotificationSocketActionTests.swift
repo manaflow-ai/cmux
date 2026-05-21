@@ -1,5 +1,4 @@
 import XCTest
-import AppKit
 import Darwin
 #if canImport(cmux_DEV)
 @testable import cmux_DEV
@@ -243,7 +242,6 @@ final class TerminalNotificationSocketActionTests: XCTestCase {
         let workspace: Workspace
         let surfaceId: UUID
         let windowId: UUID?
-        let window: NSWindow?
         let originalTabManager: TabManager?
         let originalNotificationStore: TerminalNotificationStore?
         let originalAppFocusOverride: Bool?
@@ -259,8 +257,6 @@ final class TerminalNotificationSocketActionTests: XCTestCase {
             if let windowId {
                 appDelegate.unregisterMainWindowContextForTesting(windowId: windowId)
             }
-            window?.orderOut(nil)
-            window?.close()
             manager.teardownAllWorkspacesForTesting(notificationStore: store)
             store.replaceNotificationsForTesting([])
             store.resetNotificationDeliveryHandlerForTesting()
@@ -295,24 +291,13 @@ final class TerminalNotificationSocketActionTests: XCTestCase {
         let surfaceId = try XCTUnwrap(workspace.focusedPanelId)
 
         let windowId: UUID?
-        let window: NSWindow?
         if includeWindow {
-            let testWindow = NSWindow(
-                contentRect: NSRect(x: 0, y: 0, width: 320, height: 240),
-                styleMask: [.titled],
-                backing: .buffered,
-                defer: false
-            )
             let registeredWindowId = appDelegate.registerMainWindowContextForTesting(
-                tabManager: manager,
-                window: testWindow
+                tabManager: manager
             )
-            testWindow.identifier = NSUserInterfaceItemIdentifier("cmux.main.\(registeredWindowId.uuidString)")
             windowId = registeredWindowId
-            window = testWindow
         } else {
             windowId = nil
-            window = nil
         }
 
         TerminalController.shared.start(
@@ -331,7 +316,6 @@ final class TerminalNotificationSocketActionTests: XCTestCase {
             workspace: workspace,
             surfaceId: surfaceId,
             windowId: windowId,
-            window: window,
             originalTabManager: originalTabManager,
             originalNotificationStore: originalNotificationStore,
             originalAppFocusOverride: originalAppFocusOverride
