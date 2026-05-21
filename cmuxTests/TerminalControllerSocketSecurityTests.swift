@@ -205,6 +205,35 @@ final class TerminalControllerSocketSecurityTests: XCTestCase {
         XCTAssertEqual(workerError["code"] as? String, "not_found")
     }
 
+    func testRemotePTYAllWorkspacesTreatsMissingPTYListAsUnsupported() {
+        let unsupported = NSError(
+            domain: "cmux.remote.daemon.rpc",
+            code: 14,
+            userInfo: [
+                NSLocalizedDescriptionKey: "pty.list failed (method_not_found): Unknown method",
+            ]
+        )
+        XCTAssertTrue(remotePTYSessionListErrorIsUnsupportedDaemon(unsupported))
+
+        let notReady = NSError(
+            domain: "cmux.remote.pty",
+            code: 1,
+            userInfo: [
+                NSLocalizedDescriptionKey: "remote daemon is not ready",
+            ]
+        )
+        XCTAssertFalse(remotePTYSessionListErrorIsUnsupportedDaemon(notReady))
+
+        let differentRPCMethod = NSError(
+            domain: "cmux.remote.daemon.rpc",
+            code: 14,
+            userInfo: [
+                NSLocalizedDescriptionKey: "pty.close failed (method_not_found): Unknown method",
+            ]
+        )
+        XCTAssertFalse(remotePTYSessionListErrorIsUnsupportedDaemon(differentRPCMethod))
+    }
+
     func testRightSidebarV1CommandsDriveExistingState() throws {
         let previousAppDelegate = AppDelegate.shared
         let appDelegate = AppDelegate()

@@ -28,6 +28,15 @@ nonisolated private struct RemotePTYSocketTarget {
     let workspaceTitle: String
 }
 
+nonisolated func remotePTYSessionListErrorIsUnsupportedDaemon(_ error: Error) -> Bool {
+    let nsError = error as NSError
+    guard nsError.domain == "cmux.remote.daemon.rpc", nsError.code == 14 else {
+        return false
+    }
+    return error.localizedDescription
+        .range(of: "pty.list failed (method_not_found)", options: [.caseInsensitive]) != nil
+}
+
 /// Unix socket-based controller for programmatic terminal control
 /// Allows automated testing and external control of terminal tabs
 @MainActor
@@ -5842,6 +5851,8 @@ class TerminalController {
                     sessions.append(contentsOf: workspaceSessions.map {
                         v2RemotePTYSessionPayload($0, target: target)
                     })
+                } catch where remotePTYSessionListErrorIsUnsupportedDaemon(error) {
+                    continue
                 } catch {
                     var payload = v2RemotePTYTargetPayload(target)
                     payload["error"] = error.localizedDescription

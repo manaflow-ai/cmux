@@ -479,11 +479,12 @@ func TestPTYRPCSessionReattachListAndClose(t *testing.T) {
 		ID:     1,
 		Method: "pty.attach",
 		Params: map[string]any{
-			"session_id":    "pty-rpc",
-			"attachment_id": "a1",
-			"cols":          80,
-			"rows":          24,
-			"command":       "printf 'hello-rpc\\n'; sleep 60",
+			"session_id":              "pty-rpc",
+			"attachment_id":           "a1",
+			"client_attachment_token": "token-a1",
+			"cols":                    80,
+			"rows":                    24,
+			"command":                 "printf 'hello-rpc\\n'; sleep 60",
 		},
 	})
 	if !attachResp.OK {
@@ -525,8 +526,9 @@ func TestPTYRPCSessionReattachListAndClose(t *testing.T) {
 		ID:     3,
 		Method: "pty.detach",
 		Params: map[string]any{
-			"session_id":    "pty-rpc",
-			"attachment_id": "a1",
+			"session_id":              "pty-rpc",
+			"attachment_id":           "a1",
+			"client_attachment_token": "token-a1",
 		},
 	})
 	if !detachResp.OK {
@@ -538,11 +540,12 @@ func TestPTYRPCSessionReattachListAndClose(t *testing.T) {
 		ID:     4,
 		Method: "pty.attach",
 		Params: map[string]any{
-			"session_id":    "pty-rpc",
-			"attachment_id": "a2",
-			"cols":          100,
-			"rows":          30,
-			"command":       "printf 'should-not-run\\n'",
+			"session_id":              "pty-rpc",
+			"attachment_id":           "a2",
+			"client_attachment_token": "token-a2",
+			"cols":                    100,
+			"rows":                    30,
+			"command":                 "printf 'should-not-run\\n'",
 		},
 	})
 	if !reattachResp.OK {
@@ -611,11 +614,12 @@ func TestPTYRPCCommandUsesPOSIXShellForConfiguredLoginShell(t *testing.T) {
 		ID:     1,
 		Method: "pty.attach",
 		Params: map[string]any{
-			"session_id":    "pty-posix-shell",
-			"attachment_id": "a1",
-			"cols":          80,
-			"rows":          24,
-			"command":       "printf 'posix-shell-ok\\n'; sleep 60",
+			"session_id":              "pty-posix-shell",
+			"attachment_id":           "a1",
+			"client_attachment_token": "token-a1",
+			"cols":                    80,
+			"rows":                    24,
+			"command":                 "printf 'posix-shell-ok\\n'; sleep 60",
 		},
 	})
 	if !attachResp.OK {
@@ -648,11 +652,12 @@ func TestPTYRPCRequireExistingFailsMissingSession(t *testing.T) {
 		ID:     1,
 		Method: "pty.attach",
 		Params: map[string]any{
-			"session_id":       "missing-session",
-			"attachment_id":    "a1",
-			"cols":             80,
-			"rows":             24,
-			"require_existing": true,
+			"session_id":              "missing-session",
+			"attachment_id":           "a1",
+			"client_attachment_token": "token-a1",
+			"cols":                    80,
+			"rows":                    24,
+			"require_existing":        true,
 		},
 	})
 	if resp.OK {
@@ -893,6 +898,111 @@ func TestPTYRPCTokenRejectsStaleAttachmentControl(t *testing.T) {
 	})
 	if !freshDetach.OK {
 		t.Fatalf("fresh pty.detach failed: %+v", freshDetach)
+	}
+}
+
+func TestPTYRPCRequiresAttachmentToken(t *testing.T) {
+	eventOutput := newNotifyingBuffer()
+	server := &rpcServer{
+		nextStreamID:  1,
+		nextSessionID: 1,
+		streams:       map[string]*streamState{},
+		sessions:      map[string]*sessionState{},
+		ptyHub: newWebSocketPTYHub(wsPTYServerConfig{
+			ScrollbackLimit: 4096,
+			SessionIdleTTL:  time.Hour,
+		}, io.Discard),
+		ownsPTYHub: true,
+		frameWriter: &stdioFrameWriter{
+			writer: bufio.NewWriter(eventOutput),
+		},
+	}
+	defer server.closeAll()
+
+	expectMissingToken := func(method string, resp rpcResponse) {
+		t.Helper()
+		if resp.OK || resp.Error == nil || resp.Error.Code != "invalid_params" {
+			t.Fatalf("%s response = %+v, want invalid_params", method, resp)
+		}
+		if !strings.Contains(resp.Error.Message, method+" requires client_attachment_token") {
+			t.Fatalf("%s message = %q, want client_attachment_token requirement", method, resp.Error.Message)
+		}
+	}
+
+	expectMissingToken("pty.attach", server.handleRequest(rpcRequest{
+		ID:     1,
+		Method: "pty.attach",
+		Params: map[string]any{
+			"session_id":    "token-required",
+			"attachment_id": "same",
+			"cols":          80,
+			"rows":          24,
+			"command":       "sleep 60",
+		},
+	}))
+
+	attach := server.handleRequest(rpcRequest{
+		ID:     2,
+		Method: "pty.attach",
+		Params: map[string]any{
+			"session_id":              "token-required",
+			"attachment_id":           "same",
+			"client_attachment_token": "fresh-token",
+			"cols":                    80,
+			"rows":                    24,
+			"command":                 "sleep 60",
+		},
+	})
+	if !attach.OK {
+		t.Fatalf("pty.attach failed: %+v", attach)
+	}
+	waitForRPCEvent(t, eventOutput, 0, func(event map[string]any) bool {
+		return event["event"] == "pty.ready" &&
+			event["session_id"] == "token-required" &&
+			event["attachment_id"] == "same" &&
+			event["attachment_token"] == "fresh-token"
+	})
+
+	expectMissingToken("pty.write", server.handleRequest(rpcRequest{
+		ID:     3,
+		Method: "pty.write",
+		Params: map[string]any{
+			"session_id":    "token-required",
+			"attachment_id": "same",
+			"data_base64":   base64.StdEncoding.EncodeToString([]byte("missing token")),
+		},
+	}))
+	expectMissingToken("pty.resize", server.handleRequest(rpcRequest{
+		ID:     4,
+		Method: "pty.resize",
+		Params: map[string]any{
+			"session_id":              "token-required",
+			"attachment_id":           "same",
+			"client_attachment_token": "   ",
+			"cols":                    100,
+			"rows":                    30,
+		},
+	}))
+	expectMissingToken("pty.detach", server.handleRequest(rpcRequest{
+		ID:     5,
+		Method: "pty.detach",
+		Params: map[string]any{
+			"session_id":    "token-required",
+			"attachment_id": "same",
+		},
+	}))
+
+	detach := server.handleRequest(rpcRequest{
+		ID:     6,
+		Method: "pty.detach",
+		Params: map[string]any{
+			"session_id":              "token-required",
+			"attachment_id":           "same",
+			"client_attachment_token": "fresh-token",
+		},
+	})
+	if !detach.OK {
+		t.Fatalf("tokened pty.detach failed: %+v", detach)
 	}
 }
 

@@ -915,6 +915,10 @@ func (s *rpcServer) handlePTYAttach(req rpcRequest) rpcResponse {
 	}
 	attachmentID, _ := getStringParam(req.Params, "attachment_id")
 	attachmentToken, _ := getStringParam(req.Params, "client_attachment_token")
+	attachmentToken = strings.TrimSpace(attachmentToken)
+	if attachmentToken == "" {
+		return missingPTYAttachmentTokenResponse(req, "pty.attach")
+	}
 	cols, ok := getIntParam(req.Params, "cols")
 	if !ok || cols <= 0 {
 		return rpcResponse{
@@ -998,6 +1002,9 @@ func (s *rpcServer) handlePTYWrite(req rpcRequest) rpcResponse {
 	if badResp != nil {
 		return *badResp
 	}
+	if attachmentToken == "" {
+		return missingPTYAttachmentTokenResponse(req, "pty.write")
+	}
 	dataBase64, ok := getStringParam(req.Params, "data_base64")
 	if !ok {
 		return rpcResponse{
@@ -1044,6 +1051,9 @@ func (s *rpcServer) handlePTYResize(req rpcRequest) rpcResponse {
 	if badResp != nil {
 		return *badResp
 	}
+	if attachmentToken == "" {
+		return missingPTYAttachmentTokenResponse(req, "pty.resize")
+	}
 	if s.ptyHub == nil || !s.ptyHub.resizeByID(sessionID, attachmentID, attachmentToken, cols, rows) {
 		return rpcResponse{
 			ID: req.ID,
@@ -1067,6 +1077,9 @@ func (s *rpcServer) handlePTYDetach(req rpcRequest) rpcResponse {
 	sessionID, attachmentID, attachmentToken, badResp := parsePTYAttachmentIdentity(req, "pty.detach")
 	if badResp != nil {
 		return *badResp
+	}
+	if attachmentToken == "" {
+		return missingPTYAttachmentTokenResponse(req, "pty.detach")
 	}
 	if s.ptyHub == nil || !s.ptyHub.detachByID(sessionID, attachmentID, attachmentToken) {
 		return rpcResponse{
@@ -1207,6 +1220,17 @@ func rpcPTYAttachmentKey(attachment *wsPTYAttachment) string {
 		attachment.id,
 		attachment.clientToken,
 	)
+}
+
+func missingPTYAttachmentTokenResponse(req rpcRequest, method string) rpcResponse {
+	return rpcResponse{
+		ID: req.ID,
+		OK: false,
+		Error: &rpcError{
+			Code:    "invalid_params",
+			Message: method + " requires client_attachment_token",
+		},
+	}
 }
 
 func parseSessionAttachmentParams(req rpcRequest, method string) (sessionID string, attachmentID string, attachmentToken string, cols int, rows int, badResp *rpcResponse) {
