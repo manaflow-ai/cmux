@@ -437,6 +437,11 @@ struct SocketControlSettings {
             return fallback
         }
 
+        if shouldReserveStableSocketPath(bundleIdentifier: bundleIdentifier, isDebugBuild: isDebugBuild),
+           isStableReleaseSocketPath(override, currentUserID: currentUserID) {
+            return fallback
+        }
+
         if isTaggedDevBuild(bundleIdentifier: bundleIdentifier),
            !isTruthy(environment[allowSocketPathOverrideKey]),
            !pathsMatch(override, fallback) {
@@ -456,6 +461,21 @@ struct SocketControlSettings {
 
     private static func pathsMatch(_ lhs: String, _ rhs: String) -> Bool {
         (lhs as NSString).standardizingPath == (rhs as NSString).standardizingPath
+    }
+
+    private static func shouldReserveStableSocketPath(bundleIdentifier: String?, isDebugBuild: Bool) -> Bool {
+        if isDebugBuild { return true }
+        return normalizedBundleIdentifier(bundleIdentifier) != "com.cmuxterm.app"
+    }
+
+    private static func isStableReleaseSocketPath(_ path: String, currentUserID: uid_t) -> Bool {
+        [
+            stableDefaultSocketPath,
+            userScopedStableSocketPath(currentUserID: currentUserID),
+            legacyStableDefaultSocketPath,
+        ].contains { stablePath in
+            pathsMatch(path, stablePath)
+        }
     }
 
     static func defaultSocketPath(

@@ -4869,6 +4869,51 @@ final class TerminalControllerSocketListenerHealthTests: XCTestCase {
         )
     }
 
+    func testSocketPathAcceptsConnectionsForLiveUnixSocket() throws {
+        let path = makeTempSocketPath()
+        let listenerFD = try bindUnixSocket(at: path)
+        defer {
+            Darwin.close(listenerFD)
+            unlink(path)
+        }
+
+        let handled = acceptSingleClient(on: listenerFD) { _ in }
+
+        XCTAssertTrue(TerminalController.socketPathAcceptsConnections(path))
+        wait(for: [handled], timeout: 1.0)
+    }
+
+    func testSocketPathAcceptsConnectionsRejectsStaleSocketFile() throws {
+        let path = makeTempSocketPath()
+        let listenerFD = try bindUnixSocket(at: path)
+        Darwin.close(listenerFD)
+        defer { unlink(path) }
+
+        XCTAssertFalse(TerminalController.socketPathAcceptsConnections(path, timeoutMilliseconds: 20))
+    }
+
+    func testPrepareSocketPathForBindRejectsRegularFileWithoutDeletingIt() throws {
+        let path = makeTempSocketPath()
+        try "not-a-socket".write(toFile: path, atomically: true, encoding: .utf8)
+        defer { unlink(path) }
+
+        let failure = try XCTUnwrap(TerminalController.prepareSocketPathForBind(path))
+
+        XCTAssertEqual(failure.stage, "existing_path")
+        XCTAssertEqual(failure.errnoCode, EEXIST)
+        XCTAssertTrue(FileManager.default.fileExists(atPath: path))
+    }
+
+    func testPrepareSocketPathForBindRemovesStaleSocketFile() throws {
+        let path = makeTempSocketPath()
+        let listenerFD = try bindUnixSocket(at: path)
+        Darwin.close(listenerFD)
+        defer { unlink(path) }
+
+        XCTAssertNil(TerminalController.prepareSocketPathForBind(path))
+        XCTAssertFalse(FileManager.default.fileExists(atPath: path))
+    }
+
     private func makeTempSocketPath() -> String {
         "/tmp/cmux-socket-health-\(UUID().uuidString).sock"
     }

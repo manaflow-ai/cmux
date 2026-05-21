@@ -1070,8 +1070,12 @@ class TerminalController {
         if let errnoCode = ensureSocketParentDirectoryExists(path: path) {
             return .failure(path: path, stage: "create_directory", errnoCode: errnoCode)
         }
-        if unlink(path) != 0, errno != ENOENT {
-            return .failure(path: path, stage: "unlink", errnoCode: errno)
+        if let preparationFailure = prepareSocketPathForBind(path) {
+            return .failure(
+                path: path,
+                stage: preparationFailure.stage,
+                errnoCode: preparationFailure.errnoCode
+            )
         }
 
         guard let bindResult = bindUnixSocket(socket, path: path) else {
@@ -1089,6 +1093,61 @@ class TerminalController {
             stage: "stat_bound_path",
             errnoCode: identityResult.errnoCode ?? EIO
         )
+    }
+
+    nonisolated static func prepareSocketPathForBind(_ path: String) -> (stage: String, errnoCode: Int32)? {
+        var st = stat()
+        guard lstat(path, &st) == 0 else {
+            return errno == ENOENT ? nil : ("stat_existing_path", errno)
+        }
+        guard (st.st_mode & mode_t(S_IFMT)) == mode_t(S_IFSOCK) else {
+            return ("existing_path", EEXIST)
+        }
+        if socketPathAcceptsConnections(path) {
+            return ("bind", EADDRINUSE)
+        }
+        if unlink(path) != 0, errno != ENOENT {
+            return ("unlink", errno)
+        }
+        return nil
+    }
+
+    nonisolated static func socketPathAcceptsConnections(_ path: String, timeoutMilliseconds: Int32 = 150) -> Bool {
+        guard socketPathIdentity(at: path) != nil else { return false }
+        let fd = socket(AF_UNIX, SOCK_STREAM, 0)
+        guard fd >= 0 else { return false }
+        defer { close(fd) }
+
+        let originalFlags = fcntl(fd, F_GETFL, 0)
+        guard originalFlags >= 0 else { return false }
+        guard fcntl(fd, F_SETFL, originalFlags | O_NONBLOCK) >= 0 else { return false }
+        defer { _ = fcntl(fd, F_SETFL, originalFlags) }
+
+        guard var addr = unixSocketAddress(path: path) else { return false }
+        let result = withUnsafePointer(to: &addr) { ptr in
+            ptr.withMemoryRebound(to: sockaddr.self, capacity: 1) { sockaddrPtr in
+                connect(fd, sockaddrPtr, socklen_t(MemoryLayout<sockaddr_un>.size))
+            }
+        }
+        if result == 0 { return true }
+
+        let connectErrno = errno
+        guard connectErrno == EINPROGRESS || connectErrno == EAGAIN || connectErrno == EWOULDBLOCK else {
+            return false
+        }
+
+        var descriptor = pollfd(fd: fd, events: Int16(POLLOUT), revents: 0)
+        guard poll(&descriptor, 1, timeoutMilliseconds) > 0 else { return false }
+        guard (descriptor.revents & Int16(POLLOUT)) != 0 else { return false }
+
+        var socketError: Int32 = 0
+        var socketErrorLength = socklen_t(MemoryLayout<Int32>.size)
+        let optionResult = withUnsafeMutablePointer(to: &socketError) { errorPointer in
+            withUnsafeMutablePointer(to: &socketErrorLength) { lengthPointer in
+                getsockopt(fd, SOL_SOCKET, SO_ERROR, errorPointer, lengthPointer)
+            }
+        }
+        return optionResult == 0 && socketError == 0
     }
 
     private nonisolated static func ensureSocketParentDirectoryExists(path: String) -> Int32? {
