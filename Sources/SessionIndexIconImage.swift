@@ -1,6 +1,7 @@
 import AppKit
 import SwiftUI
 
+/// Renders a session agent icon from the asset catalog, with a stable symbol fallback.
 struct AgentIconImage: View, Equatable {
     let agent: SessionAgent
     let size: CGFloat
@@ -24,6 +25,7 @@ struct AgentIconImage: View, Equatable {
     }
 }
 
+/// Shared session-index section icon renderer used by sidebar rows and previews.
 struct SectionIconImage: View, Equatable {
     let icon: SectionIcon
     let size: CGFloat
@@ -43,6 +45,7 @@ struct SectionIconImage: View, Equatable {
     }
 }
 
+/// Renders SF Symbols through AppKit so lazy list rows get a concrete image layer.
 private struct SessionIndexTemplateSymbolImage: View, Equatable {
     let systemName: String
     let size: CGFloat
@@ -76,6 +79,7 @@ private enum SessionIndexIconResolver {
         case folder
     }
 
+    /// Returns a catalog image only when AppKit reports it as renderable.
     static func assetImage(named name: String) -> NSImage? {
         guard let image = NSImage(named: name), image.isRenderableForSessionIndex else {
             return nil
@@ -83,6 +87,7 @@ private enum SessionIndexIconResolver {
         return image
     }
 
+    /// Resolves a template symbol and falls back to Finder's folder icon when needed.
     static func templateSymbolImage(named name: String, fallback: Fallback?) -> NSImage? {
         if let image = NSImage(systemSymbolName: name, accessibilityDescription: nil),
            image.isRenderableForSessionIndex {
@@ -101,10 +106,12 @@ private enum SessionIndexIconResolver {
 }
 
 private extension NSImage {
+    /// Filters out empty AppKit images before handing them to SwiftUI.
     var isRenderableForSessionIndex: Bool {
         isValid && size.width > 0 && size.height > 0
     }
 
+    /// Copies before template mutation so shared cached AppKit images stay untouched.
     func sessionIndexTemplateCopy() -> NSImage {
         guard let image = copy() as? NSImage else {
             return self
