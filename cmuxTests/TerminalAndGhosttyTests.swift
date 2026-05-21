@@ -385,7 +385,7 @@ final class GhosttyPasteboardHelperTests: XCTestCase {
         let imagePath = try XCTUnwrap(cmuxPasteboardImagePathForTesting(pasteboard))
         defer { try? FileManager.default.removeItem(atPath: imagePath) }
 
-        XCTAssertTrue(imagePath.hasSuffix(".tiff"))
+        XCTAssertTrue(imagePath.hasSuffix(".png"))
         XCTAssertTrue(FileManager.default.fileExists(atPath: imagePath))
     }
 
@@ -417,7 +417,7 @@ final class GhosttyPasteboardHelperTests: XCTestCase {
         let imagePath = try XCTUnwrap(cmuxPasteboardImagePathForTesting(pasteboard))
         defer { try? FileManager.default.removeItem(atPath: imagePath) }
 
-        XCTAssertTrue(imagePath.hasSuffix(".tiff"))
+        XCTAssertTrue(imagePath.hasSuffix(".png"))
         XCTAssertTrue(FileManager.default.fileExists(atPath: imagePath))
     }
 

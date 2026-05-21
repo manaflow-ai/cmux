@@ -292,7 +292,6 @@ jobs:
               -clonedSourcePackagesDirPath "$SOURCE_PACKAGES_DIR" \
               -disableAutomaticPackageResolution \
               -destination "platform=macOS" \
-              -parallel-testing-enabled NO \
               -maximum-test-execution-time-allowance 180 \
               CMUX_SKIP_ZIG_BUILD=1 \
               "${ONLY_TESTING_ARGS[@]}" \

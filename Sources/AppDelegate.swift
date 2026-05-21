@@ -976,6 +976,22 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             .joined(separator: " | ")
     }
 
+    private func debugKeyboardEventCharacters(_ event: NSEvent?) -> String {
+        guard let event,
+              event.type == .keyDown || event.type == .keyUp || event.type == .flagsChanged else {
+            return ""
+        }
+        return event.charactersIgnoringModifiers ?? ""
+    }
+
+    private func debugKeyboardEventKeyCode(_ event: NSEvent?) -> String {
+        guard let event,
+              event.type == .keyDown || event.type == .keyUp || event.type == .flagsChanged else {
+            return "nil"
+        }
+        return String(event.keyCode)
+    }
+
     private func logWorkspaceCreationRouting(
         phase: String,
         source: String,
@@ -987,8 +1003,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
     ) {
         let eventWindowNumber = event?.window?.windowNumber ?? -1
         let eventNumber = event?.windowNumber ?? -1
-        let eventChars = event?.charactersIgnoringModifiers ?? ""
-        let eventKeyCode = event.map { String($0.keyCode) } ?? "nil"
+        let eventChars = debugKeyboardEventCharacters(event)
+        let eventKeyCode = debugKeyboardEventKeyCode(event)
         let keyWindowNumber = NSApp.keyWindow?.windowNumber ?? -1
         let mainWindowNumber = NSApp.mainWindow?.windowNumber ?? -1
         let ws = workspaceId.map { String($0.uuidString.prefix(8)) } ?? "nil"

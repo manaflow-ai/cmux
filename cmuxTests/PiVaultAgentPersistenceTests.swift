@@ -962,16 +962,7 @@ final class PiVaultAgentPersistenceTests: XCTestCase {
         try FileManager.default.createDirectory(at: tempDir, withIntermediateDirectories: true)
         defer { try? FileManager.default.removeItem(at: tempDir) }
 
-        let previousGrokHome = getenv("GROK_HOME").map { String(cString: $0) }
         let grokHome = tempDir.appendingPathComponent("grok-home", isDirectory: true)
-        setenv("GROK_HOME", grokHome.path, 1)
-        defer {
-            if let previousGrokHome {
-                setenv("GROK_HOME", previousGrokHome, 1)
-            } else {
-                unsetenv("GROK_HOME")
-            }
-        }
 
         let sessionsRoot = grokHome.appendingPathComponent("sessions", isDirectory: true)
         func writeHistory(cwd: String, sessionId: String, prompt: String) throws {
@@ -991,6 +982,10 @@ final class PiVaultAgentPersistenceTests: XCTestCase {
         try writeHistory(cwd: "/tmp/other grok search", sessionId: "other-session", prompt: "other")
 
         let store = SessionIndexStore()
+        var environment = ProcessInfo.processInfo.environment
+        environment["GROK_HOME"] = grokHome.path
+        store.sessionSearchEnvironmentForTesting = environment
+        store.sessionSearchHomeDirectoryForTesting = tempDir.path
         store.setCurrentDirectoryIfChanged("/tmp/current grok search")
         let outcome = await store.searchSessions(
             query: "",

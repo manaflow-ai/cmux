@@ -1985,12 +1985,7 @@ final class CLINotifyProcessIntegrationTests: XCTestCase {
         """.write(to: transcriptURL, atomically: true, encoding: .utf8)
 
         let serverHandled = startMockServer(listenerFD: listenerFD, state: state) { line in
-            if let data = line.data(using: .utf8),
-               let payload = try? JSONSerialization.jsonObject(with: data, options: []) as? [String: Any],
-               let id = payload["id"] as? String {
-                return self.v2Response(id: id, ok: true, result: [:])
-            }
-            return "OK"
+            self.codexHookMockResponse(line: line, surfaceId: surfaceId)
         }
 
         var environment = ProcessInfo.processInfo.environment
@@ -2060,12 +2055,7 @@ final class CLINotifyProcessIntegrationTests: XCTestCase {
         """.write(to: transcriptURL, atomically: true, encoding: .utf8)
 
         let serverHandled = startMockServer(listenerFD: listenerFD, state: state) { line in
-            if let data = line.data(using: .utf8),
-               let payload = try? JSONSerialization.jsonObject(with: data, options: []) as? [String: Any],
-               let id = payload["id"] as? String {
-                return self.v2Response(id: id, ok: true, result: [:])
-            }
-            return "OK"
+            self.codexHookMockResponse(line: line, surfaceId: surfaceId)
         }
 
         var environment = ProcessInfo.processInfo.environment
@@ -2136,12 +2126,7 @@ final class CLINotifyProcessIntegrationTests: XCTestCase {
         """.write(to: discoveredTranscriptURL, atomically: true, encoding: .utf8)
 
         let serverHandled = startMockServer(listenerFD: listenerFD, state: state) { line in
-            if let data = line.data(using: .utf8),
-               let payload = try? JSONSerialization.jsonObject(with: data, options: []) as? [String: Any],
-               let id = payload["id"] as? String {
-                return self.v2Response(id: id, ok: true, result: [:])
-            }
-            return "OK"
+            self.codexHookMockResponse(line: line, surfaceId: surfaceId)
         }
 
         var environment = ProcessInfo.processInfo.environment
@@ -2283,12 +2268,7 @@ final class CLINotifyProcessIntegrationTests: XCTestCase {
         }
 
         let serverHandled = startMockServer(listenerFD: listenerFD, state: state) { line in
-            if let data = line.data(using: .utf8),
-               let payload = try? JSONSerialization.jsonObject(with: data, options: []) as? [String: Any],
-               let id = payload["id"] as? String {
-                return self.v2Response(id: id, ok: true, result: [:])
-            }
-            return "OK"
+            self.codexHookMockResponse(line: line, surfaceId: surfaceId)
         }
 
         var environment = ProcessInfo.processInfo.environment
@@ -2344,12 +2324,7 @@ final class CLINotifyProcessIntegrationTests: XCTestCase {
         }
 
         let serverHandled = startMockServer(listenerFD: listenerFD, state: state) { line in
-            if let data = line.data(using: .utf8),
-               let payload = try? JSONSerialization.jsonObject(with: data, options: []) as? [String: Any],
-               let id = payload["id"] as? String {
-                return self.v2Response(id: id, ok: true, result: [:])
-            }
-            return "OK"
+            self.codexHookMockResponse(line: line, surfaceId: surfaceId)
         }
 
         var environment = ProcessInfo.processInfo.environment
@@ -2405,12 +2380,7 @@ final class CLINotifyProcessIntegrationTests: XCTestCase {
         }
 
         let serverHandled = startMockServer(listenerFD: listenerFD, state: state) { line in
-            if let data = line.data(using: .utf8),
-               let payload = try? JSONSerialization.jsonObject(with: data, options: []) as? [String: Any],
-               let id = payload["id"] as? String {
-                return self.v2Response(id: id, ok: true, result: [:])
-            }
-            return "OK"
+            self.codexHookMockResponse(line: line, surfaceId: surfaceId)
         }
 
         var environment = ProcessInfo.processInfo.environment
@@ -2466,12 +2436,7 @@ final class CLINotifyProcessIntegrationTests: XCTestCase {
         }
 
         let serverHandled = startMockServer(listenerFD: listenerFD, state: state) { line in
-            if let data = line.data(using: .utf8),
-               let payload = try? JSONSerialization.jsonObject(with: data, options: []) as? [String: Any],
-               let id = payload["id"] as? String {
-                return self.v2Response(id: id, ok: true, result: [:])
-            }
-            return "OK"
+            self.codexHookMockResponse(line: line, surfaceId: surfaceId)
         }
 
         var environment = ProcessInfo.processInfo.environment
@@ -2527,12 +2492,7 @@ final class CLINotifyProcessIntegrationTests: XCTestCase {
         }
 
         let serverHandled = startMockServer(listenerFD: listenerFD, state: state) { line in
-            if let data = line.data(using: .utf8),
-               let payload = try? JSONSerialization.jsonObject(with: data, options: []) as? [String: Any],
-               let id = payload["id"] as? String {
-                return self.v2Response(id: id, ok: true, result: [:])
-            }
-            return "OK"
+            self.codexHookMockResponse(line: line, surfaceId: surfaceId)
         }
 
         var environment = ProcessInfo.processInfo.environment
@@ -2602,12 +2562,7 @@ final class CLINotifyProcessIntegrationTests: XCTestCase {
         """.write(to: transcriptURL, atomically: true, encoding: .utf8)
 
         let serverHandled = startMockServer(listenerFD: listenerFD, state: state) { line in
-            if let data = line.data(using: .utf8),
-               let payload = try? JSONSerialization.jsonObject(with: data, options: []) as? [String: Any],
-               let id = payload["id"] as? String {
-                return self.v2Response(id: id, ok: true, result: [:])
-            }
-            return "OK"
+            self.codexHookMockResponse(line: line, surfaceId: surfaceId)
         }
 
         var environment = ProcessInfo.processInfo.environment
@@ -2679,12 +2634,7 @@ final class CLINotifyProcessIntegrationTests: XCTestCase {
         """.write(to: transcriptURL, atomically: true, encoding: .utf8)
 
         let serverHandled = startMockServer(listenerFD: listenerFD, state: state) { line in
-            if let data = line.data(using: .utf8),
-               let payload = try? JSONSerialization.jsonObject(with: data, options: []) as? [String: Any],
-               let id = payload["id"] as? String {
-                return self.v2Response(id: id, ok: true, result: [:])
-            }
-            return "OK"
+            self.codexHookMockResponse(line: line, surfaceId: surfaceId)
         }
 
         var environment = ProcessInfo.processInfo.environment
@@ -2753,12 +2703,7 @@ final class CLINotifyProcessIntegrationTests: XCTestCase {
         """.write(to: transcriptURL, atomically: true, encoding: .utf8)
 
         let serverHandled = startMockServer(listenerFD: listenerFD, state: state) { line in
-            if let data = line.data(using: .utf8),
-               let payload = try? JSONSerialization.jsonObject(with: data, options: []) as? [String: Any],
-               let id = payload["id"] as? String {
-                return self.v2Response(id: id, ok: true, result: [:])
-            }
-            return "OK"
+            self.codexHookMockResponse(line: line, surfaceId: surfaceId)
         }
 
         var environment = ProcessInfo.processInfo.environment
@@ -2828,12 +2773,7 @@ final class CLINotifyProcessIntegrationTests: XCTestCase {
         """.write(to: transcriptURL, atomically: true, encoding: .utf8)
 
         let serverHandled = startMockServer(listenerFD: listenerFD, state: state) { line in
-            if let data = line.data(using: .utf8),
-               let payload = try? JSONSerialization.jsonObject(with: data, options: []) as? [String: Any],
-               let id = payload["id"] as? String {
-                return self.v2Response(id: id, ok: true, result: [:])
-            }
-            return "OK"
+            self.codexHookMockResponse(line: line, surfaceId: surfaceId)
         }
 
         var environment = ProcessInfo.processInfo.environment
@@ -2898,12 +2838,7 @@ final class CLINotifyProcessIntegrationTests: XCTestCase {
         """.write(to: transcriptURL, atomically: true, encoding: .utf8)
 
         let serverHandled = startMockServer(listenerFD: listenerFD, state: state) { line in
-            if let data = line.data(using: .utf8),
-               let payload = try? JSONSerialization.jsonObject(with: data, options: []) as? [String: Any],
-               let id = payload["id"] as? String {
-                return self.v2Response(id: id, ok: true, result: [:])
-            }
-            return "OK"
+            self.codexHookMockResponse(line: line, surfaceId: surfaceId)
         }
 
         var environment = ProcessInfo.processInfo.environment
@@ -3735,6 +3670,31 @@ final class CLINotifyProcessIntegrationTests: XCTestCase {
         }
         let data = try? JSONSerialization.data(withJSONObject: payload, options: [])
         return String(data: data ?? Data("{}".utf8), encoding: .utf8) ?? "{}"
+    }
+
+    private func codexHookMockResponse(line: String, surfaceId: String) -> String {
+        guard let data = line.data(using: .utf8),
+              let payload = try? JSONSerialization.jsonObject(with: data, options: []) as? [String: Any],
+              let id = payload["id"] as? String else {
+            return "OK"
+        }
+        if (payload["method"] as? String) == "surface.list" {
+            return v2Response(
+                id: id,
+                ok: true,
+                result: [
+                    "surfaces": [
+                        [
+                            "id": surfaceId,
+                            "ref": "surface:1",
+                            "index": 0,
+                            "focused": true
+                        ]
+                    ]
+                ]
+            )
+        }
+        return v2Response(id: id, ok: true, result: [:])
     }
 
     private func codexMonitorActiveLeaseTurns(in root: URL) -> [String] {

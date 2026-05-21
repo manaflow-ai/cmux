@@ -1311,9 +1311,14 @@ extension CLINotifyProcessIntegrationRegressionTests {
                 },
                 "Expected Grok Stop fallback to notify for thread \(thread.index), saw \(stopCommands)"
             )
-            XCTAssertTrue(
-                stopCommands.contains { $0.contains("set_status grok Idle") },
-                "Expected Grok Stop for thread \(thread.index) to leave Grok idle, saw \(stopCommands)"
+            let didSetIdle = stopCommands.contains { $0.contains("set_status grok Idle") }
+            let shouldSetIdle = thread.index == threads.count
+            XCTAssertEqual(
+                didSetIdle,
+                shouldSetIdle,
+                shouldSetIdle
+                    ? "Expected final Grok Stop to leave Grok idle, saw \(stopCommands)"
+                    : "Expected Grok Stop for thread \(thread.index) to keep sibling session status active, saw \(stopCommands)"
             )
         }
 

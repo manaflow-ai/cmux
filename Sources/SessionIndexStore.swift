@@ -211,6 +211,11 @@ final class SessionIndexStore: ObservableObject {
         currentDirectory = next
     }
 
+#if DEBUG
+    var sessionSearchEnvironmentForTesting: [String: String]?
+    var sessionSearchHomeDirectoryForTesting: String?
+#endif
+
     @Published var grouping: SessionGrouping {
         didSet {
             guard grouping != oldValue else { return }
@@ -455,24 +460,48 @@ final class SessionIndexStore: ObservableObject {
         let registry: CmuxVaultAgentRegistry
     }
 
-    nonisolated private static func defaultAgentOrder(workingDirectory: String?) async -> LoadedAgentOrder {
+    nonisolated private static func defaultAgentOrder(
+        workingDirectory: String?,
+        environment: [String: String]? = nil,
+        homeDirectory: String? = nil
+    ) async -> LoadedAgentOrder {
         await Task.detached(priority: .utility) {
-            defaultAgentOrderSync(workingDirectory: workingDirectory)
+            defaultAgentOrderSync(
+                workingDirectory: workingDirectory,
+                environment: environment,
+                homeDirectory: homeDirectory
+            )
         }.value
     }
 
-    nonisolated private static func defaultAgentOrderSync(workingDirectory: String?) -> LoadedAgentOrder {
+    nonisolated private static func defaultAgentOrderSync(
+        workingDirectory: String?,
+        environment: [String: String]? = nil,
+        homeDirectory: String? = nil
+    ) -> LoadedAgentOrder {
         let builtInIDs = Set(SessionAgent.builtInCases.map(\.rawValue))
-        let registry = CmuxVaultAgentRegistry.load(workingDirectory: workingDirectory)
+        let registry = CmuxVaultAgentRegistry.load(
+            homeDirectory: homeDirectory ?? NSHomeDirectory(),
+            workingDirectory: workingDirectory,
+            environment: environment ?? ProcessInfo.processInfo.environment
+        )
         let agents = SessionAgent.builtInCases + registry.registrations.compactMap {
             builtInIDs.contains($0.id) ? nil : .registered(RegisteredSessionAgent(registration: $0))
         }
         return LoadedAgentOrder(agents: agents, registry: registry)
     }
 
-    nonisolated private static func vaultAgentRegistry(workingDirectory: String?) async -> CmuxVaultAgentRegistry {
+    nonisolated private static func vaultAgentRegistry(
+        workingDirectory: String?,
+        environment: [String: String]? = nil,
+        homeDirectory: String? = nil
+    ) async -> CmuxVaultAgentRegistry {
         await Task.detached(priority: .utility) {
-            CmuxVaultAgentRegistry.load(workingDirectory: workingDirectory)
+            CmuxVaultAgentRegistry.load(
+                homeDirectory: homeDirectory ?? NSHomeDirectory(),
+                workingDirectory: workingDirectory,
+                environment: environment ?? ProcessInfo.processInfo.environment
+            )
         }.value
     }
 
@@ -1130,6 +1159,13 @@ final class SessionIndexStore: ObservableObject {
         }
         #endif
         let entries: [SessionEntry]
+#if DEBUG
+        let searchEnvironment = sessionSearchEnvironmentForTesting
+        let searchHomeDirectory = sessionSearchHomeDirectoryForTesting
+#else
+        let searchEnvironment: [String: String]? = nil
+        let searchHomeDirectory: String? = nil
+#endif
         switch scope {
         case .agent(let a):
             let registry: CmuxVaultAgentRegistry
@@ -1137,12 +1173,18 @@ final class SessionIndexStore: ObservableObject {
             if case .registered = a {
                 let scopedCwd = currentDirectory?.trimmingCharacters(in: .whitespacesAndNewlines)
                 cwdFilter = scopedCwd?.isEmpty == false ? scopedCwd : nil
-                registry = await Self.vaultAgentRegistry(workingDirectory: cwdFilter)
+                registry = await Self.vaultAgentRegistry(
+                    workingDirectory: cwdFilter,
+                    environment: searchEnvironment,
+                    homeDirectory: searchHomeDirectory
+                )
             } else if a == .grok {
                 let scopedCwd = currentDirectory?.trimmingCharacters(in: .whitespacesAndNewlines)
                 cwdFilter = scopedCwd?.isEmpty == false ? scopedCwd : nil
                 registry = await Self.vaultAgentRegistry(
-                    workingDirectory: cwdFilter
+                    workingDirectory: cwdFilter,
+                    environment: searchEnvironment,
+                    homeDirectory: searchHomeDirectory
                 )
             } else {
                 cwdFilter = nil
@@ -1150,7 +1192,8 @@ final class SessionIndexStore: ObservableObject {
             }
             entries = await Self.searchAgent(
                 needle: needle, agent: a, cwdFilter: cwdFilter,
-                offset: offset, limit: limit, errorBag: bag, registry: registry
+                offset: offset, limit: limit, errorBag: bag, registry: registry,
+                environment: searchEnvironment, homeDirectory: searchHomeDirectory
             )
         case .directory(let path):
             let noFolderScope = (path == nil) || ((path ?? "").isEmpty)
@@ -1158,7 +1201,11 @@ final class SessionIndexStore: ObservableObject {
             // Multi-agent merge: fetch the union of (offset+limit) per agent so the
             // merge-sort can produce a stable global ordering, then slice.
             let target = offset + limit
-            let order = await Self.defaultAgentOrder(workingDirectory: cwdFilter)
+            let order = await Self.defaultAgentOrder(
+                workingDirectory: cwdFilter,
+                environment: searchEnvironment,
+                homeDirectory: searchHomeDirectory
+            )
             var merged = await Self.loadAgents(
                 order.agents,
                 registry: order.registry,
@@ -1166,7 +1213,9 @@ final class SessionIndexStore: ObservableObject {
                 cwdFilter: cwdFilter,
                 offset: 0,
                 limit: target,
-                errorBag: bag
+                errorBag: bag,
+                environment: searchEnvironment,
+                homeDirectory: searchHomeDirectory
             )
             if noFolderScope {
                 merged = merged.filter { ($0.cwd ?? "").isEmpty }
@@ -1184,7 +1233,9 @@ final class SessionIndexStore: ObservableObject {
         cwdFilter: String?,
         offset: Int,
         limit: Int,
-        errorBag: ErrorBag
+        errorBag: ErrorBag,
+        environment: [String: String]? = nil,
+        homeDirectory: String? = nil
     ) async -> [SessionEntry] {
         await withTaskGroup(of: [SessionEntry].self) { group in
             for agent in agents {
@@ -1196,7 +1247,9 @@ final class SessionIndexStore: ObservableObject {
                         offset: offset,
                         limit: limit,
                         errorBag: errorBag,
-                        registry: registry
+                        registry: registry,
+                        environment: environment,
+                        homeDirectory: homeDirectory
                     )
                 }
             }
@@ -1211,7 +1264,9 @@ final class SessionIndexStore: ObservableObject {
     nonisolated private static func timedAgent(
         needle: String, agent: SessionAgent, cwdFilter: String?,
         offset: Int, limit: Int, errorBag: ErrorBag,
-        registry: CmuxVaultAgentRegistry
+        registry: CmuxVaultAgentRegistry,
+        environment: [String: String]? = nil,
+        homeDirectory: String? = nil
     ) async -> [SessionEntry] {
         #if DEBUG
         let start = ProcessInfo.processInfo.systemUptime
@@ -1222,7 +1277,9 @@ final class SessionIndexStore: ObservableObject {
             offset: offset,
             limit: limit,
             errorBag: errorBag,
-            registry: registry
+            registry: registry,
+            environment: environment,
+            homeDirectory: homeDirectory
         )
         let ms = (ProcessInfo.processInfo.systemUptime - start) * 1000
         cmuxDebugLog("session.search.agent agent=\(agent.rawValue) ms=\(String(format: "%.0f", ms)) results=\(result.count) cwd=\(cwdFilter?.suffix(40) ?? "nil")")
@@ -1235,7 +1292,9 @@ final class SessionIndexStore: ObservableObject {
             offset: offset,
             limit: limit,
             errorBag: errorBag,
-            registry: registry
+            registry: registry,
+            environment: environment,
+            homeDirectory: homeDirectory
         )
         #endif
     }
@@ -1243,7 +1302,9 @@ final class SessionIndexStore: ObservableObject {
     nonisolated private static func searchAgent(
         needle: String, agent: SessionAgent, cwdFilter: String?,
         offset: Int, limit: Int, errorBag: ErrorBag,
-        registry: CmuxVaultAgentRegistry
+        registry: CmuxVaultAgentRegistry,
+        environment: [String: String]? = nil,
+        homeDirectory: String? = nil
     ) async -> [SessionEntry] {
         switch agent {
         case .claude: return await loadClaudeEntries(needle: needle, cwdFilter: cwdFilter, offset: offset, limit: limit)
@@ -1254,7 +1315,9 @@ final class SessionIndexStore: ObservableObject {
                 needle: needle,
                 cwdFilter: cwdFilter,
                 offset: offset,
-                limit: limit
+                limit: limit,
+                environment: environment ?? ProcessInfo.processInfo.environment,
+                homeDirectory: homeDirectory ?? NSHomeDirectory()
             )
         case .opencode: return loadOpenCodeEntries(needle: needle, cwdFilter: cwdFilter, offset: offset, limit: limit, errorBag: errorBag)
         case .rovodev: return loadRovoDevEntries(needle: needle, cwdFilter: cwdFilter, offset: offset, limit: limit, errorBag: errorBag)

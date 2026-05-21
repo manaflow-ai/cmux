@@ -33,7 +33,7 @@ if ! grep -Fq "Fatal output detected" "$OUTPUT_FILE"; then
   exit 1
 fi
 
-: >"$OUTPUT_FILE"
+: > "$OUTPUT_FILE"
 START_SECONDS="$(date +%s)"
 set +e
 python3 "$ROOT_DIR/.github/scripts/run-with-output-watchdog.py" \
@@ -74,7 +74,7 @@ if kill -0 "$LEAK_PID" 2>/dev/null; then
   exit 1
 fi
 
-: >"$OUTPUT_FILE"
+: > "$OUTPUT_FILE"
 START_SECONDS="$(date +%s)"
 set +e
 python3 "$ROOT_DIR/.github/scripts/run-with-output-watchdog.py" \
