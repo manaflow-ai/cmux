@@ -1543,6 +1543,10 @@ final class BrowserHistoryStore: ObservableObject {
     private let maxEntries: Int = 5000
     private let saveDebounceNanoseconds: UInt64 = 120_000_000
 
+    var isLoaded: Bool {
+        didLoad
+    }
+
     private struct SuggestionCandidate {
         let entry: Entry
         let urlLower: String

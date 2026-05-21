@@ -5003,6 +5003,45 @@ func openCmuxSettingsFileInEditor() {
     PreferredEditorSettings.open(url)
 }
 
+private enum SettingsScrollCoordinateSpace {
+    static let name = "SettingsScrollCoordinateSpace"
+}
+
+private enum SettingsLazyLoadTrigger: CaseIterable, Hashable {
+    case browserHistory
+    case browserImport
+}
+
+private struct SettingsLazyLoadFramePreferenceKey: PreferenceKey {
+    static var defaultValue: [SettingsLazyLoadTrigger: CGRect] = [:]
+
+    static func reduce(
+        value: inout [SettingsLazyLoadTrigger: CGRect],
+        nextValue: () -> [SettingsLazyLoadTrigger: CGRect]
+    ) {
+        value.merge(nextValue()) { _, newValue in newValue }
+    }
+}
+
+private struct SettingsLazyLoadMarker: View {
+    let trigger: SettingsLazyLoadTrigger
+
+    var body: some View {
+        GeometryReader { proxy in
+            Color.clear.preference(
+                key: SettingsLazyLoadFramePreferenceKey.self,
+                value: [trigger: proxy.frame(in: .named(SettingsScrollCoordinateSpace.name))]
+            )
+        }
+    }
+}
+
+private extension View {
+    func settingsLazyLoadTrigger(_ trigger: SettingsLazyLoadTrigger) -> some View {
+        background(SettingsLazyLoadMarker(trigger: trigger))
+    }
+}
+
 struct SettingsView: View {
     private let pickerColumnWidth: CGFloat = 196
     private let notificationSoundControlWidth: CGFloat = 280
@@ -5489,6 +5528,13 @@ struct SettingsView: View {
     }
 
     private var browserHistorySubtitle: String {
+        guard didLoadBrowserHistoryForSettings else {
+            return String(
+                localized: "settings.browser.history.subtitleLoading",
+                defaultValue: "Checking browsing history..."
+            )
+        }
+
         switch browserHistoryEntryCount {
         case 0:
             return String(localized: "settings.browser.history.subtitleEmpty", defaultValue: "No saved pages yet.")
@@ -5701,12 +5747,41 @@ struct SettingsView: View {
 
     private func prepareSettingsSectionIfNeeded(_ target: SettingsNavigationTarget) {
         switch target {
-        case .browser, .browserImport:
+        case .browser:
             loadBrowserHistoryForSettingsIfNeeded()
+        case .browserImport:
             refreshDetectedImportBrowsersIfNeeded()
         default:
             break
         }
+    }
+
+    private func handleSettingsLazyLoadFrames(
+        _ frames: [SettingsLazyLoadTrigger: CGRect],
+        viewportHeight: CGFloat
+    ) {
+        guard viewportHeight > 0 else { return }
+
+        for trigger in SettingsLazyLoadTrigger.allCases {
+            guard let frame = frames[trigger],
+                  Self.settingsLazyLoadFrameIsNearVisible(frame, viewportHeight: viewportHeight) else {
+                continue
+            }
+            switch trigger {
+            case .browserHistory:
+                loadBrowserHistoryForSettingsIfNeeded()
+            case .browserImport:
+                refreshDetectedImportBrowsersIfNeeded()
+            }
+        }
+    }
+
+    private static func settingsLazyLoadFrameIsNearVisible(
+        _ frame: CGRect,
+        viewportHeight: CGFloat
+    ) -> Bool {
+        let preloadPadding: CGFloat = 160
+        return frame.maxY >= -preloadPadding && frame.minY <= viewportHeight + preloadPadding
     }
 
     private func loadBrowserHistoryForSettingsIfNeeded() {
@@ -5801,9 +5876,10 @@ struct SettingsView: View {
     var body: some View {
         let _ = keyboardShortcutSettingsObserver.revision
         let _ = Self.validateBypassedSettingsConfigurationReviews()
-        ScrollViewReader { proxy in
-            ScrollView {
-                VStack(alignment: .leading, spacing: 14) {
+        GeometryReader { viewportProxy in
+            ScrollViewReader { proxy in
+                ScrollView {
+                    VStack(alignment: .leading, spacing: 14) {
                     SettingsSectionHeader(title: String(localized: "settings.section.account", defaultValue: "Account"))
                         .settingsSearchAnchor(SettingsSearchIndex.sectionID(for: .account))
                     SettingsCard {
@@ -7028,9 +7104,7 @@ struct SettingsView: View {
                             SettingsSearchIndex.settingID(for: .browserImport, idSuffix: "import-data")
                         ])
                         .accessibilityIdentifier("SettingsBrowserImportSection")
-                        .onAppear {
-                            refreshDetectedImportBrowsersIfNeeded()
-                        }
+                        .settingsLazyLoadTrigger(.browserImport)
                         .padding(.horizontal, 14)
                         .padding(.vertical, 10)
 
@@ -7061,8 +7135,9 @@ struct SettingsView: View {
                             }
                             .buttonStyle(.bordered)
                             .controlSize(.small)
-                            .disabled(browserHistoryEntryCount == 0)
+                            .disabled(!didLoadBrowserHistoryForSettings || browserHistoryEntryCount == 0)
                         }
+                        .settingsLazyLoadTrigger(.browserHistory)
                     }
 
                     GlobalHotkeySection()
@@ -7353,11 +7428,16 @@ struct SettingsView: View {
                     SettingsSearchHighlightState(anchorID: highlightedSearchAnchorID, token: searchHighlightToken, startedAt: searchHighlightStartedAt)
                 )
             }
+            .coordinateSpace(name: SettingsScrollCoordinateSpace.name)
+            .onPreferenceChange(SettingsLazyLoadFramePreferenceKey.self) { frames in
+                handleSettingsLazyLoadFrames(frames, viewportHeight: viewportProxy.size.height)
+            }
         .toggleStyle(.switch)
         .onAppear {
             notificationStore.refreshAuthorizationStatus()
             browserThemeMode = BrowserThemeSettings.mode(defaults: .standard).rawValue
             browserImportHintVariantRaw = BrowserImportHintSettings.variant(for: browserImportHintVariantRaw).rawValue
+            didLoadBrowserHistoryForSettings = BrowserHistoryStore.shared.isLoaded
             browserHistoryEntryCount = didLoadBrowserHistoryForSettings ? BrowserHistoryStore.shared.entries.count : 0
             browserInsecureHTTPAllowlistDraft = browserInsecureHTTPAllowlist
             reloadWorkspaceTabColorSettings()
@@ -7387,6 +7467,8 @@ struct SettingsView: View {
             }
         }
         .onReceive(BrowserHistoryStore.shared.$entries) { entries in
+            guard BrowserHistoryStore.shared.isLoaded else { return }
+            didLoadBrowserHistoryForSettings = true
             browserHistoryEntryCount = entries.count
         }
         .onReceive(NotificationCenter.default.publisher(for: UserDefaults.didChangeNotification)) { _ in
@@ -7443,6 +7525,7 @@ struct SettingsView: View {
             Button(String(localized: "common.ok", defaultValue: "OK"), role: .cancel) {}
         } message: {
             Text(notificationCustomSoundErrorAlertMessage)
+        }
         }
         }
     }
