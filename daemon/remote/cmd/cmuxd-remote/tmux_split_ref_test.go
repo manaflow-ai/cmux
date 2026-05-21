@@ -12,6 +12,7 @@ import (
 func startMockTmuxCompatSocket(t *testing.T) string {
 	t.Helper()
 	sockPath := makeShortUnixSocketPath(t)
+	cwd := t.TempDir()
 
 	ln, err := net.Listen("unix", sockPath)
 	if err != nil {
@@ -51,27 +52,34 @@ func startMockTmuxCompatSocket(t *testing.T) string {
 				case "workspace.list":
 					resp["result"] = map[string]any{
 						"workspaces": []map[string]any{{
-							"id":    "11111111-1111-4111-8111-111111111111",
-							"ref":   "workspace:1",
-							"index": 1,
-							"title": "demo",
+							"id":                "11111111-1111-4111-8111-111111111111",
+							"ref":               "workspace:1",
+							"index":             1,
+							"title":             "demo",
+							"current_directory": cwd,
 						}},
 					}
 				case "surface.list":
 					surfaces := []map[string]any{{
-						"id":      "44444444-4444-4444-8444-444444444444",
-						"ref":     "surface:1",
-						"focused": true,
-						"pane_id": "33333333-3333-4333-8333-333333333333",
-						"title":   "leader",
+						"id":                          "44444444-4444-4444-8444-444444444444",
+						"ref":                         "surface:1",
+						"focused":                     true,
+						"selected_in_pane":            true,
+						"pane_id":                     "33333333-3333-4333-8333-333333333333",
+						"pane_ref":                    "pane:1",
+						"title":                       "leader",
+						"requested_working_directory": cwd,
 					}}
 					if splitCreated {
 						surfaces = append(surfaces, map[string]any{
-							"id":      "77777777-7777-4777-8777-777777777777",
-							"ref":     "surface:2",
-							"focused": false,
-							"pane_id": "66666666-6666-4666-8666-666666666666",
-							"title":   "teammate",
+							"id":                          "77777777-7777-4777-8777-777777777777",
+							"ref":                         "surface:2",
+							"focused":                     false,
+							"selected_in_pane":            true,
+							"pane_id":                     "66666666-6666-4666-8666-666666666666",
+							"pane_ref":                    "pane:2",
+							"title":                       "teammate",
+							"requested_working_directory": cwd,
 						})
 					}
 					resp["result"] = map[string]any{"surfaces": surfaces}
@@ -86,18 +94,58 @@ func startMockTmuxCompatSocket(t *testing.T) string {
 					}
 				case "pane.list":
 					panes := []map[string]any{{
-						"id":    "33333333-3333-4333-8333-333333333333",
-						"ref":   "pane:1",
-						"index": 1,
+						"id":                  "33333333-3333-4333-8333-333333333333",
+						"ref":                 "pane:1",
+						"index":               1,
+						"focused":             true,
+						"columns":             120,
+						"rows":                40,
+						"cell_width_px":       10,
+						"cell_height_px":      20,
+						"pixel_frame":         map[string]any{"x": 0, "y": 0, "width": 1200, "height": 800},
+						"surface_ids":         []any{"44444444-4444-4444-8444-444444444444"},
+						"surface_refs":        []any{"surface:1"},
+						"surface_count":       1,
+						"selected_surface_id": "44444444-4444-4444-8444-444444444444",
 					}}
 					if splitCreated {
 						panes = append(panes, map[string]any{
-							"id":    "66666666-6666-4666-8666-666666666666",
-							"ref":   "pane:2",
-							"index": 2,
+							"id":                  "66666666-6666-4666-8666-666666666666",
+							"ref":                 "pane:2",
+							"index":               2,
+							"focused":             false,
+							"columns":             120,
+							"rows":                40,
+							"cell_width_px":       10,
+							"cell_height_px":      20,
+							"pixel_frame":         map[string]any{"x": 1200, "y": 0, "width": 1200, "height": 800},
+							"surface_ids":         []any{"77777777-7777-4777-8777-777777777777"},
+							"surface_refs":        []any{"surface:2"},
+							"surface_count":       1,
+							"selected_surface_id": "77777777-7777-4777-8777-777777777777",
 						})
 					}
-					resp["result"] = map[string]any{"panes": panes}
+					resp["result"] = map[string]any{
+						"panes":           panes,
+						"container_frame": map[string]any{"width": 1200, "height": 800},
+					}
+				case "pane.surfaces":
+					paneId, _ := params["pane_id"].(string)
+					surface := map[string]any{
+						"id":       "44444444-4444-4444-8444-444444444444",
+						"ref":      "surface:1",
+						"selected": true,
+						"focused":  true,
+					}
+					if paneId == "66666666-6666-4666-8666-666666666666" || paneId == "pane:2" {
+						surface = map[string]any{
+							"id":       "77777777-7777-4777-8777-777777777777",
+							"ref":      "surface:2",
+							"selected": true,
+							"focused":  false,
+						}
+					}
+					resp["result"] = map[string]any{"surfaces": []map[string]any{surface}}
 				case "surface.split":
 					if got, _ := params["surface_id"].(string); got != "44444444-4444-4444-8444-444444444444" {
 						resp["ok"] = false

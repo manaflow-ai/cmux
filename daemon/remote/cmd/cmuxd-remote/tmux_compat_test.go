@@ -3,6 +3,7 @@ package main
 import (
 	"os"
 	"path/filepath"
+	"regexp"
 	"strings"
 	"testing"
 )
@@ -177,6 +178,106 @@ func TestTmuxVersion(t *testing.T) {
 	})
 	if strings.TrimSpace(output) != "tmux 3.4" {
 		t.Errorf("version = %q, want %q", strings.TrimSpace(output), "tmux 3.4")
+	}
+}
+
+func TestTmuxDisplayReporterFormatFields(t *testing.T) {
+	origHome := os.Getenv("HOME")
+	origWorkspace := os.Getenv("CMUX_WORKSPACE_ID")
+	origSurface := os.Getenv("CMUX_SURFACE_ID")
+	origPane := os.Getenv("TMUX_PANE")
+	os.Setenv("HOME", t.TempDir())
+	os.Setenv("CMUX_WORKSPACE_ID", "workspace:1")
+	os.Setenv("CMUX_SURFACE_ID", "surface:1")
+	os.Setenv("TMUX_PANE", "%pane:1")
+	defer func() {
+		os.Setenv("HOME", origHome)
+		if origWorkspace != "" {
+			os.Setenv("CMUX_WORKSPACE_ID", origWorkspace)
+		} else {
+			os.Unsetenv("CMUX_WORKSPACE_ID")
+		}
+		if origSurface != "" {
+			os.Setenv("CMUX_SURFACE_ID", origSurface)
+		} else {
+			os.Unsetenv("CMUX_SURFACE_ID")
+		}
+		if origPane != "" {
+			os.Setenv("TMUX_PANE", origPane)
+		} else {
+			os.Unsetenv("TMUX_PANE")
+		}
+	}()
+
+	sockPath := startMockTmuxCompatSocket(t)
+	rc := &rpcContext{socketPath: sockPath}
+	fields := []string{
+		"session_id",
+		"session_name",
+		"window_index",
+		"window_id",
+		"pane_id",
+		"pane_width",
+		"pane_height",
+		"window_width",
+		"window_height",
+		"pane_current_path",
+		"pane_active",
+		"window_active",
+		"session_attached",
+	}
+	parts := make([]string, 0, len(fields))
+	for _, field := range fields {
+		parts = append(parts, field+"=#{"+field+"}")
+	}
+
+	output := captureStdout(t, func() {
+		if err := dispatchTmuxCommand(rc, "display-message", []string{
+			"-p",
+			"-F", strings.Join(parts, "\t"),
+			"-t", "%pane:1",
+		}); err != nil {
+			t.Fatalf("display-message: %v", err)
+		}
+	})
+
+	values := map[string]string{}
+	for _, part := range strings.Split(strings.TrimSpace(output), "\t") {
+		key, value, ok := strings.Cut(part, "=")
+		if !ok {
+			t.Fatalf("malformed field %q in output %q", part, output)
+		}
+		values[key] = value
+	}
+	for _, field := range fields {
+		if _, ok := values[field]; !ok {
+			t.Fatalf("missing field %q in output %q", field, output)
+		}
+	}
+
+	assertTmuxFieldMatch(t, values["session_id"], `^\$[0-9]+$`, "session_id")
+	if values["session_name"] != "cmux" {
+		t.Fatalf("session_name = %q, want cmux", values["session_name"])
+	}
+	assertTmuxFieldMatch(t, values["window_index"], `^[0-9]+$`, "window_index")
+	assertTmuxFieldMatch(t, values["window_id"], `^@[0-9]+$`, "window_id")
+	assertTmuxFieldMatch(t, values["pane_id"], `^%[0-9]+$`, "pane_id")
+	assertTmuxFieldMatch(t, values["pane_width"], `^[0-9]+$`, "pane_width")
+	assertTmuxFieldMatch(t, values["pane_height"], `^[0-9]+$`, "pane_height")
+	assertTmuxFieldMatch(t, values["window_width"], `^[0-9]+$`, "window_width")
+	assertTmuxFieldMatch(t, values["window_height"], `^[0-9]+$`, "window_height")
+	if !filepath.IsAbs(values["pane_current_path"]) {
+		t.Fatalf("pane_current_path = %q, want an absolute path", values["pane_current_path"])
+	}
+	assertTmuxFieldMatch(t, values["pane_active"], `^[01]$`, "pane_active")
+	assertTmuxFieldMatch(t, values["window_active"], `^[01]$`, "window_active")
+	assertTmuxFieldMatch(t, values["session_attached"], `^[01]$`, "session_attached")
+}
+
+func assertTmuxFieldMatch(t *testing.T, got string, pattern string, field string) {
+	t.Helper()
+	if !regexp.MustCompile(pattern).MatchString(got) {
+		t.Fatalf("%s = %q, want match %s", field, got, pattern)
 	}
 }
 
