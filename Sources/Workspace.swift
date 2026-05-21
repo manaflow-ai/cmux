@@ -4564,7 +4564,11 @@ final class WorkspaceRemotePTYBridgeServer {
                     }
                 }
                 if isComplete {
-                    self.close(detach: true)
+                    // TCP half-close means the CLI is done sending stdin, but still
+                    // expects PTY output until the remote session exits.
+                    if !self.isAttached {
+                        self.close(detach: false)
+                    }
                     return
                 }
                 if error != nil {
