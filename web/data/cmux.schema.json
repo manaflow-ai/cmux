@@ -665,6 +665,12 @@
           "default": "",
           "description": "Custom path to the ripgrep (rg) binary used by project search."
         },
+        "suppressSubagentNotifications": {
+          "type": "boolean",
+          "default": true,
+          "descriptionKey": "schemaDescriptions.automation.suppressSubagentNotifications",
+          "description": "Suppress visible completion notifications and status mutations from nested Codex or Claude child agents while keeping their events in Feed telemetry."
+        },
         "cursorIntegration": {
           "type": "boolean",
           "default": true,
