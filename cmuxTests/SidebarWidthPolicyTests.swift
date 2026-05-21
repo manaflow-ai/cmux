@@ -80,6 +80,23 @@ final class SidebarWidthPolicyTests: XCTestCase {
         )
     }
 
+    func testInterruptedSidebarDragSavesActualVisibleResize() throws {
+        XCTAssertEqual(
+            try XCTUnwrap(ContentView.completedInterruptedSidebarDragPreferredWidth(
+                startWidth: 220,
+                endWidth: 200
+            )),
+            200,
+            accuracy: 0.001
+        )
+        XCTAssertNil(
+            ContentView.completedInterruptedSidebarDragPreferredWidth(
+                startWidth: 180,
+                endWidth: 180
+            )
+        )
+    }
+
     func testRightSidebarClampAllowsWideExplorerOnLargeWindows() {
         XCTAssertEqual(
             ContentView.clampedRightSidebarWidth(900, availableWidth: 1600),
@@ -168,6 +185,23 @@ final class SidebarWidthPolicyTests: XCTestCase {
             )),
             350,
             accuracy: 0.001
+        )
+    }
+
+    func testInterruptedRightSidebarDragSavesActualVisibleResize() throws {
+        XCTAssertEqual(
+            try XCTUnwrap(ContentView.completedInterruptedRightSidebarDragPreferredWidth(
+                startWidth: 400,
+                endWidth: 350
+            )),
+            350,
+            accuracy: 0.001
+        )
+        XCTAssertNil(
+            ContentView.completedInterruptedRightSidebarDragPreferredWidth(
+                startWidth: 400,
+                endWidth: 400
+            )
         )
     }
 
