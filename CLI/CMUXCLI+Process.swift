@@ -72,8 +72,9 @@ enum CLIProcessRunner {
         do {
             try process.run()
         } catch {
-            stdoutPipe.fileHandleForReading.closeFile()
-            stderrPipe.fileHandleForReading.closeFile()
+            stdoutPipe.fileHandleForWriting.closeFile()
+            stderrPipe.fileHandleForWriting.closeFile()
+            stdinPipe?.fileHandleForWriting.closeFile()
             _ = stdoutFinished.wait(timeout: .now() + 0.5)
             _ = stderrFinished.wait(timeout: .now() + 0.5)
             return CLIProcessResult(status: 1, stdout: "", stderr: String(describing: error), timedOut: false)
