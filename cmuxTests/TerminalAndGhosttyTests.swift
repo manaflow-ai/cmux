@@ -5062,18 +5062,60 @@ final class TerminalControllerSocketListenerHealthTests: XCTestCase {
         XCTAssertFalse(FileManager.default.fileExists(atPath: path))
     }
 
+    func testStartupReclaimabilityAllowsMissingSocketWithoutLock() {
+        let path = makeTempSocketPath()
+        defer {
+            unlink(path)
+            unlink(path + ".lock")
+        }
+
+        XCTAssertTrue(TerminalController.socketPathCanBeReclaimedForStartup(path))
+    }
+
+    func testStartupReclaimabilityRejectsMissingSocketWithInvalidLock() throws {
+        let path = makeTempSocketPath()
+        let lockPath = path + ".lock"
+        let targetPath = path + ".target"
+        try "preserve me".write(toFile: targetPath, atomically: true, encoding: .utf8)
+        XCTAssertEqual(symlink(targetPath, lockPath), 0)
+        defer {
+            unlink(path)
+            unlink(lockPath)
+            unlink(targetPath)
+        }
+
+        XCTAssertFalse(TerminalController.socketPathCanBeReclaimedForStartup(path))
+        XCTAssertEqual(
+            try String(contentsOfFile: targetPath, encoding: .utf8),
+            "preserve me"
+        )
+    }
+
     @MainActor
     func testReservedStartupSocketPathFeedsActivePathBeforeListenerStarts() {
         TerminalController.shared.stop()
         defer { TerminalController.shared.stop() }
 
         let reservedPath = "/tmp/cmux-reserved-startup-\(UUID().uuidString).sock"
-        TerminalController.shared.reserveStartupSocketPath(reservedPath)
+        defer {
+            unlink(reservedPath)
+            unlink(reservedPath + ".lock")
+        }
+        XCTAssertEqual(TerminalController.shared.reserveStartupSocketPath(reservedPath), reservedPath)
 
         XCTAssertEqual(
             TerminalController.shared.activeSocketPath(preferredPath: "/tmp/cmux-preferred.sock"),
             reservedPath
         )
+        XCTAssertTrue(FileManager.default.fileExists(atPath: reservedPath + ".lock"))
+
+        TerminalController.shared.start(
+            tabManager: TabManager(),
+            socketPath: TerminalController.shared.activeSocketPath(preferredPath: "/tmp/cmux-preferred.sock"),
+            accessMode: .allowAll
+        )
+
+        XCTAssertTrue(TerminalController.socketPathAcceptsConnections(reservedPath))
     }
 
     @MainActor

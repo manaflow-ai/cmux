@@ -3426,9 +3426,6 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             preferredPath: config.path,
             stableDefaultSocketCanBeReclaimed: TerminalController.socketPathCanBeReclaimedForStartup
         )
-        guard (startupPath as NSString).standardizingPath != (config.path as NSString).standardizingPath else {
-            return
-        }
         TerminalController.shared.reserveStartupSocketPath(startupPath)
     }
 

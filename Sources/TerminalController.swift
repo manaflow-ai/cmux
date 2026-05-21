@@ -58,6 +58,7 @@ class TerminalController {
     private nonisolated(unsafe) var nextAcceptLoopGeneration: UInt64 = 0
     private nonisolated(unsafe) var pendingAcceptLoopRearmGeneration: UInt64?
     private nonisolated(unsafe) var reservedStartupSocketPath: String?
+    private nonisolated(unsafe) var reservedStartupSocketPathCanReplaceRefusedSocket = false
     private nonisolated(unsafe) var listenerStartInProgress = false
     private nonisolated(unsafe) var socketPathLockFD: Int32 = -1
     private nonisolated let listenerStateLock = NSLock()
@@ -333,19 +334,57 @@ class TerminalController {
         }
     }
 
-    nonisolated func reserveStartupSocketPath(_ path: String) {
+    @discardableResult
+    nonisolated func reserveStartupSocketPath(_ path: String) -> String {
+        var reservationPath = path
+        var reservationLockFD: Int32 = -1
+        var reservationCanReplaceRefusedSocket = false
+        let primaryLock = Self.acquireSocketPathLock(for: path)
+        if let fd = primaryLock.fd {
+            reservationLockFD = fd
+            reservationCanReplaceRefusedSocket = primaryLock.canReplaceRefusedSocket
+        } else if let failure = primaryLock.failure,
+                  let fallbackPath = Self.fallbackSocketPathAfterBindFailure(
+                      requestedPath: path,
+                      stage: failure.stage,
+                      errnoCode: failure.errnoCode
+                  ),
+                  fallbackPath != path {
+            reservationPath = fallbackPath
+            let fallbackLock = Self.acquireSocketPathLock(for: fallbackPath)
+            if let fd = fallbackLock.fd {
+                reservationLockFD = fd
+                reservationCanReplaceRefusedSocket = fallbackLock.canReplaceRefusedSocket
+            }
+        }
+
+        guard reservationLockFD >= 0 else {
+            return path
+        }
+
+        var didReserve = false
         withListenerState {
             guard !isRunning,
                   !acceptLoopAlive,
                   !listenerStartInProgress,
                   pendingAcceptLoopRearmGeneration == nil,
                   socketPathLockFD < 0,
+                  listenerReadSource == nil,
+                  socketPathMonitorSource == nil,
                   serverSocket < 0 else {
                 return
             }
-            socketPath = path
-            reservedStartupSocketPath = path
+            socketPath = reservationPath
+            reservedStartupSocketPath = reservationPath
+            reservedStartupSocketPathCanReplaceRefusedSocket = reservationCanReplaceRefusedSocket
+            socketPathLockFD = reservationLockFD
+            didReserve = true
         }
+        if didReserve {
+            return reservationPath
+        }
+        Self.releaseSocketPathLock(reservationLockFD)
+        return path
     }
 
     nonisolated func activeSocketPath(preferredPath: String) -> String {
@@ -1269,19 +1308,23 @@ class TerminalController {
     nonisolated static func socketPathCanBeReclaimedForStartup(_ path: String) -> Bool {
         switch socketPathProbeResult(path) {
         case .stale:
-            return true
+            return socketPathHasAvailableLock(path, requireReusableMarker: false, treatMissingLockAsAvailable: true)
         case .refused:
-            return socketPathHasAvailableReusableLockMarker(path)
+            return socketPathHasAvailableLock(path, requireReusableMarker: true, treatMissingLockAsAvailable: false)
         case .connected, .occupiedOrIndeterminate:
             return false
         }
     }
 
-    private nonisolated static func socketPathHasAvailableReusableLockMarker(_ path: String) -> Bool {
+    private nonisolated static func socketPathHasAvailableLock(
+        _ path: String,
+        requireReusableMarker: Bool,
+        treatMissingLockAsAvailable: Bool
+    ) -> Bool {
         let lockPath = socketPathLockPath(for: path)
-        let fd = open(lockPath, O_RDONLY | O_NOFOLLOW)
+        let fd = open(lockPath, O_RDWR | O_NOFOLLOW)
         guard fd >= 0 else {
-            return false
+            return treatMissingLockAsAvailable && errno == ENOENT
         }
         _ = fcntl(fd, F_SETFD, FD_CLOEXEC)
 
@@ -1296,7 +1339,10 @@ class TerminalController {
         defer {
             Self.releaseSocketPathLock(fd)
         }
-        return socketPathLockHasReusableMarker(fd)
+        if requireReusableMarker {
+            return socketPathLockHasReusableMarker(fd)
+        }
+        return true
     }
 
     private nonisolated func bindListenerSocketOnListenerQueue(
@@ -1413,6 +1459,8 @@ class TerminalController {
             (
                 isRunning: isRunning,
                 socketPath: self.socketPath,
+                reservedStartupSocketPath: reservedStartupSocketPath,
+                socketPathLockHeld: socketPathLockFD >= 0,
                 hasRetainedInactiveListenerState: !isRunning && (
                     pendingAcceptLoopRearmGeneration != nil ||
                         socketPathLockFD >= 0 ||
@@ -1430,7 +1478,10 @@ class TerminalController {
             return
         }
 
-        if existing.isRunning || existing.hasRetainedInactiveListenerState {
+        let canConsumeReservedStartupLock = !existing.isRunning
+            && existing.socketPathLockHeld
+            && existing.reservedStartupSocketPath == socketPath
+        if existing.isRunning || (existing.hasRetainedInactiveListenerState && !canConsumeReservedStartupLock) {
             stop()
         }
 
@@ -1439,9 +1490,19 @@ class TerminalController {
         var activeSocketPathCanReplaceRefusedSocket = false
         var activeBoundSocketPathIdentity: SocketPathIdentity?
         withListenerState {
+            if socketPathLockFD >= 0,
+               reservedStartupSocketPath == activeSocketPath,
+               !isRunning,
+               !acceptLoopAlive,
+               serverSocket < 0 {
+                activeSocketPathLockFD = socketPathLockFD
+                activeSocketPathCanReplaceRefusedSocket = reservedStartupSocketPathCanReplaceRefusedSocket
+                socketPathLockFD = -1
+            }
             self.socketPath = activeSocketPath
             boundSocketPathIdentity = nil
             reservedStartupSocketPath = nil
+            reservedStartupSocketPathCanReplaceRefusedSocket = false
             listenerStartInProgress = true
         }
         var listenerActivated = false
@@ -1479,6 +1540,9 @@ class TerminalController {
         }
 
         func acquireActiveSocketPathLock() -> SocketBindAttemptResult? {
+            if activeSocketPathLockFD >= 0 {
+                return nil
+            }
             let lock = Self.acquireSocketPathLock(for: activeSocketPath)
             if let fd = lock.fd {
                 activeSocketPathLockFD = fd
@@ -1888,6 +1952,7 @@ class TerminalController {
             acceptLoopAlive = false
             pendingAcceptLoopRearmGeneration = nil
             reservedStartupSocketPath = nil
+            reservedStartupSocketPathCanReplaceRefusedSocket = false
             listenerStartInProgress = false
             nextAcceptLoopGeneration &+= 1
             activeAcceptLoopGeneration = 0

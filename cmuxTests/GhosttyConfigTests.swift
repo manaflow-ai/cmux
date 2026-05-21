@@ -2872,6 +2872,26 @@ final class SocketControlSettingsTests: XCTestCase {
         XCTAssertEqual(path, SocketControlSettings.userScopedStableSocketPath(currentUserID: 501))
     }
 
+    func testInitialStableLaunchFallsBackToUserScopedSocketWhenMissingStablePathCannotBeReserved() {
+        let path = SocketControlSettings.initialSocketPathBeforeListenerStart(
+            preferredPath: SocketControlSettings.stableDefaultSocketPath,
+            bundleIdentifier: "com.cmuxterm.app",
+            isDebugBuild: false,
+            currentUserID: 501,
+            probeStableDefaultPathEntry: { _ in .missing },
+            stableDefaultSocketAcceptsConnections: { _ in
+                XCTFail("A missing stable socket should not be probed for liveness")
+                return true
+            },
+            stableDefaultSocketCanBeReclaimed: { socketPath in
+                XCTAssertEqual(socketPath, SocketControlSettings.stableDefaultSocketPath)
+                return false
+            }
+        )
+
+        XCTAssertEqual(path, SocketControlSettings.userScopedStableSocketPath(currentUserID: 501))
+    }
+
     func testInitialSocketPathDoesNotProbeForTaggedDebugBuild() {
         let debugPath = "/tmp/cmux-debug-tag.sock"
         let path = SocketControlSettings.initialSocketPathBeforeListenerStart(
