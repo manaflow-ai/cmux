@@ -492,11 +492,11 @@ final class CmuxSettingsFileStore {
         snapshot: inout ResolvedSettingsSnapshot
     ) {
         if let raw = jsonString(section["style"]) {
-            guard SidebarWorkspaceListStyle(rawValue: raw) != nil else {
+            if SidebarWorkspaceListStyle(rawValue: raw) == nil {
                 logInvalid("sidebar.style", sourcePath: sourcePath)
-                return
+            } else {
+                snapshot.managedUserDefaults[SidebarWorkspaceListStyleSettings.key] = .string(raw)
             }
-            snapshot.managedUserDefaults[SidebarWorkspaceListStyleSettings.key] = .string(raw)
         }
         if let value = jsonBool(section["hideAllDetails"]) {
             snapshot.managedUserDefaults[SidebarWorkspaceDetailSettings.hideAllDetailsKey] = .bool(value)

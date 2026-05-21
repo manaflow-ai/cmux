@@ -804,6 +804,45 @@ final class KeyboardShortcutSettingsFileStoreStartupTests: XCTestCase {
         }
     }
 
+    func testSettingsFileStoreContinuesSidebarParsingAfterInvalidStyle() throws {
+        let defaults = UserDefaults.standard
+        let styleKey = SidebarWorkspaceListStyleSettings.key
+        let hideDetailsKey = SidebarWorkspaceDetailSettings.hideAllDetailsKey
+
+        try preservingDefaults(keys: [styleKey, hideDetailsKey, settingsFileBackupsDefaultsKey, importedManagedDefaultsKey]) {
+            defaults.removeObject(forKey: styleKey)
+            defaults.removeObject(forKey: hideDetailsKey)
+            defaults.removeObject(forKey: settingsFileBackupsDefaultsKey)
+            defaults.removeObject(forKey: importedManagedDefaultsKey)
+
+            let directoryURL = try makeTemporaryDirectory()
+            defer { try? FileManager.default.removeItem(at: directoryURL) }
+
+            let settingsFileURL = directoryURL.appendingPathComponent("cmux.json", isDirectory: false)
+            try writeSettingsFile(
+                """
+                {
+                  "sidebar": {
+                    "style": "grid",
+                    "hideAllDetails": true
+                  }
+                }
+                """,
+                to: settingsFileURL
+            )
+
+            _ = KeyboardShortcutSettingsFileStore(
+                primaryPath: settingsFileURL.path,
+                fallbackPath: nil,
+                additionalFallbackPaths: [],
+                startWatching: false
+            )
+
+            XCTAssertNil(defaults.string(forKey: styleKey))
+            XCTAssertEqual(defaults.object(forKey: hideDetailsKey) as? Bool, true)
+        }
+    }
+
     func testSettingsFileStoreAppliesAutomationRipgrepBinaryPath() throws {
         let defaults = UserDefaults.standard
         let key = "ripgrepCustomBinaryPath"
