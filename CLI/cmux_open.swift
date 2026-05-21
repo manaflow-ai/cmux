@@ -95,8 +95,15 @@ extension CMUXCLI {
                 var params: [String: Any] = ["url": url, "focus": focus]
                 if let windowHandle { params["window_id"] = windowHandle }
                 if let workspaceHandle { params["workspace_id"] = workspaceHandle }
-                if let surfaceHandle { params["surface_id"] = surfaceHandle }
-                let payload = try client.sendV2(method: "browser.open_split", params: params)
+                let payload: [String: Any]
+                if let paneHandle {
+                    params["type"] = "browser"
+                    params["pane_id"] = paneHandle
+                    payload = try client.sendV2(method: "surface.create", params: params)
+                } else {
+                    if let surfaceHandle { params["surface_id"] = surfaceHandle }
+                    payload = try client.sendV2(method: "browser.open_split", params: params)
+                }
                 payloads.append(["kind": "url", "payload": payload, "url": url])
                 urlCount += 1
             }
@@ -193,7 +200,15 @@ extension CMUXCLI {
         if isDir.boolValue {
             return .directory(resolved)
         }
+        if isHTMLFilePath(resolved) {
+            return .url(URL(fileURLWithPath: resolved).absoluteString)
+        }
         return .file(resolved)
+    }
+
+    private func isHTMLFilePath(_ path: String) -> Bool {
+        let pathExtension = URL(fileURLWithPath: path).pathExtension.lowercased()
+        return pathExtension == "html" || pathExtension == "htm"
     }
 
     func openSubcommandUsage() -> String {
@@ -201,6 +216,7 @@ extension CMUXCLI {
         Usage: cmux open <path-or-url>... [options]
 
         Open files, directories, or URLs in cmux.
+        HTML files and web URLs open in browser tabs.
         Markdown files open in markdown preview tabs; other files open in file preview tabs.
         Multiple files open as tabs in the same target pane.
 

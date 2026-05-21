@@ -120,6 +120,108 @@ final class CMUXOpenCommandTests: XCTestCase {
         XCTAssertEqual(state.commands.compactMap { Self.v2Payload(from: $0)?["method"] as? String }, ["file.open", "workspace.create"])
     }
 
+    func testOpenCommandRoutesLocalHTMLFileToBrowser() throws {
+        let cliPath = try bundledCLIPath()
+        let socketPath = makeSocketPath("open-html")
+        let listenerFD = try bindUnixSocket(at: socketPath)
+        let rootURL = FileManager.default.temporaryDirectory
+            .appendingPathComponent(UUID().uuidString, isDirectory: true)
+        let fileURL = rootURL.appendingPathComponent("preview page.HTML")
+        try FileManager.default.createDirectory(at: rootURL, withIntermediateDirectories: true)
+        try "<!doctype html><title>Preview</title>\n".write(to: fileURL, atomically: true, encoding: .utf8)
+        let state = MockSocketServerState()
+
+        defer {
+            Darwin.close(listenerFD)
+            unlink(socketPath)
+            try? FileManager.default.removeItem(at: rootURL)
+        }
+
+        let serverHandled = startMockServer(listenerFD: listenerFD, state: state) { line in
+            guard let payload = Self.v2Payload(from: line),
+                  let id = payload["id"] as? String,
+                  let method = payload["method"] as? String else {
+                return Self.v2Response(id: "unknown", ok: false, error: ["code": "unexpected"])
+            }
+
+            let params = payload["params"] as? [String: Any] ?? [:]
+            guard method == "browser.open_split",
+                  params["url"] as? String == fileURL.absoluteString,
+                  params["focus"] as? Bool == true else {
+                return Self.v2Response(id: id, ok: false, error: ["code": "unexpected", "message": method])
+            }
+            return Self.v2Response(
+                id: id,
+                ok: true,
+                result: ["surface_id": "browser-surface-id", "pane_id": "pane-id", "created_split": true]
+            )
+        }
+
+        let result = runCLI(
+            cliPath: cliPath,
+            socketPath: socketPath,
+            arguments: ["open", fileURL.path]
+        )
+
+        wait(for: [serverHandled], timeout: 5)
+        XCTAssertFalse(result.timedOut, result.stderr)
+        XCTAssertEqual(result.status, 0, result.stderr)
+        XCTAssertEqual(result.stdout, "OK urls=1\n")
+        XCTAssertEqual(state.commands.compactMap { Self.v2Payload(from: $0)?["method"] as? String }, ["browser.open_split"])
+    }
+
+    func testOpenCommandRoutesLocalHTMLFileToExplicitPaneBrowserSurface() throws {
+        let cliPath = try bundledCLIPath()
+        let socketPath = makeSocketPath("open-html-pane")
+        let listenerFD = try bindUnixSocket(at: socketPath)
+        let rootURL = FileManager.default.temporaryDirectory
+            .appendingPathComponent(UUID().uuidString, isDirectory: true)
+        let fileURL = rootURL.appendingPathComponent("index.htm")
+        try FileManager.default.createDirectory(at: rootURL, withIntermediateDirectories: true)
+        try "<!doctype html><title>Pane Preview</title>\n".write(to: fileURL, atomically: true, encoding: .utf8)
+        let state = MockSocketServerState()
+
+        defer {
+            Darwin.close(listenerFD)
+            unlink(socketPath)
+            try? FileManager.default.removeItem(at: rootURL)
+        }
+
+        let serverHandled = startMockServer(listenerFD: listenerFD, state: state) { line in
+            guard let payload = Self.v2Payload(from: line),
+                  let id = payload["id"] as? String,
+                  let method = payload["method"] as? String else {
+                return Self.v2Response(id: "unknown", ok: false, error: ["code": "unexpected"])
+            }
+
+            let params = payload["params"] as? [String: Any] ?? [:]
+            guard method == "surface.create",
+                  params["type"] as? String == "browser",
+                  params["pane_id"] as? String == "pane:2",
+                  params["url"] as? String == fileURL.absoluteString,
+                  params["focus"] as? Bool == false else {
+                return Self.v2Response(id: id, ok: false, error: ["code": "unexpected", "message": method])
+            }
+            return Self.v2Response(
+                id: id,
+                ok: true,
+                result: ["surface_id": "browser-surface-id", "pane_id": "pane:2", "type": "browser"]
+            )
+        }
+
+        let result = runCLI(
+            cliPath: cliPath,
+            socketPath: socketPath,
+            arguments: ["open", fileURL.path, "--pane", "pane:2", "--no-focus"]
+        )
+
+        wait(for: [serverHandled], timeout: 5)
+        XCTAssertFalse(result.timedOut, result.stderr)
+        XCTAssertEqual(result.status, 0, result.stderr)
+        XCTAssertEqual(result.stdout, "OK urls=1\n")
+        XCTAssertEqual(state.commands.compactMap { Self.v2Payload(from: $0)?["method"] as? String }, ["surface.create"])
+    }
+
     func testMarkdownOpenCommandUsesMarkdownOpenEndpoint() throws {
         let cliPath = try bundledCLIPath()
         let socketPath = makeSocketPath("markdown-open")
