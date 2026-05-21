@@ -4989,6 +4989,7 @@ final class TerminalControllerSocketListenerHealthTests: XCTestCase {
 
         XCTAssertTrue(FileManager.default.fileExists(atPath: path))
         XCTAssertTrue(FileManager.default.fileExists(atPath: path + ".lock"))
+        XCTAssertFalse(TerminalController.socketPathCanBeReclaimedForStartup(path))
         TerminalController.shared.start(
             tabManager: TabManager(),
             socketPath: path,
@@ -5019,6 +5020,7 @@ final class TerminalControllerSocketListenerHealthTests: XCTestCase {
             unlink(path)
             unlink(path + ".lock")
         }
+        XCTAssertTrue(TerminalController.socketPathCanBeReclaimedForStartup(path))
 
         TerminalController.shared.start(
             tabManager: TabManager(),

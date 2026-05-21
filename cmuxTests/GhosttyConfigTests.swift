@@ -2848,10 +2848,28 @@ final class SocketControlSettingsTests: XCTestCase {
             isDebugBuild: false,
             currentUserID: 501,
             probeStableDefaultPathEntry: { _ in .socket(ownerUserID: 501) },
-            stableDefaultSocketAcceptsConnections: { _ in false }
+            stableDefaultSocketAcceptsConnections: { _ in false },
+            stableDefaultSocketCanBeReclaimed: { _ in true }
         )
 
         XCTAssertEqual(path, SocketControlSettings.stableDefaultSocketPath)
+    }
+
+    func testInitialStableLaunchFallsBackToUserScopedSocketWhenSameUserStablePathCannotBeReclaimed() {
+        let path = SocketControlSettings.initialSocketPathBeforeListenerStart(
+            preferredPath: SocketControlSettings.stableDefaultSocketPath,
+            bundleIdentifier: "com.cmuxterm.app",
+            isDebugBuild: false,
+            currentUserID: 501,
+            probeStableDefaultPathEntry: { _ in .socket(ownerUserID: 501) },
+            stableDefaultSocketAcceptsConnections: { _ in false },
+            stableDefaultSocketCanBeReclaimed: { socketPath in
+                XCTAssertEqual(socketPath, SocketControlSettings.stableDefaultSocketPath)
+                return false
+            }
+        )
+
+        XCTAssertEqual(path, SocketControlSettings.userScopedStableSocketPath(currentUserID: 501))
     }
 
     func testInitialSocketPathDoesNotProbeForTaggedDebugBuild() {

@@ -465,7 +465,8 @@ struct SocketControlSettings {
         isDebugBuild: Bool = SocketControlSettings.isDebugBuild,
         currentUserID: uid_t = getuid(),
         probeStableDefaultPathEntry: (String) -> StableDefaultSocketPathEntry = inspectStableDefaultSocketPathEntry,
-        stableDefaultSocketAcceptsConnections: (String) -> Bool = socketPathAcceptsConnections
+        stableDefaultSocketAcceptsConnections: (String) -> Bool = socketPathAcceptsConnections,
+        stableDefaultSocketCanBeReclaimed: (String) -> Bool = { _ in true }
     ) -> String {
         guard !isDebugBuild,
               normalizedBundleIdentifier(bundleIdentifier) == "com.cmuxterm.app",
@@ -479,6 +480,10 @@ struct SocketControlSettings {
         }
 
         if stableDefaultSocketAcceptsConnections(stableDefaultSocketPath) {
+            return userScopedStableSocketPath(currentUserID: currentUserID)
+        }
+
+        if !stableDefaultSocketCanBeReclaimed(stableDefaultSocketPath) {
             return userScopedStableSocketPath(currentUserID: currentUserID)
         }
 

@@ -1266,6 +1266,39 @@ class TerminalController {
         return nil
     }
 
+    nonisolated static func socketPathCanBeReclaimedForStartup(_ path: String) -> Bool {
+        switch socketPathProbeResult(path) {
+        case .stale:
+            return true
+        case .refused:
+            return socketPathHasAvailableReusableLockMarker(path)
+        case .connected, .occupiedOrIndeterminate:
+            return false
+        }
+    }
+
+    private nonisolated static func socketPathHasAvailableReusableLockMarker(_ path: String) -> Bool {
+        let lockPath = socketPathLockPath(for: path)
+        let fd = open(lockPath, O_RDONLY | O_NOFOLLOW)
+        guard fd >= 0 else {
+            return false
+        }
+        _ = fcntl(fd, F_SETFD, FD_CLOEXEC)
+
+        guard validateSocketPathLockFile(fd) == nil else {
+            close(fd)
+            return false
+        }
+        guard flock(fd, LOCK_EX | LOCK_NB) == 0 else {
+            close(fd)
+            return false
+        }
+        defer {
+            Self.releaseSocketPathLock(fd)
+        }
+        return socketPathLockHasReusableMarker(fd)
+    }
+
     private nonisolated func bindListenerSocketOnListenerQueue(
         _ socket: Int32,
         path: String,

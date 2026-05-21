@@ -3423,7 +3423,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
     private func reserveInitialSocketPathIfNeeded() {
         guard let config = socketListenerConfigurationIfEnabled() else { return }
         let startupPath = SocketControlSettings.initialSocketPathBeforeListenerStart(
-            preferredPath: config.path
+            preferredPath: config.path,
+            stableDefaultSocketCanBeReclaimed: TerminalController.socketPathCanBeReclaimedForStartup
         )
         guard (startupPath as NSString).standardizingPath != (config.path as NSString).standardizingPath else {
             return
