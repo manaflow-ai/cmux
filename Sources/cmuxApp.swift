@@ -7,7 +7,7 @@ import UniformTypeIdentifiers
 struct cmuxApp: App {
     @StateObject private var tabManager: TabManager
     @StateObject private var notificationStore = TerminalNotificationStore.shared
-    @StateObject private var closedItemHistoryStore = ClosedItemHistoryStore.shared
+    @StateObject var closedItemHistoryStore = ClosedItemHistoryStore.shared
     @StateObject private var sidebarState = SidebarState()
     @StateObject private var keyboardShortcutSettingsObserver = KeyboardShortcutSettingsObserver.shared
     @AppStorage(AppearanceSettings.appearanceModeKey) private var appearanceMode = AppearanceSettings.defaultMode.rawValue
@@ -16,7 +16,7 @@ struct cmuxApp: App {
     private var showSidebarDevBuildBanner = DevBuildBannerDebugSettings.defaultShowSidebarBanner
     @AppStorage(SocketControlSettings.appStorageKey) private var socketControlMode = SocketControlSettings.defaultMode.rawValue
     @AppStorage(BrowserToolbarAccessorySpacingDebugSettings.key) private var browserToolbarAccessorySpacingRaw = BrowserToolbarAccessorySpacingDebugSettings.defaultSpacing
-    @State private var focusHistoryMenuRevision: UInt64 = 0
+    @StateObject var focusHistoryMenuInvalidator = FocusHistoryMenuInvalidator()
     @NSApplicationDelegateAdaptor(AppDelegate.self) private var appDelegate
     @Environment(\.openWindow) private var openWindow
 
@@ -230,12 +230,6 @@ struct cmuxApp: App {
                 }
                 .onChange(of: socketControlMode) { _ in
                     updateSocketController()
-                }
-                .onReceive(NotificationCenter.default.publisher(for: .tabManagerFocusHistoryRevisionDidChange)) { _ in
-                    invalidateFocusHistoryMenuState()
-                }
-                .onReceive(NotificationCenter.default.publisher(for: NSWindow.didBecomeKeyNotification)) { _ in
-                    invalidateFocusHistoryMenuState()
                 }
         }
         .windowStyle(.hiddenTitleBar)
@@ -660,148 +654,6 @@ struct cmuxApp: App {
     }
 
     @CommandsBuilder
-    private var historyCommands: some Commands {
-        CommandMenu(String(localized: "menu.history.title", defaultValue: "History")) {
-            let historyTabManager = activeTabManager
-            let recentlyFocusedSnapshot = recentlyFocusedMenuSnapshot(manager: historyTabManager)
-            let recentlyClosedSnapshot = recentlyClosedMenuSnapshot
-
-            splitCommandButton(title: String(localized: "menu.history.focusBack", defaultValue: "Focus Back"), shortcut: menuShortcut(for: .focusHistoryBack)) {
-                historyTabManager.navigateBack()
-            }
-            .disabled(!canNavigateFocusHistoryBack)
-
-            splitCommandButton(title: String(localized: "menu.history.focusForward", defaultValue: "Focus Forward"), shortcut: menuShortcut(for: .focusHistoryForward)) {
-                historyTabManager.navigateForward()
-            }
-            .disabled(!canNavigateFocusHistoryForward)
-
-            Divider()
-
-            recentlyFocusedMenuSection(
-                manager: historyTabManager,
-                snapshot: recentlyFocusedSnapshot
-            )
-
-            Divider()
-
-            splitCommandButton(title: String(localized: "menu.history.reopenLastClosed", defaultValue: "Reopen Last Closed"), shortcut: menuShortcut(for: .reopenClosedBrowserPanel)) {
-                if AppDelegate.shared?.reopenMostRecentlyClosedItem(preferredTabManager: historyTabManager) != true {
-                    NSSound.beep()
-                }
-            }
-
-            recentlyClosedMenuSection(
-                manager: historyTabManager,
-                snapshot: recentlyClosedSnapshot
-            )
-
-            openFullHistoryButton(manager: historyTabManager)
-
-            Divider()
-
-            splitCommandButton(title: String(localized: "menu.file.restorePreviousAppLaunch", defaultValue: "Restore Previous Launch"), shortcut: menuShortcut(for: .reopenPreviousSession)) {
-                if AppDelegate.shared?.reopenPreviousSession() != true {
-                    NSSound.beep()
-                }
-            }
-        }
-    }
-
-    @ViewBuilder
-    private func recentlyFocusedMenuSection(
-        manager: TabManager,
-        snapshot: FocusHistoryMenuSnapshot
-    ) -> some View {
-        Button(historyMenuSectionTitle(
-            title: String(localized: "menu.history.recentlyFocused", defaultValue: "Recently Focused"),
-            subtitle: String(localized: "menu.history.recentlyFocused.subtitle", defaultValue: "Most recent focus targets")
-        )) {}
-            .disabled(true)
-
-        if snapshot.items.isEmpty {
-            Button(String(localized: "menu.history.noFocusHistory", defaultValue: "No Focus History")) {}
-                .disabled(true)
-        } else {
-            ForEach(snapshot.items, id: \.historyIndex) { item in
-                Button(FocusHistoryMenuFormatter.menuTitle(for: item)) {
-                    if !manager.navigateToFocusHistoryMenuItem(item) {
-                        NSSound.beep()
-                    }
-                }
-                .disabled(!item.isNavigable)
-            }
-
-            if snapshot.isLimited {
-                openFullHistoryButton(
-                    title: String(localized: "menu.history.showFullFocusHistory", defaultValue: "Show Full History"),
-                    manager: manager
-                )
-            }
-        }
-    }
-
-    @ViewBuilder
-    private func recentlyClosedMenuSection(
-        manager: TabManager,
-        snapshot: ClosedItemHistoryMenuSnapshot
-    ) -> some View {
-        Button(historyMenuSectionTitle(
-            title: String(localized: "menu.history.recentlyClosed", defaultValue: "Recently Closed"),
-            subtitle: String(localized: "menu.history.recentlyClosed.subtitle", defaultValue: "Tabs, workspaces, and windows")
-        )) {}
-            .disabled(true)
-
-        if snapshot.items.isEmpty {
-            Button(String(localized: "menu.history.recentlyClosed.empty", defaultValue: "No Recently Closed Items")) {}
-                .disabled(true)
-        } else {
-            ForEach(snapshot.items) { item in
-                Button(item.menuTitle) {
-                    if AppDelegate.shared?.reopenClosedHistoryItem(
-                        id: item.id,
-                        preferredTabManager: manager
-                    ) != true {
-                        NSSound.beep()
-                    }
-                }
-            }
-
-            if snapshot.isLimited {
-                openFullHistoryButton(
-                    title: String(localized: "menu.history.recentlyClosed.showFull", defaultValue: "Show Full Recently Closed"),
-                    manager: manager
-                )
-            }
-        }
-    }
-
-    private func historyMenuSectionTitle(title: String, subtitle: String) -> String {
-        HistoryMenuLineFormatter.titleWithSubtitle(title: title, subtitle: subtitle)
-    }
-
-    private func recentlyFocusedMenuSnapshot(manager: TabManager) -> FocusHistoryMenuSnapshot {
-        let back = manager.focusHistoryMenuSnapshot(direction: .back)
-        let forward = manager.focusHistoryMenuSnapshot(direction: .forward)
-        return FocusHistoryMenuSnapshotBuilder.recentlyFocused(
-            back: back,
-            forward: forward,
-            maxItemCount: 10
-        )
-    }
-
-    private func openFullHistoryButton(
-        title: String = String(localized: "menu.history.openFullHistory", defaultValue: "Open Full History…"),
-        manager: TabManager
-    ) -> some View {
-        Button(title) {
-            if AppDelegate.shared?.openHistoryPane(preferredTabManager: manager) != true {
-                NSSound.beep()
-            }
-        }
-    }
-
-    @CommandsBuilder
     private var windowAndViewCommands: some Commands {
         CommandGroup(after: .windowArrangement) {
             Button(String(localized: "menu.window.taskManager", defaultValue: "Task Manager...")) {
@@ -1035,28 +887,6 @@ struct cmuxApp: App {
         ) ?? tabManager
     }
 
-    private var canNavigateFocusHistoryBack: Bool {
-        let _ = focusHistoryMenuRevision
-        let manager = activeTabManager
-        return manager.canNavigateBack
-    }
-
-    private var canNavigateFocusHistoryForward: Bool {
-        let _ = focusHistoryMenuRevision
-        let manager = activeTabManager
-        return manager.canNavigateForward
-    }
-
-    private var recentlyClosedMenuSnapshot: ClosedItemHistoryMenuSnapshot {
-        let _ = closedItemHistoryStore.revision
-        return closedItemHistoryStore.menuSnapshot(maxItemCount: 10)
-    }
-
-    private func invalidateFocusHistoryMenuState() {
-        Task { @MainActor in
-            focusHistoryMenuRevision &+= 1
-        }
-    }
     private func notificationMenuItemTitle(for notification: TerminalNotification) -> String {
         let tabTitle = appDelegate.tabTitle(for: notification.tabId)
         return MenuBarNotificationLineFormatter.menuTitle(notification: notification, tabTitle: tabTitle)
@@ -1338,6 +1168,7 @@ private struct MainWindowBootstrapView: View {
             })
     }
 }
+
 
 private let cmuxAuxiliaryWindowIdentifiers: Set<String> = [
     "cmux.settings",
@@ -1778,203 +1609,6 @@ private struct AboutTitlebarDebugView: View {
                 store.update(updated, for: kind)
             }
         )
-    }
-}
-
-private enum TitlebarLayoutDebugSettingsSnapshot {
-    static func reset(defaults: UserDefaults = .standard) {
-        defaults.set(
-            MinimalModeTitlebarDebugSettings.defaultLeftControlsLeadingInset,
-            forKey: MinimalModeTitlebarDebugSettings.leftControlsLeadingInsetKey
-        )
-        defaults.set(
-            MinimalModeTitlebarDebugSettings.defaultLeftControlsTopInset,
-            forKey: MinimalModeTitlebarDebugSettings.leftControlsTopInsetKey
-        )
-        defaults.set(
-            MinimalModeTitlebarDebugSettings.defaultTrafficLightTabBarInset,
-            forKey: MinimalModeTitlebarDebugSettings.trafficLightTabBarInsetKey
-        )
-        defaults.set(
-            MinimalModeTitlebarDebugSettings.defaultTrafficLightTitlebarLeadingInset,
-            forKey: MinimalModeTitlebarDebugSettings.trafficLightTitlebarLeadingInsetKey
-        )
-        defaults.set(
-            SessionPersistencePolicy.defaultMinimumSidebarWidth,
-            forKey: SessionPersistencePolicy.sidebarMinimumWidthKey
-        )
-    }
-
-    static func copyPayload(defaults: UserDefaults = .standard) -> String {
-        let snapshot = MinimalModeTitlebarDebugSettings.snapshot(defaults: defaults)
-        return """
-        titlebarControlsStyle=\(defaults.integer(forKey: "titlebarControlsStyle"))
-        leftControlsLeadingInset=\(String(format: "%.1f", snapshot.leftControlsLeadingInset))
-        leftControlsTopInset=\(String(format: "%.1f", snapshot.leftControlsTopInset))
-        trafficLightTabBarLeadingInset=\(String(format: "%.1f", snapshot.trafficLightTabBarLeadingInset))
-        trafficLightTitlebarLeadingInset=\(String(format: "%.1f", snapshot.trafficLightTitlebarLeadingInset))
-        sidebarMinimumWidth=\(String(format: "%.1f", SessionPersistencePolicy.resolvedMinimumSidebarWidth(defaults: defaults)))
-        """
-    }
-
-    static func copyToPasteboard(defaults: UserDefaults = .standard) {
-        let pasteboard = NSPasteboard.general
-        pasteboard.clearContents()
-        pasteboard.setString(copyPayload(defaults: defaults), forType: .string)
-    }
-
-    @MainActor
-    static func applyToOpenWindows() {
-        for window in NSApp.windows {
-            AppDelegate.shared?.applyWindowDecorations(to: window)
-            window.contentView?.needsLayout = true
-            window.contentView?.superview?.needsLayout = true
-        }
-    }
-}
-
-private final class TitlebarLayoutDebugWindowController: NSWindowController, NSWindowDelegate {
-    static let shared = TitlebarLayoutDebugWindowController()
-
-    private init() {
-        let window = NSPanel(
-            contentRect: NSRect(x: 0, y: 0, width: 460, height: 640),
-            styleMask: [.titled, .closable, .resizable, .utilityWindow],
-            backing: .buffered,
-            defer: false
-        )
-        window.title = String(localized: "debug.titlebarLayoutDebug.title", defaultValue: "Titlebar Layout Debug")
-        window.titleVisibility = .visible
-        window.titlebarAppearsTransparent = false
-        window.isMovableByWindowBackground = true
-        window.isReleasedWhenClosed = false
-        window.identifier = NSUserInterfaceItemIdentifier("cmux.titlebarLayoutDebug")
-        window.center()
-        window.contentView = NSHostingView(rootView: TitlebarLayoutDebugView())
-        AppDelegate.shared?.applyWindowDecorations(to: window)
-        super.init(window: window)
-        window.delegate = self
-    }
-
-    @available(*, unavailable)
-    required init?(coder: NSCoder) {
-        fatalError("init(coder:) has not been implemented")
-    }
-
-    @MainActor
-    func show() {
-        window?.center()
-        window?.makeKeyAndOrderFront(nil)
-        TitlebarLayoutDebugSettingsSnapshot.applyToOpenWindows()
-    }
-}
-
-private struct TitlebarLayoutDebugView: View {
-    @AppStorage("titlebarControlsStyle") private var titlebarControlsStyleRawValue = TitlebarControlsStyle.classic.rawValue
-    @AppStorage(MinimalModeTitlebarDebugSettings.leftControlsLeadingInsetKey) private var leftControlsLeadingInset = MinimalModeTitlebarDebugSettings.defaultLeftControlsLeadingInset
-    @AppStorage(MinimalModeTitlebarDebugSettings.leftControlsTopInsetKey) private var leftControlsTopInset = MinimalModeTitlebarDebugSettings.defaultLeftControlsTopInset
-    @AppStorage(MinimalModeTitlebarDebugSettings.trafficLightTabBarInsetKey) private var trafficLightTabBarInset = MinimalModeTitlebarDebugSettings.defaultTrafficLightTabBarInset
-    @AppStorage(MinimalModeTitlebarDebugSettings.trafficLightTitlebarLeadingInsetKey) private var trafficLightTitlebarLeadingInset = MinimalModeTitlebarDebugSettings.defaultTrafficLightTitlebarLeadingInset
-    @AppStorage(SessionPersistencePolicy.sidebarMinimumWidthKey) private var sidebarMinimumWidth = SessionPersistencePolicy.defaultMinimumSidebarWidth
-
-    var body: some View {
-        ScrollView {
-            VStack(alignment: .leading, spacing: 14) {
-                Text(String(localized: "debug.titlebarLayoutDebug.title", defaultValue: "Titlebar Layout Debug"))
-                    .font(.headline)
-
-                GroupBox(String(localized: "debug.titlebarLayoutDebug.titlebarControls", defaultValue: "Titlebar Controls")) {
-                    VStack(alignment: .leading, spacing: 10) {
-                        Picker(
-                            String(localized: "debug.titlebarLayoutDebug.style", defaultValue: "Style"),
-                            selection: $titlebarControlsStyleRawValue
-                        ) {
-                            ForEach(TitlebarControlsStyle.allCases) { style in
-                                Text(style.menuTitle).tag(style.rawValue)
-                            }
-                        }
-                        .pickerStyle(.menu)
-                        debugSlider(
-                            title: String(localized: "debug.titlebarLayoutDebug.leading", defaultValue: "Leading"),
-                            value: $leftControlsLeadingInset,
-                            range: MinimalModeTitlebarDebugSettings.horizontalInsetRange
-                        )
-                        debugSlider(
-                            title: String(localized: "debug.titlebarLayoutDebug.top", defaultValue: "Top"),
-                            value: $leftControlsTopInset,
-                            range: MinimalModeTitlebarDebugSettings.topInsetRange
-                        )
-                    }
-                    .padding(.top, 2)
-                }
-
-                GroupBox(String(localized: "debug.titlebarLayoutDebug.trafficLights", defaultValue: "Traffic Light Insets")) {
-                    VStack(alignment: .leading, spacing: 10) {
-                        debugSlider(
-                            title: String(localized: "debug.titlebarLayoutDebug.titlebarInset", defaultValue: "Titlebar Inset"),
-                            value: $trafficLightTitlebarLeadingInset,
-                            range: MinimalModeTitlebarDebugSettings.horizontalInsetRange
-                        )
-                        debugSlider(
-                            title: String(localized: "debug.titlebarLayoutDebug.tabBarInset", defaultValue: "Tab Bar Inset"),
-                            value: $trafficLightTabBarInset,
-                            range: MinimalModeTitlebarDebugSettings.horizontalInsetRange
-                        )
-                    }
-                    .padding(.top, 2)
-                }
-
-                GroupBox(String(localized: "debug.titlebarLayoutDebug.sidebar", defaultValue: "Sidebar")) {
-                    debugSlider(
-                        title: String(localized: "debug.titlebarLayoutDebug.minimumWidth", defaultValue: "Minimum Width"),
-                        value: $sidebarMinimumWidth,
-                        range: SessionPersistencePolicy.sidebarMinimumWidthRange,
-                        step: 1
-                    )
-                    .padding(.top, 2)
-                }
-
-                GroupBox(String(localized: "debug.titlebarLayoutDebug.actions", defaultValue: "Actions")) {
-                    HStack(spacing: 10) {
-                        Button(String(localized: "debug.titlebarLayoutDebug.reset", defaultValue: "Reset")) {
-                            TitlebarLayoutDebugSettingsSnapshot.reset()
-                            TitlebarLayoutDebugSettingsSnapshot.applyToOpenWindows()
-                        }
-                        Button(String(localized: "debug.titlebarLayoutDebug.apply", defaultValue: "Apply")) {
-                            TitlebarLayoutDebugSettingsSnapshot.applyToOpenWindows()
-                        }
-                        Button(String(localized: "debug.titlebarLayoutDebug.copyConfig", defaultValue: "Copy Config")) {
-                            TitlebarLayoutDebugSettingsSnapshot.copyToPasteboard()
-                        }
-                    }
-                    .frame(maxWidth: .infinity, alignment: .leading)
-                    .padding(.top, 2)
-                }
-            }
-            .padding(16)
-            .frame(maxWidth: .infinity, alignment: .topLeading)
-        }
-        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
-    }
-
-    private func debugSlider(
-        title: String,
-        value: Binding<Double>,
-        range: ClosedRange<Double>,
-        step: Double = 0.5
-    ) -> some View {
-        let clamped = Binding<Double>(
-            get: { min(max(value.wrappedValue, range.lowerBound), range.upperBound) },
-            set: { value.wrappedValue = min(max($0, range.lowerBound), range.upperBound) }
-        )
-        return HStack(spacing: 8) {
-            Text(title)
-                .frame(width: 112, alignment: .leading)
-            Slider(value: clamped, in: range, step: step)
-            Text(String(format: "%.1f", clamped.wrappedValue))
-                .font(.system(.caption, design: .monospaced))
-                .frame(width: 44, alignment: .trailing)
-        }
     }
 }
 

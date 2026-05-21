@@ -4463,6 +4463,18 @@ class TabManager: ObservableObject {
             ) else { return }
         }
 
+        if plan.workspaces.count == tabs.count,
+           let firstWorkspace = plan.workspaces.first {
+            if let window {
+                window.performClose(nil)
+                return
+            }
+            if AppDelegate.shared != nil {
+                AppDelegate.shared?.closeMainWindowContainingTabId(firstWorkspace.id)
+                return
+            }
+        }
+
         for workspace in plan.workspaces {
             guard tabs.contains(where: { $0.id == workspace.id }) else { continue }
             closeWorkspaceIfRunningProcess(workspace, requiresConfirmation: false)
@@ -6082,8 +6094,9 @@ class TabManager: ObservableObject {
         return navigateToFocusHistoryEntry(focusHistory[targetIndex].entry, targetIndex: targetIndex)
     }
 
-    func navigateBack() {
-        guard historyIndex > 0 else { return }
+    @discardableResult
+    func navigateBack() -> Bool {
+        guard historyIndex > 0 else { return false }
 
         let currentEntry = currentFocusHistoryEntry
         var targetIndex = historyIndex - 1
@@ -6101,17 +6114,19 @@ class TabManager: ObservableObject {
                 continue
             }
             if navigateToFocusHistoryEntry(entry, targetIndex: targetIndex) {
-                return
+                return true
             }
             focusHistory.remove(at: targetIndex)
             historyIndex -= 1
             targetIndex -= 1
             focusHistoryRevision &+= 1
         }
+        return false
     }
 
-    func navigateForward() {
-        guard historyIndex < focusHistory.count - 1 else { return }
+    @discardableResult
+    func navigateForward() -> Bool {
+        guard historyIndex < focusHistory.count - 1 else { return false }
 
         let currentEntry = currentFocusHistoryEntry
         var targetIndex = historyIndex + 1
@@ -6127,11 +6142,12 @@ class TabManager: ObservableObject {
                 continue
             }
             if navigateToFocusHistoryEntry(entry, targetIndex: targetIndex) {
-                return
+                return true
             }
             focusHistory.remove(at: targetIndex)
             focusHistoryRevision &+= 1
         }
+        return false
     }
 
     var canNavigateBack: Bool {

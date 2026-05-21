@@ -152,6 +152,7 @@ enum RightSidebarKeyboardNavigation {
 
 /// Right sidebar root view. Hosts a segmented mode picker plus the active panel.
 struct RightSidebarPanelView: View {
+    @ObservedObject var tabManager: TabManager
     @ObservedObject var fileExplorerStore: FileExplorerStore
     @ObservedObject var fileExplorerState: FileExplorerState
     @ObservedObject var sessionIndexStore: SessionIndexStore
@@ -406,7 +407,23 @@ struct RightSidebarPanelView: View {
         case .dock:
             DockPanelView(rootDirectory: sessionIndexDirectory, workspaceId: workspaceId, store: dockStore)
         case .history:
-            EmptyView()
+            HistoryPanelView(
+                focusSearchToken: 0,
+                onFocus: {},
+                onOpenClosedItem: { itemId in
+                    AppDelegate.shared?.reopenClosedHistoryItem(
+                        id: itemId,
+                        preferredTabManager: tabManager
+                    ) == true
+                },
+                onOpenFocusedItem: { item in
+                    tabManager.navigateToFocusHistoryMenuItem(item)
+                },
+                onClearClosedItems: {
+                    ClosedItemHistoryStore.shared.removeAll()
+                }
+            )
+            .environmentObject(tabManager)
         }
     }
 

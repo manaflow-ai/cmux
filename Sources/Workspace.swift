@@ -655,6 +655,14 @@ extension Workspace {
         return eligibleByTab || eligibleByPanel
     }
 
+    private func clearCloseHistoryEligibility(tabId: TabID, panelId: UUID? = nil) {
+        closeHistoryEligibleTabIds.remove(tabId)
+        let resolvedPanelId = panelId ?? panelIdFromSurfaceId(tabId)
+        if let resolvedPanelId {
+            closeHistoryEligiblePanelIds.remove(resolvedPanelId)
+        }
+    }
+
     @discardableResult
     private func pushClosedPanelHistoryIfEligible(for tab: Bonsplit.Tab, inPane pane: PaneID) -> Bool {
         guard !suppressClosedPanelHistory else { return false }
@@ -8484,9 +8492,6 @@ final class Workspace: Identifiable, ObservableObject {
         }
 
         let closed = requestCloseTab(tabId, force: force)
-        if !closed, let panelId {
-            _ = consumeCloseHistoryEligibility(tabId: tabId, panelId: panelId)
-        }
         return closed
     }
 
@@ -11792,6 +11797,10 @@ final class Workspace: Identifiable, ObservableObject {
     }
 
     private func stageClosedBrowserRestoreSnapshotIfNeeded(for tab: Bonsplit.Tab, inPane pane: PaneID) {
+        guard !suppressClosedPanelHistory else {
+            pendingClosedBrowserRestoreSnapshots.removeValue(forKey: tab.id)
+            return
+        }
         guard let panelId = panelIdFromSurfaceId(tab.id),
               let browserPanel = browserPanel(for: panelId),
               let tabIndex = bonsplitController.tabs(inPane: pane).firstIndex(where: { $0.id == tab.id }) else {
@@ -14450,24 +14459,21 @@ extension Workspace: BonsplitDelegate {
             ?? AppDelegate.shared?.tabManager
         if let closeConfirmationManager, closeConfirmationManager.isCloseConfirmationInFlight {
             clearStagedClosedBrowserRestoreSnapshot(for: tab.id)
-            closeHistoryEligibleTabIds.remove(tab.id)
-            if let panelId = panelIdFromSurfaceId(tab.id) {
-                closeHistoryEligiblePanelIds.remove(panelId)
-            }
+            clearCloseHistoryEligibility(tabId: tab.id)
             return false
         }
 
         if let panelId = panelIdFromSurfaceId(tab.id),
            pinnedPanelIds.contains(panelId) {
             clearStagedClosedBrowserRestoreSnapshot(for: tab.id)
-            closeHistoryEligibleTabIds.remove(tab.id)
-            closeHistoryEligiblePanelIds.remove(panelId)
+            clearCloseHistoryEligibility(tabId: tab.id, panelId: panelId)
             NSSound.beep()
             return false
         }
 
         if explicitUserClose && shouldCloseWorkspaceOnLastSurface(for: tab.id) {
             clearStagedClosedBrowserRestoreSnapshot(for: tab.id)
+            clearCloseHistoryEligibility(tabId: tab.id)
             owningTabManager?.closeWorkspaceFromCloseTabGesture(self)
             return false
         }
@@ -14513,10 +14519,7 @@ extension Workspace: BonsplitDelegate {
 
                     let confirmed = await self.confirmClosePanel(for: tabId)
                     guard confirmed else {
-                        self.closeHistoryEligibleTabIds.remove(tabId)
-                        if let panelId = self.panelIdFromSurfaceId(tabId) {
-                            self.closeHistoryEligiblePanelIds.remove(panelId)
-                        }
+                        self.clearCloseHistoryEligibility(tabId: tabId)
                         return
                     }
 

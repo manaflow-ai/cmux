@@ -80,7 +80,14 @@ enum FocusHistoryMenuFormatter {
               panelTitle != workspaceTitle else {
             return workspaceTitle
         }
-        return "\(workspaceTitle) - \(panelTitle)"
+        return String.localizedStringWithFormat(
+            String(
+                localized: "menu.history.focusedItemTitleFormat",
+                defaultValue: "%1$@ - %2$@"
+            ),
+            workspaceTitle,
+            panelTitle
+        )
     }
 
     static func subtitle(for item: FocusHistoryMenuItem) -> String {
@@ -92,12 +99,12 @@ enum FocusHistoryMenuFormatter {
             direction = String(localized: "menu.history.focusForward", defaultValue: "Focus Forward")
         }
 
-        let focused = String(
-            format: String(localized: "historyPane.focusedAtFormat", defaultValue: "Focused %@"),
+        let focused = String.localizedStringWithFormat(
+            String(localized: "historyPane.focusedAtFormat", defaultValue: "Focused %@"),
             item.focusedAt.formatted(date: .omitted, time: .shortened)
         )
-        return String(
-            format: String(localized: "menu.history.menuItemSubtitleFormat", defaultValue: "%1$@, %2$@"),
+        return String.localizedStringWithFormat(
+            String(localized: "menu.history.menuItemSubtitleFormat", defaultValue: "%1$@, %2$@"),
             direction,
             focused
         )

@@ -513,8 +513,6 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
     nonisolated(unsafe) static var shared: AppDelegate?
 
     private static let cachedIsRunningUnderXCTest = detectRunningUnderXCTest(ProcessInfo.processInfo.environment)
-    private static let focusHistoryContextMenuPreviewLimit = 12
-
     private var isRunningUnderXCTestCached: Bool {
         Self.cachedIsRunningUnderXCTest
     }
@@ -583,28 +581,6 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         init(windowId: UUID, action: CmuxResolvedConfigAction) {
             self.windowId = windowId
             self.action = action
-        }
-    }
-
-    private final class FocusHistoryContextMenuItemBox: NSObject {
-        weak var tabManager: TabManager?
-        let item: FocusHistoryMenuItem
-
-        init(tabManager: TabManager, item: FocusHistoryMenuItem) {
-            self.tabManager = tabManager
-            self.item = item
-        }
-    }
-
-    private final class FocusHistoryShowFullContextMenuBox: NSObject {
-        weak var tabManager: TabManager?
-        weak var anchorView: NSView?
-        let direction: FocusHistoryMenuDirection
-
-        init(tabManager: TabManager, anchorView: NSView, direction: FocusHistoryMenuDirection) {
-            self.tabManager = tabManager
-            self.anchorView = anchorView
-            self.direction = direction
         }
     }
 
@@ -2950,100 +2926,6 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         return true
     }
 
-    @discardableResult
-    func reopenMostRecentlyClosedItem(
-        preferredTabManager: TabManager? = nil,
-        shouldActivate: Bool = true
-    ) -> Bool {
-        if ClosedItemHistoryStore.shared.restoreFirstRestorable(using: { entry in
-            restoreClosedItem(
-                entry,
-                preferredTabManager: preferredTabManager,
-                shouldActivate: shouldActivate
-            )
-        }) {
-            return true
-        }
-
-        if preferredTabManager?.reopenMostRecentlyClosedBrowserPanelFromLegacyStack() == true {
-            return true
-        }
-        if let tabManager,
-           tabManager !== preferredTabManager,
-           tabManager.reopenMostRecentlyClosedBrowserPanelFromLegacyStack() {
-            return true
-        }
-
-        return false
-    }
-
-    @discardableResult
-    func reopenClosedHistoryItem(
-        id: UUID,
-        preferredTabManager: TabManager? = nil,
-        shouldActivate: Bool = true
-    ) -> Bool {
-        guard let removed = ClosedItemHistoryStore.shared.removeRecord(id: id) else {
-            return false
-        }
-
-        if restoreClosedItem(
-            removed.record.entry,
-            preferredTabManager: preferredTabManager,
-            shouldActivate: shouldActivate
-        ) {
-            return true
-        }
-
-        ClosedItemHistoryStore.shared.insert(removed.record, at: removed.index)
-        return false
-    }
-
-    @discardableResult
-    private func restoreClosedItem(
-        _ entry: ClosedItemHistoryEntry,
-        preferredTabManager: TabManager? = nil,
-        shouldActivate: Bool
-    ) -> Bool {
-        switch entry {
-        case .panel(let panelEntry):
-            let manager =
-                tabManagerFor(tabId: panelEntry.workspaceId)
-                ?? preferredTabManager
-                ?? tabManager
-            guard let manager, manager.restoreClosedPanel(panelEntry) else {
-                return false
-            }
-            activateMainWindowIfNeeded(for: manager, shouldActivate: shouldActivate)
-            return true
-        case .workspace(let workspaceEntry):
-            let manager =
-                workspaceEntry.windowId.flatMap { tabManagerFor(windowId: $0) }
-                ?? preferredTabManager
-                ?? tabManager
-            guard let manager, manager.restoreClosedWorkspace(workspaceEntry) else {
-                return false
-            }
-            activateMainWindowIfNeeded(for: manager, shouldActivate: shouldActivate)
-            return true
-        case .window(let windowEntry):
-            _ = createMainWindow(
-                sessionWindowSnapshot: windowEntry.snapshot,
-                shouldActivate: shouldActivate,
-                closedWindowHistoryWorkspaceIds: windowEntry.workspaceIds
-            )
-            return true
-        }
-    }
-
-    private func activateMainWindowIfNeeded(for manager: TabManager, shouldActivate: Bool) {
-        guard shouldActivate,
-              let windowId = windowId(for: manager) else {
-            return
-        }
-        _ = focusMainWindow(windowId: windowId)
-    }
-
     private func applySessionWindowSnapshot(
         _ snapshot: SessionWindowSnapshot,
         to context: MainWindowContext,
@@ -5265,10 +5147,6 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             closedWindowHistorySuppressedWindowIds.insert(windowId)
         }
         window.performClose(nil)
-        if !recordHistory,
-           contextForMainTerminalWindow(window, reindex: false) != nil {
-            closedWindowHistorySuppressedWindowIds.remove(windowId)
-        }
         return true
     }
 
@@ -5655,7 +5533,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         return activeCommandPaletteWindow()
     }
 
-    private func contextForMainWindow(_ window: NSWindow?) -> MainWindowContext? {
+    func contextForMainWindow(_ window: NSWindow?) -> MainWindowContext? {
         guard let window else { return nil }
         return contextForMainTerminalWindow(window)
     }
@@ -5686,26 +5564,6 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         return mainWindowContexts.values.first { context in
             resolvedWindow(for: context) != nil
         }?.tabManager
-    }
-
-    @discardableResult
-    func openHistoryPane(
-        preferredTabManager: TabManager? = nil,
-        preferredWindow: NSWindow? = nil
-    ) -> Bool {
-        let manager = preferredTabManager
-            ?? activeTabManagerForCommands(preferredWindow: preferredWindow ?? NSApp.keyWindow ?? NSApp.mainWindow)
-        guard let workspace = manager?.selectedWorkspace,
-              let paneId = workspace.bonsplitController.focusedPaneId ?? workspace.bonsplitController.allPaneIds.first else {
-            return false
-        }
-
-        workspace.clearSplitZoom()
-        return workspace.openOrFocusRightSidebarToolSurface(
-            inPane: paneId,
-            mode: .history,
-            focus: true
-        ) != nil
     }
 
     func allMainWindowTabManagersForDebug() -> [TabManager] {
@@ -6751,118 +6609,6 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         return true
     }
 
-    @discardableResult
-    func showFocusHistoryContextMenu(
-        anchorView: NSView,
-        event: NSEvent,
-        direction: FocusHistoryMenuDirection,
-        showFullHistory: Bool = false,
-        debugSource: String = "titlebar.focusHistory.contextMenu"
-    ) -> Bool {
-        let context = contextForMainWindow(anchorView.window)
-            ?? mainWindowContext(forShortcutEvent: event, debugSource: debugSource)
-        guard let context else { return false }
-
-        let menu = makeFocusHistoryContextMenu(
-            tabManager: context.tabManager,
-            anchorView: anchorView,
-            direction: direction,
-            showFullHistory: showFullHistory
-        )
-        guard menu.items.contains(where: { !$0.isSeparatorItem }) else { return false }
-
-        NSMenu.popUpContextMenu(menu, with: event, for: anchorView)
-        return true
-    }
-
-    private func makeFocusHistoryContextMenu(
-        tabManager: TabManager,
-        anchorView: NSView,
-        direction: FocusHistoryMenuDirection,
-        showFullHistory: Bool
-    ) -> NSMenu {
-        let snapshot = tabManager.focusHistoryMenuSnapshot(
-            direction: direction,
-            maxItemCount: showFullHistory ? nil : Self.focusHistoryContextMenuPreviewLimit
-        )
-        let menu = NSMenu(title: String(localized: "menu.history.focusHistory", defaultValue: "Focus History"))
-
-        if snapshot.items.isEmpty {
-            let item = NSMenuItem(
-                title: String(localized: "menu.history.noFocusHistory", defaultValue: "No Focus History"),
-                action: nil,
-                keyEquivalent: ""
-            )
-            item.isEnabled = false
-            menu.addItem(item)
-            return menu
-        }
-
-        for itemSnapshot in snapshot.items {
-            let item = NSMenuItem(
-                title: focusHistoryContextMenuTitle(for: itemSnapshot),
-                action: #selector(performFocusHistoryContextMenuItem(_:)),
-                keyEquivalent: ""
-            )
-            item.target = self
-            item.representedObject = FocusHistoryContextMenuItemBox(tabManager: tabManager, item: itemSnapshot)
-            item.isEnabled = itemSnapshot.isNavigable
-            menu.addItem(item)
-        }
-
-        if snapshot.isLimited {
-            menu.addItem(.separator())
-            let item = NSMenuItem(
-                title: String(localized: "menu.history.showFullFocusHistory", defaultValue: "Show Full History"),
-                action: #selector(showFullFocusHistoryContextMenu(_:)),
-                keyEquivalent: ""
-            )
-            item.target = self
-            item.representedObject = FocusHistoryShowFullContextMenuBox(
-                tabManager: tabManager,
-                anchorView: anchorView,
-                direction: direction
-            )
-            menu.addItem(item)
-        }
-
-        return menu
-    }
-
-    private func focusHistoryContextMenuTitle(for item: FocusHistoryMenuItem) -> String {
-        FocusHistoryMenuFormatter.title(for: item)
-    }
-
-    @objc private func performFocusHistoryContextMenuItem(_ sender: NSMenuItem) {
-        guard let box = sender.representedObject as? FocusHistoryContextMenuItemBox,
-              let tabManager = box.tabManager,
-              tabManager.navigateToFocusHistoryMenuItem(box.item) else {
-            NSSound.beep()
-            return
-        }
-    }
-
-    @objc private func showFullFocusHistoryContextMenu(_ sender: NSMenuItem) {
-        guard let box = sender.representedObject as? FocusHistoryShowFullContextMenuBox,
-              let tabManager = box.tabManager,
-              let anchorView = box.anchorView else {
-            NSSound.beep()
-            return
-        }
-
-        let menu = makeFocusHistoryContextMenu(
-            tabManager: tabManager,
-            anchorView: anchorView,
-            direction: box.direction,
-            showFullHistory: true
-        )
-        guard menu.items.contains(where: { !$0.isSeparatorItem }) else {
-            NSSound.beep()
-            return
-        }
-        menu.popUp(positioning: nil, at: NSPoint(x: 0, y: anchorView.bounds.height), in: anchorView)
-    }
-
     @objc private func performNewWorkspaceContextMenuItem(_ sender: NSMenuItem) {
         guard let box = sender.representedObject as? NewWorkspaceContextMenuActionBox,
               let context = mainWindowContexts.values.first(where: { $0.windowId == box.windowId }),
@@ -7327,7 +7073,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         return event.window != nil || event.windowNumber > 0
     }
 
-    private func mainWindowContext(
+    func mainWindowContext(
         forShortcutEvent event: NSEvent?,
         debugSource: String = "unspecified"
     ) -> MainWindowContext? {
@@ -7662,7 +7408,13 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             guard let self, let controller else { return }
             self.mainWindowControllers.removeAll(where: { $0 === controller })
         }
-        controller.shouldClose = { [weak self] in self?.handleMainTerminalWindowShouldClose() ?? true }
+        controller.shouldClose = { [weak self] in
+            let shouldClose = self?.handleMainTerminalWindowShouldClose() ?? true
+            if !shouldClose {
+                self?.closedWindowHistorySuppressedWindowIds.remove(windowId)
+            }
+            return shouldClose
+        }
         window.delegate = controller
         mainWindowControllers.append(controller)
 
@@ -12473,14 +12225,16 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
 
         if matchConfiguredShortcut(event: event, action: .focusHistoryBack) {
             let routedManager = preferredMainWindowContextForShortcutRouting(event: event)?.tabManager ?? tabManager
-            routedManager?.navigateBack()
-            return true
+            if routedManager?.navigateBack() == true {
+                return true
+            }
         }
 
         if matchConfiguredShortcut(event: event, action: .focusHistoryForward) {
             let routedManager = preferredMainWindowContextForShortcutRouting(event: event)?.tabManager ?? tabManager
-            routedManager?.navigateForward()
-            return true
+            if routedManager?.navigateForward() == true {
+                return true
+            }
         }
 
         if matchConfiguredShortcut(event: event, action: .browserBack) {
@@ -14723,10 +14477,6 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             return
         }
         window.performClose(nil)
-        if !recordHistory,
-           contextForMainTerminalWindow(window, reindex: false) != nil {
-            closedWindowHistorySuppressedWindowIds.remove(context.windowId)
-        }
     }
 
     @discardableResult

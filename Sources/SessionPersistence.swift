@@ -29,9 +29,10 @@ enum SessionPersistencePolicy {
     static let maxScrollbackCharactersPerTerminal: Int = 400_000
 
     static func sanitizedSidebarWidth(_ candidate: Double?, defaults: UserDefaults = .standard) -> Double {
-        let fallback = defaultSidebarWidth
+        let resolvedMinimum = resolvedMinimumSidebarWidth(defaults: defaults)
+        let fallback = min(max(defaultSidebarWidth, resolvedMinimum), maximumSidebarWidth)
         guard let candidate, candidate.isFinite else { return fallback }
-        return min(max(candidate, resolvedMinimumSidebarWidth(defaults: defaults)), maximumSidebarWidth)
+        return min(max(candidate, resolvedMinimum), maximumSidebarWidth)
     }
 
     static func resolvedMinimumSidebarWidth(defaults: UserDefaults = .standard) -> Double {

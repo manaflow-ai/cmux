@@ -74,7 +74,6 @@ struct HistoryPanelView: View {
 
         VStack(spacing: 0) {
             header(
-                closedItemCount: closedSnapshot.totalItemCount,
                 hasClosedItems: !closedSnapshot.items.isEmpty
             )
 
@@ -120,7 +119,7 @@ struct HistoryPanelView: View {
         }
     }
 
-    private func header(closedItemCount: Int, hasClosedItems: Bool) -> some View {
+    private func header(hasClosedItems: Bool) -> some View {
         HStack(spacing: 10) {
             Image(systemName: "clock.arrow.circlepath")
                 .font(.system(size: 13, weight: .medium))

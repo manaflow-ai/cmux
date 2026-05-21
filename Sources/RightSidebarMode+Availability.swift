@@ -39,7 +39,7 @@ extension RightSidebarMode {
         case .dock:
             return dockEnabled
         case .history:
-            return false
+            return true
         }
     }
 }

@@ -780,7 +780,7 @@
       "supportedNote": "Claude Code wird vom cmux Claude-Wrapper verarbeitet, wenn die Claude-Integration in Settings aktiviert ist. Rovo Dev akzeptiert auch rovo als Setup-Alias.",
       "manualTitle": "Manuelle Wiederherstellung",
       "manualDesc": "cmux stellt beim normalen Start den zuletzt gespeicherten Snapshot wieder her. Sie können den vorherigen Snapshot auch manuell erneut anwenden:",
-      "manualItemMenu": "File > Reopen Previous Session",
+      "manualItemMenu": "History > Restore Previous App Launch",
       "disableTitle": "Automatische Agent-Wiederaufnahme deaktivieren",
       "disableDesc": "Um Paneele wiederherzustellen, ohne gespeicherte Agent-Wiederaufnahmebefehle zu starten, deaktivieren Sie Settings > Terminal > Resume Agent Sessions on Reopen oder setzen Sie:",
       "disableNote": "Dies deaktiviert nur Agent-Wiederaufnahmebefehle. cmux stellt Layout, Arbeitsverzeichnisse, Scrollback und Browserverlauf weiterhin wieder her.",

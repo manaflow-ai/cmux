@@ -347,11 +347,11 @@ final class ClosedItemHistoryStore: ObservableObject {
 
     private static func windowWorkspaceCountLabel(_ count: Int) -> String {
         if count == 1 {
-            return String(localized: "menu.history.recentlyClosed.window.oneWorkspace", defaultValue: "1 workspace")
+            return String(localized: "menu.history.recentlyClosed.window.workspaceCount.one", defaultValue: "1 workspace")
         }
-        return String(
-            format: String(
-                localized: "menu.history.recentlyClosed.window.workspaceCount",
+        return String.localizedStringWithFormat(
+            String(
+                localized: "menu.history.recentlyClosed.window.workspaceCount.other",
                 defaultValue: "%d workspaces"
             ),
             count

@@ -780,7 +780,7 @@
       "supportedNote": "啟用 Claude 整合時，Claude Code 由 cmux Claude wrapper 處理。Rovo Dev 也接受 rovo 作為 setup 別名。",
       "manualTitle": "手動還原",
       "manualDesc": "cmux 正常啟動時會還原最後儲存的 snapshot。你也可以手動重新套用上一個 snapshot：",
-      "manualItemMenu": "File > Reopen Previous Session",
+      "manualItemMenu": "History > Restore Previous App Launch",
       "disableTitle": "停用 agent 自動還原",
       "disableDesc": "若要還原 pane 而不啟動已儲存的 agent resume 命令，請關閉 Settings > Terminal > Resume Agent Sessions on Reopen 或設定：",
       "disableNote": "這只會停用 agent resume 命令。cmux 仍會還原佈局、工作目錄、scrollback 和瀏覽器歷史。",

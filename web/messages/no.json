@@ -780,7 +780,7 @@
       "supportedNote": "Claude Code håndteres av cmux Claude-wrapperen når Claude-integrasjonen er aktivert i Settings. Rovo Dev godtar også rovo som setup-alias.",
       "manualTitle": "Manuell gjenoppretting",
       "manualDesc": "cmux gjenoppretter siste lagrede snapshot ved normal oppstart. Du kan også bruke forrige snapshot manuelt igjen:",
-      "manualItemMenu": "File > Reopen Previous Session",
+      "manualItemMenu": "History > Restore Previous App Launch",
       "disableTitle": "Slå av automatisk agent-gjenopptakelse",
       "disableDesc": "For å gjenopprette paneler uten å starte lagrede agent resume-kommandoer, slå av Settings > Terminal > Resume Agent Sessions on Reopen eller sett:",
       "disableNote": "Dette slår bare av agent resume-kommandoer. cmux gjenoppretter fortsatt layout, arbeidsmapper, scrollback og nettleserhistorikk.",

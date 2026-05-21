@@ -1,0 +1,37 @@
+import AppKit
+import SwiftUI
+
+@MainActor
+final class FocusHistoryMenuInvalidator: ObservableObject {
+    @Published private(set) var revision: UInt64 = 0
+
+    private var observers: [NSObjectProtocol] = []
+
+    init(center: NotificationCenter = .default) {
+        observers.append(center.addObserver(
+            forName: .tabManagerFocusHistoryRevisionDidChange,
+            object: nil,
+            queue: .main
+        ) { [weak self] _ in
+            Task { @MainActor in
+                self?.revision &+= 1
+            }
+        })
+        observers.append(center.addObserver(
+            forName: NSWindow.didBecomeKeyNotification,
+            object: nil,
+            queue: .main
+        ) { [weak self] _ in
+            Task { @MainActor in
+                self?.revision &+= 1
+            }
+        })
+    }
+
+    deinit {
+        let center = NotificationCenter.default
+        for observer in observers {
+            center.removeObserver(observer)
+        }
+    }
+}

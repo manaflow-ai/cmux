@@ -780,7 +780,7 @@
       "supportedNote": "Claude Code obrađuje cmux Claude wrapper kada je Claude integracija uključena u Settings. Rovo Dev prihvata i rovo kao setup alias.",
       "manualTitle": "Ručna obnova",
       "manualDesc": "cmux pri normalnom pokretanju obnavlja zadnji sačuvani snapshot. Prethodni snapshot možeš ponovno primijeniti i ručno:",
-      "manualItemMenu": "File > Reopen Previous Session",
+      "manualItemMenu": "History > Restore Previous App Launch",
       "disableTitle": "Isključi automatski nastavak agenata",
       "disableDesc": "Za obnovu paneova bez pokretanja sačuvanih agent resume komandi, isključi Settings > Terminal > Resume Agent Sessions on Reopen ili postavi:",
       "disableNote": "Ovo isključuje samo agent resume komande. cmux i dalje obnavlja layout, radne direktorije, scrollback i historiju browsera.",
