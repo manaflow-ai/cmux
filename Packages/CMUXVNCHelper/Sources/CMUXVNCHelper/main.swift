@@ -86,7 +86,7 @@ private final class VNCSessionController: NSObject, VNCConnectionDelegate, @unch
     private let exitCodeLock = NSLock()
     private let terminationLock = NSLock()
     private var connection: VNCConnection?
-    private var sequence: UInt64 = 0
+    private var frameGate = VNCVisibilityFrameGate()
     private var isClosed = false
     private var isRemoteInputReady = false
     private var pendingInputMessages = VNCControlMessageQueue(maxMessages: maxPendingInputMessages)
@@ -149,7 +149,8 @@ private final class VNCSessionController: NSObject, VNCConnectionDelegate, @unch
         case "text", "key", "pointer":
             processInputWhenReady(message)
         case "visibility":
-            break
+            guard let visible = message.visible else { return }
+            setVisible(visible)
         default:
             break
         }
@@ -325,6 +326,36 @@ private final class VNCSessionController: NSObject, VNCConnectionDelegate, @unch
         width: UInt16,
         height: UInt16
     ) {
+        guard let nextSequence = stateLock.withLock({ frameGate.nextUpdateSequence() }) else { return }
+        sendFrame(framebuffer: framebuffer, sequence: nextSequence, x: x, y: y, width: width, height: height)
+    }
+
+    func connection(_ connection: VNCConnection, didUpdateCursor cursor: VNCCursor) {
+        _ = cursor
+    }
+
+    private func setVisible(_ visible: Bool) {
+        guard let refreshSequence = stateLock.withLock({ frameGate.setVisible(visible) }) else { return }
+        withConnection { connection in
+            guard let framebuffer = connection.framebuffer else { return }
+            sendFullFrame(framebuffer: framebuffer, sequence: refreshSequence)
+        }
+    }
+
+    private func sendFullFrame(framebuffer: VNCFramebuffer, sequence: UInt64) {
+        let width = UInt16(clamping: Int(framebuffer.size.width))
+        let height = UInt16(clamping: Int(framebuffer.size.height))
+        sendFrame(framebuffer: framebuffer, sequence: sequence, x: 0, y: 0, width: width, height: height)
+    }
+
+    private func sendFrame(
+        framebuffer: VNCFramebuffer,
+        sequence: UInt64,
+        x: UInt16,
+        y: UInt16,
+        width: UInt16,
+        height: UInt16
+    ) {
         let framebufferWidth = Int(framebuffer.size.width)
         let framebufferHeight = Int(framebuffer.size.height)
         let rectWidth = Int(width)
@@ -340,12 +371,8 @@ private final class VNCSessionController: NSObject, VNCConnectionDelegate, @unch
         }
         guard byteCount > 0 else { return }
 
-        let nextSequence = stateLock.withLock { () -> UInt64 in
-            sequence &+= 1
-            return sequence
-        }
         let header = VNCFrameHeader(
-            sequence: nextSequence,
+            sequence: sequence,
             x: rectX,
             y: rectY,
             width: rectWidth,
@@ -376,10 +403,6 @@ private final class VNCSessionController: NSObject, VNCConnectionDelegate, @unch
         } catch {
             close()
         }
-    }
-
-    func connection(_ connection: VNCConnection, didUpdateCursor cursor: VNCCursor) {
-        _ = cursor
     }
 
     private func sendControl(_ message: VNCControlMessage) {

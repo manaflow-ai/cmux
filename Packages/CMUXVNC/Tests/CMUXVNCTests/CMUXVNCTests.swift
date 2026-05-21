@@ -404,6 +404,27 @@ final class CMUXVNCTests: XCTestCase {
         XCTAssertEqual(queue.messages.count, 2)
     }
 
+    func testVisibilityFrameGateDropsHiddenUpdatesAndRefreshesOnShow() {
+        var gate = VNCVisibilityFrameGate()
+
+        XCTAssertEqual(gate.nextUpdateSequence(), 1)
+        XCTAssertNil(gate.setVisible(false))
+        XCTAssertNil(gate.nextUpdateSequence())
+        XCTAssertNil(gate.nextUpdateSequence())
+        XCTAssertEqual(gate.setVisible(true), 2)
+        XCTAssertEqual(gate.nextUpdateSequence(), 3)
+    }
+
+    func testVisibilityFrameGateIgnoresUnchangedVisibility() {
+        var gate = VNCVisibilityFrameGate()
+
+        XCTAssertNil(gate.setVisible(true))
+        XCTAssertEqual(gate.nextUpdateSequence(), 1)
+        XCTAssertNil(gate.setVisible(false))
+        XCTAssertNil(gate.setVisible(false))
+        XCTAssertEqual(gate.setVisible(true), 2)
+    }
+
     func testRestartPolicyCapsRestartsWithinWindow() {
         let policy = VNCHelperRestartPolicy(maxRestarts: 3, windowSeconds: 60)
         let now = Date(timeIntervalSince1970: 100)
