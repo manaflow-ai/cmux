@@ -9106,7 +9106,6 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
 
         let point = explicitPoint ?? event.map { convert($0.locationInWindow, from: nil) } ?? currentMousePointInView()
         let pointDescription = debugAutoscrollProbePointDescription(point)
-        let hasSelection = surface.map { ghostty_surface_has_selection($0) } ?? false
         let leftDownAgeMs = debugForwardedLeftMouseDownUptime.map { (now - $0) * 1000.0 }
         let eventType = event.map { String(describing: $0.type) } ?? "nil"
         let eventNumber = event?.eventNumber ?? -1
@@ -9127,7 +9126,7 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
             "eventType=\(eventType) eventNum=\(eventNumber) eventTs=\(String(format: "%.3f", eventTimestamp)) " +
             "pressedButtons=\(NSEvent.pressedMouseButtons) leftDownForwarded=\(debugForwardedLeftMouseDownEventNumber == nil ? 0 : 1) " +
             "leftDownEvent=\(leftDownEvent) leftDownAgeMs=\(leftDownAgeMs.map { String(format: "%.1f", $0) } ?? "nil") " +
-            "hasSelection=\(hasSelection ? 1 : 0) copyMode=\(keyboardCopyModeActive ? 1 : 0) " +
+            "copyMode=\(keyboardCopyModeActive ? 1 : 0) " +
             "point=\(pointDescription.text) outOfBounds=\(pointDescription.outOfBounds ? 1 : 0) " +
             "mods=[\(mods)] phaseRaw=\(phaseRaw) momentumRaw=\(momentumRaw) " +
             "delta=\(String(format: "%.1f,%.1f", deltaX, deltaY)) firstResponder=\(firstResponder)\(suffix)"
@@ -9146,7 +9145,6 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
         #if DEBUG
         let debugPoint = convert(event.locationInWindow, from: nil)
         cmuxDebugLog("terminal.mouseDown surface=\(terminalSurface?.id.uuidString.prefix(5) ?? "nil") mods=[\(debugModifierString(event.modifierFlags))] clickCount=\(event.clickCount) point=(\(String(format: "%.0f", debugPoint.x)),\(String(format: "%.0f", debugPoint.y)))")
-        debugLogSelectionAutoscrollProbe(phase: "mouseDown.begin", event: event, point: debugPoint, force: true)
         #endif
         // Split reparent/layout churn can suppress the later `becomeFirstResponder -> onFocus`
         // callback. Treat pointer-down as explicit focus intent so clicking a ghost pane still
@@ -10048,6 +10046,8 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
         guard let surface = surface else { return }
         let eventPoint = convert(event.locationInWindow, from: nil)
         trackMousePointIfUsable(eventPoint)
+        // Forward first, then log. Selection dragging is latency-sensitive.
+        ghostty_surface_mouse_pos(surface, eventPoint.x, bounds.height - eventPoint.y, modsFromEvent(event))
 #if DEBUG
         let isOutOfBounds = eventPoint.x < 0 || eventPoint.y < 0 || eventPoint.x > bounds.width || eventPoint.y > bounds.height
         let leftButtonCurrentlyDown = (NSEvent.pressedMouseButtons & 1) != 0
@@ -10059,10 +10059,6 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
             force: isOutOfBounds || !leftButtonCurrentlyDown || debugForwardedLeftMouseDownEventNumber == nil
         )
 #endif
-        // Forward the raw drag coordinates, including out-of-bounds positions.
-        // Selection auto-scroll depends on libghostty observing the pointer leave
-        // the viewport rather than a cached in-bounds hover point.
-        ghostty_surface_mouse_pos(surface, eventPoint.x, bounds.height - eventPoint.y, modsFromEvent(event))
     }
 
     override func scrollWheel(with event: NSEvent) {
