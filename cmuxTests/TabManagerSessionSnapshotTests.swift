@@ -966,6 +966,27 @@ final class TabManagerSessionSnapshotTests: XCTestCase {
         XCTAssertTrue(snapshot.items.allSatisfy { $0.menuSubtitle.contains("Closed") })
     }
 
+    func testRecentlyClosedWorkspaceTitleIgnoresDotDirectoryFallback() throws {
+        let manager = TabManager()
+        let workspace = try XCTUnwrap(manager.selectedWorkspace)
+        var workspaceSnapshot = workspace.sessionSnapshot(includeScrollback: false)
+        workspaceSnapshot.customTitle = nil
+        workspaceSnapshot.processTitle = ""
+        workspaceSnapshot.currentDirectory = "."
+
+        ClosedItemHistoryStore.shared.push(.workspace(ClosedWorkspaceHistoryEntry(
+            workspaceId: workspace.id,
+            windowId: nil,
+            workspaceIndex: 0,
+            snapshot: workspaceSnapshot
+        )))
+
+        XCTAssertEqual(
+            ClosedItemHistoryStore.shared.menuSnapshot().items.first?.title,
+            String(localized: "menu.history.untitledWorkspace", defaultValue: "Untitled Workspace")
+        )
+    }
+
     func testRecentlyClosedMenuSnapshotLimitsPreviewButKeepsFullCount() throws {
         let manager = TabManager()
         let workspace = try XCTUnwrap(manager.selectedWorkspace)

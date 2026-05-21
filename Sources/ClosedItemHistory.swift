@@ -322,13 +322,25 @@ final class ClosedItemHistoryStore: ObservableObject {
         let candidates = [
             snapshot.customTitle,
             Optional(snapshot.processTitle),
-            Optional(URL(fileURLWithPath: snapshot.currentDirectory).lastPathComponent)
+            directoryTitleCandidate(snapshot.currentDirectory)
         ]
-        if let title = candidates.compactMap({ $0?.trimmingCharacters(in: .whitespacesAndNewlines) })
+        if let title = candidates.compactMap({ normalizedTitleCandidate($0) })
             .first(where: { !$0.isEmpty }) {
             return title
         }
         return String(localized: "menu.history.untitledWorkspace", defaultValue: "Untitled Workspace")
+    }
+
+    private static func directoryTitleCandidate(_ directory: String) -> String? {
+        let trimmed = directory.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmed.isEmpty, trimmed != "." else { return nil }
+        return URL(fileURLWithPath: trimmed).lastPathComponent
+    }
+
+    private static func normalizedTitleCandidate(_ candidate: String?) -> String? {
+        let trimmed = candidate?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+        guard !trimmed.isEmpty, trimmed != "." else { return nil }
+        return trimmed
     }
 
     private static func windowWorkspaceCountLabel(_ count: Int) -> String {

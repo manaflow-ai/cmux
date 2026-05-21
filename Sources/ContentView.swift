@@ -2294,10 +2294,14 @@ struct ContentView: View {
                 )
             },
             onFocusHistoryBack: {
-                tabManager.navigateBack()
+                if !tabManager.navigateBack() {
+                    NSSound.beep()
+                }
             },
             onFocusHistoryForward: {
-                tabManager.navigateForward()
+                if !tabManager.navigateForward() {
+                    NSSound.beep()
+                }
             },
             visibilityMode: .alwaysVisible
         )
@@ -9772,10 +9776,14 @@ struct VerticalTabsSidebar: View {
                             },
                             onNewTab: onNewTab,
                             onFocusHistoryBack: {
-                                tabManager.navigateBack()
+                                if !tabManager.navigateBack() {
+                                    NSSound.beep()
+                                }
                             },
                             onFocusHistoryForward: {
-                                tabManager.navigateForward()
+                                if !tabManager.navigateForward() {
+                                    NSSound.beep()
+                                }
                             }
                         )
                             .padding(
