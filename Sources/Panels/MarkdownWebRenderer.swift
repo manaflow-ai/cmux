@@ -20,6 +20,9 @@ struct MarkdownWebRenderer: NSViewRepresentable {
     }
 
     func makeNSView(context: Context) -> WKWebView {
+#if DEBUG
+        context.coordinator.recordMakeNSView()
+#endif
         if let webView = context.coordinator.webView {
             if webView.superview != nil {
                 webView.removeFromSuperview()
@@ -72,6 +75,9 @@ struct MarkdownWebRenderer: NSViewRepresentable {
         // Re-bind panel metadata in case SwiftUI recreated the wrapper while
         // the panel-owned renderer session kept the same coordinator.
         context.coordinator.bind(panelId: panelId, workspaceId: workspaceId, filePath: filePath)
+#if DEBUG
+        context.coordinator.recordUpdateNSView()
+#endif
         (nsView as? MarkdownWebView)?.onPointerDown = onRequestPanelFocus
         applyBackground(to: nsView)
         applyAppearance(to: nsView, isDark: theme.isDark)
@@ -80,6 +86,9 @@ struct MarkdownWebRenderer: NSViewRepresentable {
 
     static func dismantleNSView(_ nsView: WKWebView, coordinator: Coordinator) {
         if let retainedWebView = coordinator.webView, retainedWebView === nsView {
+#if DEBUG
+            coordinator.recordDismantleRetainedWebView()
+#endif
             return
         }
         nsView.configuration.userContentController.removeScriptMessageHandler(forName: "cmuxLib")
@@ -138,12 +147,77 @@ struct MarkdownWebRenderer: NSViewRepresentable {
         private var imageLoads: [ObjectIdentifier: ImageLoad] = [:]
 
 #if DEBUG
+        private var diagnostics = MarkdownRendererDiagnosticsSnapshot()
+
         var isShellLoadingForTesting: Bool {
             isShellLoading
         }
 
         var webContentProcessRecoveryAttemptsForTesting: Int {
             webContentProcessRecoveryAttempts
+        }
+
+        var diagnosticsSnapshot: MarkdownRendererDiagnosticsSnapshot {
+            diagnostics
+        }
+
+        var isLoadedForDiagnostics: Bool {
+            isLoaded
+        }
+
+        func resetDiagnostics(reason: String) {
+            diagnostics = MarkdownRendererDiagnosticsSnapshot()
+            cmuxDebugLog("markdown.renderer.diagnostics.reset panel=\(panelId.uuidString.prefix(5)) file=\(debugFileName) reason=\(reason)")
+        }
+
+        func recordMakeNSView() {
+            let reused = webView != nil
+            let hadSuperview = webView?.superview != nil
+            recordDiagnosticsEvent("makeNSView") { snapshot in
+                snapshot.makeNSViewCount += 1
+                if reused {
+                    snapshot.reuseNSViewCount += 1
+                } else {
+                    snapshot.webViewCreateCount += 1
+                }
+                if hadSuperview {
+                    snapshot.webViewReattachCount += 1
+                }
+            }
+        }
+
+        func recordUpdateNSView() {
+            recordDiagnosticsEvent("updateNSView") { snapshot in
+                snapshot.updateNSViewCount += 1
+            }
+        }
+
+        func recordDismantleRetainedWebView() {
+            recordDiagnosticsEvent("dismantleRetainedWebView") { snapshot in
+                snapshot.dismantleRetainedWebViewCount += 1
+            }
+        }
+
+        private var debugFileName: String {
+            let name = URL(fileURLWithPath: filePath).lastPathComponent
+            return name.isEmpty ? "-" : name
+        }
+
+        private func recordDiagnosticsEvent(
+            _ event: String,
+            update: (inout MarkdownRendererDiagnosticsSnapshot) -> Void
+        ) {
+            update(&diagnostics)
+            cmuxDebugLog(
+                "markdown.renderer.\(event) panel=\(panelId.uuidString.prefix(5)) " +
+                    "file=\(debugFileName) make=\(diagnostics.makeNSViewCount) " +
+                    "reuse=\(diagnostics.reuseNSViewCount) create=\(diagnostics.webViewCreateCount) " +
+                    "reattach=\(diagnostics.webViewReattachCount) update=\(diagnostics.updateNSViewCount) " +
+                    "dismantleRetained=\(diagnostics.dismantleRetainedWebViewCount) " +
+                    "loadShell=\(diagnostics.loadShellCount) push=\(diagnostics.pushMarkdownCount) " +
+                    "didFinish=\(diagnostics.didFinishCount) terminate=\(diagnostics.webContentProcessTerminationCount) " +
+                    "navFail=\(diagnostics.navigationFailureCount)"
+            )
         }
 #endif
 
@@ -179,6 +253,9 @@ struct MarkdownWebRenderer: NSViewRepresentable {
             let html = MarkdownViewerAssets.shared.shellHTML(isDark: theme.isDark)
             let baseURL = URL(fileURLWithPath: filePath)
 #if DEBUG
+            recordDiagnosticsEvent("loadShell") { snapshot in
+                snapshot.loadShellCount += 1
+            }
             NSLog("MarkdownPanel.loadShell filePath=\(filePath) baseURL=\(baseURL.absoluteString) htmlBytes=\(html.utf8.count)")
 #endif
             webView?.loadHTMLString(html, baseURL: baseURL)
@@ -278,6 +355,9 @@ struct MarkdownWebRenderer: NSViewRepresentable {
         private func pushMarkdown(_ markdown: String) {
             guard let webView else { return }
 #if DEBUG
+            recordDiagnosticsEvent("pushMarkdown") { snapshot in
+                snapshot.pushMarkdownCount += 1
+            }
             NSLog("MarkdownPanel.pushMarkdown bytes=\(markdown.utf8.count)")
 #endif
             guard let js = Self.renderMarkdownScript(markdown) else { return }
@@ -591,6 +671,9 @@ struct MarkdownWebRenderer: NSViewRepresentable {
 
         func webView(_ webView: WKWebView, didFinish navigation: WKNavigation!) {
 #if DEBUG
+            recordDiagnosticsEvent("didFinish") { snapshot in
+                snapshot.didFinishCount += 1
+            }
             NSLog("MarkdownPanel.webView.didFinish")
 #endif
             isShellLoading = false
@@ -620,6 +703,9 @@ struct MarkdownWebRenderer: NSViewRepresentable {
         func webViewWebContentProcessDidTerminate(_ webView: WKWebView) {
             guard let currentWebView = self.webView, currentWebView === webView else { return }
 #if DEBUG
+            recordDiagnosticsEvent("webContentProcessDidTerminate") { snapshot in
+                snapshot.webContentProcessTerminationCount += 1
+            }
             NSLog("MarkdownPanel.webView.webContentProcessDidTerminate")
 #endif
             isShellLoading = false
@@ -638,6 +724,9 @@ struct MarkdownWebRenderer: NSViewRepresentable {
         private func handleShellNavigationFailure(for webView: WKWebView, error: Error) {
             guard let currentWebView = self.webView, currentWebView === webView, isShellLoading else { return }
 #if DEBUG
+            recordDiagnosticsEvent("navigationFailed") { snapshot in
+                snapshot.navigationFailureCount += 1
+            }
             NSLog("MarkdownPanel.webView.navigationFailed error=\(error)")
 #endif
             isShellLoading = false

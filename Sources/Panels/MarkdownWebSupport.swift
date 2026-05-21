@@ -31,6 +31,52 @@ final class MarkdownWebView: WKWebView {
     }
 }
 
+#if DEBUG
+struct MarkdownRendererDiagnosticsSnapshot: Equatable {
+    var makeNSViewCount: Int = 0
+    var reuseNSViewCount: Int = 0
+    var webViewCreateCount: Int = 0
+    var webViewReattachCount: Int = 0
+    var updateNSViewCount: Int = 0
+    var dismantleRetainedWebViewCount: Int = 0
+    var loadShellCount: Int = 0
+    var pushMarkdownCount: Int = 0
+    var didFinishCount: Int = 0
+    var webContentProcessTerminationCount: Int = 0
+    var navigationFailureCount: Int = 0
+
+    var existingPanelFlickerSignalCount: Int {
+        makeNSViewCount +
+            reuseNSViewCount +
+            webViewCreateCount +
+            webViewReattachCount +
+            dismantleRetainedWebViewCount +
+            loadShellCount +
+            pushMarkdownCount +
+            didFinishCount +
+            webContentProcessTerminationCount +
+            navigationFailureCount
+    }
+
+    func fields(prefix: String) -> [String: String] {
+        [
+            "\(prefix)MakeNSViewCount": String(makeNSViewCount),
+            "\(prefix)ReuseNSViewCount": String(reuseNSViewCount),
+            "\(prefix)WebViewCreateCount": String(webViewCreateCount),
+            "\(prefix)WebViewReattachCount": String(webViewReattachCount),
+            "\(prefix)UpdateNSViewCount": String(updateNSViewCount),
+            "\(prefix)DismantleRetainedWebViewCount": String(dismantleRetainedWebViewCount),
+            "\(prefix)LoadShellCount": String(loadShellCount),
+            "\(prefix)PushMarkdownCount": String(pushMarkdownCount),
+            "\(prefix)DidFinishCount": String(didFinishCount),
+            "\(prefix)WebContentProcessTerminationCount": String(webContentProcessTerminationCount),
+            "\(prefix)NavigationFailureCount": String(navigationFailureCount),
+            "\(prefix)FlickerSignalCount": String(existingPanelFlickerSignalCount),
+        ]
+    }
+}
+#endif
+
 struct MarkdownWebTheme: Equatable {
     let isDark: Bool
     let background: String
@@ -95,6 +141,20 @@ final class MarkdownRendererSession {
     func renderedText() async -> String? {
         await ownedCoordinator.renderedText()
     }
+
+#if DEBUG
+    var diagnosticsSnapshot: MarkdownRendererDiagnosticsSnapshot {
+        ownedCoordinator.diagnosticsSnapshot
+    }
+
+    var isLoadedForDiagnostics: Bool {
+        ownedCoordinator.isLoadedForDiagnostics
+    }
+
+    func resetDiagnostics(reason: String) {
+        ownedCoordinator.resetDiagnostics(reason: reason)
+    }
+#endif
 }
 
 extension NSColor {
