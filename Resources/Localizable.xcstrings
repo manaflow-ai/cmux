@@ -26455,6 +26455,74 @@
         }
       }
     },
+    "command.workspaceBack.title": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Back in Workspace History"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ワークスペース履歴を戻る"
+          }
+        }
+      }
+    },
+    "command.workspaceBack.subtitle": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Workspace Navigation"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ワークスペースナビゲーション"
+          }
+        }
+      }
+    },
+    "command.workspaceForward.title": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Forward in Workspace History"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ワークスペース履歴を進む"
+          }
+        }
+      }
+    },
+    "command.workspaceForward.subtitle": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Workspace Navigation"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ワークスペースナビゲーション"
+          }
+        }
+      }
+    },
     "command.renameTab.title": {
       "extractionState": "manual",
       "localizations": {
