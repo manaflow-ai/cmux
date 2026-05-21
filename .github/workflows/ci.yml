@@ -345,6 +345,25 @@ jobs:
           set -euo pipefail
           SOURCE_PACKAGES_DIR="$PWD/.ci-source-packages"
           DERIVED_DATA_PATH="$HOME/Library/Developer/Xcode/DerivedData/cmux-unit-ci"
+          SKIP_ARGS=()
+          SKIP_ARGS_FILE="$RUNNER_TEMP/cmux-unit-skip-args.txt"
+          python3 - <<'PY' > "$SKIP_ARGS_FILE"
+          import json
+          from pathlib import Path
+
+          plan = json.loads(Path("cmuxTests/cmux-unit.xctestplan").read_text())
+          for test_target in plan["testTargets"]:
+              target_name = test_target["target"]["name"]
+              for skipped_test in test_target.get("skippedTests", []):
+                  test_id = skipped_test[:-2] if skipped_test.endswith("()") else skipped_test
+                  print(f"{target_name}/{test_id}")
+          PY
+          while IFS= read -r skipped_test; do
+            if [ -n "$skipped_test" ]; then
+              SKIP_ARGS+=("-skip-testing:$skipped_test")
+            fi
+          done < "$SKIP_ARGS_FILE"
+
           run_unit_tests() {
             xcodebuild -project cmux.xcodeproj -scheme cmux-unit -configuration Debug \
               -clonedSourcePackagesDirPath "$SOURCE_PACKAGES_DIR" \
@@ -353,6 +372,7 @@ jobs:
               -derivedDataPath "$DERIVED_DATA_PATH" \
               -testPlan "cmux-unit-shard-${CMUX_UNIT_SHARD}" \
               -parallel-testing-enabled NO \
+              "${SKIP_ARGS[@]}" \
               CMUX_SKIP_ZIG_BUILD=1 \
               test-without-building 2>&1
           }

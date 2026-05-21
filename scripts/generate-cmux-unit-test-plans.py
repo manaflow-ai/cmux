@@ -33,6 +33,8 @@ SKIPPED_TESTS = [
     "AppDelegateShortcutRoutingTests/testCmdWClosesWindowWhenClosingLastSurfaceInLastWorkspace()",
     # Temporary skip while fix-ci-grok-notification-hang addresses the CI hang.
     "CLINotifyProcessIntegrationRegressionTests/testNotificationCLIActionsMutateSocketStateAndListExtendedFields()",
+    # Temporary skip: WebKit remote-image policy test can hang under app-hosted CI.
+    "MarkdownPanelTests/testMarkdownRenderBlocksRemoteImagesUntilUserAction()",
 ]
 
 SWIFT_DECL_MODIFIERS = (

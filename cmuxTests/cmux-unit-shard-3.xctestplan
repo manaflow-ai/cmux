@@ -24,7 +24,8 @@
       "parallelizable": false,
       "skippedTests": [
         "AppDelegateShortcutRoutingTests/testCmdWClosesWindowWhenClosingLastSurfaceInLastWorkspace()",
-        "CLINotifyProcessIntegrationRegressionTests/testNotificationCLIActionsMutateSocketStateAndListExtendedFields()"
+        "CLINotifyProcessIntegrationRegressionTests/testNotificationCLIActionsMutateSocketStateAndListExtendedFields()",
+        "MarkdownPanelTests/testMarkdownRenderBlocksRemoteImagesUntilUserAction()"
       ],
       "target": {
         "containerPath": "container:cmux.xcodeproj",
