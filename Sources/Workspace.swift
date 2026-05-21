@@ -502,11 +502,12 @@ extension Workspace {
                     lineLimit: SessionPersistencePolicy.maxScrollbackLinesPerTerminal
                 )
                 : nil
+            let hasRestoredScrollbackFallback = restoredTerminalScrollbackByPanelId[panelId] != nil
             let resolvedScrollback = terminalSnapshotScrollback(
                 panelId: panelId,
                 capturedScrollback: capturedScrollback,
                 includeScrollback: includeScrollback,
-                allowFallbackScrollback: shouldPersistScrollback || allowDebugFallbackScrollback
+                allowFallbackScrollback: shouldPersistScrollback || allowDebugFallbackScrollback || hasRestoredScrollbackFallback
             )
             terminalSnapshot = SessionTerminalPanelSnapshot(
                 workingDirectory: directory,
@@ -965,9 +966,8 @@ extension Workspace {
                 )
             }
 #endif
-            let replayEnvironment = SessionScrollbackReplayStore.replayEnvironment(
-                for: restoredRemotePTYAttachCommand == nil && shouldReplayScrollback ? snapshot.terminal?.scrollback : nil
-            )
+            let restoredScrollback = shouldReplayScrollback ? snapshot.terminal?.scrollback : nil
+            let replayEnvironment = SessionScrollbackReplayStore.replayEnvironment(for: restoredScrollback)
             guard let terminalPanel = newTerminalSurface(
                 inPane: paneId,
                 focus: false,
@@ -985,9 +985,7 @@ extension Workspace {
             } else {
                 surfaceResumeBindingsByPanelId.removeValue(forKey: terminalPanel.id)
             }
-            let fallbackScrollback = restoredRemotePTYAttachCommand == nil && shouldReplayScrollback
-                ? SessionPersistencePolicy.truncatedScrollback(snapshot.terminal?.scrollback)
-                : nil
+            let fallbackScrollback = SessionPersistencePolicy.truncatedScrollback(restoredScrollback)
             if let fallbackScrollback {
                 restoredTerminalScrollbackByPanelId[terminalPanel.id] = fallbackScrollback
             } else {

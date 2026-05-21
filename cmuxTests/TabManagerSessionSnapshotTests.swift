@@ -229,6 +229,8 @@ final class TabManagerSessionSnapshotTests: XCTestCase {
             workspaceId: remoteWorkspace.id,
             panelId: remotePanelId
         )
+        let seededScrollback = remoteWorkspace.debugSeedSessionSnapshotScrollback(charactersPerTerminal: 160)
+        XCTAssertEqual(seededScrollback.terminals, 1)
 
         let snapshotURL = FileManager.default.temporaryDirectory
             .appendingPathComponent("cmux-ssh-pty-session-restore-\(UUID().uuidString).json")
@@ -240,7 +242,7 @@ final class TabManagerSessionSnapshotTests: XCTestCase {
                 SessionWindowSnapshot(
                     frame: nil,
                     display: nil,
-                    tabManager: manager.sessionSnapshot(includeScrollback: false),
+                    tabManager: manager.sessionSnapshot(includeScrollback: true),
                     sidebar: SessionSidebarSnapshot(isVisible: true, selection: .tabs, width: nil)
                 ),
             ]
@@ -257,6 +259,10 @@ final class TabManagerSessionSnapshotTests: XCTestCase {
             persistedWorkspace.panels.first { $0.id == remotePanelId }?.terminal?.remotePTYSessionID,
             expectedSessionID
         )
+        let expectedScrollback = try XCTUnwrap(
+            persistedWorkspace.panels.first { $0.id == remotePanelId }?.terminal?.scrollback
+        )
+        XCTAssertTrue(expectedScrollback.contains("cmux perf synthetic scrollback"), expectedScrollback)
 
         let restored = TabManager()
         restored.restoreSessionSnapshot(persistedTabManager)
@@ -281,6 +287,10 @@ final class TabManagerSessionSnapshotTests: XCTestCase {
 
         let roundTrip = restoredWorkspace.sessionSnapshot(includeScrollback: false)
         XCTAssertEqual(roundTrip.panels.first?.terminal?.remotePTYSessionID, expectedSessionID)
+        XCTAssertEqual(
+            restoredWorkspace.sessionSnapshot(includeScrollback: true).panels.first?.terminal?.scrollback,
+            expectedScrollback
+        )
     }
 
     func testSessionRemoteWorkspaceSnapshotDropsInvalidSSHPortFromReconnectCommand() throws {

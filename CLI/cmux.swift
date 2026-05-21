@@ -7582,7 +7582,7 @@ struct CMUXCLI {
                     errors.append([
                         "session_id": sessionID,
                         "workspace_id": params["workspace_id"] ?? NSNull(),
-                        "error": error.localizedDescription,
+                        "error": String(describing: error),
                     ])
                 }
             }
@@ -7609,7 +7609,7 @@ struct CMUXCLI {
                         errors.append([
                             "session_id": sessionID,
                             "workspace_id": workspaceID,
-                            "error": error.localizedDescription,
+                            "error": String(describing: error),
                         ])
                     }
                 }
@@ -7630,11 +7630,31 @@ struct CMUXCLI {
         ]
         if jsonOutput {
             print(jsonString(formatIDs(payload, mode: idFormat)))
+            if !errors.isEmpty {
+                throw CLIError(message: sshSessionCleanupFailureMessage(errors))
+            }
+        } else if !errors.isEmpty {
+            if !closed.isEmpty {
+                print("Closed \(closed.count) persisted SSH PTY session\(closed.count == 1 ? "" : "s")")
+            }
+            throw CLIError(message: sshSessionCleanupFailureMessage(errors))
         } else if closed.isEmpty {
             print("No persisted SSH PTY sessions closed")
         } else {
             print("Closed \(closed.count) persisted SSH PTY session\(closed.count == 1 ? "" : "s")")
         }
+    }
+
+    private func sshSessionCleanupFailureMessage(_ errors: [[String: Any]]) -> String {
+        let count = errors.count
+        let summary = "ssh-session-cleanup failed for \(count) persisted SSH PTY session\(count == 1 ? "" : "s")"
+        let details = errors.map { error in
+            let sessionID = debugString(error["session_id"]) ?? "unknown"
+            let workspaceID = debugString(error["workspace_id"]).map { " workspace=\($0)" } ?? ""
+            let message = debugString(error["error"]) ?? "unknown error"
+            return "- \(sessionID)\(workspaceID): \(message)"
+        }
+        return ([summary] + details).joined(separator: "\n")
     }
 
     private func runSSHSessionAttach(

@@ -731,6 +731,91 @@ final class CLINotifyProcessIntegrationRegressionTests: XCTestCase {
         XCTAssertEqual(state.snapshot().count, 1)
     }
 
+    func testSSHSessionCleanupAllReportsPartialFailures() throws {
+        let cliPath = try bundledCLIPath()
+        let socketPath = makeSocketPath("sshclean")
+        let listenerFD = try bindUnixSocket(at: socketPath)
+        let state = MockSocketServerState()
+        let workspaceId = "22222222-2222-2222-2222-222222222222"
+        let closedSessionId = "ssh-session-closed"
+        let failedSessionId = "ssh-session-failed"
+
+        defer {
+            Darwin.close(listenerFD)
+            unlink(socketPath)
+        }
+
+        let serverHandled = startMockServer(listenerFD: listenerFD, state: state) { line in
+            guard let payload = self.jsonObject(line),
+                  let id = payload["id"] as? String,
+                  let method = payload["method"] as? String else {
+                return self.malformedRequestResponse(raw: line)
+            }
+            let params = payload["params"] as? [String: Any] ?? [:]
+            switch method {
+            case "workspace.remote.pty_sessions":
+                XCTAssertEqual(params["workspace_id"] as? String, workspaceId)
+                return self.v2Response(
+                    id: id,
+                    ok: true,
+                    result: [
+                        "sessions": [
+                            [
+                                "workspace_id": workspaceId,
+                                "session_id": closedSessionId,
+                            ],
+                            [
+                                "workspace_id": workspaceId,
+                                "session_id": failedSessionId,
+                            ],
+                        ],
+                    ]
+                )
+            case "workspace.remote.pty_close":
+                XCTAssertEqual(params["workspace_id"] as? String, workspaceId)
+                let sessionId = params["session_id"] as? String
+                if sessionId == closedSessionId {
+                    return self.v2Response(id: id, ok: true, result: ["closed": true])
+                }
+                XCTAssertEqual(sessionId, failedSessionId)
+                return self.v2Response(
+                    id: id,
+                    ok: false,
+                    error: ["code": "remote_pty_error", "message": "close failed"]
+                )
+            default:
+                return self.v2Response(
+                    id: id,
+                    ok: false,
+                    error: ["code": "unexpected_method", "message": "Unexpected method \(method)"]
+                )
+            }
+        }
+
+        var environment = ProcessInfo.processInfo.environment
+        environment["CMUX_SOCKET_PATH"] = socketPath
+        environment["CMUX_CLI_SENTRY_DISABLED"] = "1"
+
+        let result = runProcess(
+            executablePath: cliPath,
+            arguments: [
+                "ssh-session-cleanup",
+                "--workspace", workspaceId,
+                "--all",
+            ],
+            environment: environment,
+            timeout: 5
+        )
+
+        wait(for: [serverHandled], timeout: 5)
+        XCTAssertFalse(result.timedOut, result.stderr)
+        XCTAssertEqual(result.status, 1, result.stderr)
+        XCTAssertTrue(result.stdout.contains("Closed 1 persisted SSH PTY session"), result.stdout)
+        XCTAssertTrue(result.stderr.contains("ssh-session-cleanup failed for 1 persisted SSH PTY session"), result.stderr)
+        XCTAssertTrue(result.stderr.contains(failedSessionId), result.stderr)
+        XCTAssertTrue(result.stderr.contains("remote_pty_error: close failed"), result.stderr)
+    }
+
     func testRightSidebarCLIResolvesWindowAndWorkspaceHandlesBeforeForwarding() throws {
         let cliPath = try bundledCLIPath()
         let socketPath = makeSocketPath("rs-target")
