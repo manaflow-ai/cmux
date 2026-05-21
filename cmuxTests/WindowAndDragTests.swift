@@ -866,7 +866,11 @@ final class WindowDragHandleHitTests: XCTestCase {
         let savedMode = defaults.object(forKey: WorkspacePresentationModeSettings.modeKey)
         defaults.set(WorkspacePresentationModeSettings.Mode.minimal.rawValue, forKey: WorkspacePresentationModeSettings.modeKey)
         defer {
-            restoreDefaultsValue(savedMode, forKey: WorkspacePresentationModeSettings.modeKey, defaults: defaults)
+            if let savedMode {
+                defaults.set(savedMode, forKey: WorkspacePresentationModeSettings.modeKey)
+            } else {
+                defaults.removeObject(forKey: WorkspacePresentationModeSettings.modeKey)
+            }
         }
 
         let window = NSWindow(
