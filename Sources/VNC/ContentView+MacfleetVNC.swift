@@ -82,11 +82,12 @@ extension ContentView {
         skippedCredentialCount: Int
     ) {
         var firstWorkspace: Workspace?
-        var openedCount = 0
+        var credentialSummary = MacfleetVNCLaunchCredentialSummary(skippedCredentialCount: skippedCredentialCount)
 
         for launchSession in launchSessions {
             if let existingWorkspace = existingVNCWorkspace(for: launchSession.session) {
                 firstWorkspace = firstWorkspace ?? existingWorkspace
+                credentialSummary.reusedCount += 1
                 continue
             }
 
@@ -100,7 +101,7 @@ extension ContentView {
             workspace.setCustomDescription(VNCPanelText.workspaceDescription(sessionName: launchSession.session.name))
             if openVNCSession(launchSession.session, credential: launchSession.credential, in: workspace) {
                 firstWorkspace = firstWorkspace ?? workspace
-                openedCount += 1
+                credentialSummary.openedCount += 1
             } else {
                 tabManager.closeWorkspace(workspace)
             }
@@ -110,20 +111,21 @@ extension ContentView {
             tabManager.selectWorkspace(firstWorkspace)
         }
 
-        if openedCount == 0, firstWorkspace == nil, skippedCredentialCount > 0 {
+        switch credentialSummary.alert {
+        case .none:
+            break
+        case .noCredentials:
             presentMacfleetVNCAlert(
                 title: VNCPanelText.macfleetOpenFailedTitle,
                 message: VNCPanelText.macfleetNoCredentialsMessage
             )
-            return
-        }
-
-        if openedCount > 0, skippedCredentialCount > 0 {
+        case .partial(let openedCount, let reusedCount, let missingCount):
             presentMacfleetVNCAlert(
                 title: VNCPanelText.macfleetOpenFailedTitle,
                 message: VNCPanelText.macfleetPartialCredentialsMessage(
                     openedCount: openedCount,
-                    missingCount: skippedCredentialCount
+                    reusedCount: reusedCount,
+                    missingCount: missingCount
                 )
             )
         }
@@ -186,5 +188,35 @@ extension ContentView {
         } else {
             alert.runModal()
         }
+    }
+}
+
+enum MacfleetVNCLaunchCredentialAlert: Equatable, Sendable {
+    case none
+    case noCredentials
+    case partial(openedCount: Int, reusedCount: Int, missingCount: Int)
+}
+
+struct MacfleetVNCLaunchCredentialSummary: Equatable, Sendable {
+    var openedCount = 0
+    var reusedCount = 0
+    var skippedCredentialCount: Int
+
+    var availableWorkspaceCount: Int {
+        openedCount + reusedCount
+    }
+
+    var alert: MacfleetVNCLaunchCredentialAlert {
+        guard skippedCredentialCount > 0 else {
+            return .none
+        }
+        guard availableWorkspaceCount > 0 else {
+            return .noCredentials
+        }
+        return .partial(
+            openedCount: openedCount,
+            reusedCount: reusedCount,
+            missingCount: skippedCredentialCount
+        )
     }
 }

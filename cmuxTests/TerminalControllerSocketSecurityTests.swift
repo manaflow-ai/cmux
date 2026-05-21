@@ -1015,6 +1015,22 @@ final class TerminalControllerSocketSecurityTests: XCTestCase {
         XCTAssertFalse(workspace.containsVNCSessionConnectionIdentity(otherSession))
     }
 
+    func testMacfleetVNCCredentialSummaryReportsSkippedCredentialsWhenReusingWorkspace() {
+        var summary = MacfleetVNCLaunchCredentialSummary(skippedCredentialCount: 1)
+        summary.reusedCount = 1
+
+        XCTAssertEqual(
+            summary.alert,
+            .partial(openedCount: 0, reusedCount: 1, missingCount: 1)
+        )
+    }
+
+    func testMacfleetVNCCredentialSummaryReportsNoCredentialsWhenNothingAvailable() {
+        let summary = MacfleetVNCLaunchCredentialSummary(skippedCredentialCount: 2)
+
+        XCTAssertEqual(summary.alert, .noCredentials)
+    }
+
     func testVNCNamedKeyParserPreservesSocketModifiers() throws {
         XCTAssertEqual(
             VNCPanel.namedKeyStroke(for: "ctrl-c"),

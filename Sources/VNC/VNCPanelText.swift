@@ -70,16 +70,30 @@ enum VNCPanelText {
         return String(format: format, sessionName)
     }
 
-    static func macfleetPartialCredentialsMessage(openedCount: Int, missingCount: Int) -> String {
-        let openedFormat = openedCount == 1
-            ? String(
+    static func macfleetPartialCredentialsMessage(openedCount: Int, reusedCount: Int, missingCount: Int) -> String {
+        let availableCount = openedCount + reusedCount
+        let openedFormat: String
+        if reusedCount > 0 {
+            openedFormat = availableCount == 1
+                ? String(
+                    localized: "vnc.macfleet.partialCredentials.availableSingular",
+                    defaultValue: "Opened or reused %d VNC workspace."
+                )
+                : String(
+                    localized: "vnc.macfleet.partialCredentials.availablePlural",
+                    defaultValue: "Opened or reused %d VNC workspaces."
+                )
+        } else if openedCount == 1 {
+            openedFormat = String(
                 localized: "vnc.macfleet.partialCredentials.openedSingular",
                 defaultValue: "Opened %d VNC workspace."
             )
-            : String(
+        } else {
+            openedFormat = String(
                 localized: "vnc.macfleet.partialCredentials.openedPlural",
                 defaultValue: "Opened %d VNC workspaces."
             )
+        }
         let skippedFormat = missingCount == 1
             ? String(
                 localized: "vnc.macfleet.partialCredentials.skippedSingular",
@@ -89,7 +103,7 @@ enum VNCPanelText {
                 localized: "vnc.macfleet.partialCredentials.skippedPlural",
                 defaultValue: "%d sessions were skipped because credentials were missing."
             )
-        return String(format: openedFormat, openedCount) + " " + String(format: skippedFormat, missingCount)
+        return String(format: openedFormat, availableCount) + " " + String(format: skippedFormat, missingCount)
     }
 
     static var macfleetManifestFailedMessage: String {
