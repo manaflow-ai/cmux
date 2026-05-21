@@ -543,6 +543,58 @@ final class CLINotifyProcessIntegrationRegressionTests: XCTestCase {
         )
     }
 
+    func testCodexStopUnderNodeLauncherStillPublishesRootResumeBinding() throws {
+        let context = try makeClaudeHookContext(name: "codex-node-launcher-root")
+        defer { context.cleanup() }
+
+        let fixture = try startCodexProcessUnderNodeLauncher()
+        defer { fixture.cleanup() }
+
+        let sessionId = "codex-node-launcher-root-session"
+        let now = Date().timeIntervalSince1970
+        let stateURL = context.root.appendingPathComponent("codex-hook-sessions.json")
+        let store: [String: Any] = [
+            "version": 1,
+            "sessions": [
+                sessionId: [
+                    "sessionId": sessionId,
+                    "workspaceId": context.workspaceId,
+                    "surfaceId": context.surfaceId,
+                    "cwd": context.root.path,
+                    "pid": Int(fixture.codexPID),
+                    "startedAt": now,
+                    "updatedAt": now,
+                ],
+            ],
+        ]
+        try JSONSerialization.data(withJSONObject: store, options: [.prettyPrinted])
+            .write(to: stateURL, options: .atomic)
+
+        startAgentHookMockServerAccepting(context: context, connectionLimit: 16)
+        let result = runCodexHook(
+            context: context,
+            subcommand: "stop",
+            standardInput: #"{"session_id":"\#(sessionId)","cwd":"\#(context.root.path)","hook_event_name":"Stop","last_assistant_message":"root done"}"#,
+            extraEnvironment: codexLaunchEnvironment(context: context, sessionId: sessionId)
+        )
+
+        XCTAssertFalse(result.timedOut, result.stderr)
+        XCTAssertEqual(result.status, 0, result.stderr)
+        XCTAssertEqual(result.stdout, "{}\n")
+        XCTAssertTrue(
+            context.state.commands.contains { self.jsonObject($0)?["method"] as? String == "surface.resume.set" },
+            "Root Codex Stop should publish a resume binding even when npm/bun leaves a node launcher parent, saw \(context.state.commands)"
+        )
+        XCTAssertTrue(
+            context.state.commands.contains { $0.hasPrefix("notify_target_async \(context.workspaceId) \(context.surfaceId) Codex|") },
+            "Root Codex Stop should still notify, saw \(context.state.commands)"
+        )
+        XCTAssertTrue(
+            context.state.commands.contains { $0.hasPrefix("set_status codex ") && $0.contains(" Idle ") },
+            "Root Codex Stop should still mark Codex idle, saw \(context.state.commands)"
+        )
+    }
+
     func testManagedClaudeSubagentStopDoesNotReplaceResumeBinding() throws {
         let context = try makeClaudeHookContext(name: "claude-managed-resume-guard")
         defer { context.cleanup() }
@@ -4119,6 +4171,77 @@ final class CLINotifyProcessIntegrationRegressionTests: XCTestCase {
             unlink(socketPath)
             try? FileManager.default.removeItem(at: root)
         }
+    }
+
+    private struct CodexNodeLauncherFixture {
+        let launcher: Process
+        let codexPID: Int32
+        let root: URL
+
+        func cleanup() {
+            Darwin.kill(codexPID, SIGTERM)
+            if launcher.isRunning {
+                launcher.terminate()
+            }
+            launcher.waitUntilExit()
+            try? FileManager.default.removeItem(at: root)
+        }
+    }
+
+    private func startCodexProcessUnderNodeLauncher() throws -> CodexNodeLauncherFixture {
+        let fileManager = FileManager.default
+        let root = URL(fileURLWithPath: "/tmp", isDirectory: true)
+            .appendingPathComponent("cn\(UUID().uuidString.prefix(8))", isDirectory: true)
+        try fileManager.createDirectory(at: root, withIntermediateDirectories: true)
+
+        let nodeURL = root.appendingPathComponent("node", isDirectory: false)
+        let codexURL = root.appendingPathComponent("codex", isDirectory: false)
+        try fileManager.createSymbolicLink(at: nodeURL, withDestinationURL: URL(fileURLWithPath: "/bin/sh"))
+        try fileManager.createSymbolicLink(at: codexURL, withDestinationURL: URL(fileURLWithPath: "/bin/sleep"))
+
+        let pidURL = root.appendingPathComponent("codex-node-launcher-child.pid", isDirectory: false)
+        let launcher = Process()
+        launcher.executableURL = nodeURL
+        launcher.arguments = [
+            "-c",
+            "\(shellSingleQuote(codexURL.path)) 60 & echo $! > \(shellSingleQuote(pidURL.path)); wait",
+            "/usr/local/lib/node_modules/@openai/codex/bin/codex.js",
+        ]
+        try launcher.run()
+
+        do {
+            return CodexNodeLauncherFixture(
+                launcher: launcher,
+                codexPID: try waitForPIDFile(pidURL),
+                root: root
+            )
+        } catch {
+            if launcher.isRunning {
+                launcher.terminate()
+            }
+            launcher.waitUntilExit()
+            try? fileManager.removeItem(at: root)
+            throw error
+        }
+    }
+
+    private func waitForPIDFile(_ url: URL) throws -> Int32 {
+        let deadline = Date().addingTimeInterval(3)
+        while Date() < deadline {
+            if let raw = try? String(contentsOf: url, encoding: .utf8),
+               let pid = Int32(raw.trimmingCharacters(in: .whitespacesAndNewlines)),
+               pid > 1 {
+                return pid
+            }
+            RunLoop.current.run(until: Date().addingTimeInterval(0.05))
+        }
+        throw NSError(domain: "CLINotifyProcessIntegrationRegressionTests", code: 1, userInfo: [
+            NSLocalizedDescriptionKey: "Timed out waiting for Codex child PID file at \(url.path)",
+        ])
+    }
+
+    private func shellSingleQuote(_ value: String) -> String {
+        "'" + value.replacingOccurrences(of: "'", with: "'\"'\"'") + "'"
     }
 
     private func codexLaunchEnvironment(context: ClaudeHookContext, sessionId: String) -> [String: String] {
