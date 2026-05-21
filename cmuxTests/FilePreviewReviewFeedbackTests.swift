@@ -138,6 +138,34 @@ final class FilePreviewReviewFeedbackTests: XCTestCase {
         XCTAssertTrue(updatedItem === activeItem)
     }
 
+    func testNativeViewSessionDismantlesRetiredViewAfterClose() {
+        let view = NSView()
+        var closeCount = 0
+        var dismantleCount = 0
+        let session = PanelOwnedNativeViewSession<NSView>(
+            makeView: { view },
+            closeView: {
+                XCTAssertTrue($0 === view)
+                closeCount += 1
+            },
+            dismantleView: {
+                XCTAssertTrue($0 === view)
+                dismantleCount += 1
+            }
+        )
+
+        XCTAssertTrue(session.view(configure: { _ in }) === view)
+        session.close()
+        XCTAssertEqual(closeCount, 1)
+        XCTAssertEqual(dismantleCount, 0)
+
+        XCTAssertFalse(session.dismantle(view))
+        XCTAssertEqual(dismantleCount, 1)
+
+        XCTAssertFalse(session.dismantle(view))
+        XCTAssertEqual(dismantleCount, 1)
+    }
+
     func testTextLoaderRejectsOversizedTextFiles() throws {
         let url = FileManager.default.temporaryDirectory
             .appendingPathComponent(UUID().uuidString)
