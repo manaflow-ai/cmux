@@ -257,11 +257,11 @@ private struct AgentIconImage: View, Equatable {
 
     var body: some View {
         if let assetName = agent.assetName {
-            Image(assetName)
-                .resizable()
-                .interpolation(.high)
-                .aspectRatio(contentMode: .fit)
-                .frame(width: size, height: size)
+            AgentAssetIconImage(
+                assetName: assetName,
+                size: size,
+                fallbackSystemName: agent.systemImageName ?? "person.crop.circle"
+            )
         } else {
             Image(systemName: agent.systemImageName ?? "person.crop.circle")
                 .font(.system(size: max(size - 2, 10), weight: .regular))

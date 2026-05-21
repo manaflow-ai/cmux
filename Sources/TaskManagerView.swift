@@ -417,11 +417,12 @@ private struct CmuxTaskManagerRowView: View {
     @ViewBuilder
     private var rowIcon: some View {
         if let agentAssetName = row.agentAssetName {
-            Image(agentAssetName)
-                .resizable()
-                .interpolation(.high)
-                .aspectRatio(contentMode: .fit)
-                .frame(width: 14, height: 14)
+            AgentAssetIconImage(
+                assetName: agentAssetName,
+                size: 14,
+                fallbackSystemName: row.kind.systemImage,
+                fallbackColor: row.kind.tint
+            )
         } else {
             Image(systemName: row.kind.systemImage)
                 .foregroundStyle(row.kind.tint)
